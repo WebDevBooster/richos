@@ -247,7 +247,13 @@ try:
                  "start_new_session=True); open(sys.argv[1], \\\"w\\\").write(str(p.pid)); p.wait()\" %s & "
                  "bash -c \"trap \\\"\\\" TERM; echo \\$\\$ > %s; while :; do sleep 1; done\" & "
                  "sleep 60 & echo $! > %s; wait'\n" % (own, deaf, pidfile))
-    runner = subprocess.Popen([sys.executable, os.path.join(HERE, "proof-run.py"), "--commands", cmds,
+    # This case tests cancellation of started children. Use a deterministic
+    # admission sample so a busy real Mac cannot turn it into a queueing test.
+    bootstrap = ("import runpy,sys; sys.path.insert(0," + repr(os.path.join(HERE, 'testvm')) + "); "
+                 "import reserve; reserve.host_sample=lambda: " + repr(idle()) + "; "
+                 "sys.argv=[" + repr(os.path.join(HERE, 'proof-run.py')) + "]+sys.argv[1:]; "
+                 "runpy.run_path(sys.argv[0],run_name='__main__')")
+    runner = subprocess.Popen([sys.executable, '-c', bootstrap, "--commands", cmds,
                                "--log-dir", os.path.join(tmp, "p8")],
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     deadline = time.time() + 20

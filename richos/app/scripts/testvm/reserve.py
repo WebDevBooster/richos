@@ -8,7 +8,7 @@ release state; the nightly/release commands hold that lock themselves.
 
 Admission is one cheap in-process sample (the kernel's own counters, read with
 host_statistics and sysctl: no top, no lsof, no subprocess). It refuses when
-user CPU is at or above --max-cpu (default 80%) or when the machine is swapping
+total CPU (user plus system) is at or above --max-cpu (default 80%) or when the machine is swapping
 hard (kernel pressure CRITICAL, or swap-out at or above --max-swapout-mb-s
 during the sample). --wait N retries for at most N seconds, one sample every
 --retry-every seconds (at least 30), and reports how long it waited.
@@ -29,6 +29,9 @@ import subprocess
 import sys
 import time
 import math
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'engine/scripts/lib'))
+from cpu_policy import DEFAULT_MAX_CPU, admission_open, busy_percent
 
 MIN_RETRY_SECONDS = 30
 LOW_PRIORITY_NICE = 10
@@ -115,16 +118,13 @@ def host_sample(interval=1.0):
 
 
 def cpu_busy_percent():
-    """The CPU figure admission uses: user (+nice) time, not user+system. Under
-    memory pressure the kernel's compressor and pager inflate system time while
-    the processes asking for CPU are not busy; that condition is judged by the
-    memory rule, beside it, rather than read as a full CPU."""
-    return host_sample()['cpu_user_percent']
+    """Total CPU utilization, including user, nice and system time."""
+    return busy_percent(host_sample())
 
 
 def _refusal(s, max_cpu, max_swapout, cpu_rule=True):
-    if cpu_rule and s['cpu_user_percent'] >= max_cpu:
-        return f"user CPU is {s['cpu_user_percent']:.1f}% (limit {max_cpu:g}%)"
+    if cpu_rule and not admission_open(busy_percent(s), max_cpu):
+        return f"total CPU is {busy_percent(s):.1f}% (limit {max_cpu:g}%)"
     if s['memory_pressure'] == 'critical':
         return 'kernel memory pressure is CRITICAL'
     if s['swapout_mb_per_s'] >= max_swapout:
@@ -139,7 +139,7 @@ def describe(s):
             f"swap-out {s['swapout_mb_per_s']:.1f} MB/s")
 
 
-def cpu_admission(max_cpu=80, wait_seconds=0, retry_every=MIN_RETRY_SECONDS, max_swapout=16, cpu_rule=True):
+def cpu_admission(max_cpu=DEFAULT_MAX_CPU, wait_seconds=0, retry_every=MIN_RETRY_SECONDS, max_swapout=16, cpu_rule=True):
     """Bounded admission before work or a paid send; never infer jobs from load.
     Retries at most every `retry_every` (>= 30) seconds, never spins.
     `cpu_rule=False` is the low-priority mode (CEO ruling §78): the CPU line is
@@ -160,7 +160,7 @@ def cpu_admission(max_cpu=80, wait_seconds=0, retry_every=MIN_RETRY_SECONDS, max
         elapsed = time.monotonic() - started
         why = _refusal(s, max_cpu, max_swapout, cpu_rule)
         if not why:
-            return {**s, 'cpu_busy_percent': s['cpu_user_percent'], 'load': os.getloadavg()[0],
+            return {**s, 'cpu_busy_percent': busy_percent(s), 'load': os.getloadavg()[0],
                     'admission_wait_seconds': elapsed, 'admission_samples': samples}
         remaining = wait_seconds - elapsed
         if remaining <= 0:
@@ -192,7 +192,7 @@ def exclusive_lock(path):
 
 
 @contextmanager
-def reservation(state=None, max_load=None, max_cpu=80, release_lock=False, lock=None,
+def reservation(state=None, max_load=None, max_cpu=DEFAULT_MAX_CPU, release_lock=False, lock=None,
                 wait_seconds=0, retry_every=MIN_RETRY_SECONDS, max_swapout=16, low_priority=False):
     """Admission for heavy work (CEO ruling §77).
 
@@ -228,9 +228,9 @@ def reservation(state=None, max_load=None, max_cpu=80, release_lock=False, lock=
                   f"{sample['admission_samples']} sample(s); load {sample['load']:.2f} is informational",
                   file=sys.stderr, flush=True)
             if low_priority:
-                over = sample['cpu_user_percent'] >= max_cpu
+                over = not admission_open(busy_percent(sample), max_cpu)
                 print(f"LOW PRIORITY (CEO ruling §78): the {max_cpu:g}% CPU line was NOT applied"
-                      f"{' and user CPU is over it' if over else ''}; the command runs under "
+                      f"{' and total CPU is over it' if over else ''}; the command runs under "
                       f"nice -n {LOW_PRIORITY_NICE}. The memory rule was applied.", file=sys.stderr, flush=True)
         if not paths:
             print('admitted without a lock (CEO ruling §77)', file=sys.stderr, flush=True)
@@ -244,7 +244,7 @@ def main():
     p.add_argument('--release-lock', action='store_true',
                    help='also hold <state-dir>/release.lock: only for work that writes nightly/release state')
     p.add_argument('--max-load', type=float, help='opt in to a strict load-average gate for controlled measurements')
-    p.add_argument('--max-cpu', type=float, default=80, help='maximum measured user CPU percentage (default: 80)')
+    p.add_argument('--max-cpu', type=float, default=DEFAULT_MAX_CPU, help='maximum measured total CPU percentage (default: 80)')
     p.add_argument('--max-swapout-mb-s', type=float, default=16,
                    help='refuse while swapping out at least this many MB/s during the sample (default: 16)')
     p.add_argument('--wait', type=float, default=0, metavar='SECONDS',

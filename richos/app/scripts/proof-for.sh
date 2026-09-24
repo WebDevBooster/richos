@@ -118,6 +118,8 @@
 #   0  mapped (the command list may legitimately be empty — it says so)
 #   1  at least one changed CODE path is covered by nothing
 #   2  usage, a diff that could not be read, or a declaration that does not reconcile
+#   3  a commit in the range touches richos/mobile/ without `Battery-check: NO — <evidence>`
+#      (CEO ruling §81; battery-check.py names each one). Nothing is mapped then.
 # =========================================================================================
 
 set -uo pipefail
@@ -198,6 +200,30 @@ case "${MODE:-working}" in
 esac
 sed 's/^[[:space:]]*//; s/[[:space:]]*$//' "$CHANGED" | grep -v '^$' | LC_ALL=C sort -u > "$WORK/c2" || true
 mv "$WORK/c2" "$CHANGED"
+
+# --- CEO ruling §81: every commit touching richos/mobile/ answers the battery question -------
+# Run for a commit, a range (the land: `proof-run.py main..<branch>`) and the committed half of
+# the working mode, so an unanswered mobile commit is refused before any suite is selected,
+# whoever wrote it. `--paths` and `--staged` name no commits, so there is nothing to read.
+# The override exists so the suite can watch this refuse; the land never sets it.
+BATTERY_CHECK="${PROOF_FOR_BATTERY_CHECK:-$DIR/battery-check.py}"
+BATTERY_RANGE=""
+case "${MODE:-working}" in
+  ref)   BATTERY_RANGE="$REF" ;;
+  paths|staged) ;;
+  *)     [ -z "${BASE:-}" ] || BATTERY_RANGE="$BASE..HEAD" ;;
+esac
+if [ -n "$BATTERY_RANGE" ]; then
+  python3 "$BATTERY_CHECK" "$BATTERY_RANGE" > "$WORK/battery" 2>&1; BATTERY_RC=$?
+  if [ "$BATTERY_RC" -eq 1 ]; then
+    cat "$WORK/battery" >&2
+    echo "proof-for.sh: refused — a commit touching richos/mobile/ has not answered the battery question (exit 3)." >&2
+    exit 3
+  elif [ "$BATTERY_RC" -ne 0 ]; then
+    cat "$WORK/battery" >&2
+    die "the battery check could not read $BATTERY_RANGE (exit $BATTERY_RC)"
+  fi
+fi
 
 # --- inventories, read off disk once ------------------------------------------------------
 SCRIPT_SUITES="$WORK/script-suites"

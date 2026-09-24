@@ -93,9 +93,9 @@ class ScenarioTests(unittest.TestCase):
     def test_busy_cpu_refuses_and_releases_lock(self):
         with tempfile.TemporaryDirectory() as tmp:
             with patch('reserve.host_sample',return_value=S(95)):
-                with self.assertRaisesRegex(BlockingIOError,'user CPU is 95.0%'):
+                with self.assertRaisesRegex(BlockingIOError,'total CPU is 100.0%'):
                     with reserve.reservation(tmp):self.fail('admitted')
-                with self.assertRaisesRegex(BlockingIOError,'user CPU is 95.0%'):
+                with self.assertRaisesRegex(BlockingIOError,'total CPU is 100.0%'):
                     with reserve.reservation(tmp,release_lock=True):self.fail('admitted')
             with patch('reserve.host_sample',return_value=S(20)):
                 with reserve.reservation(tmp,release_lock=True):pass
@@ -120,12 +120,14 @@ class ScenarioTests(unittest.TestCase):
             with self.assertRaisesRegex(BlockingIOError,'did not advance'):reserve.host_sample()
     def test_live_sampler_runs_in_process_without_top(self):
         with patch('reserve.subprocess.run',side_effect=AssertionError('no subprocess per sample')),patch('reserve.subprocess.Popen',side_effect=AssertionError('no subprocess per sample')):
-            s=reserve.host_sample(interval=0.2)
+            s=reserve.host_sample(interval=1.0)
         self.assertAlmostEqual(s['cpu_user_percent']+s['cpu_system_percent']+s['cpu_idle_percent'],100,delta=0.01)
         self.assertIn(s['memory_pressure'],('normal','warn','critical'))
-    def test_high_system_time_alone_does_not_refuse(self):
+    def test_high_system_time_refuses_and_spare_total_capacity_admits(self):
         with patch('reserve.host_sample',return_value=S(40,sys_=58)):
-            self.assertEqual(reserve.cpu_admission()['cpu_busy_percent'],40)
+            with self.assertRaisesRegex(BlockingIOError, 'total CPU is 98.0%'): reserve.cpu_admission()
+        with patch('reserve.host_sample',return_value=S(40,sys_=39)):
+            self.assertEqual(reserve.cpu_admission()['cpu_busy_percent'],79)
     def test_hard_swapping_refuses(self):
         for sample,why in ((S(10,pressure='critical'),'CRITICAL'),(S(10,swapout=40.0),'swapping out 40.0 MB/s')):
             with patch('reserve.host_sample',return_value=sample):
@@ -136,7 +138,7 @@ class ScenarioTests(unittest.TestCase):
     def test_low_priority_skips_only_the_cpu_line(self):
         with patch('reserve.host_sample',return_value=S(95)):
             with self.assertRaises(BlockingIOError):reserve.cpu_admission()
-            self.assertEqual(reserve.cpu_admission(cpu_rule=False)['cpu_busy_percent'],95)
+            self.assertEqual(reserve.cpu_admission(cpu_rule=False)['cpu_busy_percent'],100)
         with patch('reserve.host_sample',return_value=S(95,pressure='critical')):
             with self.assertRaisesRegex(BlockingIOError,'CRITICAL'):reserve.cpu_admission(cpu_rule=False)
     def test_low_priority_runs_the_command_niced_and_says_so(self):
@@ -153,9 +155,9 @@ class ScenarioTests(unittest.TestCase):
         self.assertNotIn('LOW PRIORITY',plain.stderr)
 
     def test_admission_wait_rechecks_and_records_delay(self):
-        with patch('reserve.host_sample',side_effect=[S(90),S(20)]),patch('reserve.time.monotonic',side_effect=[0,1,31]),patch('reserve.time.sleep') as sleep,patch('reserve.os.getloadavg',return_value=(20,20,20)):
+        with patch('reserve.host_sample',side_effect=[S(40,sys_=55),S(20)]),patch('reserve.time.monotonic',side_effect=[0,1,31]),patch('reserve.time.sleep') as sleep,patch('reserve.os.getloadavg',return_value=(20,20,20)):
             sample=reserve.cpu_admission(wait_seconds=120)
-            self.assertEqual((sample['cpu_busy_percent'],sample['load'],sample['admission_wait_seconds'],sample['admission_samples']),(20,20,31,2))
+            self.assertEqual((sample['cpu_busy_percent'],sample['load'],sample['admission_wait_seconds'],sample['admission_samples']),(25,20,31,2))
             sleep.assert_called_once_with(30)                     # never spins: 30 s between samples
     def test_admission_wait_is_bounded(self):
         with patch('reserve.host_sample',return_value=S(90)),patch('reserve.time.monotonic',side_effect=[0,1,31,61]),patch('reserve.time.sleep') as sleep:

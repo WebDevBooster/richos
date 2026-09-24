@@ -66,13 +66,13 @@ class GuardTests(unittest.TestCase):
             chosen,_,_=watch.sample({10:self.row(),20:self.row(10,cpu)},now)
             self.assertEqual(chosen,[])
 
-    def test_aggregate_small_workers(self):
+    def test_aggregate_small_workers_are_not_killed(self):
         self.root()
         watch=G.Watch()
         with patch.object(os,'cpu_count',return_value=4):
             for now in range(0,14,2):
                 chosen,_,_=watch.sample({10:self.row(),20:self.row(10,now*2),21:self.row(10,now*2)},now)
-            self.assertEqual(len(chosen),1)
+            self.assertEqual(chosen,[])
 
     def test_signal_checks_identity_again(self):
         watch=G.Watch()
@@ -97,12 +97,12 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(G.forbidden("bash <<'EOF'\nswift test\nEOF"), "swift test")
         self.assertEqual(G.forbidden("cat <<'EOF'\ntext\nEOF\nswift test"), "swift test")
 
-    def test_busy_host_reclaims_small_owned_workload(self):
+    def test_busy_host_preserves_small_admitted_workload(self):
         self.root()
         watch=G.Watch()
-        for now in range(0,14,2):
-            chosen,_,_=watch.sample({10:self.row(),20:self.row(10,now)},now,host_busy=95)
-        self.assertEqual(chosen,[20])
+        for now in range(0,62,2):
+            chosen,_,_=watch.sample({10:self.row(),20:self.row(10,now)},now,host_busy=99.5)
+        self.assertEqual(chosen,[])
 
     def test_caps_cannot_be_overridden(self):
         gradle=N.capped(['./gradlew','test'])
@@ -111,6 +111,57 @@ class GuardTests(unittest.TestCase):
         for args in (['./gradlew','--max-workers=8'],['swift','test','--jobs','8'],['xcodebuild','-jobs','8']):
             with self.assertRaises(ValueError): N.capped(args)
         self.assertEqual(N.capped(['swift','test'])[-2:],['--jobs','1'])
+
+    def test_health_requires_successful_independent_device_collector(self):
+        G.write_json(G.STATE/'heartbeat.json', dict(at=time.time(), ok=True))
+        self.assertFalse(G.healthy())
+        G.write_json(G.STATE/'devices-heartbeat.json', dict(at=time.time(), ok=False))
+        self.assertFalse(G.healthy())
+        G.write_json(G.STATE/'devices-heartbeat.json', dict(at=time.time(), ok=True))
+        self.assertTrue(G.healthy())
+
+    def test_device_worker_runs_without_process_sampling_and_reports_stderr(self):
+        G.block_ios('incident')
+        with patch.object(G, 'processes', side_effect=TimeoutError('ps unavailable')), patch.object(G.subprocess, 'run') as run:
+            run.return_value = Mock(returncode=1, stderr='shutdown RPC timed out', stdout='')
+            G.device_cycle('/engine')
+            self.assertIn('--pressure', run.call_args.args[0])
+            self.assertFalse(G.read_json(G.STATE/'devices-heartbeat.json')['ok'])
+            self.assertIn('shutdown RPC timed out', G.read_json(G.STATE/'alert.json')['error'])
+            run.return_value = Mock(returncode=0)
+            G.device_cycle('/engine')
+            self.assertTrue(G.read_json(G.STATE/'devices-heartbeat.json')['ok'])
+
+    def test_old_checkout_proof_launcher_is_refused_before_execution(self):
+        old = G.STATE/'old-checkout'
+        policy = old/'richos/engine/scripts/lib/testdevices.py'
+        policy.parent.mkdir(parents=True)
+        policy.write_text('# old collector')
+        command = 'cd ' + str(old/'richos/app') + ' && python3 scripts/proof-run.py --working'
+        self.assertIn('outdated', G.forbidden(command))
+        policy.write_text('def acquire_ios(): pass')
+        self.assertIn('outdated', G.forbidden(command))
+        policy.with_name('cpu_policy.py').write_text('DEFAULT_MAX_CPU = 80')
+        self.assertIsNone(G.forbidden(command))
+
+    def test_incident_stop_is_persistent_and_headless_is_available(self):
+        G.block_ios('incident')
+        with self.assertRaisesRegex(RuntimeError, 'incident'): G.require_ios()
+        for command in ('bash /old/Release/simulator-tests.sh /out', '/old/bin/rios sim prepare',
+                        'bash /old/scripts/native-ios-ui.test.sh'):
+            self.assertIsNotNone(G.forbidden(command))
+        self.assertIsNone(G.forbidden('bash /old/scripts/native-ios-ui.test.sh --headless'))
+        self.assertIsNone(G.forbidden('rios headless state'))
+        self.assertIsNone(G.forbidden('rios sim stop'))
+
+    def test_xcode_diagnostics_are_disabled_and_cannot_be_overridden(self):
+        command=N.capped(['xcodebuild','test'])
+        self.assertEqual(command[command.index('-collect-test-diagnostics')+1], 'never')
+        with self.assertRaises(ValueError):
+            N.capped(['xcodebuild','test','-collect-test-diagnostics','on-failure'])
+        self.assertIsNotNone(G.forbidden('xcrun simctl diagnose -l'))
+        for command in (['xcrun','simctl','diagnose','-l'], ['xcrun','simctl','boot','UUID'], ['emulator','-avd','foo']):
+            with self.assertRaises(ValueError): N.capped(command)
 
     def test_unavailable_cpu_sample_retries_using_full_interval(self):
         reserve=Mock()

@@ -21,7 +21,7 @@ import worker_tokens
 
 
 def boot_admitted(sample):
-    return not reserve._refusal(sample, 80, 16) and sample["cpu_user_percent"] + sample["cpu_system_percent"] < 90
+    return not reserve._refusal(sample, reserve.DEFAULT_MAX_CPU, 16)
 
 
 def booted_devices(runner=subprocess.run):

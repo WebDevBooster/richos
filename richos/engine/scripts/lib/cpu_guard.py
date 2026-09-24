@@ -20,12 +20,12 @@ import signal
 import subprocess
 import sys
 import time
+from cpu_policy import DEFAULT_MAX_CPU, admission_open
 
 STATE = Path(os.environ.get('RICHOS_CPU_GUARD_STATE', '/Volumes/E1TB/state/richos/cpu-guard'))
 INTERVAL = 2.0
 WINDOW = 10.0
 JOB_CORES = 3.0
-TOTAL_FRACTION = .60
 LABEL = 'com.richos.cpu-guard'
 
 
@@ -87,7 +87,67 @@ def event(message, **details):
 
 def healthy():
     row = read_json(STATE / 'heartbeat.json', {})
-    return time.time() - row.get('at', 0) < 12 and row.get('ok') is True
+    devices = read_json(STATE / 'devices-heartbeat.json', {})
+    return (time.time() - row.get('at', 0) < 12 and row.get('ok') is True
+            and time.time() - devices.get('at', 0) < 25 and devices.get('ok') is True)
+
+
+def ios_block():
+    return read_json(STATE / 'ios-block.json')
+
+
+def registered_ios():
+    registry = Path(os.environ.get('RICHOS_TEST_DEVICES_DIR', str(Path.home() / '.claude/state/test-devices')))
+    return any(read_json(path, {}).get('kind') == 'ios-simulator' for path in registry.glob('*.json'))
+
+
+def block_ios(reason):
+    if not ios_block():
+        write_json(STATE / 'ios-block.json', dict(at=time.time(), reason=reason))
+        event('Local iOS simulator boots stopped until explicit recovery', reason=reason)
+
+
+def require_ios():
+    blocked = ios_block()
+    if blocked:
+        raise RuntimeError('Local iOS simulators are stopped: ' + blocked['reason'] +
+                           '. Use headless tests or a physical device; do not retry simulator tests.')
+
+
+def device_cycle(engine):
+    """Independent of ps: an overloaded process table must not delay shutdown."""
+    args = [sys.executable, '-B', str(Path(engine) / 'scripts/lib/testdevices.py'), 'expire-leases']
+    if ios_block():
+        args.append('--pressure')
+    try:
+        result = subprocess.run(args, capture_output=True, text=True, timeout=18)
+        if result.returncode:
+            raise RuntimeError('exit %s: %s' % (result.returncode, (result.stderr or result.stdout)[-4000:]))
+        write_json(STATE / 'devices-heartbeat.json', dict(at=time.time(), ok=True, pid=os.getpid()))
+    except Exception as exc:
+        event('Device lease collector failed', error=str(exc))
+        write_json(STATE / 'devices-heartbeat.json', dict(at=time.time(), ok=False, error=str(exc)))
+
+
+def watch_devices(engine):
+    STATE.mkdir(parents=True, exist_ok=True)
+    with (STATE / 'devices.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        before, high_since = host_ticks(), None
+        while True:
+            # Mach host counters do not enumerate processes. Pressure detection
+            # remains available even if ps and the CPU worker are stalled.
+            ticks = host_ticks()
+            now = time.monotonic()
+            if ticks is not None and before is not None:
+                delta = [(b-a) % 2**32 for a,b in zip(before, ticks)]
+                busy = 100 * (1 - delta[2]/sum(delta)) if sum(delta) else 0
+                high_since = (high_since if high_since is not None else now) if busy >= 85 else None
+                if high_since is not None and now-high_since >= WINDOW and registered_ios():
+                    block_ios('Sustained host CPU overload detected by independent Mach counters')
+            before = ticks
+            device_cycle(engine)
+            time.sleep(INTERVAL)
 
 
 def host_ticks():
@@ -108,7 +168,6 @@ class Watch:
         self.previous = {}
         self.last = None
         self.over = {}
-        self.total_since = None
         self.pending = {}
         self.host_since = None
         self.reported_at = 0
@@ -156,11 +215,9 @@ class Watch:
         # Sessions stay alive. A registered workload root may itself be stopped.
         protected = {p for p, r in roots.items() if r['role'] == 'session'} | {os.getpid()}
         allowed = set(owned) - protected - set(self.pending)
-        total = sum(rates.get(p, 0) for p in allowed)
-        if total > (os.cpu_count() or 4) * TOTAL_FRACTION or (host_busy >= 85 and total >= .5):
-            self.total_since = self.total_since if self.total_since is not None else now
-        else:
-            self.total_since = None
+        # Host pressure closes admission, not already admitted work. Killing
+        # the largest process here repeatedly killed sub-core land checks and
+        # capped Gradle builds while unrelated work saturated the host.
         candidates = []
         for pid in allowed:
             rate = rates.get(pid, 0)
@@ -171,12 +228,39 @@ class Watch:
             since = self.over.get((pid, rows[pid]['birth']))
             if since is not None and now - since >= WINDOW:
                 candidates.append(pid)
-        if self.total_since is not None and now - self.total_since >= WINDOW and allowed:
-            candidates.append(max(allowed, key=lambda p: rates.get(p, 0)))
         self.over = {k: v for k, v in self.over.items() if k[0] in allowed and rows[k[0]]['birth'] == k[1]}
         return sorted(set(candidates), key=lambda p: rates.get(p, 0), reverse=True), rates, protected
 
-    def stop(self, pid, rows, protected, rates):
+    def policy_targets(self, rows, protected):
+        targets = set()
+        registry = Path(os.environ.get('RICHOS_TEST_DEVICES_DIR', str(Path.home() / '.claude/state/test-devices')))
+        if ios_block():
+            for path in registry.glob('*.json'):
+                rec = read_json(path, {})
+                if rec.get('kind') != 'ios-simulator':
+                    continue
+                for owner in rec.get('owners', [rec.get('owner', {})]):
+                    pid = owner.get('pid')
+                    if pid in rows and pid not in protected and rows[pid]['birth'] == owner.get('start'):
+                        # Only an observed agent workload, never a personal session.
+                        if str(pid) in self.owned:
+                            targets.add(pid)
+        for key in self.owned:
+            pid = int(key)
+            if pid in protected or pid not in rows:
+                continue
+            if os.path.basename(rows[pid]['name']) == 'simctl':
+                args = subprocess.run(['ps', '-ww', '-o', 'args=', '-p', str(pid)],
+                                      capture_output=True, text=True, timeout=2)
+                try:
+                    words = shlex.split(args.stdout)
+                except ValueError:
+                    continue
+                if 'diagnose' in words:
+                    targets.add(pid)
+        return targets
+
+    def stop(self, pid, rows, protected, rates, reason='process exceeded sustained per-process CPU limit'):
         # Expand only observed descendants. Never killpg on a potentially shared group.
         targets = {pid}
         while True:
@@ -199,6 +283,7 @@ class Watch:
         if not signalled:
             return
         event('CPU circuit breaker stopped an owned workload', pid=pid,
+              reason=reason,
               executable=rows[pid]['name'], owner=self.owned[str(pid)]['owner'],
               cores=round(rates.get(pid, 0), 2), sustained_seconds=WINDOW,
               signalled=signalled)
@@ -227,7 +312,6 @@ def watch(engine):
     with (STATE / 'watch.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         watcher = Watch()
-        collector, collect_at = None, 0
         ticks_before = host_ticks()
         while True:
             try:
@@ -241,9 +325,10 @@ def watch(engine):
                 ticks_before = ticks
                 candidates, rates, protected = watcher.sample(rows, now, busy)
                 watcher.reap(rows, now)
+                for pid in watcher.policy_targets(rows, protected):
+                    watcher.stop(pid, rows, protected, rates, 'local simulator incident containment')
                 if candidates:
                     watcher.stop(candidates[0], rows, protected, rates)
-                    watcher.total_since = None
                 if busy >= 85:
                     watcher.host_since = watcher.host_since if watcher.host_since is not None else now
                     if not candidates and now-watcher.host_since >= WINDOW and now-watcher.reported_at >= 300:
@@ -257,19 +342,10 @@ def watch(engine):
                     watcher.host_since = None
                 write_json(STATE / 'owned.json', watcher.owned)
                 write_json(STATE / 'heartbeat.json', dict(at=time.time(), ok=True,
-                           pid=os.getpid(), owned=len(watcher.owned), host_busy=round(busy, 1)))
-                if collector is not None and collector.poll() is not None:
-                    if collector.returncode:
-                        event('Device lease collector failed', exit_code=collector.returncode)
-                    collector = None
-                pressure = (watcher.host_since is not None and now-watcher.host_since >= WINDOW)
-                if (now >= collect_at or pressure) and collector is None:
-                    args = [sys.executable, str(Path(engine) / 'scripts/lib/testdevices.py'), 'expire-leases']
-                    if pressure:
-                        args.append('--pressure')
-                        watcher.host_since = now
-                    collector = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=sys.stderr)
-                    collect_at = now + 15
+                           pid=os.getpid(), owned=len(watcher.owned), host_busy=round(busy, 1),
+                           admission_open=admission_open(busy), admission_limit=DEFAULT_MAX_CPU))
+                if watcher.host_since is not None and now-watcher.host_since >= WINDOW and registered_ios():
+                    block_ios('Sustained host CPU overload. Simulator recovery must be explicitly scheduled.')
             except Exception as exc:
                 event('CPU watchdog sampling failed', error=str(exc))
                 write_json(STATE / 'heartbeat.json', dict(at=time.time(), ok=False, error=str(exc)))
@@ -281,27 +357,28 @@ def install(engine):
         raise RuntimeError('Mount /Volumes/E1TB first')
     runtime = STATE / 'runtime'
     runtime.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(Path(__file__).with_name('cpu_policy.py'), runtime / 'cpu_policy.py')
     target = runtime / 'cpu_guard.py'
     shutil.copy2(__file__, target)
-    agent = Path.home() / 'Library/LaunchAgents' / (LABEL + '.plist')
-    config = dict(Label=LABEL, ProgramArguments=['/usr/bin/python3', '-B', str(target), 'watch', str(Path(engine).resolve())],
-                  RunAtLoad=True, KeepAlive=True, ThrottleInterval=5, ProcessType='Background',
-                  EnvironmentVariables={'RICHOS_CPU_GUARD_STATE': str(STATE), 'LC_ALL': 'C'},
-                  StandardOutPath='/dev/null', StandardErrorPath='/dev/null')
-    agent.parent.mkdir(parents=True, exist_ok=True)
-    with agent.open('wb') as out:
-        plistlib.dump(config, out)
     domain = 'gui/%s' % os.getuid()
-    subprocess.run(['launchctl', 'bootout', domain + '/' + LABEL], capture_output=True)
     started = time.time()
-    # bootout can return before launchd has released the old registration.
-    for attempt in range(20):
-        boot = subprocess.run(['launchctl', 'bootstrap', domain, str(agent)], capture_output=True, text=True)
-        if boot.returncode == 0:
-            break
-        time.sleep(.25)
-    else:
-        raise RuntimeError('launchd bootstrap failed: ' + boot.stderr.strip())
+    for label, action in [(LABEL + '.devices', 'watch-devices'), (LABEL, 'watch')]:
+        agent = Path.home() / 'Library/LaunchAgents' / (label + '.plist')
+        config = dict(Label=label, ProgramArguments=['/usr/bin/python3', '-B', str(target), action, str(Path(engine).resolve())],
+                      RunAtLoad=True, KeepAlive=True, ThrottleInterval=5, ProcessType='Interactive',
+                      EnvironmentVariables={'RICHOS_CPU_GUARD_STATE': str(STATE), 'LC_ALL': 'C'},
+                      StandardOutPath='/dev/null', StandardErrorPath='/dev/null')
+        agent.parent.mkdir(parents=True, exist_ok=True)
+        with agent.open('wb') as out:
+            plistlib.dump(config, out)
+        subprocess.run(['launchctl', 'bootout', domain + '/' + label], capture_output=True)
+        for attempt in range(20):
+            boot = subprocess.run(['launchctl', 'bootstrap', domain, str(agent)], capture_output=True, text=True)
+            if boot.returncode == 0:
+                break
+            time.sleep(.25)
+        else:
+            raise RuntimeError('launchd bootstrap failed: ' + boot.stderr.strip())
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
         if healthy() and read_json(STATE/'heartbeat.json', {}).get('at', 0) >= started:
@@ -352,11 +429,11 @@ def shell_text(command):
     return ''.join(output), bodies
 
 
-def forbidden(command):
+def forbidden(command, cwd=None):
     """Conservative shell command-head check, not an arbitrary-code sandbox."""
     command, bodies = shell_text(command)
     for body in bodies:
-        reason = forbidden(body)
+        reason = forbidden(body, cwd)
         if reason: return reason
     try:
         lexer = shlex.shlex(command, posix=True, punctuation_chars=';&|()\n')
@@ -377,17 +454,35 @@ def forbidden(command):
             part.pop(0)
         if not part: continue
         name = os.path.basename(part[0])
+        if name == 'cd' and len(part) > 1:
+            cwd = str(Path(cwd or os.getcwd()).joinpath(part[1]).resolve())
+        entry = os.path.basename(part[1]) if name in ('bash', 'sh', 'zsh', 'python3', 'python') and len(part) > 1 else name
+        if entry in ('proof-run.py', 'run-tests.sh', 'native-work.py', 'rios', 'randroid', 'simulator-tests.sh', 'native-ios-share.test.sh', 'native-ios-app.test.sh', 'native-ios-ui.test.sh'):
+            executable = part[1] if entry != name else part[0]
+            path = Path(cwd or os.getcwd()).joinpath(executable).resolve()
+            for parent in path.parents:
+                policy = parent / 'richos/engine/scripts/lib/testdevices.py'
+                if policy.is_file():
+                    if 'def acquire_ios(' not in policy.read_text() or not policy.with_name('cpu_policy.py').is_file():
+                        return 'outdated native/proof entrypoint; update this checkout from main before running it'
+                    break
+        if ios_block():
+            if entry in ('native-ios-app.test.sh', 'native-ios-ui.test.sh', 'native-ios-share.test.sh', 'simulator-tests.sh'):
+                if not (entry == 'native-ios-ui.test.sh' and '--headless' in part):
+                    return 'local iOS simulator suite (incident stop is active)'
+            if entry == 'rios' and 'sim' in part and not any(p in part for p in ('stop', 'check-release')):
+                return 'local iOS simulator (incident stop is active)'
         if name in ('bash', 'zsh', 'sh'):
             if '-c' in part:
                 i = part.index('-c')
                 if len(part) > i+1:
-                    reason = forbidden(part[i+1])
+                    reason = forbidden(part[i+1], cwd)
                     if reason: return reason
             if len(part) > 1 and os.path.basename(part[1]) == 'gradlew': return 'gradlew'
         if name in ('nice', 'timeout'):
             rest = [p for p in part[1:] if not p.startswith('-') and not p.isdigit()]
             if rest:
-                reason = forbidden(shlex.join(rest))
+                reason = forbidden(shlex.join(rest), cwd)
                 if reason: return reason
         if name in ('gradle', 'gradlew', 'emulator') or name.startswith('qemu-system-'):
             if not any(p in part for p in ('--version', '-version', '--help', '-help', '-help-all', '--stop', '-list-avds')):
@@ -395,7 +490,9 @@ def forbidden(command):
         if name == 'xcodebuild' and not any(p in part for p in ('-version', '-list', '-showsdks', '-showBuildSettings', '-help')):
             return name
         if name == 'swift' and len(part) > 1 and part[1] in ('build', 'test'): return 'swift ' + part[1]
-        if name in ('xcrun', 'simctl') and 'boot' in part and (name == 'simctl' or 'simctl' in part): return 'simctl boot'
+        if name in ('xcrun', 'simctl') and (name == 'simctl' or 'simctl' in part):
+            if 'boot' in part: return 'simctl boot'
+            if 'diagnose' in part: return 'simctl diagnose (expensive host diagnostics)'
     return None
 
 
@@ -417,9 +514,17 @@ def hook():
             register(pid, 'Claude session ' + str(payload.get('session_id', pid)))
             break
         pid = row['parent']
-    reason = forbidden(payload.get('tool_input', {}).get('command', ''))
+    reason = forbidden(payload.get('tool_input', {}).get('command', ''), payload.get('cwd'))
     if reason:
-        print('CPU guard: direct %s is refused. Use randroid, rios or native-work.py -- COMMAND so admission and cleanup apply.' % reason, file=sys.stderr)
+        if 'outdated' in reason:
+            remedy = 'Update this checkout from main before running its native or proof tools.'
+        elif 'diagnose' in reason:
+            remedy = 'Automatic simulator diagnostic dumps are disabled after the overload incident.'
+        elif ios_block() and 'simulator' in reason:
+            remedy = 'Local iOS simulator runs are stopped after repeated host overload. Use headless tests or a physical device; do not retry.'
+        else:
+            remedy = 'Use randroid, rios or native-work.py -- COMMAND so admission and cleanup apply.'
+        print('CPU guard: %s is refused. %s' % (reason, remedy), file=sys.stderr)
         return 2
     alert = read_json(STATE / 'alert.json')
     if alert:
@@ -452,15 +557,18 @@ def notice_payload(payload):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['watch', 'install', 'register', 'hook', 'status', 'notice', 'notice-json'])
+    parser.add_argument('action', choices=['watch', 'watch-devices', 'block-ios', 'check-ios', 'install', 'register', 'hook', 'status', 'notice', 'notice-json'])
     parser.add_argument('args', nargs='*')
     a = parser.parse_args()
     if a.action == 'watch': return watch(a.args[0])
+    if a.action == 'watch-devices': return watch_devices(a.args[0])
+    if a.action == 'block-ios': return block_ios(' '.join(a.args) or 'Operator stopped local iOS simulators')
+    if a.action == 'check-ios': return require_ios()
     if a.action == 'install': return install(a.args[0])
     if a.action == 'register': print(json.dumps(register(int(a.args[0]), a.args[1], a.args[2] if len(a.args)>2 else 'session')))
     if a.action == 'hook': return hook()
     if a.action == 'status':
-        print(json.dumps(dict(healthy=healthy(), heartbeat=read_json(STATE/'heartbeat.json'), alert=read_json(STATE/'alert.json'))))
+        print(json.dumps(dict(healthy=healthy(), heartbeat=read_json(STATE/'heartbeat.json'), devices=read_json(STATE/'devices-heartbeat.json'), ios_block=ios_block(), alert=read_json(STATE/'alert.json'))))
         return 0 if healthy() else 1
     if a.action == 'notice-json':
         result = notice_payload(json.load(sys.stdin))

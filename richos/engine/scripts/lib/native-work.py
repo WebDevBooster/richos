@@ -15,6 +15,10 @@ import cpu_guard
 def capped(command):
     command = list(command)
     name = os.path.basename(command[0])
+    if name == 'emulator' or name.startswith('qemu-system-') or (
+            name in ('simctl', 'xcrun') and (name == 'simctl' or 'simctl' in command)
+            and any(a in command for a in ('boot', 'diagnose'))):
+        raise ValueError('native-work does not admit devices or diagnostic dumps; use testdevices for device leases')
     if name in ('gradlew', 'gradle'):
         if any(a.startswith(('--max-workers', '-Dorg.gradle.workers.max', '-Dorg.gradle.jvmargs', '-Dkotlin.daemon.jvm.options')) or a == '--parallel' for a in command[1:]):
             raise ValueError('worker/JVM overrides are not allowed through native admission')
@@ -26,9 +30,10 @@ def capped(command):
             raise ValueError('parallelism is owned by native admission')
         command += ['--jobs', '1']
     elif name == 'xcodebuild':
-        if '-jobs' in command or '-parallel-testing-enabled' in command:
+        if any(a in command for a in ('-jobs', '-parallel-testing-enabled', '-collect-test-diagnostics', '-enablePerformanceTestsDiagnostics')):
             raise ValueError('parallelism is owned by native admission')
-        command += ['-jobs', '1', '-parallel-testing-enabled', 'NO']
+        command += ['-jobs', '1', '-parallel-testing-enabled', 'NO',
+                    '-collect-test-diagnostics', 'never', '-enablePerformanceTestsDiagnostics', 'NO']
     return command
 
 
@@ -42,7 +47,7 @@ def wait_for_headroom(reserve, timeout=1800):
             sample = reserve.host_sample()
         except BlockingIOError:
             sample = None
-        if sample is not None and not reserve._refusal(sample, 60, 16) and sample['cpu_idle_percent'] >= 30:
+        if sample is not None and not reserve._refusal(sample, reserve.DEFAULT_MAX_CPU, 16):
             return
         if time.monotonic() >= deadline:
             raise TimeoutError('native build admission timed out waiting for measurable CPU/memory headroom')
@@ -56,6 +61,8 @@ def run(command):
     if sys.platform == 'darwin' and not cpu_guard.healthy():
         raise RuntimeError('CPU watchdog is not healthy; native work refused. Run cpu_guard.py status.')
     command = capped(command)
+    if os.path.basename(command[0]) == 'xcodebuild' and any(a in command for a in ('test', 'test-without-building')):
+        cpu_guard.require_ios()
     directory = worker_tokens.machine_directory()
     lane_dir = Path(directory).parent / 'native-build-v1'
     worker_tokens.init(lane_dir, 1)
