@@ -151,6 +151,87 @@ class ConnectionOwnerTest {
         assertTrue(mac.seen.isEmpty(), "nothing unsigned was sent")
     }
 
+    /**
+     * The CEO's standing battery rule (2026-09-24): an app that refreshes in the background is
+     * flagged "power-intensive". In the background the stream is closed and nothing reconnects,
+     * whether the Mac is away (the 30 s back-off) or connected (its 15 s keep-alive).
+     */
+    @Test
+    fun `in the background the stream closes and no reconnect or keep-alive fires`() = runTest {
+        val mac = Mac { HttpResponse(404, mapOf("x-richos-challenge" to "c"), """{"messages":[],"more":false}""".toByteArray()) }
+        val core = core(mac)
+        var closed = false
+        val streams = Streams(
+            // Connected: the Mac's keep-alives would arrive on this socket for as long as it is open.
+            { onOpen, onBytes ->
+                onOpen(200); onBytes(hello.toByteArray())
+                try { kotlinx.coroutines.awaitCancellation() } finally { closed = true }
+            },
+        )
+        val owner = ConnectionOwner(core, MacApi(mac, keys), streams)
+        val job = backgroundScope.launch { owner.run() }
+        runCurrent()
+        assertEquals(ConnectionReason.CONNECTED, core.state.connection.reason)
+        owner.backgrounded()
+        runCurrent()
+        assertTrue(closed, "the stream is closed when the app leaves the screen")
+        assertEquals(false, core.state.online, "nothing in the outbox is owed a timed try")
+        assertEquals(null, core.state.connection.notice)
+        assertEquals(null, core.state.connection.noticeDueInMs, "no notice timer in the background")
+        val requests = mac.seen.size
+        owner.wake() // the network changed while in the background
+        advanceTimeBy(3_600_000)
+        runCurrent()
+        assertEquals(1, streams.opened.size, "no reconnect in an hour in the background")
+        assertEquals(requests, mac.seen.size, "no request at all in the background")
+        job.cancel()
+    }
+
+    @Test
+    fun `back on screen it reconnects at once, then backs off as before`() = runTest {
+        val mac = Mac { r -> HttpResponse(if (r.url.contains("before=0")) 200 else 404, mapOf("x-richos-challenge" to "c"), """{"messages":[],"more":false}""".toByteArray()) }
+        val core = core(mac)
+        val asleep: suspend (suspend (Int) -> Unit, suspend (ByteArray) -> Unit) -> Unit = { _, _ -> throw IOException("the Mac is asleep") }
+        val streams = Streams(asleep, asleep, asleep, asleep)
+        val owner = ConnectionOwner(core, MacApi(mac, keys), streams)
+        val job = backgroundScope.launch { owner.run() }
+        runCurrent()
+        assertEquals(1, streams.opened.size)
+        owner.backgrounded()
+        advanceTimeBy(600_000)
+        runCurrent()
+        assertEquals(1, streams.opened.size, "nothing while away")
+        owner.foregrounded()
+        runCurrent()
+        assertEquals(2, streams.opened.size, "one attempt at once on return, no back-off wait")
+        assertTrue("GET /api/challenge" in mac.seen, "with a fresh challenge: the saved one may have expired")
+        advanceTimeBy(999)
+        runCurrent()
+        assertEquals(2, streams.opened.size, "then the usual back-off: not before 1 s")
+        advanceTimeBy(2)
+        runCurrent()
+        assertEquals(3, streams.opened.size)
+        job.cancel()
+    }
+
+    @Test
+    fun `a process started in the background opens nothing until the app is on screen`() = runTest {
+        val mac = Mac { HttpResponse(404, mapOf("x-richos-challenge" to "c"), ByteArray(0)) }
+        val core = core(mac)
+        val streams = Streams({ onOpen, _ -> onOpen(200); kotlinx.coroutines.awaitCancellation() })
+        val owner = ConnectionOwner(core, MacApi(mac, keys), streams, foreground = false)
+        val job = backgroundScope.launch { owner.run() }
+        advanceTimeBy(600_000)
+        runCurrent()
+        assertEquals(0, streams.opened.size)
+        assertTrue(mac.seen.isEmpty())
+        owner.foregrounded()
+        runCurrent()
+        assertEquals(1, streams.opened.size)
+        assertEquals(ConnectionReason.CONNECTED, core.state.connection.reason)
+        job.cancel()
+    }
+
     @Test
     fun `wake fires a pending retry at once`() = runTest {
         val mac = Mac { r -> HttpResponse(if (r.url.contains("before=0")) 200 else 404, mapOf("x-richos-challenge" to "c"), """{"messages":[],"more":false}""".toByteArray()) }
