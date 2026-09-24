@@ -821,6 +821,9 @@ class RichCore private constructor(
         for (effect in effects) {
             when (effect) {
                 is VoiceEffect.StartRecording -> try {
+                    val journal = session.copy(activeRecording = KeptRecording(effect.id, 0, reason = KeptReason.INTERRUPTED, recordedAt = ports.clock.now()))
+                    ports.session.write(journal)
+                    session = journal
                     ports.recorder.start(effect.id)
                 } catch (failure: Throwable) {
                     voiceSession = null
@@ -834,13 +837,15 @@ class RichCore private constructor(
                 is VoiceEffect.Send -> {
                     val thread = session.selectedThreadId ?: continue
                     enqueueConsuming(listOf(voiceItem(effect.id, thread, effect.durationMs, effect.levels)),
-                        session.copy(microphone = next.microphone, keptRecordings = next.kept))
+                        session.copy(microphone = next.microphone, keptRecordings = next.kept, activeRecording = null))
                     sent = true
                 }
             }
         }
-        if (next.microphone != session.microphone || next.kept != session.keptRecordings) {
-            commit(session.copy(microphone = next.microphone, keptRecordings = next.kept))
+        val capturing = next.voice?.phase in setOf(VoicePhase.HELD, VoicePhase.LOCKED)
+        val active = session.activeRecording.takeIf { capturing }
+        if (next.microphone != session.microphone || next.kept != session.keptRecordings || active != session.activeRecording) {
+            commit(session.copy(microphone = next.microphone, keptRecordings = next.kept, activeRecording = active))
         } else {
             emit()
         }
@@ -910,7 +915,15 @@ class RichCore private constructor(
         suspend fun open(ports: Ports): RichCore {
             val outbox = Outbox(ports.storage, ports.clock)
             outbox.load()
-            return RichCore(ports, ports.session.read(), outbox).also { it.finishEnqueues() }
+            return RichCore(ports, ports.session.read(), outbox).also { core ->
+                core.finishEnqueues()
+                core.session.activeRecording?.let { interrupted ->
+                    val known = core.session.keptRecordings.any { it.id == interrupted.id } || outbox.all().any { it.clientId == interrupted.id }
+                    val recovered = if (known) null else ports.recorder.recover(interrupted)
+                    core.commit(core.session.copy(activeRecording = null,
+                        keptRecordings = core.session.keptRecordings + listOfNotNull(recovered)))
+                }
+            }
         }
 
         /** The route a pairing origin names (contract §1.1), or null for any other host. */

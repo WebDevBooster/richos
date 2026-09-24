@@ -12,6 +12,21 @@ import kotlin.math.sin
 
 /** The voice note's WAV: the format the Mac takes (`codec=wav16k`) and the length it will compute. */
 class WavTest {
+    @Test fun `process death repairs only a valid captured PCM prefix`() {
+        val dir = Files.createTempDirectory("wav-recovery").toFile()
+        try {
+            val file = File(dir, "recording")
+            assertEquals(null, Wav.recoverDuration(file))
+            file.writeBytes(Wav.header(0) + ByteArray(32_001))
+            assertEquals(1_000L, Wav.recoverDuration(file))
+            assertEquals(32_044L, file.length())
+            assertEquals(32_000, ByteBuffer.wrap(file.readBytes()).order(ByteOrder.LITTLE_ENDIAN).getInt(40))
+            val corrupt = ByteArray(80) { 99 }
+            file.writeBytes(corrupt)
+            org.junit.Assert.assertThrows(java.io.IOException::class.java) { Wav.recoverDuration(file) }
+            assertTrue(file.readBytes().contentEquals(corrupt))
+        } finally { dir.deleteRecursively() }
+    }
     @Test
     fun `a finished file is a 16 kHz mono 16-bit WAV whose sizes match its bytes`() {
         val dir = Files.createTempDirectory("wav").toFile()

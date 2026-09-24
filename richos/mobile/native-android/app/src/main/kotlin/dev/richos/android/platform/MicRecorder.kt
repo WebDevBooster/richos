@@ -14,6 +14,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import dev.richos.android.core.CoreError
 import dev.richos.android.core.Microphone
+import dev.richos.android.core.KeptRecording
 import dev.richos.android.core.Recorder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -108,6 +109,11 @@ class MicRecorder(
 
     override suspend fun stop(id: String, keep: Boolean) {
         if (current?.first == id) stopCurrent(keep) else if (!keep) delete(id)
+    }
+
+    override suspend fun recover(recording: KeptRecording): KeptRecording? = withContext(Dispatchers.IO) {
+        val file = staged(recording.id) ?: throw CoreError("The saved recording has an invalid name.")
+        Wav.recoverDuration(file)?.let { recording.copy(durationMs = it) }
     }
 
     private suspend fun stopCurrent(keep: Boolean) {

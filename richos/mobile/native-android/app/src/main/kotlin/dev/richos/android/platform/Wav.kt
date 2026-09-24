@@ -37,6 +37,25 @@ object Wav {
         }
     }
 
+    /** Recover the captured prefix after process death. Never reinterpret an unrelated file. */
+    fun recoverDuration(file: File): Long? {
+        if (!file.exists()) return null
+        RandomAccessFile(file, "rw").use { raf ->
+            if (raf.length() < HEADER_BYTES) throw java.io.IOException("The saved recording header is incomplete")
+            val stored = ByteArray(HEADER_BYTES).also { raf.readFully(it) }
+            val expected = header(0)
+            if (stored.indices.any { it !in 4..7 && it !in 40..43 && stored[it] != expected[it] }) {
+                throw java.io.IOException("The saved recording format is not recognized")
+            }
+            val bytes = (raf.length() - HEADER_BYTES) / 2 * 2
+            if (bytes == 0L) return null
+            raf.setLength(HEADER_BYTES + bytes)
+            raf.seek(0)
+            raf.write(header(bytes.toInt()))
+            return durationMs(bytes)
+        }
+    }
+
     /** The length the Mac will compute: samples × 1000 / 16,000, floored (Echo 4ce79d6e). */
     fun durationMs(dataBytes: Long): Long = (dataBytes / (BITS / 8)) * 1000 / SAMPLE_RATE
 

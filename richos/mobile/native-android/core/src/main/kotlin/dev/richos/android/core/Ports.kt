@@ -53,6 +53,9 @@ interface Transport {
 interface Recorder {
     suspend fun start(id: String) {}
 
+    /** Recover only the journaled file, repairing its header and measuring its captured duration. */
+    suspend fun recover(recording: KeptRecording): KeptRecording? = null
+
     /** Stop recording [id]; keep the file when [keep], else delete it. */
     suspend fun stop(id: String, keep: Boolean) {}
 

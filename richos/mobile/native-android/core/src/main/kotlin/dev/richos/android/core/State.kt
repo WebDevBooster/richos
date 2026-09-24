@@ -81,6 +81,8 @@ data class Session(
     val microphone: Microphone = Microphone.UNKNOWN,
     /** Recordings kept on the phone and not sent (`rec-card`). */
     val keptRecordings: List<KeptRecording> = emptyList(),
+    /** Written before capture starts; an abrupt process death recovers this file without sending. */
+    val activeRecording: KeptRecording? = null,
     val notifications: Notifications = Notifications(),
     /** The hosted policy's last notice, kept so an offline launch still shows it. */
     val update: UpdateNotice? = null,

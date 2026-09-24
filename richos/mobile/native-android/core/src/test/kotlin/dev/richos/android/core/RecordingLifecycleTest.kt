@@ -5,6 +5,51 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.*
 
 class RecordingLifecycleTest {
+    @Test fun captureJournalSurvivesProcessDeathAndNeverResendsRecoveredAudio() = runTest {
+        var saved = Fixtures.fixture("online").session.copy(microphone = Microphone.GRANTED)
+        val items = linkedMapOf<String, OutboxItem>()
+        var started = false
+        var recoveries = 0
+        val ports = Ports(
+            storage = object : OutboxStorage {
+                override suspend fun all() = items.values.toList()
+                override suspend fun put(item: OutboxItem) { items[item.clientId] = item }
+                override suspend fun remove(clientId: String) { items.remove(clientId) }
+            }, session = object : SessionStore {
+                override suspend fun read() = saved
+                override suspend fun write(session: Session) { saved = session }
+            }, recorder = object : Recorder {
+                override suspend fun start(id: String) {
+                    assertEquals(id, saved.activeRecording?.id)
+                    started = true
+                }
+                override suspend fun recover(recording: KeptRecording): KeptRecording {
+                    assertTrue(started)
+                    recoveries++
+                    return recording.copy(durationMs = 1_234)
+                }
+            }, transport = object : Transport {
+                override suspend fun sendText(item: OutboxItem): Receipt = error("recovery must never send")
+            }, clock = Clock { Fixtures.EPOCH }, ids = IdSource { "unused" },
+            http = dev.richos.android.core.protocol.Http { error("no network") },
+            keys = object : dev.richos.android.core.protocol.DeviceKeys {
+                override suspend fun publicPoint(origin: String) = DevKeys.point
+                override suspend fun sign(origin: String, data: ByteArray) = DevKeys.sign(data)
+                override suspend fun delete(origin: String) = Unit
+            },
+        )
+        val first = RichCore.open(ports)
+        first.dispatch(Action.VoiceStartLocked("crashed", 386.0, Fixtures.EPOCH))
+        assertEquals(VoicePhase.LOCKED, first.state.voice?.phase)
+        val reopened = RichCore.open(ports)
+        assertNull(reopened.state.voice)
+        assertEquals(1_234L, reopened.state.keptRecordings.single().durationMs)
+        assertNull(saved.activeRecording)
+        assertTrue(reopened.state.outbox.isEmpty())
+        assertEquals(1, RichCore.open(ports).state.keptRecordings.size)
+        assertEquals(1, recoveries)
+    }
+
     @Test fun failedBackgroundSaveStillStopsOnlineWorkAndKeepsCapturedAudio() = runTest {
         var fail = false
         val runtime = DevRuntime.create(Fixtures.fixture("online"), save = {
