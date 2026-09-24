@@ -2,8 +2,8 @@ import SwiftUI
 import UIKit
 import RichOSCore
 
-/// The app entry. It loads the store, wires the effect handlers, keeps the core's clock ticking while
-/// the app is on screen, tells the core when the app comes and goes, starts the Debug development
+/// The app entry. It loads the store, wires the effect handlers, ticks the core's clock when time is
+/// owed while the app is on screen, tells the core when the app comes and goes, starts the Debug development
 /// bridge, and hands the store to the screens.
 ///
 /// COMPOSITION SEAM: the screens stream's (I2) `RootView` (`App/Features/Root/`) takes the state and
@@ -16,6 +16,12 @@ struct RichOSNativeApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var store: AppStore?
     @State private var platform: PlatformEffects?
+
+    /// When the core is next owed a `tick`, while the app is on screen; `nil` otherwise.
+    private var nextTick: Int64? {
+        guard scenePhase == .active, let store else { return nil }
+        return TickSchedule.nextTick(store.state)
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -69,14 +75,17 @@ struct RichOSNativeApp: App {
                 loaded.becameActive(at: SystemClock().nowMs())
                 await ShareIntake.takeWaiting(into: loaded, nowMs: SystemClock().nowMs())
             }
-            .task(id: scenePhase) {
-                // The core's clock: the outbox's retries, the voice timer and the quiet period before
-                // "Reconnecting…" all move on `tick`. Ten times a second, only while on screen.
-                guard scenePhase == .active else { return }
-                while !Task.isCancelled {
-                    if let store, store.ticking { store.send(.tick(at: SystemClock().nowMs())) }
-                    try? await Task.sleep(nanoseconds: 100_000_000)
+            .task(id: nextTick) {
+                // The core's clock, only when time is owed: a running recording, the end of the quiet
+                // period before "Reconnecting…", an outbox retry (`TickSchedule`). One sleep to that
+                // moment, one tick; a new state that moves the moment restarts it. At rest, or off
+                // screen, nothing is owed and nothing wakes (the CEO's battery rule, 2026-09-24).
+                guard let due = nextTick else { return }
+                let wait = due - SystemClock().nowMs()
+                if wait > 0 {
+                    do { try await Task.sleep(nanoseconds: UInt64(wait) * 1_000_000) } catch { return }
                 }
+                if let store, store.ticking { store.send(.tick(at: SystemClock().nowMs())) }
             }
             .onChange(of: scenePhase) { _, phase in
                 guard let store else { return }
