@@ -119,7 +119,7 @@ class RichApplication : Application() {
             // the OS's notification answer is mirrored (platform/Notifications.kt, reconcile).
             scope.launch {
                 val opened = store.states.filterNotNull().first()
-                platform.reconcile(opened.notifications.status, opened.notifications.previews)
+                platform.reconcile(opened.notifications.status, opened.notifications.previews) { started > 0 }
             }
         }
         registerActivityLifecycleCallbacks(
@@ -130,7 +130,7 @@ class RichApplication : Application() {
                     started++
                     owner?.foregrounded()
                     val now = store.states.value ?: return
-                    push?.let { p -> scope.launch { p.reconcile(now.notifications.status, now.notifications.previews) } }
+                    push?.let { p -> scope.launch { p.reconcile(now.notifications.status, now.notifications.previews) { started > 0 } } }
                 }
 
                 // The activity on screen, for the one OS question the recorder asks.

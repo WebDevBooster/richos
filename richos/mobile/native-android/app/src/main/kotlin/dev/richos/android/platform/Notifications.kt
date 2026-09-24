@@ -201,7 +201,13 @@ class FcmPlatform(
      * are mirrored as DENIED, so Settings in the app says so and offers the way back, rather than
      * showing a switch that is on while nothing can be shown.
      */
-    suspend fun reconcile(status: NotificationStatus, previews: Boolean) = reconciling.withLock { reconcileNow(status, previews) }
+    suspend fun reconcile(status: NotificationStatus, previews: Boolean, isVisible: () -> Boolean) = reconciling.withLock {
+        // A received notification can create a process with no activity. It does not need a
+        // routine token fetch or a retry of earlier maintenance. Recheck after waiting for the
+        // lane so queued foreground callbacks cannot start that work after the app is hidden.
+        // Actual onNewToken events still use TokenRefresh's separate hand-over path.
+        if (isVisible()) reconcileNow(status, previews)
+    }
 
     /** Launch and each return to the foreground both reconcile; one at a time, so a change registers once. */
     private val reconciling = Mutex()

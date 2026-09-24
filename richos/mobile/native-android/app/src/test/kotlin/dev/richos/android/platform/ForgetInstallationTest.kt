@@ -67,11 +67,14 @@ class ForgetInstallationTest {
         assertTrue("still owed", pending.exists())
         // The next launch (after Forget, notifications are not asked) finishes it.
         reachable = true
-        p.reconcile(NotificationStatus.NOT_ASKED, previews = true)
+        p.reconcile(NotificationStatus.NOT_ASKED, previews = true) { false }
+        assertEquals("a hidden process does not retry routine maintenance", 1, attempts)
+        assertTrue(pending.exists())
+        p.reconcile(NotificationStatus.NOT_ASKED, previews = true) { true }
         assertEquals(2, attempts)
         assertFalse(pending.exists())
         // And nothing more after that.
-        p.reconcile(NotificationStatus.NOT_ASKED, previews = true)
+        p.reconcile(NotificationStatus.NOT_ASKED, previews = true) { true }
         assertEquals(2, attempts)
     }
 

@@ -11,6 +11,9 @@ import dev.richos.android.core.Action
 import dev.richos.android.core.NotificationStatus
 import dev.richos.android.core.protocol.Signing
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Before
@@ -75,6 +78,43 @@ class NotificationsTest {
     }
 
     @Test
+    fun `a process started while hidden does no routine Firebase reconciliation`() = runBlocking {
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val seen = mutableListOf<Action>()
+        var initialized = 0
+        var fetched = 0
+        val platform = FcmPlatform(app, keys(), { seen += it }, { null },
+            firebaseReady = { initialized++; true }, fetchToken = { fetched++; "changed-token" }, ledger = ledger())
+        platform.reconcile(NotificationStatus.ON, previews = false) { false }
+        assertEquals(0, initialized)
+        assertEquals(0, fetched)
+        assertTrue(seen.isEmpty())
+        platform.reconcile(NotificationStatus.ON, previews = false) { true }
+        assertEquals(1, fetched)
+        assertEquals("changed-token", (seen.single() as Action.PushToken).token)
+    }
+
+    @Test
+    fun `a queued reconciliation checks visibility again before fetching`() = runBlocking {
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val release = CompletableDeferred<Unit>()
+        var fetched = 0
+        var visible = true
+        val platform = FcmPlatform(app, keys(), { }, { null }, firebaseReady = { true },
+            fetchToken = { fetched++; release.await(); "token" }, ledger = ledger())
+        val first = launch(start = CoroutineStart.UNDISPATCHED) {
+            platform.reconcile(NotificationStatus.ON, previews = false) { visible }
+        }
+        val queued = launch(start = CoroutineStart.UNDISPATCHED) {
+            platform.reconcile(NotificationStatus.ON, previews = false) { visible }
+        }
+        visible = false
+        release.complete(Unit)
+        first.join(); queued.join()
+        assertEquals(1, fetched)
+    }
+
+    @Test
     fun `a launch hands the Mac a token that changed while nothing listened, and only then`() = runBlocking {
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         val seen = mutableListOf<Action>()
@@ -83,20 +123,20 @@ class NotificationsTest {
         val platform = FcmPlatform(app, keys(), { seen += it }, { null }, firebaseReady = { true }, fetchToken = { token }, ledger = book)
         platform.requestNotifications(previews = false)
         seen.clear()
-        platform.reconcile(NotificationStatus.ON, previews = false)
+        platform.reconcile(NotificationStatus.ON, previews = false) { true }
         assertEquals(emptyList<Action>(), seen)
         token = "fcm:second-" + "y".repeat(40)
-        platform.reconcile(NotificationStatus.OFF, previews = false)
+        platform.reconcile(NotificationStatus.OFF, previews = false) { true }
         assertEquals(emptyList<Action>(), seen)
-        platform.reconcile(NotificationStatus.ON, previews = false)
+        platform.reconcile(NotificationStatus.ON, previews = false) { true }
         assertEquals(token, (seen.single() as Action.PushToken).token)
         seen.clear()
-        platform.reconcile(NotificationStatus.ON, previews = false)
+        platform.reconcile(NotificationStatus.ON, previews = false) { true }
         assertEquals(emptyList<Action>(), seen)
         // Revoked in Android Settings: the launch asks nothing, registers nothing, and says it is off.
         token = "fcm:third-" + "z".repeat(40)
         shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
-        platform.reconcile(NotificationStatus.ON, previews = false)
+        platform.reconcile(NotificationStatus.ON, previews = false) { true }
         assertEquals(listOf<Action>(Action.NotificationsResult(NotificationStatus.DENIED)), seen)
     }
 
@@ -106,14 +146,14 @@ class NotificationsTest {
         val token = "fcm:back-" + "x".repeat(40)
         val platform = FcmPlatform(app, keys(), { seen += it }, { null }, firebaseReady = { true }, fetchToken = { token }, ledger = ledger(), main = Dispatchers.Unconfined)
         shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
-        platform.reconcile(NotificationStatus.DENIED, previews = false)
+        platform.reconcile(NotificationStatus.DENIED, previews = false) { true }
         assertEquals(emptyList<Action>(), seen)
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
-        platform.reconcile(NotificationStatus.DENIED, previews = false)
+        platform.reconcile(NotificationStatus.DENIED, previews = false) { true }
         assertEquals(token, (seen.single() as Action.PushToken).token)
         // Off by the person's own choice stays off.
         seen.clear()
-        platform.reconcile(NotificationStatus.OFF, previews = false)
+        platform.reconcile(NotificationStatus.OFF, previews = false) { true }
         assertEquals(emptyList<Action>(), seen)
     }
 
