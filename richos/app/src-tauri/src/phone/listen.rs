@@ -33,6 +33,7 @@
 //! `accept()` against one shutdown — and `tokio::time::timeout` does the other. An attribute is
 //! not worth a `[[package]]` line.
 
+use super::device::{DeviceDesk, PAIR_WAIT_MAX_SECONDS};
 use super::routes::{dispatch, Channel, Incoming, Outcome};
 use super::{PhoneError, KEEPALIVE_MS};
 #[cfg(test)]
@@ -57,6 +58,103 @@ pub struct Listener {
     /// tests assert against — a claim about what was bound must come from the socket rather than
     /// from what we asked for.
     pub bound: Vec<SocketAddr>,
+    /// The desk whose held asks [`Listener::stop`] releases before it signals shutdown.
+    devices: Arc<DeviceDesk>,
+}
+
+/// **HOW LONG A STOPPING CHANNEL WAITS FOR THE ANSWERS IT HAS JUST RELEASED TO BE WRITTEN.**
+///
+/// Sage's pair-v2 hypotheses review §1 says a held ask is released by `They do not match` on this
+/// Mac, by the expiry sweep and by the channel's teardown, and that the Mac "re-runs the request
+/// and sends that outcome". **The first two are followed at once by the teardown**, and before
+/// this bound existed the teardown dropped the runtime with the answer still unwritten —
+/// `they_do_not_match_over_the_wire_stops_the_listener` records exactly that race for an ordinary
+/// request. So the serving loops stop accepting first (the port closes at once, as before), and
+/// then wait up to this long for the held answers, and only those, to leave. One second: a
+/// released answer is one signature check and one small write, measured in milliseconds by
+/// `a_held_ask_hears_they_do_not_match_on_the_mac_before_the_channel_closes`.
+const HELD_ANSWER_DRAIN_MS: u64 = 1_000;
+
+/// **Read `Prefer: wait=N` (RFC 7240) as the seconds this Mac may hold the answer**, capped at
+/// [`PAIR_WAIT_MAX_SECONDS`]. `None` for no header, no `wait`, zero, or a value that is not a
+/// number. The header is unsigned on purpose (Sage's review, "Security, plainly"): stripping or
+/// forging it changes only how long an answer takes, never what the answer is.
+pub fn hold_seconds(prefer: Option<&str>) -> Option<u64> {
+    for preference in prefer?.split(',') {
+        let token = preference.split(';').next().unwrap_or("").trim();
+        let Some((name, value)) = token.split_once('=') else { continue };
+        if !name.trim().eq_ignore_ascii_case("wait") {
+            continue;
+        }
+        let seconds: u64 = value.trim().trim_matches('"').parse().ok()?;
+        return (seconds > 0).then(|| seconds.min(PAIR_WAIT_MAX_SECONDS));
+    }
+    None
+}
+
+/// The held answers still being written, so a stopping channel can wait for them and nothing
+/// else. Counted by a guard that lives in the response body, so "done" means hyper has finished
+/// with the bytes, not that a handler returned.
+#[derive(Default)]
+struct Drain {
+    open: std::sync::atomic::AtomicUsize,
+    idle: tokio::sync::Notify,
+}
+
+struct DrainGuard(Arc<Drain>);
+
+impl Drain {
+    fn enter(self: &Arc<Self>) -> DrainGuard {
+        self.open.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        DrainGuard(Arc::clone(self))
+    }
+
+    /// Wait until no held answer is still being written, or `bound` passes.
+    async fn settle(&self, bound: std::time::Duration) {
+        let deadline = tokio::time::Instant::now() + bound;
+        loop {
+            // Created BEFORE the count is read: a `Notified` receives `notify_waiters` from the
+            // moment it exists, so a guard dropped between the read and the await is not missed.
+            let idle = self.idle.notified();
+            if self.open.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                return;
+            }
+            if tokio::time::timeout_at(deadline, idle).await.is_err() {
+                return;
+            }
+        }
+    }
+}
+
+impl Drop for DrainGuard {
+    fn drop(&mut self) {
+        if self.0.open.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) == 1 {
+            self.0.idle.notify_waiters();
+        }
+    }
+}
+
+/// A response body that keeps its [`DrainGuard`] until hyper is done with it.
+///
+/// **The size hint is forwarded**, so hyper still writes `Content-Length` rather than switching
+/// the answer to chunked framing: a held answer is byte for byte the answer an unheld ask gets.
+struct GuardedBody {
+    inner: BoxBody,
+    _guard: DrainGuard,
+}
+impl hyper::body::Body for GuardedBody {
+    type Data = Bytes;
+    type Error = std::convert::Infallible;
+    fn poll_frame(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>)
+        -> std::task::Poll<Option<Result<hyper::body::Frame<Bytes>, Self::Error>>> {
+        std::pin::Pin::new(&mut self.inner).poll_frame(cx)
+    }
+    fn is_end_stream(&self) -> bool {
+        self.inner.is_end_stream()
+    }
+    fn size_hint(&self) -> hyper::body::SizeHint {
+        self.inner.size_hint()
+    }
 }
 
 impl Listener {
@@ -103,6 +201,7 @@ impl Listener {
 
         let (shutdown, _rx) = watch::channel(false);
         let stop = shutdown.clone();
+        let devices = Arc::clone(&channel.devices);
         channel.hub.set_live(true);
         let thread = std::thread::Builder::new()
             .name("richos-phone-channel".to_string())
@@ -119,7 +218,7 @@ impl Listener {
             })
             .map_err(|e| PhoneError::Io(format!("could not start the phone channel thread: {e}")))?;
 
-        Ok(Listener { shutdown, thread: Some(thread), bound })
+        Ok(Listener { shutdown, thread: Some(thread), bound, devices })
     }
 
     /// The managed tunnel's final hop. No LAN address or alternate origin is accepted.
@@ -128,21 +227,25 @@ impl Listener {
         listener.set_nonblocking(true)?;
         let bound = vec![listener.local_addr()?];
         let (shutdown, rx) = watch::channel(false);
+        let devices = Arc::clone(&channel.devices);
         let thread = std::thread::Builder::new().name("richos-connect-listener".into()).spawn(move || {
             let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else { return };
             runtime.block_on(async {
                 let Ok(listener) = tokio::net::TcpListener::from_std(listener) else { return };
                 let slots = Arc::new(tokio::sync::Semaphore::new(32));
+                let drain = Arc::new(Drain::default());
                 channel.hub.set_live(true);
                 while !*rx.borrow() {
                     let Some((stream, _)) = accept_one(&listener, &rx).await else { continue };
                     let Ok(permit) = Arc::clone(&slots).try_acquire_owned() else { continue };
                     let channel = Arc::clone(&channel);
+                    let drain = Arc::clone(&drain);
                     tokio::spawn(async move {
                         let _permit = permit;
                         let service = service_fn(move |request| {
                             let channel = Arc::clone(&channel);
-                            async move { Ok::<_, std::convert::Infallible>(handle(channel, request).await) }
+                            let drain = Arc::clone(&drain);
+                            async move { Ok::<_, std::convert::Infallible>(handle(channel, drain, request).await) }
                         });
                         if let Err(error) = hyper::server::conn::http1::Builder::new()
                             .timer(hyper_util::rt::TokioTimer::new())
@@ -154,14 +257,20 @@ impl Listener {
                         }
                     });
                 }
+                // The port is closed; the answers this Mac just released still go out.
+                drop(listener);
+                drain.settle(std::time::Duration::from_millis(HELD_ANSWER_DRAIN_MS)).await;
                 channel.hub.set_live(false);
             });
         })?;
-        Ok(Self { shutdown, thread: Some(thread), bound })
+        Ok(Self { shutdown, thread: Some(thread), bound, devices })
     }
 
     /// Stop serving and wait for the sockets to be gone.
     pub fn stop(&mut self) {
+        // A phone being held hears the state it is in now, rather than a connection that drops
+        // (Sage's pair-v2 hypotheses review §1: "released … by channel teardown").
+        self.devices.release_holds();
         let _ = self.shutdown.send(true);
         if let Some(thread) = self.thread.take() {
             // Joined rather than detached: "the listener stops when he unpairs the last phone" has
@@ -367,6 +476,7 @@ async fn serve_all(
     shutdown: watch::Receiver<bool>,
 ) {
     let acceptor = tokio_rustls::TlsAcceptor::from(tls);
+    let drain = Arc::new(Drain::default());
     let mut tasks = Vec::new();
     for listener in https {
         let Ok(listener) = tokio::net::TcpListener::from_std(listener) else { continue };
@@ -374,12 +484,16 @@ async fn serve_all(
             listener,
             acceptor.clone(),
             Arc::clone(&channel),
+            Arc::clone(&drain),
             shutdown.clone(),
         )));
     }
     for task in tasks {
         let _ = task.await;
     }
+    // Every port is closed by now (each accept loop owned its socket). What remains is the held
+    // answers this Mac just released, which are waited for and nothing else.
+    drain.settle(std::time::Duration::from_millis(HELD_ANSWER_DRAIN_MS)).await;
     channel.hub.set_live(false);
 }
 
@@ -414,6 +528,7 @@ async fn accept_https(
     listener: tokio::net::TcpListener,
     acceptor: tokio_rustls::TlsAcceptor,
     channel: Arc<Channel>,
+    drain: Arc<Drain>,
     shutdown: watch::Receiver<bool>,
 ) {
     let slots = Arc::new(tokio::sync::Semaphore::new(32));
@@ -427,6 +542,7 @@ async fn accept_https(
         let Ok(permit) = Arc::clone(&slots).try_acquire_owned() else { continue };
         let acceptor = acceptor.clone();
         let channel = Arc::clone(&channel);
+        let drain = Arc::clone(&drain);
         tokio::spawn(async move {
             // A handshake that fails is a device on his Wi-Fi that does not hold the certificate
             // authority. Nothing is logged per connection: a TV that probes the port every minute
@@ -436,7 +552,8 @@ async fn accept_https(
             let io = hyper_util::rt::TokioIo::new(tls_stream);
             let service = service_fn(move |request| {
                 let channel = Arc::clone(&channel);
-                async move { Ok::<_, std::convert::Infallible>(handle(channel, request).await) }
+                let drain = Arc::clone(&drain);
+                async move { Ok::<_, std::convert::Infallible>(handle(channel, drain, request).await) }
             });
             let _ = hyper::server::conn::http1::Builder::new()
                 .timer(hyper_util::rt::TokioTimer::new())
@@ -459,7 +576,7 @@ fn log_connect_connection_error(error: &hyper::Error) {
     }
 }
 
-async fn handle(channel: Arc<Channel>, request: Request<HyperBody>) -> Response<BoxBody> {
+async fn handle(channel: Arc<Channel>, drain: Arc<Drain>, request: Request<HyperBody>) -> Response<BoxBody> {
     let method = request.method().as_str().to_string();
     // Authenticated signatures cover the wire path. Decode an audio ID only after
     // verification in its route; decoding here changes signed %3A into ':' first.
@@ -472,6 +589,11 @@ async fn handle(channel: Arc<Channel>, request: Request<HyperBody>) -> Response<
     let authorization = header("authorization");
     let last_event_id = header("last-event-id");
     let content_type = header("content-type");
+    // `pair-wait` (Sage's pair-v2 hypotheses review §1): how long the phone asked this Mac to hold
+    // the answer. A request that asked is counted by the drain from here, before its answer is
+    // computed, so a teardown that lands while it is being dispatched still waits for it.
+    let wait = hold_seconds(header("prefer").as_deref());
+    let guard = wait.map(|_| drain.enter());
 
     // THE LIMIT IS APPLIED BEFORE THE BODY IS READ, which is the difference between a limit and a
     // check. `Limited` fails the read rather than buffering four gigabytes and then measuring it.
@@ -483,13 +605,42 @@ async fn handle(channel: Arc<Channel>, request: Request<HyperBody>) -> Response<
     };
 
     let incoming =
-        Incoming { method, path, query, authorization, last_event_id, content_type, body };
-    let target = Arc::clone(&channel);
-    let outcome = tokio::task::spawn_blocking(move || dispatch(&target, &incoming)).await.unwrap_or(Outcome::NotFound);
-    match outcome {
-        Outcome::Stream { opening, .. } => open_stream(channel, opening),
-        other => render(&channel, other),
+        Arc::new(Incoming { method, path, query, authorization, last_event_id, content_type, body });
+    // Read BEFORE the request runs, so a press that lands between its answer and the hold below
+    // ends the hold at once rather than being missed for fourteen seconds.
+    let since = channel.devices.hold_generation();
+    let mut outcome = run(&channel, &incoming).await;
+
+    // **THE HOLD** — Sage's pair-v2 hypotheses review §1, "The fix" point 2. Only the phone's own
+    // signed "They match" answered "still waiting" is ever held (`routes::holdable`), at most one
+    // at a time (`DeviceDesk::hold_answer`), and for at most `PAIR_WAIT_MAX_SECONDS`. No blocking
+    // thread is held: this is one async task waiting on the desk's release signal.
+    if let Some(seconds) = wait.filter(|_| super::routes::holdable(&incoming, &outcome)) {
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(seconds),
+            channel.devices.hold_answer(since),
+        )
+        .await;
+        // Something changed — the press, a refusal, an expiry, a teardown — so the request is
+        // run again and the phone is sent THAT answer. Otherwise it is "still waiting", as before.
+        if channel.devices.hold_generation() != since {
+            outcome = run(&channel, &incoming).await;
+        }
     }
+    match (outcome, guard) {
+        // A stream is long-lived; the drain never waits on one.
+        (Outcome::Stream { opening, .. }, _) => open_stream(channel, opening),
+        (other, Some(guard)) => {
+            render(&channel, other).map(|inner| GuardedBody { inner, _guard: guard }.boxed())
+        }
+        (other, None) => render(&channel, other),
+    }
+}
+
+/// Run the route table off the async thread: it signs, verifies and may write to disk.
+async fn run(channel: &Arc<Channel>, incoming: &Arc<Incoming>) -> Outcome {
+    let (target, request) = (Arc::clone(channel), Arc::clone(incoming));
+    tokio::task::spawn_blocking(move || dispatch(&target, &request)).await.unwrap_or(Outcome::NotFound)
 }
 
 /// **How many bytes, and how long, this request's body may take — decided before one is read.**
@@ -2745,5 +2896,287 @@ mod tests {
             held.lock().unwrap().is_none(),
             "the owner finished teardown but still holds the listener"
         );
+    }
+
+    // ---- pair-wait: the held ask, over a real socket (Sage's pair-v2 hypotheses review §1) ----
+    //
+    // A real listener on an ephemeral loopback port, a real TLS client, the real route table and
+    // the real desk. What each test measures is printed, so a hold that merely gets slower is
+    // visible rather than silently passing.
+
+    #[test]
+    fn prefer_wait_is_read_as_capped_seconds_and_anything_else_is_no_hold() {
+        assert_eq!(hold_seconds(Some("wait=14")), Some(14));
+        assert_eq!(hold_seconds(Some("wait=5")), Some(5));
+        assert_eq!(hold_seconds(Some("wait=600")), Some(PAIR_WAIT_MAX_SECONDS), "a longer ask is capped, not refused");
+        assert_eq!(hold_seconds(Some("respond-async, WAIT=\"9\"; x=1")), Some(9), "RFC 7240: case-insensitive, quoted, among others");
+        for none in [None, Some(""), Some("wait=0"), Some("wait=soon"), Some("return=minimal"), Some("wait")] {
+            assert_eq!(hold_seconds(none), None, "{none:?}");
+        }
+    }
+
+    /// The teardown's wait for released answers: none open returns at once, an open one is waited
+    /// for until its body is done, and one that never finishes costs at most the bound.
+    #[test]
+    fn the_drain_waits_for_held_answers_and_no_longer_than_its_bound() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            let drain = Arc::new(Drain::default());
+            let started = tokio::time::Instant::now();
+            drain.settle(std::time::Duration::from_secs(5)).await;
+            assert!(started.elapsed() < std::time::Duration::from_millis(50), "nothing open, and it waited");
+
+            let guard = drain.enter();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                drop(guard);
+            });
+            let started = tokio::time::Instant::now();
+            drain.settle(std::time::Duration::from_secs(5)).await;
+            let waited = started.elapsed();
+            assert!(waited >= std::time::Duration::from_millis(190), "it did not wait for the open answer: {waited:?}");
+            assert!(waited < std::time::Duration::from_secs(2), "it waited past the answer: {waited:?}");
+
+            let _stuck = drain.enter();
+            let started = tokio::time::Instant::now();
+            drain.settle(std::time::Duration::from_millis(300)).await;
+            let waited = started.elapsed();
+            assert!(waited >= std::time::Duration::from_millis(290) && waited < std::time::Duration::from_secs(2), "the bound did not hold: {waited:?}");
+        });
+    }
+
+    const HOLD_TAILNET: &str = "mm1.tail5d2c1b.ts.net";
+
+    /// The held-ask tests never send a message or read a timeline.
+    struct QuietBridge;
+    impl Bridge for QuietBridge {
+        fn submit_text(&self, _: Option<&str>, _: &str) -> Result<Accepted, String> {
+            Err("this test never sends a message".into())
+        }
+        fn snapshot(&self, _: Option<&str>) -> Result<Value, String> {
+            Err("this test never reads a timeline".into())
+        }
+        fn current_thread(&self) -> Option<(String, String)> {
+            None
+        }
+        fn threads(&self) -> Vec<(String, String)> {
+            Vec::new()
+        }
+    }
+
+    /// A Mac with one phone that has redeemed its code over real TLS and pressed nothing yet.
+    struct HoldWire {
+        dir: std::path::PathBuf,
+        devices: Arc<DeviceDesk>,
+        listener: StdMutex<Option<Listener>>,
+        client: Arc<rustls::ClientConfig>,
+        port: u16,
+        phone: crate::phone::device::tests::Phone,
+        device_id: String,
+        challenge: String,
+    }
+
+    impl Drop for HoldWire {
+        /// CEO §54: the listener and the scratch go however the test ends.
+        fn drop(&mut self) {
+            if let Some(mut listener) = self.listener.lock().unwrap().take() {
+                listener.stop();
+            }
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    fn hold_wire(tag: &str) -> HoldWire {
+        let dir = std::env::temp_dir().join(format!("richos-phone-hold-{tag}-{}-{}", std::process::id(), super::super::now_millis()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // A MEMORY SECRET STORE, NEVER THE LOGIN KEYCHAIN. A test may not write to his.
+        let names = LocalNames { host: "MM1".into(), bonjour: HOLD_TAILNET.into(), addresses: vec![IpAddr::V4(Ipv4Addr::LOCALHOST)] };
+        let ca = PhoneCa::open(&dir, &MemorySecrets::default(), names).unwrap();
+        let devices = Arc::new(DeviceDesk::open(&dir).unwrap());
+        let vapid = crate::phone::push::VapidKey::generate().unwrap();
+        // Nothing owns this channel's stop switch: these tests end the channel themselves.
+        let (doorbell, _nobody) = std::sync::mpsc::channel::<&'static str>();
+        let channel = Arc::new(Channel {
+            rejected: crate::phone::routes::StopSwitch::to(doorbell),
+            devices: Arc::clone(&devices),
+            api_base: Arc::new(ApiBaseDesk::only(TEST_API_BASE)),
+            hub: PhoneHub::new(),
+            bridge: Arc::new(QuietBridge) as Arc<dyn Bridge>,
+            assets: crate::phone::assets::PhoneApp::embedded(),
+            vapid_public: vapid.application_server_key(),
+            fingerprint_hex: ca.fingerprint_hex(),
+            pairing_path: StdMutex::new(crate::phone::device::PairedVia::TAILNET),
+        });
+        devices.open_pairing().unwrap();
+        let code = devices.pairing_window().unwrap().code;
+        let tls = tls_config(&ca.leaf_der, &ca.leaf_key_pkcs8).unwrap();
+        let listener = Listener::start(Arc::clone(&channel), tls, &[IpAddr::V4(Ipv4Addr::LOCALHOST)], 0)
+            .expect("the listener did not start");
+        let port = listener.bound[0].port();
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(rustls::pki_types::CertificateDer::from(ca.ca_der.clone())).unwrap();
+        let client = Arc::new(rustls::ClientConfig::builder().with_root_certificates(roots).with_no_client_auth());
+        let mut wire = HoldWire {
+            dir,
+            devices,
+            listener: StdMutex::new(Some(listener)),
+            client,
+            port,
+            phone: crate::phone::device::tests::Phone::new(),
+            device_id: String::new(),
+            challenge: String::new(),
+        };
+        let pair = serde_json::json!({
+            "code": code, "public_key_jwk": wire.phone.jwk(), "device_name": "Android phone",
+            "platform": "android", "pairing_version": 2,
+        })
+        .to_string();
+        let (status, _, body) = wire.send("POST", "/api/pair", &[("Content-Type", "application/json")], pair.as_bytes());
+        assert_eq!(status, 200, "pairing was refused: {}", String::from_utf8_lossy(&body));
+        let answer: Value = serde_json::from_slice(&body).unwrap();
+        assert!(answer["capabilities"].as_array().unwrap().contains(&serde_json::json!("pair-wait")), "{answer}");
+        wire.device_id = answer["device_id"].as_str().unwrap().to_string();
+        wire.challenge = answer["challenge"].as_str().unwrap().to_string();
+        wire
+    }
+
+    impl HoldWire {
+        fn send(&self, method: &str, path: &str, headers: &[(&str, &str)], body: &[u8]) -> (u16, Vec<(String, String)>, Vec<u8>) {
+            let server_name = rustls::pki_types::ServerName::try_from(HOLD_TAILNET).unwrap().to_owned();
+            let mut connection = rustls::ClientConnection::new(Arc::clone(&self.client), server_name).unwrap();
+            let mut socket = std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, self.port)).expect("connect");
+            socket.set_read_timeout(Some(std::time::Duration::from_secs(30))).unwrap();
+            let mut tls = rustls::Stream::new(&mut connection, &mut socket);
+            let mut head = format!("{method} {path} HTTP/1.1\r\nHost: {HOLD_TAILNET}\r\nConnection: close\r\n");
+            for (name, value) in headers {
+                head.push_str(&format!("{name}: {value}\r\n"));
+            }
+            head.push_str(&format!("Content-Length: {}\r\n\r\n", body.len()));
+            tls.write_all(head.as_bytes()).expect("write request");
+            tls.write_all(body).expect("write body");
+            tls.flush().ok();
+            let mut raw = Vec::new();
+            let _ = tls.read_to_end(&mut raw);
+            parse_response(&raw)
+        }
+
+        /// The phone's own signed "They match" — the ask Sage's fix makes the wait send — signed
+        /// by `signer`, optionally asking this Mac to hold it. Returns the status, the body and
+        /// how long the answer took.
+        fn they_match_signed_by(&self, signer: &crate::phone::device::tests::Phone, prefer: Option<&str>) -> (u16, Value, std::time::Duration) {
+            let body = serde_json::json!({ "device_id": self.device_id, "fingerprint_confirmed": true }).to_string();
+            let signature = super::super::b64url(&signer.sign(&signing_string(&self.challenge, "POST", "/api/pair", body.as_bytes())));
+            let authorization = format!("RichOS-Device {}.{}.{signature}", self.device_id, self.challenge);
+            let mut headers = vec![("Content-Type", "application/json"), ("Authorization", authorization.as_str())];
+            if let Some(prefer) = prefer {
+                headers.push(("Prefer", prefer));
+            }
+            let started = std::time::Instant::now();
+            let (status, _, answer) = self.send("POST", "/api/pair", &headers, body.as_bytes());
+            (status, serde_json::from_slice(&answer).unwrap_or(Value::Null), started.elapsed())
+        }
+
+        fn they_match(&self, prefer: Option<&str>) -> (u16, Value, std::time::Duration) {
+            self.they_match_signed_by(&self.phone, prefer)
+        }
+    }
+
+    fn still_waiting() -> Value {
+        serde_json::json!({ "ok": true, "awaiting_mac_confirmation": true })
+    }
+
+    /// **THE PHONE HEARS THE PRESS ON THE MAC WITHIN ONE ROUND TRIP** — hypothesis 1, fixed. On
+    /// `main` the Mac answered this ask at once and the phone learned of the press only at its
+    /// next scheduled ask: 2, 3, 5, 8, 13, then 15 s later.
+    #[test]
+    fn a_held_they_match_is_answered_the_moment_the_mac_is_pressed() {
+        let wire = hold_wire("press");
+
+        // CONTROLS: without `Prefer` the answer is immediate and unchanged, and a caller without
+        // the key is refused at once however long it asks to wait.
+        let (status, body, took) = wire.they_match(None);
+        assert_eq!((status, &body), (200, &still_waiting()), "the unheld answer changed");
+        assert!(took < std::time::Duration::from_secs(2), "an ask that did not ask to be held took {took:?}");
+        let (status, _, took) = wire.they_match_signed_by(&crate::phone::device::tests::Phone::new(), Some("wait=14"));
+        assert_eq!(status, 404, "a signature from another key was not refused");
+        assert!(took < std::time::Duration::from_secs(2), "a caller without the key was held for {took:?}");
+
+        std::thread::scope(|scope| {
+            let asked = scope.spawn(|| wire.they_match(Some("wait=14")));
+            std::thread::sleep(std::time::Duration::from_millis(600));
+            assert!(!asked.is_finished(), "the Mac answered at once instead of holding the ask");
+            let pressed = std::time::Instant::now();
+            wire.devices.confirm_on_mac().unwrap();
+            let (status, body, took) = asked.join().unwrap();
+            let after_press = pressed.elapsed();
+            assert_eq!((status, &body), (200, &serde_json::json!({ "ok": true })), "the held ask was not told the Mac had pressed");
+            assert!(after_press < std::time::Duration::from_secs(1), "the phone heard the press {after_press:?} after it");
+            eprintln!("[test] held {} ms; answered {} ms after the press on the Mac", took.as_millis(), after_press.as_millis());
+        });
+    }
+
+    /// A hold nobody releases ends at the time the phone asked for with "still waiting" — the
+    /// answer an unheld ask gets — so the phone's own schedule takes over from there.
+    #[test]
+    fn a_hold_nobody_releases_ends_on_time_with_still_waiting() {
+        let wire = hold_wire("timeout");
+        let (status, body, took) = wire.they_match(Some("wait=1"));
+        assert_eq!((status, &body), (200, &still_waiting()));
+        assert!(took >= std::time::Duration::from_millis(900), "a one-second hold answered after {took:?}");
+        assert!(took < std::time::Duration::from_secs(4), "a one-second hold answered after {took:?}");
+        eprintln!("[test] a one-second hold answered after {} ms", took.as_millis());
+    }
+
+    /// **ONE HOLD AT A TIME.** A second ask answers the first at once, so a phone that asks again
+    /// never has two connections parked on this Mac.
+    #[test]
+    fn a_second_ask_answers_the_held_one_at_once() {
+        let wire = hold_wire("supersede");
+        std::thread::scope(|scope| {
+            let first = scope.spawn(|| wire.they_match(Some("wait=14")));
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            let second_started = std::time::Instant::now();
+            let second = scope.spawn(|| wire.they_match(Some("wait=2")));
+            let (status, body, took) = first.join().unwrap();
+            let first_answered = second_started.elapsed();
+            assert_eq!((status, &body), (200, &still_waiting()));
+            assert!(first_answered < std::time::Duration::from_secs(1), "the older hold lasted {first_answered:?} after a newer ask arrived");
+            assert!(took < std::time::Duration::from_secs(3), "the older hold was not answered early: {took:?}");
+            let (status, body, took) = second.join().unwrap();
+            assert_eq!((status, &body), (200, &still_waiting()));
+            assert!(took >= std::time::Duration::from_millis(1_900), "the newer ask was not the one held: {took:?}");
+        });
+    }
+
+    /// **"They do not match" ON THE MAC REACHES A HELD PHONE BEFORE THE CHANNEL GOES.**
+    /// `reject_on_mac` forgets the device and then stops the listener, and the held phone must
+    /// hear the refusal rather than a dropped connection.
+    ///
+    /// **What this does NOT prove, measured rather than assumed:** with the drain's `settle`
+    /// removed from `serve_all`, this test still passed on 2026-09-24 (0.56 s), because the
+    /// released task is woken before the shutdown and this machine's scheduler runs it first. So
+    /// it holds the outcome, and `the_drain_waits_for_held_answers_and_no_longer_than_its_bound`
+    /// holds the mechanism that makes that outcome a guarantee instead of a scheduling order.
+    #[test]
+    fn a_held_ask_hears_they_do_not_match_on_the_mac_before_the_channel_closes() {
+        let wire = hold_wire("reject");
+        std::thread::scope(|scope| {
+            let asked = scope.spawn(|| wire.they_match(Some("wait=14")));
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            assert!(!asked.is_finished());
+            // `PhoneRuntime::reject_on_mac`, in order: the device goes, then the channel.
+            let stopping = std::time::Instant::now();
+            wire.devices.forget().unwrap();
+            wire.listener.lock().unwrap().take().expect("the listener").stop();
+            let stopped_after = stopping.elapsed();
+            let (status, body, _) = asked.join().unwrap();
+            assert_eq!((status, &body), (403, &serde_json::json!({ "revoked": true })), "the held phone did not hear the Mac's refusal");
+            assert!(
+                stopped_after < std::time::Duration::from_millis(HELD_ANSWER_DRAIN_MS + 1_000),
+                "the teardown took {stopped_after:?}"
+            );
+            eprintln!("[test] the channel stopped {} ms after They do not match, with the answer delivered", stopped_after.as_millis());
+        });
+        assert!(std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, wire.port)).is_err(), "the port is still open");
     }
 }

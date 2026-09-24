@@ -441,9 +441,10 @@ fn pair_or_device_record(channel: &Channel, request: &Incoming) -> Outcome {
             }
             // AND IF NOBODY AT THIS MAC HAS ANSWERED YET, THE PHONE IS TOLD SO (Sage §3.1 step 5):
             // its screen moves to "Now press They match on your Mac". Additive: a client that
-            // reads only `ok` — the preserved iPhone app — is unaffected.
+            // reads only `ok` — the preserved iPhone app — is unaffected. This is also the one
+            // answer the listener may HOLD for a phone that asked it to (`pair-wait`).
             if !device.mac_confirmed {
-                return Outcome::Json { status: 200, body: json!({ "ok": true, "awaiting_mac_confirmation": true }).to_string() };
+                return awaiting_answer();
             }
         } else {
             eprintln!("[richos] the phone reported that the six words did NOT match; forgetting it");
@@ -470,6 +471,23 @@ fn pair_or_device_record(channel: &Channel, request: &Incoming) -> Outcome {
         }
     }
     Outcome::Json { status: 200, body: json!({ "ok": true }).to_string() }
+}
+
+/// **"Your answer is in, and this Mac is still waiting for its own press"** — the 200 the phone's
+/// `They match` gets before the press on this Mac. One function, so the route and the listener
+/// that may hold it ([`holdable`]) compare the same bytes.
+pub fn awaiting_answer() -> Outcome {
+    Outcome::Json { status: 200, body: json!({ "ok": true, "awaiting_mac_confirmation": true }).to_string() }
+}
+
+/// **MAY THE LISTENER HOLD THIS ANSWER?** — Sage's pair-v2 hypotheses review §1, "The fix" point 2.
+///
+/// Exactly one shape: the phone's own signed answer to the six words (`POST /api/pair`), answered
+/// [`awaiting_answer`]. That answer is only ever produced after
+/// [`DeviceDesk::verify_for_confirmation`] accepted the signature, so nothing without the key can
+/// reach a hold, and every other request — including every refusal — is answered at once.
+pub fn holdable(request: &Incoming, outcome: &Outcome) -> bool {
+    request.method == "POST" && request.path == "/api/pair" && *outcome == awaiting_answer()
 }
 
 fn complete_pairing(channel: &Channel, body: &Value, code: &str) -> Outcome {
@@ -606,6 +624,11 @@ pub fn capabilities(voice: bool, native_push: bool) -> Vec<&'static str> {
     // Always: every build from this one derives the v2 six words and requires the press on the Mac
     // (Sage §3.5, ledger row S3). A v2 phone refuses a Mac that does not name it.
     caps.push(super::words::PAIR_V2_CAPABILITY);
+    // Always: this Mac holds a phone's `They match` for up to `PAIR_WAIT_MAX_SECONDS` when the
+    // phone sends `Prefer: wait=…`, and answers it the moment the press lands (Sage's pair-v2
+    // hypotheses review §1; ledger row S3's capability pattern). A phone that does not see it
+    // sends no `Prefer` and keeps its backed-off schedule.
+    caps.push(super::device::PAIR_WAIT_CAPABILITY);
     caps
 }
 
@@ -1878,7 +1901,7 @@ mod tests {
                 // so an absent or renamed key is a button that disappears from his screen.
                 // `attachments` is appended, never inserted: the long-standing entries keep their
                 // place for any client that ever read them positionally.
-                assert_eq!(data["capabilities"], json!(["text", "attachments", "pair-v2"]));
+                assert_eq!(data["capabilities"], json!(["text", "attachments", "pair-v2", "pair-wait"]));
                 // The preserved iPhone core accepts exactly 1 (`mobile/core/client.js:147`).
                 assert_eq!(data["protocol_version"], 1);
                 assert_eq!(data["attachment_limits"]["max_file_bytes"], 26_214_400);
@@ -2327,9 +2350,10 @@ mod tests {
         let taken = dispatch(&f.channel, &upload(&f, "msg-7", "p1", "a.jpg", "image/jpeg", JPEG)).status() == 200;
         assert_eq!(capabilities(false, false).contains(&"attachments"), taken);
         // And the old Mac's list is still a prefix of the new one in every combination.
-        // `pair-v2` (Sage §3.5) is appended, never inserted, like every addition before it.
-        assert_eq!(capabilities(false, false), ["text", "attachments", "pair-v2"]);
-        assert_eq!(capabilities(true, true), ["text", "voice", "audio", "native-push", "attachments", "native-push-fcm", "pair-v2"]);
+        // `pair-v2` (Sage §3.5) is appended, never inserted, like every addition before it, and
+        // so is `pair-wait` (Sage's pair-v2 hypotheses review §1).
+        assert_eq!(capabilities(false, false), ["text", "attachments", "pair-v2", "pair-wait"]);
+        assert_eq!(capabilities(true, true), ["text", "voice", "audio", "native-push", "attachments", "native-push-fcm", "pair-v2", "pair-wait"]);
     }
 
     /// **SAGE §3.5: `pair-v2` IS ANNOUNCED IN BOTH PLACES A PHONE READS IT**, and the pairing answer
@@ -2345,6 +2369,8 @@ mod tests {
         let (status, v) = json_of(dispatch(&f.channel, &request));
         assert_eq!(status, 200);
         assert!(v["capabilities"].as_array().unwrap().contains(&json!("pair-v2")), "{v}");
+        // And the hold beside it, in the answer a phone reads before its first "They match".
+        assert!(v["capabilities"].as_array().unwrap().contains(&json!("pair-wait")), "{v}");
         assert_eq!(v["pairing_version"], 2);
         assert_eq!(f.channel.devices.paired().unwrap().pairing_version, 2, "the phone's announcement was not recorded");
 
