@@ -376,7 +376,7 @@ def composer_node(nodes):
     label = find_node(nodes, desc="Message Rich")
     if label is None:
         return None
-    # AndroidView exposes the native editable text and Compose's label as separate nodes.
+    # Accessibility exposes editable text and Compose's label as separate nodes.
     matches = [node for node in nodes if node.get("class") == "android.widget.EditText" and node.get("bounds") == label.get("bounds")]
     return matches[0] if len(matches) == 1 else label
 
@@ -510,7 +510,8 @@ class Measure:
         self.rooted_by_us = False
         self.evidence_dir = Path(evidence_dir) if evidence_dir else None
         self.launch_number = 0
-        self.probe_prefix = f"perf probe {time.time_ns()}"
+        # Start with a capital so sentence capitalization cannot change the probe on commit.
+        self.probe_prefix = f"Perf probe {time.time_ns()}"
 
     # -- helpers -------------------------------------------------------------------------------
     def dump_ui(self):
