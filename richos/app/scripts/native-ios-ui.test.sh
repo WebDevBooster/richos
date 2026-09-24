@@ -20,7 +20,7 @@
 #   native-ios-ui.test.sh --only <Class/test>    part 2 scoped (xcodebuild -only-testing), repeatable,
 #                                                e.g. --only ScreenshotTests/testComposerDark; the unit
 #                                                bundle is named whole, --only RichOSNativeTests[/Suite]
-#   native-ios-ui.test.sh --device se|pm         part 2 on one device
+#   native-ios-ui.test.sh --device se|pm|pro     part 2 on one device (pro: iPhone 16 Pro)
 #
 # Missing Xcode, the iOS runtime, xcodegen or `native-ios/project.yml` exits 2 with NOT RUN; a failure
 # on a capable host is red.
@@ -56,7 +56,10 @@ while [ $# -gt 0 ]; do
       case "$2" in
         se) DEVICES=("iPhone SE (3rd generation)") ;;
         pm) DEVICES=("iPhone 16 Pro Max") ;;
-        *) echo "native-ios-ui: --device se|pm" >&2; exit 64 ;;
+        # The middle size `rios` and native-ios-app use, whose prepared OS is usually already in the
+        # pool: a scoped proof on it creates no new simulator.
+        pro) DEVICES=("iPhone 16 Pro") ;;
+        *) echo "native-ios-ui: --device se|pm|pro" >&2; exit 64 ;;
       esac
       shift 2 ;;
     *) echo "native-ios-ui: unknown argument $1" >&2; exit 64 ;;
