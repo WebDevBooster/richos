@@ -400,7 +400,7 @@ echo "native-ios-ui: every simulator finished in $(( $(date +%s) - START )) s"
 # Screenshots, per device, named after their screen (`se-dark-conv-populated.png`) so each sits
 # beside the mockup of the same name; the failure evidence keeps its test's name.
 for i in "${!SIM_UDID[@]}"; do
-  OUT="$SHOTS/${SIM_TYPE[$i]}"
+  OUT="$SHOTS/${SIM_TYPE[$i]##*.}"
   mkdir -p "$OUT/shard-$i"
   xcrun xcresulttool export attachments --path "$WORK/result-$i.xcresult" --output-path "$OUT/shard-$i" > /dev/null 2>&1 || true
   python3 "$DIR/lib/ios_ui_shards.py" name-shots "$OUT/shard-$i" "$OUT" || true

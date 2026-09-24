@@ -1,3 +1,5 @@
+> Follow-up: this initial verification was followed by a real iOS CPU recurrence. See [the recurrence report](host-cpu-ios-recurrence-2026-09-24.md) for the missing paths, corrections and current simulator stop.
+
 # Host CPU enforcement: installed verification
 
 The local implementation is installed and active. Code commits are `623fac5f`, `566f7097`, `7075689a` and `5b046e62`, in that order. The last three incorporate findings from actual deployment and smoke checks, including a launchd log-open failure, asynchronous service teardown and macOS returning unchanged CPU counters for subsecond samples.

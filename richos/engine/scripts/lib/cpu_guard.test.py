@@ -158,6 +158,8 @@ class GuardTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             N.capped(['xcodebuild','test','-collect-test-diagnostics','on-failure'])
         self.assertIsNotNone(G.forbidden('xcrun simctl diagnose -l'))
+        for command in (['xcrun','simctl','diagnose','-l'], ['xcrun','simctl','boot','UUID'], ['emulator','-avd','foo']):
+            with self.assertRaises(ValueError): N.capped(command)
 
     def test_unavailable_cpu_sample_retries_using_full_interval(self):
         reserve=Mock()

@@ -15,6 +15,10 @@ import cpu_guard
 def capped(command):
     command = list(command)
     name = os.path.basename(command[0])
+    if name == 'emulator' or name.startswith('qemu-system-') or (
+            name in ('simctl', 'xcrun') and (name == 'simctl' or 'simctl' in command)
+            and any(a in command for a in ('boot', 'diagnose'))):
+        raise ValueError('native-work does not admit devices or diagnostic dumps; use testdevices for device leases')
     if name in ('gradlew', 'gradle'):
         if any(a.startswith(('--max-workers', '-Dorg.gradle.workers.max', '-Dorg.gradle.jvmargs', '-Dkotlin.daemon.jvm.options')) or a == '--parallel' for a in command[1:]):
             raise ValueError('worker/JVM overrides are not allowed through native admission')

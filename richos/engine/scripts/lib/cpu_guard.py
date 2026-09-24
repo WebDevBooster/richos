@@ -520,10 +520,15 @@ def hook():
         pid = row['parent']
     reason = forbidden(payload.get('tool_input', {}).get('command', ''), payload.get('cwd'))
     if reason:
-        print('CPU guard: %s is refused. %s' % (reason,
-              'Local iOS simulator runs are stopped after repeated host overload. Use headless tests or a physical device; do not retry.'
-              if ios_block() and 'simulator' in reason else
-              'Use randroid, rios or native-work.py -- COMMAND so admission and cleanup apply.'), file=sys.stderr)
+        if 'outdated' in reason:
+            remedy = 'Update this checkout from main before running its native or proof tools.'
+        elif 'diagnose' in reason:
+            remedy = 'Automatic simulator diagnostic dumps are disabled after the overload incident.'
+        elif ios_block() and 'simulator' in reason:
+            remedy = 'Local iOS simulator runs are stopped after repeated host overload. Use headless tests or a physical device; do not retry.'
+        else:
+            remedy = 'Use randroid, rios or native-work.py -- COMMAND so admission and cleanup apply.'
+        print('CPU guard: %s is refused. %s' % (reason, remedy), file=sys.stderr)
         return 2
     alert = read_json(STATE / 'alert.json')
     if alert:
