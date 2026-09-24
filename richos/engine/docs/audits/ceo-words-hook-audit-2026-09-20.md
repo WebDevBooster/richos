@@ -203,7 +203,7 @@ session**, not this one.
 | `scripts/hooks/notice-ceo-ruled-prose.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/notice-ceo-unasked.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/notice-claim-capability.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
-| `scripts/hooks/notice-disk-alert.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
+| `scripts/hooks/release-land-leases.sh` | a | files on disk / its own state (lease files, the repository's Git state) | no | added 2026-09-24 after this audit, registered on Stop; reads no prompt and no transcript || `scripts/hooks/notice-disk-alert.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/notice-escalations.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/notice-hook-staleness.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/notice-inflight-acks.sh` | a | the transcript, joined on TOOL CALLS / agent ids | no | 1 non-comment hit(s), first: 187:    d=json.load(sys.stdin); print(str(d.get("transcript_path","") or "") if isinstance |

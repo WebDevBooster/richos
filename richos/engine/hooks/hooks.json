@@ -499,6 +499,11 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/notice-ceo-inputs-unheld.sh",
             "timeout": 25
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/release-land-leases.sh",
+            "timeout": 30
           }
         ]
       }
