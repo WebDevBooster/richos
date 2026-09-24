@@ -87,7 +87,7 @@ class AttachWiringTest {
         compose.onNodeWithContentDescription("Remove Henderson.pdf", substring = true).performClick()
         assertEquals(Action.RemoveAttachment("att-f1"), actions.last())
         compose.onNodeWithTag("orb").performClick()
-        assertEquals(Action.Send, actions.last())
+        assertEquals(1, actions.count { it == Action.Send })
     }
 
     @Test
