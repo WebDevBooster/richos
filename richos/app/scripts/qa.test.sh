@@ -37,8 +37,9 @@
 #   N1-N5   phone-client: a foreign Mac that refuses the credential is the
 #           answer, one that ACCEPTS it exits non-zero; argument refusals
 #   K1-K5   flake-rate: counts, interleaving, a kept failing log, refusals
-#   I1-I7   phone-ios: a step list validated before any build, refusals, the
-#           per-step log read once each
+#   I1-I11  phone-ios: a step list validated before any build, refusals, the
+#           per-step log read once each, no picture of the person's account,
+#           a reused build trusted only against its stamp
 #   X1      the committed fixtures still match their generator
 #
 # run-tests: no-host-screen: its only capture/keystroke references are the strings it asserts those two tools REFUSE to act on, and its frames are committed PNG fixtures
@@ -538,6 +539,22 @@ expect "I3 a tap that names no element is refused" 2 "names no id or label"
 printf '%s' '[{"do":"wait","id":"pair.link","timout":5}]' > "$TMP/ios-typo.json"
 run python3 "$QA/phone-ios.py" check "$TMP/ios-typo.json"
 expect "I4 a misspelled key is refused, never silently ignored" 2 "unexpected keys ['timout']"
+
+printf '%s' '[{"do":"activate","in":"tailscale"},{"do":"value","kind":"switch","in":"tailscale"},{"do":"shot","screen":true}]' > "$TMP/ios-account.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-account.json"
+expect "I8 a list that touches the person's Tailscale account may keep no picture of it" 2 "may not keep a shot, tree or audit"
+
+printf '%s' '[{"do":"activate","in":"tailscale"},{"do":"value","kind":"switch","in":"tailscale"}]' > "$TMP/ios-switch.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-switch.json"
+expect "I9 reading the route's switch by kind alone validates" 0 '"steps": 2'
+
+run env RICHOS_IOS_DEVICE=x RICHOS_APPLE_TEAM=y python3 "$QA/phone-ios.py" run "$TMP/ios-ok.json" --out /Volumes/E1TB/nonexistent-qa-test --prebuilt
+expect "I10 reusing an earlier build without its stamp is refused" 2 "--prebuilt needs --stamp"
+
+mkdir -p "$TMP/Fake.app" && printf 'bytes' > "$TMP/Fake.app/RichOSNative"
+printf '{"artifact":"%s","sha256":"0000000000000000","commit":"abc","dirty":false}' "$TMP/Fake.app" > "$TMP/fake-stamp.json"
+run env RICHOS_IOS_DEVICE=x RICHOS_APPLE_TEAM=y python3 "$QA/phone-ios.py" run "$TMP/ios-ok.json" --out /Volumes/E1TB/nonexistent-qa-test --prebuilt --stamp "$TMP/fake-stamp.json"
+expect "I11 a reused app whose bytes differ from its stamp is refused: identity or refuse" 2 "freshness mismatch"
 
 run env -u RICHOS_IOS_DEVICE python3 "$QA/phone-ios.py" run "$TMP/ios-ok.json" --out /Volumes/E1TB/nonexistent-qa-test
 expect "I5 run refuses without a named phone" 2 "set RICHOS_IOS_DEVICE"

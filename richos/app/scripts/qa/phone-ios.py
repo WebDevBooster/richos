@@ -2,12 +2,17 @@
 """Drive a PHYSICAL iPhone through its real controls, and read what an app leaves running.
 
     phone-ios.py check STEPS.json                  validate a step list; touches no device
-    phone-ios.py run STEPS.json --out DIR [--allowance S]
+    phone-ios.py run STEPS.json --out DIR [--allowance S] [--prebuilt --stamp STAMP.json]
                                                    run the steps through XCUITest on the phone
                                                    (`rios device verify script`), then write
                                                    DIR/steps.jsonl (one line per step, phone clock)
-                                                   and DIR/attachments/ (the steps' shots and trees)
+                                                   and DIR/attachments/ (the steps' shots and trees);
+                                                   --prebuilt reuses the earlier build's exact products
+                                                   (about two minutes saved per run) and refuses unless
+                                                   the app still hashes to STAMP.json (perf.py stamp)
     phone-ios.py parse-log TEST.log                the PHONE_STEP lines of a finished run
+    phone-ios.py pair-steps MAC-TEST-CONFIG.json   the real-control pairing steps for a lab's current
+                                                   link, with all six words checked before They match
     phone-ios.py procs [--name NAME]               the phone's processes whose executable ends in
                                                    NAME (default RichOSNative): pid and path only
     phone-ios.py apps                              which RichConnect builds and test runners are installed
@@ -20,9 +25,11 @@ type, Home, lock and screenshot goes through one XCUITest check that executes a 
 end on the phone's clock, which this tool collects. A failed step stops the list; nothing is
 retried. Validation happens here, before anything is built, so a typo costs a second, not a build.
 
-Steps are JSON objects with "do" and, where needed, "id" (accessibility identifier) or "label"
-(substring of the accessibility label), "in": "springboard" for system UI, "timeout" (s) and
-"optional": true (a failure is logged, the list continues):
+Steps are JSON objects with "do" and, where needed, "id" (accessibility identifier), "label"
+(substring of the accessibility label) or "kind" ("switch" or "button": the first one), "in":
+"springboard" for system UI or "tailscale" for the route's own app, "timeout" (s) and "optional":
+true (a failure is logged, the list continues). A list that touches Tailscale may not take a shot,
+tree or audit: that screen is the person's own account.
 
     launch{textSize} activate terminate home lock unlock sleep{seconds} mark{label} state audit
     waitState{state: background|suspended|foreground|notRunning}
@@ -63,7 +70,11 @@ ACTIONS = {
     "shot": {"name", "screen"}, "tree": {"name"},
 }
 NEEDS_TARGET = {"wait", "tap", "exists", "gone", "value", "type", "press", "swipe"}
-COMMON = {"do", "id", "label", "in", "timeout", "optional"}
+COMMON = {"do", "id", "label", "kind", "in", "timeout", "optional"}
+PLACES = ("springboard", "tailscale")
+# The Tailscale app shows the person's own account and devices: a list that touches it may press
+# and read its switch, and may not keep a picture or a tree of anything.
+KEEPS_SCREEN = {"shot", "tree", "audit"}
 
 
 class CannotAnswer(Exception):
@@ -88,8 +99,11 @@ def validate(steps):
         extra = set(step) - COMMON - ACTIONS[action]
         if extra:
             raise CannotAnswer(f"step {i} ({action}): unexpected keys {sorted(extra)}")
-        if action in NEEDS_TARGET and not (isinstance(step.get("id"), str) or isinstance(step.get("label"), str)):
+        if action in NEEDS_TARGET and not (isinstance(step.get("id"), str) or isinstance(step.get("label"), str)
+                                           or step.get("kind") in ("switch", "button")):
             raise CannotAnswer(f"step {i} ({action}) names no id or label")
+        if "kind" in step and step["kind"] not in ("switch", "button"):
+            raise CannotAnswer(f"step {i}: 'kind' may only be 'switch' or 'button'")
         if action == "count" and not isinstance(step.get("label"), str):
             raise CannotAnswer(f"step {i} (count) needs a label")
         if action == "type" and not isinstance(step.get("text"), str):
@@ -100,8 +114,10 @@ def validate(steps):
             raise CannotAnswer(f"step {i} (waitState) needs a state")
         if action == "sleep" and not (isinstance(step.get("seconds"), (int, float)) and 0 < step["seconds"] <= 1800):
             raise CannotAnswer(f"step {i} (sleep) needs seconds between 0 and 1800")
-        if "in" in step and step["in"] != "springboard":
-            raise CannotAnswer(f"step {i}: 'in' may only be 'springboard'")
+        if "in" in step and step["in"] not in PLACES:
+            raise CannotAnswer(f"step {i}: 'in' may only be 'springboard' or 'tailscale'")
+    if any(s.get("in") == "tailscale" for s in steps) and any(s["do"] in KEEPS_SCREEN for s in steps):
+        raise CannotAnswer("a list that touches Tailscale may not keep a shot, tree or audit: its screen is the person's account")
     return steps
 
 
@@ -124,6 +140,25 @@ def parse_log(text):
     return unique
 
 
+def pair_steps(config_path):
+    """The real-control pairing a person does, from the lab's own mac-test-config.json: open the
+    link field, enter the link, check all six words BEFORE pressing They match, then the consent."""
+    try:
+        config = json.loads(Path(config_path).read_text())
+    except (FileNotFoundError, json.JSONDecodeError) as error:
+        raise CannotAnswer(f"cannot read the lab configuration {config_path}: {error}")
+    link, words = config.get("pairLink"), str(config.get("words", "")).split()
+    if not (isinstance(link, str) and link.startswith("https://") and "#pair=" in link) or len(words) != 6:
+        raise CannotAnswer("the lab configuration has no current HTTPS pairing link and six words")
+    steps = [{"do": "launch"}, {"do": "tap", "id": "pair.link", "timeout": 10},
+             {"do": "type", "id": "pairlink.field", "text": link}, {"do": "tap", "id": "pairlink.submit"},
+             {"do": "wait", "id": "pair.match", "timeout": 20}]
+    steps += [{"do": "count", "label": f"Word {n}: {word}", "equals": 1} for n, word in enumerate(words, 1)]
+    steps += [{"do": "tap", "id": "pair.match"}, {"do": "tap", "id": "consent.continue", "timeout": 4, "optional": True},
+              {"do": "wait", "id": "composer.field", "timeout": 20}]
+    return validate(steps)
+
+
 def load_steps(path):
     try:
         return validate(json.loads(Path(path).read_text()))
@@ -131,6 +166,26 @@ def load_steps(path):
         raise CannotAnswer(f"no step file at {path}")
     except json.JSONDecodeError as error:
         raise CannotAnswer(f"{path} is not JSON: {error}")
+
+
+def stamped_identity(stamp_path):
+    """Identity or refuse: the prebuilt app must still be the stamped bytes (perf.py stamp)."""
+    if not stamp_path:
+        raise CannotAnswer("--prebuilt needs --stamp: reused products are only trusted against their stamp")
+    try:
+        stamp = json.loads(Path(stamp_path).read_text())
+    except (FileNotFoundError, json.JSONDecodeError) as error:
+        raise CannotAnswer(f"cannot read the stamp {stamp_path}: {error}")
+    sys.path.insert(0, str(ROOT / "richos/mobile/perf"))
+    import perfcore  # the same tree hash perf.py stamp wrote
+    artifact = stamp.get("artifact", "")
+    if not os.path.isdir(artifact):
+        raise CannotAnswer(f"the stamped app {artifact} is gone")
+    actual = perfcore.tree_sha256(artifact)
+    if actual != stamp.get("sha256") or stamp.get("dirty"):
+        raise CannotAnswer(f"freshness mismatch: {artifact} hashes {actual[:12]}…, the stamp says "
+                           f"{str(stamp.get('sha256'))[:12]}… (dirty={stamp.get('dirty')})")
+    return {"artifact": artifact, "sha256": actual, "commit": stamp.get("commit")}
 
 
 def run(args):
@@ -141,15 +196,19 @@ def run(args):
     out = Path(args.out).resolve()
     if not str(out).startswith("/Volumes/E1TB/"):
         raise CannotAnswer("--out must be on /Volumes/E1TB (the physical check refuses anything else)")
-    out.mkdir(parents=True, exist_ok=True)
     if not 60 <= args.allowance <= 1800:
         raise CannotAnswer("--allowance must be 60 to 1800 seconds")
+    identity = stamped_identity(args.stamp) if args.prebuilt else None
+    out.mkdir(parents=True, exist_ok=True)
     config = out / "script-config.json"
     config.unlink(missing_ok=True)
     fd = os.open(config, os.O_WRONLY | os.O_CREAT | os.O_EXCL, stat.S_IRUSR | stat.S_IWUSR)
     with os.fdopen(fd, "w") as f:
         json.dump({"isolatedLab": "true", "steps": json.dumps(steps), "allowanceSeconds": str(args.allowance)}, f)
     env = {**os.environ, "RICHOS_MOBILE_TEST_CONFIG": str(config)}
+    if args.prebuilt:
+        env["RICHOS_PHYSICAL_PREBUILT"] = "1"
+        (out / "identity.json").write_text(json.dumps(identity, indent=1))
     p = subprocess.run([str(RIOS), "device", "verify", "script"], capture_output=True, text=True, env=env)
     config.unlink(missing_ok=True)
     (out / "rios.stdout").write_text(p.stdout)
@@ -228,7 +287,10 @@ def main(argv):
     r.add_argument("steps")
     r.add_argument("--out", required=True)
     r.add_argument("--allowance", type=int, default=240)
+    r.add_argument("--prebuilt", action="store_true")
+    r.add_argument("--stamp")
     sub.add_parser("parse-log").add_argument("log")
+    sub.add_parser("pair-steps").add_argument("config")
     for name in ("procs", "apps", "lock", "battery"):
         s = sub.add_parser(name)
         s.add_argument("--device", required=True)
@@ -238,6 +300,9 @@ def main(argv):
     try:
         if args.command == "check":
             return emit({"valid": True, "steps": len(load_steps(args.steps))})
+        if args.command == "pair-steps":
+            print(json.dumps(pair_steps(args.config), indent=1))
+            return 0
         if args.command == "parse-log":
             try:
                 return emit({"steps": parse_log(Path(args.log).read_text(errors="replace"))})
