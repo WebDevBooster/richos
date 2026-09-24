@@ -54,6 +54,26 @@ A run that still loses its device writes its record with every later phase NOT R
 Split a run across boots with `--only` and join the parts with `perf.py merge`: it refuses parts
 whose installed bytes differ, a part built from uncommitted changes, or a phase measured twice.
 
+## Physical production runs
+
+Use `--production --route managed` or `--production --route tailnet` on a paired release app.
+The route label is an operator declaration; validate the actual route separately. Add
+`--exercise-sends` only for a synthetic conversation where test messages are authorized.
+Production typing refuses an occupied composer. No debug bridge or fixture is used.
+
+Physical cold and warm timings use the system launch trace, the useful-content draw marker and
+that frame's `DisplayPresentTime`. A monotonic-clock counter joins the OEM trace clock to the
+frame clock without assuming they share an origin. Window-visibility frames are valid launch
+frames even though steady-state deadline statistics exclude them. The frame buffer is reset
+before each launch. Missing or ambiguous evidence rejects a trial; it is never replaced with
+blank-shell timing. Raw traces and frame records, including failed launches, are saved beside
+`--out` in `<file.json>.evidence`. Keep these outputs on the external SSD and private.
+
+Physical background observation reads existing per-UID battery accounting without resetting
+history, simulating unplugging or changing battery settings. Charging can pause accounting.
+Unavailable counters stay unknown and cannot establish zero work or a battery-acceptance pass.
+The emulator methods in the table below retain their separate instrumentation.
+
 ## What each number is
 
 | Record key | Method | PRD §7 row |

@@ -220,6 +220,26 @@ def _():
     raises(perfcore.Unmeasurable, android.useful_launch_frame, trace.replace("monotonic-ns", "missing"), [frame], 42)
 
 
+@case("A13 a rejected launch retains its raw report and trace")
+def _():
+    class Device:
+        def sh(self, command, **kw):
+            if command.startswith("am start"):
+                return "Status: ok\nLaunchState: UNKNOWN (0)\n"
+            return ""
+        def run(self, *args, **kw): return "captured trace"
+        def sleep(self, seconds): pass
+        def pid(self): return 42
+    with tempfile.TemporaryDirectory(prefix="perf-launch-evidence-") as directory:
+        measure = android.Measure(Device(), evidence_dir=directory)
+        measure.gfx = lambda: {"rows": []}
+        raises(perfcore.Unmeasurable, measure.traced_launch)
+        with open(os.path.join(directory, "launch-0001.json")) as file: saved = json.load(file)
+        assert "UNKNOWN" in saved["rawLaunch"] and saved["error"], saved
+        with android.gzip.open(os.path.join(directory, "launch-0001.trace.gz"), "rt") as file:
+            assert file.read() == "captured trace"
+
+
 @case("A5 frame timing counts deadline misses and stalls of 100 ms or more")
 def _():
     rows = android.app_window(android.parse_framestats(fixture("gfxinfo-framestats-tap.txt")))["rows"]

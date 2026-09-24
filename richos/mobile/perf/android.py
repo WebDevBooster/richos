@@ -525,6 +525,7 @@ class Measure:
 
     def foreground(self):
         out = self.d.sh(f"am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n {ACTIVITY}")
+        self.last_launch_output = out
         return parse_am_start(out)
 
     def home(self):
@@ -592,14 +593,19 @@ class Measure:
     def atrace(self, categories, action, settle_s):
         """Run `action()` inside an atrace capture of the app; returns the trace text."""
         self.d.sh(f"atrace --async_start -b 16384 -a {PACKAGE} {' '.join(categories)}")
+        error = None
         try:
             self.d.sleep(0.3)
             action()
             self.d.sleep(settle_s)
+        except Exception as failure:
+            error = failure
         finally:
             self.d.sh(f"atrace --async_stop -o {TRACE_FILE}", check=False)
         text = self.d.run("exec-out", "cat", TRACE_FILE, check=False)
         self.d.sh(f"rm -f {TRACE_FILE}", check=False)
+        self.last_trace = text
+        if error: raise error
         return text
 
     # -- setup -----------------------------------------------------------------------------------
@@ -620,14 +626,25 @@ class Measure:
         self.gfx_reset()
         launch = {}
         def start(): launch.update(self.foreground())
-        trace = self.atrace(["am", "view", "gfx"], start, 2.0)
-        window, pid = self.gfx(), self.d.pid()
+        error = None
+        self.last_trace = ""
+        self.last_launch_output = ""
+        try: trace = self.atrace(["am", "view", "gfx"], start, 2.0)
+        except Exception as failure:
+            error, trace = failure, self.last_trace
+        try: window = self.gfx()
+        except Exception as failure:
+            window = {"rows": [], "error": str(failure)}
+            error = error or failure
+        pid = self.d.pid()
         self.launch_number += 1
         if self.evidence_dir:
             self.evidence_dir.mkdir(parents=True, exist_ok=True)
             stem = self.evidence_dir / f"launch-{self.launch_number:04d}"
             with gzip.open(str(stem) + ".trace.gz", "wt") as output: output.write(trace)
-            Path(str(stem) + ".json").write_text(json.dumps({"launch": launch, "pid": pid, "window": window}))
+            Path(str(stem) + ".json").write_text(json.dumps({"launch": launch, "rawLaunch": self.last_launch_output,
+                "error": str(error) if error else None, "pid": pid, "window": window}))
+        if error: raise error
         detail = useful_launch_frame(trace, window["rows"], pid)
         return launch, detail
 
