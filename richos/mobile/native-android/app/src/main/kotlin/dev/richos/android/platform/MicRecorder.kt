@@ -2,6 +2,7 @@ package dev.richos.android.platform
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioFormat
@@ -11,6 +12,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import dev.richos.android.core.CoreError
 import dev.richos.android.core.Microphone
@@ -34,12 +36,16 @@ import java.util.concurrent.atomic.AtomicInteger
  * lock, the 30:00 ceiling, keep or drop); this records 16 kHz mono PCM16 into `staged/<id>` as a WAV
  * the Mac takes as a voice note, reports a level every 100 ms, and asks the OS for the microphone
  * once, from the activity on screen.
+ *
+ * [onPermission] carries the OS's answer and, while denied, whether Android would still show its
+ * own question if asked again (`shouldShowRequestPermissionRationale`): the microphone-off card
+ * offers that question only then, and Settings otherwise (D03).
  */
 class MicRecorder(
     private val context: Context,
     private val dir: File,
     private val onLevel: (Double) -> Unit,
-    private val onPermission: (Microphone) -> Unit,
+    private val onPermission: (permission: Microphone, canAsk: Boolean) -> Unit,
     private val foreground: () -> ComponentActivity?,
     private val onInterrupted: (String) -> Unit = {},
     onPlaybackEnded: (String) -> Unit = {},
@@ -55,11 +61,33 @@ class MicRecorder(
 
     fun granted(): Boolean = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
+    /**
+     * While not granted: Android would still show its question if asked. False with no activity on
+     * screen, and false once the person has declined twice (Android 11+) or chose "Don't ask again":
+     * then only Settings can turn the microphone back on, so that is what the card offers.
+     */
+    fun canAsk(activity: Activity? = foreground()): Boolean =
+        activity != null && ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.RECORD_AUDIO)
+
+    /**
+     * Mirrors the OS's answer into core when it differs from what core says: at launch (no activity,
+     * so [canAsk] is unknown and false) and each time an activity starts, which is how an answer
+     * given in Settings, or a one-time grant running out, reaches the app. One read per start; no
+     * timer, no listener.
+     */
+    fun mirror(core: Microphone, coreCanAsk: Boolean, activity: Activity?) {
+        val granted = granted()
+        mirrored(granted, !granted && canAsk(activity), core, coreCanAsk)?.let { (p, ask) -> onPermission(p, ask) }
+    }
+
+    private fun report(permission: Microphone) =
+        onPermission(permission, permission == Microphone.DENIED && canAsk())
+
     @SuppressLint("MissingPermission") // checked just above the AudioRecord; a revoke mid-way is caught
     override suspend fun start(id: String) {
         stopCurrent(keep = true)
         if (!granted()) {
-            onPermission(Microphone.DENIED)
+            report(Microphone.DENIED)
             throw CoreError("Microphone permission is needed to record.")
         }
         val file = staged(id) ?: throw CoreError("The recording could not be created.")
@@ -67,7 +95,7 @@ class MicRecorder(
         val audio = try {
             AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, Wav.SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(minBuffer, Wav.LEVEL_WINDOW * 4))
         } catch (e: SecurityException) {
-            onPermission(Microphone.DENIED)
+            report(Microphone.DENIED)
             throw CoreError("Microphone permission is needed to record.")
         }
         try {
@@ -138,14 +166,16 @@ class MicRecorder(
 
     override suspend fun requestMicrophone() {
         if (granted()) {
-            onPermission(Microphone.GRANTED)
+            report(Microphone.GRANTED)
             return
         }
         withContext(Dispatchers.Main) {
             val activity = foreground() ?: return@withContext
             var launcher: androidx.activity.result.ActivityResultLauncher<String>? = null
             launcher = activity.activityResultRegistry.register("richos-microphone-${keys.incrementAndGet()}", ActivityResultContracts.RequestPermission()) { ok ->
-                onPermission(if (ok) Microphone.GRANTED else Microphone.DENIED)
+                // Read after the answer, so a second "Don't allow" (Android 11+) already reads
+                // "will not ask again" and the card turns to Settings instead of asking in a loop.
+                onPermission(if (ok) Microphone.GRANTED else Microphone.DENIED, !ok && canAsk(activity))
                 launcher?.unregister()
             }
             launcher.launch(Manifest.permission.RECORD_AUDIO)
@@ -161,4 +191,21 @@ class MicRecorder(
     /** A recording id is a file name in [dir] and nothing else. */
     private fun staged(id: String): File? =
         if (id.isEmpty() || id.contains('/') || id.contains('\\') || id == "." || id == "..") null else File(dir, id)
+}
+
+/**
+ * What core should be told about the microphone, given the OS's answer ([granted], and while not
+ * granted whether Android would still ask, [canAsk]) and what core says now; null when core already
+ * agrees. A "Don't allow" is never forgotten because the OS reads "not granted" at launch: only a
+ * grant (the dialog or Settings) lifts it. A grant that went away (revoked, or a one-time grant ran
+ * out) returns to "not asked", so the next press asks.
+ */
+internal fun mirrored(granted: Boolean, canAsk: Boolean, core: Microphone, coreCanAsk: Boolean): Pair<Microphone, Boolean>? {
+    val next = when {
+        granted -> Microphone.GRANTED to false
+        core == Microphone.DENIED -> Microphone.DENIED to canAsk
+        core == Microphone.GRANTED -> Microphone.UNKNOWN to false
+        else -> return null
+    }
+    return next.takeIf { it != (core to coreCanAsk) }
 }

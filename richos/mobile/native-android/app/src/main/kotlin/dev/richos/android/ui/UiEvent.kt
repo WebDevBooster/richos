@@ -97,7 +97,10 @@ sealed interface UiEvent {
     data object ForgetPairing : UiEvent
     data object ForgetConfirmed : UiEvent
     data object ShowWaiting : UiEvent
+    /** The microphone-off card's "Not now". */
     data object MicrophoneNotNow : UiEvent
+    /** The microphone-off card's "Allow microphone", offered only while the system would still ask. */
+    data object MicrophoneAskAgain : UiEvent
 }
 
 /** The core action for [this], or null when core has none yet. */
@@ -138,6 +141,9 @@ fun UiEvent.toAction(): Action? = when (this) {
     UiEvent.ForgetPairing -> Action.ForgetPairing
     UiEvent.ForgetConfirmed -> Action.ConfirmForget
     UiEvent.OpenSystemSettings -> Action.OpenSystemSettings
+    // The microphone-off card (core `Voice.kt`, D03).
+    UiEvent.MicrophoneAskAgain -> Action.AskMicrophone
+    UiEvent.MicrophoneNotNow -> Action.DismissMicrophoneCard
     is UiEvent.Notifications -> if (on) Action.TurnOnNotifications else Action.TurnOffNotifications
     is UiEvent.Previews -> Action.SetPreviews(on)
     UiEvent.NotificationsNotNow -> Action.DismissNotificationOffer
