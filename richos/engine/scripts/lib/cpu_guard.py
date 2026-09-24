@@ -20,12 +20,12 @@ import signal
 import subprocess
 import sys
 import time
+from cpu_policy import DEFAULT_MAX_CPU, admission_open
 
 STATE = Path(os.environ.get('RICHOS_CPU_GUARD_STATE', '/Volumes/E1TB/state/richos/cpu-guard'))
 INTERVAL = 2.0
 WINDOW = 10.0
 JOB_CORES = 3.0
-TOTAL_FRACTION = .60
 LABEL = 'com.richos.cpu-guard'
 
 
@@ -168,7 +168,6 @@ class Watch:
         self.previous = {}
         self.last = None
         self.over = {}
-        self.total_since = None
         self.pending = {}
         self.host_since = None
         self.reported_at = 0
@@ -216,11 +215,9 @@ class Watch:
         # Sessions stay alive. A registered workload root may itself be stopped.
         protected = {p for p, r in roots.items() if r['role'] == 'session'} | {os.getpid()}
         allowed = set(owned) - protected - set(self.pending)
-        total = sum(rates.get(p, 0) for p in allowed)
-        if total > (os.cpu_count() or 4) * TOTAL_FRACTION or (host_busy >= 85 and total >= .5):
-            self.total_since = self.total_since if self.total_since is not None else now
-        else:
-            self.total_since = None
+        # Host pressure closes admission, not already admitted work. Killing
+        # the largest process here repeatedly killed sub-core land checks and
+        # capped Gradle builds while unrelated work saturated the host.
         candidates = []
         for pid in allowed:
             rate = rates.get(pid, 0)
@@ -231,8 +228,6 @@ class Watch:
             since = self.over.get((pid, rows[pid]['birth']))
             if since is not None and now - since >= WINDOW:
                 candidates.append(pid)
-        if self.total_since is not None and now - self.total_since >= WINDOW and allowed:
-            candidates.append(max(allowed, key=lambda p: rates.get(p, 0)))
         self.over = {k: v for k, v in self.over.items() if k[0] in allowed and rows[k[0]]['birth'] == k[1]}
         return sorted(set(candidates), key=lambda p: rates.get(p, 0), reverse=True), rates, protected
 
@@ -265,7 +260,7 @@ class Watch:
                     targets.add(pid)
         return targets
 
-    def stop(self, pid, rows, protected, rates, reason='sustained CPU overload'):
+    def stop(self, pid, rows, protected, rates, reason='process exceeded sustained per-process CPU limit'):
         # Expand only observed descendants. Never killpg on a potentially shared group.
         targets = {pid}
         while True:
@@ -334,7 +329,6 @@ def watch(engine):
                     watcher.stop(pid, rows, protected, rates, 'local simulator incident containment')
                 if candidates:
                     watcher.stop(candidates[0], rows, protected, rates)
-                    watcher.total_since = None
                 if busy >= 85:
                     watcher.host_since = watcher.host_since if watcher.host_since is not None else now
                     if not candidates and now-watcher.host_since >= WINDOW and now-watcher.reported_at >= 300:
@@ -348,7 +342,8 @@ def watch(engine):
                     watcher.host_since = None
                 write_json(STATE / 'owned.json', watcher.owned)
                 write_json(STATE / 'heartbeat.json', dict(at=time.time(), ok=True,
-                           pid=os.getpid(), owned=len(watcher.owned), host_busy=round(busy, 1)))
+                           pid=os.getpid(), owned=len(watcher.owned), host_busy=round(busy, 1),
+                           admission_open=admission_open(busy), admission_limit=DEFAULT_MAX_CPU))
                 if watcher.host_since is not None and now-watcher.host_since >= WINDOW and registered_ios():
                     block_ios('Sustained host CPU overload. Simulator recovery must be explicitly scheduled.')
             except Exception as exc:
@@ -362,6 +357,7 @@ def install(engine):
         raise RuntimeError('Mount /Volumes/E1TB first')
     runtime = STATE / 'runtime'
     runtime.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(Path(__file__).with_name('cpu_policy.py'), runtime / 'cpu_policy.py')
     target = runtime / 'cpu_guard.py'
     shutil.copy2(__file__, target)
     domain = 'gui/%s' % os.getuid()
@@ -461,13 +457,13 @@ def forbidden(command, cwd=None):
         if name == 'cd' and len(part) > 1:
             cwd = str(Path(cwd or os.getcwd()).joinpath(part[1]).resolve())
         entry = os.path.basename(part[1]) if name in ('bash', 'sh', 'zsh', 'python3', 'python') and len(part) > 1 else name
-        if entry in ('proof-run.py', 'run-tests.sh', 'rios', 'randroid', 'simulator-tests.sh', 'native-ios-share.test.sh', 'native-ios-app.test.sh', 'native-ios-ui.test.sh'):
+        if entry in ('proof-run.py', 'run-tests.sh', 'native-work.py', 'rios', 'randroid', 'simulator-tests.sh', 'native-ios-share.test.sh', 'native-ios-app.test.sh', 'native-ios-ui.test.sh'):
             executable = part[1] if entry != name else part[0]
             path = Path(cwd or os.getcwd()).joinpath(executable).resolve()
             for parent in path.parents:
                 policy = parent / 'richos/engine/scripts/lib/testdevices.py'
                 if policy.is_file():
-                    if 'def acquire_ios(' not in policy.read_text():
+                    if 'def acquire_ios(' not in policy.read_text() or not policy.with_name('cpu_policy.py').is_file():
                         return 'outdated native/proof entrypoint; update this checkout from main before running it'
                     break
         if ios_block():

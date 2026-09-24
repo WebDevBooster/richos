@@ -72,10 +72,10 @@ ADMISSION, TWO CONDITIONS, BOTH CHECKED BEFORE EVERY START:
     A quarter of the tokens are reserved: nested workers never take them, so a check not yet
     started always can.
   * CEO RULING §77's LINE, the same rule and the same code as testvm/reserve.py: one sample of
-    user CPU and memory; below 80% it starts, otherwise the check waits (samples at least 30 s
+    total CPU (user plus system) and memory; below 80% it starts, otherwise the check waits (samples at least 30 s
     apart, at most --admission-wait) and the wait is reported beside its time.
 Checks start longest-expected first, so the long poles are not the ones left waiting. While the
-run goes, a sampler records user CPU and the tokens held; the summary prints both, which is the
+run goes, a sampler records total CPU and the tokens held; the summary prints both, which is the
 evidence of host use, not a guarantee that running compilers stay under the admission line.
 
 THE MACHINE BUDGET for separate runners and nightlies is shared through worker_tokens.machine_directory(). Local --capacity remains an additional
@@ -387,14 +387,12 @@ def reserved_tokens(capacity):
 def admitted(args, sampler):
     """One sample, CEO ruling §77's line and memory rule; (ok, sample). Never skips the CPU line."""
     s = sampler()
-    # A saturated kernel is still a saturated host even when user CPU is low.
-    return (not reserve._refusal(s, args.max_cpu, 16, cpu_rule=True)
-            and s["cpu_user_percent"] + s["cpu_system_percent"] < 95), s
+    return not reserve._refusal(s, args.max_cpu, 16, cpu_rule=True), s
 
 
 class Monitor(threading.Thread):
-    """The machine while the run is going: user CPU and the worker tokens held, every few
-    seconds. It is the evidence that the run stayed under the admission line, not a guess."""
+    """The machine while the run is going: total CPU and the worker tokens held, every few
+    seconds. Reports contention during admitted work as well as worker use."""
 
     def __init__(self, every, budget, sampler):
         super().__init__(daemon=True)
@@ -419,11 +417,12 @@ class Monitor(threading.Thread):
         systems = [row[2] for row in self.samples]
         held = [row[3] for row in self.samples]
         waiting = [row[4] for row in self.samples]
-        over = sum(1 for u in users if u >= line)
-        return ["host during the run: %d samples, user CPU mean %.0f%%, max %.0f%%, at or over the %g%% "
+        busy = [u + s for u, s in zip(users, systems)]
+        over = sum(1 for value in busy if value >= line)
+        return ["host during the run: %d samples, total CPU mean %.0f%%, max %.0f%%, at or over the %g%% "
                 "admission line in %d of them (system CPU mean %.0f%%, max %.0f%%); worker tokens held: max %d "
                 "of %d, nested workers waiting for one: max %d" % (
-                    len(users), sum(users) / len(users), max(users), line, over, sum(systems) / len(systems),
+                    len(busy), sum(busy) / len(busy), max(busy), line, over, sum(systems) / len(systems),
                     max(systems), max(held), len(self.budget.files), max(waiting))]
 
 
@@ -738,7 +737,7 @@ def main(argv=None):
     p.add_argument("--capacity", type=int, default=max(2, int((os.cpu_count() or 4) * 0.8)))
     p.add_argument("--engine-shards", type=int, default=max(1, (os.cpu_count() or 4) // 2))
     p.add_argument("--admission-wait", type=float, default=1800)
-    p.add_argument("--max-cpu", type=float, default=80)
+    p.add_argument("--max-cpu", type=float, default=reserve.DEFAULT_MAX_CPU)
     p.add_argument("--budget", type=float, default=BUDGET_SECONDS)
     p.add_argument("--deadline", type=float, default=3 * BUDGET_SECONDS)
     p.add_argument("--sample-every", type=float, default=10)
