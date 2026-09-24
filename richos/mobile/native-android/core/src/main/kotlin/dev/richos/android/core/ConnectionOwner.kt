@@ -3,8 +3,12 @@ package dev.richos.android.core
 import dev.richos.android.core.protocol.HttpRequest
 import dev.richos.android.core.protocol.MacApi
 import dev.richos.android.core.protocol.Signing
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import java.io.IOException
@@ -33,18 +37,56 @@ class ConnectionOwner(
     private val core: RichCore,
     private val api: MacApi,
     private val stream: EventStream,
+    /** Whether the app is on screen when the owner starts (a process started by a push is not). */
+    foreground: Boolean = true,
 ) {
     private val wakeups = Channel<Unit>(Channel.CONFLATED)
+    private val visible = MutableStateFlow(foreground)
+    private var first = true
 
-    /** The app came back to the foreground, or the network returned: retry now if waiting. */
+    /** The network returned, or the app came back to the foreground: retry now if waiting. */
     fun wake() {
         wakeups.trySend(Unit)
     }
 
+    /**
+     * The app is on screen again: connect at once, then back off as usual. Already on screen (a
+     * second activity started): a pending retry fires now, without resetting the back-off.
+     */
+    fun foregrounded() {
+        if (visible.value) wake() else visible.value = true
+    }
+
+    /**
+     * Nothing of the app is on screen: close the stream and stop every retry and keep-alive until
+     * [foregrounded] (the iPhone's rule, build plan §3.2: no stream in the background; a new reply
+     * reaches a backgrounded phone only as a push). The outbox waits for the next foreground or a
+     * send a person makes; nothing is retried on a timer in the background.
+     */
+    fun backgrounded() {
+        visible.value = false
+    }
+
     /** Runs until its coroutine is stopped (the app's process scope owns it). */
     suspend fun run() {
+        while (true) {
+            visible.first { it }
+            coroutineScope {
+                val link = launch { connect() }
+                visible.first { !it }
+                // Stopping the attempt closes the socket (the stream port's contract) and drops any back-off wait.
+                link.cancelAndJoin()
+            }
+            core.backgrounded()
+        }
+    }
+
+    /** Connects and reconnects while the app is on screen; stopped when it leaves. */
+    private suspend fun connect() {
+        // A wake that arrived while nothing listened (the network changed in the background) is
+        // spent: this is already the immediate attempt.
+        wakeups.tryReceive()
         var attempt = 0
-        var first = true
         while (true) {
             val ready = core.states.first { it.paired && it.pairing.apiBase != null && it.pairing.deviceId != null }
             val apiBase = ready.pairing.apiBase!!
