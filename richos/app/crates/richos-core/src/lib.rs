@@ -212,3 +212,6 @@ pub mod read_view;
 ///   - `operator_declaration` — the gate (f): absent is the product, present and broken
 ///                    refuses background work, and nothing falls back to the customer worker.
 pub mod operator_declaration;
+///   - `operator_profile` — his lead's arguments and environment, built from empty, and the
+///                    init check it passes before it takes work ((b), (i)).
+pub mod operator_profile;
