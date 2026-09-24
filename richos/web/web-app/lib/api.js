@@ -122,6 +122,21 @@
 		return Math.max(scheduled, MAC_WAIT_MIN_SPACING_MS - took);
 	}
 
+	/// **WHEN THE NEXT ASK GOES**, as a moment on the same clock as the arguments: the previous ask
+	/// started at `askedAt` and was answered at `answeredAt`, and `until` is the phone's deadline.
+	///
+	/// `macWaitNextDelayMs` after the answer, and never later than the deadline — where the LAST
+	/// ask goes (Sage's pair-v2 hypotheses review §2: one final ask, so a press that landed after
+	/// the previous ask is heard). While the Mac holds, the last ask still keeps the 7 s spacing,
+	/// so it may go a few seconds after the deadline; that answer is as settled as one at the
+	/// deadline, because the phone's deadline is at or after the Mac's own `confirm_by` (Sage §2b).
+	/// A Mac that does not hold keeps today's rule: the last ask at the deadline itself.
+	function macWaitNextAskAt(attempt, askedAt, answeredAt, until, holds) {
+		const next = answeredAt + macWaitNextDelayMs(attempt, answeredAt - askedAt, holds);
+		if (next <= until) return next;
+		return holds ? Math.max(until, askedAt + MAC_WAIT_MIN_SPACING_MS) : until;
+	}
+
 	/// How long the wait may last, from the pair answer. A Mac that says nothing gets the window;
 	/// a Mac that says more than the window is not believed.
 	function macWaitBoundMs(answer) {
@@ -751,6 +766,6 @@
 	return {
 		createApi, ApiError, signingInput, offers, UNREACHABLE, REVOKED, REFUSED, FAULT,
 		PAIR_V2, MAC_WAIT_DELAYS_MS, MAC_WAIT_CAP_MS, MAC_WAIT_WINDOW_MS, macWaitDelayMs, macWaitBoundMs,
-		PAIR_WAIT, PAIR_WAIT_SECONDS, MAC_WAIT_MIN_SPACING_MS, macWaitNextDelayMs
+		PAIR_WAIT, PAIR_WAIT_SECONDS, MAC_WAIT_MIN_SPACING_MS, macWaitNextDelayMs, macWaitNextAskAt
 	};
 });

@@ -441,6 +441,13 @@ test('the no-spin rule: never two asks 7 s apart while the Mac holds, and today\
 	for (let n = 0; n < 30; n++) for (const took of [0, 1, 3000, 6999]) {
 		assert.ok(took + macWaitNextDelayMs(n, took, true) >= MAC_WAIT_MIN_SPACING_MS, `attempt ${n}, took ${took}`);
 	}
+	// THE LAST ASK (Sage's pair-v2 review §2): at the deadline, and while the Mac holds, still 7 s
+	// after the previous ask even when that pushes it a few seconds past the deadline.
+	const { macWaitNextAskAt } = require('../lib/api.js');
+	assert.strictEqual(macWaitNextAskAt(30, 294000, 300000, 300000, true), 301000);
+	assert.strictEqual(macWaitNextAskAt(30, 290000, 290100, 300000, true), 300000);
+	assert.strictEqual(macWaitNextAskAt(20, 286000, 286050, 300000, false), 300000);
+	assert.strictEqual(macWaitNextAskAt(7, 100000, 114000, 300000, true), 114000, 'a full hold is not followed at once');
 	// The worst case, counted: a relay that forges pair-wait and answers at once.
 	let asks = 0;
 	for (let t = 0, n = 0; t <= MAC_WAIT_WINDOW_MS; n++) { asks++; t += macWaitNextDelayMs(n, 0, true); }

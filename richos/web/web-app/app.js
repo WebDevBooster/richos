@@ -442,8 +442,8 @@ function waitForMac(until, onWaiting) {
 		// reached): this phone stops, and says it did not hear back — which is true either way.
 		if (final) { await gaveUpWaiting('expired'); return; }
 		tellWaiting();
-		const left = Math.max(0, until - Date.now());
-		timer = setTimeout(ask, Math.min(A.macWaitNextDelayMs(attempt++, Date.now() - lastAskAt, macHolds), left));
+		const now = Date.now();
+		timer = setTimeout(ask, Math.max(0, A.macWaitNextAskAt(attempt++, lastAskAt, now, until, macHolds) - now));
 	};
 	const onVisibility = () => {
 		if (stopped) return;
@@ -455,9 +455,9 @@ function waitForMac(until, onWaiting) {
 		}
 		if (timer || asking) return;
 		// Back on screen: ask again — at once, or as soon as the 7 s spacing allows while the Mac
-		// holds, and never later than the deadline's last ask.
+		// holds (past the deadline too: that ask is the last one, and it keeps the spacing).
 		const spacing = macHolds ? Math.max(0, A.MAC_WAIT_MIN_SPACING_MS - (Date.now() - lastAskAt)) : 0;
-		timer = setTimeout(ask, Math.min(spacing, Math.max(0, until - Date.now())));
+		timer = setTimeout(ask, spacing);
 	};
 	document.addEventListener('visibilitychange', onVisibility);
 	macWait = {
