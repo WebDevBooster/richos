@@ -98,4 +98,14 @@ mutant reregister-keeps-long-lifetime "test_T50" "$D" \
     '"max_seconds": old_lease.get("max_seconds", LEASE_MAX_SECONDS),' \
     "registering again would carry a declared lifetime to a caller that never declared it."
 
+mutant busy-registry-crashes-collector "test_T53" "$D" \
+    '        except RegistryBusy as exc:' \
+    '        except ZeroDivisionError as exc:' \
+    "a registry lock held for five seconds would kill the collector and close native admission (2026-09-24)."
+
+mutant wedged-registry-tolerated "test_T54" "$D" \
+    '            if now - since >= COLLECTOR_BUSY_ALERT_SECONDS:' \
+    '            if False:' \
+    "a registry lock that never frees would be skipped silently for ever, with no lease ever expired."
+
 mutation_end

@@ -84,6 +84,19 @@ class BudgetExpired(TimeoutError):
     pass
 
 
+class RegistryBusy(TimeoutError):
+    """Another process held the registry lock for the whole wait."""
+
+
+# How long a registry call waits for the lock before giving up.
+REGISTRY_LOCK_SECONDS = 5
+# The lease collector SKIPS a cycle when the registry is busy and retries on the next one
+# (every two seconds). A lock held longer than this is no longer a busy moment: the longest
+# legitimate hold is a simctl call under the lock (acquire, release, collect), bounded at
+# 120 s by simctl(), so past 180 s the collector reports a failure and the watchdog alerts.
+COLLECTOR_BUSY_ALERT_SECONDS = 180
+
+
 def _timeout(maximum):
     deadline = _DEADLINE.get()
     remaining = maximum if deadline is None else min(maximum, deadline - time.time())
@@ -100,14 +113,15 @@ def registry_lock():
         return
     os.makedirs(registry_dir(), exist_ok=True)
     with open(os.path.join(registry_dir(), ".lock"), "a") as handle:
-        lock_deadline = time.monotonic() + 5
+        lock_deadline = time.monotonic() + REGISTRY_LOCK_SECONDS
         while True:
             try:
                 fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 break
             except BlockingIOError:
                 if time.monotonic() >= lock_deadline:
-                    raise TimeoutError("test-device registry lock stayed busy for five seconds")
+                    raise RegistryBusy("test-device registry lock stayed busy for %g seconds"
+                                       % REGISTRY_LOCK_SECONDS)
                 time.sleep(min(0.05, _timeout(5)))
         token = _LOCKED.set(True)
         try:
@@ -1397,11 +1411,48 @@ def lease_report(now=None):
     return rows
 
 
+def _busy_path():
+    return os.path.join(registry_dir(), ".collector-busy.json")
+
+
 def expire_leases(pressure=False):
-    """Bounded collection of exact registered devices, without workspace discovery."""
+    """Bounded collection of exact registered devices, without workspace discovery.
+
+    A registry lock held by another caller is a SKIPPED cycle, never a collector failure:
+    the watchdog runs this every two seconds, and a failure closes native admission. On
+    2026-09-24 the collector died on "registry lock stayed busy for five seconds" under
+    load 26-39. The first skip of a busy spell is noted in the guard's history, the next
+    cycle retries, and a spell longer than COLLECTOR_BUSY_ALERT_SECONDS is a failure again,
+    so a wedged lock is never tolerated silently.
+    """
+    import cpu_guard
     token = _DEADLINE.set(time.time() + 12)
     try:
-        return _expire_leases(pressure)
+        try:
+            code = _expire_leases(pressure)
+        except RegistryBusy as exc:
+            busy = _read_json(_busy_path()) or {}
+            now = time.time()
+            since = busy.get("since", now)
+            busy = {"since": since, "skipped": busy.get("skipped", 0) + 1, "last": now}
+            _write_json(_busy_path(), busy)
+            if busy["skipped"] == 1:
+                cpu_guard.note("Device lease collection skipped: registry lock busy; retrying next cycle",
+                               error=str(exc))
+            if now - since >= COLLECTOR_BUSY_ALERT_SECONDS:
+                message = ("CPU device lease cleanup: registry lock busy for %d s (%d cycles skipped)"
+                           % (now - since, busy["skipped"]))
+                record_collector_failure(message)
+                print(message, file=sys.stderr)
+                return 1
+            print("CPU device lease cleanup: skipped, %s" % exc, file=sys.stderr)
+            return 0
+        busy = _read_json(_busy_path())
+        if busy:
+            cpu_guard.note("Device lease collection resumed after a busy registry",
+                           skipped=busy.get("skipped"), seconds=round(time.time() - busy.get("since", time.time())))
+            os.unlink(_busy_path())
+        return code
     finally:
         _DEADLINE.reset(token)
 

@@ -996,6 +996,54 @@ class Collector(Base):
         [late] = T.lease_report(now=rec["lease"]["created"] + T.LEASE_IDLE_SECONDS)
         self.assertTrue(late["expired"])
 
+    def hold_registry_lock(self):
+        os.makedirs(T.registry_dir(), exist_ok=True)
+        command = "import fcntl,sys,time; f=open(sys.argv[1],'a'); fcntl.flock(f,fcntl.LOCK_EX); print('ready',flush=True); time.sleep(600)"
+        proc = subprocess.Popen([sys.executable, "-c", command, os.path.join(T.registry_dir(), ".lock")],
+                                stdout=subprocess.PIPE, text=True)
+        self.procs.append(proc)
+        self.assertEqual(proc.stdout.readline().strip(), "ready")
+        return proc
+
+    def guard_events(self):
+        import cpu_guard
+        try:
+            return [json.loads(l)["message"] for l in open(cpu_guard.STATE / "events.jsonl")]
+        except OSError:
+            return []
+
+    def test_T53_a_busy_registry_is_a_skipped_collector_cycle_not_a_failure(self):
+        import cpu_guard
+        udid = self.device("rios-ui-busy")
+        rec = T.register("ios-simulator", udid, os.getpid())
+        rec["lease"]["last_use"] = time.time() - T.LEASE_IDLE_SECONDS - 1
+        T._write_json(T._record_path("ios-simulator", udid), rec)
+        before = len(self.guard_events())
+        holder = self.hold_registry_lock()
+        with patch.object(T, "REGISTRY_LOCK_SECONDS", 0.2), patch.object(cpu_guard, "event") as alert:
+            self.assertEqual(T.expire_leases(), 0)                  # skipped, not failed
+            self.assertEqual(T.expire_leases(), 0)
+            alert.assert_not_called()
+        self.assertNotIn("collector:incomplete", self.rows())
+        notes = self.guard_events()[before:]
+        self.assertEqual(sum("skipped: registry lock busy" in n for n in notes), 1)   # once per spell
+        self.assertEqual(T._read_json(T._busy_path())["skipped"], 2)
+        self.assertEqual([d["state"] for d in self.devices()], ["Booted"])
+        holder.kill()
+        holder.wait()
+        with patch.object(cpu_guard, "event"):
+            self.assertEqual(T.expire_leases(), 0)                  # the next free cycle collects
+        self.assertEqual(self.devices(), [])
+        self.assertFalse(os.path.exists(T._busy_path()))
+        self.assertIn("Device lease collection resumed after a busy registry", self.guard_events()[before:])
+
+    def test_T54_a_registry_busy_past_the_bound_is_a_collector_failure(self):
+        self.hold_registry_lock()
+        T._write_json(T._busy_path(), {"since": time.time() - T.COLLECTOR_BUSY_ALERT_SECONDS, "skipped": 90})
+        with patch.object(T, "REGISTRY_LOCK_SECONDS", 0.2):
+            self.assertEqual(T.expire_leases(), 1)
+        self.assertIn("registry lock busy", self.rows()["collector:incomplete"]["why"])
+
     def test_T51_renewal_stops_when_the_owned_run_ends(self):
         udid = self.device("rios-ui-run-ended")
         rec = T.register("ios-simulator", udid, os.getpid())
