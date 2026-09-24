@@ -170,6 +170,23 @@ class RichCore private constructor(
         commit(session.copy(paired = false, pairing = session.pairing.copy(problem = "revoked")))
     }
 
+    /**
+     * The app left the screen and the connection owner closed the stream: no stream in the
+     * background (the iPhone's `backgrounded`; build plan §3.2: push is for awareness, the
+     * foreground reconciles). Not trouble: no notice falls due, and with the link closed nothing in
+     * the outbox is owed a timed try, so nothing wakes the app until it returns or a person sends.
+     */
+    suspend fun backgrounded(): AppState = mutex.withLock {
+        val keep = connection.reason == ConnectionReason.PHONE_OFFLINE || connection.reason == ConnectionReason.SERVICE_UNAVAILABLE
+        val reason = when {
+            keep -> connection.reason
+            connection.hasConnected -> ConnectionReason.RECONNECTING
+            else -> ConnectionReason.CONNECTING
+        }
+        connection = connection.copy(reason = reason, troubleSince = null)
+        commit(session.copy(online = false))
+    }
+
     private suspend fun receive(wire: String): AppState = apply(sse.feed(wire))
 
     private suspend fun apply(items: List<SseItem>): AppState {
