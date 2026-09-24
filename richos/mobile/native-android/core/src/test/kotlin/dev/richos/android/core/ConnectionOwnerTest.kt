@@ -73,6 +73,31 @@ class ConnectionOwnerTest {
     private val hello = "id: 2\nevent: hello\ndata: {\"challenge\":\"from-hello\",\"thread_id\":\"general\",\"capabilities\":[\"text\"],\"messages\":[]}\n\n"
 
     @Test
+    fun `offline cancels attempts until a single foreground network return`() = runTest {
+        val mac = Mac { HttpResponse(404, mapOf("x-richos-challenge" to "c"), ByteArray(0)) }
+        val core = core(mac)
+        val streams = Streams({ _, _ -> throw IOException("offline") })
+        val owner = ConnectionOwner(core, MacApi(mac, keys), streams)
+        val job = backgroundScope.launch { owner.run() }
+        runCurrent()
+        owner.networkChanged(false)
+        runCurrent()
+        val count = streams.opened.size
+        val requests = mac.seen.size
+        advanceTimeBy(3_600_000); runCurrent()
+        assertEquals(count, streams.opened.size)
+        assertEquals(requests, mac.seen.size)
+        assertEquals(ConnectionReason.PHONE_OFFLINE, core.state.connection.reason)
+        owner.networkChanged(true); owner.networkChanged(true); runCurrent()
+        assertEquals(count + 1, streams.opened.size)
+        owner.backgrounded(); runCurrent()
+        owner.networkChanged(false); runCurrent()
+        owner.networkChanged(true); runCurrent()
+        assertEquals(count + 1, streams.opened.size)
+        job.cancel()
+    }
+
+    @Test
     fun `back-off is 1 s doubling to a 30 s ceiling`() {
         assertEquals(listOf(1_000L, 2_000L, 4_000L, 8_000L, 16_000L, 30_000L, 30_000L), (1..7).map(ConnectionOwner::backoffMs))
     }

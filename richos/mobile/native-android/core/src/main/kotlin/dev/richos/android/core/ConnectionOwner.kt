@@ -3,12 +3,11 @@ package dev.richos.android.core
 import dev.richos.android.core.protocol.HttpRequest
 import dev.richos.android.core.protocol.MacApi
 import dev.richos.android.core.protocol.Signing
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import java.io.IOException
@@ -42,7 +41,11 @@ class ConnectionOwner(
 ) {
     private val wakeups = Channel<Unit>(Channel.CONFLATED)
     private val visible = MutableStateFlow(foreground)
+    private val available = MutableStateFlow(true)
     private var first = true
+
+    /** OS connectivity evidence, not a periodic reachability probe. */
+    fun networkChanged(online: Boolean) { available.value = online }
 
     /** The network returned, or the app came back to the foreground: retry now if waiting. */
     fun wake() {
@@ -69,15 +72,17 @@ class ConnectionOwner(
 
     /** Runs until its coroutine is stopped (the app's process scope owns it). */
     suspend fun run() {
-        while (true) {
-            visible.first { it }
-            coroutineScope {
-                val link = launch { connect() }
-                visible.first { !it }
-                // Stopping the attempt closes the socket (the stream port's contract) and drops any back-off wait.
-                link.cancelAndJoin()
+        combine(visible, available) { shown, online -> shown to online }.collectLatest { (shown, online) ->
+            // collectLatest cancels the old socket/backoff before entering a new lifecycle state.
+            if (!shown) {
+                core.backgrounded()
+            } else if (!online) {
+                core.dispatch(Action.Network(false))
+                core.dispatch(Action.Health(phoneOnline = false))
+            } else {
+                core.dispatch(Action.Health(phoneOnline = true))
+                connect()
             }
-            core.backgrounded()
         }
     }
 

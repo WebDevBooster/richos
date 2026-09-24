@@ -109,7 +109,7 @@ class RichApplication : Application() {
                     owner = connection
                     scope.launch { connection.run() }
                     // The network came back: reconnect now, not at the end of a back-off.
-                    NetworkWake.register(this) { connection.wake() }
+                    NetworkWake.register(this) { connection.networkChanged(it) }
                 }
             }
             push = platform

@@ -18,11 +18,13 @@ class NetworkWakeTest {
 
     @Test
     fun `a returning default network wakes the connection`() {
-        var woken = 0
-        assertTrue(NetworkWake.register(app) { woken++ })
+        val events = mutableListOf<Boolean>()
+        assertTrue(NetworkWake.register(app) { events += it })
         val callbacks = shadowOf(app.getSystemService(ConnectivityManager::class.java)).networkCallbacks
         assertEquals(1, callbacks.size)
         callbacks.single().onAvailable(ShadowNetwork.newInstance(7))
-        assertEquals(1, woken)
+        assertEquals(true, events.last())
+        callbacks.single().onLost(ShadowNetwork.newInstance(7))
+        assertEquals(false, events.last())
     }
 }
