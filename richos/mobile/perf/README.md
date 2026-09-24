@@ -47,8 +47,9 @@ idle). The tool renews the idle lease as it works. **The Mac's CPU circuit break
 10 s, and back-to-back cold launches did exactly that on 2026-09-24 (qemu at 5.9–7.0 cores, three
 runs stopped at the third launch, a fourth in the warm series at 5.7). So before every trial,
 keystroke, delta, swipe and window, and after HOME before a timed resume, the tool waits until the
-emulator's host process used under 1.5 cores in two consecutive one-second samples (the breaker
-samples every 2 s; at most 30 s), and the record's `device.host.pacing` says how long it waited.
+emulator's host process used under 1.5 cores for four consecutive one-second samples (two of the
+breaker's 2-second samples; at most 30 s), and the record's `device.host.pacing` says how long it
+waited.
 A run that still loses its device writes its record with every later phase NOT RUN and why.
 Split a run across boots with `--only` and join the parts with `perf.py merge`: it refuses parts
 whose installed bytes differ, a part built from uncommitted changes, or a phase measured twice.
@@ -58,7 +59,7 @@ whose installed bytes differ, a part built from uncommitted changes, or a phase 
 | Record key | Method | PRD §7 row |
 |---|---|---|
 | `coldLaunch` | `am force-stop`, `am start -W` (launch state must read `COLD`). **Useful content** is the platform's "Fully drawn" time, reported by `ReportDrawnWhen { state != null }` in `MainActivity`: the first frame drawn after the saved state is read. On Android that frame is the transcript at its newest row with the composer (the list is `reverseLayout`, launch rows are pre-seen so they draw at full opacity; the dump after the series checks both are on screen). `firstFrameMs` (TotalTime) is kept beside it, never used as the endpoint (Sage T5). Primary series with the scripted Mac **unreachable** (Sage T6); `coldLaunchLive` is a 3-launch spot check with it accepting. | Cold launch ≤ 1,000 ms p95 |
-| `warmResume` | HOME, `--away` s, launcher intent with `am start -W`: TotalTime of a `HOT` start in the same process. A new pid is a cold start and a recreated activity is not warm; both are rejected, with the reason. | Warm resume ≤ 200 ms p95 |
+| `warmResume` | HOME, `--away` s, the launcher settles, launcher intent with `am start -W`: TotalTime of a start in the same process (PRD J2: process retained). Android's `HOT` (activity kept) and `WARM` (activity recreated) both count; each sample keeps its state, `hotStats` and `recreatedStats` split them, and the first recreation's reason is read from the event log (`wm_destroy_activity`). A new pid is a cold start and is rejected. | Warm resume ≤ 200 ms p95 |
 | `tapToFeedback` | `input tap` on "Send message". Start: the app's own `deliverInputEvent … eventTimeNano` trace slice (atrace `input`). End: `FrameCompleted` of the frame whose `InputEventId` is that event (`gfxinfo framestats`). Both CLOCK_MONOTONIC, one clock. `settledMs`: to the last frame of the burst the tap started. Each trial checks the sent text is on screen. | Tap feedback ≤ 100 ms p95 |
 | `activeFrames` | `input swipe` on the transcript; framestats per swipe (it keeps only 120 frames): frames with `FrameCompleted ≤ FrameDeadline`, frames ≥ 100 ms. | ≥ 99% on time, no stall ≥ 100 ms |
 | `idleFrames` | `gfxinfo reset`, `--idle-seconds` untouched, "Total frames rendered" for MainActivity's window, on the conversation, the Settings sheet and (first run) the pairing screen. | Settled idle: 0 |

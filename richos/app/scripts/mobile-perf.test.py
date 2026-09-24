@@ -452,6 +452,30 @@ def _():
     assert "did not answer" in raises(perfcore.Unmeasurable, dev.run, "wait-for-device", timeout=1)
 
 
+class RecreatingAdb(FakeAdb):
+    """The process stays, the activity is recreated on every return (Android's WARM start)."""
+
+    def __call__(self, argv, capture_output=True, text=True, timeout=None):
+        out = super().__call__(argv, capture_output, text, timeout)
+        cmd = " ".join(argv[3:])
+        if "am start" in cmd and "HOT" in out.stdout:
+            out.stdout = out.stdout.replace("HOT", "WARM").replace("185", "420")
+        if "logcat -b events" in cmd:
+            out.stdout = "1790220400.1 1000 1000 I wm_destroy_activity: [0,1,2,dev.richos.connect/dev.richos.android.app.MainActivity,trim]\n"
+        return out
+
+
+@case("R7 a resume that recreates the activity in the same process is warm (PRD J2), kept apart, with its reason")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        record, _ = perf.run_android(android_args(tmp, only="seed,warm"), runner=RecreatingAdb(), sleep=lambda s: None,
+                                     host=lambda: {}, log=quiet)
+        warm = record["metrics"]["warmResume"]
+        assert warm["samplesMs"] == [420, 420] and warm["sampleStates"] == ["WARM", "WARM"], warm
+        assert warm["recreatedStats"]["n"] == 2 and warm["hotStats"]["n"] == 0, warm
+        assert warm["firstRecreation"] and warm["firstRecreation"][0].endswith("trim]"), warm["firstRecreation"]
+
+
 @case("R5 perf.py main exits 3 with a sentence on a refusal and writes no record")
 def _():
     with tempfile.TemporaryDirectory() as tmp:
@@ -505,7 +529,7 @@ def _():
     assert ios.parse_xctrace_signposts(xml, "useful-content") == [812000000, 900000000]
 
 
-@case("P1 pacing waits for two quiet seconds under 1.5 cores on the emulator's host process, gives up at 30 s, says so")
+@case("P1 pacing waits for four quiet seconds under 1.5 cores on the emulator's host process, gives up at 30 s, says so")
 def _():
     with tempfile.TemporaryDirectory() as cache:
         assert perf.emulator_pacer(cache) == (None, [])  # no emulator record: no pacing, no guess
@@ -515,14 +539,14 @@ def _():
 
         def sleep(s):
             now[0] += s
-        cpu = iter([0.0, 6.5, 9.0, 9.4, 9.8])  # 6.5 cores, 2.5, then 0.4 twice: quiet for two seconds
+        cpu = iter([0.0, 6.5, 9.0, 9.4, 9.8, 10.2, 10.6])  # 6.5 cores, 2.5, then 0.4 for four seconds
         pace, waits = perf.emulator_pacer(cache, sleep=sleep, clock=lambda: now[0], cpu_seconds=lambda: next(cpu))
         pace()
-        assert waits == [{"waitedSeconds": 4.0, "cores": 0.4, "quiet": True}], waits
-        cpu = iter([0.0, 0.4, 3.4, 3.8, 4.2])  # quiet, busy, quiet, quiet: one quiet second is not enough
+        assert waits == [{"waitedSeconds": 6.0, "cores": 0.4, "quiet": True}], waits
+        cpu = iter([0.0, 0.4, 0.8, 3.8, 4.2, 4.6, 5.0, 5.4])  # quiet twice, busy, then quiet four times
         pace, waits = perf.emulator_pacer(cache, sleep=sleep, clock=lambda: now[0], cpu_seconds=lambda: next(cpu))
         pace()
-        assert waits[0]["waitedSeconds"] == 4.0 and waits[0]["quiet"], waits
+        assert waits[0]["waitedSeconds"] == 7.0 and waits[0]["quiet"], waits  # a busy second restarts the count
         busy = iter([float(i * 5) for i in range(100)])  # always 5 cores
         pace, waits = perf.emulator_pacer(cache, sleep=sleep, clock=lambda: now[0], cpu_seconds=lambda: next(busy))
         pace()

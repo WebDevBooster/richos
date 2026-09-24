@@ -588,12 +588,18 @@ class Measure:
 
     # -- warm resume -----------------------------------------------------------------------------
     def warm(self, trials, away_s=2.0):
-        samples, rejected, states = [], [], {}
+        """PRD J2: a resume with the PROCESS retained is warm. Android reports HOT (the activity kept)
+        or WARM (the process kept, the activity recreated); both count, each sample keeps its state,
+        and the first recreation's reason is read from the system's event log. A new pid is a cold
+        start and is rejected."""
+        samples, states_seen, rejected, states = [], [], [], {}
+        destroyed = None
         self.foreground()
         self.d.sleep(self.settle_s)
         for i in range(trials):
             self.pace()
             pid = self.d.pid()
+            since = self.d.uptime_epoch()
             self.home()
             self.d.sleep(away_s)
             self.pace()  # the launcher settles before the resume is timed
@@ -604,14 +610,20 @@ class Measure:
             if pid is None or after != pid:
                 rejected.append({"trial": i + 1, "why": f"process changed ({pid} -> {after}): a cold start, never counted as warm"})
                 self.log(f"warm {i + 1}/{trials}: REJECTED, {rejected[-1]['why']}")
-            elif state != "HOT":
-                rejected.append({"trial": i + 1, "why": f"LaunchState {state} (the activity was recreated), not HOT"})
+            elif state not in ("HOT", "WARM"):
+                rejected.append({"trial": i + 1, "why": f"LaunchState {state}"})
                 self.log(f"warm {i + 1}/{trials}: REJECTED, {rejected[-1]['why']}")
             else:
                 samples.append(launch["totalMs"])
-                self.log(f"warm {i + 1}/{trials}: {launch['totalMs']} ms")
+                states_seen.append(state)
+                self.log(f"warm {i + 1}/{trials}: {launch['totalMs']} ms ({state})")
+                if state == "WARM" and destroyed is None:
+                    events = self.d.run("logcat", "-b", "events", "-d", "-v", "epoch", "-T", since, check=False)
+                    destroyed = [l.split("wm_destroy_activity: ", 1)[1].strip() for l in events.splitlines()
+                                 if "wm_destroy_activity" in l and PACKAGE in l][:3]
             self.d.sleep(self.settle_s)
-        return {"samples": samples, "rejected": rejected, "launchStates": states}
+        return {"samples": samples, "states": states_seen, "rejected": rejected, "launchStates": states,
+                "firstRecreation": destroyed}
 
     # -- tap to feedback -------------------------------------------------------------------------
     def tap(self, trials):

@@ -201,7 +201,7 @@ def lease_toucher(cache):
     return touch
 
 
-def emulator_pacer(cache, sleep=time.sleep, limit_cores=1.5, timeout_s=30.0, clock=time.monotonic, cpu_seconds=None):
+def emulator_pacer(cache, sleep=time.sleep, limit_cores=1.5, timeout_s=30.0, clock=time.monotonic, cpu_seconds=None, quiet_s=4):
     """Wait until the emulator's host process (its pid in <cache>/emulator.json, written by
     randroid) has used under `limit_cores` over a one-second sample, at most `timeout_s`. Returns
     (pace, waits): pace() blocks, waits lists each wait. (None, []) with no emulator record."""
@@ -223,8 +223,9 @@ def emulator_pacer(cache, sleep=time.sleep, limit_cores=1.5, timeout_s=30.0, clo
     read = cpu_seconds or read_cpu
 
     def pace():
-        """Quiet means two consecutive one-second samples under the limit: the breaker samples
-        every 2 s, so a quiet stretch of 2 s is one of its samples under 3 cores."""
+        """Quiet means `quiet_s` consecutive one-second samples under the limit. The breaker samples
+        every 2 s when the Mac is not busy and less often when it is; four quiet seconds cover two of
+        its samples, so no run of ten busy seconds can span a trial boundary."""
         start = clock()
         streak = 0
         a = read()
@@ -237,8 +238,8 @@ def emulator_pacer(cache, sleep=time.sleep, limit_cores=1.5, timeout_s=30.0, clo
             cores = max(0.0, b - a)
             a = b
             streak = streak + 1 if cores < limit_cores else 0
-            if streak >= 2 or clock() - start >= timeout_s:
-                waits.append({"waitedSeconds": round(clock() - start, 1), "cores": round(cores, 2), "quiet": streak >= 2})
+            if streak >= quiet_s or clock() - start >= timeout_s:
+                waits.append({"waitedSeconds": round(clock() - start, 1), "cores": round(cores, 2), "quiet": streak >= quiet_s})
                 return
     return pace, waits
 
@@ -418,10 +419,15 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
 
         warm = phase("warm", lambda: m.warm(args.warm, args.away))
         if warm:
+            hot = [ms for ms, st in zip(warm["samples"], warm["states"]) if st == "HOT"]
+            recreated = [ms for ms, st in zip(warm["samples"], warm["states"]) if st == "WARM"]
             record["metrics"]["warmResume"] = metric(
-                "HOME, --away seconds, launcher intent with am start -W: TotalTime of a HOT start in the same process "
-                "(a new pid or a recreated activity is rejected, never counted as warm)", warm["samples"], "warmResume",
-                launchStates=warm["launchStates"], rejected=warm["rejected"])
+                "HOME, --away seconds, the launcher settles, launcher intent with am start -W: TotalTime of a start in "
+                "the same process (PRD J2: process retained). Android's HOT (activity kept) and WARM (activity "
+                "recreated) both count, each sample keeps its state; a new pid is a cold start and is rejected",
+                warm["samples"], "warmResume", sampleStates=warm["states"], launchStates=warm["launchStates"],
+                hotStats=perfcore.stats(hot), recreatedStats=perfcore.stats(recreated),
+                firstRecreation=warm["firstRecreation"], rejected=warm["rejected"])
 
         if bridge:
             scroll = phase("scroll", lambda: m.scroll(args.swipes))
@@ -491,7 +497,7 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
     if waits:
         record["device"].setdefault("host", {})["pacing"] = {
             "rule": "before each trial, keystroke, delta, swipe and window, wait until the emulator's host process used "
-                    "under 1.5 cores in two consecutive one-second samples (at most 30 s); keeps the run under the "
+                    "under 1.5 cores for four consecutive one-second samples (at most 30 s); keeps the run under the "
                     "Mac's CPU circuit breaker (3 cores for 10 s, sampled every 2 s)",
             "waits": len(waits), "totalWaitSeconds": round(sum(w["waitedSeconds"] for w in waits), 1),
             "notQuiet": sum(1 for w in waits if w.get("quiet") is False)}
