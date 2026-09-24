@@ -49,7 +49,7 @@ struct DialogView: View {
     private var title: String {
         switch dialog {
         case .cameraDenied: return "The camera is off for RichConnect"
-        case .pairBlocked(let n): return n == 1 ? "One message is still waiting" : "\(Self.count(n)) messages are still waiting"
+        case .pairBlocked(let n, _): return n == 1 ? "One message is still waiting" : "\(Self.count(n)) messages are still waiting"
         case .forget: return "Forget this pairing?"
         case .forgetBlocked: return "Not yet"
         case .update: return "A new RichConnect is ready"
@@ -60,7 +60,11 @@ struct DialogView: View {
         switch dialog {
         case .cameraDenied:
             return [("Turn it on in Settings to scan the code, or paste a pairing link instead.", false)]
-        case .pairBlocked(let n):
+        case .pairBlocked(let n, let removed):
+            if removed {
+                // Urban's copy (UX audit §4.1): no Send, and no pairing that no longer exists.
+                return [("\(n == 1 ? "It was" : "They were") written for the Mac that removed this phone, so \(n == 1 ? "it" : "they") can’t be sent now. Discard \(n == 1 ? "it" : "them"), then pair again.", false)]
+            }
             return [("\(n == 1 ? "It was" : "They were") written for the Mac this phone is paired with now. Send \(n == 1 ? "it" : "them") or discard \(n == 1 ? "it" : "them"), then pair with the new Mac.", false)]
         case .forget:
             return [("This phone will stop reaching your Mac. Your conversation stays on the Mac.", false),
@@ -81,7 +85,16 @@ struct DialogView: View {
                 .buttonStyle(RButtonStyle(kind: .primary, wide: true))
             Button { send(.usePairingLink) } label: { Text("Use a pairing link") }
                 .buttonStyle(RButtonStyle(kind: .ghost, wide: true))
-        case .pairBlocked:
+        case .pairBlocked(_, true):
+            // The only way forward is filled; "Not now" keeps the messages and returns to the
+            // removed screen.
+            Button { send(.discardAndPair) } label: { Text("Discard and pair") }
+                .buttonStyle(RButtonStyle(kind: .primary, wide: true))
+                .accessibilityIdentifier("pairBlocked.discard")
+            Button { send(.keepPairing) } label: { QuietLabel(text: "Not now") }
+                .buttonStyle(RButtonStyle(kind: .quiet, wide: true))
+                .accessibilityIdentifier("pairBlocked.notNow")
+        case .pairBlocked(_, false):
             Button { send(.sendWaitingFirst) } label: { Text("Send it first") }
                 .buttonStyle(RButtonStyle(kind: .primary, wide: true))
             Button { send(.discardAndPair) } label: { Text("Discard and pair") }
@@ -139,7 +152,6 @@ struct DialogView: View {
 /// row at the bottom. Every status is a sentence in the row, never a code (`notif-settings`).
 struct SettingsSheet: View {
     let settings: ScreenModel.Settings
-    let appearance: Appearance
     let send: (Intent) -> Void
     @Environment(\.palette) private var palette
 
@@ -163,13 +175,6 @@ struct SettingsSheet: View {
                 row(icon: .phone, title: "iPhone permissions", detail: "Microphone and camera", chevron: true) { EmptyView() }
                     .onTapGesture { send(.openSystemSettings) }
                     .accessibilityAddTraits(.isButton)
-                row(icon: nil, title: "Light appearance", detail: nil, control: true) {
-                    Toggle("Light appearance", isOn: Binding(get: { appearance == .light },
-                                                             set: { send(.setAppearance($0 ? .light : .dark)) }))
-                        .labelsHidden()
-                        .toggleStyle(RToggleStyle())
-                        .accessibilityIdentifier("settings.appearance")
-                }
                 row(icon: .refresh, title: "Check for updates", detail: nil) {
                     Text(updateValue)
                         .type(Typography.read)
@@ -177,15 +182,22 @@ struct SettingsSheet: View {
                 }
                 .onTapGesture { send(.checkForUpdates) }
                 .accessibilityAddTraits(.isButton)
+                .accessibilityIdentifier("settings.updates")
                 row(icon: .life, title: "Support", detail: nil, chevron: true) { EmptyView() }
                     .onTapGesture { send(.openSupport) }
                     .accessibilityAddTraits(.isButton)
+                    .accessibilityIdentifier("settings.support")
                 section("Connection and privacy")
                 row(icon: .mac, title: "Paired with \(settings.macName)",
                     detail: "Messages go to your Mac. Rich on your Mac writes the replies with its AI provider.") { EmptyView() }
                 row(icon: .cloud, title: "Where your messages go", detail: nil, chevron: true) { EmptyView() }
                     .onTapGesture { send(.openWhereMessagesGo) }
                     .accessibilityAddTraits(.isButton)
+                // Not in round 12.1: Apple 5.1.1(i) requires the policy to be reachable inside the app.
+                row(icon: .lock, title: "Privacy policy", detail: nil, chevron: true) { EmptyView() }
+                    .onTapGesture { send(.openPrivacyPolicy) }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityIdentifier("settings.privacy")
                 Button { send(.forget) } label: {
                     HStack(spacing: 12) {
                         IconView(.close, size: 22).foregroundStyle(palette.danger)

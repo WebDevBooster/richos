@@ -57,7 +57,44 @@ enum class ShareKind { PHOTO, PHOTOS, FILE, TOO_LARGE }
 enum class ShareStage { COMPOSE, SENDING, SENT, SAVED, UNPAIRED }
 
 @Immutable
-data class ShareSheet(val kind: ShareKind, val stage: ShareStage = ShareStage.COMPOSE, val caption: String = "", val photos: List<Photo> = emptyList(), val file: FileInfo? = null, val macName: String = "Alex’s Mac")
+data class ShareSheet(val kind: ShareKind, val stage: ShareStage = ShareStage.COMPOSE, val caption: String = "", val photos: List<Photo> = emptyList(), val file: FileInfo? = null, val macName: String = YOUR_MAC)
+
+/**
+ * Photos and files as the live screens draw them, from core. A photo's key says where its pixels
+ * are: [STAGED] on this phone (the tray, a message still in the outbox), [ON_MAC] only on the Mac
+ * (a message it accepted), drawn as a plain tile rather than an invented picture.
+ */
+object LiveAttachments {
+    const val STAGED = "staged:"
+    const val ON_MAC = "mac:"
+
+    fun state(app: dev.richos.android.core.AppState): AttachState {
+        val n = app.attachNotice
+        return AttachState(
+            pending = app.pendingAttachments.map { a -> if (a.isPhotoType()) Attachment(a.id, photo = photo(a)) else Attachment(a.id, file = fileInfo(a.name, a.size)) },
+            rejection = (n as? dev.richos.android.core.AttachNotice.Refused)?.let { Rejection(fileInfo(it.name, it.bytes ?: 0L), it.tooLarge) },
+            denied = if (n == dev.richos.android.core.AttachNotice.CameraDenied) Denied.CAMERA else null,
+            limitReached = n is dev.richos.android.core.AttachNotice.Limit,
+            macOffCard = n == dev.richos.android.core.AttachNotice.MacUnsupported,
+        )
+    }
+
+    fun photo(a: dev.richos.android.core.Attachment) = Photo(STAGED + a.id, a.width ?: 4, a.height ?: 3, a.name, a.size)
+
+    /** `Henderson.pdf`, 2.4 MB -> "PDF · 2.4 MB". */
+    fun fileInfo(name: String, bytes: Long) = FileInfo(name, name.substringAfterLast('.', "").uppercase().ifEmpty { "FILE" }, bytes)
+
+    /**
+     * Round 12.1's bubbles for one message: the photos as one album, then each file as its own
+     * bubble; the words on the album, or on the last file when there are no photos.
+     */
+    fun split(photos: List<Photo>, files: List<FileInfo>, caption: String): List<Body> {
+        val album = if (photos.isEmpty()) emptyList() else listOf(Body.Album(photos, caption))
+        return album + files.mapIndexed { i, f -> Body.File(f, if (photos.isEmpty() && i == files.lastIndex) caption else "") }
+    }
+
+    private fun dev.richos.android.core.Attachment.isPhotoType() = mediaType.startsWith("image/")
+}
 
 /** The photo (or file's first page) opened full screen. */
 @Immutable

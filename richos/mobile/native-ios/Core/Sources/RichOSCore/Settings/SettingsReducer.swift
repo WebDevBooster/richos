@@ -67,6 +67,10 @@ enum UpdateReducer {
             effects.append(.openAppStore)
         case .openSupport:
             effects.append(.openSupport)
+        case .checkForUpdates:
+            effects.append(.openAppStore)
+        case .openPrivacyPolicy:
+            effects.append(.openPrivacyPolicy)
         default:
             break
         }

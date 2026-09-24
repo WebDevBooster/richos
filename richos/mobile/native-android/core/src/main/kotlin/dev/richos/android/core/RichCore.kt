@@ -67,7 +67,7 @@ class RichCore private constructor(
         Action.TurnOnNotifications, is Action.NotificationsResult, Action.TurnOffNotifications, Action.DismissNotificationOffer,
         is Action.SetPreviews, is Action.OpenSheet, Action.CloseSheet, Action.ForgetPairing, Action.ConfirmForget,
         Action.OpenSystemSettings, is Action.OpenedFromNotification, Action.ClearFocus, is Action.UpdatePolicy,
-        Action.DismissUpdate, Action.OpenAppStore, Action.OpenSupport -> settings(action)
+        Action.DismissUpdate, Action.OpenAppStore, Action.OpenSupport, Action.CheckForUpdates, Action.OpenPrivacyPolicy -> settings(action)
         is Action.PushToken -> pushToken(action)
         Action.LoadOlder -> loadOlder()
         is Action.SendAttachments -> sendAttachments(action)
@@ -91,10 +91,19 @@ class RichCore private constructor(
             }
             flush()
         }
-        is Action.Attach -> mutex.withLock {
-            val all = session.pendingAttachments + action.files.filter { f -> session.pendingAttachments.none { it.id == f.id } }
-            checkAttachments(all)
-            commit(session.copy(pendingAttachments = all))
+        is Action.Attach -> mutex.withLock { take(action.files) }
+        is Action.PickAttachments -> pick(action.source)
+        is Action.AttachRefused -> mutex.withLock {
+            attachNotice = AttachNotice.Refused(action.name, action.bytes, action.tooLarge)
+            emit()
+        }
+        is Action.AttachPermissionDenied -> mutex.withLock {
+            if (action.source == AttachSource.CAMERA) attachNotice = AttachNotice.CameraDenied
+            emit()
+        }
+        Action.DismissAttachNotice -> mutex.withLock {
+            attachNotice = null
+            emit()
         }
         is Action.RemoveAttachment -> mutex.withLock {
             if (session.pendingAttachments.none { it.id == action.id }) return@withLock emit()
@@ -123,7 +132,9 @@ class RichCore private constructor(
             flush()
         }
         is Action.Discard -> mutex.withLock {
+            val files = outbox.all().firstOrNull { it.clientId == action.clientId }?.attachments.orEmpty()
             outbox.discard(action.clientId)
+            files.forEach { ports.files.delete(it.id) }
             emit()
         }
         is Action.Network -> {
@@ -249,12 +260,22 @@ class RichCore private constructor(
     // --- sending (queue.js rules, via [Outbox]) --------------------------------------------------
 
     private suspend fun send(): AppState {
-        // Photos or files waiting in the composer make this one attachments message, with the
-        // draft as its words.
+        // Photos or files waiting in the composer go as round 12.1 orders them ("Order of sending"):
+        // the photos as one album message, then each file as its own message; the draft's words
+        // ride on the album, or on the last file when there are no photos.
         if (session.pendingAttachments.isNotEmpty()) {
             mutex.withLock {
-                checkAttachments(session.pendingAttachments)
-                outbox.enqueue(enqueueAttachments(session.pendingAttachments, session.draft.trim()))
+                val pending = session.pendingAttachments
+                val photos = pending.filter { it.isPhoto }
+                val groups = (if (photos.isEmpty()) emptyList() else listOf(photos)) + pending.filterNot { it.isPhoto }.map { listOf(it) }
+                // Every message is checked before any is queued: all of them go, or none.
+                groups.forEach { checkAttachments(it) }
+                val words = session.draft.trim()
+                groups.forEachIndexed { i, group ->
+                    val carries = if (photos.isEmpty()) i == groups.lastIndex else i == 0
+                    outbox.enqueue(enqueueAttachments(group, if (carries) words else ""))
+                }
+                attachNotice = null
                 commit(session.copy(draft = "", pendingAttachments = emptyList()))
             }
             return flush()
@@ -284,6 +305,7 @@ class RichCore private constructor(
     /** One pass over the outbox, outside the lock, while online (`app.js` `drain`). */
     private suspend fun flush(): AppState {
         if (!session.online) return flow.value
+        val before = outbox.all()
         val report = outbox.flush { item ->
             when (item.kind) {
                 "voice" -> transport.sendVoice(item)
@@ -291,6 +313,9 @@ class RichCore private constructor(
                 else -> transport.sendText(item)
             }
         }
+        // A photo or file the Mac accepted is the Mac's now: the phone's staged copy goes.
+        val left = outbox.all().map { it.clientId }.toSet()
+        before.filter { it.clientId !in left }.flatMap { it.attachments.orEmpty() }.forEach { ports.files.delete(it.id) }
         return mutex.withLock {
             lastSend = report
             // Every response's challenge replaces the one held (contract §3.3).
@@ -356,6 +381,61 @@ class RichCore private constructor(
         return limits
     }
 
+    private var attachNotice: AttachNotice? = null
+
+    /**
+     * The + menu's choice: a Mac that takes no photos or files says so; a full tray says "Up to N at
+     * a time"; otherwise the platform presents its picker for the room left (the camera: one).
+     */
+    private suspend fun pick(source: AttachSource): AppState {
+        val room = mutex.withLock {
+            if (!session.paired) return@withLock null
+            val limits = session.attachmentLimits
+            val room = limits?.let { it.maxFilesPerMessage - session.pendingAttachments.size }
+            attachNotice = when {
+                limits == null -> AttachNotice.MacUnsupported
+                room!! <= 0 -> AttachNotice.Limit(limits.maxFilesPerMessage)
+                else -> null
+            }
+            emit()
+            room?.takeIf { it > 0 }
+        } ?: return flow.value
+        ports.picker.present(source, if (source == AttachSource.CAMERA) 1 else room)
+        return flow.value
+    }
+
+    /**
+     * Into the tray, in the order chosen, each checked against what the Mac advertised. An item
+     * refused, or past the count, never enters the tray: its card or line says why, and its staged
+     * copy is deleted. The photos travel as one album, so their total stays inside one message.
+     */
+    private suspend fun take(files: List<Attachment>): AppState {
+        val limits = session.attachmentLimits
+        if (!session.paired || limits == null) {
+            if (session.paired) attachNotice = AttachNotice.MacUnsupported
+            files.forEach { ports.files.delete(it.id) }
+            return emit()
+        }
+        var tray = session.pendingAttachments
+        for (f in files) {
+            if (tray.any { it.id == f.id }) continue
+            val refusal = when {
+                tray.size >= limits.maxFilesPerMessage -> AttachNotice.Limit(limits.maxFilesPerMessage)
+                f.size > limits.maxFileBytes -> AttachNotice.Refused(f.name, f.size, tooLarge = true)
+                limits.mediaTypes.isNotEmpty() && f.mediaType !in limits.mediaTypes -> AttachNotice.Refused(f.name, f.size, tooLarge = false)
+                f.isPhoto && tray.filter { it.isPhoto }.sumOf { it.size } + f.size > limits.maxMessageBytes -> AttachNotice.Refused(f.name, f.size, tooLarge = true)
+                else -> null
+            }
+            if (refusal != null) {
+                attachNotice = refusal
+                ports.files.delete(f.id)
+            } else {
+                tray = tray + f
+            }
+        }
+        return if (tray != session.pendingAttachments) commit(session.copy(pendingAttachments = tray)) else emit()
+    }
+
     private fun enqueueAttachments(files: List<Attachment>, text: String): OutboxItem {
         val threadId = session.selectedThreadId ?: throw CoreError("Choose a conversation before sending")
         val clientId = ports.ids.next()
@@ -381,15 +461,17 @@ class RichCore private constructor(
         val (p, previews) = mutex.withLock {
             val n = session.notifications
             if (!session.paired) return@withLock null to n.previews
-            if ("native-push-fcm" !in session.capabilities) {
+            if (FCM !in session.capabilities) {
                 commit(session.copy(notifications = n.copy(status = NotificationStatus.UNSUPPORTED)))
                 return@withLock null to n.previews
             }
             session.pairing to n.previews
         }
         val pairing = p ?: return flow.value
-        val outcome = runCatching {
-            api.registerPush(pairing.apiBase!!, pairing.deviceId!!, pairing.challenge!!, NativePush(token = action.token, topic = ports.applicationId, previewKey = action.previewKey, previews = previews))
+        val outcome = pushLane.withLock {
+            runCatching {
+                api.registerPush(pairing.apiBase!!, pairing.deviceId!!, pairing.challenge!!, NativePush(token = action.token, topic = ports.applicationId, previewKey = action.previewKey, previews = previews))
+            }
         }
         return mutex.withLock {
             val n = session.notifications
@@ -541,23 +623,46 @@ class RichCore private constructor(
     private var sheet: Sheet? = null
     private var focusMessageId: String? = null
 
-    private suspend fun settings(action: Action): AppState = mutex.withLock {
+    private suspend fun settings(action: Action): AppState {
+        // What the Mac is told after the lock is released (network work never holds it), and the
+        // key a forgotten pairing leaves behind, deleted only once that message is signed and sent.
+        var tellMac: Unregistration? = null
+        var forgetKey: String? = null
+        var forgot = false
+        val state = mutex.withLock { settingsLocked(action, { tellMac = it }, { forgetKey = it }, { forgot = true }) }
+        tellMac?.let { unregisterFromMac(it) }
+        // Privacy evidence E5: nothing the push provider keeps about this phone outlives the pairing.
+        if (forgot) ports.platform.forgetInstallation()
+        forgetKey?.let { origin ->
+            // Unless this phone started pairing with the same Mac again meanwhile.
+            mutex.withLock { if (session.pairing.apiBase != origin) ports.keys.delete(origin) }
+        }
+        return if (tellMac != null || forgetKey != null || forgot) flow.value else state
+    }
+
+    /** One `native_push: null` to send: the pairing to sign it with, and whether it follows Forget. */
+    private class Unregistration(val pairing: Pairing, val generation: Int, val forgetting: Boolean)
+
+    private suspend fun settingsLocked(action: Action, tellMac: (Unregistration) -> Unit, forgetKey: (String) -> Unit, forgot: () -> Unit): AppState {
         val n = session.notifications
-        when (action) {
+        return when (action) {
             Action.TurnOnNotifications -> {
-                if (!session.paired || n.status == NotificationStatus.ON || n.status == NotificationStatus.TURNING_ON) return@withLock emit()
+                if (!session.paired || n.status == NotificationStatus.ON || n.status == NotificationStatus.TURNING_ON) return emit()
                 commit(session.copy(notifications = n.copy(status = NotificationStatus.TURNING_ON))).also { ports.platform.requestNotifications(n.previews) }
             }
             is Action.NotificationsResult -> commit(
                 session.copy(notifications = n.copy(status = action.status, offerDismissed = n.offerDismissed || action.status == NotificationStatus.ON)),
             )
             Action.TurnOffNotifications -> {
-                if (n.status != NotificationStatus.ON && n.status != NotificationStatus.TURNING_ON) return@withLock emit()
+                if (n.status != NotificationStatus.ON && n.status != NotificationStatus.TURNING_ON) return emit()
+                // Privacy evidence E4: the Mac drops this phone's push token now, not at the next
+                // reply's failed delivery. Best effort, as the iPhone does.
+                if (session.paired) tellMac(Unregistration(session.pairing, generation, forgetting = false))
                 commit(session.copy(notifications = n.copy(status = NotificationStatus.OFF))).also { ports.platform.unregisterNotifications() }
             }
             Action.DismissNotificationOffer -> commit(session.copy(notifications = n.copy(offerDismissed = true)))
             is Action.SetPreviews -> {
-                if (n.previews == action.on) return@withLock emit()
+                if (n.previews == action.on) return emit()
                 commit(session.copy(notifications = n.copy(previews = action.on))).also {
                     if (n.status == NotificationStatus.ON) ports.platform.requestNotifications(action.on)
                 }
@@ -565,14 +670,19 @@ class RichCore private constructor(
             is Action.OpenSheet -> { sheet = action.sheet; emit() }
             Action.CloseSheet -> { sheet = null; emit() }
             Action.ForgetPairing -> {
-                if (session.pairing.phase == PairingPhase.UNPAIRED) return@withLock emit()
+                if (session.pairing.phase == PairingPhase.UNPAIRED) return emit()
                 sheet = if (outbox.isEmpty()) Sheet.FORGET else Sheet.FORGET_BLOCKED
                 emit()
             }
             Action.ConfirmForget -> {
-                if (sheet != Sheet.FORGET || !outbox.isEmpty()) return@withLock emit()
+                if (sheet != Sheet.FORGET || !outbox.isEmpty()) return emit()
                 if (n.status == NotificationStatus.ON || n.status == NotificationStatus.TURNING_ON) ports.platform.unregisterNotifications()
-                session.pairing.apiBase?.let { ports.keys.delete(it) }
+                // Privacy evidence E4: whatever the switch says now (off, or denied in Android
+                // Settings after it was on), a Mac that takes FCM registrations is told to drop
+                // this phone's. Signed with the pairing's key, so the key goes after it.
+                if (session.paired && FCM in session.capabilities) tellMac(Unregistration(session.pairing, generation, forgetting = true))
+                session.pairing.apiBase?.let(forgetKey)
+                forgot()
                 ++generation
                 sheet = null
                 // Nothing unsent is discarded silently: kept recordings stay, as do the theme and the
@@ -593,7 +703,30 @@ class RichCore private constructor(
             }
             Action.OpenAppStore -> { ports.platform.openAppStore(); emit() }
             Action.OpenSupport -> { ports.platform.openSupport(); emit() }
+            // Updates on Android come only from Google Play: checking is opening the listing.
+            Action.CheckForUpdates -> { ports.platform.openAppStore(); emit() }
+            Action.OpenPrivacyPolicy -> { ports.platform.openPrivacyPolicy(); emit() }
             else -> emit()
+        }
+    }
+
+    /** Serializes this phone's push registrations with the Mac, so "off, then on" never lands as "on, then off". */
+    private val pushLane = Mutex()
+
+    /**
+     * `{"native_push": null}` (contract §7.2, `MacApi.registerPush`), best effort: an unreachable
+     * Mac changes nothing here, and the Worker clears the token at the next failed delivery anyway.
+     * A turn-off that a turn-on has already overtaken is not sent.
+     */
+    private suspend fun unregisterFromMac(u: Unregistration) = pushLane.withLock {
+        val p = u.pairing
+        val apiBase = p.apiBase ?: return@withLock
+        val deviceId = p.deviceId ?: return@withLock
+        val challenge = p.challenge ?: return@withLock
+        if (!u.forgetting && mutex.withLock { generation != u.generation || session.notifications.status != NotificationStatus.OFF }) return@withLock
+        val fresh = runCatching { api.registerPush(apiBase, deviceId, challenge, null) }.getOrNull()?.second ?: return@withLock
+        if (!u.forgetting) mutex.withLock {
+            if (generation == u.generation && session.pairing.apiBase == apiBase) commit(session.copy(pairing = session.pairing.copy(challenge = fresh)))
         }
     }
 
@@ -663,6 +796,7 @@ class RichCore private constructor(
             olderAvailable = session.selectedThreadId?.let { session.olderAvailable[it] } ?: false,
             streamCursor = session.streamCursor,
             pendingAttachments = session.pendingAttachments,
+            attachNotice = attachNotice,
             loadingOlder = loadingOlder,
             sheet = sheet,
             focusMessageId = focusMessageId,
@@ -693,6 +827,9 @@ class RichCore private constructor(
 
     companion object {
         const val UNSENT_BEFORE_PAIRING = "A message is still waiting for the Mac this phone is paired with. Send it or discard it, then pair."
+        /** The Mac capability that says it takes FCM registrations (Echo 65952d16). */
+        private const val FCM = "native-push-fcm"
+
         const val UNSENT_BEFORE_FORGET = "A message is still waiting to be sent. Send it or discard it, then forget this pairing."
 
         suspend fun open(ports: Ports): RichCore {

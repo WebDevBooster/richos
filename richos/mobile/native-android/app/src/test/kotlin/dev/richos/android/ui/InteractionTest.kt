@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
@@ -17,6 +18,7 @@ import androidx.compose.ui.test.swipeDown
 import dev.richos.android.core.Action
 import dev.richos.android.core.Sheet
 import dev.richos.android.core.Theme
+import dev.richos.android.core.UpdateNotice
 import dev.richos.android.core.protocol.Row
 import dev.richos.android.ui.catalog.ScreenCatalog
 import dev.richos.android.ui.model.ScreenModel
@@ -87,6 +89,45 @@ class InteractionTest {
         compose.waitForIdle()
         compose.onNodeWithText("Forget pairing on this phone").performClick()
         assertEquals(Action.ConfirmForget, actions.last())
+    }
+
+    @Test
+    fun `every Settings row that leaves the app reaches core - updates, support and the privacy policy`() {
+        val set = show(screen("settings"))
+        // No appearance control: the app follows the phone (the CEO, 2026-09-24, G9).
+        compose.onNodeWithText("Appearance").assertDoesNotExist()
+        // Nothing has checked for an update, so the row claims nothing: no "Up to date".
+        compose.onNodeWithText("Up to date").assertDoesNotExist()
+        compose.onNodeWithText("Check for updates").performScrollTo().performClick()
+        assertEquals(Action.CheckForUpdates, actions.last())
+        compose.onNodeWithText("Support").performScrollTo().performClick()
+        assertEquals(Action.OpenSupport, actions.last())
+        compose.onNodeWithText("Privacy policy").performScrollTo().assertIsDisplayed().performClick()
+        assertEquals(Action.OpenPrivacyPolicy, actions.last())
+        // The consent screen's "Learn more" is the policy too.
+        set(screen("pair-consent"))
+        compose.waitForIdle()
+        compose.onNodeWithText("Learn more").performClick()
+        assertEquals(Action.OpenPrivacyPolicy, actions.last())
+    }
+
+    @Test
+    fun `Where your messages go opens from Settings and its Continue closes it again`() {
+        val set = show(screen("settings"))
+        compose.onNodeWithText("Where your messages go").performScrollTo().performClick()
+        assertEquals(Action.OpenSheet(Sheet.WHERE_MESSAGES_GO), actions.last())
+        set(screen("settings").let { it.copy(app = it.app.copy(sheet = Sheet.WHERE_MESSAGES_GO)) })
+        compose.waitForIdle()
+        compose.onNodeWithText("Continue").performClick()
+        assertEquals(Action.CloseSheet, actions.last())
+    }
+
+    @Test
+    fun `the update row names a version only when the hosted policy announced one`() {
+        val posed = screen("settings").app
+        val announced = posed.copy(update = UpdateNotice(UpdateNotice.Prominence.BANNER, "1.1", "Faster voice messages."))
+        show(ScreenModel(app = announced))
+        compose.onNodeWithText("1.1 is available").performScrollTo().assertIsDisplayed()
     }
 
     @Test

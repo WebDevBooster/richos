@@ -56,6 +56,8 @@ public enum ConversationReducer {
             pump(&s, at: at, &effects)
         case .retryNow(let at):
             for i in s.outbox.indices where s.outbox[i].state == .waiting { s.outbox[i].notBefore = 0 }
+            // "Send it first" in `pair-blocked` is this action: the choice is made, the dialog goes.
+            if case .blockedByUnsentWork = s.pairingProblem { s.pairingProblem = nil }
             pump(&s, at: at, &effects)
         case .discardMessage(let id):
             guard let i = s.outbox.firstIndex(where: { $0.clientID == id }), s.outbox[i].state != .sending else { return }
@@ -127,11 +129,14 @@ public enum ConversationReducer {
 
     private static func send(_ s: inout AppState, clientID: String, at: Int64, _ effects: inout [Effect]) {
         let text = s.draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard s.pairing == .paired, s.consentGiven, !text.isEmpty, s.connectionNotice != .incompatible else { return }
+        guard s.pairing == .paired, s.consentGiven, !text.isEmpty || !s.pendingAttachments.isEmpty,
+              s.connectionNotice != .incompatible else { return }
         guard s.draft.count <= Limits.messageCharacters else {
             s.toast = .tooLong(limit: Limits.messageCharacters)
             return
         }
+        // Photos or files in the tray: they and the draft's words go together (Android `send`).
+        if sendAttachments(&s, clientID: clientID, text: text, at: at, &effects) { return }
         guard s.outbox.count < outboxLimit else {
             s.toast = .outboxFull(limit: outboxLimit)
             return

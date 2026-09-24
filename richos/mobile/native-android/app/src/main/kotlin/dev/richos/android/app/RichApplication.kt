@@ -44,12 +44,12 @@ class RichApplication : Application() {
     val conversationOnScreen: Boolean get() = foreground?.get() is MainActivity
 
     /**
-     * Photos and files: the composer's attach control calls [AttachmentPicker.pickPhotos] or
-     * [AttachmentPicker.pickFiles]; what is picked arrives in the core as `attach`.
+     * Photos and files: the core's picker port. The + menu's choice reaches the core as
+     * `pick-attachments`; the core asks this to present a picker; what is picked returns as `attach`.
      */
     val attachments: AttachmentPicker by lazy {
         val stager = Stager(this, AppPorts.stagedDir(this)) { (store.states.value?.attachmentLimits ?: AttachmentLimits()).maxFileBytes }
-        AttachmentPicker(stager, { store.dispatch(it) }, { foreground?.get() as? ComponentActivity }, scope)
+        AttachmentPicker(stager, { store.dispatch(it) }, { foreground?.get() as? ComponentActivity }, scope, AttachmentPicker.capturesDir(this))
     }
 
     /**
@@ -90,7 +90,10 @@ class RichApplication : Application() {
                 dispatch = { store.dispatch(it) },
                 foreground = { foreground?.get() as? ComponentActivity },
             )
-            val ports = AppPorts.create(this, wire, recorder, platform)
+            val picker = object : dev.richos.android.core.AttachPicker {
+                override suspend fun present(source: dev.richos.android.core.AttachSource, maxCount: Int) = attachments.present(source, maxCount)
+            }
+            val ports = AppPorts.create(this, wire, recorder, platform, picker)
             store.open {
                 RichCore.open(ports).also { core ->
                     // The core mirrors the OS's microphone answer; a revoke in Settings is seen here.

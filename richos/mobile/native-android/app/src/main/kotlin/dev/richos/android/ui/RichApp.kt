@@ -119,7 +119,8 @@ fun RichApp(model: ScreenModel, onEvent: (UiEvent) -> Unit, camera: (@Composable
         var viewer by remember(model.viewer) { mutableStateOf(model.viewer) }
         val handle: (UiEvent) -> Unit = { e ->
             when (e) {
-                UiEvent.AttachMenu -> menuOpen = !menuOpen
+                // A Mac that takes no photos or files: the + says why (core's card) instead of a menu.
+                UiEvent.AttachMenu -> if (model.attachmentsSupported) menuOpen = !menuOpen else onEvent(UiEvent.AttachPick("photos"))
                 is UiEvent.AttachPick -> menuOpen = false
                 is UiEvent.OpenViewer -> viewer = Viewer(e.messageId, e.index)
                 UiEvent.CloseViewer -> viewer = null
@@ -179,7 +180,7 @@ private fun Overlays(model: ScreenModel, onEvent: (UiEvent) -> Unit) {
         model.sheet == Sheet.FORGET -> { Scrim(close); ForgetDialog(onEvent) }
         model.sheet == Sheet.SETTINGS -> {
             Scrim(close)
-            SettingsSheet(model.settings, model.notificationStatus, model.app.notifications.previews, model.app.theme, onEvent)
+            SettingsSheet(model.settings, model.notificationStatus, model.app.notifications.previews, onEvent)
         }
         model.pairingBlocked != null -> { Scrim(close); PairingBlockedDialog(model.pairingBlocked!!, onEvent) }
         model.overlay == Overlay.MicrophonePermission -> MicrophonePermissionDrawing()
@@ -359,7 +360,7 @@ private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEven
                 val waiting = model.waitingToSend
                 val a = model.attach
                 val hasAbove = model.inlineNotice != null || waiting != null || model.cards.isNotEmpty() || model.keptRecording != null || model.notificationOffer ||
-                    a.rejection != null || a.denied != null || (a.macOffCard && !model.attachmentsSupported)
+                    a.rejection != null || a.denied != null || a.macOffCard
                 if (hasAbove) {
                     Column(
                         Modifier.fillMaxWidth().heightIn(max = maxAbove).verticalScroll(rememberScrollState()).padding(start = 2.dp, end = 2.dp, bottom = 8.dp),
@@ -372,7 +373,7 @@ private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEven
                         model.keptRecording?.let { RecoveryCard(it, forward) }
                         a.rejection?.let { RejectionCard(it, model.attachLimitMb, onEvent) }
                         a.denied?.let { DeniedCard(it, onEvent) }
-                        if (a.macOffCard && !model.attachmentsSupported) MacOffCard(onEvent)
+                        if (a.macOffCard) MacOffCard(onEvent)
                     }
                 }
                 Composer(

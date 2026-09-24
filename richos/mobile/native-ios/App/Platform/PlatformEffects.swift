@@ -15,12 +15,23 @@ final class PlatformEffects: EffectHandler, @unchecked Sendable {
     @MainActor let recorder: VoiceRecorder
     /// Where actions that were not asked for go (the store's `send`). Set once the store exists.
     @MainActor var dispatch: ((Action) -> Void)?
+    /// Opens a page outside the app (the App Store listing, support, the privacy policy). Tests
+    /// record it instead of leaving the app.
+    @MainActor let openURL: @MainActor (URL) -> Void
+    /// Apple's photo picker, camera and document browser for the + menu; `nil` without an
+    /// attachment store (the platform tests).
+    @MainActor private(set) var picker: AttachmentPicker?
 
     @MainActor
-    init(network: (any EffectHandler)? = nil, clock: any Clock = SystemClock(), recorder: VoiceRecorder = VoiceRecorder()) {
+    init(network: (any EffectHandler)? = nil, clock: any Clock = SystemClock(), recorder: VoiceRecorder = VoiceRecorder(),
+         openURL: @escaping @MainActor (URL) -> Void = { UIApplication.shared.open($0) }, attachments: URL? = nil) {
         self.network = network
         self.clock = clock
         self.recorder = recorder
+        self.openURL = openURL
+        if let attachments {
+            picker = AttachmentPicker(directory: attachments) { [weak self] action in self?.dispatch?(action) }
+        }
         recorder.onLevel = { [weak self] level in self?.dispatch?(.voiceLevel(level)) }
         recorder.onInterrupted = { [weak self] in
             guard let self else { return }
@@ -95,9 +106,14 @@ final class PlatformEffects: EffectHandler, @unchecked Sendable {
             guard status == .turningOn else { return [.notificationsResult(status)] }
             return await network?.handle(effect, state: state) ?? [.notificationsResult(status)]
 
-        case .openAppStore, .openSupport:
-            // No App Store id or support URL exists yet (release-config.json: appId and supportURL
-            // are null until the CEO's App Store Connect record); nothing to open, nothing guessed.
+        case .openAppStore, .openSupport, .openPrivacyPolicy:
+            // The addresses live in one place, `AppLinks`; until the CEO fills them they are marked
+            // placeholders (App Store listing drafts, blockers 1-4).
+            if let url = AppLinks.destination(of: effect) { await MainActor.run { openURL(url) } }
+            return []
+
+        case .presentPicker(let source, let maxCount):
+            await MainActor.run { picker?.present(source, maxCount: maxCount, limits: state.attachmentLimits) }
             return []
 
         case .persist, .pair, .confirmFingerprint, .forgetIdentity, .deliver, .loadOlder, .fetchReplyAudio, .connect, .disconnect, .deleteAttachments,

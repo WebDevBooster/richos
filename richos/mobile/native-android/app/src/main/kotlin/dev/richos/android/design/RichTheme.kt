@@ -1,6 +1,7 @@
 package dev.richos.android.design
 
 import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.runtime.Composable
@@ -14,8 +15,17 @@ val LocalRichColors = staticCompositionLocalOf { RichColors.Dark }
 val LocalRichType = staticCompositionLocalOf { RichTypography.standard() }
 
 /**
- * The RichOS theme for Compose. Dark "Sovereign" unless the user chose light "Daybreak"
- * (ceo-decisions §15: dark is what a new install opens in, whatever the phone's setting).
+ * The phone's own light/dark setting, which RichConnect follows: dark "Sovereign" on a dark phone,
+ * light "Daybreak" on a light one. The CEO, 2026-09-24: "Follow the phone" (for the phone apps
+ * this replaces ceo-decisions §15's "dark is the default"; round 12.1 has no appearance control).
+ */
+@Composable
+@ReadOnlyComposable
+fun phoneTheme(): Theme = if (isSystemInDarkTheme()) Theme.DARK else Theme.LIGHT
+
+/**
+ * The RichOS theme for Compose, in [theme]: the phone's ([phoneTheme]) in the app, either one in a
+ * review frame.
  *
  * No Material theme sits underneath: every control is drawn from these tokens with Compose
  * foundation, so nothing ever shows a stock Material look.

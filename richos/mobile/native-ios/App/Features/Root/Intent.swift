@@ -59,6 +59,7 @@ enum Intent: Equatable, Sendable {
     case openSystemSettings
     case checkForUpdates
     case openSupport
+    case openPrivacyPolicy
     case forget
     case confirmForget
     case showWaiting
@@ -71,7 +72,7 @@ enum Intent: Equatable, Sendable {
     case openAppStore
     case updateLater
     case checkAgain
-    // Attachments (round-12 attachments; the core's attachment domain is pending)
+    // Attachments (round-12 attachments; the core's `AttachmentPicking`)
     case openAttachMenu
     case closeAttachMenu
     case openPicker(ScreenModel.Picker)
@@ -118,6 +119,8 @@ enum Intent: Equatable, Sendable {
         case .rejectWords: return .rejectWords
         case .acceptConsent: return .acceptConsent
         case .keepPairing: return .dismissPairingProblem
+        case .discardAndPair: return .discardUnsentAndPair
+        case .sendWaitingFirst: return .retryNow(at: now)
         case .openSettings: return .openSheet(.settings)
         case .closeSheet, .closeDialog, .showWaiting: return .closeSheet
         case .openWhereMessagesGo, .learnMore: return .openSheet(.whereMessagesGo)
@@ -130,8 +133,21 @@ enum Intent: Equatable, Sendable {
         case .setPreviews(let on): return .setPreviews(on)
         case .openAppStore: return .openAppStore
         case .openSupport: return .openSupport
+        // On iPhone updates come from the App Store: both ask it (App Store listing drafts, blocker 4).
+        case .checkForUpdates, .checkAgain: return .checkForUpdates
+        case .openPrivacyPolicy: return .openPrivacyPolicy
         case .updateLater: return .dismissUpdate
         case .setAppearance(let appearance): return .setAppearance(appearance)
+        case .openAttachMenu: return .openAttachMenu
+        case .closeAttachMenu: return .closeAttachMenu
+        case .openPicker(let picker):
+            switch picker {
+            case .photos: return .pickAttachments(.photos)
+            case .camera: return .pickAttachments(.camera)
+            case .files: return .pickAttachments(.files)
+            }
+        case .removePending(let id): return .removePendingAttachment(id: id)
+        case .dismissCard(let id) where id.hasPrefix("attach-"): return .dismissAttachNotice
         default: return nil
         }
     }

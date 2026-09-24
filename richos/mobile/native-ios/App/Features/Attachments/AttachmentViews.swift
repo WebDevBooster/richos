@@ -17,6 +17,8 @@ struct PhotoView: View {
             } else {
                 Color(hex: 0x141E34)
             }
+        case .unavailable:
+            Color(hex: 0x141E34)
         }
     }
 }

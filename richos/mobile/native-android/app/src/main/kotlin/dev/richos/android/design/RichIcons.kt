@@ -52,6 +52,8 @@ object RichIcons {
     val Send = icon("send", listOf("M12 19V5", "M6 11l6-6 6 6"), width = 2.2f)
     val LockBody = icon("lock-body", listOf(rect(5f, 11f, 14f, 10f, 2.5f)), fill = listOf(circle(12f, 16f, 1.2f)))
     val LockShackle = icon("lock-shackle", listOf("M8 11V7a4 4 0 0 1 8 0v4"))
+    /** Round 12's `I.lock` whole: the Settings "Privacy policy" row (the iPhone's row uses the same). */
+    val Lock = icon("lock", listOf("M8 11V7a4 4 0 0 1 8 0v4", rect(5f, 11f, 14f, 10f, 2.5f)), fill = listOf(circle(12f, 16f, 1.2f)))
     val TrashLid = icon("trash-lid", listOf("M4 7h16", "M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"), width = 2.2f)
     val TrashCan = icon("trash-can", listOf("M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"), width = 2.2f)
     val TrashCanFill = filled("trash-can-fill", "M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13z")
