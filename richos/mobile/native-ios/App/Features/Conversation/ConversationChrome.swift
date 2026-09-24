@@ -90,18 +90,38 @@ struct ConnectionText: View {
     }
 }
 
-/// The 8 pt gold dot that breathes beside "Reconnecting…" (1.4 s).
+/// The 8 pt gold dot that breathes beside "Reconnecting…" (1.4 s) for its first 10 seconds, then rests
+/// at full opacity until the state changes (`PulseSchedule`). Resting, it is a plain circle: the
+/// `TimelineView` leaves the hierarchy, so nothing asks for another frame however long the Mac sleeps.
 struct PulseDot: View {
     @Environment(\.palette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// When this dot appeared; a new "Reconnecting…" is a new dot with its own start.
+    @State private var appeared = Date()
+    @State private var resting = false
+
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.4) / 1.4
-            Circle().fill(palette.signal)
-                .frame(width: 8, height: 8)
-                .opacity(0.35 + 0.65 * (0.5 - 0.5 * cos(t * 2 * .pi)))
+        Group {
+            if resting || !PulseSchedule.animates(elapsed: 0, reduceMotion: reduceMotion) {
+                dot(PulseSchedule.restingOpacity)
+            } else {
+                TimelineView(.animation) { context in
+                    dot(PulseSchedule.opacity(elapsed: context.date.timeIntervalSince(appeared)))
+                }
+            }
+        }
+        // One sleep, not a clock: after it the dot is still, and a dot that left the screen is cancelled.
+        .task {
+            try? await Task.sleep(nanoseconds: UInt64(PulseSchedule.restsAt * 1_000_000_000))
+            if !Task.isCancelled { resting = true }
         }
         .accessibilityHidden(true)
+    }
+
+    private func dot(_ opacity: Double) -> some View {
+        Circle().fill(palette.signal)
+            .frame(width: 8, height: 8)
+            .opacity(opacity)
     }
 }
 

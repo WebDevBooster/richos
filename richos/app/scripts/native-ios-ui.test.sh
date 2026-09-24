@@ -262,6 +262,23 @@ print(String(format: "  info  gold alone on your bubble in light %.2f:1, so it w
 print(String(format: "  info  waveform bar 32%% ink on your bubble: dark %.2f:1, light %.2f:1 (decoration, declared)",
              ratio(Palette.sovereign.ink.opacity(0.32), Palette.sovereign.mine), ratio(Palette.daybreak.ink.opacity(0.32), Palette.daybreak.mine)))
 
+// The Reconnecting dot breathes as round 12 draws it for 10 seconds, then rests at full opacity and
+// asks for no more frames (the lead's battery decision, the same as Android's 0b4fabba).
+do {
+    let P = PulseSchedule.self
+    check(abs(P.opacity(elapsed: 0) - 0.35) < 1e-9, "pulse starts at 0.35")
+    check(abs(P.opacity(elapsed: 0.7) - 1) < 1e-9, "pulse peaks at full opacity after 700 ms")
+    check(abs(P.opacity(elapsed: 1.4) - 0.35) < 1e-9, "pulse is back at 0.35 after 1.4 s")
+    check(abs(P.restsAt - 10.5) < 1e-9, "pulse rests at 10.5 s, on a peak (Android: fifteen 700 ms legs)")
+    check(P.animates(elapsed: 9.9, reduceMotion: false), "pulse still breathes at 9.9 s")
+    check(!P.animates(elapsed: P.restsAt, reduceMotion: false), "pulse asks for no frames once it rests")
+    check(!P.animates(elapsed: 3 * 3600, reduceMotion: false), "pulse asks for no frames three hours into a sleeping Mac")
+    check(P.opacity(elapsed: 3 * 3600) == 1, "a resting pulse is at full opacity")
+    check(!P.animates(elapsed: 0, reduceMotion: true), "Reduce Motion: the dot never animates")
+    // No discontinuity when it stops: the last frame drawn before rest is already at the peak.
+    check(abs(P.opacity(elapsed: P.restsAt - 1e-6) - 1) < 1e-6, "pulse meets its rest without a jump")
+}
+
 if failures > 0 { print("  \(failures) headless check(s) failed"); exit(1) }
 print("  headless: all checks passed")
 SWIFT
@@ -277,6 +294,7 @@ if ! xcrun swiftc -Onone -D DEBUG -module-name RichOSCore -target "$(uname -m)-a
     "$NATIVE/App/Features/Root/ScreenModel.swift" \
     "$NATIVE/App/Features/Attachments/AttachmentModel.swift" \
     "$NATIVE/App/Features/Conversation/TranscriptViewportGeometry.swift" \
+    "$NATIVE/App/Features/Conversation/PulseSchedule.swift" \
     "$WORK/main.swift" -o "$HEADLESS_BIN" > "$WORK/headless-build.log" 2>&1; then
   tail -30 "$WORK/headless-build.log"
   echo "  FAIL  native-ios-ui: the headless checks did not compile"
