@@ -77,6 +77,21 @@ class SettingsTest {
     }
 
     @Test
+    fun `forget removes the push provider's installation, whether or not notifications were ever on`() = runTest {
+        val on = online()
+        on.core.dispatch(Action.TurnOnNotifications)
+        on.core.dispatch(Action.NotificationsResult(NotificationStatus.ON))
+        on.core.dispatch(Action.ForgetPairing)
+        on.core.dispatch(Action.ConfirmForget)
+        assertEquals(listOf("register:previews", "unregister", "forget-installation"), on.export().platform)
+
+        val never = online()
+        never.core.dispatch(Action.ForgetPairing)
+        never.core.dispatch(Action.ConfirmForget)
+        assertEquals(listOf("forget-installation"), never.export().platform)
+    }
+
+    @Test
     fun `the platform screens are asked for, not opened by the core`() = runTest {
         val runtime = online()
         runtime.core.dispatch(Action.OpenSystemSettings)

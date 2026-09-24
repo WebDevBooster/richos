@@ -531,19 +531,22 @@ class RichCore private constructor(
         // key a forgotten pairing leaves behind, deleted only once that message is signed and sent.
         var tellMac: Unregistration? = null
         var forgetKey: String? = null
-        val state = mutex.withLock { settingsLocked(action, { tellMac = it }, { forgetKey = it }) }
+        var forgot = false
+        val state = mutex.withLock { settingsLocked(action, { tellMac = it }, { forgetKey = it }, { forgot = true }) }
         tellMac?.let { unregisterFromMac(it) }
+        // Privacy evidence E5: nothing the push provider keeps about this phone outlives the pairing.
+        if (forgot) ports.platform.forgetInstallation()
         forgetKey?.let { origin ->
             // Unless this phone started pairing with the same Mac again meanwhile.
             mutex.withLock { if (session.pairing.apiBase != origin) ports.keys.delete(origin) }
         }
-        return if (tellMac != null || forgetKey != null) flow.value else state
+        return if (tellMac != null || forgetKey != null || forgot) flow.value else state
     }
 
     /** One `native_push: null` to send: the pairing to sign it with, and whether it follows Forget. */
     private class Unregistration(val pairing: Pairing, val generation: Int, val forgetting: Boolean)
 
-    private suspend fun settingsLocked(action: Action, tellMac: (Unregistration) -> Unit, forgetKey: (String) -> Unit): AppState {
+    private suspend fun settingsLocked(action: Action, tellMac: (Unregistration) -> Unit, forgetKey: (String) -> Unit, forgot: () -> Unit): AppState {
         val n = session.notifications
         return when (action) {
             Action.TurnOnNotifications -> {
@@ -582,6 +585,7 @@ class RichCore private constructor(
                 // this phone's. Signed with the pairing's key, so the key goes after it.
                 if (session.paired && FCM in session.capabilities) tellMac(Unregistration(session.pairing, generation, forgetting = true))
                 session.pairing.apiBase?.let(forgetKey)
+                forgot()
                 ++generation
                 sheet = null
                 // Nothing unsent is discarded silently: kept recordings stay, as do the theme and the

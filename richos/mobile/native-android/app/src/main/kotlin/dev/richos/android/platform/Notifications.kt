@@ -21,6 +21,8 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
+import com.google.android.gms.tasks.Task
+import com.google.firebase.installations.FirebaseInstallations
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -50,6 +52,7 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /**
  * The phone's preview key (contract §7.2): 32 random bytes the Mac seals previews with, sent once
@@ -159,7 +162,14 @@ class FcmPlatform(
     /** Where the OS prompts run; a test substitutes one that does not need a running looper. */
     private val main: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.Main,
     private val ledger: TokenLedger = TokenLedger.forApp(context),
+    /** Deletes the FCM token, then Firebase's installation ID; a test substitutes a recorder. */
+    private val deleteInstallation: suspend () -> Unit = ::defaultDeleteInstallation,
+    /** Present while a Forget's deletion has not reached Firebase yet (offline); retried at the next launch. */
+    private val pendingForget: File = File(context.filesDir, "push/forget-installation.pending"),
 ) : Platform {
+    /** One Firebase conversation at a time: a token is never fetched while Forget deletes the installation. */
+    private val firebaseLane = Mutex()
+
     override suspend fun requestNotifications(previews: Boolean) {
         if (!firebaseReady()) {
             dispatch(Action.NotificationsResult(NotificationStatus.PLATFORM_UNAVAILABLE))
@@ -169,7 +179,7 @@ class FcmPlatform(
             dispatch(Action.NotificationsResult(NotificationStatus.DENIED))
             return
         }
-        val token = runCatching { fetchToken() }.getOrNull()
+        val token = firebaseLane.withLock { runCatching { fetchToken() }.getOrNull() }
         if (token.isNullOrBlank()) {
             dispatch(Action.NotificationsResult(NotificationStatus.PLATFORM_UNAVAILABLE))
             return
@@ -197,6 +207,8 @@ class FcmPlatform(
     private val reconciling = Mutex()
 
     private suspend fun reconcileNow(status: NotificationStatus, previews: Boolean) {
+        // A Forget made offline finishes now: one attempt per launch or return, never a timer.
+        if (pendingForget.isFile) forgetInstallation()
         // The way back: allowed again in Android Settings after a denial, the phone registers
         // again (no prompt: the OS already said yes) instead of staying "off" for good.
         if (status == NotificationStatus.DENIED && granted()) return requestNotifications(previews)
@@ -206,7 +218,7 @@ class FcmPlatform(
             return
         }
         if (!firebaseReady()) return
-        val token = runCatching { fetchToken() }.getOrNull()
+        val token = firebaseLane.withLock { runCatching { fetchToken() }.getOrNull() }
         if (token.isNullOrBlank() || ledger.matches(token)) return
         val key = if (previews) withContext(Dispatchers.IO) { runCatching { previewKeys.existing() }.getOrNull() } else null
         ledger.record(token)
@@ -217,6 +229,20 @@ class FcmPlatform(
         ledger.clear()
         withContext(Dispatchers.IO) { previewKeys.discard() }
         if (FirebaseApp.getApps(context).isNotEmpty()) runCatching { FirebaseMessaging.getInstance().deleteToken() }
+    }
+
+    /**
+     * Privacy evidence E5: Forget removes Firebase's installation ID, on this phone and at Firebase,
+     * which keeps it "until the Firebase customer makes an API call to delete the ID". The FCM token
+     * goes first, then the installation. Starting Firebase for this makes nothing new: FCM auto-init
+     * is off in the manifest, so a token or an ID exists only after the person turned notifications
+     * on. Bounded; if it cannot reach Firebase now, the next launch finishes it ([reconcile]).
+     */
+    override suspend fun forgetInstallation() {
+        if (!firebaseReady()) return
+        withContext(Dispatchers.IO) { runCatching { pendingForget.parentFile?.mkdirs(); pendingForget.createNewFile() } }
+        val done = firebaseLane.withLock { withTimeoutOrNull(FORGET_PATIENCE_MS) { runCatching { deleteInstallation() }.isSuccess } }
+        if (done == true) withContext(Dispatchers.IO) { runCatching { AtomicFile(pendingForget).delete() } }
     }
 
     private fun granted() = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
@@ -264,10 +290,23 @@ class FcmPlatform(
     }
 
     companion object {
+        const val FORGET_PATIENCE_MS = 10_000L
+
         private suspend fun defaultToken(): String? = suspendCancellableCoroutine { done ->
             FirebaseMessaging.getInstance().token
                 .addOnSuccessListener { if (done.isActive) done.resume(it) }
                 .addOnFailureListener { if (done.isActive) done.resume(null) }
+        }
+
+        private suspend fun defaultDeleteInstallation() {
+            FirebaseMessaging.getInstance().deleteToken().awaitDone()
+            FirebaseInstallations.getInstance().delete().awaitDone()
+        }
+
+        /** Waits for a Play services task; its failure is thrown. */
+        private suspend fun Task<*>.awaitDone(): Unit = suspendCancellableCoroutine { done ->
+            addOnSuccessListener { if (done.isActive) done.resume(Unit) }
+            addOnFailureListener { e -> if (done.isActive) done.resumeWithException(e) }
         }
     }
 }

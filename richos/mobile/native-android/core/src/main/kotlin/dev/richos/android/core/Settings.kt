@@ -72,6 +72,12 @@ interface Platform {
 
     suspend fun unregisterNotifications() {}
 
+    /**
+     * Forget: remove what the push provider keeps about this phone (on Android, Firebase's
+     * installation ID, on this phone and at Firebase), whether or not notifications were ever on.
+     */
+    suspend fun forgetInstallation() {}
+
     suspend fun openSystemSettings() {}
 
     suspend fun openAppStore() {}
