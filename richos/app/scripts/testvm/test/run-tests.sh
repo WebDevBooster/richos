@@ -1369,6 +1369,17 @@ t "hand-file: arguments that would put input in the wrong place are refused befo
   eq "$(wc -l < "$TMP/hf.log" | tr -d ' ')" "0" "a refused argument reached the guest"
 t_done
 
+t "hand-file: the guest program runs under its own deadline, so a timed-out call cannot act later"
+  : > "$TMP/hf.log"
+  hfrun "$TMP/hf-paste.json" paste /Users/admin/walk/a.png >/dev/null; ok $? "$(cat "$TMP/hf.err")"
+  has "$(cat "$TMP/hf.log")" "python3 -c"
+  has "$(cat "$TMP/hf.log")" "osascript -l JavaScript -"
+t_done
+
+t "hand-file: the drag never scripts Finder (an Apple Event raises a consent dialog nobody answers)"
+  eq "$(grep -v '^[[:space:]]*//' "$TESTVM_DIR/hand-file.js" | grep -c 'Application("Finder")' | tr -d ' ')" "0" "Finder is scripted"
+t_done
+
 t "hand-file: no recorded pid, no input sent"
   out="$(STUB_AX_FIXTURE="$TMP/hf-paste.json" STUB_LOG="$TMP/hf2.log" "$TESTVM_DIR/hand-file.sh" richos-test-nopid paste /Users/admin/a.png 2>&1)"; no $?
   has "$out" "no app pid recorded"

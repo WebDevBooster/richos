@@ -212,8 +212,19 @@ hands the app text; nothing handed it a file.
 
 Both refuse unless the app's PID is frontmost, for the reason `ax.sh --key` does. The
 program travels on stdin, so a guest path with a space in it never becomes part of a
-command line. Tests: `test/run-tests.sh hand-file` (5, against the stub guest; both
-refusals proven by mutation).
+command line, and it runs in the guest under the same guest-side deadline `ax.sh` uses.
+
+**Two things the first live runs taught it, 2026-09-24:**
+
+* **It never scripts Finder.** The icon's position comes from Finder's accessibility tree,
+  read through System Events, which the guest is granted. An Apple Event to Finder raises a
+  *"wants access to control Finder"* consent dialog in the guest that nobody can answer.
+* **The guest deadline is not optional.** Without it, a call that timed out on the host
+  kept waiting in the guest and finished its drag minutes later, which put the same file
+  on the composer twice.
+
+Tests: `test/run-tests.sh hand-file` (7, against the stub guest). Each refusal, the guest
+deadline and the no-Finder rule were proven by running the test against code without them.
 
 ---
 

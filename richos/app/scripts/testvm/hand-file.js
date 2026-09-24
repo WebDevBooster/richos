@@ -71,12 +71,15 @@ function run() {
     if (!fm.fileExistsAtPath(placed)) {
       if (!fm.copyItemAtPathToPathError(P.path, placed, $())) return error("copyfailed", "could not place the file on the Desktop");
     }
-    // Finder names the item's place on the Desktop; the AX tree of Finder's desktop window
-    // carries its on-screen box. The AX box is used when present because it is what the
-    // pointer has to land on; the Finder position is the fallback.
-    var finder = Application("Finder");
+    // The icon's on-screen box comes from the ACCESSIBILITY tree of Finder's desktop, read
+    // through System Events, which the guest is already granted. NEVER from Finder's own
+    // scripting (`Application("Finder")...desktopPosition()`): that is an Apple Event to Finder,
+    // which raises a "wants access to control Finder" consent dialog in the guest that nobody
+    // can answer, and the whole call then hangs to its deadline. Measured on 2026-09-24 in
+    // walk-c9772ad8c468, the first run that reached that fallback. A new icon can take a moment
+    // to appear, so the tree is polled for up to ten seconds.
     var at = null;
-    for (var tries = 0; tries < 30 && !at; tries++) {
+    for (var tries = 0; tries < 50 && !at; tries++) {
       try {
         var icons = se.processes.byName("Finder").scrollAreas[0].groups[0].images.whose({ name: name });
         if (icons.length) {
@@ -84,15 +87,9 @@ function run() {
           at = { x: pos[0] + size[0] / 2, y: pos[1] + size[1] / 2, from: "finder-ax" };
         }
       } catch (e) {}
-      if (!at) {
-        try {
-          var dp = finder.desktop.items.byName(name).desktopPosition();
-          if (dp) at = { x: dp[0], y: dp[1], from: "finder-desktop-position" };
-        } catch (e) {}
-      }
       if (!at) delay(0.2);
     }
-    if (!at) return error("noicon", "Finder never showed " + name + " on the Desktop");
+    if (!at) return error("noicon", "Finder's desktop never showed " + name + " in its accessibility tree within 10 s; nothing was dragged");
     if (!bringToFront()) return error("notfront", "refusing: the app under test is not frontmost, so nothing was dragged");
     function mouse(type, x, y) {
       var ev = $.CGEventCreateMouseEvent($(), type, { x: x, y: y }, 0);

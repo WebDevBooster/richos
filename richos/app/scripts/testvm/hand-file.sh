@@ -69,6 +69,27 @@ fi
 PID="$(cat "$TESTVM_RUN/$VM/app.pid" 2>/dev/null || true)"
 [ -n "$PID" ] || die "no app pid recorded for $VM — was it started by run.sh?"
 
+# THE GUEST GETS ITS OWN DEADLINE, the one ax.sh builds, and it is not optional. The host
+# deadline above ends the ssh call; without this the osascript in the guest outlives it. Measured
+# on 2026-09-24 in walk-c9772ad8c468: a drag whose call had timed out on the host was still
+# waiting in the guest, and finished its drag minutes later when the dialog it waited on was
+# answered, which put the same file on the composer twice.
+REMOTE_OSA="$(python3 - "$HERE/ax-deadline.py" "${TESTVM_AX_TIMEOUT:-30}" <<'DEADLINE'
+import os, pathlib, shlex, sys, time
+try:
+    seconds = float(sys.argv[2])
+    assert 1 <= seconds <= 300
+except (ValueError, AssertionError):
+    raise SystemExit("TESTVM_AX_TIMEOUT must be between 1 and 300 seconds")
+# Leave two seconds for diagnostics, SSH delivery and the host renderer.
+remaining = float(os.environ['TESTVM_AX_DEADLINE']) - time.monotonic() - 2
+if remaining < 1: raise SystemExit("preflight consumed the deadline")
+seconds = min(seconds, remaining)
+print("python3 -c " + shlex.quote(pathlib.Path(sys.argv[1]).read_text()) +
+      " " + shlex.quote(str(seconds)) + " osascript -l JavaScript -")
+DEADLINE
+)"
+
 PARAMS="$(HF_MODE="$MODE" HF_PATH="$FILE" HF_PID="$PID" HF_TOX="$TOX" HF_TOY="$TOY" python3 -c '
 import json, os
 p = {"mode": os.environ["HF_MODE"], "path": os.environ["HF_PATH"], "pid": int(os.environ["HF_PID"])}
@@ -78,7 +99,7 @@ print("var HAND_PARAMS = " + json.dumps(p) + ";")
 ')"
 
 # The program travels on stdin, never in a remote command line.
-{ printf '%s\n' "$PARAMS"; cat "$HERE/hand-file.js"; } | ag "osascript -l JavaScript -" 2>&1 | {
+{ printf '%s\n' "$PARAMS"; cat "$HERE/hand-file.js"; } | ag "$REMOTE_OSA" 2>&1 | {
   answer="$(cat)"
   printf '%s\n' "$answer"
   case "$answer" in *'"error"'*) exit 3 ;; *'"handed"'*) exit 0 ;; *) exit 4 ;; esac
