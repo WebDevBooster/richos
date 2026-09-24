@@ -108,9 +108,18 @@ data class Session(
     val readingAnchor: ReadingAnchor? = null,
     @OptIn(ExperimentalSerializationApi::class) @EncodeDefault(EncodeDefault.Mode.NEVER)
     val completionReservations: List<Long> = emptyList(),
+    /** Messages the Mac accepted and has not yet echoed ([Echoes]), in the order they were sent. */
+    @OptIn(ExperimentalSerializationApi::class) @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val sent: List<SentMessage> = emptyList(),
+    /** Which of the Mac's cached rows are the echoes of this phone's messages ([Echoes]). */
+    @OptIn(ExperimentalSerializationApi::class) @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val echoes: List<Echo> = emptyList(),
 ) {
     companion object {
         const val CACHE_ROWS = 100
+
+        /** Accepted-and-not-yet-echoed messages kept at most; the oldest goes first beyond it. */
+        const val SENT_LIMIT = 100
     }
 }
 
@@ -149,6 +158,12 @@ data class OutboxItem(
     /** The exact request bytes (text, attachment commit) or signed path (voice), built once at enqueue. */
     @EncodeDefault(EncodeDefault.Mode.NEVER) val wire: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val attachments: List<Attachment>? = null,
+    /**
+     * The newest of the Mac's rows on screen when Send was pressed (its cursor and id): no row at
+     * or before it can be this message's echo ([Echoes]). Absent on items queued by older builds.
+     */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val echoAfterCursor: Long? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val echoAfterMessageId: String? = null,
 )
 
 /** What one pass over the outbox did, as data (`queue.js` `flush` result). */
@@ -211,6 +226,12 @@ data class AppState(
     val playingRecordingId: String? = null,
     @OptIn(ExperimentalSerializationApi::class) @EncodeDefault(EncodeDefault.Mode.NEVER)
     val readingAnchor: ReadingAnchor? = null,
+    /** The selected conversation's accepted messages not yet echoed by the Mac ([Session.sent]). */
+    @OptIn(ExperimentalSerializationApi::class) @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val sent: List<SentMessage> = emptyList(),
+    /** The selected conversation's rows that echo this phone's messages ([Session.echoes]). */
+    @OptIn(ExperimentalSerializationApi::class) @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val echoes: List<Echo> = emptyList(),
 ) {
     /**
      * What the gold circle in the composer shows: the microphone becomes the send arrow
@@ -239,6 +260,8 @@ data class AppState(
             dueInMs = dueInMs,
             lastSend = lastSend,
             readingAnchor = session.readingAnchor,
+            sent = session.sent.filter { it.threadId == session.selectedThreadId },
+            echoes = session.echoes.filter { it.threadId == session.selectedThreadId },
         )
     }
 }
