@@ -906,6 +906,34 @@ impl DeviceDesk {
         window.into_iter().chain(device).max()
     }
 
+    /// **MAY THIS REQUEST'S BODY BE LARGER THAN 64 KiB?** — Sage's pairing review F3.
+    ///
+    /// The listener chooses how much to read BEFORE it reads it, from the request line alone, and
+    /// on Connect the listener is on the public internet: `Content-Type: audio/wav` was granted
+    /// 60,000,000 bytes for 120 s and `?kind=attachment` 25 MiB for 300 s, to anybody, across 32
+    /// slots — 32 × 60 MB is 1.92 GB of his Mac's memory for a caller with no key at all.
+    ///
+    /// So a large body is granted only to a header that parses, names the paired device, that
+    /// device confirmed ON THIS MAC and inside its window (F1), and presents a challenge this Mac
+    /// issued and has not retired. **The no-crypto half of [`DeviceDesk::verify`]**: one lock and
+    /// three comparisons, and no bucket is spent, because the full `verify` still runs after the
+    /// body and spends it then. The signature is NOT checked here, so the residual is the one
+    /// [`RATE_LIMIT`] already states: a caller that holds the device id (48 bits of the key's
+    /// hash, never shown) and a live challenge (which `GET /api/challenge` hands anybody) can
+    /// still be read up to the large limit before its signature fails.
+    pub fn admits_large_body(&self, authorization: Option<&str>) -> bool {
+        let Some((device_id, challenge, _signature)) = authorization.and_then(parse_authorization) else { return false };
+        let now = super::now_millis();
+        let state = self.state.lock().unwrap();
+        let Some(device) = state.device.as_ref() else { return false };
+        constant_time_eq(device.id.as_bytes(), device_id.as_bytes())
+            && device.mac_confirmed
+            && !device.confirmation_lapsed(now)
+            && state.challenges.iter().any(|(c, at)| {
+                constant_time_eq(c.as_bytes(), challenge.as_bytes()) && now.saturating_sub(*at) <= CHALLENGE_LIFETIME_MS
+            })
+    }
+
     /// Did somebody use the code again after the person had confirmed this phone on the Mac?
     pub fn code_reused(&self) -> bool {
         self.state.lock().unwrap().code_reused

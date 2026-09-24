@@ -473,10 +473,10 @@ async fn handle(channel: Arc<Channel>, request: Request<HyperBody>) -> Response<
     let last_event_id = header("last-event-id");
     let content_type = header("content-type");
 
-    let body_limit = super::routes::body_limit(&method,&path,&query,content_type.as_deref());
     // THE LIMIT IS APPLIED BEFORE THE BODY IS READ, which is the difference between a limit and a
     // check. `Limited` fails the read rather than buffering four gigabytes and then measuring it.
-    let upload_seconds = super::routes::upload_seconds(&method,&path,&query,content_type.as_deref());
+    let (body_limit, upload_seconds) =
+        read_limits(&channel, &method, &path, &query, content_type.as_deref(), authorization.as_deref());
     let body = match tokio::time::timeout(std::time::Duration::from_secs(upload_seconds), Limited::new(request.into_body(), body_limit).collect()).await {
         Ok(Ok(collected)) => collected.to_bytes().to_vec(),
         _ => return render(&channel, Outcome::PayloadTooLarge),
@@ -490,6 +490,30 @@ async fn handle(channel: Arc<Channel>, request: Request<HyperBody>) -> Response<
         Outcome::Stream { opening, .. } => open_stream(channel, opening),
         other => render(&channel, other),
     }
+}
+
+/// **How many bytes, and how long, this request's body may take — decided before one is read.**
+///
+/// The route's own limits ([`super::routes::body_limit`], [`super::routes::upload_seconds`])
+/// say what a voice note or a file may be. Sage's pairing review F3: they were granted from the
+/// request line alone, so on the public Connect route anybody could make this Mac hold about
+/// 1.92 GB (32 slots × 60 MB) and every slot for up to 300 s. A large limit is now granted only
+/// to a credential naming the paired, confirmed device with a live challenge
+/// ([`super::device::DeviceDesk::admits_large_body`]); everything else gets
+/// [`super::MAX_BODY_BYTES`] (64 KiB) and 15 s, and a larger body is refused 413 unread.
+fn read_limits(
+    channel: &Channel,
+    method: &str,
+    path: &str,
+    query: &str,
+    content_type: Option<&str>,
+    authorization: Option<&str>,
+) -> (usize, u64) {
+    let limit = super::routes::body_limit(method, path, query, content_type);
+    if limit <= super::MAX_BODY_BYTES || !channel.devices.admits_large_body(authorization) {
+        return (limit.min(super::MAX_BODY_BYTES), 15);
+    }
+    (limit, super::routes::upload_seconds(method, path, query, content_type))
 }
 
 /// Turn a described response into an HTTP one, with a fresh challenge attached.
@@ -701,6 +725,91 @@ mod tests {
         // THERE IS ONE PORT NOW. The neighboring one served the trust page, and CEO §61 removed
         // the path that needed it — see `Listener::start`.
         assert_eq!(HTTPS_PORT, 8443);
+    }
+
+    /// **SAGE F3: A LARGE BODY IS GRANTED BEFORE AUTHENTICATION ONLY TO THE PAIRED, CONFIRMED
+    /// DEVICE.** His test, as he wrote it: an unsigned `POST /api/messages` with `Content-Type:
+    /// audio/wav` and a 1 MiB body is answered 413, and so is one signed by an unknown device id;
+    /// the same upload signed by the active device is read in full and reaches the route. Over the
+    /// real Connect listener (plain HTTP on loopback, the public route's last hop). On `main`
+    /// before this change the unsigned upload was granted 60,000,000 bytes and 120 s.
+    #[test]
+    fn a_large_body_is_read_only_for_the_confirmed_device_and_refused_unread_for_anyone_else() {
+        use crate::phone::{api_base::ApiBaseDesk, device::{DeviceDesk, PairedVia, Platform, PublicKeyForm, signing_string}, routes::{Bridge, Accepted, StopSwitch}, stream::PhoneHub};
+        use std::io::{Read as _, Write as _};
+        struct Quiet;
+        impl Bridge for Quiet {
+            fn submit_text(&self, _: Option<&str>, _: &str) -> Result<Accepted, String> { Err("unused".into()) }
+            fn snapshot(&self, _: Option<&str>) -> Result<serde_json::Value, String> { Ok(serde_json::json!({})) }
+            fn current_thread(&self) -> Option<(String, String)> { None }
+            fn threads(&self) -> Vec<(String, String)> { vec![] }
+        }
+        let dir = std::env::temp_dir().join(format!("f3-limits-{}-{}", std::process::id(), super::super::now_millis()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let devices = Arc::new(DeviceDesk::open(&dir).unwrap());
+        let phone = crate::phone::device::tests::Phone::new();
+        let window = devices.open_pairing().unwrap();
+        let device = devices.complete_pairing(&window.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::CONNECT, Platform::IOS).unwrap();
+        let challenge = devices.issue_challenge().unwrap();
+        let channel = Arc::new(Channel {
+            devices: Arc::clone(&devices), rejected: StopSwitch::unwired(),
+            api_base: Arc::new(ApiBaseDesk::only("https://example.invalid")), hub: PhoneHub::new(), bridge: Arc::new(Quiet),
+            assets: super::super::assets::PhoneApp::embedded(), vapid_public: String::new(), fingerprint_hex: String::new(),
+            pairing_path: std::sync::Mutex::new(PairedVia::CONNECT),
+        });
+        let credential = |id: &str, body: &[u8]| {
+            let sig = super::super::b64url(&phone.sign(&signing_string(&challenge, "POST", "/api/messages", body)));
+            format!("RichOS-Device {id}.{challenge}.{sig}")
+        };
+        let small = (super::super::MAX_BODY_BYTES, 15);
+        let wav = Some("audio/wav");
+
+        // The decision, case by case.
+        assert_eq!(read_limits(&channel, "POST", "/api/messages", "", wav, None), small, "unsigned");
+        assert_eq!(read_limits(&channel, "POST", "/api/messages", "kind=attachment", Some("image/jpeg"), None), small, "unsigned file");
+        assert_eq!(read_limits(&channel, "POST", "/api/messages", "", wav, Some(&credential("dev_000000000000", b""))), small, "unknown device");
+        assert_eq!(read_limits(&channel, "POST", "/api/messages", "", wav, Some(&credential(&device.id, b""))), small, "a device nobody confirmed on the Mac");
+        devices.confirm_on_mac().unwrap();
+        assert_eq!(
+            read_limits(&channel, "POST", "/api/messages", "", wav, Some(&credential(&device.id, b""))),
+            (super::super::voice::MAX_UPLOAD, 120),
+            "the confirmed device was not granted its voice note"
+        );
+        assert_eq!(
+            read_limits(&channel, "POST", "/api/messages", "kind=attachment", Some("image/jpeg"), Some(&credential(&device.id, b""))),
+            (super::super::attachments::MAX_FILE_BYTES, super::super::attachments::UPLOAD_SECONDS)
+        );
+        let invented = format!("RichOS-Device {}.{}.AAAA", device.id, super::super::b64url(&[9u8; 24]));
+        assert_eq!(read_limits(&channel, "POST", "/api/messages", "", wav, Some(&invented)), small, "a challenge this Mac never issued");
+
+        // And over the wire.
+        let mut listener = Listener::start_connect(Arc::clone(&channel), 0).expect("the Connect listener did not start");
+        let port = listener.bound[0].port();
+        let body = vec![0u8; 1024 * 1024];
+        let post = |authorization: Option<String>| -> u16 {
+            let mut socket = std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
+            socket.set_write_timeout(Some(std::time::Duration::from_secs(3))).unwrap();
+            socket.set_read_timeout(Some(std::time::Duration::from_secs(20))).unwrap();
+            let mut head = format!("POST /api/messages HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Type: audio/wav\r\nContent-Length: {}\r\n", body.len());
+            if let Some(a) = authorization { head.push_str(&format!("Authorization: {a}\r\n")); }
+            head.push_str("\r\n");
+            let _ = socket.write_all(head.as_bytes());
+            // The server may stop reading at 64 KiB and close; a write that fails then is the point.
+            for chunk in body.chunks(16 * 1024) {
+                if socket.write_all(chunk).is_err() { break; }
+            }
+            let mut raw = Vec::new();
+            let _ = socket.read_to_end(&mut raw);
+            let text = String::from_utf8_lossy(&raw);
+            text.split_whitespace().nth(1).and_then(|s| s.parse().ok()).unwrap_or(0)
+        };
+        assert_eq!(post(None), 413, "an unsigned 1 MiB upload was not refused");
+        assert_eq!(post(Some(credential("dev_000000000000", &body))), 413, "an unknown device's 1 MiB upload was not refused");
+        let accepted = post(Some(credential(&device.id, &body)));
+        assert_ne!(accepted, 413, "the confirmed device's upload was refused");
+        assert_ne!(accepted, 0, "the confirmed device's upload got no answer");
+        listener.stop();
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
