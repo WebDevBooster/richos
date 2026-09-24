@@ -400,10 +400,39 @@ object Replies {
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setGroup(GROUP)
             .setAutoCancel(true)
             .setContentIntent(tap)
             .build()
+        val manager = NotificationManagerCompat.from(context)
         // A repeat delivery of the same event replaces, never stacks.
-        NotificationManagerCompat.from(context).notify(id, notification)
+        manager.notify(if (id == SUMMARY_ID) id + 1 else id, notification)
+        // The group's own summary, which Android shows when it collapses the replies ("RichConnect ·
+        // 2"). Left to Android, the automatic bundle's tap carried no reply, so the app opened with
+        // nothing focused. This summary's tap targets the reply just posted, the newest, so tapping
+        // the collapsed group opens the conversation at that reply with the single gold glow, as a
+        // normal tap does (Urban's 2026-09-24 audit G5, §4.3). The replies still sound; the summary
+        // never does (GROUP_ALERT_CHILDREN).
+        // Its own copy of the intent: the reply's pending intent must never share (and so change with) it.
+        val summaryTap = open?.let { PendingIntent.getActivity(context, SUMMARY_ID, Intent(it), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT) }
+        val summary = NotificationCompat.Builder(context, CHANNEL)
+            .setSmallIcon(SMALL_ICON)
+            .setColor(ACCENT)
+            .setContentTitle("Rich")
+            .setContentText(text)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setGroup(GROUP)
+            .setGroupSummary(true)
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
+            .setAutoCancel(true)
+            .setContentIntent(summaryTap)
+            .build()
+        manager.notify(SUMMARY_ID, summary)
     }
+
+    /** The one group every reply notification belongs to, owned by the app (not Android's auto-bundle). */
+    const val GROUP = "dev.richos.connect.replies"
+
+    /** The group summary's notification id and its tap's request code; a reply never takes it. */
+    const val SUMMARY_ID = 0x52434E53
 }
