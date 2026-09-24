@@ -73,6 +73,31 @@ struct TranscriptViewportGeometryTests {
         #expect(loaded.restoredBottomOffset(after: empty, maintainsBottomAnchor: true, isInteracting: false) == 500)
     }
 
+    @Test @MainActor
+    func hostedTranscriptKeepsItsViewportWhenSafeAreaChanges() {
+        let controller = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        let view = BottomAnchoredTranscriptCollectionView(
+            frame: controller.view.bounds, collectionViewLayout: FixedTranscriptLayout())
+        view.contentInsetAdjustmentBehavior = .always
+        controller.view.addSubview(view)
+        let requested = UIEdgeInsets(top: 138, left: 0, bottom: 114, right: 0)
+        view.setViewportInsets(requested)
+
+        for extra in [UIEdgeInsets.zero, UIEdgeInsets(top: 52, left: 8, bottom: 28, right: 8)] {
+            controller.additionalSafeAreaInsets = extra
+            controller.view.layoutIfNeeded()
+            view.layoutIfNeeded()
+            #expect(abs(view.adjustedContentInset.top - requested.top) < 0.5)
+            #expect(abs(view.adjustedContentInset.bottom - requested.bottom) < 0.5)
+            #expect(abs(view.adjustedContentInset.left - requested.left) < 0.5)
+            #expect(abs(view.adjustedContentInset.right - requested.right) < 0.5)
+        }
+    }
+
     @Test func keyboardViewportChangeKeepsLatestMessageVisible() {
         let beforeKeyboard = TranscriptViewportGeometry(contentHeight: 1_200, viewportHeight: 700, topInset: 0, bottomInset: 0)
         let afterKeyboard = TranscriptViewportGeometry(contentHeight: 1_200, viewportHeight: 400, topInset: 0, bottomInset: 0)

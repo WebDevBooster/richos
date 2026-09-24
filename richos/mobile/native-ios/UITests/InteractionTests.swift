@@ -173,7 +173,7 @@ final class InteractionTests: XCTestCase {
         list.swipeDown()
         let latest = app.buttons["conversation.latest"]
         let showsLatest = latest.waitForExistence(timeout: 3)
-        if !showsLatest {
+        if !showsLatest, app.state == .runningForeground {
             keepScreenshot(app, name: "scrolling-up-missing-latest")
             print(app.debugDescription)
         }

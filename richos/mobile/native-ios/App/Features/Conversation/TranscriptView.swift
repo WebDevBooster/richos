@@ -37,7 +37,7 @@ struct TranscriptView: UIViewRepresentable {
         }
         let view = BottomAnchoredTranscriptCollectionView(frame: .zero, collectionViewLayout: layout)
         view.backgroundColor = .clear
-        view.contentInsetAdjustmentBehavior = .never
+        view.contentInsetAdjustmentBehavior = .always
         view.showsVerticalScrollIndicator = false
         view.keyboardDismissMode = .interactive
         view.alwaysBounceVertical = true
@@ -52,7 +52,7 @@ struct TranscriptView: UIViewRepresentable {
         c.parent = self
         view.onShowsLatest = onShowsLatest
         let insets = UIEdgeInsets(top: topInset, left: 0, bottom: bottomInset, right: 0)
-        if view.contentInset != insets { view.contentInset = insets }
+        view.setViewportInsets(insets)
         c.apply(TranscriptItem.build(transcript, calendar: calendar, now: now), to: view,
                 wantsFollowing: transcript.following, palette: palette)
         if jumpToken != c.lastJumpToken {
@@ -285,6 +285,28 @@ final class BottomAnchoredTranscriptCollectionView: UICollectionView {
     var maintainsBottomAnchor = false
     /// RichOS: replaces T3's `bottomButton`; called when the Latest pill should appear or go.
     var onShowsLatest: ((Bool) -> Void)?
+
+    private var requestedViewportInsets: UIEdgeInsets?
+
+    /// UIKit owns safe-area adjustment for hosted cells. Subtract its contribution from
+    /// our header/composer spacing so adjustedContentInset still describes the same viewport.
+    func setViewportInsets(_ insets: UIEdgeInsets) {
+        requestedViewportInsets = insets
+        updateViewportInsets()
+    }
+
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        updateViewportInsets()
+    }
+
+    private func updateViewportInsets() {
+        guard let desired = requestedViewportInsets else { return }
+        let safe = safeAreaInsets
+        let raw = UIEdgeInsets(top: desired.top - safe.top, left: desired.left - safe.left,
+                               bottom: desired.bottom - safe.bottom, right: desired.right - safe.right)
+        if contentInset != raw { contentInset = raw }
+    }
 
     private var lastLaidOutGeometry: TranscriptViewportGeometry?
     private var isRestoringBottomAnchor = false
