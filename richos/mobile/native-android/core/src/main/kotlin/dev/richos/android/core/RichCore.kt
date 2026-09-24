@@ -306,8 +306,10 @@ class RichCore private constructor(
             )
         } ?: s
         "message" -> decode(Row.serializer(), frame.data)?.let { row ->
-            val merged = (s.cache[row.threadId].orEmpty().filter { it.id != row.id } + row)
-            s.copy(cache = s.cache + (row.threadId to bounded(merged, s.cache[row.threadId].orEmpty().size)))
+            val held = s.cache[row.threadId].orEmpty()
+            val merged = held.filter { it.id != row.id } + row
+            val keepReading = row.threadId == s.selectedThreadId && held.any { it.id == s.readingAnchor?.messageId }
+            s.copy(cache = s.cache + (row.threadId to bounded(merged, if (keepReading) merged.size else held.size)))
         } ?: s
         "delta" -> decode(Delta.serializer(), frame.data)?.let { d ->
             // A delta names its conversation on newer Macs (Echo e9b0a89e): it lands only there.

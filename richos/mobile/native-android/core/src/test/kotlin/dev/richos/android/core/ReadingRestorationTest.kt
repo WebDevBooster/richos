@@ -5,6 +5,19 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.*
 
 class ReadingRestorationTest {
+    @Test fun aLiveReplyDoesNotEvictTheOldestRowBeingRead() = runTest {
+        val fixture = Fixtures.fixture("online")
+        val thread = fixture.session.selectedThreadId!!
+        val rows = (1..100).map { dev.richos.android.core.protocol.Row("r$it", thread, it.toLong(), "rich", text = "message $it") }
+        val runtime = DevRuntime.create(fixture.copy(session = fixture.session.copy(
+            cache = mapOf(thread to rows), readingAnchor = ReadingAnchor("r1", 12))))
+        val row = dev.richos.android.core.protocol.Row("r101", thread, 101, "rich", text = "new reply")
+        runtime.core.dispatch(Action.Receive("event: message\ndata: " + CoreJson.encodeToString(dev.richos.android.core.protocol.Row.serializer(), row) + "\n\n"))
+        assertEquals("r1", runtime.core.state.messages.first().id)
+        assertEquals("r101", runtime.core.state.messages.last().id)
+        assertEquals(ReadingAnchor("r1", 12), runtime.core.state.readingAnchor)
+    }
+
     @Test fun aFreshHelloDoesNotDiscardTheHistoryBeingRead() = runTest {
         val fixture = Fixtures.fixture("online")
         val thread = fixture.session.selectedThreadId!!
