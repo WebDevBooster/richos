@@ -19,4 +19,11 @@ enum RoundSpec {
     static func howToInk(_ p: Palette) -> Color { p.ink }
     static func howToRule(_ p: Palette) -> Color { p.lineFaint }
 
+    // MARK: comp-disabled, the orb (Urban's audit G13)
+    // `app.js` `setDisabled`: `orb.style.opacity = ".45"`: the gold orb, dimmed, with its glyph.
+
+    static let disabledOrbOpacity = 0.45
+    static func disabledOrbFill(_ p: Palette) -> Color { p.signal }
+    // DECLARED EXEMPTION (WCAG 1.4.11 exempts inactive components): the dimmed orb measures about
+    // 2.56:1 in the mockup; it is an inactive control, and the line beside it says why sending is off.
 }
