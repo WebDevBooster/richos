@@ -333,8 +333,12 @@ data class ScreenModel(
             // A voice row's length is core's (`duration_ms`); absent, the bubble shows no length, never 0:00.
             body = if (row.kind == "voice") Body.Voice(row.durationMs ?: voiceMs[row.id] ?: 0L, Waves.forSeed(row.id.hashCode(), 42)) else Body.Text(row.text),
             time = TimeLabels.row(row.createdAt, nowMs, zone),
-            replying = arriving && row.text.isEmpty(),
-            streaming = arriving && row.text.isNotEmpty(),
+            // "Arriving now" (the dots, the caret) needs an open stream behind it. Without one (a
+            // cold launch, the link lost) the reply is unfinished and still: D02 (native acceptance
+            // r1) drew a restored reply's caret at 2 Hz for as long as the Mac was away.
+            replying = arriving && app.online && row.text.isEmpty(),
+            streaming = arriving && app.online && row.text.isNotEmpty(),
+            unfinished = arriving && !app.online,
             audio = replyAudio[row.id] ?: if (rich && row.complete && row.hasAudio) ReplyAudio.READY else ReplyAudio.NONE,
             playProgress = playing?.takeIf { it.first == row.id }?.second ?: 0f,
             focused = row.id == focusedId,
@@ -409,6 +413,8 @@ data class Message(
     val replying: Boolean = false,
     /** Words are arriving: the text so far with a gold caret. */
     val streaming: Boolean = false,
+    /** A reply that stopped arriving with no stream open: the words so far, an ellipsis, no time, no motion. */
+    val unfinished: Boolean = false,
     val audio: ReplyAudio = ReplyAudio.NONE,
     /** 0..1 of a playing voice message or reply. */
     val playProgress: Float = 0f,

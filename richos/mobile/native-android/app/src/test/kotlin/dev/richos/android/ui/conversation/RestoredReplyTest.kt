@@ -151,20 +151,26 @@ class RestoredReplyTest {
         assertEquals("the words that arrived, marked unfinished", 1, shown("$partial…"))
         assertEquals("the caret that means 'arriving now' is not drawn", 0, shown("$partial …"))
         assertEquals("an unfinished reply carries no time", 0,
-            compose.onAllNodesWithContentDescription(replyTime).fetchSemanticsNodes().size)
+            compose.onAllNodesWithContentDescription(replyTime, substring = true).fetchSemanticsNodes().size)
         assertEquals("your own message keeps its time", 1,
-            compose.onAllNodesWithContentDescription(mineTime).fetchSemanticsNodes().size)
+            compose.onAllNodesWithContentDescription(mineTime, substring = true).fetchSemanticsNodes().size)
         assertEquals("busy frames in 2 s at rest", 0, busyFrames())
         compose.mainClock.advanceTimeBy(30_000)
         assertEquals("busy frames in 2 s, half a minute later", 0, busyFrames())
     }
 
+    /**
+     * A reply that had begun with no words yet: not the thinking dots, which say Rich is replying
+     * now, but the same still ellipsis, where the reply will stand once the stream is back. The row
+     * stays in place, so nothing jumps when the Mac's rows replace it.
+     */
     @Test
     fun `a reply with no words yet leaves no thinking dots behind a closed stream`() {
         val core = coldLaunchWith("")
         show(core.state)
         assertEquals("no 'Rich is replying' without a stream", 0,
             compose.onAllNodesWithContentDescription("Rich is replying").fetchSemanticsNodes().size)
+        assertEquals("the unfinished reply stands as an ellipsis", 1, compose.onAllNodesWithText("…").fetchSemanticsNodes().size)
         assertEquals("busy frames in 2 s at rest", 0, busyFrames())
     }
 
