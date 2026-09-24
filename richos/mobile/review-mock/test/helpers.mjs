@@ -89,8 +89,16 @@ export class Phone {
 		this.challenge = null;
 	}
 
+	/** A phone that reaches its host through `transport(request)` (the Worker) rather than directly. */
+	static via(origin, transport, key = freshKey(), name = 'Test iPhone') {
+		const phone = new Phone({ origin }, key, name);
+		phone.transport = transport;
+		return phone;
+	}
+
 	async fetch(target, { method = 'GET', headers = {}, body = null } = {}) {
-		const response = await handlePhoneRequest(this.host, new Request(this.origin + target, { method, headers, body }));
+		const request = new Request(this.origin + target, { method, headers, body });
+		const response = this.transport ? await this.transport(request) : await handlePhoneRequest(this.host, request);
 		const next = response.headers.get('x-richos-challenge');
 		if (next) this.challenge = next;
 		return response;
