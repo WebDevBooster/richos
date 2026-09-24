@@ -20,6 +20,7 @@ import signal
 import subprocess
 import sys
 import time
+from cpu_policy import DEFAULT_MAX_CPU, admission_open
 
 STATE = Path(os.environ.get('RICHOS_CPU_GUARD_STATE', '/Volumes/E1TB/state/richos/cpu-guard'))
 INTERVAL = 2.0
@@ -341,7 +342,8 @@ def watch(engine):
                     watcher.host_since = None
                 write_json(STATE / 'owned.json', watcher.owned)
                 write_json(STATE / 'heartbeat.json', dict(at=time.time(), ok=True,
-                           pid=os.getpid(), owned=len(watcher.owned), host_busy=round(busy, 1)))
+                           pid=os.getpid(), owned=len(watcher.owned), host_busy=round(busy, 1),
+                           admission_open=admission_open(busy), admission_limit=DEFAULT_MAX_CPU))
                 if watcher.host_since is not None and now-watcher.host_since >= WINDOW and registered_ios():
                     block_ios('Sustained host CPU overload. Simulator recovery must be explicitly scheduled.')
             except Exception as exc:
@@ -355,6 +357,7 @@ def install(engine):
         raise RuntimeError('Mount /Volumes/E1TB first')
     runtime = STATE / 'runtime'
     runtime.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(Path(__file__).with_name('cpu_policy.py'), runtime / 'cpu_policy.py')
     target = runtime / 'cpu_guard.py'
     shutil.copy2(__file__, target)
     domain = 'gui/%s' % os.getuid()
@@ -454,13 +457,13 @@ def forbidden(command, cwd=None):
         if name == 'cd' and len(part) > 1:
             cwd = str(Path(cwd or os.getcwd()).joinpath(part[1]).resolve())
         entry = os.path.basename(part[1]) if name in ('bash', 'sh', 'zsh', 'python3', 'python') and len(part) > 1 else name
-        if entry in ('proof-run.py', 'run-tests.sh', 'rios', 'randroid', 'simulator-tests.sh', 'native-ios-share.test.sh', 'native-ios-app.test.sh', 'native-ios-ui.test.sh'):
+        if entry in ('proof-run.py', 'run-tests.sh', 'native-work.py', 'rios', 'randroid', 'simulator-tests.sh', 'native-ios-share.test.sh', 'native-ios-app.test.sh', 'native-ios-ui.test.sh'):
             executable = part[1] if entry != name else part[0]
             path = Path(cwd or os.getcwd()).joinpath(executable).resolve()
             for parent in path.parents:
                 policy = parent / 'richos/engine/scripts/lib/testdevices.py'
                 if policy.is_file():
-                    if 'def acquire_ios(' not in policy.read_text():
+                    if 'def acquire_ios(' not in policy.read_text() or not policy.with_name('cpu_policy.py').is_file():
                         return 'outdated native/proof entrypoint; update this checkout from main before running it'
                     break
         if ios_block():

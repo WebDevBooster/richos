@@ -140,6 +140,8 @@ class GuardTests(unittest.TestCase):
         command = 'cd ' + str(old/'richos/app') + ' && python3 scripts/proof-run.py --working'
         self.assertIn('outdated', G.forbidden(command))
         policy.write_text('def acquire_ios(): pass')
+        self.assertIn('outdated', G.forbidden(command))
+        policy.with_name('cpu_policy.py').write_text('DEFAULT_MAX_CPU = 80')
         self.assertIsNone(G.forbidden(command))
 
     def test_incident_stop_is_persistent_and_headless_is_available(self):
