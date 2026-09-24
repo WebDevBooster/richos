@@ -169,16 +169,19 @@ public actor NetworkEffects: EffectHandler {
             await stopLive()
             return []
         case .loadOlder:
+            let asked = lifecycle
             guard let api = await client(for: state), let oldest = await live?.oldestCursor(), oldest > 0 else {
                 return [.olderLoaded([], reachedBeginning: live != nil)]
             }
             var path = "/api/events?"
             if let thread = state.mac?.threadID { path += "thread_id=\(Delivery.formEncode(thread))&" }
             path += "before=\(oldest)&limit=50"
+            guard asked == lifecycle, !Task.isCancelled else { return [] }
             guard let response = try? await api.signed("GET", path, credential: .query), response.status == 200,
                   let page = try? CoreJSON.decode(OlderPage.self, from: response.body) else {
                 return [.olderLoaded([], reachedBeginning: false)]
             }
+            guard asked == lifecycle, !Task.isCancelled else { return [] }
             await live?.prepend(page.messages, more: page.more)
             return [.olderLoaded(page.messages.filter(\.complete).map(\.message), reachedBeginning: !page.more)]
         default:

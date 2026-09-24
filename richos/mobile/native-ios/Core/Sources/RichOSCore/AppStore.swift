@@ -36,6 +36,8 @@ public final class AppStore {
     @ObservationIgnored private var completionDeadline: Task<Void, Never>?
     @ObservationIgnored private var deliveryTask: Task<[Action], Never>?
     @ObservationIgnored private var delivering: OutboxItem?
+    @ObservationIgnored private var historyTask: Task<[Action], Never>?
+    @ObservationIgnored private var historyGeneration = 0
 
 
     #if DEBUG
@@ -129,6 +131,9 @@ public final class AppStore {
         case .voicePress, .voiceStartLocked: recordingProblem = nil
         case .backgrounded:
             foreground = false
+            historyGeneration &+= 1
+            historyTask?.cancel()
+            historyTask = nil
             startCompletionDeadline()
         case .foregrounded: foreground = true
         default: break
@@ -345,6 +350,14 @@ public final class AppStore {
                 let followUps: [Action]
                 if case .deliver(let id) = effect {
                     followUps = await deliver(id, snapshot: snapshot)
+                } else if case .loadOlder = effect {
+                    historyGeneration &+= 1
+                    let generation = historyGeneration
+                    let task = Task { [runner] in (try? await runner.run([effect], state: snapshot)) ?? [] }
+                    historyTask = task
+                    let actions = await task.value
+                    if generation == historyGeneration { historyTask = nil }
+                    followUps = !task.isCancelled && foreground && generation == historyGeneration && state.mac == snapshot.mac ? actions : []
                 } else {
                     followUps = (try? await runner.run([effect], state: snapshot)) ?? []
                 }

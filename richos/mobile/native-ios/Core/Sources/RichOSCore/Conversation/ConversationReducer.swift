@@ -131,6 +131,7 @@ public enum ConversationReducer {
         case .dismissToast:
             s.toast = nil
         case .backgrounded:
+            s.history.loadingOlder = false
             // The stream carrying the reply closes with the app. The next one re-announces a reply
             // still being written and sends a finished one as history, never as "finished", so a
             // reply kept from here would stay "thinking" under its own answer (and animate).
