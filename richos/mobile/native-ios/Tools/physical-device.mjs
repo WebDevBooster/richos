@@ -14,10 +14,19 @@ const checks = {
   notifications: 'testReplyNotificationAfterHomeAndTermination',
   quiet: 'testScrollAndQuietBackgroundReturn',
   recording: 'testActualMicrophonePreservesUnsentAudioAfterHomeAndTermination',
+  // A walker's list of real-control steps (richos/app/scripts/qa/phone-ios.py).
+  script: 'testScript',
 };
 
+// A script may hold a timed background interval; its allowance is bounded, never open-ended.
+export function allowanceSeconds(config) {
+  const seconds = config?.allowanceSeconds === undefined ? 240 : Number(config.allowanceSeconds);
+  if (!Number.isInteger(seconds) || seconds < 60 || seconds > 1800) throw Error('allowanceSeconds must be a whole number from 60 to 1800');
+  return seconds;
+}
+
 export function configuration(env, command, selection) {
-  if (!['build', 'verify'].includes(command)) throw Error('device build | device verify pairing|text|recording|quiet|voice|notifications');
+  if (!['build', 'verify'].includes(command)) throw Error('device build | device verify pairing|text|recording|quiet|voice|notifications|script');
   if (!/^[A-Fa-f0-9-]{20,64}$/.test(env.RICHOS_IOS_DEVICE || '')) throw Error('Set RICHOS_IOS_DEVICE to the connected physical UDID');
   if (!/^[A-Z0-9]{10}$/.test(env.RICHOS_APPLE_TEAM || '')) throw Error('Set RICHOS_APPLE_TEAM to the signing team');
   if (command === 'verify' && !checks[selection]) throw Error('Choose one named physical check');
@@ -51,6 +60,7 @@ export async function main(args, env = process.env) {
     if (selection === 'pairing' && (!config.pairLink?.startsWith('https://') || !config.words?.trim())) throw Error('Pairing needs a current HTTPS pairing link and exact fingerprint words');
     if (selection === 'voice' && !config.spokenPhrase?.trim()) throw Error('Voice requires a unique spokenPhrase expected from actual microphone capture');
     if (selection === 'notifications' && config.delayedReplies !== 'true') throw Error('Notifications require an isolated Mac configured to delay replies until after Home');
+    if (selection === 'script' && (typeof config.steps !== 'string' || !config.steps.trim())) throw Error('A script check needs steps: a JSON list, as a string');
     config = Object.fromEntries(Object.entries(config).filter(([, value]) => typeof value === 'string'));
   }
   const native = resolve(root, '../../engine/scripts/lib/native-work.py');
@@ -91,11 +101,12 @@ for k in ['TestHostPath','UITargetAppPath']: t[k]=t[k].replace('__TESTROOT__',st
 t['DependentProductPaths']=[v.replace('__TESTROOT__',str(root)) for v in t.get('DependentProductPaths',[])]
 p=pathlib.Path(sys.argv[2]);p.touch(mode=0o600,exist_ok=False);p.write_bytes(plistlib.dumps(x))`;
   execFileSync('python3', ['-c', prepare, join(derived, 'Build/Products'), spec, settings.test], { input: JSON.stringify(config), env });
+  const allowance = allowanceSeconds(config);
   try {
     const tested = await runDeviceProcess('python3', ['-B', native, '--', 'xcodebuild', 'test-without-building',
       '-xctestrun', spec, '-destination', `id=${settings.device}`, '-resultBundlePath', result,
-      '-test-timeouts-enabled', 'YES', '-maximum-test-execution-time-allowance', '240'],
-    { log: log.replace('.log', '-test.log'), env, health, timeoutMs: 300000 });
+      '-test-timeouts-enabled', 'YES', '-maximum-test-execution-time-allowance', String(allowance)],
+    { log: log.replace('.log', '-test.log'), env, health, timeoutMs: (allowance + 60) * 1000 });
     if (tested.status !== 0) throw Error(`Physical check failed: ${result}. No retry attempted.`);
     const summary = JSON.parse(execFileSync('xcrun', ['xcresulttool', 'get', 'test-results', 'summary', '--path', result, '--format', 'json'], { encoding: 'utf8', env }));
     writeFileSync(result + '.summary.json', JSON.stringify(summary, null, 2));
