@@ -167,6 +167,21 @@ final class AccessibilityLayoutTests: XCTestCase {
         }
     }
 
+    /// Found with I03 (Quint's tree on the physical iPhone SE: `header.settings` at y -318.5 and
+    /// `composer.mic` at y 934 in a 667 pt window): the first conversation, the screen right after
+    /// pairing, was taller than the screen at the largest size, so neither Settings nor the composer
+    /// could be reached. As Android draws it (`EmptyConversation`, `verticalScroll`), the empty
+    /// conversation scrolls between the header and the composer, and both stay on screen.
+    func testTheFirstConversationKeepsSettingsAndTheComposerAtTheLargestSize() {
+        let app = Screen.launch("conv-empty", textSize: Self.largest)
+        assertOnScreenAndHittable(app.buttons["header.settings"], in: app, "conv-empty: Settings")
+        assertOnScreenAndHittable(app.descendants(matching: .any)["composer.mic"], in: app, "conv-empty: the record control")
+        assertOnScreenAndHittable(messageField(app), in: app, "conv-empty: the message field")
+        let empty = app.descendants(matching: .any)["conversation.empty"]
+        XCTAssertTrue(empty.exists, "conv-empty: the empty conversation is missing")
+        keepScreenshot(app, name: "ax5-conv-empty")
+    }
+
     /// F4, F5: the settings button is a fixed-size control with a name, at every size.
     func testSettingsButtonKeepsItsSize() {
         let app = Screen.launch("conv-populated", textSize: Self.largest)

@@ -128,10 +128,18 @@ struct ScreenView: View {
         let fullHeight = root.size.height + root.safeAreaInsets.top + root.safeAreaInsets.bottom
         return ZStack(alignment: .top) {
             if model.thread.isEmpty {
-                EmptyConversation()
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, safeTop + root.size.height * 0.30)
-                    .frame(maxHeight: .infinity, alignment: .top)
+                // It scrolls between its top and the composer zone, as Android's `EmptyConversation`
+                // does (`verticalScroll`, bottom-padded by the zone): at the largest text size the
+                // paragraph is taller than an iPhone SE, and unscrolled it pushed Settings and the
+                // composer off the screen.
+                ScrollView {
+                    EmptyConversation()
+                        .frame(maxWidth: .infinity)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .padding(.top, safeTop + root.size.height * 0.30)
+                .padding(.bottom, max(0, safeTop + root.size.height - zoneTop) + 20)
+                .frame(maxHeight: .infinity, alignment: .top)
             } else {
                 TranscriptView(
                     transcript: model.thread, palette: palette,
