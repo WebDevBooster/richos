@@ -97,6 +97,40 @@ final class PhysicalDeviceTests: XCTestCase {
         send(probe + " after relaunch")
     }
 
+    func testSpokenMessageReachesMacAndReturnsReply() throws {
+        let phrase = try XCTUnwrap(config["spokenPhrase"])
+        XCTAssertFalse(phrase.isEmpty)
+        launchPaired()
+        allowMicrophoneIfNeeded()
+        lockRecording()
+        print("PHYSICAL_SPEAK_NOW")
+        Thread.sleep(forTimeInterval: 12)
+        XCTAssertTrue(element("voice.cancel").exists, "Foreground recording ended before Send")
+        element("voice.send").tap()
+        let reply = app.descendants(matching: .any).matching(NSPredicate(
+            format: "label CONTAINS[c] %@ AND label CONTAINS[c] %@", "ack:", phrase)).firstMatch
+        XCTAssertTrue(reply.waitForExistence(timeout: 100), "Spoken message did not return through the actual microphone and Mac")
+        XCTAssertFalse(element("voice.cancel").exists)
+        let controls = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "voice.play."))
+        let identifier = try XCTUnwrap(controls.allElementsBoundByIndex.last?.identifier)
+        let play = app.buttons.matching(NSPredicate(format: "identifier == %@ AND label == %@", identifier, "Play voice message")).firstMatch
+        XCTAssertTrue(play.waitForExistence(timeout: 5), "Transcript reconciliation lost the recording control")
+        play.tap()
+        let stop = app.buttons.matching(NSPredicate(format: "identifier == %@ AND label == %@", identifier, "Stop voice message")).firstMatch
+        XCTAssertTrue(stop.waitForExistence(timeout: 3), "Original recording did not start playing")
+        stop.tap()
+        XCTAssertTrue(play.waitForExistence(timeout: 3), "Stop did not return the playback control")
+        app.terminate(); app.launch()
+        XCTAssertTrue(reply.waitForExistence(timeout: 10), "Relaunch lost the spoken reply")
+        XCTAssertTrue(play.waitForExistence(timeout: 5), "Relaunch lost the recording")
+        play.tap()
+        XCTAssertTrue(stop.waitForExistence(timeout: 3), "Relaunch lost original WAV playback")
+        XCUIDevice.shared.press(.home)
+        XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5))
+        app.activate()
+        XCTAssertTrue(play.waitForExistence(timeout: 5), "Playback did not stop on Home")
+    }
+
     func testScrollAndQuietBackgroundReturn() {
         launchPaired()
         let list = app.collectionViews["conversation.list"]
@@ -123,6 +157,48 @@ final class PhysicalDeviceTests: XCTestCase {
         XCTAssertFalse(element("voice.cancel").exists)
     }
 
+    func testReplyNotificationAfterHomeAndTermination() {
+        XCTAssertEqual(config["delayedReplies"], "true")
+        launchPaired()
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        if element("card.notificationsOn").exists {
+            element("card.notificationsOn").tap()
+            let prompt = springboard.alerts.firstMatch
+            XCTAssertTrue(prompt.waitForExistence(timeout: 5))
+            XCTAssertTrue(prompt.staticTexts.allElementsBoundByIndex.contains { $0.label.localizedCaseInsensitiveContains("notifications") })
+            prompt.buttons["Allow"].tap()
+        }
+        element("header.settings").tap()
+        let enabled = element("settings.notifications")
+        XCTAssertTrue(enabled.waitForExistence(timeout: 20), "Native notification registration did not complete")
+        XCTAssertEqual(enabled.value as? String, "1")
+        // The SE's sheet grabber overlaps the top-edge system gesture region. Start
+        // on the visible title below it so this dismisses the sheet, not opens Notification Center.
+        let title = app.staticTexts["Settings"]
+        XCTAssertTrue(title.exists)
+        title.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.1,
+            thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)))
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
+            object: element("settings.sheet"))], timeout: 5), .completed, "Settings did not dismiss")
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        for terminate in [false, true] {
+            let probe = "Physical notification " + UUID().uuidString
+            XCTAssertTrue(element("composer.mic").exists, "Refuse to replace an occupied composer")
+            field.tap(); field.typeText(probe)
+            XCTAssertEqual(field.value as? String, probe)
+            element("composer.send").tap()
+            XCUIDevice.shared.press(.home)
+            if terminate { app.terminate() }
+            let notification = springboard.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", probe)).firstMatch
+            XCTAssertTrue(notification.waitForExistence(timeout: 45), "No actual APNs preview after \(terminate ? "termination" : "Home")")
+            keepScreenshot(springboard, name: terminate ? "notification-after-termination" : "notification-after-home")
+            notification.tap()
+            XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+            let reply = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "ack: " + probe)).firstMatch
+            XCTAssertTrue(reply.waitForExistence(timeout: 15), "Notification tap did not restore the referenced reply")
+        }
+    }
+
     private func lockRecording() {
         let mic = element("composer.mic")
         XCTAssertTrue(mic.waitForExistence(timeout: 5))
@@ -132,8 +208,7 @@ final class PhysicalDeviceTests: XCTestCase {
         XCTAssertTrue(element("voice.timer").exists)
     }
 
-    func testActualMicrophonePreservesUnsentAudioAfterHomeAndTermination() {
-        launchPaired()
+    private func allowMicrophoneIfNeeded() {
         // Permission is requested through the actual feature. Accept only this app's
         // microphone prompt, without touching other alerts or system preferences.
         element("composer.mic").press(forDuration: 0.05)
@@ -144,6 +219,11 @@ final class PhysicalDeviceTests: XCTestCase {
             XCTAssertTrue(prompt.buttons["Allow"].exists)
             prompt.buttons["Allow"].tap()
         }
+    }
+
+    func testActualMicrophonePreservesUnsentAudioAfterHomeAndTermination() {
+        launchPaired()
+        allowMicrophoneIfNeeded()
         lockRecording()
         Thread.sleep(forTimeInterval: 3)
         XCTAssertTrue(element("voice.cancel").exists, "Foreground recording stopped unexpectedly")

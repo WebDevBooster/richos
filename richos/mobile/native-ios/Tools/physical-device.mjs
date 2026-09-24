@@ -10,12 +10,14 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const checks = {
   pairing: 'testPairAndDeliverAcrossHomeAndRelaunch',
   text: 'testDeliverAcrossHomeAndRelaunch',
+  voice: 'testSpokenMessageReachesMacAndReturnsReply',
+  notifications: 'testReplyNotificationAfterHomeAndTermination',
   quiet: 'testScrollAndQuietBackgroundReturn',
   recording: 'testActualMicrophonePreservesUnsentAudioAfterHomeAndTermination',
 };
 
 export function configuration(env, command, selection) {
-  if (!['build', 'verify'].includes(command)) throw Error('device build | device verify pairing|text|recording|quiet');
+  if (!['build', 'verify'].includes(command)) throw Error('device build | device verify pairing|text|recording|quiet|voice|notifications');
   if (!/^[A-Fa-f0-9-]{20,64}$/.test(env.RICHOS_IOS_DEVICE || '')) throw Error('Set RICHOS_IOS_DEVICE to the connected physical UDID');
   if (!/^[A-Z0-9]{10}$/.test(env.RICHOS_APPLE_TEAM || '')) throw Error('Set RICHOS_APPLE_TEAM to the signing team');
   if (command === 'verify' && !checks[selection]) throw Error('Choose one named physical check');
@@ -41,6 +43,8 @@ export async function main(args, env = process.env) {
     config = JSON.parse(readFileSync(file, 'utf8'));
     if (config.isolatedLab !== 'true') throw Error('The physical test configuration must explicitly mark isolatedLab: true (string)');
     if (selection === 'pairing' && (!config.pairLink?.startsWith('https://') || !config.words?.trim())) throw Error('Pairing needs a current HTTPS pairing link and exact fingerprint words');
+    if (selection === 'voice' && !config.spokenPhrase?.trim()) throw Error('Voice requires a unique spokenPhrase expected from actual microphone capture');
+    if (selection === 'notifications' && config.delayedReplies !== 'true') throw Error('Notifications require an isolated Mac configured to delay replies until after Home');
     config = Object.fromEntries(Object.entries(config).filter(([, value]) => typeof value === 'string'));
   }
   const native = resolve(root, '../../engine/scripts/lib/native-work.py');
