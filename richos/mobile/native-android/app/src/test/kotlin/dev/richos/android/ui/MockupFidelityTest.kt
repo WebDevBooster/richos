@@ -154,6 +154,21 @@ class MockupFidelityTest {
         assertEquals(verbatim, text(tagged("mic-how")))
     }
 
+    /**
+     * G16: at 200% text on the small phone the empty conversation scrolls, and a fade marks its
+     * bottom edge above the composer, so the cut paragraph reads as a scroll edge, not clipping.
+     */
+    @Test
+    fun `G16 - the empty conversation marks its scroll edge at 200 percent`() {
+        for (theme in listOf(Theme.DARK, Theme.LIGHT)) {
+            show(screen("conv-empty", theme), fontScale = 2f)
+            val fade = tagged("scroll-edge-fade").boundsInRoot
+            val composer = tagged("composer").boundsInRoot
+            assertTrue("$theme: the fade ${fade} sits above the composer $composer", fade.bottom <= composer.top)
+            assertTrue("$theme: the fade overlaps the paragraph's cut", fade.overlaps(tagged("mic-how").boundsInRoot))
+        }
+    }
+
     /** G6: the serif headings are never hyphenated ("RichCon-nect", "re-moved"), at any text size. */
     @Test
     fun `G6 - headings are never hyphenated`() {

@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.em
 import dev.richos.android.design.Mark
 import dev.richos.android.design.Rich
 import dev.richos.android.design.RichMotion
+import dev.richos.android.design.ScrollEdgeFade
 import dev.richos.android.design.Spinner
 import dev.richos.android.design.plane
 import dev.richos.android.ui.UiEvent
@@ -287,28 +288,33 @@ private fun HistoryTop(edge: HistoryEdge) {
  * below a hairline (`line-faint`) 22 dp under the line above and 20 dp above the paragraph, 16 sp,
  * FULL ink (not the soft ink of the line above), centered, a 300 dp measure, leading 1.55 (Urban's
  * 2026-09-24 audit G7). Scrolls rather than clipping: the smallest phone at the largest text setting
- * cannot fit the paragraph in the band above the composer (ScreensTest `conv-empty--*-small-font200`).
+ * cannot fit the paragraph in the band above the composer (ScreensTest `conv-empty--*-small-font200`),
+ * and a fade then marks the scroll edge, so the cut never looks like clipping (audit G16).
  */
 @Composable
 fun EmptyConversation(modifier: Modifier = Modifier) {
     val c = Rich.colors
     val t = Rich.type
-    Column(
-        modifier.fillMaxWidth().padding(horizontal = 24.dp).verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Mark(56.dp, Modifier.padding(bottom = 12.dp))
-        BasicText("Say something to Rich", style = t.welcome.copy(color = c.ink, textAlign = TextAlign.Center), modifier = Modifier.padding(bottom = 6.dp))
-        BasicText("Your conversation will appear here.", style = t.read.copy(color = c.inkSoft, textAlign = TextAlign.Center))
-        val hairline = c.lineFaint
-        BasicText(
-            MIC_HOW,
-            style = t.read.copy(color = c.ink, textAlign = TextAlign.Center, lineHeight = 1.55.em),
-            modifier = Modifier.padding(top = 22.dp).widthIn(max = 300.dp).fillMaxWidth()
-                .drawBehind { drawRect(hairline, size = Size(size.width, 1.dp.toPx())) }
-                .padding(top = 20.dp)
-                .semantics { testTag = "mic-how" },
-        )
+    val scroll = rememberScrollState()
+    Box(modifier.fillMaxWidth()) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(scroll).padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Mark(56.dp, Modifier.padding(bottom = 12.dp))
+            BasicText("Say something to Rich", style = t.welcome.copy(color = c.ink, textAlign = TextAlign.Center), modifier = Modifier.padding(bottom = 6.dp))
+            BasicText("Your conversation will appear here.", style = t.read.copy(color = c.inkSoft, textAlign = TextAlign.Center))
+            val hairline = c.lineFaint
+            BasicText(
+                MIC_HOW,
+                style = t.read.copy(color = c.ink, textAlign = TextAlign.Center, lineHeight = 1.55.em),
+                modifier = Modifier.padding(top = 22.dp).widthIn(max = 300.dp).fillMaxWidth()
+                    .drawBehind { drawRect(hairline, size = Size(size.width, 1.dp.toPx())) }
+                    .padding(top = 20.dp)
+                    .semantics { testTag = "mic-how" },
+            )
+        }
+        ScrollEdgeFade(scroll, Modifier.align(Alignment.BottomCenter))
     }
 }
 
