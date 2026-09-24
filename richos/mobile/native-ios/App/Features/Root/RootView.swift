@@ -177,6 +177,12 @@ struct ScreenView: View {
                 bottomZone(height: root.size.height)
             }
         }
+        // Exactly the screen, whatever it holds. A ZStack is as large as its largest layer and lays
+        // every layer out at that size: when this layer was taller than the screen (the empty
+        // conversation at the accessibility sizes, 1340 pt on a 667 pt iPhone SE), the takeover above
+        // it became 1340 pt tall and centered on the window, so its top ran under the status bar and
+        // its buttons stayed below the screen however far it scrolled (I03).
+        .frame(width: root.size.width, height: root.size.height)
     }
 
     /// The composer has priority over everything above it at every text size (accessibility audit F1,

@@ -52,6 +52,86 @@ final class AccessibilityLayoutTests: XCTestCase {
         }
     }
 
+    /// I03 (native acceptance r1, the physical iPhone SE): at the accessibility text sizes the pairing
+    /// screen was taller than the window and centered on it, so its top ran under the status bar and
+    /// "Scan your Mac's code" and "Use a pairing link instead" stayed below the screen however far it
+    /// was scrolled. Every pairing state (and the other full-screen moments, which share the frame)
+    /// fits the window at the first and the largest accessibility size, and each action scrolls into
+    /// view and can be touched. The words may reflow; the controls must be reachable.
+    static let pairingActions: [(fixture: String, screen: String, actions: [String])] = [
+        ("pair-intro", "pair-intro", ["pair.scan", "pair.link"]),
+        ("pair-refused", "pair-intro", ["pair.scan", "pair.link"]),
+        ("pair-mac-update", "pair-intro", ["pair.scan", "pair.link"]),
+        ("pair-mac-refused", "pair-intro", ["pair.scan", "pair.link"]),
+        ("pair-mac-expired", "pair-intro", ["pair.scan", "pair.link"]),
+        ("pair-words-rejected", "pair-intro", ["pair.scan", "pair.link"]),
+        ("pair-unreachable", "pair-intro", ["pair.scan", "pair.link"]),
+        ("pair-words", "pair-words", ["pair.match", "pair.noMatch"]),
+        ("pair-awaiting-mac", "pair-awaiting-mac", ["pair.noMatch"]),
+        ("pair-consent", "pair-consent", ["consent.continue", "Learn more"]),
+        ("pair-stale", "pair-stale", ["Update in App Store", "Support"]),
+        ("conn-revoked", "conn-revoked", ["pair.again"]),
+    ]
+
+    private func assertPairingReachable(textSize: String, file: StaticString = #filePath, line: UInt = #line) {
+        for state in Self.pairingActions {
+            let app = Screen.launch(state.fixture, textSize: textSize)
+            let screen = app.descendants(matching: .any)["takeover.\(state.screen)"]
+            XCTAssertTrue(screen.waitForExistence(timeout: 5), "\(state.fixture): the screen is missing", file: file, line: line)
+            let window = app.windows.firstMatch.frame
+            // The measured defect: {0, -326.5} and 1340 pt tall in a 667 pt window.
+            XCTAssertTrue(screen.frame.insetBy(dx: 1, dy: 1).minY >= window.minY && screen.frame.insetBy(dx: 1, dy: 1).maxY <= window.maxY,
+                          "\(state.fixture) at \(textSize): the screen \(screen.frame) overhangs the window \(window)",
+                          file: file, line: line)
+            for action in state.actions {
+                let button = app.buttons[action]
+                XCTAssertTrue(button.waitForExistence(timeout: 3), "\(state.fixture): \(action) is missing", file: file, line: line)
+                var swipes = 0
+                while !(button.isHittable && window.contains(button.frame)), swipes < 6 {
+                    screen.swipeUp()
+                    swipes += 1
+                }
+                XCTAssertTrue(window.contains(button.frame), "\(state.fixture) at \(textSize): \(action) at \(button.frame) stays outside the window \(window) after \(swipes) swipes",
+                              file: file, line: line)
+                XCTAssertTrue(button.isHittable, "\(state.fixture) at \(textSize): \(action) cannot be touched after \(swipes) swipes",
+                              file: file, line: line)
+            }
+            keepScreenshot(app, name: "pairing-\(textSize == Self.largest ? "ax5" : "ax1")-\(state.fixture)")
+        }
+    }
+
+    func testEveryPairingStateKeepsItsActionsReachableAtTheLargestSize() {
+        assertPairingReachable(textSize: Self.largest)
+    }
+
+    func testEveryPairingStateKeepsItsActionsReachableAtTheFirstAccessibilitySize() {
+        assertPairingReachable(textSize: "UICTContentSizeCategoryAccessibilityM")
+    }
+
+    /// I03, the step Quint's run could not take: at the largest size "Use a pairing link instead" is
+    /// scrolled to and tapped, and the pairing-link sheet's field and its button are reachable.
+    func testThePairingLinkCanBeUsedAtTheLargestSize() {
+        let app = Screen.launch("pair-intro", textSize: Self.largest)
+        let link = app.buttons["pair.link"]
+        XCTAssertTrue(link.waitForExistence(timeout: 5), "pair.link is missing")
+        var swipes = 0
+        while !link.isHittable, swipes < 6 {
+            app.descendants(matching: .any)["takeover.pair-intro"].swipeUp()
+            swipes += 1
+        }
+        link.tap()
+        let field = app.descendants(matching: .any)["pairlink.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "the pairing-link sheet did not open")
+        let submit = app.buttons["pairlink.submit"]
+        XCTAssertTrue(submit.waitForExistence(timeout: 3), "the sheet's Pair with this link is missing")
+        if !submit.isHittable {
+            // The keyboard comes up with the sheet; the sheet scrolls, the button stays reachable.
+            app.descendants(matching: .any)["pairlink.field"].swipeUp()
+        }
+        XCTAssertTrue(submit.isHittable, "Pair with this link cannot be touched at the largest size")
+        keepScreenshot(app, name: "pairing-ax5-link-sheet")
+    }
+
     /// I02 (native acceptance r1, the physical iPhone SE): opened with the Mac out of reach, the line
     /// that says so was the first row of the conversation, drawn under the floating header and its
     /// fade at 1.38:1. It is one line, below the header and clear of it, fully inside the window and
