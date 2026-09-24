@@ -1,0 +1,2 @@
+# Wrangler writes its temporary bundle here when run from this folder.
+.wrangler/

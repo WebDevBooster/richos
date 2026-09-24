@@ -1,10 +1,7 @@
 package dev.richos.android.ui.conversation
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -27,7 +24,7 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -128,10 +125,7 @@ private fun NoticeLine(line: Pair<String, String>, pulse: Boolean, modifier: Mod
     }
     val inline = if (!pulse) emptyMap() else mapOf(
         "pulse" to InlineTextContent(Placeholder(15.sp, 8.sp, PlaceholderVerticalAlign.TextCenter)) {
-            val a by rememberInfiniteTransition(label = "pulse").animateFloat(
-                0.35f, 1f, infiniteRepeatable(tween(700, easing = RichMotion.InOut), RepeatMode.Reverse), label = "pulse",
-            )
-            Box(Modifier.padding(end = 7.dp).size(8.dp).graphicsLayer { alpha = a }.background(signal, CircleShape))
+            PulseDot(signal)
         },
     )
     BasicText(
@@ -140,6 +134,24 @@ private fun NoticeLine(line: Pair<String, String>, pulse: Boolean, modifier: Mod
         inlineContent = inline,
         modifier = modifier.semantics { liveRegion = LiveRegionMode.Polite; testTag = "connection-line" },
     )
+}
+
+/**
+ * The 8 dp gold dot that breathes beside "Reconnecting…" (round 12: 0.35 ↔ 1, 700 ms each way),
+ * for [RichMotion.PULSE_FOR_MS]; it finishes on a rise and rests at full opacity, drawing nothing
+ * more, until the notice goes. A new "Reconnecting…" is a new dot, and it breathes again.
+ */
+@Composable
+private fun PulseDot(signal: androidx.compose.ui.graphics.Color) {
+    val a = remember { Animatable(0.35f) }
+    LaunchedEffect(Unit) {
+        // Whole legs, an odd number of them, so the last one ends at full opacity.
+        val legs = ((RichMotion.PULSE_FOR_MS + RichMotion.PULSE_LEG_MS - 1) / RichMotion.PULSE_LEG_MS).let { if (it % 2 == 0) it + 1 else it }
+        repeat(legs) { leg ->
+            a.animateTo(if (leg % 2 == 0) 1f else 0.35f, tween(RichMotion.PULSE_LEG_MS, easing = RichMotion.InOut))
+        }
+    }
+    Box(Modifier.padding(end = 7.dp).size(8.dp).graphicsLayer { alpha = a.value }.background(signal, CircleShape))
 }
 
 /** The floating Latest pill: returns the reader to the newest message and resumes following. */

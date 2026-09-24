@@ -103,4 +103,11 @@ object RichMotion {
 
     // Messages that come and go.
     const val TOO_SHORT_LINE_MS = 1800
+
+    // The dot beside "Reconnecting…": round 12's pulse, 0.35 ↔ 1 in 700 ms each way, for the first
+    // 10 s; then it rests at full opacity until the state changes. A Mac can stay asleep for hours,
+    // and a dot redrawing the screen for that long is a battery defect (the lead, 2026-09-24,
+    // esc-20260924T001746Z-9a147770; measured 31 frames a second on the emulator).
+    const val PULSE_LEG_MS = 700
+    const val PULSE_FOR_MS = 10_000
 }
