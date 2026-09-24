@@ -783,6 +783,14 @@ class Measure:
             after = self.dump_ui()
             composer = composer_node(after)
             bubble = any(n.get("text") == probe and n.get("class") != "android.widget.EditText" for n in after)
+            if self.evidence_dir:
+                # Keep only this tool's synthetic probe and composer metadata, not other messages.
+                Path(str(stem) + ".validation.json").write_text(json.dumps({
+                    "probe": probe, "probeNodes": [n for n in after if probe in n.get("text", "")],
+                    "composerFound": composer is not None,
+                    "composerTextLength": len(composer.get("text", "")) if composer else None,
+                    "composerEmpty": composer is not None and composer.get("text", "") in ("", "Message Rich"),
+                }))
             if not bubble or (production and (composer is None or composer.get("text", "") not in ("", "Message Rich"))):
                 rejected.append({"trial": i + 1, "why": "the unique probe is not a conversation row with the composer cleared"})
                 self.log(f"tap {i + 1}/{trials}: REJECTED, {rejected[-1]['why']}")
