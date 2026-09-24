@@ -404,6 +404,18 @@ def _():
         assert "seed" not in record["phases"]
 
 
+@case("R9 production Send timing records its method without invoking the bridge")
+def _():
+    from unittest.mock import patch
+    with tempfile.TemporaryDirectory() as tmp:
+        with patch.object(android.Measure, "tap", return_value={"samples": [20], "settled": [30], "burstFrames": [], "rejected": []}):
+            record, failures_ = perf.run_android(
+                android_args(tmp, production=True, exercise_sends=True, route="managed", only="tap"),
+                runner=FakeAdb(), sleep=lambda s: None, log=quiet, host=lambda: {})
+        assert failures_ == 0, record["phases"]
+        assert "real controls" in record["metrics"]["tapToFeedback"]["method"]
+
+
 @case("R2 an installed APK that is not the stamped one is REFUSED before any measurement")
 def _():
     with tempfile.TemporaryDirectory() as tmp:

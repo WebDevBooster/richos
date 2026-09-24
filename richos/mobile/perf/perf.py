@@ -455,7 +455,7 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
             if tap:
                 record["metrics"]["tapToFeedback"] = metric(
                     "input tap on 'Send message': the app's deliverInputEvent eventTimeNano (atrace input) to the "
-                    "FrameCompleted of the frame carrying that InputEventId (gfxinfo framestats); both CLOCK_MONOTONIC. "
+                    "FrameCompleted of the frame carrying that InputEventId (gfxinfo framestats); both CLOCK_MONOTONIC. " +
                     ("Draft entered through real controls; " if args.production else "Draft set through the debug bridge; ") +
                     "sent text checked on screen after each tap",
                     tap["samples"], "tapToFeedback", settledMs=tap["settled"], settledStats=perfcore.stats(tap["settled"]),
