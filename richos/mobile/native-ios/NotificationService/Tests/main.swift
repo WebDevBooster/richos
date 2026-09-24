@@ -128,6 +128,33 @@ check("R10 503 unreachable keeps the Mac's words",
       PushRegistration.answer(status: 503, body: Data(#"{"reason":"unreachable","retryable":true,"message":"Try later."}"#.utf8)) == .unreachable(message: "Try later."))
 check("R11 404 is a failure, not a registration", PushRegistration.answer(status: 404, body: Data()) == .failed(status: 404))
 
+// --- the privacy manifest says what the notification service keeps, and nothing more -------------
+// The hosted Connect Worker keeps a push binding (token, device-key hash) and short-lived jobs
+// (`richos/mobile/service/connect/schema.sql`: hosts, nonces, allowed_hosts, push_bindings,
+// push_jobs; jobs expire within one hour), with logs, traces, Logpush and tail consumers disabled
+// (`service/notifications.md`). It keeps no delivery diagnostics, so the manifest declares none.
+let testsDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+let manifestURL = testsDir.appendingPathComponent("../../App/Platform/PrivacyInfo.xcprivacy").standardizedFileURL
+let schemaURL = testsDir.appendingPathComponent("../../../service/connect/schema.sql").standardizedFileURL
+let manifest = (try? PropertyListSerialization.propertyList(from: Data(contentsOf: manifestURL), format: nil)) as? [String: Any]
+let collected = (manifest?["NSPrivacyCollectedDataTypes"] as? [[String: Any]] ?? []).compactMap { $0["NSPrivacyCollectedDataType"] as? String }
+check("P1 the manifest declares only the Device ID the Connect service keeps", collected == ["NSPrivacyCollectedDataTypeDeviceID"])
+check("P2 the manifest claims no diagnostics", !collected.contains { $0.contains("Diagnostic") })
+// Apple's App Privacy definition: data tied to a device or other details, and personal data under
+// the relevant privacy laws, is linked. The service keeps the token against the Mac's host record.
+let deviceID = (manifest?["NSPrivacyCollectedDataTypes"] as? [[String: Any]] ?? []).first { $0["NSPrivacyCollectedDataType"] as? String == "NSPrivacyCollectedDataTypeDeviceID" }
+check("P5 the Device ID is declared linked to the user (Apple: device-level data held against a record is linked)",
+      deviceID?["NSPrivacyCollectedDataTypeLinked"] as? Bool == true)
+check("P6 the Device ID is not used for tracking, only for app functionality",
+      deviceID?["NSPrivacyCollectedDataTypeTracking"] as? Bool == false
+        && deviceID?["NSPrivacyCollectedDataTypePurposes"] as? [String] == ["NSPrivacyCollectedDataTypePurposeAppFunctionality"])
+let schema = (try? String(contentsOf: schemaURL, encoding: .utf8)) ?? ""
+let tables = schema.components(separatedBy: "\n").filter { $0.hasPrefix("CREATE TABLE") }
+    .compactMap { $0.split(separator: " ").dropFirst(5).first.map(String.init) }
+check("P3 the Connect service's tables are the five the manifest accounts for (a new one needs a manifest decision)",
+      tables.sorted() == ["allowed_hosts", "hosts", "nonces", "push_bindings", "push_jobs"])
+check("P4 the Connect service keeps no diagnostics table", !schema.lowercased().contains("diagnos"))
+
 if failures.isEmpty {
     print("Notification platform: \(passed) checks passed")
 } else {

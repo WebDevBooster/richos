@@ -32,6 +32,9 @@ public enum Action: Equatable, Sendable {
     /// Continue on the consent screen (`pair-consent`).
     case acceptConsent
     case dismissPairingProblem
+    /// `pair-blocked`'s "Discard and pair": the unsent messages go (never to whichever Mac is paired
+    /// next), then the way to pair opens again.
+    case discardUnsentAndPair
     // sheets
     case openSheet(Sheet)
     case closeSheet
@@ -139,6 +142,24 @@ public enum Action: Equatable, Sendable {
     case dismissUpdate
     case openAppStore
     case openSupport
+    /// Settings, "Check for updates": on iPhone updates come from the App Store, so it opens the listing.
+    case checkForUpdates
+    /// Settings, "Privacy policy" (Apple 5.1.1(i): a link inside the app).
+    case openPrivacyPolicy
+    // photos and files (round 12.1 groups 12-17)
+    case openAttachMenu
+    case closeAttachMenu
+    /// A row of the + menu: Photos, Camera or Files.
+    case pickAttachments(AttachSource)
+    /// What the platform staged from Apple's picker, in the order chosen.
+    case attachmentsPicked([OutboxFile])
+    /// The platform could not take a chosen item (over the Mac's per-file size, or a type it refuses).
+    case attachmentRefused(name: String, bytes: Int?, tooLarge: Bool)
+    /// The OS refused the camera (or the photo library).
+    case attachPermissionDenied(AttachSource)
+    /// The × on a tray item.
+    case removePendingAttachment(id: String)
+    case dismissAttachNotice
 }
 
 /// How a delivery attempt ended when it did not succeed (contract §4.2, the reference classification).
@@ -220,6 +241,9 @@ public enum Effect: Equatable, Sendable {
     case unregisterNotifications
     case openAppStore
     case openSupport
+    case openPrivacyPolicy
+    /// Present Apple's photo picker, camera or document picker, for at most `maxCount` items.
+    case presentPicker(AttachSource, maxCount: Int)
 }
 
 /// The one place state changes. Pure: the same state and action always give the same result, so a
@@ -238,7 +262,8 @@ public enum Reducer {
         case .closeSheet:
             next.sheet = nil
         case .openScanner, .closeScanner, .scanned, .submitPairingLink, .cameraPermission, .pairingAnswered,
-             .pairingRefused, .pairingUnreachable, .confirmWords, .rejectWords, .acceptConsent, .dismissPairingProblem:
+             .pairingRefused, .pairingUnreachable, .confirmWords, .rejectWords, .acceptConsent, .dismissPairingProblem,
+             .discardUnsentAndPair:
             PairingReducer.reduce(&next, action, &effects)
         case .networkChanged, .connectionLost, .connected, .connectionDiagnosed, .macCapabilities, .pairingRevoked,
              .macAttachmentLimits, .pushRegistered:
@@ -256,8 +281,11 @@ public enum Reducer {
         case .turnOnNotifications, .notificationsResult, .turnOffNotifications, .dismissNotificationOffer, .setPreviews,
              .forgetPairing, .confirmForget, .openSystemSettings:
             SettingsReducer.reduce(&next, action, &effects)
-        case .updatePolicy, .dismissUpdate, .openAppStore, .openSupport:
+        case .updatePolicy, .dismissUpdate, .openAppStore, .openSupport, .checkForUpdates, .openPrivacyPolicy:
             UpdateReducer.reduce(&next, action, &effects)
+        case .openAttachMenu, .closeAttachMenu, .pickAttachments, .attachmentsPicked, .attachmentRefused, .attachPermissionDenied,
+             .removePendingAttachment, .dismissAttachNotice:
+            ConversationReducer.reduceAttachments(&next, action, &effects)
         default:
             ConversationReducer.reduce(&next, action, &effects)
         }

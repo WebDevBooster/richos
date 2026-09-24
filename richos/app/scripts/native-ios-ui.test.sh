@@ -24,7 +24,7 @@
 # on a capable host is red.
 # run-tests: no-host-screen: simctl and XCUITest run on simulators this suite creates, booted headless without Simulator.app
 # run-tests: inputs richos/app/scripts/lib/simulator_budget.py richos/app/scripts/native-ios-ui.test.sh richos/app/scripts/lib/ios_ui_shards.py richos/engine/scripts/lib/worker_tokens.py richos/mobile/native-ios/App/Design richos/mobile/native-ios/App/Features richos/mobile/native-ios/UITests richos/mobile/native-ios/UnitTests richos/mobile/native-ios/Core/Sources/RichOSCore richos/mobile/native-ios/Core/Sources/RichOSFixtures richos/mobile/native-ios/project.yml richos/engine/scripts/lib/proc_tree.py richos/engine/scripts/lib/testdevices.py richos/app/scripts/testvm/reserve.py richos/mobile/native-ios/App/App/ShareIntake.swift
-# run-tests: covers richos/app/scripts/lib/ios_ui_shards.py richos/mobile/native-ios/App/Design/Palette.swift richos/mobile/native-ios/App/Design/Typography.swift richos/mobile/native-ios/App/Design/Motion.swift richos/mobile/native-ios/App/Design/SVGPath.swift richos/mobile/native-ios/App/Design/Icons.swift richos/mobile/native-ios/App/Design/Mark.swift richos/mobile/native-ios/App/Design/Components.swift richos/mobile/native-ios/App/Features/Root/ScreenModel.swift richos/mobile/native-ios/App/Features/Root/Intent.swift richos/mobile/native-ios/App/Features/Root/RootView.swift richos/mobile/native-ios/App/Features/Conversation/Rows.swift richos/mobile/native-ios/App/Features/Conversation/VoiceBubble.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptView.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptViewportGeometry.swift richos/mobile/native-ios/App/Features/Conversation/ConversationChrome.swift richos/mobile/native-ios/App/Features/Composer/ComposerView.swift richos/mobile/native-ios/App/Features/Voice/VoiceChrome.swift richos/mobile/native-ios/App/Features/Pairing/Takeovers.swift richos/mobile/native-ios/App/Features/Pairing/Scanner.swift richos/mobile/native-ios/App/Features/Pairing/PairingLinkSheet.swift richos/mobile/native-ios/App/Features/Settings/Overlays.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentModel.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentViews.swift richos/mobile/native-ios/App/Features/Attachments/PhotoScene.swift richos/mobile/native-ios/UITests/Support.swift richos/mobile/native-ios/UITests/ScreenshotTests.swift richos/mobile/native-ios/UITests/InteractionTests.swift richos/mobile/native-ios/UITests/AccessibilityLayoutTests.swift richos/mobile/native-ios/UnitTests/TranscriptViewportGeometryTests.swift richos/mobile/native-ios/UnitTests/ShareIntakeTests.swift richos/mobile/native-ios/App/App/ShareIntake.swift
+# run-tests: covers richos/app/scripts/lib/ios_ui_shards.py richos/mobile/native-ios/App/Design/Palette.swift richos/mobile/native-ios/App/Design/RoundSpec.swift richos/mobile/native-ios/App/Features/Conversation/PulseSchedule.swift richos/mobile/native-ios/App/Design/Typography.swift richos/mobile/native-ios/App/Design/Motion.swift richos/mobile/native-ios/App/Design/SVGPath.swift richos/mobile/native-ios/App/Design/Icons.swift richos/mobile/native-ios/App/Design/Mark.swift richos/mobile/native-ios/App/Design/Components.swift richos/mobile/native-ios/App/Features/Root/ScreenModel.swift richos/mobile/native-ios/App/Features/Root/Intent.swift richos/mobile/native-ios/App/Features/Root/RootView.swift richos/mobile/native-ios/App/Features/Conversation/Rows.swift richos/mobile/native-ios/App/Features/Conversation/VoiceBubble.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptView.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptViewportGeometry.swift richos/mobile/native-ios/App/Features/Conversation/ConversationChrome.swift richos/mobile/native-ios/App/Features/Composer/ComposerView.swift richos/mobile/native-ios/App/Features/Voice/VoiceChrome.swift richos/mobile/native-ios/App/Features/Pairing/Takeovers.swift richos/mobile/native-ios/App/Features/Pairing/Scanner.swift richos/mobile/native-ios/App/Features/Pairing/PairingLinkSheet.swift richos/mobile/native-ios/App/Features/Settings/Overlays.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentModel.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentViews.swift richos/mobile/native-ios/App/Features/Attachments/PhotoScene.swift richos/mobile/native-ios/UITests/Support.swift richos/mobile/native-ios/UITests/ScreenshotTests.swift richos/mobile/native-ios/UITests/InteractionTests.swift richos/mobile/native-ios/UITests/AccessibilityLayoutTests.swift richos/mobile/native-ios/UnitTests/TranscriptViewportGeometryTests.swift richos/mobile/native-ios/UnitTests/ShareIntakeTests.swift richos/mobile/native-ios/App/App/ShareIntake.swift
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -104,7 +104,7 @@ let expect: [String: (M) -> Bool] = [
     "pair-progress": { $0.takeover == .pairProgress },
     "pair-words": { if case .pairWords(let w)? = $0.takeover { return w.count == 6 } else { return false } },
     "pair-refused": { $0.takeover == .pairIntro(problem: .refused) },
-    "pair-blocked": { if case .pairBlocked(let n)? = $0.dialog { return n >= 1 } else { return false } },
+    "pair-blocked": { if case .pairBlocked(let n, false)? = $0.dialog { return n >= 1 } else { return false } },
     "pair-stale": { $0.takeover == .pairStale },
     "pair-consent": { $0.takeover == .consent },
     "conv-empty": { $0.takeover == nil && $0.thread.isEmpty && $0.cards.isEmpty },
@@ -232,7 +232,7 @@ for p in [Palette.sovereign, Palette.daybreak] {
     indicator("play button edge on your bubble", p.playEdgeOnMine ?? p.signal, p.mine)
     indicator("on-signal glyph on signal (mic, send, play)", p.onSignal, p.signal)
     indicator("danger on surface (recording dot, bin, alert mark)", p.danger, p.surface)
-    indicator("ink-soft ring on surface (disabled microphone, the +)", p.inkSoft, p.surface)
+    indicator("ink-soft ring on surface (the +)", p.inkSoft, p.surface)
     indicator("ink knob 72% on surface (a switch that is off)", p.ink.opacity(0.72), p.surface)
     indicator("accent glyph on surface (consent and menu icons)", p.accentGlyph, p.surface)
     indicator("ink icons on surface (settings rows, lock pill)", p.ink, p.surface)
@@ -259,6 +259,129 @@ print(String(format: "  info  gold alone on your bubble in light %.2f:1, so it w
 print(String(format: "  info  waveform bar 32%% ink on your bubble: dark %.2f:1, light %.2f:1 (decoration, declared)",
              ratio(Palette.sovereign.ink.opacity(0.32), Palette.sovereign.mine), ratio(Palette.daybreak.ink.opacity(0.32), Palette.daybreak.mine)))
 
+// The Reconnecting dot breathes as round 12 draws it for 10 seconds, then rests at full opacity and
+// asks for no more frames (the lead's battery decision, the same as Android's 0b4fabba).
+do {
+    let P = PulseSchedule.self
+    check(abs(P.opacity(elapsed: 0) - 0.35) < 1e-9, "pulse starts at 0.35")
+    check(abs(P.opacity(elapsed: 0.7) - 1) < 1e-9, "pulse peaks at full opacity after 700 ms")
+    check(abs(P.opacity(elapsed: 1.4) - 0.35) < 1e-9, "pulse is back at 0.35 after 1.4 s")
+    check(abs(P.restsAt - 10.5) < 1e-9, "pulse rests at 10.5 s, on a peak (Android: fifteen 700 ms legs)")
+    check(P.animates(elapsed: 9.9, reduceMotion: false), "pulse still breathes at 9.9 s")
+    check(!P.animates(elapsed: P.restsAt, reduceMotion: false), "pulse asks for no frames once it rests")
+    check(!P.animates(elapsed: 3 * 3600, reduceMotion: false), "pulse asks for no frames three hours into a sleeping Mac")
+    check(P.opacity(elapsed: 3 * 3600) == 1, "a resting pulse is at full opacity")
+    check(!P.animates(elapsed: 0, reduceMotion: true), "Reduce Motion: the dot never animates")
+    // No discontinuity when it stops: the last frame drawn before rest is already at the peak.
+    check(abs(P.opacity(elapsed: P.restsAt - 1e-6) - 1) < 1e-6, "pulse meets its rest without a jump")
+}
+
+// G11 (Urban's audit): a fixture is a still frame. The app's launch and return-to-front reports go
+// through `receive`, so `conv-retry` keeps its waiting message and its "Waiting to send" card; in a
+// live app the same report still reconnects and tries the outbox at once. Top-level code runs on
+// the main thread, and the store is the main actor's.
+MainActor.assumeIsolated {
+    let retry = try! Fixture.named("conv-retry").state
+    let frozen = AppStore(state: retry, runner: EffectRunner(storage: MemoryStorage()))
+    frozen.effectsSuspended = true
+    frozen.becameActive(at: Fixture.now + 1_000)
+    let drawn = ScreenModel(state: frozen.state)
+    check(drawn.cards.contains(.waitingToSend(count: 1)), "G11 conv-retry after launch: the Waiting to send card is drawn")
+    check(drawn.thread.rows.last?.delivery == .waiting, "G11 conv-retry after launch: the message still reads Waiting to send")
+    frozen.wentToBackground(at: Fixture.now + 2_000)
+    check(frozen.state == retry, "G11 a fixture is unchanged by coming to the front and leaving it")
+    let live = AppStore(state: retry, runner: EffectRunner(storage: MemoryStorage()))
+    live.becameActive(at: Fixture.now + 1_000)
+    check(live.state.messages.last?.delivery == .sending, "G11 a live app coming to the front tries the waiting message at once")
+}
+
+// G2 (Urban's audit §4.1): after the Mac removed this phone, "Pair again" with a message waiting asks
+// the removed-state question, which never offers Send.
+do {
+    var removed = try! Fixture.named("pair-blocked").state
+    removed.pairingProblem = nil
+    removed.pairing = .revoked
+    let asked = Reducer.reduce(removed, .openScanner).state
+    check(ScreenModel(state: asked).dialog == .pairBlocked(waiting: 1, removed: true), "G2 removed + Pair again: the removed-state dialog")
+    check(ScreenModel(state: asked).takeover == .removedFromMac, "G2 the removed screen stays under the dialog")
+    let paired = try! Fixture.named("pair-blocked").state
+    check(ScreenModel(state: paired).dialog == .pairBlocked(waiting: 1, removed: false), "G2 still paired: pair-blocked unchanged")
+}
+
+// G9 (the CEO, 2026-09-24: "Follow the phone"): the app's appearance mirrors the phone's, and a
+// Debug fixture keeps the theme it is photographed in.
+MainActor.assumeIsolated {
+    let live = AppStore(state: try! Fixture.named("conv-populated").state, runner: EffectRunner(storage: MemoryStorage()))
+    live.followPhone(.light)
+    check(live.state.appearance == .light && ScreenModel(state: live.state).appearance == .light, "G9 a phone in light draws the app in light")
+    live.followPhone(.dark)
+    check(live.state.appearance == .dark, "G9 a phone back in dark draws the app in dark")
+    var photographed = try! Fixture.named("conv-populated").state
+    photographed.appearance = .light
+    let frozen = AppStore(state: photographed, runner: EffectRunner(storage: MemoryStorage()))
+    frozen.effectsSuspended = true
+    frozen.followPhone(.dark)
+    check(frozen.state.appearance == .light, "G9 a fixture keeps its -rios-appearance theme")
+}
+// G9: the Settings sheet has no appearance control (round 12.1 has none).
+do {
+    let source = (try? String(contentsOfFile: CommandLine.arguments[1] + "/App/Features/Settings/Overlays.swift", encoding: .utf8)) ?? "unreadable"
+    check(!source.contains("Light appearance") && !source.contains(".setAppearance("), "G9 Settings draws no appearance row")
+}
+
+// The + menu (App Store blocker 5): the menu, the tray, the refusal cards and the bubbles are drawn
+// from the core's attachment state.
+do {
+    var s = try! Fixture.named("conv-populated").state
+    s.attachmentLimits = try! JSONDecoder().decode(AttachmentLimits.self, from: Data(#"{"max_file_bytes":26214400,"max_files_per_message":10,"max_message_bytes":104857600,"upload_seconds":300,"media_types":["image/jpeg","application/pdf"]}"#.utf8))
+    s = Reducer.reduce(s, .openAttachMenu).state
+    check(ScreenModel(state: s).attach.menuOpen, "attach: + opens the menu")
+    let photo = OutboxFile(id: "p1", name: "IMG_1.jpg", mediaType: "image/jpeg", byteCount: 900_000, sha256: "a", path: "pending/p1-IMG_1.jpg")
+    let pdf = OutboxFile(id: "d1", name: "Brief.pdf", mediaType: "application/pdf", byteCount: 2_400_000, sha256: "b", path: "pending/d1-Brief.pdf")
+    s = Reducer.reduce(s, .attachmentsPicked([photo, pdf])).state
+    let dir = URL(fileURLWithPath: "/tmp/attachments")
+    let tray = ScreenModel(state: s, attachments: dir).attach.pending
+    check(tray.map(\.id) == ["p1", "d1"], "attach: the tray shows what was picked, in order")
+    if case .photo(let p)? = tray.first { check(p.source == .file(dir.appendingPathComponent("pending/p1-IMG_1.jpg")), "attach: a tray photo shows its staged copy") }
+    else { check(false, "attach: a tray photo shows its staged copy") }
+    if case .file(let f)? = tray.last { check(f.summary == "PDF · 2.4 MB", "attach: a tray file reads PDF · 2.4 MB") } else { check(false, "attach: a tray file reads PDF · 2.4 MB") }
+    s.draft = "For the offsite."
+    s = Reducer.reduce(s, .sendDraft(clientID: "c1", at: 5_000)).state
+    let rows = ScreenModel(state: s, attachments: dir).thread.rows.suffix(2)
+    if case .album(let photos, let caption)? = rows.first?.body { check(photos.count == 1 && caption == "For the offsite.", "attach: sent photos are an album with the words") }
+    else { check(false, "attach: sent photos are an album with the words") }
+    if case .file(let f, nil)? = rows.last?.body { check(f.name == "Brief.pdf", "attach: a sent file is a file bubble") } else { check(false, "attach: a sent file is a file bubble") }
+    check(rows.allSatisfy { $0.delivery == .waiting || $0.delivery == .sending }, "attach: the bubbles show their honest delivery state")
+    let big = OutboxFile(id: "z", name: "Lease.pdf", mediaType: "application/pdf", byteCount: 31_000_000, sha256: "c", path: "pending/z-Lease.pdf")
+    let refused = ScreenModel(state: Reducer.reduce(s, .attachmentsPicked([big])).state)
+    check(refused.cards.contains(.attachRefused(name: "Lease.pdf", detail: "is 31 MB. Rich can take files up to 25 MB each.", tooLarge: true)),
+          "attach: too large is refused in one card with the size and the limit")
+    check(ScreenModel(state: Reducer.reduce(s, .attachPermissionDenied(.camera)).state).cards.contains(.attachCameraDenied), "attach: camera denied shows its card")
+    var noMac = s
+    noMac.attachmentLimits = nil
+    check(ScreenModel(state: Reducer.reduce(noMac, .pickAttachments(.files)).state).cards.contains(.attachMacUnsupported), "attach: a Mac without attachments says so")
+}
+
+// G7 (Urban's audit): the CEO's how-to paragraph on conv-empty is full ink under a hairline, at a
+// 300 pt measure with 22 + 20 pt around the rule, and reads at AA in both themes.
+for p in [Palette.sovereign, Palette.daybreak] {
+    let theme = p.appearance == .dark ? "dark" : "light"
+    check(RoundSpec.howToInk(p) == p.ink, "G7 \(theme): the how-to paragraph is full ink, not ink-soft")
+    check(RoundSpec.howToRule(p) == p.lineFaint, "G7 \(theme): the hairline is line-faint")
+    check(ratio(RoundSpec.howToInk(p), p.ground) >= 4.5, String(format: "G7 \(theme): how-to paragraph on ground %5.2f:1", ratio(RoundSpec.howToInk(p), p.ground)))
+}
+check(RoundSpec.howToMeasure == 300 && RoundSpec.howToRuleGap == 22 && RoundSpec.howToTextGap == 20 && RoundSpec.howToLineHeight == 1.55,
+      "G7 measure 300, 22 above the rule, 20 below it, line height 1.55 (app.css .mic-how)")
+
+// G13 (Urban's audit): the disabled orb is round 12.1's gold orb dimmed to 45%, not an outlined
+// ring. Declared exemption, printed rather than asserted: an inactive control (WCAG 1.4.11).
+for p in [Palette.sovereign, Palette.daybreak] {
+    let theme = p.appearance == .dark ? "dark" : "light"
+    check(RoundSpec.disabledOrbFill(p) == p.signal && RoundSpec.disabledOrbOpacity == 0.45, "G13 \(theme): the disabled orb is gold at 45% (app.js setDisabled)")
+    print(String(format: "  info  G13 \(theme): dimmed orb on surface %.2f:1 (inactive control, declared exemption)",
+                 ratio(p.signal.opacity(RoundSpec.disabledOrbOpacity), p.surface)))
+}
+
 if failures > 0 { print("  \(failures) headless check(s) failed"); exit(1) }
 print("  headless: all checks passed")
 SWIFT
@@ -271,16 +394,19 @@ if ! xcrun swiftc -Onone -D DEBUG -module-name RichOSCore -target "$(uname -m)-a
     -module-cache-path "$CACHE/module-cache" -suppress-warnings \
     "${CORE_SOURCES[@]}" \
     "$NATIVE/App/Design/Palette.swift" \
+    "$NATIVE/App/Design/RoundSpec.swift" \
     "$NATIVE/App/Features/Root/ScreenModel.swift" \
     "$NATIVE/App/Features/Attachments/AttachmentModel.swift" \
     "$NATIVE/App/Features/Conversation/TranscriptViewportGeometry.swift" \
+    "$NATIVE/App/Features/Conversation/PulseSchedule.swift" \
+    "$NATIVE/App/App/AppStore.swift" \
     "$WORK/main.swift" -o "$HEADLESS_BIN" > "$WORK/headless-build.log" 2>&1; then
   tail -30 "$WORK/headless-build.log"
   echo "  FAIL  native-ios-ui: the headless checks did not compile"
   exit 1
 fi
 echo "native-ios-ui: headless (compiled in $(( $(date +%s) - START )) s)"
-"$HEADLESS_BIN"
+"$HEADLESS_BIN" "$NATIVE"
 # The split and the by-name proof the simulator part relies on, against fixtures (no simulator).
 if ! python3 "$DIR/lib/ios_ui_shards.py" selftest; then
   echo "  FAIL  native-ios-ui: the shard split or its proof"; exit 1

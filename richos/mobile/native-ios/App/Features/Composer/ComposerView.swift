@@ -192,10 +192,15 @@ struct ComposerView: View {
         let look = OrbLook(session: voice, clock: clock, reduceMotion: reduceMotion)
         ZStack {
             if disabled {
-                // Disabled keeps a 3:1 edge (accessibility audit F6): an ink-soft ring and glyph, not a
-                // faded gold circle (round 12's 45% gold falls below the non-text floor in light).
-                Circle().strokeBorder(palette.inkSoft, lineWidth: 1.5)
-                IconView(.mic, size: 22, weight: 2.2).foregroundStyle(palette.inkSoft)
+                // Round 12.1 `setDisabled`: the gold orb with its glyph, dimmed to 45% (Urban's G13; the
+                // mockup wins over accessibility audit F6's ring). DECLARED EXEMPTION: WCAG 1.4.11
+                // exempts inactive components; the line beside the composer says why sending is off.
+                ZStack {
+                    Circle().fill(RoundSpec.disabledOrbFill(palette))
+                        .shadow(color: palette.orbShadow, radius: 12, y: 8)
+                    IconView(.mic, size: 22, weight: 2.2).foregroundStyle(palette.onSignal)
+                }
+                .opacity(RoundSpec.disabledOrbOpacity)
             } else {
                 Circle().fill(palette.signal)
                     .shadow(color: palette.orbShadow, radius: 12, y: 8)

@@ -7,8 +7,9 @@ import RichOSCore
 /// is no other color in the app: a screen that needs one it cannot find here needs a design decision,
 /// not a literal.
 ///
-/// The app follows its own appearance setting (`AppState.appearance`), not the system's: a new
-/// install opens dark (ceo-decisions §15), and the choice is the person's.
+/// The app follows the phone's light or dark setting (the CEO, 2026-09-24: "Follow the phone"; round
+/// 12.1 has no appearance control). The core mirrors it in `AppState.appearance`
+/// (`AppStore.followPhone`), which this palette reads.
 struct Palette: Equatable, Sendable {
     let appearance: Appearance
 

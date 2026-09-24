@@ -36,11 +36,14 @@ final class PlatformEffectsTests: XCTestCase {
         XCTAssertEqual(answer, [])
     }
 
-    func testNothingIsOpenedForAStoreOrSupportPageThatDoesNotExistYet() async {
-        let effects = PlatformEffects()
+    func testTheStoreSupportAndPrivacyPagesOpenFromOnePlace() async {
+        var opened: [URL] = []
+        let effects = PlatformEffects(openURL: { opened.append($0) })
         let store = await effects.handle(.openAppStore, state: AppState())
         let support = await effects.handle(.openSupport, state: AppState())
-        XCTAssertEqual(store + support, [])
+        let privacy = await effects.handle(.openPrivacyPolicy, state: AppState())
+        XCTAssertEqual(store + support + privacy, [], "opening a page answers nothing")
+        XCTAssertEqual(opened, [AppLinks.appStore, AppLinks.support, AppLinks.privacyPolicy])
     }
 
     func testTheLockHapticIsHandled() async {
