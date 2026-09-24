@@ -113,6 +113,10 @@ mod voice_provision;
 /// rule somebody has to remember.
 mod phone;
 
+/// SCREENSHOTS AND FILES DROPPED OR PASTED ONTO THE MAC COMPOSER (CEO §86). The phone's
+/// attachment desk, reached from the window: same storage, same limits, same words for Rich.
+mod mac_attachments;
+
 // Headless integration harness; absent from the shipped executable.
 #[cfg(test)]
 #[path = "../../../mobile/dev/mac-server.rs"]
@@ -2209,6 +2213,8 @@ fn main() {
                 if activation.presentation == activation::Presentation::Regular {
                     remember_window_geometry(&window, geometry_path.clone());
                 }
+                // Files dropped on the window reach the composer (CEO §86).
+                mac_attachments::listen_for_drops(&window);
                 // COME TO THE FRONT. Measured by ray-opus-a1 on published v1.0.0,
                 // 2026-09-04: the window opened BEHIND other windows, twice, on a first
                 // launch from Finder — an app a stranger has just double-clicked and cannot
@@ -3057,6 +3063,10 @@ fn main() {
             // A persisted pairing resumes without opening a new pairing window.
             phone_runtime.resume_if_paired(app.handle().clone());
             app.manage(phone_runtime);
+            // The composer's attachments, in the SAME app-data directory the phone's
+            // attachment desk writes to (`phone/attachments.rs`). No I/O until a file arrives.
+            let attachments_home = app.state::<AppState>().data_dir.clone();
+            app.manage(mac_attachments::MacAttachments::open(&attachments_home));
 
             // ================================================================
             // THE UPDATE PATH — last in setup, and last for a reason
@@ -3295,7 +3305,13 @@ fn main() {
             // --- row 5: the window closes and the work keeps going (2026-09-17) —
             //     appended, never reordered ---
             confirm_quit_and_stop,
-            cancel_quit
+            cancel_quit,
+            // --- screenshots and files into the composer, CEO §86 (2026-09-24) —
+            //     appended, never reordered ---
+            mac_attachments::attach_dropped_file,
+            mac_attachments::attach_pasted_file,
+            mac_attachments::discard_attachment,
+            mac_attachments::commit_attachments
         ])
         .build(context)
         .expect("error while building RichOS")
@@ -8399,6 +8415,8 @@ fn reopen_window(app: &AppHandle) {
     match builder.build() {
         Ok(window) => {
             remember_window_geometry(&window, geometry_path);
+            // A window rebuilt from the Dock takes drops too (CEO §86).
+            mac_attachments::listen_for_drops(&window);
             let _ = window.set_focus();
         }
         Err(error) => eprintln!("[richos] the window could not be rebuilt: {error}"),
