@@ -6,7 +6,8 @@ import assert from 'node:assert/strict';
 const require = createRequire(import.meta.url);
 const { loadPlaywright } = require('../../app/ui/tests/lib/harness.js');
 const { createStubMac } = require('../../web/web-app/test/stub-mac.js');
-const { phraseFromHex } = require('../../web/web-app/lib/fingerprint.js');
+const { phraseV2, pointFromJwk } = require('../../web/web-app/lib/fingerprint.js');
+const { webcrypto } = require('node:crypto');
 const { createRuntime } = require('../dev/runtime.js');
 const root = process.argv[2];
 const statusFile = join(root, 'worker.json');
@@ -50,7 +51,11 @@ async function fixture(name) {
   await newPage();
   await page.goto(`${origin}/#pair=harness-pair-code`);
   await page.locator('#fingerprint-box:not([hidden])').waitFor();
-  assert.equal((await page.locator('#fingerprint-words').textContent()).trim(), phraseFromHex(mac.caFingerprintHex));
+  // The PWA shows the v2 words (Sage's pairing review F2): over the origin it dialed, the Mac's
+  // value and the key the Mac registered — the same line the Mac's sheet shows beside They match.
+  const registered = [...mac.state.devices.values()][0];
+  assert.equal((await page.locator('#fingerprint-words').textContent()).trim(),
+    await phraseV2(origin, mac.caFingerprintHex, pointFromJwk(registered.jwk), webcrypto.subtle));
   await page.locator('#pair-confirm').click();
   await ready();
   await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller));

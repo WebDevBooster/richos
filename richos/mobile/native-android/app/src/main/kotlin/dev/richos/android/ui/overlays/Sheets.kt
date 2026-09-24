@@ -47,7 +47,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.Hyphens
 import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.unit.dp
-import dev.richos.android.core.Theme
 import dev.richos.android.design.ButtonKind
 import dev.richos.android.design.Rich
 import dev.richos.android.design.RichButton
@@ -60,7 +59,6 @@ import dev.richos.android.design.touchTarget
 import dev.richos.android.ui.UiEvent
 import dev.richos.android.ui.model.NotificationStatus
 import dev.richos.android.ui.model.SettingsInfo
-import dev.richos.android.ui.model.UpdateCheck
 
 /** The scrim behind sheets and dialogs; a tap on it closes what is open (never a blocking one). */
 @Composable
@@ -166,11 +164,10 @@ private fun Chevron() = RichIcon(RichIcons.ChevronRight, Rich.colors.inkSoft, 18
 
 /**
  * 59 · The Settings sheet: notifications, this phone, connection and privacy, and the one red row.
- * The appearance row is an ADDITION to round 12, declared: core has a theme action and light
- * "Daybreak" must be choosable somewhere (ceo-decisions §15).
+ * No appearance row: the app follows the phone's light/dark setting, as round 12.1 has it.
  */
 @Composable
-fun SettingsSheet(info: SettingsInfo, notifications: NotificationStatus, previews: Boolean, theme: Theme, onEvent: (UiEvent) -> Unit) {
+fun SettingsSheet(info: SettingsInfo, notifications: NotificationStatus, previews: Boolean, onEvent: (UiEvent) -> Unit) {
     val c = Rich.colors
     val t = Rich.type
     Sheet("Settings", "settings-sheet") {
@@ -197,23 +194,18 @@ fun SettingsSheet(info: SettingsInfo, notifications: NotificationStatus, preview
         }
         Section("This phone")
         SettingsRow(RichIcons.Phone, "App permissions", "Microphone and camera", onClick = { onEvent(UiEvent.OpenSystemSettings) }) { Chevron() }
-        SettingsRow(RichIcons.Globe, "Appearance", if (theme == Theme.LIGHT) "Light" else "Dark") {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                ThemeChip("Dark", theme != Theme.LIGHT) { onEvent(UiEvent.ChooseTheme(Theme.DARK)) }
-                ThemeChip("Light", theme == Theme.LIGHT) { onEvent(UiEvent.ChooseTheme(Theme.LIGHT)) }
-            }
-        }
+        // Opens Google Play's listing, where Android updates come from. It names a version only when
+        // the hosted update policy has announced one; the app checks nothing else, so it never
+        // claims "Up to date" (a chevron instead: the tap leaves for Google Play).
         SettingsRow(RichIcons.Refresh, "Check for updates", onClick = { onEvent(UiEvent.CheckForUpdates) }) {
-            when (info.updateCheck) {
-                UpdateCheck.UP_TO_DATE -> Value("Up to date")
-                UpdateCheck.AVAILABLE -> Value("${info.availableVersion} is available", strong = true)
-                UpdateCheck.COULD_NOT_CHECK -> Value("Could not check")
-            }
+            if (info.availableVersion != null) Value("${info.availableVersion} is available", strong = true) else Chevron()
         }
         SettingsRow(RichIcons.Life, "Support", onClick = { onEvent(UiEvent.Support) }) { Chevron() }
         Section("Connection and privacy")
         SettingsRow(RichIcons.Mac, "Paired with ${info.macName}", "Messages go to your Mac. Rich on your Mac writes the replies with its AI provider.")
         SettingsRow(RichIcons.Cloud, "Where your messages go", onClick = { onEvent(UiEvent.WhereMessagesGo) }) { Chevron() }
+        // Not in round 12.1, declared: Google Play and Apple require the policy to be reachable in the app.
+        SettingsRow(RichIcons.Lock, "Privacy policy", onClick = { onEvent(UiEvent.PrivacyPolicy) }) { Chevron() }
         SettingsRow(RichIcons.Close, "Forget this pairing", danger = true, onClick = { onEvent(UiEvent.ForgetPairing) })
         BasicText(
             "Moving from the web app? Send its pending messages before replacing that pairing.",
@@ -221,22 +213,6 @@ fun SettingsSheet(info: SettingsInfo, notifications: NotificationStatus, preview
             modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 6.dp),
         )
     }
-}
-
-@Composable
-private fun ThemeChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    val c = Rich.colors
-    val t = Rich.type
-    val shape = RoundedCornerShape(18.dp)
-    BasicText(
-        label,
-        style = t.readStrong.copy(color = if (selected) c.onSignal else c.ink),
-        modifier = Modifier.clickable(role = Role.RadioButton, onClick = onClick)
-            .semantics { contentDescription = "$label appearance" + if (selected) ", selected" else "" }
-            .touchTarget()
-            .then(if (selected) Modifier.background(c.signal, shape) else Modifier.border(1.dp, c.line, shape))
-            .padding(horizontal = 12.dp, vertical = 7.dp),
-    )
 }
 
 /** `.dialog`: centered on the ground, springing in from 0.9; the safe action is the filled one. */

@@ -1,6 +1,18 @@
 package dev.richos.android.ui.attach
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.dp
+import dev.richos.android.design.Rich
+import dev.richos.android.design.RichIcon
+import dev.richos.android.design.RichIcons
+import dev.richos.android.ui.model.LiveAttachments
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -33,14 +45,28 @@ object Photos {
     val all: Map<String, Photo> = listOf(venue, receipt, whiteboard, card, skyline, contract, chart, coffee, trail, dinner, departures, office).associateBy { it.key }
 }
 
+/** A live photo's pixels, supplied by the activity from the staged copies; null when there are none (yet). */
+val LocalPhotoPixels = staticCompositionLocalOf<(Photo) -> ImageBitmap?> { { null } }
+
 /**
- * A drawn stand-in for a photograph, deterministic by [photo]'s key, filling its box (like
- * `preserveAspectRatio="xMidYMid slice"`). Review frames only: the app shows the real image.
- * Decorative to TalkBack; the control around it carries the photo's label.
+ * A photograph filling its box (like `preserveAspectRatio="xMidYMid slice"`). In the app, the real
+ * image ([LocalPhotoPixels]); for a photo whose pixels are only on the Mac, or not decoded yet, a
+ * plain tile with the photo mark, never an invented picture. In review frames, a drawn stand-in,
+ * deterministic by [photo]'s key. Decorative to TalkBack; the control around it carries the label.
  */
 @Composable
 fun PhotoArt(photo: Photo, modifier: Modifier = Modifier) {
-    Canvas(modifier.clearAndSetSemantics { }) { scene(photo.key) }
+    val pixels = LocalPhotoPixels.current(photo)
+    when {
+        pixels != null -> Image(pixels, contentDescription = null, modifier = modifier.clearAndSetSemantics { }, contentScale = ContentScale.Crop)
+        photo.key.startsWith(LiveAttachments.STAGED) || photo.key.startsWith(LiveAttachments.ON_MAC) -> {
+            val c = Rich.colors
+            Box(modifier.clearAndSetSemantics { }.background(c.surface), contentAlignment = Alignment.Center) {
+                RichIcon(RichIcons.Image, c.inkSoft, 28.dp)
+            }
+        }
+        else -> Canvas(modifier.clearAndSetSemantics { }) { scene(photo.key) }
+    }
 }
 
 private fun DrawScope.scene(key: String) {

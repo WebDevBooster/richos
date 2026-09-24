@@ -68,6 +68,37 @@
 		return INBOUND;
 	}
 
+	/// THE CAPABILITY A v2 PHONE REQUIRES (Sage's pairing review §3.5, ledger row S3). A Mac that
+	/// does not name it derives the old six words, which bind nothing about the connection, and a
+	/// relay can strip a capability — so this phone refuses such a Mac rather than falling back.
+	const PAIR_V2 = 'pair-v2';
+
+	/// **HOW THIS PHONE WAITS FOR THE PRESS ON THE MAC** (review §3.1 step 5, CEO ruling §81).
+	///
+	/// After "They match" on the phone, the Mac still refuses everything until the person presses
+	/// "They match" on the Mac, and says so with a retryable 409. The phone asks again on this
+	/// schedule and on no other: 2, 3, 5, 8 and 13 seconds, then every 15, and never past the bound
+	/// the Mac gave (`confirm_within_seconds`, at most the five-minute window), and only while the
+	/// app is on screen. The arithmetic, stated rather than trusted: the first five waits are
+	/// 2 + 3 + 5 + 8 + 13 = 31 s, then floor((300 - 31) / 15) = 17 more, so at most 22 requests in
+	/// the whole five minutes and none before the first 2 s — a person standing at his Mac, not a
+	/// background refresh (`test/api.test.js` recomputes the 22 from this schedule).
+	const MAC_WAIT_DELAYS_MS = [2000, 3000, 5000, 8000, 13000];
+	const MAC_WAIT_CAP_MS = 15000;
+	const MAC_WAIT_WINDOW_MS = 300000;
+
+	function macWaitDelayMs(attempt) {
+		const n = Math.max(0, Math.floor(Number(attempt) || 0));
+		return n < MAC_WAIT_DELAYS_MS.length ? MAC_WAIT_DELAYS_MS[n] : MAC_WAIT_CAP_MS;
+	}
+
+	/// How long the wait may last, from the pair answer. A Mac that says nothing gets the window;
+	/// a Mac that says more than the window is not believed.
+	function macWaitBoundMs(answer) {
+		const s = Number(answer && answer.confirm_within_seconds);
+		return Number.isFinite(s) && s > 0 ? Math.min(s * 1000, MAC_WAIT_WINDOW_MS) : MAC_WAIT_WINDOW_MS;
+	}
+
 	class ApiError extends Error {
 		constructor(reason, message, status, aboutThisMessage) {
 			super(message);
@@ -84,6 +115,10 @@
 			// about the phone, applies identically to everything still queued, and the flush stops.
 			// Only `queue.js` reads this, and only to decide whether to carry on down the queue.
 			this.aboutThisMessage = aboutThisMessage === true;
+			// Set by `request` on the Mac's awaiting answer (a 409 carrying
+			// `awaiting_mac_confirmation`) and by `pair` on a Mac too old for `pair-v2`.
+			this.awaitingMac = false;
+			this.macNeedsUpdate = false;
 		}
 	}
 
@@ -329,6 +364,18 @@
 				if (final) {
 					throw new ApiError(REFUSED, final.reason || 'your Mac will not take that', response.status, true);
 				}
+				// THE MAC IS WAITING FOR THE PERSON TO PRESS "They match" ON IT (Sage F1). A fault,
+				// so everything already built retries it — but a named one, so the pairing screen
+				// can say which press is missing instead of "temporarily unavailable".
+				if (response.status === 409) {
+					let body = null;
+					try { body = await response.clone().json(); } catch { /* not the awaiting answer */ }
+					if (body && body.awaiting_mac_confirmation === true) {
+						const waiting = new ApiError(FAULT, 'Your Mac is waiting for you to press They match on it.', 409);
+						waiting.awaitingMac = true;
+						throw waiting;
+					}
+				}
 				throw new ApiError(FAULT, 'Your Mac is temporarily unavailable. Your unsent messages stay on this phone.', response.status);
 			}
 			return response;
@@ -530,14 +577,25 @@
 			},
 
 			// ---- (d) pairing, and the device record ---------------------------------------------
-			async pair(code, publicKeyJwk, deviceName) {
+			///
+			/// `options.pairingVersion === 2` is a v2 phone (Sage's pairing review §3): it says so in
+			/// the request, so the Mac shows the same six words it will, and it refuses a Mac that
+			/// does not offer `pair-v2`. Without it this is the v1 call, byte for byte — which is
+			/// what the preserved iPhone app (`mobile/core/client.js`) still makes and must keep
+			/// making for the one release §3.5 keeps v1 for.
+			async pair(code, publicKeyJwk, deviceName, options) {
+				const v2 = !!(options && options.pairingVersion === 2);
+				const request = { code, public_key_jwk: publicKeyJwk, device_name: deviceName };
+				// A relay that strips this only makes the two lines differ, because a v2 phone shows
+				// v2 words whatever the Mac does.
+				if (v2) request.pairing_version = 2;
 				// No signature: this is the request that establishes the credential.
 				const response = await fetchImpl(joinBase(state.apiBase, '/api/pair'), {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
 					mode: 'cors',
 					cache: 'no-store',
-					body: JSON.stringify({ code, public_key_jwk: publicKeyJwk, device_name: deviceName })
+					body: JSON.stringify(request)
 				}).catch((err) => { throw new ApiError(UNREACHABLE, String((err && err.message) || err)); });
 
 				if (response.status === 404 || response.status === 403) {
@@ -549,7 +607,33 @@
 				setChallenge(body.challenge);
 				setApiBase(body.api_base);
 				onState(state);
+				// A MAC WITHOUT `pair-v2` IS REFUSED, NEVER FALLEN BACK TO (review §3.5). The state
+				// above is kept deliberately: the caller signs one last `fingerprint_confirmed: false`
+				// with it, so the Mac that just registered this key forgets it again.
+				if (v2 && !offers(body.capabilities, PAIR_V2)) {
+					const tooOld = new ApiError(REFUSED, 'Update RichOS on your Mac, then pair this phone again.', response.status);
+					tooOld.macNeedsUpdate = true;
+					throw tooOld;
+				}
 				return body;
+			},
+
+			/// **HAS THE PERSON PRESSED "They match" ON THE MAC YET?** One signed read of the
+			/// smallest thing a paired phone may read — one backfill row — which the Mac answers
+			/// with the awaiting 409 until the press, and normally after it. `true` once it is
+			/// answered, `false` while the Mac is still waiting; every other failure is thrown
+			/// as it is, so a refusal (the person pressed "They do not match", or the window
+			/// closed) reaches the screen as the final answer it is. Called on
+			/// `macWaitDelayMs`'s schedule and no other.
+			async macConfirmed(threadId) {
+				try {
+					await json('GET', '/api/events' + query({ thread_id: threadId, before: 0, limit: 1 }),
+						undefined, undefined, { credential: 'query' });
+					return true;
+				} catch (err) {
+					if (err && err.awaitingMac) return false;
+					throw err;
+				}
 			},
 
 			async registerNativePush(registration) {
@@ -588,5 +672,8 @@
 		};
 	}
 
-	return { createApi, ApiError, signingInput, offers, UNREACHABLE, REVOKED, REFUSED, FAULT };
+	return {
+		createApi, ApiError, signingInput, offers, UNREACHABLE, REVOKED, REFUSED, FAULT,
+		PAIR_V2, MAC_WAIT_DELAYS_MS, MAC_WAIT_CAP_MS, MAC_WAIT_WINDOW_MS, macWaitDelayMs, macWaitBoundMs
+	};
 });

@@ -70,7 +70,7 @@ const codeIn = (html) => (html.match(/#pair=([A-Z0-9]{8})/) || [])[1] || null;
 test('configuration: a complete environment is accepted', async () => {
 	const read = readConfig(await environment());
 	assert.equal(read.ok, true, JSON.stringify(read.problems));
-	assert.equal(read.config.pairingVersion, 1);
+	assert.equal(read.config.pairingVersion, 2, 'v2 is the default: the Mac announces pair-v2');
 	assert.equal(read.config.hostKeys, null, 'no host keys means no push, and says so');
 });
 
@@ -188,8 +188,12 @@ test('the whole pairing, through the Worker: link, phone, words, the press on th
 	const phone = Phone.via('https://review-a.example.com', (request) => handle(request, env));
 	const answer = await (await phone.pair(code)).json();
 	const waiting = await page(env, cookie);
-	const { sixWords } = await import('../src/qr.mjs');
-	assert.ok(waiting.includes(sixWords(answer.ca_fingerprint_sha256).join(' ')), 'the page shows the words the phone computes');
+	// v2, the default (Sage F2): the words the phone computes over the origin it dialed, the
+	// fingerprint it was sent and its own key.
+	const { pairingWords } = await import('../src/host.mjs');
+	const point = Buffer.concat([Buffer.from([4]), Buffer.from(phone.key.jwk.x, 'base64url'), Buffer.from(phone.key.jwk.y, 'base64url')]).toString('base64url');
+	const words = await pairingWords(2, 'https://review-a.example.com', answer.ca_fingerprint_sha256, point);
+	assert.ok(waiting.includes(words.join(' ')), 'the page shows the words the phone computes');
 	assert.match(waiting, /They match/);
 	assert.equal((await phone.signed('POST', '/api/messages', { client_id: 'w1', kind: 'text', text: 'hi' })).status, 409);
 	await handle(post('/confirm', { match: 'yes' }, { cookie }), env);
@@ -226,7 +230,7 @@ test('other hostnames, plain HTTP and the internal address are not served', asyn
 	assert.equal((await handle(new Request('https://internal.invalid/status', { method: 'POST', body: '{}' }), env)).status, 404);
 	assert.equal((await handle(new Request(`http://${ACCESS}/`), env)).status, 400);
 	const health = await handle(new Request(`https://${ACCESS}/healthz`), env);
-	assert.deepEqual(await health.json(), { service: 'richconnect-review', ready: true, hosts: 2, push: false, pairing_words: 'v1' });
+	assert.deepEqual(await health.json(), { service: 'richconnect-review', ready: true, hosts: 2, push: false, pairing_words: 'v2' });
 });
 
 test('what a person reads is escaped, and the page runs only its own pinned style and script', async () => {

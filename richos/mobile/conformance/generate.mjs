@@ -53,8 +53,9 @@ function count(file, body) {
 	const n = (x) => (Array.isArray(x) ? x.length : 0);
 	switch (file) {
 		case 'keys.json': return 1;
-		case 'pairing.json': return n(body.links) + n(body.api_base_validation.cases) + n(body.pair_exchanges) + n(body.fingerprint_confirmations);
-		case 'fingerprint.json': return n(body.cases);
+		case 'pairing.json': return n(body.links) + n(body.api_base_validation.cases) + n(body.pair_exchanges) + n(body.fingerprint_confirmations)
+			+ (body.pair_v2 ? n(body.pair_v2.exchanges) + 1 : 0) + (body.mac_confirmation ? n(body.mac_confirmation.probes) + 2 : 0);
+		case 'fingerprint.json': return n(body.cases) + (body.v2 ? n(body.v2.cases) : 0);
 		case 'signing.json': return n(body.valid) + n(body.invalid) + n(body.accepted_by_the_mac_though_unusual);
 		case 'events.json': return n(body.wire_cases) + n(body.thread_cases) + n(body.hello_cases) + 1;
 		case 'voice.json': return n(body.uploads);
@@ -69,7 +70,7 @@ export async function build() {
 	const files = {
 		'keys.json': keys(),
 		'pairing.json': await pairing(),
-		'fingerprint.json': fingerprint(),
+		'fingerprint.json': await fingerprint(),
 		'signing.json': await signing(),
 		'challenge.json': await challengeRefresh(),
 		'retry.json': await retry(),

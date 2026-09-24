@@ -115,7 +115,7 @@ export class Host {
 	 * @param {null|{control: {call: Function}}} [ports.push] the Connect client, or null when push is not configured
 	 * @param {1|2} [ports.pairingVersion] which six-word rule the phone uses (see `pairingWords`)
 	 */
-	constructor({ storage, hostname, now = Date.now, schedule = () => {}, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), push = null, pairingVersion = 1 }) {
+	constructor({ storage, hostname, now = Date.now, schedule = () => {}, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), push = null, pairingVersion = 2 }) {
 		this.storage = storage;
 		this.hostname = hostname;
 		this.origin = `https://${hostname}`;
@@ -354,7 +354,10 @@ export class Host {
 			capabilities: this.capabilities(),
 			attachment_limits: ATTACHMENT_LIMITS_WIRE,
 			build: BUILD,
-			...(this.pairingVersion === 2 ? { pairing_version: 2 } : {})
+			// As `phone/routes.rs` complete_pairing answers: the derivation this host uses, and how
+			// long the person has to press They match (here, on the access page) before the waiting
+			// phone is forgotten — the bound on the phone's wait for that press.
+			...(this.pairingVersion === 2 ? { pairing_version: 2, confirm_within_seconds: Math.max(0, Math.floor((device.window_ends - now) / 1000)) } : {})
 		});
 	}
 
@@ -443,10 +446,14 @@ export class Host {
 
 	async deviceRecord(device, body, deviceId, active = true) {
 		if (!active) {
-			// Sage F1: an inactive device may only answer the six words. Its own "They match" is
-			// recorded (it protects the phone) and activates nothing.
-			if (typeof body.fingerprint_confirmed !== 'boolean') return AWAITING;
-			return this.recordConfirmation(body);
+			// Sage F1: an inactive device may only answer the six words, and with nothing that acts
+			// beside the answer (`routes.rs` only_answers_the_words). Its own "They match" is
+			// recorded (it protects the phone) and activates nothing, and it is told so.
+			const answering = typeof body.fingerprint_confirmed === 'boolean' &&
+				Object.keys(body).every((k) => ['fingerprint_confirmed', 'device_id', 'push_transport'].includes(k));
+			if (!answering) return AWAITING;
+			const answered = await this.recordConfirmation(body);
+			return body.fingerprint_confirmed && this.device ? json(200, { ok: true, awaiting_mac_confirmation: true }) : answered;
 		}
 		if (Object.prototype.hasOwnProperty.call(body, 'native_push')) {
 			if (!this.push) return json(422, { reason: 'unsupported', retryable: false });

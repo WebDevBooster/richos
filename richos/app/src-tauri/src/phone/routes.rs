@@ -70,9 +70,19 @@ pub enum Outcome {
     /// this Mac has forgotten is told so, once, and stops. A 404 there would be a phone that
     /// retries forever and a CEO who is never told why it went quiet.
     Revoked,
+    /// **Authenticated, and waiting for a person to press "They match" on this Mac** (Sage F1).
+    /// A 409 with a body, never the flat 404: every client treats a 404 after one re-sign as
+    /// final, and this state ends by itself the moment he presses. The body carries no
+    /// `retry: false`, so every classifier that exists today reads it as a retryable fault.
+    AwaitingMac,
     PayloadTooLarge,
     RateLimited,
 }
+
+/// The awaiting answer's body — one constant, so the listener and the route tests read the same
+/// bytes. `reason` is what a client shows when it has nothing better of its own to say.
+pub const AWAITING_MAC_BODY: &str =
+    "{\"awaiting_mac_confirmation\":true,\"reason\":\"Press They match on your Mac.\"}";
 
 impl Outcome {
     pub fn status(&self) -> u16 {
@@ -81,6 +91,7 @@ impl Outcome {
             Outcome::Stream { .. } => 200,
             Outcome::NotFound => 404,
             Outcome::Revoked => 403,
+            Outcome::AwaitingMac => 409,
             Outcome::PayloadTooLarge => 413,
             Outcome::RateLimited => 429,
         }
@@ -159,11 +170,17 @@ pub trait Bridge: Send + Sync {
 ///
 /// The sender is taken out on the first pull, so a phone that posts the rejection twice — a
 /// retry, a double tap — rings the bell once. The second pull returns `false` and does nothing.
-pub struct StopSwitch(Mutex<Option<std::sync::mpsc::Sender<()>>>);
+///
+/// # It says why
+///
+/// Since Sage's pairing review it carries WHO stopped the pairing ([`super::device::StoppedBy`]):
+/// the phone's `They do not match`, or the spent-code alarm, which fires on this thread too. The
+/// owner's teardown is one sequence either way; only the sentence the sheet reads differs.
+pub struct StopSwitch(Mutex<Option<std::sync::mpsc::Sender<&'static str>>>);
 
 impl StopSwitch {
     /// Wired to an owner. [`super::PhoneRuntime::start`] holds the other end.
-    pub fn to(owner: std::sync::mpsc::Sender<()>) -> Self {
+    pub fn to(owner: std::sync::mpsc::Sender<&'static str>) -> Self {
         StopSwitch(Mutex::new(Some(owner)))
     }
 
@@ -186,9 +203,9 @@ impl StopSwitch {
     /// outcome of this request entirely — `richos/web/web-app/app.js:287`,
     /// `try { await api.confirmFingerprint(false); } catch { /* said locally either way */ }` —
     /// because it has already thrown its own key away on the same press.
-    pub fn pull(&self) -> bool {
+    pub fn pull(&self, why: &'static str) -> bool {
         match self.0.lock().unwrap().take() {
-            Some(owner) => owner.send(()).is_ok(),
+            Some(owner) => owner.send(why).is_ok(),
             None => false,
         }
     }
@@ -280,6 +297,19 @@ pub fn dispatch(channel: &Channel, request: &Incoming) -> Outcome {
 /// Verify the request, or say why not. `path_with_query` is what the signature covers — for the
 /// stream that is the URL **without** the `auth` parameter, because the parameter is the signature.
 fn verified(channel: &Channel, request: &Incoming, header: &str, path_with_query: &str) -> Result<(), Outcome> {
+    verified_device(channel, request, header, path_with_query, false).map(|_| ())
+}
+
+/// [`verified`], returning the device. `answering_the_words` is true for exactly one request —
+/// the phone's own answer to the six words — which a device nobody has confirmed at this Mac may
+/// still make ([`DeviceDesk::verify_for_confirmation`], Sage §3.1 step 5).
+fn verified_device(
+    channel: &Channel,
+    request: &Incoming,
+    header: &str,
+    path_with_query: &str,
+    answering_the_words: bool,
+) -> Result<super::device::Device, Outcome> {
     let Some((device_id, challenge, signature)) = parse_authorization(header) else {
         return Err(Outcome::NotFound);
     };
@@ -291,15 +321,32 @@ fn verified(channel: &Channel, request: &Incoming, header: &str, path_with_query
         signature,
         body: &request.body,
     };
-    match channel.devices.verify(&presented) {
-        Ok(_) => Ok(()),
+    let verdict = if answering_the_words {
+        channel.devices.verify_for_confirmation(&presented)
+    } else {
+        channel.devices.verify(&presented)
+    };
+    match verdict {
+        Ok(device) => Ok(device),
         Err(Refusal::RateLimited) => Err(Outcome::RateLimited),
         Err(Refusal::Revoked) => Err(Outcome::Revoked),
+        Err(Refusal::AwaitingMacConfirmation) => Err(Outcome::AwaitingMac),
         Err(refusal) => {
             log_refusal(&refusal);
             Err(Outcome::NotFound)
         }
     }
+}
+
+/// **Is this body the phone's answer to the six words, and nothing more?** A `fingerprint_confirmed`
+/// boolean, optionally the `device_id` it names and the `push_transport` a native app sends with
+/// it, and NO other key. Anything that asks for more — a push subscription, a registration, a
+/// cursor — is not an answer and is gated like every other request (Sage F1): an unconfirmed key
+/// must not be able to carry an action in beside the one request it is allowed.
+fn only_answers_the_words(body: &Value) -> bool {
+    let Some(map) = body.as_object() else { return false };
+    map.get("fingerprint_confirmed").is_some_and(Value::is_boolean)
+        && map.keys().all(|k| ["fingerprint_confirmed", "device_id", "push_transport"].contains(&k.as_str()))
 }
 
 // -------------------------------------------------------------------------------------
@@ -317,9 +364,11 @@ fn pair_or_device_record(channel: &Channel, request: &Incoming) -> Outcome {
     }
 
     let Some(header) = request.authorization.as_deref() else { return Outcome::NotFound };
-    if let Err(refusal) = verified(channel, request, header, &signed_path(&request.path, &request.query)) {
-        return refusal;
-    }
+    let answering = only_answers_the_words(&body);
+    let device = match verified_device(channel, request, header, &signed_path(&request.path, &request.query), answering) {
+        Ok(device) => device,
+        Err(refusal) => return refusal,
+    };
 
     if let Some(value)=body.get("native_push") {
         if !channel.bridge.native_notifications_available() {return Outcome::Json {status:422,body:json!({"reason":"unsupported","retryable":false}).to_string()}}
@@ -390,6 +439,12 @@ fn pair_or_device_record(channel: &Channel, request: &Incoming) -> Outcome {
                 let Some((id,_,_))=parse_authorization(header) else {return Outcome::NotFound};
                 if channel.devices.use_native_transport(&id,transport).is_err() {return Outcome::NotFound}
             }
+            // AND IF NOBODY AT THIS MAC HAS ANSWERED YET, THE PHONE IS TOLD SO (Sage §3.1 step 5):
+            // its screen moves to "Now press They match on your Mac". Additive: a client that
+            // reads only `ok` — the preserved iPhone app — is unaffected.
+            if !device.mac_confirmed {
+                return Outcome::Json { status: 200, body: json!({ "ok": true, "awaiting_mac_confirmation": true }).to_string() };
+            }
         } else {
             eprintln!("[richos] the phone reported that the six words did NOT match; forgetting it");
             // **THE CREDENTIAL GOES HERE, SYNCHRONOUSLY, AND IT STAYS HERE.** The owner's
@@ -406,7 +461,7 @@ fn pair_or_device_record(channel: &Channel, request: &Incoming) -> Outcome {
             // socket, the hub and the certificate authority all belong to `PhoneRuntime`, which
             // is the only thing that may put them down and the only place that sequence is
             // written. See [`StopSwitch`] for why a route cannot do it on this thread.
-            if !channel.rejected.pull() {
+            if !channel.rejected.pull(super::device::StoppedBy::PHONE) {
                 eprintln!(
                     "[richos] nothing owns this channel, so it keeps serving after a rejected \
                      fingerprint - the device record is gone either way"
@@ -439,8 +494,23 @@ fn complete_pairing(channel: &Channel, body: &Value, code: &str) -> Outcome {
     // Which path the code being redeemed went out under. Read once, here, because this is the
     // last moment at which it is a fact rather than a recomputation (Ray's defect 3.2).
     let via = *channel.pairing_path.lock().unwrap();
-    let device = match channel.devices.complete_pairing(code, &form, name, via, platform) {
+    // WHICH SIX WORDS THE PHONE WILL SHOW (Sage §3, `pair-v2`). A phone that announces 2 derives
+    // them over the origin it dialed and its own key; anything else is a v1 phone, kept for one
+    // release. The Mac shows the matching line, so stripping this field only makes two lines differ.
+    let pairing_version = if body.get("pairing_version").and_then(Value::as_u64) == Some(2) { 2 } else { 1 };
+    let device = match channel.devices.complete_pairing_announcing(code, &form, name, via, platform, pairing_version) {
         Ok(d) => d,
+        // THE SPENT-CODE ALARM (Sage F1 item 4). The desk has already forgotten the unconfirmed
+        // phone that used the code first; the rest of the teardown — the socket, the authority
+        // and the sentence on the Mac — is the owner's, exactly as for `They do not match`. The
+        // caller learns nothing: the same flat 404 as any other refused code.
+        Err(super::device::Refusal::CodeUsedTwice) => {
+            eprintln!("[richos] the pairing code was used by a second device; forgetting the unconfirmed phone");
+            if !channel.rejected.pull(super::device::StoppedBy::CODE_USED_TWICE) {
+                eprintln!("[richos] nothing owns this channel, so it keeps serving after the spent-code alarm - the device record is gone either way");
+            }
+            return Outcome::NotFound;
+        }
         Err(refusal) => {
             log_refusal(&refusal);
             return Outcome::NotFound;
@@ -471,6 +541,13 @@ fn complete_pairing(channel: &Channel, body: &Value, code: &str) -> Outcome {
             // first stream. The `hello` repeats all three and is the one clients replace from.
             "protocol_version": PROTOCOL_VERSION,
             "capabilities": capabilities(channel.bridge.voice_available(), channel.bridge.native_notifications_available()),
+            // Sage §3.1 step 3: "The answer is unchanged, plus pairing_version: 2" — what this Mac
+            // derives. `pair-v2` in `capabilities` is the name a v2 phone requires (§3.5).
+            "pairing_version": 2,
+            // How long the person has to press "They match" on this Mac before the unconfirmed
+            // key is forgotten (§3.1 step 6) — the bound on the phone's wait for that press, so
+            // the phone never waits on a pairing this Mac has already dropped.
+            "confirm_within_seconds": device.confirm_by.saturating_sub(super::now_millis()) / 1000,
             "attachment_limits": attachment_limits(),
             "build": BUILD,
         })
@@ -526,6 +603,9 @@ pub fn capabilities(voice: bool, native_push: bool) -> Vec<&'static str> {
     if native_push {
         caps.push("native-push-fcm");
     }
+    // Always: every build from this one derives the v2 six words and requires the press on the Mac
+    // (Sage §3.5, ledger row S3). A v2 phone refuses a Mac that does not name it.
+    caps.push(super::words::PAIR_V2_CAPABILITY);
     caps
 }
 
@@ -1111,6 +1191,15 @@ mod tests {
     }
 
     fn fixture_with(tag: &str, refuse: bool, pair_it: bool, rows: usize) -> Fixture {
+        fixture_full(tag, refuse, pair_it, true, rows)
+    }
+
+    /// A phone that redeemed the code and that nobody at this Mac has confirmed yet.
+    fn fixture_awaiting(tag: &str) -> Fixture {
+        fixture_full(tag, false, true, false, 4)
+    }
+
+    fn fixture_full(tag: &str, refuse: bool, pair_it: bool, confirm_on_mac: bool, rows: usize) -> Fixture {
         let dir = TempDir::new(tag);
         let devices = Arc::new(DeviceDesk::open(&dir.0).unwrap());
         let phone = Phone::new();
@@ -1127,6 +1216,11 @@ mod tests {
                 )
                 .unwrap()
                 .id;
+            // Paired AND confirmed by a person at this Mac: the state every route test below is
+            // about. `fixture_awaiting` is the one that stops short of the press (Sage F1).
+            if confirm_on_mac {
+                devices.confirm_on_mac().unwrap();
+            }
         }
         let challenge = devices.issue_challenge().unwrap();
         let hub = PhoneHub::new();
@@ -1644,6 +1738,109 @@ mod tests {
         }
     }
 
+    // --- Sage F1: nothing but the answer to the six words until the Mac is pressed -------------
+
+    /// **THE HIGH FINDING, THROUGH THE ROUTE TABLE** — Sage's review F1, its own test, as he wrote
+    /// it: pair with a code, then a message, the stream and an attachment upload signed by the new
+    /// device are each refused with the awaiting answer; the phone's own `fingerprint_confirmed:
+    /// true` does not change that; after `confirm_on_mac()` the same three succeed. On `main`
+    /// before this change all three were answered 200 the moment the code was redeemed.
+    #[test]
+    fn a_device_nobody_confirmed_at_the_mac_is_answered_awaiting_on_every_route() {
+        let f = fixture_awaiting("f1-routes");
+        let message = r#"{"client_id":"01JF1","thread_id":"thr_5c1e","kind":"text","text":"read me everything"}"#;
+        let three = |f: &Fixture| {
+            [
+                ("message", dispatch(&f.channel, &signed(f, "POST", "/api/messages", "", message))),
+                ("stream", dispatch(&f.channel, &signed_stream(f, "thread_id=thr_5c1e"))),
+                ("upload", dispatch(&f.channel, &upload(f, "c1", "a1", "a.jpg", "image/jpeg", JPEG))),
+            ]
+        };
+        for (what, out) in three(&f) {
+            assert_eq!(out, Outcome::AwaitingMac, "{what} reached a device nobody confirmed at the Mac");
+            assert_eq!(out.status(), 409, "{what}");
+        }
+        assert!(f.bridge.submitted.lock().unwrap().is_empty(), "an unconfirmed device's words reached Rich");
+
+        // The phone confirming ITSELF is answered, and it activates nothing.
+        let answer = dispatch(&f.channel, &signed(&f, "POST", "/api/pair", "", json!({"fingerprint_confirmed": true}).to_string()));
+        match answer {
+            Outcome::Json { status: 200, body } => {
+                let v: Value = serde_json::from_str(&body).unwrap();
+                assert_eq!(v["awaiting_mac_confirmation"], true, "the phone was not told to press on the Mac: {body}");
+            }
+            other => panic!("the phone's own answer was refused: {other:?}"),
+        }
+        assert!(f.channel.devices.fingerprint_confirmed());
+        for (what, out) in three(&f) {
+            assert_eq!(out, Outcome::AwaitingMac, "{what}: the phone's own confirmation let it in");
+        }
+
+        // The press on the Mac.
+        f.channel.devices.confirm_on_mac().unwrap();
+        for (what, out) in three(&f) {
+            assert!(matches!(out.status(), 200), "{what} was still refused after the Mac confirmed: {out:?}");
+        }
+        assert_eq!(f.bridge.submitted.lock().unwrap().len(), 1);
+    }
+
+    /// The one allowed request carries nothing that acts. A body that asks for a push
+    /// subscription BESIDE the answer is not an answer, and is gated like everything else.
+    #[test]
+    fn an_unconfirmed_device_cannot_carry_an_action_in_beside_its_answer() {
+        let f = fixture_awaiting("f1-smuggle");
+        let body = json!({
+            "fingerprint_confirmed": true,
+            "push": { "endpoint": "https://web.push.apple.com/x", "keys": { "p256dh": "BA", "auth": "AA" } }
+        })
+        .to_string();
+        assert_eq!(dispatch(&f.channel, &signed(&f, "POST", "/api/pair", "", &body)), Outcome::AwaitingMac);
+        assert!(f.channel.devices.paired().unwrap().push.is_none());
+        assert!(!f.channel.devices.fingerprint_confirmed(), "half of a refused request was acted on");
+        for extra in [json!({"native_push": null}), json!({"delivered_cursor": 9}), json!({"seen_reply": {"thread": "a", "id": "b"}})] {
+            let mut body = extra.clone();
+            body["fingerprint_confirmed"] = json!(true);
+            assert_eq!(dispatch(&f.channel, &signed(&f, "POST", "/api/pair", "", body.to_string())), Outcome::AwaitingMac, "{extra}");
+        }
+    }
+
+    /// **THE SPENT-CODE ALARM THROUGH THE ROUTE** (Sage F1 item 4): a second device redeeming the
+    /// code while the first is unconfirmed gets the same flat 404 as any refused code, the first
+    /// device is forgotten, and the owner of the listener is told to stop and why. The same phone
+    /// asking twice is answered again, not alarmed.
+    #[test]
+    fn a_second_device_with_the_code_rings_the_owner_and_learns_nothing() {
+        let mut f = fixture_with("alarm-route", false, false, 4);
+        let (doorbell, heard) = std::sync::mpsc::channel::<&'static str>();
+        f.channel.rejected = StopSwitch::to(doorbell);
+        let window = f.channel.devices.open_pairing().unwrap();
+        let pair = |f: &Fixture, phone: &Phone| {
+            let mut request = plain("POST", "/api/pair");
+            request.body = json!({"code": window.code, "public_key_jwk": phone.jwk(), "pairing_version": 2}).to_string().into_bytes();
+            dispatch(&f.channel, &request)
+        };
+        let first = Phone::new();
+        let (status, answer) = json_of(pair(&f, &first));
+        assert_eq!(status, 200);
+        let within = answer["confirm_within_seconds"].as_u64().expect("the answer carries no bound for the phone's wait");
+        assert!((290..=300).contains(&within), "the bound is not the window's remainder: {within}");
+        assert_eq!(json_of(pair(&f, &first)).0, 200, "the same phone asking twice was refused");
+        assert!(heard.try_recv().is_err(), "the same phone asking twice rang the alarm");
+
+        assert_eq!(pair(&f, &Phone::new()), Outcome::NotFound, "the second device learned something");
+        assert!(!f.channel.devices.is_paired(), "the unconfirmed first device stayed paired");
+        assert_eq!(heard.try_recv(), Ok(super::super::device::StoppedBy::CODE_USED_TWICE));
+    }
+
+    /// "They do not match" is the other thing an unconfirmed phone may say, and it still forgets.
+    #[test]
+    fn an_unconfirmed_phone_can_still_say_they_do_not_match() {
+        let f = fixture_awaiting("f1-reject");
+        let out = dispatch(&f.channel, &signed(&f, "POST", "/api/pair", "", json!({"fingerprint_confirmed": false}).to_string()));
+        assert_eq!(out.status(), 200);
+        assert!(!f.channel.devices.is_paired(), "a phone that rejected the words stayed paired");
+    }
+
     #[test]
     fn a_push_subscription_outside_the_allowlist_is_never_stored() {
         // Plan §2.6 at the edge: what cannot be stored can never be dialed.
@@ -1681,7 +1878,7 @@ mod tests {
                 // so an absent or renamed key is a button that disappears from his screen.
                 // `attachments` is appended, never inserted: the long-standing entries keep their
                 // place for any client that ever read them positionally.
-                assert_eq!(data["capabilities"], json!(["text", "attachments"]));
+                assert_eq!(data["capabilities"], json!(["text", "attachments", "pair-v2"]));
                 // The preserved iPhone core accepts exactly 1 (`mobile/core/client.js:147`).
                 assert_eq!(data["protocol_version"], 1);
                 assert_eq!(data["attachment_limits"]["max_file_bytes"], 26_214_400);
@@ -2130,8 +2327,36 @@ mod tests {
         let taken = dispatch(&f.channel, &upload(&f, "msg-7", "p1", "a.jpg", "image/jpeg", JPEG)).status() == 200;
         assert_eq!(capabilities(false, false).contains(&"attachments"), taken);
         // And the old Mac's list is still a prefix of the new one in every combination.
-        assert_eq!(capabilities(false, false), ["text", "attachments"]);
-        assert_eq!(capabilities(true, true), ["text", "voice", "audio", "native-push", "attachments", "native-push-fcm"]);
+        // `pair-v2` (Sage §3.5) is appended, never inserted, like every addition before it.
+        assert_eq!(capabilities(false, false), ["text", "attachments", "pair-v2"]);
+        assert_eq!(capabilities(true, true), ["text", "voice", "audio", "native-push", "attachments", "native-push-fcm", "pair-v2"]);
+    }
+
+    /// **SAGE §3.5: `pair-v2` IS ANNOUNCED IN BOTH PLACES A PHONE READS IT**, and the pairing answer
+    /// says which derivation this Mac uses. A v2 phone refuses a Mac without it rather than falling
+    /// back, so a Mac that stopped announcing it would stop pairing every v2 phone — this holds it.
+    /// On `main` before this change neither place named it.
+    #[test]
+    fn pair_v2_is_announced_in_the_pairing_answer_and_in_every_hello_and_recorded_from_the_phone() {
+        let f = fixture_with("pair-v2", false, false, 4);
+        let window = f.channel.devices.open_pairing().unwrap();
+        let mut request = plain("POST", "/api/pair");
+        request.body = json!({"code": window.code, "public_key_jwk": Phone::new().jwk(), "device_name": "Pixel", "platform": "android", "pairing_version": 2}).to_string().into_bytes();
+        let (status, v) = json_of(dispatch(&f.channel, &request));
+        assert_eq!(status, 200);
+        assert!(v["capabilities"].as_array().unwrap().contains(&json!("pair-v2")), "{v}");
+        assert_eq!(v["pairing_version"], 2);
+        assert_eq!(f.channel.devices.paired().unwrap().pairing_version, 2, "the phone's announcement was not recorded");
+
+        // A phone that says nothing, or anything but the number 2, is a v1 phone.
+        for said in [json!(null), json!("2"), json!(3), json!(1)] {
+            let f = fixture_with("pair-v1", false, false, 4);
+            let window = f.channel.devices.open_pairing().unwrap();
+            let mut request = plain("POST", "/api/pair");
+            request.body = json!({"code": window.code, "public_key_jwk": Phone::new().jwk(), "pairing_version": said}).to_string().into_bytes();
+            assert_eq!(dispatch(&f.channel, &request).status(), 200);
+            assert_eq!(f.channel.devices.paired().unwrap().pairing_version, 1, "{said}");
+        }
     }
 
     #[test]

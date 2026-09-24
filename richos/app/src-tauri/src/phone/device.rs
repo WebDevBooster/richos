@@ -211,10 +211,86 @@ pub struct Device {
     /// outright, `false` at pairing, so the default is only ever reached by a record from before.
     #[serde(default = "confirmed_by_default")]
     pub fingerprint_confirmed: bool,
+
+    /// **HAS THE PERSON PRESSED "They match" ON THIS MAC?** — Sage's pairing review F1 (High),
+    /// `richos-hq/docs/research/2026-09-24-richconnect-pairing-protocol-review.md` §1 and §3.1.
+    ///
+    /// [`Device::fingerprint_confirmed`] above is the PHONE's answer, and it is sent by the phone
+    /// itself. A device that paired first with a code it saw on a screen share holds the only key
+    /// this Mac trusts, so it can send that answer on its own behalf: the device being judged
+    /// would be performing the judgment. This flag can only be set by a person at this Mac
+    /// ([`DeviceDesk::confirm_on_mac`]), and until it is set [`DeviceDesk::verify`] answers every
+    /// signed request [`Refusal::AwaitingMacConfirmation`] except the phone's own confirmation.
+    ///
+    /// **`true` for a record written before this field existed**, for the reason
+    /// `fingerprint_confirmed` gives: that phone is already working, and demoting it on the first
+    /// launch of this build would lock out every paired phone at once. That includes a record some
+    /// earlier build wrote for an intruder's phone. This build cannot tell the two apart, and the
+    /// residual is stated in the handoff rather than guessed at here. A record written by this build
+    /// always carries the value outright, `false` at pairing.
+    #[serde(default = "confirmed_by_default")]
+    pub mac_confirmed: bool,
+
+    /// **WHICH SIX WORDS THIS PHONE IS SHOWING** — `2` when its pairing request announced
+    /// `"pairing_version": 2` (Sage §3, `pair-v2`), `1` otherwise, and `1` for a record written
+    /// before the field existed. The Mac shows the person the words the phone will show, so the
+    /// two can be compared at all; see [`Device::words_to_compare`].
+    ///
+    /// **Stripping it is not a downgrade anybody can use.** A relay that removes the phone's field
+    /// makes this Mac show v1 words while the v2 phone, which never falls back, shows v2 words —
+    /// two different lines in front of the person, which is the check working.
+    #[serde(default = "pairing_version_one")]
+    pub pairing_version: u8,
+
+    /// **WHEN THE PAIRING WINDOW THIS PHONE CAME THROUGH CLOSES**, in `now_millis()` terms — the
+    /// window's own opening plus [`PAIRING_WINDOW_MS`] (Sage §3.1 step 6: *"The window's timer
+    /// keeps running. An unconfirmed device at expiry is forgotten, so an abandoned pairing never
+    /// leaves a key behind"*). Meaningful only while `mac_confirmed` is false; `0` for a record
+    /// written before the field, which is always a confirmed one.
+    ///
+    /// On disk rather than in memory because the window is not: a Mac that relaunches in the
+    /// middle of a pairing still knows when the unconfirmed key has to go.
+    #[serde(default)]
+    pub confirm_by: u64,
+}
+
+fn pairing_version_one() -> u8 {
+    1
 }
 
 fn confirmed_by_default() -> bool {
     true
+}
+
+impl Device {
+    /// **Both people-answers are in**: the person said the words matched on the phone AND on this
+    /// Mac. What anything that reaches the phone unprompted — a push, a notification
+    /// registration — asks before it acts, so an unconfirmed key can never be the one that is
+    /// pushed to.
+    pub fn trusted(&self) -> bool {
+        self.fingerprint_confirmed && self.mac_confirmed
+    }
+
+    /// **Nobody pressed "They match" on this Mac before the window closed.** Such a device is
+    /// refused like one that does not exist and forgotten at the next sweep
+    /// ([`DeviceDesk::expire_unconfirmed`]).
+    pub fn confirmation_lapsed(&self, now: u64) -> bool {
+        !self.mac_confirmed && now > self.confirm_by
+    }
+
+    /// **The six words this Mac shows beside "They match"** — the ones this phone will show.
+    ///
+    /// For a v2 phone: [`super::words::v2`] over this Mac's own serving `origin`, its pairing
+    /// value `ca_fingerprint_sha256` and the key it REGISTERED — never the key a phone says it
+    /// has. For a phone that did not announce v2 (the preserved iPhone app, for one release):
+    /// `v1`, the root's words, which the caller already holds.
+    pub fn words_to_compare(&self, origin: &str, ca_fingerprint_sha256: &str, v1: &[&'static str]) -> Vec<&'static str> {
+        if self.pairing_version >= 2 {
+            super::words::v2(origin, ca_fingerprint_sha256, &self.public_key)
+        } else {
+            v1.to_vec()
+        }
+    }
 }
 
 fn web_push() -> String {
@@ -311,6 +387,16 @@ pub enum Refusal {
     StaleChallenge,
     UnknownChallenge,
     BadSignature,
+    /// **Authenticated, and nobody has pressed "They match" on this Mac yet** (Sage F1). Told
+    /// apart from the flat 404 on purpose: every client treats a 404 after one re-sign as final
+    /// (`web/web-app/lib/api.js`), and this state is the opposite of final. It is only ever
+    /// returned AFTER the signature verified, so a caller without the key learns nothing from it.
+    AwaitingMacConfirmation,
+    /// **The spent-code alarm fired** (Sage F1 fix item 4): a second correct use of a redeemed
+    /// code while the first device was still unconfirmed. That device has already been forgotten
+    /// by the time this is returned; the route answers the caller a flat 404 and tells the owner
+    /// of the listener to stop and say why ([`StoppedBy::CODE_USED_TWICE`]).
+    CodeUsedTwice,
     MalformedCredential(String),
     RateLimited,
     TooManyStreams,
@@ -393,6 +479,16 @@ struct State {
     /// Audio blobs the Mac has minted, by the message id the phone was given. Contract: *"no
     /// id it did not mint"* — the table is the authority and the request is only an index.
     audio: VecDeque<(String, PathBuf)>,
+    /// **THE REDEEMED CODE, KEPT UNTIL ITS WINDOW WOULD HAVE CLOSED** — Sage F1 fix item 4, the
+    /// spent-code alarm. `(SHA-256 of the code, when its window opened)`. Before this, a second
+    /// correct redemption was an indistinguishable 404 because the window was already gone; now
+    /// it is evidence that two devices had the code. The hash, not the code: nothing here needs
+    /// to be able to show it again.
+    redeemed: Option<(Vec<u8>, u64)>,
+    /// The alarm fired AFTER the person had already confirmed the phone on this Mac, so the phone
+    /// was kept and the sheet warns (Sage: *"If it is already confirmed, keep it and warn"*).
+    /// In memory: it is about this pairing, and forgetting the phone clears it.
+    code_reused: bool,
 }
 
 // =========================================================================================
@@ -427,23 +523,61 @@ fn rejection_path(dir: &Path) -> PathBuf {
     dir.join("phone").join("rejected.json")
 }
 
-/// Write down that the phone answered `They do not match`. `at` is `now_millis()`.
+/// **WHO STOPPED THE PAIRING**, as the token written beside the refusal and handed to the sheet,
+/// which says a different sentence for each. Stable strings, never translated, like
+/// [`PairedVia`].
+pub struct StoppedBy;
+impl StoppedBy {
+    /// The phone answered `They do not match`.
+    pub const PHONE: &'static str = "phone";
+    /// The person pressed `They do not match` on this Mac (Sage F1, §3.1 step 6).
+    pub const MAC: &'static str = "mac";
+    /// **The spent-code alarm** (Sage F1 fix item 4): the pairing code was used correctly a
+    /// second time while the phone that used it first was still unconfirmed, so two devices had
+    /// the code and this Mac forgot the first one rather than guess which is his.
+    pub const CODE_USED_TWICE: &'static str = "code-used-twice";
+    /// Nobody pressed "They match" on this Mac before the pairing window closed (§3.1 step 6),
+    /// so the unconfirmed key was forgotten rather than left behind.
+    pub const EXPIRED: &'static str = "expired";
+    /// A record this build cannot read, or one written before the reason was recorded. The sheet
+    /// says the sentence that was the only one before; the refusal itself still stands.
+    pub const UNKNOWN: &'static str = "";
+}
+
+/// Write down that the pairing was refused, and by whom ([`StoppedBy`]). `at` is `now_millis()`.
 ///
 /// It runs on the teardown path, after the credential is already gone, so the caller treats a
 /// failure as something to SAY and never as something to stop for: a disk that will not take
 /// one small file must not be able to keep a channel up.
-pub fn record_rejection(dir: &Path, at: u64) -> Result<(), PhoneError> {
+pub fn record_rejection(dir: &Path, at: u64, by: &str) -> Result<(), PhoneError> {
     let path = rejection_path(dir);
     if let Some(home) = path.parent() {
         std::fs::create_dir_all(home)?;
     }
-    std::fs::write(&path, format!("{{\"rejected_at\":{at}}}\n"))?;
+    std::fs::write(&path, format!("{}\n", serde_json::json!({ "rejected_at": at, "by": by })))?;
     Ok(())
 }
 
-/// Did a phone refuse this Mac's six words, with nobody having asked to pair since?
+/// Did somebody refuse this Mac's six words, with nobody having asked to pair since?
 pub fn rejection_recorded(dir: &Path) -> bool {
     rejection_path(dir).exists()
+}
+
+/// Who refused ([`StoppedBy`]), read back for the sheet. [`StoppedBy::UNKNOWN`] for a record
+/// that is damaged or older than the field — the refusal is [`rejection_recorded`]'s to decide,
+/// and this only chooses a sentence.
+pub fn rejection_by(dir: &Path) -> &'static str {
+    let by = std::fs::read_to_string(rejection_path(dir))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|value| value.get("by").and_then(|v| v.as_str()).map(str::to_owned));
+    match by.as_deref() {
+        Some(StoppedBy::PHONE) => StoppedBy::PHONE,
+        Some(StoppedBy::MAC) => StoppedBy::MAC,
+        Some(StoppedBy::CODE_USED_TWICE) => StoppedBy::CODE_USED_TWICE,
+        Some(StoppedBy::EXPIRED) => StoppedBy::EXPIRED,
+        _ => StoppedBy::UNKNOWN,
+    }
 }
 
 /// Asking to pair a phone is how the rejection screen is left, and this is the durable half of
@@ -504,6 +638,8 @@ impl DeviceDesk {
                 pairing_requests: VecDeque::new(),
                 streams: 0,
                 audio: VecDeque::new(),
+                redeemed: None,
+                code_reused: false,
             }),
         })
     }
@@ -617,6 +753,10 @@ impl DeviceDesk {
     /// phone: turn Tailscale off on this Mac and the serving plan falls back to the home path,
     /// and a card that recomputed would then tell an Android phone to remove an iOS profile it
     /// never had. Ray's defect 3.2.
+    ///
+    /// The v1 shape, kept because the tests here and `mobile/conformance/verifier` pair through
+    /// it; the route calls [`DeviceDesk::complete_pairing_announcing`].
+    #[allow(dead_code)]
     pub fn complete_pairing(
         &self,
         code: &str,
@@ -625,12 +765,59 @@ impl DeviceDesk {
         via: &str,
         platform: &str,
     ) -> Result<Device, Refusal> {
+        self.complete_pairing_announcing(code, public_key, name, via, platform, 1)
+    }
+
+    /// [`DeviceDesk::complete_pairing`], recording which six words the phone said it will show
+    /// ([`Device::pairing_version`]): `2` for a phone that announced `pair-v2`, anything else is `1`.
+    pub fn complete_pairing_announcing(
+        &self,
+        code: &str,
+        public_key: &PublicKeyForm,
+        name: &str,
+        via: &str,
+        platform: &str,
+        pairing_version: u8,
+    ) -> Result<Device, Refusal> {
         let point = public_key.to_point().map_err(|e| Refusal::MalformedCredential(e.to_string()))?;
         let mut state = self.state.lock().unwrap();
         let now = super::now_millis();
         prune_requests(&mut state.pairing_requests, now);
         if state.pairing_requests.len() >= RATE_LIMIT { return Err(Refusal::RateLimited); }
         state.pairing_requests.push_back(now);
+
+        // THE SPENT-CODE ALARM — Sage F1 fix item 4. The window is gone because the code was
+        // redeemed, and the redeemed code is kept until the window would have closed, so a second
+        // CORRECT use is evidence rather than an indistinguishable 404.
+        if state.pairing.is_none() {
+            if let Some((hash, opened_at)) = state.redeemed.clone() {
+                let still_open = now >= opened_at && now - opened_at <= PAIRING_WINDOW_MS;
+                if still_open && constant_time_eq(&hash, &sha256(code.as_bytes())) {
+                    let registered = super::b64url(&point);
+                    match state.device.clone() {
+                        // The SAME key again is the same phone asking twice — a reload with the
+                        // code still in its address, or an answer lost on the way back. It gets
+                        // the same pairing, and nothing is escalated: it already holds that key.
+                        Some(device) if constant_time_eq(device.public_key.as_bytes(), registered.as_bytes()) => {
+                            return Ok(device);
+                        }
+                        // Two devices had the code and nobody here has said which is his: forget
+                        // the one that came first rather than guess, and say so on the Mac.
+                        Some(device) if !device.mac_confirmed => {
+                            self.forget_in(&mut state)?;
+                            return Err(Refusal::CodeUsedTwice);
+                        }
+                        // He already confirmed the first one on this Mac. Keep it, and warn.
+                        Some(_) => {
+                            state.code_reused = true;
+                            return Err(Refusal::NoDevice);
+                        }
+                        None => return Err(Refusal::NoDevice),
+                    }
+                }
+            }
+        }
+
         let window = state.pairing.as_ref().ok_or(Refusal::NoDevice)?;
         if !window.is_open(now) {
             return Err(Refusal::NoDevice);
@@ -641,6 +828,7 @@ impl DeviceDesk {
         if state.device.is_some() {
             return Err(Refusal::NoDevice);
         }
+        let window_opened_at = window.opened_at;
         let device = Device {
             id: format!("dev_{}", hex(&sha256(&point)[..6])),
             name: sanitize_name(name),
@@ -657,6 +845,13 @@ impl DeviceDesk {
             // the fingerprint in the answer to THIS request. So the Mac does not know, and it
             // says so until the phone comes back (Ray's defect 2).
             fingerprint_confirmed: false,
+            // AND NOBODY AT THIS MAC HAS ANSWERED EITHER (Sage F1). Until somebody does, this
+            // key can confirm itself and nothing else.
+            mac_confirmed: false,
+            pairing_version: if pairing_version == 2 { 2 } else { 1 },
+            // THE WINDOW'S TIMER KEEPS RUNNING (Sage §3.1 step 6): the press on this Mac has to
+            // come before the window this code came from would have closed.
+            confirm_by: window_opened_at + PAIRING_WINDOW_MS,
         };
         // Pairing is explicit authorization to use this key again. Device IDs are key-derived.
         if state.revoked.contains(&device.id) {
@@ -671,6 +866,9 @@ impl DeviceDesk {
             return Err(error.into());
         }
         state.pairing = None;
+        // Kept, as a hash, until the window would have closed: the spent-code alarm above.
+        state.redeemed = Some((sha256(code.as_bytes()), window_opened_at));
+        state.code_reused = false;
         // The phone's window belongs to the device record: a new phone does not inherit the minute
         // the last one spent.
         state.device_requests.clear();
@@ -682,6 +880,66 @@ impl DeviceDesk {
     /// and the caller destroys the Keychain keys and closes the listener.
     pub fn forget(&self) -> Result<(), PhoneError> {
         let mut state = self.state.lock().unwrap();
+        self.forget_in(&mut state)
+    }
+
+    /// **An unconfirmed device whose window has closed is forgotten** — Sage §3.1 step 6: *"An
+    /// unconfirmed device at expiry is forgotten, so an abandoned pairing never leaves a key
+    /// behind."* Returns whether it forgot one, so the owner of the listener can take the socket
+    /// down and the sheet can say why ([`StoppedBy::EXPIRED`]). A confirmed device is never touched.
+    pub fn expire_unconfirmed(&self) -> Result<bool, PhoneError> {
+        let mut state = self.state.lock().unwrap();
+        let lapsed = state.device.as_ref().is_some_and(|d| d.confirmation_lapsed(super::now_millis()));
+        if lapsed {
+            self.forget_in(&mut state)?;
+        }
+        Ok(lapsed)
+    }
+
+    /// **When the next pairing deadline falls**, if anything is waiting on one: an open window's
+    /// close, or an unconfirmed device's `confirm_by`. What `PhoneRuntime`'s deadline watcher
+    /// sleeps until — one sleep per deadline, never a poll.
+    pub fn pairing_deadline(&self) -> Option<u64> {
+        let state = self.state.lock().unwrap();
+        let window = state.pairing.as_ref().map(|w| w.opened_at + PAIRING_WINDOW_MS);
+        let device = state.device.as_ref().filter(|d| !d.mac_confirmed).map(|d| d.confirm_by);
+        window.into_iter().chain(device).max()
+    }
+
+    /// **MAY THIS REQUEST'S BODY BE LARGER THAN 64 KiB?** — Sage's pairing review F3.
+    ///
+    /// The listener chooses how much to read BEFORE it reads it, from the request line alone, and
+    /// on Connect the listener is on the public internet: `Content-Type: audio/wav` was granted
+    /// 60,000,000 bytes for 120 s and `?kind=attachment` 25 MiB for 300 s, to anybody, across 32
+    /// slots — 32 × 60 MB is 1.92 GB of his Mac's memory for a caller with no key at all.
+    ///
+    /// So a large body is granted only to a header that parses, names the paired device, that
+    /// device confirmed ON THIS MAC and inside its window (F1), and presents a challenge this Mac
+    /// issued and has not retired. **The no-crypto half of [`DeviceDesk::verify`]**: one lock and
+    /// three comparisons, and no bucket is spent, because the full `verify` still runs after the
+    /// body and spends it then. The signature is NOT checked here, so the residual is the one
+    /// [`RATE_LIMIT`] already states: a caller that holds the device id (48 bits of the key's
+    /// hash, never shown) and a live challenge (which `GET /api/challenge` hands anybody) can
+    /// still be read up to the large limit before its signature fails.
+    pub fn admits_large_body(&self, authorization: Option<&str>) -> bool {
+        let Some((device_id, challenge, _signature)) = authorization.and_then(parse_authorization) else { return false };
+        let now = super::now_millis();
+        let state = self.state.lock().unwrap();
+        let Some(device) = state.device.as_ref() else { return false };
+        constant_time_eq(device.id.as_bytes(), device_id.as_bytes())
+            && device.mac_confirmed
+            && !device.confirmation_lapsed(now)
+            && state.challenges.iter().any(|(c, at)| {
+                constant_time_eq(c.as_bytes(), challenge.as_bytes()) && now.saturating_sub(*at) <= CHALLENGE_LIFETIME_MS
+            })
+    }
+
+    /// Did somebody use the code again after the person had confirmed this phone on the Mac?
+    pub fn code_reused(&self) -> bool {
+        self.state.lock().unwrap().code_reused
+    }
+
+    fn forget_in(&self, state: &mut State) -> Result<(), PhoneError> {
         if let Some(device) = &state.device {
             let mut revoked = state.revoked.clone();
             revoked.push_back(device.id.clone());
@@ -692,6 +950,9 @@ impl DeviceDesk {
             state.revoked = revoked;
             state.device = None;
         }
+        // The redeemed code and its warning belong to the pairing that just ended.
+        state.redeemed = None;
+        state.code_reused = false;
         state.pairing = None;
         state.challenges.clear();
         state.audio.clear();
@@ -718,8 +979,26 @@ impl DeviceDesk {
     // --- verification -------------------------------------------------------------------
 
     /// **The whole of the credential check, in order.** Any failure is a [`Refusal`], and every
-    /// `Refusal` but `Revoked` is a flat 404 to the caller.
+    /// `Refusal` but `Revoked` and `AwaitingMacConfirmation` is a flat 404 to the caller.
+    ///
+    /// **A DEVICE NOBODY HAS CONFIRMED AT THIS MAC IS REFUSED HERE, AFTER ITS SIGNATURE VERIFIED**
+    /// (Sage F1). The check lives in `verify` itself rather than in the routes so that every route
+    /// that authenticates — messages, voice, attachments, the stream, backfill, audio, the device
+    /// record — is gated by default, and a route added later cannot forget it. The one exception
+    /// is [`DeviceDesk::verify_for_confirmation`], which exists for exactly one request.
     pub fn verify(&self, presented: &Presented<'_>) -> Result<Device, Refusal> {
+        self.verify_credential(presented, false)
+    }
+
+    /// [`DeviceDesk::verify`] for the phone's own answer to the six words, and for nothing else:
+    /// the one request an unconfirmed device may make (Sage §3.1 step 5). `routes.rs` calls it only
+    /// for a body that carries a `fingerprint_confirmed` boolean and nothing that acts. That answer
+    /// never activates anything — it protects the phone, and a `false` forgets this device.
+    pub fn verify_for_confirmation(&self, presented: &Presented<'_>) -> Result<Device, Refusal> {
+        self.verify_credential(presented, true)
+    }
+
+    fn verify_credential(&self, presented: &Presented<'_>, unconfirmed_may_answer: bool) -> Result<Device, Refusal> {
         let mut state = self.state.lock().unwrap();
         let now = super::now_millis();
 
@@ -769,6 +1048,17 @@ impl DeviceDesk {
         verifier
             .verify(message.as_bytes(), &presented.signature)
             .map_err(|_| Refusal::BadSignature)?;
+
+        // 4. somebody at THIS MAC said the words matched (Sage F1). Last, so only the holder of
+        //    the key ever learns that a pairing is waiting.
+        //    A device whose window closed with nobody pressing is refused like one that does not
+        //    exist — even its own answer — and the next sweep forgets it (Sage §3.1 step 6).
+        if device.confirmation_lapsed(now) {
+            return Err(Refusal::NoDevice);
+        }
+        if !device.mac_confirmed && !unconfirmed_may_answer {
+            return Err(Refusal::AwaitingMacConfirmation);
+        }
         Ok(device)
     }
 
@@ -794,6 +1084,32 @@ impl DeviceDesk {
     /// `false` when nothing is paired at all — there is no phone to have confirmed anything.
     pub fn fingerprint_confirmed(&self) -> bool {
         self.state.lock().unwrap().device.as_ref().map(|d| d.fingerprint_confirmed).unwrap_or(false)
+    }
+
+    /// **THE PERSON PRESSED "They match" ON THIS MAC** (Sage F1, §3.1 step 6). The only way a
+    /// device becomes active, and it is reached from the Mac's own sheet (`phone_confirm_on_mac`)
+    /// and from nothing on the network.
+    ///
+    /// Idempotent. Refused when nothing is paired: a press on a sheet that is one poll behind a
+    /// teardown must not be able to activate whatever pairs next.
+    pub fn confirm_on_mac(&self) -> Result<(), PhoneError> {
+        let mut state = self.state.lock().unwrap();
+        let Some(device) = state.device.as_mut() else { return Err(PhoneError::NotPaired) };
+        if device.mac_confirmed {
+            return Ok(());
+        }
+        // Too late is not a press: the window closed and the key is on its way out.
+        if device.confirmation_lapsed(super::now_millis()) {
+            return Err(PhoneError::NotPaired);
+        }
+        device.mac_confirmed = true;
+        if let Err(error) = self.write(&state) {
+            // A press this Mac cannot write down is not a press: after a relaunch the record
+            // would say unconfirmed and the phone would stop working with nothing said.
+            if let Some(device) = state.device.as_mut() { device.mac_confirmed = false; }
+            return Err(error);
+        }
+        Ok(())
     }
 
     pub fn set_push(&self, sub: Option<Subscription>) -> Result<(), PhoneError> {
@@ -834,6 +1150,10 @@ impl DeviceDesk {
             return Err(PhoneError::Malformed(format!("unknown native push transport {transport:?}")));
         }
         let mut state = self.state.lock().unwrap();
+        // The PHONE's answer, not `trusted()`: this only writes which push service reaches the
+        // phone, and a native app sends it WITH its own confirmation, which may arrive before the
+        // press on this Mac. Nothing is pushed on the strength of it — `PhoneRuntime`'s push and
+        // registration paths ask `trusted()`.
         let device = state.device.as_mut().filter(|d| d.id == device_id && d.fingerprint_confirmed)
             .ok_or(PhoneError::NotPaired)?;
         device.push = None;
@@ -1087,7 +1407,17 @@ pub(crate) mod tests {
         }
     }
 
+    /// A phone paired AND confirmed by a person at this Mac — the state every credential test
+    /// below is about. The unconfirmed state has tests of its own (`unpaired_but_redeemed`).
     fn paired(tag: &str) -> (TempDir, Arc<DeviceDesk>, Phone, Device, String) {
+        let (dir, desk, phone, _redeemed, challenge) = unpaired_but_redeemed(tag);
+        desk.confirm_on_mac().unwrap();
+        let device = desk.paired().unwrap();
+        (dir, desk, phone, device, challenge)
+    }
+
+    /// A phone that has redeemed a code and that NOBODY AT THIS MAC has confirmed (Sage F1).
+    fn unpaired_but_redeemed(tag: &str) -> (TempDir, Arc<DeviceDesk>, Phone, Device, String) {
         let dir = TempDir::new(tag);
         let desk = Arc::new(DeviceDesk::open(&dir.0).unwrap());
         let phone = Phone::new();
@@ -1097,6 +1427,216 @@ pub(crate) mod tests {
             .unwrap();
         let challenge = desk.issue_challenge().unwrap();
         (dir, desk, phone, device, challenge)
+    }
+
+    // --- Sage F1: the Mac confirms, and nothing else does -------------------------------------
+
+    /// **THE HIGH FINDING, AT THE DESK.** A device that redeemed the code holds a key this Mac
+    /// verifies — and until a person at this Mac presses "They match", that key reaches nothing
+    /// but its own answer to the six words. On `main` before this change `verify` returned `Ok`
+    /// for it, which is how a code seen on a screen share became a paired intruder.
+    #[test]
+    fn a_redeemed_code_reaches_nothing_until_a_person_confirms_on_the_mac() {
+        let (dir, desk, phone, device, challenge) = unpaired_but_redeemed("f1-desk");
+        assert!(!device.mac_confirmed, "a redeemed code was born confirmed");
+        for (method, path, body) in [
+            ("POST", "/api/messages", &b"{}"[..]),
+            ("GET", "/api/events", &b""[..]),
+            ("POST", "/api/messages?kind=attachment", &b"file"[..]),
+        ] {
+            let p = present(&phone, &device.id, &challenge, method, path, body);
+            assert_eq!(desk.verify(&p), Err(Refusal::AwaitingMacConfirmation), "{method} {path}");
+        }
+
+        // The phone's OWN answer is the one request it may make — and making it activates nothing.
+        let confirm = present(&phone, &device.id, &challenge, "POST", "/api/pair", b"{\"fingerprint_confirmed\":true}");
+        assert!(desk.verify_for_confirmation(&confirm).is_ok());
+        desk.confirm_fingerprint().unwrap();
+        let p = present(&phone, &device.id, &challenge, "POST", "/api/messages", b"{}");
+        assert_eq!(
+            desk.verify(&p),
+            Err(Refusal::AwaitingMacConfirmation),
+            "the phone confirmed itself and was let in: the device being judged performed the judgment"
+        );
+
+        // The press on this Mac, and it survives a relaunch.
+        desk.confirm_on_mac().unwrap();
+        assert!(desk.verify(&p).is_ok(), "a confirmed device was still refused");
+        let again = DeviceDesk::open(&dir.0).unwrap();
+        assert!(again.paired().unwrap().mac_confirmed, "the press on the Mac did not survive a relaunch");
+    }
+
+    /// **SAGE F2 AT THE DESK: the Mac shows words over the key it REGISTERED.** A v2 phone's words
+    /// are over the origin it dialed and its own key; the Mac's are over its own origin and the key
+    /// that actually redeemed the code. An intruder who paired first registered a different key,
+    /// so the person sees two different lines. A phone that did not announce v2 is shown the v1
+    /// words for one release, and the choice survives a relaunch.
+    #[test]
+    fn the_mac_shows_the_words_for_the_key_it_registered_in_the_version_the_phone_announced() {
+        let dir = TempDir::new("f2-words");
+        let desk = DeviceDesk::open(&dir.0).unwrap();
+        let phone = Phone::new();
+        let w = desk.open_pairing().unwrap();
+        let device = desk
+            .complete_pairing_announcing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "Android phone", PairedVia::CONNECT, Platform::ANDROID, 2)
+            .unwrap();
+        assert_eq!(device.pairing_version, 2);
+        let (origin, ca) = ("https://c-5de0dbe0862dd461ae305af5cef35202-g2.richos.ceo", "3D:9C:A1:00:FF:12");
+        let v1 = ["anchor"; 6];
+        let shown = device.words_to_compare(origin, ca, &v1);
+        assert_eq!(shown, super::super::words::v2(origin, ca, &super::super::b64url(&phone.point)));
+        assert_ne!(shown, v1.to_vec(), "a v2 phone was shown the v1 words");
+
+        // The person's phone, which did NOT redeem the code, would show words over its own key.
+        let persons_phone = Phone::new();
+        assert_ne!(shown, super::super::words::v2(origin, ca, &super::super::b64url(&persons_phone.point)));
+
+        assert_eq!(DeviceDesk::open(&dir.0).unwrap().paired().unwrap().pairing_version, 2, "the version did not survive a relaunch");
+
+        // A phone that announced nothing (or anything but 2) is a v1 phone.
+        desk.forget().unwrap();
+        let w = desk.open_pairing().unwrap();
+        let old = desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::CONNECT, Platform::IOS).unwrap();
+        assert_eq!(old.pairing_version, 1);
+        assert_eq!(old.words_to_compare(origin, ca, &v1), v1.to_vec());
+        let legacy: Device = serde_json::from_value(serde_json::json!({
+            "id": "dev_abc123", "name": "iPhone", "public_key": "BA", "paired_at": 1, "push": null, "delivered_cursor": null
+        })).unwrap();
+        assert_eq!(legacy.pairing_version, 1);
+    }
+
+    // --- the spent-code alarm and the window's timer (Sage F1 item 4, §3.1 step 6) -------------
+
+    /// **TWO DEVICES HAD THE CODE.** A second correct redemption while the first device is still
+    /// unconfirmed forgets the first and says so; on `main` it was an indistinguishable 404 and
+    /// the first device — possibly the intruder — stayed paired.
+    #[test]
+    fn a_second_correct_use_of_the_code_forgets_an_unconfirmed_phone() {
+        let dir = TempDir::new("alarm");
+        let desk = DeviceDesk::open(&dir.0).unwrap();
+        let (first, second) = (Phone::new(), Phone::new());
+        let w = desk.open_pairing().unwrap();
+        let device = desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(first.jwk()), "iPhone", PairedVia::CONNECT, Platform::IOS).unwrap();
+        assert_eq!(
+            desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(second.jwk()), "Android phone", PairedVia::CONNECT, Platform::ANDROID),
+            Err(Refusal::CodeUsedTwice)
+        );
+        assert!(desk.paired().is_none(), "the phone that used the code first is still paired");
+        let challenge = desk.issue_challenge().unwrap();
+        assert_eq!(desk.verify(&present(&first, &device.id, &challenge, "GET", "/api/events", b"")), Err(Refusal::Revoked));
+        assert!(DeviceDesk::open(&dir.0).unwrap().paired().is_none(), "the forgotten phone came back after a relaunch");
+        // And the code is spent for good: a third use is an ordinary 404.
+        assert_eq!(
+            desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(second.jwk()), "Android phone", PairedVia::CONNECT, Platform::ANDROID),
+            Err(Refusal::NoDevice)
+        );
+    }
+
+    #[test]
+    fn a_second_use_after_the_mac_confirmed_keeps_the_phone_and_warns() {
+        let dir = TempDir::new("alarm-confirmed");
+        let desk = DeviceDesk::open(&dir.0).unwrap();
+        let w = desk.open_pairing().unwrap();
+        let phone = Phone::new();
+        desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::CONNECT, Platform::IOS).unwrap();
+        desk.confirm_on_mac().unwrap();
+        assert!(!desk.code_reused());
+        assert_eq!(
+            desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(Phone::new().jwk()), "x", PairedVia::CONNECT, Platform::OTHER),
+            Err(Refusal::NoDevice)
+        );
+        assert!(desk.paired().is_some(), "a phone the person confirmed was forgotten");
+        assert!(desk.code_reused(), "the second use was not recorded for the sheet");
+        desk.forget().unwrap();
+        assert!(!desk.code_reused(), "the warning outlived the pairing it was about");
+    }
+
+    /// The SAME key asking again is the same phone — a reload with the code still in its address,
+    /// or an answer lost on the way back — and must not be read as the alarm.
+    #[test]
+    fn the_same_phone_redeeming_its_code_twice_is_not_the_alarm() {
+        let dir = TempDir::new("alarm-same");
+        let desk = DeviceDesk::open(&dir.0).unwrap();
+        let phone = Phone::new();
+        let w = desk.open_pairing().unwrap();
+        let first = desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::CONNECT, Platform::IOS).unwrap();
+        let again = desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::CONNECT, Platform::IOS).unwrap();
+        assert_eq!(first, again);
+        assert!(desk.paired().is_some());
+        assert!(!desk.code_reused());
+    }
+
+    /// The redeemed code is evidence only until its window would have closed.
+    #[test]
+    fn a_redeemed_code_is_no_evidence_after_its_window() {
+        let (_dir, desk, _phone, _device, _c) = unpaired_but_redeemed("alarm-late");
+        let (hash, opened_at) = desk.state.lock().unwrap().redeemed.clone().unwrap();
+        desk.state.lock().unwrap().redeemed = Some((hash, opened_at - PAIRING_WINDOW_MS - 1));
+        // Whatever code is presented now, nothing is forgotten on its strength.
+        assert_eq!(
+            desk.complete_pairing("ANYTHING", &PublicKeyForm::Jwk(Phone::new().jwk()), "x", PairedVia::CONNECT, Platform::OTHER),
+            Err(Refusal::NoDevice)
+        );
+        assert!(desk.paired().is_some());
+    }
+
+    /// **AN ABANDONED PAIRING NEVER LEAVES A KEY BEHIND** (§3.1 step 6). Past its window an
+    /// unconfirmed device is refused like one that does not exist — its own answer included — a
+    /// late press activates nothing, and the sweep forgets it. A confirmed device is never swept.
+    #[test]
+    fn an_unconfirmed_device_is_forgotten_when_its_window_closes() {
+        let (dir, desk, phone, device, challenge) = unpaired_but_redeemed("expiry");
+        assert_eq!(device.confirm_by, desk.state.lock().unwrap().redeemed.as_ref().unwrap().1 + PAIRING_WINDOW_MS);
+        assert_eq!(desk.pairing_deadline(), Some(device.confirm_by));
+        assert!(!desk.expire_unconfirmed().unwrap(), "a device inside its window was swept");
+
+        desk.state.lock().unwrap().device.as_mut().unwrap().confirm_by = super::super::now_millis() - 1;
+        let answer = present(&phone, &device.id, &challenge, "POST", "/api/pair", b"{\"fingerprint_confirmed\":true}");
+        assert_eq!(desk.verify_for_confirmation(&answer), Err(Refusal::NoDevice));
+        assert!(matches!(desk.confirm_on_mac(), Err(PhoneError::NotPaired)), "a press after the window activated the key");
+        assert!(desk.expire_unconfirmed().unwrap());
+        assert!(desk.paired().is_none());
+        assert!(DeviceDesk::open(&dir.0).unwrap().paired().is_none(), "the abandoned key survived a relaunch");
+        assert_eq!(desk.pairing_deadline(), None);
+
+        // POSITIVE CONTROL: a confirmed device with a long-past confirm_by is untouched.
+        let (_dir2, desk2, _p2, _d2, _c2) = paired("expiry-confirmed");
+        desk2.state.lock().unwrap().device.as_mut().unwrap().confirm_by = 1;
+        assert!(!desk2.expire_unconfirmed().unwrap());
+        assert!(desk2.paired().is_some());
+        assert_eq!(desk2.pairing_deadline(), None, "a confirmed phone has no deadline");
+    }
+
+    /// The awaiting answer is a statement about a pairing, so only the key's holder may learn it:
+    /// a caller with the right device id and the wrong key still gets the flat refusal.
+    #[test]
+    fn only_the_key_holder_learns_that_a_pairing_is_waiting() {
+        let (_dir, desk, _phone, device, challenge) = unpaired_but_redeemed("f1-leak");
+        let impostor = Phone::new();
+        let p = present(&impostor, &device.id, &challenge, "GET", "/api/events", b"");
+        assert_eq!(desk.verify(&p), Err(Refusal::BadSignature));
+        assert_eq!(desk.verify_for_confirmation(&p), Err(Refusal::BadSignature));
+    }
+
+    #[test]
+    fn a_press_on_the_mac_with_nothing_paired_activates_nothing() {
+        let dir = TempDir::new("f1-nothing");
+        let desk = DeviceDesk::open(&dir.0).unwrap();
+        assert!(matches!(desk.confirm_on_mac(), Err(PhoneError::NotPaired)));
+        assert!(desk.paired().is_none());
+    }
+
+    /// A record written before the field existed is a phone that is already working; this build
+    /// must not lock every paired phone out on its first launch.
+    #[test]
+    fn a_record_from_before_the_mac_press_existed_stays_active() {
+        let legacy = serde_json::json!({
+            "id": "dev_abc123", "name": "iPhone", "public_key": "BA", "paired_at": 1,
+            "push": null, "delivered_cursor": null, "fingerprint_confirmed": true
+        });
+        let device: Device = serde_json::from_value(legacy).unwrap();
+        assert!(device.mac_confirmed);
+        assert!(device.trusted());
     }
 
     /// Build a signed request the way the phone will.
@@ -1250,7 +1790,10 @@ pub(crate) mod tests {
         assert_eq!(desk.pairing_window().unwrap().code, w.code);
         assert!(desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::HOME, Platform::IOS).is_ok());
         assert!(desk.pairing_window().is_none());
-        assert!(desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::HOME, Platform::IOS).is_err());
+        // One shot for anybody ELSE. The same key asking again is the same phone (see
+        // `the_same_phone_redeeming_its_code_twice_is_not_the_alarm`); a different key with the
+        // same code is the spent-code alarm.
+        assert!(desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(Phone::new().jwk()), "iPhone", PairedVia::HOME, Platform::IOS).is_err());
     }
 
     #[test]
@@ -1442,6 +1985,7 @@ pub(crate) mod tests {
         desk.forget().unwrap();
         let window = desk.open_pairing().unwrap();
         let device = desk.complete_pairing(&window.code, &PublicKeyForm::Jwk(phone.jwk()), "phone", PairedVia::TAILNET, Platform::IOS).unwrap();
+        desk.confirm_on_mac().unwrap();
         drop(desk);
         let desk = DeviceDesk::open(&dir.0).unwrap();
         let challenge = desk.issue_challenge().unwrap();
@@ -1670,7 +2214,9 @@ pub(crate) mod tests {
         let pair = |phone: &Phone| {
             let w = desk.open_pairing().unwrap();
             desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::CONNECT, Platform::IOS)
-                .unwrap()
+                .unwrap();
+            desk.confirm_on_mac().unwrap();
+            desk.paired().unwrap()
         };
         let forgotten = Phone::new();
         let forgotten_id = pair(&forgotten).id;
@@ -1829,7 +2375,7 @@ pub(crate) mod tests {
 
         // The rejection, in the order the product does it.
         desk.forget().unwrap();
-        record_rejection(&dir.0, 1_758_000_000_000).unwrap();
+        record_rejection(&dir.0, 1_758_000_000_000, StoppedBy::PHONE).unwrap();
 
         // --- THE RELAUNCH. Nothing of the first process survives but the directory. ---------
         let after = DeviceDesk::open(&dir.0).unwrap();
@@ -1870,6 +2416,24 @@ pub(crate) mod tests {
         std::fs::create_dir_all(dir.0.join("phone")).unwrap();
         std::fs::write(dir.0.join("phone/rejected.json"), "{ this is not json").unwrap();
         assert!(rejection_recorded(&dir.0));
+        assert_eq!(rejection_by(&dir.0), StoppedBy::UNKNOWN);
+    }
+
+    /// The sheet says who stopped it, and the answer survives a relaunch like the refusal does.
+    #[test]
+    fn who_refused_the_words_is_written_down_with_the_refusal() {
+        for by in [StoppedBy::PHONE, StoppedBy::MAC] {
+            let dir = TempDir::new(&format!("rejected-by-{by}"));
+            record_rejection(&dir.0, 1, by).unwrap();
+            assert!(rejection_recorded(&dir.0));
+            assert_eq!(rejection_by(&dir.0), by);
+        }
+        // A record from the build before the reason existed still refuses, and reads as unknown.
+        let dir = TempDir::new("rejected-by-old");
+        std::fs::create_dir_all(dir.0.join("phone")).unwrap();
+        std::fs::write(dir.0.join("phone/rejected.json"), "{\"rejected_at\":1}\n").unwrap();
+        assert!(rejection_recorded(&dir.0));
+        assert_eq!(rejection_by(&dir.0), StoppedBy::UNKNOWN);
     }
 
     #[test]

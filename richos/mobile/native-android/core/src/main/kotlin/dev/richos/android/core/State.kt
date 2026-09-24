@@ -197,6 +197,8 @@ data class AppState(
     val streamCursor: Long? = null,
     /** Photos and files waiting in the composer for the next send. */
     val pendingAttachments: List<Attachment> = emptyList(),
+    /** A line or card above the composer about photos and files (transient). */
+    val attachNotice: AttachNotice? = null,
 ) {
     /**
      * What the gold circle in the composer shows: the microphone becomes the send arrow

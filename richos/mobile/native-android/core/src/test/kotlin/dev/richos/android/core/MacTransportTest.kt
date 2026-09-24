@@ -48,7 +48,7 @@ class MacTransportTest {
     private fun ok(body: String, challenge: String = "next-challenge") =
         HttpResponse(200, mapOf("x-richos-challenge" to challenge), body.toByteArray())
 
-    private suspend fun core(mac: FakeMac, files: Map<String, ByteArray> = emptyMap(), session: Session = Fixtures.fixture("online").session): RichCore {
+    private suspend fun core(mac: FakeMac, files: Map<String, ByteArray> = emptyMap(), session: Session = Fixtures.fixture("online").session, keys: DeviceKeys = this.keys): RichCore {
         var saved = session
         val items = linkedMapOf<String, OutboxItem>()
         var n = 0
@@ -209,6 +209,76 @@ class MacTransportTest {
         val old = core(FakeMac { ok("{}") })
         old.dispatch(Action.TurnOnNotifications)
         assertEquals(NotificationStatus.UNSUPPORTED, old.dispatch(Action.PushToken("t".repeat(40))).notifications.status)
+    }
+
+    private val registered = """{"host_id":"0123456789abcdef0123456789abcdef","registered":true}"""
+    private val pushSession get() = Fixtures.fixture("online").session.copy(capabilities = listOf("text", "native-push-fcm"))
+
+    /** Keys that log what happens to them, so the order of "signed" and "deleted" is visible. */
+    private class LoggingKeys : DeviceKeys {
+        val log = mutableListOf<String>()
+        override suspend fun publicPoint(origin: String) = DevKeys.point
+        override suspend fun sign(origin: String, data: ByteArray): ByteArray {
+            check("delete:$origin" !in log) { "signed with a deleted key" }
+            log += "sign"
+            return DevKeys.sign(data)
+        }
+        override suspend fun delete(origin: String) { log += "delete:$origin" }
+    }
+
+    @Test
+    fun `turning notifications off tells the Mac at once - a signed native_push null`() = runTest {
+        val mac = FakeMac { ok(registered) }
+        val core = core(mac, session = pushSession)
+        core.dispatch(Action.TurnOnNotifications)
+        core.dispatch(Action.PushToken("fcm-token-" + "x".repeat(40)))
+        mac.seen.clear()
+        mac.answer = { ok("""{"registered":false}""", challenge = "after-off") }
+        val s = core.dispatch(Action.TurnOffNotifications)
+        assertEquals(NotificationStatus.OFF, s.notifications.status)
+        assertEquals("""{"native_push":null}""", String(mac.seen.single().body!!))
+        assertTrue(mac.seen.single().url.endsWith("/api/pair"))
+        assertEquals("after-off", s.pairing.challenge, "the Mac's fresh challenge is kept")
+    }
+
+    @Test
+    fun `forgetting tells the Mac first, signed with the pairing's key, and only then deletes the key`() = runTest {
+        val mac = FakeMac { ok(registered) }
+        val keys = LoggingKeys()
+        val core = core(mac, session = pushSession, keys = keys)
+        core.dispatch(Action.TurnOnNotifications)
+        core.dispatch(Action.PushToken("fcm-token-" + "x".repeat(40)))
+        mac.seen.clear()
+        core.dispatch(Action.ForgetPairing)
+        val s = core.dispatch(Action.ConfirmForget)
+        assertEquals(PairingPhase.UNPAIRED, s.pairing.phase)
+        assertEquals("""{"native_push":null}""", String(mac.seen.single().body!!))
+        assertEquals("delete:${Fixtures.fixture("online").session.pairing.apiBase}", keys.log.last())
+        assertEquals("sign", keys.log[keys.log.size - 2])
+    }
+
+    @Test
+    fun `forgetting after notifications were switched off or denied still tells a Mac that takes FCM`() = runTest {
+        val mac = FakeMac { ok(registered) }
+        val core = core(mac, session = pushSession.copy(notifications = Notifications(status = NotificationStatus.DENIED)))
+        core.dispatch(Action.ForgetPairing)
+        core.dispatch(Action.ConfirmForget)
+        assertEquals("""{"native_push":null}""", String(mac.seen.single().body!!))
+    }
+
+    @Test
+    fun `an unreachable Mac never stops a forget, and a Mac without FCM is not asked`() = runTest {
+        val keys = LoggingKeys()
+        val away = core(FakeMac { throw IOException("no route") }, session = pushSession, keys = keys)
+        away.dispatch(Action.ForgetPairing)
+        assertEquals(PairingPhase.UNPAIRED, away.dispatch(Action.ConfirmForget).pairing.phase)
+        assertTrue(keys.log.last().startsWith("delete:"), "the key still goes")
+
+        val quiet = FakeMac { ok(receipt) }
+        val old = core(quiet)
+        old.dispatch(Action.ForgetPairing)
+        old.dispatch(Action.ConfirmForget)
+        assertTrue(quiet.seen.isEmpty())
     }
 
     @Test

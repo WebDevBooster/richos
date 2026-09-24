@@ -222,10 +222,14 @@ private fun MenuRow(icon: ImageVector, label: String, onClick: () -> Unit) {
 fun RejectionCard(r: Rejection, limitMb: Int, onEvent: (UiEvent) -> Unit) {
     val c = Rich.colors
     val title = if (r.tooLarge) "Too large to send" else "Rich can’t open .${r.file.ext.lowercase()} files yet"
-    val body = if (r.tooLarge) {
-        "${Sizes.breakable(r.file.name)} is ${Sizes.of(r.file.bytes)}. Rich can take files up to $limitMb MB each."
-    } else {
-        "Unzip ${Sizes.breakable(r.file.name)} in Files, then send what’s inside."
+    val name = Sizes.breakable(r.file.name)
+    val body = when {
+        r.tooLarge && r.file.bytes > 0 -> "$name is ${Sizes.of(r.file.bytes)}. Rich can take files up to $limitMb MB each."
+        // Refused while copying, before its size was known: only that it is over the limit.
+        r.tooLarge -> "$name is over $limitMb MB. Rich can take files up to $limitMb MB each."
+        r.file.ext.equals("zip", ignoreCase = true) -> "Unzip $name in Files, then send what’s inside."
+        // The Mac's own list (phone/attachments.rs): photos, PDFs, text, Word, Excel and PowerPoint.
+        else -> "Rich can open photos, PDFs, text files and Word, Excel and PowerPoint documents. Send one of those instead."
     }
     ComposerCardFrame(
         title = title,

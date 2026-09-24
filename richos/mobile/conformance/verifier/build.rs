@@ -215,6 +215,14 @@ fn main() {
         for header in ["pub const CAPABILITIES", "pub const PROTOCOL_VERSION", "pub fn capabilities("] {
             native_routes.push_str(&item(routes_src, "routes.rs", header));
         }
+        // The Mac's awaiting answer (Sage's pairing review F1), when the tree has it. Its value is
+        // a string of JSON, so its braces must not be read as a block: cut it to the `";` that
+        // ends the literal.
+        let awaiting = "pub const AWAITING_MAC_BODY: &str =";
+        if let Some(start) = routes_src.find(awaiting) {
+            let end = start + routes_src[start..].find("\";").expect("routes.rs: AWAITING_MAC_BODY is not a terminated string literal") + 2;
+            let _ = writeln!(native_routes, "{}", &routes_src[start..end]);
+        }
         let notifications = read("notifications.rs");
         let n = production(&notifications);
         let _ = write!(generated, "pub mod notifications {{\nuse super::*;\nuse serde::{{Deserialize, Serialize}};\n");

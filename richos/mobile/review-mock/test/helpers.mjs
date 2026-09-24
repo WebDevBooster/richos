@@ -44,7 +44,7 @@ export function clock(start = 1_790_000_000_000) {
 export const ORIGIN_OF = (hostname) => `https://${hostname}`;
 
 /** A host with in-memory ports. `wakes` records every alarm the host asked for. */
-export function makeHost({ hostname = 'review-a.example.com', now = clock(), push = null, pairingVersion = 1, storage = memoryStorage() } = {}) {
+export function makeHost({ hostname = 'review-a.example.com', now = clock(), push = null, pairingVersion = 2, storage = memoryStorage() } = {}) {
 	const wakes = [];
 	const host = new Host({ storage, hostname, now, push, pairingVersion, schedule: (at) => { wakes.push(at); }, sleep: async () => {} });
 	return { host, storage, now, wakes };

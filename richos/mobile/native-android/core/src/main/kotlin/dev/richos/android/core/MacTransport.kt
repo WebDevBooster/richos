@@ -29,6 +29,9 @@ data class Attachment(
     val size: Long,
     /** Lowercase hex SHA-256 of the exact bytes. */
     val sha256: String,
+    /** A photo's pixel size as staged, for the album's layout; null for a file, or when unknown. */
+    val width: Int? = null,
+    val height: Int? = null,
 )
 
 /** Staged bytes the transport sends: recordings (by recording id) and attachments (by attachment id). */

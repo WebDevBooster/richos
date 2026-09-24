@@ -458,41 +458,43 @@ async function openSheet(browser, theme, preset) {
 
   // ---- 7. the six words, and the countdown -------------------------------------------------
 
-  await run.check("7  the six words are six, and he is told they have to match", async () => {
+  await run.check("7  no words beside the code; six words and the two answers once a phone arrives", async () => {
+    // SAGE'S PAIRING REVIEW, 3.1 STEPS 1 AND 4. The six words used to be printed beside the code
+    // before any phone had arrived, so they carried nothing the code does not: anybody who could
+    // see the code could see them (F1's evidence). They are derived over the key a phone
+    // registered now, so the pairing screen has none, and says where they will appear and which
+    // buttons answer them.
     const page = await openSheet(browser, "dark");
-    const words = (await page.textContent("#phone-words")).trim().split(/\s+/);
-    const said = (await page.textContent("#phone-pairing")).replace(/\s+/g, " ");
-    const page2 = page;
+    const onCode = await page.evaluate(() => ({
+      words: !!document.getElementById("phone-words"),
+      sheet: document.getElementById("phone-sheet").innerText.replace(/\s+/g, " "),
+      note: document.getElementById("phone-words-note").textContent.replace(/\s+/g, " ").trim(),
+      noteShown: document.getElementById("phone-words-note").offsetParent !== null,
+    }));
+    await page.close();
+    assert(!onCode.words, "the pairing screen still carries a node for the six words");
+    assert(
+      !/harbor\s+candle\s+meadow/.test(onCode.sheet),
+      "six words are on screen before any phone has reached this Mac: " + onCode.sheet.slice(0, 200)
+    );
+    assert(onCode.noteShown, "the pairing screen does not say what happens once the phone opens the code");
+    for (const control of ["They match", "They do not match"]) {
+      assert(onCode.note.includes("press " + control), `the note does not name ${JSON.stringify(control)}: ${onCode.note}`);
+    }
+
+    // AND THE CARD A PHONE REACHES: six plain words, and the two controls the note named.
+    const waiting = await openSheet(browser, "dark", { phonePaired: true, phoneMacUnconfirmed: true, phoneFingerprintUnconfirmed: true });
+    const words = (await waiting.textContent("#phone-paired-words")).trim().split(/\s+/);
+    const buttons = await waiting.$$eval("#phone-mac-answer button", (els) =>
+      els.filter((e) => e.offsetParent !== null).map((e) => e.textContent.trim()));
+    await waiting.close();
     assertEqual(words.length, 6, "the fingerprint is not six words: " + JSON.stringify(words));
     assert(
       words.every((w) => /^[a-z]{3,7}$/.test(w)),
       "a fingerprint word is not three to seven plain lowercase letters: " + JSON.stringify(words)
     );
-    assert(
-      /have to be these six, in this order/i.test(said),
-      "the screen shows six words without saying they have to match, which makes them decoration"
-    );
-    // AND THE CONTROL IT NAMES IS ON THE SCREEN. This used to read "tap Cancel and tell me"
-    // and this check pinned that literal — but there has never been a Cancel button in this
-    // sheet, so the assertion was holding a sentence that named a control nobody could press
-    // (Ray's candidate-.12 defect B, the other half). The needle is now the ACTION plus the
-    // existence of the button, so a future rewording cannot put a phantom control back.
-    const named = /press ([A-Z][a-z]+) and tell me/.exec(said);
-    assert(
-      named,
-      "he is not told what to do if they do NOT match, which is the only case the comparison exists for"
-    );
-    const buttons = await page2.$$eval(
-      "#phone-sheet button",
-      (els) => els.map((e) => e.textContent.trim())
-    );
-    assert(
-      buttons.includes(named[1]),
-      `the sentence tells him to press ${JSON.stringify(named[1])}, and this sheet's buttons are ` +
-        JSON.stringify(buttons)
-    );
-    await page2.close();
-    return `six words, each 3-7 lowercase letters, and "press ${named[1]}" names a button this sheet has`;
+    assertEqual(JSON.stringify(buttons), JSON.stringify(["They match", "They do not match"]), "the two answers are not on the card");
+    return `no words beside the code; the card shows ${words.length} words and ${buttons.join(" / ")}`;
   });
 
   await run.check("8  a live code says how long is left, and an expired one does not look live", async () => {
@@ -529,7 +531,8 @@ async function openSheet(browser, theme, preset) {
         expiredNote: (document.getElementById("phone-expired-note") || {}).textContent || "",
         qrShown: visible("phone-qr-pair"),
         codeShown: (document.getElementById("phone-pair-url").textContent || "").trim(),
-        wordsShown: (document.getElementById("phone-words").textContent || "").trim(),
+        // Sage 3.1: the pairing screen has no words node at all now; both are "nothing shown".
+        wordsShown: ((document.getElementById("phone-words") || {}).textContent || "").trim(),
         // The one control the screen is about, and it must be pressable where he is standing.
         newCode: visible("phone-refresh") && !document.getElementById("phone-refresh").disabled,
         newCodeLabel: document.getElementById("phone-refresh").textContent.trim(),
@@ -665,13 +668,19 @@ async function openSheet(browser, theme, preset) {
       // THE STATE UNDER TEST WAS UNDRAWABLE UNTIL NOW, which is why no check caught it: the
       // fixture had no way to be paired-and-unanswered, so every existing check on this card
       // silently modeled the end state.
+      //
+      // SINCE SAGE'S F1 THE QUESTION IS PUT ON THIS MAC, and the sentence names the button here:
+      // the phone's own answer was the only one the Mac recorded, and it was the device being
+      // judged that gave it.
       const waiting = await openSheet(browser, "dark", {
         phonePaired: true,
-        phoneFingerprintUnconfirmed: true
+        phoneFingerprintUnconfirmed: true,
+        phoneMacUnconfirmed: true,
       });
       const before = (await waiting.textContent("#phone-paired")).replace(/\s+/g, " ");
       const wordsShown = await waiting.isVisible("#phone-paired-words");
       const words = (await waiting.textContent("#phone-paired-words")).trim();
+      const forgetShown = await waiting.isVisible("#phone-forget");
       await waiting.close();
 
       assert(
@@ -679,9 +688,10 @@ async function openSheet(browser, theme, preset) {
         "the Mac claims the phone is paired before the person has answered the six words: " + before
       );
       assert(
-        /six words/i.test(before) && /answer on the phone/i.test(before),
-        "the card does not say what he is being asked to do: " + before
+        /six words/i.test(before) && /press They match/i.test(before),
+        "the card does not say what he is being asked to do here: " + before
       );
+      assert(!forgetShown, "`Forget this phone` is offered for a phone that is not paired yet");
       // AND THE MAC'S HALF OF THE COMPARISON IS ON THE SCREEN WHILE HE IS MAKING IT. The pairing
       // screen that carries the words is hidden the instant `paired` flips, which is the same
       // instant the phone starts asking — so without this the Mac took its own six words away at
@@ -698,16 +708,114 @@ async function openSheet(browser, theme, preset) {
       const done = await openSheet(browser, "dark", { phonePaired: true });
       const after = (await done.textContent("#phone-paired")).replace(/\s+/g, " ");
       const stillThere = await done.isVisible("#phone-paired-words");
+      const answersThere = await done.isVisible("#phone-mac-answer");
       await done.close();
       assert(/It is paired/.test(after), "a confirmed phone is not called paired: " + after);
       assert(!stillThere, "the six words stayed on the card after he had answered them");
+      assert(!answersThere, "the two answers stayed on the card after he had answered");
+
+      // BETWEEN THE TWO: this Mac pressed, the phone has not answered yet.
+      const half = await openSheet(browser, "dark", { phonePaired: true, phoneFingerprintUnconfirmed: true });
+      const halfway = (await half.textContent("#phone-paired-state")).trim();
+      const halfWords = await half.isVisible("#phone-paired-words");
+      await half.close();
+      assert(!/It is paired/.test(halfway) && /on your phone/i.test(halfway), "the card after the Mac's press: " + halfway);
+      assert(!halfWords, "the six words stayed on the Mac after the Mac had answered");
 
       return (
         "unconfirmed: \"" + before.slice(0, 96) + "…\" with the words on screen; " +
-        "confirmed: \"" + after.slice(0, 48) + "…\" with the words gone"
+        "Mac pressed: \"" + halfway + "\"; confirmed: \"" + after.slice(0, 48) + "…\" with the words gone"
       );
     }
   );
+
+  // ---- 9g. SAGE F1 — the answer that counts is given on this Mac ----------------------------
+
+  await run.check(
+    "9g  `They match` on the Mac lets the phone in, `They do not match` stops it, and both read AA in both themes",
+    async () => {
+      // Sage's pairing review F1 (High): the Mac accepted every signed request from a phone that
+      // had confirmed nothing, and the only confirmation it recorded was the phone's own. The fix
+      // is two buttons on this card; this check presses both, measures what they say, and holds
+      // that neither is the sheet's first focus.
+      const { parseCssColor, compositeOver, contrastRatio, round2, isLargeText, hex } = require("./lib/contrast");
+      const measure = (page, selector) =>
+        page.evaluate((sel) => {
+          const el = document.querySelector(sel);
+          const cs = getComputedStyle(el);
+          let node = el;
+          let ground = "rgba(0, 0, 0, 0)";
+          while (node) {
+            const bg = getComputedStyle(node).backgroundColor;
+            if (bg && !/rgba\([^)]*,\s*0\s*\)/.test(bg) && bg !== "transparent") { ground = bg; break; }
+            node = node.parentElement;
+          }
+          return { color: cs.color, ground, size: parseFloat(cs.fontSize), weight: cs.fontWeight };
+        }, selector);
+      const out = [];
+      for (const theme of ["dark", "light"]) {
+        const page = await openSheet(browser, theme, { phonePaired: true, phoneMacUnconfirmed: true, phoneFingerprintUnconfirmed: true });
+        await page.waitForSelector("#phone-mac-answer:not([hidden])");
+        const focused = await page.evaluate(() => document.activeElement && document.activeElement.id);
+        assert(!/^phone-mac-/.test(focused || ""), "the sheet opened with focus on an answer to the six words: " + focused);
+        for (const selector of ["#phone-paired-state", "#phone-paired-words", "#phone-mac-match", "#phone-mac-mismatch"]) {
+          const m = await measure(page, selector);
+          const ink = parseCssColor(m.color);
+          const ground = parseCssColor(m.ground);
+          const composited = ink.a < 1 ? compositeOver(ink, ground) : ink;
+          const ratio = round2(contrastRatio(composited, ground));
+          const floor = isLargeText(m.size, m.weight) ? 3 : 4.5;
+          assert(m.size >= 16, `${selector} is ${m.size}px in ${theme}, under the 16px floor for readable text`);
+          assert(ratio >= floor, `${selector} is ${ratio}:1 in ${theme} (${hex(composited)} on ${hex(ground)}) against ${floor}:1`);
+          out.push(`${theme} ${selector} ${ratio}:1`);
+        }
+        await page.close();
+      }
+
+      // "They match": the card moves to the next true sentence and the question leaves it.
+      const yes = await openSheet(browser, "dark", { phonePaired: true, phoneMacUnconfirmed: true, phoneFingerprintUnconfirmed: true });
+      await yes.click("#phone-mac-match");
+      await yes.waitForFunction(() => document.getElementById("phone-mac-answer").hidden, null, { timeout: 5000 });
+      const afterYes = (await yes.textContent("#phone-paired-state")).trim();
+      await yes.close();
+      assert(/This Mac accepted it/.test(afterYes), "after `They match` the card says: " + afterYes);
+
+      // "They do not match": the Mac stops, and says that it was HIM, here, in one sentence.
+      const no = await openSheet(browser, "dark", { phonePaired: true, phoneMacUnconfirmed: true });
+      await no.click("#phone-mac-mismatch");
+      await no.waitForSelector("#phone-rejected:not([hidden])");
+      const note = (await no.textContent("#phone-rejected-note")).trim();
+      await no.close();
+      assert(/^You said the six words did not match/.test(note), "the Mac's refusal is reported as someone else's: " + note);
+      assertEqual((note.match(/\.\s|\.$/g) || []).length, 1, "the report is more than one sentence: " + note);
+
+      // And every other reason the Mac can stop gets its own true sentence, in the same shape.
+      for (const [by, needle] of [["code-used-twice", /second phone used the same code/], ["expired", /within five minutes/], ["phone", /^Your phone said/]]) {
+        const page = await openSheet(browser, "dark", { phoneRejected: true, phoneRejectedBy: by, phoneTailnet: READY_TAILNET });
+        await page.waitForSelector("#phone-rejected:not([hidden])");
+        const said = (await page.textContent("#phone-rejected-note")).trim();
+        await page.close();
+        assert(needle.test(said) && /stopped answering/.test(said), `${by}: ${said}`);
+        assertEqual((said.match(/\.\s|\.$/g) || []).length, 1, `${by}: more than one sentence: ${said}`);
+      }
+      return out.join("; ");
+    }
+  );
+
+  await run.check("9h  a second use of the code after the press keeps the phone and says so", async () => {
+    const page = await openSheet(browser, "dark", { phonePaired: true, phoneCodeReused: true });
+    const line = await page.isVisible("#phone-code-reused");
+    const text = (await page.textContent("#phone-code-reused")).trim();
+    const forget = await page.isVisible("#phone-forget");
+    await page.close();
+    assert(line && /Forget this phone/.test(text), "the warning is not on the card: " + text);
+    assert(forget, "the warning names `Forget this phone` and the button is not there");
+    const quiet = await openSheet(browser, "dark", { phonePaired: true });
+    const none = await quiet.isVisible("#phone-code-reused");
+    await quiet.close();
+    assert(!none, "the warning shows on a pairing nobody else touched");
+    return text;
+  });
 
   // ---- 9f. DEFECT 1 — the Mac shows that it heard the alarm button ------------------------
 
