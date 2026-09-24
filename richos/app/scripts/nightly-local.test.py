@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import os
+import shlex
 import signal
 from pathlib import Path
 import subprocess
@@ -1070,6 +1071,59 @@ while True: time.sleep(.02)
         with contextlib.redirect_stdout(io.StringIO()):
             r.perform("release")
         self.assertIs(r.gates.call_args.kwargs["skip_unchanged"], False)
+
+
+class WalkRecipeTests(unittest.TestCase):
+    """The printed walk recipe starts the candidate on ONE scratch home (2026-09-24).
+
+    Under HOME alone, Foundation's NSHomeDirectory() still named the real home, so a
+    walked candidate put WebKit's store and the URL cache in the real ~/Library, where the
+    daily driver (same bundle identifier) keeps them. These run the recipe's own lines with
+    lib/home-probe.sh standing in for the app: no build, no window."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+
+    def test_the_recipe_names_one_canonical_noindex_home_and_a_clean_environment(self):
+        # The un-resolved temporary folder is the /var symlink the product refuses as a home.
+        scratch, lines = m.walk_recipe(Path("/x/RichOS.zip"), "run1", temp_root=tempfile.gettempdir())
+        home = scratch / "home.noindex"
+        self.assertEqual(scratch, scratch.resolve())
+        self.assertTrue(scratch.name.endswith(".noindex"))
+        text = "\n".join(lines)
+        self.assertIn(f"HOME={shlex.quote(str(home))} CFFIXED_USER_HOME={shlex.quote(str(home))}", text)
+        self.assertIn("/usr/bin/env -i ", text)
+        self.assertIn("PATH=/usr/bin:/bin:/usr/sbin:/sbin", text)
+
+    @unittest.skipUnless(sys.platform == "darwin", "Foundation's NSHomeDirectory()")
+    def test_the_recipe_as_printed_starts_the_app_on_its_scratch_home(self):
+        app = self.root / "src" / "RichOS.app" / "Contents" / "MacOS"
+        app.mkdir(parents=True)
+        probe = app / "richos-tauri"
+        probe.write_bytes((Path(__file__).parent / "lib" / "home-probe.sh").read_bytes())
+        probe.chmod(0o755)
+        bundle = self.root / "RichOS-probe.zip"
+        subprocess.run(["ditto", "-c", "-k", "--keepParent", str(self.root / "src" / "RichOS.app"), str(bundle)],
+                       check=True)
+        scratch, lines = m.walk_recipe(bundle, "probe", temp_root=self.root)
+        home = scratch / "home.noindex"
+        env = {"USER": os.environ.get("USER", "probe"), "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+               "HOME": os.environ.get("HOME", "/"), "WALK_RECIPE_CANARY": "from-the-shell"}
+        result = subprocess.run(["bash", "-c", "\n".join(lines)], env=env, capture_output=True, text=True,
+                                timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("[richos] boot complete", result.stdout)
+        seen = dict(line.split("=", 1) for line in (home / ".home-probe" / "env").read_text().splitlines()
+                    if "=" in line)
+        for bash_own in ("PWD", "SHLVL", "_"):
+            seen.pop(bash_own, None)
+        self.assertEqual(sorted(seen), ["CFFIXED_USER_HOME", "HOME", "PATH", "RICHOS_ACTIVATION", "TMPDIR", "USER"])
+        self.assertEqual((seen["HOME"], seen["CFFIXED_USER_HOME"]), (str(home), str(home)))
+        self.assertEqual(seen["TMPDIR"], str(home / "tmp") + "/")
+        nshome = (home / ".home-probe" / "nshome").read_text().strip()
+        self.assertEqual(Path(nshome).resolve(), home)
 
 
 if __name__ == "__main__":

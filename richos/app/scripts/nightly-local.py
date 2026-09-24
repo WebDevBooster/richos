@@ -592,6 +592,36 @@ def local_environment(run_id=None):
     return env, credentials
 
 
+def walk_recipe(bundle_zip, run_id, temp_root=None):
+    """The shell lines that walk a candidate on a scratch home: (scratch folder, lines).
+
+    The rule is nightly-launch.sh's, for the same reason (adoption ledger §2.5, a state
+    directory per install). HOME alone is NOT a scratch home: Foundation answers
+    NSHomeDirectory() from the account record, so WebKit's store and the URL cache of an
+    instance started with HOME alone land in the REAL ~/Library/WebKit/com.richos.app and
+    ~/Library/Caches/com.richos.app, the folders the daily driver (same bundle identifier)
+    uses. Measured in a test guest on 2026-09-24 (richos-hq
+    docs/verification/2026-09-24-nightly-launcher/, run 1 finding 3). So:
+
+      * HOME and CFFIXED_USER_HOME are both the scratch home, and TMPDIR is inside it;
+      * `env -i` with launchd's PATH, so nothing from the calling shell reaches the app;
+      * `.noindex` folders, so Spotlight never offers this copy beside the real one;
+      * the scratch folder is CANONICAL: the product refuses a home that is not its own
+        realpath, and macOS's temporary folder sits behind the /var symlink.
+    """
+    base = Path(temp_root or tempfile.gettempdir()).resolve()
+    scratch = base / f"richos-qa-{run_id}.noindex"
+    home = scratch / "home.noindex"
+    q = shlex.quote
+    return scratch, [
+        f"mkdir -p {q(str(home / 'tmp'))} && ditto -x -k {q(str(bundle_zip))} {q(str(scratch))}",
+        f"/usr/bin/env -i HOME={q(str(home))} CFFIXED_USER_HOME={q(str(home))} "
+        f"TMPDIR={q(str(home / 'tmp'))}/ \\",
+        '    USER="$USER" PATH=/usr/bin:/bin:/usr/sbin:/sbin RICHOS_ACTIVATION=regular \\',
+        f"    {q(str(scratch / 'RichOS.app/Contents/MacOS/richos-tauri'))}",
+    ]
+
+
 @contextmanager
 def exclusive(state):
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -1138,20 +1168,21 @@ class Runner:
         # first-install archive's arch component is always "aarch64" --
         # make-release.sh's own ARCH mapping (arm64|aarch64 -> aarch64).
         bundle_zip = out / f"RichOS-{info['version']}-macos-aarch64.zip"
-        scratch = str(Path(tempfile.gettempdir()) / f"richos-qa-{info['run_id']}")
+        _scratch, recipe = walk_recipe(bundle_zip, info['run_id'])
         number = info['version'].rsplit('.', 1)[-1]
         print(f"Candidate build {number}: {info['tag']}, source {info['source_commit']}", flush=True)
         print(f"  staged at : {out}", flush=True)
         print(f"  bundle zip: {bundle_zip}", flush=True)
         print("", flush=True)
-        print("To walk it: unpack into a scratch HOME so it never touches the operator's own", flush=True)
-        print("app data (README.md's activation invariant D), and run it directly rather than", flush=True)
-        print("via `open`, so a harness/terminal holds the process (invariant P). Set", flush=True)
-        print("RICHOS_ACTIVATION=regular so the window is visible instead of accessory-hidden:", flush=True)
+        print("To walk it, in the test VM and never on this Mac's screen (CEO ruling §65): unpack", flush=True)
+        print("into a scratch home so it never touches the operator's own app data (README.md's", flush=True)
+        print("activation invariant D). HOME and CFFIXED_USER_HOME are both that home, because", flush=True)
+        print("HOME alone leaves WebKit's store in the real ~/Library. Run it directly under", flush=True)
+        print("`env -i` rather than via `open`, so a harness holds the process (invariant P) and", flush=True)
+        print("nothing from this shell reaches it; RICHOS_ACTIVATION=regular shows the window:", flush=True)
         print("", flush=True)
-        print(f"  mkdir -p {scratch} && ditto -x -k '{bundle_zip}' {scratch}", flush=True)
-        print(f"  HOME={scratch}/home RICHOS_ACTIVATION=regular \\", flush=True)
-        print(f"      '{scratch}/RichOS.app/Contents/MacOS/richos-tauri'", flush=True)
+        for line in recipe:
+            print("  " + line, flush=True)
         print("", flush=True)
         if info.get("candidate_ref"):
             print("The candidate has no public version tag or release-list entry. Its digest-named", flush=True)
