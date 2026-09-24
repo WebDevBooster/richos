@@ -493,8 +493,9 @@ def _():
         measure.probe_prefix = "unique probe"
         nodes = [{"text": "unique probe 1", "desc": "Send message", "bounds": [0, 0, 100, 50]},
                  {"text": "", "desc": "Message Rich", "bounds": [0, 50, 100, 100]}]
+        before = [nodes[0], dict(nodes[1], text="unique probe 1")]
         with patch.object(measure, "enter_empty_composer", side_effect=[None, perfcore.Unmeasurable("occupied")]), \
-             patch.object(measure, "dump_ui", return_value=nodes), \
+             patch.object(measure, "dump_ui", side_effect=[before, nodes]), \
              patch.object(measure, "atrace", return_value="raw test trace"), \
              patch.object(measure, "gfx", return_value={"rows": []}), \
              patch.object(android, "tap_latency", return_value={"inputToFrameMs": 20, "inputToSettledMs": 30, "burstFrames": 1}):
@@ -503,6 +504,20 @@ def _():
         assert result["rejected"] == [{"trial": 2, "why": "occupied", "stoppedSeries": True}]
         assert os.path.exists(os.path.join(tmp, "tap-0001.trace.gz"))
         assert os.path.exists(os.path.join(tmp, "tap-0001.json"))
+
+
+@case("R13 altered synthetic input is retained and never sent")
+def _():
+    from unittest.mock import patch
+    fake = FakeAdb()
+    measure = android.Measure(android.Device("/fake/adb", "emulator-5580", runner=fake, sleep=lambda s: None), log=quiet)
+    measure.probe_prefix = "Perf probe 123456"
+    nodes = [{"text": "Perf probe 12346 1", "desc": "Message Rich", "bounds": [0, 0, 100, 50]},
+             {"text": "", "desc": "Send message", "bounds": [100, 0, 150, 50]}]
+    with patch.object(measure, "enter_empty_composer"), patch.object(measure, "dump_ui", return_value=nodes):
+        result = measure.tap(2, production=True)
+    assert result["samples"] == [] and result["rejected"][0]["stoppedSeries"] is True
+    assert not any("input tap" in c for c in fake.calls)
 
 
 @case("R2 an installed APK that is not the stamped one is REFUSED before any measurement")

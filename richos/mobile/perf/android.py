@@ -761,7 +761,20 @@ class Measure:
             else:
                 self.bridge.action({"type": "compose", "text": probe})
             self.d.sleep(1.0)
-            send = find_node(self.dump_ui(), desc="Send message")
+            before = self.dump_ui()
+            field = composer_node(before)
+            if production and (field is None or field.get("text") != probe):
+                if self.evidence_dir:
+                    self.evidence_dir.mkdir(parents=True, exist_ok=True)
+                    observed = field.get("text", "") if field else ""
+                    (self.evidence_dir / f"tap-{i + 1:04d}.input.json").write_text(json.dumps({
+                        "requested": probe, "composerFound": field is not None, "observedLength": len(observed),
+                        "observedProbe": observed if observed.lower().startswith("perf probe") else None,
+                    }))
+                rejected.append({"trial": i + 1, "why": "synthetic input changed before Send; draft retained", "stoppedSeries": True})
+                self.log(f"tap {i + 1}/{trials}: STOPPED, synthetic input changed before Send; draft retained")
+                break
+            send = find_node(before, desc="Send message")
             if send is None:
                 rejected.append({"trial": i + 1, "why": "no 'Send message' control on screen"})
                 self.log(f"tap {i + 1}/{trials}: REJECTED, {rejected[-1]['why']}")
