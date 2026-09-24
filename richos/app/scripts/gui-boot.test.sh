@@ -1161,7 +1161,9 @@ if ! ( cd "$APP_DIR/src-tauri" && RICHOS_SOURCE_SHA="$(git -C "$APP_DIR" rev-par
   exit 1
 fi
 
-MACHINE="$TMP/machine"
+# `.noindex`, as nightly-launch.sh names its folders: Spotlight skips a folder so named, so a
+# machine's RichOS.app is never offered beside his own copy while a run is under way.
+MACHINE="$TMP/machine.noindex"
 if MOUT="$(gui_machine "$MACHINE" 2>&1)"; then
   ok "B0 a complete machine was built (corpus, tools, engine pointer, claude, saved company)"
   printf '%s\n' "$MOUT" | sed 's/^/         /'
@@ -1324,7 +1326,7 @@ fi
 # healthy boot is a check that would keep passing after it stopped working.
 break_and_boot() {   # break_and_boot <name> <case-id> <what-to-remove-cmd...>
   local name="$1" id="$2"; shift 2
-  local broken="$TMP/broken-$id"
+  local broken="$TMP/broken-$id.noindex"
   rm -rf "$broken"
   cp -a "$MACHINE" "$broken" || { bad "$id $name" "could not copy the machine"; return; }
   ( cd "$broken" && "$@" ) || { bad "$id $name" "could not break the machine"; return; }
