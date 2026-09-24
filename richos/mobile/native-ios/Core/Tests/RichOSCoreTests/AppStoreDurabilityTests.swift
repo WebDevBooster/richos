@@ -104,6 +104,40 @@ private actor DeliveryWitness: EffectHandler {
         #expect(store.state.draft.isEmpty)
     }
 
+    @Test func failedDeliveryAuthorizationReturnsTheDurableMessageToWaiting() async throws {
+        let storage = SaveGate()
+        let witness = DeliveryWitness(storage)
+        let store = AppStore(state: try Fixture.named("conv-empty").state,
+                             runner: EffectRunner(storage: storage, handler: witness))
+        await store.apply(.networkChanged(online: false, at: 1)).value
+        await store.apply(.compose(text: "keep queued")).value
+        await store.apply(.sendDraft(clientID: "queued", at: 2)).value
+        await storage.configure(fail: true)
+        await store.apply(.networkChanged(online: true, at: 3)).value
+        #expect(store.persistenceProblem != nil)
+        #expect(store.state.outbox.single?.state == .waiting)
+        #expect(await witness.delivered.isEmpty)
+        await storage.configure()
+        await store.apply(.compose(text: "next draft")).value
+        #expect(store.persistenceProblem == nil)
+        #expect(TickSchedule.nextTick(store.state) != nil)
+    }
+
+    @Test func typingBehindAFailedSendCannotOverwriteTheOriginalMessage() async throws {
+        let storage = SaveGate()
+        let store = AppStore(state: try Fixture.named("conv-empty").state, runner: EffectRunner(storage: storage))
+        await store.apply(.compose(text: "first message")).value
+        await storage.configure(fail: true, pause: true)
+        let send = store.apply(.sendDraft(clientID: "first", at: 100))
+        await storage.untilStarted()
+        store.send(.compose(text: "second message"))
+        store.send(.sendDraft(clientID: "second", at: 101))
+        await storage.release(); await send.value; await store.settle()
+        #expect(store.state.draft == "first message\n\nsecond message")
+        #expect(store.state.outbox.isEmpty)
+        #expect(store.persistenceProblem != nil)
+    }
+
     @Test func backgroundDuringSaveDoesNotStartDelivery() async throws {
         let storage = SaveGate()
         let witness = DeliveryWitness(storage)

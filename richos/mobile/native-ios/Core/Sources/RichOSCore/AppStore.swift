@@ -168,8 +168,19 @@ public final class AppStore {
             }
             transaction = nil
             savingSend = false
-            let waiting = deferred
+            var waiting = deferred
             deferred.removeAll()
+            if !saved, let edited = waiting.compactMap({ action -> String? in
+                if case .compose(let text) = action { return text }; return nil
+            }).last {
+                // A failed first send must not be overwritten by typing that arrived behind it.
+                // Keep both pieces of text for recovery and never automatically send a combined draft.
+                let original = state.draft
+                state.draft = original.isEmpty || edited.hasPrefix(original) ? edited : original + "\n\n" + edited
+                waiting.removeAll { action in
+                    switch action { case .compose, .sendDraft: return true; default: return false }
+                }
+            }
             if !saved, !cleanup.isEmpty, state.voice != nil {
                 apply(.voiceInterrupted(at: SystemClock().nowMs()))
             }
@@ -241,6 +252,15 @@ public final class AppStore {
                 return true
             } catch {
                 persistenceProblem = "This iPhone could not save your latest changes. Free storage to keep your work safely."
+                for effect in effects {
+                    if case .deliver(let id) = effect,
+                       state.outbox.contains(where: { $0.clientID == id && $0.state == .sending }) {
+                        // The previous durable entry is still waiting. Do not leave an undelivered
+                        // message stuck as in-flight after the save that authorized delivery failed.
+                        state = Reducer.reduce(state, .deliveryFailed(clientID: id,
+                            failure: .retryable(reason: "local-storage", afterMs: 0), at: 0)).state
+                    }
+                }
                 return false
             }
         }
