@@ -26,12 +26,17 @@ trap 'rm -rf "$SBOX"' EXIT
 STUBS="$SBOX/stubs"; mkdir -p "$STUBS"
 cat > "$STUBS/open" <<'EOF'
 #!/bin/bash
-# Records every argument, one per line, then "starts" the app by adding a ps row.
-printf '%s\n' "$@" > "$STUB_STATE/open.args"
-[ -n "${STUB_OPEN_FAIL:-}" ] && { echo "stub open: refused" >&2; exit 1; }
+# Records every argument, one per line, and ITS OWN environment, then "starts" the app by
+# adding a ps row. The launcher runs `open` under `env -i`, so nothing of the test's
+# environment reaches this stub: its state directory is found from the HOME it was given
+# (the fake account home), and the failure modes are flag files, never variables.
+STATE="$HOME.state"
+printf '%s\n' "$@" > "$STATE/open.args"
+env > "$STATE/open.env"
+[ -e "$STATE/open.fail" ] && { echo "stub open: refused" >&2; exit 1; }
 app=""; prev=""
 for a in "$@"; do [ "$prev" = "-a" ] && app="$a"; prev="$a"; done
-[ -n "${STUB_OPEN_NOPROC:-}" ] || printf '4242 1 %s/Contents/MacOS/richos-tauri\n' "$app" >> "$STUB_STATE/ps.rows"
+[ -e "$STATE/open.noproc" ] || printf '4242 1 %s/Contents/MacOS/richos-tauri\n' "$app" >> "$STATE/ps.rows"
 exit 0
 EOF
 cat > "$STUBS/ps" <<'EOF'
@@ -95,7 +100,8 @@ run() {
   local h="$1"; shift
   export STUB_STATE="$h.state"; mkdir -p "$STUB_STATE" "$SBOX/tmp"
   OUT="$(env -u CLAUDE_CONFIG_DIR \
-      RICHOS_NIGHTLY_TEST_REAL_HOME="$h" \
+      NIGHTLY_TEST_CANARY=from-the-shell PATH="/opt/homebrew/bin:$PATH" \
+      HOME="$h" RICHOS_NIGHTLY_TEST_REAL_HOME="$h" \
       RICHOS_NIGHTLY_OPEN="$STUBS/open" RICHOS_NIGHTLY_PS="$STUBS/ps" \
       RICHOS_NIGHTLY_LAUNCHCTL="$STUBS/launchctl" RICHOS_NIGHTLY_WAIT_SECONDS="${WAIT:-3}" \
       TMPDIR="$SBOX/tmp" \
@@ -150,7 +156,7 @@ if [ "$(sed -n 1p "$A")" = "-n" ] && [ "$(sed -n 2p "$A")" = "-a" ] && [ "$(sed 
   ok "L1 opens a NEW instance of the folder's own app through LaunchServices"
 else bad "L1 opens a NEW instance of the folder's own app" "$(head -3 "$A")"; fi
 ENV_OK=1
-for want in "HOME=$F/home.noindex" "CFFIXED_USER_HOME=$F/home.noindex" "RICHOS_ACTIVATION=regular" "DISABLE_AUTOUPDATER=1" \
+for want in "HOME=$F/home.noindex" "CFFIXED_USER_HOME=$F/home.noindex" "TMPDIR=$F/home.noindex/tmp/" "RICHOS_ACTIVATION=regular" "DISABLE_AUTOUPDATER=1" \
             "LORO_CORPUS=" "LORO_ROOT=" "RICHOS_ENGINE_DIR=" "RICHOS_ENGINE_ROOT=" "RICHOS_CLAUDE_BIN="; do
   grep -qxF -- "$want" "$A" || { ENV_OK=0; bad "L1 the app is started with $want" "$(tr '\n' ' ' < "$A")"; }
 done
@@ -158,6 +164,14 @@ done
 if grep -E '^(RICHOS_ENGINE_DIR|RICHOS_ENGINE_ROOT|LORO_CORPUS|LORO_ROOT|RICHOS_CLAUDE_BIN)=.' "$A" >/dev/null; then
   bad "L1 no engine, memory or claude override carries a value" "$(grep -E '^(RICHOS_ENGINE|LORO_|RICHOS_CLAUDE)' "$A")"
 else ok "L1 no engine, memory or claude override carries a value, so the pinned engine is the only one the nightly can boot"; fi
+E="$H.state/open.env"
+if [ ! -s "$E" ]; then bad "L1 open runs under a clean environment" "the stub recorded no environment"
+elif grep -q 'NIGHTLY_TEST_CANARY' "$E"; then bad "L1 nothing from the calling shell reaches open, so nothing reaches the app" "$(grep CANARY "$E")"
+elif ! grep -qx 'PATH=/usr/bin:/bin:/usr/sbin:/sbin' "$E"; then bad "L1 open gets launchd's PATH, not the shell's" "$(grep '^PATH=' "$E")"
+elif ! grep -qx "TMPDIR=$F/home.noindex/tmp/" "$E"; then bad "L1 open's TMPDIR is the folder's own" "$(grep '^TMPDIR=' "$E")"
+else ok "L1 open runs under env -i: launchd's PATH, the folder's TMPDIR, and no variable from the calling shell"; fi
+[ -d "$F/home.noindex/tmp" ] && [ "$(stat -f %Lp "$F/home.noindex/tmp")" = "700" ] \
+  && ok "L1 the folder's own TMPDIR exists and is private" || bad "L1 the folder's own TMPDIR exists and is private" "$(ls -la "$F/home.noindex")"
 grep -q '^CLAUDE_CONFIG_DIR' "$A" && bad "L1 CLAUDE_CONFIG_DIR is never passed" "$(grep CLAUDE_CONFIG_DIR "$A")" \
   || ok "L1 CLAUDE_CONFIG_DIR is never passed"
 grep -qx -- "--stdout" "$A" && grep -q "^$F/logs/" "$A" && ok "L1 the app's output goes to the folder's own logs/" \
@@ -314,13 +328,13 @@ done
 H="$(new_home h12)"
 run "$H" a --again
 expect_refusal "L12 --again on an empty folder is refused" "holds no nightly yet"
-STUB_OPEN_FAIL=1; export STUB_OPEN_FAIL
+mkdir -p "$H.state"; touch "$H.state/open.fail"
 run "$H" a "$ZIPS/v1.zip"
-unset STUB_OPEN_FAIL
+rm -f "$H.state/open.fail"
 expect_refusal "L12 macOS refusing to open the app is reported" "macOS refused to open"
-STUB_OPEN_NOPROC=1; export STUB_OPEN_NOPROC
+touch "$H.state/open.noproc"
 WAIT=1 run "$H" a "$ZIPS/v1.zip"
-unset STUB_OPEN_NOPROC
+rm -f "$H.state/open.noproc"
 expect_refusal "L12 no app process appearing is reported, with the log to read" "logs/"
 tmp_clean "L12 the launcher's scratch is gone after every refusal"
 

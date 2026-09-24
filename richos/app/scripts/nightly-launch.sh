@@ -76,11 +76,15 @@
 #   RICHOS_CLAUDE_BIN=               explicit and exclusive (setup.rs `find_claude`); the
 #                                    folder's own link below is what the app should find.
 #
+#   TMPDIR=<home>/tmp/               the app's own temporary files stay in the folder.
+#
 # The launch goes through LaunchServices (`open -n -a`), so the app is launchd's child
-# exactly as a double-clicked app is, and the terminal can be closed afterwards. A launch
-# through LaunchServices does not carry this shell's environment, which is why every
-# value above is stated rather than inherited, and why CLAUDE_CONFIG_DIR is refused
-# rather than cleared: `claude` treats an empty value as a path.
+# exactly as a double-clicked app is, and the terminal can be closed afterwards. `open`
+# DOES carry the caller's environment into the app (measured in a guest, 2026-09-24), so
+# it runs under `env -i` with only what launchd gives an app opened from Finder; see
+# "Start it" below. CLAUDE_CONFIG_DIR is refused rather than cleared: if it is set, your
+# Claude configuration is not ~/.claude, so the link below would be the wrong one, and
+# `claude` reads an empty value as a path.
 #
 # THE SIGN-IN. Under a folder HOME `claude` answers "Not logged in" unless three things
 # of his are reachable from it (richos docs/verification/first-words-on-the-window-
@@ -474,10 +478,24 @@ mkdir -p "$FOLDER/logs" || die "cannot create $FOLDER/logs."
 LOG="$FOLDER/logs/$(date -u +%Y%m%dT%H%M%SZ).log"
 BEFORE="$WORK/before"
 "$PS_BIN" -axo pid= 2>/dev/null | tr -d ' ' > "$BEFORE"
+( umask 077; mkdir -p "$NHOME/tmp" ) || die "cannot create $NHOME/tmp."
 
-"$OPEN_BIN" -n -a "$APP" \
+# `open` hands the app ITS OWN environment. MEASURED in a test guest, 2026-09-24: a
+# variable exported in the shell before this script ran was in the started app's
+# environment (`ps -wwE`). So whatever this shell carries — a CLAUDECODE from a Claude Code
+# session, a PATH with Homebrew on it, a stray RICHOS_* — would reach the nightly and every
+# `claude` it starts. `open` therefore runs under `env -i`, with only what launchd gives an
+# app opened from Finder: launchd's PATH, who you are, your shell, your ssh agent, and a
+# TMPDIR, which is the folder's own so the app's temporary files stay inside it.
+LAUNCH_ENV=("PATH=/usr/bin:/bin:/usr/sbin:/sbin" "HOME=$REAL_HOME" "USER=$(id -un)" "LOGNAME=$(id -un)"
+            "SHELL=${SHELL:-/bin/zsh}" "TMPDIR=$NHOME/tmp/")
+[ -n "${SSH_AUTH_SOCK:-}" ] && LAUNCH_ENV+=("SSH_AUTH_SOCK=$SSH_AUTH_SOCK")
+[ -n "${__CF_USER_TEXT_ENCODING:-}" ] && LAUNCH_ENV+=("__CF_USER_TEXT_ENCODING=$__CF_USER_TEXT_ENCODING")
+
+/usr/bin/env -i "${LAUNCH_ENV[@]}" "$OPEN_BIN" -n -a "$APP" \
   --env "HOME=$NHOME" \
   --env "CFFIXED_USER_HOME=$NHOME" \
+  --env "TMPDIR=$NHOME/tmp/" \
   --env "RICHOS_ACTIVATION=regular" \
   --env "DISABLE_AUTOUPDATER=1" \
   --env "LORO_CORPUS=" \
