@@ -20,6 +20,7 @@
     phone-ios.py battery                           level, charging and external power
     phone-ios.py syslog --seconds S --out FILE     the phone's log for S seconds, keeping ONLY lines that
                                                    name RichOSNative or dev.richos.connect
+    (`syslog` and `battery` take --network for an unplugged phone: libimobiledevice's -n, same pairing)
 
 The iPhone counterpart of phone-android.py. iOS 26 offers no shell on the phone, so every tap,
 type, Home, lock and screenshot goes through one XCUITest check that executes a list of steps
@@ -280,7 +281,7 @@ def lock(args):
 
 
 def battery(args):
-    p = subprocess.run(["ideviceinfo", "-u", args.device, "-q", "com.apple.mobile.battery"],
+    p = subprocess.run(["ideviceinfo", "-u", args.device, *(["-n"] if args.network else []), "-q", "com.apple.mobile.battery"],
                        capture_output=True, text=True, timeout=60)
     values = dict(line.split(": ", 1) for line in p.stdout.splitlines() if ": " in line)
     if p.returncode != 0 or "BatteryCurrentCapacity" not in values:
@@ -300,7 +301,8 @@ def syslog(args):
     out = Path(args.out)
     if not str(out.resolve()).startswith("/Volumes/E1TB/"):
         raise CannotAnswer("--out must be on /Volumes/E1TB")
-    relay = subprocess.Popen(["idevicesyslog", "-u", args.device, "--no-colors"], stdout=subprocess.PIPE,
+    relay = subprocess.Popen(["idevicesyslog", "-u", args.device, *(["-n"] if args.network else []), "--no-colors"],
+                             stdout=subprocess.PIPE,
                              stderr=subprocess.DEVNULL, text=True, errors="replace")
     kept = total = 0
     deadline = time.monotonic() + args.seconds
@@ -353,6 +355,9 @@ def main(argv):
         if name == "syslog":
             s.add_argument("--seconds", type=float, required=True)
             s.add_argument("--out", required=True)
+        if name in ("syslog", "battery"):
+            # Unplugged (round 2 discharge windows): libimobiledevice's network mode, same pairing.
+            s.add_argument("--network", action="store_true")
     args = parser.parse_args(argv)
     try:
         if args.command == "check":

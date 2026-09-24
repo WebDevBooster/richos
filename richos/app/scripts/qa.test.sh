@@ -37,7 +37,7 @@
 #   N1-N5   phone-client: a foreign Mac that refuses the credential is the
 #           answer, one that ACCEPTS it exits non-zero; argument refusals
 #   K1-K5   flake-rate: counts, interleaving, a kept failing log, refusals
-#   I1-I15  phone-ios: a step list validated before any build, refusals, the
+#   I1-I16  phone-ios: a step list validated before any build, refusals, the
 #           per-step log read once each, no picture of the person's account,
 #           a reused build trusted only against its stamp, no lock without a
 #           person to open it, a bounded log capture kept on the SSD
@@ -570,6 +570,9 @@ expect "I14 a log capture with no interval is refused" 2 "--seconds must be 1 to
 
 run python3 "$QA/phone-ios.py" syslog --device x --seconds 5 --out "$TMP/syslog.txt"
 expect "I15 a log capture off the external SSD is refused before the relay starts" 2 "--out must be on /Volumes/E1TB"
+
+run python3 "$QA/phone-ios.py" battery --device 00000000-NOT-A-PHONE --network
+expect "I16 a battery reading from a phone that is not there is refused, never a number" 2 "did not report the battery"
 
 run env -u RICHOS_IOS_DEVICE python3 "$QA/phone-ios.py" run "$TMP/ios-ok.json" --out /Volumes/E1TB/nonexistent-qa-test
 expect "I5 run refuses without a named phone" 2 "set RICHOS_IOS_DEVICE"
