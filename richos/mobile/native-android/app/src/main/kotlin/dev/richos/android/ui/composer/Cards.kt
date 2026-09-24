@@ -122,7 +122,7 @@ fun RecoveryCard(kept: KeptRecording, onEvent: (UiEvent) -> Unit) {
     val (title, body) = when (kept.reason) {
         KeptReason.KEPT -> "Your unsent voice message" to null
         KeptReason.CEILING -> "Your 30-minute voice message is saved below" to "Send it, then start another."
-        KeptReason.INTERRUPTED -> "Your unsent voice message" to "Recording stopped when the app went to the background. It is kept here."
+        KeptReason.INTERRUPTED -> "Your unsent voice message" to "Recording was interrupted. Your voice message is kept here."
     }
     ComposerCardFrame(
         title, body,

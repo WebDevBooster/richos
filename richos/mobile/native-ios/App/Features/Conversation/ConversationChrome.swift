@@ -273,7 +273,7 @@ struct KeptRecordingCard: View {
                 CardText(title: "Your unsent voice message")
             case .interrupted:
                 CardText(title: "Your unsent voice message",
-                         detail: "Recording stopped when the app went to the background. It is kept here.")
+                         detail: "Recording was interrupted. Your voice message is kept here.")
             case .ceiling:
                 CardText(title: "Your 30-minute voice message is saved below",
                          detail: "Send it, then start another.")
