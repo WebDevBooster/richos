@@ -17,7 +17,8 @@
 #   native-ios-ui.test.sh                        both parts
 #   native-ios-ui.test.sh --headless             part 1 only
 #   native-ios-ui.test.sh --only <Class/test>    part 2 scoped (xcodebuild -only-testing), repeatable,
-#                                                e.g. --only ScreenshotTests/testComposerDark
+#                                                e.g. --only ScreenshotTests/testComposerDark; the unit
+#                                                bundle is named whole, --only RichOSNativeTests[/Suite]
 #   native-ios-ui.test.sh --device se|pm         part 2 on one device
 #
 # Missing Xcode, the iOS runtime, xcodegen or `native-ios/project.yml` exits 2 with NOT RUN; a failure
@@ -42,7 +43,14 @@ DEVICES=("iPhone SE (3rd generation)" "iPhone 16 Pro Max")
 while [ $# -gt 0 ]; do
   case "$1" in
     --headless) MODE=headless; shift ;;
-    --only) ONLY+=("-only-testing:RichOSNativeUITests/$2"); shift 2 ;;
+    --only)
+      # The UI bundle is implied; the unit bundle (UnitTests/) is named in full, so a scoped run can
+      # still reach it (a full device run is longer than one foreground call).
+      case "$2" in
+        RichOSNativeTests|RichOSNativeTests/*) ONLY+=("-only-testing:$2") ;;
+        *) ONLY+=("-only-testing:RichOSNativeUITests/$2") ;;
+      esac
+      shift 2 ;;
     --device)
       case "$2" in
         se) DEVICES=("iPhone SE (3rd generation)") ;;
