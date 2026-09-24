@@ -141,6 +141,24 @@ def main():
         step(f'quit {label}', pid=pid, forced=forced, gone=gone and not listed)
         return gone and not listed
 
+    def shoot(name):
+        """A frame of the guest's screen once the window shows content, not its boot splash.
+
+        Run 1 photographed a blank white and a dark window: the frames were taken while the
+        web view was still loading. So wait (at most 45 s) until the accessibility tree holds
+        at least ten nodes, then take the frame, and record how many there were."""
+        nodes = 0
+        end = time.monotonic() + 45
+        while time.monotonic() < end:
+            rc, tree = ax('tree')
+            nodes = len([l for l in tree.splitlines() if l.strip()])
+            if nodes >= 10:
+                break
+            time.sleep(1.5)
+        subprocess.run([str(HERE / 'shot.sh'), vm, str(out / (name + '.png'))], timeout=60, capture_output=True)
+        result.setdefault('frames', {})[name] = {'ax_nodes': nodes}
+        save()
+
     def log_text(path):
         return gr('cat ' + shlex.quote(path) + ' 2>/dev/null || true', 60)[1]
 
@@ -267,8 +285,7 @@ def main():
                 step(f'{label}: pressed "Set it up"', exit=rc)
                 done, text = wait_log(log, '[richos] setup: engine ', 420)
                 step(f'{label}: engine setup logged', done=done)
-                subprocess.run([str(HERE / 'shot.sh'), vm, str(out / f'{label}-setup-finished.png')], timeout=60,
-                               capture_output=True)
+                shoot(f'{label}-setup-finished')
                 for _ in range(60):
                     rc, tree = ax('tree', '--in', 'dialog')
                     if any('"Close"' in line and 'AXButton' in line for line in tree.splitlines()):
@@ -286,7 +303,7 @@ def main():
         pid = f['pid']; started.append(pid); log_a1 = f['log']
         n = wait_window(pid)
         check('a: the window appears', n >= 1, {'pid': pid, 'windows': n})
-        subprocess.run([str(HERE / 'shot.sh'), vm, str(out / 'a-first-window.png')], timeout=60, capture_output=True)
+        shoot('a-first-window')
         ok, facts = app_env(pid, folder_a)
         result['a_app_environment'] = facts
         check("a: the app runs on the folder's HOME, CFFIXED_USER_HOME and TMPDIR, launchd's PATH, and nothing from the shell",
@@ -313,7 +330,7 @@ def main():
         result['a_again_engine_line'] = engine_line
         check('a again: the engine resolves via application support, carrying the pin',
               a.pin[:12] in engine_line and 'via application support' in engine_line, engine_line)
-        subprocess.run([str(HERE / 'shot.sh'), vm, str(out / 'a-again-window.png')], timeout=60, capture_output=True)
+        shoot('a-again-window')
         (out / 'a-again.log').write_text(text)
         check('a again: quit and gone', quit_pid(pid, 'a again'))
 
@@ -341,7 +358,7 @@ def main():
         check('b: the app reads that memory folder with its memory compiler installed',
               any('loro-root' in l or folder_b + '/memory' in l for l in loro_lines)
               and not any('not installed' in l or 'not found' in l for l in loro_lines), loro_lines[:8])
-        subprocess.run([str(HERE / 'shot.sh'), vm, str(out / 'b-again-window.png')], timeout=60, capture_output=True)
+        shoot('b-again-window')
         (out / 'b-again.log').write_text(text)
         check('b again: quit and gone', quit_pid(pid, 'b again'))
 
