@@ -97,6 +97,8 @@ public struct Fixture: Sendable {
         Fixture(name: "pair-words", state: make {
             $0.pairing = .confirming; $0.mac = tailnet
             $0.fingerprintWords = ["harbor", "velvet", "copper", "meadow", "lantern", "quartz"]
+            // A current Mac, which offers `pair-wait`: "They match" asks it to hold the answer.
+            $0.macWait = MacWait(boundMs: MacWait.windowMs, holds: true)
         }),
         Fixture(name: "pair-refused", state: make { $0.pairingProblem = .refused }),
         Fixture(name: "pair-blocked", state: paired(extra: [me("q1", "Move the Friday review to 3 PM.", now, .waiting)]) {
@@ -106,13 +108,14 @@ public struct Fixture: Sendable {
         Fixture(name: "pair-consent", state: paired { $0.consentGiven = false }),
         // Pairing v2, not in round 12 (the PWA's wording, `web/web-app/app.js`): the words stay up
         // while the phone waits for "They match" on the Mac, and the three ways a v2 pairing ends
-        // without one. The wait is posed mid-schedule: three probes asked, the fourth due in 8 s.
+        // without one. The wait is posed mid-schedule: three asks after the press, the fourth due in
+        // 8 s, with a current Mac, which offers `pair-wait`.
         Fixture(name: "pair-awaiting-mac", state: make {
             $0.pairing = .awaitingMac
             $0.mac = MacLink(origin: tailnet.origin, route: .tailnet, deviceID: "dev_8d4c57b7ff82", threadID: "thr_5c1e")
             $0.fingerprintWords = ["harbor", "velvet", "copper", "meadow", "lantern", "quartz"]
             $0.macWait = MacWait(boundMs: MacWait.windowMs, deadlineMs: now - 10_000 + MacWait.windowMs, requests: 3,
-                                 nextAskAtMs: now + 8_000)
+                                 nextAskAtMs: now + 8_000, holds: true)
         }),
         Fixture(name: "pair-mac-update", state: make { $0.pairingProblem = .macNeedsUpdate }),
         Fixture(name: "pair-mac-refused", state: make { $0.pairingProblem = .notAcceptedByMac }),
@@ -325,6 +328,12 @@ public struct Scenario: Sendable {
                                    devicePoint: "BHeD5OMhLyZtmo_jItzPIy19OQHRTz-GzSkelcn1CcsBLXff5lTM1wQ1t7Qk_lxDP4s_Z_YF0lCzliqloS3zmdw",
                                    confirmWithinSeconds: 240)
     static let answerWords = "gazelle coral lettuce grape kayak camera"
+    /// The same Mac, current: it offers `pair-wait` beside `pair-v2`.
+    static let holdingAnswer: PairAnswer = {
+        var a = answer
+        a.offersPairWait = true
+        return a
+    }()
 
     static let t0 = Conversation.at(9, 41)
 
@@ -509,7 +518,8 @@ public struct Scenario: Sendable {
         }),
         // Pairing v2's wait for the press on the Mac, foreground only: off screen nothing is owed, a
         // late answer is dropped, the return asks at once, a relaunch resumes it, and past the bound it
-        // ends truthfully. Then a Mac that refuses this phone, and "They do not match" while waiting.
+        // asks one last time and then ends truthfully. Then a Mac that refuses this phone, and "They do
+        // not match" while waiting. This Mac does not offer `pair-wait`: today's schedule.
         Scenario(name: "pair-mac-wait", steps: [
             Command(.reset),
             Command(.action, action: .submitPairingLink(text: link)),
@@ -522,6 +532,7 @@ public struct Scenario: Sendable {
             Command(.action, action: .macConfirmation(.awaiting, at: t0 + 60_200)),
             Command(.restart),
             Command(.action, action: .foregrounded(at: t0 + 240_000)),
+            Command(.action, action: .macConfirmation(.awaiting, at: t0 + 240_100)),
             Command(.action, action: .submitPairingLink(text: link)),
             Command(.action, action: .pairingAnswered(answer)),
             Command(.action, action: .confirmWords),
@@ -539,13 +550,44 @@ public struct Scenario: Sendable {
             try require(s[8].macWait?.nextAskAtMs == t0 + 63_200, "not yet: the next probe on the schedule (3 s)")
             try require(s[9].screen == .pairAwaitingMac && s[9].macWait?.deadlineMs == t0 + 240_000 && s[9].macWait?.paused == true,
                         "a relaunch keeps the wait and its deadline, paused until the app is on screen")
-            try require(s[10].screen == .pairIntro && s[10].pairingProblem == .macAnswerExpired && s[10].mac == nil && s[10].macWait == nil,
-                        "past the bound the wait ends truthfully and nothing is kept")
-            try require(s[14].screen == .pairIntro && s[14].pairingProblem == .notAcceptedByMac && s[14].mac == nil,
+            try require(s[10].screen == .pairAwaitingMac && s[10].macWait?.finalAsk == true && s[10].macWait?.asking == true,
+                        "past the bound the phone asks one last time: the press may have happened while it was away")
+            try require(s[11].screen == .pairIntro && s[11].pairingProblem == .macAnswerExpired && s[11].mac == nil && s[11].macWait == nil,
+                        "the last ask heard no yes: the wait ends truthfully and nothing is kept")
+            try require(s[15].screen == .pairIntro && s[15].pairingProblem == .notAcceptedByMac && s[15].mac == nil,
                         "the Mac refused this phone: nothing is kept")
-            try require(s[17].screen == .pairAwaitingMac, "waiting again")
-            try require(s[18].screen == .pairIntro && s[18].pairingProblem == .wordsRejected && s[18].mac == nil && s[18].macWait == nil,
+            try require(s[18].screen == .pairAwaitingMac, "waiting again")
+            try require(s[19].screen == .pairIntro && s[19].pairingProblem == .wordsRejected && s[19].mac == nil && s[19].macWait == nil,
                         "They do not match while waiting: nothing is kept, and the screen says it stopped")
+        }),
+        // `pair-wait` (Sage's pair-v2 hypotheses review §1): a Mac that holds the ask. The press is the
+        // first ask and is held; a held answer is followed by the next ask at once; leaving the screen
+        // cancels the ask in flight; the return waits until 7 s after the previous ask; the press on
+        // the Mac, heard during a hold, pairs.
+        Scenario(name: "pair-mac-hold", steps: [
+            Command(.reset),
+            Command(.action, action: .submitPairingLink(text: link)),
+            Command(.action, action: .pairingAnswered(holdingAnswer)),
+            Command(.action, action: .confirmWords),
+            Command(.action, action: .macConfirmation(.awaiting, at: t0 + 14_000, askedAt: t0)),
+            Command(.action, action: .tick(at: t0 + 14_000)),
+            Command(.action, action: .backgrounded(at: t0 + 16_000)),
+            Command(.action, action: .foregrounded(at: t0 + 17_000)),
+            Command(.action, action: .tick(at: t0 + 21_000)),
+            Command(.action, action: .macConfirmation(.confirmed, at: t0 + 23_500, askedAt: t0 + 21_000)),
+        ], check: { s in
+            try require(s[2].macWait?.holds == true, "the Mac named pair-wait beside pair-v2")
+            try require(s[3].screen == .pairAwaitingMac && s[3].macWait?.asking == true && s[3].macWait?.requests == 0,
+                        "They match is the first ask, and it is held")
+            try require(s[4].macWait?.deadlineMs == t0 + 240_000 && s[4].macWait?.nextAskAtMs == t0 + 14_000,
+                        "held for 14 s: the bound counts from the press, and the next ask goes at once")
+            try require(s[5].macWait?.asking == true && s[5].macWait?.requests == 1, "the tick asks, held again")
+            try require(s[6].macWait?.paused == true && s[6].macWait?.asking == false && TickSchedule.nextTick(s[6]) == nil,
+                        "off screen: the ask in flight is dropped and nothing is scheduled")
+            try require(s[7].macWait?.asking == false && s[7].macWait?.nextAskAtMs == t0 + 21_000,
+                        "back 3 s after the ask started: the next ask waits for the 7 s spacing")
+            try require(s[8].macWait?.asking == true && s[8].macWait?.requests == 2, "then it asks")
+            try require(s[9].screen == .pairConsent && s[9].macWait == nil, "pressed on the Mac during the hold: paired")
         }),
         // A refused code, a bad pasted link, and "they do not match" each leave nothing paired.
         Scenario(name: "pair-refused-and-rejected", steps: [

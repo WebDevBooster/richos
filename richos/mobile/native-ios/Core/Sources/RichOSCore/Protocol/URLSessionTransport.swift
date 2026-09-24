@@ -11,7 +11,12 @@ public final class URLSessionTransport: NSObject, HTTPTransport, EventStreamTran
     private let session: URLSession
     private let requestTimeout: TimeInterval
 
-    public init(requestTimeout: TimeInterval = 30) {
+    /// How long one request may take. It must outlast the longest hold a `pair-wait` Mac is asked for
+    /// (14 s; `pairing.json` `pair_wait.request_timeout_must_exceed_ms`), so a held ask is answered by
+    /// the Mac rather than cut off by the phone.
+    public static let defaultRequestTimeout: TimeInterval = 30
+
+    public init(requestTimeout: TimeInterval = URLSessionTransport.defaultRequestTimeout) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpCookieStorage = nil
         configuration.urlCache = nil

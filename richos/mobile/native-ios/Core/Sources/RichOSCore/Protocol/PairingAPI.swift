@@ -36,6 +36,17 @@ public enum PairingWire {
         Data("{\"device_id\":\(json(deviceID)),\"fingerprint_confirmed\":\(matches),\"push_transport\":\"apns\"}".utf8)
     }
 
+    /// ONE ASK OF THE WAIT FOR THE PRESS ON THE MAC (`pairing.json` `pair_wait.asks`; the reference's
+    /// `macAnswer`): this phone's own signed "They match", byte for byte the body of the press, with
+    /// `Prefer: wait=N` (N at most 14) when `waitSeconds` is above 0, unsigned. Send a hold only to a
+    /// Mac that offers `pair-wait`. The Mac's answer is read with `MacConfirmation.ofConfirmation`;
+    /// throws `APIError(.unreachable)` when no Mac answered.
+    public static func askForTheMacsPress(_ api: APIClient, deviceID: String, waitSeconds: Int) async throws -> HTTPResponse {
+        let prefer = waitSeconds > 0 ? ["Prefer": "wait=\(min(waitSeconds, MacWait.holdSecondsMax))"] : [:]
+        return try await api.signed("POST", "/api/pair", body: confirmationBody(deviceID: deviceID, matches: true),
+                                    contentType: "application/json", unsignedHeaders: prefer)
+    }
+
     /// Native push registration, APNs shape (contract §7.2; `platform` absent means APNs).
     public static func pushRegistrationBody(tokenHex: String, sandbox: Bool, previewKey: Data?, previews: Bool) -> Data {
         var fields = ["\"token\":\(json(tokenHex.lowercased()))", "\"environment\":\(json(sandbox ? "sandbox" : "production"))",
@@ -123,6 +134,8 @@ public struct PairingAnswerWire: Decodable, Equatable, Sendable {
 
     /// The Mac offers pairing v2.
     public var offersPairV2: Bool { capabilities?.contains(PairingWire.pairV2Capability) == true }
+    /// The Mac can hold the wait's ask until the press on the Mac (`pair-wait`, beside `pair-v2`).
+    public var offersPairWait: Bool { capabilities?.contains(MacWait.pairWaitCapability) == true }
 }
 
 /// The unsigned pairing exchange, as `conformance/vectors/pairing.json` `pair_v2.exchanges` (and

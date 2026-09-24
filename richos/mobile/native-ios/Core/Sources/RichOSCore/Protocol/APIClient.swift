@@ -80,15 +80,19 @@ public actor APIClient {
 
     /// A signed request. `pathWithQuery` excludes `auth`. Returns the Mac's answer (any status) after
     /// the one re-sign; throws `APIError` only when no Mac answered (`.unreachable`) or no challenge is held.
+    /// `unsignedHeaders` are sent as they are and never signed: `Prefer` is the only one, unsigned on
+    /// purpose (Sage's pair-v2 hypotheses review, "Security, plainly": stripping or forging it changes
+    /// only how long an answer takes).
     public func signed(_ method: String, _ pathWithQuery: String, body: Data? = nil, contentType: String? = nil,
-                       credential: Credential = .header) async throws -> HTTPResponse {
+                       credential: Credential = .header, unsignedHeaders: [String: String] = [:]) async throws -> HTTPResponse {
         var resigned = false
         // After a relaunch no challenge is held: the probe asks for one (contract §5.7).
         if challenge == nil { try await probeChallenge() }
         while true {
             try Task.checkCancellation()
             guard let current = challenge else { throw APIError(reason: .fault, status: 0, retryable: true, aboutThisMessage: false) }
-            let request = try await signedRequest(method, pathWithQuery, body: body, contentType: contentType, credential: credential)
+            var request = try await signedRequest(method, pathWithQuery, body: body, contentType: contentType, credential: credential)
+            for (name, value) in unsignedHeaders { request.headers[name] = value }
             let response: HTTPResponse
             do {
                 response = try await transport.send(request, origin: origin)
