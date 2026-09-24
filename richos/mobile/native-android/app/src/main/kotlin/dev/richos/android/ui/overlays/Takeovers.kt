@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.Hyphens
 import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.richos.android.design.ButtonKind
 import dev.richos.android.design.Mark
@@ -42,29 +43,47 @@ import dev.richos.android.design.Rich
 import dev.richos.android.design.RichButton
 import dev.richos.android.design.RichIcon
 import dev.richos.android.design.RichIcons
+import dev.richos.android.design.ScrollEdgeFade
 import dev.richos.android.design.Spinner
 import dev.richos.android.design.lamp
 import dev.richos.android.design.plane
 import dev.richos.android.ui.UiEvent
 
-/** Headings and eyebrows break a word only when it alone is wider than the line (iOS audit F10). */
+/**
+ * Headings and eyebrows break at word boundaries, balanced, and are never hyphenated: round 12.1
+ * never hyphenates, and an automatic hyphen split the product name ("RichCon-nect", Urban's
+ * 2026-09-24 audit G6). A word breaks only when it alone is wider than the line (iOS audit F10).
+ */
 private val wrapping = LineBreak.Paragraph.copy(strategy = LineBreak.Strategy.Balanced)
 
 /**
  * `.takeover`: a full screen on the ground with the lamp. Its content scrolls when the text is
- * large; its buttons stay on screen underneath (iOS audit O2, F1: the actions never leave).
+ * large; its buttons stay on screen underneath (iOS audit O2, F1: the actions never leave). While
+ * more content lies below, a fade marks the scroll edge so the cut never looks like clipping
+ * (Urban's 2026-09-24 audit G3). [top] and [buttonGap] are round 12.1's `.takeover` padding and
+ * the air above the buttons; the consent screen tightens the first and widens the second.
  */
 @Composable
-fun TakeoverFrame(tag: String, buttons: @Composable ColumnScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
+fun TakeoverFrame(
+    tag: String,
+    buttons: @Composable ColumnScope.() -> Unit = {},
+    top: Dp = 28.dp,
+    buttonGap: Dp = 12.dp,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     val c = Rich.colors
+    val scroll = rememberScrollState()
     Column(
         Modifier.fillMaxSize().background(c.ground).lamp()
             .windowInsetsPadding(WindowInsets.safeDrawing)
-            .padding(start = 26.dp, end = 26.dp, top = 28.dp, bottom = 20.dp)
+            .padding(start = 26.dp, end = 26.dp, top = top, bottom = 20.dp)
             .semantics { testTag = tag },
     ) {
-        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), content = content)
-        Column(Modifier.fillMaxWidth().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = buttons)
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            Column(Modifier.fillMaxSize().verticalScroll(scroll), content = content)
+            ScrollEdgeFade(scroll, Modifier.align(Alignment.BottomCenter))
+        }
+        Column(Modifier.fillMaxWidth().padding(top = buttonGap), verticalArrangement = Arrangement.spacedBy(10.dp), content = buttons)
     }
 }
 
@@ -75,28 +94,28 @@ fun Eyebrow(text: String, modifier: Modifier = Modifier) {
     // DECLARED SKIPPABLE (design system's eyebrow class): 14 sp all-caps; signal 7.68:1 dark, ink 14.90:1 light.
     BasicText(
         text.uppercase(),
-        style = t.eyebrow.copy(color = if (c.isDark) c.signal else c.ink, lineBreak = wrapping, hyphens = Hyphens.Auto),
+        style = t.eyebrow.copy(color = if (c.isDark) c.signal else c.ink, lineBreak = wrapping, hyphens = Hyphens.None),
         modifier = modifier,
     )
 }
 
 @Composable
-fun DisplayHeading(text: String, modifier: Modifier = Modifier) {
+fun DisplayHeading(text: String, modifier: Modifier = Modifier, top: Dp = 14.dp) {
     val c = Rich.colors
     val t = Rich.type
     val small = LocalConfiguration.current.screenWidthDp < 380
     BasicText(
         text,
-        style = (if (small) t.displaySmall else t.display).copy(color = c.ink, lineBreak = wrapping, hyphens = Hyphens.Auto),
-        modifier = modifier.padding(top = 14.dp).semantics { heading() },
+        style = (if (small) t.displaySmall else t.display).copy(color = c.ink, lineBreak = wrapping, hyphens = Hyphens.None),
+        modifier = modifier.padding(top = top).semantics { heading() },
     )
 }
 
 @Composable
-fun Lede(text: String, modifier: Modifier = Modifier) {
+fun Lede(text: String, modifier: Modifier = Modifier, top: Dp = 16.dp) {
     val c = Rich.colors
     val t = Rich.type
-    BasicText(text, style = t.answer.copy(color = c.ink), modifier = modifier.padding(top = 16.dp))
+    BasicText(text, style = t.answer.copy(color = c.ink), modifier = modifier.padding(top = top))
 }
 
 @Composable
@@ -244,29 +263,60 @@ fun NeedsNewerApp(onEvent: (UiEvent) -> Unit) {
     }
 }
 
-/** The consent screen before the first message (reachable later from Settings). */
+/**
+ * The consent screen before the first message (reachable later from Settings). Its whole job is
+ * to be read (Apple 5.1.2(i)): all three lines and their details sit above the buttons with 18 dp
+ * of air (`.takeover:has(.consent-rows) .stack`), never cut. On the small phone the rhythm tightens
+ * as round 12.1's does on its small phone (`.phone[data-device="small"] .consent-rows`); a phone
+ * that is also short (the 360 × 640 dp one) tightens the same gaps further until the details fit
+ * (Urban's 2026-09-24 audit G3). At a large text size it scrolls, with the scroll edge marked. The
+ * words are never shortened to fit.
+ */
 @Composable
 fun Consent(onEvent: (UiEvent) -> Unit) {
+    val config = LocalConfiguration.current
+    val r = ConsentRhythm.of(config.screenWidthDp, config.screenHeightDp)
     TakeoverFrame(
         "pairing-consent",
+        top = r.top,
+        buttonGap = 18.dp,
         buttons = {
             RichButton("Continue", { onEvent(UiEvent.ConsentContinue) }, tall = true, wide = true)
             RichButton("Learn more", { onEvent(UiEvent.ConsentLearnMore) }, kind = ButtonKind.QUIET, wide = true)
         },
     ) {
         Eyebrow("Before your first message")
-        DisplayHeading("Where your words go")
-        Lede("One thing to know before you talk to Rich from this phone.")
-        Column(Modifier.padding(top = 26.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            ConsentRow(RichIcons.Mac, "What you type or say goes to your Mac.", "Your conversation lives there, not on our servers.")
-            ConsentRow(RichIcons.Spark, "Rich (powered by your AI provider) writes the reply there.", "So, all the AI work happens on your Mac.")
-            ConsentRow(RichIcons.Cloud, "Our connection service just moves the messages between your Mac and your phone.", "Encrypted on the way, stored nowhere.")
+        DisplayHeading("Where your words go", top = r.headingTop)
+        Lede("One thing to know before you talk to Rich from this phone.", top = r.ledeTop)
+        Column(Modifier.padding(top = r.rowsTop), verticalArrangement = Arrangement.spacedBy(r.rowGap)) {
+            ConsentRow(RichIcons.Mac, "What you type or say goes to your Mac.", "Your conversation lives there, not on our servers.", r.detailTop)
+            ConsentRow(RichIcons.Spark, "Rich (powered by your AI provider) writes the reply there.", "So, all the AI work happens on your Mac.", r.detailTop)
+            ConsentRow(RichIcons.Cloud, "Our connection service just moves the messages between your Mac and your phone.", "Encrypted on the way, stored nowhere.", r.detailTop)
+        }
+    }
+}
+
+/**
+ * The consent screen's vertical rhythm: round 12.1's regular phone (28 / 26 / 14), its small phone
+ * (18 / 18 / 11), and, for a phone both narrow and short, the same gaps tightened until all three
+ * details fit above the buttons at 100% text.
+ */
+private data class ConsentRhythm(val top: Dp, val headingTop: Dp, val ledeTop: Dp, val rowsTop: Dp, val rowGap: Dp, val detailTop: Dp) {
+    companion object {
+        private val regular = ConsentRhythm(top = 28.dp, headingTop = 14.dp, ledeTop = 16.dp, rowsTop = 26.dp, rowGap = 14.dp, detailTop = 2.dp)
+        private val small = regular.copy(top = 18.dp, rowsTop = 18.dp, rowGap = 11.dp)
+        private val smallAndShort = ConsentRhythm(top = 12.dp, headingTop = 10.dp, ledeTop = 12.dp, rowsTop = 12.dp, rowGap = 8.dp, detailTop = 0.dp)
+
+        fun of(widthDp: Int, heightDp: Int): ConsentRhythm = when {
+            widthDp < 380 && heightDp < 700 -> smallAndShort
+            widthDp < 380 -> small
+            else -> regular
         }
     }
 }
 
 @Composable
-private fun ConsentRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, body: String) {
+private fun ConsentRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, body: String, detailTop: Dp) {
     val c = Rich.colors
     val t = Rich.type
     Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.Top) {
@@ -275,7 +325,7 @@ private fun ConsentRow(icon: androidx.compose.ui.graphics.vector.ImageVector, ti
         }
         Column(Modifier.weight(1f)) {
             BasicText(title, style = t.bodyStrong.copy(color = c.ink))
-            BasicText(body, style = t.read.copy(color = c.inkSoft), modifier = Modifier.padding(top = 2.dp))
+            BasicText(body, style = t.read.copy(color = c.inkSoft), modifier = Modifier.padding(top = detailTop))
         }
     }
 }
@@ -310,7 +360,7 @@ fun UpdateRequired(version: String, onEvent: (UiEvent) -> Unit) {
         Eyebrow("Update required")
         BasicText(
             "This version of RichConnect can no longer send",
-            style = t.displayBlocking.copy(color = c.ink, lineBreak = wrapping, hyphens = Hyphens.Auto),
+            style = t.displayBlocking.copy(color = c.ink, lineBreak = wrapping, hyphens = Hyphens.None),
             modifier = Modifier.padding(top = 14.dp).semantics { heading() },
         )
         Lede("Version $version is in Google Play now. Updating takes about a minute.")

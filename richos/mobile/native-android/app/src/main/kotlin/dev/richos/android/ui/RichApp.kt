@@ -293,9 +293,13 @@ private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEven
             // Bottom-padded by the composer zone's own measured height (as Thread's scroll is,
             // line below): at the smallest phone and the largest text the added voice-message
             // paragraph is tall enough to reach the composer, and must scroll clear of it rather
-            // than sit behind it (ScreensTest conv-empty--*-small-font200).
+            // than sit behind it (ScreensTest conv-empty--*-small-font200). It starts where round
+            // 12.1 starts it, "higher so the paragraph clears the composer on both phones": the
+            // thread's own top, then 24% of the thread's width (12% on the small phone,
+            // `.beginning.empty-first`).
+            val lift = (maxWidth - 24.dp) * (if (maxHeight < 700.dp) 0.12f else 0.24f)
             EmptyConversation(
-                Modifier.align(Alignment.TopCenter).padding(top = maxHeight * 0.38f).padding(bottom = zoneDp + 20.dp),
+                Modifier.align(Alignment.TopCenter).padding(top = headerDp + 16.dp + lift).padding(bottom = zoneDp + 20.dp),
             )
         } else {
             Thread(

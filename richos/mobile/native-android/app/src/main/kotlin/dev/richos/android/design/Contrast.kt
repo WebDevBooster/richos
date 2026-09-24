@@ -91,7 +91,8 @@ object ContrastPairings {
             Pairing("danger on surface (Forget row inside the sheet)", c.danger, c.surface, Floor.TEXT),
             Pairing("danger on your bubble (needs-attention glyph, non-text)", c.danger, mine, Floor.LARGE_OR_INDICATOR),
             Pairing("playing voice length on your bubble (signal dark / ink light)", if (c.isDark) c.signal else c.ink, mine, Floor.TEXT),
-            Pairing("disabled circle glyph and ring (ink-soft on surface)", c.inkSoft, c.surface, Floor.LARGE_OR_INDICATOR),
+            Pairing("disabled orb, gold dimmed to 45% (signal on surface)", c.signal.copy(alpha = 0.45f), c.surface, Floor.EXEMPT,
+                "WCAG 1.4.11 exempts inactive components: round 12.1 dims the disabled orb (audit G13), and the composer's own line says why sending is off at text contrast"),
             Pairing("ink on keyboard key (review frames)", c.ink, c.keyboardKey, Floor.TEXT),
             Pairing("toggle knob off (ink 70% on ground, non-text)", c.ink.copy(alpha = 0.7f), c.ground, Floor.LARGE_OR_INDICATOR),
             Pairing("toggle track on (signal on surface, non-text)", c.signal, c.surface, Floor.LARGE_OR_INDICATOR),
@@ -134,6 +135,10 @@ object ContrastPairings {
                 Contrast.over(RichColors.Fixed.scannerChrome, Contrast.over(RichColors.Fixed.cameraDim, androidx.compose.ui.graphics.Color.White)), Floor.TEXT),
             Pairing("scanner: camera not available (scanner ink on the scene)", RichColors.Fixed.scannerInk, RichColors.Fixed.scannerScene, Floor.TEXT),
             Pairing("scanner: the camera opening, spinner arc (signal on the scene, non-text)", c.signal, RichColors.Fixed.scannerScene, Floor.LARGE_OR_INDICATOR),
+            // The dim now covers the feed from its first frame, the spinner included; the scanner draws
+            // it in the dark palette in both themes (audit G12).
+            Pairing("scanner: the camera opening over a live camera, spinner arc (dark signal over the dim over white, non-text)",
+                RichColors.Dark.signal, Contrast.over(RichColors.Fixed.cameraDim, androidx.compose.ui.graphics.Color.White), Floor.LARGE_OR_INDICATOR),
         )
     }
 }

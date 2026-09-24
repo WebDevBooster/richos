@@ -130,6 +130,37 @@ class NotificationsTest {
     private fun data(event: String, thread: String = "b".repeat(64)) =
         RemoteMessage.Builder("x@fcm.googleapis.com").setData(mapOf("v" to "1", "host" to "a".repeat(32), "thread" to thread, "event" to event)).build()
 
+    private fun posted() = shadowOf(app.getSystemService(NotificationManager::class.java)).allNotifications
+
+    /** The reply notifications, without the group's summary. */
+    private fun replies() = posted().filter { it.flags and android.app.Notification.FLAG_GROUP_SUMMARY == 0 }
+
+    /**
+     * Urban's 2026-09-24 audit G5 (§4.3): the replies are one app-owned group whose summary (the
+     * collapsed group's tap) opens the NEWEST reply, the same way that reply's own tap does, and never
+     * sounds a second time.
+     */
+    @Test
+    fun `tapping the collapsed group opens the newest reply`() {
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        RichMessagingService.keysFor = { _: Context -> keys() }
+        val service = Robolectric.buildService(RichMessagingService::class.java).create().get()
+        service.onMessageReceived(data("c".repeat(64)))
+        service.onMessageReceived(data("d".repeat(64)))
+        val summaries = posted().filter { it.flags and android.app.Notification.FLAG_GROUP_SUMMARY != 0 }
+        val summary = summaries.single()
+        assertEquals(2, replies().size)
+        assertTrue((replies() + summary).all { it.group == Replies.GROUP })
+        assertEquals(android.app.Notification.GROUP_ALERT_CHILDREN, summary.groupAlertBehavior)
+        val opens = shadowOf(summary.contentIntent).savedIntent
+        assertEquals("d".repeat(64), NotificationTarget.fromIntent(opens)!!.event)
+        assertEquals("b".repeat(64), NotificationTarget.fromIntent(opens)!!.thread)
+        assertTrue(opens.component?.className == "dev.richos.android.app.MainActivity")
+        // Tapping the newest reply itself goes to the same place.
+        val newest = replies().map { shadowOf(it.contentIntent).savedIntent }.single { NotificationTarget.fromIntent(it)!!.event == "d".repeat(64) }
+        assertEquals(NotificationTarget.fromIntent(newest), NotificationTarget.fromIntent(opens))
+    }
+
     @Test
     fun `each notification opens its own reply - the tap intents are distinct and carry that reply's references`() {
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
@@ -137,7 +168,7 @@ class NotificationsTest {
         val service = Robolectric.buildService(RichMessagingService::class.java).create().get()
         service.onMessageReceived(data("c".repeat(64)))
         service.onMessageReceived(data("d".repeat(64)))
-        val opened = shadowOf(app.getSystemService(NotificationManager::class.java)).allNotifications
+        val opened = replies()
             .map { shadowOf(it.contentIntent).savedIntent }
         assertEquals(2, opened.size)
         assertEquals(setOf("c".repeat(64), "d".repeat(64)), opened.map { NotificationTarget.fromIntent(it)!!.event }.toSet())
@@ -145,12 +176,29 @@ class NotificationsTest {
         assertTrue(opened.all { it.flags and Intent.FLAG_ACTIVITY_SINGLE_TOP != 0 })
     }
 
+    /** Urban's 2026-09-24 audit G4: the RichConnect mark, not Android's stock chat bubble, tinted gold. */
+    @Test
+    fun `a reply notification carries the RichConnect mark, tinted signal gold`() {
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        RichMessagingService.keysFor = { _: Context -> keys() }
+        Robolectric.buildService(RichMessagingService::class.java).create().get().onMessageReceived(data("c".repeat(64)))
+        val posted = shadowOf(app.getSystemService(NotificationManager::class.java)).allNotifications
+        assertTrue(posted.isNotEmpty())
+        for (n in posted) {
+            assertEquals(dev.richos.android.R.drawable.ic_notification, n.smallIcon.resId)
+            assertTrue(n.smallIcon.resId != android.R.drawable.stat_notify_chat)
+            assertEquals(0xFF9C7C34.toInt(), n.color)
+        }
+        // The drawable is the generated one-color mark (release/make-app-icon.cjs), and it inflates.
+        assertTrue(app.getDrawable(dev.richos.android.R.drawable.ic_notification) != null)
+    }
+
     @Test
     fun `a malformed reference still shows the reply, and the tap opens the app without a target`() {
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         RichMessagingService.keysFor = { _: Context -> keys() }
         Robolectric.buildService(RichMessagingService::class.java).create().get().onMessageReceived(data("not-hex"))
-        val posted = shadowOf(app.getSystemService(NotificationManager::class.java)).allNotifications.single()
+        val posted = replies().single()
         assertEquals("Rich has replied.", posted.extras.getCharSequence("android.text").toString())
         assertEquals(null, NotificationTarget.fromIntent(shadowOf(posted.contentIntent).savedIntent))
     }
@@ -207,7 +255,7 @@ class NotificationsTest {
         service.onMessageReceived(
             RemoteMessage.Builder("x@fcm.googleapis.com").setData(mapOf("v" to "1", "thread" to "b".repeat(64), "event" to "d".repeat(64))).build(),
         )
-        val posted = shadowOf(app.getSystemService(NotificationManager::class.java)).allNotifications
+        val posted = replies()
             .map { it.extras.getCharSequence("android.text").toString() }.sorted()
         assertEquals(listOf("Rich has replied.", "The supplier accepted £42,000. Your approval is needed."), posted)
     }

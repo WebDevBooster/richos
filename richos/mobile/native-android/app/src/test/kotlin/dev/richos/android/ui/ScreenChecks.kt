@@ -57,15 +57,15 @@ object ScreenChecks {
             if (clippedH || clippedW || ellipsized) {
                 problems += "clipped text “${text.take(40)}” (text ${"%.0f".format(mp.width)}×${"%.0f".format(mp.height)} px in ${node.size.width}×${node.size.height})"
             }
-            // A word broken inside itself (iOS audit F3), unless the style hyphenates: then it breaks
-            // only when the word alone is wider than the line, and says so with a hyphen (F10).
-            if (layout.layoutInput.style.hyphens != Hyphens.Auto) {
-                val laid = layout.layoutInput.text.text
-                for (line in 0 until layout.lineCount - 1) {
-                    val end = layout.getLineEnd(line)
-                    if (end in 1 until laid.length && laid[end - 1].isLetterOrDigit() && laid[end].isLetterOrDigit()) {
-                        problems += "word broken across lines “${laid.substring(maxOf(0, end - 12), minOf(laid.length, end + 12))}”"
-                    }
+            // Nothing is hyphenated: round 12.1 never hyphenates, and an automatic hyphen split the
+            // product name in a heading ("RichCon-nect", Urban's 2026-09-24 audit G6).
+            if (layout.layoutInput.style.hyphens == Hyphens.Auto) problems += "hyphenated text “${text.take(40)}”"
+            // A word broken inside itself (iOS audit F3).
+            val laid = layout.layoutInput.text.text
+            for (line in 0 until layout.lineCount - 1) {
+                val end = layout.getLineEnd(line)
+                if (end in 1 until laid.length && laid[end - 1].isLetterOrDigit() && laid[end].isLetterOrDigit()) {
+                    problems += "word broken across lines “${laid.substring(maxOf(0, end - 12), minOf(laid.length, end + 12))}”"
                 }
             }
             val size = layout.layoutInput.style.fontSize

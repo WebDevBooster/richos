@@ -37,11 +37,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
@@ -60,6 +62,8 @@ import dev.richos.android.design.RichColors
 import dev.richos.android.design.RichIcon
 import dev.richos.android.design.RichIcons
 import dev.richos.android.design.RichMotion
+import dev.richos.android.design.RichTheme
+import dev.richos.android.core.Theme
 import dev.richos.android.design.RoundButton
 import dev.richos.android.design.touchTarget
 import androidx.compose.ui.text.font.FontWeight
@@ -85,12 +89,18 @@ fun Scanner(found: Boolean, onEvent: (UiEvent) -> Unit, camera: (@Composable () 
         val centerY = maxHeight * 0.45f
         // A live camera can show anything, a white wall included: outside the viewfinder it is
         // dimmed so every word on it clears its floor over a WHITE frame (ContrastTest, "scanner
-        // over a live camera"). Round 12's drawn scene is dark already, so review frames stay as drawn.
-        if (camera != null && status == ScannerCamera.READY) CameraDim(centerY - finder / 2, finder)
+        // over a live camera"). The dim is drawn from the first frame the preview can show, not
+        // once the camera reports it is open: round 12.1's scene is always dimmed, and a caption
+        // must never sit on the bare feed, even for one frame (Urban's 2026-09-24 audit G12). The
+        // viewfinder's window opens in it once the camera is showing. Round 12's drawn scene is
+        // dark already, so review frames without a camera stay as drawn.
+        if (camera != null) CameraDim(centerY - finder / 2, finder, window = status == ScannerCamera.READY)
         if (status == ScannerCamera.READY) {
             Viewfinder(found, Modifier.align(Alignment.TopCenter).offset(y = centerY - finder / 2).size(finder))
         } else {
-            CameraNotShowing(status, Modifier.align(Alignment.Center).padding(horizontal = 36.dp))
+            // The scanner is dark in both themes (a camera view): its spinner and words take the dark
+            // palette, whose signal clears 3:1 over the dim over a white frame (3.85:1; light's is 2.37).
+            RichTheme(Theme.DARK) { CameraNotShowing(status, Modifier.align(Alignment.Center).padding(horizontal = 36.dp)) }
         }
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             Row(
@@ -142,20 +152,24 @@ fun Scanner(found: Boolean, onEvent: (UiEvent) -> Unit, camera: (@Composable () 
     }
 }
 
-/** The live camera dimmed by [RichColors.Fixed.cameraDim], except inside the viewfinder at [top], [size] square. */
+/**
+ * The live camera dimmed by [RichColors.Fixed.cameraDim], with the viewfinder's [window] at [top],
+ * [size] square, left clear once the camera is showing. One even-odd path drawn in the same pass as
+ * everything else: no offscreen layer, nothing that can arrive a frame late.
+ */
 @Composable
-private fun CameraDim(top: androidx.compose.ui.unit.Dp, size: androidx.compose.ui.unit.Dp) {
+private fun CameraDim(top: androidx.compose.ui.unit.Dp, size: androidx.compose.ui.unit.Dp, window: Boolean) {
     val dim = RichColors.Fixed.cameraDim
-    Canvas(Modifier.fillMaxSize().graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }.clearAndSetSemantics { }) {
-        drawRect(dim)
-        val s = size.toPx()
-        drawRoundRect(
-            Color.Black,
-            topLeft = Offset((this.size.width - s) / 2, top.toPx()),
-            size = Size(s, s),
-            cornerRadius = CornerRadius(22.dp.toPx()),
-            blendMode = BlendMode.Clear,
-        )
+    Canvas(Modifier.fillMaxSize().clearAndSetSemantics { testTag = "camera-dim" }) {
+        val veil = Path().apply {
+            fillType = PathFillType.EvenOdd
+            addRect(Rect(Offset.Zero, this@Canvas.size))
+            if (window) {
+                val s = size.toPx()
+                addRoundRect(RoundRect(Rect(Offset((this@Canvas.size.width - s) / 2, top.toPx()), Size(s, s)), CornerRadius(22.dp.toPx())))
+            }
+        }
+        drawPath(veil, dim)
     }
 }
 

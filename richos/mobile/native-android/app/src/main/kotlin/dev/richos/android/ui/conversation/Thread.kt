@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -28,7 +29,9 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
@@ -38,9 +41,11 @@ import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import dev.richos.android.design.Mark
 import dev.richos.android.design.Rich
 import dev.richos.android.design.RichMotion
+import dev.richos.android.design.ScrollEdgeFade
 import dev.richos.android.design.Spinner
 import dev.richos.android.design.plane
 import dev.richos.android.ui.UiEvent
@@ -278,25 +283,41 @@ private fun HistoryTop(edge: HistoryEdge) {
 }
 
 /**
- * The first minute: the mark, one line, the composer ready (`conv-empty`). Scrolls rather than
- * clipping: the smallest phone at the largest text setting cannot fit the voice-message paragraph
- * in the fixed band above the composer (ScreensTest `conv-empty--*-small-font200`).
+ * The first minute: the mark, one line, the composer ready (`conv-empty`), then the CEO's how-to
+ * for the microphone, verbatim with his straight apostrophe. Round 12.1 (`.beginning .mic-how`):
+ * below a hairline (`line-faint`) 22 dp under the line above and 20 dp above the paragraph, 16 sp,
+ * FULL ink (not the soft ink of the line above), centered, a 300 dp measure, leading 1.55 (Urban's
+ * 2026-09-24 audit G7). Scrolls rather than clipping: the smallest phone at the largest text setting
+ * cannot fit the paragraph in the band above the composer (ScreensTest `conv-empty--*-small-font200`),
+ * and a fade then marks the scroll edge, so the cut never looks like clipping (audit G16).
  */
 @Composable
 fun EmptyConversation(modifier: Modifier = Modifier) {
     val c = Rich.colors
     val t = Rich.type
-    Column(
-        modifier.fillMaxWidth().padding(horizontal = 24.dp).verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Mark(56.dp, Modifier.padding(bottom = 12.dp))
-        BasicText("Say something to Rich", style = t.welcome.copy(color = c.ink, textAlign = TextAlign.Center), modifier = Modifier.padding(bottom = 6.dp))
-        BasicText("Your conversation will appear here.", style = t.read.copy(color = c.inkSoft, textAlign = TextAlign.Center))
-        BasicText(
-            "Press and hold the gold microphone to record a voice message. Release to send. Or slide left to cancel. Or slide up to lock. Because then you don’t need to hold and can scroll.",
-            style = t.read.copy(color = c.inkSoft, textAlign = TextAlign.Center),
-            modifier = Modifier.padding(top = 12.dp),
-        )
+    val scroll = rememberScrollState()
+    Box(modifier.fillMaxWidth()) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(scroll).padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Mark(56.dp, Modifier.padding(bottom = 12.dp))
+            BasicText("Say something to Rich", style = t.welcome.copy(color = c.ink, textAlign = TextAlign.Center), modifier = Modifier.padding(bottom = 6.dp))
+            BasicText("Your conversation will appear here.", style = t.read.copy(color = c.inkSoft, textAlign = TextAlign.Center))
+            val hairline = c.lineFaint
+            BasicText(
+                MIC_HOW,
+                style = t.read.copy(color = c.ink, textAlign = TextAlign.Center, lineHeight = 1.55.em),
+                modifier = Modifier.padding(top = 22.dp).widthIn(max = 300.dp).fillMaxWidth()
+                    .drawBehind { drawRect(hairline, size = Size(size.width, 1.dp.toPx())) }
+                    .padding(top = 20.dp)
+                    .semantics { testTag = "mic-how" },
+            )
+        }
+        ScrollEdgeFade(scroll, Modifier.align(Alignment.BottomCenter))
     }
 }
+
+/** The CEO’s paragraph (round 12.1 NOTES, screen 12), word for word: his straight apostrophe is his dictated copy, not house style (audit G8). */
+const val MIC_HOW =
+    "Press and hold the gold microphone to record a voice message. Release to send. Or slide left to cancel. Or slide up to lock. Because then you don't need to hold and can scroll."

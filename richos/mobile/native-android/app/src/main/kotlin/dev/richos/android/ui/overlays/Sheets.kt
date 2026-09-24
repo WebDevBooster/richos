@@ -239,7 +239,7 @@ fun Dialog(title: String, tag: String, content: @Composable ColumnScope.() -> Un
         ) {
             BasicText(
                 title,
-                style = t.dialogTitle.copy(color = c.ink, lineBreak = LineBreak.Heading, hyphens = Hyphens.Auto),
+                style = t.dialogTitle.copy(color = c.ink, lineBreak = LineBreak.Heading, hyphens = Hyphens.None),
                 modifier = Modifier.padding(bottom = 10.dp).semantics { heading() },
             )
             content()
@@ -280,16 +280,42 @@ fun ForgetBlockedDialog(waiting: Int, onEvent: (UiEvent) -> Unit) = Dialog("Not 
     }
 }
 
-/** 7 · Pairing blocked by unsent work — send or discard what is waiting, then pair. */
+/**
+ * 7 · Pairing blocked by unsent work — send or discard what is waiting, then pair.
+ *
+ * [removed]: the Mac already removed this phone ("Pair again" from `conn-revoked`). Then nothing
+ * can be sent, there is no pairing to keep, and what waits must never go to the next Mac paired:
+ * same dialog, the heading unchanged, Urban's copy (2026-09-24 audit §4.1, G2), and two ways out:
+ * "Discard and pair" (filled, the only way forward) and "Not now", which closes the dialog, keeps
+ * the messages and returns to the takeover.
+ */
 @Composable
-fun PairingBlockedDialog(waiting: Int, onEvent: (UiEvent) -> Unit) = Dialog(
-    if (waiting == 1) "One message is still waiting" else "$waiting messages are still waiting", "pairing-blocked-dialog",
+fun PairingBlockedDialog(waiting: Int, onEvent: (UiEvent) -> Unit, removed: Boolean = false) = Dialog(
+    when {
+        waiting == 1 -> "One message is still waiting"
+        removed -> "${countWord(waiting)} still waiting"
+        else -> "$waiting messages are still waiting"
+    },
+    "pairing-blocked-dialog",
 ) {
-    DialogText("It was written for the Mac this phone is paired with now. Send it or discard it, then pair with the new Mac.")
-    DialogActions {
-        RichButton("Send it first", { onEvent(UiEvent.SendWaitingFirst) }, wide = true)
-        RichButton("Discard and pair", { onEvent(UiEvent.DiscardAndPair) }, kind = ButtonKind.GHOST, wide = true)
-        RichButton("Keep this pairing", { onEvent(UiEvent.KeepThisPairing) }, kind = ButtonKind.QUIET, wide = true)
+    if (removed) {
+        val one = waiting == 1
+        DialogText(
+            (if (one) "It was" else "They were") + " written for the Mac that removed this phone, so " + (if (one) "it" else "they") +
+                " can’t be sent now. Discard " + (if (one) "it" else "them") + ", then pair again.",
+        )
+        DialogActions {
+            RichButton("Discard and pair", { onEvent(UiEvent.DiscardAndPair) }, wide = true)
+            // "Not now" is core's close, as "Keep this pairing" is: the refusal clears, the messages stay.
+            RichButton("Not now", { onEvent(UiEvent.KeepThisPairing) }, kind = ButtonKind.QUIET, wide = true)
+        }
+    } else {
+        DialogText("It was written for the Mac this phone is paired with now. Send it or discard it, then pair with the new Mac.")
+        DialogActions {
+            RichButton("Send it first", { onEvent(UiEvent.SendWaitingFirst) }, wide = true)
+            RichButton("Discard and pair", { onEvent(UiEvent.DiscardAndPair) }, kind = ButtonKind.GHOST, wide = true)
+            RichButton("Keep this pairing", { onEvent(UiEvent.KeepThisPairing) }, kind = ButtonKind.QUIET, wide = true)
+        }
     }
 }
 
