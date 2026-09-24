@@ -39,17 +39,13 @@ object AppPorts {
     fun create(context: Context, wire: HttpsMac = HttpsMac(), recorder: Recorder = Recorder.NONE, platform: Platform = Platform.NONE, picker: AttachPicker = AttachPicker.NONE): Ports {
         val dir = File(context.filesDir, "core")
         val outboxFile = JsonFile(File(dir, "outbox.json"), ListSerializer(OutboxItem.serializer())) { emptyList() }
-        val sessionFile = JsonFile(File(dir, "session.json"), Session.serializer()) { Session() }
         return Ports(
             storage = object : OutboxStorage {
                 override suspend fun all(): List<OutboxItem> = outboxFile.read()
                 override suspend fun put(item: OutboxItem) = outboxFile.write(outboxFile.read().filter { it.clientId != item.clientId } + item)
                 override suspend fun remove(clientId: String) = outboxFile.write(outboxFile.read().filter { it.clientId != clientId })
             },
-            session = object : SessionStore {
-                override suspend fun read(): Session = sessionFile.read()
-                override suspend fun write(session: Session) = sessionFile.write(session)
-            },
+            session = LocalSessionStore(dir),
             // Null: the core speaks to the paired Mac itself over [http] and [keys] (MacTransport).
             transport = null,
             clock = Clock { System.currentTimeMillis() },

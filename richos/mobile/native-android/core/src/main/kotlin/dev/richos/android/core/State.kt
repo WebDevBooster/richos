@@ -230,3 +230,12 @@ data class AppState(
 }
 
 enum class ComposerAction { RECORD, SEND }
+
+/** Disposable history, persisted separately from drafts and send transactions. */
+@Serializable
+data class SavedHistory(
+    val identity: String = "",
+    val rows: Map<String, List<dev.richos.android.core.protocol.Row>> = emptyMap(),
+    val older: Map<String, Boolean> = emptyMap(),
+    val cursor: Long? = null,
+)
