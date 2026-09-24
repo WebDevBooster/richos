@@ -8,6 +8,9 @@
     phone-android.py --serial SERIAL node TEXT                     the matching nodes: class, bounds, focus, text
     phone-android.py --serial SERIAL swipe TEXT --dx DX --dy DY    swipe from that node's center (a Recents card)
     phone-android.py --serial SERIAL type-file FILE                type FILE's text, one `input text` per character
+    phone-android.py --serial SERIAL keys FILE --keymap MAP.json   type FILE's text by TAPPING the on-screen
+                                                                   keyboard's keys, as a thumb does (MAP: {"char": [x, y]})
+    phone-android.py --serial SERIAL field                         the text of every editable field on screen
     phone-android.py --serial SERIAL shot FILE.png                 the screen, as a PNG on this Mac
     phone-android.py --serial SERIAL burst DIR --seconds S [--tap-desc TEXT]
                                                                    frames for S seconds into DIR, each named by
@@ -19,6 +22,13 @@
                                                                    rhythm is an animation or a timer that never ends)
     phone-android.py --serial SERIAL state --package PKG [--out F] what PKG leaves running: see below
     phone-android.py compare BEFORE.json AFTER.json                what changed between two `state` records
+    phone-android.py --serial SERIAL observe --package PKG --label L --out-dir DIR --settle S --seconds N
+                     [--action home|kill|force-stop|sleep|none]
+                                                                   one closure-matrix cell: do the action
+                                                                   (none = the walker already did it through real
+                                                                   controls), settle S s, read `state`, wait N s,
+                                                                   read it again, write L-start/L-end/L-compare
+                                                                   .json into DIR and print the comparison
 
 A node "shows" TEXT when its text or its content description equals TEXT, or starts with it when
 TEXT ends in "…"; `--contains` matches a substring instead. The screen is read with
@@ -33,7 +43,9 @@ It records the package's stopped flag, standby bucket, processes (pid, birth, CP
 context switches), whether its activity is resumed, its running services, held wake locks
 (`dumpsys power`), microphone use (`cmd appops get PKG RECORD_AUDIO` and the audio service's
 recording clients for the app's uid), scheduled jobs, pending alarms, the app's open sockets, its
-own notifications, screen/keyguard state and the charger. A counter the phone does not expose is
+own notifications, screen/keyguard state and the charger. The microphone is "running" only when
+AppOps marks its RECORD_AUDIO access "(running)"; the audio service's start/stop lines are kept
+as `recentRecordingEvents`, which is history. A counter the phone does not expose is
 recorded as null with the reason, never as zero. `compare` subtracts CPU ticks and context
 switches only when the SAME process (pid and birth time) is present at both ends.
 
@@ -219,9 +231,12 @@ def state(phone, package):
     rec["wakeLocks"] = [l.strip() for l in power.splitlines()
                         if "WAKE_LOCK" in l and (f"uid={uid}" in l or package in l)]
     rec["microphoneAppOp"] = phone.sh(f"cmd appops get {package} RECORD_AUDIO", check=False).strip()
+    # AppOps marks an access that is still open "(running)": that, and only that, is live capture.
+    rec["microphoneRunning"] = "(running)" in rec["microphoneAppOp"]
     audio = phone.sh("dumpsys audio", check=False)
-    rec["activeRecordings"] = [l.strip() for l in audio.splitlines()
-                               if re.search(r"(session|riid).*uid[:=]\s*%d\b" % uid, l) and "rec" in l.lower()]
+    # The audio service's recent start/stop/release history for this uid: history, not live state.
+    rec["recentRecordingEvents"] = [l.strip() for l in audio.splitlines()
+                                    if re.search(r"(session|riid).*uid[:=]\s*%d\b" % uid, l) and "rec" in l.lower()]
     jobs = phone.sh(f"dumpsys jobscheduler {package}", check=False)
     rec["jobs"] = [l.strip() for l in jobs.splitlines() if re.search(r"JOB #\S*" + re.escape(package), l)]
     alarms = phone.sh("dumpsys alarm", check=False)
@@ -287,10 +302,10 @@ def compare(a, b):
     out["sameProcess"] = same
     out["processesAtStart"] = [p["pid"] for p in a.get("processes", [])]
     out["processesAtEnd"] = [p["pid"] for p in b.get("processes", [])]
-    for key in ("services", "wakeLocks", "activeRecordings", "jobs", "pendingAlarms"):
+    for key in ("services", "wakeLocks", "jobs", "pendingAlarms"):
         out[key] = {"start": a.get(key), "end": b.get(key)}
     for key in ("stoppedFlag", "standbyBucket", "screen", "keyguardShowing", "resumedActivity",
-                "microphoneAppOp", "openSockets", "ownNotifications", "foregroundServices"):
+                "microphoneRunning", "openSockets", "ownNotifications", "foregroundServices"):
         out[key] = {"start": a.get(key), "end": b.get(key)}
     return out
 
@@ -300,7 +315,7 @@ def main(argv):
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--serial")
     p.add_argument("--adb", default="adb", help="adb executable (tests substitute a scripted one)")
-    p.add_argument("command", choices=["texts", "wait", "gone", "tap", "node", "swipe", "type-file", "shot", "burst", "idle-frames", "state", "compare"])
+    p.add_argument("command", choices=["texts", "wait", "gone", "tap", "node", "swipe", "type-file", "keys", "field", "shot", "burst", "idle-frames", "observe", "state", "compare"])
     p.add_argument("value", nargs="?")
     p.add_argument("value2", nargs="?")
     p.add_argument("--timeout", type=float, default=15)
@@ -310,6 +325,11 @@ def main(argv):
     p.add_argument("--package")
     p.add_argument("--seconds", type=float)
     p.add_argument("--tap-desc")
+    p.add_argument("--keymap")
+    p.add_argument("--label")
+    p.add_argument("--out-dir")
+    p.add_argument("--settle", type=float)
+    p.add_argument("--action", default="none")
     p.add_argument("--out")
     a = p.parse_args(argv)
     try:
@@ -329,6 +349,28 @@ def main(argv):
         if a.command == "texts":
             seen = [v for n in phone.nodes() for v in (n["text"], n["desc"]) if v]
             return emit({"ok": True, "texts": seen})
+        if a.command == "observe":
+            if not (a.package and a.label and a.out_dir and a.seconds is not None and a.settle is not None):
+                raise CannotAnswer("observe needs --package, --label, --out-dir, --settle and --seconds")
+            actions = {"home": "input keyevent KEYCODE_HOME", "kill": f"am kill {a.package}",
+                       "force-stop": f"am force-stop {a.package}", "sleep": "input keyevent KEYCODE_SLEEP", "none": None}
+            if a.action not in actions:
+                raise CannotAnswer(f"--action must be one of {', '.join(actions)}")
+            out = Path(a.out_dir)
+            out.mkdir(parents=True, exist_ok=True)
+            acted = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            if actions[a.action]:
+                phone.sh(actions[a.action])
+            time.sleep(a.settle)
+            start = state(phone, a.package)
+            time.sleep(a.seconds)
+            end = state(phone, a.package)
+            result = compare(start, end)
+            result.update({"label": a.label, "action": a.action, "actedAt": acted, "settleSeconds": a.settle,
+                           "requestedSeconds": a.seconds})
+            for name, rec in (("start", start), ("end", end), ("compare", result)):
+                (out / f"{a.label}-{name}.json").write_text(json.dumps(rec, indent=2))
+            return emit({"ok": True, "observe": result})
         if a.command == "idle-frames":
             if not a.package or not a.seconds or a.seconds <= 0:
                 raise CannotAnswer("idle-frames needs --package and --seconds S")
@@ -380,6 +422,22 @@ def main(argv):
                 frames.append({"file": name.name, "requestedMs": round(asked * 1000), "receivedMs": round(got * 1000)})
             (out / "frames.json").write_text(json.dumps({"tapped": tap, "frames": frames}, indent=2))
             return emit({"ok": True, "dir": str(out), "frames": len(frames), "tapped": tap})
+        if a.command == "field":
+            fields = [{"text": n["text"], "bounds": n["bounds"], "focused": n["focused"]}
+                      for n in phone.nodes() if n["class"] == "android.widget.EditText"]
+            return emit({"ok": True, "fields": fields})
+        if a.command == "keys":
+            if not a.value or not a.keymap:
+                raise CannotAnswer("keys takes a file and --keymap MAP.json")
+            text = Path(a.value).read_text(encoding="utf-8").rstrip("\n")
+            keymap = json.loads(Path(a.keymap).read_text())
+            missing = sorted(set(ch for ch in text if ch not in keymap))
+            if not text or missing:
+                raise CannotAnswer(f"the key map has no key for {missing!r}; nothing was typed")
+            for ch in text:
+                x, y = keymap[ch]
+                phone.sh(f"input tap {int(x)} {int(y)}")
+            return emit({"ok": True, "tapped": len(text)})
         if a.command == "type-file":
             if not a.value:
                 raise CannotAnswer("type-file takes a file")

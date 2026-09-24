@@ -39,9 +39,10 @@
 #   K1-K5   flake-rate: counts, interleaving, a kept failing log, refusals
 #   R5-R8   redact --phones: the gate flags a phone-shaped fixture, the redactor
 #           covers it, the gate then passes the output, the evidence survives
-#   A1-A10  phone-android: taps by the words on screen, refuses an unnamed or
+#   A1-A15  phone-android: taps by the words on screen, refuses an unnamed or
 #           unattached phone, times out as a failure, reads a closure state and
-#           an idle-frame rhythm, all against a scripted adb (no phone)
+#           an idle-frame rhythm, types through a key map, reads the editable
+#           field, runs one closure cell, all against a scripted adb (no phone)
 #   L1-L4   lab-ledger: exactly once passes; missing, duplicated or altered
 #           fails; a timeline without the isolated lab's owner marker is refused
 #   X1      the committed fixtures still match their generator
@@ -548,7 +549,7 @@ echo "=== A. phone-android: a physical phone, driven by what is on its screen ==
 # input it is asked to inject. No phone, no emulator.
 FAKE="$TMP/fake-adb"
 cat > "$TMP/ui.xml" <<'XML'
-<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation="0"><node index="0" text="" content-desc="Message Rich" class="android.view.View" package="dev.richos.connect" bounds="[16,1412][704,1516]" focused="false" clickable="false" /><node index="1" text="" content-desc="Send message" class="android.view.View" package="dev.richos.connect" bounds="[604,828][700,924]" focused="false" clickable="true" /></hierarchy>
+<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation="0"><node index="0" text="" content-desc="Message Rich" class="android.view.View" package="dev.richos.connect" bounds="[16,1412][704,1516]" focused="false" clickable="false" /><node index="1" text="" content-desc="Send message" class="android.view.View" package="dev.richos.connect" bounds="[604,828][700,924]" focused="false" clickable="true" /><node index="2" text="draft words" content-desc="" class="android.widget.EditText" package="dev.richos.connect" bounds="[16,1412][604,1516]" focused="true" clickable="true" /></hierarchy>
 XML
 cat > "$TMP/framestats.txt" <<'TXT'
 Window: dev.richos.connect/dev.richos.android.app.MainActivity
@@ -637,6 +638,25 @@ run "$PA" --adb "$FAKE" --serial FAKE123 idle-frames --package dev.richos.connec
 if [ "$CODE" = 0 ] && printf '%s' "$OUT" | grep -q '"totalFramesRendered": 3' && printf '%s' "$OUT" | tr -d ' \n' | grep -q '"gapsMs":\[500.0,500.0\]'; then
   ok "A10 idle-frames counts the frames and reports their rhythm"
 else bad "A10 idle-frames counts the frames and reports their rhythm" "exit $CODE: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-240)"; fi
+run "$PA" --adb "$FAKE" --serial FAKE123 field
+if [ "$CODE" = 0 ] && printf '%s' "$OUT" | grep -q '"text": "draft words"'; then ok "A11 field reads the editable text back"
+else bad "A11 field reads the editable text back" "exit $CODE: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-200)"; fi
+printf '{"1":[40,1105]," ":[395,1470]}' > "$TMP/keymap.json"
+printf '1 x' > "$TMP/keys-bad.txt"
+run "$PA" --adb "$FAKE" --serial FAKE123 keys "$TMP/keys-bad.txt" --keymap "$TMP/keymap.json"
+expect "A12 keys refuses a character the key map cannot type, before tapping anything" 2 "no key for"
+printf '1 1' > "$TMP/keys-ok.txt"; : > "$TMP/adb.log"
+run "$PA" --adb "$FAKE" --serial FAKE123 keys "$TMP/keys-ok.txt" --keymap "$TMP/keymap.json"
+if [ "$CODE" = 0 ] && [ "$(grep -c 'input tap 40 1105' "$TMP/adb.log")" = 2 ] && grep -Fxq "input tap 395 1470" "$TMP/adb.log"; then
+  ok "A13 keys taps the mapped key for every character"
+else bad "A13 keys taps the mapped key for every character" "exit $CODE, log: $(tr '\n' ' ' < "$TMP/adb.log")"; fi
+: > "$TMP/adb.log"
+run "$PA" --adb "$FAKE" --serial FAKE123 observe --package dev.richos.connect --label cell --out-dir "$TMP/obs" --settle 0 --seconds 0 --action home
+if [ "$CODE" = 0 ] && grep -Fxq "input keyevent KEYCODE_HOME" "$TMP/adb.log" && [ -f "$TMP/obs/cell-start.json" ] && [ -f "$TMP/obs/cell-end.json" ] && [ -f "$TMP/obs/cell-compare.json" ]; then
+  ok "A14 observe performs the closure action and keeps both readings and the comparison"
+else bad "A14 observe performs the closure action and keeps both readings and the comparison" "exit $CODE: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-200)"; fi
+run "$PA" --adb "$FAKE" --serial FAKE123 observe --package dev.richos.connect --label x --out-dir "$TMP/obs" --settle 0 --seconds 0 --action reboot
+expect "A15 observe refuses an action it does not know rather than guessing" 2 "--action must be one of"
 
 echo ""
 echo "=== L. lab-ledger: exactly once, word for word ==="
