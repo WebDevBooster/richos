@@ -58,7 +58,51 @@ data class PairAnswer(
     @SerialName("protocol_version") val protocolVersion: Long? = null,
     @SerialName("attachment_limits") val attachmentLimits: dev.richos.android.core.AttachmentLimits? = null,
     val build: String? = null,
+    /** Pairing v2: how long the Mac keeps its "They match" press open ([MacWait.boundMs]). */
+    @SerialName("confirm_within_seconds") val confirmWithinSeconds: Double? = null,
+    @SerialName("pairing_version") val pairingVersion: Long? = null,
 )
+
+/**
+ * The capability a v2 phone requires (Sage's pairing review §3.5). A Mac that does not name it
+ * derives the old six words, which bind nothing about the connection, and a relay can strip a
+ * capability, so this phone refuses such a Mac rather than falling back (`api.js` `PAIR_V2`).
+ */
+const val PAIR_V2 = "pair-v2"
+
+/**
+ * The Mac answered the pairing code but does not offer [PAIR_V2]: refused, final, never fallen
+ * back to. [answer] is kept so the caller can sign the one `fingerprint_confirmed: false` that
+ * makes that Mac forget the key it just registered (`api.js` `pair`, `macNeedsUpdate`).
+ */
+class MacNeedsPairV2(val answer: PairAnswer) : dev.richos.android.core.TransportFailure("refused", retryable = false)
+
+/**
+ * **HOW THIS PHONE WAITS FOR THE PRESS ON THE MAC** (review §3.1 step 5; CEO ruling §81). The
+ * schedule is `api.js`'s `macWaitDelayMs` and `macWaitBoundMs`, and the conformance corpus's
+ * `mac_confirmation.wait_schedule_ms`: 2, 3, 5, 8 and 13 s, then every 15 s, never past the bound
+ * the Mac gave (`confirm_within_seconds`, at most the five-minute window), and only while the app
+ * is on screen. 2 + 3 + 5 + 8 + 13 = 31 s, then floor((300 - 31) / 15) = 17 more: at most
+ * [MAX_REQUESTS] = 22 in the whole window (the corpus's `max_requests_in_the_window`).
+ */
+object MacWait {
+    val DELAYS_MS: List<Long> = listOf(2_000, 3_000, 5_000, 8_000, 13_000)
+    const val CAP_MS = 15_000L
+    const val WINDOW_MS = 300_000L
+    const val MAX_REQUESTS = 22
+
+    /** The wait before ask number [attempt] (0-based), counted from the previous one. */
+    fun delayMs(attempt: Int): Long = if (attempt in DELAYS_MS.indices) DELAYS_MS[attempt] else if (attempt < 0) DELAYS_MS[0] else CAP_MS
+
+    /** A Mac that says nothing gets the window; a Mac that says more than the window is not believed. */
+    fun boundMs(confirmWithinSeconds: Double?): Long {
+        val s = confirmWithinSeconds ?: return WINDOW_MS
+        return if (s.isFinite() && s > 0) minOf((s * 1000).toLong(), WINDOW_MS) else WINDOW_MS
+    }
+}
+
+/** The Mac's answer to "They match": whether it is still waiting for its own press, and the newest challenge. */
+class Confirmation(val awaitingMac: Boolean, val challenge: String)
 
 /**
  * Native push registration (contract §7.2; Echo 65952d16), the FCM shape: `platform: "fcm"`, no
@@ -90,17 +134,25 @@ class Signed(val response: HttpResponse, val challenge: String)
 class MacApi(private val http: Http, private val keys: DeviceKeys) {
     private val lenient = Json { ignoreUnknownKeys = true }
 
-    suspend fun pair(link: PairLink, deviceName: String): PairAnswer {
-        val point = keys.publicPoint(link.origin)
+    /**
+     * The pairing code, from a v2 phone (Sage's pairing review §3; the corpus's `pair_v2`): the
+     * body is `native_v2_body_fields`, `code`, `public_key_jwk`, `device_name`, `platform`,
+     * `pairing_version: 2`, in that order, unsigned. A Mac whose answer does not list [PAIR_V2] is
+     * refused with [MacNeedsPairV2] and never fallen back to. [point] is this phone's key for the
+     * link's origin, the one the six words name.
+     */
+    suspend fun pair(link: PairLink, deviceName: String, point: ByteArray): PairAnswer {
         val jwk = Signing.publicJwk(point).entries.joinToString(",", "{", "}") { (k, v) -> "\"$k\":${JsonPrimitive(v)}" }
-        val body = "{\"code\":${JsonPrimitive(link.code)},\"public_key_jwk\":$jwk,\"device_name\":${JsonPrimitive(deviceName)},\"platform\":\"android\"}"
+        val body = "{\"code\":${JsonPrimitive(link.code)},\"public_key_jwk\":$jwk,\"device_name\":${JsonPrimitive(deviceName)},\"platform\":\"android\",\"pairing_version\":2}"
         val response = exchange(HttpRequest("POST", link.origin + "/api/pair", mapOf("Content-Type" to "application/json"), body.toByteArray()))
         if (response.status != 200) throw classify(response, afterResign = true)
-        return try {
+        val answer = try {
             lenient.decodeFromString(PairAnswer.serializer(), response.text)
         } catch (e: SerializationException) {
             throw TransportFailure("fault", retryable = true)
         }
+        if (PAIR_V2 !in answer.capabilities.orEmpty()) throw MacNeedsPairV2(answer)
+        return answer
     }
 
     /**
@@ -127,10 +179,37 @@ class MacApi(private val http: Http, private val keys: DeviceKeys) {
         throw TransportFailure("refused", retryable = false)
     }
 
-    /** "They match" (true) or "They do not match" (false), contract §2.5. */
-    suspend fun confirm(apiBase: String, deviceId: String, challenge: String, match: Boolean): Signed {
-        val body = "{\"device_id\":${JsonPrimitive(deviceId)},\"fingerprint_confirmed\":$match}"
-        return signed(apiBase, deviceId, challenge, "POST", "/api/pair", body.toByteArray(), "application/json")
+    /**
+     * "They match" (true) or "They do not match" (false), contract §2.5. With "They match" an
+     * Android phone names FCM as its push service when the Mac takes FCM registrations
+     * ([fcm]; the corpus's `push_transport_on_confirmation`). A v2 Mac answers "They match" with
+     * `{"ok":true,"awaiting_mac_confirmation":true}` until the person presses They match on the
+     * Mac too (the corpus's `mac_confirmation.phone_answer_while_waiting`).
+     */
+    suspend fun confirm(apiBase: String, deviceId: String, challenge: String, match: Boolean, fcm: Boolean = false): Confirmation {
+        val transport = if (match && fcm) ",\"push_transport\":\"fcm\"" else ""
+        val body = "{\"device_id\":${JsonPrimitive(deviceId)},\"fingerprint_confirmed\":$match$transport}"
+        val signed = signed(apiBase, deviceId, challenge, "POST", "/api/pair", body.toByteArray(), "application/json")
+        val json = runCatching { lenient.parseToJsonElement(signed.response.text) as? JsonObject }.getOrNull()
+        val awaiting = (json?.get("awaiting_mac_confirmation") as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == true
+        return Confirmation(awaiting, signed.challenge)
+    }
+
+    /**
+     * **HAS THE PERSON PRESSED "They match" ON THE MAC YET?** (`api.js` `macConfirmed`). One signed
+     * read of the smallest thing a paired phone may read, one backfill row
+     * (`/api/events?thread_id=…&before=0&limit=1`), which the Mac answers with the awaiting 409
+     * until the press. True once it is answered, false while the Mac still waits (with the fresh
+     * challenge the 409 carried); every other failure is thrown as it is, so a refusal (the person
+     * pressed "They do not match" on the Mac, or the window closed) is the final answer it is.
+     */
+    suspend fun macConfirmed(apiBase: String, deviceId: String, challenge: String, threadId: String?): Pair<Boolean, String> {
+        val thread = threadId?.let { "thread_id=${Signing.encodeURIComponent(it)}&" } ?: ""
+        return try {
+            true to signedQuery(apiBase, deviceId, challenge, "/api/events?${thread}before=0&limit=1").challenge
+        } catch (e: TransportFailure) {
+            if (e.awaitingMac) false to (e.challenge ?: challenge) else throw e
+        }
     }
 
     /**
@@ -214,15 +293,19 @@ class MacApi(private val http: Http, private val keys: DeviceKeys) {
     private fun classify(response: HttpResponse, afterResign: Boolean): TransportFailure {
         val json = runCatching { lenient.parseToJsonElement(response.text) as? JsonObject }.getOrNull()
         val missing = (json?.get("missing") as? kotlinx.serialization.json.JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.content }.orEmpty()
+        val fresh = response.headers["x-richos-challenge"]
+        fun flag(key: String) = (json?.get(key) as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull
         return when {
-            response.status == 422 && missing.isNotEmpty() -> TransportFailure("missing", retryable = true, missing = missing)
-            response.status == 403 && json?.get("revoked")?.jsonPrimitive?.booleanOrNull == true -> TransportFailure("revoked", retryable = false)
-            response.status == 403 -> TransportFailure("refused", retryable = false)
-            response.status == 429 -> TransportFailure("rate-limited", retryable = true)
-            response.status == 404 && afterResign -> TransportFailure("refused", retryable = false)
-            (json?.get("retry") as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == false ->
-                TransportFailure("refused", retryable = false, aboutThisMessage = true)
-            else -> TransportFailure("fault", retryable = true)
+            response.status == 422 && missing.isNotEmpty() -> TransportFailure("missing", retryable = true, missing = missing, challenge = fresh)
+            response.status == 403 && json?.get("revoked")?.jsonPrimitive?.booleanOrNull == true -> TransportFailure("revoked", retryable = false, challenge = fresh)
+            response.status == 403 -> TransportFailure("refused", retryable = false, challenge = fresh)
+            response.status == 429 -> TransportFailure("rate-limited", retryable = true, challenge = fresh)
+            response.status == 404 && afterResign -> TransportFailure("refused", retryable = false, challenge = fresh)
+            flag("retry") == false -> TransportFailure("refused", retryable = false, aboutThisMessage = true, challenge = fresh)
+            // The Mac waits for the press on the Mac (Sage F1): retryable and never final.
+            response.status == 409 && flag("awaiting_mac_confirmation") == true ->
+                TransportFailure("fault", retryable = true, awaitingMac = true, challenge = fresh)
+            else -> TransportFailure("fault", retryable = true, challenge = fresh)
         }
     }
 }

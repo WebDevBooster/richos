@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import dev.richos.android.core.RichCore
 import dev.richos.android.design.ButtonKind
 import dev.richos.android.design.Mark
 import dev.richos.android.design.Rich
@@ -142,12 +143,22 @@ private fun ErrorCard(title: String, body: String) {
  * What an unsuccessful pairing says, from core's problem code. `refused` is round 12's card; the
  * other three follow its pattern (what happened, that nothing was paired, what to do) and are
  * additions, declared: round 12 draws only the refusal.
+ *
+ * Pairing v2's three outcomes say what the PWA says (`web/web-app/app.js`: the `macNeedsUpdate`
+ * branch of `startPairing`, and `gaveUpWaiting`), with "scan it again" for the PWA's "open it on
+ * this phone again", because this app's way back is the scanner (the intro's first button).
  */
 fun pairingProblemCard(problem: String?): Pair<String, String>? = when (problem) {
     null -> null
     "refused" -> "Your Mac did not accept this code" to "Stopped, and nothing was paired. Ask your Mac for a fresh code and scan again."
     "rate-limited" -> "Too many tries for now" to "Nothing was paired. Wait a minute, then scan the code again."
     "unreachable" -> "Your Mac could not be reached" to "Nothing was paired. Keep the Mac awake with RichOS running, then scan again."
+    RichCore.PROBLEM_MAC_NEEDS_UPDATE -> "Your Mac needs an update before this phone can pair with it" to
+        "Update RichOS on your Mac, then show a fresh code there and scan it again."
+    RichCore.PROBLEM_MAC_DECLINED -> "Your Mac did not accept this phone" to
+        "If They do not match was pressed on your Mac, that is why. Otherwise show a fresh code on your Mac and scan it again."
+    RichCore.PROBLEM_EXPIRED -> "Your Mac did not get an answer in time" to
+        "Nothing was paired. Show a fresh code on your Mac and scan it again."
     else -> "Pairing did not finish" to "Nothing was paired. Ask your Mac for a fresh code and scan again."
 }
 
@@ -211,9 +222,6 @@ fun PairingProgress() {
 /** 5 · The six-word check — the trust moment. */
 @Composable
 fun SixWords(words: List<String>, onEvent: (UiEvent) -> Unit) {
-    val c = Rich.colors
-    val t = Rich.type
-    val small = LocalConfiguration.current.screenWidthDp < 380
     TakeoverFrame(
         "pairing-words",
         buttons = {
@@ -224,25 +232,57 @@ fun SixWords(words: List<String>, onEvent: (UiEvent) -> Unit) {
         Eyebrow("Check these words")
         DisplayHeading("Do they match your Mac?")
         Lede("Your Mac shows the same six words. If they match, this connection is private to you.")
-        val perRow = if (LocalDensity.current.fontScale > 1.3f) 1 else 2
-        Column(Modifier.padding(top = 26.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            words.chunked(perRow).forEachIndexed { row, pair ->
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    pair.forEachIndexed { i, w ->
-                        Row(
-                            Modifier.weight(1f).plane(RoundedCornerShape(14.dp))
-                                .padding(horizontal = if (small) 14.dp else 16.dp, vertical = if (small) 11.dp else 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            // DECLARED SKIPPABLE: the word's ordinal, 14 sp; the word itself is 28 sp serif.
-                            BasicText((row * perRow + i + 1).toString(), style = t.eyebrow.copy(color = c.inkSoft, letterSpacing = t.stamp.letterSpacing))
-                            BasicText(w, style = (if (small) t.wordSmall else t.word).copy(color = c.ink))
-                        }
+        WordGrid(words)
+    }
+}
+
+/** The six words, two to a row (one at a large text size), each on its own plane with its ordinal. */
+@Composable
+private fun WordGrid(words: List<String>) {
+    val c = Rich.colors
+    val t = Rich.type
+    val small = LocalConfiguration.current.screenWidthDp < 380
+    val perRow = if (LocalDensity.current.fontScale > 1.3f) 1 else 2
+    Column(Modifier.padding(top = 26.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        words.chunked(perRow).forEachIndexed { row, pair ->
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                pair.forEachIndexed { i, w ->
+                    Row(
+                        Modifier.weight(1f).plane(RoundedCornerShape(14.dp))
+                            .padding(horizontal = if (small) 14.dp else 16.dp, vertical = if (small) 11.dp else 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        // DECLARED SKIPPABLE: the word's ordinal, 14 sp; the word itself is 28 sp serif.
+                        BasicText((row * perRow + i + 1).toString(), style = t.eyebrow.copy(color = c.inkSoft, letterSpacing = t.stamp.letterSpacing))
+                        BasicText(w, style = (if (small) t.wordSmall else t.word).copy(color = c.ink))
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * 5+ · Waiting for the press on the Mac (pairing v2, Sage F1). "They match" on the phone is
+ * sent; the Mac lets this phone in only when the person presses They match there too. The screen
+ * says which press is missing in the PWA's words (`web/web-app/app.js` `showWaitingForMac`),
+ * keeps the words up so they can still be compared, and keeps "They do not match" as the way
+ * out. Nothing moves on it: the wait is core's schedule, not an animation, so an idle screen draws
+ * no frame (CEO ruling §81).
+ */
+@Composable
+fun WaitingForMac(words: List<String>, onEvent: (UiEvent) -> Unit) {
+    TakeoverFrame(
+        "pairing-waiting-mac",
+        buttons = {
+            RichButton("They do not match", { onEvent(UiEvent.WordsDoNotMatch) }, kind = ButtonKind.QUIET, wide = true)
+        },
+    ) {
+        Eyebrow("Almost there")
+        DisplayHeading("Now press They match on your Mac")
+        Lede("This phone connects as soon as you do. If the words on your Mac are different, press They do not match here or there.")
+        if (words.isNotEmpty()) WordGrid(words)
     }
 }
 

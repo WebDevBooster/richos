@@ -81,7 +81,7 @@ internal object DevMacRoutes {
         if (origin != mac.origin) return doc to refused(mac)
         val path = uri.rawPath + (uri.rawQuery?.let { "?$it" } ?: "")
         val auth = request.headers.entries.firstOrNull { it.key.equals("Authorization", true) }?.value
-        if (request.method == "GET" && uri.rawPath == "/api/events") return doc to backfill(doc, uri)
+        if (request.method == "GET" && uri.rawPath == "/api/events") return backfill(doc, uri)
         if (request.method != "POST" || uri.rawPath != "/api/pair") return doc to refused(mac)
         val body = request.body?.let { runCatching { json.parseToJsonElement(String(it, Charsets.UTF_8)).jsonObject }.getOrNull() }
             ?: return doc to refused(mac)
@@ -95,7 +95,7 @@ internal object DevMacRoutes {
             val y = jwk["y"]?.jsonPrimitive?.content ?: return doc to refused(mac)
             val point = byteArrayOf(4) + Signing.fromBase64url(x) + Signing.fromBase64url(y)
             if (point.size != 65) return doc to refused(mac)
-            val next = mac.copy(code = null, devicePoint = Signing.base64url(point), confirmed = false)
+            val next = mac.copy(code = null, devicePoint = Signing.base64url(point), confirmed = false, macPressed = false, forgot = false)
             val answer = buildJsonObject {
                 put("device_id", Signing.deviceId(point))
                 put("ca_fingerprint_sha256", mac.caFingerprint)
@@ -105,12 +105,19 @@ internal object DevMacRoutes {
                 put("thread_id", mac.threads.firstOrNull()?.id)
                 put("thread_title", mac.threads.firstOrNull()?.title)
                 put("threads", Json.encodeToJsonElement(ListSerializer(ConversationThread.serializer()), mac.threads) as JsonArray)
+                // Pairing v2 (the Mac's `phone/routes.rs`): the capability, and how long the press
+                // on the Mac stays open. A Mac too old for it (`mac v1`) says neither.
+                put("capabilities", JsonArray((Fixtures.CAPABILITIES + listOfNotNull("pair-v2".takeIf { mac.pairV2 })).map(::JsonPrimitive)))
+                if (mac.pairV2) {
+                    put("pairing_version", 2)
+                    put("confirm_within_seconds", mac.confirmWithinSeconds)
+                }
             }
             return doc.copy(mac = next) to ok(next, answer)
         }
 
         // A signed request (contract §3): verify before anything else.
-        if (doc.mode == TransportMode.REVOKED) {
+        if (doc.mode == TransportMode.REVOKED || mac.forgot) {
             return doc to HttpResponse(403, headers(mac), """{"revoked":true}""".toByteArray())
         }
         val point = mac.devicePoint?.let(Signing::fromBase64url) ?: return doc to refused(mac)
@@ -128,29 +135,46 @@ internal object DevMacRoutes {
             return doc to refused(mac)
         }
         return when ((body["fingerprint_confirmed"] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull) {
-            true -> doc.copy(mac = mac.copy(confirmed = true)).let { it to ok(it.mac, buildJsonObject { put("ok", true) }) }
+            // The phone's own answer is admitted before the press on the Mac, and says it waits.
+            true -> doc.copy(mac = mac.copy(confirmed = true)).let {
+                it to ok(it.mac, buildJsonObject {
+                    put("ok", true)
+                    if (awaiting(mac)) put("awaiting_mac_confirmation", true)
+                })
+            }
             // "They do not match": the Mac forgets the phone synchronously (contract §2.5).
-            false -> doc.copy(mac = mac.copy(devicePoint = null, confirmed = false)).let { it to ok(it.mac, buildJsonObject { put("ok", true) }) }
-            null -> doc to ok(mac, buildJsonObject { put("ok", true) })
+            false -> doc.copy(mac = mac.copy(devicePoint = null, confirmed = false, macPressed = false)).let { it to ok(it.mac, buildJsonObject { put("ok", true) }) }
+            null -> doc to if (awaiting(mac)) awaitingPress(mac) else ok(mac, buildJsonObject { put("ok", true) })
         }
     }
 
+    /** Pairing v2: a registered phone the person has not yet let in by pressing They match on the Mac. */
+    private fun awaiting(mac: DevMac) = mac.pairV2 && !mac.macPressed
+
+    /** The Mac's `AWAITING_MAC_BODY` (`phone/routes.rs`), a retryable 409 (the corpus's `mac_confirmation`). */
+    private fun awaitingPress(mac: DevMac) = HttpResponse(
+        409, headers(mac) + ("content-type" to "application/json; charset=utf-8"),
+        """{"awaiting_mac_confirmation":true,"reason":"Press They match on your Mac."}""".toByteArray(),
+    )
+
     /** `GET /api/events?thread_id&before&limit&auth=` (contract §5.5): the credential is the query's last parameter. */
-    private fun backfill(doc: DevDoc, uri: URI): HttpResponse {
+    private fun backfill(doc: DevDoc, uri: URI): Pair<DevDoc, HttpResponse> {
         val mac = doc.mac
-        if (doc.mode == TransportMode.REVOKED) return HttpResponse(403, headers(mac), """{"revoked":true}""".toByteArray())
-        val raw = uri.rawQuery ?: return refused(mac)
+        if (doc.mode == TransportMode.REVOKED || mac.forgot) return doc to HttpResponse(403, headers(mac), """{"revoked":true}""".toByteArray())
+        val raw = uri.rawQuery ?: return doc to refused(mac)
         val authAt = raw.lastIndexOf("&auth=")
-        if (authAt < 0) return refused(mac)
+        if (authAt < 0) return doc to refused(mac)
         val signedPath = uri.rawPath + "?" + raw.substring(0, authAt)
         val credential = java.net.URLDecoder.decode(raw.substring(authAt + 6), Charsets.UTF_8).removePrefix("RichOS-Device ")
-        val point = mac.devicePoint?.let(Signing::fromBase64url) ?: return refused(mac)
+        val point = mac.devicePoint?.let(Signing::fromBase64url) ?: return doc to refused(mac)
         val parts = credential.split('.')
-        if (parts.size != 3 || parts[0] != Signing.deviceId(point) || parts[1] != mac.challenge) return refused(mac)
-        if (!DevKeys.verify(point, Signing.signingString(parts[1], "GET", signedPath, null).toByteArray(Charsets.UTF_8), Signing.fromBase64url(parts[2]))) return refused(mac)
+        if (parts.size != 3 || parts[0] != Signing.deviceId(point) || parts[1] != mac.challenge) return doc to refused(mac)
+        if (!DevKeys.verify(point, Signing.signingString(parts[1], "GET", signedPath, null).toByteArray(Charsets.UTF_8), Signing.fromBase64url(parts[2]))) return doc to refused(mac)
+        val read = doc.copy(mac = mac.copy(eventReads = mac.eventReads + 1))
+        if (awaiting(mac)) return read to awaitingPress(mac)
         val query = raw.substring(0, authAt).split('&').associate { it.substringBefore('=') to it.substringAfter('=', "") }
-        val thread = query["thread_id"] ?: return refused(mac)
-        val before = query["before"]?.toLongOrNull() ?: return refused(mac)
+        val thread = query["thread_id"] ?: return read to refused(mac)
+        val before = query["before"]?.toLongOrNull() ?: return read to refused(mac)
         val limit = (query["limit"]?.toIntOrNull() ?: 40).coerceIn(1, 200)
         val older = mac.history[thread].orEmpty().filter { it.cursor < before }.sortedBy { it.cursor }
         val chunk = older.takeLast(limit)
@@ -158,7 +182,7 @@ internal object DevMacRoutes {
             put("messages", Json.encodeToJsonElement(ListSerializer(dev.richos.android.core.protocol.Row.serializer()), chunk))
             put("more", older.size > chunk.size)
         }
-        return ok(mac, body)
+        return read to ok(mac, body)
     }
 
     private fun headers(mac: DevMac) = mapOf("x-richos-challenge" to mac.challenge, "cache-control" to "no-store")

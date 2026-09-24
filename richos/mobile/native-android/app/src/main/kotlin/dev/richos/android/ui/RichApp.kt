@@ -85,6 +85,7 @@ import dev.richos.android.ui.overlays.PairingBlockedDialog
 import dev.richos.android.ui.overlays.PairingIntro
 import dev.richos.android.ui.overlays.PairingProgress
 import dev.richos.android.ui.overlays.RemovedFromMac
+import dev.richos.android.ui.overlays.WaitingForMac
 import dev.richos.android.ui.overlays.Scanner
 import dev.richos.android.ui.overlays.Scrim
 import dev.richos.android.ui.overlays.SettingsSheet
@@ -161,6 +162,7 @@ fun RichApp(model: ScreenModel, onEvent: (UiEvent) -> Unit, camera: (@Composable
                 }
                 step == PairingStep.IN_PROGRESS -> PairingProgress()
                 step == PairingStep.WORDS -> SixWords(model.app.pairing.words, handle)
+                step == PairingStep.WAITING_FOR_MAC -> WaitingForMac(model.app.pairing.words, handle)
                 step == PairingStep.NEEDS_NEWER_APP -> NeedsNewerApp(handle)
                 step == PairingStep.CONSENT || model.sheet == Sheet.WHERE_MESSAGES_GO -> Consent(handle)
                 model.shade != null -> ShadeFrame(model.shade.preview)

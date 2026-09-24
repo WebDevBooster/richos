@@ -18,6 +18,7 @@
 #                                       build, install and launch the debug app
 #   randroid emu refresh                incremental build + reinstall + relaunch
 #   randroid emu state|reset|restart|fixture <n>|action '<json>'|transport <m>|advance <ms>|scenario <n>
+#                |mac press|reject|v1|v2
 #                                       the headless grammar, executed inside the app
 #   randroid emu parity [scenario]      same scenario headless and on the emulator; states must match
 #   randroid emu identity-check         the real Android Keystore: sign, convert to raw, verify, delete
@@ -312,7 +313,7 @@ emu() {
     refresh) emu_install refresh ;;
     restart) emu_restart ;;
     state|reset|identity-check) emu_command "$command" ;;
-    fixture|action|transport|advance|scenario)
+    fixture|action|transport|advance|scenario|mac)
       [ "$#" -ge 1 ] || fail "$command needs an argument"
       emu_command "$command" "$1" ;;
     parity) emu_parity "${1:-}" ;;
@@ -635,6 +636,6 @@ case "$mode" in
   check-release) check_release ;;
   emu) emu "$@" ;;
   doctor) doctor ;;
-  ""|-h|--help|help) sed -n '2,41p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  ""|-h|--help|help) sed -n '2,42p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *) fail "unknown mode '$mode'; see randroid --help" ;;
 esac
