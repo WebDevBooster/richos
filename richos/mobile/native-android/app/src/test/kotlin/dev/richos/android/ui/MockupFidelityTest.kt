@@ -221,6 +221,29 @@ class MockupFidelityTest {
         assertTrue(textsIn("pairing-blocked-dialog").any { "paired with now" in it })
     }
 
+    /**
+     * G13: the disabled orb (`comp-disabled`, `conn-incompatible`) is round 12.1's gold circle dimmed
+     * to 45% over the capsule, not an outlined ring, and stays disabled for TalkBack.
+     */
+    @Test
+    fun `G13 - the disabled orb is dimmed gold`() {
+        for (id in listOf("comp-disabled", "conn-incompatible")) {
+            for (theme in listOf(Theme.DARK, Theme.LIGHT)) {
+                val colors = if (theme == Theme.DARK) RichColors.Dark else RichColors.Light
+                show(screen(id, theme))
+                val density = compose.density.density
+                val orb = tagged("orb")
+                assertTrue("$id $theme: the orb is disabled", orb.config.getOrNull(SemanticsProperties.Disabled) != null)
+                val image = compose.onRoot().captureToImage().asAndroidBitmap()
+                val c = orb.boundsInRoot.center
+                // Inside the 44 dp circle, clear of the 22 dp glyph: the fill, not an empty ring.
+                val fill = pixel(image, c.x - 16f * density, c.y)
+                val expected = colors.signal.copy(alpha = 0.45f).compositeOver(colors.surface)
+                assertTrue("$id $theme: orb fill $fill, expected dimmed gold $expected", near(fill, expected, 4f / 255f))
+            }
+        }
+    }
+
     /** G6: the serif headings are never hyphenated ("RichCon-nect", "re-moved"), at any text size. */
     @Test
     fun `G6 - headings are never hyphenated`() {

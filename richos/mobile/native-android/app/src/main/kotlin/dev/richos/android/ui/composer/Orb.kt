@@ -46,6 +46,9 @@ import kotlin.math.sin
 /** What the gold circle offers right now. */
 enum class OrbMode { RECORD, SEND_TEXT, SEND_RECORDING, DISABLED }
 
+/** The disabled orb's opacity: round 12.1's `setDisabled` (`.orb` opacity .45). */
+const val DISABLED_ORB_ALPHA = 0.45f
+
 /**
  * The gold circle at the right end of the capsule (`.orb`): the microphone, the send arrow, and
  * while recording the swelling, breathing circle inside two wobbling halos with the lock pill
@@ -108,16 +111,16 @@ fun Orb(
                     translationX = shift * density.density
                     scaleX = scale
                     scaleY = scale
+                    // Round 12.1 keeps the disabled orb gold and dims it (`setDisabled`: opacity .45),
+                    // over the capsule's dashed edge (Urban's 2026-09-24 audit G13; the mockup wins over
+                    // the earlier outlined ring, iOS audit F6). DECLARED EXEMPTION from the 3:1
+                    // non-text floor: WCAG 1.4.11 exempts inactive components, and the composer's
+                    // own line says why sending is off at full contrast.
+                    if (disabled) alpha = DISABLED_ORB_ALPHA
                 }
                 .size(44.dp)
-                .then(
-                    if (disabled) {
-                        // A disabled control keeps a 3:1 edge and a 4.5:1 glyph (iOS audit F6), never 45% opacity.
-                        Modifier.border(1.5.dp, c.inkSoft, CircleShape)
-                    } else {
-                        Modifier.shadow(8.dp, CircleShape, ambientColor = c.orbGlow, spotColor = c.orbGlow).background(c.signal, CircleShape)
-                    },
-                ),
+                .shadow(8.dp, CircleShape, ambientColor = c.orbGlow, spotColor = c.orbGlow)
+                .background(c.signal, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             if (frame?.tick != null && frame.tick >= 0f) {
@@ -129,7 +132,7 @@ fun Orb(
                     }.border(2.dp, c.signal, CircleShape),
                 )
             }
-            val glyphTint = if (disabled) c.inkSoft else c.onSignal
+            val glyphTint = c.onSignal
             RichIcon(
                 RichIcons.Mic, glyphTint, 22.dp,
                 Modifier.graphicsLayer {
