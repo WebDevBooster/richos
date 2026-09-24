@@ -9,15 +9,19 @@ Run by run-walk.py, which boots the guest, holds <TESTVM_ROOT>/guest.lock and re
 run-walk.py passes the owned VM name as the first argument.
 
 WHAT IT PROVES, in the guest, never on the host's screen (CEO ruling §65):
-  1. folder a, from the ZIP: a window appears, and the app's own environment carries the
-     folder's HOME and CFFIXED_USER_HOME and none of the shell's LORO_* or engine values;
+  1. folder a, from the ZIP, started from a shell carrying a canary, CLAUDECODE, a LORO_CORPUS,
+     an engine directory and a Homebrew PATH: a window appears, and the app's own environment
+     carries the folder's HOME, CFFIXED_USER_HOME and TMPDIR, launchd's PATH, and none of those;
   2. the pinned engine installs through the app's ordinary setup, and its INSTALLED-FROM
      names the pin the build was compiled with;
   3. folder a started again from the same ZIP is not unpacked again, and resolves that
      engine "via application support";
-  4. folder b, with a roster page, opens with its memory pointer on its own memory folder;
+  4. folder b, with a roster page, installs its own engine, and on its next start (--again)
+     reads its own memory folder with the memory compiler present;
   5. a file-date search, proved by a positive control, over the guest's homes, /Library
-     and the temporary folders: what the launched nightlies wrote outside their folders;
+     and the temporary folders: what the launched nightlies wrote outside their folders,
+     with exactly four places declared and why (the two sign-in links, and WebKit's two
+     per-user service caches, which no environment variable reaches);
   6. every instance this walk started is quit by its pid and verified gone.
 
 WHAT IT DOES NOT PROVE: the Claude sign-in through the keychain link. The guest is signed
@@ -226,60 +230,71 @@ def main():
                       f'> {W}/baseline.json 2>{W}/baseline.err', 600)
         step('baseline window scanned', seconds=a.baseline_seconds, exit=rc)
 
-        # ---- 4. folder a, from the ZIP ---------------------------------------------------
-        shell_env = ('export LAUNCHER_WALK_CANARY=from-the-shell LORO_CORPUS=/nonexistent/from-the-shell '
-                     'RICHOS_ENGINE_DIR=/nonexistent/from-the-shell &&')
+        # ---- 4. folder a, from the ZIP, launched from a shell carrying things it must not pass on
+        def wait_window(pid):
+            n = 0
+            for _ in range(60):
+                n = windows(pid)
+                if n >= 1:
+                    break
+                time.sleep(1)
+            return n
+
+        def app_env(pid, folder):
+            line = g(f'ps -wwE -p {pid} -o command= 2>/dev/null || true')
+            toks = line.split()
+
+            def val(key):
+                return next((t.split('=', 1)[1] for t in toks if t.startswith(key + '=')), None)
+            facts = {k: val(k) for k in ('HOME', 'CFFIXED_USER_HOME', 'TMPDIR', 'PATH', 'LORO_CORPUS',
+                                         'RICHOS_ENGINE_DIR', 'RICHOS_ACTIVATION', 'CLAUDECODE')}
+            facts['shell_canary_reached_app'] = val('LAUNCHER_WALK_CANARY') is not None
+            facts['shell_values_reached_app'] = '/nonexistent/from-the-shell' in line
+            ok = (facts['HOME'] == folder + '/home.noindex' and facts['CFFIXED_USER_HOME'] == folder + '/home.noindex'
+                  and facts['TMPDIR'] == folder + '/home.noindex/tmp/' and facts['PATH'] == '/usr/bin:/bin:/usr/sbin:/sbin'
+                  and not facts['shell_canary_reached_app'] and not facts['shell_values_reached_app']
+                  and facts['CLAUDECODE'] is None and facts['RICHOS_ENGINE_DIR'] in (None, ''))
+            return ok, facts
+
+        def setup_engine(label, log, folder):
+            """The app's ordinary setup sheet: press "Set it up", wait for the engine, close it."""
+            booted, text = wait_log(log, 'boot complete', 60)
+            step(f'{label}: boot', complete=booted)
+            if 'first-run setup: nothing missing.' not in text:
+                rc, tree = ax('tree', '--in', 'dialog')
+                (out / f'{label}-setup-dialog.jsonl').write_text(tree)
+                rc, _ = ax('click', '--title', 'Set it up', '--role', 'AXButton', '--first')
+                step(f'{label}: pressed "Set it up"', exit=rc)
+                done, text = wait_log(log, '[richos] setup: engine ', 420)
+                step(f'{label}: engine setup logged', done=done)
+                subprocess.run([str(HERE / 'shot.sh'), vm, str(out / f'{label}-setup-finished.png')], timeout=60,
+                               capture_output=True)
+                for _ in range(60):
+                    rc, tree = ax('tree', '--in', 'dialog')
+                    if any('"Close"' in line and 'AXButton' in line for line in tree.splitlines()):
+                        ax('click', '--title', 'Close', '--role', 'AXButton', '--first')
+                        step(f'{label}: closed the setup sheet')
+                        break
+                    time.sleep(0.5)
+            stamp = log_text(folder + '/home.noindex/Library/Application Support/RichOS/engine/INSTALLED-FROM')
+            result[f'{label}_installed_from'] = stamp
+            return ('sha256 ' + a.pin) in stamp, stamp
+
+        shell_env = ('export LAUNCHER_WALK_CANARY=from-the-shell CLAUDECODE=1 LORO_CORPUS=/nonexistent/from-the-shell '
+                     'RICHOS_ENGINE_DIR=/nonexistent/from-the-shell PATH=/opt/homebrew/bin:$PATH &&')
         f = launch('a-first', f'a {shlex.quote(W + "/" + a.zip.name)}', shell_env)
         pid = f['pid']; started.append(pid); log_a1 = f['log']
-        n = 0
-        for _ in range(60):
-            n = windows(pid)
-            if n >= 1:
-                break
-            time.sleep(1)
+        n = wait_window(pid)
         check('a: the window appears', n >= 1, {'pid': pid, 'windows': n})
         subprocess.run([str(HERE / 'shot.sh'), vm, str(out / 'a-first-window.png')], timeout=60, capture_output=True)
-        env_line = g(f'ps -wwE -p {pid} -o command= 2>/dev/null || true')
-        toks = env_line.split()
-        env_facts = {
-            'HOME': next((t.split('=', 1)[1] for t in toks if t.startswith('HOME=')), None),
-            'CFFIXED_USER_HOME': next((t.split('=', 1)[1] for t in toks if t.startswith('CFFIXED_USER_HOME=')), None),
-            'shell_canary_reached_app': any(t.startswith('LAUNCHER_WALK_CANARY=') for t in toks),
-            'shell_loro_corpus_reached_app': '/nonexistent/from-the-shell' in env_line,
-            'LORO_CORPUS': next((t for t in toks if t.startswith('LORO_CORPUS=')), None),
-            'RICHOS_ENGINE_DIR': next((t for t in toks if t.startswith('RICHOS_ENGINE_DIR=')), None),
-            'RICHOS_ACTIVATION': next((t for t in toks if t.startswith('RICHOS_ACTIVATION=')), None),
-        }
-        result['a_app_environment'] = env_facts
-        check('a: the app runs on the folder\'s HOME and CFFIXED_USER_HOME, with nothing from the shell',
-              env_facts['HOME'] == folder_a + '/home.noindex' and env_facts['CFFIXED_USER_HOME'] == folder_a + '/home.noindex'
-              and not env_facts['shell_canary_reached_app'] and not env_facts['shell_loro_corpus_reached_app']
-              and env_facts['RICHOS_ENGINE_DIR'] in (None, 'RICHOS_ENGINE_DIR='),
-              env_facts)
+        ok, facts = app_env(pid, folder_a)
+        result['a_app_environment'] = facts
+        check("a: the app runs on the folder's HOME, CFFIXED_USER_HOME and TMPDIR, launchd's PATH, and nothing from the shell",
+              ok, facts)
 
         # ---- 5. the pinned engine installs through ordinary setup -----------------------
-        booted, text = wait_log(log_a1, 'boot complete', 60)
-        step('a: boot', complete=booted)
-        installed_from = folder_a + '/home.noindex/Library/Application Support/RichOS/engine/INSTALLED-FROM'
-        if 'first-run setup: nothing missing.' not in text:
-            rc, tree = ax('tree', '--in', 'dialog')
-            (out / 'a-setup-dialog.jsonl').write_text(tree)
-            rc, _ = ax('click', '--title', 'Set it up', '--role', 'AXButton', '--first')
-            step('a: pressed "Set it up"', exit=rc)
-            done, text = wait_log(log_a1, '[richos] setup: engine ', 420)
-            step('a: engine setup logged', done=done)
-            subprocess.run([str(HERE / 'shot.sh'), vm, str(out / 'a-setup-finished.png')], timeout=60, capture_output=True)
-            for _ in range(60):
-                rc, tree = ax('tree', '--in', 'dialog')
-                if any('"Close"' in line and 'AXButton' in line for line in tree.splitlines()):
-                    ax('click', '--title', 'Close', '--role', 'AXButton', '--first')
-                    step('a: closed the setup sheet')
-                    break
-                time.sleep(0.5)
-        stamp = log_text(installed_from)
-        result['a_installed_from'] = stamp
-        check('a: the pinned engine installed (INSTALLED-FROM names the compiled pin)',
-              ('sha256 ' + a.pin) in stamp, stamp)
+        ok, stamp = setup_engine('a', log_a1, folder_a)
+        check('a: the pinned engine installed (INSTALLED-FROM names the compiled pin)', ok, stamp)
         (out / 'a-first.log').write_text(log_text(log_a1))
         check('a: first instance quit and gone', quit_pid(pid, 'a first'))
 
@@ -291,12 +306,7 @@ def main():
         unpacked_after = g('sed -n "s/^unpacked_at=//p" ' + shlex.quote(marker))
         check('a again: the same ZIP is not unpacked again', unpacked_before == unpacked_after,
               [unpacked_before, unpacked_after])
-        n = 0
-        for _ in range(60):
-            n = windows(pid)
-            if n >= 1:
-                break
-            time.sleep(1)
+        n = wait_window(pid)
         check('a again: the window appears', n >= 1, {'pid': pid, 'windows': n})
         booted, text = wait_log(f['log'], 'boot complete', 60)
         engine_line = next((l for l in text.splitlines() if '[richos] engine directory:' in l), '')
@@ -307,29 +317,33 @@ def main():
         (out / 'a-again.log').write_text(text)
         check('a again: quit and gone', quit_pid(pid, 'a again'))
 
-        # ---- 7. folder b, with a roster page ----------------------------------------------
-        f = launch('b', f'b {shlex.quote(W + "/" + a.zip.name)} --roster {shlex.quote(W + "/fixture-roster.md")}')
+        # ---- 7. folder b, with a roster page: its engine, then its memory ----------------
+        f = launch('b-first', f'b {shlex.quote(W + "/" + a.zip.name)} --roster {shlex.quote(W + "/fixture-roster.md")}')
         pid = f['pid']; started.append(pid)
-        n = 0
-        for _ in range(60):
-            n = windows(pid)
-            if n >= 1:
-                break
-            time.sleep(1)
+        n = wait_window(pid)
         check('b: the window appears', n >= 1, {'pid': pid, 'windows': n})
+        ok, stamp = setup_engine('b', f['log'], folder_b)
+        check('b: its own pinned engine installed', ok, stamp)
+        (out / 'b-first.log').write_text(log_text(f['log']))
+        check('b: first instance quit and gone', quit_pid(pid, 'b first'))
+        f = launch('b-again', 'b --again')
+        pid = f['pid']; started.append(pid)
+        n = wait_window(pid)
+        check('b again: the window appears', n >= 1, {'pid': pid, 'windows': n})
         booted, text = wait_log(f['log'], 'boot complete', 60)
         pointer = g('readlink ' + shlex.quote(folder_b + '/home.noindex/Library/Application Support/RichOS/loro-root') + ' || true')
         roster_ok = gr('cmp -s ' + shlex.quote(W + '/fixture-roster.md') + ' '
                        + shlex.quote(folder_b + '/memory/wiki/team-roster.md'))[0] == 0
-        memory_lines = [l for l in text.splitlines() if 'loro' in l.lower() or 'corpus' in l.lower() or 'memory' in l.lower()]
-        result['b_memory_lines'] = memory_lines[:20]
+        loro_lines = [l for l in text.splitlines() if 'loro' in l.lower()]
+        result['b_loro_lines'] = loro_lines[:20]
         check('b: its memory pointer is its own memory folder, carrying the roster page',
               pointer == folder_b + '/memory' and roster_ok, {'pointer': pointer, 'roster_copied': roster_ok})
-        check('b: the app resolved that memory folder',
-              any(folder_b + '/memory' in l or 'loro-root' in l for l in memory_lines), memory_lines[:6])
-        subprocess.run([str(HERE / 'shot.sh'), vm, str(out / 'b-window.png')], timeout=60, capture_output=True)
-        (out / 'b.log').write_text(text)
-        check('b: quit and gone', quit_pid(pid, 'b'))
+        check('b: the app reads that memory folder with its memory compiler installed',
+              any('loro-root' in l or folder_b + '/memory' in l for l in loro_lines)
+              and not any('not installed' in l or 'not found' in l for l in loro_lines), loro_lines[:8])
+        subprocess.run([str(HERE / 'shot.sh'), vm, str(out / 'b-again-window.png')], timeout=60, capture_output=True)
+        (out / 'b-again.log').write_text(text)
+        check('b again: quit and gone', quit_pid(pid, 'b again'))
 
         status = gr(f'cd {shlex.quote(W)} && bash nightly-launch.sh status')[1]
         (out / 'status.txt').write_text(status)
@@ -338,15 +352,39 @@ def main():
         real_cj_after = g('shasum -a 256 ~/.claude.json | cut -d" " -f1')
         check('the real ~/.claude.json was read, never written', real_cj_before == real_cj_after,
               [real_cj_before, real_cj_after])
+        # Informational: whether Spotlight, if it indexes this guest at all, lists either
+        # nightly bundle. The .noindex folders are meant to keep both out of it.
+        result['spotlight'] = {
+            'mdutil': gr('mdutil -s / 2>&1 | tail -1')[1].strip(),
+            'mdfind_richos_bundles': gr("mdfind 'kMDItemCFBundleIdentifier == \"com.richos.app\"' 2>&1 | head -20")[1].splitlines(),
+        }
+        step('spotlight probe', mdutil=result['spotlight']['mdutil'], found=len(result['spotlight']['mdfind_richos_bundles']))
 
         # ---- 8. the file-date search, with its positive control --------------------------
+        # Two places are DECLARED, with the reason, and nothing else: WebKit's GPU and
+        # Networking XPC services are started by launchd outside the app's environment and
+        # keep per-user caches under the OS's own per-user folders, named for the app's
+        # bundle identifier. No environment variable reaches them (run 1 of this walk,
+        # 2026-09-24, measured them there with HOME and CFFIXED_USER_HOME both set). They hold
+        # shader and blob caches, no RichOS data. Any OTHER write naming richos still fails.
+        ucache = g('getconf DARWIN_USER_CACHE_DIR').rstrip('/')
+        utemp = g('getconf DARWIN_USER_TEMP_DIR').rstrip('/')
+        os_caches = [
+            (ucache + '/com.apple.WebKit.GPU+com.richos.app',
+             "WebKit's GPU service cache, per user and bundle id, outside any environment's reach"),
+            (utemp + '/com.apple.WebKit.Networking+com.richos.app',
+             "WebKit's Networking service temp, per user and bundle id, outside any environment's reach"),
+        ]
+        result['declared_os_caches'] = [p for p, _ in os_caches]
         control = ghome + '/Library/Application Support/richos-launcher-walk-positive-control.txt'
         g('printf control > ' + shlex.quote(control))
         time.sleep(1.2)
+        declared = [(ghome + '/.claude', 'linked from the folder home by design (sign-in, readiness review point 6)'),
+                    (ghome + '/Library/Keychains', 'linked from the folder home by design (sign-in, readiness review point 6)'),
+                    *os_caches]
+        declared_args = ' '.join('--declared ' + shlex.quote(p + '=' + why) for p, why in declared)
         args = (f'python3 {W}/files-since.py scan --since {W}/m1 {root_args} '
-                f'--inside {shlex.quote(folder_a)} --inside {shlex.quote(folder_b)} '
-                f"--declared {shlex.quote(ghome + '/.claude=linked from the folder home by design (sign-in, readiness review point 6)')} "
-                f"--declared {shlex.quote(ghome + '/Library/Keychains=linked from the folder home by design (sign-in, readiness review point 6)')} "
+                f'--inside {shlex.quote(folder_a)} --inside {shlex.quote(folder_b)} {declared_args} '
                 f'--harness {shlex.quote(W)} --harness {shlex.quote(payload)} '
                 f'--baseline {W}/baseline.json --control {shlex.quote(control)} --named richos '
                 f'> {W}/search.json 2>{W}/search.err')
@@ -357,10 +395,11 @@ def main():
         result['search'] = {k: search[k] for k in ('verdict', 'counts', 'controls_missing',
                                                    'controls_not_flagged_named', 'unreadable_count')}
         result['search']['named'] = [r['path'] for r in search['files'] if r['class'] == 'named']
+        result['search']['declared'] = [r['path'] for r in search['files'] if r['class'] == 'declared']
         result['search']['other'] = [r['path'] for r in search['files'] if r['class'] == 'other']
         check('search: the positive control was found and would have been flagged', search['verdict'] != 'search-broken',
               search['controls_missing'] + search['controls_not_flagged_named'])
-        check('search: nothing named "richos" was written outside the two folders',
+        check('search: nothing named "richos" was written outside the two folders, beyond the declared places',
               search['verdict'] == 'pass', result['search']['named'])
         step('file-date search', exit=rc, verdict=search['verdict'], counts=search['counts'])
     except Exception as exc:  # recorded, then re-raised so run-walk.py reports the failure
