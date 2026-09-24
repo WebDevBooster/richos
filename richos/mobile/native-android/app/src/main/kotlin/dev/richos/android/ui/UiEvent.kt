@@ -132,6 +132,8 @@ fun UiEvent.toAction(): Action? = when (this) {
     UiEvent.CloseOverlay -> Action.CloseSheet
     UiEvent.ShowWaiting -> Action.CloseSheet
     UiEvent.WhereMessagesGo -> Action.OpenSheet(Sheet.WHERE_MESSAGES_GO)
+    // Settings' "Where your messages go" is the consent screen again: its Continue is the way back out.
+    UiEvent.ConsentContinue -> Action.CloseSheet
     UiEvent.UsePairingLink -> Action.OpenSheet(Sheet.PAIRING_LINK)
     UiEvent.ForgetPairing -> Action.ForgetPairing
     UiEvent.ForgetConfirmed -> Action.ConfirmForget

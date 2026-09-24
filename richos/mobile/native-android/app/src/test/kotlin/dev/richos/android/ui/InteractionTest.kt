@@ -110,6 +110,17 @@ class InteractionTest {
     }
 
     @Test
+    fun `Where your messages go opens from Settings and its Continue closes it again`() {
+        val set = show(screen("settings"))
+        compose.onNodeWithText("Where your messages go").performScrollTo().performClick()
+        assertEquals(Action.OpenSheet(Sheet.WHERE_MESSAGES_GO), actions.last())
+        set(screen("settings").let { it.copy(app = it.app.copy(sheet = Sheet.WHERE_MESSAGES_GO)) })
+        compose.waitForIdle()
+        compose.onNodeWithText("Continue").performClick()
+        assertEquals(Action.CloseSheet, actions.last())
+    }
+
+    @Test
     fun `the update row names a version only when the hosted policy announced one`() {
         val posed = screen("settings").app
         val announced = posed.copy(update = UpdateNotice(UpdateNotice.Prominence.BANNER, "1.1", "Faster voice messages."))
