@@ -9,7 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 import cpu_guard as G
 import testdevices as D
 import worker_tokens as W
@@ -111,6 +111,30 @@ class GuardTests(unittest.TestCase):
         for args in (['./gradlew','--max-workers=8'],['swift','test','--jobs','8'],['xcodebuild','-jobs','8']):
             with self.assertRaises(ValueError): N.capped(args)
         self.assertEqual(N.capped(['swift','test'])[-2:],['--jobs','1'])
+
+    def test_unavailable_cpu_sample_retries_using_full_interval(self):
+        reserve=Mock()
+        reserve.host_sample.side_effect=[BlockingIOError('counters did not advance'), {'cpu_idle_percent':80}]
+        reserve._refusal.return_value=False
+        with patch.object(N.time,'sleep') as sleep:
+            N.wait_for_headroom(reserve, timeout=10)
+        self.assertEqual(reserve.host_sample.call_count,2)
+        reserve.host_sample.assert_called_with()
+        sleep.assert_called_once_with(3)
+
+    def test_successful_intervention_notice_is_not_repeated_every_turn(self):
+        G.write_json(G.STATE/'alert.json',{'at':123,'message':'test intervention'})
+        with patch.object(G,'healthy',return_value=True):
+            payload={'session_id':'test','hook_event_name':'Stop'}
+            self.assertIn('test intervention',G.notice_payload(payload)['systemMessage'])
+            self.assertIsNone(G.notice_payload(payload))
+            G.write_json(G.STATE/'alert.json',{'at':124,'message':'second intervention'})
+            self.assertIn('second intervention',G.notice_payload(payload)['systemMessage'])
+
+    def test_broken_hook_input_refuses_instead_of_returning_nonblocking_error(self):
+        child=subprocess.run([sys.executable,str(Path(G.__file__)),'hook'],input='{broken',
+                             text=True,capture_output=True)
+        self.assertEqual(child.returncode,2)
 
     def test_missing_watchdog_fails_closed(self):
         with patch.object(sys,'platform','darwin'):
