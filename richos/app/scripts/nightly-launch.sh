@@ -26,12 +26,30 @@
 # write into his daily driver's memory or settings (§48).
 #
 # =========================================================================================
+# THE LAYOUT, AND WHY BOTH HALVES END IN .noindex
+# =========================================================================================
+#
+#   ~/myrichos-nightly-a/
+#     app.noindex/RichOS.app   the app, unpacked from the ZIP
+#     home.noindex/            the app's HOME: its data, its engine, its updater's copy
+#     memory/                  folder b only: wiki/team-roster.md and loro/
+#     logs/                    the app's output, one file per start
+#     nightly-launch.txt       what was unpacked: version, commit, the ZIP's digest
+#
+# Spotlight does not index a folder whose name ends in `.noindex` (the convention Xcode's
+# own build folders use). Without it, typing "RichOS" into Spotlight would offer this
+# copy beside yours, and a nightly opened that way runs on your REAL HOME, against your
+# own copy's data, with an updater that publishes into your real ~/Applications. The
+# home is excluded for the same reason: the updater installs the nightly's next version
+# at home.noindex/Applications/RichOS.app.
+#
+# =========================================================================================
 # WHAT THE APP IS STARTED WITH, AND WHY EACH LINE IS THERE
 # =========================================================================================
 #
-#   HOME=<folder>/home               the app's data, engine, updater and memory pointer all
+#   HOME=<folder>/home.noindex       the app's data, engine, updater and memory pointer all
 #                                    derive from HOME, so the folder owns all of them.
-#   CFFIXED_USER_HOME=<folder>/home  HOME alone is NOT enough, and this was measured
+#   CFFIXED_USER_HOME=(the same)     HOME alone is NOT enough, and this was measured
 #                                    (2026-09-24, this Mac, JXA through osascript):
 #                                    with HOME pointed elsewhere, Foundation's
 #                                    NSHomeDirectory() still answered /Users/<him>, so
@@ -88,7 +106,7 @@
 #   * a missing piece of the sign-in, named, rather than a window that says "Not logged in".
 #
 # THE ONE WAY TO DEFEAT IT, stated so nobody has to find it: opening
-# `~/myrichos-nightly-*/RichOS.app` from Finder, Spotlight or the Dock starts it on your
+# `~/myrichos-nightly-*/app.noindex/RichOS.app` from Finder or the Dock starts it on your
 # REAL HOME, against your daily driver's data. This script cannot prevent that; it can
 # only be the one way you start a nightly. `status` says what each folder holds.
 #
@@ -186,7 +204,7 @@ refuse_daily() {  # <what> <path>
 # Which processes belong to a folder (read only; nothing here ever stops a process)
 # ---------------------------------------------------------------------------------------
 # Every process whose executable sits under the folder: the unpacked RichOS.app, the
-# updater's copy in <folder>/home/Applications, and the helpers the app runs from itself.
+# updater's copy in <folder>/home.noindex/Applications, and the helpers the app runs from itself.
 folder_pids() {  # <folder>
   "$PS_BIN" -axo pid=,ppid=,comm= 2>/dev/null | while read -r pid ppid exe; do
     case "$exe" in "$1/"*) printf '%s\n' "$pid" ;; esac
@@ -221,18 +239,18 @@ status_one() {  # <slot>
   else
     say "  NOT made by this launcher: no $MARKER_NAME"
   fi
-  v="$(plist_value "$folder/home/Applications/RichOS.app/Contents/Info.plist" CFBundleShortVersionString)"
+  v="$(plist_value "$folder/home.noindex/Applications/RichOS.app/Contents/Info.plist" CFBundleShortVersionString)"
   [ -n "$v" ] && say "  updated in place to: $v (the app starts this copy when it is newer)"
   pids="$(folder_app_pids "$folder" | tr '\n' ' ')"
   if [ -n "$pids" ]; then say "  running: pid $pids"; else say "  running: no"; fi
-  ptr="$folder/home/Library/Application Support/RichOS/loro-root"
+  ptr="$folder/home.noindex/Library/Application Support/RichOS/loro-root"
   if [ -L "$ptr" ]; then
     say "  memory: $(readlink "$ptr")"
     if [ -f "$folder/memory/$ROSTER_RELATIVE" ]; then
       say "  roster page: present ($(wc -c < "$folder/memory/$ROSTER_RELATIVE" | tr -d ' ') bytes)"
     fi
   fi
-  if [ -d "$folder/home/Library/Application Support/RichOS/corpus" ]; then
+  if [ -d "$folder/home.noindex/Library/Application Support/RichOS/corpus" ]; then
     say "  note: the app provisioned its own memory at .../RichOS/corpus, which outranks the pointer above"
   fi
 }
@@ -274,14 +292,14 @@ fi
 
 FOLDER="$REAL_HOME/myrichos-nightly-$SLOT"
 refuse_daily "folder" "$FOLDER"
-refuse_daily "folder's home" "$FOLDER/home"
+refuse_daily "folder's home" "$FOLDER/home.noindex"
 FOLDER_R="$(resolved "$FOLDER")"
 [ "$FOLDER_R" != "$REAL_HOME" ] || die "refusing: '$FOLDER' resolves to your home itself."
 case "$REAL_HOME/" in "$FOLDER_R/"*) die "refusing: '$FOLDER' resolves to '$FOLDER_R', which contains your home." ;; esac
 FOLDER="$FOLDER_R"
 MARKER="$FOLDER/$MARKER_NAME"
-APP="$FOLDER/RichOS.app"
-NHOME="$FOLDER/home"
+APP="$FOLDER/app.noindex/RichOS.app"
+NHOME="$FOLDER/home.noindex"
 
 # ---------------------------------------------------------------------------------------
 # Refusals that need nothing unpacked
@@ -375,6 +393,7 @@ if [ "$UNPACK" -eq 1 ]; then
   /usr/bin/ditto -x -k "$ZIP" "$STAGE" || die "could not unpack '$ZIP'."
   [ -d "$STAGE/RichOS.app" ] || die "'$ZIP' unpacked without a RichOS.app."
   if [ -d "$APP" ]; then rm -rf "$APP" || die "could not remove the old $APP."; fi
+  mkdir -p "$(dirname "$APP")" || die "cannot create $(dirname "$APP")."
   mv "$STAGE/RichOS.app" "$APP" || die "could not move the new app into $FOLDER."
   rm -rf "$STAGE"; STAGE=""
   {

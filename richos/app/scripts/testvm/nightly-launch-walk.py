@@ -252,7 +252,7 @@ def main():
         }
         result['a_app_environment'] = env_facts
         check('a: the app runs on the folder\'s HOME and CFFIXED_USER_HOME, with nothing from the shell',
-              env_facts['HOME'] == folder_a + '/home' and env_facts['CFFIXED_USER_HOME'] == folder_a + '/home'
+              env_facts['HOME'] == folder_a + '/home.noindex' and env_facts['CFFIXED_USER_HOME'] == folder_a + '/home.noindex'
               and not env_facts['shell_canary_reached_app'] and not env_facts['shell_loro_corpus_reached_app']
               and env_facts['RICHOS_ENGINE_DIR'] in (None, 'RICHOS_ENGINE_DIR='),
               env_facts)
@@ -260,7 +260,7 @@ def main():
         # ---- 5. the pinned engine installs through ordinary setup -----------------------
         booted, text = wait_log(log_a1, 'boot complete', 60)
         step('a: boot', complete=booted)
-        installed_from = folder_a + '/home/Library/Application Support/RichOS/engine/INSTALLED-FROM'
+        installed_from = folder_a + '/home.noindex/Library/Application Support/RichOS/engine/INSTALLED-FROM'
         if 'first-run setup: nothing missing.' not in text:
             rc, tree = ax('tree', '--in', 'dialog')
             (out / 'a-setup-dialog.jsonl').write_text(tree)
@@ -318,7 +318,7 @@ def main():
             time.sleep(1)
         check('b: the window appears', n >= 1, {'pid': pid, 'windows': n})
         booted, text = wait_log(f['log'], 'boot complete', 60)
-        pointer = g('readlink ' + shlex.quote(folder_b + '/home/Library/Application Support/RichOS/loro-root') + ' || true')
+        pointer = g('readlink ' + shlex.quote(folder_b + '/home.noindex/Library/Application Support/RichOS/loro-root') + ' || true')
         roster_ok = gr('cmp -s ' + shlex.quote(W + '/fixture-roster.md') + ' '
                        + shlex.quote(folder_b + '/memory/wiki/team-roster.md'))[0] == 0
         memory_lines = [l for l in text.splitlines() if 'loro' in l.lower() or 'corpus' in l.lower() or 'memory' in l.lower()]
