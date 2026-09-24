@@ -175,7 +175,7 @@ impl PhoneCa {
     }
 
     /// **The v1 six words** (plan §4.1): six bytes of the root's SHA-256, each indexing
-    /// [`WORDS`], and nothing else.
+    /// [`super::words::WORDS`], and nothing else.
     ///
     /// **Kept for one release and for one kind of phone** — one that did not announce
     /// `pairing_version: 2` (Sage's review §3.5, the preserved iPhone app). It binds a hash the
@@ -553,8 +553,9 @@ pub fn pem_body(text: &str, label: &str) -> Result<Vec<u8>, PhoneError> {
 // Sage's pairing review F2 binds the six words to the origin the phone dialed and the key it
 // registered (`pair-v2`). That derivation has to be compiled by `mobile/conformance/verifier`
 // without the certificate authority and its `openssl` shelling, so the list lives beside it and is
-// re-exported here for the root's own (v1) words.
-pub use super::words::WORDS;
+// used from there for the root's own (v1) words; the tests below still read it by this name.
+#[cfg(test)]
+use super::words::WORDS;
 
 #[cfg(test)]
 mod tests {
