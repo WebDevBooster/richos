@@ -160,7 +160,8 @@ object ScreenCatalog {
     /** Core's pairing at [phase], with the six words core derives for the fixture Mac. */
     private fun pairingAt(phase: PairingPhase, problem: String? = null): (AppState) -> AppState = { a ->
         val words = app().pairing.words
-        a.copy(paired = false, pairing = Pairing(phase = phase, words = if (phase == PairingPhase.CONFIRMING) words else emptyList(), problem = problem))
+        val shown = phase == PairingPhase.CONFIRMING || phase == PairingPhase.AWAITING_MAC
+        a.copy(paired = false, pairing = Pairing(phase = phase, words = if (shown) words else emptyList(), problem = problem))
     }
 
     /** The cancel distance round 12 poses its slide-left frame with (fixture data: `min(35% W, 140)`). */
@@ -411,6 +412,20 @@ object ScreenCatalog {
                     outbox = listOf(pending("mobile-1", "Move the Friday review to 3 PM.", OutboxState.WAITING)),
                 )
             }.copy(refusal = RichCore.UNSENT_BEFORE_PAIRING)
+        },
+        // Pairing v2 (Sage's pairing review F1, F2; 2026-09-24): round 12 predates it, so these four
+        // take the PWA's words (`web/web-app/app.js`) in round 12's takeover and error card.
+        ScreenSpec("pair-waiting-mac", 1, "5+", "Waiting for the press on the Mac", Applies.Adapted("pairing v2: the PWA's words in round 12's takeover")) {
+            unpaired(pairingAt(PairingPhase.AWAITING_MAC))
+        },
+        ScreenSpec("pair-mac-update", 1, "6+", "The Mac needs an update (no pair-v2)", Applies.Adapted("pairing v2: the PWA's words in round 12's error card")) {
+            unpaired(pairingAt(PairingPhase.UNPAIRED, problem = RichCore.PROBLEM_MAC_NEEDS_UPDATE))
+        },
+        ScreenSpec("pair-mac-declined", 1, "6+", "The Mac did not accept this phone", Applies.Adapted("pairing v2: the PWA's words in round 12's error card")) {
+            unpaired(pairingAt(PairingPhase.UNPAIRED, problem = RichCore.PROBLEM_MAC_DECLINED))
+        },
+        ScreenSpec("pair-expired", 1, "6+", "The press on the Mac did not come in time", Applies.Adapted("pairing v2: the PWA's words in round 12's error card")) {
+            unpaired(pairingAt(PairingPhase.UNPAIRED, problem = RichCore.PROBLEM_EXPIRED))
         },
     )
 

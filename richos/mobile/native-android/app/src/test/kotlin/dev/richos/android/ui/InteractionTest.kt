@@ -100,6 +100,32 @@ class InteractionTest {
     }
 
     @Test
+    fun `waiting for the press on the Mac - the words stay, They match is gone, They do not match reaches core`() {
+        show(screen("pair-waiting-mac"))
+        compose.onNodeWithText("Now press They match on your Mac").assertIsDisplayed()
+        compose.onNodeWithText("They match").assertDoesNotExist()
+        for (w in ScreenCatalog.model("pair-words", Theme.DARK, 360f).app.pairing.words) compose.onNodeWithText(w).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("They do not match").assertIsDisplayed().performClick()
+        assertEquals(Action.ConfirmWords(false), actions.last())
+    }
+
+    @Test
+    fun `each pairing v2 outcome says what happened, and the way back is the scanner`() {
+        val set = show(screen("pair-mac-update"))
+        compose.onNodeWithText("Your Mac needs an update before this phone can pair with it").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Scan your Mac’s code").performClick()
+        assertEquals(UiEvent.ScanCode, events.last())
+        set(screen("pair-mac-declined"))
+        compose.waitForIdle()
+        compose.onNodeWithText("Your Mac did not accept this phone").performScrollTo().assertIsDisplayed()
+        set(screen("pair-expired"))
+        compose.waitForIdle()
+        compose.onNodeWithText("Your Mac did not get an answer in time").performScrollTo().assertIsDisplayed()
+        // Never the paired phone's takeover: nobody removed this phone from the Mac.
+        compose.onNodeWithText("This phone was removed from your Mac").assertDoesNotExist()
+    }
+
+    @Test
     fun `every Settings row that leaves the app reaches core - updates, support and the privacy policy`() {
         val set = show(screen("settings"))
         // No appearance control: the app follows the phone (the CEO, 2026-09-24, G9).
