@@ -184,11 +184,21 @@ fun PairingIntro(problem: String?, onEvent: (UiEvent) -> Unit) {
             RichButton("Use a pairing link instead", { onEvent(UiEvent.UsePairingLink) }, kind = ButtonKind.QUIET, wide = true)
         },
     ) {
-        BigMark()
-        Eyebrow("Your conversation, with you")
-        DisplayHeading("Take Rich with you")
-        Lede("Rich works on your Mac. Pair this phone once and your conversation comes along wherever you are.")
-        pairingProblemCard(problem)?.let { (title, body) -> ErrorCard(title, body) }
+        val card = pairingProblemCard(problem)
+        // Urban's review, acceptance check 3: at a large text size the card's title shows without
+        // scrolling. The mark, the eyebrow and the pitch are for a first visit, and a person reading
+        // a failure has already seen them, so with a card at large text they step aside. Urban
+        // named the lede; the lede alone does not clear it at 2x on the 360 x 640 dp phone (the
+        // update card's title measured 634-710 dp against a scroll edge at 367 dp), so the mark
+        // and the eyebrow go too. InteractionTest measures every card.
+        val compact = card != null && LocalDensity.current.fontScale >= 1.3f
+        if (!compact) {
+            BigMark()
+            Eyebrow("Your conversation, with you")
+        }
+        DisplayHeading("Take Rich with you", top = if (compact) 0.dp else 14.dp)
+        if (!compact) Lede("Rich works on your Mac. Pair this phone once and your conversation comes along wherever you are.")
+        card?.let { (title, body) -> ErrorCard(title, body) }
         Column(Modifier.padding(top = 22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Step(1, buildAnnotatedString {
                 append("On your Mac, open ")
