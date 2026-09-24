@@ -584,6 +584,36 @@ def _():
         assert "measured in two parts" in raises(perfcore.Refused, perf.merge_records, [a, b])
 
 
+BASELINES = os.path.abspath(os.path.join(HERE, "..", "..", "..", "docs", "verification"))
+
+
+@case("B1 every committed baseline record is sound, and its record.json is exactly the merge of its parts")
+def _():
+    found = 0
+    for name in sorted(os.listdir(BASELINES)):
+        if not name.endswith("-perf-baseline"):
+            continue
+        folder = os.path.join(BASELINES, name)
+        parts_dir = os.path.join(folder, "parts")
+        parts = [os.path.join(parts_dir, p) for p in sorted(os.listdir(parts_dir))] if os.path.isdir(parts_dir) else []
+        for path in [os.path.join(folder, "record.json")] + parts:
+            with open(path) as f:
+                problems = perfcore.check_record(json.load(f))
+            assert not problems, (path, problems)
+            found += 1
+        if parts:
+            loaded = []
+            for p in parts:
+                with open(p) as f:
+                    loaded.append(json.load(f))
+            with open(os.path.join(folder, "record.json")) as f:
+                committed = json.load(f)
+            again = perf.merge_records(loaded)
+            assert again["metrics"] == committed["metrics"] and again["build"] == committed["build"], name
+            assert committed["acceptance"]["verdict"] == "NOT VERIFIED" or committed["device"]["kind"] == "physical", name
+    assert found, "no committed baseline found under docs/verification"
+
+
 # ---------------------------------------------------------------------------------------------
 # the mobile CLIs hand the tool what makes a measurement trustworthy
 # ---------------------------------------------------------------------------------------------
