@@ -244,6 +244,23 @@ class MockupFidelityTest {
         }
     }
 
+    /**
+     * G14: on the large phone a waiting voice message keeps "0:14 · Waiting to send · Now" on one
+     * line (`conv-pending`), as round 12.1 and iOS do. On the small phone the row may wrap, as the
+     * mockup's own `.vmeta { flex-wrap: wrap }` does there.
+     */
+    @Test @Config(qualifiers = "w412dp-h915dp-xhdpi")
+    fun `G14 - the voice bubble's status shares the duration's line`() {
+        for (theme in listOf(Theme.DARK, Theme.LIGHT)) {
+            show(ScreenCatalog.model("conv-pending", theme, 412f))
+            val density = compose.density.density
+            val duration = node("0:14").boundsInRoot
+            val status = node("Waiting to send").boundsInRoot
+            assertTrue("$theme: status $status is not on the duration's line $duration", kotlin.math.abs(status.center.y - duration.center.y) <= 4f * density)
+            assertTrue("$theme: status sits after the duration", status.left > duration.right)
+        }
+    }
+
     /** G6: the serif headings are never hyphenated ("RichCon-nect", "re-moved"), at any text size. */
     @Test
     fun `G6 - headings are never hyphenated`() {

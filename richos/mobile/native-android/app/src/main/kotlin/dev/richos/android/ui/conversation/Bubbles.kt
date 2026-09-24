@@ -267,8 +267,15 @@ private fun Meta(message: Message, modifier: Modifier = Modifier, onPhoto: Boole
         itemVerticalAlignment = Alignment.CenterVertically,
     ) {
         message.via?.let { BasicText("Shared from $it", style = t.read.copy(color = soft)) }
-        // A delivery state is a status line: readable text, so 16 sp (not the 14 sp stamp class).
-        if (label != null) BasicText(label, style = t.read.copy(color = soft, fontWeight = FontWeight.Medium))
+        // DECLARED SKIPPABLE, a claim for the CEO to overrule (ceo-decisions "The type scale": a node in
+        // the 14 px tier is a claim that it is skippable): the delivery words inside a bubble are set
+        // as round 12.1 sets them, in `.meta` with the time, 14 sp medium, which lets a voice
+        // message's status share the duration's line (Urban's 2026-09-24 audit G14; iOS `Meta` does
+        // the same). The words mirror what is also shown in another form: the delivery glyph beside
+        // them, the row's TalkBack label, and, while core holds messages back, the "Waiting to send"
+        // card above the composer at 16 sp. Contrast stays at the text floor: ink-soft on your
+        // bubble 6.90:1 dark, 6.24:1 light (contrast.py on the rendered conv-pending frames).
+        if (label != null) BasicText(label, style = t.stamp.copy(color = soft))
         // DECLARED SKIPPABLE (round-12 NOTES "Type"): the timestamp inside a bubble, 14 sp.
         BasicText(message.time, style = t.stamp.copy(color = soft))
         if (mine) DeliveryGlyph(message.delivery, if (onPhoto) soft else null)
