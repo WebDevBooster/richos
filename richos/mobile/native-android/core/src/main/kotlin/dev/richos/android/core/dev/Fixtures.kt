@@ -57,7 +57,18 @@ data class DevMac(
     val challenge: String = Fixtures.CHALLENGE,
     /** The paired phone's public point, base64url; null when no phone is paired. */
     val devicePoint: String? = null,
+    /** The phone's "They match" arrived. */
     val confirmed: Boolean = false,
+    /** Pairing v2: this Mac offers `pair-v2` (false is a Mac too old for a v2 phone: `mac v1`). */
+    val pairV2: Boolean = true,
+    /** Pairing v2: the person pressed "They match" ON THE MAC (`mac press`); until then it answers "waiting". */
+    val macPressed: Boolean = false,
+    /** The person pressed "They do not match" on the Mac, or its window closed (`mac reject`): 403 revoked. */
+    val forgot: Boolean = false,
+    /** How long the Mac keeps its press open, as its pair answer says. */
+    val confirmWithinSeconds: Int = 300,
+    /** Signed reads of `/api/events` the Mac answered (the wait's asks among them). */
+    val eventReads: Int = 0,
     val threads: List<ConversationThread> = Fixtures.THREADS,
     /** The Mac's whole conversation, per thread, for backfill (`GET /api/events?before=`). */
     val history: Map<String, List<dev.richos.android.core.protocol.Row>> = emptyMap(),
@@ -119,7 +130,7 @@ object Fixtures {
                 route = Route.TAILNET,
                 deviceId = DevKeys.DEVICE_ID,
                 caFingerprint = CA_FINGERPRINT,
-                words = Fingerprint.words(CA_FINGERPRINT),
+                words = Fingerprint.wordsV2(ORIGIN, CA_FINGERPRINT, DevKeys.POINT_B64URL),
                 challenge = CHALLENGE,
             ),
             // What a current Mac advertises in hello (contract §5.4).
@@ -145,7 +156,7 @@ object Fixtures {
                 ),
             ),
             receipts = if (interrupted) listOf(DevReceipt("mobile-1", "general", "Saved before restart")) else emptyList(),
-            mac = DevMac(devicePoint = DevKeys.POINT_B64URL, confirmed = true),
+            mac = DevMac(devicePoint = DevKeys.POINT_B64URL, confirmed = true, macPressed = true),
             keys = listOf(ORIGIN),
         )
     }

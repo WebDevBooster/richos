@@ -57,15 +57,21 @@ class AppStore(private val scope: CoroutineScope) {
         // has ENDED is not running: its end plays on the screen's own clock, and a tick then would
         // only restamp the time, a new state ten times a second for as long as the ending stayed
         // unsettled (measured 2026-09-24: forever after a tap on the microphone, AppStoreIdleTest).
+        //
+        // And pairing v2's wait for the press on the Mac: core publishes when its next ask (or its
+        // bound) falls due, only while the app is on screen, and `mac-wait` lets core decide. A
+        // hidden app publishes no due time, so this timer holds nothing for it (CEO ruling §81).
         scope.launch {
             states.collectLatest { s ->
                 if (s == null) return@collectLatest
                 val tick = if (s.voice?.let(::running) == true) VOICE_TICK_MS else s.connection.noticeDueInMs
                 val owed = outboxOwedInMs(s)
-                val due = listOfNotNull(tick, owed).minOrNull() ?: return@collectLatest
+                val mac = s.macWaitDueInMs
+                val due = listOfNotNull(tick, owed, mac).minOrNull() ?: return@collectLatest
                 delay(due)
                 if (tick != null && tick <= due) dispatch(Action.Tick)
                 if (owed != null && owed <= due) drain()
+                if (mac != null && mac <= due) dispatch(Action.MacWait)
             }
         }
     }

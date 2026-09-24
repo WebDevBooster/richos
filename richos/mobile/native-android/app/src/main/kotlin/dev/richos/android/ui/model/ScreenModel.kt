@@ -222,6 +222,7 @@ data class ScreenModel(
                 }
                 PairingPhase.EXCHANGING -> PairingStep.IN_PROGRESS
                 PairingPhase.CONFIRMING -> PairingStep.WORDS
+                PairingPhase.AWAITING_MAC -> PairingStep.WAITING_FOR_MAC
                 PairingPhase.PAIRED -> null
             }
         }
@@ -433,7 +434,7 @@ enum class ConnectionNotice {
 }
 
 /** Every pairing screen. Most derive from core; see [PairingSurface] for the ones that do not. */
-enum class PairingStep { INTRO, SCANNING, FOUND, CAMERA_DENIED, IN_PROGRESS, WORDS, REFUSED, PROBLEM, NEEDS_NEWER_APP, CONSENT }
+enum class PairingStep { INTRO, SCANNING, FOUND, CAMERA_DENIED, IN_PROGRESS, WORDS, WAITING_FOR_MAC, REFUSED, PROBLEM, NEEDS_NEWER_APP, CONSENT }
 
 /** Pairing surfaces owned by the platform, not core: the camera, first-run consent, a newer session. */
 enum class PairingSurface(val step: PairingStep) {

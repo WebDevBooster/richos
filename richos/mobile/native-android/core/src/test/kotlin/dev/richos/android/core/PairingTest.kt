@@ -26,7 +26,7 @@ class PairingTest {
 
     @Test
     fun `the pairing scenarios pass`() = runTest {
-        for (name in listOf("pair-and-confirm", "pair-refused")) {
+        for (name in listOf("pair-and-confirm", "pair-refused", "pair-v1-mac-refused", "pair-wait-expires", "pair-mac-declined")) {
             val result = DevRuntime.create().execute(DevRequest.Scenario(name)).jsonObject
             assertEquals(name, result["name"]!!.jsonPrimitive.content)
         }
@@ -53,29 +53,55 @@ class PairingTest {
         assertEquals(PairingPhase.CONFIRMING, runtime.core.dispatch(Action.Pair(Fixtures.PAIR_LINK)).pairing.phase)
     }
 
+    /** The PWA's rule (`app.js` `pair-confirm`): a lost answer is not a reason to stop, because the wait asks the Mac itself. */
     @Test
-    fun `an unreachable Mac at They match keeps the words on screen, and a second press pairs`() = runTest {
+    fun `an unreachable Mac at They match still waits for the press on the Mac, and the wait's ask pairs`() = runTest {
         val runtime = unpaired()
         runtime.core.dispatch(Action.Pair(Fixtures.PAIR_LINK))
         runtime.execute(DevRequest.parse("transport", "unreachable"))
         var s = runtime.core.dispatch(Action.ConfirmWords(true))
-        assertEquals(PairingPhase.CONFIRMING, s.pairing.phase)
-        assertEquals("unreachable", s.pairing.problem)
-        runtime.execute(DevRequest.parse("transport", "accept"))
-        s = runtime.core.dispatch(Action.ConfirmWords(true))
-        assertEquals(PairingPhase.PAIRED, s.pairing.phase)
+        assertEquals(PairingPhase.AWAITING_MAC, s.pairing.phase)
         assertEquals(null, s.pairing.problem)
+        assertFalse(s.paired)
+        runtime.execute(DevRequest.parse("transport", "accept"))
+        runtime.execute(DevRequest.parse("mac", "press"))
+        s = runtime.execute(DevRequest.parse("advance", "2000")).let { runtime.core.state }
+        assertEquals(PairingPhase.PAIRED, s.pairing.phase)
+        assertTrue(s.paired)
     }
 
+    /** A refusal during pairing is the Mac declining this phone, never "removed from your Mac" (which is a paired phone's takeover). */
     @Test
-    fun `a revoked answer at They match is final, unpaired with the key discarded`() = runTest {
+    fun `a revoked answer at They match is final, unpaired as declined with the key discarded`() = runTest {
         val runtime = unpaired()
         runtime.core.dispatch(Action.Pair(Fixtures.PAIR_LINK))
         runtime.execute(DevRequest.parse("transport", "revoked"))
         val s = runtime.core.dispatch(Action.ConfirmWords(true))
         assertEquals(PairingPhase.UNPAIRED, s.pairing.phase)
-        assertEquals("revoked", s.pairing.problem)
+        assertEquals(RichCore.PROBLEM_MAC_DECLINED, s.pairing.problem)
         assertFalse(Fixtures.ORIGIN in runtime.export().keys)
+    }
+
+    @Test
+    fun `They do not match on the phone while waiting tells the Mac, stops the wait and forgets the key`() = runTest {
+        val runtime = unpaired()
+        runtime.core.dispatch(Action.Pair(Fixtures.PAIR_LINK))
+        assertEquals(PairingPhase.AWAITING_MAC, runtime.core.dispatch(Action.ConfirmWords(true)).pairing.phase)
+        assertFailsWith<CoreError>("They match cannot be pressed twice") { runtime.core.dispatch(Action.ConfirmWords(true)) }
+        val s = runtime.core.dispatch(Action.ConfirmWords(false))
+        assertEquals(PairingPhase.UNPAIRED, s.pairing.phase)
+        assertEquals(null, s.macWaitDueInMs)
+        assertEquals(null, runtime.export().mac.devicePoint, "the Mac forgot the phone")
+        assertFalse(Fixtures.ORIGIN in runtime.export().keys)
+        runtime.execute(DevRequest.parse("advance", "60000"))
+        assertEquals(0, runtime.export().mac.eventReads, "nothing is asked after the wait stopped")
+    }
+
+    @Test
+    fun `the scenario grammar knows the Mac's press`() {
+        assertEquals(DevRequest.Mac("press"), DevRequest.parse("mac", "press"))
+        assertFailsWith<CoreError> { DevRequest.parse("mac", "pressed") }
+        assertFailsWith<CoreError> { DevRequest.parse("mac", null) }
     }
 
     @Test

@@ -38,7 +38,8 @@ class CatalogTest {
     }
 
     /** The way in to pairing's states round 12 does not draw (`ScreenCatalog.pairingEntry`), each named. */
-    private val pairingEntry = "pair-link pair-link-refused pair-scanner-opening pair-scanner-unavailable pair-removed-blocked".split(' ')
+    private val pairingEntry = ("pair-link pair-link-refused pair-scanner-opening pair-scanner-unavailable pair-removed-blocked " +
+        "pair-waiting-mac pair-mac-update pair-mac-declined pair-expired").split(' ')
 
     @Test
     fun `every attachment screen follows, by its stable id, then the pairing entry's, and no id repeats`() {
