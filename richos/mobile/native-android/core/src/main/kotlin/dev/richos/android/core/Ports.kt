@@ -80,6 +80,8 @@ data class Receipt(
     @SerialName("message_id") val messageId: String,
     val duplicate: Boolean,
     val cursor: Long,
+    /** Voice only: the SHA-256 of the transcript the Mac made, lowercase hex (`phone/routes.rs`). */
+    @SerialName("text_sha256") val textSha256: String? = null,
 )
 
 /**

@@ -115,11 +115,11 @@ class RichCore private constructor(
                     if (text.isEmpty()) throw CoreError("There is nothing to send")
                     val threadId = session.selectedThreadId ?: throw CoreError("Choose a conversation before sending")
                     val sentAt = isoMillis(ports.clock.now())
-                    outbox.enqueue(OutboxItem(clientId = action.clientId, threadId = threadId, kind = "text", text = text, queuedAt = sentAt,
+                    enqueue(OutboxItem(clientId = action.clientId, threadId = threadId, kind = "text", text = text, queuedAt = sentAt,
                         wire = Wire.text(action.clientId, threadId, text, sentAt)))
                 } else {
                     checkAttachments(action.files)
-                    outbox.enqueue(enqueueAttachments(action.files, text).copy(clientId = action.clientId).let { item ->
+                    enqueue(enqueueAttachments(action.files, text).copy(clientId = action.clientId).let { item ->
                         item.copy(wire = Wire.attachments(action.clientId, item.threadId, text, action.files, item.queuedAt))
                     })
                 }
@@ -181,7 +181,7 @@ class RichCore private constructor(
         is Action.SendVoice -> {
             mutex.withLock {
                 if (!session.paired || session.selectedThreadId == null) throw CoreError("Pair this device before sending")
-                outbox.enqueue(voiceItem(action.clientId ?: ports.ids.next(), action.threadId ?: session.selectedThreadId!!, action.recording.id, (action.recording.seconds * 1000).toLong(), emptyList()))
+                enqueue(voiceItem(action.clientId ?: ports.ids.next(), action.threadId ?: session.selectedThreadId!!, action.recording.id, (action.recording.seconds * 1000).toLong(), emptyList()))
                 emit()
             }
             flush()
@@ -292,7 +292,7 @@ class RichCore private constructor(
                 is SseItem.Resnapshot -> resnapshotRequested = true
             }
         }
-        return if (next != session) commit(next) else emit()
+        return if (next != session) commit(Echoes.reconcile(next)) else emit()
     }
 
     private fun <T> decode(serializer: kotlinx.serialization.KSerializer<T>, data: String): T? =
@@ -326,7 +326,12 @@ class RichCore private constructor(
         } ?: s
         "message" -> decode(Row.serializer(), frame.data)?.let { row ->
             val held = s.cache[row.threadId].orEmpty()
-            val merged = held.filter { it.id != row.id } + row
+            // A message typed at the Mac arrives first as the Mac's stand-in (`intake_<n>`,
+            // `phone/stream.rs` `announce_his_words`) and then as the turn's own row: the
+            // stand-in retires when that row arrives, matched by its words (the iPhone's
+            // `ThreadModel.merge`). Only on arrival, so an older row never retires a newer one.
+            val retired = if (row.role == "ceo" && !Echoes.isStandIn(row)) held.filter { Echoes.isStandIn(it) && it.text == row.text } else emptyList()
+            val merged = held.filter { it.id != row.id && it !in retired } + row
             val keepReading = row.threadId == s.selectedThreadId && held.any { it.id == s.readingAnchor?.messageId }
             s.copy(cache = s.cache + (row.threadId to bounded(merged, if (keepReading) merged.size else held.size)))
         } ?: s
@@ -392,15 +397,53 @@ class RichCore private constructor(
     /** The journal and consumed input commit together; replay uses the same stable client IDs. */
     private suspend fun enqueueConsuming(items: List<OutboxItem>, consumed: Session) {
         ports.performance.mark("send-requested")
-        commit(consumed.copy(pendingEnqueues = items))
+        commit(consumed.copy(pendingEnqueues = items.map(::withBoundary)))
         ports.performance.mark("durable-queued")
         finishEnqueues()
     }
 
+    /** Every queued message records its echo boundary as it enters the outbox. */
+    private suspend fun enqueue(item: OutboxItem): OutboxItem = outbox.enqueue(withBoundary(item))
+
     private suspend fun finishEnqueues() {
         if (session.pendingEnqueues.isEmpty()) return
-        for (item in session.pendingEnqueues) outbox.enqueue(item)
+        for (item in session.pendingEnqueues) enqueue(item)
         commit(session.copy(pendingEnqueues = emptyList()))
+    }
+
+    /**
+     * The newest of the Mac's rows on screen now, recorded on a message as it is queued: no row
+     * at or before it can be that message's echo ([Echoes]). Kept if already recorded.
+     */
+    private fun withBoundary(item: OutboxItem): OutboxItem {
+        if (item.echoAfterCursor != null || item.echoAfterMessageId != null) return item
+        val (cursor, id) = Echoes.boundary(session.cache[item.threadId].orEmpty())
+        return item.copy(echoAfterCursor = cursor, echoAfterMessageId = id)
+    }
+
+    /**
+     * The Mac accepted [item]: it stays on screen, as sent, until the Mac's own row for it arrives
+     * (D01). Recorded BEFORE the outbox drops the item, so no instant, and no relaunch, has it in
+     * neither place. A failed save keeps it in memory: the Mac has the message whatever the disk
+     * says, and the outbox's own removal is what makes delivery exactly-once.
+     */
+    private suspend fun accepted(item: OutboxItem, receipt: Receipt) = mutex.withLock {
+        if (session.sent.any { it.clientId == item.clientId } || session.echoes.any { it.clientId == item.clientId }) return@withLock
+        val hash = receipt.textSha256?.lowercase()?.takeIf { h -> h.length == 64 && h.all { it in '0'..'9' || it in 'a'..'f' } }
+        // A voice message is matched by the transcript's hash only. Without one (an older Mac)
+        // nothing could ever retire it, so it is not held; its echo still arrives as the Mac's row.
+        if (item.kind == "voice" && hash == null) return@withLock
+        val next = Echoes.reconcile(session.copy(sent = session.sent + SentMessage(
+            clientId = item.clientId, threadId = item.threadId, kind = item.kind, text = item.text, queuedAt = item.queuedAt,
+            echoAfterCursor = item.echoAfterCursor, echoAfterMessageId = item.echoAfterMessageId,
+            transcriptSha256 = hash, seconds = item.seconds, attachments = item.attachments,
+        )))
+        try {
+            commit(next)
+        } catch (_: java.io.IOException) {
+            session = next
+            emit()
+        }
     }
 
     /** One pass over the outbox, outside the lock, while online (`app.js` `drain`). */
@@ -408,11 +451,13 @@ class RichCore private constructor(
         if (!session.online) return flow.value
         val before = outbox.all()
         val report = outbox.flush(lease = { reserveCompletion() }) { item ->
-            when (item.kind) {
+            val receipt = when (item.kind) {
                 "voice" -> transport.sendVoice(item)
                 "attachments" -> transport.sendAttachments(item)
                 else -> transport.sendText(item)
             }
+            accepted(item, receipt)
+            receipt
         }
         // A photo or file the Mac accepted is the Mac's now: the phone's staged copy goes.
         val left = outbox.all().map { it.clientId }.toSet()
@@ -483,11 +528,11 @@ class RichCore private constructor(
                 val (answer, challenge) = result
                 val held = session.cache[thread].orEmpty()
                 val merged = bounded(answer.messages + held, held.size + answer.messages.size)
-                commit(session.copy(
+                commit(Echoes.reconcile(session.copy(
                     cache = session.cache + (thread to merged),
                     olderAvailable = session.olderAvailable + (thread to answer.more),
                     pairing = session.pairing.copy(challenge = challenge),
-                ))
+                )))
             }
         } finally {
             withContext(NonCancellable) {
@@ -598,7 +643,7 @@ class RichCore private constructor(
     private suspend fun sendAttachments(action: Action.SendAttachments): AppState {
         mutex.withLock {
             checkAttachments(action.files)
-            outbox.enqueue(enqueueAttachments(action.files, action.text.trim()))
+            enqueue(enqueueAttachments(action.files, action.text.trim()))
             emit()
         }
         return flush()
@@ -659,6 +704,7 @@ class RichCore private constructor(
                     threads = emptyList(),
                     selectedThreadId = null,
                     cache = emptyMap(), olderAvailable = emptyMap(), streamCursor = null, readingAnchor = null,
+                    sent = emptyList(), echoes = emptyList(),
                     pairing = Pairing(phase = PairingPhase.EXCHANGING, apiBase = link.origin, route = routeOf(link.origin)),
                 ),
             )
@@ -868,7 +914,8 @@ class RichCore private constructor(
         if (!outbox.isEmpty()) throw CoreError(UNSENT_BEFORE_FORGET)
         val origin = session.pairing.apiBase
         ++generation
-        val next = commit(session.copy(paired = false, threads = emptyList(), selectedThreadId = null, pairing = Pairing()))
+        val next = commit(session.copy(paired = false, threads = emptyList(), selectedThreadId = null, pairing = Pairing(),
+            sent = emptyList(), echoes = emptyList()))
         origin?.let { ports.keys.delete(it) }
         next
     }
