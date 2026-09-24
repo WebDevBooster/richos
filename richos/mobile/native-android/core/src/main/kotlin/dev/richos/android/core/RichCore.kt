@@ -789,9 +789,13 @@ class RichCore private constructor(
                 throw CoreError("There is no pairing waiting for its six words")
             }
             // "They do not match": the pairing is gone from the phone on the same press (contract
-            // §2.5), a held ask with it. The Mac is told, best effort, and then the key is discarded.
+            // §2.5), a held ask with it, and the screen says so: the person may have caught a relay,
+            // and the plain intro would make that security decision look like a reset (Urban's
+            // review, state 4). The next scan clears it. The Mac is told, best effort, and then the
+            // key is discarded.
             macWaitJob?.cancel()
-            commit(session.copy(paired = false, threads = emptyList(), selectedThreadId = null, pairing = Pairing()))
+            commit(session.copy(paired = false, threads = emptyList(), selectedThreadId = null,
+                pairing = Pairing(apiBase = p.apiBase, route = p.route, problem = PROBLEM_WORDS_REJECTED)))
             Triple(p, ++generation, FCM in session.capabilities)
         }
         val apiBase = pending.apiBase!!
@@ -1290,6 +1294,7 @@ class RichCore private constructor(
         const val PROBLEM_MAC_NEEDS_UPDATE = "mac-needs-update"
         const val PROBLEM_MAC_DECLINED = "mac-declined"
         const val PROBLEM_EXPIRED = "expired"
+        /** "They do not match" pressed on the phone (Urban's review, state 4; the iPhone's `wordsRejected`). */
         const val PROBLEM_WORDS_REJECTED = "words-rejected"
 
         /**
