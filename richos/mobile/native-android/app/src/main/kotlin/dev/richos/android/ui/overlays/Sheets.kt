@@ -263,7 +263,7 @@ fun Dialog(title: String, tag: String, content: @Composable ColumnScope.() -> Un
         ) {
             BasicText(
                 title,
-                style = t.dialogTitle.copy(color = c.ink, lineBreak = LineBreak.Heading, hyphens = Hyphens.Auto),
+                style = t.dialogTitle.copy(color = c.ink, lineBreak = LineBreak.Heading, hyphens = Hyphens.None),
                 modifier = Modifier.padding(bottom = 10.dp).semantics { heading() },
             )
             content()

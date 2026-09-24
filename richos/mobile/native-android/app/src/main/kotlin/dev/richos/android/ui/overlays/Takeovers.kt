@@ -47,7 +47,11 @@ import dev.richos.android.design.lamp
 import dev.richos.android.design.plane
 import dev.richos.android.ui.UiEvent
 
-/** Headings and eyebrows break a word only when it alone is wider than the line (iOS audit F10). */
+/**
+ * Headings and eyebrows break at word boundaries, balanced, and are never hyphenated: round 12.1
+ * never hyphenates, and an automatic hyphen split the product name ("RichCon-nect", Urban's
+ * 2026-09-24 audit G6). A word breaks only when it alone is wider than the line (iOS audit F10).
+ */
 private val wrapping = LineBreak.Paragraph.copy(strategy = LineBreak.Strategy.Balanced)
 
 /**
@@ -75,7 +79,7 @@ fun Eyebrow(text: String, modifier: Modifier = Modifier) {
     // DECLARED SKIPPABLE (design system's eyebrow class): 14 sp all-caps; signal 7.68:1 dark, ink 14.90:1 light.
     BasicText(
         text.uppercase(),
-        style = t.eyebrow.copy(color = if (c.isDark) c.signal else c.ink, lineBreak = wrapping, hyphens = Hyphens.Auto),
+        style = t.eyebrow.copy(color = if (c.isDark) c.signal else c.ink, lineBreak = wrapping, hyphens = Hyphens.None),
         modifier = modifier,
     )
 }
@@ -87,7 +91,7 @@ fun DisplayHeading(text: String, modifier: Modifier = Modifier) {
     val small = LocalConfiguration.current.screenWidthDp < 380
     BasicText(
         text,
-        style = (if (small) t.displaySmall else t.display).copy(color = c.ink, lineBreak = wrapping, hyphens = Hyphens.Auto),
+        style = (if (small) t.displaySmall else t.display).copy(color = c.ink, lineBreak = wrapping, hyphens = Hyphens.None),
         modifier = modifier.padding(top = 14.dp).semantics { heading() },
     )
 }
@@ -310,7 +314,7 @@ fun UpdateRequired(version: String, onEvent: (UiEvent) -> Unit) {
         Eyebrow("Update required")
         BasicText(
             "This version of RichConnect can no longer send",
-            style = t.displayBlocking.copy(color = c.ink, lineBreak = wrapping, hyphens = Hyphens.Auto),
+            style = t.displayBlocking.copy(color = c.ink, lineBreak = wrapping, hyphens = Hyphens.None),
             modifier = Modifier.padding(top = 14.dp).semantics { heading() },
         )
         Lede("Version $version is in Google Play now. Updating takes about a minute.")
