@@ -632,6 +632,14 @@
     "press They match.";
   const PAIRED_AWAITING_PHONE =
     "This Mac accepted it. Finish on your phone by pressing They match there too.";
+  /// **BOTH PRESSES ARE IN, AND THE PHONE HAS NOT USED THE PAIRING YET** — Sage's pair-v2
+  /// hypotheses review §2. The press on this Mac is this Mac's yes, not evidence that the phone
+  /// heard it: a phone that lost this Mac after its own press throws its key away at its deadline,
+  /// and a card that already said `It is paired` would list a phone that can never connect. So
+  /// `It is paired` waits for `status.completed`, the phone's first ordinary request, and this is
+  /// what is true until then. The sentence is Sage's, from his table of end states; Urban has not
+  /// reviewed it yet.
+  const PAIRED_AWAITING_FINISH = "This Mac accepted it. Waiting for your phone to finish.";
   const PAIRED_CONFIRMED = "It is paired. Open Rich on it and keep talking.";
 
   /// **THE SPENT-CODE ALARM, AFTER THE PRESS** (Sage F1 item 4): somebody used this phone's code
@@ -677,6 +685,11 @@
     expired:
       "Nobody pressed They match on this Mac within five minutes, so I stopped answering, forgot " +
       "the phone, and deleted the certificate this Mac was serving.",
+    // Sage's pair-v2 review §2: this Mac pressed They match, and the phone never used the pairing
+    // within the grace after the window. Written here in the shape above; Urban has not reviewed it.
+    unfinished:
+      "This Mac accepted your phone, but the phone never finished pairing, so I stopped " +
+      "answering, forgot the phone, and deleted the certificate this Mac was serving.",
   };
   function stoppedNoteFor(by) {
     return Object.prototype.hasOwnProperty.call(STOPPED_NOTES, by) ? STOPPED_NOTES[by] : REJECTED_NOTE;
@@ -991,8 +1004,14 @@
     // on the Mac, and a pairing nobody answers in time is forgotten there, so the card has to move
     // to the screen that says so by itself rather than keep offering two buttons that no longer do
     // anything. It stops the moment the answer is in.
+    //
+    // AND WHILE THE PHONE HAS NOT USED A PAIRING THIS MAC ACCEPTED (Sage's pair-v2 review §2):
+    // `It is paired` arrives by itself the moment it does, and the stopped screen arrives by
+    // itself if it never does. `completed === false` only: a Mac that predates the field sends
+    // nothing, and that Mac said `It is paired` on the phone's answer.
     const askingAboutTheWords =
-      status.paired && (!status.fingerprintConfirmed || status.macConfirmed === false);
+      status.paired &&
+      (!status.fingerprintConfirmed || status.macConfirmed === false || status.completed === false);
     setPolling(onConnect || waiting || ready || (pairing && !status.paired) || askingAboutTheWords);
 
     // **THE WATCH STARTS WHEN THE USER IS FIRST TOLD TO GO TO THEIR PHONE**, which is Screen 4 as
@@ -1022,8 +1041,9 @@
       field("phone-paired-state").textContent = status.listening === false
         ? "Your phone's pairing is saved. RichOS is trying to restore its connection."
         : awaitingMac ? PAIRED_AWAITING_WORDS
-        : status.fingerprintConfirmed ? PAIRED_CONFIRMED
-        : PAIRED_AWAITING_PHONE;
+        : !status.fingerprintConfirmed ? PAIRED_AWAITING_PHONE
+        : status.completed === false ? PAIRED_AWAITING_FINISH
+        : PAIRED_CONFIRMED;
       field("phone-paired-words").textContent = words;
       field("phone-paired-words").hidden = !awaitingMac || !words;
       field("phone-mac-answer").hidden = !awaitingMac || status.listening === false;
