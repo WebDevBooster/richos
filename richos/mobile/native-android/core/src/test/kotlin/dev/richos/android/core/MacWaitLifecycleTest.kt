@@ -288,6 +288,29 @@ class MacWaitLifecycleTest {
     }
 
     @Test
+    fun `They do not match while the press is held stops it, and the phone says nothing was paired`() = runTest {
+        val world = World(pairAnswer(holds = true))
+        val core = RichCore.open(world.ports)
+        core.dispatch(Action.Pair(Fixtures.PAIR_LINK))
+        world.gate = CompletableDeferred()
+        val press = launch { runCatching { core.dispatch(Action.ConfirmWords(true)) } }
+        runCurrent()
+        advanceTimeBy(RichCore.SHOW_WAITING_AFTER_MS)
+        runCurrent()
+        assertEquals(PairingPhase.AWAITING_MAC, core.state.pairing.phase)
+        val s = core.dispatch(Action.ConfirmWords(false))
+        runCurrent()
+        assertTrue(press.isCompleted, "the held press is canceled with the answer")
+        assertEquals(PairingPhase.UNPAIRED, s.pairing.phase)
+        assertEquals(RichCore.PROBLEM_WORDS_REJECTED, s.pairing.problem)
+        world.gate!!.complete(Unit)
+        runCurrent()
+        assertEquals(RichCore.PROBLEM_WORDS_REJECTED, core.state.pairing.problem, "a late answer to the press changes nothing")
+        assertFalse(Fixtures.ORIGIN in world.held)
+        assertNull(core.state.macWaitDueInMs)
+    }
+
+    @Test
     fun `a full 14 s hold is answered, not cut off by the phone's own timeout`() = runTest {
         val world = World(pairAnswer(holds = true))
         world.holdMs = MacWait.HOLD_SECONDS_MAX * 1_000L

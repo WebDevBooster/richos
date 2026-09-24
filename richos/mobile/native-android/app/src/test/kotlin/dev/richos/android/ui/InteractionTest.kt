@@ -10,6 +10,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -109,20 +110,82 @@ class InteractionTest {
         assertEquals(Action.ConfirmWords(false), actions.last())
     }
 
+    /**
+     * Urban's final words for the pairing cards (richos-hq `docs/verification/2026-09-24-native-pair-v2/
+     * urban-review.md`, states 4 to 9) and Sage's sentence on the update card (pair-v2 hypotheses
+     * review §3), the same text the PWA and the iPhone carry, with "scan it again" for the PWA's
+     * "open it on this phone again".
+     */
+    private val cards = linkedMapOf(
+        "pair-mac-update" to ("Your Mac needs an update" to
+            "This phone cannot pair with the version of RichOS on it. Your Mac may say the six words did not match: it stopped because this phone did. Update RichOS on your Mac, then show a fresh code there and scan it again."),
+        "pair-mac-declined" to ("Your Mac did not accept this phone" to
+            "Nothing was paired. Either someone said the words did not match on your Mac, or pairing was stopped there. Show a fresh code on your Mac and scan it again."),
+        "pair-expired" to ("Pairing timed out" to
+            "This phone did not hear back from your Mac in time, so it stopped. Show a fresh code on your Mac and scan it again."),
+        "pair-words-rejected" to ("Stopped, and nothing was paired" to
+            "If the words on this phone and your Mac were different, this phone was not talking to your Mac. Tell Rich on your Mac before you pair again."),
+        "pair-refused" to ("Your Mac did not accept this code" to "Nothing was paired. Show a fresh code on your Mac and scan it again."),
+        "pair-fault" to ("Pairing did not finish" to "Nothing was paired. Show a fresh code on your Mac and scan it again."),
+    )
+
     @Test
-    fun `each pairing v2 outcome says what happened, and the way back is the scanner`() {
-        val set = show(screen("pair-mac-update"))
-        compose.onNodeWithText("Your Mac needs an update before this phone can pair with it").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Scan your Mac’s code").performClick()
-        assertEquals(UiEvent.ScanCode, events.last())
-        set(screen("pair-mac-declined"))
+    fun `each pairing outcome says what happened in Urban's words, and the way back is the scanner`() {
+        var set: ((ScreenModel) -> Unit)? = null
+        for ((id, card) in cards) {
+            if (set == null) set = show(screen(id)) else { set(screen(id)); compose.waitForIdle() }
+            compose.onNodeWithText(card.first).performScrollTo().assertIsDisplayed()
+            compose.onNodeWithText(card.second).performScrollTo().assertIsDisplayed()
+            // One way back, the same verb as the card's: no second button, no "Pair again" (Urban, question 1).
+            compose.onNodeWithText("Pair again").assertDoesNotExist()
+            compose.onNodeWithText("Scan your Mac’s code").performClick()
+            assertEquals(UiEvent.ScanCode, events.last())
+            // Never the paired phone's takeover: nobody removed this phone from the Mac.
+            compose.onNodeWithText("This phone was removed from your Mac").assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun `the words-rejected card is still there after the scanner opens and closes without a scan`() {
+        val rejected = screen("pair-words-rejected")
+        val set = show(rejected.copy(pairingSurface = dev.richos.android.ui.model.PairingSurface.SCANNING))
+        compose.onNodeWithTag("scanner").assertIsDisplayed()
+        set(rejected)
         compose.waitForIdle()
-        compose.onNodeWithText("Your Mac did not accept this phone").performScrollTo().assertIsDisplayed()
-        set(screen("pair-expired"))
+        compose.onNodeWithText("Stopped, and nothing was paired").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun `at the largest text on the small phone, every pairing card's title shows without scrolling`() {
+        var current by mutableStateOf(screen(cards.keys.first()))
+        compose.setContent {
+            val base = androidx.compose.ui.platform.LocalDensity.current
+            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(base.density, 2f)) {
+                RichApp(current, onEvent = { events += it })
+            }
+        }
+        for ((id, card) in cards) {
+            current = screen(id)
+            compose.waitForIdle()
+            val title = compose.onNodeWithText(card.first).fetchSemanticsNode().boundsInRoot
+            val button = compose.onNodeWithText("Scan your Mac’s code").fetchSemanticsNode().boundsInRoot
+            val fade = compose.onAllNodesWithTag("scroll-edge-fade").fetchSemanticsNodes().firstOrNull()?.boundsInRoot
+            val limit = fade?.top ?: button.top
+            assertTrue("$id: the card title (bottom ${title.bottom}) must clear the scroll edge ($limit) at 2x text", title.bottom <= limit)
+        }
+    }
+
+    @Test
+    fun `the six words never tell the answer, and the waiting screen names both places and the control`() {
+        val set = show(screen("pair-words"))
+        compose.onNodeWithText("Your Mac shows six words too. If they are the same six, this connection is private to you.").assertIsDisplayed()
+        set(screen("pair-waiting-mac"))
         compose.waitForIdle()
-        compose.onNodeWithText("Your Mac did not get an answer in time").performScrollTo().assertIsDisplayed()
-        // Never the paired phone's takeover: nobody removed this phone from the Mac.
-        compose.onNodeWithText("This phone was removed from your Mac").assertDoesNotExist()
+        val lede = "This phone carries on by itself once you do. If the words on your Mac are different, press They do not match, here or on your Mac."
+        val node = compose.onNodeWithText(lede).assertIsDisplayed().fetchSemanticsNode()
+        val text = node.config[androidx.compose.ui.semantics.SemanticsProperties.Text].single()
+        val bold = text.spanStyles.single { it.item.fontWeight == androidx.compose.ui.text.font.FontWeight.SemiBold }
+        assertEquals("They do not match", text.text.substring(bold.start, bold.end))
     }
 
     @Test

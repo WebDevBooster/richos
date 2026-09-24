@@ -1290,6 +1290,7 @@ class RichCore private constructor(
         const val PROBLEM_MAC_NEEDS_UPDATE = "mac-needs-update"
         const val PROBLEM_MAC_DECLINED = "mac-declined"
         const val PROBLEM_EXPIRED = "expired"
+        const val PROBLEM_WORDS_REJECTED = "words-rejected"
 
         /**
          * One ask of the wait gets this long; no answer in time is waited through like a fault. It
