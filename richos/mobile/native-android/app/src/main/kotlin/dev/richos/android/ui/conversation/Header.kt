@@ -69,7 +69,10 @@ fun noticeText(notice: ConnectionNotice): Pair<String, String>? = when (notice) 
     ConnectionNotice.VOICE_UNSUPPORTED -> "This Mac cannot accept voice yet. " to "Your recording stays on this phone."
     ConnectionNotice.VOICE_PAUSED -> "Voice messages are paused while we fix a problem. " to "Typing works."
     ConnectionNotice.ATTACHMENTS_UNSUPPORTED -> "This Mac needs a newer RichOS for photos and files. " to "Text and voice work."
-    ConnectionNotice.TAILSCALE_OFF -> "Reconnecting… " to "Your messages are saved."
+    // D05: said only when the OS reports no VPN on the Tailscale route and the trouble has lasted
+    // 3 s. It says what the phone knows ("not on Tailscale", not "Tailscale is off", which is false
+    // for a Tailscale that excludes this app) and names the one fix. Still, never pulsing.
+    ConnectionNotice.TAILSCALE_OFF -> "This phone is not on Tailscale. Turn Tailscale on to reach your Mac. " to "Messages stay on this phone."
 }
 
 /**

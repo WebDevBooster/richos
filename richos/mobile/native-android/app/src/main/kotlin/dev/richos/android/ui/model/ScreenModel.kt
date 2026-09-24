@@ -275,6 +275,7 @@ data class ScreenModel(
             ConnectionReason.PHONE_OFFLINE -> ConnectionNotice.OFFLINE
             ConnectionReason.SERVICE_UNAVAILABLE -> ConnectionNotice.SERVICE_UNAVAILABLE
             ConnectionReason.MAC_UNREACHABLE -> ConnectionNotice.MAC_UNREACHABLE
+            ConnectionReason.TAILSCALE_OFF -> ConnectionNotice.TAILSCALE_OFF
             ConnectionReason.INCOMPATIBLE -> ConnectionNotice.MAC_NEEDS_UPDATE
             else -> nameplateLocal
         }

@@ -116,7 +116,8 @@ class RichApplication : Application() {
                     scope.launch { connection.run() }
                     scope.launch { platform.reconcileOnConnection(core.states) { started > 0 } }
                     // The network came back: reconnect now, not at the end of a back-off.
-                    NetworkWake.register(this, changed = { connection.networkChanged(it) })
+                    // And whether Tailscale's tunnel is up, from the same OS callback (D05).
+                    NetworkWake.register(this, changed = { connection.networkChanged(it) }, tunnel = { connection.tunnelChanged(it) })
                 }
             }
             push = platform

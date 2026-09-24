@@ -23,6 +23,7 @@ enum class ConnectionReason {
     @SerialName("mac-unreachable") MAC_UNREACHABLE,
     @SerialName("revoked") REVOKED,
     @SerialName("incompatible") INCOMPATIBLE,
+    /** Paired over Tailscale, and the OS reports no VPN on this phone's default network (D05). */
     @SerialName("tailscale-off") TAILSCALE_OFF,
 }
 
@@ -74,11 +75,27 @@ object Connections {
         else -> ConnectionReason.MAC_UNREACHABLE
     }
 
-    fun cause(reason: ConnectionReason, route: Route?, paired: Boolean, vpn: Boolean?): ConnectionReason = reason
+    /**
+     * **D05: WHAT THE PHONE CAN SAY ABOUT TAILSCALE, FROM THE OS'S OWN WORD.** Paired over the
+     * Tailscale route (`*.ts.net`, contract §1.1), with the OS reporting that the default network
+     * runs through no VPN ([vpn] false; Tailscale on Android is a VPN), a phone that is merely
+     * away cannot reconnect by itself: "Reconnecting…" would not be true, and the fix is the
+     * person's to make. Only the quiet reasons are refined; offline, the service, revoked and
+     * incompatible say what they say. An unknown [vpn] (no report yet) is never guessed.
+     */
+    fun cause(reason: ConnectionReason, route: Route?, paired: Boolean, vpn: Boolean?): ConnectionReason =
+        if (paired && route == Route.TAILNET && vpn == false && reason in REFINABLE) ConnectionReason.TAILSCALE_OFF else reason
 
-    /** The published view at [now]: the notice rule applied to the raw [state]. */
+    private val REFINABLE = setOf(ConnectionReason.CONNECTING, ConnectionReason.RECONNECTING, ConnectionReason.MAC_UNREACHABLE)
+
+    /**
+     * The published view at [now]: the notice rule applied to the raw [state]. [ConnectionReason.TAILSCALE_OFF]
+     * keeps the same quiet 3 s as reconnecting (a Tailscale that is coming up by itself is never
+     * announced), then names the fix, once: no timer after it (D05).
+     */
     fun view(state: ConnectionState, now: Long): ConnectionState {
-        val quietWhile = state.reason == ConnectionReason.CONNECTING || state.reason == ConnectionReason.RECONNECTING
+        val quietWhile = state.reason == ConnectionReason.CONNECTING || state.reason == ConnectionReason.RECONNECTING ||
+            state.reason == ConnectionReason.TAILSCALE_OFF
         return when {
             state.reason == ConnectionReason.CONNECTED -> state.copy(notice = null, noticeDueInMs = null)
             !quietWhile -> state.copy(notice = state.reason, noticeDueInMs = null)
@@ -86,7 +103,8 @@ object Connections {
             state.troubleSince == null -> state.copy(notice = null, noticeDueInMs = null)
             else -> {
                 val waited = now - state.troubleSince
-                if (waited >= ConnectionState.NOTICE_AFTER_MS) state.copy(notice = ConnectionReason.RECONNECTING, noticeDueInMs = null)
+                val persistent = if (state.reason == ConnectionReason.TAILSCALE_OFF) ConnectionReason.TAILSCALE_OFF else ConnectionReason.RECONNECTING
+                if (waited >= ConnectionState.NOTICE_AFTER_MS) state.copy(notice = persistent, noticeDueInMs = null)
                 else state.copy(notice = null, noticeDueInMs = ConnectionState.NOTICE_AFTER_MS - waited)
             }
         }

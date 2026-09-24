@@ -151,8 +151,11 @@ class RichCore private constructor(
         }
         is Action.Link -> link(action.status)
         is Action.Health -> mutex.withLock {
+            // The OS's report of a VPN on the default network (D05): kept as evidence, whenever it comes.
+            action.vpn?.let { vpn = it }
+            val diagnosis = action.phoneOnline != null || action.service != null || action.vpn == null
             // Only while away: a probe that lands after the socket reopened is stale.
-            if (!session.online) {
+            if (!session.online && diagnosis) {
                 val reason = Connections.classify(false, revoked(), unsupported, action.phoneOnline, action.service)
                 connection = connection.copy(
                     // A healthy relay does not prove the Mac is asleep or broken.
@@ -1226,13 +1229,19 @@ class RichCore private constructor(
         return sent
     }
 
-    /** `client.js` `effectiveConnectionReason`: revoked, then incompatible, then connected, then the link's reason. */
+    /**
+     * `client.js` `effectiveConnectionReason`: revoked, then incompatible, then connected, then the
+     * link's reason, refined by what the OS says about Tailscale on the Tailscale route (D05).
+     */
     private fun effectiveConnection(): ConnectionState = when {
         revoked() -> connection.copy(reason = ConnectionReason.REVOKED)
         unsupported -> connection.copy(reason = ConnectionReason.INCOMPATIBLE)
         session.online -> connection.copy(reason = ConnectionReason.CONNECTED)
-        else -> connection
+        else -> connection.copy(reason = Connections.cause(connection.reason, session.pairing.route, session.paired, vpn))
     }
+
+    /** Whether the OS reports a VPN on the default network; null until it has said (D05). Never probed. */
+    @Volatile private var vpn: Boolean? = null
 
     private fun snapshot() =
         AppState.of(session, (outbox.all() + session.pendingEnqueues).distinctBy { it.clientId }, outbox.dueInMs(), lastSend, Connections.view(effectiveConnection(), ports.clock.now())).copy(
