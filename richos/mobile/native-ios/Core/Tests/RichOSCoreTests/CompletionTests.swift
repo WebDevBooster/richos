@@ -48,7 +48,7 @@ private actor CompletionGate: EffectHandler {
         for _ in 0..<100 { await Task.yield(); await store.settle() }
         #expect(await gate.delivered == ["message-1", "message-2", "message-3"])
         #expect(store.state.outbox.map(\.clientID) == ["message-4", "message-5"])
-        #expect(store.state.outbox.allSatisfy { $0.state == .waiting })
+        #expect(store.state.outbox.allSatisfy { $0.state == .waiting && $0.attempts == 0 })
         let budget = try #require(await storage.read("completion-budget.json"))
         #expect(try CoreJSON.decode([Int64].self, from: budget).count == 1)
     }

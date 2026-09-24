@@ -31,7 +31,11 @@ public enum ConversationReducer {
             guard let i = s.outbox.firstIndex(where: { $0.clientID == clientID }) else { return }
             switch failure {
             case .retryable(let reason, let afterMs):
-                s.outbox[i].attempts += 1
+                // Lifecycle/storage deferral is not a failed network attempt. Do not make the
+                // next real transient failure wait longer merely because the user switched apps.
+                if !["background", "background-budget", "local-storage"].contains(reason) {
+                    s.outbox[i].attempts += 1
+                }
                 s.outbox[i].state = .waiting
                 s.outbox[i].notBefore = at + (afterMs ?? retryDelayMs(attempt: s.outbox[i].attempts))
                 s.outbox[i].lastReason = reason
