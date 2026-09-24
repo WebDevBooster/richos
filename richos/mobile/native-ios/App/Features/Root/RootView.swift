@@ -140,7 +140,10 @@ struct ScreenView: View {
                     onShowsLatest: { shows in
                         DispatchQueue.main.async { withAnimation(Motion.latest) { showsLatest = shows } }
                     })
-                    .mask(fadeUnderHeader(safeTop: safeTop, height: fullHeight))
+                    // With the out-of-reach line up, the fade follows the taller block down to it, so the
+                    // list fades under the line as it does under the header (I02). Otherwise, as before.
+                    .mask(fadeUnderHeader(safeTop: model.thread.cached ? max(safeTop, headerBottom - 60) : safeTop,
+                                          height: fullHeight))
                     .ignoresSafeArea()
             }
             if model.attach.menuOpen {
@@ -151,11 +154,20 @@ struct ScreenView: View {
                     .accessibilityHidden(true)
             }
             VStack(spacing: 0) {
-                ConversationHeader(connection: model.connection, send: send)
-                    .background(GeometryReader { p in
-                        Color.clear.onAppear { headerBottom = p.frame(in: .global).maxY }
-                            .onChange(of: p.frame(in: .global).maxY) { _, y in headerBottom = y }
-                    })
+                // The out-of-reach line belongs to the header's measured block, so the list starts
+                // below it and it is never drawn under the header's fade (I02).
+                VStack(spacing: 8) {
+                    ConversationHeader(connection: model.connection, send: send)
+                    if model.thread.cached, !model.thread.isEmpty {
+                        OutOfReachLine()
+                            .padding(.horizontal, 14)
+                            .transition(.opacity)
+                    }
+                }
+                .background(GeometryReader { p in
+                    Color.clear.onAppear { headerBottom = p.frame(in: .global).maxY }
+                        .onChange(of: p.frame(in: .global).maxY) { _, y in headerBottom = y }
+                })
                 if let banner = model.banner {
                     UpdateBannerView(banner: banner, send: send)
                         .padding(.horizontal, 12).padding(.top, 8)
@@ -208,7 +220,8 @@ struct ScreenView: View {
         .animation(Motion.spring(320), value: model.attach.menuOpen)
     }
 
-    /// The thread fades out under the header (`.thread` `mask-image`).
+    /// The thread fades out under the header (`.thread` `mask-image`). `safeTop` is where the header
+    /// block's 60 pt begin; the stops sit 30, 64 and 100 pt below it.
     private func fadeUnderHeader(safeTop: CGFloat, height: CGFloat) -> some View {
         let h = max(height, 1)
         return LinearGradient(stops: [
