@@ -573,6 +573,15 @@ def _():
         assert perf.merge_records([first, later])["build"]["commits"] == sorted({first["build"]["commit"], "c" * 40})
         later["build"]["dirty"] = True
         assert "uncommitted" in raises(perfcore.Refused, perf.merge_records, [first, later])
+        # idle frames merge per screen; the same screen twice is refused
+        a, b = json.loads(json.dumps(first)), json.loads(json.dumps(second))
+        a["metrics"]["idleFrames"] = {"method": "m", "screens": {"conversation": {"framesRendered": 0}}, "zeroFrames": True}
+        b["metrics"]["idleFrames"] = {"method": "m", "screens": {"pairing": {"framesRendered": 3}}, "zeroFrames": False}
+        idle = perf.merge_records([a, b])["metrics"]["idleFrames"]
+        assert set(idle["screens"]) == {"conversation", "pairing"} and idle["zeroFrames"] is False, idle
+        assert idle["screens"]["pairing"]["part"] == 2
+        b["metrics"]["idleFrames"]["screens"] = {"conversation": {"framesRendered": 0}}
+        assert "measured in two parts" in raises(perfcore.Refused, perf.merge_records, [a, b])
 
 
 # ---------------------------------------------------------------------------------------------

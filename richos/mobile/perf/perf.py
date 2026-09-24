@@ -126,16 +126,29 @@ def merge_records(parts):
                 measured.add(name)
     for i, r in enumerate(parts, 1):
         for name, m in r.get("metrics", {}).items():
-            if name in merged["metrics"]:
+            have = merged["metrics"].get(name)
+            if have is not None and "screens" in have and "screens" in m:
+                # idle frames are per screen: parts may measure different screens, never the same one twice
+                for screen, value in m["screens"].items():
+                    if screen in have["screens"]:
+                        raise Refused(f"cannot merge: idle frames on {screen} were measured in two parts")
+                    have["screens"][screen] = dict(value, part=i)
+                have["zeroFrames"] = all(v["framesRendered"] == 0 for v in have["screens"].values())
+                continue
+            if have is not None:
                 raise Refused(f"cannot merge: metric {name} appears in two parts")
-            merged["metrics"][name] = dict(m, part=i)
+            m = dict(m, part=i)
+            if "screens" in m:
+                m["screens"] = {k: dict(v, part=i) for k, v in m["screens"].items()}
+            merged["metrics"][name] = m
         for name, state in r.get("phases", {}).items():
             if state == "measured" or name not in measured:
                 merged["phases"][name] = state if state != "measured" else f"measured (part {i})"
         for entry in r.get("notMeasured", []):
             if entry.get("what") not in measured and entry not in merged["notMeasured"]:
                 merged["notMeasured"].append(entry)
-        merged["parts"].append({"part": i, "startedAt": r.get("startedAt"), "finishedAt": r.get("finishedAt"),
+        merged["parts"].append({"part": i, "tool": r.get("tool"), "build": {k: (r.get("build") or {}).get(k) for k in ("commit", "dirty")},
+                                "startedAt": r.get("startedAt"), "finishedAt": r.get("finishedAt"),
                                 "phases": r.get("phases"), "host": (r.get("device") or {}).get("host"),
                                 "conditions": r.get("conditions")})
     merged["device"].pop("host", None)
