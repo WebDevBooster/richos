@@ -390,6 +390,8 @@ pub struct PhoneRuntime {
     /// **`Some(who)`, not `true`, since Sage's F1**: the refusal can now come from a person at
     /// this Mac as well as from the phone, and the sheet says which ([`device::StoppedBy`]).
     rejected: Mutex<Option<&'static str>>,
+    /// Whether [`PhoneRuntime::watch_pairing_deadline`]'s one thread is alive.
+    deadline_watch: std::sync::atomic::AtomicBool,
 }
 
 /// How long a Tailscale detection is reused before the daemon is asked again.
@@ -427,19 +429,20 @@ pub const TAILNET_RECHECK_MS: u64 = 2_000;
 /// itself. What that leaves uncovered is one line — the upgrade-and-call closure in
 /// [`PhoneRuntime::watch_for_rejection`] — and that is said out loud rather than implied by a
 /// green run.
-pub(crate) fn watch_for_rejection<F>(rejections: std::sync::mpsc::Receiver<()>, teardown: F)
+pub(crate) fn watch_for_rejection<F>(rejections: std::sync::mpsc::Receiver<&'static str>, teardown: F)
 where
-    F: FnOnce() + Send + 'static,
+    F: FnOnce(&'static str) + Send + 'static,
 {
     let spawned = std::thread::Builder::new()
         .name("richos-phone-rejection".to_string())
         .spawn(move || {
-            // One rejection is the end of this channel, so one `recv` is the whole loop.
-            if rejections.recv().is_err() {
+            // One rejection is the end of this channel, so one `recv` is the whole loop. What it
+            // carries is who stopped it (`device::StoppedBy`), for the sheet's sentence.
+            let Ok(why) = rejections.recv() else {
                 // The channel went down for an ordinary reason. Nothing to stop.
                 return;
-            }
-            teardown();
+            };
+            teardown(why);
         });
     if let Err(e) = spawned {
         // NOT fatal and NOT silent. The credential is dropped synchronously by the route either
@@ -569,9 +572,18 @@ pub struct PhoneStatus {
     /// next [`PhoneRuntime::begin_pairing`] — the one act that says he is done reading it.
     pub rejected: bool,
     /// **WHO SAID IT** — [`device::StoppedBy`]: `"phone"`, `"mac"` (the person pressed
-    /// `They do not match` on this Mac, Sage F1), or `""` when nothing was refused or the record
-    /// predates the reason. The sheet picks its sentence from this; `rejected` decides the screen.
+    /// `They do not match` on this Mac, Sage F1), `"code-used-twice"` (the spent-code alarm),
+    /// `"expired"` (nobody pressed before the window closed), or `""` when nothing was refused or
+    /// the record predates the reason. The sheet picks its sentence from this; `rejected` decides
+    /// the screen.
     pub rejected_by: String,
+    /// **The code was used again after the person confirmed this phone on the Mac** — Sage's
+    /// spent-code alarm, the "keep it and warn" half. The paired card says so and points at
+    /// `Forget this phone`.
+    pub code_reused: bool,
+    /// Seconds left for the press on this Mac while a phone waits for it (Sage §3.1 step 6: the
+    /// window's timer keeps running), or `None` when nothing is waiting.
+    pub confirm_seconds_left: Option<u64>,
 }
 
 /// **What the how-to screens draw themselves from** — Urban's state table
@@ -903,6 +915,7 @@ impl PhoneRuntime {
             tailnet: Mutex::new(None),
             me: me.clone(),
             rejected: Mutex::new(rejected),
+            deadline_watch: std::sync::atomic::AtomicBool::new(false),
         });
         (runtime, emitter)
     }
@@ -959,13 +972,23 @@ impl PhoneRuntime {
     }
 
     pub fn status(&self) -> PhoneStatus {
+        // An unconfirmed phone whose window has closed is forgotten before the sheet is told
+        // anything, so a poll never draws "waiting for your press" over a key that is already
+        // refused (Sage §3.1 step 6). No lock is held here; it costs one comparison when nothing
+        // has expired.
+        self.sweep_expired_pairing();
         // FIRST, and out of the way, so no subprocess ever runs under the `running` lock.
         let tailnet = TailnetView::from(&self.tailnet_now());
         let running = self.running.lock().unwrap();
         let Some(running) = running.as_ref() else {
             // A listener failure does not erase the saved pairing. The recovery monitor
             // can restart it without asking the person to replace the phone's identity.
-            let device = device::DeviceDesk::open(&self.data_dir).ok().and_then(|d| d.paired());
+            let device = device::DeviceDesk::open(&self.data_dir)
+                .ok()
+                .and_then(|d| d.paired())
+                // A key nobody confirmed before its window closed is refused and on its way out
+                // (Sage §3.1 step 6); the sheet must not call it paired while nothing can sweep it.
+                .filter(|d| !d.confirmation_lapsed(now_millis()));
             return PhoneStatus {
                 connect: self.connect_view(None),
                 listening: false,
@@ -994,6 +1017,9 @@ impl PhoneRuntime {
                 // is where the rejection screen is decided.
                 rejected: self.rejected.lock().unwrap().is_some(),
                 rejected_by: self.rejected.lock().unwrap().unwrap_or(device::StoppedBy::UNKNOWN).to_string(),
+                // In memory and about a running pairing; nothing is running here.
+                code_reused: false,
+                confirm_seconds_left: None,
             };
         };
         let device = running.channel.devices.paired();
@@ -1047,6 +1073,11 @@ impl PhoneRuntime {
             // written as `false` so the two branches cannot drift.
             rejected: self.rejected.lock().unwrap().is_some(),
             rejected_by: self.rejected.lock().unwrap().unwrap_or(device::StoppedBy::UNKNOWN).to_string(),
+            code_reused: running.channel.devices.code_reused(),
+            confirm_seconds_left: device
+                .as_ref()
+                .filter(|d| !d.mac_confirmed)
+                .map(|d| d.confirm_by.saturating_sub(now_millis()) / 1000),
         }
     }
 
@@ -1222,6 +1253,7 @@ impl PhoneRuntime {
                 existing.channel.devices.open_pairing()?;
             }
             drop(running);
+            self.watch_pairing_deadline();
             return Ok(self.status());
         }
 
@@ -1269,7 +1301,7 @@ impl PhoneRuntime {
         // which is the only thing allowed to put the listener down. Every clone of the sender
         // lives on the channel, so when the channel goes the watcher's `recv` fails and the
         // thread ends: no shutdown signal, no lifetime to get wrong.
-        let (doorbell, rejections) = std::sync::mpsc::channel::<()>();
+        let (doorbell, rejections) = std::sync::mpsc::channel::<&'static str>();
         let channel = Arc::new(routes::Channel {
             rejected: routes::StopSwitch::to(doorbell),
             devices: Arc::clone(&devices),
@@ -1318,6 +1350,9 @@ impl PhoneRuntime {
             fingerprint_hex,
         });
         drop(running);
+        // A window was just opened, or a relaunch found a phone still waiting for the press on
+        // this Mac: either way a deadline may now be running (Sage §3.1 step 6).
+        self.watch_pairing_deadline();
         Ok(self.status())
     }
 
@@ -1377,13 +1412,78 @@ impl PhoneRuntime {
     /// tailnet. Everything else about the mechanism — that a rejection arriving over TLS wakes a
     /// thread that is NOT the serving thread, and that stopping a real listener from there works
     /// — is proved end to end in `listen.rs`.
-    fn watch_for_rejection(&self, rejections: std::sync::mpsc::Receiver<()>) {
+    fn watch_for_rejection(&self, rejections: std::sync::mpsc::Receiver<&'static str>) {
         let me = self.me.clone();
-        watch_for_rejection(rejections, move || {
+        watch_for_rejection(rejections, move |why| {
             // Nothing to stop if the app is on its way out; the sockets go with the process.
             let Some(runtime) = me.upgrade() else { return };
-            runtime.stop_because_the_words_were_refused(device::StoppedBy::PHONE);
+            runtime.stop_because_the_words_were_refused(why);
         });
+    }
+
+    /// **THE PAIRING WINDOW'S TIMER, KEPT RUNNING** — Sage §3.1 step 6: *"An unconfirmed device at
+    /// expiry is forgotten, so an abandoned pairing never leaves a key behind."*
+    ///
+    /// One thread per runtime at most, and it SLEEPS until the next deadline
+    /// ([`device::DeviceDesk::pairing_deadline`]) rather than polling: a window that opens and is
+    /// never used costs one wake at its close. A refreshed code moves the deadline later, and the
+    /// thread finds that on waking and sleeps again. When nothing is waiting on a deadline it
+    /// ends. The sheet's own two-second poll sweeps too ([`PhoneRuntime::status`]), so this is
+    /// what makes the rule hold with the sheet closed.
+    ///
+    /// Frame math, stated: the window is `PAIRING_WINDOW_MS` = 300,000 ms, so an unconfirmed key
+    /// lives at most 300 s plus the one-second grace below, and the wakes are one per deadline.
+    fn watch_pairing_deadline(&self) {
+        use std::sync::atomic::Ordering;
+        if self.deadline_watch.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let me = self.me.clone();
+        let spawned = std::thread::Builder::new().name("richos-phone-pairing-deadline".into()).spawn(move || loop {
+            let Some(owner) = me.upgrade() else { return };
+            let next = || owner.running.lock().unwrap().as_ref().and_then(|r| r.channel.devices.pairing_deadline());
+            let now = now_millis();
+            match next() {
+                Some(deadline) if now <= deadline => {
+                    // The Arc is not held across the sleep, so this thread never keeps the app alive.
+                    drop(owner);
+                    std::thread::sleep(std::time::Duration::from_millis(deadline - now + 1_000));
+                    continue;
+                }
+                // Passed: forget an unconfirmed key if that is what was waiting. A window whose
+                // code simply ran out needs nothing from this thread.
+                Some(_) => owner.sweep_expired_pairing(),
+                None => {}
+            }
+            owner.deadline_watch.store(false, Ordering::SeqCst);
+            // A pairing that began while this thread was deciding to end found the flag still set
+            // and did not start a watcher, so look once more before leaving.
+            if next().is_some_and(|d| d > now_millis()) && !owner.deadline_watch.swap(true, Ordering::SeqCst) {
+                continue;
+            }
+            return;
+        });
+        if let Err(e) = spawned {
+            self.deadline_watch.store(false, Ordering::SeqCst);
+            eprintln!("[richos] could not start the pairing deadline watch; an unconfirmed phone will be forgotten the next time the sheet is open: {e}");
+        }
+    }
+
+    /// Forget an unconfirmed device whose window has closed, and take the channel down the way a
+    /// refusal does, so the sheet says what happened rather than falling back to an earlier
+    /// screen in silence ([`device::StoppedBy::EXPIRED`]).
+    fn sweep_expired_pairing(&self) {
+        let expired = self
+            .running
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|r| r.channel.devices.expire_unconfirmed());
+        match expired {
+            Some(Ok(true)) => self.stop_because_the_words_were_refused(device::StoppedBy::EXPIRED),
+            Some(Err(e)) => eprintln!("[richos] an unconfirmed phone's window closed but it could not be forgotten: {e}"),
+            _ => {}
+        }
     }
 
     /// "Forget this phone" (plan §4.1). **Instant and complete on the Mac side by construction**:

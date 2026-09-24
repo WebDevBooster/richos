@@ -170,11 +170,17 @@ pub trait Bridge: Send + Sync {
 ///
 /// The sender is taken out on the first pull, so a phone that posts the rejection twice — a
 /// retry, a double tap — rings the bell once. The second pull returns `false` and does nothing.
-pub struct StopSwitch(Mutex<Option<std::sync::mpsc::Sender<()>>>);
+///
+/// # It says why
+///
+/// Since Sage's pairing review it carries WHO stopped the pairing ([`super::device::StoppedBy`]):
+/// the phone's `They do not match`, or the spent-code alarm, which fires on this thread too. The
+/// owner's teardown is one sequence either way; only the sentence the sheet reads differs.
+pub struct StopSwitch(Mutex<Option<std::sync::mpsc::Sender<&'static str>>>);
 
 impl StopSwitch {
     /// Wired to an owner. [`super::PhoneRuntime::start`] holds the other end.
-    pub fn to(owner: std::sync::mpsc::Sender<()>) -> Self {
+    pub fn to(owner: std::sync::mpsc::Sender<&'static str>) -> Self {
         StopSwitch(Mutex::new(Some(owner)))
     }
 
@@ -197,9 +203,9 @@ impl StopSwitch {
     /// outcome of this request entirely — `richos/web/web-app/app.js:287`,
     /// `try { await api.confirmFingerprint(false); } catch { /* said locally either way */ }` —
     /// because it has already thrown its own key away on the same press.
-    pub fn pull(&self) -> bool {
+    pub fn pull(&self, why: &'static str) -> bool {
         match self.0.lock().unwrap().take() {
-            Some(owner) => owner.send(()).is_ok(),
+            Some(owner) => owner.send(why).is_ok(),
             None => false,
         }
     }
@@ -455,7 +461,7 @@ fn pair_or_device_record(channel: &Channel, request: &Incoming) -> Outcome {
             // socket, the hub and the certificate authority all belong to `PhoneRuntime`, which
             // is the only thing that may put them down and the only place that sequence is
             // written. See [`StopSwitch`] for why a route cannot do it on this thread.
-            if !channel.rejected.pull() {
+            if !channel.rejected.pull(super::device::StoppedBy::PHONE) {
                 eprintln!(
                     "[richos] nothing owns this channel, so it keeps serving after a rejected \
                      fingerprint - the device record is gone either way"
@@ -494,6 +500,17 @@ fn complete_pairing(channel: &Channel, body: &Value, code: &str) -> Outcome {
     let pairing_version = if body.get("pairing_version").and_then(Value::as_u64) == Some(2) { 2 } else { 1 };
     let device = match channel.devices.complete_pairing_announcing(code, &form, name, via, platform, pairing_version) {
         Ok(d) => d,
+        // THE SPENT-CODE ALARM (Sage F1 item 4). The desk has already forgotten the unconfirmed
+        // phone that used the code first; the rest of the teardown — the socket, the authority
+        // and the sentence on the Mac — is the owner's, exactly as for `They do not match`. The
+        // caller learns nothing: the same flat 404 as any other refused code.
+        Err(super::device::Refusal::CodeUsedTwice) => {
+            eprintln!("[richos] the pairing code was used by a second device; forgetting the unconfirmed phone");
+            if !channel.rejected.pull(super::device::StoppedBy::CODE_USED_TWICE) {
+                eprintln!("[richos] nothing owns this channel, so it keeps serving after the spent-code alarm - the device record is gone either way");
+            }
+            return Outcome::NotFound;
+        }
         Err(refusal) => {
             log_refusal(&refusal);
             return Outcome::NotFound;
@@ -527,6 +544,10 @@ fn complete_pairing(channel: &Channel, body: &Value, code: &str) -> Outcome {
             // Sage §3.1 step 3: "The answer is unchanged, plus pairing_version: 2" — what this Mac
             // derives. `pair-v2` in `capabilities` is the name a v2 phone requires (§3.5).
             "pairing_version": 2,
+            // How long the person has to press "They match" on this Mac before the unconfirmed
+            // key is forgotten (§3.1 step 6) — the bound on the phone's wait for that press, so
+            // the phone never waits on a pairing this Mac has already dropped.
+            "confirm_within_seconds": device.confirm_by.saturating_sub(super::now_millis()) / 1000,
             "attachment_limits": attachment_limits(),
             "build": BUILD,
         })
@@ -1781,6 +1802,34 @@ mod tests {
             body["fingerprint_confirmed"] = json!(true);
             assert_eq!(dispatch(&f.channel, &signed(&f, "POST", "/api/pair", "", body.to_string())), Outcome::AwaitingMac, "{extra}");
         }
+    }
+
+    /// **THE SPENT-CODE ALARM THROUGH THE ROUTE** (Sage F1 item 4): a second device redeeming the
+    /// code while the first is unconfirmed gets the same flat 404 as any refused code, the first
+    /// device is forgotten, and the owner of the listener is told to stop and why. The same phone
+    /// asking twice is answered again, not alarmed.
+    #[test]
+    fn a_second_device_with_the_code_rings_the_owner_and_learns_nothing() {
+        let mut f = fixture_with("alarm-route", false, false, 4);
+        let (doorbell, heard) = std::sync::mpsc::channel::<&'static str>();
+        f.channel.rejected = StopSwitch::to(doorbell);
+        let window = f.channel.devices.open_pairing().unwrap();
+        let pair = |f: &Fixture, phone: &Phone| {
+            let mut request = plain("POST", "/api/pair");
+            request.body = json!({"code": window.code, "public_key_jwk": phone.jwk(), "pairing_version": 2}).to_string().into_bytes();
+            dispatch(&f.channel, &request)
+        };
+        let first = Phone::new();
+        let (status, answer) = json_of(pair(&f, &first));
+        assert_eq!(status, 200);
+        let within = answer["confirm_within_seconds"].as_u64().expect("the answer carries no bound for the phone's wait");
+        assert!((290..=300).contains(&within), "the bound is not the window's remainder: {within}");
+        assert_eq!(json_of(pair(&f, &first)).0, 200, "the same phone asking twice was refused");
+        assert!(heard.try_recv().is_err(), "the same phone asking twice rang the alarm");
+
+        assert_eq!(pair(&f, &Phone::new()), Outcome::NotFound, "the second device learned something");
+        assert!(!f.channel.devices.is_paired(), "the unconfirmed first device stayed paired");
+        assert_eq!(heard.try_recv(), Ok(super::super::device::StoppedBy::CODE_USED_TWICE));
     }
 
     /// "They do not match" is the other thing an unconfirmed phone may say, and it still forgets.

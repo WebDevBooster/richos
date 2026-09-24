@@ -2456,7 +2456,7 @@ mod tests {
         let vapid = crate::phone::push::VapidKey::generate().unwrap();
 
         // --- the handle the route did not have, and the owner on the other end of it ----------
-        let (doorbell, rejections) = std::sync::mpsc::channel::<()>();
+        let (doorbell, rejections) = std::sync::mpsc::channel::<&'static str>();
         let channel = Arc::new(Channel {
             rejected: crate::phone::routes::StopSwitch::to(doorbell),
             devices: Arc::clone(&devices),
@@ -2489,14 +2489,14 @@ mod tests {
         let owner_listener = Arc::clone(&held);
         let owner_hub = Arc::clone(&hub);
         let (torn_down_tx, torn_down_rx) = std::sync::mpsc::channel();
-        crate::phone::watch_for_rejection(rejections, move || {
+        crate::phone::watch_for_rejection(rejections, move |why| {
             // `PhoneRuntime::forget`'s first two lines. In production they are reached through
             // `forget()` itself — one call, one copy of the sequence.
             if let Some(mut listener) = owner_listener.lock().unwrap().take() {
                 listener.stop();
             }
             owner_hub.set_live(false);
-            torn_down_tx.send(()).expect("the test stopped waiting for teardown");
+            torn_down_tx.send(why).expect("the test stopped waiting for teardown");
         });
 
         // A real TLS client for the tailnet name, validating our leaf against our own root.
@@ -2623,9 +2623,10 @@ mod tests {
         // --- 5. AND THE REST OF THE STATE MATCHES `Forget this phone` ---------------------------
         // A refused connection proves the socket closed, not that its thread has been joined
         // and the owner finished updating the hub. Wait for that completion on the same deadline.
-        torn_down_rx
+        let why = torn_down_rx
             .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
             .expect("the shipped watcher did not finish the owner's teardown within five seconds");
+        assert_eq!(why, crate::phone::device::StoppedBy::PHONE, "the doorbell did not say the phone refused");
         assert!(!devices.is_paired(), "a rejected phone is still paired");
         assert!(
             !hub.is_live(),
