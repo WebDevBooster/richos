@@ -107,7 +107,7 @@ import Testing
         // Relaunch: a new runner over the same storage, as a new process reads it.
         runner = EffectRunner(storage: storage, clock: FixedClock(ms: 1_000))
         s = try #require(try await runner.load())
-        #expect(Set(shown(s, "again")) == Set(keys) && shown(s, "again").count == 3, "relaunched between the two echoes")
+        #expect(shown(s, "again") == keys, "relaunched between the two echoes: the same lines in the same order")
         try await step(apply(&s, .messagesArrived(Self.earlier + [old, first])))
         #expect(shown(s, "again") == keys, "a replayed snapshot cannot consume the second send")
         try await step(apply(&s, .tick(at: 20)))

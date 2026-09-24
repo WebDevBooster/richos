@@ -253,9 +253,14 @@ public enum ConversationReducer {
             }
         }
         reconcile(&s)
-        // The Mac's rows in history-cursor order; the phone's own bubbles (no cursor yet) after them
-        // in the order they were sent.
-        s.messages = s.messages.enumerated().sorted { a, b in
+        s.messages = ordered(s.messages)
+    }
+
+    /// The Mac's rows in history-cursor order; the phone's own bubbles (no cursor yet) after them in
+    /// the order they were sent. Also the order a relaunch restores, so the screen does not rearrange
+    /// when the next frame arrives.
+    static func ordered(_ messages: [Message]) -> [Message] {
+        messages.enumerated().sorted { a, b in
             switch (a.element.cursor, b.element.cursor) {
             case let (x?, y?) where x != y: return x < y
             case (_?, nil): return true

@@ -223,7 +223,7 @@ public actor EffectRunner {
            let cached = try? CoreJSON.decode(CachedHistory.self, from: bytes), cached.mac == saved.mac {
             lastHistory = cached
             let protected = Set(saved.messages.map(\.id))
-            saved.messages = (cached.messages.filter { !protected.contains($0.id) } + saved.messages).sorted { $0.sentAt < $1.sentAt }
+            saved.messages = ConversationReducer.ordered(cached.messages.filter { !protected.contains($0.id) } + saved.messages)
         }
         if let interrupted = saved.activeRecording {
             let known = saved.keptRecordings.contains { $0.id == interrupted.id } || saved.outbox.contains { $0.clientID == interrupted.id }
