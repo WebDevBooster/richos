@@ -25,6 +25,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -88,7 +90,10 @@ class ThreadController(val list: LazyListState, val follow: FollowState) {
 @Composable
 fun rememberThreadController(startFollowing: Boolean = true): ThreadController {
     val list = rememberLazyListState()
-    return remember { ThreadController(list, FollowState(startFollowing)) }
+    val follow = rememberSaveable(saver = Saver<FollowState, Boolean>(
+        save = { it.following }, restore = { FollowState(it) },
+    )) { FollowState(startFollowing) }
+    return remember(list, follow) { ThreadController(list, follow) }
 }
 
 /**
