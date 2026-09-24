@@ -23,9 +23,11 @@ richos/mobile/native-android/bin/randroid emu delete
 # an Android phone (named explicitly; the tool checks it is not an emulator)
 python3 richos/mobile/perf/perf.py android --adb <adb> --serial <serial> --kind physical --stamp <apk>.stamp.json --out <file.json>
 
-# iOS: a named simulator or physical iPhone; physical captures retain raw traces
+# iOS: a named simulator or physical iPhone; trace series retain every raw trace (see "iOS launch and return")
 richos/mobile/native-ios/bin/rios perf --simulator <UDID> --stamp <stamp.json> --out <file.json>
-richos/mobile/native-ios/bin/rios perf --device <UDID> --stamp <stamp.json> --evidence-dir /Volumes/E1TB/reports/<run> --out <file.json>
+richos/mobile/native-ios/bin/rios perf --device <UDID> --stamp <stamp.json> --evidence-dir /Volumes/E1TB/reports/<run> --cold 100 --out <file.json>
+richos/mobile/native-ios/bin/rios perf --device <UDID> --stamp <stamp.json> --evidence-dir /Volumes/E1TB/reports/<run> --cold 0 --warm 100 --out <file.json>
+richos/mobile/native-ios/bin/rios perf --reparse <series-dir> --out <file.json>   # re-read retained traces, capture nothing
 
 python3 richos/mobile/perf/perf.py check <record.json>...   # a record's structural promises
 python3 richos/mobile/perf/perf.py budgets                   # the PRD §7 targets it compares to
@@ -108,34 +110,122 @@ because the emulator's timings depend on it.
 | Managed Connect and Tailscale routes | The debug build's scripted Mac has no network. | A paired lab Mac (native-android README), counting the phone's requests at the Mac and the Connect Worker while backgrounded (Sage T7). |
 | Release-configuration timing | A debuggable, unminified build is slower than release. | A profileable release-configuration build signed for local install, reaching the conversation through a real pairing. |
 | Production persistence cost | In a development world the core persists through the bridge's document, not `AppPorts`' `JsonFile`. `RichCore.commit` changes show here; `JsonFile` changes need a paired production core. | The same typing phase against a paired production core. |
-| iOS launch acceptance | Physical draw timing is available, but a draw is not proof of presentation or accepted input. | Correlate the useful draw with the presented frame and composer readiness. |
+| iOS launch acceptance | The tool now measures the presented, input-ready endpoint (below), but no physical series has run. | The two 100-trial commands below on the phone, with a stamped Release build. |
 
-## iOS physical capture
+## iOS launch and return (PRD §7)
 
-The app emits `useful-content` when its loaded root draws and `foreground-useful`
-after returning to active state. The blank loading branch emits neither.
-`ios.py` explicitly adds the `os_signpost` instrument to App Launch; App Launch
-alone did not capture these events on Xcode 26.3. Its parser was checked against
-an actual iPhone SE (2nd generation), iOS 26.3.1 capture on 24 September 2026.
+**What is measured.** Cold launch runs from the target process's `Initializing - Process Creation`
+(Instruments App Launch) to the correct saved viewport presented with the composer accepting
+input. Warm return runs from UIKit's own `AppResume` begin (`IsForeground 1`, emitted in the
+retained process when the foreground transition reaches it) to the same kind of end. Both starts
+are the earliest point visible in the app's process. Time the OS spends before that (the tap, a
+process spawn request, thawing) is not included.
 
-The `coldUsefulDraw` metric joins process creation and the useful draw by PID.
-It does not assume the trace origin is launch. This is an instrumented draw
-measurement, not the PRD's presented and interactive launch endpoint, so it has
-no launch-budget verdict. Warm return, frame presentation and physical energy
-still need their own measurements. A physical run sets `ranOnHardware` true
-without changing overall acceptance to verified.
+**The end mark, and why it is presentation and not a draw.** The app emits three static signposts
+(`native-ios/App/Platform/PerformanceMarks.swift`, `ReadinessMarks`). `viewport-ready` fires once
+the transcript applied its saved position after its first load: the bottom, or the remembered
+reading anchor. `composer-ready` fires when the editable message field enters the hierarchy, and a
+disabled composer has no field. `input-ready` fires from a single non-repeating run-loop observer
+ordered after Core Animation's commit, so it marks the main thread going idle right after the turn
+that committed that content. The tool then joins everything on one trace clock and one process ID:
 
-Physical runs require `--evidence-dir` on the mounted external SSD. Each run
-creates a unique subdirectory and keeps raw traces, exported tables and errors.
-One capture or parsing failure stops the series; failures are never replaced
-with zero or silently retried. Start with `--cold 1` to verify the device/tool
-combination before a longer series. Traces must finish saving before export.
+1. The carrying commit is the first main-thread `com.apple.coreanimation` `Commit` to end at or
+   after the latest ready-content mark. It must end no later than `input-ready`.
+2. The presented frame is the first Frame Lifetimes frame whose server render began at or after
+   that commit's end. A render that began earlier cannot contain the commit.
+3. The presentation time is that frame's `display-surface-swap` timestamp. It must agree with the
+   frame lifetime's end to 0.1 ms, and it cannot come before the render began.
+4. The end is the later of presentation and `input-ready`.
+
+Frame seeds are not used, because iOS 26.3.1 exports every seed as `4294967295`. On the first
+physical capture, the old `useful-content` draw came one commit before the transcript's final
+scroll position, which is why a draw is not the endpoint. The tool does not inspect pixels.
+Whether the saved position is the right one is the positioning code's job and its tests' job.
+
+**Keeping the tool honest.** A trial is rejected, and the series stops, when any of these happens:
+- the capture fails;
+- the process creation is missing or appears twice;
+- marks come from another process;
+- `input-ready` is missing (for example, a disabled composer) or appears twice;
+- the order is wrong;
+- no frame rendered after the commit;
+- two frames began rendering at the same instant;
+- Frame Lifetimes and the display swap disagree, or a swap precedes its own render;
+- a warm trial's process changed. That was a relaunch, so it is a cold start.
+
+Each table is exported alone, because a combined export carries the schema on its first table only,
+and parsing by column name is refused without one. Xcode 26.3's trace loader crashes on roughly one
+load in seven before reading any table (SIGSEGV or a Swift trap in `InstrumentsPlugIn`
+`FileStatus`). An export is a pure re-read of a trace it does not modify, so a signal death is read
+again, at most five times. Every attempt is recorded in `<trial>.exports.json`, and any other
+export failure stops at once. Every trace is retained. The record lists trials above p95 as
+`outliers` with their trace paths. `--reparse <series-dir>` re-exports and re-joins a retained
+series without capturing anything.
+
+**Simulator.** `--xctrace` on `--simulator` runs the same capture path as a dry run. Its lifecycle
+table has no process creation and its frame records are not a display pipeline, so it proves the
+capture, marks and join, never a phone number. Pass fixture arguments with `--app-arg=-rios-fixture
+--app-arg=conv-populated`, using the `=` form so the value is not read as an option.
+
+### A 100-trial series on the connected iPhone, per class
+
+This needs a Release build signed for the phone, installed and stamped, and paired with an isolated
+test conversation that already has history. The composer must be enabled. The phone stays unlocked
+and awake on USB for the whole series. Run from the repository root:
+
+```sh
+UDID=<the iPhone's UDID from xcrun devicectl list devices>
+RUN=/Volumes/E1TB/reports/<date>-ios-launch-timing
+RICHOS_IOS_DEVICE=$UDID RICHOS_APPLE_TEAM=<team> richos/mobile/native-ios/bin/rios device build   # prints {log, app}
+APP=<the printed app: …/physical/derived/Build/Products/Release-iphoneos/RichOSNative.app>
+mkdir -p "$RUN"
+python3 richos/mobile/perf/perf.py stamp --artifact "$APP" --checkout "$PWD" --paths richos/mobile/native-ios > "$RUN/stamp.json"
+xcrun devicectl device install app --device "$UDID" "$APP"
+SHA=$(git rev-parse HEAD)
+
+# one trial of each class first: proves the device, the tool and this phone's lists before a long series
+richos/mobile/native-ios/bin/rios perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" \
+  --evidence-dir "$RUN/traces" --cold 1 --out "$RUN/pilot-cold.json"
+richos/mobile/native-ios/bin/rios perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" \
+  --evidence-dir "$RUN/traces" --cold 0 --warm 1 --out "$RUN/pilot-warm.json"
+
+# the series: cold launches, then warm returns
+richos/mobile/native-ios/bin/rios perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" \
+  --evidence-dir "$RUN/traces" --cold 100 --out "$RUN/cold-100.json"
+richos/mobile/native-ios/bin/rios perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" \
+  --evidence-dir "$RUN/traces" --cold 0 --warm 100 --away 2 --out "$RUN/warm-100.json"
+```
+
+**Output.** Each command writes one record and prints `record: <file>`. It exits 0 when every trial
+was measured, 1 when the series stopped (`phases.cold` or `phases.warm` names the trial and the
+reason) and 3 when it refused before measuring. The distribution is at `metrics.coldLaunch.stats`
+or `metrics.warmResume.stats`: `n`, `min`, `p50`, `p95` (from 20 samples), `p99` (from 100) and
+`max`, in milliseconds. `samplesMs` holds every sample. `budget` sets p95 beside the PRD target
+(1,000 ms cold, 200 ms warm), never as a verdict. `phaseStatsMs` splits each sample into
+`usefulDraw` (cold) or `foregroundDraw` (warm), `commitEnd`, `inputReady` and `presented`.
+`outliers`, `rejected` and `evidence` name the retained traces. `acceptance` stays **NOT VERIFIED**
+until both classes have at least 100 trials on a physical device with a Release build. The build
+configuration is read from the stamped bundle's bytes, using `rios sim check-release`'s own
+development markers. Even then the record says "EVIDENCE ONLY (a reviewer decides)". Keep `$RUN` on
+the external SSD and private. Summaries go to `richos-hq`'s `docs/verification/`, never to this
+repository.
+
+What this path has not yet proven on a phone (the pilots settle each one, and the first failure
+stops with the reason):
+- the `devicectl device info processes` JSON field names (`result.runningProcesses`,
+  `processIdentifier`, `executable`);
+- whether `--notify-tracing-started` reaches the Mac during a device recording;
+- whether UIKit emits `AppResume` on iOS 26.3.1 as it does on the iOS 26.3 Simulator.
+
+Profiler overhead is included in every number.
 
 ## Tests
 
 `richos/app/scripts/mobile-perf.test.sh`: the parsers against output captured from the API 34
 emulator (`fixtures/android/`), the whole Android run against a scripted adb (including every
-refusal), and the iOS parsers. No emulator, simulator, build or window.
+refusal), and on iOS the parsers, the presentation join and every rejection, the export re-read, the
+warm-trial orchestration and `--reparse`, against synthetic exports shaped like Xcode 26.3's (the
+physical traces they were checked against stay private in `richos-hq`). No emulator, simulator, build or window.
 
 ## Production journeys and markers (24 September follow-up)
 
@@ -167,6 +257,9 @@ Both release apps now emit static performance events without content, identifier
 | `transcript-drawn` | Android's transcript root draws changed message state; iOS's useful root draws a changed transcript revision. |
 | `foreground-useful` | The loaded root draws after returning to the foreground. |
 | iOS `useful-content` | The loaded root first draws, rather than its blank loading branch. Android retains `reportFullyDrawn`. |
+| iOS `viewport-ready` | The transcript applied its first load's saved position (bottom or remembered anchor). |
+| iOS `composer-ready` | The editable message field entered the hierarchy (a disabled composer has none). |
+| iOS `input-ready` | The main run loop committed the turn that made the viewport and composer ready (and, on return, the first draw after activation) and is about to wait for events. |
 
 Android trace event names have the `richconnect:` prefix. iOS uses the `dev.richos.connect`
 points-of-interest log. Capture these with Perfetto or Instruments and join draw markers to actual

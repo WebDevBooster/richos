@@ -2,7 +2,7 @@
 """perf.py — repeatable RichConnect speed and battery measurement, one record per run.
 
     perf.py android --adb ADB --serial SERIAL --kind emulator --owned-by randroid --stamp FILE [options]
-    perf.py ios (--simulator UDID | --device UDID) --app PATH --stamp FILE [options]   (written, not yet run)
+    perf.py ios (--simulator UDID | --device UDID | --reparse DIR) --stamp FILE [options]   (see README)
     perf.py stamp --artifact FILE --checkout DIR --paths P [P ...]     identity of a build, as JSON
     perf.py check RECORD.json [...]                                     a record's structural promises
     perf.py budgets                                                      the PRD §7 budgets this compares to
@@ -613,11 +613,20 @@ def parse_args(argv):
     target = i.add_mutually_exclusive_group(required=True)
     target.add_argument("--simulator", help="a simulator UDID (never 'booted')")
     target.add_argument("--device", help="a physical iPhone's UDID (xcrun devicectl list devices)")
+    target.add_argument("--reparse", metavar="SERIES_DIR",
+                        help="re-export and re-join a retained trace series (its series.json names class, device, build)")
     i.add_argument("--stamp")
     i.add_argument("--expect-commit")
     i.add_argument("--out")
-    i.add_argument("--evidence-dir", help="external SSD directory for retained physical traces")
-    i.add_argument("--cold", type=int, default=20)
+    i.add_argument("--evidence-dir", help="external SSD directory for retained traces")
+    i.add_argument("--cold", type=int, default=20, help="cold launches (0 skips the class)")
+    i.add_argument("--warm", type=int, default=0, help="warm returns in the retained process (0 skips the class)")
+    i.add_argument("--away", type=float, default=2.0, help="seconds with Settings in front before each return")
+    i.add_argument("--trace-seconds", type=int, default=10, help="Instruments recording length per trial")
+    i.add_argument("--xctrace", action="store_true",
+                   help="simulator only: run the physical trace path as a dry run (its frame data is refused)")
+    i.add_argument("--app-arg", action="append",
+                   help="an argument for the app's launches (a Debug fixture on a simulator; none on a phone)")
     i.add_argument("--background-seconds", type=float, default=60.0)
     i.add_argument("--background-settle", type=float, default=5.0)
     s = sub.add_parser("stamp", help="the identity of a build artifact")

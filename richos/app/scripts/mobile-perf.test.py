@@ -19,6 +19,7 @@ import types
 HERE = os.path.dirname(os.path.abspath(__file__))
 PERF = os.path.abspath(os.path.join(HERE, "..", "..", "mobile", "perf"))
 FIX = os.path.join(PERF, "fixtures", "android")
+MOBILE = os.path.abspath(os.path.join(PERF, ".."))
 sys.path.insert(0, PERF)
 
 import android  # noqa: E402
@@ -638,7 +639,7 @@ def _():
 
 
 # ---------------------------------------------------------------------------------------------
-# iOS parsers (shaped like the tools' documented output; not captured — ios.py has not run)
+# iOS: parsers, the PRD §7 presentation join, the export re-read and the trace series
 # ---------------------------------------------------------------------------------------------
 
 @case("I1 a simulator is named by UDID and must be booted; 'booted' is refused")
@@ -705,34 +706,398 @@ def _():
 
 @case("I6 a failed physical capture stops before trial two and retains the error")
 def _():
+    from unittest.mock import patch
     calls = []
     def failed(cmd, **kwargs):
         calls.append(cmd)
         return subprocess.CompletedProcess(cmd, 1, "partial capture", "device disconnected")
-    with tempfile.TemporaryDirectory() as evidence:
+    with tempfile.TemporaryDirectory() as evidence, patch.object(ios, "evidence_root_ok", return_value=True):
         samples, rejected, retained = ios.device_cold("test-device", 100, evidence, failed)
         assert not samples and len(rejected) == 1 and len(calls) == 1
-        assert '--instrument' in calls[0] and 'os_signpost' in calls[0]
+        assert 'os_signpost' in calls[0] and 'Frame Lifetimes' in calls[0] and '--launch' in calls[0]
         assert os.path.exists(os.path.join(retained, 'launch-0001.rejected.json'))
         assert open(os.path.join(retained, 'launch-0001.log.stderr')).read() == 'device disconnected'
 
 
-@case("I7 physical draw results are never labeled as launch-budget acceptance")
+@case("I6b traces are refused outside the mounted external SSD, before anything is captured")
+def _():
+    calls = []
+    def never(cmd, **kwargs):
+        calls.append(cmd)
+        raise AssertionError("nothing may run")
+    with tempfile.TemporaryDirectory() as elsewhere:
+        if not os.path.realpath(elsewhere).startswith("/Volumes/E1TB/"):
+            assert "--evidence-dir" in raises(perfcore.Refused, ios.trace_series, "cold", ios.Devicectl("d", never), 1, elsewhere, never)
+    assert "--evidence-dir" in raises(perfcore.Refused, ios.trace_series, "cold", ios.Devicectl("d", never), 1, None, never)
+    assert not calls
+
+
+# Synthetic exports shaped exactly like Xcode 26.3's (columns, engineering-type tags, id/ref reuse),
+# checked field by field against a physical iPhone SE capture whose data stays private (richos-hq).
+LIFE_COLS = ["start", "group", "lane", "duration", "process", "period", "narrative"]
+SIGN_COLS = ["time", "thread", "process", "event-type", "scope", "identifier", "name", "format-string", "backtrace",
+             "subsystem", "category", "message", "emit-location"]
+FRAME_COLS = ["start", "duration", "display-id", "lifetime-id", "swap-id", "frame-seed", "hitch-duration",
+              "acceptable-latency", "hid-latency", "render-start", "render-duration", "layout-qualifier", "type-label",
+              "narrative", "severity", "color"]
+SWAP_COLS = ["timestamp", "delay", "display-name", "surface-id", "framebuffer-index", "swap-id", "color", "pixel-format",
+             "hid-time", "generation-time", "min-quanta", "desired-presentation-time", "layer1-surface-id",
+             "layer2-surface-id", "layer1-pixel-format", "layer2-pixel-format"]
+
+
+def export(schema, cols, rows, schema_tag=True):
+    head = "<schema name=\"%s\">%s</schema>" % (schema, "".join(f"<col><mnemonic>{c}</mnemonic></col>" for c in cols)) if schema_tag else ""
+    return f"<?xml version=\"1.0\"?><trace-query-result><node xpath='//x'>{head}{''.join(rows)}</node></trace-query-result>"
+
+
+def life_row(start, period, pid=717):
+    return (f"<row><start-time>{start}</start-time><string>States</string><layout-id>0</layout-id><duration>1</duration>"
+            f"<process><pid>{pid}</pid></process><app-period>{period}</app-period><narrative>n</narrative></row>")
+
+
+def sign_row(ns, name, sub="dev.richos.connect", kind="Event", pid=717, main=True, message=None):
+    thread = f"{'Main Thread 0x78d2' if main else 'Thread 0x9a1'} (RichOSNative, pid: {pid})"
+    msg = f'<os-log-metadata fmt="{message}"/>' if message else "<sentinel/>"
+    return (f"<row><event-time>{ns}</event-time><thread fmt=\"{thread}\"><tid>1</tid><process><pid>{pid}</pid></process>"
+            f"</thread><process><pid>{pid}</pid></process><event-type>{kind}</event-type><string>Process</string>"
+            f"<os-signpost-identifier>1</os-signpost-identifier><signpost-name>{name}</signpost-name><sentinel/><sentinel/>"
+            f"<subsystem>{sub}</subsystem><category>c</category>{msg}<sentinel/></row>")
+
+
+def frame_row(start, duration, swap, render):
+    return (f"<row><start-time>{start}</start-time><duration>{duration}</duration><uint32>4294967295</uint32><uint32>1</uint32>"
+            f"<uint32>{swap}</uint32><uint32>4294967295</uint32><sentinel/><sentinel/><sentinel/><start-time>{render}</start-time>"
+            f"<duration>5000000</duration><layout-id>0</layout-id><sentinel/><formatted-label fmt=\"Frame\"/>"
+            f"<event-concept>Info</event-concept><sentinel/></row>")
+
+
+def swap_row(ns, swap):
+    return (f"<row><start-time>{ns}</start-time><duration>1</duration><string>Built-In Display</string><uint32>160</uint32>"
+            f"<uint32>0</uint32><uint32>{swap}</uint32><uint32>0</uint32><sentinel/><start-time>0</start-time>"
+            f"<start-time>0</start-time><uint32>1</uint32><start-time>0</start-time><sentinel/><sentinel/><sentinel/><sentinel/></row>")
+
+
+CA = "com.apple.coreanimation"
+
+
+def launch_tables(**over):
+    """A cold launch: creation at 400 ms; composer 900, viewport 1010 (after a commit ending at 1000
+    that only carried the first draw), carrying commit 1011-1015, input-ready 1015.05; a frame whose
+    render began at 1012 (before the commit ended) and the first frame rendered after it at 1020."""
+    marks = over.get("marks") or [
+        sign_row(900_000_000, "composer-ready"), sign_row(990_000_000, "Commit", CA, "Begin"),
+        sign_row(995_000_000, "useful-content"), sign_row(1_000_000_000, "Commit", CA, "End"),
+        sign_row(1_010_000_000, "viewport-ready"), sign_row(1_011_000_000, "Commit", CA, "Begin"),
+        sign_row(1_013_000_000, "Commit", CA, "End", main=False),  # another thread's commit never carries it
+        sign_row(1_015_000_000, "Commit", CA, "End"), sign_row(1_015_050_000, "input-ready")]
+    frames = over.get("frames") or [frame_row(996_000_000, 40_000_000, 10, 1_012_000_000),
+                                     frame_row(1_003_000_000, 50_000_000, 11, 1_020_000_000),
+                                     frame_row(1_019_000_000, 50_000_000, 12, 1_036_000_000)]
+    swaps = over.get("swaps") or [swap_row(1_036_000_000, 10), swap_row(1_053_000_000, 11), swap_row(1_069_000_000, 12)]
+    life = over.get("life") or [life_row(400_000_000, "Initializing - Process Creation"),
+                                life_row(1_300_000_000, "Launching - UIKit Scene Creation")]
+    return {"life-cycle-period": export("life-cycle-period", LIFE_COLS, life),
+            "os-signpost": export("os-signpost", SIGN_COLS, marks),
+            "coreanimation-lifetime-interval": export("coreanimation-lifetime-interval", FRAME_COLS, frames),
+            "display-surface-swap": export("display-surface-swap", SWAP_COLS, swaps)}
+
+
+@case("I7 a cold launch ends at the swap presenting the commit that carried viewport and composer, not at the draw")
+def _():
+    s = ios.launch_sample(launch_tables())
+    assert s["pid"] == 717 and s["commitEndNs"] == 1_015_000_000 and s["swapId"] == 11, s
+    assert s["presentedNs"] == 1_053_000_000 and s["inputReadyNs"] == 1_015_050_000 and s["endNs"] == 1_053_000_000
+    assert s["durationMs"] == 653.0 and s["startBoundary"] == "Initializing - Process Creation"
+    assert s["phasesMs"]["usefulDraw"] == 595.0 and s["phasesMs"]["presented"] == 653.0, s["phasesMs"]
+
+
+@case("I8 the join rejects foreign, ambiguous, missing and out-of-order marks rather than guess")
+def _():
+    base = launch_tables()
+    def with_marks(change):
+        rows = [sign_row(900_000_000, "composer-ready"), sign_row(995_000_000, "useful-content"),
+                sign_row(1_000_000_000, "Commit", CA, "End"), sign_row(1_010_000_000, "viewport-ready"),
+                sign_row(1_015_000_000, "Commit", CA, "End"), sign_row(1_015_050_000, "input-ready")]
+        return {**base, "os-signpost": export("os-signpost", SIGN_COLS, change(rows))}
+    cases = {
+        # the app's marks from another process while the target's own commits stay: only the pid check rejects it
+        "foreign process": lambda r: [x.replace("pid>717<", "pid>718<").replace("pid: 717", "pid: 718")
+                                      if "dev.richos.connect" in x else x for x in r],
+        "two input-ready": lambda r: r + [sign_row(1_016_000_000, "input-ready")],
+        "no input-ready (composer disabled)": lambda r: r[:-1],
+        "no composer-ready": lambda r: r[1:],
+        "no viewport-ready": lambda r: r[:3] + r[4:],
+        "input-ready before the carrying commit": lambda r: r[:4] + [sign_row(1_012_000_000, "input-ready"),
+                                                                    sign_row(1_015_000_000, "Commit", CA, "End")],
+        "other subsystem": lambda r: [x.replace("dev.richos.connect", "com.example") for x in r],
+    }
+    for name, change in cases.items():
+        try:
+            ios.launch_sample(with_marks(change))
+        except perfcore.Unmeasurable:
+            continue
+        raise AssertionError(f"accepted: {name}")
+    assert "exactly one" in raises(perfcore.Unmeasurable, ios.launch_sample,
+                                   {**base, "life-cycle-period": export("life-cycle-period", LIFE_COLS, [])})
+    assert ios.launch_sample(with_marks(lambda r: r))["swapId"] == 11  # the unchanged control is accepted
+
+
+@case("I9 presentation is refused when the frame data cannot be a display pipeline or is ambiguous")
+def _():
+    frames = lambda rows: {**launch_tables(), "coreanimation-lifetime-interval": export("coreanimation-lifetime-interval", FRAME_COLS, rows)}
+    swaps = lambda rows: {**launch_tables(), "display-surface-swap": export("display-surface-swap", SWAP_COLS, rows)}
+    assert "no frame" in raises(perfcore.Unmeasurable, ios.launch_sample, frames([frame_row(996_000_000, 40_000_000, 10, 1_012_000_000)]))
+    assert "same instant" in raises(perfcore.Unmeasurable, ios.launch_sample, frames(
+        [frame_row(1_003_000_000, 50_000_000, 11, 1_020_000_000), frame_row(1_004_000_000, 60_000_000, 12, 1_020_000_000)]))
+    assert "lifetime ends" in raises(perfcore.Unmeasurable, ios.launch_sample, swaps([swap_row(1_070_000_000, 11)]))
+    assert "display swaps" in raises(perfcore.Unmeasurable, ios.launch_sample, swaps([swap_row(1_069_000_000, 12)]))
+    # the Simulator (Xcode 26.3): a swap shown before its own render began
+    sim = {**launch_tables(), "coreanimation-lifetime-interval": export("coreanimation-lifetime-interval", FRAME_COLS,
+                                                                        [frame_row(0, 1_030_000_000, 11, 1_040_000_000)]),
+           "display-surface-swap": export("display-surface-swap", SWAP_COLS, [swap_row(1_030_000_000, 11)])}
+    assert "not physical" in raises(perfcore.Unmeasurable, ios.launch_sample, sim)
+
+
+@case("I10 an export is read only with its own schema: no schema, several tables or a short row is refused")
+def _():
+    t = launch_tables()
+    rows = ios.lifecycle(t["life-cycle-period"])
+    assert rows[0] == {"start": 400_000_000, "duration": 1, "pid": 717, "period": "Initializing - Process Creation"}
+    refd = ('<trace-query-result><node><schema name="os-signpost">' + "".join(f"<col><mnemonic>{c}</mnemonic></col>" for c in SIGN_COLS)
+            + '</schema>' + sign_row(5, "input-ready").replace("<process><pid>717</pid></process><event-type>",
+                                                                  '<process id="9"><pid id="10">717</pid></process><event-type>')
+            + sign_row(6, "input-ready").replace('<process><pid>717</pid></process><event-type>', '<process ref="9"/><event-type>')
+            + '</node></trace-query-result>')
+    assert [m["pid"] for m in ios.signposts(refd)] == [717, 717]  # a ref resolves to the first row's process
+    assert "schema" in raises(perfcore.Unmeasurable, ios.lifecycle, export("life-cycle-period", LIFE_COLS, [], schema_tag=False))
+    two = t["life-cycle-period"].replace("</trace-query-result>", "<node xpath='//y'><row/></node></trace-query-result>")
+    assert "found 2" in raises(perfcore.Unmeasurable, ios.lifecycle, two)
+    short = export("life-cycle-period", LIFE_COLS, ["<row><start-time>1</start-time></row>"])
+    assert "cells" in raises(perfcore.Unmeasurable, ios.lifecycle, short)
+    assert "found 0" in raises(perfcore.Unmeasurable, ios.frame_lifetimes, "<trace-query-result/>")
+
+
+def return_tables(**over):
+    """A warm return in retained process 717: AppResume at 2496 ms, the foreground draw at 2940.9
+    inside a commit ending 2940.92, input-ready 2941.04, the next render 2950 shown at 2975."""
+    marks = over.get("marks") or [
+        sign_row(2_496_000_000, "AppResume", "com.apple.UIKit", "Begin", message=" enableTelemetry=YES WasFrozen= 0  IsForeground= 1"),
+        sign_row(2_503_000_000, "AppResume", "com.apple.UIKit", "End"),
+        sign_row(2_940_900_000, "foreground-useful"), sign_row(2_940_920_000, "Commit", CA, "End"),
+        sign_row(2_941_040_000, "input-ready")]
+    return {"life-cycle-period": export("life-cycle-period", LIFE_COLS, over.get("life") or []),
+            "os-signpost": export("os-signpost", SIGN_COLS, marks),
+            "coreanimation-lifetime-interval": export("coreanimation-lifetime-interval", FRAME_COLS,
+                                                      [frame_row(2_930_000_000, 45_000_000, 40, 2_950_000_000)]),
+            "display-surface-swap": export("display-surface-swap", SWAP_COLS, [swap_row(2_975_000_000, 40)])}
+
+
+@case("I11 a warm return runs from UIKit's AppResume to the presented foreground draw in the same process; a relaunch is cold")
+def _():
+    s = ios.return_sample(return_tables(), 717)
+    assert s["class"] == "warm" and s["startNs"] == 2_496_000_000 and s["presentedNs"] == 2_975_000_000
+    assert s["durationMs"] == 479.0 and s["phasesMs"]["inputReady"] == 445.04, s
+    assert "cold start" in raises(perfcore.Unmeasurable, ios.return_sample,
+                                  return_tables(life=[life_row(2_400_000_000, "Initializing - Process Creation")]), 717)
+    assert "not the retained process" in raises(perfcore.Unmeasurable, ios.return_sample, return_tables(), 718)
+    background = [sign_row(2_496_000_000, "AppResume", "com.apple.UIKit", "Begin", message="IsForeground= 0"),
+                  sign_row(2_940_900_000, "foreground-useful"), sign_row(2_940_920_000, "Commit", CA, "End"),
+                  sign_row(2_941_040_000, "input-ready")]
+    assert "AppResume" in raises(perfcore.Unmeasurable, ios.return_sample, return_tables(marks=background), 717)
+
+
+@case("I12 an exporter killed by a signal is re-read and every attempt is kept; other failures stop at once")
+def _():
+    good = launch_tables()
+    def exporter(script):
+        calls = []
+        def run(cmd, **kwargs):
+            table = cmd[cmd.index("--xpath") + 1].split('"')[-2]
+            calls.append(table)
+            code = script.pop(0) if script else 0
+            return subprocess.CompletedProcess(cmd, code, good[table] if code == 0 else "", "")
+        return run, calls
+    with tempfile.TemporaryDirectory() as d:
+        prefix = os.path.join(d, "launch-0001")
+        run, calls = exporter([-11, -9, 0])
+        tables, attempts = ios.export_tables("t.trace", prefix, run, pause=lambda s: None)
+        assert set(tables) == set(ios.TABLES) and calls[:3] == ["life-cycle-period"] * 3
+        assert [a["exit"] for a in attempts][:3] == [-11, -9, 0]
+        assert json.load(open(prefix + ".exports.json")) == attempts
+        run, calls = exporter([1])
+        assert "exit 1" in raises(perfcore.Unmeasurable, ios.export_tables, "t.trace", prefix, run, pause=lambda s: None)
+        assert calls == ["life-cycle-period"]
+        run, calls = exporter([-11] * ios.EXPORT_ATTEMPTS)
+        assert "--reparse" in raises(perfcore.Unmeasurable, ios.export_tables, "t.trace", prefix, run, pause=lambda s: None)
+        assert len(calls) == ios.EXPORT_ATTEMPTS and len(json.load(open(prefix + ".exports.json"))) == ios.EXPORT_ATTEMPTS
+
+
+@case("I13 the build configuration comes from the stamped bundle's bytes, by check-release's own markers")
+def _():
+    with open(os.path.join(MOBILE, "native-ios", "Core", "Sources", "RichOSCLI", "Simulator.swift")) as f:
+        swift = f.read()
+    listed = re.search(r"static let developmentMarkers = \[(.*?)\]", swift).group(1)
+    assert [m.strip().strip('"') for m in listed.split(",")] == ios.DEVELOPMENT_MARKERS
+    with tempfile.TemporaryDirectory() as d:
+        app = os.path.join(d, "RichOSNative.app")
+        os.makedirs(app)
+        with open(os.path.join(app, "RichOSNative"), "wb") as f:
+            f.write(b"\0".join(m.encode() for m in ios.DEVELOPMENT_MARKERS))
+        assert ios.build_configuration(app) == "debug"
+        with open(os.path.join(app, "RichOSNative"), "wb") as f:
+            f.write(b"release code only")
+        assert ios.build_configuration(app) == "release"
+        with open(os.path.join(app, "RichOSNative"), "wb") as f:
+            f.write(b"rios-fixture")
+        assert ios.build_configuration(app) is None  # partial: neither claim
+    assert ios.build_configuration(None) is None and ios.build_configuration("/no/such.app") is None
+
+
+@case("I14 the tool's mark names are the app's: every one is emitted by PerformanceMarks.swift")
+def _():
+    with open(os.path.join(MOBILE, "native-ios", "App", "Platform", "PerformanceMarks.swift")) as f:
+        swift = f.read()
+    for name in (ios.VIEWPORT, ios.COMPOSER, ios.READY, ios.USEFUL, ios.FOREGROUND):
+        assert f'name: "{name}")' in swift, name
+    assert "CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, false" in swift  # one-shot
+    assert "Timer" not in swift and "DispatchSourceTimer" not in swift and "asyncAfter" not in swift
+
+
+class FakeProc:
+    def __init__(self, code=0):
+        self.code, self.returncode = code, None
+    def wait(self, timeout=None):
+        if self.returncode is None:
+            self.returncode = self.code
+        return self.returncode
+    def poll(self):
+        return self.returncode
+    def terminate(self):
+        self.returncode = -15
+
+
+class FakeDriver:
+    target = "test-device"
+    def __init__(self, pids):
+        self.pids, self.events = list(pids), []
+    def pid(self):
+        self.events.append("pid")
+        return self.pids.pop(0)
+    def launch(self, bundle, *args):
+        self.events.append(("launch", bundle) + args)
+
+
+@case("I15 a warm trial backgrounds, attaches, returns only after tracing started, and rejects a changed process")
 def _():
     from unittest.mock import patch
-    args = types.SimpleNamespace(simulator=None, device="test-device", stamp=None, expect_commit=None, cold=1, evidence_dir="unused")
-    def listing(cmd, **kwargs):
-        with open(cmd[cmd.index('--json-output') + 1], 'w') as f:
-            json.dump({"result": {"devices": [{"identifier": "test-device", "hardwareProperties": {"marketingName": "iPhone"},
-                        "deviceProperties": {"osVersionNumber": "26.3.1"}}]}}, f)
-        return subprocess.CompletedProcess(cmd, 0, '', '')
-    with patch.object(ios, 'device_cold', return_value=([701.74], [], '/retained-evidence')):
-        record, failed = ios.run_ios(args, runner=listing)
-    assert not failed and record['ranOnHardware'] is True
-    assert 'coldLaunch' not in record['metrics']
-    metric = record['metrics']['coldUsefulDraw']
-    assert 'budget' not in metric and metric['parserVerified'] is True
-    assert record['acceptance']['verdict'] == 'NOT VERIFIED'
+    started = []
+    def popen(cmd, **kwargs):
+        started.append(cmd)
+        return FakeProc(0)
+    good = return_tables()
+    def exporter(cmd, **kwargs):
+        table = cmd[cmd.index("--xpath") + 1].split('"')[-2]
+        return subprocess.CompletedProcess(cmd, 0, good[table], "")
+    with tempfile.TemporaryDirectory() as d, patch.object(ios, "evidence_root_ok", return_value=True):
+        driver = FakeDriver([717, 717])
+        samples, rejected, ev = ios.trace_series("warm", driver, 1, d, exporter, popen, lambda s: None)
+        assert not rejected and samples[0]["durationMs"] == 479.0, rejected
+        assert driver.events == ["pid", ("launch", ios.AWAY_APP), ("launch", ios.BUNDLE), "pid"], driver.events
+        notify, record = started
+        assert notify[:2] == ["notifyutil", "-1"] and record[record.index("--notify-tracing-started") + 1] == notify[2]
+        assert record[record.index("--attach") + 1] == "717" and "Frame Lifetimes" in record
+        assert json.load(open(os.path.join(ev, "return-0001.trial.json"))) == {"pid": 717}
+        driver = FakeDriver([717, 902])
+        samples, rejected, _ = ios.trace_series("warm", driver, 5, d, exporter, popen, lambda s: None)
+        assert not samples and len(rejected) == 1 and "cold start" in rejected[0]["why"]
+        failing = lambda cmd, **kw: FakeProc(0) if cmd[0] == "notifyutil" else FakeProc(3)
+        samples, rejected, _ = ios.trace_series("warm", FakeDriver([717, 717]), 5, d, exporter, failing, lambda s: None)
+        assert not samples and "capture failed (3)" in rejected[0]["why"]
+
+
+class SilentWaiter(FakeProc):
+    """notifyutil that never hears the notification (a recorder that could not attach)."""
+    def wait(self, timeout=None):
+        if timeout is not None and self.returncode is None:
+            raise subprocess.TimeoutExpired("notifyutil", timeout)
+        return super().wait(timeout)
+
+
+class EndedRecorder(FakeProc):
+    def __init__(self):
+        super().__init__(70)
+        self.returncode = 70  # already exited
+
+
+@case("I15b a recorder that ends before tracing starts fails the trial at once; the app is never backgrounded")
+def _():
+    from unittest.mock import patch
+    procs = []
+    def popen(cmd, **kwargs):
+        procs.append(SilentWaiter() if cmd[0] == "notifyutil" else EndedRecorder())
+        return procs[-1]
+    with tempfile.TemporaryDirectory() as d, patch.object(ios, "evidence_root_ok", return_value=True):
+        driver = FakeDriver([717])
+        samples, rejected, _ = ios.trace_series("warm", driver, 3, d, None, popen, lambda s: None)
+        assert not samples and "ended (70) before tracing started" in rejected[0]["why"], rejected
+        assert driver.events == ["pid"], driver.events  # never sent to the background
+        assert procs[0].returncode == -15  # the waiter it started was stopped
+        assert "--trace-seconds" in raises(perfcore.Refused, ios.trace_series, "warm", FakeDriver([717]), 1, d,
+                                           None, popen, lambda s: None, seconds=6, away=2.0)
+
+
+def ios_args(**over):
+    base = dict(simulator=None, device="test-device", reparse=None, stamp=None, expect_commit=None, cold=1, warm=0,
+                evidence_dir="unused", away=2.0, trace_seconds=10, app_arg=None, xctrace=False)
+    base.update(over)
+    return types.SimpleNamespace(**base)
+
+
+def devicectl_listing(cmd, **kwargs):
+    with open(cmd[cmd.index('--json-output') + 1], 'w') as f:
+        json.dump({"result": {"devices": [{"identifier": "test-device", "hardwareProperties": {"marketingName": "iPhone"},
+                    "deviceProperties": {"osVersionNumber": "26.3.1"}}]}}, f)
+    return subprocess.CompletedProcess(cmd, 0, '', '')
+
+
+@case("I16 a physical record carries the PRD boundary, a budget comparison and why acceptance is still NOT VERIFIED")
+def _():
+    from unittest.mock import patch
+    sample = {**ios.launch_sample(launch_tables()), "trial": 1, "trace": "/t/launch-0001.trace", "exportAttempts": 5}
+    with tempfile.TemporaryDirectory() as d:
+        stamp = os.path.join(d, "stamp.json")
+        with open(stamp, "w") as f:
+            json.dump({"commit": "c" * 40, "dirty": False, "sha256": "f" * 64, "artifact": "/no/longer/here.app"}, f)
+        with patch.object(ios, 'trace_series', return_value=([sample], [], d)):
+            record, failed = ios.run_ios(ios_args(stamp=stamp, expect_commit="ccc"), runner=devicectl_listing)
+        assert not failed and record['ranOnHardware'] is True and 'coldUsefulDraw' not in record['metrics']
+        metric = record['metrics']['coldLaunch']
+        assert metric['samplesMs'] == [653.0] and metric['budget']['budget'] == 1000 and metric['exportAttempts'] == 5
+        assert metric['startBoundary'] == "Initializing - Process Creation" and "presented" in metric['endBoundary']
+        assert record['acceptance']['verdict'] == 'NOT VERIFIED'
+        why = " ".join(record['acceptance']['why'])
+        assert "configuration is unknown" in why and "no warm return distribution" in why and "below the PRD" in why
+        assert json.load(open(os.path.join(d, "series.json")))["class"] == "cold"
+        assert not perfcore.check_record(record), perfcore.check_record(record)
+
+
+@case("I17 --reparse re-reads a retained series with its recorded device and build, capturing nothing")
+def _():
+    good = launch_tables()
+    def exporter(cmd, **kwargs):
+        assert cmd[:3] == ["xcrun", "xctrace", "export"], cmd  # nothing records, lists or launches
+        table = cmd[cmd.index("--xpath") + 1].split('"')[-2]
+        return subprocess.CompletedProcess(cmd, 0, good[table], "")
+    with tempfile.TemporaryDirectory() as d:
+        for n in (1, 2):
+            os.makedirs(os.path.join(d, f"launch-000{n}.trace"))
+        with open(os.path.join(d, "series.json"), "w") as f:
+            json.dump({"class": "cold", "device": {"kind": "physical", "udid": "u", "model": "iPhone SE", "os": "iOS 26.3.1"},
+                       "build": {"bundle": ios.BUNDLE, "commit": "c" * 40, "dirty": False, "configuration": "release"}}, f)
+        record, failed = ios.run_ios(ios_args(device=None, reparse=d), runner=exporter)
+        assert not failed and record['metrics']['coldLaunch']['samplesMs'] == [653.0, 653.0]
+        assert record['device']['model'] == "iPhone SE" and record['ranOnHardware'] is True
+        assert "not a release" not in " ".join(record['acceptance']['why'])
 
 
 @case("P1 pacing waits for four quiet seconds under 1.5 cores on the emulator's host process, gives up at 30 s, says so")
