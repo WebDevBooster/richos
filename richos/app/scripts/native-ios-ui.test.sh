@@ -371,7 +371,7 @@ for i in "${!SIM_UDID[@]}"; do
   s=$(( i % SHARDS + 1 ))
   ARGS=()
   while IFS= read -r a; do [ -n "$a" ] && ARGS+=("$a"); done < "$WORK/shard-$s.args"
-  SIM_UDID[$i]="$(python3 "$RICHOS_TESTDEVICES" acquire-ios --type "${SIM_TYPE[$i]}" --runtime "$RUNTIME" --owner-pid $$)"
+  SIM_UDID[i]="$(python3 "$RICHOS_TESTDEVICES" acquire-ios --type "${SIM_TYPE[$i]}" --runtime "$RUNTIME" --owner-pid $$)"
   CREATED+=("${SIM_UDID[$i]}")
   # Under proof-run.py (RICHOS_WORKER_TOKENS set), the simulators count against the run the way a
   # mutation pool's workers do (richos/engine/scripts/lib/worker_tokens.py): one runs on this
