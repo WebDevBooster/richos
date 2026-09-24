@@ -3,8 +3,8 @@
 platform printed, and refuses rather than measure the wrong build or the wrong device.
 
 Parsers run against output captured from the API 34 emulator on 2026-09-24 (fixtures/android/),
-the whole Android run against a scripted adb, and the iOS parsers against output SHAPED like the
-tools' documented output (the iOS side has not run on hardware; ios.py says so). Nothing boots,
+the whole Android run against a scripted adb and iOS parsers against both scripted output and
+the field/reference layout captured on an iPhone SE with iOS 26.3.1. Nothing boots,
 builds or opens a window; no adb, simulator or network is touched.
 """
 import base64
@@ -680,6 +680,59 @@ def _():
            '<row><event-time id="4">50000000</event-time><name id="5">other</name></row>'
            '</node></trace-query-result>')
     assert ios.parse_xctrace_signposts(xml, "useful-content") == [812000000, 900000000]
+
+
+@case("I5 physical draw timing joins lifecycle and signpost PID, rejects ambiguous or foreign marks")
+def _():
+    # Field tags and reference layout captured on iOS 26.3.1 with Xcode 26.3.
+    # Nonzero origin deliberately prevents treating trace time as elapsed launch time.
+    life = ('<trace-query-result><node><row><start-time>400000000</start-time>'
+            '<process id="5"><pid id="6">717</pid></process>'
+            '<app-period>Initializing - Process Creation</app-period></row></node></trace-query-result>')
+    marks = ('<trace-query-result><node><row><event-time>500000000</event-time>'
+             '<process id="4"><pid>717</pid></process><event-type id="7">Event</event-type>'
+             '<signpost-name id="10">other</signpost-name><subsystem id="12">dev.richos.connect</subsystem></row>'
+             '<row><event-time>1101743958</event-time><process ref="4"/><event-type ref="7"/>'
+             '<signpost-name>useful-content</signpost-name><subsystem ref="12"/></row></node></trace-query-result>')
+    result = ios.trace_useful_draw(life, marks)
+    assert result == {"pid": 717, "creationNs": 400000000, "usefulDrawNs": 1101743958, "durationMs": 701.743958}
+    raises(perfcore.Unmeasurable, ios.trace_useful_draw, life, marks.replace('<pid>717</pid>', '<pid>718</pid>'))
+    raises(perfcore.Unmeasurable, ios.trace_useful_draw, life, marks.replace('dev.richos.connect', 'other.app'))
+    raises(perfcore.Unmeasurable, ios.trace_useful_draw, life, marks.replace('1101743958', '300000000'))
+    raises(perfcore.Unmeasurable, ios.trace_useful_draw, life, marks.replace('>other<', '>useful-content<'))
+    raises(perfcore.Unmeasurable, ios.trace_useful_draw, '<root/>', marks)
+
+
+@case("I6 a failed physical capture stops before trial two and retains the error")
+def _():
+    calls = []
+    def failed(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 1, "partial capture", "device disconnected")
+    with tempfile.TemporaryDirectory() as evidence:
+        samples, rejected, retained = ios.device_cold("test-device", 100, evidence, failed)
+        assert not samples and len(rejected) == 1 and len(calls) == 1
+        assert '--instrument' in calls[0] and 'os_signpost' in calls[0]
+        assert os.path.exists(os.path.join(retained, 'launch-0001.rejected.json'))
+        assert open(os.path.join(retained, 'launch-0001.log.stderr')).read() == 'device disconnected'
+
+
+@case("I7 physical draw results are never labeled as launch-budget acceptance")
+def _():
+    from unittest.mock import patch
+    args = types.SimpleNamespace(simulator=None, device="test-device", stamp=None, expect_commit=None, cold=1, evidence_dir="unused")
+    def listing(cmd, **kwargs):
+        with open(cmd[cmd.index('--json-output') + 1], 'w') as f:
+            json.dump({"result": {"devices": [{"identifier": "test-device", "hardwareProperties": {"marketingName": "iPhone"},
+                        "deviceProperties": {"osVersionNumber": "26.3.1"}}]}}, f)
+        return subprocess.CompletedProcess(cmd, 0, '', '')
+    with patch.object(ios, 'device_cold', return_value=([701.74], [], '/retained-evidence')):
+        record, failed = ios.run_ios(args, runner=listing)
+    assert not failed and record['ranOnHardware'] is True
+    assert 'coldLaunch' not in record['metrics']
+    metric = record['metrics']['coldUsefulDraw']
+    assert 'budget' not in metric and metric['parserVerified'] is True
+    assert record['acceptance']['verdict'] == 'NOT VERIFIED'
 
 
 @case("P1 pacing waits for four quiet seconds under 1.5 cores on the emulator's host process, gives up at 30 s, says so")

@@ -1,37 +1,17 @@
 """ios — RichConnect measurement on an iOS simulator or iPhone.
 
-WRITTEN, NOT YET RUN (2026-09-24). No simulator was booted and no iPhone was attached when this
-was written (the brief reserved the night's one simulator run for another stream; the test iPhone
-arrives 2026-09-25). Every parser below is exercised by richos/app/scripts/mobile-perf.test.py
-against output SHAPED like the tools' documented output, not against captured output; the record
-says `"ranOnHardware": false` until a first run replaces that with evidence.
+Physical capture was first exercised on iPhone SE (2nd generation), iOS 26.3.1,
+with Xcode 26.3 on 2026-09-24. App Launch alone does not collect the app's
+signposts: add the os_signpost instrument explicitly. Retain each raw trace.
 
-THE LAUNCH MARKERS IMPLEMENTED IN THE APP (Sage review 2026-09-24 T5). The iPhone app draws `Color.clear`
-until the saved state has loaded (native-ios/App/App/RichOSNativeApp.swift, the `else` branch of
-`if let store`), so a first-frame launch metric would pass a blank screen. The end mark is a
-signpost the app emits once the saved transcript is on screen and the composer accepts input:
+The physical metric joins the target process's lifecycle creation start and its
+useful-content draw signpost. It is named coldUsefulDraw because drawing does not
+prove frame presentation or that the composer accepted input. Instrumentation can
+also affect timing. It does not establish the PRD's cold-launch acceptance endpoint.
 
-    import os
-    private let perfLog = OSLog(subsystem: "dev.richos.connect", category: .pointsOfInterest)
-    os_signpost(.event, log: perfLog, name: "useful-content")      // once per launch
-    os_signpost(.event, log: perfLog, name: "foreground-useful")   // each return to .active
-
-Where: `useful-content` in RootView's conversation (or pairing, when unpaired) screen, on the
-first appearance of the composer AFTER `store` is set (RichOSNativeApp.swift, the `RootView(...)`
-branch), never at `store = loaded` in the `.task`; `foreground-useful` in the `.active` case of
-`.onChange(of: scenePhase)` once the retained screen has drawn. Both are release-safe, add no
-polling and no network. The app now emits these from UsefulFrameMarker after loading. Physical capture and frame-presentation correlation remain unverified.
-
-What it measures today, given a simulator UDID (never `booted`) or an iPhone's UDID:
-  identity      the installed bundle's files hashed (simulator), compared with the stamp
-  cold launch   simctl terminate + launch; the `useful-content` signpost's time in the device log
-                minus the host's time just before the launch request (simulator: one clock, the
-                Mac's); an iPhone uses `xctrace record --template 'App Launch' --launch` and the
-                signpost's time from launch in the trace's os-signpost table
-  background    simulator only: the app is a Mac process, so over the window its idle wakeups,
-                context switches and CPU time come from `top -l 1 -pid` (cumulative, differenced)
-                and its bytes from `nettop -P -L 1 -p`; an iPhone needs Instruments' Activity
-                Monitor or Power Profiler (not parsed here; NOT MEASURED)
+Simulator timing uses the host launch command and device log on the same Mac clock.
+Simulator background observations use the simulated process's CPU and network use,
+not physical iPhone energy. Physical energy and warm-return measurements are separate.
 """
 import datetime
 import json
@@ -226,26 +206,70 @@ class Sim:
                 "cpuMs": round((b["cpuSeconds"] - a["cpuSeconds"]) * 1000), "networkBytes": nb - na}
 
 
-def device_cold(udid, trials, runner=subprocess.run):
-    """Cold launches on an iPhone through Instruments' App Launch template (one trace per trial)."""
+def trace_useful_draw(lifecycle_xml, signposts_xml):
+    """Join two real xctrace tables by target PID, never assume trace zero is launch."""
+    def rows(xml):
+        root = ET.fromstring(xml)
+        refs = {e.get("id"): e for e in root.iter() if e.get("id") is not None}
+        def resolve(e):
+            return refs.get(e.get("ref"), e) if e is not None else None
+        for row in root.iter("row"):
+            values = {e.tag: resolve(e) for e in row}
+            process = values.get("process")
+            pid = resolve(process.find("pid")) if process is not None else None
+            yield values, int(pid.text) if pid is not None else None
+    starts = []
+    for values, pid in rows(lifecycle_xml):
+        if values.get("app-period") is not None and values["app-period"].text == "Initializing - Process Creation":
+            starts.append((pid, int(values["start-time"].text)))
+    if len(starts) != 1 or starts[0][0] is None:
+        raise Unmeasurable("expected exactly one process creation in the target lifecycle table")
+    pid, start = starts[0]
+    ends = []
+    for values, row_pid in rows(signposts_xml):
+        if (row_pid == pid and values.get("subsystem") is not None and values["subsystem"].text == SUBSYSTEM
+                and values.get("signpost-name") is not None and values["signpost-name"].text == USEFUL
+                and values.get("event-type") is not None and values["event-type"].text == "Event"):
+            ends.append(int(values["event-time"].text))
+    if len(ends) != 1 or ends[0] <= start:
+        raise Unmeasurable("expected one useful-content event after creation in the same process")
+    return {"pid": pid, "creationNs": start, "usefulDrawNs": ends[0], "durationMs": (ends[0] - start) / 1e6}
+
+
+def device_cold(udid, trials, evidence, runner=subprocess.run):
+    """Retain Instruments captures, stop on first failure and report a draw endpoint only."""
+    if not 1 <= trials <= 1000:
+        raise Refused("physical cold trials must be between 1 and 1000")
+    if not evidence or not os.path.realpath(evidence).startswith("/Volumes/E1TB/") or not os.path.ismount("/Volumes/E1TB"):
+        raise Refused("physical traces require --evidence-dir on mounted /Volumes/E1TB")
+    os.makedirs(evidence, exist_ok=True)
+    evidence = tempfile.mkdtemp(prefix="ios-cold-", dir=evidence)
     samples, rejected = [], []
     for i in range(trials):
-        with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR")) as tmp:
-            trace = os.path.join(tmp, "launch.trace")
-            try:
-                run(["xcrun", "xctrace", "record", "--template", "App Launch", "--device", udid, "--time-limit", "15s",
-                     "--output", trace, "--launch", "--", BUNDLE], runner, timeout=120)
-                xml_text = run(["xcrun", "xctrace", "export", "--input", trace, "--xpath",
-                                '/trace-toc/run[@number="1"]/data/table[@schema="os-signpost"]'], runner)
-                times = parse_xctrace_signposts(xml_text, USEFUL)
-            except (Unmeasurable, ET.ParseError) as e:
-                rejected.append({"trial": i + 1, "why": str(e)})
-                continue
-        if not times:
-            rejected.append({"trial": i + 1, "why": f"no '{USEFUL}' signpost in the trace (the app does not emit it yet?)"})
-            continue
-        samples.append(round(times[0] / 1e6))
-    return samples, rejected
+        prefix = os.path.join(evidence, f"launch-{i + 1:04}")
+        trace = prefix + ".trace"
+        def capture(command, suffix):
+            result = runner(command, capture_output=True, text=True, timeout=120)
+            with open(prefix + suffix, "w") as f: f.write(result.stdout or "")
+            with open(prefix + suffix + ".stderr", "w") as f: f.write(result.stderr or "")
+            if result.returncode: raise Unmeasurable(f"capture failed ({result.returncode}); see {prefix + suffix}")
+            return result.stdout
+        try:
+            capture(["xcrun", "xctrace", "record", "--template", "App Launch", "--instrument", "os_signpost",
+                     "--device", udid, "--time-limit", "10s", "--output", trace, "--launch", "--", BUNDLE], ".log")
+            tables = {}
+            for table in ["life-cycle-period", "os-signpost"]:
+                tables[table] = capture(["xcrun", "xctrace", "export", "--input", trace, "--xpath",
+                    f'/trace-toc/run[@number="1"]/data/table[@schema="{table}"]'], f".{table}.xml")
+            sample = trace_useful_draw(tables["life-cycle-period"], tables["os-signpost"])
+            with open(prefix + ".json", "w") as f: json.dump(sample, f, indent=2)
+            samples.append(sample["durationMs"])
+        except (Unmeasurable, ET.ParseError, ValueError, KeyError, subprocess.TimeoutExpired) as e:
+            rejection = {"trial": i + 1, "why": str(e), "evidence": prefix}
+            rejected.append(rejection)
+            with open(prefix + ".rejected.json", "w") as f: json.dump(rejection, f, indent=2)
+            break
+    return samples, rejected, evidence
 
 
 def run_ios(args, runner=subprocess.run):
@@ -294,17 +318,18 @@ def run_ios(args, runner=subprocess.run):
                 record["device"] = physical(f.read(), args.device)
         record["build"] = {"bundle": BUNDLE, "commit": stamp and stamp.get("commit"), "dirty": stamp and stamp.get("dirty"),
                            "note": "an iPhone's installed bundle cannot be read back; identity is the stamp of what was installed"}
-        samples, rejected = device_cold(args.device, args.cold, runner)
+        samples, rejected, evidence = device_cold(args.device, args.cold, getattr(args, "evidence_dir", None), runner)
+        record["ranOnHardware"] = True
+        record["evidence"] = evidence
+        failures += bool(rejected)
         if samples:
-            record["metrics"]["coldLaunch"] = {
-                "method": "xctrace record --template 'App Launch' --launch (the trace starts at the launch request) to "
-                          "the app's 'useful-content' signpost in the exported os-signpost table. UNVERIFIED until the "
-                          "first iPhone run: the export's shape is from Apple's documentation, not a captured trace",
-                "parserVerified": False, "samplesMs": samples, "stats": perfcore.stats(samples),
-                "budget": perfcore.compare("coldLaunch", perfcore.stats(samples)), "rejected": rejected}
+            record["metrics"]["coldUsefulDraw"] = {
+                "method": "Instruments App Launch plus os_signpost: target process creation to useful-content draw, "
+                          "joined by PID. Drawing does not establish presentation or input readiness. Profiler overhead is included.",
+                "parserVerified": True, "samplesMs": samples, "stats": perfcore.stats(samples), "rejected": rejected}
         else:
             failures += 1
-            record["notMeasured"].append({"what": "coldLaunch on an iPhone", "why": "; ".join(r["why"] for r in rejected[:1]) or "no trial"})
+            record["notMeasured"].append({"what": "coldUsefulDraw on an iPhone", "why": "; ".join(r["why"] for r in rejected[:1]) or "no trial"})
     record["notMeasured"].extend(ios_gaps())
     record["acceptance"] = perfcore.acceptance(record["device"]["kind"], False, len((record["metrics"].get("coldLaunch") or {}).get("samplesMs") or []))
     record["finishedAt"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -313,11 +338,11 @@ def run_ios(args, runner=subprocess.run):
 
 def ios_gaps():
     return [
-        {"what": "useful-content and foreground-useful signposts",
-         "why": "the iPhone app emits neither yet; see this module's header for the exact code and where it goes "
-                "(RichOSNativeApp.swift RootView branch and the .active case)"},
-        {"what": "warmResume", "why": "needs the foreground-useful signpost; then the cold method with Preferences "
-                                      "launched in between instead of terminate"},
+        {"what": "coldLaunch to presented, interactive content",
+         "why": "the app emits useful-content at draw; physical trace joins process creation to that draw, "
+                "but presentation and composer input readiness require separate correlation"},
+        {"what": "warmResume", "why": "foreground-useful exists; join a real foreground transition and presentation, "
+                                      "excluding process deaths, before reporting a warm distribution"},
         {"what": "tapToFeedback, sendToQueued, receiveToVisible, activeFrames",
          "why": "need an XCUITest harness in native-ios/UITests driving the real controls with XCTOSSignpostMetric "
                 "around app-emitted signposts; not written"},

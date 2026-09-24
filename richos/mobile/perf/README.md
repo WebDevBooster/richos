@@ -23,9 +23,9 @@ richos/mobile/native-android/bin/randroid emu delete
 # an Android phone (named explicitly; the tool checks it is not an emulator)
 python3 richos/mobile/perf/perf.py android --adb <adb> --serial <serial> --kind physical --stamp <apk>.stamp.json --out <file.json>
 
-# iOS (WRITTEN, NOT YET RUN): a simulator by UDID (never "booted"), or an iPhone by UDID
+# iOS: a named simulator or physical iPhone; physical captures retain raw traces
 richos/mobile/native-ios/bin/rios perf --simulator <UDID> --stamp <stamp.json> --out <file.json>
-richos/mobile/native-ios/bin/rios perf --device <UDID> --stamp <stamp.json> --out <file.json>
+richos/mobile/native-ios/bin/rios perf --device <UDID> --stamp <stamp.json> --evidence-dir /Volumes/E1TB/reports/<run> --out <file.json>
 
 python3 richos/mobile/perf/perf.py check <record.json>...   # a record's structural promises
 python3 richos/mobile/perf/perf.py budgets                   # the PRD §7 targets it compares to
@@ -108,25 +108,28 @@ because the emulator's timings depend on it.
 | Managed Connect and Tailscale routes | The debug build's scripted Mac has no network. | A paired lab Mac (native-android README), counting the phone's requests at the Mac and the Connect Worker while backgrounded (Sage T7). |
 | Release-configuration timing | A debuggable, unminified build is slower than release. | A profileable release-configuration build signed for local install, reaching the conversation through a real pairing. |
 | Production persistence cost | In a development world the core persists through the bridge's document, not `AppPorts`' `JsonFile`. `RichCore.commit` changes show here; `JsonFile` changes need a paired production core. | The same typing phase against a paired production core. |
-| Every iOS number | Not run tonight; the iPhone app does not yet emit the launch marker. | The two signposts below, then `rios perf` on the simulator and the iPhone. |
+| iOS launch acceptance | Physical draw timing is available, but a draw is not proof of presentation or accepted input. | Correlate the useful draw with the presented frame and composer readiness. |
 
-## iOS: the marker the app must emit (Sage T5)
+## iOS physical capture
 
-The iPhone app draws `Color.clear` until the saved state has loaded
-(`native-ios/App/App/RichOSNativeApp.swift`, the `else` branch of `if let store`), so a first-frame
-launch metric would pass a blank screen. `ios.py` reads two signposts that do not exist yet:
+The app emits `useful-content` when its loaded root draws and `foreground-useful`
+after returning to active state. The blank loading branch emits neither.
+`ios.py` explicitly adds the `os_signpost` instrument to App Launch; App Launch
+alone did not capture these events on Xcode 26.3. Its parser was checked against
+an actual iPhone SE (2nd generation), iOS 26.3.1 capture on 24 September 2026.
 
-```swift
-import os
-private let perfLog = OSLog(subsystem: "dev.richos.connect", category: .pointsOfInterest)
-os_signpost(.event, log: perfLog, name: "useful-content")     // once, first composer appearance after `store` is set
-os_signpost(.event, log: perfLog, name: "foreground-useful")  // each return to .active, after the retained screen draws
-```
+The `coldUsefulDraw` metric joins process creation and the useful draw by PID.
+It does not assume the trace origin is launch. This is an instrumented draw
+measurement, not the PRD's presented and interactive launch endpoint, so it has
+no launch-budget verdict. Warm return, frame presentation and physical energy
+still need their own measurements. A physical run sets `ranOnHardware` true
+without changing overall acceptance to verified.
 
-`useful-content` goes in the conversation (or pairing) screen's first appearance of the composer
-inside the `RootView(...)` branch, never at `store = loaded` in the `.task`. Both are release-safe
-and add no polling or network. Everything `ios.py` parses is tested against documented output
-shapes, not captured output; the record says `"ranOnHardware": false` until the first run.
+Physical runs require `--evidence-dir` on the mounted external SSD. Each run
+creates a unique subdirectory and keeps raw traces, exported tables and errors.
+One capture or parsing failure stops the series; failures are never replaced
+with zero or silently retried. Start with `--cold 1` to verify the device/tool
+combination before a longer series. Traces must finish saving before export.
 
 ## Tests
 
