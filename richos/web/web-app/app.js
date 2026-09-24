@@ -145,6 +145,22 @@ async function boot() {
 
 	const keys = await keyStore.load();
 
+	// A PAIRING THAT WAS STILL WAITING FOR THE PRESS ON THE MAC when the app was closed (Sage F1).
+	// Inside its bound it goes straight back to waiting; past it, the Mac has already forgotten
+	// this key, so this phone forgets it too and asks for a fresh code.
+	const awaitingUntil = Number(saved.awaitingMacUntil) || 0;
+	if (keys && apiState.deviceId && !pendingPairCode && awaitingUntil) {
+		if (Date.now() < awaitingUntil) {
+			makeApi(keys);
+			showWaitingForMac(null);
+			waitForMac(awaitingUntil);
+			return;
+		}
+		await forgetThisPairing();
+		await startPairing(null);
+		return;
+	}
+
 	if (!keys || !apiState.deviceId || pendingPairCode) {
 		await startPairing(keys);
 		return;
@@ -226,10 +242,23 @@ async function startPairing(existingKeys) {
 		return;
 	}
 
+	// THE ORIGIN THIS PHONE DIALED, taken before the answer can move `apiBase` (Sage F2): the v2
+	// words are over the address this phone actually opened, so a relay shows different words.
+	const dialed = apiState.apiBase;
 	let answer;
 	try {
-		answer = await api.pair(pendingPairCode, publicJwk, deviceName());
+		answer = await api.pair(pendingPairCode, publicJwk, deviceName(), { pairingVersion: 2 });
 	} catch (err) {
+		// A MAC WITHOUT `pair-v2` (review §3.5): never fall back to the old words, which a relay
+		// could pass. The Mac has already registered this key, so it is told to forget it with the
+		// one signed request this phone can still make, and the person is told what to do.
+		if (err && err.macNeedsUpdate) {
+			try { await api.confirmFingerprint(false); } catch { /* said locally either way, below */ }
+			await forgetThisPairing();
+			$('pairing-lede').textContent = 'Your Mac needs an update before this phone can pair with it.';
+			$('pairing-detail').textContent = 'Update RichOS on your Mac, then show a fresh code there and open it on this phone again.';
+			return;
+		}
 		$('pairing-lede').textContent = err && err.reason === 'unreachable'
 			? 'Your Mac could not be reached from here.'
 			: 'Your Mac did not accept that pairing code.';
@@ -242,12 +271,14 @@ async function startPairing(existingKeys) {
 	vapidPublicKey = answer.vapid_public_key || null;
 	threads = answer.threads || [];
 	currentThreadId = (threads[0] && threads[0].id) || answer.thread_id || null;
+	macWaitBoundMs = globalThis.RichOSApi.macWaitBoundMs(answer);
 
-	// SIX WORDS, computed here from the hash the Mac sent — never taken from the Mac as words, and
-	// never shown to him as a hash.
+	// SIX WORDS, computed here — never taken from the Mac as words, and never shown to him as a
+	// hash. v2 (Sage F2): over the origin this phone dialed, the Mac's pairing value and this
+	// phone's own key, so a relay or a device that paired first shows him a different line.
 	let words;
 	try {
-		words = fingerprint.phraseFromHex(answer.ca_fingerprint_sha256);
+		words = await fingerprint.phraseV2(dialed, answer.ca_fingerprint_sha256, fingerprint.pointFromJwk(publicJwk), crypto.subtle);
 	} catch (err) {
 		$('pairing-lede').textContent = 'Your Mac sent something this app could not read.';
 		$('pairing-detail').textContent = 'Tell Rich. Pairing has not happened and nothing was stored.';
@@ -258,6 +289,8 @@ async function startPairing(existingKeys) {
 	$('fingerprint-note').textContent = whatTheSixWordsAre();
 	$('fingerprint-words').textContent = words;
 	$('fingerprint-box').hidden = false;
+	$('pair-confirm').hidden = false;
+	$('pair-confirm').disabled = false;
 	$('pairing-row').hidden = false;
 }
 
@@ -273,10 +306,14 @@ $('pair-confirm').addEventListener('click', async () => {
 	$('pair-confirm').disabled = true;
 	// TELL THE MAC HE ANSWERED, BEFORE ANYTHING ELSE ON THIS PRESS. Until this existed the Mac's
 	// own sheet read `It is paired` while this screen was still asking the question (Ray's
-	// nightly `.7`, defect 2) — it had nothing else to go on. A failure here is not worth
-	// stopping the pairing he has just approved: his phone works either way, and the Mac's card
-	// stays on the sentence that is still true until the next time this phone reaches it.
-	try { await api.confirmFingerprint(true); } catch { /* the Mac's card waits; his phone does not */ }
+	// nightly `.7`, defect 2) — it had nothing else to go on.
+	//
+	// AND IT NO LONGER LETS THIS PHONE IN BY ITSELF (Sage F1). The Mac answers everything
+	// "waiting" until the person presses They match ON THE MAC, so after this press the phone
+	// waits for that one — unless the Mac says it has already been pressed. A failure here is not a
+	// reason to stop: the wait below asks the Mac directly.
+	let answer = null;
+	try { answer = await api.confirmFingerprint(true); } catch { /* the wait asks the Mac itself */ }
 	await settings.set('threads', threads);
 	await settings.set('threadId', currentThreadId);
 	await settings.set('vapidPublicKey', vapidPublicKey);
@@ -285,12 +322,126 @@ $('pair-confirm').addEventListener('click', async () => {
 	// launch and fail with a stale code.
 	history.replaceState(null, '', location.pathname);
 	pendingPairCode = null;
+	if (answer && answer.ok === true && answer.awaiting_mac_confirmation !== true) {
+		await finishPairing();
+		return;
+	}
+	const until = Date.now() + macWaitBoundMs;
+	await settings.set('awaitingMacUntil', until);
+	showWaitingForMac($('fingerprint-words').textContent);
+	waitForMac(until);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Waiting for the press on the Mac — Sage's pairing review F1, §3.1 step 5
+// ---------------------------------------------------------------------------------------------
+//
+// The phone has said the words match; the Mac has not. Until the person presses They match on
+// the Mac, every request this phone makes is answered "waiting" (a retryable 409). So this screen
+// says which press is missing, keeps the words up so he can still compare them, keeps
+// `They do not match` as the way out, and asks the Mac again on `RichOSApi.macWaitDelayMs`'s
+// schedule — 2, 3, 5, 8, 13 s, then every 15 s — only while the app is on screen, and never past
+// the bound the Mac gave (at most five minutes). At most 22 requests in the five minutes, and none
+// while hidden: CEO ruling §81's "never a tight poll".
+
+let macWaitBoundMs = globalThis.RichOSApi.MAC_WAIT_WINDOW_MS;
+let macWait = null;
+
+function showWaitingForMac(words) {
+	showTakeover('pairing');
+	$('fingerprint-box').hidden = !words;
+	$('pairing-row').hidden = false;
+	$('pair-confirm').hidden = true;
+	$('pairing-lede').textContent = 'Now press They match on your Mac.';
+	$('pairing-detail').textContent = 'This phone connects as soon as you do. If the words on your Mac are different, press They do not match here or there.';
+}
+
+function stopWaitingForMac() {
+	if (macWait) macWait.stop();
+	macWait = null;
+}
+
+function waitForMac(until) {
+	stopWaitingForMac();
+	let attempt = 0;
+	let timer = null;
+	let asking = false;
+	let stopped = false;
+	const ask = async () => {
+		timer = null;
+		if (stopped || asking) return;
+		if (Date.now() >= until) { await gaveUpWaiting('expired'); return; }
+		// Hidden: nothing is asked and nothing is scheduled. Coming back on screen asks at once.
+		if (document.hidden) return;
+		asking = true;
+		let answered = false;
+		try {
+			answered = await api.macConfirmed(currentThreadId);
+		} catch (err) {
+			// A refusal is the Mac's final answer: the person pressed They do not match there, or
+			// the window closed. Anything else (unreachable, a fault) waits on the same schedule.
+			if (err && (err.reason === globalThis.RichOSApi.REVOKED || err.reason === globalThis.RichOSApi.REFUSED)) {
+				asking = false;
+				await gaveUpWaiting('refused');
+				return;
+			}
+		}
+		asking = false;
+		if (stopped) return;
+		if (answered) { stopWaitingForMac(); await finishPairing(); return; }
+		schedule();
+	};
+	const schedule = () => {
+		if (stopped) return;
+		const left = until - Date.now();
+		if (left <= 0) { void gaveUpWaiting('expired'); return; }
+		timer = setTimeout(ask, Math.min(globalThis.RichOSApi.macWaitDelayMs(attempt++), left));
+	};
+	const onVisibility = () => { if (!document.hidden && !timer && !asking && !stopped) void ask(); };
+	document.addEventListener('visibilitychange', onVisibility);
+	macWait = {
+		stop() {
+			stopped = true;
+			if (timer) clearTimeout(timer);
+			timer = null;
+			document.removeEventListener('visibilitychange', onVisibility);
+		}
+	};
+	schedule();
+}
+
+async function gaveUpWaiting(why) {
+	stopWaitingForMac();
+	await forgetThisPairing();
+	$('fingerprint-box').hidden = true;
+	$('pairing-row').hidden = true;
+	$('pairing-lede').textContent = why === 'refused'
+		? 'Your Mac did not accept this phone.'
+		: 'Your Mac did not get an answer in time.';
+	$('pairing-detail').textContent = why === 'refused'
+		? 'If They do not match was pressed on your Mac, that is why. Otherwise show a fresh code on your Mac and open it on this phone again.'
+		: 'Nothing was paired. Show a fresh code on your Mac and open it on this phone again.';
+}
+
+async function finishPairing() {
+	stopWaitingForMac();
+	await settings.set('awaitingMacUntil', null);
+	$('pair-confirm').hidden = false;
 	const keys = await keyStore.load();
 	hideTakeovers();
 	await startConversation(keys);
-});
+}
+
+/// This phone's half of a pairing that did not happen: the key, the device id and the wait.
+async function forgetThisPairing() {
+	await keyStore.clear();
+	await settings.set('deviceId', null);
+	await settings.set('awaitingMacUntil', null);
+	apiState.deviceId = null;
+}
 
 $('pair-reject').addEventListener('click', async () => {
+	stopWaitingForMac();
 	// He said the words do not match. That is the one outcome where continuing would be worse than
 	// stopping: the credential is thrown away rather than kept "just in case".
 	//
@@ -299,9 +450,8 @@ $('pair-reject').addEventListener('click', async () => {
 	// all. The Mac forgets it on this message. Sent FIRST, while the credential that signs it
 	// still exists — `keyStore.clear()` below is what makes it unsendable.
 	try { await api.confirmFingerprint(false); } catch { /* said locally either way, below */ }
-	await keyStore.clear();
-	await settings.set('deviceId', null);
-	apiState.deviceId = null;
+	await forgetThisPairing();
+	$('pair-confirm').hidden = false;
 	$('fingerprint-box').hidden = true;
 	$('pairing-row').hidden = true;
 	$('pairing-lede').textContent = 'Stopped, and nothing was paired.';
@@ -837,8 +987,11 @@ async function sendText() {
 /// reading both concludes something IS wrong, at the moment he is being asked whether the two
 /// screens match. What is true is that the words come from a root the Mac made and keeps, and that
 /// nothing was put on the phone to get here.
+// SINCE SAGE'S F2 THE WORDS ARE NOT THE NAME OF THE MAC'S KEY ALONE: they are worked out from this
+// phone's key, the address it opened and the Mac's key, so the first sentence says that. The rest
+// is the sentence it always was.
 function whatTheSixWordsAre() {
-	return 'They are the name of a key your Mac keeps to itself. Nothing was installed on this phone to get here, and nothing needs to be. If they match what is on your Mac, this phone is talking to your Mac and to nothing else.';
+	return 'They are worked out from this phone\'s own key, the address it opened and your Mac\'s key. Nothing was installed on this phone to get here, and nothing needs to be. If they match what is on your Mac, this phone is talking to your Mac and to nothing else.';
 }
 
 /// **WHAT THIS PHONE CALLS THE CONTROL THAT PUTS THE APP ON ITS HOME SCREEN.**

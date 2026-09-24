@@ -90,8 +90,34 @@ async function pairedPhone(t) {
 
 	await api.pair('harness-pair-code', signer.publicJwk, 'the harness');
 	assert.ok(state.deviceId, 'pairing did not come back with a device');
+	// The phone's answer to the six words; the stub's default Mac presses They match with it
+	// (Sage F1: nothing but that answer reaches a Mac until the press).
+	await api.confirmFingerprint(true);
 	return { mac, api, state, signer, origin, caPem: mac.caPem };
 }
+
+test('a v2 phone waits for the press on the Mac over the real wire, and is let in only after it', async (t) => {
+	const mac = createStubMac({ host: 'localhost', pairCode: 'harness-pair-code', macPress: 'manual' });
+	const port = await mac.listen(0);
+	t.after(() => mac.close());
+	const origin = `https://localhost:${port}`;
+	const signer = makeSigner();
+	const state = { apiBase: origin, challenge: null, deviceId: null };
+	const api = createApi({ state, signer, origin, fetchImpl: httpsFetch(mac.caPem) });
+
+	const answer = await api.pair('harness-pair-code', signer.publicJwk, 'the harness', { pairingVersion: 2 });
+	assert.ok(answer.capabilities.includes('pair-v2'));
+	const said = await api.confirmFingerprint(true);
+	assert.strictEqual(said.awaiting_mac_confirmation, true, 'the Mac did not tell the phone to wait for its press');
+	assert.strictEqual(await api.macConfirmed(null), false, 'the phone was let in on its own say-so');
+	await assert.rejects(api.backfill(null, 0, 1), (err) => err.awaitingMac === true && err.retryable === true);
+	mac.pressOnMac();
+	assert.strictEqual(await api.macConfirmed(null), true, 'the press on the Mac did not let the phone in');
+
+	// And the Mac's "They do not match" is the final answer the wait stops on.
+	mac.refuseOnMac();
+	await assert.rejects(api.macConfirmed(null), (err) => err.retryable === false);
+});
 
 /// A `GET` made by hand, so the credential can be put somewhere `lib/api.js` would not put it.
 function rawStatus(origin, caPem, path, headers) {
