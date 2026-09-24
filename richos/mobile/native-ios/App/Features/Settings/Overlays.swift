@@ -243,17 +243,17 @@ struct SettingsSheet: View {
     @ViewBuilder private var notificationsRow: some View {
         let s = settings.notifications
         row(icon: .bell, title: "Notify me when Rich replies", detail: notificationDetail(s), control: true) {
-            switch s {
-            case .on, .off:
+            switch s.control {
+            case .toggle(let isOn):
                 Toggle("Notify me when Rich replies",
-                       isOn: Binding(get: { s == .on }, set: { send(.setNotifications($0)) }))
+                       isOn: Binding(get: { isOn }, set: { send(.setNotifications($0)) }))
                     .labelsHidden()
                     .toggleStyle(RToggleStyle())
                     .accessibilityIdentifier("settings.notifications")
-            case .denied:
+            case .openSettings:
                 Button { send(.openSystemSettings) } label: { Text("Open Settings") }
                     .buttonStyle(RButtonStyle(kind: .ghost, compact: true))
-            default:
+            case .none:
                 EmptyView()
             }
         }

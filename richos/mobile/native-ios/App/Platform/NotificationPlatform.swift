@@ -51,6 +51,16 @@ final class NotificationPlatform: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    /// iOS's answer as it stands, read without asking anything (`NotificationPermissionCheck`, I04).
+    func systemPermission() async -> SystemNotificationPermission {
+        switch await UNUserNotificationCenter.current().notificationSettings().authorizationStatus {
+        case .authorized, .provisional, .ephemeral: return .allowed
+        case .denied: return .denied
+        case .notDetermined: return .notDetermined
+        @unknown default: return .notDetermined
+        }
+    }
+
     /// The key the Mac seals previews with, for this Mac, and the person's preview choice, mirrored
     /// into the Keychain item the notification service extension reads.
     func configurePreviews(origin: String, previews: Bool) throws -> PreviewKeyStore.Settings {
