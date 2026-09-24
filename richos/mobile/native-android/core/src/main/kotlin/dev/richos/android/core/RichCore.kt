@@ -255,6 +255,12 @@ class RichCore private constructor(
             unsupported = h.protocolVersion != null && h.protocolVersion != 1L
             resnapshotRequested = unsupported
             val thread = h.threadId ?: s.selectedThreadId
+            val held = s.cache[thread].orEmpty()
+            // A fresh snapshot covers only the newest page. Keep the contiguous loaded history
+            // while the person is reading it, replacing overlapping rows with authoritative ones.
+            val keepReading = thread == s.selectedThreadId && held.any { it.id == s.readingAnchor?.messageId }
+            val rows = if (keepReading) (held.filter { old -> h.messages.none { it.id == old.id } } + h.messages).sortedBy { it.cursor }
+                else bounded(h.messages)
             s.copy(
                 threads = h.threads.ifEmpty { s.threads },
                 selectedThreadId = s.selectedThreadId ?: thread,
@@ -262,9 +268,9 @@ class RichCore private constructor(
                 macBuild = h.build ?: s.macBuild,
                 attachmentLimits = if ("attachments" in h.capabilities) h.attachmentLimits ?: s.attachmentLimits else null,
                 pairing = h.challenge?.let { s.pairing.copy(challenge = it) } ?: s.pairing,
-                cache = if (thread == null) s.cache else s.cache + (thread to bounded(h.messages)),
+                cache = if (thread == null) s.cache else s.cache + (thread to rows),
                 // The Mac holds older rows exactly when the oldest one it sent is not cursor 1.
-                olderAvailable = if (thread == null) s.olderAvailable else s.olderAvailable + (thread to ((h.messages.minOfOrNull { it.cursor } ?: 1L) > 1L)),
+                olderAvailable = if (thread == null) s.olderAvailable else s.olderAvailable + (thread to ((rows.minOfOrNull { it.cursor } ?: 1L) > 1L)),
             )
         } ?: s
         "message" -> decode(Row.serializer(), frame.data)?.let { row ->
@@ -562,6 +568,7 @@ class RichCore private constructor(
                     paired = false,
                     threads = emptyList(),
                     selectedThreadId = null,
+                    cache = emptyMap(), olderAvailable = emptyMap(), streamCursor = null, readingAnchor = null,
                     pairing = Pairing(phase = PairingPhase.EXCHANGING, apiBase = link.origin, route = routeOf(link.origin)),
                 ),
             )

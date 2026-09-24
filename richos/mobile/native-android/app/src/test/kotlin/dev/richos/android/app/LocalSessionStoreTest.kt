@@ -40,6 +40,25 @@ class LocalSessionStoreTest {
         } finally { dir.deleteRecursively() }
     }
 
+    @Test fun settlingAnOlderReadingPositionImmediatelyPreservesAContiguousWindow() = runBlocking {
+        val dir = dir()
+        try {
+            val store = LocalSessionStore(dir, Clock { 1_000 })
+            val rows = (1..10_000).map { Row("r$it", "t", it.toLong(), "rich", text = "message $it") }
+            val state = Session(selectedThreadId = "t", cache = mapOf("t" to rows))
+            store.write(state)
+            store.write(state.copy(readingAnchor = dev.richos.android.core.ReadingAnchor("r50", 12)))
+            val restored = LocalSessionStore(dir).read()
+            val cached = restored.cache.getValue("t")
+            assertEquals("r50", restored.readingAnchor?.messageId)
+            assertTrue(cached.any { it.id == "r50" })
+            assertTrue(cached.zipWithNext().all { (a, b) -> b.cursor == a.cursor + 1 })
+            assertEquals("r10000", cached.last().id)
+            assertTrue(cached.size <= 10_000)
+            assertTrue(File(dir, "session.json").length() < 4096)
+        } finally { dir.deleteRecursively() }
+    }
+
     @Test fun corruptedDisposableHistoryDoesNotDiscardOrBlockDurableUserWork() = runBlocking {
         val dir = dir()
         try {

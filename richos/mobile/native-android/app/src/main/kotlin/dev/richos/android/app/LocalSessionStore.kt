@@ -30,15 +30,22 @@ class LocalSessionStore(dir: File, private val clock: Clock = Clock { System.cur
     override suspend fun write(session: Session) {
         val metadata = session.copy(cache = emptyMap(), olderAvailable = emptyMap(), streamCursor = null)
         val userIntentChanged = metadata.pendingEnqueues != lastUser?.pendingEnqueues
+        val anchorChanged = metadata.readingAnchor != lastUser?.readingAnchor
         if (metadata != lastUser) {
             user.write(metadata) // A failure here is a real user-work failure: propagate it.
             lastUser = metadata
         }
-        val cache = SavedHistory(identity(session), session.cache.mapValues { it.value.takeLast(Session.CACHE_ROWS) },
-            session.olderAvailable + session.cache.filterValues { it.size > Session.CACHE_ROWS }.mapValues { true }, session.streamCursor)
+        val rows = session.cache.mapValues { (thread, rows) ->
+            val anchor = if (thread == session.selectedThreadId) session.readingAnchor?.messageId else null
+            val index = anchor?.let { id -> rows.indexOfFirst { it.id == id }.takeIf { it >= 0 } }
+            val count = if (index == null) Session.CACHE_ROWS else maxOf(Session.CACHE_ROWS, rows.size - index + 20).coerceAtMost(READING_CACHE_ROWS)
+            rows.takeLast(count)
+        }
+        val cache = SavedHistory(identity(session), rows,
+            session.olderAvailable + session.cache.filter { (thread, original) -> original.size > rows[thread].orEmpty().size }.mapValues { true }, session.streamCursor)
         val now = clock.now()
         val newestChanged = cache.rows.mapValues { it.value.lastOrNull()?.id } != lastHistory?.rows?.mapValues { it.value.lastOrNull()?.id }
-        val due = userIntentChanged || newestChanged || cache.identity != lastHistory?.identity || lastHistoryAt == null || now - lastHistoryAt!! >= CACHE_WRITE_MS || (wasOnline && !session.online)
+        val due = anchorChanged || userIntentChanged || newestChanged || cache.identity != lastHistory?.identity || lastHistoryAt == null || now - lastHistoryAt!! >= CACHE_WRITE_MS || (wasOnline && !session.online)
         wasOnline = session.online
         if (!historyUnreadable && cache != lastHistory && due) {
             try {
@@ -54,5 +61,8 @@ class LocalSessionStore(dir: File, private val clock: Clock = Clock { System.cur
     }
 
     private fun identity(session: Session) = listOf(session.pairing.apiBase, session.pairing.deviceId).joinToString("\n")
-    companion object { const val CACHE_WRITE_MS = 250L }
+    companion object {
+        const val CACHE_WRITE_MS = 250L
+        const val READING_CACHE_ROWS = 10_000
+    }
 }
