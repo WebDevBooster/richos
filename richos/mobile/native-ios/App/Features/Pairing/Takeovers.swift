@@ -28,6 +28,7 @@ struct TakeoverView: View {
         case .pairIntro: return "pair-intro"
         case .pairProgress: return "pair-progress"
         case .pairWords: return "pair-words"
+        case .pairAwaitingMac: return "pair-awaiting-mac"
         case .pairStale: return "pair-stale"
         case .consent: return "pair-consent"
         case .removedFromMac: return "conn-revoked"
@@ -42,13 +43,38 @@ struct TakeoverView: View {
             Eyebrow("Your conversation, with you")
             Heading("Take Rich with you", small: smallDevice)
             Lede("Rich works on your Mac. Pair this iPhone once and your conversation comes along wherever you are.")
+            // Every card: what happened, that nothing was paired, and the one action, "scan it again",
+            // which is the button below it. The final words are Urban's review of the pairing words
+            // (richos-hq docs/verification/2026-09-24-native-pair-v2/urban-review.md, states 4 to 9),
+            // the same text the Android app and the PWA carry ("open it on this phone" there).
             switch problem {
             case .refused?:
                 ErrorCard(title: "Your Mac did not accept this code",
-                          detail: "Stopped, and nothing was paired. Ask your Mac for a fresh code and scan again.")
+                          detail: "Nothing was paired. Show a fresh code on your Mac and scan it again.")
                     .padding(.top, 18)
             case .invalidLink(let why)?:
                 ErrorCard(title: "That is not a pairing code", detail: why)
+                    .padding(.top, 18)
+            case .macNeedsUpdate?:
+                ErrorCard(title: "Your Mac needs an update",
+                          detail: "This phone cannot pair with the version of RichOS on it. Update RichOS on your Mac, then show a fresh code there and scan it again.")
+                    .padding(.top, 18)
+            case .notAcceptedByMac?:
+                ErrorCard(title: "Your Mac did not accept this phone",
+                          detail: "Nothing was paired. Either someone said the words did not match on your Mac, or pairing was stopped there. Show a fresh code on your Mac and scan it again.")
+                    .padding(.top, 18)
+            case .macAnswerExpired?:
+                ErrorCard(title: "Pairing timed out",
+                          detail: "This phone did not hear back from your Mac in time, so it stopped. Show a fresh code on your Mac and scan it again.")
+                    .padding(.top, 18)
+            case .wordsRejected?:
+                ErrorCard(title: "Stopped, and nothing was paired",
+                          detail: "If the words on this phone and your Mac were different, this phone was not talking to your Mac. Tell Rich on your Mac before you pair again.")
+                    .padding(.top, 18)
+            case .macUnreachable?:
+                // The Android app's card, which Urban's review passes as it is (state 11).
+                ErrorCard(title: "Your Mac could not be reached",
+                          detail: "Nothing was paired. Keep the Mac awake with RichOS running, then scan again.")
                     .padding(.top, 18)
             case nil:
                 EmptyView()
@@ -73,7 +99,21 @@ struct TakeoverView: View {
         case .pairWords(let words):
             Eyebrow("Check these words")
             Heading("Do they match your Mac?", small: smallDevice)
-            Lede("Your Mac shows the same six words. If they match, this connection is private to you.")
+            // Never "the same six words": telling the answer before the check primes a skimmer to
+            // press They match (Urban's review, state 2; the Mac's own "If they are the same six").
+            Lede("Your Mac shows six words too. If they are the same six, this connection is private to you.")
+            SixWords(words: words, small: smallDevice).padding(.top, 26)
+        case .pairAwaitingMac(let words):
+            // The waiting screen (the PWA's `showWaitingForMac`, the Android app's `WaitingForMac`):
+            // which press is missing, the words still up to compare, and "They do not match" as the
+            // way out. Nothing animates while it waits. The lede is Urban's (state 3): "carries on by
+            // itself" is true however long the next probe takes, and the control's name is set in
+            // SemiBold, as the intro's steps set theirs.
+            Eyebrow("Almost there")
+            Heading("Now press They match on your Mac", small: smallDevice)
+            Lede(Text("This phone carries on by itself once you do. If the words on your Mac are different, press ")
+                 + Text("They do not match").run(Typography.answer.weight(600), dynamicTypeSize)
+                 + Text(", here or on your Mac."))
             SixWords(words: words, small: smallDevice).padding(.top, 26)
         case .pairStale:
             BigMark()
@@ -107,6 +147,9 @@ struct TakeoverView: View {
     @ViewBuilder private var actions: some View {
         switch takeover {
         case .pairIntro:
+            // One primary action, with or without a card: the cards say "scan it again", and this
+            // is that button. Never "Pair again" here: on these screens nothing was paired (Urban's
+            // review, question 1); "Pair again" stays on the removed-from-Mac screen, where it is true.
             Button { send(.scan) } label: { IconLabel(icon: .qr, text: "Scan your Mac’s code") }
                 .buttonStyle(RButtonStyle(kind: .primary, tall: true, wide: true))
                 .accessibilityIdentifier("pair.scan")
@@ -119,6 +162,11 @@ struct TakeoverView: View {
             Button { send(.confirmWords) } label: { IconLabel(icon: .check, text: "They match") }
                 .buttonStyle(RButtonStyle(kind: .primary, tall: true, wide: true))
                 .accessibilityIdentifier("pair.match")
+            Button { send(.rejectWords) } label: { QuietLabel(text: "They do not match") }
+                .buttonStyle(RButtonStyle(kind: .quiet, wide: true))
+                .accessibilityIdentifier("pair.noMatch")
+        case .pairAwaitingMac:
+            // "They match" was pressed here once; the one way out is the same "They do not match".
             Button { send(.rejectWords) } label: { QuietLabel(text: "They do not match") }
                 .buttonStyle(RButtonStyle(kind: .quiet, wide: true))
                 .accessibilityIdentifier("pair.noMatch")
@@ -208,11 +256,13 @@ struct Heading: View {
 }
 
 struct Lede: View {
-    let text: String
-    init(_ text: String) { self.text = text }
+    let text: Text
+    init(_ text: String) { self.text = Text(text) }
+    /// A lede with a styled run inside it (a control's name in SemiBold).
+    init(_ text: Text) { self.text = text }
     @Environment(\.palette) private var palette
     var body: some View {
-        Text(text)
+        text
             .type(Typography.answer)
             .foregroundStyle(palette.ink)
             .fixedSize(horizontal: false, vertical: true)

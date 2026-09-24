@@ -23,8 +23,12 @@ public struct AppState: Codable, Equatable, Sendable {
     public var pairing: Pairing = .unpaired
     /// The Mac this phone is paired with, or is pairing with.
     public var mac: MacLink?
-    /// The six fingerprint words while `pairing == .confirming` (computed on the phone, §2.4).
+    /// The six v2 words while `pairing` is `.confirming` or `.awaitingMac` (computed on the phone over
+    /// the origin it dialed, the Mac's pairing value and its own key; `Fingerprint`).
     public var fingerprintWords: [String] = []
+    /// The wait for "They match" ON THE MAC (pairing v2): its bound from the pair answer, then its
+    /// deadline and schedule once the phone has said "They match". `nil` when not pairing.
+    public var macWait: MacWait?
     /// Apple's explicit-consent screen (`pair-consent`) was answered with Continue. Persisted.
     public var consentGiven = false
     /// TRANSIENT. The QR scanner is on screen.
@@ -111,6 +115,7 @@ public struct AppState: Codable, Equatable, Sendable {
         // The viewfinder flashes closed on the code it found, then the progress screen follows.
         case .connecting: return scanner == .found ? .pairScanner : .pairProgress
         case .confirming: return .pairWords
+        case .awaitingMac: return .pairAwaitingMac
         // "Pair again" opens the scanner over the removed screen; closing it comes back here.
         case .revoked: return scanner == nil ? .connectionRevoked : .pairScanner
         case .paired:
@@ -130,7 +135,7 @@ extension AppState {
     /// Every field, plus the derived `screen`, so a CLI reader sees the surface directly. Absent
     /// fields decode to a new install's values; `screen` is ignored on the way in.
     private enum CodingKeys: String, CodingKey {
-        case readingAnchor, schema, pairing, mac, fingerprintWords, consentGiven, scanner, pairingProblem, messages, draft, outbox, reply, history, following, focusedMessageID, notifiedReply, composerFocused, playback, voice, keptRecordings, voiceAvailability, microphone, camera, connectionNotice, troubleSinceMs, notifications, sheet, update, attachmentLimits, toast, appearance, screen
+        case readingAnchor, schema, pairing, mac, fingerprintWords, macWait, consentGiven, scanner, pairingProblem, messages, draft, outbox, reply, history, following, focusedMessageID, notifiedReply, composerFocused, playback, voice, keptRecordings, voiceAvailability, microphone, camera, connectionNotice, troubleSinceMs, notifications, sheet, update, attachmentLimits, toast, appearance, screen
     }
 
     public init(from decoder: Decoder) throws {
@@ -141,6 +146,7 @@ extension AppState {
         pairing = try c.decodeIfPresent(Pairing.self, forKey: .pairing) ?? d.pairing
         mac = try c.decodeIfPresent(MacLink.self, forKey: .mac)
         fingerprintWords = try c.decodeIfPresent([String].self, forKey: .fingerprintWords) ?? d.fingerprintWords
+        macWait = try c.decodeIfPresent(MacWait.self, forKey: .macWait)
         consentGiven = try c.decodeIfPresent(Bool.self, forKey: .consentGiven) ?? d.consentGiven
         scanner = try c.decodeIfPresent(Scanner.self, forKey: .scanner)
         pairingProblem = try c.decodeIfPresent(PairingProblem.self, forKey: .pairingProblem)
@@ -176,6 +182,7 @@ extension AppState {
         try c.encode(pairing, forKey: .pairing)
         try c.encode(mac, forKey: .mac)
         try c.encode(fingerprintWords, forKey: .fingerprintWords)
+        try c.encodeIfPresent(macWait, forKey: .macWait)
         try c.encode(consentGiven, forKey: .consentGiven)
         try c.encode(scanner, forKey: .scanner)
         try c.encode(pairingProblem, forKey: .pairingProblem)
@@ -231,6 +238,13 @@ extension AppState {
         public var following: Bool? = nil
         public var readingAnchor: ReadingAnchor? = nil
         public var activeRecording: KeptRecording? = nil
+        /// Pairing v2's wait for the press on the Mac: its bound, its deadline once the phone has said
+        /// "They match", and the probes already made, so a relaunch neither outlives the bound nor
+        /// resets the 22-probe ceiling (the Android core keeps the same three). The schedule itself is
+        /// rebuilt on return to the screen. Optional: older states have none.
+        public var macWaitBoundMs: Int64? = nil
+        public var macWaitDeadlineMs: Int64? = nil
+        public var macWaitRequests: Int? = nil
     }
 
     public var persisted: Persisted {
@@ -243,7 +257,9 @@ extension AppState {
                   activeRecording: voice.flatMap { v in
                       guard v.phase == .held || v.phase == .locked, let start = v.recordingStartedAtMs else { return nil }
                       return KeptRecording(id: v.id, durationMs: 0, levels: [], reason: .interrupted, recordedAt: start)
-                  })
+                  },
+                  macWaitBoundMs: macWait?.boundMs, macWaitDeadlineMs: macWait?.deadlineMs,
+                  macWaitRequests: macWait.flatMap { $0.requests > 0 ? $0.requests : nil })
     }
 
     public init(restoring p: Persisted) throws {
@@ -255,6 +271,12 @@ extension AppState {
         pendingAttachments = p.pendingAttachments ?? []
         following = p.following ?? true
         readingAnchor = p.readingAnchor
+        if pairing == .confirming || pairing == .awaitingMac {
+            // Restored paused: a launch is a return to the screen, and `foregrounded` resumes the wait
+            // (or ends it, past the bound).
+            macWait = MacWait(boundMs: p.macWaitBoundMs ?? MacWait.windowMs, deadlineMs: p.macWaitDeadlineMs,
+                              requests: p.macWaitRequests ?? 0, paused: pairing == .awaitingMac)
+        }
         // A message that was mid-send when the app stopped is re-sent at once on this launch: the
         // Mac's `client_id` receipt makes that free (the reference queue's rule 3).
         for i in outbox.indices where outbox[i].state == .sending {
@@ -283,6 +305,10 @@ public enum Pairing: String, Codable, Sendable {
     case connecting
     /// The six-word check is on screen (`pair-words`).
     case confirming
+    /// Pairing v2: "They match" was pressed on the phone; the Mac lets this phone in only once the
+    /// person presses "They match" on the Mac too (`pair-awaiting-mac`). Persisted, with the wait's
+    /// deadline, so a relaunch inside the bound goes back to waiting.
+    case awaitingMac
     case paired
     /// The Mac removed this phone; terminal until paired again (`conn-revoked`).
     case revoked
@@ -322,6 +348,17 @@ public enum PairingProblem: Codable, Equatable, Sendable {
     case invalidLink(String)
     /// No Mac answered the pairing request: check that the Mac is awake and the route reachable.
     case macUnreachable
+    /// Pairing v2: the Mac answered without `pair-v2`. It was told to forget this phone; nothing was paired.
+    case macNeedsUpdate
+    /// Pairing v2: while the phone waited for the press on the Mac, the Mac refused this phone
+    /// ("They do not match" on the Mac, or its window closed). Nothing was paired.
+    case notAcceptedByMac
+    /// Pairing v2: the bound passed with no press on the Mac. Nothing was paired.
+    case macAnswerExpired
+    /// "They do not match" pressed on this phone (on the words, or while waiting for the Mac): the
+    /// one security decision in pairing, so the screen says it stopped and nothing was paired
+    /// (Urban's review, state 4; the Android core's `words-rejected`).
+    case wordsRejected
 }
 
 /// Round-12 screen identifiers for the FULL-SCREEN surfaces, spelled as
@@ -331,6 +368,8 @@ public enum Screen: String, Codable, Sendable {
     case pairScanner = "pair-scanner"
     case pairProgress = "pair-progress"
     case pairWords = "pair-words"
+    /// Pairing v2, not in round 12: the words stay up while the phone waits for the press on the Mac.
+    case pairAwaitingMac = "pair-awaiting-mac"
     case pairConsent = "pair-consent"
     case pairStale = "pair-stale"
     case conversationEmpty = "conv-empty"
