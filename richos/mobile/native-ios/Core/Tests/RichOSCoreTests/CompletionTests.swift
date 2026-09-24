@@ -53,6 +53,18 @@ private actor CompletionGate: EffectHandler {
         #expect(try CoreJSON.decode([Int64].self, from: budget).count == 1)
     }
 
+    @Test func simultaneousReservationsCannotOverwriteEachOther() async throws {
+        let runner = EffectRunner(storage: CompletionStorage(), clock: FixedClock(ms: 10_000))
+        let tokens = await withTaskGroup(of: Int64?.self, returning: [Int64].self) { group in
+            for _ in 0..<20 { group.addTask { await runner.reserveCompletion() } }
+            var tokens: [Int64] = []
+            for await token in group { if let token { tokens.append(token) } }
+            return tokens
+        }
+        #expect(tokens.count == 6)
+        #expect(Set(tokens).count == 6)
+    }
+
     @Test func hourlyBudgetSurvivesRestartAndClockRollback() async throws {
         let storage = CompletionStorage()
         let runner = EffectRunner(storage: storage, clock: FixedClock(ms: 10_000))

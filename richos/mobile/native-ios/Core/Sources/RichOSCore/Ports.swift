@@ -97,6 +97,7 @@ public actor EffectRunner {
     private var lastHistory: CachedHistory?
     private var lastHistoryAt: Int64?
     private var historyFailed = false
+    private var completionWrite: Task<Void, Never>?
 
     private struct CachedHistory: Codable, Equatable {
         var mac: MacLink?
@@ -117,6 +118,13 @@ public actor EffectRunner {
     /// Reservations survive process death. Foreground-only completion refunds its reservation.
     /// Six five-second leases/hour and 24/day, retained on clock rollback or interrupted writes.
     public func reserveCompletion() async -> Int64? {
+        let previous = completionWrite
+        let task = Task { await previous?.value; return await reserveCompletionSerially() }
+        completionWrite = Task { _ = await task.value }
+        return await task.value
+    }
+
+    private func reserveCompletionSerially() async -> Int64? {
         do {
             let data = try await storage.read("completion-budget.json")
             let saved = try data.map { try CoreJSON.decode([Int64].self, from: $0) } ?? []
@@ -130,6 +138,13 @@ public actor EffectRunner {
     }
 
     public func refundCompletion(_ token: Int64) async {
+        let previous = completionWrite
+        let task = Task { await previous?.value; await refundCompletionSerially(token) }
+        completionWrite = task
+        await task.value
+    }
+
+    private func refundCompletionSerially(_ token: Int64) async {
         do {
             guard let data = try await storage.read("completion-budget.json") else { return }
             let saved = try CoreJSON.decode([Int64].self, from: data)
