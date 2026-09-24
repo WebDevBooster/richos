@@ -30,6 +30,8 @@ extension ScreenModel {
             case scene(String)
             /// A staged image file on this phone.
             case file(URL)
+            /// No copy on this phone (the Mac has it): a plain tile, never an invented picture.
+            case unavailable
         }
         var id: String
         var source: Source

@@ -6,13 +6,16 @@ enum PairingReducer {
     static func reduce(_ s: inout AppState, _ action: Action, _ effects: inout [Effect]) {
         switch action {
         case .openScanner:
-            guard s.pairing == .unpaired else { return }
-            s.pairingProblem = nil
-            if s.camera == .denied {
-                s.sheet = .cameraDenied
-            } else {
-                s.scanner = .looking
+            // "Pair again" after the Mac removed this phone opens the scanner too (on main it did
+            // nothing). Unsent messages were written for the Mac that removed the phone, so they
+            // cannot go to the next one: the removed-state `pair-blocked` asks first (Urban G2).
+            guard s.pairing == .unpaired || s.pairing == .revoked else { return }
+            if s.pairing == .revoked, s.unsentCount > 0 {
+                s.pairingProblem = .blockedByUnsentWork(count: s.unsentCount)
+                return
             }
+            s.pairingProblem = nil
+            openCamera(&s)
         case .closeScanner:
             s.scanner = nil
         case .cameraPermission(let permission):
@@ -23,7 +26,7 @@ enum PairingReducer {
             }
         case .scanned(let text):
             // A code that does not parse keeps the camera looking: it is a normal thing to point at.
-            guard s.pairing == .unpaired, s.scanner == .looking else { return }
+            guard s.pairing == .unpaired || s.pairing == .revoked, s.scanner == .looking else { return }
             start(&s, text, fromScanner: true, &effects)
         case .submitPairingLink(let text):
             guard s.pairing == .unpaired || s.pairing == .revoked || s.pairing == .paired else { return }
@@ -70,6 +73,22 @@ enum PairingReducer {
             s.consentGiven = true
         case .dismissPairingProblem:
             s.pairingProblem = nil
+        case .discardUnsentAndPair:
+            guard case .blockedByUnsentWork = s.pairingProblem else { return }
+            // Everything not already on its way is discarded, files and all.
+            let discarded = s.outbox.filter { $0.state != .sending }
+            for item in discarded { ConversationReducer.releaseFiles(of: item, &effects) }
+            let gone = Set(discarded.map(\.clientID))
+            s.outbox.removeAll { gone.contains($0.clientID) }
+            s.messages.removeAll { gone.contains($0.id) || ($0.clientID.map(gone.contains) ?? false) }
+            guard s.outbox.isEmpty else {
+                s.pairingProblem = .blockedByUnsentWork(count: s.outbox.count)
+                return
+            }
+            s.pairingProblem = nil
+            // Back to the way the person was pairing: the scanner (removed, or not paired), or the
+            // pairing-link sheet (a paired phone reaches another Mac only through a link).
+            if s.pairing == .paired { s.sheet = .pairingLink } else { openCamera(&s) }
         default:
             break
         }
@@ -100,6 +119,14 @@ enum PairingReducer {
         s.mac = MacLink(origin: link.origin, route: link.route)
         s.fingerprintWords = []
         effects.append(.pair(link))
+    }
+
+    private static func openCamera(_ s: inout AppState) {
+        if s.camera == .denied {
+            s.sheet = .cameraDenied
+        } else {
+            s.scanner = .looking
+        }
     }
 
     private static func refuse(_ s: inout AppState) {

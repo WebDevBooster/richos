@@ -25,8 +25,8 @@ struct ScreenModel: Equatable, Sendable {
     var composer = Composer()
     /// The recording gesture, exactly as the core holds it.
     var voice: VoiceSession?
-    /// Photos and files (round-12 `attachments.html`): the menu, the tray, the viewer. Empty until the
-    /// core carries attachments (`native-ios/docs/CORE-REQUESTS.md` §1).
+    /// Photos and files (round-12 `attachments.html`): the menu, the tray, the viewer, from the core's
+    /// `attachMenuOpen` and `pendingAttachments`.
     var attach = Attach()
 
     // MARK: Parts
@@ -47,7 +47,8 @@ struct ScreenModel: Equatable, Sendable {
 
     enum Dialog: Equatable, Sendable {
         case cameraDenied
-        case pairBlocked(waiting: Int)
+        /// `removed`: the Mac removed this phone, so the waiting messages can never be sent (Urban G2).
+        case pairBlocked(waiting: Int, removed: Bool)
         case forget
         case forgetBlocked(waiting: Int)
         case update(version: String, message: String)
@@ -199,8 +200,10 @@ struct ScreenModel: Equatable, Sendable {
 }
 
 extension ScreenModel {
-    /// The one derivation from the core's state. Total: every `AppState` draws.
-    init(state s: AppState) {
+    /// The one derivation from the core's state. Total: every `AppState` draws. `attachments` is the
+    /// directory the staged photos live in (`ShareIntake.attachmentsDirectory()`), so the tray and your
+    /// unsent albums can show them; without it they draw as tiles.
+    init(state s: AppState, attachments: URL? = nil) {
         self.init()
         appearance = s.appearance
 
@@ -227,7 +230,8 @@ extension ScreenModel {
         }
 
         // The conversation.
-        thread.rows = s.messages.map { Row(message: $0) }
+        let staged = Dictionary(s.outbox.flatMap { $0.files ?? [] }.map { ($0.id, $0.path) }, uniquingKeysWith: { a, _ in a })
+        thread.rows = s.messages.map { Row(message: $0, stagedPath: { staged[$0] }, directory: attachments) }
         if let playback = s.playback, let i = thread.rows.firstIndex(where: { $0.id == playback.messageID }) {
             thread.rows[i].audio = playback.phase == .preparing ? .preparing : .playing(progress: playback.progress)
         }
@@ -280,7 +284,9 @@ extension ScreenModel {
         case .microphonePrompt?, nil:
             break  // the microphone question is the system's own alert, not ours to draw
         }
-        if case .blockedByUnsentWork(let count)? = s.pairingProblem { dialog = .pairBlocked(waiting: count) }
+        if case .blockedByUnsentWork(let count)? = s.pairingProblem {
+            dialog = .pairBlocked(waiting: count, removed: s.pairing == .revoked)
+        }
         if let update = s.update {
             switch update.prominence {
             case .banner: banner = UpdateBanner(version: update.version, message: update.message)
@@ -307,12 +313,34 @@ extension ScreenModel {
         if s.pairing == .paired, s.notifications.status == .notAsked, !s.notifications.offerDismissed {
             cards.append(.notificationOffer)
         }
+        switch s.attachNotice {
+        case .refused(let name, let bytes, let tooLarge)?:
+            let limit = (s.attachmentLimits?.maxFileBytes ?? 26_214_400) / (1024 * 1024)
+            let detail = tooLarge
+                ? "is \(bytes.map(AttachFile.size) ?? "too large"). Rich can take files up to \(limit) MB each."
+                : "is a kind of file Rich can’t open yet. Send a photo, a PDF, or an Office or text file."
+            cards.append(.attachRefused(name: name, detail: detail, tooLarge: tooLarge))
+        case .cameraDenied?: cards.append(.attachCameraDenied)
+        case .photosDenied?: cards.append(.attachPhotosDenied)
+        case .macUnsupported?: cards.append(.attachMacUnsupported)
+        case nil: break
+        }
+
+        // The + menu and the tray (round 12.1 groups 12, 13).
+        attach.menuOpen = s.attachMenuOpen
+        attach.pending = s.pendingAttachments.map { f in
+            if f.isPhoto {
+                return .photo(AttachPhoto(id: f.id, source: Self.photoSource(path: f.path, directory: attachments), label: f.name))
+            }
+            return .file(AttachFile(file: f.id, name: f.name, bytes: f.byteCount))
+        }
 
         switch s.toast {
         case .tooShort?: toast = .tooShort
         case .ceilingWarning?: toast = .ceilingWarning
         case .tooLong(let limit)?: toast = .tooLong(limit: limit)
         case .outboxFull(let limit)?: toast = .outboxFull(limit: limit)
+        case .attachLimit?: toast = .attachLimit
         case nil: break
         }
 
@@ -337,13 +365,41 @@ extension ScreenModel {
     }
 }
 
+extension ScreenModel {
+    /// A staged photo on this phone, or a plain tile when there is no copy to show.
+    static func photoSource(path: String?, directory: URL?) -> AttachPhoto.Source {
+        guard let path, let directory else { return .unavailable }
+        return .file(directory.appendingPathComponent(path))
+    }
+}
+
+extension ScreenModel.AttachFile {
+    /// A tray chip or a bubble for one file: "PDF · 2.4 MB".
+    init(file id: String, name: String, bytes: Int) {
+        let ext = name.split(separator: ".").count > 1 ? String(name.split(separator: ".").last!).uppercased() : "FILE"
+        self.init(id: id, name: name, ext: ext, bytes: bytes, pages: nil)
+    }
+}
+
 extension ScreenModel.Row {
-    init(message m: Message) {
+    /// `stagedPath` finds this phone's copy of an attachment still waiting to go (the outbox holds
+    /// it); a photo the Mac already has draws as a tile.
+    init(message m: Message, stagedPath: (String) -> String? = { _ in nil }, directory: URL? = nil) {
         let author: Author = m.author == .rich ? .rich : .me
-        let body: Body
+        var body: Body
         switch m.kind {
         case .text: body = .text(m.text)
         case .voice: body = .voice(durationMs: m.durationMs ?? 0, levels: m.levels ?? [])
+        }
+        // Photos and files: an album when every one is a photo, a file bubble for one file.
+        if m.kind == .text, let refs = m.attachments, !refs.isEmpty {
+            let caption = m.text.isEmpty ? nil : m.text
+            if refs.allSatisfy(\.isPhoto) {
+                body = .album(refs.map { ScreenModel.AttachPhoto(id: $0.id, source: ScreenModel.photoSource(path: stagedPath($0.id), directory: directory),
+                                                               label: $0.name) }, caption: caption)
+            } else if refs.count == 1 {
+                body = .file(ScreenModel.AttachFile(file: refs[0].id, name: refs[0].name, bytes: refs[0].byteCount), caption: caption)
+            }
         }
         let delivery: Delivery?
         if author == .rich {
