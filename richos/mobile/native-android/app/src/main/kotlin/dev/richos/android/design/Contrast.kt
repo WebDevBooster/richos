@@ -135,6 +135,10 @@ object ContrastPairings {
                 Contrast.over(RichColors.Fixed.scannerChrome, Contrast.over(RichColors.Fixed.cameraDim, androidx.compose.ui.graphics.Color.White)), Floor.TEXT),
             Pairing("scanner: camera not available (scanner ink on the scene)", RichColors.Fixed.scannerInk, RichColors.Fixed.scannerScene, Floor.TEXT),
             Pairing("scanner: the camera opening, spinner arc (signal on the scene, non-text)", c.signal, RichColors.Fixed.scannerScene, Floor.LARGE_OR_INDICATOR),
+            // The dim now covers the feed from its first frame, the spinner included; the scanner draws
+            // it in the dark palette in both themes (audit G12).
+            Pairing("scanner: the camera opening over a live camera, spinner arc (dark signal over the dim over white, non-text)",
+                RichColors.Dark.signal, Contrast.over(RichColors.Fixed.cameraDim, androidx.compose.ui.graphics.Color.White), Floor.LARGE_OR_INDICATOR),
         )
     }
 }

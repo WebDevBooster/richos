@@ -16,6 +16,8 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.style.Hyphens
 import androidx.compose.ui.unit.Density
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.test.captureToImage
@@ -259,6 +261,38 @@ class MockupFidelityTest {
             assertTrue("$theme: status $status is not on the duration's line $duration", kotlin.math.abs(status.center.y - duration.center.y) <= 4f * density)
             assertTrue("$theme: status sits after the duration", status.left > duration.right)
         }
+    }
+
+    /**
+     * G12: over a live camera the scanner is dimmed from the first frame, while the camera is still
+     * opening, and once it shows, the captions sit on the dim (never on the bare feed) with the
+     * viewfinder's window left clear. The feed here is a white frame, the worst case.
+     */
+    @Test
+    fun `G12 - the scanner is dimmed from the first frame`() {
+        var status by mutableStateOf(dev.richos.android.ui.model.ScannerCamera.CHECKING)
+        compose.setContent {
+            dev.richos.android.design.RichTheme(Theme.LIGHT) {
+                dev.richos.android.ui.overlays.Scanner(
+                    found = false, onEvent = {}, status = status,
+                    camera = { androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.White)) },
+                )
+            }
+        }
+        compose.waitForIdle()
+        val density = compose.density.density
+        val dimmed = RichColors.Fixed.cameraDim.compositeOver(androidx.compose.ui.graphics.Color.White)
+        var image = compose.onRoot().captureToImage().asAndroidBitmap()
+        val mid = image.width / 2f
+        assertTrue("opening: the feed is dimmed", hasTag("camera-dim") && near(pixel(image, mid, image.height * 0.2f), dimmed))
+        assertTrue("opening: the viewfinder area is dimmed too", near(pixel(image, mid, image.height * 0.45f), dimmed))
+
+        status = dev.richos.android.ui.model.ScannerCamera.READY
+        compose.waitForIdle()
+        image = compose.onRoot().captureToImage().asAndroidBitmap()
+        val caption = node("Point the camera at the code on your Mac.").boundsInRoot
+        assertTrue("showing: the caption sits on the dim", near(pixel(image, caption.center.x, caption.top - 2f), dimmed))
+        assertTrue("showing: the viewfinder's window is clear", near(pixel(image, mid, image.height * 0.45f), androidx.compose.ui.graphics.Color.White))
     }
 
     /** G6: the serif headings are never hyphenated ("RichCon-nect", "re-moved"), at any text size. */
