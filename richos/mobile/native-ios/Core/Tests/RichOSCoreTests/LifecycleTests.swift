@@ -77,6 +77,16 @@ actor LifecycleMac: HTTPTransport {
     }
 }
 
+/// A paired phone's identities: it already holds its key for every origin it talks to. Since security
+/// review I-2 a paired origin connects through `existingSigner`, which a bare `MemoryIdentityStore`
+/// answers `nil` for until something creates the key.
+actor PairedMemoryIdentityStore: IdentityStore {
+    private let inner = MemoryIdentityStore()
+    func signer(for origin: String) async throws -> any Signer { await inner.signer(for: origin) }
+    func existingSigner(for origin: String) async throws -> (any Signer)? { await inner.signer(for: origin) }
+    func forget(origin: String) async throws { await inner.forget(origin: origin) }
+}
+
 /// An identity store whose Keychain lookup waits until the test releases it: the window in which
 /// the network effects' actor takes other effects while a `connect` is still waiting.
 actor GatedIdentityStore: IdentityStore {
@@ -89,6 +99,13 @@ actor GatedIdentityStore: IdentityStore {
         asked += 1
         if !released { await withCheckedContinuation { waiting.append($0) } }
         return await inner.signer(for: origin)
+    }
+
+    /// Gated like `signer(for:)`: since security review I-2 a paired origin connects through this lookup.
+    func existingSigner(for origin: String) async throws -> (any Signer)? {
+        asked += 1
+        if !released { await withCheckedContinuation { waiting.append($0) } }
+        return await inner.signer(for: origin)  // a paired phone holds its key
     }
 
     func forget(origin: String) async throws { await inner.forget(origin: origin) }
@@ -158,7 +175,7 @@ func holds(_ ms: UInt64 = 250, _ condition: @Sendable () async -> Bool) async ->
     @Test func backgroundingClosesTheStreamAndNoRetryOrRequestFollows() async throws {
         let stream = LifecycleStream()
         let mac = LifecycleMac()
-        let network = NetworkEffects(transport: mac, stream: stream, identities: MemoryIdentityStore(), clock: FixedClock(ms: 5),
+        let network = NetworkEffects(transport: mac, stream: stream, identities: PairedMemoryIdentityStore(), clock: FixedClock(ms: 5),
                                      sleep: Waits(instant: true).sleep)
         let host = try await host(network, state: try paired())
         _ = try await host.dispatch(.foregrounded(at: 1))
@@ -179,7 +196,7 @@ func holds(_ ms: UInt64 = 250, _ condition: @Sendable () async -> Bool) async ->
     @Test func backgroundingDuringABackOffCancelsTheWait() async throws {
         let stream = LifecycleStream(fallback: .unreachable)
         let waits = Waits()
-        let network = NetworkEffects(transport: LifecycleMac(), stream: stream, identities: MemoryIdentityStore(), clock: FixedClock(ms: 5),
+        let network = NetworkEffects(transport: LifecycleMac(), stream: stream, identities: PairedMemoryIdentityStore(), clock: FixedClock(ms: 5),
                                      sleep: waits.sleep)
         let host = try await host(network, state: try paired())
         _ = try await host.dispatch(.foregrounded(at: 1))
@@ -246,7 +263,7 @@ func holds(_ ms: UInt64 = 250, _ condition: @Sendable () async -> Bool) async ->
             .dropping(chunks: [LifecycleStream.hello]),
             .open(chunks: ["id: 3\nevent: message\ndata: \(row)\n\n"]),
         ])
-        let network = NetworkEffects(transport: LifecycleMac(), stream: stream, identities: MemoryIdentityStore(), clock: FixedClock(ms: 5),
+        let network = NetworkEffects(transport: LifecycleMac(), stream: stream, identities: PairedMemoryIdentityStore(), clock: FixedClock(ms: 5),
                                      sleep: Waits(instant: true).sleep)
         let host = try await host(network, state: try paired())
         _ = try await host.dispatch(.foregrounded(at: 1))
@@ -275,7 +292,7 @@ func holds(_ ms: UInt64 = 250, _ condition: @Sendable () async -> Bool) async ->
             .unreachable,
         ], fallback: .unreachable)
         let waits = Waits()
-        let network = NetworkEffects(transport: LifecycleMac(), stream: stream, identities: MemoryIdentityStore(), clock: FixedClock(ms: 5),
+        let network = NetworkEffects(transport: LifecycleMac(), stream: stream, identities: PairedMemoryIdentityStore(), clock: FixedClock(ms: 5),
                                      sleep: waits.sleep)
         let host = try await host(network, state: try paired())
         _ = try await host.dispatch(.foregrounded(at: 1))
@@ -306,7 +323,7 @@ func holds(_ ms: UInt64 = 250, _ condition: @Sendable () async -> Bool) async ->
         let stream = LifecycleStream()
         let mac = LifecycleMac()
         let waits = Waits()
-        let network = NetworkEffects(transport: mac, stream: stream, identities: MemoryIdentityStore(), clock: FixedClock(ms: 5),
+        let network = NetworkEffects(transport: mac, stream: stream, identities: PairedMemoryIdentityStore(), clock: FixedClock(ms: 5),
                                      sleep: waits.sleep)
         let host = try await host(network, state: try paired())
         _ = try await host.dispatch(.foregrounded(at: 1))
@@ -328,7 +345,7 @@ func holds(_ ms: UInt64 = 250, _ condition: @Sendable () async -> Bool) async ->
     @Test func aReplyThatFinishedWhileAwayIsNotStillThinkingOnReturn() async throws {
         let answer = #"{"id":"turn_1:text:0","thread_id":"thr_5c1e","cursor":2,"role":"rich","kind":"text","text":"Thursday is clear.","complete":true}"#
         let stream = LifecycleStream([.open(chunks: [Self.hello(rows: [answer])])])
-        let network = NetworkEffects(transport: LifecycleMac(), stream: stream, identities: MemoryIdentityStore(), clock: FixedClock(ms: 5),
+        let network = NetworkEffects(transport: LifecycleMac(), stream: stream, identities: PairedMemoryIdentityStore(), clock: FixedClock(ms: 5),
                                      sleep: Waits(instant: true).sleep)
         let host = try await host(network, state: try Fixture.named("conv-replying").state)
         #expect(try await host.currentState().reply == .thinking)
@@ -343,7 +360,7 @@ func holds(_ ms: UInt64 = 250, _ condition: @Sendable () async -> Bool) async ->
     @Test func aReplyStillBeingWrittenOnReturnIsShown() async throws {
         let partial = #"{"id":"turn_1:text:0","thread_id":"thr_5c1e","cursor":2,"role":"rich","kind":"text","text":"Thursday is","complete":false}"#
         let stream = LifecycleStream([.open(chunks: [Self.hello(rows: [partial])])])
-        let network = NetworkEffects(transport: LifecycleMac(), stream: stream, identities: MemoryIdentityStore(), clock: FixedClock(ms: 5),
+        let network = NetworkEffects(transport: LifecycleMac(), stream: stream, identities: PairedMemoryIdentityStore(), clock: FixedClock(ms: 5),
                                      sleep: Waits(instant: true).sleep)
         let host = try await host(network, state: try Fixture.named("conv-replying").state)
         _ = try await host.dispatch(.backgrounded(at: 1))

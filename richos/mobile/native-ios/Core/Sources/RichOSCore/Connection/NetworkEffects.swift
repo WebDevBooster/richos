@@ -150,7 +150,11 @@ public actor NetworkEffects: EffectHandler {
             }
             return []
         case .connect:
+            // The key check waits on the Keychain; a `disconnect` taken in that wait must win, so the
+            // lifecycle is read BEFORE it (the missing-key check of I-2 and the one-owner rule meet here).
+            let asked = lifecycle
             if state.pairing == .paired, case .keyMissing = await lookup(for: state) { return [.pairingRevoked] }
+            guard asked == lifecycle else { return [] }
             await startLive(state)
             return []
         case .disconnect:
