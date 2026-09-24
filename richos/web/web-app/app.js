@@ -261,8 +261,13 @@ async function startPairing(existingKeys) {
 		if (err && err.macNeedsUpdate) {
 			try { await api.confirmFingerprint(false); } catch { /* said locally either way, below */ }
 			await forgetThisPairing();
-			$('pairing-lede').textContent = 'Your Mac needs an update before this phone can pair with it.';
-			$('pairing-detail').textContent = 'Update RichOS on your Mac, then show a fresh code there and open it on this phone again.';
+			// Urban's review, state 5, and Sage's pair-v2 review §3: the older Mac this answer came
+			// from shows its own "Your phone said the six words did not match" screen, because
+			// the one request above is the only way to make it forget this key. The middle
+			// sentence accounts for that and must NOT reassure: a relay that strips `pair-v2` from
+			// a current Mac produces the same two screens.
+			$('pairing-lede').textContent = 'Your Mac needs an update.';
+			$('pairing-detail').textContent = 'This phone cannot pair with the version of RichOS on it. Your Mac may say the six words did not match: it stopped because this phone did. Update RichOS on your Mac, then show a fresh code there and open it on this phone again.';
 			return;
 		}
 		$('pairing-lede').textContent = err && err.reason === 'unreachable'
@@ -270,7 +275,9 @@ async function startPairing(existingKeys) {
 			: 'Your Mac did not accept that pairing code.';
 		$('pairing-detail').textContent = err && err.reason === 'unreachable'
 			? 'Make sure you are on the same Wi-Fi as your Mac, that RichOS is open on it, and try the code again.'
-			: 'A pairing code is good for sixty seconds and for one phone. Show a fresh one on your Mac and open it again.';
+			// Urban's review, state 9: the Mac's window is five minutes (`phone/mod.rs`
+			// PAIRING_WINDOW_MS), not the sixty seconds this used to say.
+			: 'A pairing code works once, for one phone, and runs out after a few minutes. Show a fresh one on your Mac and open it again.';
 		return;
 	}
 
@@ -374,7 +381,13 @@ function showWaitingForMac(words) {
 	$('pairing-row').hidden = false;
 	$('pair-confirm').hidden = true;
 	$('pairing-lede').textContent = 'Now press They match on your Mac.';
-	$('pairing-detail').textContent = 'This phone connects as soon as you do. If the words on your Mac are different, press They do not match here or there.';
+	// Urban's review, state 3: "carries on by itself" is true however long the Mac takes to be
+	// heard, "here or on your Mac" names both places, and the control's name is set in bold.
+	const detail = $('pairing-detail');
+	detail.textContent = 'This phone carries on by itself once you do. If the words on your Mac are different, press ';
+	const control = document.createElement('strong');
+	control.textContent = 'They do not match';
+	detail.append(control, ', here or on your Mac.');
 }
 
 function stopWaitingForMac() {
@@ -467,12 +480,14 @@ async function gaveUpWaiting(why) {
 	await forgetThisPairing();
 	$('fingerprint-box').hidden = true;
 	$('pairing-row').hidden = true;
+	// Urban's review, states 6 and 7. `expired` is reached when nobody pressed on the Mac AND when
+	// the phone could not reach the Mac for the whole wait, so it says only what the phone knows.
 	$('pairing-lede').textContent = why === 'refused'
 		? 'Your Mac did not accept this phone.'
-		: 'Your Mac did not get an answer in time.';
+		: 'Pairing timed out.';
 	$('pairing-detail').textContent = why === 'refused'
-		? 'If They do not match was pressed on your Mac, that is why. Otherwise show a fresh code on your Mac and open it on this phone again.'
-		: 'Nothing was paired. Show a fresh code on your Mac and open it on this phone again.';
+		? 'Nothing was paired. Either someone said the words did not match on your Mac, or pairing was stopped there. Show a fresh code on your Mac and open it on this phone again.'
+		: 'This phone did not hear back from your Mac in time, so it stopped. Show a fresh code on your Mac and open it on this phone again.';
 }
 
 async function finishPairing() {
@@ -507,8 +522,11 @@ $('pair-reject').addEventListener('click', async () => {
 	$('pair-confirm').hidden = false;
 	$('fingerprint-box').hidden = true;
 	$('pairing-row').hidden = true;
+	// Urban's review, state 4 (the BLOCKER): the one security decision in the flow ends by saying
+	// that nothing was paired, and with an action the person can finish. "On your Mac", because an
+	// unpaired phone cannot reach Rich.
 	$('pairing-lede').textContent = 'Stopped, and nothing was paired.';
-	$('pairing-detail').textContent = 'If the six words on this phone are not the six words on your Mac, this phone was not talking to your Mac. Tell Rich, and do not pair again until he has looked at it.';
+	$('pairing-detail').textContent = 'If the words on this phone and your Mac were different, this phone was not talking to your Mac. Tell Rich on your Mac before you pair again.';
 });
 
 // ---------------------------------------------------------------------------------------------

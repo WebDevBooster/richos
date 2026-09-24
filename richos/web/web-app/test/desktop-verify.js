@@ -289,6 +289,14 @@ async function runEngine(playwright, engine) {
 		check('nothing of the conversation is shown before the Mac is pressed', !(await page.isVisible('#composer')));
 		await noHorizontalScroll(page, `${engine}: waiting for the Mac`);
 		await shoot(page, `${engine}-waiting-for-mac`);
+		// Urban's review, state 3: the control's name is set apart, and both places are named.
+		const waitingDetail = await page.evaluate(() => {
+			const d = document.getElementById('pairing-detail');
+			return { text: d.textContent, strong: (d.querySelector('strong') || {}).textContent || '' };
+		});
+		check('while waiting, the phone says it carries on by itself and names both places to refuse',
+			/carries on by itself/.test(waitingDetail.text) && /here or on your Mac\.$/.test(waitingDetail.text) && waitingDetail.strong === 'They do not match',
+			JSON.stringify(waitingDetail));
 		const pressedAt = Date.now();
 		mac.pressOnMac();
 		await page.waitForSelector('#composer', { state: 'visible', timeout: 15000 });
