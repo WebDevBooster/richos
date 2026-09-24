@@ -265,7 +265,7 @@ private fun withTooShortLine(model: ScreenModel): ScreenModel {
 @Composable
 private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEvent) -> Unit) {
     val density = LocalDensity.current
-    val projected = remember(model.app.messages, model.app.outbox, model.app.selectedThreadId,
+    val projected = remember(model.app.messages, model.app.outbox, model.app.sent, model.app.echoes, model.app.selectedThreadId,
         model.voiceMs, model.replyAudio, model.playing, model.zone, (model.nowMs ?: System.currentTimeMillis()) / 60_000,
         model.extra, model.extraAfter, model.focusedId, model.app.online) { model.thread }
     // (`online`: a reply still arriving is drawn arriving only while its stream is open, D02.)

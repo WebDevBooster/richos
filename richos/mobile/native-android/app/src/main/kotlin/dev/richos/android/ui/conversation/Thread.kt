@@ -62,8 +62,9 @@ val FollowThreshold: Dp = 80.dp
 private sealed interface Item {
     val key: String
 
+    /** Keyed by [Message.key]: your message keeps one row from Send through the Mac's echo. */
     data class Row(val message: Message, val tail: Boolean) : Item {
-        override val key get() = "m:" + message.id
+        override val key get() = "m:" + message.key
     }
 
     data class Day(val text: String) : Item {
@@ -83,8 +84,11 @@ class ThreadController(val list: LazyListState, val follow: FollowState) {
     /** The list's keys, newest first, as the thread last laid them out. */
     internal var keys: List<String> = emptyList()
 
+    /** The message id at each position of [keys] (null for the day marker and the history edge). */
+    internal var ids: List<String?> = emptyList()
+
     /** Where a message sits in the list, for a jump back to it (a reference chip), or -1. */
-    fun indexOf(messageId: String): Int = keys.indexOf("m:$messageId")
+    fun indexOf(messageId: String): Int = ids.indexOf(messageId)
 }
 
 @Composable
@@ -115,6 +119,7 @@ fun Thread(
 ) {
     val items = remember(messages, edge, dayLabel) { buildItems(messages, edge, dayLabel) }
     controller.keys = items.map { it.key }
+    controller.ids = items.map { (it as? Item.Row)?.message?.id }
     val state = controller.list
     val follow = controller.follow
     val thresholdPx = with(LocalDensity.current) { FollowThreshold.toPx() }
@@ -132,7 +137,7 @@ fun Thread(
         snapshotFlow { state.isScrollInProgress }.distinctUntilChanged().collect { moving ->
             if (!moving && follow.interacting) {
                 follow.settled(distanceFromNewest(state), thresholdPx)
-                val row = controller.keys.getOrNull(state.firstVisibleItemIndex)?.takeIf { it.startsWith("m:") }?.removePrefix("m:")
+                val row = controller.ids.getOrNull(state.firstVisibleItemIndex)
                 onEvent(UiEvent.Reading(if (follow.following || row == null) null
                     else dev.richos.android.core.ReadingAnchor(row, state.firstVisibleItemScrollOffset)))
             }
