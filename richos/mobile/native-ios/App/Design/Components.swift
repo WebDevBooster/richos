@@ -194,21 +194,44 @@ struct RToggleStyle: ToggleStyle {
     }
 }
 
-/// `.spin`: a 16 pt ring in the faint line with a gold arc, one turn a second.
+/// `.spin`: a 16 pt ring in the faint line with a gold arc, one turn a second — for its first
+/// 10 seconds, then at rest with the arc at the top until it leaves the screen (`SpinSchedule`).
+/// Resting, or under Reduce Motion, the `TimelineView` leaves the hierarchy and nothing asks for
+/// another frame.
 struct Spinner: View {
+    static let period: TimeInterval = 1
     var size: CGFloat = 16
     @Environment(\.palette) private var palette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// When this spinner appeared; a new wait is a new spinner with its own start.
+    @State private var appeared = Date()
+    @State private var resting = false
+
     var body: some View {
-        TimelineView(.animation) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            ZStack {
-                Circle().stroke(palette.lineFaint, lineWidth: 2)
-                Circle().trim(from: 0, to: 0.25).stroke(palette.signal, style: StrokeStyle(lineWidth: 2, lineCap: .butt))
-                    .rotationEffect(.degrees(t.truncatingRemainder(dividingBy: 1) * 360 - 90))
+        Group {
+            if resting || !SpinSchedule.animates(elapsed: 0, period: Self.period, reduceMotion: reduceMotion) {
+                ring(turn: 0)
+            } else {
+                TimelineView(.animation) { context in
+                    ring(turn: SpinSchedule.turn(elapsed: context.date.timeIntervalSince(appeared), period: Self.period))
+                }
             }
-            .frame(width: size, height: size)
+        }
+        // One sleep, not a clock: after it the ring is still, and a ring that left the screen is canceled.
+        .task {
+            try? await Task.sleep(nanoseconds: UInt64(SpinSchedule.restsAt(period: Self.period) * 1_000_000_000))
+            if !Task.isCancelled { resting = true }
         }
         .accessibilityHidden(true)
+    }
+
+    private func ring(turn: Double) -> some View {
+        ZStack {
+            Circle().stroke(palette.lineFaint, lineWidth: 2)
+            Circle().trim(from: 0, to: 0.25).stroke(palette.signal, style: StrokeStyle(lineWidth: 2, lineCap: .butt))
+                .rotationEffect(.degrees(turn * 360 - 90))
+        }
+        .frame(width: size, height: size)
     }
 }
 
