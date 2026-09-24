@@ -105,6 +105,10 @@ class MainActivity : ComponentActivity() {
                 }
                 // The photos this phone still holds, drawn with their real pixels (decoded once, on demand).
                 val photos = remember { StagedPhotos(AppPorts.stagedDir(this@MainActivity), lifecycleScope) }
+                LaunchedEffect(current.pendingAttachments, current.outbox) {
+                    photos.retain((current.pendingAttachments.map { it.id } +
+                        current.outbox.flatMap { it.attachments.orEmpty().map { file -> file.id } }).toSet())
+                }
                 CompositionLocalProvider(LocalDraftLink provides drafts, LocalPhotoPixels provides photos::pixels) {
                     RichApp(
                         model,
