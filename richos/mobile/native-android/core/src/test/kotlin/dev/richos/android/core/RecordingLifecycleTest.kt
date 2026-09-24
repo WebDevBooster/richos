@@ -8,6 +8,30 @@ import kotlinx.coroutines.async
 import kotlin.test.*
 
 class RecordingLifecycleTest {
+    @Test fun recoveredAudioPlaysThroughCoreAndStopsOnBackgroundOrNewCapture() = runTest {
+        val fixture = Fixtures.fixture("online")
+        val saved = fixture.copy(session = fixture.session.copy(microphone = Microphone.GRANTED,
+            keptRecordings = listOf(KeptRecording("kept", 1_234, reason = KeptReason.INTERRUPTED, recordedAt = Fixtures.EPOCH))))
+        val runtime = DevRuntime.create(saved)
+        runtime.core.dispatch(Action.PlayKept)
+        assertEquals("kept", runtime.core.state.playingRecordingId)
+        assertEquals("play:kept", runtime.export().recorder.last())
+        runtime.core.backgrounded()
+        assertNull(runtime.core.state.playingRecordingId)
+        assertEquals("stop-playback:kept", runtime.export().recorder.last())
+        val calls = runtime.export().recorder.size
+        runtime.core.dispatch(Action.PlayKept)
+        assertEquals(calls, runtime.export().recorder.size)
+        runtime.core.foregrounded()
+        runtime.core.dispatch(Action.PlayKept)
+        runtime.core.dispatch(Action.PlaybackEnded("older"))
+        assertEquals("kept", runtime.core.state.playingRecordingId)
+        runtime.core.dispatch(Action.VoiceStartLocked("new", 386.0, Fixtures.EPOCH))
+        assertNull(runtime.core.state.playingRecordingId)
+        assertEquals(listOf("stop-playback:kept", "start:new"), runtime.export().recorder.takeLast(2))
+        assertTrue(runtime.core.state.outbox.isEmpty())
+    }
+
     @Test fun backgroundDuringSlowJournalNeverStartsCapture() = runTest {
         val writing = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()

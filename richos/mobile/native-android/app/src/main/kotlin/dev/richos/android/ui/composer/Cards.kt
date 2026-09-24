@@ -128,7 +128,7 @@ fun RecoveryCard(kept: KeptRecording, onEvent: (UiEvent) -> Unit) {
         title, body,
         extra = {
             Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PlayButton(kept.playing, "Play the unsent voice message, ${TimeLabels.duration(kept.durationMs)}", { onEvent(UiEvent.RecordingPlay) }, size = 40.dp)
+                PlayButton(kept.playing, if (kept.playing) "Stop the unsent voice message" else "Play the unsent voice message, ${TimeLabels.duration(kept.durationMs)}", { onEvent(UiEvent.RecordingPlay) }, size = 40.dp)
                 Waveform(Waves.forSeed(11, 30), 0f, Modifier.weight(1f).height(28.dp), barMax = 20f, barMin = 3f)
                 BasicText(TimeLabels.duration(kept.durationMs), style = t.read.copy(color = c.ink, fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum"))
             }

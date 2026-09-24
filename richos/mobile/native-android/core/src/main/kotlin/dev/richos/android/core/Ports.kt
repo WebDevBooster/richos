@@ -51,6 +51,8 @@ interface Transport {
  * headless world without audio still runs every rule.
  */
 interface Recorder {
+    suspend fun play(id: String): Boolean = false
+    suspend fun stopPlayback() {}
     suspend fun start(id: String) {}
 
     /** Recover only the journaled file, repairing its header and measuring its captured duration. */

@@ -153,6 +153,11 @@ class DevRuntime private constructor(
                 override suspend fun sendVoice(item: OutboxItem): Receipt = sendText(item)
             },
             recorder = object : Recorder {
+                private var playing: String? = null
+                override suspend fun play(id: String): Boolean { playing = id; log("play:$id"); return true }
+                override suspend fun stopPlayback() {
+                    playing?.let { playing = null; log("stop-playback:$it") }
+                }
                 private suspend fun log(entry: String) {
                     doc = doc.copy(recorder = doc.recorder + entry)
                     persist()

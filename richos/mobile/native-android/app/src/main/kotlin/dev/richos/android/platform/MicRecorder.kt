@@ -42,7 +42,11 @@ class MicRecorder(
     private val onPermission: (Microphone) -> Unit,
     private val foreground: () -> ComponentActivity?,
     private val onInterrupted: (String) -> Unit = {},
+    onPlaybackEnded: (String) -> Unit = {},
 ) : Recorder {
+    private val playback = KeptAudioPlayer(context, dir, onPlaybackEnded)
+    override suspend fun play(id: String) = playback.play(id)
+    override suspend fun stopPlayback() = playback.stop()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
     private var record: AudioRecord? = null

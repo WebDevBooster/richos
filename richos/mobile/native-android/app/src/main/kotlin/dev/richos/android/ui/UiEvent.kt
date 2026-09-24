@@ -125,6 +125,7 @@ fun UiEvent.toAction(): Action? = when (this) {
     UiEvent.VoiceSettled -> Action.VoiceSettled
     is UiEvent.RecordingSend -> Action.SendKept(id)
     is UiEvent.RecordingDiscard -> Action.DiscardKept(id)
+    UiEvent.RecordingPlay -> Action.PlayKept
     // Settings, notifications, updates (core `Settings.kt`).
     UiEvent.OpenSettings -> Action.OpenSheet(Sheet.SETTINGS)
     UiEvent.CloseOverlay -> Action.CloseSheet
@@ -161,7 +162,7 @@ fun UiEvent.toAction(): Action? = when (this) {
 /** Screen events that need a core action before they do anything (reported to stream A1). */
 val NOT_YET_IN_CORE: List<String> = listOf(
     "(built: the voice gesture, kept recordings, notifications, settings sheet, updates — core 5351078e, c7207408)",
-    "play a kept recording, a voice message, a reply (platform audio)",
+    "play a remote voice message or reply (platform audio)",
     "play a voice message; hear / stop a reply",
     "load older history on reaching the oldest message",
     "pairing surfaces core does not model: consent",

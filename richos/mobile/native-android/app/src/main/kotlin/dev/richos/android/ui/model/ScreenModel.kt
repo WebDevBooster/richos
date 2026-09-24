@@ -188,6 +188,7 @@ data class ScreenModel(
                     else -> KeptReason.KEPT
                 },
                 id = k.id,
+                playing = app.playingRecordingId == k.id,
             )
         }
 

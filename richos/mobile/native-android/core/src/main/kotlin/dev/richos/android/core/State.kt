@@ -208,6 +208,8 @@ data class AppState(
     /** A line or card above the composer about photos and files (transient). */
     val attachNotice: AttachNotice? = null,
     @OptIn(ExperimentalSerializationApi::class) @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val playingRecordingId: String? = null,
+    @OptIn(ExperimentalSerializationApi::class) @EncodeDefault(EncodeDefault.Mode.NEVER)
     val readingAnchor: ReadingAnchor? = null,
 ) {
     /**

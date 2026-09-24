@@ -13,6 +13,10 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 sealed interface Action {
+    @Serializable @SerialName("play-kept")
+    data object PlayKept : Action
+    @Serializable @SerialName("playback-ended")
+    data class PlaybackEnded(val id: String) : Action
     @Serializable @SerialName("select-thread")
     data class SelectThread(val threadId: String) : Action
 

@@ -48,6 +48,7 @@ class RichCore private constructor(
     private val transport: Transport = ports.transport
         ?: MacTransport(api, { session.pairing }, { freshChallenge = it }, ports.files)
     private var generation = 0
+    private var playingRecordingId: String? = null
     @Volatile private var visible = true
 
     /** The last committed state; the app collects this. */
@@ -61,6 +62,24 @@ class RichCore private constructor(
     }
 
     private suspend fun dispatchReady(action: Action): AppState = when (action) {
+        Action.PlayKept -> mutex.withLock {
+            val kept = session.keptRecordings.lastOrNull()
+            if (!visible || voiceSession != null || kept == null) return@withLock emit()
+            if (playingRecordingId == kept.id) {
+                ports.recorder.stopPlayback()
+                playingRecordingId = null
+            } else {
+                ports.recorder.stopPlayback()
+                playingRecordingId = null
+                val started = try { ports.recorder.play(kept.id) } catch (failure: Throwable) { emit(); throw failure }
+                if (started && visible) playingRecordingId = kept.id else ports.recorder.stopPlayback()
+            }
+            emit()
+        }
+        is Action.PlaybackEnded -> mutex.withLock {
+            if (playingRecordingId == action.id) playingRecordingId = null
+            emit()
+        }
         is Action.Pair -> pair(action.link)
         is Action.ConfirmWords -> confirmWords(action.match)
         Action.Forget -> forget()
@@ -199,7 +218,9 @@ class RichCore private constructor(
     suspend fun backgrounded(): AppState {
         visible = false
         outbox.backgrounded()
+        ports.recorder.stopPlayback()
         return mutex.withLock {
+        playingRecordingId = null
         // Lifecycle shutdown must take effect even when disk is full. An online flag is never a
         // reason to keep an outbox timer or network drain alive behind a hidden interface.
         session = session.copy(online = false)
@@ -823,6 +844,8 @@ class RichCore private constructor(
         for (effect in effects) {
             when (effect) {
                 is VoiceEffect.StartRecording -> try {
+                    ports.recorder.stopPlayback()
+                    playingRecordingId = null
                     val journal = session.copy(activeRecording = KeptRecording(effect.id, 0, reason = KeptReason.INTERRUPTED, recordedAt = ports.clock.now()))
                     ports.session.write(journal)
                     session = journal
@@ -839,10 +862,14 @@ class RichCore private constructor(
                     throw failure
                 }
                 is VoiceEffect.StopRecording -> ports.recorder.stop(effect.id, effect.keep)
-                is VoiceEffect.DeleteRecording -> ports.recorder.delete(effect.id)
+                is VoiceEffect.DeleteRecording -> {
+                    if (playingRecordingId == effect.id) { ports.recorder.stopPlayback(); playingRecordingId = null }
+                    ports.recorder.delete(effect.id)
+                }
                 VoiceEffect.RequestMicrophone -> ports.recorder.requestMicrophone()
                 VoiceEffect.HapticTick -> ports.recorder.haptic()
                 is VoiceEffect.Send -> {
+                    if (playingRecordingId == effect.id) { ports.recorder.stopPlayback(); playingRecordingId = null }
                     val thread = session.selectedThreadId ?: continue
                     enqueueConsuming(listOf(voiceItem(effect.id, thread, effect.durationMs, effect.levels)),
                         session.copy(microphone = next.microphone, keptRecordings = next.kept, activeRecording = null))
@@ -871,6 +898,7 @@ class RichCore private constructor(
     private fun snapshot() =
         AppState.of(session, (outbox.all() + session.pendingEnqueues).distinctBy { it.clientId }, outbox.dueInMs(), lastSend, Connections.view(effectiveConnection(), ports.clock.now())).copy(
             voice = voiceSession,
+            playingRecordingId = playingRecordingId,
             voiceElapsedMs = voiceSession?.takeIf { it.recordingStartedAtMs != null }?.elapsedMs,
             microphone = session.microphone,
             microphonePrompt = microphonePrompt,
@@ -945,6 +973,8 @@ class RichCore private constructor(
         }
 
         fun actionName(action: Action): String = when (action) {
+            Action.PlayKept -> "play-kept"
+            is Action.PlaybackEnded -> "playback-ended"
             is Action.SelectThread -> "select-thread"
             is Action.RememberReading -> "remember-reading"
             is Action.Compose -> "compose"
