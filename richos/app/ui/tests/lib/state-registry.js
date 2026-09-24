@@ -3046,6 +3046,19 @@ module.exports = [
       "The card polls until the phone answers, then says It is paired.",
   },
   {
+    s: "This Mac accepted it. Waiting for your phone to finish.",
+    c: "NEEDS-SOMEONE-ELSE",
+    explainedBy: "the paired card's own name line above it, which names the phone that has not used the pairing yet",
+    why:
+      "Sage's pair-v2 hypotheses review §2, 2026-09-24: both presses are in and the phone has not " +
+      "made its first ordinary request yet (`PhoneStatus.completed === false`). The press on this " +
+      "Mac is not evidence the phone heard it — a phone that lost the Mac throws its key away at " +
+      "its deadline — so `It is paired` waits for the phone to use the pairing. Nothing is his to " +
+      "do here: the remaining act is the phone's, which the card names; the card polls, and moves " +
+      "to `It is paired` or to the stopped screen by itself. Forget this phone stays on the card. " +
+      "ui/tests/phone.js check 9e reads the sentence.",
+  },
+  {
     s: "Someone used this phone's pairing code again after you paired it. If you did not expect that, press Forget this phone and pair again where nobody else can see this screen.",
     c: "ACTIONABLE",
     control: "#phone-forget",
@@ -4206,6 +4219,12 @@ module.exports = [
     "c": "ACTIONABLE",
     "control": "#phone-rejected-again",
     "why": "Sage's pairing review 3.1 step 6: the window's timer keeps running after a phone redeems the code, and an unconfirmed device at expiry is forgotten so an abandoned pairing never leaves a key behind (`StoppedBy::EXPIRED`). Said on the screen it happened on rather than falling back in silence (Ray's defect 3.3 was that silence); `Set my phone up again` issues a fresh code. ui/tests/phone.js check 9g."
+  },
+  {
+    "s": "This Mac accepted your phone, but the phone never finished pairing, so I stopped answering, forgot the phone, and deleted the certificate this Mac was serving.",
+    "c": "ACTIONABLE",
+    "control": "#phone-rejected-again",
+    "why": "Sage's pair-v2 hypotheses review §2: this Mac pressed They match and the phone never used the pairing within `UNFINISHED_GRACE_MS` after the window, so the key its phone gave up on is forgotten (`StoppedBy::UNFINISHED`) rather than listed as a paired phone that can never connect, which also freed the one pairing slot. Same one-sentence shape as the other refusals; `Set my phone up again` issues a fresh code. ui/tests/phone.js check 9g reads it."
   },
   {
     "s": "A code for your phone's camera. The address is written out beside it.",

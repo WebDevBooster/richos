@@ -138,8 +138,24 @@ function createStubMac(options) {
 		// pairing checks are about.
 		macPress: opts.macPress || 'auto',
 		// `false` models a Mac from before `pair-v2`, which a v2 phone must refuse (§3.5).
-		pairV2: opts.pairV2 !== false
+		pairV2: opts.pairV2 !== false,
+		// **`pair-wait`** (Sage's pair-v2 hypotheses review §1): the real Mac holds a phone's
+		// `They match` sent with `Prefer: wait=N` until the press on the Mac, for at most 14 s, one
+		// hold per device. `false` models a Mac from before it, which the phone must still wait for
+		// on its backed-off schedule. Only offered beside `pair-v2`, as the real Mac does.
+		pairWait: opts.pairWait !== false,
+		// Every `They match` the phone sent, with the `Prefer` it carried and how it ended — what a
+		// check reads to prove the phone asked with the answer, was held, and did not spin.
+		pairAsks: [],
+		// The one held ask per device: device id -> function that answers it now.
+		holds: new Map()
 	};
+
+	/// Answer the held ask of `deviceId`, if there is one, with what is true NOW.
+	function releaseHold(deviceId, why) {
+		const hold = state.holds.get(deviceId);
+		if (hold) hold(why);
+	}
 
 	/// The real Mac's 409, for a device that is authenticated and not yet confirmed on the Mac.
 	/// Returns true when it answered, so the route stops there.
@@ -524,7 +540,9 @@ function createStubMac(options) {
 						threads: state.threads,
 						// What the real Mac adds (Sage §3.1 step 3, §3.5): the capability a v2 phone
 						// requires, the derivation it uses, and the bound on the wait for the press.
-						capabilities: state.pairV2 ? state.capabilities.concat('pair-v2') : state.capabilities,
+						capabilities: state.pairV2
+							? state.capabilities.concat('pair-v2', ...(state.pairWait ? ['pair-wait'] : []))
+							: state.capabilities,
 						...(state.pairV2 ? { pairing_version: 2, confirm_within_seconds: 300 } : {})
 					});
 					return;
@@ -546,8 +564,32 @@ function createStubMac(options) {
 				}
 				if (body.fingerprint_confirmed === true) {
 					who.device.confirmed = true;
-					send(res, 200, who.device.active ? { ok: true } : { ok: true, awaiting_mac_confirmation: true },
-						{ 'X-RichOS-Challenge': newChallenge(who.deviceId) });
+					const prefer = /(?:^|[,\s])wait\s*=\s*"?(\d+)/i.exec(String(req.headers.prefer || ''));
+					const record = { at: Date.now(), prefer: req.headers.prefer || null, held: false, ended: null };
+					state.pairAsks.push(record);
+					const answer = () => {
+						// Re-read, as the real Mac re-runs the request: a device the Mac forgot is gone.
+						if (!state.devices.has(who.deviceId)) { flat404(res); return; }
+						send(res, 200, who.device.active ? { ok: true } : { ok: true, awaiting_mac_confirmation: true },
+							{ 'X-RichOS-Challenge': newChallenge(who.deviceId) });
+					};
+					const seconds = prefer ? Math.min(14, Number(prefer[1])) : 0;
+					if (who.device.active || !state.pairWait || !state.pairV2 || seconds <= 0) { answer(); return; }
+					// THE HOLD: one per device, so a newer ask answers the older one at once.
+					releaseHold(who.deviceId, 'superseded');
+					record.held = true;
+					let done = false;
+					const finish = (why) => {
+						if (done) return;
+						done = true;
+						clearTimeout(timer);
+						if (state.holds.get(who.deviceId) === finish) state.holds.delete(who.deviceId);
+						record.ended = why;
+						answer();
+					};
+					const timer = setTimeout(() => finish('timeout'), seconds * 1000);
+					state.holds.set(who.deviceId, finish);
+					res.on('close', () => { if (!done) { done = true; clearTimeout(timer); record.ended = 'closed'; if (state.holds.get(who.deviceId) === finish) state.holds.delete(who.deviceId); } });
 					return;
 				}
 				who.device.push = body.push || null;
@@ -581,9 +623,16 @@ function createStubMac(options) {
 		},
 		setMode(mode) { state.mode = mode; },
 		/// The person presses They match on the Mac (`macPress: 'manual'`).
-		pressOnMac() { for (const device of state.devices.values()) device.active = true; },
+		pressOnMac() {
+			for (const device of state.devices.values()) device.active = true;
+			for (const id of [...state.holds.keys()]) releaseHold(id, 'pressed');
+		},
 		/// The person presses They do not match on the Mac: the device is forgotten.
-		refuseOnMac() { state.devices.clear(); },
+		refuseOnMac() {
+			const ids = [...state.devices.keys()];
+			state.devices.clear();
+			for (const id of ids) releaseHold(id, 'refused');
+		},
 		received() { return state.received; },
 		pushTo(client, payload) { return payload; }
 	};

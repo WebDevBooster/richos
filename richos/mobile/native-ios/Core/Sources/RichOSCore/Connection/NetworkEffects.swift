@@ -95,7 +95,7 @@ public actor NetworkEffects: EffectHandler {
 
     public nonisolated func handles(_ effect: Effect) -> Bool {
         switch effect {
-        case .pair, .confirmFingerprint, .forgetIdentity, .deliver, .connect, .disconnect, .loadOlder,
+        case .pair, .confirmFingerprint, .checkMacConfirmation, .forgetIdentity, .deliver, .connect, .disconnect, .loadOlder,
              .requestNotifications, .unregisterNotifications, .deleteAttachments: return true
         default: return false
         }
@@ -106,30 +106,65 @@ public actor NetworkEffects: EffectHandler {
         case .pair(let link):
             do {
                 let signer = try await identities.signer(for: link.origin)
-                let identity = DeviceIdentity(publicPoint: try await signer.publicPoint())
+                let point = try await signer.publicPoint()
+                let identity = DeviceIdentity(publicPoint: point)
                 switch await PairingExchange.pair(link: link, identity: identity, deviceName: deviceName, transport: transport) {
-                case .success(let paired):
+                case .paired(let paired):
                     api = APIClient(origin: link.origin, deviceID: paired.answer.deviceID, challenge: paired.challenge, signer: signer, transport: transport)
                     var actions: [Action] = [.pairingAnswered(PairAnswer(deviceID: paired.answer.deviceID, fingerprintHex: paired.answer.caFingerprint,
-                                                                         threadID: paired.answer.threadID))]
+                                                                         threadID: paired.answer.threadID, devicePoint: Base64URL.encode(point),
+                                                                         confirmWithinSeconds: paired.answer.confirmWithinSeconds))]
                     if let capabilities = paired.answer.capabilities, !capabilities.isEmpty {
                         actions.append(.macCapabilities(text: capabilities.contains("text"), voice: capabilities.contains("voice")))
                         actions.append(.macAttachmentLimits(capabilities.contains("attachments") ? paired.answer.attachmentLimits : nil))
                     }
                     return actions
-                case .failure(let error):
+                case .macNeedsUpdate(let paired):
+                    // A Mac without `pair-v2` is refused, never fallen back to (review §3.5). It has
+                    // just registered this key, so it is told to forget it with the one signed request
+                    // this phone can still make; the reducer then forgets the key on this side.
+                    let refusing = APIClient(origin: link.origin, deviceID: paired.answer.deviceID, challenge: paired.challenge,
+                                             signer: signer, transport: transport)
+                    _ = try? await refusing.signed("POST", "/api/pair",
+                                                   body: PairingWire.confirmationBody(deviceID: paired.answer.deviceID, matches: false),
+                                                   contentType: "application/json")
+                    return [.pairingNeedsMacUpdate]
+                case .failed(let error):
                     return [error.reason == .unreachable ? .pairingUnreachable : .pairingRefused]
                 }
             } catch {
                 return [.pairingRefused]
             }
         case .confirmFingerprint(let matches):
-            guard let api = await client(for: state) else { return [] }
+            // "They match" is answered with the Mac's word on its own press (`macConfirmation`); the
+            // live connection opens only once the Mac has let this phone in (`.connect`).
+            guard let api = await client(for: state) else {
+                return matches ? [.macConfirmation(.awaiting, at: clock.nowMs())] : []
+            }
             let deviceID = state.mac?.deviceID ?? api.deviceID
-            _ = try? await api.signed("POST", "/api/pair", body: PairingWire.confirmationBody(deviceID: deviceID, matches: matches),
-                                      contentType: "application/json")
-            if matches { await startLive(state) }
-            return []
+            let response = try? await api.signed("POST", "/api/pair", body: PairingWire.confirmationBody(deviceID: deviceID, matches: matches),
+                                                 contentType: "application/json")
+            guard matches else { return [] }
+            // No answer is not a refusal: the wait asks the Mac itself.
+            return [.macConfirmation(response.map(MacConfirmation.ofConfirmation) ?? .awaiting, at: clock.nowMs())]
+        case .checkMacConfirmation:
+            let answer: MacConfirmation
+            switch await lookup(for: state) {
+            case .keyMissing:
+                // Nothing to sign with, ever: this pairing cannot complete.
+                answer = .refused
+            case .unavailable:
+                answer = .awaiting
+            case .ready(let api):
+                var path = "/api/events?"
+                if let thread = state.mac?.threadID { path += "thread_id=\(Delivery.formEncode(thread))&" }
+                path += "before=0&limit=1"
+                let response = try? await api.signed("GET", path, credential: .query)
+                answer = response.map(MacConfirmation.ofProbe) ?? .awaiting
+            }
+            // The app left the screen meanwhile: the request was canceled and its answer is not one.
+            if Task.isCancelled { return [] }
+            return [.macConfirmation(answer, at: clock.nowMs())]
         case .forgetIdentity(let origin):
             await stopLive()
             replay = nil

@@ -543,6 +543,12 @@ pub struct PhoneStatus {
     /// redeemed the code is waiting for that press — the only state in which the sheet shows the
     /// six words and the two buttons — and `false` when nothing is paired.
     pub mac_confirmed: bool,
+    /// **HAS THE PHONE USED THE PAIRING SINCE THIS MAC SAID YES?** (Sage's pair-v2 hypotheses
+    /// review §2.) `false` from the press on this Mac until the phone's first ordinary request
+    /// ([`device::Device::completed`]), and `false` when nothing is paired. The sheet says
+    /// `It is paired` only once this is true, so a phone that never heard the yes is never
+    /// listed as one that can reach Rich.
+    pub completed: bool,
     /// The QR code, with the one-shot code in it. Present only while the window is open.
     ///
     /// **THERE WAS A FIRST ONE, AND IT IS GONE** — CEO §61. It carried the trust endpoint, which
@@ -988,7 +994,9 @@ impl PhoneRuntime {
                 .and_then(|d| d.paired())
                 // A key nobody confirmed before its window closed is refused and on its way out
                 // (Sage §3.1 step 6); the sheet must not call it paired while nothing can sweep it.
-                .filter(|d| !d.confirmation_lapsed(now_millis()));
+                // Nor a key this Mac accepted and its phone never used within the grace (Sage's
+                // pair-v2 review §2).
+                .filter(|d| !d.confirmation_lapsed(now_millis()) && !d.finish_lapsed(now_millis()));
             return PhoneStatus {
                 connect: self.connect_view(None),
                 listening: false,
@@ -1002,6 +1010,7 @@ impl PhoneRuntime {
                 push_transport: device.as_ref().map(|d|d.push_transport.clone()),
                 fingerprint_confirmed: device.as_ref().is_some_and(|d| d.fingerprint_confirmed),
                 mac_confirmed: device.as_ref().is_some_and(|d| d.mac_confirmed),
+                completed: device.as_ref().is_some_and(|d| d.completed),
                 pair_url: None,
                 fingerprint_words: Vec::new(),
                 fingerprint_hex: None,
@@ -1046,6 +1055,7 @@ impl PhoneRuntime {
                 .map(|d| d.fingerprint_confirmed)
                 .unwrap_or(false),
             mac_confirmed: device.as_ref().is_some_and(|d| d.mac_confirmed),
+            completed: device.as_ref().is_some_and(|d| d.completed),
             pair_url: window
                 .as_ref()
                 .map(|w| format!("{}/#pair={}", running.origin, w.code)),
@@ -1375,10 +1385,17 @@ impl PhoneRuntime {
     /// well ([`PhoneRuntime::reject_on_mac`]), and the one teardown serves both; only the sentence
     /// the sheet reads afterwards differs ([`device::StoppedBy`]).
     fn stop_because_the_words_were_refused(&self, by: &'static str) {
+        let why = match by {
+            device::StoppedBy::MAC => "the six words were refused on this Mac",
+            device::StoppedBy::PHONE => "the six words were refused on the phone",
+            device::StoppedBy::CODE_USED_TWICE => "the pairing code was used by a second device",
+            device::StoppedBy::EXPIRED => "nobody pressed They match on this Mac in time",
+            device::StoppedBy::UNFINISHED => "the phone never finished a pairing this Mac accepted",
+            _ => "the pairing was stopped",
+        };
         eprintln!(
-            "[richos] the six words were refused ({}) - stopping the channel, forgetting the \
-             phone and deleting this Mac's authority",
-            if by == device::StoppedBy::MAC { "on this Mac" } else { "on the phone" }
+            "[richos] {why} - stopping the channel, forgetting the phone and deleting this Mac's \
+             authority"
         );
         // **WRITTEN DOWN BEFORE IT IS ANNOUNCED**, for the same reason the flag is set before
         // the teardown: the durable record is what the NEXT launch reads, and a process that
@@ -1432,7 +1449,10 @@ impl PhoneRuntime {
     /// what makes the rule hold with the sheet closed.
     ///
     /// Frame math, stated: the window is `PAIRING_WINDOW_MS` = 300,000 ms, so an unconfirmed key
-    /// lives at most 300 s plus the one-second grace below, and the wakes are one per deadline.
+    /// lives at most 300 s plus the one-second margin below. A key this Mac accepted and its
+    /// phone never used lives at most `confirm_by` + `device::UNFINISHED_GRACE_MS` =
+    /// 300,000 + 300,000 = 600,000 ms after the window opened, plus the same margin (Sage's pair-v2
+    /// review §2). The wakes are one per deadline.
     fn watch_pairing_deadline(&self) {
         use std::sync::atomic::Ordering;
         if self.deadline_watch.swap(true, Ordering::SeqCst) {
@@ -1469,19 +1489,21 @@ impl PhoneRuntime {
         }
     }
 
-    /// Forget an unconfirmed device whose window has closed, and take the channel down the way a
-    /// refusal does, so the sheet says what happened rather than falling back to an earlier
-    /// screen in silence ([`device::StoppedBy::EXPIRED`]).
+    /// Forget a pairing that ran out of time — nobody pressed on this Mac before the window
+    /// closed ([`device::StoppedBy::EXPIRED`]), or this Mac pressed and the phone never used the
+    /// pairing within the grace ([`device::StoppedBy::UNFINISHED`]) — and take the channel down the
+    /// way a refusal does, so the sheet says what happened rather than falling back to an earlier
+    /// screen in silence.
     fn sweep_expired_pairing(&self) {
         let expired = self
             .running
             .lock()
             .unwrap()
             .as_ref()
-            .map(|r| r.channel.devices.expire_unconfirmed());
+            .map(|r| r.channel.devices.expire_lapsed());
         match expired {
-            Some(Ok(true)) => self.stop_because_the_words_were_refused(device::StoppedBy::EXPIRED),
-            Some(Err(e)) => eprintln!("[richos] an unconfirmed phone's window closed but it could not be forgotten: {e}"),
+            Some(Ok(Some(why))) => self.stop_because_the_words_were_refused(why),
+            Some(Err(e)) => eprintln!("[richos] a pairing ran out of time but could not be forgotten: {e}"),
             _ => {}
         }
     }

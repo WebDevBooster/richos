@@ -97,9 +97,26 @@ sealed interface Action {
     @Serializable @SerialName("voice-start-locked")
     data class VoiceStartLocked(val id: String, val width: Double, val at: Long) : Action
 
-    /** The OS answered or reports the microphone permission. */
+    /**
+     * The OS answered or reports the microphone permission. [canAsk]: while denied, whether the
+     * system would still show its own question if asked again (Android's
+     * `shouldShowRequestPermissionRationale`); false once it will not, and always on iOS.
+     */
     @Serializable @SerialName("microphone-permission")
-    data class MicrophonePermission(val permission: Microphone) : Action
+    data class MicrophonePermission(
+        val permission: Microphone,
+        @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+        @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+        val canAsk: Boolean = false,
+    ) : Action
+
+    /** The microphone-off card's "Allow microphone": ask the system again, only while it still would. */
+    @Serializable @SerialName("ask-microphone")
+    data object AskMicrophone : Action
+
+    /** The microphone-off card's "Not now": the card goes until the next press finds the microphone off. */
+    @Serializable @SerialName("dismiss-microphone-card")
+    data object DismissMicrophoneCard : Action
 
     /** The finger moved: offsets from the touch-down point, in dp (negative = left / up). */
     @Serializable @SerialName("voice-move")

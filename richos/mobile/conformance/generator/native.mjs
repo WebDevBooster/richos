@@ -22,7 +22,7 @@ const SOURCE = 'The Mac protocol additions for the native apps (echo-opus-m1: 65
 export const PROTOCOL_VERSION = 1;
 // `pair-v2` is appended by every Mac from Sage's pairing review on (phone/routes.rs
 // `capabilities`, phone/words.rs PAIR_V2_CAPABILITY); verifier/ holds this list to that function.
-export const CAPABILITIES_FULL = ['text', 'voice', 'audio', 'native-push', 'attachments', 'native-push-fcm', 'pair-v2'];
+export const CAPABILITIES_FULL = ['text', 'voice', 'audio', 'native-push', 'attachments', 'native-push-fcm', 'pair-v2', 'pair-wait'];
 export const ATTACHMENT_LIMITS = {
 	max_file_bytes: 25 * 1024 * 1024,
 	max_files_per_message: 10,

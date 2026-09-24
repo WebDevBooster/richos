@@ -135,6 +135,12 @@ object ContrastPairings {
             Pairing("pairing outcome card: title (ink on surface)", c.ink, c.surface, Floor.TEXT),
             Pairing("pairing outcome card: what to do (ink-soft on surface)", c.inkSoft, c.surface, Floor.TEXT),
             Pairing("pairing outcome card: alert glyph (danger on surface, non-text)", c.danger, c.surface, Floor.LARGE_OR_INDICATOR),
+            // D03: the microphone-off card, both of its forms (Allow microphone / Open Settings).
+            Pairing("microphone-off card: title (ink on surface)", c.ink, c.surface, Floor.TEXT),
+            Pairing("microphone-off card: what to do (ink-soft on surface)", c.inkSoft, c.surface, Floor.TEXT),
+            Pairing("microphone-off card: Allow microphone / Open Settings (on-signal on signal)", c.onSignal, c.signal, Floor.TEXT),
+            Pairing("microphone-off card: Not now, the quiet button (ink on surface)", c.ink, c.surface, Floor.TEXT),
+            Pairing("microphone-off card: Allow microphone / Open Settings edge (signal on surface, non-text)", c.signal, c.surface, Floor.LARGE_OR_INDICATOR),
             // A live camera may show white: every word on the scanner, over the dim over a white frame.
             Pairing("scanner over a live camera: caption and title (over the dim over white)", RichColors.Fixed.scannerInk, Contrast.over(RichColors.Fixed.cameraDim, androidx.compose.ui.graphics.Color.White), Floor.TEXT),
             Pairing("scanner over a live camera: secondary caption (over the dim over white)", RichColors.Fixed.scannerInkSoft, Contrast.over(RichColors.Fixed.cameraDim, androidx.compose.ui.graphics.Color.White), Floor.TEXT),

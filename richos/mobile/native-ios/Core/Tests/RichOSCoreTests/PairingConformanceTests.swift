@@ -2,39 +2,69 @@ import Foundation
 import Testing
 @testable import RichOSCore
 
-/// `conformance/vectors/pairing.json` `pair_exchanges`, `platform_field` and
-/// `fingerprint_confirmations`; plus the signed pair bodies in `signing.json`.
+/// `conformance/vectors/pairing.json` `pair_exchanges`, `pair_v2`, `platform_field` and
+/// `fingerprint_confirmations`; plus the signed pair bodies in `signing.json`. This phone is a v2
+/// phone: every exchange sends `native_v2_body_fields`, and there is no v1 request to fall back to.
 @Suite struct PairingExchangeConformance {
     let identity = DeviceIdentity(publicPoint: Corpus.testKey.publicKey.x963Representation)
 
-    @Test func everyExchangeSendsTheRecordedShapeAndEndsAsRecorded() async throws {
+    /// Replays one recorded exchange: the one unsigned request with the v2 native fields, then the
+    /// recorded outcome and the state the phone holds afterwards.
+    func replay(_ c: [String: Any], fields: [String]) async throws -> PairingExchange.Outcome {
+        let name = c["name"] as? String ?? "?"
+        let mac = ScriptedMac(try #require(c["mac_answers"] as? [[String: Any]]))
+        let link = try PairLink.parse("https://mm1.tail1a2b3c.ts.net:8443/#pair=K7M2QX9H")
+        let result = await PairingExchange.pair(link: link, identity: identity, deviceName: "iPhone", transport: mac)
+        let sent = await mac.requests
+        let recorded = try #require(c["requests"] as? [[String: Any]])
+        #expect(sent.count == recorded.count && sent.first?.target == "/api/pair" && sent.first?.headers["Authorization"] == nil, "\(name): one unsigned request, and no second (no fallback)")
+        #expect(sent.first?.headers["Content-Type"] == "application/json", "\(name): JSON")
+        let ours = try #require(try JSONSerialization.jsonObject(with: sent.first?.body ?? Data()) as? [String: Any])
+        let theirs = try #require(try JSONSerialization.jsonObject(with: Corpus.body(recorded[0]) ?? Data()) as? [String: Any])
+        #expect(StreamConformance.same(ours["code"] as Any, theirs["code"] as Any) && StreamConformance.same(ours["public_key_jwk"] as Any, theirs["public_key_jwk"] as Any), "\(name): code and key")
+        #expect(Set(ours.keys) == Set(fields) && ours["platform"] as? String == "ios" && ours["pairing_version"] as? Int == 2, "\(name): the native v2 body fields")
+        // The key order is the corpus's list (the body is unsigned, but it is the bytes the Mac reads).
+        let order = fields.compactMap { String(decoding: sent.first?.body ?? Data(), as: UTF8.self).range(of: "\"\($0)\":")?.lowerBound }
+        #expect(order.count == fields.count && order == order.sorted(), "\(name): the fields in the corpus's order")
+        let after = try #require(c["state_after"] as? [String: Any])
+        let outcome = try #require(c["outcome"] as? [String: Any])
+        switch result {
+        case .paired(let paired), .macNeedsUpdate(let paired):
+            #expect(paired.answer.deviceID == after["device_id"] as? String && paired.challenge == after["challenge"] as? String, "\(name): id and challenge")
+            #expect(paired.apiBase == after["api_base"] as? String && paired.apiBaseRefusal == after["api_base_refusal"] as? String, "\(name): origin kept")
+        case .failed:
+            #expect(after["device_id"] is NSNull && after["challenge"] is NSNull, "\(name): nothing held")
+        }
+        if let want = outcome["error"] as? [String: Any] {
+            let error = try #require(result.error, "\(name): refused")
+            #expect(error.reason.rawValue == want["reason"] as? String && error.status == want["status"] as? Int && error.retryable == want["retryable"] as? Bool
+                    && error.aboutThisMessage == want["about_this_message"] as? Bool, "\(name): error")
+        } else {
+            #expect(outcome["ok"] as? Bool == true && result.error == nil, "\(name): pairs")
+        }
+        return result
+    }
+
+    @Test func everyExchangeSendsTheV2ShapeAndEndsAsRecorded() async throws {
         let file = try Corpus.load("pairing")
-        let fields = try #require((file["platform_field"] as? [String: Any])?["android_body_fields"] as? [String])
-        for c in try Corpus.cases(file, "pair_exchanges") {
+        let fields = try #require((file["pair_v2"] as? [String: Any])?["native_v2_body_fields"] as? [String])
+        for c in try Corpus.cases(file, "pair_exchanges") { _ = try await replay(c, fields: fields) }
+    }
+
+    /// `pair_v2.exchanges`: a `pair-v2` Mac pairs; a Mac without it is refused
+    /// (`refused_for_missing_pair_v2`) and never fallen back to.
+    @Test func aV2PhoneRefusesAMacWithoutPairV2AndNeverFallsBack() async throws {
+        let v2 = try #require(try Corpus.load("pairing")["pair_v2"] as? [String: Any])
+        let fields = try #require(v2["native_v2_body_fields"] as? [String])
+        let exchanges = try Corpus.cases(v2, "exchanges")
+        #expect(exchanges.contains { $0["refused_for_missing_pair_v2"] as? Bool == true } && exchanges.contains { $0["refused_for_missing_pair_v2"] as? Bool == false })
+        for c in exchanges {
             let name = c["name"] as? String ?? "?"
-            let mac = ScriptedMac(try #require(c["mac_answers"] as? [[String: Any]]))
-            let link = try PairLink.parse("https://mm1.tail1a2b3c.ts.net:8443/#pair=K7M2QX9H")
-            let result = await PairingExchange.pair(link: link, identity: identity, deviceName: "iPhone", transport: mac)
-            // The request: the reference's fields, plus `platform` as the contract requires of a native app.
-            let sent = await mac.requests
-            let recorded = try #require(c["requests"] as? [[String: Any]])
-            #expect(sent.count == recorded.count && sent.first?.target == "/api/pair" && sent.first?.headers["Authorization"] == nil, "\(name): one unsigned request")
-            let ours = try #require(try JSONSerialization.jsonObject(with: sent.first?.body ?? Data()) as? [String: Any])
-            let theirs = try #require(try JSONSerialization.jsonObject(with: Corpus.body(recorded[0]) ?? Data()) as? [String: Any])
-            #expect(StreamConformance.same(ours["code"] as Any, theirs["code"] as Any) && StreamConformance.same(ours["public_key_jwk"] as Any, theirs["public_key_jwk"] as Any), "\(name): code and key")
-            #expect(Set(ours.keys) == Set(fields) && ours["platform"] as? String == "ios", "\(name): the native body fields")
-            let after = try #require(c["state_after"] as? [String: Any])
-            let outcome = try #require(c["outcome"] as? [String: Any])
-            switch result {
-            case .success(let paired):
-                #expect(outcome["ok"] as? Bool == true, "\(name): pairs")
-                #expect(paired.answer.deviceID == after["device_id"] as? String && paired.challenge == after["challenge"] as? String, "\(name): id and challenge")
-                #expect(paired.apiBase == after["api_base"] as? String && paired.apiBaseRefusal == after["api_base_refusal"] as? String, "\(name): origin kept")
-                #expect(try Fingerprint.words(fromHex: paired.answer.caFingerprint).count == 6, "\(name): the fingerprint is readable")
-            case .failure(let error):
-                let want = try #require(outcome["error"] as? [String: Any])
-                #expect(error.reason.rawValue == want["reason"] as? String && error.status == want["status"] as? Int && error.retryable == want["retryable"] as? Bool, "\(name): error")
-            }
+            #expect(c["pairing_version"] as? Int == PairingWire.pairingVersion, "\(name): the corpus's version")
+            let result = try await replay(c, fields: fields)
+            let refused: Bool
+            if case .macNeedsUpdate = result { refused = true } else { refused = false }
+            #expect(refused == (c["refused_for_missing_pair_v2"] as? Bool), "\(name): refused_for_missing_pair_v2")
         }
     }
 

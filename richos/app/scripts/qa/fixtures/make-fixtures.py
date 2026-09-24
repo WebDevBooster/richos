@@ -13,6 +13,10 @@ machine that cannot draw.
                     the suite. `.invalid` is reserved by RFC 2606 and can
                     never belong to anyone, so the fixture is not itself a
                     thing that would ever need redacting.
+  phone-control.png a white card carrying `+1 202 555 0147`, a number in the
+                    555-0100..0199 range reserved for fiction. It is shaped
+                    like a phone number, which is what ocr-gate.sh's third
+                    SHAPE flags and what `redact.py --phones` must cover.
   pair-pass.png     a solid #767676 block on #FFFFFF — 4.54:1, just over the
                     AA floor for normal text.
   pair-fail.png     a solid #A0A0A0 block on #FFFFFF — 2.61:1, a real
@@ -41,6 +45,11 @@ TEXT_SPECS = (
     ("ocr-control.png", 460, 140,
      ["QA FIXTURE CARD",
       "qa-fixture@example.invalid",
+      "nothing here is real"],
+     (17, 17, 17), (255, 255, 255), 24),
+    ("phone-control.png", 460, 140,
+     ["QA PHONE CARD",
+      "call +1 202 555 0147",
       "nothing here is real"],
      (17, 17, 17), (255, 255, 255), 24),
 )
