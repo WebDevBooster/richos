@@ -33,7 +33,7 @@ The land refuses a commit without it, or with anything but `NO` and evidence (`r
 
 The evidence covers what your change adds, changes or removes on each platform it touches:
 
-- **Background work and its schedule.** Nothing runs while the app is backgrounded unless the user started it. No stream, reconnect loop, outbox timer or keep-alive stays open in the background; push carries awareness, the foreground reconciles.
+- **Background work and its schedule.** Useful bounded work may run without background interaction, including preparation that measurably improves opening or foreground return. Every such operation must have enforced duration, frequency, retry and cumulative resource limits and measured benefit. No indefinite stream, reconnect loop, outbox timer or keep-alive stays open in the background; push carries awareness, the foreground reconciles. The user is expected to record voice messages with the app visible. Unexpected backgrounding preserves captured audio without sending and releases the microphone.
 - **Wakeups and timers.** No repeating timer, alarm or coroutine loop ticks while backgrounded or idle. A timer exists only while its work is due (a recording running, a retry owed).
 - **Idle redraws.** An idle screen renders 0 frames per second. The only exception is a bounded, short animation that stops by itself. Nothing repeats forever (`rememberInfiniteTransition`, `TimelineView(.animation)`, `repeatForever`) unless the user is watching live work.
 - **Network.** Push, never polling. Retries back off, stop when the cause is permanent (revoked, incompatible) and wait for the network or the foreground.
