@@ -33,10 +33,20 @@ export class ReviewHost {
 		this.state = state;
 		this.env = env;
 		this.host = null;
+		this.building = null;
 	}
 
-	async ensure(hostname) {
-		if (this.host) return this.host;
+	/**
+	 * The one Host for this object. Memoized as a promise, not a value: two first requests that
+	 * arrive together must share one Host, or each would hold its own copy of the phone, the
+	 * challenges and the rate buckets over the same storage.
+	 */
+	ensure(hostname) {
+		if (!this.building) this.building = this.build(hostname).catch((error) => { this.building = null; throw error; });
+		return this.building;
+	}
+
+	async build(hostname) {
 		const known = await this.state.storage.get('hostname');
 		if (!known && !hostname) throw new Error('review host has no name yet');
 		if (!known) await this.state.storage.put('hostname', hostname);

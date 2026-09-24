@@ -269,4 +269,17 @@ test('contrast: every color the style sheet uses for text is a declared palette 
 	assert.ok(used.length >= 4);
 });
 
+test('a Durable Object builds one review host, even when its first requests arrive together', async () => {
+	const env = await environment();
+	const object = new ReviewHost({ storage: memoryStorage() }, env);
+	const [a, b, c] = await Promise.all([
+		object.ensure('review-a.example.com'), object.ensure('review-a.example.com'), object.ensure('review-a.example.com')
+	]);
+	assert.equal(a, b);
+	assert.equal(b, c);
+	const responses = await Promise.all([1, 2, 3].map(() => object.fetch(new Request('https://review-a.example.com/api/challenge'))));
+	const challenges = new Set(responses.map((r) => r.headers.get('x-richos-challenge')));
+	assert.equal(challenges.size, 1, 'one host, one live challenge set');
+});
+
 void clock; void makeHost; void freshKey;
