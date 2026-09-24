@@ -56,6 +56,9 @@ For `bin/rios device verify pairing`, `device verify text`, `device verify recor
 `RICHOS_MOBILE_TEST_CONFIG` to the isolated lab's external JSON with
 `"isolatedLab": "true"`. Pairing requires its current HTTPS `pairLink` and exact
 fingerprint `words`; recording requires that same isolated session already paired.
+Pairing is v2: the `words` are the ones the phone shows (over the origin it dials), and after
+"They match" on the phone the runner prints `PHYSICAL_PRESS_THEY_MATCH_ON_MAC`; press "They match"
+on the lab Mac within 120 seconds.
 These checks drive normal Release UI and real microphone capture. They never use
 fixtures or pass the lab configuration to the app. Do not run them against a personal
 conversation. Pairing starts unpaired. Recording discards its first test capture and
