@@ -10,13 +10,25 @@ import SwiftUI
 struct RootView: View {
     let state: AppState
     let send: (Action) -> Void
+    /// The recording whose "Hold the button while you speak." is still up (`TooShortLine`).
+    @State private var tooShortLine: String?
 
     var body: some View {
-        ScreenView(model: ScreenModel(state: state, attachments: Self.attachments)) { intent in
+        let model = TooShortLine.apply(tooShortLine, to: ScreenModel(state: state, attachments: Self.attachments))
+        ScreenView(model: model) { intent in
             // An intent the core has no action for yet changes nothing: a screen never pretends.
             if let action = intent.action() { send(action) }
         }
         .environment(\.screenClock, Self.clock)
+        .onChange(of: TooShortLine.ending(state.voice), initial: true) { _, id in
+            if let id { tooShortLine = id }
+        }
+        .task(id: tooShortLine) {
+            // One bounded sleep while a line is up; nothing runs otherwise.
+            guard tooShortLine != nil else { return }
+            try? await Task.sleep(for: .milliseconds(Motion.tooShortLineMs))
+            if !Task.isCancelled { tooShortLine = nil }
+        }
         #if DEBUG
         // Debug-only probe for the UI tests: the core's mirror of the OS microphone permission, so a
         // test of the voice gestures can tell "the gesture is broken" from "the app has not been

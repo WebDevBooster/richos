@@ -203,7 +203,7 @@ struct AboveComposer: View {
                         // One calm line, then it goes (too short: 1.8 s; the ceiling warning: 4 s).
                         // A limit that still holds (too long) stays until the draft changes.
                         if case .tooLong = toast { return }
-                        try? await Task.sleep(for: .seconds(toast == .tooShort ? 1.8 : 4))
+                        try? await Task.sleep(for: .milliseconds(toast == .tooShort ? Motion.tooShortLineMs : 4_000))
                         send(.dismissToast)
                     }
             }
