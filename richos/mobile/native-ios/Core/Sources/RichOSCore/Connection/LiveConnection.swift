@@ -32,6 +32,10 @@ public actor LiveConnection {
     private var lastFrameID: Int?
     private var task: Task<Void, Never>?
     private var generation = 0
+    /// Once stopped, never started again: a new connection is a new owner. A `stop` that reaches
+    /// this actor before the `start` it followed (the app left the screen while the owner was being
+    /// made) must still win.
+    private var stopped = false
     public private(set) var attempts = 0
 
     public static let firstRetryMs: Int64 = 1000
@@ -46,13 +50,14 @@ public actor LiveConnection {
     }
 
     public func start() {
-        guard task == nil else { return }
+        guard task == nil, !stopped else { return }
         generation += 1
         let mine = generation
         task = Task { await self.run(mine) }
     }
 
     public func stop() {
+        stopped = true
         generation += 1
         task?.cancel()
         task = nil
