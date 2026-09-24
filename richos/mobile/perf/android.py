@@ -1,0 +1,770 @@
+"""android — RichConnect measurement on an Android emulator or phone, over adb.
+
+Every number comes from the platform's own instruments, read back over adb; nothing here asks the
+app to time itself except the one launch marker the app emits for the platform (`ReportDrawnWhen`
+in MainActivity, which Android logs as "Fully drawn"):
+
+  cold launch    `am start -W` after `am force-stop` (LaunchState must read COLD). First frame is
+                 the platform's TotalTime ("Displayed"); USEFUL CONTENT is the platform's
+                 "Fully drawn" time, reported by the app on the first frame drawn after the saved
+                 state is read (the transcript at its newest row and the composer).
+  warm resume    HOME, then the launcher intent with `am start -W`: TotalTime of a HOT start with
+                 the SAME process (a new pid is a cold start and is never counted as warm).
+  tap feedback   `input tap` on "Send message": the app's own `deliverInputEvent ... eventTimeNano`
+                 trace slice (atrace, CLOCK_MONOTONIC) to the FrameCompleted of the frame whose
+                 InputEventId is that event (gfxinfo framestats, CLOCK_MONOTONIC): one clock.
+  idle frames    `dumpsys gfxinfo <pkg> reset`, N seconds untouched, "Total frames rendered" for the
+                 activity's window.
+  background     HOME, a settle period, then over N seconds: context switches of every app thread
+                 (/proc/<pid>/task/*/status), CPU ticks (/proc/<pid>/stat), and batterystats reset
+                 at the window's start and read at its end (--checkin: wakeup alarms, wake locks,
+                 jobs, syncs, network bytes, CPU), with pending alarms, jobs, held wake locks and the
+                 app's open sockets at the end.
+  typing cost    K keystrokes through the real field (`input text`, one character each): the app's
+                 write syscalls and bytes (/proc/<pid>/io, root) and fsync calls (ftrace
+                 ext4/f2fs_sync_file_enter in a private tracefs instance, root) per keystroke, and
+                 the frames drawn while typing.
+  stream cost    K reply deltas fed through the debug bridge's `receive`: the same write, fsync and
+                 frame counts per delta.
+
+Device addressing: an emulator only through `randroid emu perf` (its recorded serial, `--owned-by
+randroid`); a physical phone only by a serial the caller names with `--kind physical`, checked to be
+a real device. Never a bare `adb`.
+"""
+import base64
+import csv
+import io
+import json
+import re
+import subprocess
+import time
+import xml.etree.ElementTree as ET
+
+from perfcore import Refused, Unmeasurable
+
+PACKAGE = "dev.richos.connect"
+ACTIVITY = f"{PACKAGE}/dev.richos.android.app.MainActivity"
+RECEIVER = f"{PACKAGE}/dev.richos.android.app.debug.DevBridgeReceiver"
+TRACE_FILE = "/data/local/tmp/richos-perf-trace.txt"
+TRACEFS = "/sys/kernel/tracing"
+FSYNC_INSTANCE = f"{TRACEFS}/instances/richos-perf-fsync"
+FSYNC_EVENTS = ("ext4/ext4_sync_file_enter", "f2fs/f2fs_sync_file_enter")
+# Seeded history: synthetic, contains nothing about any person (PRD §8: synthetic conversations).
+CHALLENGE = "X4zZvQZS4kl8eriGLhoxvxVwcFz5Tx40"  # Fixtures.CHALLENGE, the development Mac's
+
+
+# ---------------------------------------------------------------------------------------------
+# Parsers: pure functions of text the device printed. Each raises Unmeasurable with a sentence.
+# ---------------------------------------------------------------------------------------------
+
+def parse_am_start(text):
+    """`am start -W` → {"status", "launchState", "totalMs", "waitMs"}."""
+    fields = dict(re.findall(r"^(\w+): (.*?)\s*$", text, re.M))
+    if fields.get("Status") != "ok" or "TotalTime" not in fields:
+        raise Unmeasurable("am start -W did not report a completed launch: " + " ".join(text.split())[:200])
+    return {"status": "ok", "launchState": fields.get("LaunchState"), "totalMs": int(fields["TotalTime"]),
+            "waitMs": int(fields["WaitTime"]) if "WaitTime" in fields else None}
+
+
+_DURATION = re.compile(r"^\+(?:(\d+)m)?(?:(\d+)s)?(?:(\d+)ms)?$")
+
+
+def parse_plus_duration(token):
+    """ActivityTaskManager's "+1s863ms" / "+863ms" / "+1m2s3ms" → milliseconds."""
+    m = _DURATION.match(token.strip())
+    if not m or not any(m.groups()):
+        raise Unmeasurable(f"unreadable launch duration {token!r}")
+    minutes, seconds, ms = (int(g) if g else 0 for g in m.groups())
+    return minutes * 60000 + seconds * 1000 + ms
+
+
+def parse_fully_drawn(logcat, component=ACTIVITY):
+    """The last "Fully drawn <component>: +Ns" in a logcat read → milliseconds, or None."""
+    hits = re.findall(r"Fully drawn " + re.escape(component) + r"(?: for user \d+)?: (\+[0-9ms]+)", logcat)
+    return parse_plus_duration(hits[-1]) if hits else None
+
+
+def parse_framestats(text):
+    """`dumpsys gfxinfo <pkg> framestats` → {window: {"totalFrames": n, "rows": [ {column: int} ]}}.
+
+    Only the per-window sections ("Window: ..."); the process-wide summary above them repeats the
+    same frames and is skipped."""
+    windows = {}
+    current = None
+    header = None
+    in_profile = False
+    for line in text.splitlines():
+        line = line.rstrip()
+        if line.startswith("Window: "):
+            current = line[len("Window: "):].strip()
+            windows[current] = {"totalFrames": None, "rows": []}
+            in_profile = False
+            continue
+        if current is None:
+            continue
+        m = re.match(r"^Total frames rendered: (\d+)", line)
+        if m and windows[current]["totalFrames"] is None:
+            windows[current]["totalFrames"] = int(m.group(1))
+            continue
+        if line == "---PROFILEDATA---":
+            in_profile = not in_profile
+            header = None
+            continue
+        if in_profile:
+            cells = [c for c in line.split(",") if c != ""]
+            if header is None:
+                header = cells
+                continue
+            try:
+                windows[current]["rows"].append(dict(zip(header, (int(c) for c in cells))))
+            except ValueError:
+                continue
+    return windows
+
+
+def app_window(windows, component=ACTIVITY):
+    for name, window in windows.items():
+        if name.startswith(component):
+            return window
+    raise Unmeasurable(f"gfxinfo has no window for {component} (windows: {sorted(windows)})")
+
+
+def signed32(value):
+    value &= 0xFFFFFFFF
+    return value - (1 << 32) if value >= 1 << 31 else value
+
+
+def parse_input_events(trace, pid):
+    """The app's `deliverInputEvent src=... eventTimeNano=T id=0x...` slices (Android 12+)."""
+    events = []
+    pattern = re.compile(r"B\|" + str(pid) + r"\|deliverInputEvent src=0x([0-9a-f]+) eventTimeNano=(\d+) id=0x([0-9a-f]+)")
+    for m in pattern.finditer(trace):
+        events.append({"source": int(m.group(1), 16), "eventTimeNs": int(m.group(2)), "id": signed32(int(m.group(3), 16))})
+    return events
+
+
+def frame_ok(row):
+    """A framestats row that timed a real frame (Flags 0; a nonzero Flags row is not a timed frame)."""
+    return row.get("Flags", 0) == 0 and row.get("FrameCompleted", 0) > 0
+
+
+def tap_latency(events, rows):
+    """Input event time → FrameCompleted of the frame that consumed it; and → the last frame of the
+    burst it started (the response settling). Both on CLOCK_MONOTONIC."""
+    if not events:
+        raise Unmeasurable("the trace holds no deliverInputEvent slice from the app (atrace 'input' category, Android 12+)")
+    by_id = {r.get("InputEventId"): r for r in rows if frame_ok(r)}
+    consumed = [(e, by_id[e["id"]]) for e in events if e["id"] in by_id]
+    if not consumed:
+        raise Unmeasurable("no framestats frame carries the tap's InputEventId")
+    event, frame = consumed[-1]  # the last event of the tap (UP): the one that sends
+    start = event["eventTimeNs"]
+    after = sorted((r for r in rows if frame_ok(r) and r["FrameCompleted"] >= frame["FrameCompleted"]), key=lambda r: r["FrameCompleted"])
+    settled = after[0]["FrameCompleted"]
+    for r in after[1:]:
+        if r["IntendedVsync"] - settled > 100_000_000:  # a gap of more than 100 ms ends the burst
+            break
+        settled = r["FrameCompleted"]
+    return {"inputToFrameMs": round((frame["FrameCompleted"] - start) / 1e6, 1),
+            "inputToSettledMs": round((settled - start) / 1e6, 1),
+            "burstFrames": sum(1 for r in after if r["FrameCompleted"] <= settled),
+            "eventId": event["id"]}
+
+
+def frame_timing(rows):
+    """Frames drawn and how many met their deadline (FrameCompleted <= FrameDeadline)."""
+    timed = [r for r in rows if frame_ok(r)]
+    if not timed:
+        return {"frames": 0, "skippedRows": len(rows)}
+    durations = [(r["FrameCompleted"] - r["IntendedVsync"]) / 1e6 for r in timed]
+    on_time = [r for r in timed if r.get("FrameDeadline") and r["FrameCompleted"] <= r["FrameDeadline"]]
+    return {"frames": len(timed), "skippedRows": len(rows) - len(timed),
+            "onTimePercent": round(100.0 * len(on_time) / len(timed), 1),
+            "maxFrameMs": round(max(durations), 1),
+            "stallsOver100Ms": sum(1 for d in durations if d >= 100)}
+
+
+def parse_threads(text):
+    """Lines `tid|comm|voluntary nonvoluntary` → {tid: {"comm", "switches"}}."""
+    threads = {}
+    for line in text.splitlines():
+        parts = line.strip().split("|")
+        if len(parts) != 3 or not parts[0].isdigit():
+            continue
+        nums = [int(n) for n in re.findall(r"\d+", parts[2])]
+        if len(nums) != 2:
+            continue
+        threads[parts[0]] = {"comm": parts[1], "switches": nums[0] + nums[1]}
+    return threads
+
+
+def thread_wakeups(before, after):
+    """Context switches per thread between two samples: the app's wakeups, attributed by thread."""
+    rows = []
+    for tid, now in after.items():
+        was = before.get(tid)
+        delta = now["switches"] - (was["switches"] if was else 0)
+        if delta:
+            rows.append({"tid": int(tid), "thread": now["comm"], "switches": delta, "new": was is None})
+    ended = sorted(int(t) for t in before if t not in after)
+    rows.sort(key=lambda r: -r["switches"])
+    return {"total": sum(r["switches"] for r in rows), "threads": rows, "threadsEnded": ended}
+
+
+def parse_proc_stat_ticks(text):
+    """/proc/<pid>/stat → utime + stime, in clock ticks (the comm field may contain spaces)."""
+    rest = text[text.rfind(")") + 2:].split()
+    if len(rest) < 13:
+        raise Unmeasurable("unreadable /proc/<pid>/stat")
+    return int(rest[11]) + int(rest[12])
+
+
+def parse_proc_io(text):
+    out = dict((k, int(v)) for k, v in re.findall(r"^(\w+):\s*(\d+)", text, re.M))
+    if "wchar" not in out or "syscw" not in out:
+        raise Unmeasurable("unreadable /proc/<pid>/io")
+    return out
+
+
+def io_delta(before, after):
+    return {k: after[k] - before[k] for k in ("wchar", "syscw", "write_bytes", "rchar", "syscr") if k in before and k in after}
+
+
+def count_fsyncs(trace, tgid):
+    """Lines of the fsync instance's trace whose thread-group is the app's."""
+    count = 0
+    for line in trace.splitlines():
+        if "_sync_file_enter" not in line:
+            continue
+        m = re.search(r"\(\s*(\d+)\)\s*\[", line)
+        if m and int(m.group(1)) == tgid:
+            count += 1
+    return count
+
+
+CHECKIN_KINDS = {"cpu": "cpu", "nt": "network", "wua": "wakeupAlarms", "wl": "wakelocks", "jb": "jobs",
+                 "sy": "syncs", "awl": "aggregatedWakelock", "pr": "processes"}
+
+
+def parse_checkin(text, uid):
+    """`dumpsys batterystats --checkin` rows for one uid, since the last reset (section `l`)."""
+    out = {"cpuMs": None, "networkBytes": None, "wakeupAlarms": [], "wakelocks": [], "jobs": [], "syncs": [],
+           "partialWakelockMs": None, "processes": []}
+    seen = False
+    for row in csv.reader(io.StringIO(text)):
+        if len(row) < 4 or row[0] != "9" or row[1] != str(uid) or row[2] != "l":
+            continue
+        seen = True
+        kind, rest = row[3], row[4:]
+        if kind == "cpu" and len(rest) >= 2:
+            out["cpuMs"] = {"user": int(rest[0]), "system": int(rest[1])}
+        elif kind == "nt" and len(rest) >= 4:
+            nums = [int(x) for x in rest[:8]]
+            out["networkBytes"] = {"mobileRx": nums[0], "mobileTx": nums[1], "wifiRx": nums[2], "wifiTx": nums[3],
+                                   "total": sum(nums[:4])}
+        elif kind == "wua" and len(rest) >= 2:
+            out["wakeupAlarms"].append({"name": rest[0], "count": int(rest[1])})
+        elif kind == "wl" and len(rest) >= 1:
+            out["wakelocks"].append({"name": rest[0], "fields": rest[1:]})
+        elif kind == "jb" and len(rest) >= 3:
+            out["jobs"].append({"name": rest[0], "ms": int(rest[1]), "count": int(rest[2])})
+        elif kind == "sy" and len(rest) >= 3:
+            out["syncs"].append({"name": rest[0], "ms": int(rest[1]), "count": int(rest[2])})
+        elif kind == "awl" and len(rest) >= 1:
+            out["partialWakelockMs"] = int(rest[0])
+        elif kind == "pr" and len(rest) >= 6:
+            out["processes"].append({"name": rest[0], "userMs": int(rest[1]), "systemMs": int(rest[2]),
+                                     "starts": int(rest[3]), "anrs": int(rest[4]), "crashes": int(rest[5])})
+    if out["networkBytes"] is None and seen:
+        out["networkBytes"] = {"total": 0, "note": "no network row for the uid since the reset"}
+    out["uidSeen"] = seen
+    return out
+
+
+def parse_sockets(text, uid):
+    """/proc/net/{tcp,tcp6,udp,udp6} rows owned by uid → counts by protocol and TCP state."""
+    states = {"01": "ESTABLISHED", "02": "SYN_SENT", "06": "TIME_WAIT", "08": "CLOSE_WAIT", "0A": "LISTEN"}
+    counts = {}
+    for line in text.splitlines():
+        cols = line.split()
+        if len(cols) < 8 or not cols[0].endswith(":") or cols[7] != str(uid):
+            continue
+        state = states.get(cols[3], cols[3])
+        counts[state] = counts.get(state, 0) + 1
+    return counts
+
+
+def ui_nodes(xml_text):
+    """uiautomator dump → [{"text", "desc", "bounds": (x1,y1,x2,y2), "clickable", "focused"}]."""
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as e:
+        raise Unmeasurable(f"unreadable UI dump: {e}")
+    nodes = []
+    for n in root.iter("node"):
+        m = re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", n.get("bounds") or "")
+        nodes.append({"text": n.get("text") or "", "desc": n.get("content-desc") or "",
+                      "bounds": tuple(int(g) for g in m.groups()) if m else None,
+                      "clickable": n.get("clickable") == "true", "focused": n.get("focused") == "true"})
+    return nodes
+
+
+def find_node(nodes, desc=None, text=None, contains=None):
+    for n in nodes:
+        if desc is not None and n["desc"] == desc:
+            return n
+        if text is not None and n["text"] == text:
+            return n
+        if contains is not None and contains in n["text"]:
+            return n
+    return None
+
+
+def center(node):
+    x1, y1, x2, y2 = node["bounds"]
+    return (x1 + x2) // 2, (y1 + y2) // 2
+
+
+def history_frame(count, thread="general"):
+    """A `hello` frame carrying `count` synthetic messages (alternating CEO and Rich)."""
+    rows = []
+    for i in range(1, count + 1):
+        role = "ceo" if i % 2 else "rich"
+        rows.append({"id": f"perf-{i}", "thread_id": thread, "cursor": i, "role": role, "kind": "text",
+                     "text": f"Synthetic message {i} for the launch measurement: three open items, one short summary.",
+                     "created_at": "2023-11-14T22:13:20.000Z", "client_id": None, "has_audio": False,
+                     "from_microphone": False, "state": "sent" if role == "ceo" else "complete", "complete": True})
+    data = {"challenge": CHALLENGE, "thread_id": thread, "latest_cursor": count,
+            "threads": [{"id": thread, "title": "General"}], "capabilities": ["text", "voice"], "build": "perf",
+            "messages": rows}
+    return {"type": "receive", "wire": "id: 1\nevent: hello\ndata: " + json.dumps(data) + "\n\n"}
+
+
+def stream_frames(cursor, deltas, thread="general", message_id="perf-stream"):
+    """A streamed reply: the opening row, `deltas` text deltas, the final row. Synthetic text."""
+    def row(text, state):
+        return {"id": message_id, "thread_id": thread, "cursor": cursor, "role": "rich", "kind": "text", "text": text,
+                "created_at": "2023-11-14T22:13:20.000Z", "client_id": None, "has_audio": False,
+                "from_microphone": False, "state": state, "complete": state != "streaming"}
+
+    def frame(event, data):
+        return {"type": "receive", "wire": f"id: {cursor}\nevent: {event}\ndata: {json.dumps(data)}\n\n"}
+    words = [f"word{i} " for i in range(1, deltas + 1)]
+    opening = frame("message", row("", "streaming"))
+    middle = [frame("delta", {"message_id": message_id, "cursor": cursor, "text": w}) for w in words]
+    final = frame("message", row("".join(words), "complete"))
+    return opening, middle, final, "".join(words)
+
+
+# ---------------------------------------------------------------------------------------------
+# The device
+# ---------------------------------------------------------------------------------------------
+
+class Device:
+    """One adb device, addressed only by the serial it was given. `runner` is replaceable (tests)."""
+
+    def __init__(self, adb, serial, runner=subprocess.run, sleep=time.sleep, touch=None, clock=time.monotonic):
+        if not serial:
+            raise Refused("no serial: a device is addressed only by an explicit serial, never a bare adb")
+        self.adb, self.serial, self.runner, self.sleep = adb, serial, runner, sleep
+        self.touch, self.clock, self.touched = touch, clock, None
+
+    def run(self, *args, timeout=120, check=True):
+        if self.touch and (self.touched is None or self.clock() - self.touched > 30):
+            self.touch()
+            self.touched = self.clock()
+        p = self.runner([self.adb, "-s", self.serial, *args], capture_output=True, text=True, timeout=timeout)
+        if check and p.returncode != 0:
+            raise Unmeasurable(f"adb {' '.join(args)[:120]} exited {p.returncode}: {(p.stderr or p.stdout).strip()[:200]}")
+        return p.stdout
+
+    def sh(self, command, **kw):
+        return self.run("shell", command, **kw)
+
+    def prop(self, name):
+        return self.sh(f"getprop {name}").strip()
+
+    def pid(self):
+        out = self.sh(f"pidof {PACKAGE}", check=False).strip()
+        return int(out.split()[0]) if out else None
+
+    def uptime_epoch(self):
+        return self.sh("date +%s.%N").strip()
+
+
+class Bridge:
+    """The debug build's development bridge (randroid's `emu <command>`, the same broadcast)."""
+
+    def __init__(self, device):
+        self.device = device
+
+    def call(self, command, arg=None):
+        extra = ""
+        if arg is not None:
+            extra = " --es arg64 " + base64.b64encode(arg.encode()).decode()
+        out = self.device.sh(f"am broadcast -n {RECEIVER} --es command {command}{extra}", check=False)
+        m = re.search(r'data="([^"]*)"', out)
+        if not m:
+            raise Unmeasurable(f"the debug bridge did not answer {command} (a release build has none): {' '.join(out.split())[:160]}")
+        body = json.loads(base64.b64decode(m.group(1)))
+        if not body.get("ok"):
+            raise Unmeasurable(f"the debug bridge refused {command}: {body.get('error')}")
+        return body.get("result")
+
+    def action(self, obj):
+        return self.call("action", json.dumps(obj))
+
+    def state(self):
+        return self.call("state")["state"]
+
+
+# ---------------------------------------------------------------------------------------------
+# The measurements
+# ---------------------------------------------------------------------------------------------
+
+class Measure:
+    """One run's measurements against one device. Each method returns what it measured, with
+    rejected trials and their reasons, or raises Unmeasurable with its sentence."""
+
+    def __init__(self, device, log=lambda s: None, settle_s=2.0):
+        self.d = device
+        self.bridge = Bridge(device)
+        self.log = log
+        self.settle_s = settle_s
+        self.rooted = False
+        self.rooted_by_us = False
+
+    # -- helpers -------------------------------------------------------------------------------
+    def dump_ui(self):
+        path = "/sdcard/richos-perf-ui.xml"
+        for _ in range(5):
+            self.d.sh(f"uiautomator dump {path}", check=False)
+            text = self.d.run("exec-out", "cat", path, check=False)
+            if text.startswith("<?xml"):
+                self.d.sh(f"rm -f {path}", check=False)
+                return ui_nodes(text)
+            self.d.sleep(1)
+        raise Unmeasurable("no UI dump after 5 attempts")
+
+    def foreground(self):
+        out = self.d.sh(f"am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n {ACTIVITY}")
+        return parse_am_start(out)
+
+    def home(self):
+        self.d.sh("input keyevent KEYCODE_HOME")
+
+    def gfx_reset(self):
+        self.d.sh(f"dumpsys gfxinfo {PACKAGE} reset")
+
+    def gfx(self):
+        return app_window(parse_framestats(self.d.sh(f"dumpsys gfxinfo {PACKAGE} framestats")))
+
+    def ensure_root(self):
+        """Root for /proc/<pid>/io and tracefs; only an emulator's google_apis image (or a
+        userdebug phone) grants it. Returns False, never raises, when it is not available."""
+        if self.rooted or self.d.sh("id -u", check=False).strip() == "0":
+            self.rooted = True
+            return True
+        self.d.run("root", check=False)
+        self.d.run("wait-for-device", timeout=60, check=False)
+        for _ in range(20):
+            if self.d.sh("id -u", check=False).strip() == "0":
+                self.rooted = self.rooted_by_us = True
+                return True
+            self.d.sleep(0.5)
+        return False
+
+    def restore_root(self):
+        """Put adbd back as it was, if this run made it root."""
+        if self.rooted_by_us:
+            self.d.run("unroot", check=False)
+            self.d.run("wait-for-device", timeout=60, check=False)
+            self.rooted = self.rooted_by_us = False
+
+    def proc_io(self, pid):
+        return parse_proc_io(self.d.sh(f"cat /proc/{pid}/io"))
+
+    def fsync_start(self):
+        self.d.sh(f"mkdir -p {FSYNC_INSTANCE} && echo 0 > {FSYNC_INSTANCE}/tracing_on && echo > {FSYNC_INSTANCE}/trace "
+                  f"&& echo 1 > {FSYNC_INSTANCE}/options/record-tgid")
+        enabled = 0
+        for ev in FSYNC_EVENTS:
+            answer = self.d.sh(f"[ -e {FSYNC_INSTANCE}/events/{ev}/enable ] && echo 1 > {FSYNC_INSTANCE}/events/{ev}/enable && echo on",
+                               check=False)
+            if answer.strip() == "on":
+                enabled += 1
+        if not enabled:
+            self.d.sh(f"rmdir {FSYNC_INSTANCE}", check=False)
+            raise Unmeasurable("no ext4/f2fs sync_file_enter trace event on this kernel")
+        self.d.sh(f"echo 1 > {FSYNC_INSTANCE}/tracing_on")
+
+    def fsync_stop(self, pid):
+        self.d.sh(f"echo 0 > {FSYNC_INSTANCE}/tracing_on", check=False)
+        trace = self.d.sh(f"cat {FSYNC_INSTANCE}/trace", check=False)
+        for ev in FSYNC_EVENTS:
+            self.d.sh(f"[ -e {FSYNC_INSTANCE}/events/{ev}/enable ] && echo 0 > {FSYNC_INSTANCE}/events/{ev}/enable", check=False)
+        self.d.sh(f"rmdir {FSYNC_INSTANCE}", check=False)
+        return count_fsyncs(trace, pid)
+
+    def atrace(self, categories, action, settle_s):
+        """Run `action()` inside an atrace capture of the app; returns the trace text."""
+        self.d.sh(f"atrace --async_start -b 16384 -a {PACKAGE} {' '.join(categories)}")
+        try:
+            self.d.sleep(0.3)
+            action()
+            self.d.sleep(settle_s)
+        finally:
+            self.d.sh(f"atrace --async_stop -o {TRACE_FILE}", check=False)
+        text = self.d.run("exec-out", "cat", TRACE_FILE, check=False)
+        self.d.sh(f"rm -f {TRACE_FILE}", check=False)
+        return text
+
+    # -- setup -----------------------------------------------------------------------------------
+    def seed(self, history, transport):
+        self.bridge.call("fixture", "online")
+        if history:
+            state = self.bridge.action(history_frame(history))["state"]
+            if len(state["messages"]) != history:
+                raise Unmeasurable(f"seeding {history} messages left {len(state['messages'])}")
+        self.bridge.call("transport", transport)
+        return {"fixture": "online", "history": history, "transport": transport}
+
+    def transport(self, mode):
+        self.bridge.call("transport", mode)
+
+    # -- cold launch -----------------------------------------------------------------------------
+    def cold(self, trials, newest_text=None):
+        first, useful, rejected = [], [], []
+        for i in range(trials):
+            self.d.sh(f"am force-stop {PACKAGE}")
+            self.d.sleep(1.0)
+            since = self.d.uptime_epoch()
+            launch = self.foreground()
+            if launch["launchState"] != "COLD":
+                rejected.append({"trial": i + 1, "why": f"LaunchState {launch['launchState']}, not COLD"})
+                continue
+            drawn = None
+            for _ in range(40):
+                log = self.d.run("logcat", "-d", "-v", "epoch", "-T", since, "-s", "ActivityTaskManager:I", check=False)
+                drawn = parse_fully_drawn(log)
+                if drawn is not None:
+                    break
+                self.d.sleep(0.25)
+            if drawn is None:
+                rejected.append({"trial": i + 1, "why": "no Fully drawn report within 10 s"})
+                continue
+            first.append(launch["totalMs"])
+            useful.append(drawn)
+            self.log(f"cold {i + 1}/{trials}: first frame {launch['totalMs']} ms, useful content {drawn} ms")
+            self.d.sleep(self.settle_s)
+        check = None
+        if newest_text:
+            nodes = self.dump_ui()
+            check = {"composerOnScreen": find_node(nodes, desc="Message Rich") is not None,
+                     "newestMessageOnScreen": find_node(nodes, contains=newest_text) is not None}
+        return {"first": first, "useful": useful, "rejected": rejected, "screenCheck": check}
+
+    # -- warm resume -----------------------------------------------------------------------------
+    def warm(self, trials, away_s=2.0):
+        samples, rejected, states = [], [], {}
+        self.foreground()
+        self.d.sleep(self.settle_s)
+        for i in range(trials):
+            pid = self.d.pid()
+            self.home()
+            self.d.sleep(away_s)
+            launch = self.foreground()
+            after = self.d.pid()
+            state = launch["launchState"]
+            states[state] = states.get(state, 0) + 1
+            if pid is None or after != pid:
+                rejected.append({"trial": i + 1, "why": f"process changed ({pid} -> {after}): a cold start, never counted as warm"})
+            elif state != "HOT":
+                rejected.append({"trial": i + 1, "why": f"LaunchState {state} (the activity was recreated), not HOT"})
+            else:
+                samples.append(launch["totalMs"])
+                self.log(f"warm {i + 1}/{trials}: {launch['totalMs']} ms")
+            self.d.sleep(self.settle_s)
+        return {"samples": samples, "rejected": rejected, "launchStates": states}
+
+    # -- tap to feedback -------------------------------------------------------------------------
+    def tap(self, trials):
+        samples, settled, rejected, frames = [], [], [], []
+        pid = self.d.pid()
+        for i in range(trials):
+            probe = f"perf probe {i + 1}"
+            self.bridge.action({"type": "compose", "text": probe})
+            self.d.sleep(1.0)
+            send = find_node(self.dump_ui(), desc="Send message")
+            if send is None:
+                rejected.append({"trial": i + 1, "why": "no 'Send message' control on screen"})
+                continue
+            x, y = center(send)
+            self.gfx_reset()
+            trace = self.atrace(["input", "view"], lambda: self.d.sh(f"input tap {x} {y}"), 1.5)
+            window = self.gfx()
+            try:
+                r = tap_latency(parse_input_events(trace, pid), window["rows"])
+            except Unmeasurable as e:
+                rejected.append({"trial": i + 1, "why": str(e)})
+                continue
+            if find_node(self.dump_ui(), contains=probe) is None:
+                rejected.append({"trial": i + 1, "why": f"'{probe}' is not in the conversation after the tap"})
+                continue
+            samples.append(r["inputToFrameMs"])
+            settled.append(r["inputToSettledMs"])
+            frames.append(r["burstFrames"])
+            self.log(f"tap {i + 1}/{trials}: first frame {r['inputToFrameMs']} ms, settled {r['inputToSettledMs']} ms")
+        return {"samples": samples, "settled": settled, "burstFrames": frames, "rejected": rejected}
+
+    # -- idle frames -------------------------------------------------------------------------------
+    def idle(self, seconds):
+        self.gfx_reset()
+        self.d.sleep(seconds)
+        window = self.gfx()
+        return {"seconds": seconds, "framesRendered": window["totalFrames"],
+                "framesPerSecond": round((window["totalFrames"] or 0) / seconds, 2), "timing": frame_timing(window["rows"])}
+
+    def open_settings(self):
+        button = find_node(self.dump_ui(), desc="Settings")
+        if button is None:
+            raise Unmeasurable("no Settings control on screen")
+        x, y = center(button)
+        self.d.sh(f"input tap {x} {y}")
+        self.d.sleep(self.settle_s)
+        if find_node(self.dump_ui(), text="Show reply previews") is None:
+            raise Unmeasurable("the Settings sheet did not open")
+
+    def close_sheet(self):
+        self.bridge.action({"type": "close-sheet"})
+        self.d.sleep(self.settle_s)
+
+    # -- active frames: scrolling the transcript ----------------------------------------------------
+    def scroll(self, swipes):
+        """Half the swipes drag the transcript toward older rows, half back. framestats keeps only
+        the last 120 frames, so each swipe is read on its own and the rows are pooled."""
+        nodes = self.dump_ui()
+        composer = find_node(nodes, desc="Message Rich")
+        if composer is None:
+            raise Unmeasurable("no conversation on screen to scroll")
+        width = composer["bounds"][2]
+        top = composer["bounds"][1]
+        x, y_high, y_low = width // 2, int(top * 0.35), int(top * 0.85)
+        rows, totals = [], 0
+        for i in range(swipes):
+            older = i < (swipes + 1) // 2
+            y1, y2 = (y_high, y_low) if older else (y_low, y_high)
+            self.gfx_reset()
+            self.d.sh(f"input swipe {x} {y1} {x} {y2} 250")
+            self.d.sleep(1.2)
+            window = self.gfx()
+            rows.extend(window["rows"])
+            totals += window["totalFrames"] or 0
+        timing = frame_timing(rows)
+        return {"swipes": swipes, "framesRendered": totals, "framesTimed": timing.get("frames", 0), "timing": timing}
+
+    # -- typing and streaming cost ----------------------------------------------------------------
+    def _cost(self, pid, action, units, with_io):
+        io0 = self.proc_io(pid) if with_io else None
+        fsync_on = False
+        if with_io:
+            try:
+                self.fsync_start()
+                fsync_on = True
+            except Unmeasurable:
+                fsync_on = False
+        self.gfx_reset()
+        action()
+        self.d.sleep(1.0)
+        window = self.gfx()
+        fsyncs = self.fsync_stop(pid) if fsync_on else None
+        io1 = self.proc_io(pid) if with_io else None
+        out = {"units": units, "framesRendered": window["totalFrames"], "frames": frame_timing(window["rows"])}
+        if with_io:
+            delta = io_delta(io0, io1)
+            out["io"] = delta
+            out["fsyncs"] = fsyncs
+            out["perUnit"] = {"writeSyscalls": round(delta["syscw"] / units, 2),
+                              "bytesWritten": round(delta["wchar"] / units),
+                              "storageBytes": round(delta.get("write_bytes", 0) / units),
+                              "fsyncs": round(fsyncs / units, 2) if fsyncs is not None else None,
+                              "frames": round((window["totalFrames"] or 0) / units, 2)}
+        return out
+
+    def typing(self, text):
+        pid = self.d.pid()
+        with_io = self.ensure_root()
+        self.bridge.action({"type": "compose", "text": ""})
+        self.d.sleep(0.5)
+        field = find_node(self.dump_ui(), desc="Message Rich")
+        if field is None:
+            raise Unmeasurable("no composer field on screen")
+        x, y = center(field)
+        self.d.sh(f"input tap {x} {y}")
+        self.d.sleep(1.0)
+
+        def type_all():
+            for ch in text:
+                self.d.sh(f"input text {ch}")
+        out = self._cost(pid, type_all, len(text), with_io)
+        draft = self.bridge.state()["draft"]
+        out["draftMatches"] = draft == text
+        self.d.sh("input keyevent KEYCODE_BACK", check=False)
+        self.bridge.action({"type": "compose", "text": ""})
+        if not with_io:
+            out["ioWhy"] = "no root: /proc/<pid>/io and the fsync trace need root (an emulator's google_apis image grants it)"
+        return out
+
+    def streaming(self, deltas, cursor):
+        pid = self.d.pid()
+        with_io = self.ensure_root()
+        opening, middle, final, full = stream_frames(cursor, deltas)
+        self.bridge.action(opening)
+        self.d.sleep(1.0)
+
+        def feed():
+            for frame in middle:
+                self.bridge.action(frame)
+        out = self._cost(pid, feed, deltas, with_io)
+        state = self.bridge.action(final)["state"]
+        out["replyMatches"] = any(m.get("text") == full for m in state["messages"])
+        if not with_io:
+            out["ioWhy"] = "no root: /proc/<pid>/io and the fsync trace need root"
+        return out
+
+    # -- background --------------------------------------------------------------------------------
+    def background(self, seconds, settle_s, uid):
+        pid = self.d.pid()
+        if pid is None:
+            raise Unmeasurable("the app is not running")
+        thread_cmd = (f"for t in /proc/{pid}/task/*; do echo \"${{t##*/}}|$(cat $t/comm)|"
+                      f"$(grep -E '^(voluntary|nonvoluntary)_ctxt_switches' $t/status | tr -s ' \\t\\n' ' ')\"; done")
+        t_front = parse_threads(self.d.sh(thread_cmd))
+        self.home()
+        self.d.sleep(settle_s)
+        self.d.sh("dumpsys battery unplug", check=False)
+        try:
+            self.d.sh("dumpsys batterystats --reset", check=False)
+            t0 = parse_threads(self.d.sh(thread_cmd))
+            settling = thread_wakeups(t_front, t0)
+            s0 = parse_proc_stat_ticks(self.d.sh(f"cat /proc/{pid}/stat"))
+            self.d.sleep(seconds)
+            alive = self.d.pid() == pid
+            t1 = parse_threads(self.d.sh(thread_cmd)) if alive else {}
+            s1 = parse_proc_stat_ticks(self.d.sh(f"cat /proc/{pid}/stat")) if alive else None
+            checkin = parse_checkin(self.d.sh("dumpsys batterystats --checkin"), uid)
+        finally:
+            self.d.sh("dumpsys battery reset", check=False)
+        alarms = [l.strip() for l in self.d.sh("dumpsys alarm", check=False).splitlines()
+                  if PACKAGE in l and "Active uids" not in l]
+        jobs = [l.strip() for l in self.d.sh(f"dumpsys jobscheduler {PACKAGE}", check=False).splitlines()
+                if re.search(r"JOB #\S*" + re.escape(PACKAGE), l)]
+        locks = [l.strip() for l in self.d.sh("dumpsys power", check=False).splitlines()
+                 if "WAKE_LOCK" in l and (f"uid={uid}" in l or PACKAGE in l)]
+        sockets = parse_sockets(self.d.sh("cat /proc/net/tcp /proc/net/tcp6 /proc/net/udp /proc/net/udp6", check=False), uid)
+        return {"seconds": seconds, "settleSeconds": settle_s, "processAliveAtEnd": alive,
+                "settleWindowWakeups": settling,
+                "threadWakeups": thread_wakeups(t0, t1) if alive else None,
+                "cpuTicks": (s1 - s0) if alive else None,
+                "batterystats": checkin, "pendingAlarms": alarms, "scheduledJobs": jobs,
+                "heldWakeLocks": locks, "openSockets": sockets}
