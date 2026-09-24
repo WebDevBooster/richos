@@ -13,7 +13,6 @@ import dev.richos.android.core.Theme
 import dev.richos.android.core.dev.Fixtures
 import dev.richos.android.core.isoMillis
 import dev.richos.android.core.protocol.Row
-import dev.richos.android.ui.model.ComposerCard
 import dev.richos.android.core.KeptRecording as CoreKept
 import dev.richos.android.core.KeptReason as CoreKeptReason
 import dev.richos.android.core.Microphone
@@ -334,7 +333,7 @@ object ScreenCatalog {
             // Core's hello capabilities without "voice" (contract §5.4), and a kept recording.
             with(convo) { kept(42_000, CoreKeptReason.UNSENT)(it.copy(capabilities = listOf("text", "native-push"), canRecord = false)) }
         },
-        ScreenSpec("rec-mic-denied", 6, "45", "Microphone denied", Applies.Adapted("“Settings” for “iPhone Settings”")) { with(convo) { it.copy(microphone = Microphone.DENIED) }.copy(cards = listOf(ComposerCard.MicrophoneOff)) },
+        ScreenSpec("rec-mic-denied", 6, "45", "Microphone denied", Applies.Adapted("“Settings” for “iPhone Settings”")) { with(convo) { it.copy(microphone = Microphone.DENIED, microphoneCard = true) } },
 
         // ---- 7 · Connection ---------------------------------------------------------------------
         ScreenSpec("conn-reconnecting", 7, "47", "Reconnecting") { with(convo, trouble(ConnectionReason.RECONNECTING)) },

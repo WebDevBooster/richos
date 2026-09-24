@@ -246,6 +246,17 @@ class InteractionTest {
     }
 
     @Test
+    fun `the microphone-off card - Open Settings and Not now reach core (D03)`() {
+        show(screen("rec-mic-denied"))
+        compose.onNodeWithText("The microphone is off for RichConnect").assertIsDisplayed()
+        compose.onNodeWithText("Open Settings").performClick()
+        assertEquals(Action.OpenSystemSettings, actions.last())
+        compose.onNodeWithText("Not now").performClick()
+        assertEquals(Action.DismissMicrophoneCard, actions.last())
+        assertEquals(Action.AskMicrophone, UiEvent.MicrophoneAskAgain.toAction())
+    }
+
+    @Test
     fun `the voice gesture reaches core as press, move and release with the round-12 width`() {
         show(screen("comp-idle"))
         compose.onNodeWithTag("orb").performTouchInput {

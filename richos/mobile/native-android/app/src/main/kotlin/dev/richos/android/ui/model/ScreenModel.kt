@@ -83,8 +83,6 @@ data class ScreenModel(
     val voiceLevel: Float? = null,
     /** STAND-IN (core: composer limits, attachments). A one-line notice core has no toast for yet. */
     val localNotice: InlineNotice? = null,
-    /** STAND-IN (core: microphone card). The microphone-off card, shown after a press while denied. */
-    val cards: List<ComposerCard> = emptyList(),
     /** What the Settings sheet reports beyond core's notifications, read from core unless a frame poses it. */
     val settings: SettingsInfo = SettingsInfo(availableVersion = app.update?.version),
     /** Review frames only: Android's microphone prompt drawn over the press. */
@@ -207,6 +205,14 @@ data class ScreenModel(
             Toast.CEILING_WARNING -> InlineNotice.CeilingWarning
             else -> localNotice ?: (app.attachNotice as? CoreAttachNotice.Limit)?.let { InlineNotice.AttachLimit(it.max) }
         }
+
+    /**
+     * The cards core raised above the composer. The microphone-off card (`rec-mic-denied`, D03)
+     * follows core's `microphoneCard`, which only a press while the microphone is off sets; its
+     * action is the system's question while Android would still show it, else Settings.
+     */
+    val cards: List<ComposerCard>
+        get() = if (app.microphoneCard && app.microphone == Microphone.DENIED) listOf(ComposerCard.MicrophoneOff(canAsk = app.microphoneCanAsk)) else emptyList()
 
     /** Android's microphone prompt is up (core `microphonePrompt`). */
     val microphonePrompt: Boolean get() = app.microphonePrompt || overlay == Overlay.MicrophonePermission
@@ -553,7 +559,8 @@ sealed interface InlineNotice {
 
 @Immutable
 sealed interface ComposerCard {
-    data object MicrophoneOff : ComposerCard
+    /** The microphone is off for RichConnect. [canAsk]: Android would still show its own question. */
+    data class MicrophoneOff(val canAsk: Boolean) : ComposerCard
 }
 
 @Immutable
