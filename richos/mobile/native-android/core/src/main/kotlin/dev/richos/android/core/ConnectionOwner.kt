@@ -7,8 +7,12 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -80,8 +84,14 @@ class ConnectionOwner(
         val deliveryScope = this
         // Remember connectivity while hidden without re-running lifecycle persistence for
         // every radio transition. On return, use the latest actual network availability.
-        combine(visible, available) { shown, online -> shown to (shown && online) }
-            .distinctUntilChanged().collectLatest { (shown, online) ->
+        val pairing = core.states.map { state ->
+            if (state.paired) state.pairing.apiBase?.let { origin ->
+                state.pairing.deviceId?.let { device -> origin to device }
+            } else null
+        }.distinctUntilChanged()
+        combine(visible, available, pairing) { shown, online, identity ->
+            Triple(shown, shown && online, identity.takeIf { shown && online })
+        }.distinctUntilChanged().collectLatest { (shown, online, identity) ->
             // collectLatest cancels the old socket/backoff before entering a new lifecycle state.
             try {
             if (!shown) {
@@ -93,7 +103,7 @@ class ConnectionOwner(
             } else {
                 core.foregrounded()
                 core.dispatch(Action.Health(phoneOnline = true))
-                connect(deliveryScope)
+                if (identity != null) connect(deliveryScope)
             }
             } catch (failure: IOException) {
                 onStorageFailure(failure)
@@ -130,6 +140,7 @@ class ConnectionOwner(
                         stream.open(
                             HttpRequest("GET", apiBase + target, mapOf("Accept" to "text/event-stream"), null),
                             onOpen = { status ->
+                                requireCurrentPairing(apiBase, deviceId)
                                 if (status == 200) {
                                     opened = true
                                     attempt = 0
@@ -143,6 +154,7 @@ class ConnectionOwner(
                                 }
                             },
                             onBytes = {
+                                requireCurrentPairing(apiBase, deviceId)
                                 core.receive(it)
                                 if (core.state.connection.reason == ConnectionReason.INCOMPATIBLE) throw IOException("incompatible protocol")
                             },
@@ -166,6 +178,14 @@ class ConnectionOwner(
                 wakeups.onReceive { }
                 onTimeout(wait) { }
             }
+        }
+    }
+
+    private suspend fun requireCurrentPairing(origin: String, device: String) {
+        currentCoroutineContext().ensureActive()
+        val state = core.state
+        if (!state.paired || state.pairing.apiBase != origin || state.pairing.deviceId != device) {
+            throw CancellationException("pairing changed")
         }
     }
 

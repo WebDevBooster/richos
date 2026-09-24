@@ -16,6 +16,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import java.io.IOException
 import kotlin.test.Test
+import kotlin.test.assertFailsWith
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -71,6 +72,62 @@ class ConnectionOwnerTest {
     }
 
     private val hello = "id: 2\nevent: hello\ndata: {\"challenge\":\"from-hello\",\"thread_id\":\"general\",\"capabilities\":[\"text\"],\"messages\":[]}\n\n"
+
+    @Test fun forgettingClosesThePreviousMacStreamWithoutLeavingTheForeground() = runTest {
+        val mac = Mac { HttpResponse(404, emptyMap(), ByteArray(0)) }
+        val core = core(mac)
+        var closed = false
+        val streams = Streams({ open, bytes ->
+            open(200); bytes(hello.toByteArray())
+            try { kotlinx.coroutines.awaitCancellation() } finally { closed = true }
+        })
+        val owner = ConnectionOwner(core, MacApi(mac, keys), streams)
+        val job = backgroundScope.launch { owner.run() }
+        runCurrent()
+        assertEquals(1, streams.opened.size)
+        core.dispatch(Action.Forget); runCurrent()
+        assertTrue(closed, "Forget must close the old Mac's stream without requiring Home/return")
+        advanceTimeBy(3_600_000); runCurrent()
+        assertEquals(1, streams.opened.size, "an unpaired phone must not reconnect")
+        job.cancel()
+    }
+
+    @Test fun replacingTheMacReconnectsImmediatelyAndRejectsLateOldFrames() = runTest {
+        val newOrigin = "https://second.tail1a2b3c.ts.net"
+        val mac = Mac { request ->
+            val body = if (request.body?.toString(Charsets.UTF_8)?.contains("public_key_jwk") == true) {
+                """{"device_id":"new-phone","ca_fingerprint_sha256":"${Fixtures.CA_FINGERPRINT}","challenge":"new-c","api_base":"$newOrigin","thread_id":"general"}"""
+            } else "{}"
+            HttpResponse(200, mapOf("x-richos-challenge" to "new-c"), body.toByteArray())
+        }
+        val core = core(mac)
+        val opened = mutableListOf<String>()
+        val closed = mutableListOf<String>()
+        var oldBytes: (suspend (ByteArray) -> Unit)? = null
+        val stream = EventStream { request, open, bytes ->
+            opened += request.url
+            if (oldBytes == null) oldBytes = bytes
+            open(200); bytes(hello.toByteArray())
+            try { kotlinx.coroutines.awaitCancellation() } finally { closed += request.url }
+        }
+        val owner = ConnectionOwner(core, MacApi(mac, keys), stream)
+        val job = backgroundScope.launch { owner.run() }
+        runCurrent()
+        core.dispatch(Action.Forget); runCurrent()
+        core.dispatch(Action.Pair("$newOrigin/#pair=${Fixtures.CODE}")); runCurrent()
+        core.dispatch(Action.ConfirmWords(true)); runCurrent()
+        assertEquals(2, opened.size)
+        assertEquals(listOf(opened.first()), closed)
+        assertTrue(opened.last().startsWith(newOrigin + "/api/events"))
+        val state = core.state
+        assertFailsWith<kotlinx.coroutines.CancellationException> { oldBytes!!(hello.toByteArray()) }
+        assertEquals(state, core.state, "a late old stream must not rewrite the new pairing")
+        owner.backgrounded(); runCurrent()
+        advanceTimeBy(3_600_000); runCurrent()
+        assertEquals(2, opened.size, "pairing observation must add no hidden reconnect")
+        assertEquals(2, closed.size)
+        job.cancel()
+    }
 
     @Test fun incompatibleProtocolStopsRetryingAndReturnRequestsAFreshSnapshot() = runTest {
         val mac = Mac { HttpResponse(404, mapOf("x-richos-challenge" to "c"), ByteArray(0)) }
