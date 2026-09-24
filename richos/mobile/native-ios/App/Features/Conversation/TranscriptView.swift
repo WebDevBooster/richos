@@ -171,6 +171,8 @@ struct TranscriptView: UIViewRepresentable {
                     } else if !userIsScrolling, let anchor {
                         self.restore(anchor, in: view)
                     }
+                    // RichOS: PRD §7's launch boundary, after the first load's final positioning.
+                    if isInitialLoad { view.markInitialPosition() }
                 }
             }
         }
@@ -332,6 +334,26 @@ final class BottomAnchoredTranscriptCollectionView: UICollectionView {
     private var pendingAwayPosition = false
     private var awayOffset: CGFloat = 40
 
+    /// RichOS: `viewport-ready` (`ReadinessMarks`) once the first load's saved position is applied:
+    /// laid out in a window with its bottom or away position no longer pending. If it is not settled
+    /// yet, the layout that settles it marks instead. It only observes: it never forces a layout.
+    /// Once per view; no timer.
+    private var initialPosition: InitialPositionMark = .notRequested
+    private enum InitialPositionMark { case notRequested, waiting, marked }
+
+    func markInitialPosition() {
+        guard initialPosition == .notRequested else { return }
+        initialPosition = .waiting
+        markInitialPositionIfSettled()
+    }
+
+    private func markInitialPositionIfSettled() {
+        guard initialPosition == .waiting, window != nil, bounds.height > 0, !pendingAwayPosition,
+              !needsInitialBottomPosition || contentSize.height == 0 else { return }
+        initialPosition = .marked
+        ReadinessMarks.viewportReady()
+    }
+
     /// RichOS: T3's `jumpToBottom` target, called by the Latest pill.
     func jumpToLatest() {
         layoutIfNeeded()
@@ -368,6 +390,7 @@ final class BottomAnchoredTranscriptCollectionView: UICollectionView {
         defer {
             lastLaidOutGeometry = geometry
             updateBottomButton(geometry)
+            markInitialPositionIfSettled()
         }
 
         if pendingAwayPosition, bounds.height > 0, contentSize.height > 0 {
