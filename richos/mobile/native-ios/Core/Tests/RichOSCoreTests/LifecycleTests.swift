@@ -172,6 +172,24 @@ func holds(_ ms: UInt64 = 250, _ condition: @Sendable () async -> Bool) async ->
         return host
     }
 
+    @Test func warmReturnResumesTheLastLiveCursorWithoutBackgroundRequests() async throws {
+        let stream = LifecycleStream()
+        let network = NetworkEffects(transport: LifecycleMac(), stream: stream,
+                                     identities: PairedMemoryIdentityStore(), clock: FixedClock(ms: 5))
+        let host = try await host(network, state: try paired())
+        _ = try await host.dispatch(.foregrounded(at: 1))
+        #expect(await becomes { await stream.open == 1 })
+        // Wait until the hello has reached the sink before taking the checkpoint.
+        #expect(await becomes { (try? await host.currentState().voiceAvailability) == .unsupportedByMac })
+        _ = try await host.dispatch(.backgrounded(at: 2))
+        let count = await stream.opened.count
+        #expect(await holds { await stream.opened.count == count })
+        _ = try await host.dispatch(.foregrounded(at: 3))
+        #expect(await becomes { await stream.opened.count == 2 })
+        #expect(await stream.opened.last?.target.contains("since=1") == true)
+        _ = try await host.dispatch(.backgrounded(at: 4))
+    }
+
     @Test func backgroundingClosesTheStreamAndNoRetryOrRequestFollows() async throws {
         let stream = LifecycleStream()
         let mac = LifecycleMac()

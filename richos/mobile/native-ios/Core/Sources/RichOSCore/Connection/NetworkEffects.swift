@@ -15,6 +15,12 @@ public actor NetworkEffects: EffectHandler {
     private var sink: LiveConnection.Sink?
     private var api: APIClient?
     private var live: LiveConnection?
+    private var replay: Task<LiveConnection.Replay, Never>?
+    private var replayIdentity: String?
+
+    private func connectionIdentity(_ state: AppState) -> String {
+        [state.mac?.origin ?? "", state.mac?.deviceID ?? "", state.mac?.threadID ?? ""].joined(separator: "\n")
+    }
     /// The app's latest word on the live stream. Every `connect` and `disconnect` (and a confirmed
     /// pairing, which connects) takes the next number. A connect that had to wait for the Keychain
     /// lets this actor take other effects meanwhile, so it goes ahead only if nothing was said after
@@ -126,6 +132,8 @@ public actor NetworkEffects: EffectHandler {
             return []
         case .forgetIdentity(let origin):
             await stopLive()
+            replay = nil
+            replayIdentity = nil
             api = nil
             try? await identities.forget(origin: origin)
             return []
@@ -217,8 +225,15 @@ public actor NetworkEffects: EffectHandler {
         let mine = lifecycle
         guard live == nil, state.pairing == .paired, let sink, let api = await client(for: state),
               mine == lifecycle, live == nil else { return }
+        let identity = connectionIdentity(state)
+        let checkpoint = replayIdentity == identity ? await replay?.value : nil
+        guard mine == lifecycle, live == nil else { return }
         let connection = LiveConnection(api: api, stream: stream, threadID: state.mac?.threadID, clock: clock, sleep: sleep, sink: sink)
+        // Record ownership before actor hops; a later disconnect still wins over start.
         live = connection
+        replayIdentity = identity
+        if let checkpoint { await connection.restore(checkpoint) }
+        guard mine == lifecycle else { await connection.stop(); return }
         await connection.start()
     }
 
@@ -228,7 +243,11 @@ public actor NetworkEffects: EffectHandler {
         lifecycle += 1
         let ending = live
         live = nil
-        await ending?.stop()
+        if let ending {
+            let saved = Task { await ending.stopAndCheckpoint() }
+            replay = saved
+            _ = await saved.value
+        }
     }
 }
 

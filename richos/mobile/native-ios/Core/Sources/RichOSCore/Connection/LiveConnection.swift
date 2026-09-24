@@ -49,6 +49,25 @@ public actor LiveConnection {
         model = ThreadModel(selectedThread: threadID)
     }
 
+    /// An in-memory replay checkpoint survives a warm return without keeping a socket alive.
+    struct Replay: Sendable {
+        var model: ThreadModel
+        var told: [String: StreamRow]
+        var lastFrameID: Int?
+        var threadID: String?
+    }
+
+    func restore(_ replay: Replay) {
+        guard task == nil, !stopped else { return }
+        model = replay.model; told = replay.told
+        lastFrameID = replay.lastFrameID; threadID = replay.threadID
+    }
+
+    func stopAndCheckpoint() -> Replay {
+        stop()
+        return Replay(model: model, told: told, lastFrameID: lastFrameID, threadID: threadID)
+    }
+
     public func start() {
         guard task == nil, !stopped else { return }
         generation += 1
@@ -77,7 +96,7 @@ public actor LiveConnection {
 
     private func run(_ mine: Int) async {
         var delay = Self.firstRetryMs
-        var since: Int?
+        var since = lastFrameID.map { max(0, $0 - 1) }
         var first = true
         while mine == generation, !Task.isCancelled {
             // A retry asks for a live challenge first (link.js rule 2). So does a first attempt with
