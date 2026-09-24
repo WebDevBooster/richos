@@ -373,7 +373,10 @@ class Device:
         if self.touch and (self.touched is None or self.clock() - self.touched > 30):
             self.touch()
             self.touched = self.clock()
-        p = self.runner([self.adb, "-s", self.serial, *args], capture_output=True, text=True, timeout=timeout)
+        try:
+            p = self.runner([self.adb, "-s", self.serial, *args], capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            raise Unmeasurable(f"adb {' '.join(args)[:120]} did not answer in {timeout} s")
         if check and p.returncode != 0:
             raise Unmeasurable(f"adb {' '.join(args)[:120]} exited {p.returncode}: {(p.stderr or p.stdout).strip()[:200]}")
         return p.stdout
@@ -387,6 +390,13 @@ class Device:
     def pid(self):
         out = self.sh(f"pidof {PACKAGE}", check=False).strip()
         return int(out.split()[0]) if out else None
+
+    def present(self):
+        """Is the device still there (an emulator the Mac's CPU breaker stopped is not)?"""
+        try:
+            return self.run("get-state", timeout=10, check=False).strip() == "device"
+        except Unmeasurable:
+            return False
 
     def uptime_epoch(self):
         return self.sh("date +%s.%N").strip()
@@ -469,8 +479,11 @@ class Measure:
         if self.rooted or self.d.sh("id -u", check=False).strip() == "0":
             self.rooted = True
             return True
-        self.d.run("root", check=False)
-        self.d.run("wait-for-device", timeout=60, check=False)
+        try:
+            self.d.run("root", check=False)
+            self.d.run("wait-for-device", timeout=60, check=False)
+        except Unmeasurable:
+            return False
         for _ in range(20):
             if self.d.sh("id -u", check=False).strip() == "0":
                 self.rooted = self.rooted_by_us = True
@@ -481,8 +494,11 @@ class Measure:
     def restore_root(self):
         """Put adbd back as it was, if this run made it root."""
         if self.rooted_by_us:
-            self.d.run("unroot", check=False)
-            self.d.run("wait-for-device", timeout=60, check=False)
+            try:
+                self.d.run("unroot", check=False)
+                self.d.run("wait-for-device", timeout=60, check=False)
+            except Unmeasurable:
+                pass
             self.rooted = self.rooted_by_us = False
 
     def proc_io(self, pid):
@@ -547,6 +563,7 @@ class Measure:
             launch = self.foreground()
             if launch["launchState"] != "COLD":
                 rejected.append({"trial": i + 1, "why": f"LaunchState {launch['launchState']}, not COLD"})
+                self.log(f"cold {i + 1}/{trials}: REJECTED, {rejected[-1]['why']}")
                 continue
             drawn = None
             for _ in range(40):
@@ -585,8 +602,10 @@ class Measure:
             states[state] = states.get(state, 0) + 1
             if pid is None or after != pid:
                 rejected.append({"trial": i + 1, "why": f"process changed ({pid} -> {after}): a cold start, never counted as warm"})
+                self.log(f"warm {i + 1}/{trials}: REJECTED, {rejected[-1]['why']}")
             elif state != "HOT":
                 rejected.append({"trial": i + 1, "why": f"LaunchState {state} (the activity was recreated), not HOT"})
+                self.log(f"warm {i + 1}/{trials}: REJECTED, {rejected[-1]['why']}")
             else:
                 samples.append(launch["totalMs"])
                 self.log(f"warm {i + 1}/{trials}: {launch['totalMs']} ms")
@@ -605,6 +624,7 @@ class Measure:
             send = find_node(self.dump_ui(), desc="Send message")
             if send is None:
                 rejected.append({"trial": i + 1, "why": "no 'Send message' control on screen"})
+                self.log(f"tap {i + 1}/{trials}: REJECTED, {rejected[-1]['why']}")
                 continue
             x, y = center(send)
             self.gfx_reset()
@@ -614,9 +634,11 @@ class Measure:
                 r = tap_latency(parse_input_events(trace, pid), window["rows"])
             except Unmeasurable as e:
                 rejected.append({"trial": i + 1, "why": str(e)})
+                self.log(f"tap {i + 1}/{trials}: REJECTED, {e}")
                 continue
             if find_node(self.dump_ui(), contains=probe) is None:
                 rejected.append({"trial": i + 1, "why": f"'{probe}' is not in the conversation after the tap"})
+                self.log(f"tap {i + 1}/{trials}: REJECTED, {rejected[-1]['why']}")
                 continue
             samples.append(r["inputToFrameMs"])
             settled.append(r["inputToSettledMs"])
@@ -662,6 +684,7 @@ class Measure:
         for i in range(swipes):
             older = i < (swipes + 1) // 2
             y1, y2 = (y_high, y_low) if older else (y_low, y_high)
+            self.pace()
             self.gfx_reset()
             self.d.sh(f"input swipe {x} {y1} {x} {y2} 250")
             self.d.sleep(1.2)
@@ -713,6 +736,7 @@ class Measure:
 
         def type_all():
             for ch in text:
+                self.pace()
                 self.d.sh(f"input text {ch}")
         out = self._cost(pid, type_all, len(text), with_io)
         draft = self.bridge.state()["draft"]
@@ -732,6 +756,7 @@ class Measure:
 
         def feed():
             for frame in middle:
+                self.pace()
                 self.bridge.action(frame)
         out = self._cost(pid, feed, deltas, with_io)
         state = self.bridge.action(final)["state"]

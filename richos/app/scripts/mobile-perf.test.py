@@ -417,6 +417,41 @@ def _():
         assert warm["samplesMs"] == [] and len(warm["rejected"]) == 2 and "cold start" in warm["rejected"][0]["why"], warm
 
 
+class VanishingAdb(FakeAdb):
+    """The emulator is stopped (as the Mac's CPU breaker does) at the Nth launch: every later adb
+    call fails as adb does, and one hangs past its timeout."""
+
+    def __init__(self, launches):
+        super().__init__()
+        self.launches, self.gone = launches, False
+
+    def __call__(self, argv, capture_output=True, text=True, timeout=None):
+        cmd = " ".join(argv[3:])
+        if "am start" in cmd:
+            self.launches -= 1
+            if self.launches < 0:
+                self.gone = True
+        if self.gone:
+            if "wait-for-device" in cmd:
+                raise subprocess.TimeoutExpired(argv, timeout)
+            return types.SimpleNamespace(returncode=1, stdout="", stderr="adb: device 'emulator-5580' not found")
+        return super().__call__(argv, capture_output, text, timeout)
+
+
+@case("R6 a device that goes away mid-run still yields a record: what was measured, and why the rest was not")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        record, failures_ = perf.run_android(android_args(tmp), runner=VanishingAdb(launches=1), sleep=lambda s: None,
+                                             host=lambda: {}, log=quiet)
+        assert failures_ >= 1 and record["phases"]["cold"].startswith("NOT MEASURED"), record["phases"]
+        assert record["phases"]["warm"].startswith("NOT RUN") and record["phases"]["background"].startswith("NOT RUN")
+        assert any("went away" in g["why"] for g in record["notMeasured"]), record["notMeasured"]
+        assert not perfcore.check_record(record), perfcore.check_record(record)
+    dev = android.Device("/fake/adb", "emulator-5580", runner=VanishingAdb(launches=-1))
+    dev.runner.gone = True
+    assert "did not answer" in raises(perfcore.Unmeasurable, dev.run, "wait-for-device", timeout=1)
+
+
 @case("R5 perf.py main exits 3 with a sentence on a refusal and writes no record")
 def _():
     with tempfile.TemporaryDirectory() as tmp:

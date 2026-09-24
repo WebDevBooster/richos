@@ -244,9 +244,18 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
     only = set(args.only.split(",")) if args.only else None
     failures = 0
 
+    lost = []
+
     def phase(name, fn):
+        """One phase. A failure is recorded and the run goes on; a device that is gone (the Mac's
+        CPU breaker stops an emulator) ends the run, and every later phase says why it did not run.
+        The record is written whatever happens."""
         nonlocal failures
         if only is not None and name not in only:
+            return None
+        if lost:
+            record["phases"][name] = f"NOT RUN: {lost[0]}"
+            record["notMeasured"].append({"what": name, "why": f"not run: {lost[0]}"})
             return None
         if host:
             device["host"]["samples"][name] = host()
@@ -255,13 +264,20 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
             result = fn()
             record["phases"][name] = "measured"
             return result
-        except Unmeasurable as e:
-            record["phases"][name] = f"NOT MEASURED: {e}"
-            record["notMeasured"].append({"what": name, "why": str(e)})
+        except Exception as e:  # noqa: BLE001 — every failure lands in the record, by phase
+            why = str(e) if isinstance(e, Unmeasurable) else f"{type(e).__name__}: {e}"
+            record["phases"][name] = f"NOT MEASURED: {why}"
+            record["notMeasured"].append({"what": name, "why": why})
             failures += 1
+            log(f"{name}: NOT MEASURED, {why}")
+            if not dev.present():
+                lost.append(f"the device {dev.serial} went away during '{name}' (an emulator stopped by the Mac's "
+                            "CPU circuit breaker is one way; see its events)")
+                log(lost[0])
             return None
 
     night = dev.sh("cmd uimode night", check=False).strip()
+    bridge = False
     if args.theme != "device":
         dev.sh(f"cmd uimode night {'yes' if args.theme == 'dark' else 'no'}", check=False)
         dev.sleep(args.settle)
@@ -309,10 +325,12 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
                     "delays the useful-content mark (Sage T6)", spot["useful"], None, firstFrameMs=spot["first"],
                     rejected=spot["rejected"])
 
-        m.foreground()
-        dev.sleep(args.settle)
+        def front_then_idle():
+            m.foreground()
+            dev.sleep(args.settle)
+            return m.idle(args.idle_seconds)
         idle = {}
-        conv = phase("idle-conversation", lambda: m.idle(args.idle_seconds))
+        conv = phase("idle-conversation", front_then_idle)
         if conv:
             idle["conversation"] = conv
         if bridge:
@@ -393,8 +411,9 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
                 zeroFrames=all(v["framesRendered"] == 0 for v in idle.values()),
                 target={"row": perfcore.BUDGETS["idleFrames"]["row"], "value": 0, "source": perfcore.PRD + " §7 (proposed)"})
     finally:
-        m.restore_root()
-        if args.theme != "device":
+        if not lost:
+            m.restore_root()
+        if args.theme != "device" and not lost:
             restore = "yes" if "yes" in night else ("auto" if "auto" in night else "no")
             dev.sh(f"cmd uimode night {restore}", check=False)
     if waits:
