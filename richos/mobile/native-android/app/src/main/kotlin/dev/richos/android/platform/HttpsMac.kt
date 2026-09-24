@@ -6,7 +6,10 @@ import dev.richos.android.core.protocol.HttpRequest
 import dev.richos.android.core.protocol.HttpResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.job
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.io.InputStream
@@ -39,11 +42,9 @@ class HttpsMac(
             instanceFollowRedirects = false
             useCaches = false
             for ((k, v) in request.headers) setRequestProperty(k, v)
-            val body = request.body
-            if (body != null) {
+            request.body?.let { body ->
                 doOutput = true
                 setFixedLengthStreamingMode(body.size)
-                outputStream.use { it.write(body) }
             }
         }
     }
@@ -53,27 +54,37 @@ class HttpsMac(
 
     private fun HttpURLConnection.bodyStream(): InputStream? = if (responseCode >= 400) errorStream else inputStream
 
-    override suspend fun send(request: HttpRequest): HttpResponse = withContext(Dispatchers.IO) {
+    override suspend fun send(request: HttpRequest): HttpResponse = withContext(Dispatchers.IO) { coroutineScope {
         val c = connect(request, REQUEST_READ_TIMEOUT_MS)
+        val closer = launch(start = CoroutineStart.UNDISPATCHED) {
+            try { awaitCancellation() } finally { c.disconnect() }
+        }
         try {
+            request.body?.let { body -> c.outputStream.use { it.write(body) } }
             val status = c.responseCode
             val body = c.bodyStream()?.use { it.readBytes() } ?: ByteArray(0)
             HttpResponse(status, c.lowercaseHeaders(), body)
+        } catch (failure: IOException) {
+            coroutineContext.ensureActive()
+            throw failure
         } finally {
+            closer.cancel()
             c.disconnect()
         }
-    }
+    } }
 
     override suspend fun open(request: HttpRequest, onOpen: suspend (Int) -> Unit, onBytes: suspend (ByteArray) -> Unit) {
-        withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) { coroutineScope {
             // The Mac sends a keep-alive comment every 15 s; three missed means the socket is dead.
             val c = connect(request, STREAM_READ_TIMEOUT_MS)
             // A blocked read does not notice cancellation; closing the socket does.
-            val closer = coroutineContext.job.invokeOnCompletion { c.disconnect() }
+            val closer = launch(start = CoroutineStart.UNDISPATCHED) {
+                try { awaitCancellation() } finally { c.disconnect() }
+            }
             try {
                 val status = c.responseCode
                 onOpen(status)
-                if (status != 200) return@withContext
+                if (status != 200) return@coroutineScope
                 c.inputStream.use { input ->
                     val buffer = ByteArray(8 * 1024)
                     while (true) {
@@ -83,11 +94,14 @@ class HttpsMac(
                         if (n > 0) onBytes(buffer.copyOf(n))
                     }
                 }
+            } catch (failure: IOException) {
+                coroutineContext.ensureActive()
+                throw failure
             } finally {
-                closer.dispose()
+                closer.cancel()
                 c.disconnect()
             }
-        }
+        } }
     }
 
     companion object {

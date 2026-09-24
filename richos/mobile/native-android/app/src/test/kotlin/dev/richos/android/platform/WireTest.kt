@@ -6,6 +6,7 @@ import dev.richos.android.core.protocol.Signing
 import dev.richos.android.core.protocol.SseItem
 import dev.richos.android.core.protocol.SseParser
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -36,6 +37,28 @@ class WireTest {
                 assertTrue(e.message, e.message!!.startsWith("refusing"))
             }
         }
+    }
+
+    @Test fun `cancelling a blocked request closes its connection promptly`() = runBlocking {
+        val reading = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val disconnected = java.util.concurrent.CountDownLatch(1)
+        val connection = object : java.net.HttpURLConnection(java.net.URL("https://mac.example")) {
+            override fun connect() {}
+            override fun usingProxy() = false
+            override fun disconnect() { disconnected.countDown() }
+            override fun getResponseCode(): Int {
+                reading.complete(Unit)
+                check(disconnected.await(2, java.util.concurrent.TimeUnit.SECONDS)) { "blocked read was not cancelled" }
+                throw IOException("socket closed")
+            }
+        }
+        val job = launch {
+            HttpsMac(open = { connection }).send(HttpRequest("GET", "https://mac.example/api/events", emptyMap(), null))
+        }
+        reading.await()
+        job.cancel()
+        job.join()
+        assertEquals(0L, disconnected.count)
     }
 
     private var server: HttpServer? = null
