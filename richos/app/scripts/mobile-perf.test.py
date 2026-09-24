@@ -490,7 +490,9 @@ def _():
     with tempfile.TemporaryDirectory() as tmp:
         measure = android.Measure(android.Device("/fake/adb", "emulator-5580", runner=FakeAdb(), sleep=lambda s: None),
                                   log=quiet, evidence_dir=tmp)
-        nodes = [{"text": "perf probe 1", "desc": "Send message", "bounds": [0, 0, 100, 50]}]
+        measure.probe_prefix = "unique probe"
+        nodes = [{"text": "unique probe 1", "desc": "Send message", "bounds": [0, 0, 100, 50]},
+                 {"text": "", "desc": "Message Rich", "bounds": [0, 50, 100, 100]}]
         with patch.object(measure, "enter_empty_composer", side_effect=[None, perfcore.Unmeasurable("occupied")]), \
              patch.object(measure, "dump_ui", return_value=nodes), \
              patch.object(measure, "atrace", return_value="raw test trace"), \

@@ -510,6 +510,7 @@ class Measure:
         self.rooted_by_us = False
         self.evidence_dir = Path(evidence_dir) if evidence_dir else None
         self.launch_number = 0
+        self.probe_prefix = f"perf probe {time.time_ns()}"
 
     # -- helpers -------------------------------------------------------------------------------
     def dump_ui(self):
@@ -748,7 +749,7 @@ class Measure:
         pid = self.d.pid()
         for i in range(trials):
             self.pace()
-            probe = f"perf probe {i + 1}"
+            probe = f"{self.probe_prefix} {i + 1}"
             if production:
                 try:
                     self.enter_empty_composer(probe)
@@ -779,8 +780,11 @@ class Measure:
                 rejected.append({"trial": i + 1, "why": str(e)})
                 self.log(f"tap {i + 1}/{trials}: REJECTED, {e}")
                 continue
-            if find_node(self.dump_ui(), contains=probe) is None:
-                rejected.append({"trial": i + 1, "why": f"'{probe}' is not in the conversation after the tap"})
+            after = self.dump_ui()
+            composer = composer_node(after)
+            bubble = any(n.get("text") == probe and n.get("class") != "android.widget.EditText" for n in after)
+            if not bubble or (production and (composer is None or composer.get("text", "") not in ("", "Message Rich"))):
+                rejected.append({"trial": i + 1, "why": "the unique probe is not a conversation row with the composer cleared"})
                 self.log(f"tap {i + 1}/{trials}: REJECTED, {rejected[-1]['why']}")
                 continue
             samples.append(r["inputToFrameMs"])
