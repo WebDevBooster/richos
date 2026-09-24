@@ -93,6 +93,7 @@ public actor EffectRunner {
     public static let stateKey = "state.json"
     public static let historyKey = "history.json"
     public static let cachedMessages = 100
+    public static let readingCachedMessages = 10_000
     private var lastUserWork: AppState.Persisted?
     private var lastHistory: CachedHistory?
     private var lastHistoryAt: Int64?
@@ -176,14 +177,20 @@ public actor EffectRunner {
         user.messages = pending.isEmpty ? [] : state.messages.filter { pending.contains($0.clientID ?? $0.id) }
         user.separateHistory = true
         let intentChanged = user.outbox != lastUserWork?.outbox
+        let anchorChanged = user.readingAnchor != lastUserWork?.readingAnchor
         if user != lastUserWork {
             try await storage.write(Self.stateKey, try CoreJSON.encode(user))
             lastUserWork = user
         }
-        let history = CachedHistory(mac: state.mac, messages: Array(state.messages.suffix(Self.cachedMessages)))
+        var count = Self.cachedMessages
+        if !state.following, let anchor = state.readingAnchor,
+           let index = state.messages.firstIndex(where: { $0.id == anchor.messageID }) {
+            count = min(Self.readingCachedMessages, max(count, state.messages.count - index + 20))
+        }
+        let history = CachedHistory(mac: state.mac, messages: Array(state.messages.suffix(count)))
         let now = clock.nowMs()
         if !historyFailed, history != lastHistory,
-           intentChanged || history.mac != lastHistory?.mac || history.messages.last?.id != lastHistory?.messages.last?.id ||
+           anchorChanged || intentChanged || history.mac != lastHistory?.mac || history.messages.last?.id != lastHistory?.messages.last?.id ||
            lastHistoryAt == nil || now - lastHistoryAt! >= 250 {
             do {
                 try await storage.write(Self.historyKey, try CoreJSON.encode(history))

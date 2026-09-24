@@ -33,6 +33,24 @@ struct BoundedPersistenceTests {
         #expect(restored.draft == "draft 99")
     }
 
+    @Test func aSettledOldAnchorIsCachedImmediatelyWithoutHistoryGaps() async throws {
+        let storage = MeasuredStorage()
+        let runner = EffectRunner(storage: storage, clock: FixedClock(ms: 1_000))
+        var state = AppState()
+        state.messages = (0..<10_000).map { Message(id: "m\($0)", author: .rich, text: "message \($0)", sentAt: Int64($0)) }
+        try await runner.run([.persist], state: state)
+        state.following = false
+        state.readingAnchor = ReadingAnchor(messageID: "m50", offset: 12)
+        try await runner.run([.persist], state: state)
+        let restored = try #require(await runner.load())
+        #expect(restored.readingAnchor?.messageID == "m50")
+        #expect(restored.messages.contains { $0.id == "m50" })
+        #expect(zip(restored.messages, restored.messages.dropFirst()).allSatisfy { $1.sentAt == $0.sentAt + 1 })
+        #expect(restored.messages.last?.id == "m9999")
+        #expect(restored.messages.count <= 10_000)
+        #expect(await storage.values[EffectRunner.stateKey]!.count < 4096)
+    }
+
     @Test func disposableCacheFailureDoesNotTurnCommittedWorkIntoAFailedSave() async throws {
         let storage = MeasuredStorage()
         await storage.failCache()
