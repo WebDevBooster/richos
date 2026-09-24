@@ -9,10 +9,10 @@ import kotlin.test.*
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HistoryLoadTest {
-    private suspend fun core(http: Http): RichCore {
+    private suspend fun core(http: Http, olderFlag: Boolean = true): RichCore {
         var saved = Fixtures.fixture("offline").session.copy(
             cache = mapOf("general" to listOf(Row("new", "general", 100, "rich", text = "new"))),
-            olderAvailable = mapOf("general" to true),
+            olderAvailable = mapOf("general" to olderFlag),
         )
         val keys = object : DeviceKeys {
             override suspend fun publicPoint(origin: String) = DevKeys.point
@@ -37,6 +37,18 @@ class HistoryLoadTest {
 
     private fun answer() = HttpResponse(200, mapOf("x-richos-challenge" to "fresh"),
         """{"messages":[{"id":"old","thread_id":"general","cursor":1,"role":"rich","text":"older"}],"more":false}""".toByteArray())
+
+    @Test fun staleBeginningFlagCannotHideEvictedHistoryAfterRestart() = runTest {
+        var calls = 0
+        val core = core(Http { calls++; answer() }, olderFlag = false)
+        assertTrue(core.state.olderAvailable)
+        val state = core.dispatch(Action.LoadOlder)
+        assertEquals(1, calls)
+        assertEquals(listOf("old", "new"), state.messages.map { it.id })
+        assertFalse(state.olderAvailable)
+        core.dispatch(Action.LoadOlder)
+        assertEquals(1, calls, "the actual beginning does not trigger redundant requests")
+    }
 
     @Test fun pagingUsesTheRealApiAndRetriesATransientFailure() = runTest {
         var calls = 0

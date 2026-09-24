@@ -81,13 +81,16 @@ class ConversationTest {
     @Test
     fun `the cache keeps the newest hundred rows of a conversation and survives a restart`() = runTest {
         val runtime = DevRuntime.create().also { it.execute(DevRequest.Fixture("online")) }
+        runtime.core.dispatch(Action.Receive(frame(0, "hello", """{"thread_id":"general","messages":[]}""")))
         for (i in 1..130) runtime.core.dispatch(Action.Receive(frame(i, "message", row("r$i", "general", i, "rich", "row $i"))))
         var s = runtime.core.state
+        assertTrue(s.olderAvailable, "evicted live rows remain available by scrolling")
         assertEquals(100, s.messages.size)
         assertEquals("r31", s.messages.first().id)
         runtime.execute(DevRequest.Restart)
         s = runtime.core.state
         assertEquals("r130", s.messages.last().id)
+        assertTrue(s.olderAvailable, "restoring a bounded cache must not hide earlier history")
     }
 
     @Test

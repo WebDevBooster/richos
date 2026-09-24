@@ -325,6 +325,11 @@ class RichCore private constructor(
     private fun bounded(rows: List<Row>, held: Int = 0): List<Row> =
         rows.sortedBy { it.cursor }.distinctBy { it.id }.takeLast(maxOf(Session.CACHE_ROWS, held))
 
+    // Live arrivals can evict the beginning without another hello. Derive that boundary from
+    // the retained cursors too, including caches written by builds that kept a stale false flag.
+    private fun hasOlder(thread: String?): Boolean = thread != null &&
+        (session.olderAvailable[thread] == true || (session.cache[thread]?.minOfOrNull { it.cursor } ?: 1L) > 1L)
+
     // --- sending (queue.js rules, via [Outbox]) --------------------------------------------------
 
     private suspend fun send(): AppState {
@@ -438,7 +443,7 @@ class RichCore private constructor(
             val thread = session.selectedThreadId
             val p = session.pairing
             val oldest = thread?.let { session.cache[it] }?.minOfOrNull { it.cursor }
-            if (!visible || !session.online || loadingOlder || thread == null || oldest == null || session.olderAvailable[thread] != true || !session.paired ||
+            if (!visible || !session.online || loadingOlder || thread == null || oldest == null || !hasOlder(thread) || !session.paired ||
                 p.apiBase == null || p.deviceId == null || p.challenge == null
             ) {
                 return@withLock null
@@ -945,7 +950,7 @@ class RichCore private constructor(
             canRecord = canRecord(),
             notifications = session.notifications,
             attachmentLimits = session.attachmentLimits,
-            olderAvailable = session.selectedThreadId?.let { session.olderAvailable[it] } ?: false,
+            olderAvailable = hasOlder(session.selectedThreadId),
             streamCursor = session.streamCursor,
             pendingAttachments = session.pendingAttachments,
             attachNotice = attachNotice,
