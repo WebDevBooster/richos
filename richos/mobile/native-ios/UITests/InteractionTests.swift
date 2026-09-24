@@ -228,7 +228,10 @@ final class InteractionTests: XCTestCase {
         assertOnScreenAndHittable(scan, in: app, "Scan your Mac's code")
         scan.tap()
         XCTAssertTrue(app.descendants(matching: .any)["scanner"].waitForExistence(timeout: 3), "the scan button did not open the scanner")
-        let close = app.buttons["scanner.close"]
+        // Found by its spoken name. A query for the identifier `scanner.close` found no button on the
+        // iPhone 16 Pro simulator (2026-09-24); the outer `scanner` identifier is one candidate cause,
+        // not verified, and nothing else in the suite taps this control.
+        let close = app.buttons.matching(NSPredicate(format: "label == %@", "Close the scanner")).firstMatch
         assertOnScreenAndHittable(close, in: app, "Close the scanner")
         close.tap()
         XCTAssertTrue(card.waitForExistence(timeout: 3) && card.label.contains("Pairing timed out"),
