@@ -294,6 +294,85 @@ test('pairing stores the device and the first challenge, and needs no signature 
 	assert.deepStrictEqual(signer.signed, [], 'pairing asked the signer to sign');
 });
 
+// ---- v2 pairing and the press on the Mac (Sage's pairing review F1, F2, §3.5) ------------------
+
+const V2_ANSWER = {
+	device_id: 'device-9', ca_fingerprint_sha256: 'a'.repeat(64), challenge: 'first-challenge',
+	api_base: 'https://mm1.tail9a3b2.ts.net:8443', capabilities: ['text', 'pair-v2'], pairing_version: 2,
+	confirm_within_seconds: 240
+};
+
+test('a v2 phone says so in the pairing request, and the v1 call is unchanged byte for byte', async () => {
+	const v2 = makeApi(() => response(200, V2_ANSWER), { deviceId: null, challenge: null });
+	await v2.api.pair('code', { kty: 'EC', crv: 'P-256' }, 'Android phone', { pairingVersion: 2 });
+	assert.strictEqual(JSON.parse(v2.calls[0].init.body).pairing_version, 2);
+	// The preserved iPhone app makes the v1 call for one release (§3.5), and it must not change.
+	const v1 = makeApi(() => response(200, V2_ANSWER), { deviceId: null, challenge: null });
+	await v1.api.pair('code', { kty: 'EC', crv: 'P-256' }, 'iPhone');
+	assert.deepStrictEqual(Object.keys(JSON.parse(v1.calls[0].init.body)), ['code', 'public_key_jwk', 'device_name']);
+});
+
+test('a v2 phone REFUSES a Mac that does not offer pair-v2, and keeps the key it needs to say so', async () => {
+	for (const capabilities of [undefined, [], ['text', 'attachments']]) {
+		const { api, state } = makeApi(() => response(200, Object.assign({}, V2_ANSWER, { capabilities })), { deviceId: null, challenge: null });
+		await assert.rejects(api.pair('code', { kty: 'EC', crv: 'P-256' }, 'x', { pairingVersion: 2 }), (err) => {
+			assert.strictEqual(err.macNeedsUpdate, true);
+			assert.strictEqual(err.reason, REFUSED);
+			assert.strictEqual(err.retryable, false, 'falling back or retrying would both be wrong');
+			assert.match(err.message, /Update RichOS on your Mac/);
+			return true;
+		});
+		// The device id and challenge are kept, so one signed `fingerprint_confirmed: false` frees
+		// the Mac that just registered this key.
+		assert.strictEqual(state.deviceId, 'device-9');
+	}
+	// And a v1 call never checks: the preserved iPhone app pairs with any Mac, as it did.
+	const { api } = makeApi(() => response(200, Object.assign({}, V2_ANSWER, { capabilities: [] })), { deviceId: null, challenge: null });
+	assert.strictEqual((await api.pair('code', { kty: 'EC', crv: 'P-256' }, 'iPhone')).device_id, 'device-9');
+});
+
+test('the Mac\'s awaiting answer is a retryable fault that names itself, never the final 404', async () => {
+	const awaiting = { awaiting_mac_confirmation: true, reason: 'Press They match on your Mac.' };
+	const { api } = makeApi(() => response(409, awaiting, { 'X-RichOS-Challenge': 'next' }));
+	await assert.rejects(api.sendText({ clientId: 'c', threadId: 't', text: 'hi', sentAt: 'now' }), (err) => {
+		assert.strictEqual(err.awaitingMac, true);
+		assert.strictEqual(err.reason, FAULT);
+		assert.strictEqual(err.retryable, true);
+		return true;
+	});
+	// A 409 that is NOT the awaiting answer keeps its old meaning.
+	const other = makeApi(() => response(409, { retry: false, reason: 'that id was used' }));
+	await assert.rejects(other.api.sendText({ clientId: 'c', threadId: 't', text: 'hi', sentAt: 'now' }), (err) => err.awaitingMac === false && err.reason === REFUSED);
+});
+
+test('macConfirmed asks one signed backfill row: false while the Mac waits, true after the press, a refusal thrown', async () => {
+	let status = 409;
+	const { api, calls } = makeApi(() => status === 409
+		? response(409, { awaiting_mac_confirmation: true }, { 'X-RichOS-Challenge': 'c2' })
+		: status === 200 ? response(200, { messages: [], more: false }) : response(404, ''));
+	assert.strictEqual(await api.macConfirmed('thr'), false);
+	const url = new URL(calls[0].url);
+	assert.strictEqual(url.pathname, '/api/events');
+	assert.strictEqual(url.searchParams.get('limit'), '1');
+	assert.ok(url.searchParams.get('auth'), 'the question was not signed');
+	status = 200;
+	assert.strictEqual(await api.macConfirmed('thr'), true);
+	status = 404;
+	await assert.rejects(api.macConfirmed('thr'), (err) => err.reason === REFUSED);
+});
+
+test('the wait for the press is bounded and backs off: 2, 3, 5, 8, 13 s then 15 s, and never past five minutes', () => {
+	const { macWaitDelayMs, macWaitBoundMs, MAC_WAIT_WINDOW_MS } = require('../lib/api.js');
+	assert.deepStrictEqual([0, 1, 2, 3, 4, 5, 6, 50].map(macWaitDelayMs), [2000, 3000, 5000, 8000, 13000, 15000, 15000, 15000]);
+	assert.strictEqual(macWaitBoundMs({ confirm_within_seconds: 240 }), 240000);
+	assert.strictEqual(macWaitBoundMs({ confirm_within_seconds: 9999 }), MAC_WAIT_WINDOW_MS, 'a Mac that says more than the window is not believed');
+	assert.strictEqual(macWaitBoundMs({}), MAC_WAIT_WINDOW_MS);
+	// CEO ruling §81, as arithmetic: how many times the phone can ask in the whole window.
+	let asked = 0;
+	for (let t = 0, n = 0; t + macWaitDelayMs(n) <= MAC_WAIT_WINDOW_MS; n++) { t += macWaitDelayMs(n); asked++; }
+	assert.strictEqual(asked, 22, 'the schedule no longer matches the count stated in lib/api.js');
+});
+
 test('backfill asks for what is BEFORE a cursor — chunked loading behind a scroll, never a page number', async () => {
 	const { api, calls, signer } = makeApi(() => response(200, { messages: [], more: false }));
 	await api.backfill('t-1', 42, 25);

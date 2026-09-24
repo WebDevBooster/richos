@@ -127,8 +127,28 @@ function createStubMac(options) {
 		// cannot take a voice note without a second server.
 		capabilities: opts.capabilities || ['text', 'voice'],
 		build: opts.build || '0.0.0-harness',
-		autoReply: opts.autoReply !== false
+		autoReply: opts.autoReply !== false,
+		// **THE PRESS ON THE MAC** (Sage's pairing review F1). The real Mac answers every signed
+		// request from a phone nobody has confirmed ON THE MAC with a retryable 409 carrying
+		// `awaiting_mac_confirmation`, and admits only the phone's own answer to the six words.
+		// `'auto'` (the default) stands for a person who has already pressed They match on the Mac
+		// by the time the phone asks anything, so every harness that is about something after
+		// pairing — the lab, the headless clients, the backfill checks — runs exactly as before;
+		// `'manual'` leaves the device waiting until `pressOnMac()`, which is the state the
+		// pairing checks are about.
+		macPress: opts.macPress || 'auto',
+		// `false` models a Mac from before `pair-v2`, which a v2 phone must refuse (§3.5).
+		pairV2: opts.pairV2 !== false
 	};
+
+	/// The real Mac's 409, for a device that is authenticated and not yet confirmed on the Mac.
+	/// Returns true when it answered, so the route stops there.
+	function awaitingMac(res, who) {
+		if (!who || who.device.active) return false;
+		send(res, 409, { awaiting_mac_confirmation: true, reason: 'Press They match on your Mac.' },
+			{ 'X-RichOS-Challenge': newChallenge(who.deviceId) });
+		return true;
+	}
 
 	/// A RING OF LIVE CHALLENGES, NOT ONE, because that is what the Mac has and the difference is
 	/// load-bearing now. `device.rs` keeps the last LIVE_CHALLENGES = 16 and accepts any of them
@@ -326,6 +346,7 @@ function createStubMac(options) {
 			const who = authenticate(req, url, null, 'query');
 			if (!who) { flat404(res); return; }
 			if (state.mode === 'revoked') { send(res, 403, { revoked: true }); return; }
+			if (awaitingMac(res, who)) return;
 
 			res.writeHead(200, {
 				'Content-Type': 'text/event-stream',
@@ -369,6 +390,7 @@ function createStubMac(options) {
 			// way to be asked just because the answer is JSON.
 			const who = authenticate(req, url, null, 'query');
 			if (!who) { flat404(res); return; }
+			if (awaitingMac(res, who)) return;
 			const before = Number(url.searchParams.get('before'));
 			const limit = Number(url.searchParams.get('limit')) || 40;
 			const older = state.ledger.filter((row) => row.cursor < before).sort((a, b) => a.cursor - b.cursor);
@@ -388,6 +410,7 @@ function createStubMac(options) {
 				const who = authenticate(req, url, bodyBytes, 'header');
 				if (!who) { flat404(res); return; }
 				if (state.mode === 'revoked') { send(res, 403, { revoked: true }); return; }
+				if (awaitingMac(res, who)) return;
 
 				let clientId;
 				let row;
@@ -453,6 +476,7 @@ function createStubMac(options) {
 			// THE HEADER — `routes.rs:504`.
 			const who = authenticate(req, url, null, 'header');
 			if (!who) { flat404(res); return; }
+			if (awaitingMac(res, who)) return;
 			const id = decodeURIComponent(url.pathname.slice('/api/audio/'.length));
 			if (!state.ledger.some((row) => row.id === id)) { flat404(res); return; }
 			// Half a second of a quiet tone, made with the app's own encoder. Nothing is played out
@@ -482,7 +506,12 @@ function createStubMac(options) {
 					try {
 						publicKey = crypto.createPublicKey({ key: body.public_key_jwk, format: 'jwk' });
 					} catch (err) { send(res, 400, { error: 'bad key' }); return; }
-					state.devices.set(deviceId, { publicKey, name: body.device_name, push: null });
+					// The JWK is kept so a harness can compute the v2 six words the real Mac would
+					// show for the key it REGISTERED; `pairingVersion` is what the phone announced.
+					state.devices.set(deviceId, {
+						publicKey, jwk: body.public_key_jwk, name: body.device_name, push: null,
+						active: state.macPress === 'auto', pairingVersion: body.pairing_version === 2 ? 2 : 1
+					});
 					// One shot: the code is spent whether or not he finishes.
 					state.pairCode = null;
 					send(res, 200, {
@@ -492,7 +521,11 @@ function createStubMac(options) {
 						api_base: opts.apiBase || null,
 						vapid_public_key: state.vapidPublicKey,
 						thread_id: threadId,
-						threads: state.threads
+						threads: state.threads,
+						// What the real Mac adds (Sage §3.1 step 3, §3.5): the capability a v2 phone
+						// requires, the derivation it uses, and the bound on the wait for the press.
+						capabilities: state.pairV2 ? state.capabilities.concat('pair-v2') : state.capabilities,
+						...(state.pairV2 ? { pairing_version: 2, confirm_within_seconds: 300 } : {})
 					});
 					return;
 				}
@@ -500,6 +533,23 @@ function createStubMac(options) {
 				// THE HEADER — `routes.rs:210`, the device-record half of this route.
 				const who = authenticate(req, url, bodyBytes, 'header');
 				if (!who) { flat404(res); return; }
+				// The phone's own answer to the six words is the one request an unconfirmed device
+				// may make, and only when it carries nothing else that acts (`routes.rs`
+				// `only_answers_the_words`).
+				const answering = typeof body.fingerprint_confirmed === 'boolean' &&
+					Object.keys(body).every((k) => ['fingerprint_confirmed', 'device_id', 'push_transport'].includes(k));
+				if (!answering && awaitingMac(res, who)) return;
+				if (body.fingerprint_confirmed === false) {
+					state.devices.delete(who.deviceId);
+					send(res, 200, { ok: true });
+					return;
+				}
+				if (body.fingerprint_confirmed === true) {
+					who.device.confirmed = true;
+					send(res, 200, who.device.active ? { ok: true } : { ok: true, awaiting_mac_confirmation: true },
+						{ 'X-RichOS-Challenge': newChallenge(who.deviceId) });
+					return;
+				}
 				who.device.push = body.push || null;
 				who.device.pushTransport = body.push_transport || null;
 				send(res, 200, { ok: true, challenge: newChallenge(who.deviceId) });
@@ -530,6 +580,10 @@ function createStubMac(options) {
 			return new Promise((resolve) => server.close(resolve));
 		},
 		setMode(mode) { state.mode = mode; },
+		/// The person presses They match on the Mac (`macPress: 'manual'`).
+		pressOnMac() { for (const device of state.devices.values()) device.active = true; },
+		/// The person presses They do not match on the Mac: the device is forgotten.
+		refuseOnMac() { state.devices.clear(); },
 		received() { return state.received; },
 		pushTo(client, payload) { return payload; }
 	};

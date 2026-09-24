@@ -26,12 +26,12 @@
     },
     {
       "file": "pairing.json",
-      "cases": 38,
+      "cases": 46,
       "expectations": "the reference client modules; signatures proven by verifier/"
     },
     {
       "file": "fingerprint.json",
-      "cases": 12,
+      "cases": 18,
       "expectations": "the reference client modules; signatures proven by verifier/"
     },
     {

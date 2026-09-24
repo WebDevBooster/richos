@@ -169,44 +169,48 @@ function action(result, a) {
 	return a.attemptedNext ? 'final_for_this_item_queue_continues' : 'final_stop_queue';
 }
 
-export async function errors() {
+/// One Mac answer through the real api.js classification and queue.js flush, with two messages
+/// queued: the shape of every errors.json case. Exported so pairing.json can carry the one case
+/// that belongs to pairing (the Mac waiting for its own press) in exactly the same shape.
+export async function errorCase(name, first, override, note) {
 	const { createQueue } = load('queue');
+	let clock = 1_000_000;
+	const script = [...first, answer(200, accepted(2), JSON_TYPE)];
+	const { api, mac: fake, signer } = makeApi({ script, state: { challenge: challenge('errors') } });
+	const direct = await outcome(makeApi({ script: first, state: { challenge: challenge('errors') } }).api.sendText(item(1)));
+	const queue = createQueue({ storage: memoryStorage(), clock: () => clock, now: () => new Date(clock).toISOString() });
+	await queue.enqueue(item(1));
+	await queue.enqueue(item(2));
+	const r = await queue.flush(api);
+	const left = queue.all().find((i) => i.clientId === item(1).clientId);
+	const attemptedNext = fake.sent.some((s) => s.bytes && s.bytes.toString('utf8').includes(item(2).clientId));
+	const a = { state: left ? left.state : 'sent', attemptedNext };
+	const reference = {
+		classification: direct.ok ? null : direct.error,
+		message_state_after: a.state,
+		retry_after_ms: left && left.state === 'waiting' ? left.notBefore - clock : null,
+		next_message_attempted: attemptedNext,
+		queue_reason: r.reason,
+		client_action: action(r, a),
+		requests: transcript(fake, signer).map((q) => ({ method: q.method, target: q.target, client_id: JSON.parse(q.body.utf8).client_id }))
+	};
+	return {
+		name,
+		mac_answer: first[0],
+		required: override ? override.required : { client_action: reference.client_action, retry_after_ms: reference.retry_after_ms },
+		required_source: override ? 'contract' : 'reference',
+		...(override ? { required_because: override.because } : {}),
+		...(note ? { note } : {}),
+		reference
+	};
+}
+
+export async function errors() {
 	for (const name of [...Object.keys(CONTRACT), ...Object.keys(NOTES)]) {
 		if (!ERRORS.some(([n]) => n === name)) throw new Error(`errors: a contract override names no case: ${name}`);
 	}
 	const cases = [];
-	for (const [name, first] of ERRORS) {
-		let clock = 1_000_000;
-		const script = [...first, answer(200, accepted(2), JSON_TYPE)];
-		const { api, mac: fake, signer } = makeApi({ script, state: { challenge: challenge('errors') } });
-		const direct = await outcome(makeApi({ script: first, state: { challenge: challenge('errors') } }).api.sendText(item(1)));
-		const queue = createQueue({ storage: memoryStorage(), clock: () => clock, now: () => new Date(clock).toISOString() });
-		await queue.enqueue(item(1));
-		await queue.enqueue(item(2));
-		const r = await queue.flush(api);
-		const left = queue.all().find((i) => i.clientId === item(1).clientId);
-		const attemptedNext = fake.sent.some((s) => s.bytes && s.bytes.toString('utf8').includes(item(2).clientId));
-		const a = { state: left ? left.state : 'sent', attemptedNext };
-		const reference = {
-			classification: direct.ok ? null : direct.error,
-			message_state_after: a.state,
-			retry_after_ms: left && left.state === 'waiting' ? left.notBefore - clock : null,
-			next_message_attempted: attemptedNext,
-			queue_reason: r.reason,
-			client_action: action(r, a),
-			requests: transcript(fake, signer).map((q) => ({ method: q.method, target: q.target, client_id: JSON.parse(q.body.utf8).client_id }))
-		};
-		const override = CONTRACT[name];
-		cases.push({
-			name,
-			mac_answer: first[0],
-			required: override ? override.required : { client_action: reference.client_action, retry_after_ms: reference.retry_after_ms },
-			required_source: override ? 'contract' : 'reference',
-			...(override ? { required_because: override.because } : {}),
-			...(NOTES[name] ? { note: NOTES[name] } : {}),
-			reference
-		});
-	}
+	for (const [name, first] of ERRORS) cases.push(await errorCase(name, first, CONTRACT[name], NOTES[name]));
 	return {
 		source: 'web/web-app/lib/api.js classification (ApiError reason/retryable/aboutThisMessage) and web/web-app/lib/queue.js flush, with two messages queued',
 		client_actions: {

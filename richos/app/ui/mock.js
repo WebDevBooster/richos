@@ -76,6 +76,17 @@
     // not listening and has nothing paired, which is character for character the status that
     // draws `This Mac is ready`. Telling those two apart is the whole point of the field.
     rejected: window.__RICHOS_MOCK_PRESET__?.phoneRejected === true,
+    // WHO STOPPED IT (`device::StoppedBy`), for the sentence. The phone's answer is the default,
+    // which is what `phoneRejected` always meant.
+    rejectedBy: window.__RICHOS_MOCK_PRESET__?.phoneRejectedBy || "phone",
+    // **HAS A PERSON PRESSED "They match" ON THIS MAC?** — Sage F1, `PhoneStatus::mac_confirmed`.
+    // Confirmed by default for the same reason `fingerprintConfirmed` is: an established pairing
+    // is what almost every check on the paired card is about. `phoneMacUnconfirmed: true` is the
+    // state between the code being redeemed and the press — the only state with the words and
+    // the two buttons on the card.
+    macConfirmed: window.__RICHOS_MOCK_PRESET__?.phoneMacUnconfirmed !== true,
+    // The spent-code alarm after the press ("keep it and warn").
+    codeReused: window.__RICHOS_MOCK_PRESET__?.phoneCodeReused === true,
   };
   // WHERE THIS MAC IS ON THE TAILSCALE PATH, for the harness. The shipped sheet draws its four
   // Tailscale screens from `status.tailnet` and nothing else, so without this the whole of CEO
@@ -171,7 +182,17 @@
       pairUrl: open
         ? ((servingVia === "connect" ? mockConnect.endpoint : tailnetOf().origin) || "https://mm1.example.ts.net:8443") + "/#pair=K7QF2M9X"
         : null,
-      fingerprintWords: ["harbor", "candle", "meadow", "lantern", "fossil", "juniper"],
+      macConfirmed: mockPhone.paired && mockPhone.macConfirmed,
+      // THE WORDS EXIST ONLY WHILE A PHONE THAT REACHED THIS MAC WAITS FOR THE PRESS (Sage §3.1
+      // steps 1 and 4): the Mac derives them over the key that phone registered, so before a phone
+      // arrives there is nothing to derive, and after the press nothing is left to compare.
+      fingerprintWords:
+        mockPhone.paired && !mockPhone.macConfirmed
+          ? ["harbor", "candle", "meadow", "lantern", "fossil", "juniper"]
+          : [],
+      codeReused: mockPhone.paired && mockPhone.codeReused,
+      confirmSecondsLeft: mockPhone.paired && !mockPhone.macConfirmed ? 240 : null,
+      rejectedBy: mockPhone.rejected ? mockPhone.rejectedBy : "",
       fingerprintHex: mockPhone.paired || mockPhone.pairing ? "3D:9C:2A:5E:7B:11" : null,
       bound:
         mockPhone.paired || mockPhone.pairing
@@ -2170,6 +2191,19 @@
         // true through the same expression rather than through a second rule that agrees.
         case "phone_stop_pairing":
           mockPhone.pairing = false;
+          return phoneStatusOf();
+        // **THE TWO ANSWERS ON THE MAC** — Sage F1. `PhoneRuntime::confirm_on_mac` refuses with
+        // nothing paired, and so does this; `reject_on_mac` is the phone's own teardown with the
+        // Mac named as the one who stopped it.
+        case "phone_confirm_on_mac":
+          if (!mockPhone.paired) return Promise.reject("No phone is paired with this Mac yet.");
+          mockPhone.macConfirmed = true;
+          return phoneStatusOf();
+        case "phone_reject_on_mac":
+          mockPhone.paired = false;
+          mockPhone.pairing = false;
+          mockPhone.rejected = true;
+          mockPhone.rejectedBy = "mac";
           return phoneStatusOf();
         // THE HOW-TO SCREENS' LINKS (§61.1). Recorded rather than only answered: what a test needs
         // to know is WHICH address the control asked for, and `opener.rs` is where the allowlist

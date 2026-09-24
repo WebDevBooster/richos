@@ -121,7 +121,9 @@ async function run() {
 async function runEngine(playwright, engine) {
 	section(`${engine}`);
 
-	const mac = createStubMac({ host: 'localhost', pairCode: 'harness-pair-code' });
+	// `manual`: the Mac waits for a person to press They match ON IT (Sage's pairing review F1), so
+	// this walk sees the phone's waiting screen and presses the Mac's button itself.
+	const mac = createStubMac({ host: 'localhost', pairCode: 'harness-pair-code', macPress: 'manual' });
 	// One message with a long unbroken run of characters, because that is the shape that produced
 	// his horizontal scroll bar on the probe and the shape the layout has to survive.
 	mac.state.ledger.push({
@@ -253,9 +255,13 @@ async function runEngine(playwright, engine) {
 
 		await page.waitForSelector('#fingerprint-box:not([hidden])', { timeout: 15000 });
 		const shown = (await page.textContent('#fingerprint-words')).trim();
-		const expected = fingerprint.phraseFromHex(mac.caFingerprintHex);
-		check('the phone shows the six words derived from the certificate the Mac is actually serving',
+		// v2 (Sage F2): over the origin this page dialed, the Mac's value and the key the Mac
+		// REGISTERED — which is what the Mac's own sheet shows beside its They match.
+		const registered = [...mac.state.devices.values()][0];
+		const expected = await fingerprint.phraseV2(origin, mac.caFingerprintHex, fingerprint.pointFromJwk(registered.jwk), require('node:crypto').webcrypto.subtle);
+		check('the phone shows the v2 six words over its own origin, the Mac\'s value and the key the Mac registered',
 			shown === expected, `shown "${shown}", derived "${expected}"`);
+		check('the phone told the Mac it shows v2 words', registered.pairingVersion === 2, String(registered.pairingVersion));
 		check('six words, not five and not a hash', shown.split(/\s+/).length === 6, shown);
 
 		// HIS FINDING, TURNED INTO A GATE. Nothing on this screen may be a long run of hexadecimal.
@@ -273,8 +279,21 @@ async function runEngine(playwright, engine) {
 			await page.isVisible('#pair-confirm') && await page.isVisible('#pair-reject'));
 
 		await page.click('#pair-confirm');
+		// SAGE F1: THE PHONE'S OWN ANSWER LETS NOTHING IN. It waits for the press on the Mac, says
+		// which press is missing, keeps the words up and keeps They do not match as the way out.
+		await page.waitForFunction(() => /press They match on your Mac/.test(document.getElementById('pairing-lede').textContent), null, { timeout: 15000 });
+		check('after They match on the phone, the phone says to press They match on the Mac',
+			true, (await page.textContent('#pairing-lede')).trim());
+		check('while waiting, the words stay up and They do not match is the way out',
+			await page.isVisible('#fingerprint-words') && await page.isVisible('#pair-reject') && !(await page.isVisible('#pair-confirm')));
+		check('nothing of the conversation is shown before the Mac is pressed', !(await page.isVisible('#composer')));
+		await noHorizontalScroll(page, `${engine}: waiting for the Mac`);
+		await shoot(page, `${engine}-waiting-for-mac`);
+		const pressedAt = Date.now();
+		mac.pressOnMac();
 		await page.waitForSelector('#composer', { state: 'visible', timeout: 15000 });
-		check('pairing hands over to the conversation', await page.isVisible('#messages'));
+		check('the press on the Mac hands over to the conversation, on the phone\'s backed-off schedule',
+			await page.isVisible('#messages'), `${Date.now() - pressedAt} ms after the press`);
 		check('the pairing code is spent and gone from the address, so a relaunch does not re-pair',
 			!(await page.evaluate(() => location.hash)).includes('pair='),
 			await page.evaluate(() => location.hash));

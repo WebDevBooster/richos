@@ -73,7 +73,7 @@ impl Bridge for IsolatedBridge {
     }
     fn native_notifications_available(&self)->bool {self.push_client.is_some()}
     fn register_native_notifications(&self,id:&str,registration:Option<phone::notifications::Registration>)->Result<Value,String> {
-        let device=self.devices.paired().filter(|d|d.id==id && d.fingerprint_confirmed).ok_or("not paired")?;
+        let device=self.devices.paired().filter(|d|d.id==id && d.trusted()).ok_or("not paired")?;
         let mut desk=self.push.lock().unwrap();desk.set(&device,registration)?;
         self.devices.use_native_push(id).map_err(|_|"device unavailable")?;
         desk.reconcile(self.push_client.as_ref().ok_or("push unavailable")?.as_ref(),Some(&device))?;Ok(desk.response())
@@ -255,6 +255,17 @@ fn serve() {
     let manual = std::env::var("RICHOS_MOBILE_MAC_MANUAL").as_deref() == Ok("1");
     let started = Instant::now();
     while !dir.join("stop").exists() && session_within_lifetime(manual, started.elapsed()) {
+        // THE PERSON AT THE MAC (Sage's pairing review F1). The production Mac refuses everything
+        // from a phone until someone presses They match on the Mac's own sheet, and this harness
+        // has no sheet. So it presses on the person's behalf once the phone has given its own
+        // answer — the order a person standing at both screens produces — and says so. The gate
+        // itself is proved by the Rust tests and the conformance verifier, not here.
+        if devices.paired().is_some_and(|d| d.fingerprint_confirmed && !d.mac_confirmed) {
+            match devices.confirm_on_mac() {
+                Ok(()) => eprintln!("mac-server: pressed They match on the Mac's behalf (this harness has no Mac sheet)"),
+                Err(error) => eprintln!("mac-server: could not press They match: {error}"),
+            }
+        }
         if let Ok(payload) = bridge.snapshot(None) {
             std::fs::write(dir.join("timeline.new"), payload.to_string()).unwrap();
             std::fs::rename(dir.join("timeline.new"), dir.join("timeline.json")).unwrap();

@@ -120,3 +120,50 @@ test('a thousand different hashes give a thousand different phrases', () => {
 	}
 	assert.strictEqual(seen.size, 1000, `${1000 - seen.size} collisions in a thousand`);
 });
+
+// ---- v2 (Sage's pairing review F2) --------------------------------------------------------------
+
+const subtle = crypto.webcrypto.subtle;
+const ORIGIN = 'https://mm1.tail9a3b2.ts.net:8443';
+const CA = '3D:9C:A1:00:FF:12:34:56:78:9A:BC:DE:F0:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:01:02:03:04';
+
+function freshPoint() {
+	const { publicKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+	const jwk = publicKey.export({ format: 'jwk' });
+	const raw = crypto.createPublicKey({ key: jwk, format: 'jwk' }).export({ format: 'der', type: 'spki' }).subarray(26);
+	return { jwk, raw };
+}
+
+test('v2: the input is the label, the origin dialed, the Mac hash and the key, on four lines', () => {
+	assert.strictEqual(fp.v2Input(ORIGIN, CA, 'POINT'), `RICHCONNECT-PAIR-V2\n${ORIGIN}\n${CA}\nPOINT`);
+	// The origin is written the way a browser writes it, whatever the link looked like.
+	assert.strictEqual(fp.v2Input('HTTPS://MM1.Tail9a3b2.TS.NET:8443/', CA, 'P'), fp.v2Input(ORIGIN, CA, 'P'));
+	assert.strictEqual(fp.normalizeOrigin('https://c-5de0-g2.richos.ceo:443/'), 'https://c-5de0-g2.richos.ceo');
+	assert.throws(() => fp.normalizeOrigin('http://mm1.tail9a3b2.ts.net:8443'), /https/);
+});
+
+test('v2: the six words are WORDS over the first six bytes of the SHA-256 of that input', async () => {
+	const { jwk } = freshPoint();
+	const point = fp.pointFromJwk(jwk);
+	const digest = crypto.createHash('sha256').update(fp.v2Input(ORIGIN, CA, point), 'utf8').digest();
+	const expected = Array.from(digest.subarray(0, 6), (b) => WORDS[b]);
+	assert.deepStrictEqual(await fp.wordsV2(ORIGIN, CA, point, subtle), expected);
+	assert.strictEqual(await fp.phraseV2(ORIGIN, CA, point, subtle), expected.join(' '));
+});
+
+test('v2: the point is the 65-byte uncompressed key, exactly as the Mac stores it', () => {
+	const { jwk, raw } = freshPoint();
+	assert.strictEqual(fp.pointFromJwk(jwk), raw.toString('base64url'));
+	assert.strictEqual(raw.length, 65);
+	assert.throws(() => fp.pointFromJwk({ kty: 'RSA' }), /P-256/);
+});
+
+test('v2: a relay (another origin) and an intruder (another key) each change the words; v1 changed for neither', async () => {
+	const phone = fp.pointFromJwk(freshPoint().jwk);
+	const intruder = fp.pointFromJwk(freshPoint().jwk);
+	const atTheMac = await fp.phraseV2(ORIGIN, CA, phone, subtle);
+	assert.notStrictEqual(await fp.phraseV2('https://evil.example', CA, phone, subtle), atTheMac, 'a relayed pairing shows the same words');
+	assert.notStrictEqual(await fp.phraseV2(ORIGIN, CA, intruder, subtle), atTheMac, 'an intruder\'s key shows the same words');
+	// The finding, for contrast: the old words are a function of the hash alone.
+	assert.strictEqual(fp.phraseFromHex(CA), fp.phraseFromHex(CA));
+});

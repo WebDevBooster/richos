@@ -16,6 +16,10 @@
 // standing in front of. Forty-eight bits of preimage resistance is far beyond what that check needs,
 // and a twelve-word fingerprint nobody reads would be worth less than six he does.
 //
+// THAT IS v1, AND A PHONE THAT PAIRS WITH THIS FILE NO LONGER SHOWS IT. Sage's pairing review F2
+// (2026-09-24) found the hash alone binds nothing about the connection, so the words this app
+// shows are v2 — see `wordsV2` below — and v1 stays only for reading the corpus's old vectors.
+//
 // THE WORDS ARE COMPUTED HERE, ON THE PHONE, FROM THE HASH — never taken from the Mac as words.
 // The Mac sends the hexadecimal fingerprint and this file renders it. That ordering matters: if the
 // Mac sent pretty words, a Mac that wanted to could send words that do not belong to the certificate
@@ -69,5 +73,89 @@
 		return wordsFromHex(text, count).join(' ');
 	}
 
-	return { WORD_COUNT, WORDS, bytesFromHex, wordsFromBytes, wordsFromHex, phraseFromHex };
+	// ---- v2, `pair-v2` — Sage's pairing review F2, 2026-09-24 ----------------------------------
+	//
+	// THE v1 WORDS ABOVE BIND NOTHING ABOUT THE CONNECTION. They are a function of the hash the
+	// answering server STATES, so a relay that forwards the pairing to the real Mac gets the real
+	// hash and the words match (Tom's X-2). v2 hashes three things with a label in front:
+	//
+	//     SHA-256("RICHCONNECT-PAIR-V2\n" + origin + "\n" + ca_fingerprint_sha256 + "\n" + point)
+	//
+	//   origin  the origin THIS PHONE DIALED, as `new URL(...).origin` writes it — never one the
+	//           Mac advertised. A relay is a different origin, so its words differ.
+	//   ca_fingerprint_sha256  the pair answer's field, byte for byte as the Mac sent it.
+	//   point   this phone's own public key, the 65-byte uncompressed point, base64url, no padding.
+	//           The Mac hashes the key IT REGISTERED, so an intruder who redeemed the code first
+	//           makes the Mac's words differ from these.
+	//
+	// The Mac computes the same thing over its own origin and the key it holds
+	// (`app/src-tauri/src/phone/words.rs`), and the conformance corpus holds the two together.
+	// A v2 phone NEVER falls back to v1: a relay can strip a capability (review §3.5).
+
+	const PAIR_V2_LABEL = 'RICHCONNECT-PAIR-V2';
+
+	/// `https://host[:port]`, lowercase, default port omitted — `URL.origin`'s own rule, which the
+	/// Mac's `normalize_origin` mirrors. Anything that is not an https origin is refused rather than
+	/// hashed, because a phrase over a malformed origin is a phrase nobody can reproduce.
+	function normalizeOrigin(text) {
+		let url;
+		try { url = new URL(String(text)); } catch { throw new Error('that is not an address this phone can use'); }
+		if (url.protocol !== 'https:') throw new Error('pairing needs an https address');
+		return url.origin;
+	}
+
+	function b64urlOf(bytes) {
+		let binary = '';
+		for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+		const b64 = typeof btoa === 'function' ? btoa(binary) : Buffer.from(binary, 'binary').toString('base64');
+		return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+	}
+
+	function bytesOfB64url(text) {
+		const b64 = String(text).replace(/-/g, '+').replace(/_/g, '/');
+		const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+		const binary = typeof atob === 'function' ? atob(padded) : Buffer.from(padded, 'base64').toString('binary');
+		const out = new Uint8Array(binary.length);
+		for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+		return out;
+	}
+
+	/// The uncompressed point, base64url, from the JWK WebCrypto exports: `04 || x || y`. The same
+	/// value the Mac stores as the device's `public_key`.
+	function pointFromJwk(jwk) {
+		if (!jwk || jwk.kty !== 'EC' || jwk.crv !== 'P-256') throw new Error('a device key must be an EC P-256 key');
+		const x = bytesOfB64url(jwk.x);
+		const y = bytesOfB64url(jwk.y);
+		if (x.length !== 32 || y.length !== 32) throw new Error('a P-256 key has 32-byte coordinates');
+		const point = new Uint8Array(65);
+		point[0] = 4;
+		point.set(x, 1);
+		point.set(y, 33);
+		return b64urlOf(point);
+	}
+
+	/// The exact text a v2 phrase is the hash of. Exported so a test can pin it byte for byte.
+	function v2Input(origin, caFingerprintSha256, devicePointB64url) {
+		if (typeof caFingerprintSha256 !== 'string' || !caFingerprintSha256) throw new Error('the Mac sent no fingerprint');
+		if (typeof devicePointB64url !== 'string' || !devicePointB64url) throw new Error('this phone has no key to name');
+		return `${PAIR_V2_LABEL}\n${normalizeOrigin(origin)}\n${caFingerprintSha256}\n${devicePointB64url}`;
+	}
+
+	/// The v2 six words. `subtle` is WebCrypto's (`crypto.subtle` in the page, `webcrypto.subtle`
+	/// in Node); the digest is asynchronous there, so this is too.
+	async function wordsV2(origin, caFingerprintSha256, devicePointB64url, subtle) {
+		const engine = subtle || (typeof crypto !== 'undefined' && crypto.subtle);
+		if (!engine) throw new Error('this browser cannot compute the six words');
+		const input = new TextEncoder().encode(v2Input(origin, caFingerprintSha256, devicePointB64url));
+		return wordsFromBytes(new Uint8Array(await engine.digest('SHA-256', input)));
+	}
+
+	async function phraseV2(origin, caFingerprintSha256, devicePointB64url, subtle) {
+		return (await wordsV2(origin, caFingerprintSha256, devicePointB64url, subtle)).join(' ');
+	}
+
+	return {
+		WORD_COUNT, WORDS, bytesFromHex, wordsFromBytes, wordsFromHex, phraseFromHex,
+		PAIR_V2_LABEL, normalizeOrigin, pointFromJwk, v2Input, wordsV2, phraseV2
+	};
 });
