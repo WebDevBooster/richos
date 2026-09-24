@@ -52,6 +52,14 @@ class RichApplication : Application() {
         AttachmentPicker(stager, { store.dispatch(it) }, { foreground?.get() as? ComponentActivity }, scope, AttachmentPicker.capturesDir(this))
     }
 
+    /**
+     * Activities of this app started (on screen) right now. The stream to the Mac is open only
+     * while this is above zero: in the background a reply arrives as a push, never over a socket
+     * kept alive for it (the iPhone's rule; an Android phone flags an app that refreshes in the
+     * background as "power-intensive").
+     */
+    private var started = 0
+
     /** The live connection's owner; null until the production core has opened, and in a dev world. */
     @Volatile
     var owner: ConnectionOwner? = null
@@ -93,7 +101,8 @@ class RichApplication : Application() {
                     if (core.state.microphone != os && !(os == Microphone.UNKNOWN && core.state.microphone == Microphone.DENIED)) {
                         core.dispatch(Action.MicrophonePermission(os))
                     }
-                    val connection = ConnectionOwner(core, MacApi(ports.http, ports.keys), wire)
+                    // A process a push started has nothing on screen: no stream until an activity starts.
+                    val connection = ConnectionOwner(core, MacApi(ports.http, ports.keys), wire, foreground = started > 0)
                     owner = connection
                     scope.launch { connection.run() }
                     // The network came back: reconnect now, not at the end of a back-off.
@@ -113,7 +122,8 @@ class RichApplication : Application() {
                 // Coming back to the foreground fires a pending reconnect at once (web/lib/link.js),
                 // and picks up notifications allowed again in Android Settings meanwhile.
                 override fun onActivityStarted(activity: Activity) {
-                    owner?.wake()
+                    started++
+                    owner?.foregrounded()
                     val now = store.states.value ?: return
                     push?.let { p -> scope.launch { p.reconcile(now.notifications.status, now.notifications.previews) } }
                 }
@@ -128,7 +138,12 @@ class RichApplication : Application() {
                 }
 
                 override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
-                override fun onActivityStopped(activity: Activity) = Unit
+                // The last activity left the screen: close the stream and stop retrying. A rotation
+                // stops and restarts the activity at once; that is not leaving.
+                override fun onActivityStopped(activity: Activity) {
+                    started = (started - 1).coerceAtLeast(0)
+                    if (started == 0 && !activity.isChangingConfigurations) owner?.backgrounded()
+                }
                 override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
                 override fun onActivityDestroyed(activity: Activity) = Unit
             },

@@ -1,9 +1,11 @@
 package dev.richos.android.platform
 
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import android.security.keystore.StrongBoxUnavailableException
 import dev.richos.android.core.protocol.DeviceKeys
+import dev.richos.android.core.protocol.MissingIdentity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.math.BigInteger
@@ -41,9 +43,14 @@ class KeystoreKeys(private val vault: KeyVault = AndroidKeystoreVault()) : Devic
     }
 
     override suspend fun sign(origin: String, data: ByteArray): ByteArray = withContext(Dispatchers.IO) {
-        val key = vault.privateKey(aliasFor(origin)) ?: throw java.io.IOException("no identity for $origin; pair again")
+        val key = vault.privateKey(aliasFor(origin)) ?: throw MissingIdentity(origin)
         Signature.getInstance("SHA256withECDSA").run {
-            initSign(key)
+            try {
+                initSign(key)
+            } catch (e: KeyPermanentlyInvalidatedException) {
+                // The Keystore keeps the alias but will never sign with it again: no identity.
+                throw MissingIdentity(origin)
+            }
             update(data)
             sign()
         }

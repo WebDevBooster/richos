@@ -92,6 +92,7 @@ import dev.richos.android.ui.overlays.SixWords
 import dev.richos.android.ui.overlays.UpdateBanner
 import dev.richos.android.ui.overlays.UpdateDialog
 import dev.richos.android.ui.overlays.UpdateRequired
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -195,29 +196,63 @@ private fun Overlays(model: ScreenModel, onEvent: (UiEvent) -> Unit) {
 @Composable
 private fun withVoiceClock(model: ScreenModel, onEvent: (UiEvent) -> Unit): ScreenModel {
     if (model.voiceMomentMs != null) return model
-    val v = model.app.voice ?: return model
-    val ending = v.phase == CorePhase.ENDING && (v.ending == VoiceEnding.SENT || v.ending == VoiceEnding.CANCELED)
+    val shown = withTooShortLine(model)
+    val v = model.app.voice ?: return shown
+    // EVERY ending is settled, as the iPhone's `VoiceClock.endDurationMs` settles each: an ending
+    // left unsettled keeps core's recording alive, so the microphone refuses the next press.
+    val ending = v.phase == CorePhase.ENDING
     val locking = v.phase == CorePhase.LOCKED
     val key = "${v.id}:${v.phase}:${v.ending}"
     val clock = remember(key) { Animatable(0f) }
     val length = when {
         ending && v.ending == VoiceEnding.SENT -> RichMotion.SEND_IDLE_AT
+        ending && v.ending == VoiceEnding.TOO_SHORT -> TOO_SHORT_SETTLE_MS
+        ending && v.ending == VoiceEnding.CEILING -> CEILING_SETTLE_MS
         ending && v.wasLocked -> RichMotion.LOCKED_CANCEL_IDLE_AT
         ending -> RichMotion.BIN_IDLE_AT
         locking -> 450
         else -> 0
     }
+    // Too short and the ceiling draw no transition (ScreenModel.voice: the circle is already back,
+    // the line or the card explains), so they wait without drawing a frame.
+    val drawn = !(ending && (v.ending == VoiceEnding.TOO_SHORT || v.ending == VoiceEnding.CEILING))
     LaunchedEffect(key) {
         if (length > 0) {
-            clock.animateTo(length.toFloat(), tween(length, easing = LinearEasing))
+            if (drawn) clock.animateTo(length.toFloat(), tween(length, easing = LinearEasing)) else delay(length.toLong())
             if (ending) onEvent(UiEvent.VoiceSettled)
         }
     }
     return when {
-        ending -> model.copy(voiceMomentMs = clock.value.toInt())
-        locking && clock.value < length -> model.copy(voiceMomentMs = clock.value.toInt())
-        else -> model
+        ending && drawn -> shown.copy(voiceMomentMs = clock.value.toInt())
+        locking && clock.value < length -> shown.copy(voiceMomentMs = clock.value.toInt())
+        else -> shown
     }
+}
+
+/** The iPhone's settle times for the endings that draw nothing (`VoiceClock.endDurationMs`). */
+private const val TOO_SHORT_SETTLE_MS = 150
+private const val CEILING_SETTLE_MS = 200
+
+/**
+ * "Hold the button while you speak." stays its full [RichMotion.TOO_SHORT_LINE_MS] (round 12:
+ * one calm line, then it goes) although core clears its toast when the ending settles, 150 ms in,
+ * so the microphone is free again at once. A new recording takes its place. Nothing here decides:
+ * it only keeps a line on screen that core already said.
+ */
+@Composable
+private fun withTooShortLine(model: ScreenModel): ScreenModel {
+    val v = model.app.voice
+    val tooShort = v?.takeIf { it.phase == CorePhase.ENDING && it.ending == VoiceEnding.TOO_SHORT }?.id
+    var line by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(tooShort) { if (tooShort != null) line = tooShort }
+    LaunchedEffect(line) {
+        if (line != null) {
+            delay(RichMotion.TOO_SHORT_LINE_MS.toLong())
+            line = null
+        }
+    }
+    val showing = line != null && (v == null || v.id == line) && model.app.toast == null && model.localNotice == null
+    return if (showing) model.copy(localNotice = dev.richos.android.ui.model.InlineNotice.TooShort) else model
 }
 
 /** The conversation screen: header, thread, Latest pill, and the composer zone above the keyboard. */

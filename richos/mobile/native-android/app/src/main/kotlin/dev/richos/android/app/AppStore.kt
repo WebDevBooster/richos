@@ -4,6 +4,8 @@ import dev.richos.android.core.Action
 import dev.richos.android.core.AppState
 import dev.richos.android.core.CoreError
 import dev.richos.android.core.RichCore
+import dev.richos.android.core.VoicePhase
+import dev.richos.android.core.VoiceSession
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -48,10 +50,15 @@ class AppStore(private val scope: CoroutineScope) {
         // runs out, a drain (`sync`) sends what is owed, so a failed send is retried with nobody
         // pressing Try now (the PWA's `scheduleOutboxDrain`, app.js). Every new state restarts the
         // wait, so there is only ever one.
+        //
+        // Nothing else wakes it: an idle screen gets no state and so draws no frame. A recording that
+        // has ENDED is not running: its end plays on the screen's own clock, and a tick then would
+        // only restamp the time, a new state ten times a second for as long as the ending stayed
+        // unsettled (measured 2026-09-24: forever after a tap on the microphone, AppStoreIdleTest).
         scope.launch {
             states.collectLatest { s ->
                 if (s == null) return@collectLatest
-                val tick = if (s.voice != null) VOICE_TICK_MS else s.connection.noticeDueInMs
+                val tick = if (s.voice?.let(::running) == true) VOICE_TICK_MS else s.connection.noticeDueInMs
                 val owed = outboxOwedInMs(s)
                 val due = listOfNotNull(tick, owed).minOrNull() ?: return@collectLatest
                 delay(due)
@@ -139,5 +146,8 @@ class AppStore(private val scope: CoroutineScope) {
 
     companion object {
         const val VOICE_TICK_MS = 100L
+
+        /** A recording the core still needs time for: the press delay, the timer, the ceiling. */
+        fun running(voice: VoiceSession): Boolean = voice.phase != VoicePhase.ENDING
     }
 }
