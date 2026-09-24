@@ -84,9 +84,14 @@ struct ScreenView: View {
             let small = root.size.width < 380 || root.size.height < 700
             ZStack(alignment: .top) {
                 GroundBackground()
-                conversation(root: root, safeTop: safeTop)
-                    .accessibilityHidden(model.takeover != nil || model.dialog != nil || model.scanner != nil
-                                         || model.attach.viewer != nil)
+                // A takeover REPLACES the conversation, as Android's RichApp draws one or the other
+                // (`RichApp.kt` `when`: a pairing step, removed, a required update, else `Conversation`).
+                // Drawn beneath the opaque takeover and only marked hidden, the empty conversation, the
+                // message field, Attach and Record stayed in VoiceOver's tree on first launch (I01).
+                if model.takeover == nil {
+                    conversation(root: root, safeTop: safeTop)
+                        .accessibilityHidden(model.dialog != nil || model.scanner != nil || model.attach.viewer != nil)
+                }
                 if let dialog = model.dialog {
                     DialogView(dialog: dialog, send: send)
                         .transition(.opacity)
