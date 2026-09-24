@@ -25,6 +25,17 @@ public final class AppStore {
     @ObservationIgnored private var deferred: [Action] = []
     @ObservationIgnored private var foreground = true
     public private(set) var savingSend = false
+    @ObservationIgnored private var completionActive = false
+    @ObservationIgnored private var completionReservation: Int64?
+    @ObservationIgnored private var completionSpent = false
+    @ObservationIgnored private var completionExpired = false
+    @ObservationIgnored private var completionIDs: Set<String> = []
+    @ObservationIgnored private var completionRequests = 0
+    @ObservationIgnored private var completionBytes = 0
+    @ObservationIgnored private var completionDeadline: Task<Void, Never>?
+    @ObservationIgnored private var deliveryTask: Task<[Action], Never>?
+    @ObservationIgnored private var delivering: OutboxItem?
+
 
     #if DEBUG
     /// Development only: a fixture is a still frame. After the bridge's `fixture` or `reset`, the
@@ -114,7 +125,9 @@ public final class AppStore {
     public func apply(_ action: Action) -> Task<Void, Never> {
         if case .sendDraft = action { performance("send-requested") }
         switch action {
-        case .backgrounded: foreground = false
+        case .backgrounded:
+            foreground = false
+            startCompletionDeadline()
         case .foregrounded: foreground = true
         default: break
         }
@@ -277,17 +290,88 @@ public final class AppStore {
                 return false
             }
             if !foreground {
-                for effect in eligible {
-                    if case .deliver(let id) = effect {
-                        apply(.deliveryFailed(clientID: id, failure: .retryable(reason: "background", afterMs: 0), at: SystemClock().nowMs()))
-                    }
-                }
-                eligible.removeAll {
-                    switch $0 { case .deliver, .connect, .loadOlder: return true; default: return false }
-                }
+                eligible.removeAll { switch $0 { case .connect, .loadOlder: return true; default: return false } }
             }
-            guard let followUps = try? await runner.run(eligible, state: snapshot) else { return }
-            for action in followUps { apply(action) }
+            for effect in eligible {
+                let followUps: [Action]
+                if case .deliver(let id) = effect {
+                    followUps = await deliver(id, snapshot: snapshot)
+                } else {
+                    followUps = (try? await runner.run([effect], state: snapshot)) ?? []
+                }
+                for action in followUps { apply(action) }
+            }
+            if completionActive, deliveryTask == nil, !state.outbox.contains(where: { $0.state == .sending }) {
+                await finishCompletion()
+            }
         }
     }
+    private static func completionCost(_ item: OutboxItem) -> Int {
+        item.kind == .text ? (item.body?.utf8.count ?? 256 * 1024) + 4096 : 256 * 1024 + 1
+    }
+
+    private func startCompletionDeadline() {
+        guard completionActive else { return }
+        if completionExpired { deliveryTask?.cancel(); return }
+        guard completionDeadline == nil else { return }
+        completionSpent = true
+        completionIDs = Set(state.outbox.map(\.clientID))
+        if let item = delivering {
+            completionRequests += 1
+            completionBytes += Self.completionCost(item)
+        }
+        if completionReservation == nil || completionBytes > 256 * 1024 {
+            completionExpired = true
+            deliveryTask?.cancel()
+            return
+        }
+        completionDeadline = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(5)) } catch { return }
+            guard let self else { return }
+            self.completionExpired = true
+            if !self.foreground { self.deliveryTask?.cancel() }
+        }
+    }
+
+    private func deliver(_ id: String, snapshot: AppState) async -> [Action] {
+        guard let item = snapshot.outbox.first(where: { $0.clientID == id }) else { return [] }
+        if !completionActive, foreground {
+            completionActive = true
+            completionReservation = await runner.reserveCompletion()
+        }
+        if !foreground {
+            guard completionReservation != nil, !completionExpired, completionIDs.contains(id),
+                  completionRequests < 3, Self.completionCost(item) <= 256 * 1024 - completionBytes else {
+                return [.deliveryFailed(clientID: id, failure: .retryable(reason: "background-budget", afterMs: 0), at: SystemClock().nowMs())]
+            }
+            completionRequests += 1
+            completionBytes += Self.completionCost(item)
+        }
+        delivering = item
+        let task = Task { [runner] in (try? await runner.run([.deliver(clientID: id)], state: snapshot)) ?? [] }
+        deliveryTask = task
+        let actions = await task.value
+        deliveryTask = nil
+        delivering = nil
+        // A cancelled adapter may have no result. Preserve the durable entry as waiting.
+        if task.isCancelled, actions.isEmpty {
+            return [.deliveryFailed(clientID: id, failure: .retryable(reason: "background-budget", afterMs: 0), at: SystemClock().nowMs())]
+        }
+        return actions
+    }
+
+    private func finishCompletion() async {
+        let refund = completionSpent ? nil : completionReservation
+        completionDeadline?.cancel()
+        completionDeadline = nil
+        completionActive = false
+        completionReservation = nil
+        completionSpent = false
+        completionExpired = false
+        completionIDs = []
+        completionRequests = 0
+        completionBytes = 0
+        if let refund { await runner.refundCompletion(refund) }
+    }
+
 }

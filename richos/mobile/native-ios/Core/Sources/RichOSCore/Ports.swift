@@ -114,6 +114,29 @@ public actor EffectRunner {
         self.handler = handler
     }
 
+    /// Reservations survive process death. Foreground-only completion refunds its reservation.
+    /// Six five-second leases/hour and 24/day, retained on clock rollback or interrupted writes.
+    public func reserveCompletion() async -> Int64? {
+        do {
+            let data = try await storage.read("completion-budget.json")
+            let saved = try data.map { try CoreJSON.decode([Int64].self, from: $0) } ?? []
+            let now = clock.nowMs()
+            let retained = saved.filter { now - $0 < 86_400_000 }
+            guard retained.count < 24, retained.filter({ now - $0 < 3_600_000 }).count < 6 else { return nil }
+            let token = max(now, (retained.max() ?? (now - 1)) + 1)
+            try await storage.write("completion-budget.json", try CoreJSON.encode(retained + [token]))
+            return token
+        } catch { return nil } // Optional continuation cannot prevent ordinary foreground delivery.
+    }
+
+    public func refundCompletion(_ token: Int64) async {
+        do {
+            guard let data = try await storage.read("completion-budget.json") else { return }
+            let saved = try CoreJSON.decode([Int64].self, from: data)
+            try await storage.write("completion-budget.json", try CoreJSON.encode(saved.filter { $0 != token }))
+        } catch { /* Conservatively keep the spent reservation. No timed disk retries. */ }
+    }
+
     /// Runs the effects in order and returns the actions their answers produced, in order.
     @discardableResult
     public func run(_ effects: [Effect], state: AppState) async throws -> [Action] {

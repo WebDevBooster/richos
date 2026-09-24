@@ -86,6 +86,7 @@ public actor APIClient {
         // After a relaunch no challenge is held: the probe asks for one (contract §5.7).
         if challenge == nil { try await probeChallenge() }
         while true {
+            try Task.checkCancellation()
             guard let current = challenge else { throw APIError(reason: .fault, status: 0, retryable: true, aboutThisMessage: false) }
             let request = try await signedRequest(method, pathWithQuery, body: body, contentType: contentType, credential: credential)
             let response: HTTPResponse
@@ -107,6 +108,7 @@ public actor APIClient {
     /// `GET /api/challenge`: unsigned, its status ignored, its header taken (contract §5.7).
     @discardableResult
     public func probeChallenge() async throws -> String {
+        try Task.checkCancellation()
         let response: HTTPResponse
         do {
             response = try await transport.send(HTTPRequest(method: "GET", target: "/api/challenge"), origin: origin)
