@@ -9,7 +9,7 @@ public protocol EventStreamTransport: Sendable {
 /// The one owner of the live stream (build plan §3.2; T3's single connection owner, adoption ledger
 /// §2.8 C1, written for RichOS's signed HTTP + SSE). One stream at a time; a superseded attempt never
 /// publishes; retries wait 1 s doubling to 30 s (the reference `web/web-app/lib/link.js`) and the wait
-/// resets once a frame proves the stream usable; before a retry the challenge is refreshed; after a
+/// resets when a stream opens, which is also when the phone is connected; before a retry the challenge is refreshed; after a
 /// failure a revocation probe tells "removed from the Mac" from "unreachable"; `: re-snapshot` ends
 /// the stream and the next one starts without `since`. Everything the stream learns reaches the
 /// store as actions, so the reducer stays the only place state changes.
@@ -32,6 +32,10 @@ public actor LiveConnection {
     private var lastFrameID: Int?
     private var task: Task<Void, Never>?
     private var generation = 0
+    /// Once stopped, never started again: a new connection is a new owner. A `stop` that reaches
+    /// this actor before the `start` it followed (the app left the screen while the owner was being
+    /// made) must still win.
+    private var stopped = false
     public private(set) var attempts = 0
 
     public static let firstRetryMs: Int64 = 1000
@@ -46,13 +50,14 @@ public actor LiveConnection {
     }
 
     public func start() {
-        guard task == nil else { return }
+        guard task == nil, !stopped else { return }
         generation += 1
         let mine = generation
         task = Task { await self.run(mine) }
     }
 
     public func stop() {
+        stopped = true
         generation += 1
         task?.cancel()
         task = nil
@@ -75,7 +80,10 @@ public actor LiveConnection {
         var since: Int?
         var first = true
         while mine == generation, !Task.isCancelled {
-            if !first { _ = try? await api.probeChallenge() }
+            // A retry asks for a live challenge first (link.js rule 2). So does a first attempt with
+            // none held: after a relaunch none is stored, and signing needs one.
+            let held = await api.challenge
+            if !first || held == nil { _ = try? await api.probeChallenge() }
             first = false
             attempts += 1
             var path = "/api/events"
@@ -85,8 +93,7 @@ public actor LiveConnection {
             if !query.isEmpty { path += "?" + query.joined(separator: "&") }
             var resnapshot = false
             do {
-                let request = try await api.signedRequest("GET", path, credential: .query)
-                let (response, bytes) = try await stream.open(request, origin: api.origin)
+                let (response, bytes) = try await openSigned(path)
                 if response.status != 200 {
                     if response.status == 403, APIClient.classify(response).reason == .revoked {
                         await sink(.pairingRevoked)
@@ -94,6 +101,14 @@ public actor LiveConnection {
                     }
                     throw APIClient.classify(response)
                 }
+                guard mine == generation else { return }
+                // The stream is up when it opens: a 200 is a signature the Mac accepted. A reconnect
+                // with `since` is answered with only the frames it missed and no `hello` (the Mac's
+                // `Replay::Tail`, often empty), so waiting for a `hello` left "Reconnecting…" on a
+                // healthy stream (Sage's review T9). The reference's `accepted()`
+                // (`web/web-app/lib/link.js`) and Android's `Link(OPEN)`; it resets the back-off too.
+                delay = Self.firstRetryMs
+                await sink(.connected(at: clock.nowMs()))
                 var parser = SSEParser()
                 for try await chunk in bytes {
                     guard mine == generation else { return }
@@ -128,6 +143,30 @@ public actor LiveConnection {
         }
     }
 
+    /// Opens the stream signed with the challenge held. Every answer's `X-RichOS-Challenge` replaces
+    /// the held one (the Mac puts one on every response, 404 included: `phone/listen.rs` `render`).
+    /// A 404 offering a DIFFERENT challenge is the held one aged out — ten minutes
+    /// (`mobile/service/CONNECT.md`), so the usual case after the phone sat in a pocket — and is
+    /// re-signed with it and opened once more at once: the contract's once-only re-sign
+    /// (`conformance/vectors/challenge.json`, `APIClient.signed`), with no back-off wait in front of
+    /// the person who just came back. A fresh challenge costs nothing extra; only a stale one costs
+    /// the second request, which a probe before every return would cost every time.
+    private func openSigned(_ path: String) async throws -> (response: HTTPResponse, bytes: AsyncThrowingStream<Data, Error>) {
+        var resigned = false
+        while true {
+            let signedWith = await api.challenge
+            let request = try await api.signedRequest("GET", path, credential: .query)
+            let (response, bytes) = try await stream.open(request, origin: api.origin)
+            let offered = response.header("X-RichOS-Challenge")
+            if let offered { await api.adopt(challenge: offered) }
+            if response.status == 404, !resigned, let offered, offered != signedWith {
+                resigned = true
+                continue
+            }
+            return (response, bytes)
+        }
+    }
+
     /// After a stream error: `before=0&limit=1` on the same route answers 403 `{"revoked":true}`
     /// only when this phone was removed (the reference's revocation probe, corpus signing.json).
     private func probeRevoked() async -> Bool {
@@ -144,7 +183,6 @@ public actor LiveConnection {
             let hello = try CoreJSON.decode(StreamHello.self, from: Data(event.data.utf8))
             if let challenge = hello.challenge { await api.adopt(challenge: challenge) }
             if threadID == nil, let thread = hello.threadID { threadID = thread; model.selectedThread = thread }
-            await sink(.connected(at: clock.nowMs()))
             // An older Mac advertises nothing; only an explicit list without "text" means it cannot
             // take text (the preserved client's `!negotiated || offers('text')`).
             if let capabilities = hello.capabilities, !capabilities.isEmpty {

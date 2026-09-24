@@ -15,6 +15,12 @@ public actor NetworkEffects: EffectHandler {
     private var sink: LiveConnection.Sink?
     private var api: APIClient?
     private var live: LiveConnection?
+    /// The app's latest word on the live stream. Every `connect` and `disconnect` (and a confirmed
+    /// pairing, which connects) takes the next number. A connect that had to wait for the Keychain
+    /// lets this actor take other effects meanwhile, so it goes ahead only if nothing was said after
+    /// it: a `disconnect` that arrived in the wait wins (no stream in the background), and two
+    /// connects make one owner, never an orphaned second stream no `disconnect` can reach.
+    private var lifecycle = 0
     /// The APNs token (lowercase hex) and whether this build uses the sandbox, from the app.
     private var pushToken: (hex: String, sandbox: Bool)?
     /// Registration waits for the token when the person turned notifications on before iOS gave one.
@@ -203,15 +209,22 @@ public actor NetworkEffects: EffectHandler {
     }
 
     private func startLive(_ state: AppState) async {
-        guard live == nil, state.pairing == .paired, let sink, let api = await client(for: state) else { return }
+        lifecycle += 1
+        let mine = lifecycle
+        guard live == nil, state.pairing == .paired, let sink, let api = await client(for: state),
+              mine == lifecycle, live == nil else { return }
         let connection = LiveConnection(api: api, stream: stream, threadID: state.mac?.threadID, clock: clock, sleep: sleep, sink: sink)
         live = connection
         await connection.start()
     }
 
+    /// Forgets the owner BEFORE waiting for it to stop, so a `connect` taken during the wait starts
+    /// a new one instead of finding the old one still recorded and doing nothing.
     private func stopLive() async {
-        await live?.stop()
+        lifecycle += 1
+        let ending = live
         live = nil
+        await ending?.stop()
     }
 }
 

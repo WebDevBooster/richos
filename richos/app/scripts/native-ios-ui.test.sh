@@ -25,7 +25,7 @@
 # on a capable host is red.
 # run-tests: no-host-screen: simctl and XCUITest run on simulators this suite creates, booted headless without Simulator.app
 # run-tests: inputs richos/app/scripts/lib/simulator_budget.py richos/app/scripts/native-ios-ui.test.sh richos/app/scripts/lib/ios_ui_shards.py richos/engine/scripts/lib/worker_tokens.py richos/mobile/native-ios/App/Design richos/mobile/native-ios/App/Features richos/mobile/native-ios/UITests richos/mobile/native-ios/UnitTests richos/mobile/native-ios/Core/Sources/RichOSCore richos/mobile/native-ios/Core/Sources/RichOSFixtures richos/mobile/native-ios/project.yml richos/engine/scripts/lib/proc_tree.py richos/engine/scripts/lib/testdevices.py richos/app/scripts/testvm/reserve.py richos/mobile/native-ios/App/App/ShareIntake.swift richos/mobile/native-ios/App/Platform/Shared/PlatformIdentity.swift
-# run-tests: covers richos/app/scripts/lib/ios_ui_shards.py richos/mobile/native-ios/App/Design/Palette.swift richos/mobile/native-ios/App/Design/RoundSpec.swift richos/mobile/native-ios/App/Features/Conversation/PulseSchedule.swift richos/mobile/native-ios/App/Design/Typography.swift richos/mobile/native-ios/App/Design/Motion.swift richos/mobile/native-ios/App/Design/SVGPath.swift richos/mobile/native-ios/App/Design/Icons.swift richos/mobile/native-ios/App/Design/Mark.swift richos/mobile/native-ios/App/Design/Components.swift richos/mobile/native-ios/App/Features/Root/ScreenModel.swift richos/mobile/native-ios/App/Features/Root/Intent.swift richos/mobile/native-ios/App/Features/Root/RootView.swift richos/mobile/native-ios/App/Features/Conversation/Rows.swift richos/mobile/native-ios/App/Features/Conversation/VoiceBubble.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptView.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptViewportGeometry.swift richos/mobile/native-ios/App/Features/Conversation/ConversationChrome.swift richos/mobile/native-ios/App/Features/Composer/ComposerView.swift richos/mobile/native-ios/App/Features/Voice/VoiceChrome.swift richos/mobile/native-ios/App/Features/Voice/TooShortLine.swift richos/mobile/native-ios/App/Features/Pairing/Takeovers.swift richos/mobile/native-ios/App/Features/Pairing/Scanner.swift richos/mobile/native-ios/App/Features/Pairing/PairingLinkSheet.swift richos/mobile/native-ios/App/Features/Settings/Overlays.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentModel.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentViews.swift richos/mobile/native-ios/App/Features/Attachments/PhotoScene.swift richos/mobile/native-ios/UITests/Support.swift richos/mobile/native-ios/UITests/ScreenshotTests.swift richos/mobile/native-ios/UITests/InteractionTests.swift richos/mobile/native-ios/UITests/AccessibilityLayoutTests.swift richos/mobile/native-ios/UnitTests/TranscriptViewportGeometryTests.swift richos/mobile/native-ios/UnitTests/ShareIntakeTests.swift richos/mobile/native-ios/UnitTests/TooShortLineTests.swift richos/mobile/native-ios/App/App/ShareIntake.swift
+# run-tests: covers richos/app/scripts/lib/ios_ui_shards.py richos/mobile/native-ios/App/Design/Palette.swift richos/mobile/native-ios/App/Design/RoundSpec.swift richos/mobile/native-ios/App/Features/Conversation/PulseSchedule.swift richos/mobile/native-ios/App/Design/Typography.swift richos/mobile/native-ios/App/Design/Motion.swift richos/mobile/native-ios/App/Design/SVGPath.swift richos/mobile/native-ios/App/Design/Icons.swift richos/mobile/native-ios/App/Design/Mark.swift richos/mobile/native-ios/App/Design/Components.swift richos/mobile/native-ios/App/Features/Root/ScreenModel.swift richos/mobile/native-ios/App/Features/Root/Intent.swift richos/mobile/native-ios/App/Features/Root/RootView.swift richos/mobile/native-ios/App/Features/Conversation/Rows.swift richos/mobile/native-ios/App/Features/Conversation/VoiceBubble.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptView.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptViewportGeometry.swift richos/mobile/native-ios/App/Features/Conversation/ConversationChrome.swift richos/mobile/native-ios/App/Features/Composer/ComposerView.swift richos/mobile/native-ios/App/Features/Voice/VoiceChrome.swift richos/mobile/native-ios/App/Features/Voice/TooShortLine.swift richos/mobile/native-ios/App/Features/Pairing/Takeovers.swift richos/mobile/native-ios/App/Features/Pairing/Scanner.swift richos/mobile/native-ios/App/Features/Pairing/PairingLinkSheet.swift richos/mobile/native-ios/App/Features/Settings/Overlays.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentModel.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentViews.swift richos/mobile/native-ios/App/Features/Attachments/PhotoScene.swift richos/mobile/native-ios/UITests/Support.swift richos/mobile/native-ios/UITests/ScreenshotTests.swift richos/mobile/native-ios/UITests/InteractionTests.swift richos/mobile/native-ios/UITests/AccessibilityLayoutTests.swift richos/mobile/native-ios/UnitTests/TranscriptViewportGeometryTests.swift richos/mobile/native-ios/UnitTests/ShareIntakeTests.swift richos/mobile/native-ios/UnitTests/TooShortLineTests.swift richos/mobile/native-ios/App/App/ShareIntake.swift richos/mobile/native-ios/App/Design/SpinSchedule.swift richos/mobile/native-ios/UnitTests/ShareContextMirrorTests.swift
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -284,6 +284,26 @@ do {
     check(abs(P.opacity(elapsed: P.restsAt - 1e-6) - 1) < 1e-6, "pulse meets its rest without a jump")
 }
 
+// The spinners (`.spin` and the Sending mark) follow the dot's rule (Sage's review T4): they turn
+// for at most 10 s, rest where they started, and never turn under Reduce Motion. Before, both looped
+// at full rate for as long as a request lasted.
+do {
+    let S = SpinSchedule.self
+    check(abs(S.restsAt(period: 1) - 10) < 1e-9, "the .spin ring rests after ten whole turns, at 10 s")
+    check(abs(S.restsAt(period: 1.1) - 9.9) < 1e-9, "the Sending mark rests after nine whole turns, at 9.9 s")
+    for period in [1.0, 1.1] {
+        check(S.animates(elapsed: 5, period: period, reduceMotion: false), "a spinner (\(period) s) turns at 5 s")
+        check(!S.animates(elapsed: 10, period: period, reduceMotion: false), "a spinner (\(period) s) asks for no frames at 10 s")
+        check(!S.animates(elapsed: 60, period: period, reduceMotion: false), "a spinner (\(period) s) asks for no frames a minute into a slow request")
+        check(!S.animates(elapsed: 0, period: period, reduceMotion: true), "Reduce Motion: a spinner (\(period) s) never turns")
+        check(S.turn(elapsed: 60, period: period) == 0, "a resting spinner (\(period) s) is where it started")
+        // No jump when it stops: the last frame before rest is a whole turn (within a frame).
+        let last = S.turn(elapsed: S.restsAt(period: period) - 1e-6, period: period)
+        check(last > 0.999, "a spinner (\(period) s) meets its rest without a jump")
+    }
+    check(abs(S.turn(elapsed: 0.25, period: 1) - 0.25) < 1e-9, "the .spin ring turns once a second")
+}
+
 // G11 (Urban's audit): a fixture is a still frame. The app's launch and return-to-front reports go
 // through `receive`, so `conv-retry` keeps its waiting message and its "Waiting to send" card; in a
 // live app the same report still reconnects and tries the outbox at once. Top-level code runs on
@@ -427,6 +447,7 @@ if ! xcrun swiftc -Onone -D DEBUG -module-name RichOSCore -target "$(uname -m)-a
     "$NATIVE/App/Features/Conversation/TranscriptViewportGeometry.swift" \
     "$NATIVE/App/Features/Conversation/PulseSchedule.swift" \
     "$NATIVE/App/Features/Voice/TooShortLine.swift" \
+    "$NATIVE/App/Design/SpinSchedule.swift" \
     "$NATIVE/App/App/AppStore.swift" \
     "$NATIVE/App/Platform/Shared/PlatformIdentity.swift" \
     "$WORK/main.swift" -o "$HEADLESS_BIN" > "$WORK/headless-build.log" 2>&1; then

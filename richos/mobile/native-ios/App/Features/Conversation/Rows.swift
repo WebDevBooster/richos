@@ -398,12 +398,28 @@ struct Meta: View {
     }
 }
 
+/// The "Sending…" mark: one turn every 1.1 s for its first 9.9 s (nine whole turns), then at rest
+/// until the delivery changes (`SpinSchedule`); still under Reduce Motion.
 private struct SpinningIcon: View {
+    static let period: TimeInterval = 1.1
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var appeared = Date()
+    @State private var resting = false
+
     var body: some View {
-        TimelineView(.animation) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            IconView(.ringc, size: 15, weight: 2.4)
-                .rotationEffect(.degrees((t / 1.1).truncatingRemainder(dividingBy: 1) * 360))
+        Group {
+            if resting || !SpinSchedule.animates(elapsed: 0, period: Self.period, reduceMotion: reduceMotion) {
+                IconView(.ringc, size: 15, weight: 2.4)
+            } else {
+                TimelineView(.animation) { context in
+                    IconView(.ringc, size: 15, weight: 2.4)
+                        .rotationEffect(.degrees(SpinSchedule.turn(elapsed: context.date.timeIntervalSince(appeared), period: Self.period) * 360))
+                }
+            }
+        }
+        .task {
+            try? await Task.sleep(nanoseconds: UInt64(SpinSchedule.restsAt(period: Self.period) * 1_000_000_000))
+            if !Task.isCancelled { resting = true }
         }
     }
 }
