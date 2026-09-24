@@ -206,6 +206,22 @@ sealed interface Action {
     @Serializable @SerialName("remove-attachment")
     data class RemoveAttachment(val id: String) : Action
 
+    /** The + menu's Photos, Camera or Files (`att-menu`): the Mac's limits decide, then the platform's picker. */
+    @Serializable @SerialName("pick-attachments")
+    data class PickAttachments(val source: AttachSource) : Action
+
+    /** The platform refused an item before staging it (over the Mac's per-file limit while copying). */
+    @Serializable @SerialName("attach-refused")
+    data class AttachRefused(val name: String, val bytes: Long? = null, val tooLarge: Boolean = true) : Action
+
+    /** The camera permission was refused, or no camera app can take the photo (`att-denied-camera`). */
+    @Serializable @SerialName("attach-permission-denied")
+    data class AttachPermissionDenied(val source: AttachSource) : Action
+
+    /** "Not now" / "Got it" on a photos-and-files card. */
+    @Serializable @SerialName("dismiss-attach-notice")
+    data object DismissAttachNotice : Action
+
     /**
      * Share to Rich from another app (CEO §75): words and/or staged files, sent as one message
      * WITHOUT touching the composer's draft or its pending attachments. [clientId] is chosen by

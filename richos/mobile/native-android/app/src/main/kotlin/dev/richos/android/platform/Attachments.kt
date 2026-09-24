@@ -1,6 +1,8 @@
 package dev.richos.android.platform
 
+import android.Manifest
 import android.content.ContentResolver
+import android.content.pm.PackageManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
@@ -11,10 +13,15 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import dev.richos.android.core.Action
+import dev.richos.android.core.AttachPicker
+import dev.richos.android.core.AttachSource
 import dev.richos.android.core.Attachment
 import dev.richos.android.core.AttachmentLimits
 import dev.richos.android.core.protocol.Signing
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -83,12 +90,26 @@ class Stager(
         val limit = maxFileBytes()
         if (type.startsWith("image/")) {
             // Decoded straight to at most 2,576 px, so memory is bounded by the target, not the source.
-            val bytes = jpeg(uri)
+            val (bytes, w, h) = jpeg(ImageDecoder.createSource(context.contentResolver, uri))
             if (bytes.size > limit) throw Refused(Reason.TOO_LARGE, name, bytes.size.toLong())
-            write(bytes, ImageScale.jpegName(name), "image/jpeg")
+            write(bytes, ImageScale.jpegName(name), "image/jpeg").copy(width = w, height = h)
         } else {
             if (declaredSize != null && declaredSize > limit) throw Refused(Reason.TOO_LARGE, name, declaredSize)
             copy(uri, name, type, limit)
+        }
+    }
+
+    /**
+     * A photo the camera just wrote into this app's own capture folder: scaled like any photo, staged
+     * as [name], and the capture itself deleted. Never a URI another app named (A-2 is about those).
+     */
+    suspend fun stageCapture(capture: File, name: String): Attachment = withContext(Dispatchers.IO) {
+        try {
+            val (bytes, w, h) = jpeg(ImageDecoder.createSource(capture))
+            if (bytes.size > maxFileBytes()) throw Refused(Reason.TOO_LARGE, name, bytes.size.toLong())
+            write(bytes, name, "image/jpeg").copy(width = w, height = h)
+        } finally {
+            capture.delete()
         }
     }
 
@@ -160,8 +181,8 @@ class Stager(
         return Attachment(id = id, name = name, mediaType = type, size = total, sha256 = Signing.hex(digest.digest()))
     }
 
-    private fun jpeg(uri: Uri): ByteArray {
-        val source = ImageDecoder.createSource(context.contentResolver, uri)
+    /** The JPEG bytes and their pixel size. */
+    private fun jpeg(source: ImageDecoder.Source): Triple<ByteArray, Int, Int> {
         val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
             val (w, h) = ImageScale.target(info.size.width, info.size.height)
             decoder.setTargetSize(w, h)
@@ -169,33 +190,59 @@ class Stager(
         }
         return ByteArrayOutputStream().use { out ->
             bitmap.compress(Bitmap.CompressFormat.JPEG, ImageScale.JPEG_QUALITY, out)
+            val size = Triple(out.toByteArray(), bitmap.width, bitmap.height)
             bitmap.recycle()
-            out.toByteArray()
+            size
         }
     }
 }
 
 /**
- * The system photo picker and the document picker, launched from the activity on screen; what the
- * user picks is staged and handed to the core as `attach`, into the composer. The composer's
- * attach control (A2's) calls [pickPhotos] or [pickFiles].
+ * The + menu's three ways in (round 12.1 `att-menu`), as the core's [AttachPicker] port: Android's
+ * Photo Picker (images only, no photo-library permission), the system camera (a photo written into
+ * this app's own capture folder through its FileProvider), and the document picker. What is chosen
+ * is staged and handed to the core as `attach`; the core checks it against the Mac's limits. An item
+ * the phone cannot stage is a card, never a silent drop. Nothing here runs unless the person tapped.
  */
 class AttachmentPicker(
     private val stager: Stager,
     private val dispatch: (Action) -> Unit,
     private val foreground: () -> ComponentActivity?,
     private val scope: CoroutineScope,
-) {
+    /** The camera's scratch folder (cache), emptied as each photo is staged. */
+    private val captures: File,
+    private val main: CoroutineDispatcher = Dispatchers.Main,
+    private val clock: () -> Long = System::currentTimeMillis,
+) : AttachPicker {
     private var serial = 0
 
+    override suspend fun present(source: AttachSource, maxCount: Int) = withContext(main) {
+        when (source) {
+            AttachSource.PHOTOS -> pickPhotos(maxCount)
+            AttachSource.CAMERA -> takePhoto()
+            AttachSource.FILES -> pickFiles()
+        }
+    }
+
+    /** Up to [max] photos, in the order chosen (the Photo Picker takes one, or two to its own limit). */
     fun pickPhotos(max: Int = 10) {
         val activity = foreground() ?: return
-        var launcher: ActivityResultLauncher<PickVisualMediaRequest>? = null
-        launcher = activity.activityResultRegistry.register("richos-photos-${serial++}", ActivityResultContracts.PickMultipleVisualMedia(max)) { uris ->
-            launcher?.unregister()
-            stageAll(uris)
+        val request = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        if (max <= 1) {
+            var launcher: ActivityResultLauncher<PickVisualMediaRequest>? = null
+            launcher = activity.activityResultRegistry.register("richos-photo-${serial++}", ActivityResultContracts.PickVisualMedia()) { uri ->
+                launcher?.unregister()
+                stageAll(listOfNotNull(uri))
+            }
+            launcher.launch(request)
+        } else {
+            var launcher: ActivityResultLauncher<PickVisualMediaRequest>? = null
+            launcher = activity.activityResultRegistry.register("richos-photos-${serial++}", ActivityResultContracts.PickMultipleVisualMedia(max)) { uris ->
+                launcher?.unregister()
+                stageAll(uris)
+            }
+            launcher.launch(request)
         }
-        launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
     }
 
     fun pickFiles() {
@@ -208,11 +255,79 @@ class AttachmentPicker(
         launcher.launch(arrayOf("*/*"))
     }
 
+    /**
+     * The system camera, photo only. The camera permission is asked on this tap and no other; a
+     * refusal, or a phone with no camera app, is round 12.1's camera card (`att-denied-camera`).
+     */
+    fun takePhoto() {
+        val activity = foreground() ?: return
+        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            capture(activity)
+            return
+        }
+        var ask: ActivityResultLauncher<String>? = null
+        ask = activity.activityResultRegistry.register("richos-camera-ok-${serial++}", ActivityResultContracts.RequestPermission()) { ok ->
+            ask?.unregister()
+            if (ok) foreground()?.let(::capture) else dispatch(Action.AttachPermissionDenied(AttachSource.CAMERA))
+        }
+        ask.launch(Manifest.permission.CAMERA)
+    }
+
+    private fun capture(activity: ComponentActivity) {
+        captures.mkdirs()
+        val file = File(captures, "capture-" + UUID.randomUUID() + ".jpg")
+        val uri = runCatching { FileProvider.getUriForFile(activity, activity.packageName + CAPTURE_AUTHORITY, file) }.getOrElse {
+            dispatch(Action.AttachPermissionDenied(AttachSource.CAMERA))
+            return
+        }
+        var launcher: ActivityResultLauncher<Uri>? = null
+        launcher = activity.activityResultRegistry.register("richos-camera-${serial++}", ActivityResultContracts.TakePicture()) { taken ->
+            launcher?.unregister()
+            if (!taken || !file.isFile || file.length() == 0L) {
+                file.delete()
+                return@register
+            }
+            scope.launch {
+                runCatching { stager.stageCapture(file, photoName(clock())) }
+                    .onSuccess { dispatch(Action.Attach(listOf(it))) }
+                    .onFailure { refuse(it, "Photo.jpg") }
+            }
+        }
+        runCatching { launcher.launch(uri) }.onFailure {
+            // No app on this phone can take the photo: the same card, which offers the photos instead.
+            launcher.unregister()
+            file.delete()
+            dispatch(Action.AttachPermissionDenied(AttachSource.CAMERA))
+        }
+    }
+
     private fun stageAll(uris: List<Uri>) {
         if (uris.isEmpty()) return
         scope.launch {
-            val files = uris.mapNotNull { runCatching { stager.stage(it) }.getOrNull() }
+            val files = mutableListOf<Attachment>()
+            for (uri in uris) {
+                runCatching { stager.stage(uri) }.onSuccess { files += it }.onFailure { refuse(it, uri.lastPathSegment?.substringAfterLast('/') ?: "file") }
+            }
             if (files.isNotEmpty()) dispatch(Action.Attach(files))
         }
+    }
+
+    /** What could not be staged becomes a card that names it. */
+    private fun refuse(e: Throwable, fallback: String) {
+        if (e is Stager.Refused && e.reason == Stager.Reason.NOT_ALLOWED) return
+        val name = (e as? Stager.Refused)?.name ?: fallback
+        val tooLarge = e is Stager.Refused && e.reason == Stager.Reason.TOO_LARGE
+        dispatch(Action.AttachRefused(name, (e as? Stager.Refused)?.bytes, tooLarge))
+    }
+
+    companion object {
+        /** The FileProvider the camera writes through (AndroidManifest: `${applicationId}.camera`). */
+        const val CAPTURE_AUTHORITY = ".camera"
+
+        /** `IMG_20260924_021530.jpg`, the phone's local time, as a camera app names a photo. */
+        fun photoName(at: Long): String =
+            "IMG_" + java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date(at)) + ".jpg"
+
+        fun capturesDir(context: Context) = File(context.cacheDir, "camera")
     }
 }

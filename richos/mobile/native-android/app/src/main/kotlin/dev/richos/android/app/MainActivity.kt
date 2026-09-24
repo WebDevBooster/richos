@@ -45,6 +45,9 @@ import dev.richos.android.core.AppState
 import dev.richos.android.core.Theme
 import dev.richos.android.design.phoneTheme
 import dev.richos.android.platform.NotificationTaps
+import dev.richos.android.platform.StagedPhotos
+import dev.richos.android.ui.attach.LocalPhotoPixels
+import androidx.lifecycle.lifecycleScope
 import dev.richos.android.ui.RichApp
 import dev.richos.android.ui.model.ScreenModel
 import dev.richos.android.ui.toAction
@@ -94,7 +97,9 @@ class MainActivity : ComponentActivity() {
                         override fun write(text: String, done: () -> Unit) = store.composeDraft(text, done)
                     }
                 }
-                CompositionLocalProvider(LocalDraftLink provides drafts) {
+                // The photos this phone still holds, drawn with their real pixels (decoded once, on demand).
+                val photos = remember { StagedPhotos(AppPorts.stagedDir(this@MainActivity), lifecycleScope) }
+                CompositionLocalProvider(LocalDraftLink provides drafts, LocalPhotoPixels provides photos::pixels) {
                     RichApp(
                         model,
                         onEvent = { e ->

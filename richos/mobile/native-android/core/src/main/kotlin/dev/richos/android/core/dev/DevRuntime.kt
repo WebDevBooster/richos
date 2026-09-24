@@ -1,6 +1,8 @@
 package dev.richos.android.core.dev
 
 import dev.richos.android.core.Action
+import dev.richos.android.core.AttachPicker
+import dev.richos.android.core.AttachSource
 import dev.richos.android.core.AppState
 import dev.richos.android.core.Clock
 import dev.richos.android.core.ComposerAction
@@ -173,6 +175,12 @@ class DevRuntime private constructor(
                 override suspend fun openAppStore() = log("open:app-store")
                 override suspend fun openSupport() = log("open:support")
                 override suspend fun openPrivacyPolicy() = log("open:privacy-policy")
+            },
+            picker = object : AttachPicker {
+                override suspend fun present(source: AttachSource, maxCount: Int) {
+                    doc = doc.copy(platform = doc.platform + "pick:${source.name.lowercase()}:$maxCount")
+                    persist()
+                }
             },
             clock = Clock { doc.now },
             ids = IdSource {

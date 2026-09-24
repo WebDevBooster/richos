@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The only folder the camera FileProvider can name: the capture scratch folder in the cache,
+     emptied as each photo is staged (platform/Attachments.kt). -->
+<paths>
+    <cache-path name="camera" path="camera/" />
+</paths>

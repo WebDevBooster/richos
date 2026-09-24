@@ -2,6 +2,9 @@ package dev.richos.android.ui.model
 
 import androidx.compose.runtime.Immutable
 import dev.richos.android.core.AppState
+import dev.richos.android.core.AttachNotice as CoreAttachNotice
+import dev.richos.android.core.AttachmentDescription
+import dev.richos.android.core.isPhoto
 import dev.richos.android.core.ConnectionReason
 import dev.richos.android.core.Microphone
 import dev.richos.android.core.NotificationStatus as CoreNotifications
@@ -85,8 +88,8 @@ data class ScreenModel(
     val overlay: Overlay? = null,
     /** STAND-IN (core: notifications). A reply notification as the system shade shows it (review frame). */
     val shade: ShadeNotification? = null,
-    /** STAND-IN (core: attachments). The + menu, the tray, refusals, the Mac-can't card. */
-    val attach: AttachState = AttachState(),
+    /** The tray and the photos-and-files cards (core `pendingAttachments`, `attachNotice`), unless a frame poses them. */
+    val attach: AttachState = LiveAttachments.state(app),
     /** STAND-IN (core: attachments). Attachment messages and the replies quoting them, shown after [extraAfter]. */
     val extra: List<Message> = emptyList(),
     /** The row id the [extra] messages follow; null puts them after the last row. */
@@ -193,7 +196,7 @@ data class ScreenModel(
         get() = when (app.toast) {
             Toast.TOO_SHORT -> InlineNotice.TooShort
             Toast.CEILING_WARNING -> InlineNotice.CeilingWarning
-            else -> localNotice
+            else -> localNotice ?: (app.attachNotice as? CoreAttachNotice.Limit)?.let { InlineNotice.AttachLimit(it.max) }
         }
 
     /** Android's microphone prompt is up (core `microphonePrompt`). */
@@ -292,12 +295,26 @@ data class ScreenModel(
     val thread: List<Message>
         get() {
             val thread = app.selectedThreadId
-            val pending = app.outbox.filter { thread == null || it.threadId == thread }.map { pendingBubble(it) }
-            val rows = app.messages.map { bubble(it) }
+            val pending = app.outbox.filter { thread == null || it.threadId == thread }.flatMap { pendingBubbles(it) }
+            val rows = app.messages.flatMap { bubbles(it) }
             if (extra.isEmpty()) return rows + pending
             val at = extraAfter?.let { id -> rows.indexOfFirst { it.id == id } + 1 }?.takeIf { it > 0 } ?: rows.size
             return rows.take(at) + extra + rows.drop(at) + pending
         }
+
+    /**
+     * One of the Mac's rows as bubbles. Your photos and files come back as the words the Mac gave
+     * Rich (`AttachmentDescription`): drawn as round 12.1's album and file bubbles, the photos as
+     * plain tiles (their pixels are on the Mac, not here), never as that text.
+     */
+    private fun bubbles(row: Row): List<Message> {
+        val parsed = if (row.role == "ceo") AttachmentDescription.parse(row.text) else null
+        if (parsed == null) return listOf(bubble(row))
+        val base = bubble(row)
+        val photos = parsed.files.filter { it.isPhoto }.mapIndexed { i, f -> Photo(LiveAttachments.ON_MAC + row.id + "#" + i, 4, 3, f.name, f.size) }
+        val files = parsed.files.filterNot { it.isPhoto }.map { LiveAttachments.fileInfo(it.name, it.size) }
+        return LiveAttachments.split(photos, files, parsed.caption).mapIndexed { i, body -> base.copy(id = if (i == 0) row.id else "${row.id}#$i", body = body) }
+    }
 
     /** One of the Mac's rows as a bubble (contract §5.4: `role` ceo|rich, `kind` text|voice, `state`). */
     private fun bubble(row: Row): Message {
@@ -315,6 +332,28 @@ data class ScreenModel(
             playProgress = playing?.takeIf { it.first == row.id }?.second ?: 0f,
             focused = row.id == focusedId,
         )
+    }
+
+    /**
+     * A photos-and-files message waiting in the outbox as round 12.1 draws it: the album (the phone
+     * still has the pixels) or the file, with the clock while it waits and Try again when it needs
+     * attention. While it is being sent it reads "Sending…" like any message: core reports no byte
+     * progress, so no ring pretends to fill.
+     */
+    private fun pendingBubbles(item: OutboxItem): List<Message> {
+        val base = pendingBubble(item)
+        if (item.kind != "attachments") return listOf(base)
+        val all = item.attachments.orEmpty()
+        val photos = all.filter { it.isPhoto }.map { LiveAttachments.photo(it) }
+        val files = all.filterNot { it.isPhoto }.map { LiveAttachments.fileInfo(it.name, it.size) }
+        val upload = when (item.state) {
+            OutboxState.WAITING -> UploadStatus.QUEUED
+            OutboxState.SENDING -> null
+            OutboxState.BLOCKED -> UploadStatus.ATTENTION
+        }
+        return LiveAttachments.split(photos, files, item.text).mapIndexed { i, body ->
+            base.copy(id = if (i == 0) item.clientId else "${item.clientId}#$i", body = body, upload = upload)
+        }
     }
 
     private fun pendingBubble(item: OutboxItem): Message = Message(

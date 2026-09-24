@@ -91,10 +91,19 @@ class RichCore private constructor(
             }
             flush()
         }
-        is Action.Attach -> mutex.withLock {
-            val all = session.pendingAttachments + action.files.filter { f -> session.pendingAttachments.none { it.id == f.id } }
-            checkAttachments(all)
-            commit(session.copy(pendingAttachments = all))
+        is Action.Attach -> mutex.withLock { take(action.files) }
+        is Action.PickAttachments -> pick(action.source)
+        is Action.AttachRefused -> mutex.withLock {
+            attachNotice = AttachNotice.Refused(action.name, action.bytes, action.tooLarge)
+            emit()
+        }
+        is Action.AttachPermissionDenied -> mutex.withLock {
+            if (action.source == AttachSource.CAMERA) attachNotice = AttachNotice.CameraDenied
+            emit()
+        }
+        Action.DismissAttachNotice -> mutex.withLock {
+            attachNotice = null
+            emit()
         }
         is Action.RemoveAttachment -> mutex.withLock {
             if (session.pendingAttachments.none { it.id == action.id }) return@withLock emit()
@@ -123,7 +132,9 @@ class RichCore private constructor(
             flush()
         }
         is Action.Discard -> mutex.withLock {
+            val files = outbox.all().firstOrNull { it.clientId == action.clientId }?.attachments.orEmpty()
             outbox.discard(action.clientId)
+            files.forEach { ports.files.delete(it.id) }
             emit()
         }
         is Action.Network -> {
@@ -232,12 +243,22 @@ class RichCore private constructor(
     // --- sending (queue.js rules, via [Outbox]) --------------------------------------------------
 
     private suspend fun send(): AppState {
-        // Photos or files waiting in the composer make this one attachments message, with the
-        // draft as its words.
+        // Photos or files waiting in the composer go as round 12.1 orders them ("Order of sending"):
+        // the photos as one album message, then each file as its own message; the draft's words
+        // ride on the album, or on the last file when there are no photos.
         if (session.pendingAttachments.isNotEmpty()) {
             mutex.withLock {
-                checkAttachments(session.pendingAttachments)
-                outbox.enqueue(enqueueAttachments(session.pendingAttachments, session.draft.trim()))
+                val pending = session.pendingAttachments
+                val photos = pending.filter { it.isPhoto }
+                val groups = (if (photos.isEmpty()) emptyList() else listOf(photos)) + pending.filterNot { it.isPhoto }.map { listOf(it) }
+                // Every message is checked before any is queued: all of them go, or none.
+                groups.forEach { checkAttachments(it) }
+                val words = session.draft.trim()
+                groups.forEachIndexed { i, group ->
+                    val carries = if (photos.isEmpty()) i == groups.lastIndex else i == 0
+                    outbox.enqueue(enqueueAttachments(group, if (carries) words else ""))
+                }
+                attachNotice = null
                 commit(session.copy(draft = "", pendingAttachments = emptyList()))
             }
             return flush()
@@ -267,6 +288,7 @@ class RichCore private constructor(
     /** One pass over the outbox, outside the lock, while online (`app.js` `drain`). */
     private suspend fun flush(): AppState {
         if (!session.online) return flow.value
+        val before = outbox.all()
         val report = outbox.flush { item ->
             when (item.kind) {
                 "voice" -> transport.sendVoice(item)
@@ -274,6 +296,9 @@ class RichCore private constructor(
                 else -> transport.sendText(item)
             }
         }
+        // A photo or file the Mac accepted is the Mac's now: the phone's staged copy goes.
+        val left = outbox.all().map { it.clientId }.toSet()
+        before.filter { it.clientId !in left }.flatMap { it.attachments.orEmpty() }.forEach { ports.files.delete(it.id) }
         return mutex.withLock {
             lastSend = report
             // Every response's challenge replaces the one held (contract §3.3).
@@ -337,6 +362,61 @@ class RichCore private constructor(
         if (files.sumOf { it.size } > limits.maxMessageBytes) throw CoreError("Up to ${limits.maxMessageBytes / (1024 * 1024)} MB in one message")
         if (limits.mediaTypes.isNotEmpty()) files.firstOrNull { it.mediaType !in limits.mediaTypes }?.let { throw CoreError("${it.name} is a kind of file this Mac does not take") }
         return limits
+    }
+
+    private var attachNotice: AttachNotice? = null
+
+    /**
+     * The + menu's choice: a Mac that takes no photos or files says so; a full tray says "Up to N at
+     * a time"; otherwise the platform presents its picker for the room left (the camera: one).
+     */
+    private suspend fun pick(source: AttachSource): AppState {
+        val room = mutex.withLock {
+            if (!session.paired) return@withLock null
+            val limits = session.attachmentLimits
+            val room = limits?.let { it.maxFilesPerMessage - session.pendingAttachments.size }
+            attachNotice = when {
+                limits == null -> AttachNotice.MacUnsupported
+                room!! <= 0 -> AttachNotice.Limit(limits.maxFilesPerMessage)
+                else -> null
+            }
+            emit()
+            room?.takeIf { it > 0 }
+        } ?: return flow.value
+        ports.picker.present(source, if (source == AttachSource.CAMERA) 1 else room)
+        return flow.value
+    }
+
+    /**
+     * Into the tray, in the order chosen, each checked against what the Mac advertised. An item
+     * refused, or past the count, never enters the tray: its card or line says why, and its staged
+     * copy is deleted. The photos travel as one album, so their total stays inside one message.
+     */
+    private suspend fun take(files: List<Attachment>): AppState {
+        val limits = session.attachmentLimits
+        if (!session.paired || limits == null) {
+            if (session.paired) attachNotice = AttachNotice.MacUnsupported
+            files.forEach { ports.files.delete(it.id) }
+            return emit()
+        }
+        var tray = session.pendingAttachments
+        for (f in files) {
+            if (tray.any { it.id == f.id }) continue
+            val refusal = when {
+                tray.size >= limits.maxFilesPerMessage -> AttachNotice.Limit(limits.maxFilesPerMessage)
+                f.size > limits.maxFileBytes -> AttachNotice.Refused(f.name, f.size, tooLarge = true)
+                limits.mediaTypes.isNotEmpty() && f.mediaType !in limits.mediaTypes -> AttachNotice.Refused(f.name, f.size, tooLarge = false)
+                f.isPhoto && tray.filter { it.isPhoto }.sumOf { it.size } + f.size > limits.maxMessageBytes -> AttachNotice.Refused(f.name, f.size, tooLarge = true)
+                else -> null
+            }
+            if (refusal != null) {
+                attachNotice = refusal
+                ports.files.delete(f.id)
+            } else {
+                tray = tray + f
+            }
+        }
+        return if (tray != session.pendingAttachments) commit(session.copy(pendingAttachments = tray)) else emit()
     }
 
     private fun enqueueAttachments(files: List<Attachment>, text: String): OutboxItem {
@@ -699,6 +779,7 @@ class RichCore private constructor(
             olderAvailable = session.selectedThreadId?.let { session.olderAvailable[it] } ?: false,
             streamCursor = session.streamCursor,
             pendingAttachments = session.pendingAttachments,
+            attachNotice = attachNotice,
             loadingOlder = loadingOlder,
             sheet = sheet,
             focusMessageId = focusMessageId,
