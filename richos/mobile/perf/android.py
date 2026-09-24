@@ -764,16 +764,21 @@ class Measure:
         pid = self.d.pid()
         with_io = self.ensure_root()
         opening, middle, final, full = stream_frames(cursor, deltas)
-        self.bridge.action(opening)
-        self.d.sleep(1.0)
+        # One unbroken reply: the opening row, the deltas back to back, the final row, all inside
+        # the measured window. A streaming row animates its "replying" mark for as long as it
+        # streams, and on a software-GPU emulator that alone holds the host above the Mac's CPU
+        # breaker limit, so nothing waits between deltas; the quiet check comes before the reply.
+        self.pace()
+        states = []
 
         def feed():
+            self.bridge.action(opening)
             for frame in middle:
-                self.pace()
                 self.bridge.action(frame)
+            states.append(self.bridge.action(final)["state"])
         out = self._cost(pid, feed, deltas, with_io)
-        state = self.bridge.action(final)["state"]
-        out["replyMatches"] = any(m.get("text") == full for m in state["messages"])
+        out["includes"] = "the opening and final rows as well as the deltas; per-delta figures divide the whole reply"
+        out["replyMatches"] = any(m.get("text") == full for m in states[0]["messages"])
         if not with_io:
             out["ioWhy"] = "no root: /proc/<pid>/io and the fsync trace need root"
         return out

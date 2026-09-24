@@ -571,7 +571,7 @@ def parse_args(argv):
     a.add_argument("--settle", type=float, default=2.0)
     a.add_argument("--history", type=int, default=40)
     a.add_argument("--type-text", default="measuredtypingcost")
-    a.add_argument("--stream-deltas", type=int, default=20)
+    a.add_argument("--stream-deltas", type=int, default=8)
     a.add_argument("--theme", choices=("device", "light", "dark"), default="device")
     i = sub.add_parser("ios", help="measure an iOS build (written; not yet run)")
     target = i.add_mutually_exclusive_group(required=True)
