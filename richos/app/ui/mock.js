@@ -85,6 +85,11 @@
     // state between the code being redeemed and the press — the only state with the words and
     // the two buttons on the card.
     macConfirmed: window.__RICHOS_MOCK_PRESET__?.phoneMacUnconfirmed !== true,
+    // **HAS THE PHONE USED THE PAIRING SINCE THIS MAC SAID YES?** — `PhoneStatus::completed`,
+    // Sage's pair-v2 hypotheses review §2. Used by default, like the two answers above;
+    // `phoneUnfinished: true` is the state between the press on this Mac and the phone's first
+    // ordinary request, the only state that reads `Waiting for your phone to finish`.
+    unfinished: window.__RICHOS_MOCK_PRESET__?.phoneUnfinished === true,
     // The spent-code alarm after the press ("keep it and warn").
     codeReused: window.__RICHOS_MOCK_PRESET__?.phoneCodeReused === true,
   };
@@ -183,6 +188,7 @@
         ? ((servingVia === "connect" ? mockConnect.endpoint : tailnetOf().origin) || "https://mm1.example.ts.net:8443") + "/#pair=K7QF2M9X"
         : null,
       macConfirmed: mockPhone.paired && mockPhone.macConfirmed,
+      completed: mockPhone.paired && mockPhone.macConfirmed && !mockPhone.unfinished,
       // THE WORDS EXIST ONLY WHILE A PHONE THAT REACHED THIS MAC WAITS FOR THE PRESS (Sage §3.1
       // steps 1 and 4): the Mac derives them over the key that phone registered, so before a phone
       // arrives there is nothing to derive, and after the press nothing is left to compare.
@@ -2198,6 +2204,8 @@
         case "phone_confirm_on_mac":
           if (!mockPhone.paired) return Promise.reject("No phone is paired with this Mac yet.");
           mockPhone.macConfirmed = true;
+          // What the real Mac reports right after its press: the phone has not used it yet.
+          mockPhone.unfinished = true;
           return phoneStatusOf();
         case "phone_reject_on_mac":
           mockPhone.paired = false;

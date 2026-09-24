@@ -37,6 +37,15 @@
 #   N1-N5   phone-client: a foreign Mac that refuses the credential is the
 #           answer, one that ACCEPTS it exits non-zero; argument refusals
 #   K1-K5   flake-rate: counts, interleaving, a kept failing log, refusals
+#   R5-R8   redact --phones: the gate flags a phone-shaped fixture, the redactor
+#           covers it, the gate then passes the output, the evidence survives
+#   A1-A17  phone-android: taps by the words on screen, refuses an unnamed or
+#           unattached phone, times out as a failure, reads a closure state and
+#           an idle-frame rhythm, types through a key map, reads the editable
+#           field, runs one closure cell, finds unnamed controls, all against a
+#           scripted adb (no phone)
+#   L1-L4   lab-ledger: exactly once passes; missing, duplicated or altered
+#           fails; a timeline without the isolated lab's owner marker is refused
 #   I1-I16  phone-ios: a step list validated before any build, refusals, the
 #           per-step log read once each, no picture of the person's account,
 #           a reused build trusted only against its stamp, no lock without a
@@ -45,7 +54,7 @@
 #
 # run-tests: no-host-screen: its only capture/keystroke references are the strings it asserts those two tools REFUSE to act on, and its frames are committed PNG fixtures
 # run-tests: inputs richos/app/scripts/qa.test.sh richos/app/scripts/qa
-# run-tests: covers richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-ios.py
+# run-tests: covers richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-android.py richos/app/scripts/qa/lab-ledger.py richos/app/scripts/qa/fixtures/make-fixtures.py richos/app/scripts/qa/phone-ios.py
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -85,7 +94,7 @@ python3 -c 'import PIL' >/dev/null 2>&1 && HAVE_PIL=1
 echo ""
 echo "=== H. every tool answers for itself ==="
 for t in contrast.py frame.py redact.py timeline.py ocr-gate.sh ocr-find.sh \
-         ocr-watch.sh wait-for.sh phone-client.mjs flake-rate.sh phone-ios.py fixtures/make-fixtures.py; do
+         ocr-watch.sh wait-for.sh phone-client.mjs flake-rate.sh phone-android.py lab-ledger.py phone-ios.py fixtures/make-fixtures.py; do
   if [ ! -x "$QA/$t" ]; then
     bad "H $t is executable" "not present or not executable at $QA/$t"
     continue
@@ -299,6 +308,22 @@ else
   # A box in the wrong place must not be reported as a redaction.
   run "$QA/redact.py" "$FIX/ocr-control.png" "$TMP/red3.png" --box 0,0,4,4
   expect "R4 a box that misses leaves the address legible and exits non-zero" 1 "STILL LEGIBLE"
+
+  # The gate and the redactor must agree on what a phone number looks like: a
+  # gate that flags a frame the redactor cannot clean leaves the walker with a
+  # frame that can never ship, which is how hand-drawn boxes creep back in.
+  run "$QA/ocr-gate.sh" "$FIX/phone-control.png"
+  expect "R5 the gate flags the phone-shaped fixture (it is a real positive)" 1 "OCR GATE: 1 of 1"
+  run "$QA/redact.py" "$FIX/phone-control.png" "$TMP/phone-red.png" --phones
+  expect "R6 --phones covers the number and re-reads the output" 0 "no address-shaped or phone-shaped string survives"
+  run "$QA/ocr-gate.sh" "$TMP/phone-red.png"
+  expect "R7 the gate passes what the redactor produced" 0 "0 of 1"
+  LEFT="$("$TESS" "$TMP/phone-red.png" stdout 2>/dev/null || true)"
+  if printf '%s' "$LEFT" | grep -qi 'nothing here is real'; then
+    ok "R8 the rest of the phone card survives the redaction"
+  else
+    bad "R8 the rest of the phone card survives the redaction" "over-redaction. Read: $(printf '%s' "$LEFT" | tr '\n' ' ' | cut -c1-160)"
+  fi
 fi
 
 echo ""
@@ -523,6 +548,142 @@ run "$QA/flake-rate.sh" --runs 2 lonely
 expect "K5 a label without its command is refused" 2 "LABEL"
 
 echo ""
+echo "=== A. phone-android: a physical phone, driven by what is on its screen ==="
+
+# A scripted adb: it answers the handful of reads the tool makes and logs every
+# input it is asked to inject. No phone, no emulator.
+FAKE="$TMP/fake-adb"
+cat > "$TMP/ui.xml" <<'XML'
+<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation="0"><node index="0" text="" content-desc="Message Rich" class="android.view.View" package="dev.richos.connect" bounds="[16,1412][704,1516]" focused="false" clickable="false" /><node index="1" text="" content-desc="Send message" class="android.view.View" package="dev.richos.connect" bounds="[604,828][700,924]" focused="false" clickable="true" /><node index="2" text="draft words" content-desc="" class="android.widget.EditText" package="dev.richos.connect" bounds="[16,1412][604,1516]" focused="true" clickable="true" /><node index="3" text="" content-desc="" class="android.view.View" package="dev.richos.connect" bounds="[0,0][40,40]" focused="false" clickable="true" /></hierarchy>
+XML
+cat > "$TMP/framestats.txt" <<'TXT'
+Window: dev.richos.connect/dev.richos.android.app.MainActivity
+Stats since: 1ns
+Total frames rendered: 3
+---PROFILEDATA---
+Flags,FrameTimelineVsyncId,IntendedVsync,Vsync
+0,1,1000000000,1000000000
+0,2,1500000000,1500000000
+0,3,2000000000,2000000000
+---PROFILEDATA---
+TXT
+cat > "$FAKE" <<SH
+#!/usr/bin/env bash
+LOG="$TMP/adb.log"
+[ "\$1" = devices ] && { printf 'List of devices attached\nFAKE123\tdevice\n'; exit 0; }
+[ "\$1" = -s ] || exit 9
+shift 2
+case "\$1 \$2" in
+  "exec-out cat") cat "$TMP/ui.xml"; exit 0 ;;
+  "exec-out screencap") cat "$FIX/pair-pass.png"; exit 0 ;;
+esac
+cmd="\$2"
+case "\$cmd" in
+  "input "*) echo "\$cmd" >> "\$LOG" ;;
+  "dumpsys package "*) printf '    appId=10359\n    User 0: installed=true stopped=false\n' ;;
+  "cat /proc/uptime") echo "1000.00 2000.00" ;;
+  "am get-standby-bucket "*) echo 10 ;;
+  "dumpsys power") printf 'mWakefulness=Awake\n  PARTIAL_WAKE_LOCK  "richos" ACQ=-1s (uid=10359 pid=42)\n' ;;
+  "dumpsys window") printf 'isKeyguardShowing=false\n  mCurrentFocus=Window{1 u0 dev.richos.connect/dev.richos.android.app.MainActivity}\n' ;;
+  "dumpsys battery") printf '  USB powered: true\n  level: 100\n' ;;
+  "ps -A -o PID,NAME") printf 'PID NAME\n42 dev.richos.connect\n' ;;
+  "cat /proc/42/stat") echo "42 (.richos.connect) S 1 1 0 0 -1 0 0 0 0 0 100 50 0 0 20 0 50 0 \${FAKE_BIRTH:-12345} 0 0" ;;
+  "for t in /proc/42/task"*) printf '42|main|5 3\n43|RenderThread|1 0\n' ;;
+  "dumpsys activity activities") echo "  topResumedActivity=ActivityRecord{1 u0 dev.richos.connect/.MainActivity t1}" ;;
+  "dumpsys activity services "*) echo "  * ServiceRecord{abc u0 dev.richos.connect/dev.richos.android.platform.RichMessagingService}" ;;
+  "cat /proc/net/"*) printf '  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid\n   0: 0100007F:1F90 0100007F:0050 01 00000000:00000000 00:00000000 00000000 10359 0 1\n' ;;
+  "dumpsys notification") echo "  NotificationRecord(0x1: pkg=dev.richos.connect user=UserHandle{0} id=1)" ;;
+  "dumpsys gfxinfo "*framestats) cat "$TMP/framestats.txt" ;;
+  *) : ;;
+esac
+exit 0
+SH
+chmod +x "$FAKE"
+PA="$QA/phone-android.py"
+
+run "$PA" texts
+expect "A1 no --serial is refused: a bare adb reaches whatever is attached" 2 "name the phone with --serial"
+run "$PA" --adb "$FAKE" --serial NOTHERE texts
+expect "A2 a serial adb does not list is refused, never guessed" 2 "is not an attached"
+: > "$TMP/adb.log"
+run "$PA" --adb "$FAKE" --serial FAKE123 tap "Send message" --timeout 1
+if [ "$CODE" = 0 ] && grep -Fxq "input tap 652 876" "$TMP/adb.log"; then
+  ok "A3 tap finds the control by its words and taps its center"
+else bad "A3 tap finds the control by its words and taps its center" "exit $CODE, log: $(tr '\n' ' ' < "$TMP/adb.log")"; fi
+run "$PA" --adb "$FAKE" --serial FAKE123 wait "Nowhere on this screen" --timeout 1
+expect "A4 a wait that runs out is a failure, exit 1" 1 '"missing"'
+printf "it's" > "$TMP/quote.txt"
+run "$PA" --adb "$FAKE" --serial FAKE123 type-file "$TMP/quote.txt"
+expect "A5 a character that input text cannot carry exactly is refused before typing" 2 "type-file types letters"
+printf 'ab c' > "$TMP/abc.txt"; : > "$TMP/adb.log"
+run "$PA" --adb "$FAKE" --serial FAKE123 type-file "$TMP/abc.txt"
+if [ "$CODE" = 0 ] && [ "$(grep -c '^input text' "$TMP/adb.log")" = 4 ] && grep -Fxq "input text %s" "$TMP/adb.log"; then
+  ok "A6 type-file sends one input per character, a space as %s"
+else bad "A6 type-file sends one input per character, a space as %s" "exit $CODE, log: $(tr '\n' ' ' < "$TMP/adb.log")"; fi
+run "$PA" --adb "$FAKE" --serial FAKE123 state --package dev.richos.connect --out "$TMP/s1.json"
+if [ "$CODE" = 0 ] && python3 - "$TMP/s1.json" <<'PY'
+import json, sys
+s = json.load(open(sys.argv[1]))
+p = s["processes"][0]
+assert s["uid"] == 10359 and s["stoppedFlag"] is False and s["standbyBucket"] == "10", s
+assert p["pid"] == 42 and p["cpuTicks"] == 150 and p["birth"] == "12345" and p["threadCount"] == 2, p
+assert s["resumedActivity"] and s["appHasFocus"] and s["screen"] == "Awake" and s["keyguardShowing"] is False
+assert s["services"] == ["dev.richos.connect/dev.richos.android.platform.RichMessagingService"], s["services"]
+assert len(s["wakeLocks"]) == 1 and s["openSockets"] == {"ESTABLISHED": 1} and s["ownNotifications"] == 1, s
+PY
+then ok "A7 state reads process, birth, ticks, services, wake locks, sockets and notifications"
+else bad "A7 state reads process, birth, ticks, services, wake locks, sockets and notifications" "exit $CODE: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-240)"; fi
+run env FAKE_BIRTH=12345 "$PA" --adb "$FAKE" --serial FAKE123 state --package dev.richos.connect --out "$TMP/s2.json"
+run "$PA" compare "$TMP/s1.json" "$TMP/s2.json"
+expect "A8 compare subtracts CPU for the same process" 0 '"cpuTicks": 0'
+run env FAKE_BIRTH=99999 "$PA" --adb "$FAKE" --serial FAKE123 state --package dev.richos.connect --out "$TMP/s3.json"
+run "$PA" compare "$TMP/s1.json" "$TMP/s3.json"
+expect "A9 a restarted process (new birth) is never subtracted from the old one" 0 '"sameProcess": []'
+run "$PA" --adb "$FAKE" --serial FAKE123 idle-frames --package dev.richos.connect --seconds 0.1
+if [ "$CODE" = 0 ] && printf '%s' "$OUT" | grep -q '"totalFramesRendered": 3' && printf '%s' "$OUT" | tr -d ' \n' | grep -q '"gapsMs":\[500.0,500.0\]'; then
+  ok "A10 idle-frames counts the frames and reports their rhythm"
+else bad "A10 idle-frames counts the frames and reports their rhythm" "exit $CODE: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-240)"; fi
+run "$PA" --adb "$FAKE" --serial FAKE123 field
+if [ "$CODE" = 0 ] && printf '%s' "$OUT" | grep -q '"text": "draft words"'; then ok "A11 field reads the editable text back"
+else bad "A11 field reads the editable text back" "exit $CODE: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-200)"; fi
+printf '{"1":[40,1105]," ":[395,1470]}' > "$TMP/keymap.json"
+printf '1 x' > "$TMP/keys-bad.txt"
+run "$PA" --adb "$FAKE" --serial FAKE123 keys "$TMP/keys-bad.txt" --keymap "$TMP/keymap.json"
+expect "A12 keys refuses a character the key map cannot type, before tapping anything" 2 "no key for"
+printf '1 1' > "$TMP/keys-ok.txt"; : > "$TMP/adb.log"
+run "$PA" --adb "$FAKE" --serial FAKE123 keys "$TMP/keys-ok.txt" --keymap "$TMP/keymap.json"
+if [ "$CODE" = 0 ] && [ "$(grep -c 'input tap 40 1105' "$TMP/adb.log")" = 2 ] && grep -Fxq "input tap 395 1470" "$TMP/adb.log"; then
+  ok "A13 keys taps the mapped key for every character"
+else bad "A13 keys taps the mapped key for every character" "exit $CODE, log: $(tr '\n' ' ' < "$TMP/adb.log")"; fi
+: > "$TMP/adb.log"
+run "$PA" --adb "$FAKE" --serial FAKE123 observe --package dev.richos.connect --label cell --out-dir "$TMP/obs" --settle 0 --seconds 0 --action home
+if [ "$CODE" = 0 ] && grep -Fxq "input keyevent KEYCODE_HOME" "$TMP/adb.log" && [ -f "$TMP/obs/cell-start.json" ] && [ -f "$TMP/obs/cell-end.json" ] && [ -f "$TMP/obs/cell-compare.json" ]; then
+  ok "A14 observe performs the closure action and keeps both readings and the comparison"
+else bad "A14 observe performs the closure action and keeps both readings and the comparison" "exit $CODE: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-200)"; fi
+run "$PA" --adb "$FAKE" --serial FAKE123 observe --package dev.richos.connect --label x --out-dir "$TMP/obs" --settle 0 --seconds 0 --action reboot
+expect "A15 observe refuses an action it does not know rather than guessing" 2 "--action must be one of"
+run "$PA" --adb "$FAKE" --serial FAKE123 unlabeled --package dev.richos.connect
+expect "A16 unlabeled finds the one clickable control with no name and exits 1" 1 '"bounds": [
+        0,'
+run "$PA" --adb "$FAKE" --serial FAKE123 unlabeled --package com.example.other
+expect "A17 unlabeled is clean for a package with no unnamed controls" 0 '"unnamed": []'
+
+echo ""
+echo "=== L. lab-ledger: exactly once, word for word ==="
+mkdir -p "$TMP/lab"
+printf 'richos-mobile-isolated-v1' > "$TMP/lab/lab-owner"
+cat > "$TMP/lab/timeline.json" <<'JSON'
+{"items":[{"kind":"user_message","text":"one"},{"kind":"rich_message","text":"ack: one"},{"kind":"user_message","text":"two"},{"kind":"user_message","text":"two"},{"kind":"rich_message","text":"ack: two"}]}
+JSON
+run "$QA/lab-ledger.py" --timeline "$TMP/lab/timeline.json" one
+expect "L1 a message and its reply there exactly once pass" 0 '"exactlyOnce": 1'
+run "$QA/lab-ledger.py" --timeline "$TMP/lab/timeline.json" two
+expect "L2 a duplicated message FAILS, exit 1" 1 '"userRows": 2'
+run "$QA/lab-ledger.py" --timeline "$TMP/lab/timeline.json" "one "
+expect "L3 an altered message (one character) FAILS, exit 1" 1 '"userRows": 0'
+mkdir -p "$TMP/notlab"; cp "$TMP/lab/timeline.json" "$TMP/notlab/timeline.json"
+run "$QA/lab-ledger.py" --timeline "$TMP/notlab/timeline.json" one
+expect "L4 a timeline that is not the isolated lab's is refused, never read" 2 "owner marker"
 echo "=== I. phone-ios: a physical iPhone's real controls, validated before any build ==="
 
 printf '%s' '[{"do":"launch"},{"do":"tap","id":"composer.send"},{"do":"sleep","seconds":2},{"do":"alert","button":"Allow","in":"springboard"}]' > "$TMP/ios-ok.json"

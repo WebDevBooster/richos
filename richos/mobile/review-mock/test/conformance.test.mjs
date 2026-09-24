@@ -127,7 +127,14 @@ test('pairing.json: the recorded pairing request is answered with every field of
 	for (const key of Object.keys(expected)) assert.equal(typeof answer[key], typeof expected[key], key);
 	assert.equal(answer.device_id, expected.device_id, 'the device id rule matches the Mac');
 	assert.equal(answer.api_base, host.origin);
-	assert.deepEqual(answer.capabilities, expected.capabilities, 'capabilities in the Mac order');
+	// THE ONE DECLARED DIFFERENCE: the review host does not offer `pair-wait` (Sage's pair-v2
+	// hypotheses review §1, the Mac holding a phone's They match until the press). Holding a request
+	// open inside a Durable Object until the access page's press is not something this suite can
+	// prove on Cloudflare, and a host that named the capability without holding would be a forged
+	// `pair-wait`. Without it a phone sends no `Prefer` and waits on the backed-off schedule every
+	// Mac before `pair-wait` gets (vectors: pairing.json pair_wait.wait_plans, the third plan).
+	assert.deepEqual(answer.capabilities, expected.capabilities.filter((c) => c !== 'pair-wait'), 'capabilities in the Mac order, less pair-wait');
+	assert.ok(!answer.capabilities.includes('pair-wait'), 'the review host names pair-wait but does not hold');
 	assert.deepEqual(answer.attachment_limits, expected.attachment_limits);
 	assert.equal(answer.protocol_version, expected.protocol_version);
 	assert.equal(response.headers.get('x-richos-challenge'), answer.challenge);

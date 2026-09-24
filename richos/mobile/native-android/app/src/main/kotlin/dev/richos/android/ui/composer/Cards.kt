@@ -23,6 +23,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -94,11 +95,17 @@ fun WaitingToSendCard(count: Int, onEvent: (UiEvent) -> Unit) = ComposerCardFram
 @Composable
 fun ComposerCardView(card: ComposerCard, onEvent: (UiEvent) -> Unit) {
     when (card) {
-        ComposerCard.MicrophoneOff -> ComposerCardFrame(
+        // 45 · rec-mic-denied (D03): the answer to a press while the microphone is off. Truthful
+        // about the OS: Android's own question while it would still show it, else its Settings.
+        is ComposerCard.MicrophoneOff -> ComposerCardFrame(
             "The microphone is off for RichConnect",
-            "Turn it on in Settings to send voice messages, or type instead.",
+            if (card.canAsk) "Allow it to send voice messages, or type instead."
+            else "Turn it on in Settings to send voice messages, or type instead.",
+            // Announced when a press raises it, so TalkBack hears why nothing recorded.
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite; testTag = "microphone-off-card" },
         ) {
-            RichButton("Open Settings", { onEvent(UiEvent.OpenSystemSettings) })
+            if (card.canAsk) RichButton("Allow microphone", { onEvent(UiEvent.MicrophoneAskAgain) })
+            else RichButton("Open Settings", { onEvent(UiEvent.OpenSystemSettings) })
             RichButton("Not now", { onEvent(UiEvent.MicrophoneNotNow) }, kind = ButtonKind.QUIET)
         }
     }

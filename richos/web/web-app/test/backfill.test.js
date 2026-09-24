@@ -119,6 +119,64 @@ test('a v2 phone waits for the press on the Mac over the real wire, and is let i
 	await assert.rejects(api.macConfirmed(null), (err) => err.retryable === false);
 });
 
+/// A v2 phone paired to a stub Mac that waits for its own press, over the real wire.
+async function pairedAndWaiting(t, opts) {
+	const mac = createStubMac(Object.assign({ host: 'localhost', pairCode: 'harness-pair-code', macPress: 'manual' }, opts || {}));
+	const port = await mac.listen(0);
+	t.after(() => mac.close());
+	const origin = `https://localhost:${port}`;
+	const signer = makeSigner();
+	const state = { apiBase: origin, challenge: null, deviceId: null };
+	const api = createApi({ state, signer, origin, fetchImpl: httpsFetch(mac.caPem) });
+	const answer = await api.pair('harness-pair-code', signer.publicJwk, 'the harness', { pairingVersion: 2 });
+	return { mac, api, answer };
+}
+
+test('pair-wait: the Mac holds the phone\'s They match and answers it the moment the Mac is pressed', async (t) => {
+	const { mac, api, answer } = await pairedAndWaiting(t);
+	assert.ok(answer.capabilities.includes('pair-wait'), 'the Mac did not offer to hold');
+	const started = Date.now();
+	const asked = api.macAnswer({ wait: 14 });
+	await new Promise((resolve) => setTimeout(resolve, 400));
+	const pressedAt = Date.now();
+	mac.pressOnMac();
+	assert.strictEqual(await asked, true, 'the held ask was not told the Mac was pressed');
+	const heard = Date.now() - pressedAt;
+	assert.ok(Date.now() - started >= 400, 'the Mac answered at once instead of holding');
+	assert.ok(heard < 1000, `the phone heard the press ${heard} ms after it`);
+	assert.deepStrictEqual(mac.state.pairAsks.map((a) => [a.prefer, a.held, a.ended]), [['wait=14', true, 'pressed']]);
+});
+
+test('pair-wait: They do not match on the Mac ends the held ask with the final answer', async (t) => {
+	const { mac, api } = await pairedAndWaiting(t);
+	const asked = api.macAnswer({ wait: 14 });
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	mac.refuseOnMac();
+	await assert.rejects(asked, (err) => err.retryable === false);
+});
+
+test('pair-wait: a second ask answers the held one at once, so one phone never holds two', async (t) => {
+	const { mac, api } = await pairedAndWaiting(t);
+	const first = api.macAnswer({ wait: 14 });
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	const secondAt = Date.now();
+	const second = api.macAnswer({ wait: 1 });
+	assert.strictEqual(await first, false);
+	assert.ok(Date.now() - secondAt < 1000, 'the older hold was not answered when the newer ask arrived');
+	assert.strictEqual(await second, false);
+	assert.deepStrictEqual(mac.state.pairAsks.map((a) => a.ended), ['superseded', 'timeout']);
+});
+
+test('pair-wait: a Mac that does not offer it is asked the same way and answers at once', async (t) => {
+	const { mac, api, answer } = await pairedAndWaiting(t, { pairWait: false });
+	assert.ok(!answer.capabilities.includes('pair-wait'));
+	const started = Date.now();
+	assert.strictEqual(await api.macAnswer({}), false);
+	assert.ok(Date.now() - started < 1000);
+	mac.pressOnMac();
+	assert.strictEqual(await api.macAnswer({}), true, 'the ask with the answer does not hear the press on an older Mac');
+});
+
 /// A `GET` made by hand, so the credential can be put somewhere `lib/api.js` would not put it.
 function rawStatus(origin, caPem, path, headers) {
 	return new Promise((resolve, reject) => {

@@ -7,8 +7,8 @@ import androidx.activity.ComponentActivity
 import dev.richos.android.core.Action
 import dev.richos.android.core.AttachmentLimits
 import dev.richos.android.core.ConnectionOwner
-import dev.richos.android.core.Microphone
 import dev.richos.android.platform.AttachmentPicker
+import dev.richos.android.platform.mirrored
 import dev.richos.android.platform.FcmPlatform
 import dev.richos.android.platform.NetworkWake
 import dev.richos.android.platform.Stager
@@ -69,6 +69,10 @@ class RichApplication : Application() {
     @Volatile
     private var push: FcmPlatform? = null
 
+    /** The microphone; null in a development world. */
+    @Volatile
+    private var microphone: MicRecorder? = null
+
     override fun onCreate() {
         super.onCreate()
         val dev = DevHook.coreFactory
@@ -80,7 +84,7 @@ class RichApplication : Application() {
                 context = this,
                 dir = AppPorts.stagedDir(this),
                 onLevel = { store.dispatch(Action.VoiceLevel(it)) },
-                onPermission = { store.dispatch(Action.MicrophonePermission(it)) },
+                onPermission = { permission, canAsk -> store.dispatch(Action.MicrophonePermission(permission, canAsk)) },
                 onPlaybackEnded = { store.dispatch(Action.PlaybackEnded(it)) },
                 onInterrupted = { id -> scope.launch {
                     if (store.current?.state?.voice?.id == id) store.dispatch(Action.VoiceInterrupted(System.currentTimeMillis()))
@@ -101,9 +105,9 @@ class RichApplication : Application() {
             store.open {
                 RichCore.open(ports).also { core ->
                     // The core mirrors the OS's microphone answer; a revoke in Settings is seen here.
-                    val os = if (recorder.granted()) Microphone.GRANTED else Microphone.UNKNOWN
-                    if (core.state.microphone != os && !(os == Microphone.UNKNOWN && core.state.microphone == Microphone.DENIED)) {
-                        core.dispatch(Action.MicrophonePermission(os))
+                    // No activity yet, so whether Android would ask again is read when one starts.
+                    mirrored(recorder.granted(), canAsk = false, core.state.microphone, core.state.microphoneCanAsk)?.let { (p, ask) ->
+                        core.dispatch(Action.MicrophonePermission(p, ask))
                     }
                     // A process a push started has nothing on screen: no stream until an activity starts.
                     val connection = ConnectionOwner(core, MacApi(ports.http, ports.keys), wire, foreground = started > 0,
@@ -116,6 +120,7 @@ class RichApplication : Application() {
                 }
             }
             push = platform
+            microphone = recorder
             // A push token that changed while nothing was listening is handed to the Mac now, and
             // the OS's notification answer is mirrored (platform/Notifications.kt, reconcile).
             scope.launch {
@@ -126,11 +131,13 @@ class RichApplication : Application() {
         registerActivityLifecycleCallbacks(
             object : ActivityLifecycleCallbacks {
                 // Coming back to the foreground fires a pending reconnect at once (web/lib/link.js),
-                // and picks up notifications allowed again in Android Settings meanwhile.
+                // and picks up notifications, and the microphone, allowed again in Android Settings
+                // meanwhile (the microphone-off card goes once it is allowed, D03).
                 override fun onActivityStarted(activity: Activity) {
                     started++
                     owner?.foregrounded()
                     val now = store.states.value ?: return
+                    microphone?.mirror(now.microphone, now.microphoneCanAsk, activity)
                     push?.let { p -> scope.launch { p.reconcile(now.notifications.status, now.notifications.previews) { started > 0 } } }
                 }
 

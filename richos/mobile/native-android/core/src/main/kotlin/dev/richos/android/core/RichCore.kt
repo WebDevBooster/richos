@@ -99,7 +99,8 @@ class RichCore private constructor(
         Action.Tick -> voice(action)
         is Action.VoicePress, is Action.VoiceStartLocked, is Action.MicrophonePermission, is Action.VoiceMove,
         is Action.VoiceRelease, is Action.VoiceLockedSend, is Action.VoiceLockedCancel, is Action.VoiceTouchCanceled,
-        is Action.VoiceInterrupted, is Action.VoiceLevel, Action.VoiceSettled, is Action.SendKept, is Action.DiscardKept -> voice(action)
+        is Action.VoiceInterrupted, is Action.VoiceLevel, Action.VoiceSettled, is Action.SendKept, is Action.DiscardKept,
+        Action.AskMicrophone, Action.DismissMicrophoneCard -> voice(action)
         Action.TurnOnNotifications, is Action.NotificationsResult, Action.TurnOffNotifications, Action.DismissNotificationOffer,
         is Action.SetPreviews, is Action.OpenSheet, Action.CloseSheet, Action.ForgetPairing, Action.ConfirmForget,
         Action.OpenSystemSettings, is Action.OpenedFromNotification, Action.ClearFocus, is Action.UpdatePolicy,
@@ -261,7 +262,7 @@ class RichCore private constructor(
         connection = connection.copy(reason = reason, troubleSince = null)
         val action = Action.VoiceInterrupted(ports.clock.now())
         val recoverable = VoiceMachine.reduce(
-            VoiceWorld(voiceSession, session.microphone, session.keptRecordings, toast, microphonePrompt, canRecord()),
+            voiceWorld(),
             action, ports.clock.now(),
         ).first.kept
         try {
@@ -947,6 +948,15 @@ class RichCore private constructor(
     private var toast: Toast? = null
     private var microphonePrompt = false
 
+    /** The microphone-off card is up (D03); not saved: after a restart only a new press raises it. */
+    private var microphoneCard = false
+
+    /** While denied: the system would still show its question. The OS's answer, never saved. */
+    private var microphoneCanAsk = false
+
+    private fun voiceWorld() =
+        VoiceWorld(voiceSession, session.microphone, session.keptRecordings, toast, microphonePrompt, canRecord(), microphoneCard, microphoneCanAsk)
+
     private fun canRecord() = session.paired && "voice" in session.capabilities && !unsupported && !session.voicePaused
 
     // --- notifications, settings, update notices (the iOS core's SettingsReducer, UpdateReducer) ----
@@ -1016,6 +1026,7 @@ class RichCore private constructor(
                 forgot()
                 ++generation
                 sheet = null
+                microphoneCard = false
                 // Nothing unsent is discarded silently: kept recordings stay, as do the theme and the
                 // OS's microphone answer. Everything that belonged to that Mac goes.
                 commit(Session(theme = session.theme, keptRecordings = session.keptRecordings, microphone = session.microphone))
@@ -1081,11 +1092,12 @@ class RichCore private constructor(
 
     private suspend fun voiceLocked(action: Action): Boolean {
         var sent = false
-        val world = VoiceWorld(voiceSession, session.microphone, session.keptRecordings, toast, microphonePrompt, canRecord())
-        val (next, effects) = VoiceMachine.reduce(world, action, ports.clock.now())
+        val (next, effects) = VoiceMachine.reduce(voiceWorld(), action, ports.clock.now())
         voiceSession = next.voice
         toast = next.toast
         microphonePrompt = next.microphonePrompt
+        microphoneCard = next.microphoneCard
+        microphoneCanAsk = next.microphoneCanAsk
         for (effect in effects) {
             when (effect) {
                 is VoiceEffect.StartRecording -> try {
@@ -1147,6 +1159,8 @@ class RichCore private constructor(
             voiceElapsedMs = voiceSession?.takeIf { it.recordingStartedAtMs != null }?.elapsedMs,
             microphone = session.microphone,
             microphonePrompt = microphonePrompt,
+            microphoneCard = microphoneCard && session.microphone == Microphone.DENIED,
+            microphoneCanAsk = microphoneCanAsk && session.microphone == Microphone.DENIED,
             keptRecordings = session.keptRecordings,
             toast = toast,
             canRecord = canRecord(),
@@ -1262,6 +1276,8 @@ class RichCore private constructor(
             is Action.VoicePress -> "voice-press"
             is Action.VoiceStartLocked -> "voice-start-locked"
             is Action.MicrophonePermission -> "microphone-permission"
+            Action.AskMicrophone -> "ask-microphone"
+            Action.DismissMicrophoneCard -> "dismiss-microphone-card"
             is Action.VoiceMove -> "voice-move"
             is Action.VoiceRelease -> "voice-release"
             is Action.VoiceLockedSend -> "voice-locked-send"

@@ -427,6 +427,27 @@ class DevRuntime private constructor(
                 s = step(DevRequest.Dispatch(Action.SendKept("rec-3")))
                 check(s.keptRecordings.isEmpty() && doc.receipts.single().clientId == "rec-3", "a kept recording can be sent")
             }
+            // D03, after "Don't allow": a press is answered by the microphone-off card, never by
+            // silence; the card asks again only while the system would still ask, then Settings.
+            "voice-mic-denied" -> {
+                step(DevRequest.Fixture("online"))
+                var s = step(DevRequest.Dispatch(Action.VoicePress("rec-4", 386.0, doc.now)))
+                check(s.microphonePrompt && doc.recorder == listOf("ask-microphone") && !s.microphoneCard, "the first press is the system's question, never the card")
+                s = step(DevRequest.Dispatch(Action.MicrophonePermission(Microphone.DENIED, canAsk = true)))
+                check(s.voice == null && !s.microphoneCard, "Don't allow ends the press; no card until the next one")
+                s = step(DevRequest.Dispatch(Action.VoicePress("rec-5", 386.0, doc.now)))
+                check(s.microphoneCard && s.microphoneCanAsk && s.voice == null && doc.recorder.size == 1, "the next press raises the card and records nothing")
+                step(DevRequest.Dispatch(Action.AskMicrophone))
+                check(doc.recorder == listOf("ask-microphone", "ask-microphone"), "Allow microphone asks the system again while it still would")
+                s = step(DevRequest.Dispatch(Action.MicrophonePermission(Microphone.DENIED, canAsk = false)))
+                check(s.microphoneCard && !s.microphoneCanAsk, "a second Don't allow keeps the card and turns it to Settings")
+                step(DevRequest.Dispatch(Action.AskMicrophone))
+                check(doc.recorder.size == 2, "once the system will not ask, nothing asks it")
+                step(DevRequest.Dispatch(Action.OpenSystemSettings))
+                check(doc.platform.last() == "open:system-settings", "Open Settings opens the app's Settings page")
+                s = step(DevRequest.Dispatch(Action.MicrophonePermission(Microphone.GRANTED)))
+                check(!s.microphoneCard, "allowed in Settings: the card goes")
+            }
             // Notifications asked once and answered; then forgetting: refused while work waits,
             // otherwise notifications off first, then the key and the pairing (contract §2.6).
             "settings-forget" -> {
@@ -576,7 +597,7 @@ class DevRuntime private constructor(
         val SCENARIOS: List<String> =
             listOf("offline-reconnect", "revoked", "interrupted", "draft-survives-restart", "pair-and-confirm", "pair-refused",
                 "pair-v1-mac-refused", "pair-wait-expires", "pair-mac-declined", "stream-turn", "reply-replay", "reconnect-notice", "voice-hold-send",
-                "voice-lock-interrupt", "settings-forget", "update-policy", "load-older")
+                "voice-lock-interrupt", "voice-mic-denied", "settings-forget", "update-policy", "load-older")
 
         suspend fun create(
             initial: DevDoc? = null,

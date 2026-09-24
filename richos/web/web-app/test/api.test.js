@@ -373,6 +373,87 @@ test('the wait for the press is bounded and backs off: 2, 3, 5, 8, 13 s then 15 
 	assert.strictEqual(asked, 22, 'the schedule no longer matches the count stated in lib/api.js');
 });
 
+// ---- Sage's pair-v2 hypotheses review §1: ask with the answer, and let the Mac hold it ----------
+
+test('the wait asks with the phone\'s own signed They match, byte for byte, and Prefer only when asked', async () => {
+	let answer = { ok: true, awaiting_mac_confirmation: true };
+	const { api, calls } = makeApi(() => response(200, answer, { 'X-RichOS-Challenge': 'c2' }));
+	await api.confirmFingerprint(true);
+	assert.strictEqual(await api.macAnswer({ wait: 14 }), false, 'still waiting was read as pressed');
+	assert.strictEqual(await api.macAnswer({}), false);
+	const [press, held, plain] = calls;
+	for (const call of [held, plain]) {
+		assert.strictEqual(new URL(call.url).pathname, '/api/pair');
+		assert.strictEqual(call.init.method, 'POST');
+		assert.strictEqual(call.init.body, press.init.body, 'the ask is not the phone\'s own answer to the six words');
+		assert.ok(/^RichOS-Device /.test(call.init.headers.Authorization), 'the ask was not signed');
+	}
+	assert.deepStrictEqual(JSON.parse(held.init.body), { device_id: 'device-1', fingerprint_confirmed: true });
+	assert.strictEqual(held.init.headers.Prefer, 'wait=14');
+	assert.strictEqual(plain.init.headers.Prefer, undefined, 'Prefer was sent to a Mac nobody asked to hold');
+	assert.strictEqual(press.init.headers.Prefer, undefined);
+	// A longer ask is capped at what the Mac holds.
+	await api.macAnswer({ wait: 600 });
+	assert.strictEqual(calls[3].init.headers.Prefer, 'wait=14');
+	answer = { ok: true };
+	assert.strictEqual(await api.macAnswer({ wait: 14 }), true, 'the press on the Mac was not heard');
+});
+
+test('the Mac\'s refusals reach the wait as the final answers they are', async () => {
+	for (const [status, body, reason] of [[403, { revoked: true }, REVOKED], [404, '', REFUSED]]) {
+		const { api } = makeApi(() => response(status, body));
+		await assert.rejects(api.macAnswer({ wait: 14 }), (err) => err.reason === reason && err.retryable === false);
+	}
+	// And the awaiting 409 some routes give is still "waiting", never a refusal.
+	const { api } = makeApi(() => response(409, { awaiting_mac_confirmation: true }));
+	assert.strictEqual(await api.macAnswer({ wait: 14 }), false);
+});
+
+test('leaving the screen cancels the held ask, and the app can tell that from an unreachable Mac', async () => {
+	// Like `fetch`: an already-canceled signal rejects at once, and a later cancel rejects then.
+	const { api } = makeApi((url, init) => new Promise((resolve, reject) => {
+		const aborted = () => reject(new DOMException('The operation was aborted.', 'AbortError'));
+		if (init.signal.aborted) aborted();
+		else init.signal.addEventListener('abort', aborted);
+	}));
+	const controller = new AbortController();
+	const asked = api.macAnswer({ wait: 14, signal: controller.signal });
+	controller.abort();
+	await assert.rejects(asked, (err) => err.reason === UNREACHABLE && err.aborted === true);
+	const offline = makeApi(() => { throw new TypeError('fetch failed'); });
+	await assert.rejects(offline.api.macAnswer({ wait: 14 }), (err) => err.reason === UNREACHABLE && err.aborted === false);
+});
+
+test('the no-spin rule: never two asks 7 s apart while the Mac holds, and today\'s schedule when it does not', () => {
+	const { macWaitNextDelayMs, macWaitDelayMs, MAC_WAIT_MIN_SPACING_MS, MAC_WAIT_WINDOW_MS, PAIR_WAIT, PAIR_WAIT_SECONDS } = require('../lib/api.js');
+	assert.strictEqual(PAIR_WAIT, 'pair-wait');
+	assert.strictEqual(PAIR_WAIT_SECONDS, 14);
+	assert.strictEqual(MAC_WAIT_MIN_SPACING_MS, 7000);
+	// A Mac without pair-wait: exactly the old schedule, whatever the answer took.
+	for (let n = 0; n < 8; n++) assert.strictEqual(macWaitNextDelayMs(n, 50, false), macWaitDelayMs(n));
+	// Held for 7 s or more: ask again at once.
+	assert.strictEqual(macWaitNextDelayMs(0, 14000, true), 0);
+	assert.strictEqual(macWaitNextDelayMs(9, 7000, true), 0);
+	// Answered sooner (a relay that forges pair-wait, or a Mac that stopped holding): never less
+	// than 7 s from the previous ask's start, and never less than the schedule.
+	assert.strictEqual(macWaitNextDelayMs(0, 100, true), 6900);
+	assert.strictEqual(macWaitNextDelayMs(4, 100, true), 13000);
+	for (let n = 0; n < 30; n++) for (const took of [0, 1, 3000, 6999]) {
+		assert.ok(took + macWaitNextDelayMs(n, took, true) >= MAC_WAIT_MIN_SPACING_MS, `attempt ${n}, took ${took}`);
+	}
+	// THE LAST ASK (Sage's pair-v2 review §2): at the deadline, and while the Mac holds, still 7 s
+	// after the previous ask even when that pushes it a few seconds past the deadline.
+	const { macWaitNextAskAt } = require('../lib/api.js');
+	assert.strictEqual(macWaitNextAskAt(30, 294000, 300000, 300000, true), 301000);
+	assert.strictEqual(macWaitNextAskAt(30, 290000, 290100, 300000, true), 300000);
+	assert.strictEqual(macWaitNextAskAt(20, 286000, 286050, 300000, false), 300000);
+	assert.strictEqual(macWaitNextAskAt(7, 100000, 114000, 300000, true), 114000, 'a full hold is not followed at once');
+	// The worst case, counted: a relay that forges pair-wait and answers at once.
+	let asks = 0;
+	for (let t = 0, n = 0; t <= MAC_WAIT_WINDOW_MS; n++) { asks++; t += macWaitNextDelayMs(n, 0, true); }
+	assert.ok(asks <= 43, `${asks} asks in the window`);
+});
+
 test('backfill asks for what is BEFORE a cursor — chunked loading behind a scroll, never a page number', async () => {
 	const { api, calls, signer } = makeApi(() => response(200, { messages: [], more: false }));
 	await api.backfill('t-1', 42, 25);

@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """redact.py — black out what must not ship, and PROVE it is gone.
 
-  redact.py <in.png> <out.png> [--addresses] [--box x,y,w,h ...] [--pad N]
+  redact.py <in.png> <out.png> [--addresses] [--phones] [--box x,y,w,h ...] [--pad N]
   redact.py --help
 
   --addresses   find address-shaped text by OCR and cover it (the default when
-                no --box is given)
+                neither --box nor --phones is given)
+  --phones      find phone-shaped digit runs by OCR and cover them: the same
+                pattern ocr-gate.sh calls a shape hit, matched across the words
+                of one OCR line, so the gate and the redactor agree
   --box         cover an exact rectangle, as many times as you like
   --pad N       grow every OCR-derived box by N pixels (default 3)
   --no-verify   skip the re-scan (and say so in the output)
@@ -48,6 +51,30 @@ import qaocr                                             # noqa: E402
 
 ADDR = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 LOOSE = re.compile(r"@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|[A-Za-z0-9._%+-]+@")
+# ocr-gate.sh's third SHAPE, verbatim: a phone-shaped run of digits.
+PHONE = re.compile(r"\+?[0-9][0-9 ()-]{8,}[0-9]")
+
+
+def phone_boxes(png, pad):
+    """Boxes covering every phone-shaped run, matched over each OCR line's joined words."""
+    lines = {}
+    for w in qaocr.words(png):
+        lines.setdefault(w["line"], []).append(w)
+    boxes = []
+    for words in lines.values():
+        text, spans = "", []
+        for w in words:
+            if text:
+                text += " "
+            spans.append((len(text), len(text) + len(w["text"]), w))
+            text += w["text"]
+        for m in PHONE.finditer(text):
+            group = [w for a, b, w in spans if a < m.end() and b > m.start()]
+            box = (min(g["l"] for g in group) - pad, min(g["t"] for g in group) - pad,
+                   max(g["l"] + g["w"] for g in group) + pad, max(g["t"] + g["h"] for g in group) + pad)
+            if box not in boxes:
+                boxes.append(box)
+    return boxes
 
 
 def address_boxes(png, pad):
@@ -118,8 +145,9 @@ def main(argv):
         manual.append((x, y, x + w, y + h))
         del argv[i:i + 2]
 
-    want_addresses = "--addresses" in argv or not manual
-    argv = [a for a in argv if a != "--addresses"]
+    want_phones = "--phones" in argv
+    want_addresses = "--addresses" in argv or not (manual or want_phones)
+    argv = [a for a in argv if a not in ("--addresses", "--phones")]
 
     if len(argv) != 2:
         qaimg.die("usage: redact.py <in.png> <out.png> [--addresses] [--box x,y,w,h]")
@@ -138,6 +166,12 @@ def main(argv):
             boxes += address_boxes(src, pad)
         except qaocr.OcrUnavailable as exc:
             qaimg.die("%s\nWithout a reader this tool cannot FIND an address, and a "
+                      "redactor that covers nothing must not report success." % exc)
+    if want_phones:
+        try:
+            boxes += phone_boxes(src, pad)
+        except qaocr.OcrUnavailable as exc:
+            qaimg.die("%s\nWithout a reader this tool cannot FIND a phone number, and a "
                       "redactor that covers nothing must not report success." % exc)
 
     covered = 0
@@ -159,16 +193,17 @@ def main(argv):
         return 0
 
     try:
-        left = ADDR.findall(qaocr.text(dst))
+        seen = qaocr.text(dst)
+        left = ADDR.findall(seen) + (PHONE.findall(seen) if want_phones else [])
     except qaocr.OcrUnavailable as exc:
         print("  RE-SCAN IMPOSSIBLE: %s" % exc, file=sys.stderr)
         return 2
     if left:
-        print("  STILL LEGIBLE: %d address-shaped string(s) survive in %s"
+        print("  STILL LEGIBLE: %d address- or phone-shaped string(s) survive in %s"
               % (len(left), dst), file=sys.stderr)
         print("  Widen --pad, or add an explicit --box over the region.", file=sys.stderr)
         return 1
-    print("  re-scan: no address-shaped string survives in the output")
+    print("  re-scan: no address-shaped%s string survives in the output" % (" or phone-shaped" if want_phones else ""))
     return 0
 
 

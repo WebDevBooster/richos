@@ -69,7 +69,17 @@ final class PhysicalDeviceTests: XCTestCase {
                           "Mac fingerprint differs; do not confirm")
         }
         element("pair.match").tap()
-        if element("consent.continue").waitForExistence(timeout: 3) { element("consent.continue").tap() }
+        // Pairing v2: the phone now waits for "They match" ON THE MAC, pressed by the lab's operator.
+        // Bounded well inside the runner's 240 s per-test allowance.
+        let consent = element("consent.continue")
+        if !consent.waitForExistence(timeout: 3) {
+            XCTAssertTrue(element("takeover.pair-awaiting-mac").exists, "They match did not lead to the wait for the Mac")
+            print("PHYSICAL_PRESS_THEY_MATCH_ON_MAC")
+            let deadline = Date().addingTimeInterval(120)
+            while Date() < deadline, !consent.exists, !field.exists, !element("pair.error").exists { Thread.sleep(forTimeInterval: 1) }
+            XCTAssertFalse(element("pair.error").exists, "The Mac did not accept this phone")
+        }
+        if consent.exists { consent.tap() }
         XCTAssertTrue(field.waitForExistence(timeout: 10))
         verifyDeliveryAndRestoration()
     }

@@ -220,6 +220,12 @@ data class AppState(
     val microphone: Microphone = Microphone.UNKNOWN,
     /** The system is asking for the microphone; the press that asked never records. */
     val microphonePrompt: Boolean = false,
+    /** A press found the microphone off: the microphone-off card is up (`rec-mic-denied`, D03). */
+    @OptIn(ExperimentalSerializationApi::class) @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val microphoneCard: Boolean = false,
+    /** While denied: the system would still show its question, so the card offers asking again, not Settings. */
+    @OptIn(ExperimentalSerializationApi::class) @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val microphoneCanAsk: Boolean = false,
     val keptRecordings: List<KeptRecording> = emptyList(),
     val toast: Toast? = null,
     /** A press may record: paired, the Mac offers voice, the Mac is compatible, voice not paused. */

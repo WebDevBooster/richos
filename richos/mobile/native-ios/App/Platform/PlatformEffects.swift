@@ -138,7 +138,7 @@ final class PlatformEffects: EffectHandler, @unchecked Sendable {
             try? previewKeys.erase()
             return await network?.handle(effect, state: state) ?? []
 
-        case .persist, .pair, .confirmFingerprint, .deliver, .loadOlder, .fetchReplyAudio, .connect, .disconnect, .deleteAttachments,
+        case .persist, .pair, .confirmFingerprint, .checkMacConfirmation, .deliver, .loadOlder, .fetchReplyAudio, .connect, .disconnect, .deleteAttachments,
              .unregisterNotifications:
             return await network?.handle(effect, state: state) ?? []
         }
