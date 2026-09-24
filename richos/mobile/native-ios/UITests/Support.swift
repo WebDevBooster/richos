@@ -9,9 +9,15 @@ enum Screen {
     static let fixtureNow = "1790070060000"
 
     @discardableResult
-    static func launch(_ id: String, appearance: String = "dark", textSize: String? = nil) -> XCUIApplication {
+    static func launch(_ id: String, appearance: String = "dark", textSize: String? = nil,
+                       interactive: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-rios-fixture", id, "-rios-appearance", appearance, "-rios-now", fixtureNow]
+        app.launchArguments = ["-rios-fixture", id, "-rios-appearance", appearance]
+        if interactive {
+            app.launchArguments += ["-rios-interactive-fixture", "YES"]
+        } else {
+            app.launchArguments += ["-rios-now", fixtureNow]
+        }
         if let textSize {
             app.launchArguments += ["-UIPreferredContentSizeCategoryName", textSize]
         }

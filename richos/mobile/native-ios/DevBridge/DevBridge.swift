@@ -54,12 +54,22 @@ enum DevBridge {
     /// `-rios-appearance dark|light`, applied after the fixture, so every fixture can be
     /// photographed in both themes.
     static let appearanceArgument = "rios-appearance"
+    /// Gesture tests advance the real clock and core against controlled effects.
+    /// Screenshot fixtures retain their default still-frame behavior.
+    static var interactiveFixture: Bool {
+        UserDefaults.standard.string(forKey: fixtureArgument) != nil &&
+        UserDefaults.standard.bool(forKey: "rios-interactive-fixture")
+    }
 
     @MainActor
     static func start(store: AppStore) async {
         if let name = UserDefaults.standard.string(forKey: fixtureArgument) {
             do {
                 _ = try await store.replace(with: try Fixture.named(name).state)
+                if interactiveFixture {
+                    store.effectsSuspended = false
+                    _ = try await store.dispatch(.microphonePermission(.granted))
+                }
             } catch {
                 print("rios: launch fixture refused: \(error)")
             }

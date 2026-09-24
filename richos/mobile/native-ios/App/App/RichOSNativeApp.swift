@@ -38,11 +38,34 @@ struct RichOSNativeApp: App {
             .frame(width: 1, height: 1).allowsHitTesting(false).accessibilityHidden(true)
     }
 
+    private func mirrorPermissions(into store: AppStore) {
+        #if DEBUG
+        if DevBridge.interactiveFixture { return }
+        #endif
+        PlatformEffects.permissionMirror().forEach { store.send($0) }
+    }
+
     var body: some Scene {
         WindowGroup {
             Group {
                 if let store {
                     RootView(state: store.state, send: { store.send($0) })
+                        // Install lifecycle observation only once the store exists. The launch
+                        // task can suspend across activation, so its captured scenePhase is stale.
+                        .onChange(of: scenePhase, initial: true) { _, phase in
+                            switch phase {
+                            case .active:
+                                networkMonitor.start(store: store)
+                                mirrorPermissions(into: store)
+                                store.followPhone(SystemAppearance.current())
+                                store.becameActive(at: SystemClock().nowMs())
+                                Task { await ShareIntake.takeWaiting(into: store, nowMs: SystemClock().nowMs()) }
+                            case .background:
+                                networkMonitor.stop()
+                                store.wentToBackground(at: SystemClock().nowMs())
+                            default: break
+                            }
+                        }
                         .overlay(alignment: .topLeading) { usefulMarker(store) }
                         .safeAreaInset(edge: .top) {
                             if let problem = store.persistenceProblem ?? store.recordingProblem {
@@ -67,7 +90,15 @@ struct RichOSNativeApp: App {
                                              recordings: FileRecordingStore(directory: VoiceRecorder.defaultDirectory()),
                                              attachments: FileAttachmentStore(directory: ShareIntake.attachmentsDirectory()))
                 let platform = PlatformEffects(network: network, attachments: ShareIntake.attachmentsDirectory())
-                let loaded = await AppStore.launch(storage: AppStore.defaultStorage(), effects: platform, performance: PerformanceMarks.record)
+                let effects: (any EffectHandler)?
+                #if DEBUG
+                // Gesture fixtures use the real core and storage with controlled
+                // non-storage effects, just as the headless CLI does.
+                effects = DevBridge.interactiveFixture ? nil : platform
+                #else
+                effects = platform
+                #endif
+                let loaded = await AppStore.launch(storage: AppStore.defaultStorage(), effects: effects, performance: PerformanceMarks.record)
                 platform.dispatch = { loaded.receive($0) }
                 await network.setSink { action in await MainActor.run { loaded.receive(action) } }
                 await network.setPreviewKeyProvider { origin, previews in
@@ -98,10 +129,6 @@ struct RichOSNativeApp: App {
                 loaded.followPhone(SystemAppearance.current())
                 SystemAppearance.observe { loaded.followPhone($0) }
                 store = loaded
-                if scenePhase == .active {
-                    networkMonitor.start(store: loaded)
-                    loaded.becameActive(at: SystemClock().nowMs())
-                } else { loaded.wentToBackground(at: SystemClock().nowMs()) }
                 await ShareIntake.takeWaiting(into: loaded, nowMs: SystemClock().nowMs())
             }
             .task(id: nextTick) {
@@ -115,25 +142,6 @@ struct RichOSNativeApp: App {
                     do { try await Task.sleep(nanoseconds: UInt64(wait) * 1_000_000) } catch { return }
                 }
                 if let store, store.ticking { store.send(.tick(at: SystemClock().nowMs())) }
-            }
-            .onChange(of: scenePhase) { _, phase in
-                guard let store else { return }
-                switch phase {
-                case .active:
-                    networkMonitor.start(store: store)
-                    // The OS's microphone answer is mirrored, never stored (PRD §3).
-                    PlatformEffects.permissionMirror().forEach { store.send($0) }
-                    store.followPhone(SystemAppearance.current())
-                    store.becameActive(at: SystemClock().nowMs())
-                    // What was shared while the app was away goes into the outbox now.
-                    Task { await ShareIntake.takeWaiting(into: store, nowMs: SystemClock().nowMs()) }
-                case .background:
-                    networkMonitor.stop()
-                    // Backgrounding keeps a recording in progress, never sends it (the core's rule).
-                    store.wentToBackground(at: SystemClock().nowMs())
-                default:
-                    break
-                }
             }
             .onChange(of: shareContext) { _, _ in
                 // Only when what the Share extension reads changed (pairing, the Mac, appearance,

@@ -59,7 +59,7 @@ final class Simulator {
     static let deviceTypeName = "iPhone 16 Pro"
     /// Strings that exist only in development code. The Release binary must contain none of them,
     /// and the Debug binary must contain all of them (a negative check needs its positive probe).
-    static let developmentMarkers = ["rios-commands", "rios-fixture", "rios-appearance", "compose-draft", "Henderson proposal"]
+    static let developmentMarkers = ["rios-commands", "rios-fixture", "rios-interactive-fixture", "rios-appearance", "compose-draft", "Henderson proposal"]
 
     let cache: URL
     let root: URL
