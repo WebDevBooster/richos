@@ -10,11 +10,12 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const checks = {
   pairing: 'testPairAndDeliverAcrossHomeAndRelaunch',
   text: 'testDeliverAcrossHomeAndRelaunch',
+  quiet: 'testScrollAndQuietBackgroundReturn',
   recording: 'testActualMicrophonePreservesUnsentAudioAfterHomeAndTermination',
 };
 
 export function configuration(env, command, selection) {
-  if (!['build', 'verify'].includes(command)) throw Error('device build | device verify pairing|text|recording');
+  if (!['build', 'verify'].includes(command)) throw Error('device build | device verify pairing|text|recording|quiet');
   if (!/^[A-Fa-f0-9-]{20,64}$/.test(env.RICHOS_IOS_DEVICE || '')) throw Error('Set RICHOS_IOS_DEVICE to the connected physical UDID');
   if (!/^[A-Z0-9]{10}$/.test(env.RICHOS_APPLE_TEAM || '')) throw Error('Set RICHOS_APPLE_TEAM to the signing team');
   if (command === 'verify' && !checks[selection]) throw Error('Choose one named physical check');

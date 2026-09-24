@@ -97,6 +97,32 @@ final class PhysicalDeviceTests: XCTestCase {
         send(probe + " after relaunch")
     }
 
+    func testScrollAndQuietBackgroundReturn() {
+        launchPaired()
+        let list = app.collectionViews["conversation.list"]
+        XCTAssertTrue(list.waitForExistence(timeout: 5))
+        for _ in 0..<4 { list.swipeDown(); list.swipeUp() }
+        list.swipeDown()
+        XCTAssertTrue(element("conversation.latest").waitForExistence(timeout: 5))
+        keepScreenshot(app, name: "physical-reading-before-home")
+        // Host Instruments attaches during this settled foreground window. Sleep runs
+        // in the test runner, never the app; there is no recurring app probe or fixture.
+        print("PHYSICAL_RESOURCE_FOREGROUND_WINDOW")
+        Thread.sleep(forTimeInterval: 30)
+        XCUIDevice.shared.press(.home)
+        XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5))
+        print("PHYSICAL_RESOURCE_BACKGROUND_WINDOW")
+        Thread.sleep(forTimeInterval: 90)
+        XCTAssertTrue(app.state == .runningBackground || app.state == .runningBackgroundSuspended,
+                      "App should remain hidden; suspension is expected and welcome")
+        app.activate()
+        XCTAssertTrue(element("conversation.latest").waitForExistence(timeout: 5))
+        keepScreenshot(app, name: "physical-reading-after-home")
+        element("conversation.latest").tap()
+        XCTAssertTrue(field.exists)
+        XCTAssertFalse(element("voice.cancel").exists)
+    }
+
     private func lockRecording() {
         let mic = element("composer.mic")
         XCTAssertTrue(mic.waitForExistence(timeout: 5))

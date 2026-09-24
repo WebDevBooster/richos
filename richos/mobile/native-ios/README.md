@@ -41,7 +41,8 @@ simulator (`sim verify` requires byte-identical results).
 signing and sandbox APNs. Set `RICHOS_IOS_DEVICE` to the physical UDID and
 `RICHOS_APPLE_TEAM` to the signing team. Build output stays in the external cache.
 
-For `bin/rios device verify pairing`, `device verify text` or `device verify recording`, also set
+For `bin/rios device verify pairing`, `device verify text`, `device verify recording`
+or `device verify quiet`, also set
 `RICHOS_MOBILE_TEST_CONFIG` to the isolated lab's external JSON with
 `"isolatedLab": "true"`. Pairing requires its current HTTPS `pairLink` and exact
 fingerprint `words`; recording requires that same isolated session already paired.
@@ -49,6 +50,11 @@ These checks drive normal Release UI and real microphone capture. They never use
 fixtures or pass the lab configuration to the app. Do not run them against a personal
 conversation. Pairing starts unpaired. Recording discards its first test capture and
 retains the recovered termination capture for independent WAV inspection.
+
+The `quiet` check scrolls actual history, leaves a 30-second settled foreground
+window for an optional host profiler, then spends 90 seconds on Home before
+checking reading-state return and Latest. Its sleep is in the test runner. It
+does not itself measure battery, CPU or network use.
 
 The runner checks host USB continuity, bounds each check, stops on failure and rejects
 skipped or missing tests. It never resets USB or retries automatically. Each invocation
