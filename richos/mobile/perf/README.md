@@ -171,7 +171,10 @@ capture, marks and join, never a phone number. Pass fixture arguments with `--ap
 
 This needs a Release build signed for the phone, installed and stamped, and paired with an isolated
 test conversation that already has history. The composer must be enabled. The phone stays unlocked
-and awake on USB for the whole series. Run from the repository root:
+and awake on USB for the whole series. Each trial records for `--trace-seconds` (10 s), then exports
+four tables. Each export took 1.7–2.4 s on this Mac, measured offline, plus an occasional re-read.
+So a 100-trial class needs roughly 35 minutes, and the phone's own launch and transfer time is not
+yet measured. Run from the repository root:
 
 ```sh
 UDID=<the iPhone's UDID from xcrun devicectl list devices>
