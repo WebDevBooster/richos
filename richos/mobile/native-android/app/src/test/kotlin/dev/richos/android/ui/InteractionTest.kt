@@ -94,6 +94,8 @@ class InteractionTest {
     @Test
     fun `every Settings row that leaves the app reaches core - updates, support and the privacy policy`() {
         val set = show(screen("settings"))
+        // No appearance control: the app follows the phone (the CEO, 2026-09-24, G9).
+        compose.onNodeWithText("Appearance").assertDoesNotExist()
         // Nothing has checked for an update, so the row claims nothing: no "Up to date".
         compose.onNodeWithText("Up to date").assertDoesNotExist()
         compose.onNodeWithText("Check for updates").performScrollTo().performClick()

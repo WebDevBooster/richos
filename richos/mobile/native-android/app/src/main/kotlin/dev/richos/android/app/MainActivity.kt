@@ -43,6 +43,7 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.richos.android.core.AppState
 import dev.richos.android.core.Theme
+import dev.richos.android.design.phoneTheme
 import dev.richos.android.platform.NotificationTaps
 import dev.richos.android.ui.RichApp
 import dev.richos.android.ui.model.ScreenModel
@@ -59,9 +60,10 @@ class MainActivity : ComponentActivity() {
         val store = richStore
         setContent {
             val state by store.states.collectAsStateWithLifecycle()
-            // System bar icons follow the APP's theme, not the phone's: dark is the default
-            // whatever the phone says (ceo-decisions §15), so light icons unless light is chosen.
-            val dark = state?.theme != Theme.LIGHT
+            // The app follows the phone's light/dark setting (the CEO, 2026-09-24: "Follow the
+            // phone"); the system bar icons with it.
+            val theme = phoneTheme()
+            val dark = theme == Theme.DARK
             // Set on the window directly: re-calling enableEdgeToEdge from a composition effect did
             // not change the window's appearance (measured on the API 34 emulator: no
             // LIGHT_STATUS_BARS flag, white icons on the light ground).
@@ -83,7 +85,7 @@ class MainActivity : ComponentActivity() {
             }
             val current = state
             if (current != null) {
-                val model = ScreenModel(app = current, refusal = refusal, pairingSurface = pairing.surface, scannerCamera = pairing.camera)
+                val model = ScreenModel(app = current.copy(theme = theme), refusal = refusal, pairingSurface = pairing.surface, scannerCamera = pairing.camera)
                 BackHandler(enabled = entry.ownsBack(current)) { entry.back(current) }
                 // The message field's own line to core's draft, so typing never waits on core.
                 val drafts = remember(store) {
@@ -110,7 +112,7 @@ class MainActivity : ComponentActivity() {
                 }
             } else {
                 // Until the saved state is read (a few milliseconds): the ground, nothing else.
-                AppRoot(null)
+                AppRoot(null, theme)
             }
         }
         // A tapped reply notification opens that reply (platform/NotificationTaps.kt).
@@ -134,8 +136,8 @@ private fun ComponentActivity.cameraGranted(): Boolean =
  * of each theme (design/system/tokens.css §14/§15): 14.55:1 dark, 14.90:1 light, 18 sp.
  */
 @Composable
-fun AppRoot(state: AppState?) {
-    val dark = state?.theme != Theme.LIGHT
+fun AppRoot(state: AppState?, theme: Theme) {
+    val dark = theme == Theme.DARK
     val ground = if (dark) Color(0xFF0C1322) else Color(0xFFEAE6DD)
     val ink = if (dark) Color(0xFFDFE4EE) else Color(0xFF0C1322)
     Box(Modifier.fillMaxSize().background(ground).safeDrawingPadding(), contentAlignment = Alignment.Center) {

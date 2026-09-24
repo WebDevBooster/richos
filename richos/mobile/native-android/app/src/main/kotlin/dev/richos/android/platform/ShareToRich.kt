@@ -31,8 +31,8 @@ import dev.richos.android.core.AttachmentLimits
 import dev.richos.android.core.ConnectionReason
 import dev.richos.android.core.CoreError
 import dev.richos.android.core.OutboxState
-import dev.richos.android.core.Theme
 import dev.richos.android.design.RichTheme
+import dev.richos.android.design.phoneTheme
 import dev.richos.android.ui.UiEvent
 import dev.richos.android.ui.attach.ShareSheetView
 import dev.richos.android.ui.model.FileInfo
@@ -178,7 +178,7 @@ class ShareActivity : ComponentActivity() {
         val app = application as RichApplication
         setContent {
             val state by app.store.states.collectAsStateWithLifecycle()
-            RichTheme(state?.theme ?: Theme.DARK) {
+            RichTheme(phoneTheme()) {
                 sheet.value?.let { s ->
                     ShareSheetView(
                         s, limitMb, ::onEvent, overApp = true,

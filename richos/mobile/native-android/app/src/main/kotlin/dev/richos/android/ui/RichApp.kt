@@ -178,7 +178,7 @@ private fun Overlays(model: ScreenModel, onEvent: (UiEvent) -> Unit) {
         model.sheet == Sheet.FORGET -> { Scrim(close); ForgetDialog(onEvent) }
         model.sheet == Sheet.SETTINGS -> {
             Scrim(close)
-            SettingsSheet(model.settings, model.notificationStatus, model.app.notifications.previews, model.app.theme, onEvent)
+            SettingsSheet(model.settings, model.notificationStatus, model.app.notifications.previews, onEvent)
         }
         model.pairingBlocked != null -> { Scrim(close); PairingBlockedDialog(model.pairingBlocked!!, onEvent) }
         model.overlay == Overlay.MicrophonePermission -> MicrophonePermissionDrawing()

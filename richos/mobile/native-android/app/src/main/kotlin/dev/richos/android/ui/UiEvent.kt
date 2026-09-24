@@ -2,7 +2,6 @@ package dev.richos.android.ui
 
 import dev.richos.android.core.Action
 import dev.richos.android.core.Sheet
-import dev.richos.android.core.Theme
 
 /**
  * Everything a person can do on a screen. The screens emit these and nothing else; [toAction]
@@ -20,9 +19,6 @@ sealed interface UiEvent {
     // --- the outbox ---------------------------------------------------------------------------
     data object TryNow : UiEvent
     data class Discard(val clientId: String) : UiEvent
-
-    // --- appearance ---------------------------------------------------------------------------
-    data class ChooseTheme(val theme: Theme) : UiEvent
 
     // --- voice: raw finger events; core owns every threshold and decides what they mean ----------
     /** Touch-down: [id] names the new recording, [widthDp] is the composer's, [at] epoch ms. */
@@ -108,7 +104,6 @@ fun UiEvent.toAction(): Action? = when (this) {
     UiEvent.SendText -> Action.Send
     UiEvent.TryNow -> Action.Retry
     is UiEvent.Discard -> Action.Discard(clientId)
-    is UiEvent.ChooseTheme -> Action.SetTheme(theme)
     is UiEvent.PairWithLink -> Action.Pair(link)
     UiEvent.WordsMatch -> Action.ConfirmWords(true)
     // The dialog about unsent work in the way of pairing: send what waits (core's retry), or keep
