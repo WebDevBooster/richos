@@ -215,3 +215,6 @@ pub mod operator_declaration;
 ///   - `operator_profile` — his lead's arguments and environment, built from empty, and the
 ///                    init check it passes before it takes work ((b), (i)).
 pub mod operator_profile;
+///   - `operator_frames` — his engine's alarms read off the lead's hook frames, verbatim and
+///                    delivered once across every lead ((r)).
+pub mod operator_frames;
