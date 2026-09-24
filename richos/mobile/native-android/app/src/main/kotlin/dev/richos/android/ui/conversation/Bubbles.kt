@@ -267,8 +267,9 @@ private fun Meta(message: Message, modifier: Modifier = Modifier, onPhoto: Boole
         itemVerticalAlignment = Alignment.CenterVertically,
     ) {
         message.via?.let { BasicText("Shared from $it", style = t.read.copy(color = soft)) }
-        // DECLARED SKIPPABLE, a claim for the CEO to overrule (ceo-decisions "The type scale": a node in
-        // the 14 px tier is a claim that it is skippable): the delivery words inside a bubble are set
+        // DECLARED SKIPPABLE, confirmed by the CEO 2026-09-24 ("14px, as the mockup", ceo-decisions
+        // §83; "The type scale": a node in the 14 px tier is a claim that it is skippable, because the
+        // status glyph beside it carries the same meaning): the delivery words inside a bubble are set
         // as round 12.1 sets them, in `.meta` with the time, 14 sp medium, which lets a voice
         // message's status share the duration's line (Urban's 2026-09-24 audit G14; iOS `Meta` does
         // the same). The words mirror what is also shown in another form: the delivery glyph beside
