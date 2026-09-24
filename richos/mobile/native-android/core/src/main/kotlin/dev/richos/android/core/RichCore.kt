@@ -588,23 +588,26 @@ class RichCore private constructor(
     // --- native push registration (contract §7.2; Echo 65952d16) -----------------------------------
 
     private suspend fun pushToken(action: Action.PushToken): AppState {
-        val (p, previews) = mutex.withLock {
+        val attempt = mutex.withLock {
             val n = session.notifications
-            if (!session.paired) return@withLock null to n.previews
+            if (!session.paired || n.status == NotificationStatus.OFF) return@withLock null
             if (FCM !in session.capabilities) {
                 commit(session.copy(notifications = n.copy(status = NotificationStatus.UNSUPPORTED)))
-                return@withLock null to n.previews
+                return@withLock null
             }
-            session.pairing to n.previews
-        }
-        val pairing = p ?: return flow.value
+            Triple(session.pairing, n, generation)
+        } ?: return flow.value
+        val (pairing, intended, epoch) = attempt
         val outcome = pushLane.withLock {
             runCatching {
-                api.registerPush(pairing.apiBase!!, pairing.deviceId!!, pairing.challenge!!, NativePush(token = action.token, topic = ports.applicationId, previewKey = action.previewKey, previews = previews))
+                api.registerPush(pairing.apiBase!!, pairing.deviceId!!, pairing.challenge!!, NativePush(token = action.token, topic = ports.applicationId, previewKey = action.previewKey, previews = intended.previews))
             }
         }
         return mutex.withLock {
             val n = session.notifications
+            // A response belongs to the pairing and notification choice that initiated it.
+            // In particular, it must not turn notifications back on after Off or Forget.
+            if (generation != epoch || session.pairing.deviceId != pairing.deviceId || n != intended) return@withLock emit()
             val (answer, challenge) = outcome.getOrNull() ?: (null to null)
             val failure = outcome.exceptionOrNull() as? TransportFailure
             val status = when {

@@ -9,6 +9,9 @@ import dev.richos.android.core.protocol.HttpResponse
 import dev.richos.android.core.protocol.Row
 import dev.richos.android.core.protocol.Signing
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import java.io.IOException
 import java.net.URI
@@ -26,6 +29,7 @@ import kotlin.test.assertTrue
 class MacTransportTest {
     private class FakeMac(var answer: (HttpRequest) -> HttpResponse) : Http {
         val seen = mutableListOf<HttpRequest>()
+        var beforeAnswer: suspend (HttpRequest) -> Unit = {}
         var challenge = Fixtures.CHALLENGE
         override suspend fun send(request: HttpRequest): HttpResponse {
             seen += request
@@ -35,6 +39,7 @@ class MacTransportTest {
             val (_, presented, sig) = auth.split('.')
             val ok = DevKeys.verify(DevKeys.point, Signing.signingString(presented, request.method, path, request.body).toByteArray(), Signing.fromBase64url(sig))
             check(ok) { "bad signature on $path" }
+            beforeAnswer(request)
             return answer(request)
         }
     }
@@ -213,6 +218,36 @@ class MacTransportTest {
 
     private val registered = """{"host_id":"0123456789abcdef0123456789abcdef","registered":true}"""
     private val pushSession get() = Fixtures.fixture("online").session.copy(capabilities = listOf("text", "native-push-fcm"))
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test fun `a late push registration cannot undo turn off or forget`() = runTest {
+        for (forget in listOf(false, true)) {
+            val gate = CompletableDeferred<Unit>()
+            val mac = FakeMac { ok(registered) }.apply {
+                beforeAnswer = { request -> if (String(request.body!!).contains("fcm-token")) gate.await() }
+            }
+            val core = core(mac, session = pushSession.copy(notifications = Notifications(NotificationStatus.ON)))
+            val registration = launch { core.dispatch(Action.PushToken("fcm-token-" + "x".repeat(40))) }
+            runCurrent()
+            val changed = launch {
+                if (forget) {
+                    core.dispatch(Action.ForgetPairing)
+                    core.dispatch(Action.ConfirmForget)
+                } else core.dispatch(Action.TurnOffNotifications)
+            }
+            runCurrent()
+            gate.complete(Unit)
+            registration.join(); changed.join()
+            if (forget) {
+                assertEquals(PairingPhase.UNPAIRED, core.state.pairing.phase)
+                assertTrue(core.state.notifications.status != NotificationStatus.ON)
+            } else assertEquals(NotificationStatus.OFF, core.state.notifications.status)
+            assertTrue(mac.seen.any { String(it.body!!) == """{"native_push":null}""" })
+            val calls = mac.seen.size
+            core.dispatch(Action.PushToken("fcm-token-late"))
+            assertEquals(calls, mac.seen.size, "a delayed platform callback cannot re-register after Off or Forget")
+        }
+    }
 
     /** Keys that log what happens to them, so the order of "signed" and "deleted" is visible. */
     private class LoggingKeys : DeviceKeys {
