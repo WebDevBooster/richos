@@ -204,7 +204,10 @@ or `metrics.warmResume.stats`: `n`, `min`, `p50`, `p95` (from 20 samples), `p99`
 (1,000 ms cold, 200 ms warm), never as a verdict. `phaseStatsMs` splits each sample into
 `usefulDraw` (cold) or `foregroundDraw` (warm), `commitEnd`, `inputReady` and `presented`.
 `outliers`, `rejected` and `evidence` name the retained traces. `acceptance` stays **NOT VERIFIED**
-until both classes have at least 100 trials on a physical device with a Release build. The build
+until both classes have at least 100 trials on a physical device with a Release build. Run as the two
+commands above, each record lists the class it lacks ("no warm return distribution" in
+`cold-100.json`, "no cold launch distribution" in `warm-100.json`). That is expected: the pair,
+from one stamped build, is the protocol's evidence. The build
 configuration is read from the stamped bundle's bytes, using `rios sim check-release`'s own
 development markers. Even then the record says "EVIDENCE ONLY (a reviewer decides)". Keep `$RUN` on
 the external SSD and private. Summaries go to `richos-hq`'s `docs/verification/`, never to this
