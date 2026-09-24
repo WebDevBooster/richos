@@ -1,0 +1,15 @@
+ ndroid.systemui-843     (    843) [001] .....   264.210896: tracing_mark_write: C|843|aq:pending:NavigationBar0|1
+ ndroid.systemui-843     (    843) [001] .....   264.210897: tracing_mark_write: C|843|aq:pending:NavigationBar0|0
+ ndroid.systemui-843     (    843) [001] .....   264.210899: tracing_mark_write: S|843|deliverInputEvent|2001446668
+ ndroid.systemui-843     (    843) [001] .....   264.210913: tracing_mark_write: B|843|deliverInputEvent src=0x1002 eventTimeNano=264209000000 id=0x774ba70c
+ .richos.connect-5911    (   5911) [001] .....   264.211479: tracing_mark_write: C|5911|aq:pending:dev.richos.connect/dev.richos.android.app.MainActivity|1
+ .richos.connect-5911    (   5911) [001] .....   264.211481: tracing_mark_write: C|5911|aq:pending:dev.richos.connect/dev.richos.android.app.MainActivity|0
+ .richos.connect-5911    (   5911) [001] .....   264.211490: tracing_mark_write: S|5911|deliverInputEvent|-447071758
+ .richos.connect-5911    (   5911) [001] .....   264.211530: tracing_mark_write: B|5911|deliverInputEvent src=0x1002 eventTimeNano=264209000000 id=0xe55a39f2
+ ndroid.systemui-843     (    843) [000] .....   264.212294: tracing_mark_write: F|843|deliverInputEvent|2001446668
+ .richos.connect-5911    (   5911) [001] .....   264.214440: tracing_mark_write: F|5911|deliverInputEvent|-447071758
+ .richos.connect-5911    (   5911) [001] .....   264.214784: tracing_mark_write: C|5911|aq:pending:dev.richos.connect/dev.richos.android.app.MainActivity|1
+ .richos.connect-5911    (   5911) [001] .....   264.214785: tracing_mark_write: C|5911|aq:pending:dev.richos.connect/dev.richos.android.app.MainActivity|0
+ .richos.connect-5911    (   5911) [001] .....   264.214788: tracing_mark_write: S|5911|deliverInputEvent|-994323591
+ .richos.connect-5911    (   5911) [001] .....   264.214809: tracing_mark_write: B|5911|deliverInputEvent src=0x1002 eventTimeNano=264209000000 id=0xc4bbd379
+ .richos.connect-5911    (   5911) [001] .....   264.215828: tracing_mark_write: F|5911|deliverInputEvent|-994323591

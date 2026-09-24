@@ -42,6 +42,10 @@ bin/randroid emu restart                          # a real process restart, then
 bin/randroid emu parity [scenario]                # same scenario headless and on the device
 bin/randroid emu verify                           # the screen shows what the core says
 bin/randroid emu screenshot [file.png]
+bin/randroid emu perf [--out file.json] [--only …]   # launch, resume, tap, frames, background, typing
+                                                  #   and stream cost of the installed build, one
+                                                  #   record (richos/mobile/perf/README.md)
+bin/randroid emu adb <args>                       # one adb command, this emulator's serial only
 bin/randroid emu stop | delete                    # quit it (by the PID recorded at boot) / delete its AVD
 
 bin/randroid build debug | release               # release is signed when the upload key is present

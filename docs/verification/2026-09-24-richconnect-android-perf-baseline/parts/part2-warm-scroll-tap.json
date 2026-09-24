@@ -1,0 +1,292 @@
+{
+  "schema": "richos-mobile-perf/1",
+  "platform": "android",
+  "startedAt": "2026-09-24T03:30:31Z",
+  "tool": {
+    "path": "richos/mobile/perf/perf.py",
+    "commit": "5782c54be42f724236d7c4e115d450ae52f855de",
+    "dirty": false,
+    "paths": [
+      "richos/mobile/perf"
+    ]
+  },
+  "build": {
+    "package": "dev.richos.connect",
+    "commit": "5782c54be42f724236d7c4e115d450ae52f855de",
+    "dirty": false,
+    "installedSha256": "1602b71dcf27431d9b9a357d3a29fcd9565806a16e708dc247ddf233808660bf",
+    "builtSha256": "1602b71dcf27431d9b9a357d3a29fcd9565806a16e708dc247ddf233808660bf",
+    "stampPaths": [
+      "richos/mobile/native-android"
+    ],
+    "versionName": "0.1.0-dev",
+    "versionCode": 1,
+    "debuggable": true,
+    "configuration": "debug"
+  },
+  "device": {
+    "kind": "emulator",
+    "serial": "emulator-5580",
+    "manufacturer": "Google",
+    "model": "sdk_gphone64_arm64",
+    "os": "Android 14",
+    "sdk": "34",
+    "abi": "arm64-v8a",
+    "buildType": "userdebug",
+    "display": "1080x2400",
+    "density": "420",
+    "refreshHz": 60.0,
+    "host": {
+      "note": "an emulator's timings depend on the Mac running it; sampled at each phase",
+      "samples": {
+        "seed": {
+          "cpuBusyPercent": 58.3,
+          "memoryPressure": "normal"
+        },
+        "warm": {
+          "cpuBusyPercent": 30.5,
+          "memoryPressure": "normal"
+        },
+        "scroll": {
+          "cpuBusyPercent": 6.5,
+          "memoryPressure": "normal"
+        },
+        "tap": {
+          "cpuBusyPercent": 8.4,
+          "memoryPressure": "normal"
+        }
+      },
+      "pacing": {
+        "rule": "before each trial, keystroke, delta, swipe and window, wait until the emulator's host process used under 1.5 cores for four consecutive one-second samples (at most 30 s); keeps the run under the Mac's CPU circuit breaker (3 cores for 10 s, sampled every 2 s)",
+        "waits": 56,
+        "totalWaitSeconds": 255.7,
+        "notQuiet": 0
+      }
+    }
+  },
+  "metrics": {
+    "warmResume": {
+      "method": "HOME, --away seconds, the launcher settles, launcher intent with am start -W: TotalTime of a start in the same process (PRD J2: process retained). Android's HOT (activity kept) and WARM (activity recreated) both count, each sample keeps its state; a new pid is a cold start and is rejected",
+      "samplesMs": [
+        339,
+        302,
+        228,
+        238,
+        241,
+        202,
+        244,
+        181,
+        207,
+        170,
+        216,
+        241,
+        239,
+        216,
+        200,
+        196,
+        205,
+        179,
+        206,
+        169
+      ],
+      "stats": {
+        "n": 20,
+        "min": 169,
+        "p50": 207,
+        "p95": 302,
+        "p99": null,
+        "max": 339,
+        "why": "20 samples cannot place a p99 (needs 100); below the PRD \u00a78 protocol of 100 trials"
+      },
+      "budget": {
+        "budget": 200,
+        "unit": "ms",
+        "statistic": "p95",
+        "row": "Warm resume to usable retained state",
+        "source": "richos-hq/docs/prds/2026-09-24-richconnect-perceived-speed-and-no-annoyance.md \u00a77 (proposed target, not a CEO number)",
+        "within": false
+      },
+      "sampleStates": [
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM"
+      ],
+      "launchStates": {
+        "WARM": 20
+      },
+      "hotStats": {
+        "n": 0,
+        "min": null,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "max": null
+      },
+      "recreatedStats": {
+        "n": 20,
+        "min": 169,
+        "p50": 207,
+        "p95": 302,
+        "p99": null,
+        "max": 339,
+        "why": "20 samples cannot place a p99 (needs 100); below the PRD \u00a78 protocol of 100 trials"
+      },
+      "firstRecreation": [],
+      "rejected": []
+    },
+    "activeFrames": {
+      "method": "input swipe on the transcript (older and back), gfxinfo framestats over the swipes: frames whose FrameCompleted <= FrameDeadline, and frames of 100 ms or more",
+      "swipes": 6,
+      "framesRendered": 109,
+      "framesTimed": 107,
+      "timing": {
+        "frames": 107,
+        "skippedRows": 3,
+        "onTimePercent": 13.1,
+        "maxFrameMs": 115.9,
+        "stallsOver100Ms": 7
+      }
+    },
+    "tapToFeedback": {
+      "method": "input tap on 'Send message': the app's deliverInputEvent eventTimeNano (atrace input) to the FrameCompleted of the frame carrying that InputEventId (gfxinfo framestats); both CLOCK_MONOTONIC. The draft is set through the debug bridge; the sent text is checked on screen after each tap",
+      "samplesMs": [
+        44.8,
+        56.3,
+        59.9,
+        55.3,
+        68.5,
+        59.3,
+        66.8,
+        63.6,
+        67.7,
+        55.4
+      ],
+      "stats": {
+        "n": 10,
+        "min": 44.8,
+        "p50": 59.3,
+        "p95": null,
+        "p99": null,
+        "max": 68.5,
+        "why": "10 samples cannot place a p95 (needs 20) or a p99 (needs 100); a pilot sample"
+      },
+      "budget": {
+        "budget": 100,
+        "unit": "ms",
+        "statistic": "p95",
+        "row": "Tap, edit or gesture feedback",
+        "source": "richos-hq/docs/prds/2026-09-24-richconnect-perceived-speed-and-no-annoyance.md \u00a77 (proposed target, not a CEO number)",
+        "within": null,
+        "why": "10 samples cannot place a p95 (needs 20) or a p99 (needs 100); a pilot sample"
+      },
+      "settledMs": [
+        679.1,
+        464.4,
+        452.4,
+        440.4,
+        473.8,
+        449.1,
+        472.7,
+        471.6,
+        457.5,
+        445.5
+      ],
+      "settledStats": {
+        "n": 10,
+        "min": 440.4,
+        "p50": 457.5,
+        "p95": null,
+        "p99": null,
+        "max": 679.1,
+        "why": "10 samples cannot place a p95 (needs 20) or a p99 (needs 100); a pilot sample"
+      },
+      "burstFrames": [
+        21,
+        15,
+        14,
+        14,
+        14,
+        14,
+        14,
+        14,
+        14,
+        13
+      ],
+      "rejected": []
+    }
+  },
+  "phases": {
+    "seed": "measured",
+    "warm": "measured",
+    "scroll": "measured",
+    "tap": "measured"
+  },
+  "notMeasured": [
+    {
+      "what": "sendToQueued (small text send to durable local queued state, p95 <= 150 ms)",
+      "why": "the tap metric ends at the first frame after the tap; nothing marks the moment the outbox item is durable. Settle: a Trace section (android.os.Trace) around the outbox commit in AppStore/RichCore's send path, read from the same atrace capture as the tap"
+    },
+    {
+      "what": "receiveToVisible (received text to visible text, p95 <= 100 ms)",
+      "why": "no trace mark at the moment stream bytes reach the app (the debug bridge's broadcast has none). Settle: a Trace section where ConnectionOwner hands a stream chunk to the store, then the first frame after it from framestats, as the tap metric does"
+    },
+    {
+      "what": "energy (mAh, OS battery attribution, OEM power-intensive warnings)",
+      "why": "an emulator has no battery or power model; its batterystats power estimates are not energy. Settle: the same background phase on a physical phone (PRD \u00a78 names the mandatory OEM phone family), plus Settings > Battery and the OEM manager over the PRD \u00a78 30-minute and overnight windows"
+    },
+    {
+      "what": "managed Connect and Tailscale routes",
+      "why": "this run used the debug build's scripted Mac (no network). Settle: pair with the lab Mac (native-android README 'Pairing the emulator') or a real Mac; count the phone's requests at the Mac and at the Connect Worker while backgrounded (Sage T7)"
+    },
+    {
+      "what": "release-configuration timing",
+      "why": "a debuggable, unminified build is slower than release; PRD \u00a77 budgets are for release builds. Settle: a profileable release-configuration build signed for local install, and a real pairing to reach the conversation without the debug bridge"
+    },
+    {
+      "what": "typing and streaming cost on the production persistence port",
+      "why": "in a development world the core persists through the bridge's document, not AppPorts' JsonFile. RichCore.commit changes show here; JsonFile changes need a paired production core"
+    },
+    {
+      "what": "physical-device timing",
+      "why": "an emulator on a shared Mac (software GPU, host CPU recorded per phase) is a pilot, never acceptance (PRD \u00a78). Settle: the same command on a phone with --kind physical"
+    }
+  ],
+  "conditions": {
+    "theme": "device",
+    "systemNightModeBefore": "Night mode: no",
+    "fixture": "online",
+    "history": 40,
+    "transport": "unreachable"
+  },
+  "route": {
+    "name": "development fixture",
+    "detail": "the debug build's scripted Mac inside the app: no network. Launch series run with the scripted Mac UNREACHABLE (Sage T6: launch must not depend on the network); the live spot check with it accepting",
+    "persistence": "the development world's document (DevBridge), written through the same RichCore.commit as production but not through the production JsonFile port"
+  },
+  "acceptance": {
+    "verdict": "NOT VERIFIED",
+    "why": [
+      "not a physical device (PRD \u00a78: an emulator or simulator cannot certify)",
+      "not a release configuration (debuggable build; PRD \u00a77 budgets are for release builds)",
+      "0 launch trials, below the PRD \u00a78 protocol of 100"
+    ]
+  },
+  "finishedAt": "2026-09-24T03:37:51Z"
+}

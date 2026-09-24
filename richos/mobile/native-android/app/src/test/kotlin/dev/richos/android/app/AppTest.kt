@@ -15,6 +15,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import android.os.Looper
+import android.view.ViewTreeObserver
+import org.robolectric.Shadows.shadowOf
+import java.time.Duration
 import org.robolectric.RobolectricTestRunner
 import java.io.File
 
@@ -28,6 +32,26 @@ class AppTest {
     fun `the app launches on its own store and renders the round-12 app`() {
         compose.waitUntil(5_000) { compose.activity.richStore.states.value != null }
         compose.onNodeWithTag("app").assertExists()
+    }
+
+    // The launch measurement's end mark (richos/mobile/perf, PRD 2026-09-24 §7 J1): the platform's
+    // "fully drawn" event, reported once the saved state is on screen and never for the bare ground.
+    @Test
+    fun `useful content is reported fully drawn once the saved state is on screen`() {
+        compose.waitUntil(5_000) { compose.activity.richStore.states.value != null }
+        compose.onNodeWithTag("app").assertExists()
+        // The report runs on the next DRAWN frame, and Robolectric draws nothing: stand in for the
+        // renderer's draw pass (the view tree's own on-draw dispatch) a frame at a time, moving the
+        // main looper's clock with it, for at most five simulated seconds.
+        val looper = shadowOf(Looper.getMainLooper())
+        val drawn = ViewTreeObserver::class.java.getMethod("dispatchOnDraw")
+        var frames = 0
+        while (!compose.activity.fullyDrawnReporter.isFullyDrawnReported && frames < 300) {
+            drawn.invoke(compose.activity.window.decorView.viewTreeObserver)
+            looper.idleFor(Duration.ofMillis(17))
+            frames++
+        }
+        assertTrue("never reported fully drawn after $frames frames", compose.activity.fullyDrawnReporter.isFullyDrawnReported)
     }
 
     @Test

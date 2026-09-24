@@ -1,0 +1,310 @@
+{
+  "schema": "richos-mobile-perf/1",
+  "platform": "android",
+  "startedAt": "2026-09-24T03:42:41Z",
+  "tool": {
+    "path": "richos/mobile/perf/perf.py",
+    "commit": "e85e17aba6ff229e885380f50a471f638bc9ae75",
+    "dirty": false,
+    "paths": [
+      "richos/mobile/perf"
+    ]
+  },
+  "build": {
+    "package": "dev.richos.connect",
+    "commit": "e85e17aba6ff229e885380f50a471f638bc9ae75",
+    "dirty": false,
+    "installedSha256": "1602b71dcf27431d9b9a357d3a29fcd9565806a16e708dc247ddf233808660bf",
+    "builtSha256": "1602b71dcf27431d9b9a357d3a29fcd9565806a16e708dc247ddf233808660bf",
+    "stampPaths": [
+      "richos/mobile/native-android"
+    ],
+    "versionName": "0.1.0-dev",
+    "versionCode": 1,
+    "debuggable": true,
+    "configuration": "debug"
+  },
+  "device": {
+    "kind": "emulator",
+    "serial": "emulator-5580",
+    "manufacturer": "Google",
+    "model": "sdk_gphone64_arm64",
+    "os": "Android 14",
+    "sdk": "34",
+    "abi": "arm64-v8a",
+    "buildType": "userdebug",
+    "display": "1080x2400",
+    "density": "420",
+    "refreshHz": 60.0,
+    "host": {
+      "note": "an emulator's timings depend on the Mac running it; sampled at each phase",
+      "samples": {
+        "seed": {
+          "cpuBusyPercent": 49.8,
+          "memoryPressure": "normal"
+        },
+        "streaming": {
+          "cpuBusyPercent": 37.5,
+          "memoryPressure": "normal"
+        },
+        "background": {
+          "cpuBusyPercent": 8.3,
+          "memoryPressure": "normal"
+        },
+        "idle-pairing": {
+          "cpuBusyPercent": 79.4,
+          "memoryPressure": "normal"
+        }
+      },
+      "pacing": {
+        "rule": "before each trial, keystroke, delta, swipe and window, wait until the emulator's host process used under 1.5 cores for four consecutive one-second samples (at most 30 s); keeps the run under the Mac's CPU circuit breaker (3 cores for 10 s, sampled every 2 s)",
+        "waits": 2,
+        "totalWaitSeconds": 33.3,
+        "notQuiet": 0
+      }
+    }
+  },
+  "metrics": {
+    "streamCost": {
+      "method": "a streamed reply fed as `receive` delta frames through the debug bridge; the same write, fsync and frame counts per delta. The bridge's own save of its document per command is included",
+      "units": 8,
+      "framesRendered": 45,
+      "frames": {
+        "frames": 45,
+        "skippedRows": 1,
+        "onTimePercent": 13.3,
+        "maxFrameMs": 117.1,
+        "stallsOver100Ms": 1
+      },
+      "io": {
+        "wchar": 4748086,
+        "syscw": 3121,
+        "write_bytes": 352256,
+        "rchar": 34122,
+        "syscr": 25261
+      },
+      "fsyncs": 20,
+      "perUnit": {
+        "writeSyscalls": 390.12,
+        "bytesWritten": 593511,
+        "storageBytes": 44032,
+        "fsyncs": 2.5,
+        "frames": 5.62
+      },
+      "includes": "the opening and final rows as well as the deltas; per-delta figures divide the whole reply",
+      "replyMatches": true
+    },
+    "backgroundQuiet": {
+      "method": "HOME; after --background-settle seconds, over --background-seconds: context switches of every app thread, CPU ticks, batterystats reset at the start and read at the end (checkin: wakeup alarms, wake locks, jobs, syncs, network bytes), pending alarms, jobs, held wake locks, open sockets",
+      "zeroWork": false,
+      "target": {
+        "row": "Background quiet",
+        "value": 0,
+        "source": "richos-hq/docs/prds/2026-09-24-richconnect-perceived-speed-and-no-annoyance.md \u00a77 (proposed)"
+      },
+      "seconds": 60.0,
+      "settleSeconds": 5.0,
+      "processAliveAtEnd": true,
+      "settleWindowWakeups": {
+        "total": 113,
+        "threads": [
+          {
+            "tid": 3761,
+            "thread": ".richos.connect",
+            "switches": 58,
+            "new": false
+          },
+          {
+            "tid": 3824,
+            "thread": "RenderThread",
+            "switches": 19,
+            "new": false
+          },
+          {
+            "tid": 3797,
+            "thread": "binder:3761_4",
+            "switches": 13,
+            "new": false
+          },
+          {
+            "tid": 3782,
+            "thread": "binder:3761_2",
+            "switches": 6,
+            "new": false
+          },
+          {
+            "tid": 3913,
+            "thread": "DefaultDispatch",
+            "switches": 5,
+            "new": false
+          },
+          {
+            "tid": 3774,
+            "thread": "Jit thread pool",
+            "switches": 4,
+            "new": false
+          },
+          {
+            "tid": 5968,
+            "thread": "queued-work-loo",
+            "switches": 4,
+            "new": true
+          },
+          {
+            "tid": 3914,
+            "thread": "DefaultDispatch",
+            "switches": 2,
+            "new": false
+          },
+          {
+            "tid": 3775,
+            "thread": "HeapTaskDaemon",
+            "switches": 1,
+            "new": false
+          },
+          {
+            "tid": 3940,
+            "thread": "binder:3761_4",
+            "switches": 1,
+            "new": false
+          }
+        ],
+        "threadsEnded": []
+      },
+      "threadWakeups": {
+        "total": 10,
+        "threads": [
+          {
+            "tid": 3808,
+            "thread": "Profile Saver",
+            "switches": 8,
+            "new": false
+          },
+          {
+            "tid": 3913,
+            "thread": "DefaultDispatch",
+            "switches": 1,
+            "new": false
+          },
+          {
+            "tid": 3914,
+            "thread": "DefaultDispatch",
+            "switches": 1,
+            "new": false
+          }
+        ],
+        "threadsEnded": [
+          3918
+        ]
+      },
+      "cpuTicks": 1,
+      "batterystats": {
+        "cpuMs": {
+          "user": 7,
+          "system": 4
+        },
+        "networkBytes": {
+          "total": 0,
+          "note": "no network row for the uid since the reset"
+        },
+        "wakeupAlarms": [],
+        "wakelocks": [],
+        "jobs": [],
+        "syncs": [],
+        "partialWakelockMs": 0,
+        "processes": [
+          {
+            "name": "dev.richos.connect",
+            "userMs": 990,
+            "systemMs": 550,
+            "starts": 0,
+            "anrs": 0,
+            "crashes": 0
+          }
+        ],
+        "uidSeen": true
+      },
+      "pendingAlarms": [],
+      "scheduledJobs": [],
+      "heldWakeLocks": [],
+      "openSockets": {}
+    },
+    "idleFrames": {
+      "method": "gfxinfo reset, --idle-seconds untouched, 'Total frames rendered' for MainActivity's window (the app's own frames; the keyboard and system UI are other windows)",
+      "screens": {
+        "pairing": {
+          "seconds": 10.0,
+          "framesRendered": 0,
+          "framesPerSecond": 0.0,
+          "timing": {
+            "frames": 0,
+            "skippedRows": 0
+          }
+        }
+      },
+      "zeroFrames": true,
+      "target": {
+        "row": "Settled idle UI",
+        "value": 0,
+        "source": "richos-hq/docs/prds/2026-09-24-richconnect-perceived-speed-and-no-annoyance.md \u00a77 (proposed)"
+      }
+    }
+  },
+  "phases": {
+    "seed": "measured",
+    "streaming": "measured",
+    "background": "measured",
+    "idle-pairing": "measured"
+  },
+  "notMeasured": [
+    {
+      "what": "sendToQueued (small text send to durable local queued state, p95 <= 150 ms)",
+      "why": "the tap metric ends at the first frame after the tap; nothing marks the moment the outbox item is durable. Settle: a Trace section (android.os.Trace) around the outbox commit in AppStore/RichCore's send path, read from the same atrace capture as the tap"
+    },
+    {
+      "what": "receiveToVisible (received text to visible text, p95 <= 100 ms)",
+      "why": "no trace mark at the moment stream bytes reach the app (the debug bridge's broadcast has none). Settle: a Trace section where ConnectionOwner hands a stream chunk to the store, then the first frame after it from framestats, as the tap metric does"
+    },
+    {
+      "what": "energy (mAh, OS battery attribution, OEM power-intensive warnings)",
+      "why": "an emulator has no battery or power model; its batterystats power estimates are not energy. Settle: the same background phase on a physical phone (PRD \u00a78 names the mandatory OEM phone family), plus Settings > Battery and the OEM manager over the PRD \u00a78 30-minute and overnight windows"
+    },
+    {
+      "what": "managed Connect and Tailscale routes",
+      "why": "this run used the debug build's scripted Mac (no network). Settle: pair with the lab Mac (native-android README 'Pairing the emulator') or a real Mac; count the phone's requests at the Mac and at the Connect Worker while backgrounded (Sage T7)"
+    },
+    {
+      "what": "release-configuration timing",
+      "why": "a debuggable, unminified build is slower than release; PRD \u00a77 budgets are for release builds. Settle: a profileable release-configuration build signed for local install, and a real pairing to reach the conversation without the debug bridge"
+    },
+    {
+      "what": "typing and streaming cost on the production persistence port",
+      "why": "in a development world the core persists through the bridge's document, not AppPorts' JsonFile. RichCore.commit changes show here; JsonFile changes need a paired production core"
+    },
+    {
+      "what": "physical-device timing",
+      "why": "an emulator on a shared Mac (software GPU, host CPU recorded per phase) is a pilot, never acceptance (PRD \u00a78). Settle: the same command on a phone with --kind physical"
+    }
+  ],
+  "conditions": {
+    "theme": "device",
+    "systemNightModeBefore": "Night mode: no",
+    "fixture": "online",
+    "history": 40,
+    "transport": "unreachable"
+  },
+  "route": {
+    "name": "development fixture",
+    "detail": "the debug build's scripted Mac inside the app: no network. Launch series run with the scripted Mac UNREACHABLE (Sage T6: launch must not depend on the network); the live spot check with it accepting",
+    "persistence": "the development world's document (DevBridge), written through the same RichCore.commit as production but not through the production JsonFile port"
+  },
+  "acceptance": {
+    "verdict": "NOT VERIFIED",
+    "why": [
+      "not a physical device (PRD \u00a78: an emulator or simulator cannot certify)",
+      "not a release configuration (debuggable build; PRD \u00a77 budgets are for release builds)",
+      "0 launch trials, below the PRD \u00a78 protocol of 100"
+    ]
+  },
+  "finishedAt": "2026-09-24T03:44:45Z"
+}

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.ReportDrawnWhen
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.CompositionLocalProvider
@@ -63,6 +64,11 @@ class MainActivity : ComponentActivity() {
         val store = richStore
         setContent {
             val state by store.states.collectAsStateWithLifecycle()
+            // Useful content, for the launch measurement (PRD 2026-09-24 §7, J1): the platform's own
+            // "fully drawn" launch event fires on the first frame drawn after the saved state is read,
+            // i.e. the conversation (or, on a first install, pairing) with its composer, never the
+            // bare ground below. One report per activity; it observes nothing after that.
+            ReportDrawnWhen { state != null }
             // The app follows the phone's light/dark setting (the CEO, 2026-09-24: "Follow the
             // phone"); the system bar icons with it.
             val theme = phoneTheme()
