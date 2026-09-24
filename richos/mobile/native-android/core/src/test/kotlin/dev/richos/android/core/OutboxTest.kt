@@ -15,6 +15,21 @@ import kotlin.test.assertTrue
 
 /** The durable outbox: the `queue.js` rules, and the three `runtime.js` scenarios. */
 class OutboxTest {
+    @Test fun leavingTheForegroundStopsTheRestOfAnAlreadyRunningDrain() = runTest {
+        val box = Outbox(Store(), Clock { 0 })
+        for (id in listOf("a", "b", "c")) box.enqueue(item(id))
+        var online = true
+        val delivered = mutableListOf<String>()
+        box.flush(shouldContinue = { online }) {
+            delivered += it.clientId
+            online = false
+            Receipt("accepted", false, 1)
+        }
+        assertEquals(listOf("a"), delivered)
+        assertEquals(listOf("b", "c"), box.all().map { it.clientId })
+        assertTrue(box.all().all { it.state == OutboxState.WAITING && it.attempts == 0 })
+    }
+
     @Test
     fun `the preserved core's three scenarios pass unchanged`() = runTest {
         for (name in listOf("offline-reconnect", "revoked", "interrupted")) {

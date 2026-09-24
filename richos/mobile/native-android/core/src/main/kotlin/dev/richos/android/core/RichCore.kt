@@ -317,7 +317,7 @@ class RichCore private constructor(
     private suspend fun flush(): AppState {
         if (!session.online) return flow.value
         val before = outbox.all()
-        val report = outbox.flush { item ->
+        val report = outbox.flush(shouldContinue = { session.online }) { item ->
             when (item.kind) {
                 "voice" -> transport.sendVoice(item)
                 "attachments" -> transport.sendAttachments(item)

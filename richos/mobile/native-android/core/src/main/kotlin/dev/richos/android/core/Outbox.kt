@@ -83,13 +83,13 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
     }
 
     /** Try to hand the queue to the Mac. Concurrent calls collapse into the one in flight. */
-    suspend fun flush(send: suspend (OutboxItem) -> Receipt): SendReport {
+    suspend fun flush(shouldContinue: () -> Boolean = { true }, send: suspend (OutboxItem) -> Receipt): SendReport {
         val (mine, owner) = flushLock.withLock {
             flushing?.let { it to false } ?: CompletableDeferred<SendReport>().also { flushing = it }.let { it to true }
         }
         if (!owner) return mine.await()
         try {
-            val report = drain(send)
+            val report = drain(shouldContinue, send)
             mine.complete(report)
             return report
         } catch (e: Throwable) {
@@ -100,10 +100,11 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
         }
     }
 
-    private suspend fun drain(send: suspend (OutboxItem) -> Receipt): SendReport {
+    private suspend fun drain(shouldContinue: () -> Boolean, send: suspend (OutboxItem) -> Receipt): SendReport {
         var report = SendReport()
         val at = clock.now()
         for (queued in all()) {
+            if (!shouldContinue()) return report.copy(waiting = items.count { it.state == OutboxState.WAITING })
             if (queued.state == OutboxState.BLOCKED) {
                 report = report.copy(blocked = report.blocked + 1)
                 continue
