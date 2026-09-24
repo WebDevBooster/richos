@@ -197,6 +197,60 @@ class ReadRepliesTest {
         }
     }
 
+    /** The rule itself, from core's state alone. */
+    @Test
+    fun `what counts as read follows the screen, and nothing counts while the conversation is not drawn`() {
+        val state = core().state
+        assertEquals(ReadReplies.Read("general", listOf("t1:text:0", "t2:text:0")), ReadReplies.of(state))
+        // Reading the older reply; one of its photo bubbles; one of the person's own unsent messages.
+        assertEquals(listOf("t1:text:0"), ReadReplies.of(state.copy(readingAnchor = ReadingAnchor("t1:text:0")))!!.replyIds)
+        assertEquals(listOf("t1:text:0"), ReadReplies.of(state.copy(readingAnchor = ReadingAnchor("t2:user#1")))!!.replyIds)
+        assertEquals(listOf("t1:text:0", "t2:text:0"), ReadReplies.of(state.copy(readingAnchor = ReadingAnchor("mobile-9")))!!.replyIds)
+        // Only the person's own message so far: no reply to withdraw.
+        assertEquals(null, ReadReplies.of(state.copy(readingAnchor = ReadingAnchor("t1:user"))))
+        // Not what the screen draws: pairing, removed from the Mac, a required update or its dialog, a sheet.
+        val unpaired = state.copy(pairing = state.pairing.copy(phase = dev.richos.android.core.PairingPhase.UNPAIRED))
+        assertEquals(null, ReadReplies.of(unpaired))
+        assertEquals(null, ReadReplies.of(unpaired.copy(pairing = unpaired.pairing.copy(problem = "revoked"))))
+        for (p in listOf(dev.richos.android.core.UpdateNotice.Prominence.REQUIRED, dev.richos.android.core.UpdateNotice.Prominence.DIALOG)) {
+            assertEquals(null, ReadReplies.of(state.copy(update = dev.richos.android.core.UpdateNotice(p, "9.9", "Update"))))
+        }
+        assertEquals("a banner leaves the conversation readable", 2,
+            ReadReplies.of(state.copy(update = dev.richos.android.core.UpdateNotice(dev.richos.android.core.UpdateNotice.Prominence.BANNER, "9.9", "Update")))!!.replyIds.size)
+        assertEquals(null, ReadReplies.of(state.copy(sheet = dev.richos.android.core.Sheet.FORGET)))
+        assertEquals(null, ReadReplies.of(state.copy(selectedThreadId = null)))
+    }
+
+    @Test
+    fun `a notification that names no reply is never withdrawn as read`() {
+        // The Worker's references were malformed: the reply still showed, with no target (NotificationsTest).
+        Robolectric.buildService(RichMessagingService::class.java).create().get().onMessageReceived(
+            RemoteMessage.Builder("x@fcm.googleapis.com").setData(mapOf("v" to "1", "thread" to "not-hex", "event" to "not-hex")).build(),
+        )
+        push("general", "t2:text:0")
+        Replies.withdrawRead(app, ReadReplies.Read("general", listOf("t1:text:0", "t2:text:0")))
+        val left = posted().filter { it.flags and Notification.FLAG_GROUP_SUMMARY == 0 }
+        assertEquals("only the named, read reply goes", 1, left.size)
+        assertEquals(null, NotificationTarget.fromIntent(shadowOf(left.single().contentIntent).savedIntent))
+        assertTrue("the group keeps its summary while a reply is left", summary() != null)
+    }
+
+    @Test
+    fun `a reply posted by the build before this fix, which carried no references, is withdrawn once read`() {
+        // As e768c515 posted it (the D04 build): in the group, under its event reference's hash, no extras.
+        val legacy = androidx.core.app.NotificationCompat.Builder(app, Replies.CHANNEL)
+            .setSmallIcon(Replies.SMALL_ICON).setContentText("ack: Notifications off probe").setGroup(Replies.GROUP).build()
+        Replies.ensureChannel(app)
+        manager().notify(ref("t1:text:0").hashCode(), legacy)
+        manager().notify(ref("p1:text:0").hashCode(), legacy)
+        // And one posted by this build, which also brings the group's summary.
+        push("planning", "p2:text:0")
+        Replies.withdrawRead(app, ReadReplies.Read("general", listOf("t1:text:0")))
+        assertEquals("only the read reply's notification goes",
+            setOf(ref("p1:text:0").hashCode(), ref("p2:text:0").hashCode(), Replies.SUMMARY_ID),
+            shadowOf(manager()).activeNotifications.map { it.id }.toSet())
+    }
+
     @Test
     fun `turning notifications off in the app withdraws every reply already posted`() = runBlocking {
         push("general", "t1:text:0")

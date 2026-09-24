@@ -1,6 +1,7 @@
 package dev.richos.android.platform
 
 import android.content.Intent
+import android.os.Bundle
 import dev.richos.android.app.AppStore
 import dev.richos.android.core.Action
 import dev.richos.android.core.AppState
@@ -33,6 +34,13 @@ data class NotificationTarget(val host: String?, val thread: String, val event: 
         host?.let { putExtra(EXTRA_HOST, it) }
     }
 
+    /** The same references as notification extras, so a posted reply says which reply it is (D04). */
+    fun extras(): Bundle = Bundle().apply {
+        putString(EXTRA_THREAD, thread)
+        putString(EXTRA_EVENT, event)
+        host?.let { putString(EXTRA_HOST, it) }
+    }
+
     companion object {
         const val EXTRA_HOST = "dev.richos.connect.reply.host"
         const val EXTRA_THREAD = "dev.richos.connect.reply.thread"
@@ -51,6 +59,12 @@ data class NotificationTarget(val host: String?, val thread: String, val event: 
         fun fromIntent(intent: Intent?): NotificationTarget? {
             if (intent == null) return null
             return of(intent.getStringExtra(EXTRA_HOST), intent.getStringExtra(EXTRA_THREAD) ?: return null, intent.getStringExtra(EXTRA_EVENT))
+        }
+
+        /** From a posted notification's extras ([extras]); null for one that carries no reply. */
+        fun fromExtras(extras: Bundle?): NotificationTarget? {
+            if (extras == null) return null
+            return of(extras.getString(EXTRA_HOST), extras.getString(EXTRA_THREAD), extras.getString(EXTRA_EVENT))
         }
 
         private fun of(host: String?, thread: String?, event: String?): NotificationTarget? {
