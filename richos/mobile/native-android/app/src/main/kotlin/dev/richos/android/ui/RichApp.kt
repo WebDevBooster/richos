@@ -267,7 +267,8 @@ private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEven
     val density = LocalDensity.current
     val projected = remember(model.app.messages, model.app.outbox, model.app.sent, model.app.echoes, model.app.selectedThreadId,
         model.voiceMs, model.replyAudio, model.playing, model.zone, (model.nowMs ?: System.currentTimeMillis()) / 60_000,
-        model.extra, model.extraAfter, model.focusedId) { model.thread }
+        model.extra, model.extraAfter, model.focusedId, model.app.online) { model.thread }
+    // (`online`: a reply still arriving is drawn arriving only while its stream is open, D02.)
     val savedReading = model.app.readingAnchor
     val savedIndex = savedReading?.let { a -> projected.asReversed().indexOfFirst { it.id == a.messageId } } ?: -1
     val controller = rememberThreadController(startFollowing = savedReading == null && model.scroll == ScrollPose.FOLLOWING,

@@ -15,7 +15,6 @@ class LocalSessionStore(dir: File, private val clock: Clock = Clock { System.cur
     private var lastHistory: SavedHistory? = null
     private var lastHistoryAt: Long? = null
     private var historyUnreadable = false
-    private var wasOnline = false
 
     override suspend fun read(): Session {
         val saved = user.read()
@@ -44,10 +43,17 @@ class LocalSessionStore(dir: File, private val clock: Clock = Clock { System.cur
         val cache = SavedHistory(identity(session), rows,
             session.olderAvailable + session.cache.filter { (thread, original) -> original.size > rows[thread].orEmpty().size }.mapValues { true }, session.streamCursor)
         val now = clock.now()
-        val newestChanged = cache.rows.mapValues { it.value.lastOrNull()?.id } != lastHistory?.rows?.mapValues { it.value.lastOrNull()?.id }
-        val due = anchorChanged || userIntentChanged || newestChanged || cache.identity != lastHistory?.identity || lastHistoryAt == null || now - lastHistoryAt!! >= CACHE_WRITE_MS || (wasOnline && !session.online)
-        wasOnline = session.online
-        if (!historyUnreadable && cache != lastHistory && due) {
+        // Only a reply's words arriving are coalesced. Whatever ends a burst is written at once,
+        // because nothing comes back later for a skipped write: this store has no timer, by design
+        // (Battery-check, CEO ruling 81). So a reply starting or finishing is due (D02: a replayed
+        // reply's completion landed inside the window, and the cache kept it mid-stream until the
+        // next process restored it cut off), and so is every write with no stream open: the link
+        // lost, or core's `backgrounded`, the lifecycle's last write before the process may go.
+        fun due() = anchorChanged || userIntentChanged || !session.online || lastHistoryAt == null ||
+            now - lastHistoryAt!! >= CACHE_WRITE_MS || cache.identity != lastHistory?.identity ||
+            cache.rows.mapValues { it.value.lastOrNull()?.id } != lastHistory?.rows?.mapValues { it.value.lastOrNull()?.id } ||
+            arriving(cache) != arriving(lastHistory)
+        if (!historyUnreadable && cache != lastHistory && due()) {
             try {
                 history.write(cache)
                 lastHistory = cache
@@ -61,6 +67,10 @@ class LocalSessionStore(dir: File, private val clock: Clock = Clock { System.cur
     }
 
     private fun identity(session: Session) = listOf(session.pairing.apiBase, session.pairing.deviceId).joinToString("\n")
+
+    /** The rows still arriving, per conversation: a reply that has not reached its final state. */
+    private fun arriving(history: SavedHistory?) = history?.rows?.mapValues { (_, rows) -> rows.filter { !it.complete }.map { it.id } }?.filterValues { it.isNotEmpty() }.orEmpty()
+
     companion object {
         const val CACHE_WRITE_MS = 250L
         const val READING_CACHE_ROWS = 10_000

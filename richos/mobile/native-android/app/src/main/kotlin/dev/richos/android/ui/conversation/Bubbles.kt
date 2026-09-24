@@ -188,9 +188,12 @@ private fun TextBubble(message: Message, body: Body.Text, modifier: Modifier, on
                 verticalAlignment = Alignment.CenterVertically,
             ) { ThinkingDots() }
             message.streaming -> StreamingText(body.text, style)
+            // Still, and plainly unfinished: the ellipsis stands where the caret was. No time, which
+            // belongs to a finished message; the Mac's row replaces this once the stream is back.
+            message.unfinished -> BasicText(body.text.trimEnd() + "…", style = style)
             else -> BasicText(body.text, style = style)
         }
-        if (!message.replying && !message.streaming) Meta(message, Modifier.align(Alignment.End).padding(top = 4.dp))
+        if (!message.replying && !message.streaming && !message.unfinished) Meta(message, Modifier.align(Alignment.End).padding(top = 4.dp))
         if (!mine && message.audio != ReplyAudio.NONE) ReplyAudioRow(message, onEvent)
     }
 }
