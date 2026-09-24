@@ -62,7 +62,7 @@ struct RichOSNativeApp: App {
                 await DevBridge.start(store: loaded)
                 #endif
                 store = loaded
-                loaded.send(.foregrounded(at: SystemClock().nowMs()))
+                loaded.becameActive(at: SystemClock().nowMs())
                 await ShareIntake.takeWaiting(into: loaded, nowMs: SystemClock().nowMs())
             }
             .task(id: scenePhase) {
@@ -80,12 +80,12 @@ struct RichOSNativeApp: App {
                 case .active:
                     // The OS's microphone answer is mirrored, never stored (PRD §3).
                     PlatformEffects.permissionMirror().forEach { store.send($0) }
-                    store.send(.foregrounded(at: SystemClock().nowMs()))
+                    store.becameActive(at: SystemClock().nowMs())
                     // What was shared while the app was away goes into the outbox now.
                     Task { await ShareIntake.takeWaiting(into: store, nowMs: SystemClock().nowMs()) }
                 case .background:
                     // Backgrounding keeps a recording in progress, never sends it (the core's rule).
-                    store.send(.backgrounded(at: SystemClock().nowMs()))
+                    store.wentToBackground(at: SystemClock().nowMs())
                 default:
                     break
                 }

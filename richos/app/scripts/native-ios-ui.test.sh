@@ -279,6 +279,25 @@ do {
     check(abs(P.opacity(elapsed: P.restsAt - 1e-6) - 1) < 1e-6, "pulse meets its rest without a jump")
 }
 
+// G11 (Urban's audit): a fixture is a still frame. The app's launch and return-to-front reports go
+// through `receive`, so `conv-retry` keeps its waiting message and its "Waiting to send" card; in a
+// live app the same report still reconnects and tries the outbox at once. Top-level code runs on
+// the main thread, and the store is the main actor's.
+MainActor.assumeIsolated {
+    let retry = try! Fixture.named("conv-retry").state
+    let frozen = AppStore(state: retry, runner: EffectRunner(storage: MemoryStorage()))
+    frozen.effectsSuspended = true
+    frozen.becameActive(at: Fixture.now + 1_000)
+    let drawn = ScreenModel(state: frozen.state)
+    check(drawn.cards.contains(.waitingToSend(count: 1)), "G11 conv-retry after launch: the Waiting to send card is drawn")
+    check(drawn.thread.rows.last?.delivery == .waiting, "G11 conv-retry after launch: the message still reads Waiting to send")
+    frozen.wentToBackground(at: Fixture.now + 2_000)
+    check(frozen.state == retry, "G11 a fixture is unchanged by coming to the front and leaving it")
+    let live = AppStore(state: retry, runner: EffectRunner(storage: MemoryStorage()))
+    live.becameActive(at: Fixture.now + 1_000)
+    check(live.state.messages.last?.delivery == .sending, "G11 a live app coming to the front tries the waiting message at once")
+}
+
 if failures > 0 { print("  \(failures) headless check(s) failed"); exit(1) }
 print("  headless: all checks passed")
 SWIFT
@@ -295,6 +314,7 @@ if ! xcrun swiftc -Onone -D DEBUG -module-name RichOSCore -target "$(uname -m)-a
     "$NATIVE/App/Features/Attachments/AttachmentModel.swift" \
     "$NATIVE/App/Features/Conversation/TranscriptViewportGeometry.swift" \
     "$NATIVE/App/Features/Conversation/PulseSchedule.swift" \
+    "$NATIVE/App/App/AppStore.swift" \
     "$WORK/main.swift" -o "$HEADLESS_BIN" > "$WORK/headless-build.log" 2>&1; then
   tail -30 "$WORK/headless-build.log"
   echo "  FAIL  native-ios-ui: the headless checks did not compile"

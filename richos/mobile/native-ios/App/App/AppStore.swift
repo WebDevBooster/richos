@@ -85,6 +85,19 @@ final class AppStore {
         apply(action)
     }
 
+    /// The app came to the front (launch, or back from the background). An OS report like the live
+    /// connection's, so it goes through `receive`: in a Debug fixture it is dropped. Before, the
+    /// launch's `foregrounded` reached a fixture, pumped its waiting message into "Sending…" and, with
+    /// effects stopped, left it there (Urban's audit G11: `conv-retry` drew no "Waiting to send" card).
+    func becameActive(at: Int64) {
+        receive(.foregrounded(at: at))
+    }
+
+    /// The app left the screen: no stream in the background.
+    func wentToBackground(at: Int64) {
+        receive(.backgrounded(at: at))
+    }
+
     @discardableResult
     func apply(_ action: Action) -> Task<Void, Never> {
         let (next, effects) = Reducer.reduce(state, action)
