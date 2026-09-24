@@ -15,9 +15,14 @@
   request needs; developer.apple.com/app-store/app-privacy-details). Messages, voice, photos and
   files go to the person's own Mac and are not collected by us. What the hosted RichOS Connect
   service keeps to deliver reply notifications: the phone's push token and a hash of its device
-  key (Device ID), and redacted delivery diagnostics for at most seven days. Neither is linked to
-  a person (there are no accounts) or used for tracking. DRAFT: to be checked against the final
-  Connect Worker schema before submission (approval research §4.4).
+  key (Device ID). It is not linked to a person (there are no accounts) or used for tracking.
+
+  NO DIAGNOSTICS. The deployed Connect Worker keeps none: its schema has five tables (hosts,
+  nonces, allowed_hosts, push_bindings, push_jobs; `richos/mobile/service/connect/schema.sql`),
+  jobs expire within one hour, and logs, traces, Logpush and tail consumers are disabled
+  (`richos/mobile/service/notifications.md`). The seven-day diagnostics once declared here came
+  from a PRD proposal that was never built. `NotificationService/Tests/main.swift` P1-P4 fail if
+  the manifest and that schema drift apart.
 -->
 <plist version="1.0">
 <dict>
@@ -32,18 +37,6 @@
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeDeviceID</string>
-			<key>NSPrivacyCollectedDataTypeLinked</key>
-			<false/>
-			<key>NSPrivacyCollectedDataTypeTracking</key>
-			<false/>
-			<key>NSPrivacyCollectedDataTypePurposes</key>
-			<array>
-				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
-			</array>
-		</dict>
-		<dict>
-			<key>NSPrivacyCollectedDataType</key>
-			<string>NSPrivacyCollectedDataTypeOtherDiagnosticData</string>
 			<key>NSPrivacyCollectedDataTypeLinked</key>
 			<false/>
 			<key>NSPrivacyCollectedDataTypeTracking</key>
