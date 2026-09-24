@@ -4,6 +4,12 @@
 #
 #   testvm/run.sh --bundle <RichOS.app.zip|RichOS.app> --home <fixture-home-dir>
 #                 [--vm <name>] [--keep] [--engine <engine.tar.gz>] [--no-tailnet]
+#   testvm/run.sh --no-app --home <fixture-home-dir> [--vm <name>] [--keep] [--no-tailnet]
+#
+# --no-app: the same guest (the host's claude synced in, the host's login pushed
+# into the fixture home, a login keychain ready) and NO app launched, for a proof
+# about `claude` itself rather than about the app: the operator probes
+# (operator-probes/run-probes.py). It prints `pid=none` and nothing is drawn.
 #
 # Prints, on success:
 #   vm=<name> ip=<guest ip> pid=<app pid IN THE GUEST> ssh=<user@ip> elapsed=<s>
@@ -17,10 +23,11 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/lib.sh"
 
-BUNDLE=""; FIXTURE_HOME=""; VM="richos-test-1"; ENGINE=""; KEEP=0; TAILNET=1
+BUNDLE=""; FIXTURE_HOME=""; VM="richos-test-1"; ENGINE=""; KEEP=0; TAILNET=1; NOAPP=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --bundle) BUNDLE="$2"; shift 2 ;;
+    --no-app) NOAPP=1; shift ;;
     --home)   FIXTURE_HOME="$2"; shift 2 ;;
     --vm)     VM="$2"; shift 2 ;;
     --engine) ENGINE="$2"; shift 2 ;;
@@ -34,9 +41,13 @@ while [ $# -gt 0 ]; do
     *) die "unknown argument: $1" ;;
   esac
 done
-[ -n "$BUNDLE" ] || die "--bundle is required"
+if [ "$NOAPP" -eq 1 ]; then
+  [ -z "$BUNDLE" ] || die "--no-app and --bundle contradict each other: say which one"
+else
+  [ -n "$BUNDLE" ] || die "--bundle is required"
+  [ -e "$BUNDLE" ] || die "no such bundle: $BUNDLE"
+fi
 [ -n "$FIXTURE_HOME" ] || die "--home is required"
-[ -e "$BUNDLE" ] || die "no such bundle: $BUNDLE"
 [ -d "$FIXTURE_HOME" ] || die "no such fixture home: $FIXTURE_HOME"
 [ "$VM" != "$TESTVM_BASE_VM" ] || die "refusing to run in the base VM — it is the template every clone comes from"
 
@@ -228,6 +239,7 @@ PAYLOAD="/Users/$TESTVM_GUEST_USER/testvm/$VM"
 GUEST_HOME="$PAYLOAD/home"
 guest_ssh "$VM" "rm -rf '$PAYLOAD' && mkdir -p '$PAYLOAD'"
 
+if [ "$NOAPP" -eq 0 ]; then
 log "copying the bundle in..."
 if [ "${BUNDLE##*.}" = "zip" ]; then
   scp "${TESTVM_SSH_OPTS[@]}" -O -i "$TESTVM_SSH_KEY" "$BUNDLE" \
@@ -245,6 +257,7 @@ APP="$(guest_ssh "$VM" "ls -d '$PAYLOAD'/*.app 2>/dev/null | head -1")"
 # Gatekeeper dialog that nothing in a headless guest can click — the app would
 # simply never appear, with no error anywhere.
 guest_ssh "$VM" "xattr -dr com.apple.quarantine '$APP' 2>/dev/null || true"
+fi
 
 log "copying the fixture home in..."
 # tar over ssh, not scp -r: the fixture home contains symlinks and a Library
@@ -334,6 +347,21 @@ EOF
     exit 1
   fi
   log "engine payload verified in the guest (scripts/hooks + VERSION present)"
+fi
+
+# --- 3d. --no-app stops here, with the guest ready and nothing launched -------
+if [ "$NOAPP" -eq 1 ]; then
+  echo "$PAYLOAD" > "$STATE/payload"
+  ELAPSED=$(( $(date +%s) - START ))
+  log "ready in ${ELAPSED}s (no app launched: --no-app)"
+  echo "vm=$VM ip=$IP pid=none ssh=$TESTVM_GUEST_USER@$IP windows=0 elapsed=${ELAPSED}s"
+  echo "tailnet=$TAILNET_NAME"
+  echo "$CLAUDE_LINE"
+  echo "$CLAUDE_LOGIN_LINE"
+  echo "home:  $GUEST_HOME"
+  echo "guest: $HERE/guest.sh $VM '<shell command>'   # --pull/--push to move a file"
+  echo "stop:  $HERE/stop.sh $VM      # ALWAYS, before you report (CEO §54)"
+  exit 0
 fi
 
 # --- 4. launch --------------------------------------------------------------
