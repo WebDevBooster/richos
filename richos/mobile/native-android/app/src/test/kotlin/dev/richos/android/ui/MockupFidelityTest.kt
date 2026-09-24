@@ -75,6 +75,35 @@ class MockupFidelityTest {
         return out.firstOrNull()
     }
 
+    private fun node(text: String): SemanticsNode =
+        nodes().firstOrNull { text(it) == text } ?: throw AssertionError("“$text” is not on screen")
+
+    private fun hasTag(tag: String) = nodes().any { it.config.getOrNull(SemanticsProperties.TestTag) == tag }
+
+    /**
+     * G3: the consent screen (Apple 5.1.2(i)) at 360 dp and 100% text shows all three details, the
+     * last one ("Encrypted on the way, stored nowhere.") with at least 18 dp of air above Continue,
+     * with nothing to scroll. At 200% it scrolls, and the scroll edge is marked by the fade.
+     */
+    @Test
+    fun `G3 - consent is readable in full on the small phone`() {
+        for (theme in listOf(Theme.DARK, Theme.LIGHT)) {
+            show(screen("pair-consent", theme))
+            val density = compose.density.density
+            val continueTop = node("Continue").boundsInRoot.top
+            for (detail in listOf("Your conversation lives there, not on our servers.", "So, all the AI work happens on your Mac.", "Encrypted on the way, stored nowhere.")) {
+                val b = node(detail).boundsInRoot
+                val laid = layoutOf(node(detail))!!.size.height
+                assertTrue("$theme: “$detail” is cut (shown ${b.height} of $laid px)", b.height + 1f >= laid)
+                val air = (continueTop - b.bottom) / density
+                assertTrue("$theme: “$detail” sits ${"%.1f".format(air)} dp above Continue (floor 18)", air >= 18f - 0.5f)
+            }
+            assertTrue("$theme: nothing to scroll at 100%, so no fade", !hasTag("scroll-edge-fade"))
+        }
+        show(screen("pair-consent"), fontScale = 2f)
+        assertTrue("at 200% the content scrolls and its edge is marked", hasTag("scroll-edge-fade"))
+    }
+
     /** G6: the serif headings are never hyphenated ("RichCon-nect", "re-moved"), at any text size. */
     @Test
     fun `G6 - headings are never hyphenated`() {
