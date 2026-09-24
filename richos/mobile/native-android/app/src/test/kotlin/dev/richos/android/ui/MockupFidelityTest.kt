@@ -16,7 +16,13 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.style.Hyphens
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.onRoot
 import dev.richos.android.core.Theme
+import dev.richos.android.design.RichColors
+import org.junit.Assert.assertEquals
 import dev.richos.android.ui.catalog.ScreenCatalog
 import dev.richos.android.ui.model.ScreenModel
 import org.junit.Assert.assertTrue
@@ -102,6 +108,42 @@ class MockupFidelityTest {
         }
         show(screen("pair-consent"), fontScale = 2f)
         assertTrue("at 200% the content scrolls and its edge is marked", hasTag("scroll-edge-fade"))
+    }
+
+    private fun tagged(tag: String): SemanticsNode =
+        nodes().firstOrNull { it.config.getOrNull(SemanticsProperties.TestTag) == tag } ?: throw AssertionError("no node tagged $tag")
+
+    private fun pixel(image: android.graphics.Bitmap, x: Float, y: Float) = androidx.compose.ui.graphics.Color(image.getPixel(x.toInt(), y.toInt()))
+
+    private fun near(a: androidx.compose.ui.graphics.Color, b: androidx.compose.ui.graphics.Color, tolerance: Float = 3f / 255f) =
+        kotlin.math.abs(a.red - b.red) <= tolerance && kotlin.math.abs(a.green - b.green) <= tolerance && kotlin.math.abs(a.blue - b.blue) <= tolerance
+
+    /**
+     * G7: the CEO's paragraph on the empty conversation is in full ink (not ink-soft), kept to a
+     * 300 dp measure, under a `line-faint` hairline 20 dp above it, and clears the composer at 100%.
+     */
+    @Test
+    fun `G7 - the CEO's paragraph is full ink under a hairline`() {
+        for (theme in listOf(Theme.DARK, Theme.LIGHT)) {
+            val colors = if (theme == Theme.DARK) RichColors.Dark else RichColors.Light
+            show(screen("conv-empty", theme))
+            val density = compose.density.density
+            val p = tagged("mic-how")
+            val style = layoutOf(p)!!.layoutInput.style
+            assertEquals("$theme: the paragraph's color", colors.ink, style.color)
+            assertTrue("$theme: measure ${p.boundsInRoot.width / density} dp > 300", p.boundsInRoot.width / density <= 300.5f)
+            // The hairline: the ground washed with line-faint, 20 dp above the paragraph, 1 dp tall.
+            val image = compose.onRoot().captureToImage().asAndroidBitmap()
+            val x = p.boundsInRoot.center.x
+            val lineY = p.boundsInRoot.top - 20f * density + 0.5f * density
+            val ground = pixel(image, x, lineY - 6f * density)
+            val expected = colors.lineFaint.compositeOver(ground)
+            val seen = pixel(image, x, lineY)
+            assertTrue("$theme: hairline pixel $seen, expected $expected over ground $ground", near(seen, expected) && !near(seen, ground, 0f))
+            // It clears the composer: nothing to scroll at 100% on the small phone.
+            assertTrue("$theme: the empty state scrolls at 100%", !hasTag("scroll-edge-fade"))
+            assertTrue("$theme: the paragraph ends above the composer", p.boundsInRoot.bottom <= tagged("composer").boundsInRoot.top)
+        }
     }
 
     /** G6: the serif headings are never hyphenated ("RichCon-nect", "re-moved"), at any text size. */
