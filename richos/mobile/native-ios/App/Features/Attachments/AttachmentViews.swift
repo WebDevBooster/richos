@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageIO
 
 // Round 12's attachment screens (`round-12/attachments-NOTES.md`, `attach/attach.css`): the menu that
 // springs out of the +, the tray in the capsule, album and file bubbles, Rich's reference chip, the
@@ -12,14 +13,53 @@ struct PhotoView: View {
         case .scene(let key):
             PhotoScene(key: key)
         case .file(let url):
-            if let image = UIImage(contentsOfFile: url.path) {
-                Image(uiImage: image).resizable().scaledToFill()
-            } else {
-                Color(hex: 0x141E34)
-            }
+            FileThumbnail(url: url)
         case .unavailable:
             Color(hex: 0x141E34)
         }
+    }
+}
+
+/// Decode only visible media, off the main actor, with a bounded shared pixel cache.
+private struct FileThumbnail: View {
+    let url: URL
+    @State private var image: UIImage?
+    var body: some View {
+        Group {
+            if let image { Image(uiImage: image).resizable().scaledToFill() }
+            else { Color(hex: 0x141E34) }
+        }
+        .task(id: url) {
+            let loaded = await ThumbnailCache.shared.image(for: url)
+            if !Task.isCancelled { image = loaded }
+        }
+        .onDisappear { image = nil }
+    }
+}
+
+actor ThumbnailCache {
+    static let shared = ThumbnailCache()
+    private let cache = NSCache<NSURL, UIImage>()
+    init() {
+        cache.countLimit = 8
+        cache.totalCostLimit = 32 * 1_024 * 1_024
+    }
+    func image(for url: URL) -> UIImage? {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            cache.removeObject(forKey: url as NSURL)
+            return nil
+        }
+        if let image = cache.object(forKey: url as NSURL) { return image }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let pixels = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: 1_024,
+              ] as CFDictionary) else { return nil }
+        let image = UIImage(cgImage: pixels)
+        cache.setObject(image, forKey: url as NSURL, cost: pixels.bytesPerRow * pixels.height)
+        return image
     }
 }
 
