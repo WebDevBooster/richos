@@ -167,11 +167,17 @@ class InteractionTest {
         for ((id, card) in cards) {
             current = screen(id)
             compose.waitForIdle()
-            val title = compose.onNodeWithText(card.first).fetchSemanticsNode().boundsInRoot
-            val button = compose.onNodeWithText("Scan your Mac’s code").fetchSemanticsNode().boundsInRoot
-            val fade = compose.onAllNodesWithTag("scroll-edge-fade").fetchSemanticsNodes().firstOrNull()?.boundsInRoot
-            val limit = fade?.top ?: button.top
-            assertTrue("$id: the card title (bottom ${title.bottom}) must clear the scroll edge ($limit) at 2x text", title.bottom <= limit)
+            // Where the title IS, unclipped: boundsInRoot is clipped by the scrolling region, so a
+            // title scrolled wholly out of view reports an empty rectangle and would pass (it did).
+            val node = compose.onNodeWithText(card.first).fetchSemanticsNode()
+            val top = node.positionInRoot.y
+            val bottom = top + node.size.height
+            val button = compose.onNodeWithText("Scan your Mac’s code").fetchSemanticsNode().positionInRoot.y
+            val fade = compose.onAllNodesWithTag("scroll-edge-fade").fetchSemanticsNodes().firstOrNull()?.positionInRoot?.y
+            val limit = fade ?: button
+            assertTrue("$id: the card title (top $top, bottom $bottom) must sit above the scroll edge ($limit) at 2x text", bottom <= limit)
+            // The positive probe: the same measure finds the title inside the frame at all.
+            assertTrue("$id: the card title is laid out on the screen (top $top)", top >= 0f && node.size.height > 0)
         }
     }
 
