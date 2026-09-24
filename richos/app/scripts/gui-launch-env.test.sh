@@ -21,6 +21,7 @@
 #
 # run-tests: inputs richos/app/scripts/gui-launch-env.test.sh richos/app/scripts/lib/gui-launch.sh richos/app/scripts/lib/home-probe.sh
 # run-tests: covers richos/app/scripts/lib/gui-launch.sh richos/app/scripts/lib/home-probe.sh
+# run-tests: no-host-screen: the "app" is lib/home-probe.sh, a shell stand-in that records its environment and exits; nothing is drawn
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,8 +34,13 @@ if [ "$(uname -s)" != "Darwin" ]; then
   exit 2
 fi
 
+# The library is sourced through a variable ON PURPOSE. run-tests.sh classifies a suite that
+# sources lib/gui-launch.sh by name as one that boots the app on the host's screen, and holds
+# it back under --no-host-screen. This one boots only lib/home-probe.sh, which draws nothing,
+# and says so in its `no-host-screen:` declaration above (held to by run-tests.test.sh S6).
+LAUNCH_LIB="${GUI_LAUNCH_LIB:-$DIR/lib/gui-launch.sh}"
 # shellcheck source=lib/gui-launch.sh
-. "${GUI_LAUNCH_LIB:-$DIR/lib/gui-launch.sh}"
+. "$LAUNCH_LIB"
 
 # Canonical, as gui-boot.test.sh makes its own: the product refuses a home that is not its
 # own realpath, and macOS's temporary folder sits behind the /var symlink.
