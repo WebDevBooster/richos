@@ -42,11 +42,13 @@
 #   A1-A10  phone-android: taps by the words on screen, refuses an unnamed or
 #           unattached phone, times out as a failure, reads a closure state and
 #           an idle-frame rhythm, all against a scripted adb (no phone)
+#   L1-L4   lab-ledger: exactly once passes; missing, duplicated or altered
+#           fails; a timeline without the isolated lab's owner marker is refused
 #   X1      the committed fixtures still match their generator
 #
 # run-tests: no-host-screen: its only capture/keystroke references are the strings it asserts those two tools REFUSE to act on, and its frames are committed PNG fixtures
 # run-tests: inputs richos/app/scripts/qa.test.sh richos/app/scripts/qa
-# run-tests: covers richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-android.py
+# run-tests: covers richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-android.py richos/app/scripts/qa/lab-ledger.py
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -86,7 +88,7 @@ python3 -c 'import PIL' >/dev/null 2>&1 && HAVE_PIL=1
 echo ""
 echo "=== H. every tool answers for itself ==="
 for t in contrast.py frame.py redact.py timeline.py ocr-gate.sh ocr-find.sh \
-         ocr-watch.sh wait-for.sh phone-client.mjs flake-rate.sh phone-android.py fixtures/make-fixtures.py; do
+         ocr-watch.sh wait-for.sh phone-client.mjs flake-rate.sh phone-android.py lab-ledger.py fixtures/make-fixtures.py; do
   if [ ! -x "$QA/$t" ]; then
     bad "H $t is executable" "not present or not executable at $QA/$t"
     continue
@@ -635,6 +637,23 @@ run "$PA" --adb "$FAKE" --serial FAKE123 idle-frames --package dev.richos.connec
 if [ "$CODE" = 0 ] && printf '%s' "$OUT" | grep -q '"totalFramesRendered": 3' && printf '%s' "$OUT" | tr -d ' \n' | grep -q '"gapsMs":\[500.0,500.0\]'; then
   ok "A10 idle-frames counts the frames and reports their rhythm"
 else bad "A10 idle-frames counts the frames and reports their rhythm" "exit $CODE: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-240)"; fi
+
+echo ""
+echo "=== L. lab-ledger: exactly once, word for word ==="
+mkdir -p "$TMP/lab"
+printf 'richos-mobile-isolated-v1' > "$TMP/lab/lab-owner"
+cat > "$TMP/lab/timeline.json" <<'JSON'
+{"items":[{"kind":"user_message","text":"one"},{"kind":"rich_message","text":"ack: one"},{"kind":"user_message","text":"two"},{"kind":"user_message","text":"two"},{"kind":"rich_message","text":"ack: two"}]}
+JSON
+run "$QA/lab-ledger.py" --timeline "$TMP/lab/timeline.json" one
+expect "L1 a message and its reply there exactly once pass" 0 '"exactlyOnce": 1'
+run "$QA/lab-ledger.py" --timeline "$TMP/lab/timeline.json" two
+expect "L2 a duplicated message FAILS, exit 1" 1 '"userRows": 2'
+run "$QA/lab-ledger.py" --timeline "$TMP/lab/timeline.json" "one "
+expect "L3 an altered message (one character) FAILS, exit 1" 1 '"userRows": 0'
+mkdir -p "$TMP/notlab"; cp "$TMP/lab/timeline.json" "$TMP/notlab/timeline.json"
+run "$QA/lab-ledger.py" --timeline "$TMP/notlab/timeline.json" one
+expect "L4 a timeline that is not the isolated lab's is refused, never read" 2 "owner marker"
 
 echo ""
 echo "=== X. the fixtures are still the fixtures ==="
