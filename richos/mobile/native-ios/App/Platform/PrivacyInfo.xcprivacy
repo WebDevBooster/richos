@@ -15,7 +15,13 @@
   request needs; developer.apple.com/app-store/app-privacy-details). Messages, voice, photos and
   files go to the person's own Mac and are not collected by us. What the hosted RichOS Connect
   service keeps to deliver reply notifications: the phone's push token and a hash of its device
-  key (Device ID). It is not linked to a person (there are no accounts) or used for tracking.
+  key (Device ID), bound to that Mac's host record. It is declared LINKED and not used for
+  tracking. Apple (developer.apple.com/app-store/app-privacy-details, "Data linked to the user"):
+  data is linked to the user's identity "via their account, device, or other details" unless it is
+  de-identified before collection and never tied to other datasets, and "'Personal Information' and
+  'Personal Data', as defined under relevant privacy laws, are considered linked to the user." The
+  service keeps the token against the Mac's record (push_bindings.host_id) so it can deliver to that
+  phone, and a push token held that way is personal data under UK GDPR, so it is linked.
 
   NO DIAGNOSTICS. The deployed Connect Worker keeps none: its schema has five tables (hosts,
   nonces, allowed_hosts, push_bindings, push_jobs; `richos/mobile/service/connect/schema.sql`),
@@ -38,7 +44,7 @@
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeDeviceID</string>
 			<key>NSPrivacyCollectedDataTypeLinked</key>
-			<false/>
+			<true/>
 			<key>NSPrivacyCollectedDataTypeTracking</key>
 			<false/>
 			<key>NSPrivacyCollectedDataTypePurposes</key>

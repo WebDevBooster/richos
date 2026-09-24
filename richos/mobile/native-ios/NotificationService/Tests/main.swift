@@ -140,6 +140,14 @@ let manifest = (try? PropertyListSerialization.propertyList(from: Data(contentsO
 let collected = (manifest?["NSPrivacyCollectedDataTypes"] as? [[String: Any]] ?? []).compactMap { $0["NSPrivacyCollectedDataType"] as? String }
 check("P1 the manifest declares only the Device ID the Connect service keeps", collected == ["NSPrivacyCollectedDataTypeDeviceID"])
 check("P2 the manifest claims no diagnostics", !collected.contains { $0.contains("Diagnostic") })
+// Apple's App Privacy definition: data tied to a device or other details, and personal data under
+// the relevant privacy laws, is linked. The service keeps the token against the Mac's host record.
+let deviceID = (manifest?["NSPrivacyCollectedDataTypes"] as? [[String: Any]] ?? []).first { $0["NSPrivacyCollectedDataType"] as? String == "NSPrivacyCollectedDataTypeDeviceID" }
+check("P5 the Device ID is declared linked to the user (Apple: device-level data held against a record is linked)",
+      deviceID?["NSPrivacyCollectedDataTypeLinked"] as? Bool == true)
+check("P6 the Device ID is not used for tracking, only for app functionality",
+      deviceID?["NSPrivacyCollectedDataTypeTracking"] as? Bool == false
+        && deviceID?["NSPrivacyCollectedDataTypePurposes"] as? [String] == ["NSPrivacyCollectedDataTypePurposeAppFunctionality"])
 let schema = (try? String(contentsOf: schemaURL, encoding: .utf8)) ?? ""
 let tables = schema.components(separatedBy: "\n").filter { $0.hasPrefix("CREATE TABLE") }
     .compactMap { $0.split(separator: " ").dropFirst(5).first.map(String.init) }
