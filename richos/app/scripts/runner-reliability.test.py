@@ -231,6 +231,7 @@ class Reliability(unittest.TestCase):
         xcrun.chmod(0o755)
         env = {**os.environ, 'PATH': str(bindir) + os.pathsep + os.environ['PATH'],
                'RICHOS_NATIVE_IOS_UI_CACHE': str(self.path / 'cache'),
+               'RICHOS_CPU_GUARD_STATE': str(self.path / 'guard'),
                'RICHOS_MACHINE_WORKERS': str(self.path / 'machine')}
         for key in ('RICHOS_WORKER_TOKENS', 'RICHOS_WORKER_SLOT_HELD', 'RICHOS_SIMULATOR_CACHE_HELD'):
             env.pop(key, None)
@@ -405,6 +406,50 @@ class Reliability(unittest.TestCase):
         from types import SimpleNamespace
         sample = dict(cpu_user_percent=30, cpu_system_percent=66, memory_pressure='normal', swapout_mb_per_s=0)
         self.assertFalse(pr.admitted(SimpleNamespace(max_cpu=80), lambda: sample)[0])
+
+    def test_all_admission_paths_share_the_total_cpu_boundary(self):
+        import cpu_policy
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('native_work_policy_test', HERE.parents[1] / 'engine/scripts/lib/native-work.py')
+        native = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(native)
+        for user, system, admitted in ((30, 49, True), (30, 50, False), (40, 55, False), (79, 0, True)):
+            sample = dict(cpu_user_percent=user, cpu_system_percent=system, memory_pressure='normal', swapout_mb_per_s=0)
+            self.assertEqual(pr.admitted(SimpleNamespace(max_cpu=80), lambda: sample)[0], admitted)
+            self.assertEqual(simulator_budget.boot_admitted(sample), admitted)
+            self.assertEqual(cpu_policy.admission_open(cpu_policy.busy_percent(sample)), admitted)
+            with patch.object(pr.reserve, 'host_sample', return_value=sample), patch.object(native.time, 'sleep'):
+                if admitted:
+                    native.wait_for_headroom(pr.reserve, timeout=0)
+                else:
+                    with self.assertRaises(TimeoutError): native.wait_for_headroom(pr.reserve, timeout=0)
+
+    def test_busy_host_queues_new_work_and_running_check_finishes(self):
+        args = SimpleNamespace(capacity=2, sample_every=.05, max_cpu=80, keep_going=False,
+                               admission_wait=10, deadline=10, budget=10)
+        marker = self.path / 'completed'
+        item = pr.Item('complete-once', str(self.path), [sys.executable, '-c',
+                       'import pathlib,time;time.sleep(.6);pathlib.Path(' + repr(str(marker)) + ').write_text("done")'], weight=2)
+        following = pr.Item('following', str(self.path), [sys.executable, '-c', 'pass'], weight=1)
+        samples = []
+        def sample():
+            # Contention before and during the first check queues the next one.
+            running = item.state == 'running'
+            busy = running or not samples
+            samples.append((running, busy))
+            return dict(cpu_user_percent=40, cpu_system_percent=55 if busy else 5,
+                        cpu_idle_percent=5 if busy else 55, memory_pressure='normal',
+                        memory_free_percent=50, swap_used_mb=0, swapout_mb_per_s=0)
+        with patch.dict(os.environ, {'RICHOS_MACHINE_WORKERS': str(self.path / 'machine')}), \
+             patch.object(pr.reserve, 'MIN_RETRY_SECONDS', .05), patch.object(pr.Monitor, 'run'), \
+             patch.object(pr, 'SETTLE_SECONDS', 0):
+            pr.run([item, following], args, str(self.path / 'logs'), sampler=sample)
+        self.assertEqual(samples[0], (False, True))
+        self.assertIn((True, True), samples)
+        self.assertGreaterEqual(item.admission_wait, .05)
+        self.assertEqual((item.state, following.state), ('passed', 'passed'))
+        self.assertGreaterEqual(following.started, item.ended)
+        self.assertEqual(marker.read_text(), 'done')
 
     def test_unknown_option_cannot_be_ignored_with_saved_commands(self):
         commands = self.path / 'commands'
