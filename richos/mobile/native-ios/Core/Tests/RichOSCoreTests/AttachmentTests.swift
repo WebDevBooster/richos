@@ -57,6 +57,14 @@ actor AttachmentMac: HTTPTransport {
 
     static func paired() throws -> AppState { try Fixture.named("conv-empty").state }
 
+    /// The Keychain of the phone that paired with the fixture's Mac: it holds that Mac's key. (A
+    /// paired state with no key is a restored backup, which must pair again; NetworkEffectsTests.)
+    static func pairedIdentities() async throws -> MemoryIdentityStore {
+        let identities = MemoryIdentityStore()
+        _ = await identities.signer(for: try #require(try paired().mac?.origin))
+        return identities
+    }
+
     @Test func aShareGoesIntoTheOutboxWithItsOwnIdsAndBytes() throws {
         let (s, effects) = Reducer.reduce(try Self.paired(), .takeShare(Self.intake(), at: 2_000))
         #expect(s.outbox.map(\.clientID) == ["c1", "c2"], "its own client ids, in the share's order")
@@ -91,7 +99,7 @@ actor AttachmentMac: HTTPTransport {
         let store = MemoryAttachments(["c1/p1-IMG_0001.jpg": Data("jpeg".utf8), "c2/f1-Plan.pdf": Data("pdf".utf8)])
         let missing = #"{"accepted":false,"retry":true,"missing":["p1"],"reason":"Some files have not reached your Mac yet."}"#
         let mac = AttachmentMac(commits: [(422, missing), (503, #"{"retry":true}"#)])
-        let network = NetworkEffects(transport: mac, stream: ScriptedStream([]), identities: MemoryIdentityStore(), attachments: store)
+        let network = NetworkEffects(transport: mac, stream: ScriptedStream([]), identities: try await Self.pairedIdentities(), attachments: store)
         let host = try await HeadlessHost(storage: MemoryStorage(), handler: network)
         _ = try await host.replace(with: try Self.paired())
 
@@ -116,7 +124,7 @@ actor AttachmentMac: HTTPTransport {
 
     @Test func aFileMissingOnThePhoneBlocksOnlyItsMessage() async throws {
         let store = MemoryAttachments(["c2/f1-Plan.pdf": Data("pdf".utf8)])
-        let network = NetworkEffects(transport: AttachmentMac(commits: []), stream: ScriptedStream([]), identities: MemoryIdentityStore(), attachments: store)
+        let network = NetworkEffects(transport: AttachmentMac(commits: []), stream: ScriptedStream([]), identities: try await Self.pairedIdentities(), attachments: store)
         let host = try await HeadlessHost(storage: MemoryStorage(), handler: network)
         _ = try await host.replace(with: try Self.paired())
         let s = try await host.dispatch(.takeShare(Self.intake(), at: 2_000))

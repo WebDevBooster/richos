@@ -124,6 +124,10 @@ public actor NetworkEffects: EffectHandler {
             try? await identities.forget(origin: origin)
             return []
         case .deliver(let clientID):
+            if case .keyMissing = await lookup(for: state) {
+                // Final until the phone is paired again; the message stays in the outbox (the reducer's rule).
+                return [.deliveryFailed(clientID: clientID, failure: .revoked, at: clock.nowMs())]
+            }
             guard let item = state.outbox.first(where: { $0.clientID == clientID }), let api = await client(for: state) else {
                 return [.deliveryFailed(clientID: clientID, failure: .retryable(reason: "unreachable", afterMs: nil), at: clock.nowMs())]
             }
@@ -140,6 +144,7 @@ public actor NetworkEffects: EffectHandler {
             }
             return []
         case .connect:
+            if state.pairing == .paired, case .keyMissing = await lookup(for: state) { return [.pairingRevoked] }
             await startLive(state)
             return []
         case .disconnect:
@@ -168,12 +173,33 @@ public actor NetworkEffects: EffectHandler {
     /// The client for the paired Mac, rebuilt after a relaunch from the persisted pairing. With no
     /// challenge held, its first signed request probes for one.
     private func client(for state: AppState) async -> APIClient? {
-        guard let mac = state.mac, let deviceID = mac.deviceID ?? api?.deviceID else { return api }
-        if let api, api.origin == mac.origin, api.deviceID == deviceID { return api }
-        guard let signer = try? await identities.signer(for: mac.origin) else { return nil }
+        if case .ready(let api) = await lookup(for: state) { return api }
+        return nil
+    }
+
+    private enum Lookup {
+        case ready(APIClient)
+        /// Nothing to sign with now (no pairing yet, or the Keychain is locked until first unlock).
+        case unavailable
+        /// Paired, and this phone holds no key for that Mac (security review I-2). Pairing again is
+        /// the only way on; a new key is never minted here, because the Mac has never seen it.
+        case keyMissing
+    }
+
+    private func lookup(for state: AppState) async -> Lookup {
+        guard let mac = state.mac, let deviceID = mac.deviceID ?? api?.deviceID else { return api.map(Lookup.ready) ?? .unavailable }
+        if let api, api.origin == mac.origin, api.deviceID == deviceID { return .ready(api) }
+        let signer: (any Signer)?
+        do {
+            signer = try await identities.existingSigner(for: mac.origin)
+        } catch {
+            // A Keychain that cannot be read right now is not a missing key.
+            return .unavailable
+        }
+        guard let signer else { return .keyMissing }
         let fresh = APIClient(origin: mac.origin, deviceID: deviceID, challenge: nil, signer: signer, transport: transport)
         api = fresh
-        return fresh
+        return .ready(fresh)
     }
 
     private func startLive(_ state: AppState) async {

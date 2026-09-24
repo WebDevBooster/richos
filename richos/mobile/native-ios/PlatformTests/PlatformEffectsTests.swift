@@ -144,6 +144,20 @@ final class PlatformEffectsTests: XCTestCase {
         XCTAssertTrue(network.seen.contains(.forgetIdentity(origin: origin)), "the signing key is still the core's to remove")
         XCTAssertNil(try store.load().key, "no sealed preview opens on a phone that forgot its Mac")
     }
+
+    /// Security review I-2: the app's `Application Support/RichOS` (state, attachments, recordings)
+    /// is kept out of iCloud and Finder backups, and the mark comes back if the folder is made again.
+    func testTheAppsOwnFilesStayOutOfBackups() throws {
+        let root = LocalOnlyStorage.appRoot
+        XCTAssertEqual(root.lastPathComponent, "RichOS")
+        XCTAssertTrue(VoiceRecorder.defaultDirectory().path.hasPrefix(root.path + "/"), "recordings live under it")
+        try LocalOnlyStorage.prepare(root)
+        XCTAssertEqual(try root.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup, true)
+        let child = root.appendingPathComponent("probe-\(UUID().uuidString)", isDirectory: true)
+        try LocalOnlyStorage.prepare(child)
+        XCTAssertEqual(try child.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup, true)
+        try FileManager.default.removeItem(at: child)
+    }
 }
 
 final class RecordingHandler: EffectHandler, @unchecked Sendable {

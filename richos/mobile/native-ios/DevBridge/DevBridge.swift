@@ -25,6 +25,12 @@ extension AppStore: CommandHost {
         // A fixture is a still frame: close any live connection, then stop effects and ticks.
         await apply(.backgrounded(at: 0)).value
         effectsSuspended = true
+        // A paired fixture is a phone that paired, so it holds that Mac's device key. Without it a
+        // relaunch that resumes effects shows "Pair again", which is right for a phone whose key is
+        // gone (security review I-2) and wrong for a fixture.
+        if newState.pairing == .paired, let origin = newState.mac?.origin {
+            _ = try? await KeychainIdentityStore().signer(for: origin)
+        }
         await replaceOverwritingUnreadable(newState).value
         try check()
         return state

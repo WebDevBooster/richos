@@ -65,10 +65,14 @@ final class AppStore {
         }
     }
 
-    /// Where the app keeps its state: Application Support, which is backed up and not user-visible.
+    /// Where the app keeps its state: `Application Support/RichOS`, not user-visible and kept out of
+    /// iCloud and Finder backups with everything under it (attachments, recordings; security review
+    /// I-2). The mark is set on every launch. If it cannot be set the state is still saved here:
+    /// losing a draft to a backup flag would be the worse failure.
     static func defaultStorage() -> FileStorage {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return FileStorage(directory: base.appendingPathComponent("RichOS", isDirectory: true))
+        let root = LocalOnlyStorage.appRoot
+        _ = try? LocalOnlyStorage.prepare(root)
+        return FileStorage(directory: root)
     }
 
     /// The UI's path: reduce now, persist in order behind the scenes.

@@ -26,3 +26,36 @@ enum PlatformIdentity {
         return text
     }
 }
+
+/// Where RichConnect keeps what must never go into an iCloud or Finder backup (security review I-2):
+/// the conversation, unsent messages, their attachments and recordings, and shares waiting to be
+/// sent. They belong to this iPhone and its paired Mac. A backup restored onto another phone would
+/// bring them back without the device key they belong to (that Keychain item is `…ThisDeviceOnly`
+/// and never leaves the phone), so they are kept out of backups altogether, as the voice recordings
+/// already were and as the Android app keeps everything.
+enum LocalOnlyStorage {
+    /// The app's own files: `Application Support/RichOS` (the saved state, `Attachments/`,
+    /// `Recordings/`).
+    static var appRoot: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("RichOS", isDirectory: true)
+    }
+
+    /// Creates `directory` when needed and excludes it, and so everything under it, from backups.
+    /// Called every time, not once: the mark belongs to the directory, and a directory removed and
+    /// made again would otherwise go back into backups.
+    @discardableResult
+    static func prepare(_ directory: URL) throws -> URL {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try exclude(directory)
+        return directory
+    }
+
+    /// Excludes one existing file or directory from backups.
+    static func exclude(_ item: URL) throws {
+        var url = item
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try url.setResourceValues(values)
+    }
+}

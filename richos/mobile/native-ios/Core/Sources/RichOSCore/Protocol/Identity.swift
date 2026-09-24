@@ -8,8 +8,13 @@ import Security
 /// exported). The app, the Share extension and the notification service reach the same key through
 /// one Keychain access group, which is why it lives in the core rather than in the app target.
 public protocol IdentityStore: Sendable {
-    /// The key for `origin`, created on first use.
+    /// The key for `origin`, created on first use. Pairing is the only caller that may create one.
     func signer(for origin: String) async throws -> any Signer
+    /// The key for `origin` only when this phone already holds it; `nil` when it does not. A paired
+    /// origin whose key is gone (the app's files restored from a backup onto a phone whose Keychain
+    /// never held it, or the item erased) must be paired again, visibly: a new key the Mac has never
+    /// seen would sign every request as a stranger (security review I-2).
+    func existingSigner(for origin: String) async throws -> (any Signer)?
     /// Discards the key for `origin` ("They do not match", Forget this phone).
     func forget(origin: String) async throws
 }
@@ -24,6 +29,7 @@ public actor MemoryIdentityStore: IdentityStore {
         keys[origin] = key
         return key
     }
+    public func existingSigner(for origin: String) -> (any Signer)? { keys[origin] }
     public func forget(origin: String) { keys[origin] = nil }
 }
 
@@ -48,6 +54,10 @@ public struct KeychainIdentityStore: IdentityStore {
         let (signer, representation) = try Self.create()
         try write(origin, representation)
         return signer
+    }
+
+    public func existingSigner(for origin: String) async throws -> (any Signer)? {
+        try read(origin).map(Self.signer(from:))
     }
 
     public func forget(origin: String) async throws {
