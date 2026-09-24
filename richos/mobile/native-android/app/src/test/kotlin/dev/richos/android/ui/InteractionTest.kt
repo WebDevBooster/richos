@@ -5,6 +5,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -133,7 +135,9 @@ class InteractionTest {
     @Test
     fun `the Settings button asks core for the sheet, and the scrim asks core to close it`() {
         val set = show(screen("comp-idle"))
+        compose.onNodeWithTag("message-field").performClick().assertIsFocused()
         compose.onNodeWithTag("settings-button").performClick()
+        compose.onNodeWithTag("message-field").assertIsNotFocused()
         assertEquals(Action.OpenSheet(Sheet.SETTINGS), actions.last())
         // Core opens it; the screen follows core.
         set(screen("settings"))

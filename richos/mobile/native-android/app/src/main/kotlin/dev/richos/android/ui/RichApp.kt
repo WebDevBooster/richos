@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.unit.dp
@@ -117,8 +118,11 @@ fun RichApp(model: ScreenModel, onEvent: (UiEvent) -> Unit, camera: (@Composable
         // Navigation that decides nothing: the + menu and the viewer.
         var menuOpen by remember(model.attach.menuOpen) { mutableStateOf(model.attach.menuOpen) }
         var viewer by remember(model.viewer) { mutableStateOf(model.viewer) }
+        val focusManager = LocalFocusManager.current
         val handle: (UiEvent) -> Unit = { e ->
             when (e) {
+                // The composer must not keep its keyboard over the Settings sheet.
+                UiEvent.OpenSettings -> focusManager.clearFocus()
                 // A Mac that takes no photos or files: the + says why (core's card) instead of a menu.
                 UiEvent.AttachMenu -> if (model.attachmentsSupported) menuOpen = !menuOpen else onEvent(UiEvent.AttachPick("photos"))
                 is UiEvent.AttachPick -> menuOpen = false
