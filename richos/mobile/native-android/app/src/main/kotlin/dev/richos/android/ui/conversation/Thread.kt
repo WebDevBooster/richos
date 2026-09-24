@@ -88,8 +88,8 @@ class ThreadController(val list: LazyListState, val follow: FollowState) {
 }
 
 @Composable
-fun rememberThreadController(startFollowing: Boolean = true): ThreadController {
-    val list = rememberLazyListState()
+fun rememberThreadController(startFollowing: Boolean = true, initialIndex: Int = 0, initialOffset: Int = 0): ThreadController {
+    val list = rememberLazyListState(initialIndex, initialOffset)
     val follow = rememberSaveable(saver = Saver<FollowState, Boolean>(
         save = { it.following }, restore = { FollowState(it) },
     )) { FollowState(startFollowing) }
@@ -130,7 +130,12 @@ fun Thread(
     }
     LaunchedEffect(state) {
         snapshotFlow { state.isScrollInProgress }.distinctUntilChanged().collect { moving ->
-            if (!moving && follow.interacting) follow.settled(distanceFromNewest(state), thresholdPx)
+            if (!moving && follow.interacting) {
+                follow.settled(distanceFromNewest(state), thresholdPx)
+                val row = controller.keys.getOrNull(state.firstVisibleItemIndex)?.takeIf { it.startsWith("m:") }?.removePrefix("m:")
+                onEvent(UiEvent.Reading(if (follow.following || row == null) null
+                    else dev.richos.android.core.ReadingAnchor(row, state.firstVisibleItemScrollOffset)))
+            }
         }
     }
     // New content (a message, a growing reply) or a new viewport: jump to the newest only while

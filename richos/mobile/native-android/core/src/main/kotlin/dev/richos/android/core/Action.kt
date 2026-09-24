@@ -19,6 +19,9 @@ sealed interface Action {
     @Serializable @SerialName("compose")
     data class Compose(val text: String) : Action
 
+    @Serializable @SerialName("remember-reading")
+    data class RememberReading(val anchor: ReadingAnchor? = null) : Action
+
     @Serializable @SerialName("send")
     data object Send : Action
 

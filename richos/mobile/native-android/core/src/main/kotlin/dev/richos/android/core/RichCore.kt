@@ -158,8 +158,9 @@ class RichCore private constructor(
         is Action.Receive -> mutex.withLock { receive(action.wire) }
         is Action.SelectThread -> mutex.withLock {
             if (session.threads.none { it.id == action.threadId }) throw CoreError("Unknown conversation")
-            commit(session.copy(selectedThreadId = action.threadId))
+            commit(session.copy(selectedThreadId = action.threadId, readingAnchor = null))
         }
+        is Action.RememberReading -> mutex.withLock { commit(session.copy(readingAnchor = action.anchor)) }
         is Action.Compose -> mutex.withLock { commit(session.copy(draft = action.text)) }
         is Action.SetTheme -> mutex.withLock { commit(session.copy(theme = action.theme)) }
     }
@@ -281,7 +282,7 @@ class RichCore private constructor(
                     val carries = if (photos.isEmpty()) i == groups.lastIndex else i == 0
                     enqueueAttachments(group, if (carries) words else "")
                 }
-                enqueueConsuming(items, session.copy(draft = "", pendingAttachments = emptyList()))
+                enqueueConsuming(items, session.copy(draft = "", pendingAttachments = emptyList(), readingAnchor = null))
                 attachNotice = null
             }
             return flush()
@@ -296,7 +297,7 @@ class RichCore private constructor(
             enqueueConsuming(listOf(OutboxItem(
                 clientId = clientId, threadId = threadId, kind = "text", text = text,
                 queuedAt = sentAt, wire = Wire.text(clientId, threadId, text, sentAt),
-            )), session.copy(draft = ""))
+            )), session.copy(draft = "", readingAnchor = null))
         }
         return flush()
     }
@@ -871,6 +872,7 @@ class RichCore private constructor(
 
         fun actionName(action: Action): String = when (action) {
             is Action.SelectThread -> "select-thread"
+            is Action.RememberReading -> "remember-reading"
             is Action.Compose -> "compose"
             Action.Send -> "send"
             is Action.SendVoice -> "send-voice"

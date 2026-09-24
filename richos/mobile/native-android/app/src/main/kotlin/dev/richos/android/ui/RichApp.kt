@@ -259,7 +259,10 @@ private fun withTooShortLine(model: ScreenModel): ScreenModel {
 @Composable
 private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEvent) -> Unit) {
     val density = LocalDensity.current
-    val controller = rememberThreadController(startFollowing = model.scroll == ScrollPose.FOLLOWING)
+    val savedReading = model.app.readingAnchor
+    val savedIndex = savedReading?.let { a -> model.thread.asReversed().indexOfFirst { it.id == a.messageId } } ?: -1
+    val controller = rememberThreadController(startFollowing = savedReading == null && model.scroll == ScrollPose.FOLLOWING,
+        initialIndex = savedIndex.coerceAtLeast(0), initialOffset = if (savedIndex >= 0) savedReading?.offset ?: 0 else 0)
     val scope = rememberCoroutineScope()
     var headerPx by remember { mutableIntStateOf(0) }
     var zonePx by remember { mutableIntStateOf(0) }
@@ -268,6 +271,7 @@ private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEven
     val thread = model.thread.map { if (it.id == glowId) it.copy(focused = true) else it }
     val sent = {
         controller.follow.sent()
+        onEvent(UiEvent.Reading(null))
         scope.launch { if (thread.isNotEmpty()) controller.list.animateScrollToItem(0) }
         Unit
     }
@@ -343,6 +347,7 @@ private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEven
             visible = thread.isNotEmpty() && controller.follow.showsLatest(distance, thresholdPx),
             onClick = {
                 controller.follow.latestTapped()
+                onEvent(UiEvent.Reading(null))
                 scope.launch { controller.list.animateScrollToItem(0) }
             },
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = zoneDp + 8.dp),

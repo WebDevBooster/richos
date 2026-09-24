@@ -45,6 +45,7 @@ sealed interface UiEvent {
     data class StopReply(val messageId: String) : UiEvent
     /** The reader reached the oldest loaded message; core loads the next chunk (no pagination). */
     data object NearOldest : UiEvent
+    data class Reading(val anchor: dev.richos.android.core.ReadingAnchor?) : UiEvent
 
     // --- pairing ------------------------------------------------------------------------------
     // Scan, Pair again, Close the scanner and Discard and pair are the PLATFORM's (the camera, the
@@ -102,6 +103,7 @@ sealed interface UiEvent {
 /** The core action for [this], or null when core has none yet. */
 fun UiEvent.toAction(): Action? = when (this) {
     is UiEvent.Draft -> Action.Compose(text)
+    is UiEvent.Reading -> Action.RememberReading(anchor)
     UiEvent.SendText -> Action.Send
     UiEvent.TryNow -> Action.Retry
     is UiEvent.Discard -> Action.Discard(clientId)

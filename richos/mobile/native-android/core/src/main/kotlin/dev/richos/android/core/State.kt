@@ -102,6 +102,8 @@ data class Session(
     val pendingAttachments: List<Attachment> = emptyList(),
     /** Durable send journal: consuming the composer and recording intent is one atomic write. */
     val pendingEnqueues: List<OutboxItem> = emptyList(),
+    @OptIn(ExperimentalSerializationApi::class) @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val readingAnchor: ReadingAnchor? = null,
 ) {
     companion object {
         const val CACHE_ROWS = 100
@@ -201,6 +203,8 @@ data class AppState(
     val pendingAttachments: List<Attachment> = emptyList(),
     /** A line or card above the composer about photos and files (transient). */
     val attachNotice: AttachNotice? = null,
+    @OptIn(ExperimentalSerializationApi::class) @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val readingAnchor: ReadingAnchor? = null,
 ) {
     /**
      * What the gold circle in the composer shows: the microphone becomes the send arrow
@@ -225,6 +229,7 @@ data class AppState(
             outbox = outbox,
             dueInMs = dueInMs,
             lastSend = lastSend,
+            readingAnchor = session.readingAnchor,
         )
     }
 }
@@ -239,3 +244,6 @@ data class SavedHistory(
     val older: Map<String, Boolean> = emptyMap(),
     val cursor: Long? = null,
 )
+
+@Serializable
+data class ReadingAnchor(val messageId: String, val offset: Int = 0)
