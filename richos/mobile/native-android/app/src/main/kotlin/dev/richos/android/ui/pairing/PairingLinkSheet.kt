@@ -66,7 +66,8 @@ fun PairingEntryOverlays(model: ScreenModel, onEvent: (UiEvent) -> Unit) {
         }
         model.pairingBlocked != null -> {
             Scrim { onEvent(UiEvent.KeepThisPairing) }
-            PairingBlockedDialog(model.pairingBlocked!!, onEvent)
+            // Over "removed from your Mac" nothing can be sent and there is no pairing to keep.
+            PairingBlockedDialog(model.pairingBlocked!!, onEvent, removed = model.removedFromMac)
         }
         model.sheet == Sheet.PAIRING_LINK -> {
             Scrim { onEvent(UiEvent.CloseOverlay) }

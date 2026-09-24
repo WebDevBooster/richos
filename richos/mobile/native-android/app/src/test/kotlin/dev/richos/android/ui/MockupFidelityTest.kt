@@ -169,6 +169,58 @@ class MockupFidelityTest {
         }
     }
 
+    private fun descendants(node: SemanticsNode): List<SemanticsNode> = node.children.flatMap { listOf(it) + descendants(it) }
+
+    private fun under(tag: String, merged: Boolean): List<SemanticsNode> {
+        val root = compose.onAllNodes(SemanticsMatcher("any") { true }, useUnmergedTree = !merged).fetchSemanticsNodes()
+            .firstOrNull { it.config.getOrNull(SemanticsProperties.TestTag) == tag } ?: throw AssertionError("no node tagged $tag")
+        return descendants(root)
+    }
+
+    /** The labels of the controls inside the node tagged [tag] (merged tree, as TalkBack reads them). */
+    private fun controlsIn(tag: String): List<String> =
+        under(tag, merged = true).filter { it.config.getOrNull(SemanticsActions.OnClick) != null }
+            .map { n -> (n.config.getOrNull(SemanticsProperties.Text)?.joinToString(" ") { it.text }).orEmpty() }
+
+    /** The texts inside the node tagged [tag], in reading order. */
+    private fun textsIn(tag: String): List<String> = under(tag, merged = false).mapNotNull { text(it) }
+
+    /**
+     * G2 (audit §4.1): after the Mac removed this phone, "Pair again" meeting unsent work offers no
+     * Send (it cannot succeed) and names no pairing (there is none): Urban's copy, exactly two
+     * buttons. Still paired, `pair-blocked` is unchanged.
+     */
+    @Test
+    fun `G2 - after removal the dialog offers discard and pair, or not now`() {
+        val one = screen("pair-removed-blocked")
+        show(one)
+        assertEquals(listOf("Discard and pair", "Not now"), controlsIn("pairing-blocked-dialog"))
+        assertEquals(
+            listOf(
+                "One message is still waiting",
+                "It was written for the Mac that removed this phone, so it can’t be sent now. Discard it, then pair again.",
+                "Discard and pair", "Not now",
+            ),
+            textsIn("pairing-blocked-dialog"),
+        )
+
+        val waiting = one.app.outbox.first()
+        val two = one.copy(app = one.app.copy(outbox = listOf(waiting, waiting.copy(clientId = "mobile-2", text = "And cancel the car."))))
+        show(two)
+        assertEquals(
+            listOf(
+                "Two messages are still waiting",
+                "They were written for the Mac that removed this phone, so they can’t be sent now. Discard them, then pair again.",
+                "Discard and pair", "Not now",
+            ),
+            textsIn("pairing-blocked-dialog"),
+        )
+
+        show(screen("pair-blocked"))
+        assertEquals(listOf("Send it first", "Discard and pair", "Keep this pairing"), controlsIn("pairing-blocked-dialog"))
+        assertTrue(textsIn("pairing-blocked-dialog").any { "paired with now" in it })
+    }
+
     /** G6: the serif headings are never hyphenated ("RichCon-nect", "re-moved"), at any text size. */
     @Test
     fun `G6 - headings are never hyphenated`() {

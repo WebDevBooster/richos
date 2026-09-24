@@ -140,13 +140,23 @@ class InteractionTest {
         compose.waitForIdle()
         compose.onNodeWithText("Pairing requires an HTTPS origin").assertIsDisplayed()
 
-        // Unsent work in the way, after "Pair again": keep it, or send it first.
-        set(screen("pair-removed-blocked"))
+        // Unsent work in the way while still paired, scanning another Mac: keep the pairing, or
+        // send it first.
+        set(screen("pair-blocked"))
         compose.waitForIdle()
         compose.onNodeWithText("Keep this pairing").performClick()
         assertEquals(Action.CloseSheet, actions.last())
         compose.onNodeWithText("Send it first").performClick()
         assertEquals(Action.Retry, actions.last())
+        compose.onNodeWithText("Discard and pair").performClick()
+        assertEquals(UiEvent.DiscardAndPair, events.last())
+
+        // After "Pair again" from "removed from your Mac": nothing can be sent (UX audit G2), so
+        // discard and pair, or not now (core's close; the messages stay).
+        set(screen("pair-removed-blocked"))
+        compose.waitForIdle()
+        compose.onNodeWithText("Not now").performClick()
+        assertEquals(Action.CloseSheet, actions.last())
         compose.onNodeWithText("Discard and pair").performClick()
         assertEquals(UiEvent.DiscardAndPair, events.last())
     }
