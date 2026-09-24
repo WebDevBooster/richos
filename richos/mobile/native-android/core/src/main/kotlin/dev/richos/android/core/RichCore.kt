@@ -326,6 +326,10 @@ class RichCore private constructor(
         } ?: s
         "message" -> decode(Row.serializer(), frame.data)?.let { row ->
             val held = s.cache[row.threadId].orEmpty()
+            // A finished reply is final. A reconnect replays the last reply whole (its opening row,
+            // deltas and completion share one frame id on the Mac, and `since` is inclusive), so
+            // an arriving copy of a row held finished is that replay, never news (D02).
+            if (!row.complete && held.any { it.id == row.id && it.complete }) return@let s
             val merged = held.filter { it.id != row.id } + row
             val keepReading = row.threadId == s.selectedThreadId && held.any { it.id == s.readingAnchor?.messageId }
             s.copy(cache = s.cache + (row.threadId to bounded(merged, if (keepReading) merged.size else held.size)))
@@ -334,7 +338,7 @@ class RichCore private constructor(
             // A delta names its conversation on newer Macs (Echo e9b0a89e): it lands only there.
             val thread = (if (d.threadId != null) d.threadId.takeIf { t -> s.cache[t].orEmpty().any { it.id == d.messageId } }
                 else s.cache.entries.firstOrNull { (_, rows) -> rows.any { it.id == d.messageId } }?.key) ?: return@let s
-            s.copy(cache = s.cache + (thread to s.cache.getValue(thread).map { if (it.id == d.messageId) it.copy(text = it.text + d.text) else it }))
+            s.copy(cache = s.cache + (thread to s.cache.getValue(thread).map { if (it.id == d.messageId && !it.complete) it.copy(text = it.text + d.text) else it }))
         } ?: s
         else -> s
     }

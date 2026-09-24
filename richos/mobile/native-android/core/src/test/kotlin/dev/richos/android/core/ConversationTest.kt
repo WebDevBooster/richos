@@ -135,4 +135,10 @@ class ConversationTest {
         val result = DevRuntime.create().execute(DevRequest.Scenario("stream-turn")).jsonObject
         assertEquals("stream-turn", result["name"]!!.jsonPrimitive.content)
     }
+
+    @Test
+    fun `the reply-replay scenario passes`() = runTest {
+        val result = DevRuntime.create().execute(DevRequest.Scenario("reply-replay")).jsonObject
+        assertEquals("reply-replay", result["name"]!!.jsonPrimitive.content)
+    }
 }
