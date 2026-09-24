@@ -114,6 +114,7 @@ public enum Action: Equatable, Sendable {
     case voiceLockedCancel(at: Int64)
     /// The system took the touch away (an alert over the app).
     case voiceTouchCanceled(at: Int64)
+    case voiceStartFailed(id: String)
     /// The app left the screen or the OS took the audio: the recording is kept, never sent.
     case voiceInterrupted(at: Int64)
     /// The recording's level, 0 to 1, sampled every 100 ms, for the bubble it becomes.
@@ -278,7 +279,7 @@ public enum Reducer {
             ConversationReducer.reduce(&next, action, &effects)
             VoiceReducer.reduce(&next, action, &effects)
         case .voicePress, .voiceStartLocked, .microphonePermission, .voiceMove, .voiceRelease, .voiceLockedSend, .voiceLockedCancel,
-             .voiceTouchCanceled, .voiceInterrupted, .voiceLevel, .voiceSettled, .sendKept, .discardKept, .playRecording:
+             .voiceTouchCanceled, .voiceStartFailed, .voiceInterrupted, .voiceLevel, .voiceSettled, .sendKept, .discardKept, .playRecording:
             VoiceReducer.reduce(&next, action, &effects)
         case .turnOnNotifications, .notificationsResult, .turnOffNotifications, .dismissNotificationOffer, .setPreviews,
              .forgetPairing, .confirmForget, .openSystemSettings:

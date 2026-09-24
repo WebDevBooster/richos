@@ -74,6 +74,7 @@ public enum CoreJSON {
 /// "the OS said the microphone is allowed", "the Mac accepted the message" — which the store
 /// dispatches like any other, so an answer can never bypass the reducer.
 public protocol EffectHandler: Sendable {
+    func recoverRecording(_ recording: KeptRecording) async throws -> KeptRecording?
     /// Whether this handler takes `effect` (a composite routes by it).
     func handles(_ effect: Effect) -> Bool
     func handle(_ effect: Effect, state: AppState) async -> [Action]
@@ -81,6 +82,7 @@ public protocol EffectHandler: Sendable {
 
 extension EffectHandler {
     public func handles(_ effect: Effect) -> Bool { true }
+    public func recoverRecording(_ recording: KeptRecording) async throws -> KeptRecording? { nil }
 }
 
 /// Performs the effects a reducer asked for, through the ports. An actor, not main-actor-bound: the
@@ -222,6 +224,14 @@ public actor EffectRunner {
             lastHistory = cached
             let protected = Set(saved.messages.map(\.id))
             saved.messages = (cached.messages.filter { !protected.contains($0.id) } + saved.messages).sorted { $0.sentAt < $1.sentAt }
+        }
+        if let interrupted = saved.activeRecording {
+            let known = saved.keptRecordings.contains { $0.id == interrupted.id } || saved.outbox.contains { $0.clientID == interrupted.id }
+            if !known, let recovered = try await handler?.recoverRecording(interrupted) { saved.keptRecordings.append(recovered) }
+            saved.activeRecording = nil
+            let restored = try AppState(restoring: saved)
+            try await persist(restored)
+            return restored
         }
         return try AppState(restoring: saved)
     }

@@ -47,6 +47,10 @@ final class PlatformEffects: EffectHandler, @unchecked Sendable {
     /// The courier's source of voice-message bytes (the same files the recorder writes).
     var recordings: any RecordingStore { FileRecordingStore(directory: VoiceRecorder.defaultDirectory()) }
 
+    func recoverRecording(_ recording: KeptRecording) async throws -> KeptRecording? {
+        try await Task.detached { try FileRecordingStore.recover(recording) }.value
+    }
+
     /// The device signing keys, in the app's own Keychain group (security review I-4). Only the app
     /// signs: the Share extension passes no signed connection (`ShareViewController`, `transport:
     /// nil`) and leaves every share for the app to send, and the notification extension reads only
@@ -79,10 +83,7 @@ final class PlatformEffects: EffectHandler, @unchecked Sendable {
             // The recorder could not start (the audio session was refused, the disk is full): the
             // gesture ends as if the system took the touch away, and nothing is kept, because
             // nothing was recorded. A denied permission is reported as the permission it is.
-            guard started else {
-                if MicrophonePermission.current() != .granted { return [.microphonePermission(MicrophonePermission.current())] }
-                return [.voiceTouchCanceled(at: clock.nowMs())]
-            }
+            guard started else { return [.voiceStartFailed(id: id), .microphonePermission(MicrophonePermission.current())] }
             return []
 
         case .stopRecording(_, let keep):

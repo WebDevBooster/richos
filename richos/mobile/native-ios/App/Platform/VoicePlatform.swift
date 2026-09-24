@@ -185,6 +185,27 @@ final class VoiceRecorder: NSObject, AVAudioRecorderDelegate, AVAudioPlayerDeleg
 
 /// The WAV bytes the courier uploads for a voice message (Core's `RecordingStore`).
 struct FileRecordingStore: RecordingStore {
+    static func recover(_ recording: KeptRecording) throws -> KeptRecording? {
+        guard VoiceRecorder.safe(recording.id) == recording.id else { throw CoreError("The saved recording has an invalid name") }
+        let url = VoiceRecorder.defaultDirectory().appendingPathComponent("\(VoiceRecorder.safe(recording.id)).wav")
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let handle = try FileHandle(forUpdating: url)
+        defer { try? handle.close() }
+        let length = Int(try handle.seekToEnd())
+        try handle.seek(toOffset: 0)
+        let header = try handle.read(upToCount: 65_536) ?? Data()
+        guard let plan = try WaveRecovery.inspect(header: header, fileBytes: length) else { return nil }
+        func patch(_ offset: Int, _ number: Int) throws {
+            var value = UInt32(number).littleEndian
+            try handle.seek(toOffset: UInt64(offset))
+            try handle.write(contentsOf: withUnsafeBytes(of: &value) { Data($0) })
+        }
+        try patch(4, length - 8)
+        try patch(plan.sizeOffset, plan.byteCount)
+        var recovered = recording
+        recovered.durationMs = plan.durationMs
+        return recovered
+    }
     let directory: URL
     func wavBytes(id: String) async throws -> Data {
         try Data(contentsOf: directory.appendingPathComponent("\(VoiceRecorder.safe(id)).wav"))

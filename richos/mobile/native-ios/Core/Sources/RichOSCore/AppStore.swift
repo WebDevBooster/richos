@@ -12,6 +12,7 @@ public final class AppStore {
     public private(set) var state: AppState
     /// A storage failure the person should know about, in plain words. `nil` while healthy.
     public private(set) var persistenceProblem: String?
+    public private(set) var recordingProblem: String?
 
     @ObservationIgnored private let performance: @Sendable (String) -> Void
     @ObservationIgnored public let runner: EffectRunner
@@ -125,6 +126,7 @@ public final class AppStore {
     public func apply(_ action: Action) -> Task<Void, Never> {
         if case .sendDraft = action { performance("send-requested") }
         switch action {
+        case .voicePress, .voiceStartLocked: recordingProblem = nil
         case .backgrounded:
             foreground = false
             startCompletionDeadline()
@@ -148,12 +150,59 @@ public final class AppStore {
             return transaction
         }
         let (next, effects) = Reducer.reduce(state, action)
+        var startAllowed = true
+        #if DEBUG
+        startAllowed = !effectsSuspended
+        #endif
+        if startAllowed, effects.contains(where: { if case .startRecording = $0 { return true }; return false }) {
+            return beginRecording(next, effects: effects)
+        }
         let known = Set(state.outbox.map(\.clientID))
         if next.outbox.contains(where: { !known.contains($0.clientID) }) {
             return commitSend(next, effects: effects)
         }
         if next != state { state = next }
         return perform(effects, snapshot: next)
+    }
+
+    /// Journal before opening the microphone, then publish recording only after capture succeeds.
+    private func beginRecording(_ next: AppState, effects: [Effect]) -> Task<Void, Never> {
+        let previous = lastWrite
+        let task = Task { [self] in
+            await previous?.value
+            var started = false
+            var problem: String?
+            do {
+                guard !storageIsReadOnly else { throw CoreError("Saved data is read-only") }
+                try await runner.run([.persist], state: next)
+                if foreground {
+                    let replies = try await runner.run(effects.filter { if case .startRecording = $0 { return true }; return false }, state: next)
+                    started = !replies.contains { if case .voiceStartFailed = $0 { return true }; return false }
+                    if started {
+                        state = next
+                        persistenceProblem = nil
+                        if !foreground, let id = next.voice?.id {
+                            _ = try await runner.run([.stopRecording(id: id, keep: true)], state: next)
+                        }
+                    } else {
+                        state.voice = nil
+                        for reply in replies { state = Reducer.reduce(state, reply).0 }
+                        recordingProblem = "The microphone could not start. Check microphone access and try again."
+                    }
+                } else { state.voice = nil }
+            } catch {
+                state.voice = nil
+                problem = "This iPhone could not prepare a recoverable recording. Free storage and try again."
+            }
+            if !started { await perform([.persist], snapshot: state).value }
+            if let problem { persistenceProblem = problem }
+            transaction = nil
+            let waiting = deferred
+            deferred.removeAll()
+            for action in waiting { apply(action) }
+        }
+        transaction = task
+        return task
     }
 
     /// Keep the recoverable composer/recording visible until the new outbox entry is durable.

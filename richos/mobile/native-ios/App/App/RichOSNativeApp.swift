@@ -45,7 +45,7 @@ struct RichOSNativeApp: App {
                     RootView(state: store.state, send: { store.send($0) })
                         .overlay(alignment: .topLeading) { usefulMarker(store) }
                         .safeAreaInset(edge: .top) {
-                            if let problem = store.persistenceProblem {
+                            if let problem = store.persistenceProblem ?? store.recordingProblem {
                                 Text(problem)
                                     .font(.body)
                                     .padding()

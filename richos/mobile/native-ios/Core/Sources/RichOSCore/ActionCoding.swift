@@ -151,6 +151,7 @@ extension Action: Codable {
         case "voice-locked-send": self = .voiceLockedSend(at: now)
         case "voice-locked-cancel": self = .voiceLockedCancel(at: now)
         case "voice-touch-canceled": self = .voiceTouchCanceled(at: now)
+        case "voice-start-failed": self = .voiceStartFailed(id: try need(w.id, "id"))
         case "voice-interrupted": self = .voiceInterrupted(at: now)
         case "voice-level": self = .voiceLevel(try need(w.level, "level"))
         case "voice-settled": self = .voiceSettled
@@ -253,6 +254,7 @@ extension Action: Codable {
         case .voiceLockedSend(let at): w = Wire("voice-locked-send"); w.at = at
         case .voiceLockedCancel(let at): w = Wire("voice-locked-cancel"); w.at = at
         case .voiceTouchCanceled(let at): w = Wire("voice-touch-canceled"); w.at = at
+        case .voiceStartFailed(let id): w = Wire("voice-start-failed"); w.id = id
         case .voiceInterrupted(let at): w = Wire("voice-interrupted"); w.at = at
         case .voiceLevel(let l): w = Wire("voice-level"); w.level = l
         case .voiceSettled: w = Wire("voice-settled")

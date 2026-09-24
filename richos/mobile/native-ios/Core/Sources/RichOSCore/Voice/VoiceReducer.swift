@@ -77,6 +77,8 @@ enum VoiceReducer {
             guard s.voice?.phase == .locked else { return }
             s.voice?.nowMs = at
             end(&s, .canceled, &effects)
+        case .voiceStartFailed(let id):
+            if s.voice?.id == id { s.voice = nil }
         case .voiceTouchCanceled(let at):
             // The system took the touch (an alert, a call banner): lock under 30% slide, else cancel.
             guard s.voice?.phase == .held else {

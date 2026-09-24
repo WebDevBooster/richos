@@ -159,3 +159,79 @@ private actor DeliveryWitness: EffectHandler {
 private extension Array {
     var single: Element? { count == 1 ? first : nil }
 }
+
+private actor RecordingWitness: EffectHandler {
+    let storage: SaveGate
+    let fail: Bool
+    var starts = 0
+    var recoveries = 0
+    init(_ storage: SaveGate, fail: Bool = false) { self.storage = storage; self.fail = fail }
+    func handle(_ effect: Effect, state: AppState) async -> [Action] {
+        if case .startRecording(let id) = effect {
+            starts += 1
+            let data = await storage.read(EffectRunner.stateKey)
+            let saved = data.flatMap { try? CoreJSON.decode(AppState.Persisted.self, from: $0) }
+            #expect(saved?.activeRecording?.id == id)
+            return fail ? [.voiceStartFailed(id: id)] : []
+        }
+        return []
+    }
+    func recoverRecording(_ recording: KeptRecording) -> KeptRecording? {
+        recoveries += 1
+        var recovered = recording
+        recovered.durationMs = 1_234
+        return recovered
+    }
+}
+
+@MainActor struct RecordingDurabilityTests {
+    private func ready() throws -> AppState {
+        var state = try Fixture.named("conv-empty").state
+        state.microphone = .granted
+        state.voiceAvailability = .available
+        return state
+    }
+
+    @Test func captureStartsAfterJournalAndCrashRecoveryIsUnsentAndIdempotent() async throws {
+        let storage = SaveGate()
+        let recorder = RecordingWitness(storage)
+        let runner = EffectRunner(storage: storage, handler: recorder)
+        let store = AppStore(state: try ready(), runner: runner)
+        let task = store.apply(.voiceStartLocked(id: "crash", width: 386, at: 1_000))
+        #expect(store.state.voice == nil)
+        await task.value
+        #expect(store.state.voice?.phase == .locked)
+        #expect(await recorder.starts == 1)
+        let restored = try await runner.load()
+        #expect(restored?.voice == nil && restored?.outbox.isEmpty == true)
+        #expect(restored?.keptRecordings.single?.durationMs == 1_234)
+        #expect(try await runner.load()?.keptRecordings.count == 1)
+        #expect(await recorder.recoveries == 1)
+    }
+
+    @Test func failedCaptureDoesNotClaimRecordingOrCreateAnEmptyMessage() async throws {
+        let storage = SaveGate()
+        let recorder = RecordingWitness(storage, fail: true)
+        let store = AppStore(state: try ready(), runner: EffectRunner(storage: storage, handler: recorder))
+        await store.apply(.voiceStartLocked(id: "failure", width: 386, at: 1_000)).value
+        #expect(store.state.voice == nil && store.state.outbox.isEmpty && store.state.keptRecordings.isEmpty)
+        #expect(store.recordingProblem?.contains("microphone could not start") == true)
+        #expect(store.persistenceProblem == nil && store.ticking)
+        #expect(try await store.runner.load()?.keptRecordings.isEmpty == true)
+    }
+
+    @Test func backgroundDuringSlowJournalNeverStartsTheMicrophone() async throws {
+        let storage = SaveGate()
+        let recorder = RecordingWitness(storage)
+        let store = AppStore(state: try ready(), runner: EffectRunner(storage: storage, handler: recorder))
+        await storage.configure(pause: true)
+        let start = store.apply(.voiceStartLocked(id: "late", width: 386, at: 1_000))
+        await storage.untilStarted()
+        store.wentToBackground(at: 1_001)
+        await storage.release()
+        await start.value
+        await store.settle()
+        #expect(await recorder.starts == 0)
+        #expect(store.state.voice == nil && store.state.keptRecordings.isEmpty)
+    }
+}

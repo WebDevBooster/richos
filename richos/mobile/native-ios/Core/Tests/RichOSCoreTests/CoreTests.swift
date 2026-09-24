@@ -338,7 +338,7 @@ let repositoryRoot: URL = {
         s = Reducer.reduce(pressed, .tick(at: t + 199)).state
         #expect(s.voice?.phase == .pressed)
         let (recording, e2) = Reducer.reduce(s, .tick(at: t + 200))
-        #expect(recording.voice?.phase == .held && e2 == [.startRecording(id: "v")])
+        #expect(recording.voice?.phase == .held && e2 == [.persist, .startRecording(id: "v")])
     }
 
     @Test func aTapIsNotAMessage() throws {
@@ -366,7 +366,7 @@ let repositoryRoot: URL = {
         s = Reducer.reduce(s, .voiceMove(dx: -0.99 * cancelDistance, dy: 0, at: t + 3300)).state
         #expect(s.voice?.phase == .held)
         let (canceled, effects) = Reducer.reduce(s, .voiceMove(dx: -cancelDistance, dy: 0, at: t + 3350))
-        #expect(canceled.voice?.phase == .ending(.canceled) && canceled.outbox.isEmpty && effects == [.stopRecording(id: "v", keep: false)])
+        #expect(canceled.voice?.phase == .ending(.canceled) && canceled.outbox.isEmpty && effects == [.persist, .stopRecording(id: "v", keep: false)])
     }
 
     @Test func aReleasePast55PercentCancelsAndBelowItSends() throws {
@@ -451,7 +451,7 @@ let repositoryRoot: URL = {
 
     @Test func handsFreeRecordingStartsLockedForVoiceOver() throws {
         let (s, effects) = Reducer.reduce(try ready(), .voiceStartLocked(id: "v", width: width, at: t))
-        #expect(s.voice?.phase == .locked && s.voice?.recordingStartedAtMs == t && effects == [.startRecording(id: "v")])
+        #expect(s.voice?.phase == .locked && s.voice?.recordingStartedAtMs == t && effects == [.persist, .startRecording(id: "v")])
     }
 
     @Test func aMoveAtTouchRateWritesNothing() throws {

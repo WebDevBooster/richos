@@ -230,6 +230,7 @@ extension AppState {
         public var separateHistory: Bool? = nil
         public var following: Bool? = nil
         public var readingAnchor: ReadingAnchor? = nil
+        public var activeRecording: KeptRecording? = nil
     }
 
     public var persisted: Persisted {
@@ -238,7 +239,11 @@ extension AppState {
                   fingerprintWords: fingerprintWords, consentGiven: consentGiven, messages: messages, draft: draft,
                   outbox: outbox, keptRecordings: keptRecordings, notifications: notifications, appearance: appearance,
                   notifiedReply: notifiedReply, pendingAttachments: pendingAttachments.isEmpty ? nil : pendingAttachments,
-                  following: following, readingAnchor: following ? nil : readingAnchor)
+                  following: following, readingAnchor: following ? nil : readingAnchor,
+                  activeRecording: voice.flatMap { v in
+                      guard v.phase == .held || v.phase == .locked, let start = v.recordingStartedAtMs else { return nil }
+                      return KeptRecording(id: v.id, durationMs: 0, levels: [], reason: .interrupted, recordedAt: start)
+                  })
     }
 
     public init(restoring p: Persisted) throws {
