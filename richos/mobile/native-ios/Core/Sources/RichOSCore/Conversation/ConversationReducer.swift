@@ -221,18 +221,7 @@ public enum ConversationReducer {
         let locals = s.messages.filter { local in local.author == .me && local.clientID == local.id && local.cursor == nil
             && local.delivery == nil && !s.outbox.contains(where: { $0.clientID == local.id }) }
         for local in locals {
-            let candidates = s.messages.indices.filter { index in
-                let row = s.messages[index]
-                guard row.author == .me, row.id != local.id, row.clientID != row.id else { return false }
-                if let clientID = row.clientID { return clientID == local.id }
-                let boundary = local.echoAfterMessageID.flatMap { id in s.messages.first(where: { $0.id == id })?.cursor }
-                if let floor = boundary ?? local.echoAfterCursor, (row.cursor ?? 0) <= floor { return false }
-                if local.kind == .voice, let hash = local.transcriptSHA256 {
-                    return notificationReference(row.text) == hash
-                }
-                return row.text == local.text && row.kind == local.kind
-                    && (row.attachments?.count ?? 0) == (local.attachments?.count ?? 0)
-            }
+            let candidates = s.messages.indices.filter { isEcho(s.messages[$0], of: local, in: s.messages) }
             guard let index = candidates.min(by: { (s.messages[$0].cursor ?? 0) < (s.messages[$1].cursor ?? 0) }) else { continue }
             s.messages[index].clientID = local.id
             if local.kind == .voice {

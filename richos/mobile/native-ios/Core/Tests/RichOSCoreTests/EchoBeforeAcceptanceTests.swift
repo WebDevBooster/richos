@@ -27,16 +27,15 @@ import Testing
         return s
     }
 
-    /// The lines that show `text`, by their on-screen identity, in the order they are drawn. Today
-    /// the list draws one row per `AppState.messages` entry, keyed by its `id`
-    /// (`ScreenModel.swift:237`, `:421`; `Rows.swift:17`).
+    /// The lines that show `text`, by their on-screen identity, in the order they are drawn: the
+    /// list draws `Transcript.visible` keyed by `Message.lineID` (`ScreenModel.swift`, `Rows.swift`).
     func shown(_ s: AppState, _ text: String) -> [String] {
-        s.messages.filter { $0.text == text }.map(\.id)
+        Transcript.visible(s).filter { $0.text == text }.map(\.lineID)
     }
 
     /// Every line of yours, by its on-screen identity.
     func mine(_ s: AppState) -> [String] {
-        s.messages.filter { $0.author == .me }.map(\.id)
+        Transcript.visible(s).filter { $0.author == .me }.map(\.lineID)
     }
 
     func send(_ s: inout AppState, _ text: String, _ clientID: String, at: Int64) -> [Effect] {

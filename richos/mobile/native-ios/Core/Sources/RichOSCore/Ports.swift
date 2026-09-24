@@ -186,7 +186,7 @@ public actor EffectRunner {
         }
         var count = Self.cachedMessages
         if !state.following, let anchor = state.readingAnchor,
-           let index = state.messages.firstIndex(where: { $0.id == anchor.messageID }) {
+           let index = state.messages.firstIndex(where: { $0.lineID == anchor.messageID }) {
             count = min(Self.readingCachedMessages, max(count, state.messages.count - index + 20))
         }
         let history = CachedHistory(mac: state.mac, messages: Array(state.messages.suffix(count)))
