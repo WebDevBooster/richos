@@ -23,6 +23,13 @@ struct RichOSNativeApp: App {
         return TickSchedule.nextTick(store.state)
     }
 
+    /// What the Share extension is told, derived from the state (`SharePlatform.context`); `nil`
+    /// before the store has loaded. Small and cheap to compare, unlike the whole state.
+    private var shareContext: ShareContext? {
+        guard let state = store?.state else { return nil }
+        return SharePlatform.context(for: state, macAcceptsAttachments: state.attachmentLimits != nil, limits: state.attachmentLimits)
+    }
+
     var body: some Scene {
         WindowGroup {
             Group {
@@ -104,8 +111,11 @@ struct RichOSNativeApp: App {
                     break
                 }
             }
-            .onChange(of: store?.state) { _, state in
-                guard let state else { return }
+            .onChange(of: shareContext) { _, _ in
+                // Only when what the Share extension reads changed (pairing, the Mac, appearance,
+                // limits). Keyed on the whole state, this read and decoded the context file on the
+                // main thread on every keystroke, streamed word and voice tick (Sage's review T3).
+                guard let state = store?.state else { return }
                 SharePlatform.mirror(state, macAcceptsAttachments: state.attachmentLimits != nil, limits: state.attachmentLimits)
             }
         }
