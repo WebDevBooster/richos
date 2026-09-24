@@ -25,6 +25,7 @@ extension Action: Codable {
         var sheet: Sheet?
         var answer: PairAnswer?
         var clientId: String?
+        var textSHA256: String?
         var id: String?
         var at: Int64?
         var failure: DeliveryFailure?
@@ -107,7 +108,7 @@ extension Action: Codable {
         case "open-sheet": self = .openSheet(try need(w.sheet, "sheet"))
         case "close-sheet": self = .closeSheet
         case "send": self = .sendDraft(clientID: w.clientId ?? UUID().uuidString.lowercased(), at: now)
-        case "delivery-accepted": self = .deliveryAccepted(clientID: try need(w.clientId, "clientId"), at: now)
+        case "delivery-accepted": self = .deliveryAccepted(clientID: try need(w.clientId, "clientId"), at: now, textSHA256: w.textSHA256)
         case "delivery-failed": self = .deliveryFailed(clientID: try need(w.clientId, "clientId"), failure: try need(w.failure, "failure"), at: now)
         case "tick": self = .tick(at: now)
         case "retry": self = .retryNow(at: now)
@@ -212,7 +213,7 @@ extension Action: Codable {
         case .openSheet(let s): w = Wire("open-sheet"); w.sheet = s
         case .closeSheet: w = Wire("close-sheet")
         case .sendDraft(let c, let at): w = Wire("send"); w.clientId = c; w.at = at
-        case .deliveryAccepted(let c, let at): w = Wire("delivery-accepted"); w.clientId = c; w.at = at
+        case .deliveryAccepted(let c, let at, let hash): w = Wire("delivery-accepted"); w.clientId = c; w.at = at; w.textSHA256 = hash
         case .deliveryFailed(let c, let f, let at): w = Wire("delivery-failed"); w.clientId = c; w.failure = f; w.at = at
         case .tick(let at): w = Wire("tick"); w.at = at
         case .retryNow(let at): w = Wire("retry"); w.at = at

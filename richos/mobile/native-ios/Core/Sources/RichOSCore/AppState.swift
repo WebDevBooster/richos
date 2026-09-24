@@ -373,15 +373,17 @@ public struct Message: Codable, Equatable, Identifiable, Sendable {
     public var echoAfterCursor: Int?
     /// The stable identity of that boundary; replay may renumber its cursor.
     public var echoAfterMessageID: String?
+    /// Signed voice receipt: match the transcript before its projected row carries voice metadata.
+    public var transcriptSHA256: String?
     /// Photos and files sent with this message (the text is then its caption). `nil` for none.
     public var attachments: [AttachmentRef]?
 
     public init(id: String, author: Author, kind: Kind = .text, text: String, sentAt: Int64,
                 delivery: Delivery? = nil, durationMs: Int? = nil, levels: [Double]? = nil, clientID: String? = nil, cursor: Int? = nil,
-                attachments: [AttachmentRef]? = nil, echoAfterCursor: Int? = nil, echoAfterMessageID: String? = nil) {
+                attachments: [AttachmentRef]? = nil, echoAfterCursor: Int? = nil, echoAfterMessageID: String? = nil, transcriptSHA256: String? = nil) {
         self.id = id; self.author = author; self.kind = kind; self.text = text; self.sentAt = sentAt
         self.delivery = delivery; self.durationMs = durationMs; self.levels = levels; self.clientID = clientID; self.cursor = cursor
-        self.attachments = attachments; self.echoAfterCursor = echoAfterCursor; self.echoAfterMessageID = echoAfterMessageID
+        self.attachments = attachments; self.echoAfterCursor = echoAfterCursor; self.echoAfterMessageID = echoAfterMessageID; self.transcriptSHA256 = transcriptSHA256
     }
 }
 

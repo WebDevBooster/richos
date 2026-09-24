@@ -22,8 +22,13 @@ public enum ConversationReducer {
         switch action {
         case .sendDraft(let clientID, let at):
             send(&s, clientID: clientID, at: at, &effects)
-        case .deliveryAccepted(let clientID, let at):
+        case .deliveryAccepted(let clientID, let at, let transcriptHash):
             guard let i = s.outbox.firstIndex(where: { $0.clientID == clientID }) else { return }
+            if s.outbox[i].kind == .voice, let transcriptHash,
+               transcriptHash.utf8.count == 64, transcriptHash.allSatisfy({ $0.isHexDigit && $0.isASCII }),
+               let local = s.messages.firstIndex(where: { $0.id == clientID }) {
+                s.messages[local].transcriptSHA256 = transcriptHash.lowercased()
+            }
             releaseFiles(of: s.outbox.remove(at: i), &effects)
             setDelivery(&s, clientID, nil)
             reconcile(&s)
@@ -220,11 +225,19 @@ public enum ConversationReducer {
                 if let clientID = row.clientID { return clientID == local.id }
                 let boundary = local.echoAfterMessageID.flatMap { id in s.messages.first(where: { $0.id == id })?.cursor }
                 if let floor = boundary ?? local.echoAfterCursor, (row.cursor ?? 0) <= floor { return false }
+                if local.kind == .voice, let hash = local.transcriptSHA256 {
+                    return notificationReference(row.text) == hash
+                }
                 return row.text == local.text && row.kind == local.kind
                     && (row.attachments?.count ?? 0) == (local.attachments?.count ?? 0)
             }
             guard let index = candidates.min(by: { (s.messages[$0].cursor ?? 0) < (s.messages[$1].cursor ?? 0) }) else { continue }
             s.messages[index].clientID = local.id
+            if local.kind == .voice {
+                s.messages[index].kind = .voice
+                s.messages[index].durationMs = local.durationMs
+                s.messages[index].levels = local.levels
+            }
             if let files = local.attachments { s.messages[index].attachments = files }
             s.messages.removeAll { $0.id == local.id }
         }
@@ -236,6 +249,11 @@ public enum ConversationReducer {
                 // The wire may omit the client ID and use server file references on a replay.
                 if let clientID = s.messages[i].clientID, clientID != message.id {
                     message.clientID = clientID
+                    if s.messages[i].kind == .voice {
+                        message.kind = .voice
+                        message.durationMs = message.durationMs ?? s.messages[i].durationMs
+                        message.levels = s.messages[i].levels
+                    }
                     if let files = s.messages[i].attachments { message.attachments = files }
                 }
                 s.messages[i] = message

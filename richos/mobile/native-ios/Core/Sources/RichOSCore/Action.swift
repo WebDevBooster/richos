@@ -43,7 +43,7 @@ public enum Action: Equatable, Sendable {
     /// app, fixed values in a scenario), so the reducer stays pure and a trace replays exactly.
     case sendDraft(clientID: String, at: Int64)
     /// The Mac accepted this message (200, including `duplicate: true`).
-    case deliveryAccepted(clientID: String, at: Int64)
+    case deliveryAccepted(clientID: String, at: Int64, textSHA256: String? = nil)
     case deliveryFailed(clientID: String, failure: DeliveryFailure, at: Int64)
     /// Time passed (the outbox's retry clock); cheap and never persisted by itself.
     case tick(at: Int64)

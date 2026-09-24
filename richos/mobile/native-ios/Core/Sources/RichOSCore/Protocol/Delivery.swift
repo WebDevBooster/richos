@@ -84,12 +84,18 @@ public struct Courier: Sendable {
         }
         let clientAction: ClientAction
         var duplicate = false
+        var transcriptHash: String?
         var reason: String?
         do {
             let response = try await api.signed("POST", target, body: body, contentType: contentType)
             clientAction = ClientAction.classify(response, attempt: attempt)
             if (200..<300).contains(response.status) {
-                duplicate = ((try? JSONSerialization.jsonObject(with: response.body)) as? [String: Any])?["duplicate"] as? Bool == true
+                let json = (try? JSONSerialization.jsonObject(with: response.body)) as? [String: Any]
+                duplicate = json?["duplicate"] as? Bool == true
+                if item.kind == .voice, let hash = json?["text_sha256"] as? String,
+                   hash.utf8.count == 64, hash.allSatisfy({ $0.isHexDigit && $0.isASCII }) {
+                    transcriptHash = hash.lowercased()
+                }
             } else {
                 reason = APIClient.classify(response).reason.rawValue
             }
@@ -97,7 +103,11 @@ public struct Courier: Sendable {
             clientAction = ClientAction.transportFailed(attempt: attempt)
             reason = (error as? APIError)?.reason.rawValue ?? APIError.Reason.unreachable.rawValue
         }
-        return Result(action: Self.action(for: clientAction, clientID: item.clientID, reason: reason, at: at), duplicate: duplicate)
+        var action = Self.action(for: clientAction, clientID: item.clientID, reason: reason, at: at)
+        if case .deliveryAccepted = action, let transcriptHash {
+            action = .deliveryAccepted(clientID: item.clientID, at: at, textSHA256: transcriptHash)
+        }
+        return Result(action: action, duplicate: duplicate)
     }
 
     /// The reducer's action for a classified answer.

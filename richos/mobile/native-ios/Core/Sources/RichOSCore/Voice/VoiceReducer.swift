@@ -150,7 +150,8 @@ enum VoiceReducer {
             guard s.keptRecordings.contains(where: { $0.id == id }) || s.messages.contains(where: { $0.id == id && $0.kind == .voice }) else { return }
             if s.playback != nil { effects.append(.stopAudio) }
             s.playback = Playback(messageID: id, phase: .playing)
-            effects.append(.playRecording(id: id))
+            let recordingID = s.messages.first(where: { $0.id == id && $0.kind == .voice })?.clientID ?? id
+            effects.append(.playRecording(id: recordingID))
         default:
             break
         }
@@ -197,7 +198,9 @@ enum VoiceReducer {
                                                                 sentAtISO: ConversationReducer.isoMillis(at)),
                                    queuedAt: at))
         s.messages.append(Message(id: id, author: .me, kind: .voice, text: "", sentAt: at, delivery: .waiting,
-                                  durationMs: durationMs, levels: levels, clientID: id))
+                                  durationMs: durationMs, levels: levels, clientID: id,
+                                  echoAfterCursor: s.messages.compactMap(\.cursor).max(),
+                                  echoAfterMessageID: s.messages.last(where: { $0.cursor != nil })?.id))
         s.following = true
         ConversationReducer.pump(&s, at: at, &effects)
     }
