@@ -4,7 +4,6 @@ import SwiftUI
 enum TranscriptItem: Equatable, Identifiable, Sendable {
     case loadingOlder
     case beginning
-    case cachedMarker
     case day(String)
     case row(ScreenModel.Row, tail: Bool, focused: Bool)
 
@@ -12,7 +11,6 @@ enum TranscriptItem: Equatable, Identifiable, Sendable {
         switch self {
         case .loadingOlder: return "~loading"
         case .beginning: return "~beginning"
-        case .cachedMarker: return "~cached"
         case .day(let label): return "~day-\(label)"
         case .row(let row, _, _): return row.listID
         }
@@ -24,7 +22,7 @@ enum TranscriptItem: Equatable, Identifiable, Sendable {
     static func build(_ t: ScreenModel.Transcript, calendar: Calendar, now: Date) -> [TranscriptItem] {
         var items: [TranscriptItem] = []
         if t.loadingOlder { items.append(.loadingOlder) } else if t.reachedBeginning { items.append(.beginning) }
-        if t.cached { items.append(.cachedMarker) }
+        // `t.cached` is not a row: the out-of-reach line is pinned under the header (`OutOfReachLine`).
         var lastDay: DateComponents?
         for (index, row) in t.rows.enumerated() {
             let date = Date(timeIntervalSince1970: TimeInterval(row.sentAt) / 1000)
@@ -105,8 +103,6 @@ struct TranscriptItemView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.top, 22).padding(.bottom, 8)
-        case .cachedMarker:
-            DayMarker(text: "Showing what was on this phone · your Mac is out of reach")
         case .day(let label):
             DayMarker(text: label)
         case .row(let row, let tail, let focused):
@@ -129,6 +125,33 @@ struct DayMarker: View {
             .frame(maxWidth: .infinity)
             .padding(.top, 14).padding(.bottom, 10)
             .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// "Showing what was on this phone · your Mac is out of reach" (`conn-cached`, `launch-cached`),
+/// pinned under the header while the conversation on screen is the copy kept on this phone.
+///
+/// Round 12 draws it as the first day marker of the list. There it sat under the floating header and
+/// its fade whenever the list followed the newest message, which is how every launch opens: on the
+/// physical iPhone it read at 1.38:1 (I02, native acceptance r1). Pinned, it is never under the header
+/// and never scrolls away. Full ink on the surface, 4.5:1 or better in both themes, computed by
+/// `native-ios-ui.test.sh`; the round-12 day marker's ink-soft would also pass, but this line is the
+/// one explanation of why nothing new is arriving, so it is set in the reading ink.
+struct OutOfReachLine: View {
+    static let words = "Showing what was on this phone · your Mac is out of reach"
+    @Environment(\.palette) private var palette
+    var body: some View {
+        Text(Self.words)
+            .type(Typography.read)
+            .foregroundStyle(palette.ink)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("conversation.cachedNotice")
+            .padding(.horizontal, 14).padding(.vertical, 6)
+            .floatingSurface(palette, radius: 14)
+            .frame(maxWidth: .infinity)
+            // The header's own ceiling: the line reflows, and never crowds the conversation out.
+            .dynamicTypeSize(...DynamicTypeSize.accessibility3)
     }
 }
 

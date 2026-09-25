@@ -50,6 +50,12 @@ struct RichOSNativeApp: App {
         if DevBridge.interactiveFixture { return }
         #endif
         PlatformEffects.permissionMirror().forEach { store.send($0) }
+        // Notifications: iOS's answer read once per return to the front, so a change made in iPhone
+        // Settings is the truth here too (I04). An OS report, so it goes through `receive`.
+        Task { @MainActor in
+            let system = await NotificationPlatform.shared.systemPermission()
+            if let action = NotificationPermissionCheck.action(system: system, state: store.state) { store.receive(action) }
+        }
     }
 
     var body: some Scene {

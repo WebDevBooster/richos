@@ -80,6 +80,21 @@ struct ScreenModel: Equatable, Sendable {
 
     enum NotificationStatus: String, Equatable, Sendable {
         case notAsked, on, off, turningOn, denied, unsupported, appleUnavailable, serviceUnavailable
+
+        /// What the Settings row holds. Never asked (the offer's "Not now") is an off switch, as
+        /// Android's Settings draws it (`ScreenModel.kt`: `NOT_ASKED -> OFF`): its tap is where iOS's
+        /// question is asked, so "Not now" is never a one-way door (I04). Once iOS has said no, the
+        /// only true way on is iPhone Settings.
+        enum Control: Equatable, Sendable { case toggle(isOn: Bool), openSettings, none }
+
+        var control: Control {
+            switch self {
+            case .on: return .toggle(isOn: true)
+            case .off, .notAsked: return .toggle(isOn: false)
+            case .denied: return .openSettings
+            case .turningOn, .unsupported, .appleUnavailable, .serviceUnavailable: return .none
+            }
+        }
     }
 
     enum UpdateCheck: Equatable, Sendable { case upToDate, available(String), couldNotCheck }
