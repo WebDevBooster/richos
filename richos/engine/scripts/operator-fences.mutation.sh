@@ -138,6 +138,25 @@ mutant residue-never-named "F32 " "$L" \
     '    return []' \
     "Fix 2 point 4: acquire and status would say nothing about a tree a refused writer had already rewritten."
 
+# --- the ingress takes the lease; it is never exempt (Frank's re-check §4, Fix 4) -------
+I="scripts/hooks/commit-ceo-inputs.py"
+mutant ingress-exempt "F30 " "$I" \
+    '    return LAUNCHER_MARKER in text and \' \
+    '    return False and \' \
+    "Fix 4: the ingress would commit without the lease, so with the switch on the fence refuses it and his file is not committed (or, exempted, it would move main in the middle of another lead's land)."
+mutant ingress-releases-the-leads-lease "F30 " "$I" \
+    '        if lease == "acquired":' \
+    '        if lease in ("acquired", "renewed"):' \
+    "Fix 4: a file handed over mid-land would release the lead's own land lease in the middle of its land."
+mutant ingress-swallows-lease-notes "F30 " "$I" \
+    '    notes = [ln.strip() for ln in out.strip().splitlines()[1:] if ln.strip()]' \
+    '    notes = []' \
+    "Fix 4: the ingress's renewal of the lead's lease would lift the residue refusal while what it named went nowhere."
+mutant ingress-drops-pending "F30 " "$I" \
+    '    cands += [(p, "pending") for p in pending_paths(state_dir) if p not in named] if state_dir else []' \
+    '    cands += []' \
+    "Fix 4: a file handed over while another land held the lease would never be committed unless he named it again."
+
 # --- the launcher and the switch (e8, G12) --------------------------------------------
 mutant off-can-refuse "F20 " "$T" \
     'if [ "$OPERATOR_FENCES_STATE" = "on" ]; then' \

@@ -68,6 +68,10 @@
 #   F28  a lease naming a live pid with another start time is dead: a recycled
 #        pid is never mistaken for the holder
 #   F29  a live, in-time lease cannot be taken over (G5)
+#   F30  commit-ceo-inputs takes the lease and is never exempt: free, it takes
+#        and releases; held by the lead, it commits and never releases; held by
+#        another holder, his file stays pending, the holder is named, and the
+#        next prompt retries it (Frank's re-check §4, Fix 4)
 #   F31  the holder's commit of a merge whose resolution a refused `--abort`
 #        already discarded is refused, naming abort-orphan; a new merge clears
 #        it (Frank's case G, Fix 1)
@@ -463,6 +467,46 @@ ofx_in A "cd '$R' && git restore --source=HEAD --staged --worktree -- . && $(ofx
 expect "F32" "[git $G] once the tree is restored, status no longer names it" "$?" "$sout"
 ofx_in A "$(ofx_lease release --repo "$R")"
 
+# ---- F30: commit-ceo-inputs takes the lease; it is never exempt (Frank §4, Fix 4) ----
+INGRESS="$ENGINE_ROOT/scripts/hooks/commit-ceo-inputs.py"
+mkdir -p "$R/docs" "$OFX/ingress"
+ingress() { # <session> <prompt>: runs the ingress analyzer inside that session; OFX_OUT is its JSON
+    python3 -c 'import json, sys; print(json.dumps({"session_id": "ingress-fixture", "cwd": sys.argv[1], "prompt": sys.argv[2]}))' \
+        "$R" "$2" > "$OFX/ingress/payload.json"
+    ofx_in "$1" "RICHOS_ENGINE_ROOT_FOR_GATES='$ENGINE_ROOT' RICHOS_INGRESS_STATE_DIR='$OFX/ingress' RICHOS_INGRESS_SEAT_ROOT='$OFX/entity' python3 '$INGRESS' < '$OFX/ingress/payload.json' 2>/dev/null"
+}
+tracked() { git -C "$R" ls-files --error-unmatch -- "$1" >/dev/null 2>&1; }
+printf 'one\n' > "$R/docs/in1.md"
+ingress A "Handle this: $R/docs/in1.md"; rc=$?
+[ $rc = 3 ] && tracked docs/in1.md && [ -z "$(lease_file)" ]
+expect "F30" "[git $G] ingress, lease free: it takes the lease, commits his file onto main, and releases what it took" "$?" "rc=$rc $OFX_OUT"
+ofx_in A "$(ofx_lease acquire --repo "$R")"
+printf 'two\n' > "$R/docs/in2.md"
+ingress A "Handle this: $R/docs/in2.md"; rc=$?
+[ $rc = 3 ] && tracked docs/in2.md && [ -n "$(lease_file)" ] && grep -q '"pid": '"$PID_A" "$(lease_file)"
+expect "F30" "[git $G] ingress, the lead already holds the lease: it commits and never releases the lead's lease" "$?" "rc=$rc $OFX_OUT"
+# Its renewal is how a holder is told about a refused writer's residue (and it
+# lifts the holder's residue refusal), so what that renewal said reaches the lead.
+ofx_in B "sh -c 'git -C $R reset -q --hard HEAD~1'"
+printf 'two-b\n' > "$R/docs/in2b.md"
+ingress A "Handle this: $R/docs/in2b.md"; rc=$?; iout="$OFX_OUT"
+[ $rc = 4 ] && tracked docs/in2b.md && printf '%s' "$iout" | grep -q '"lease_notes": \["land-lease: a refused `git reset'
+expect "F30" "[git $G] ingress, renewing the lead's lease: what that renewal names (a refused reset's residue) is relayed, never swallowed" "$?" "rc=$rc $iout"
+git -C "$R" restore --source=HEAD --staged --worktree -- . >/dev/null 2>&1
+ofx_in A "$(ofx_lease release --repo "$R")"
+ofx_session X2 codex
+ofx_in X2 "$(ofx_lease acquire --repo "$R" --holder codex)"
+printf 'three\n' > "$R/docs/in3.md"
+ingress A "Handle this: $R/docs/in3.md"; rc=$?; iout="$OFX_OUT"
+[ $rc = 4 ] && ! tracked docs/in3.md && printf '%s' "$iout" | grep -q "Codex" && printf '%s' "$iout" | grep -q "landing" \
+    && ! printf '%s' "$iout" | grep -q "branch moved" && tail -1 "$OFX/ingress/ceo-inputs.jsonl" | grep -q '"pending": true'
+expect "F30" "[git $G] ingress, another holder landing: not committed yet, names the holder, keeps his file pending (never 'the branch moved')" "$?" "rc=$rc $iout"
+ofx_in X2 "$(ofx_lease release --repo "$R" --holder codex)"; ofx_end X2
+ingress A "an ordinary next message"; rc=$?
+[ $rc = 3 ] && tracked docs/in3.md && [ -z "$(lease_file)" ]
+expect "F30" "[git $G] ingress retries a pending file on the next prompt, once the lease is free" "$?" "rc=$rc $OFX_OUT"
+ofx_in A "$(ofx_lease acquire --repo "$R") && git -C '$R' push -q origin main && $(ofx_lease release --repo "$R")"
+
 # ---- F15: the bypass that exists, asserted (G2) ----------------------------------------
 before="$(grep -c . "$OFX/forensics/ref-transactions.jsonl")"; rbefore="$(grep -c . "$REF")"
 M2="$(rev "$R" main)"
@@ -614,6 +658,10 @@ expect "F20" "[git $G] OFF: merge, reset, switch, detach, merge --abort, commit,
 ofx_in B "$(ofx_lease acquire --repo "$R")"; rc=$?
 [ $rc = 0 ] && printf '%s' "$OFX_OUT" | grep -q "off" && [ -z "$(lease_file)" ]
 expect "F20" "[git $G] OFF: the lease commands are no-ops that say so and write nothing" "$?" "$OFX_OUT"
+printf 'off\n' > "$R/docs/off1.md"
+ingress B "Handle this: $R/docs/off1.md"; rc=$?
+[ $rc = 3 ] && tracked docs/off1.md && [ -z "$(lease_file)" ]
+expect "F20" "[git $G] OFF: the ingress commits his file with no lease taken, exactly as today" "$?" "rc=$rc $OFX_OUT"
 payload="$(printf '{"tool_name":"Bash","tool_input":{"command":"git -C %s commit -m x"},"cwd":"%s"}' "$R" "$R")"
 printf '%s' "$payload" | bash "$ENGINE_ROOT/scripts/hooks/guard-land-lease-commands.sh" >/dev/null 2>&1
 expect "F20" "[git $G] OFF: the early Bash check never refuses" "$?"

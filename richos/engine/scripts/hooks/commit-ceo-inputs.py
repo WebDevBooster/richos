@@ -702,6 +702,14 @@ def commit(path, repo, session, stamp):
         ["update-ref", "-m", "ingress: CEO input captured", branch, new, old], repo
     )
     if undecided or rc != 0:
+        rc2, now_at, _u = git(["rev-parse", "--verify", "--quiet", branch], repo)
+        if rc2 == 0 and now_at == old:
+            # The branch did NOT move: a reference-transaction hook refused the
+            # update (the operator fence, when it is on). Saying "the branch
+            # moved" here would be false.
+            return (False, "a Git hook refused moving %s (the operator fence, when "
+                           "it is on); the branch did not move (%s)"
+                           % (branch, undecided or "rc=%d" % rc))
         return (False, "the branch moved while this commit was being built, so "
                        "it was refused rather than overwriting that work "
                        "(%s)" % (undecided or "rc=%d" % rc))
@@ -711,6 +719,101 @@ def commit(path, repo, session, stamp):
     git(["update-index", "--add", "--cacheinfo", "%s,%s,%s" % (mode, blob, rel)], repo)
 
     return (True, new)
+
+
+# ---------------------------------------------------------------------------
+# THE LAND LEASE — THIS HOOK TAKES IT; IT IS NEVER EXEMPT
+# ---------------------------------------------------------------------------
+# With the operator fence on, a move of `main` needs the land lease
+# (engine/scripts/land-lease.sh). The compare-and-swap above protects against
+# `main` moving under this commit, NOT against another lead's land in progress
+# in the same checkout: without the lease this commit would move `main` in
+# the middle of that merge and add its path to the index that merge commits.
+# An exemption would reopen exactly that interleaving (Frank's re-check of the
+# operator fences, 2026-09-25, §4). So:
+#   * the lease is taken before the commit, waiting at most LEASE_WAIT_S (his
+#     prompt waits behind this hook, and only when he hands over a file);
+#   * it is released only if THIS hook took it (ACQUIRED), never when the lead
+#     already held it (RENEWED), so a lead's land lease is never released in
+#     the middle of its land;
+#   * when another holder has it, his file is not dropped: it is reported as
+#     pending, naming the holder, and every later prompt retries it (without
+#     waiting, so a long land does not slow every message down).
+# With the switch off, or no launcher, none of this runs.
+LEASE_WAIT_S = 10
+LAUNCHER_MARKER = "richos-operator-fence-launcher"
+
+
+def fence_on(repo):
+    """True when this repository's operator-fence launcher says the switch is on."""
+    rc, common, undecided = git(["rev-parse", "--path-format=absolute", "--git-common-dir"], repo)
+    if undecided or rc != 0 or not common:
+        return False
+    try:
+        with open(os.path.join(common, "hooks", "reference-transaction"),
+                  encoding="utf-8", errors="replace") as fh:
+            text = fh.read(65536)
+    except OSError:
+        return False
+    return LAUNCHER_MARKER in text and \
+        re.search(r'(?m)^OPERATOR_FENCES_STATE="on"\s*$', text) is not None
+
+
+def take_lease(repo, engine_root, wait):
+    """('acquired' | 'renewed' | 'off' | 'held' | 'failed', detail)."""
+    script = os.path.join(engine_root, "scripts", "land-lease.sh")
+    try:
+        r = subprocess.run(["bash", script, "acquire", "--repo", repo, "--wait", str(wait)],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=wait + 5)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return ("failed", "land-lease.sh could not run (%s)" % exc.__class__.__name__)
+    out = r.stdout.decode("utf-8", "replace")
+    # Anything acquire says after its first line (an unfinished merge, a tree a
+    # refused writer rewrote) is relayed, never swallowed: a renewal is how a
+    # holder is told, so the lead must see what this renewal said.
+    notes = [ln.strip() for ln in out.strip().splitlines()[1:] if ln.strip()]
+    if r.returncode == 0 and "ACQUIRED" in out:
+        return ("acquired", notes)
+    if r.returncode == 0 and "RENEWED" in out:
+        return ("renewed", notes)
+    if r.returncode == 0 and "fences are off" in out:
+        return ("off", "")
+    if r.returncode == 75:
+        m = re.search(r"HELD\. (.+?) holds the land lease", out)
+        return ("held", m.group(1) if m else "another land")
+    first = (out.strip() or r.stderr.decode("utf-8", "replace").strip() or "rc=%d" % r.returncode)
+    return ("failed", first.splitlines()[0][:300])
+
+
+def release_lease(repo, engine_root):
+    try:
+        subprocess.run(["bash", os.path.join(engine_root, "scripts", "land-lease.sh"), "release", "--repo", repo],
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45)
+    except (OSError, subprocess.TimeoutExpired):
+        pass    # a lease left held at rest is released by the turn-end hook (release-land-leases.sh)
+
+
+def pending_paths(state_dir):
+    """Paths whose latest ledger word is 'pending' (another land held the lease)."""
+    latest = {}
+    try:
+        with open(os.path.join(state_dir, "ceo-inputs.jsonl"), encoding="utf-8") as fh:
+            lines = fh.readlines()[-500:]
+    except OSError:
+        return []
+    for line in lines:
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        for p in rec.get("committed") or []:
+            latest[p] = False
+        for r in rec.get("refused") or []:
+            if isinstance(r, dict) and r.get("path"):
+                latest[r["path"]] = bool(r.get("pending"))
+        for p in rec.get("reported") or []:
+            latest[p] = False
+    return [p for p, pending in latest.items() if pending]
 
 
 # ---------------------------------------------------------------------------
@@ -764,10 +867,15 @@ def main():
     stamp = time.strftime("%Y-%m-%dT%H:%M:%S%z")
 
     cands = candidates(text)
+    # A file an earlier message handed over while another land held the lease
+    # is retried now, whatever this message says (see THE LAND LEASE above).
+    named = set(c for c, _s in cands)
+    cands += [(p, "pending") for p in pending_paths(state_dir) if p not in named] if state_dir else []
     truncated = len(cands) > MAX_CANDIDATES
     cands = cands[:MAX_CANDIDATES]
 
-    committed, refused, undecided, reported = [], [], [], []
+    committed, refused, undecided, reported, pending, lease_notes = [], [], [], [], [], []
+    held = {}
     states = {}
     seen = set()
     unheld = []
@@ -888,7 +996,31 @@ def main():
         if blocked:
             continue
 
+        lease = "none"
+        if fence_on(repo) and git(["symbolic-ref", "--quiet", "HEAD"], repo)[1] == "refs/heads/main":
+            if repo in held:
+                lease, detail = "held", held[repo]
+            else:
+                wait = 0 if source == "pending" else \
+                    max(0, min(LEASE_WAIT_S, int(DEADLINE_S - (time.monotonic() - started))))
+                lease, detail = take_lease(repo, engine_root, wait)
+            if lease == "held":
+                held[repo] = detail
+                pending.append({"path": p, "repo": repo, "pending": True,
+                                "why": "not committed yet: %s is landing in this repository, and a "
+                                       "commit onto main needs the land lease. It stays pending and is "
+                                       "retried on your next message" % detail})
+                continue
+            if lease in ("acquired", "renewed"):
+                lease_notes.extend(n for n in detail if n not in lease_notes)
+            if lease == "failed":
+                refused.append({"path": p, "repo": repo, "failed": True,
+                                "why": "the land lease could not be taken, so nothing was committed (%s)"
+                                       % detail})
+                continue
         ok, result = commit(p, repo, session, stamp)
+        if lease == "acquired":
+            release_lease(repo, engine_root)
         if ok:
             committed.append(
                 {"path": p, "repo": repo, "sha": result,
@@ -908,6 +1040,8 @@ def main():
         "states": states,
         "committed": committed,
         "refused": refused,
+        "pending": pending,
+        "lease_notes": lease_notes[:10],
         "reported": reported,
         "undecided": undecided,
     }
@@ -921,7 +1055,11 @@ def main():
             "candidates": len(cands),
             "states": states,
             "committed": [c["path"] for c in committed],
-            "refused": [{"path": r["path"], "why": r["why"]} for r in refused],
+            # A pending file is recorded as refused WITH "pending": true, so the
+            # turn-end notice keeps naming it until it is held, and the next
+            # prompt's run finds it (pending_paths) and retries it.
+            "refused": [{"path": r["path"], "why": r["why"]} for r in refused]
+                       + [{"path": r["path"], "why": r["why"], "pending": True} for r in pending],
             "reported": [r["path"] for r in reported],
             "undecided": [u["path"] for u in undecided],
         },
@@ -930,7 +1068,7 @@ def main():
         result["ledger_error"] = ledger_err
 
     print(json.dumps(result))
-    if refused or undecided or reported or ledger_err:
+    if refused or pending or lease_notes or undecided or reported or ledger_err:
         return 4
     if committed:
         return 3
