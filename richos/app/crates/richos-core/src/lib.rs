@@ -224,3 +224,6 @@ pub mod operator_frames;
 ///   - `operator_report` — `richos_operator.report`, the tool his lead tells him things with;
 ///                    every "landed" is checked in Git before it is said ((c)).
 pub mod operator_report;
+///   - `operator_lead` — the operator client: his lead over stream-json, declaring the per-task
+///                    stop, never setting `priority`, kept on every error ((g), (r), (d)).
+pub mod operator_lead;
