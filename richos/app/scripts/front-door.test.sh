@@ -477,7 +477,18 @@ end tell
 end run
 APPLESCRIPT
 
-ax() { osascript "$AXDUMP" "$PID" > "$TMP/ax-$1.txt" 2>&1; }
+ax() {
+  osascript "$AXDUMP" "$PID" > "$TMP/ax-$1.txt" 2>&1
+  # Setup can cover the initial tree. Calibrate when the desk first becomes
+  # observable, using the same three closed sheets as C5, not a fixed height.
+  local a b c
+  a="$(size_of "$1" 'Quit while work is running?')"
+  b="$(size_of "$1" 'Allow this action?')"
+  c="$(size_of "$1" 'Connected repositories')"
+  if [ -n "$a" ] && [ "$a" = "$b" ] && [ "$a" = "$c" ]; then
+    CLOSED_BOX="$a"
+  fi
+}
 windows_in() { head -1 "$TMP/ax-$1.txt" | sed 's/^windows://'; }
 # A dump line is `role | x,y WxH | name=… | value=…`, so the NAME is field 3. It was read
 # from field 4 — the value — which never equals `name=<anything>`, so `size_of`, `on_screen`
@@ -515,8 +526,8 @@ on_screen() {
   case "$s" in ""|0x0|0x*|*x0) return 1 ;; *) return 0 ;; esac
 }
 middle_of() {
-  awk -F' \\| ' -v want="$2" '
-    $3 == "name=" want {
+  awk -F' \\| ' -v want="$2" -v role="${3:-}" '
+    $3 == "name=" want && (role == "" || $1 == role) {
       split($2, a, " "); split(a[1], p, ","); split(a[2], z, "x");
       if (z[1] + 0 > 0 && z[2] + 0 > 0) { printf "%d,%d\n", p[1] + z[1] / 2, p[2] + z[2] / 2; exit }
     }' "$TMP/ax-$1.txt"
@@ -756,7 +767,9 @@ fi
 # in the tree at their full `260,130 1400x853` box AFTER the overlay closes — byte-identical
 # to the open state. (That is the row-1 residue class, fixed on this branch and not in the
 # .9 bundle.) So nothing below asks "is the overlay gone"; it asks "is the desk back".
-desk_open() { [ -n "$(size_of "$1" 'Settings')" ]; }
+desk_open() {
+  [ -n "$(size_of "$1" 'Settings')" ] && ! on_screen "$1" "$FIRST_RUN"
+}
 
 # ---------------------------------------------------------------------------------------
 # A SCRATCH HOME IS A FIRST RUN, AND A FIRST RUN ASKS A QUESTION — cleared BEFORE the checks
@@ -786,6 +799,21 @@ drain_first_run() {
   local tag="$1" deadline=$((SECONDS + 120)) n=0 before after
   while [ "$SECONDS" -lt "$deadline" ] && [ "$n" -lt 8 ]; do
     ax "$tag-settle-$n"
+    # A fresh home has no company. Dismissing its picker leaves the composer
+    # disabled, so typing cannot be a key-delivery control until one is chosen.
+    # Create only a synthetic company in this run's isolated home, through the UI.
+    if on_screen "$tag-settle-$n" "$FIRST_RUN"; then
+      local field add
+      field="$(middle_of "$tag-settle-$n" "What's the company called?" AXTextField)"
+      add="$(middle_of "$tag-settle-$n" 'Add this company')"
+      if [ -n "$field" ] && [ -n "$add" ]; then
+        send "c:$field" kd:cmd t:a ku:cmd 't:Front door fixture'
+        send "c:$add"
+        sleep 1.5
+        n=$((n + 1))
+        continue
+      fi
+    fi
     if desk_open "$tag-settle-$n"; then
       sleep 3
       ax "$tag-settle-${n}b"
@@ -829,6 +857,8 @@ fi
 # C1 — a native keystroke reaches the web content AT ALL
 # ---------------------------------------------------------------------------------------
 PROBE="front door probe $$"
+COMPOSER="$(middle_of 1-desk 'Message to Rich')"
+if [ -n "$COMPOSER" ]; then send "c:$COMPOSER"; fi
 send "t:$PROBE"
 sleep 1
 ax 2-typed
@@ -922,21 +952,21 @@ else
   send "c:$SET"
   sleep 1.5
   ax 5-setmenu
-  if ! on_screen 5-setmenu 'Techy Mode'; then
+  if ! on_screen 5-setmenu 'Technical view'; then
     bad "C4  the settings menu did not open, so Escape was never put to it"
-    note "Techy Mode measures '$(size_of 5-setmenu 'Techy Mode')'"
+    note "Technical view measures '$(size_of 5-setmenu 'Technical view')'"
   else
-    OPEN_SIZE="$(size_of 5-setmenu 'Techy Mode')"
+    OPEN_SIZE="$(size_of 5-setmenu 'Technical view')"
     send_key 53 Escape
     sleep 1.5
     ax 6-setmenu-esc
-    AFTER="$(size_of 6-setmenu-esc 'Techy Mode')"
+    AFTER="$(size_of 6-setmenu-esc 'Technical view')"
     [ -n "$AFTER" ] || AFTER="absent"
-    if on_screen 6-setmenu-esc 'Techy Mode'; then
+    if on_screen 6-setmenu-esc 'Technical view'; then
       bad "C4  the settings menu survived Escape — audit-9 row 2 reproduces"
-      note "Techy Mode measured $OPEN_SIZE open and $AFTER after Escape"
+      note "Technical view measured $OPEN_SIZE open and $AFTER after Escape"
     else
-      ok "C4  Escape closed the settings menu  (Techy Mode $OPEN_SIZE -> $AFTER)"
+      ok "C4  Escape closed the settings menu  (Technical view $OPEN_SIZE -> $AFTER)"
     fi
   fi
 fi
