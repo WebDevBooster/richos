@@ -406,7 +406,9 @@ window.RichSettings = (function () {
     var b = elem("button", "bugbtn bugbtn--disclosure", { type: "button", role: "menuitem", id: id });
     if (stateId) {
       var col = elem("span", "set-row-text");
-      col.appendChild(document.createTextNode(label));
+      var name = elem("span", "set-name");
+      name.textContent = label;
+      col.appendChild(name);
       col.appendChild(elem("span", "set-row-state", { id: stateId }));
       b.appendChild(col);
     } else {

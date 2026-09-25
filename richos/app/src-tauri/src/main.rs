@@ -806,7 +806,7 @@ fn phone_reject_on_mac(runtime: State<std::sync::Arc<phone::PhoneRuntime>>) -> p
 /// **Open one of the addresses the how-to screens print** (CEO §61.1).
 ///
 /// `target` is the address exactly as the screen prints it, and it is a KEY rather than a URL:
-/// `opener::resolve` matches the whole string against a five-entry table and refuses anything
+/// `opener::resolve` matches the whole string against a fixed table and refuses anything
 /// else. See `opener.rs` for why that is the shape and not a general URL opener.
 ///
 /// The screens keep the address written out beside every one of these controls, so a Mac where

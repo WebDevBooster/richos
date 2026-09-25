@@ -266,7 +266,16 @@ async function main() {
       await enableTechnical(page); await page.click("#set-quota-open"); await page.waitForSelector("#quota-reset-offers p");
       assertEqual(await page.locator("#quota-reset-prepare-launch").count(), 0);
       assertEqual(await page.evaluate(() => window.__richosResetCalls), []);
-      if (resets.lastAttempt) assert((await page.locator("#quota-reset-offers").innerText()).includes("Automatic retry is blocked"));
+      if (resets.lastAttempt) {
+        assert((await page.locator("#quota-reset-offers").innerText()).includes("Automatic retry is blocked"));
+        await page.click("#quota-usage-open");
+        assertEqual(await page.evaluate(() => window.__RICHOS_OPENED__), ["claude.ai/new#settings/usage"]);
+        assertEqual(await page.evaluate(() => window.__richosResetCalls), []);
+        await page.evaluate(() => { window.__overrides.open_external = {reject: true, value: "unavailable"}; });
+        await page.click("#quota-usage-open");
+        await page.waitForFunction(() => document.getElementById("quota-reset-feedback").textContent.includes("Could not open"));
+        assert((await page.locator(".quota-usage-link").innerText()).includes("claude.ai/new#settings/usage"));
+      }
       await page.close();
     }
   });

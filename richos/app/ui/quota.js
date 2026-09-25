@@ -20,6 +20,8 @@
       <p class="quota-legend">Gold is what you have <b>used</b>. The tick is where the clock is <b>now</b>. Bar past the tick means you are spending faster than the window is passing.</p>
       <section id="quota-reset-offers" class="quota-reset-offers" aria-label="Weekly quota resets"></section>
       <p id="quota-reset-feedback" role="status" aria-live="polite"></p>
+      <div class="quota-usage-link"><button id="quota-usage-open" class="quota-btn" type="button">Open Claude Usage</button>
+        <span class="quota-muted">claude.ai/new#settings/usage</span></div>
     </div><form id="quota-policy" class="quota-policy" novalidate>
       <h3>Automatic pause</h3>
       <div class="quota-switch-row"><button id="quota-enabled" class="quota-switch" type="button" role="switch" aria-checked="false" aria-label="Automatically pause Rich’s agents"></button>
@@ -43,6 +45,10 @@
     </form></div></section>`;
   document.body.appendChild(sheet);
   const field = id => sheet.querySelector("#" + id);
+  field("quota-usage-open").addEventListener("click", async () => {
+    try { await bridge.invoke("open_external", { target: "claude.ai/new#settings/usage" }); }
+    catch { field("quota-reset-feedback").textContent = "Could not open Claude Usage. Open the address shown here in your browser."; }
+  });
   let view = null, activity = null, busy = false, saving = false, dirty = false, generation = 0;
   let resetDraft = null, resetSaving = false, resetPaint = "";
   let timer = null, lastPoll = 0, lastActivity = 0, activityBusy = false;
