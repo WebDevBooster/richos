@@ -12,8 +12,7 @@ pub mod gate;
 pub mod holds;
 pub mod probe;
 
-pub const LOW_USAGE_REFRESH_MS: u64 = 30 * 60_000;
-pub const HIGH_USAGE_REFRESH_MS: u64 = 5 * 60_000;
+pub const REFRESH_INTERVAL_MS: u64 = 5 * 60_000;
 pub const RESET_EXEMPTION_MS: u64 = 20 * 60_000;
 pub const BACKOFF_MS: u64 = 600_000;
 
@@ -196,18 +195,6 @@ pub fn normalize(response: &Value) -> Result<Vec<Window>, ReadError> {
     }
 }
 
-fn refresh_interval(windows: &[Window]) -> u64 {
-    if windows
-        .iter()
-        .find(|w| w.id == "five_hour")
-        .is_some_and(|w| w.used_percent < 70.0)
-    {
-        LOW_USAGE_REFRESH_MS
-    } else {
-        HIGH_USAGE_REFRESH_MS
-    }
-}
-
 pub trait Source: Send {
     fn read(&mut self, bin: &Path, cwd: &Path) -> Result<Vec<Window>, ReadError>;
     fn disconnect(&mut self) {}
@@ -222,7 +209,7 @@ struct Snapshot {
 }
 impl Snapshot {
     fn view(&self, policy: Policy, now: u64) -> View {
-        let interval = refresh_interval(&self.windows);
+        let interval = REFRESH_INTERVAL_MS;
         let expired = self
             .windows
             .iter()
@@ -296,6 +283,8 @@ pub struct Service {
     control: std::sync::Arc<probe::Control>,
     publication: Mutex<()>,
     connecting: std::sync::atomic::AtomicBool,
+    refresh_requested: Mutex<bool>,
+    refresh_wake: std::sync::Condvar,
 }
 impl Service {
     pub fn open(data_dir: &Path) -> io::Result<Self> {
@@ -319,6 +308,8 @@ impl Service {
             control,
             publication: Mutex::new(()),
             connecting: std::sync::atomic::AtomicBool::new(false),
+            refresh_requested: Mutex::new(true),
+            refresh_wake: std::sync::Condvar::new(),
         };
         service.publish()?;
         Ok(service)
@@ -332,6 +323,20 @@ impl Service {
     }
     pub fn view(&self) -> View {
         self.view_at(crate::util::now_millis())
+    }
+    /// Wake the desktop reader at a new-session boundary without blocking the
+    /// session's launch or Stop controls on provider I/O. Bursts coalesce.
+    pub fn request_refresh(&self) {
+        *self.refresh_requested.lock().unwrap() = true;
+        self.refresh_wake.notify_one();
+    }
+    /// The desktop monitor consumes this signal before applying the normal TTL.
+    /// Startup begins signaled, even when automatic pausing is disabled.
+    pub fn wait_for_refresh(&self, timeout: std::time::Duration) -> bool {
+        let (mut requested, _) = self.refresh_wake.wait_timeout_while(
+            self.refresh_requested.lock().unwrap(), timeout, |requested| !*requested,
+        ).unwrap();
+        std::mem::take(&mut *requested)
     }
     fn view_at(&self, now: u64) -> View {
         self.snapshot
@@ -414,6 +419,7 @@ impl Service {
         self.source.lock().unwrap().disconnect();
         *self.snapshot.lock().unwrap() = Snapshot::default();
         let _ = self.publish();
+        self.request_refresh();
     }
     pub fn is_shutdown(&self) -> bool {
         self.control.stopped()
@@ -524,14 +530,15 @@ mod tests {
         );
     }
     #[test]
-    fn adaptive_polling_and_reset_deadline() {
-        for (used, interval) in [(69.99, LOW_USAGE_REFRESH_MS), (70., HIGH_USAGE_REFRESH_MS)] {
+    fn five_minute_polling_at_every_usage_level_and_reset_deadline() {
+        for used in [0., 69.99, 70., 93., 100.] {
+            let interval = 300_000;
             let s = snapshot(used, 18_000_000);
             assert_eq!(s.view(policy(), NOW).next_check_at, Some(NOW + interval));
             assert_eq!(s.view(policy(), NOW + interval - 1).state, State::Fresh);
             assert_eq!(
-                s.view(policy(), NOW + interval).admission,
-                Admission::Unknown
+                s.view(policy(), NOW + interval).state,
+                State::Stale
             );
         }
         assert_eq!(
@@ -588,6 +595,49 @@ mod tests {
             self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             self.result.clone()
         }
+    }
+    #[test]
+    fn startup_and_session_signals_refresh_without_waiting_for_the_interval() {
+        use std::time::Duration;
+        use std::sync::atomic::Ordering;
+        let dir = Scratch::new();
+        let service = std::sync::Arc::new(Service::open(dir.path()).unwrap());
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut windows = snapshot(20., 3_600_000).windows;
+        windows[0].resets_at = Some(crate::util::now_millis() + 3_600_000);
+        *service.source.lock().unwrap() = Box::new(FakeSource { calls: calls.clone(), result: Ok(windows) });
+        assert!(!service.view().policy.enabled);
+        assert!(service.wait_for_refresh(Duration::ZERO), "startup requests a read even with pause off");
+        service.refresh(Path::new("unused"), true);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        // The reading is fresh but outside the short duplicate-request cooldown.
+        service.snapshot.lock().unwrap().checked_at = Some(crate::util::now_millis() - 10_000);
+        service.refresh(Path::new("unused"), false);
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "ordinary polling still uses the cache");
+        let (tx, rx) = std::sync::mpsc::channel();
+        let reader = service.clone();
+        let thread = std::thread::spawn(move || {
+            let force = reader.wait_for_refresh(Duration::from_secs(30));
+            reader.refresh(Path::new("unused"), force);
+            tx.send(force).unwrap();
+        });
+        service.request_refresh();
+        assert!(rx.recv_timeout(Duration::from_secs(2)).unwrap(), "session start wakes the sleeping monitor");
+        thread.join().unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2, "session start bypasses the five-minute cache");
+        service.request_refresh(); service.request_refresh();
+        let force = service.wait_for_refresh(Duration::ZERO);
+        assert!(force);
+        service.refresh(Path::new("unused"), force);
+        assert_eq!(calls.load(Ordering::SeqCst), 2, "simultaneous sessions share the just-completed read");
+        assert!(!service.wait_for_refresh(Duration::ZERO));
+        service.set_connecting(true);
+        service.wait_for_refresh(Duration::ZERO);
+        service.set_connecting(false);
+        assert!(service.wait_for_refresh(Duration::ZERO), "sign-in completion wakes the reader");
+        service.refresh(Path::new("unused"), true);
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
     }
     #[test]
     fn cache_failure_backoff_policy_persistence_and_account_invalidation() {

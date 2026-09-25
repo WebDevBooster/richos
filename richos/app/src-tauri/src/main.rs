@@ -284,6 +284,7 @@ impl richos_core::work_host::WorkNotifier for WorkNotice {
 /// That is the same shape as the `lease_ready` snapshot fixed earlier the same day: an answer
 /// cached before the thing it describes existed. `run_setup` writes both cells.
 struct EngineLeaseFactory {
+    quota: Arc<richos_core::quota::Service>,
     permissions: Arc<richos_core::permissions::PermissionDesk>,
     claude_bin: Arc<Mutex<PathBuf>>,
     engine_dir: Arc<Mutex<PathBuf>>,
@@ -340,6 +341,7 @@ impl LeaseFactory for EngineLeaseFactory {
     /// copying them cannot diverge from anything.
     fn duplicate(&self) -> Option<Box<dyn LeaseFactory>> {
         Some(Box::new(EngineLeaseFactory {
+            quota: self.quota.clone(),
             permissions: self.permissions.clone(),
             claude_bin: self.claude_bin.clone(),
             engine_dir: self.engine_dir.clone(),
@@ -416,6 +418,7 @@ impl LeaseFactory for EngineLeaseFactory {
         profile.permissions = self.permissions.clone();
         let bridge = richos_core::ecs::EcsBridge::new(&runtime.python, &dir, &self.data_dir.join("ecs"))
             .map_err(|e| CognitionError::Io(e.to_string()))?;
+        self.quota.request_refresh();
         let cog = richos_core::native::NativeCognition::start_work_lease(&bin, &doctrine, &skills, &executable, bridge, profile)?;
         Ok(Box::new(cog))
     }
@@ -483,6 +486,7 @@ impl EngineLeaseFactory {
         profile.permissions = self.permissions.clone();
         let bridge = richos_core::ecs::EcsBridge::new(&runtime.python, &dir, &self.data_dir.join("ecs"))
             .map_err(|e| CognitionError::Io(e.to_string()))?;
+        self.quota.request_refresh();
         let cog = NativeCognition::start_with_engine(&bin, &doctrine, &skills, &executable, bridge, profile, control)?;
         Ok(Box::new(cog))
     }
@@ -2683,6 +2687,22 @@ fn main() {
             // + retry (or a crash recovery attempt) has a real respawn path rather than none.
             let permissions = Arc::new(richos_core::permissions::PermissionDesk::default());
             let quota = Arc::new(richos_core::quota::Service::open(&data_dir)?);
+            // Read immediately at startup, regardless of the pause switch. Session
+            // starts and account changes wake this same reader. Otherwise its cache
+            // enforces five-minute polling, with reset deadlines and error backoff.
+            let quota_weak = Arc::downgrade(&quota);
+            let quota_bin = claude_bin_cell.clone();
+            std::thread::spawn(move || {
+                let mut wait = std::time::Duration::ZERO;
+                loop {
+                    let Some(quota) = quota_weak.upgrade() else { break };
+                    let force = quota.wait_for_refresh(wait);
+                    if quota.is_shutdown() { break; }
+                    let bin = quota_bin.lock().unwrap().clone();
+                    quota.refresh(&bin, force);
+                    wait = std::time::Duration::from_secs(1);
+                }
+            });
             // Whether THIS launch was told which engine to use. `EnvEngineDir` and
             // `EnvEngineRoot` are the only two sources that are a statement rather than a
             // search (`engine.rs` candidates 1 and 2).
@@ -2691,6 +2711,7 @@ fn main() {
                 Some(engine::EngineSource::EnvEngineDir) | Some(engine::EngineSource::EnvEngineRoot)
             );
             let lease_factory = || EngineLeaseFactory {
+                quota: quota.clone(),
                 permissions: permissions.clone(),
                 claude_bin: Arc::clone(&claude_bin_cell),
                 engine_dir: Arc::clone(&engine_cell),
@@ -3187,19 +3208,6 @@ fn main() {
             // Past it there is a window, the app owns its own surfaces, and a modal system
             // alert raised by a background thread that panicked would be an interruption
             // rather than a rescue. The log keeps taking everything either way.
-            // This monitor belongs to the desktop app. It spends no model turn and
-            // exits when the app releases the service. Refresh has its own TTL/backoff.
-            let quota_weak = Arc::downgrade(&quota);
-            let quota_bin = claude_bin_cell.clone();
-            std::thread::spawn(move || loop {
-                std::thread::sleep(std::time::Duration::from_secs(1));
-                let Some(quota) = quota_weak.upgrade() else { break };
-                if quota.is_shutdown() { break; }
-                if quota.view().policy.enabled {
-                    let bin = quota_bin.lock().unwrap().clone();
-                    quota.refresh(&bin, false);
-                }
-            });
             startup_alert::disarm();
             Ok(())
         })
@@ -4956,6 +4964,7 @@ fn run_setup(app: tauri::AppHandle, state: State<AppState>) -> Result<serde_json
     spine.retire_idle_lease()?;
     let installed = setup_view::run(&app, Some(&selected), &state.engine_dir);
     *state.claude_bin.lock().map_err(|_| "The connection settings could not be updated. Please reopen RichOS.")? = resolve_claude_bin();
+    state.quota.disconnect(); // Recheck after installation or a changed Claude binary.
     let engine = state.engine_dir.lock().unwrap().clone();
     spine.clear_memory_wiring();
     let wired = memory::wire_company_memory(&mut spine, &state.loro_provenance, &registry, &engine);

@@ -1925,7 +1925,7 @@
     const admission = !quotaPolicy.enabled ? { state: "disabled" } : !window || remaining <= 0 ? { state: "unknown" }
       : high && remaining < 20 * 60000 ? { state: "ready" } : high ? { state: "held", resetsAt: window.resetsAt }
       : fixture.state === "fresh" ? { state: "ready" } : { state: "unknown" };
-    return { ...fixture, refreshIntervalMs: window?.usedPercent < 70 ? 30 * 60000 : 5 * 60000, policy: { ...quotaPolicy }, admission };
+    return { ...fixture, refreshIntervalMs: 5 * 60000, policy: { ...quotaPolicy }, admission };
   }
   window.RichBridge = {
     isMock: true,

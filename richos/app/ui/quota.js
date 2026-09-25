@@ -37,7 +37,7 @@
       </div>
       <div class="quota-boundary"><p><b>A pause keeps their place.</b> Each agent finishes its current step, then waits before the next, keeping everything it knows.</p>
         <p>They continue automatically when the allowance permits it. You can keep talking to Rich.</p>
-        <p>Checks every 30 minutes below 70% used and every 5 minutes from 70% onwards.</p></div>
+        <p>Checks at app and session start, then every 5 minutes.</p></div>
     </form></div></section>`;
   document.body.appendChild(sheet);
   const field = id => sheet.querySelector("#" + id);
@@ -198,7 +198,7 @@
       if (request === generation) view = next;
     } catch (_) {
       if (request !== generation) return;
-      view = { ...(view || { windows: [], checkedAt: null, refreshIntervalMs: 1800000, policyUnavailable: true, policy: { enabled: false, pausePercent: 93 } }), state: "unavailable", message: "Could not read Claude Code quota. Try refreshing again." };
+      view = { ...(view || { windows: [], checkedAt: null, refreshIntervalMs: 300000, policyUnavailable: true, policy: { enabled: false, pausePercent: 93 } }), state: "unavailable", message: "Could not read Claude Code quota. Try refreshing again." };
     } finally {
       if (request === generation) { busy = false; lastPoll = Date.now(); if (!sheet.hidden) render(); paintMenu(); }
     }

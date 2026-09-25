@@ -20,9 +20,8 @@ now" disables automatic pausing. A failed refresh retains old figures and respec
 the existing ten-minute retry backoff.
 
 The five-hour rule remains: default 93% used; do not hold when reset is strictly
-less than 20 minutes away. Exactly 20 minutes still holds. Refresh every 30 minutes
-below 70% used and every five minutes at or above 70%. Known reset deadlines can
-bring a refresh forward. Ordinary conversation remains available.
+less than 20 minutes away. Exactly 20 minutes still holds. Refresh every five minutes
+at every usage level. Known reset deadlines can bring a refresh forward. Ordinary conversation remains available.
 
 ## Observed pause state
 
@@ -88,3 +87,17 @@ process-lock observation and renderer verification, not a five-hour live run.
 - [Light, holding three agents](holding-light.png)
 - [Dark, minimum desktop window](minimum-dark.png)
 - [Light, minimum desktop window](minimum-light.png)
+
+The follow-up desktop change fixes polling at five minutes throughout the usage
+range and requests a check immediately at app startup and each new foreground or
+background Claude session, including replacement leases. The monitor runs even
+when automatic pausing is off. A session-start signal wakes the shared reader
+without blocking session launch or Stop controls on provider I/O. Concurrent starts
+share an in-flight or just-completed reading through the existing five-second
+cooldown. Failure backoff still applies. Sign-in completion and setup changes also
+wake the reader after clearing the old account or binary's cache.
+
+The engine quota watcher and private HQ rulings page were not changed.
+
+Follow-up verification: 19 targeted quota Rust tests, 13 WebKit quota checks and
+the desktop Cargo build check passed.

@@ -142,13 +142,13 @@ async function main() {
     assertEqual(await page.locator("#quota-enabled").getAttribute("aria-checked"), "false");
     await page.close();
   });
-  await run.check("missing windows stay absent and low usage has a thirty minute cadence", async () => {
+  await run.check("missing windows stay absent and low usage keeps the five minute cadence", async () => {
     const page = await open("dark", {...quota, windows: [{...quota.windows[0], usedPercent: 35}]});
     await enableTechnical(page); await page.click("#set-quota-open");
     await page.waitForSelector(".quota-window");
     assertEqual(await page.locator("[role=meter]").count(), 1);
     assertEqual(await page.locator(".quota-absent").count(), 2);
-    assert((await page.locator("#quota-freshness").innerText()).includes("30 min"));
+    assert((await page.locator("#quota-freshness").innerText()).includes("5 min"));
     await page.close();
   });
   await run.check("paused conversation status is scoped and quota details require Technical view", async () => {
