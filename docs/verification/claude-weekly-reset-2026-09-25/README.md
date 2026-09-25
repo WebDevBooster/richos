@@ -74,8 +74,8 @@ Implementation through `2495a072`; the working tree was clean for the final sele
   0 passed, 0 test failures, 86 not admitted**. Host sampling reported mean 99% CPU,
   maximum 100%; all seven samples exceeded the 80% admission line. Some checks also
   encountered the shared machine worker ceiling. This is not a passing proof.
-- The exact generated report is [proof-summary.json](proof-summary.json), with the
-  tested commit recorded in [proof-source.json](proof-source.json).
+- The exact generated report is [proof-admission-report.md](proof-admission-report.md), with the
+  tested commit recorded in the same report.
 - Earlier executed checks: all 32 quota unit tests passed after the lock fix; the
   full core unit suite then passed 864 tests with one ignored. The core integration
   run stopped at the dependency audit, which is now corrected but not rerun.

@@ -1,3 +1,21 @@
+# Earlier blocked verification attempt
+
+These are generated evidence records, not application configuration. This attempt
+preceded the rebase onto current main and is not a passing proof.
+
+## Source
+
+```json
+{
+  "commit": "2495a07207dfa1e8d1ec5be0a97874e0aeebe007",
+  "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "untracked_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}
+```
+
+## Summary
+
+```json
 {
  "wall_seconds": 73.7,
  "serial_seconds": 0.0,
@@ -781,3 +799,4 @@
   }
  ]
 }
+```
