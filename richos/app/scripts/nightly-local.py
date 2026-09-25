@@ -50,7 +50,10 @@ GATE_BUDGETS = {
     # (the whole gate took 413 s on 2026-09-22) and killed that run with the suite still passing.
     "gates/script-suites": 6900,
     "gates/lint-tauri": 300,    # At least 10x the full-lint sample; headroom beyond the 180s inner cap.
-    "gates/workspace-mutants": 1800,  # About 2x its 792 s measured on this Mac, 2026-09-23.
+    # Re-derived 2026-09-25: the unit took 1291 s alone (run 20260925T201442Z-f9f0f9b9), and it ran
+    # past 1800 s twice beside the simulator suites once gates ran at once (runs 20260925T222652Z-723fee53
+    # and 20260925T225819Z-2a11fdd0). 792 s (2026-09-23) is stale; this is about 2x the contended envelope.
+    "gates/workspace-mutants": 3600,
     "gates/ui-suite": 1200,    # At least 2x the fresh-browser four-shard reference.
     "gates/privacy-sweep": 120, # At least 4x a full scan; no receipt-reuse assumption.
 }
