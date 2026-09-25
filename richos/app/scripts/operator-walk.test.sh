@@ -60,7 +60,8 @@ reply="$(printf '%s\n%s\n' \
   '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"report","arguments":{"kind":"update","text":"x"}}}' \
   | "$WALK" --operator-mcp "$SCRATCH/no-scope.json")"
 case "$reply" in
-  *'"serverInfo":{"name":"richos_operator"'*'"isError":true'*'report scope'*) ok "W4 the report server answers and refuses with no scope" ;;
+  # serde_json writes keys in order, so the refusal's text comes before its isError flag.
+  *'"serverInfo":{"name":"richos_operator"'*'report scope'*'"isError":true'*) ok "W4 the report server answers and refuses with no scope" ;;
   *) bad "W4 got: $reply" ;;
 esac
 
