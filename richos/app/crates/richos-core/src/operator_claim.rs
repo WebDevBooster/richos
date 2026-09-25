@@ -86,6 +86,33 @@ pub fn this_process(table: &dyn ProcessTable) -> Option<ProcessId> {
     table.start_of(pid).map(|start| ProcessId { pid, start })
 }
 
+/// Days since 1970-01-01 for a proleptic Gregorian date, and back (Howard Hinnant's
+/// `days_from_civil` / `civil_from_days`, public domain). Kept here rather than borrowed from
+/// `launch.rs`: that module holds his usage history, and `launch_no_outbound_tests` refuses any
+/// other module that reaches into it.
+fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 }.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = (i64::from(m) + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + i64::from(d) - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 }.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
 /// `procStart` as `ps` prints it under `TZ=UTC0` (`Thu Sep 24 17:49:33 2026`), to epoch seconds.
 pub fn parse_proc_start(text: &str) -> Option<u64> {
     let parts: Vec<&str> = text.split_whitespace().collect();
@@ -99,14 +126,14 @@ pub fn parse_proc_start(text: &str) -> Option<u64> {
     if *h > 23 || *m > 59 || *s > 60 {
         return None;
     }
-    let days = crate::launch::days_from_civil(year, month, day);
+    let days = days_from_civil(year, month, day);
     u64::try_from(days * 86_400).ok().map(|base| base + h * 3600 + m * 60 + s)
 }
 
 /// Epoch seconds as ISO 8601 UTC.
 pub fn iso_utc(epoch: u64) -> String {
     let days = (epoch / 86_400) as i64;
-    let (y, m, d) = crate::launch::civil_from_days(days);
+    let (y, m, d) = civil_from_days(days);
     let rest = epoch % 86_400;
     format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", rest / 3600, (rest / 60) % 60, rest % 60)
 }
@@ -532,6 +559,15 @@ mod tests {
         for bad in ["", "yesterday", "Thu Sep 24 25:49:33 2026", "Thu Foo 24 17:49:33 2026"] {
             assert_eq!(parse_proc_start(bad), None, "{bad:?}");
         }
+    }
+
+    #[test]
+    fn the_calendar_round_trips_across_leap_days_and_century_rules() {
+        for (y, m, d) in [(1970, 1, 1), (2000, 2, 29), (2024, 2, 29), (2026, 9, 25), (2100, 3, 1)] {
+            assert_eq!(civil_from_days(days_from_civil(y, m, d)), (y, m, d));
+        }
+        assert_eq!(days_from_civil(1970, 1, 1), 0);
+        assert_eq!(days_from_civil(2026, 9, 24), 20_720, "1790272173 / 86400 = 20720 whole days (python3)");
     }
 
     #[test]
