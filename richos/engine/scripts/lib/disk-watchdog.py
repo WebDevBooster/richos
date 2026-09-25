@@ -20,6 +20,8 @@ import subprocess
 import sys
 import time
 
+import foreign_app_data
+
 GB = 1024 ** 3
 
 
@@ -87,6 +89,25 @@ def read_volume(mount):
 # attribution — only ever when an alert is firing
 # ---------------------------------------------------------------------------
 
+def measurable(candidates):
+    """(allowed, refused): the candidates `du` may walk, and the ones it must not.
+
+    NEVER ANOTHER APP'S DATA. On 2026-09-24/25 this function's `du` walked the
+    folder where macOS keeps other apps' sandboxed data, and the CEO got "python3.14
+    would like to access data from other apps" on every alerting run. Allowing it did
+    not stick, because a grant to Homebrew's unsigned interpreter lasts only for that
+    process. The declaration was the cause and it is fixed there, and this check is why
+    it stays fixed: an entry that is inside that data, or that holds it ($HOME, ~/Library),
+    is refused here and reported in the state file as `consumers_refused`, whatever
+    orchestration.config says. The rule lives in lib/foreign_app_data.py.
+    """
+    allowed, refused = [], []
+    for path in candidates:
+        why = foreign_app_data.entering(expand(path)) if path else None
+        (refused if why else allowed).append({"path": path, "why": why} if why else path)
+    return allowed, refused
+
+
 def top_consumers(candidates, limit=3):
     """The biggest declared candidate directories, largest first.
 
@@ -100,6 +121,7 @@ def top_consumers(candidates, limit=3):
     thing on the machine at the exact moment the machine is in trouble.
     """
     out = []
+    candidates, _refused = measurable(candidates)
     for path in candidates:
         path = expand(path)
         if not path or not os.path.isdir(path):
@@ -141,7 +163,7 @@ def richos_garbage_bytes():
     seen = set()
     for root in roots:
         real = os.path.realpath(root)
-        if real in seen or not os.path.isdir(real):
+        if real in seen or not os.path.isdir(real) or foreign_app_data.entering(real):
             continue
         seen.add(real)
         try:
@@ -318,6 +340,7 @@ def main():
     repeat_h = env_num("DISK_CEO_REPEAT_HOURS", 24)
     scale = env("DISK_SCALE_EXTRA_VOLUMES", "1") == "1"
     candidates = env("DISK_CONSUMER_CANDIDATES", "").split()
+    consumers_refused = measurable(candidates)[1]
 
     prev = read_state(state_path)
     now = time.time()
@@ -858,6 +881,7 @@ def main():
         "classification": classification,
         "richos_garbage_bytes": garbage,
         "top_consumers": consumers,
+        "consumers_refused": consumers_refused,
         "sweep_failures": n_fail,
         "test_instance_failures": n_inst,
         "test_device_failures": n_dev,
@@ -912,6 +936,8 @@ def main():
             "%s=%s free" % (v["mount"], human(v["free_bytes"])) for v in volumes)))
         if posted:
             log(log_path, "%s posted=%s" % (stamp, ",".join(posted)))
+        for r in consumers_refused:
+            log(log_path, "%s refused-candidate %s: %s" % (stamp, r["path"], r["why"]))
 
     if mode == "json":
         json.dump(out, sys.stdout, indent=1, sort_keys=True)
