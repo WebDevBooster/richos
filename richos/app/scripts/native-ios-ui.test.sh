@@ -402,6 +402,36 @@ do {
     check(!source.contains("Light appearance") && !source.contains(".setAppearance("), "G9 Settings draws no appearance row")
 }
 
+// I02 (native acceptance r1): the out-of-reach line is no longer a row under the header's fade; it is
+// pinned below the header in full ink on the floating surface, computed here in both themes.
+do {
+    let rows = (try? String(contentsOfFile: CommandLine.arguments[1] + "/App/Features/Conversation/Rows.swift", encoding: .utf8)) ?? ""
+    let line = rows.components(separatedBy: "struct OutOfReachLine").dropFirst().first ?? ""
+    check(!rows.contains("cachedMarker"), "I02 the out-of-reach line is not a row of the list")
+    check(line.contains(".foregroundStyle(palette.ink)") && line.contains(".floatingSurface(palette"), "I02 the line is ink on the floating surface")
+    for p in [Palette.sovereign, Palette.daybreak] {
+        let r = ratio(p.ink, p.surface)
+        check(r >= 4.5, String(format: "I02 %@: the out-of-reach line, ink on surface %5.2f:1 (floor 4.5)", p.appearance == .dark ? "dark" : "light", r))
+    }
+}
+
+// I04 (native acceptance r1): after "Not now" the offer is answered for good and Settings still holds
+// the off switch whose tap asks iOS; once iOS has said no, Open Settings; while asking, nothing.
+do {
+    let offered = try! Fixture.named("notif-offer").state
+    var answered = Reducer.reduce(offered, .dismissNotificationOffer).state
+    check(!ScreenModel(state: answered).cards.contains(.notificationOffer), "I04 Not now takes the offer down")
+    answered = Reducer.reduce(answered, .openSheet(.settings)).state
+    if case .settings(let s)? = ScreenModel(state: answered).sheet {
+        check(s.notifications.control == .toggle(isOn: false), "I04 after Not now, Settings holds an off switch (\(s.notifications.control))")
+    } else { check(false, "I04 Settings opens after Not now") }
+    check(M.NotificationStatus.on.control == .toggle(isOn: true) && M.NotificationStatus.off.control == .toggle(isOn: false),
+          "I04 on and off keep their switch")
+    check(M.NotificationStatus.denied.control == .openSettings, "I04 denied by iOS: Open Settings, not a switch that cannot work")
+    check(M.NotificationStatus.turningOn.control == .none && M.NotificationStatus.unsupported.control == .none,
+          "I04 asking, or impossible: no control")
+}
+
 // The + menu (App Store blocker 5): the menu, the tray, the refusal cards and the bubbles are drawn
 // from the core's attachment state.
 do {

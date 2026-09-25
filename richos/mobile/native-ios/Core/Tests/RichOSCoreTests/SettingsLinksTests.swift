@@ -53,3 +53,57 @@ import Testing
         #expect(try CoreJSON.decode(Action.self, from: Data(#"{"type":"privacy-policy"}"#.utf8)) == .openPrivacyPolicy)
     }
 }
+
+/// I04 (native acceptance r1, the physical iPhone SE): "Not now" on the notification offer is never a
+/// one-way door, and the app's notification state stays true to iOS's own answer.
+@Suite struct NotificationWayBackTests {
+    func paired(_ status: Notifications.Status, dismissed: Bool = false) -> AppState {
+        var s = AppState.initial
+        s.pairing = .paired
+        s.notifications = Notifications(status: status, offerDismissed: dismissed)
+        return s
+    }
+
+    @Test func afterNotNowTheSwitchStillAsksIOSAndTheOfferStaysAnswered() {
+        let answered = Reducer.reduce(paired(.notAsked), .dismissNotificationOffer).state
+        #expect(answered.notifications.offerDismissed)
+        #expect(answered.notifications.status == .notAsked)
+        // The Settings switch sends the same action the offer's "Turn on notifications" sends.
+        let (asking, effects) = Reducer.reduce(answered, .turnOnNotifications)
+        #expect(asking.notifications.status == .turningOn)
+        #expect(effects.contains(.requestNotifications(previews: true)))
+        #expect(asking.notifications.offerDismissed, "the offer is not put back")
+    }
+
+    @Test func allowedAgainInIPhoneSettingsRegistersAgainWithoutAsking() {
+        let denied = paired(.denied, dismissed: true)
+        #expect(NotificationPermissionCheck.action(system: .allowed, state: denied) == .turnOnNotifications)
+        let (next, effects) = Reducer.reduce(denied, .turnOnNotifications)
+        #expect(next.notifications.status == .turningOn)
+        #expect(effects.contains(.requestNotifications(previews: true)))
+    }
+
+    @Test func turnedOffInIPhoneSettingsReadsAsDenied() {
+        #expect(NotificationPermissionCheck.action(system: .denied, state: paired(.on)) == .notificationsResult(.denied))
+        #expect(NotificationPermissionCheck.action(system: .denied, state: paired(.serviceUnavailable)) == .notificationsResult(.denied))
+    }
+
+    @Test func anAnswerIOSForgotLeavesTheAppsOwnSwitch() {
+        #expect(NotificationPermissionCheck.action(system: .notDetermined, state: paired(.denied)) == .notificationsResult(.off))
+    }
+
+    @Test func nothingChangesWhenIOSAgreesAndNotNowIsNeverReopened() {
+        let quiet: [(Notifications.Status, SystemNotificationPermission)] = [
+            (.on, .allowed), (.on, .notDetermined), (.denied, .denied), (.off, .allowed), (.off, .denied), (.off, .notDetermined),
+            (.notAsked, .notDetermined), (.notAsked, .allowed), (.notAsked, .denied), (.turningOn, .allowed),
+            (.turningOn, .notDetermined), (.unsupported, .allowed), (.appleUnavailable, .allowed),
+        ]
+        for (status, system) in quiet {
+            #expect(NotificationPermissionCheck.action(system: system, state: paired(status, dismissed: true)) == nil,
+                    "\(status) with iOS \(system) must change nothing")
+        }
+        var unpaired = paired(.denied)
+        unpaired.pairing = .unpaired
+        #expect(NotificationPermissionCheck.action(system: .allowed, state: unpaired) == nil)
+    }
+}

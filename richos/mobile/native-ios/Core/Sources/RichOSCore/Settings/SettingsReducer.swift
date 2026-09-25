@@ -80,3 +80,36 @@ enum UpdateReducer {
         }
     }
 }
+
+/// iOS's own notification permission, as the app reads it on coming to the front.
+public enum SystemNotificationPermission: String, Sendable {
+    /// Never asked (the app has no entry under iPhone Settings > Notifications yet).
+    case notDetermined
+    case denied
+    /// Authorized, provisional or ephemeral.
+    case allowed
+}
+
+/// The way back from iPhone Settings (I04; Android's `reconcileNow`, `Notifications.kt`). On launch
+/// and each return to the front the app reads iOS's answer once and tells the core only what changed:
+/// allowed again after a denial registers again (no prompt: iOS already said yes) instead of staying
+/// "Off in iPhone Settings" for good; turned off in iPhone Settings while on reads as denied, with its
+/// Open Settings button. Nothing is asked here and nothing repeats: an answer that matches the state
+/// changes nothing, and "Not now" (never asked) is left alone. "On" was iOS's own yes, so an ambiguous
+/// "never asked" read leaves it alone too (as Android, whose only reading is granted or not).
+public enum NotificationPermissionCheck {
+    public static func action(system: SystemNotificationPermission, state: AppState) -> Action? {
+        guard state.pairing == .paired else { return nil }
+        switch (state.notifications.status, system) {
+        case (.denied, .allowed):
+            return .turnOnNotifications
+        case (.denied, .notDetermined):
+            // iPhone Settings has no entry to send the person to: the app's own switch is the way on.
+            return .notificationsResult(.off)
+        case (.on, .denied), (.serviceUnavailable, .denied):
+            return .notificationsResult(.denied)
+        default:
+            return nil
+        }
+    }
+}

@@ -312,4 +312,29 @@ final class InteractionTests: XCTestCase {
         app.buttons["forget.keep"].tap()
         XCTAssertFalse(app.buttons["forget.confirm"].exists)
     }
+
+    /// I04 (native acceptance r1, the physical iPhone SE): "Not now" on the notification offer left
+    /// Settings with the words "Rich cannot reach you when the app is closed." and no control, and the
+    /// offer never returns, so nothing in the app could turn notifications on. "Not now" is still
+    /// respected (the offer does not come back), and Settings keeps an off switch whose real tap asks
+    /// for notifications at that moment, the way Android's Settings does. The interactive fixture runs
+    /// the production core with the platform's answers withheld, so the tap ends at "Turning on…",
+    /// the state in which iOS's own question is asked.
+    func testNotNowLeavesASettingsSwitchThatTurnsNotificationsOn() {
+        let app = Screen.launch("notif-offer", interactive: true)
+        let notNow = app.buttons["card.notNow"]
+        assertOnScreenAndHittable(notNow, in: app, "the offer's Not now")
+        notNow.tap()
+        XCTAssertTrue(app.buttons["card.notificationsOn"].waitForNonExistence(timeout: 3), "Not now did not take the offer down")
+        app.buttons["header.settings"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["settings.sheet"].waitForExistence(timeout: 3), "Settings did not open")
+        let toggle = app.switches["settings.notifications"]
+        assertOnScreenAndHittable(toggle, in: app, "Notify me when Rich replies")
+        XCTAssertEqual(toggle.value as? String, "0", "the switch after Not now must read off")
+        XCTAssertEqual(toggle.label, "Notify me when Rich replies")
+        keepScreenshot(app, name: "i04-settings-after-not-now")
+        toggle.tap()
+        let turning = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Turning on'")).firstMatch
+        XCTAssertTrue(turning.waitForExistence(timeout: 3), "the switch's tap did not ask for notifications")
+    }
 }
