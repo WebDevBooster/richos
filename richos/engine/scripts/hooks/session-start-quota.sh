@@ -37,8 +37,9 @@ set -uo pipefail
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WATCH="$HOOK_DIR/../quota-watch.sh"
 
-# The payload is not needed: the notice reads nothing from it.
-cat >/dev/null 2>&1 || true
+# The payload is not needed, so stdin is NEVER read: a SessionStart hook that
+# reads a stdin the host may never close hangs the session start
+# (session-start-stdin.test.sh, case 9q).
 
 [ -f "$WATCH" ] || exit 0
 command -v python3 >/dev/null 2>&1 || exit 0

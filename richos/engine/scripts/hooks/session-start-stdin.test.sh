@@ -379,6 +379,8 @@ say_hang 9h session-start-ceo-ask.sh
 say_hang 9k session-start-ci-surface.sh
 say_hang 9o notice-disk-alert.sh --event SessionStart
 say_hang 9p session-start-scratch.sh
+# 9q — session-start-quota.sh, registered 2026-09-25 (the 93% quota rule notice).
+say_hang 9q session-start-quota.sh
 # Match the registered event argument: this hook also handles Stop, whose
 # stdin behavior is different. Both closed and never-closed stdin are checked.
 say_hang 9n left-off-report.sh --event SessionStart
