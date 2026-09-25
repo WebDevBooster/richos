@@ -44,5 +44,5 @@ with tempfile.TemporaryDirectory(prefix='terminal-quota-cli-') as d:
     app.write_text('#!/bin/sh\n# --richos-quota-v1\nprintf "%s\\n" "$@"\n')
     r=subprocess.run([str(installed/'quota-reset.sh'),'tick'],env=env,capture_output=True,text=True,timeout=10)
     assert r.returncode==0 and r.stdout.splitlines()==['--richos-quota-v1','tick'],r
-print('PASS: noninteractive approval refusal, no yes flag, no credential read on refusal, shared desktop state path, revoke, live-proof opt-in and headless wrapper')
+print('  PASS  noninteractive approval refusal, no yes flag, no credential read on refusal, shared desktop state path, revoke, live-proof opt-in and headless wrapper')
 PY

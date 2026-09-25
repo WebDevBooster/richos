@@ -149,6 +149,9 @@ async function main() {
     await enableTechnical(page); await page.click("#set-quota-open");
     await page.waitForFunction(() => document.getElementById("quota-hold-detail").textContent.includes("Weekly usage reached 99%"));
     assert(!(await page.locator("#quota-hold-detail").innerText()).includes("under 20 minutes"));
+    assert(await page.locator("#quota-release").isEnabled());
+    await page.click("#quota-release");
+    await page.waitForFunction(() => document.getElementById("quota-enabled").getAttribute("aria-checked") === "false");
     await page.close();
   });
   await run.check("missing windows stay absent and low usage keeps the five minute cadence", async () => {
