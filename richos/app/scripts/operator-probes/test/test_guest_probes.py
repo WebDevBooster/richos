@@ -232,6 +232,31 @@ class Retired(unittest.TestCase):
             self.assertIn(pid, ids)
 
 
+class Walk(unittest.TestCase):
+    def test_the_walk_runs_only_when_named_and_says_not_run_without_its_binary(self):
+        self.assertIn('W2', gp.EXPLICIT, 'a default probe run must never start the walk')
+        ctx = gp.Context.__new__(gp.Context)
+        ctx.walk_binary = ''
+        self.assertEqual(gp.w2(ctx, {})[0], 'NOT-RUN')
+
+    def test_a_heartbeat_is_a_shell_loop_writing_one_file(self):
+        self.assertIn('/tmp/hb.txt', gp.heartbeat_command('/tmp/hb.txt'))
+
+
+class GradeP15Reap(unittest.TestCase):
+    def run_of(self, **alive):
+        return {'alive_after_grace_plus_one': dict(alive)}
+
+    def test_a_run_whose_shells_recorded_nothing_is_never_a_pass(self):
+        full = self.run_of(lead=False, **{'fg-self': False, 'fg-grandchild': False, 'bg-self': False, 'bg-grandchild': False})
+        self.assertEqual(gp.grade_p15_reap({'reap': full, 'reap-lead-crash': full})[0], 'PASS')
+        # The 2026-09-25 run's lead-crash half: only the lead was recorded.
+        self.assertEqual(gp.grade_p15_reap({'reap': full, 'reap-lead-crash': self.run_of(lead=False)})[0], 'PREMISE-FALSE')
+        survivor = dict(full['alive_after_grace_plus_one'], **{'bg-grandchild': True})
+        self.assertEqual(gp.grade_p15_reap({'reap': full, 'reap-lead-crash': {'alive_after_grace_plus_one': survivor}})[0],
+                         'FAIL')
+
+
 class ArtifactScrub(unittest.TestCase):
     def test_his_artifact_list_never_reaches_the_record(self):
         scrub = gp.scrub_artifact_results(lambda: {'t-1'})
