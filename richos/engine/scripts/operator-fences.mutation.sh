@@ -129,6 +129,14 @@ mutant discarded-operation-concluded "F31 " "$L" \
     '    found = discarded_operation(files, gitdir)' \
     '    found = None' \
     "Fix 1: after a refused merge --abort discarded the holder's resolution, its commit would record an empty-diff merge that every 'landed' check accepts (case G)."
+mutant residue-committed-silently "F32 " "$L" \
+    '    found = residue_committed(files, lease, new, os.getcwd())' \
+    '    found = None' \
+    "Fix 2: after a refused reset --hard rewrote the index, the holder's next ordinary commit would silently revert the previous commit (case E)."
+mutant residue-never-named "F32 " "$L" \
+    '    moved = _main_moved_at(paths["common"])' \
+    '    return []' \
+    "Fix 2 point 4: acquire and status would say nothing about a tree a refused writer had already rewritten."
 
 # --- the launcher and the switch (e8, G12) --------------------------------------------
 mutant off-can-refuse "F20 " "$T" \

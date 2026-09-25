@@ -71,6 +71,9 @@
 #   F31  the holder's commit of a merge whose resolution a refused `--abort`
 #        already discarded is refused, naming abort-orphan; a new merge clears
 #        it (Frank's case G, Fix 1)
+#   F32  a refused reset names what it had already rewritten, records it
+#        (argv, residue), and the holder's commit that would record it is
+#        refused; acquire and status name it (Frank's case E, Fix 2)
 #   F33  a non-starter's refused commit during the holder's live merge does not
 #        make the merge "orphaned" (Fix 3)
 #   F3L, F12L  measured limits, asserted so the record goes red if Git changes:
@@ -421,6 +424,43 @@ if [ -f "$R/.git/MERGE_HEAD" ] && [ -n "$GF" ]; then
 else
     bad "F31 [git $G] the fixture's merge did not conflict, so the case proves nothing" "$OFX_OUT"
 fi
+ofx_in A "$(ofx_lease release --repo "$R")"
+
+# ---- F32: a refused reset's residue is named, and is never committed silently (Fix 2) ----
+# Frank's case E: a refused `reset --hard HEAD~1` has already rewritten the
+# index and tree; without Fix 2 the holder's next `git add X; git commit`
+# silently reverts the previous commit.
+M4="$(rev "$R" main)"
+ofx_in A "$(ofx_lease acquire --repo "$R")"
+ofx_in B "sh -c 'git -C $R reset -q --hard HEAD~1'"; rcb=$?; bout="$OFX_OUT"
+[ $rcb -ne 0 ] && [ "$(rev "$R" main)" = "$M4" ] && printf '%s' "$bout" | grep -q "already rewritten" \
+    && ! printf '%s' "$bout" | grep -q "before the tree is touched"
+expect "F32" "[git $G] the refused reset says it had already rewritten the index and tree (and no longer says 'before the tree is touched')" "$?" "rc=$rcb $bout"
+python3 - "$REF" <<'PY'
+import json, sys
+rows = [json.loads(l) for l in open(sys.argv[1])]
+last = [r for r in rows if r.get("ref") == "ORIG_HEAD"][-1]
+paths = [e.get("path") for e in last.get("residue_paths") or []]
+sys.exit(0 if (last.get("writer_argv") or [""])[0] == "reset" and last.get("residue") is True and "g2.txt" in paths else 1)
+PY
+expect "F32" "[git $G] the refusal record carries the writer's argv and residue: true, with the rewritten paths" "$?"
+ofx_in A "cd '$R' && printf 'n\n' > n.txt && git add n.txt && git commit -q -m n"; rc=$?; cout="$OFX_OUT"
+[ $rc -ne 0 ] && [ "$(rev "$R" main)" = "$M4" ] && printf '%s' "$cout" | grep -q "reset" && printf '%s' "$cout" | grep -q "git restore"
+expect "F32" "[git $G] the holder's next commit, which would record the rewrite (a silent revert), is refused and names the reset" "$?" "rc=$rc $cout"
+ofx_in A "$(ofx_lease status --repo "$R")"; sout="$OFX_OUT"
+printf '%s' "$sout" | grep -q "g2.txt" && printf '%s' "$sout" | grep -q "rewrote"
+expect "F32" "[git $G] status names the residue and its paths" "$?" "$sout"
+ofx_in A "cd '$R' && git restore --source=HEAD --staged --worktree -- . && printf 'n\n' > n.txt && git add n.txt && git commit -q -m n && git push -q origin main"; rc=$?
+[ $rc = 0 ] && [ "$(git -C "$R" diff --name-only main~1 main)" = "n.txt" ]
+expect "F32" "[git $G] once restored, the holder's commit passes and records only its own file" "$?" "rc=$rc $OFX_OUT"
+ofx_in A "$(ofx_lease release --repo "$R")"
+ofx_in B "sh -c 'git -C $R reset -q --hard HEAD~1'"
+ofx_in A "$(ofx_lease acquire --repo "$R")"; rca=$?; aout="$OFX_OUT"
+[ $rca = 0 ] && printf '%s' "$aout" | grep -q "rewrote" && printf '%s' "$aout" | grep -q "n.txt"
+expect "F32" "[git $G] a lease taken after a refused reset names the residue and its paths (Fix 2 point 4)" "$?" "rc=$rca $aout"
+ofx_in A "cd '$R' && git restore --source=HEAD --staged --worktree -- . && $(ofx_lease status --repo "$R")"; sout="$OFX_OUT"
+[ -z "$(git -C "$R" status --porcelain --untracked-files=no)" ] && ! printf '%s' "$sout" | grep -q "rewrote"
+expect "F32" "[git $G] once the tree is restored, status no longer names it" "$?" "$sout"
 ofx_in A "$(ofx_lease release --repo "$R")"
 
 # ---- F15: the bypass that exists, asserted (G2) ----------------------------------------
