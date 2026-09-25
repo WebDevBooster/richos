@@ -6,10 +6,27 @@ HIS WORDS ARE THE WHOLE BEHAVIOR (ruling §87, richos-hq/wiki/ceo-decisions.md):
     "quota polling: every 5 minutes from now. And once it crosses the 93%
     threshold: PAUSE subagents. Then resume after quota rest."
 
+HIS UPDATE, 2026-09-25 (ruling §87, and the boundary cases in
+richos-hq/docs/plans/claude-five-hour-quota-rule-2026-09-25.md). At or above
+the threshold, do NOT pause when the reset is LESS than 20 minutes away;
+exactly 20 minutes still pauses. A hold already in place releases inside that
+window, keeping the same agent. The same day he dropped the adaptive schedule
+he had also given: "Well, I've changed my mind. Let's drop the 30-minute check
+nonsense. Keep it consistent at 5 minutes." So polling is 300 s at every
+usage level, and the stale bound stays one 300 s poll.
+
 So this file does three things and no fourth: it READS the five-hour window,
-it POLLS every 300 seconds, and it WAKES THE LEAD at the threshold and at the
-reset with the exact messages to send. The lead does the pausing and the
-resuming; this file never messages, stops or spawns anything.
+it POLLS every 300 seconds, and it WAKES THE LEAD at the threshold, at the
+hold's release (the reset less than 20 minutes away) and at the reset, with
+the exact messages to send. The lead does the pausing and the resuming; this
+file never messages, stops or spawns anything.
+
+THE LAST 20 MINUTES, and how it matches the desktop app (Codex, branch
+codex/claude-quota-settings, richos-core/src/quota.rs: RESET_EXEMPTION_MS and
+its threshold_and_twenty_minute_boundaries test): the exception applies when
+0 < resets_at - now < 1200 s. It applies to a stale reading too, because
+resets_at does not move inside one window. A window that has ended is
+UNKNOWN, as before, never "inside the exception".
 
 What "pause" means is his too, confirmed on 2026-09-10 (session d0eef867,
 09:28Z): commit what you have, then hold — end your turn, do nothing further,
@@ -66,10 +83,13 @@ and hands the raw value in; an undeclared or malformed value is UNKNOWN, never
 a default, because a second place holding 93 is how the number drifts.
 
 EXIT CODES
-  --once    0 below the threshold, 1 at or above it, 2 unknown
+  --once    0 below the threshold, 1 at or above it (pause), 2 unknown,
+            3 at or above it with the reset less than 20 minutes away (no
+            pause; a hold in place releases)
   --status  the same codes as --once
-  --watch   0 after printing one event (QUOTA-THRESHOLD, WINDOW-RESET,
-            QUOTA-STALE or QUOTA-UNKNOWN), 2 when it cannot watch at all
+  --watch   0 after printing one event (QUOTA-THRESHOLD, QUOTA-RELEASE,
+            WINDOW-RESET, QUOTA-STALE or QUOTA-UNKNOWN), 2 when it cannot
+            watch at all
   --notice  always 0 (it is a SessionStart hook's body)
 """
 
@@ -84,6 +104,11 @@ import time
 HIS_WORDS = ('"quota polling: every 5 minutes from now. And once it crosses the 93% '
              'threshold: PAUSE subagents. Then resume after quota rest."')
 RULING = "ruling §87, richos-hq/wiki/ceo-decisions.md"
+# His 2026-09-25 update, as the rule now stands. Not a quotation: the record
+# of it is §87 and docs/plans/claude-five-hour-quota-rule-2026-09-25.md.
+RULE_UPDATE = ("Updated 2026-09-25: at or above the threshold, do not pause when the reset is less than "
+               "20 minutes away (exactly 20 minutes still pauses), and a hold already in place is released "
+               "inside that window, keeping the same agent. Polling stays every 5 minutes at every usage level.")
 
 # His "every 5 minutes". The environment override exists for the test suite
 # only, which cannot wait five minutes per case.
@@ -92,6 +117,11 @@ POLL_SECONDS = 300
 # above): the stale bound IS the poll interval, set in main(). The test suite
 # may override it separately, only so that its accelerated clock is not at the
 # mercy of a one-second scheduler.
+
+# His 2026-09-25 update: at or above the threshold, no pause when the reset is
+# LESS than this far away; exactly this far still pauses. The same seconds
+# release a hold already in place. The desktop app's RESET_EXEMPTION_MS.
+RESET_EXEMPTION_SECONDS = 20 * 60
 
 PAUSE_UNTIL_PREFIX = "the five-hour quota reset"
 CONFIG_KEY = "QUOTA_PAUSE_PERCENT"
@@ -216,6 +246,22 @@ def classify(r, threshold, stale_after):
     return "below", ""
 
 
+def in_last_twenty(resets_at, now):
+    """True when the reset is LESS than 20 minutes away and has not passed.
+    Exactly 20 minutes is False: it still pauses (his words, 2026-09-25)."""
+    return resets_at is not None and 0 < resets_at - now < RESET_EXEMPTION_SECONDS
+
+
+def rule_verdict(r, threshold, stale_after, now):
+    """classify(), with his near-reset exception applied:
+    ('below' | 'at-or-above' | 'near-reset' | 'unknown', why)."""
+    verdict, why = classify(r, threshold, stale_after)
+    if verdict == "at-or-above" and in_last_twenty(r["resets_at"], now):
+        return "near-reset", ("the reset is %s away, less than 20 minutes: no pause, and a hold in place is "
+                              "released (%s)" % (span(r["resets_at"] - now), RULING))
+    return verdict, why
+
+
 def describe(r, threshold, now):
     if r["state"] != "ok":
         return "UNKNOWN: %s" % r["why"]
@@ -323,12 +369,20 @@ def resume_message(reset_at):
             % hhmm(reset_at))
 
 
+def release_message(reset_at):
+    # His 2026-09-25 update: the hold releases when the reset is less than 20
+    # minutes away. The same agent resumes, so, like the resume message, this
+    # NEVER carries a `pause-until:` line.
+    return ("RESUME: the five-hour quota window resets at %s, less than 20 minutes from now, so the quota "
+            "hold is released (%s). Continue exactly where you stopped." % (hhmm(reset_at), RULING))
+
+
 # ---------------------------------------------------------------------------
 # modes
 # ---------------------------------------------------------------------------
 
 def _exit_for(verdict):
-    return {"below": 0, "at-or-above": 1}.get(verdict, 2)
+    return {"below": 0, "at-or-above": 1, "near-reset": 3}.get(verdict, 2)
 
 
 def mode_once(a, now):
@@ -336,12 +390,14 @@ def mode_once(a, now):
     if a.threshold is None:
         print("quota: UNKNOWN: %s is %s in %s" % (CONFIG_KEY, a.threshold_problem, a.config or "(no config)"))
         return 2
-    verdict, why = classify(r, a.threshold, a.stale)
+    verdict, why = rule_verdict(r, a.threshold, a.stale, now)
     line = describe(r, a.threshold, now)
     if verdict == "unknown" and r["state"] == "ok":
         line += "  [UNKNOWN: %s]" % why
     elif verdict == "at-or-above":
         line += "  [AT OR ABOVE THE THRESHOLD]"
+    elif verdict == "near-reset":
+        line += "  [AT OR ABOVE THE THRESHOLD, NO PAUSE: %s]" % why
     print("quota: " + line)
     return _exit_for(verdict)
 
@@ -350,6 +406,7 @@ def mode_status(a, now):
     r = read_reading(a.payload, now)
     print("THE 93%% QUOTA RULE (%s)" % RULING)
     print("  his words : %s" % HIS_WORDS)
+    print("  update    : %s" % RULE_UPDATE)
     if a.threshold is None:
         print("  threshold : UNKNOWN: %s is %s in %s" % (CONFIG_KEY, a.threshold_problem, a.config or "(no config)"))
     else:
@@ -370,8 +427,9 @@ def mode_status(a, now):
     if a.threshold is None:
         print("  verdict   : UNKNOWN")
         return 2
-    verdict, why = classify(r, a.threshold, a.stale)
+    verdict, why = rule_verdict(r, a.threshold, a.stale, now)
     print("  verdict   : %s%s" % ({"below": "below the threshold", "at-or-above": "AT OR ABOVE the threshold",
+                                    "near-reset": "AT OR ABOVE the threshold, NO PAUSE",
                                     "unknown": "UNKNOWN"}[verdict], (": " + why) if why and r["state"] == "ok" else ""))
     print("  watcher   : %s --watch   (as a background command)" % a.command)
     return _exit_for(verdict)
@@ -397,7 +455,8 @@ def _emit_threshold(a, r, now, w):
     print("  ---- message ends ----")
     print("  The last line is what records the PAUSE (mega-lander point 11): without it the agent's end of")
     print("  run is recorded as FINISHED and the wake at the reset is refused (2026-09-18).")
-    print("  Then start the watcher again; with nothing working it waits for the reset and wakes you there:")
+    print("  Then start the watcher again; with nothing working it waits, and wakes you with the resume message")
+    print("  when the reset is less than 20 minutes away (the hold releases there, %s):" % RULING)
     print("    %s --watch" % a.command)
     print("  If you keep them working this window, wake only at the reset instead:")
     print("    %s --watch --until-reset" % a.command)
@@ -420,6 +479,26 @@ def _emit_reset(a, reset_at, w):
     print("  " + resume_message(reset_at))
     print("  ---- message ends ----")
     print("  Then start the watcher again:")
+    print("    %s --watch" % a.command)
+
+
+def _emit_release(a, reset_at, now, w):
+    print("QUOTA-RELEASE at %s" % hhmm(now))
+    print("  The five-hour window resets at %s, in %s: less than 20 minutes, so the quota hold releases."
+          % (hhmm(reset_at), span(reset_at - now)))
+    print("  The CEO's rule (%s): %s" % (RULING, HIS_WORDS))
+    print("  %s" % RULE_UPDATE)
+    print("  %s" % worker_line(w))
+    if w["known"]:
+        print("  Wake each quota-paused agent with this message: %s" % ", ".join(w["quota_paused"]))
+        if w["other_paused"]:
+            print("  Paused for OTHER reasons, not named in this rule's wake: %s" % ", ".join(w["other_paused"]))
+    else:
+        print("  The registry could not name the paused agents; wake every agent you paused for the quota.")
+    print("  ---- message begins ----")
+    print("  " + release_message(reset_at))
+    print("  ---- message ends ----")
+    print("  Then start the watcher again; inside the last 20 minutes it pauses nobody and wakes you at the reset:")
     print("    %s --watch" % a.command)
 
 
@@ -450,14 +529,24 @@ def mode_watch(a):
         if window_end is not None and now >= window_end:
             _emit_reset(a, window_end, workers(a.engine_root))
             return 0
+        if window_end is not None and in_last_twenty(window_end, now):
+            # His 2026-09-25 update: a hold in place releases inside the last
+            # 20 minutes. Only when somebody is held (or the registry cannot
+            # say): with nobody held there is nothing to release.
+            w = workers(a.engine_root)
+            if not w["known"] or w["quota_paused"]:
+                _emit_release(a, window_end, now, w)
+                return 0
         r = read_reading(a.payload, now)
         if window_end is None and r["state"] == "ok" and not r["ended"]:
             window_end = r["resets_at"]
-        verdict, why = classify(r, a.threshold, a.stale)
+        verdict, why = rule_verdict(r, a.threshold, a.stale, now)
         print("%s  %s" % (_dt.datetime.fromtimestamp(now, _dt.timezone.utc).strftime("%H:%M:%SZ"),
                           describe(r, a.threshold, now) + ("  [UNKNOWN: %s]" % why if verdict == "unknown" and r["state"] == "ok" else "")),
               flush=True)
         if not a.until_reset:
+            if verdict == "near-reset":
+                print("  at or above the threshold, but %s" % why, flush=True)
             if verdict == "at-or-above":
                 w = workers(a.engine_root)
                 if w["known"] and not w["working"]:
@@ -499,6 +588,11 @@ def mode_watch(a):
         sleep_for = a.poll
         if window_end is not None:
             sleep_for = max(1, min(a.poll, window_end - now))
+            # Wake at the first second inside the last 20 minutes, where a
+            # hold releases, rather than up to one poll late.
+            to_release = window_end - now - (RESET_EXEMPTION_SECONDS - 1)
+            if to_release > 0:
+                sleep_for = max(1, min(sleep_for, to_release))
         time.sleep(sleep_for)
 
 
@@ -510,24 +604,28 @@ def mode_notice(a, now):
     if not a.config:
         return 0
     lines = ["=== THE 93%% QUOTA RULE applies to this session (%s) ===" % RULING,
-             "  His words: %s" % HIS_WORDS]
+             "  His words: %s" % HIS_WORDS,
+             "  %s" % RULE_UPDATE]
     if a.threshold is None:
         lines.append("  THE WATCHER CANNOT RUN HERE: %s is %s in %s. Declare it there, e.g. %s=93."
                      % (CONFIG_KEY, a.threshold_problem, a.config or "(no orchestration.config)", CONFIG_KEY))
     else:
         r = read_reading(a.payload, now)
-        verdict, why = classify(r, a.threshold, a.stale)
+        verdict, why = rule_verdict(r, a.threshold, a.stale, now)
         lines.append("  Threshold: %s=%s (%s)" % (CONFIG_KEY, a.threshold_raw, a.config))
         now_line = describe(r, a.threshold, now)
         if verdict == "unknown" and r["state"] == "ok":
             now_line += " [UNKNOWN: %s]" % why
         elif verdict == "at-or-above":
             now_line += " [ALREADY AT OR ABOVE THE THRESHOLD]"
+        elif verdict == "near-reset":
+            now_line += " [AT OR ABOVE THE THRESHOLD, NO PAUSE: %s]" % why
         lines.append("  Now: %s" % now_line)
         lines.append("  Start the watcher as a background command (Bash with run_in_background: true):")
         lines.append("    %s --watch" % a.command)
         lines.append("  It polls every 5 minutes and wakes you at the threshold with the pause message and the")
-        lines.append("  names to send it to, and at the reset with the resume message and the names to wake.")
+        lines.append("  names to send it to (never inside the last 20 minutes before the reset), when the reset is")
+        lines.append("  less than 20 minutes away with the resume message and the paused names, and at the reset.")
     print("\n".join(lines))
     return 0
 
@@ -555,6 +653,11 @@ def main(argv):
     a.threshold, a.threshold_problem = parse_threshold(a.threshold_raw)
     a.engine_root = a.engine_root or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     now = int(time.time())
+    # Test only: pins the clock for --once, --status and --notice, so the
+    # 19/20/21-minute boundaries are exact to the second. --watch ignores it.
+    pinned = (os.environ.get("QUOTA_WATCH_NOW") or "").strip()
+    if pinned.isdigit():
+        now = int(pinned)
     if a.once:
         return mode_once(a, now)
     if a.status:

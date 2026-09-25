@@ -41,8 +41,8 @@ mutant hardcoded-threshold "Q13" "$L" \
 
 # 3. ABSENCE IS NEVER FINE (design notes R6).
 mutant unknown-exits-zero "Q04" "$L" \
-    'return {"below": 0, "at-or-above": 1}.get(verdict, 2)' \
-    'return {"below": 0, "at-or-above": 1}.get(verdict, 0)' \
+    'return {"below": 0, "at-or-above": 1, "near-reset": 3}.get(verdict, 2)' \
+    'return {"below": 0, "at-or-above": 1, "near-reset": 3}.get(verdict, 0)' \
     "A missing or unreadable payload would exit exactly like a healthy reading below the threshold."
 
 mutant stale-read-as-fresh "R01" "$L" \
@@ -79,7 +79,7 @@ mutant pause-message-without-pause-until "E02" "$L" \
     '    ])' \
     "The pause message would read correctly and record nothing, and every paused agent would be finished at its first SubagentStop."
 
-mutant resume-message-re-pauses "E06" "$L" \
+mutant resume-message-re-pauses "E09" "$L" \
     'Continue exactly where you stopped."' \
     'Continue exactly where you stopped.\npause-until: later"' \
     "The resume message would re-pause the agent it was meant to wake."
@@ -94,5 +94,69 @@ mutant blind-wake-with-nothing-working "W06" "$L" \
     '                    if w["known"] and not w["working"]:{NL}                        print("  the reading is unknown but nothing' \
     '                    if False:{NL}                        print("  the reading is unknown but nothing' \
     "A quiet session would be woken for a stale reading when there is no spend it could hide."
+
+# 7. HIS 2026-09-25 UPDATE (ruling §87). At or above the threshold, no pause
+#    when the reset is LESS than 20 minutes away; exactly 20 still pauses; a
+#    hold in place releases inside that window. And "Keep it consistent at 5
+#    minutes": no usage tier.
+mutant near-reset-ignored "Q17" "$L" \
+    '    if verdict == "at-or-above" and in_last_twenty(r["resets_at"], now):' \
+    '    if False:' \
+    "Agents would be paused with 19 minutes left, for a hold that ends almost as soon as it starts."
+
+mutant twenty-minutes-inclusive "Q18" "$L" \
+    'return resets_at is not None and 0 < resets_at - now < RESET_EXEMPTION_SECONDS' \
+    'return resets_at is not None and 0 < resets_at - now <= RESET_EXEMPTION_SECONDS' \
+    "Exactly 20 minutes would skip the pause; his words keep it."
+
+mutant exemption-ten-minutes "Q17" "$L" \
+    'RESET_EXEMPTION_SECONDS = 20 * 60' \
+    'RESET_EXEMPTION_SECONDS = 10 * 60' \
+    "The window would shrink to 10 minutes and 19 minutes left would pause."
+
+mutant exemption-thirty-minutes "Q19" "$L" \
+    'RESET_EXEMPTION_SECONDS = 20 * 60' \
+    'RESET_EXEMPTION_SECONDS = 30 * 60' \
+    "The window would grow to 30 minutes and 21 minutes left would not pause."
+
+mutant near-reset-exits-as-pause "Q17" "$L" \
+    'return {"below": 0, "at-or-above": 1, "near-reset": 3}.get(verdict, 2)' \
+    'return {"below": 0, "at-or-above": 1, "near-reset": 1}.get(verdict, 2)' \
+    "--once would tell a caller to pause inside the last 20 minutes."
+
+mutant watch-ignores-exception "W10" "$L" \
+    '        verdict, why = rule_verdict(r, a.threshold, a.stale, now){NL}        print("%s  %s"' \
+    '        verdict, why = classify(r, a.threshold, a.stale){NL}        print("%s  %s"' \
+    "--once would say no pause while the watcher woke the lead to pause anyway."
+
+mutant release-never-fires "E05" "$L" \
+    '            if not w["known"] or w["quota_paused"]:{NL}                _emit_release' \
+    '            if False:{NL}                _emit_release' \
+    "A hold would last to the reset instead of releasing inside the last 20 minutes."
+
+mutant release-with-nobody-held "W03" "$L" \
+    '            if not w["known"] or w["quota_paused"]:{NL}                _emit_release' \
+    '            if True:{NL}                _emit_release' \
+    "The lead would be woken to release a hold nobody is in."
+
+mutant release-a-poll-late "E05" "$L" \
+    '            if to_release > 0:' \
+    '            if False:' \
+    "The release would come up to one 5-minute poll after the 20-minute mark."
+
+mutant release-message-re-pauses "E06" "$L" \
+    '"hold is released (%s). Continue exactly where you stopped."' \
+    '"hold is released (%s). Continue exactly where you stopped.\npause-until: later"' \
+    "The release message would re-pause the agent it was meant to wake."
+
+mutant stale-bound-usage-tier "Q23" "$L" \
+    'if r["age"] is not None and r["age"] > stale_after:' \
+    'if r["age"] is not None and r["age"] > (stale_after if r["used"] >= 70 else 6 * stale_after):' \
+    "Below 70% a reading 30 minutes old would pass as current: the schedule he dropped."
+
+mutant status-omits-update "Q24" "$L" \
+    '    print("  update    : %s" % RULE_UPDATE)' \
+    '    pass' \
+    "--status would state the rule without his 2026-09-25 update."
 
 mutation_end
