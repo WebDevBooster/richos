@@ -110,11 +110,13 @@ def result_tests(bundle, runner=subprocess.run):
     counts = {k: int(summ.get(key) or 0) for k, key in (("passed", "passedTests"), ("failed", "failedTests"),
                                                           ("skipped", "skippedTests"), ("total", "totalTestCount"))}
     rows = []
+    kinds = {}
 
     def walk(n, bundle_name):
         kind = n.get("nodeType", "")
         if kind in ("Unit test bundle", "UI test bundle"):
             bundle_name = n.get("name", "")
+            kinds[bundle_name] = kind
         if kind == "Test Case":
             ident = n.get("nodeIdentifier") or n.get("name", "")
             reason = ""
@@ -127,6 +129,7 @@ def result_tests(bundle, runner=subprocess.run):
             walk(c, bundle_name)
     for n in get("tests").get("testNodes", []):
         walk(n, "")
+    result_tests.kinds = kinds
     return counts, rows
 
 
@@ -204,16 +207,28 @@ def cmd_verify(work, shards, times, devices, runner=subprocess.run):
                     got_stamps = None
                     bad.append("simulator %d: its tests' build stamps could not be read (%s)" % (s + 1, exc))
                 if got_stamps is not None:
-                    foreign = []
+                    # Every XCTest in a UI test bundle carries the stamp itself. A bundle of Swift
+                    # Testing tests (which never pass through XCTestCase) is proven by its stamped
+                    # BuildStampTests probe. No test anywhere may carry another build's stamp.
+                    kinds = getattr(result_tests, "kinds", {})
+                    foreign, proven, ran_bundles = [], set(), set()
                     for ident, result, _, _ in rows:
                         if result == "Skipped":
                             continue
-                        key = ident.split("/", 1)[1] if "/" in ident else ident
-                        if got_stamps.get(key) != build_stamp:
-                            foreign.append("%s (%s)" % (key, got_stamps.get(key, "no stamp")))
+                        bundle, _, key = ident.partition("/")
+                        ran_bundles.add(bundle)
+                        got = got_stamps.get(key)
+                        if got == build_stamp:
+                            proven.add(bundle)
+                        elif got is not None or kinds.get(bundle) == "UI test bundle":
+                            foreign.append("%s (%s)" % (key, got or "no stamp"))
+                    unproven = sorted(ran_bundles - proven)
                     if foreign:
                         bad.append("simulator %d ran %d test(s) NOT from this run's build %s: %s" % (
                             s + 1, len(foreign), build_stamp, ", ".join(foreign[:4])))
+                    if unproven:
+                        bad.append("simulator %d: no test in %s carries this run's build stamp %s, so nothing "
+                                   "proves which build ran it" % (s + 1, ", ".join(unproven), build_stamp))
             for k in counts:
                 counts[k] += c[k]
             for ident, result, dur, reason in rows:
@@ -369,7 +384,8 @@ def selftest():
             if argv[4] == "summary":
                 return R(json.dumps({"passedTests": sum(r == "Passed" for _, r, _ in rows), "failedTests": 0,
                                      "skippedTests": sum(r == "Skipped" for _, r, _ in rows), "totalTestCount": len(rows)}))
-            return R(json.dumps({"testNodes": [{"nodeType": "UI test bundle", "name": "U", "children": [
+            kind = "Unit test bundle" if any(i.startswith("Unit.") for i, _, _ in rows) else "UI test bundle"
+            return R(json.dumps({"testNodes": [{"nodeType": kind, "name": "U", "children": [
                 {"nodeType": "Test Case", "nodeIdentifier": i, "result": r, "durationInSeconds": 1.0} for i, r, _ in rows]}]}))
 
         def case(rows, lost=False):
@@ -393,6 +409,14 @@ def selftest():
         # The handover itself: the bundle LOOKS whole and green, but the lease was lost mid-run.
         rc_lost = case([("C/a()", "Passed", own), ("C/onlyOnTheOtherBranch()", "Passed", "key-def456-run.OTHER")], lost=True)
         lost_said = said.getvalue()
+        # A Swift Testing bundle: its tests carry no stamp of their own; its probe does.
+        rc_unit_probe = case([("Unit.S/swiftTesting()", "Passed", None), ("BuildStampTests/probe()", "Passed", own)])
+        before = len(said.getvalue())
+        rc_unit_bare = case([("Unit.S/swiftTesting()", "Passed", None), ("Unit.S/other()", "Passed", None)])
+        said_bare = said.getvalue()[before:]
+    check(rc_unit_probe == 0, "a Swift Testing bundle is proven by its stamped probe test")
+    check(rc_unit_bare == 1 and "nothing proves which build ran it" in said_bare,
+          "a bundle with no stamped test at all is a FAILURE")
     check(rc_own == 0, "every test that ran carries this run's build stamp: green")
     check(rc_foreign == 1 and "ran 1 test(s) NOT from this run's build" in foreign_said
           and "onlyOnTheOtherBranch (key-def456-run.OTHER)" in foreign_said,
