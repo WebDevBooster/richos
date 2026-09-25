@@ -222,6 +222,7 @@ session**, not this one.
 | `scripts/hooks/session-start-ci-surface.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/session-start-escalations.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/session-start-scratch.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
+| `scripts/hooks/session-start-quota.sh` | a | files on disk (the status-line payload, one config line) | no | added 2026-09-25, after this audit; 0 hits for the pattern set in it, `scripts/quota-watch.sh` and `scripts/lib/quota_watch.py`. It PRINTS ruling §87 as a fixed quotation and reads none of his words |
 | `scripts/hooks/shell-evidence.py` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/shell-evidence.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/snapshot-agent-definitions.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
