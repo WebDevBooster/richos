@@ -237,3 +237,6 @@ pub mod operator_snapshot;
 ///                    named stops, the Esc, the read, team liveness, idle retirement ((g), (c),
 ///                    (d), (o), (m), (q), (r), (s), e4; the §88 answer seam).
 pub mod operator_host;
+///   - `operator_runtime` — the host's seams for real: his engine's scripts from the declared
+///                    root, the launcher with the claim, `operator-complete`, durable notices.
+pub mod operator_runtime;
