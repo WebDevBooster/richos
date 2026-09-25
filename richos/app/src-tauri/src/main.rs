@@ -5532,7 +5532,7 @@ mod operator_gate_tests {
         let root = std::env::temp_dir().join(format!("richos-operator-gate-{tag}-{}-{}", std::process::id(), richos_core::util::now_millis()));
         let data = root.join("data");
         std::fs::create_dir_all(&data).unwrap();
-        let ledger = Ledger::open(&root.join("ledger.jsonl")).expect("open ledger");
+        let ledger = Ledger::open(root.join("ledger.jsonl")).expect("open ledger");
         let mut spine = Spine::new(ledger);
         spine.set_entity_registry(EntityRegistry::new(vec![
             Entity::new("femcboost", "FemcBoost", &["/fixture/ab/femcboost"]).unwrap(),

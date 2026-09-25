@@ -433,7 +433,7 @@ fn validate(raw: RawDeclaration) -> Result<Declaration, Refusal> {
         && file.file_name().is_some_and(|n| n == CLAIM_FILE_NAME)
         && lock.file_name().is_some_and(|n| n == CLAIM_LOCK_NAME)
         && file.parent().is_some() && file.parent() == lock.parent()
-        && (file.starts_with(&claude_dir) || file.starts_with(&raw.home.join(".claude")));
+        && (file.starts_with(&claude_dir) || file.starts_with(raw.home.join(".claude")));
     if !claim_ok {
         return Err(Refusal::new(format!(
             "the claim files it names disagree: they must be {CLAIM_FILE_NAME} and {CLAIM_LOCK_NAME}, side by side under {}",
