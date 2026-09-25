@@ -84,6 +84,11 @@ class MacNeedsPairV2(val answer: PairAnswer) : dev.richos.android.core.Transport
  * the Mac gave (`confirm_within_seconds`, at most the five-minute window), and only while the app
  * is on screen. 2 + 3 + 5 + 8 + 13 = 31 s, then floor((300 - 31) / 15) = 17 more: at most
  * [MAX_REQUESTS] = 22 in the whole window (the corpus's `max_requests_in_the_window`).
+ *
+ * **With `pair_wait` (Echo's handoff, 2026-09-24)** that schedule is what a Mac WITHOUT [PAIR_WAIT]
+ * gets between the press (the first ask) and one last ask at the deadline: 24 asks in all. A Mac
+ * naming it holds each ask up to [HOLD_SECONDS_MAX] and the asks keep [MIN_SPACING_MS] apart
+ * ([nextDelayMs], [nextAskAt]); whatever a Mac or relay does, never more than [MAX_ASKS].
  */
 object MacWait {
     val DELAYS_MS: List<Long> = listOf(2_000, 3_000, 5_000, 8_000, 13_000)
@@ -99,7 +104,65 @@ object MacWait {
         val s = confirmWithinSeconds ?: return WINDOW_MS
         return if (s.isFinite() && s > 0) minOf((s * 1000).toLong(), WINDOW_MS) else WINDOW_MS
     }
+
+    /**
+     * **THE MAC CAN HOLD THIS PHONE'S ASK UNTIL THE PRESS** (`api.js` `PAIR_WAIT_SECONDS`; the
+     * corpus's `pair_wait.hold_seconds_max`). A Mac naming [PAIR_WAIT] is sent `Prefer: wait=N`
+     * with N at most this, and answers the moment the person presses on the Mac. Why 14: the event
+     * stream already crosses both routes with at most 15 s between bytes (Sage's review §1).
+     */
+    const val HOLD_SECONDS_MAX = 14
+
+    /**
+     * **THE NO-SPIN RULE WHILE THE MAC HOLDS** (`api.js` `MAC_WAIT_MIN_SPACING_MS`;
+     * `pair_wait.min_ask_spacing_ms`): two asks never start closer than this, so a relay that
+     * forges `pair-wait` and answers at once gets one ask every 7 s at most, never a tight loop.
+     */
+    const val MIN_SPACING_MS = 7_000L
+
+    /**
+     * A ceiling this phone keeps whatever any Mac or relay does, derived rather than chosen: while
+     * a Mac holds, one ask per [MIN_SPACING_MS] in the whole window, floor(300 / 7) + 1 = 43, then
+     * the last ask = 44. The corpus's plans make 23 and 24; a Mac that does not hold, 24.
+     */
+    const val MAX_ASKS = (WINDOW_MS / MIN_SPACING_MS).toInt() + 1 + 1
+
+    /**
+     * **HOW LONG AFTER AN ANSWER THE NEXT ASK GOES** (`api.js` `macWaitNextDelayMs`;
+     * `pair_wait.next_delay_cases`). [attempt] counts from 0 at the press; [tookMs] is how long the
+     * previous ask took; [holds] is whether the Mac named [PAIR_WAIT].
+     *  - Not holding: today's schedule, [delayMs], unchanged.
+     *  - Holding, and the answer took 7 s or more: at once (the next hold starts where this ended).
+     *  - Holding, and it came sooner: the schedule, but never less than keeps the asks 7 s apart.
+     */
+    fun nextDelayMs(attempt: Int, tookMs: Long, holds: Boolean): Long {
+        val scheduled = delayMs(attempt)
+        if (!holds) return scheduled
+        val took = maxOf(0L, tookMs)
+        if (took >= MIN_SPACING_MS) return 0L
+        return maxOf(scheduled, MIN_SPACING_MS - took)
+    }
+
+    /**
+     * **WHEN THE NEXT ASK GOES**, on the clock of its arguments (`api.js` `macWaitNextAskAt`;
+     * `pair_wait.last_ask_cases`): [nextDelayMs] after the answer, never later than [until], where
+     * the LAST ask goes (Sage's review §2). While the Mac holds, that last ask still keeps the 7 s
+     * spacing, so it may go a few seconds after [until]; its answer is as settled, because the
+     * phone's deadline is at or after the Mac's own `confirm_by` (Sage §2b).
+     */
+    fun nextAskAt(attempt: Int, askedAt: Long, answeredAt: Long, until: Long, holds: Boolean): Long {
+        val next = answeredAt + nextDelayMs(attempt, answeredAt - askedAt, holds)
+        if (next <= until) return next
+        return if (holds) maxOf(until, askedAt + MIN_SPACING_MS) else until
+    }
+
+    /** `Prefer: wait=N` for an ask at [now]: whole seconds left to [until], at most [HOLD_SECONDS_MAX]; 0 sends none. */
+    fun preferWaitSeconds(now: Long, until: Long): Int =
+        if (now >= until) 0 else minOf(HOLD_SECONDS_MAX.toLong(), (until - now) / 1000).toInt()
 }
+
+/** The capability a Mac names when it can hold the phone's "They match" until the press (`pair_wait.capability`). */
+const val PAIR_WAIT = "pair-wait"
 
 /** The Mac's answer to "They match": whether it is still waiting for its own press, and the newest challenge. */
 class Confirmation(val awaitingMac: Boolean, val challenge: String)
@@ -157,15 +220,20 @@ class MacApi(private val http: Http, private val keys: DeviceKeys) {
 
     /**
      * A signed request. [pathWithQuery] is the wire form. Returns the answer and the newest
-     * challenge; throws [TransportFailure] classified as above.
+     * challenge; throws [TransportFailure] classified as above. [unsigned] headers travel outside
+     * the signature (`Prefer` is the only one).
      */
-    suspend fun signed(apiBase: String, deviceId: String, challenge: String, method: String, pathWithQuery: String, body: ByteArray?, contentType: String? = null): Signed {
+    suspend fun signed(
+        apiBase: String, deviceId: String, challenge: String, method: String, pathWithQuery: String, body: ByteArray?,
+        contentType: String? = null, unsigned: Map<String, String> = emptyMap(),
+    ): Signed {
         var current = challenge
         repeat(2) { attempt ->
             val raw = Signing.derToRaw(signature(apiBase, Signing.signingString(current, method, pathWithQuery, body).toByteArray(Charsets.UTF_8)))
             val headers = buildMap {
                 put("Authorization", Signing.authorization(deviceId, current, raw))
                 if (contentType != null) put("Content-Type", contentType)
+                putAll(unsigned)
             }
             val response = exchange(HttpRequest(method, apiBase + pathWithQuery, headers, body))
             val fresh = response.headers["x-richos-challenge"]
@@ -186,13 +254,40 @@ class MacApi(private val http: Http, private val keys: DeviceKeys) {
      * `{"ok":true,"awaiting_mac_confirmation":true}` until the person presses They match on the
      * Mac too (the corpus's `mac_confirmation.phone_answer_while_waiting`).
      */
-    suspend fun confirm(apiBase: String, deviceId: String, challenge: String, match: Boolean, fcm: Boolean = false): Confirmation {
+    suspend fun confirm(apiBase: String, deviceId: String, challenge: String, match: Boolean, fcm: Boolean = false): Confirmation =
+        confirmation(signed(apiBase, deviceId, challenge, "POST", "/api/pair", answerBody(deviceId, match, fcm), "application/json"))
+
+    /** The phone's answer to the six words, as the Mac reads it: the one body [confirm] and [macAnswer] both send. */
+    private fun answerBody(deviceId: String, match: Boolean, fcm: Boolean): ByteArray {
         val transport = if (match && fcm) ",\"push_transport\":\"fcm\"" else ""
-        val body = "{\"device_id\":${JsonPrimitive(deviceId)},\"fingerprint_confirmed\":$match$transport}"
-        val signed = signed(apiBase, deviceId, challenge, "POST", "/api/pair", body.toByteArray(), "application/json")
+        return "{\"device_id\":${JsonPrimitive(deviceId)},\"fingerprint_confirmed\":$match$transport}".toByteArray()
+    }
+
+    private fun confirmation(signed: Signed): Confirmation {
         val json = runCatching { lenient.parseToJsonElement(signed.response.text) as? JsonObject }.getOrNull()
         val awaiting = (json?.get("awaiting_mac_confirmation") as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == true
         return Confirmation(awaiting, signed.challenge)
+    }
+
+    /**
+     * **ASK THE MAC WITH THE ANSWER, AND LET IT HOLD THE ASK** (`api.js` `macAnswer`; the corpus's
+     * `pair_wait.asks`; Sage's pair-v2 hypotheses review §1 point 1, the fix for his §2c). The wait
+     * for the press on the Mac sends THIS phone's own signed "They match" again, byte for byte the
+     * body [confirm] sends at the press, instead of reading a backfill row. Every Mac with the press
+     * answers it on every outcome, and a lost first "They match" is recorded by the same request
+     * that learns of the press (without it, notifications silently never work: `trusted()` false).
+     *
+     * [waitSeconds] > 0 adds `Prefer: wait=N`, UNSIGNED and outside the signature: send it only to a
+     * Mac naming [PAIR_WAIT]. The awaiting answer, as a 200 or a 409, is "still waiting"; every
+     * other failure is thrown as classified, so a refusal is the final answer it is.
+     */
+    suspend fun macAnswer(apiBase: String, deviceId: String, challenge: String, fcm: Boolean, waitSeconds: Int): Confirmation {
+        val prefer = if (waitSeconds > 0) mapOf("Prefer" to "wait=${minOf(waitSeconds, MacWait.HOLD_SECONDS_MAX)}") else emptyMap()
+        return try {
+            confirmation(signed(apiBase, deviceId, challenge, "POST", "/api/pair", answerBody(deviceId, true, fcm), "application/json", prefer))
+        } catch (e: TransportFailure) {
+            if (e.awaitingMac) Confirmation(true, e.challenge ?: challenge) else throw e
+        }
     }
 
     /**
