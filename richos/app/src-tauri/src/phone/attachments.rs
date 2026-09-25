@@ -40,6 +40,16 @@
 //!   *seen* should send JPEG at or under 2576 px on its long edge — nothing the model would see is
 //!   lost, and the upload is a fraction of the size. Rich can convert a HEIC with macOS's own
 //!   `sips`, but that is a step, not a view.
+//! # The Mac's own composer takes the same road (CEO §86, 2026-09-24)
+//!
+//! A file dropped or pasted onto the Mac composer is staged here under the device segment
+//! `mac` (a phone's device id is always `dev_…`, so the two can never share a folder), with
+//! the composer's draft id as the "client", and committed into the SAME
+//! `<app data>/attachments/<conversation>/<message>/` folder with the same limits, type
+//! checks and name rules. Only the sentences differ ([`Origin`]): the phone's say the file
+//! "is still on your phone", the Mac's say nothing was attached. The command side lives in
+//! `src/mac_attachments.rs`.
+//!
 //! - **Thread deletion does not reach these files yet**, because no delete-thread command
 //!   exists (`richos-core/src/journal.rs`, `delete_thread` doc). [`AttachmentDesk::delete_thread`]
 //!   is the primitive whoever adds one must call.
@@ -130,6 +140,72 @@ pub fn kind_of(content_type: &str) -> Option<&'static Kind> {
     ACCEPTED.iter().find(|k| k.media_type == bare)
 }
 
+/// The accepted kind for a file NAME, by its extension, for a file that arrives with no
+/// declared type: one dropped onto the Mac's composer arrives as a path, and a path has no
+/// `Content-Type`. The name only chooses which kind to CHECK; [`AttachmentDesk::stage_from`]
+/// still refuses bytes that do not look like it, exactly as it does for a phone upload.
+/// A kind whose own extension is the name's wins over one that merely lists it, so
+/// `photo.heif` is `image/heif` and not the first HEIF-family row.
+pub fn kind_for_name(name: &str) -> Option<&'static Kind> {
+    let (_, extension) = name.rsplit_once('.')?;
+    let extension = extension.to_ascii_lowercase();
+    ACCEPTED
+        .iter()
+        .find(|k| k.extension == extension)
+        .or_else(|| ACCEPTED.iter().find(|k| k.extensions.contains(&extension.as_str())))
+}
+
+/// **WHERE A FILE CAME FROM**, which changes only the sentences a person reads: never a limit,
+/// a type, a check or a path. The phone's sentences say the file "is still on your phone"; on
+/// the Mac the file was never moved anywhere, so the same refusal says nothing was attached.
+/// The Mac composer is CEO ruling §86 and `richos-hq/docs/plans/2026-09-24-daily-driver-readiness.md`
+/// §4 X3 and §6 step 3: "stored and described exactly as the phone's are".
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Origin {
+    Phone,
+    Mac,
+}
+
+impl Origin {
+    pub fn unknown_type(self) -> String {
+        match self {
+            Origin::Phone => "RichOS can't take this kind of file yet. Photos, PDFs, text and Office documents work. The file is still on your phone.".into(),
+            Origin::Mac => "RichOS can't take this kind of file yet. Photos, PDFs, text and Office documents work. Nothing was attached.".into(),
+        }
+    }
+    fn empty(self) -> String {
+        match self {
+            Origin::Phone => "This file is empty. Nothing was sent.".into(),
+            Origin::Mac => "This file is empty. Nothing was attached.".into(),
+        }
+    }
+    pub fn too_large(self) -> String {
+        match self {
+            Origin::Phone => "This file is larger than 25 MB, the most RichOS takes from a phone. It is still on your phone.".into(),
+            Origin::Mac => "This file is larger than 25 MB, the most RichOS takes in one file. Nothing was attached.".into(),
+        }
+    }
+    fn not_what_it_says(self, label: &str) -> String {
+        match self {
+            Origin::Phone => format!("This file does not look like a {label}. Nothing was sent; it is still on your phone."),
+            Origin::Mac => format!("This file does not look like a {label}. Nothing was attached."),
+        }
+    }
+    fn staging_full(self) -> String {
+        match self {
+            Origin::Phone => "Your Mac is holding too many unsent files from this phone. Send or remove some, then try again.".into(),
+            Origin::Mac => "RichOS is holding too many unsent files. Send or remove some, then try again.".into(),
+        }
+    }
+    /// The heading of the block Rich reads; see [`describe_from`].
+    fn heading(self, count: &str) -> String {
+        match self {
+            Origin::Phone => format!("Attached from the phone ({count}, saved on this Mac):"),
+            Origin::Mac => format!("Attached on this Mac ({count}, saved by RichOS):"),
+        }
+    }
+}
+
 /// Do these bytes look like the declared kind? Signature checks for binary formats; UTF-8 with
 /// no NUL for text. The Office formats are checked only as ZIP containers — deeper inspection is
 /// parsing, which v1 does not do.
@@ -204,6 +280,14 @@ pub fn valid_id(id: &str) -> bool {
 /// A directory name for an identifier that did not come from this Mac. Kept as-is when it is
 /// plainly safe (`thr_…`, a UUID); otherwise replaced by `x.<hash>`, which can never collide
 /// with a kept one because kept ones contain no `.`.
+///
+/// **`richos_core::attachments::segment` is the same rule, and must stay the same.** The
+/// session that answers the CEO is given this conversation's folder as a read root there
+/// (`engine_profile.rs`), so the folder this desk writes and the folder the session may read
+/// have to be one name. It is written out here rather than called, because this file is also
+/// compiled, unchanged and without `richos_core`, into the conformance verifier
+/// (`richos/mobile/conformance/verifier/build.rs`). `mac_attachments.rs`'s tests assert the two
+/// agree on every kind of identifier, and both pin the same SHA-256 vector.
 pub fn segment(id: &str) -> String {
     if !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
         id.to_string()
@@ -391,22 +475,33 @@ impl AttachmentDesk {
         content_type: &str,
         bytes: &[u8],
     ) -> Result<Upload, PhoneError> {
+        self.stage_from(Origin::Phone, device, client, id, name, content_type, bytes)
+    }
+
+    /// [`Self::stage`] with the sentences for where the file came from. Every limit and check
+    /// is the same for both origins; only what the person reads differs ([`Origin`]).
+    #[allow(clippy::too_many_arguments)]
+    pub fn stage_from(
+        &self,
+        origin: Origin,
+        device: &str,
+        client: &str,
+        id: &str,
+        name: Option<&str>,
+        content_type: &str,
+        bytes: &[u8],
+    ) -> Result<Upload, PhoneError> {
         let Some(kind) = kind_of(content_type) else {
-            return Ok(Upload::Refused(
-                "RichOS can't take this kind of file yet. Photos, PDFs, text and Office documents work. The file is still on your phone.".into(),
-            ));
+            return Ok(Upload::Refused(origin.unknown_type()));
         };
         if bytes.is_empty() {
-            return Ok(Upload::Refused("This file is empty. Nothing was sent.".into()));
+            return Ok(Upload::Refused(origin.empty()));
         }
         if bytes.len() > self.limits.file {
-            return Ok(Upload::Limit("This file is larger than 25 MB, the most RichOS takes from a phone. It is still on your phone.".into()));
+            return Ok(Upload::Limit(origin.too_large()));
         }
         if !content_matches(kind, bytes) {
-            return Ok(Upload::Refused(format!(
-                "This file does not look like a {}. Nothing was sent; it is still on your phone.",
-                kind.label
-            )));
+            return Ok(Upload::Refused(origin.not_what_it_says(kind.label)));
         }
         let sha = hex(&sha256(bytes));
         let _guard = self.lock.lock().unwrap();
@@ -423,7 +518,7 @@ impl AttachmentDesk {
             return Ok(Upload::Limit("The files in this message add up to more than 100 MB, the most RichOS takes in one message.".into()));
         }
         if !self.make_room(device, &dir, bytes.len() as u64) {
-            return Ok(Upload::Limit("Your Mac is holding too many unsent files from this phone. Send or remove some, then try again.".into()));
+            return Ok(Upload::Limit(origin.staging_full()));
         }
         create_private_dir(&dir)?;
         let staged = Staged {
@@ -498,6 +593,37 @@ impl AttachmentDesk {
         Ok(stored)
     }
 
+    /// **Take one staged, not-yet-committed file back out.** The Mac composer's remove control:
+    /// the file was never sent, so nothing of it is kept. `Ok(false)` when there was nothing
+    /// under that id (a second press, or a file already swept), which is not an error.
+    pub fn discard(&self, device: &str, client: &str, id: &str) -> Result<bool, PhoneError> {
+        if !valid_id(id) {
+            return Ok(false);
+        }
+        let _guard = self.lock.lock().unwrap();
+        let dir = self.message_dir(device, client);
+        let mut found = false;
+        // The record first: without it the bytes are an incomplete upload nothing will read,
+        // and the next stage of the same id simply replaces them.
+        for name in [format!("{id}.json"), format!("{id}.bin")] {
+            match std::fs::remove_file(dir.join(name)) {
+                Ok(()) => found = true,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(io(e)),
+            }
+        }
+        if Self::staged_in(&dir).is_empty() {
+            // An empty message folder is not worth an error to the person; the seven-day sweep
+            // takes whatever is left, and the log says why it was left.
+            match std::fs::remove_dir(&dir) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => eprintln!("[richos] an emptied attachment folder was left for the sweep: {e}"),
+            }
+        }
+        Ok(found)
+    }
+
     /// Delete everything stored for one conversation. **No caller yet** — see the module doc:
     /// no delete-thread command exists, and this is the primitive it must call when one does.
     #[allow(dead_code)]
@@ -522,13 +648,20 @@ impl AttachmentDesk {
 /// - /…/attachments/thr_1/c-1/IMG_0001.jpg (image/jpeg, 2431112 bytes)
 /// ```
 pub fn describe(text: &str, stored: &[Stored]) -> String {
+    describe_from(Origin::Phone, text, stored)
+}
+
+/// [`describe`], headed for where the files came from. The Mac composer's message reads
+/// `Attached on this Mac (2 files, saved by RichOS):` and is otherwise the phone's, line for
+/// line, so Rich reads one shape whichever surface the CEO handed him a file on.
+pub fn describe_from(origin: Origin, text: &str, stored: &[Stored]) -> String {
     let count = if stored.len() == 1 { "1 file".to_string() } else { format!("{} files", stored.len()) };
     let mut out = String::new();
     if !text.is_empty() {
         out.push_str(text);
         out.push_str("\n\n");
     }
-    out.push_str(&format!("Attached from the phone ({count}, saved on this Mac):"));
+    out.push_str(&origin.heading(&count));
     for file in stored {
         out.push_str(&format!("\n- {} ({}, {} bytes)", file.path.display(), file.media_type, file.size));
     }
@@ -759,5 +892,92 @@ mod tests {
             describe("", &stored[..1]),
             "Attached from the phone (1 file, saved on this Mac):\n- /data/attachments/thr_1/c-1/contract.pdf (application/pdf, 812004 bytes)"
         );
+    }
+
+    #[test]
+    fn the_mac_composer_gets_the_same_block_under_its_own_heading() {
+        let stored = vec![
+            Stored { id: "s1".into(), name: "Screenshot.png".into(), media_type: "image/png".into(), size: 4096, path: "/data/attachments/thr_1/m-1/Screenshot.png".into() },
+            Stored { id: "d1".into(), name: "brief.pdf".into(), media_type: "application/pdf".into(), size: 812004, path: "/data/attachments/thr_1/m-1/brief.pdf".into() },
+        ];
+        assert_eq!(
+            describe_from(Origin::Mac, "Look at these.", &stored),
+            "Look at these.\n\nAttached on this Mac (2 files, saved by RichOS):\n\
+             - /data/attachments/thr_1/m-1/Screenshot.png (image/png, 4096 bytes)\n\
+             - /data/attachments/thr_1/m-1/brief.pdf (application/pdf, 812004 bytes)"
+        );
+        // The phone's wrapper is untouched: it is the phone's text, byte for byte.
+        assert_eq!(describe("x", &stored[..1]), describe_from(Origin::Phone, "x", &stored[..1]));
+    }
+
+    #[test]
+    fn a_dropped_file_is_typed_by_its_name_and_still_checked_by_its_bytes() {
+        assert_eq!(kind_for_name("Screenshot 2026-09-24 at 10.02.11.png").unwrap().media_type, "image/png");
+        assert_eq!(kind_for_name("scan.PDF").unwrap().media_type, "application/pdf");
+        assert_eq!(kind_for_name("IMG_1.JPEG").unwrap().media_type, "image/jpeg");
+        assert_eq!(kind_for_name("photo.heif").unwrap().media_type, "image/heif");
+        assert_eq!(kind_for_name("photo.heic").unwrap().media_type, "image/heic");
+        assert_eq!(kind_for_name("notes.markdown").unwrap().media_type, "text/markdown");
+        for refused in ["archive.zip", "tool.app", "no-extension", "run.sh", "old.doc", "clip.mov"] {
+            assert!(kind_for_name(refused).is_none(), "{refused} should have no kind");
+        }
+        // The name picks what to CHECK. A JPEG renamed `.png` is still refused by its bytes.
+        let dir = Scratch::new();
+        let desk = AttachmentDesk::open(&dir.0);
+        let png = kind_for_name("renamed.png").unwrap();
+        let Upload::Refused(sentence) = desk.stage_from(Origin::Mac, "mac", "draft-1", "a1", Some("renamed.png"), png.media_type, JPEG).unwrap() else {
+            panic!("a JPEG named .png was taken as a PNG")
+        };
+        assert_eq!(sentence, "This file does not look like a PNG image. Nothing was attached.");
+    }
+
+    #[test]
+    fn the_mac_refusals_say_nothing_was_attached_and_never_mention_a_phone() {
+        let dir = Scratch::new();
+        let desk = AttachmentDesk::open(&dir.0);
+        let mut huge = JPEG.to_vec();
+        huge.resize(MAX_FILE_BYTES + 1, 0);
+        let answers = [
+            desk.stage_from(Origin::Mac, "mac", "d", "a", None, "application/zip", b"PK\x03\x04").unwrap(),
+            desk.stage_from(Origin::Mac, "mac", "d", "a", None, "image/jpeg", b"").unwrap(),
+            desk.stage_from(Origin::Mac, "mac", "d", "a", None, "image/jpeg", &huge).unwrap(),
+            desk.stage_from(Origin::Mac, "mac", "d", "a", None, "application/pdf", JPEG).unwrap(),
+        ];
+        for answer in &answers {
+            let (Upload::Refused(s) | Upload::Limit(s)) = answer else { panic!("{answer:?}") };
+            assert!(!s.to_lowercase().contains("phone"), "{s}");
+            assert!(s.ends_with("Nothing was attached."), "{s}");
+        }
+        // The SAME limits: the Mac's ceiling is the phone's 25 MiB, to the byte.
+        let mut at_limit = JPEG.to_vec();
+        at_limit.resize(MAX_FILE_BYTES, 0);
+        assert!(matches!(desk.stage_from(Origin::Mac, "mac", "d", "b", None, "image/jpeg", &at_limit).unwrap(), Upload::Stored(_)));
+        // And the phone's sentences did not move.
+        let Upload::Refused(phone) = desk.stage("dev_1", "m", "a", None, "application/zip", b"PK\x03\x04").unwrap() else { panic!() };
+        assert!(phone.ends_with("The file is still on your phone."), "{phone}");
+    }
+
+    #[test]
+    fn a_removed_file_is_gone_from_staging_and_cannot_be_committed() {
+        let dir = Scratch::new();
+        let desk = AttachmentDesk::open(&dir.0);
+        let Upload::Stored(kept) = desk.stage_from(Origin::Mac, "mac", "draft-7", "keep", Some("a.pdf"), "application/pdf", PDF).unwrap() else { panic!() };
+        let Upload::Stored(gone) = desk.stage_from(Origin::Mac, "mac", "draft-7", "gone", Some("b.jpg"), "image/jpeg", JPEG).unwrap() else { panic!() };
+        assert!(desk.discard("mac", "draft-7", "gone").unwrap());
+        // A second press, and an id that never existed, are answered calmly.
+        assert!(!desk.discard("mac", "draft-7", "gone").unwrap());
+        assert!(!desk.discard("mac", "draft-7", "../escape").unwrap());
+        let dir7 = desk.message_dir("mac", "draft-7");
+        assert!(!dir7.join("gone.bin").exists() && !dir7.join("gone.json").exists());
+        assert_eq!(desk.staged("mac", "draft-7", &[(gone.id.clone(), gone.sha256.clone())]), Err(Missing(vec!["gone".into()])));
+        // The file that stayed still commits, alone.
+        let files = desk.staged("mac", "draft-7", &[(kept.id.clone(), kept.sha256.clone())]).unwrap();
+        let stored = desk.commit("mac", "draft-7", "thr_1", &files).unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(std::fs::read(&stored[0].path).unwrap(), PDF);
+        // Removing the last file removes the folder with it.
+        desk.stage_from(Origin::Mac, "mac", "draft-8", "only", None, "application/pdf", PDF).unwrap();
+        assert!(desk.discard("mac", "draft-8", "only").unwrap());
+        assert!(!desk.message_dir("mac", "draft-8").exists());
     }
 }

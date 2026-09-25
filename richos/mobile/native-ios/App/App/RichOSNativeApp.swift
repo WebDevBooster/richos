@@ -31,6 +31,13 @@ struct RichOSNativeApp: App {
         return SharePlatform.context(for: state, macAcceptsAttachments: state.attachmentLimits != nil, limits: state.attachmentLimits)
     }
 
+    /// The replies the person has read in the open conversation, only while the app is on screen
+    /// (`ReadReplies`, D04); `nil` otherwise, so every return to the front is a change.
+    private var readReplies: ReadReplies.Read? {
+        guard scenePhase == .active, let state = store?.state else { return nil }
+        return ReadReplies.of(state)
+    }
+
     private func usefulMarker(_ store: AppStore) -> some View {
         let state = store.state
         let revision = UsefulFrameMarker.Revision(count: state.messages.count, last: state.messages.last, reply: state.reply)
@@ -93,8 +100,9 @@ struct RichOSNativeApp: App {
                 let effects: (any EffectHandler)?
                 #if DEBUG
                 // Gesture fixtures use the real core and storage with controlled
-                // non-storage effects, just as the headless CLI does.
-                effects = DevBridge.interactiveFixture ? nil : platform
+                // non-storage effects, just as the headless CLI does; `-rios-fixture-mac` adds a
+                // stand-in Mac for the wait for the press on the Mac (`DevBridgeFixtureMac`).
+                effects = DevBridge.interactiveFixture ? DevBridgeFixtureMac.fromLaunchArguments() : platform
                 #else
                 effects = platform
                 #endif
@@ -146,6 +154,12 @@ struct RichOSNativeApp: App {
                     do { try await Task.sleep(nanoseconds: UInt64(wait) * 1_000_000) } catch { return }
                 }
                 if let store, store.ticking { store.send(.tick(at: SystemClock().nowMs())) }
+            }
+            .onChange(of: readReplies) { _, read in
+                // D04: read replies leave Notification Center, however the app was opened. Only when
+                // what is read changes, only on screen: no timer, nothing in the background.
+                guard let read, let store else { return }
+                NotificationPlatform.shared.withdrawRead(read, hostID: store.state.notifications.hostID)
             }
             .onChange(of: shareContext) { _, _ in
                 // Only when what the Share extension reads changed (pairing, the Mac, appearance,

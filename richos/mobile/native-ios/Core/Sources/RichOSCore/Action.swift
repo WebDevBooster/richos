@@ -33,9 +33,10 @@ public enum Action: Equatable, Sendable {
     /// "They do not match" (on the words, or while waiting for the Mac): the Mac forgets this phone
     /// and the phone discards its key (§2.5).
     case rejectWords
-    /// What the Mac said about the press ON THE MAC: its answer to the phone's own "They match", or
-    /// to one probe of the wait (`MacWait`). `at` is when the answer arrived.
-    case macConfirmation(MacConfirmation, at: Int64)
+    /// What the Mac said about the press ON THE MAC: its answer to one ask of the wait (`MacWait`),
+    /// the press on the phone being the first. `at` is when the answer arrived; `askedAt`, when the
+    /// ask was sent (`nil` in an older trace: the ask then counts as taking no time).
+    case macConfirmation(MacConfirmation, at: Int64, askedAt: Int64? = nil)
     /// Continue on the consent screen (`pair-consent`).
     case acceptConsent
     case dismissPairingProblem
@@ -112,6 +113,9 @@ public enum Action: Equatable, Sendable {
     case voiceStartLocked(id: String, width: Double, at: Int64)
     /// The OS answered or reports the microphone permission (a mirror; nothing parallel is stored).
     case microphonePermission(Permission)
+    /// The microphone-off card's "Not now": the card goes until the next press finds the microphone
+    /// off (D03; Android's `dismiss-microphone-card`).
+    case dismissMicrophoneCard
     /// The finger moved: offsets from the touch-down point, in points (negative = left / up).
     case voiceMove(dx: Double, dy: Double, at: Int64)
     case voiceRelease(at: Int64)
@@ -210,10 +214,13 @@ public struct PairAnswer: Codable, Equatable, Sendable {
     public var devicePoint: String?
     /// The Mac's `confirm_within_seconds`: how long the person has to press "They match" on the Mac.
     public var confirmWithinSeconds: Double?
+    /// The Mac named `pair-wait` beside `pair-v2`: it can hold the wait's ask until the press on the
+    /// Mac (`MacWait`). Optional, so a trace written before it still decodes; absent means no.
+    public var offersPairWait: Bool?
     public init(deviceID: String, fingerprintHex: String, threadID: String? = nil, macName: String? = nil,
-                devicePoint: String? = nil, confirmWithinSeconds: Double? = nil) {
+                devicePoint: String? = nil, confirmWithinSeconds: Double? = nil, offersPairWait: Bool? = nil) {
         self.deviceID = deviceID; self.fingerprintHex = fingerprintHex; self.threadID = threadID; self.macName = macName
-        self.devicePoint = devicePoint; self.confirmWithinSeconds = confirmWithinSeconds
+        self.devicePoint = devicePoint; self.confirmWithinSeconds = confirmWithinSeconds; self.offersPairWait = offersPairWait
     }
 }
 
@@ -225,12 +232,15 @@ public enum Effect: Equatable, Sendable {
     case persist
     /// Generate (or reuse) this origin's device key and send `POST /api/pair` with the code.
     case pair(PairLink)
-    /// Send the signed six-word answer (contract §2.5). For "They match" the Mac's answer comes back
+    /// Send the signed six-word answer (contract §2.5). The reducer sends it only for "They do not
+    /// match"; "They match" is the wait's first ask (`checkMacConfirmation`), whose answer comes back
     /// as `macConfirmation`.
     case confirmFingerprint(matches: Bool)
-    /// One probe of the wait for the press on the Mac: a signed read of one backfill row, which the
-    /// Mac answers with the awaiting 409 until the press (`MacWait`). Only ever sent on screen.
-    case checkMacConfirmation
+    /// One ask of the wait for the press on the Mac (`MacWait`, `pairing.json` `pair_wait`): the
+    /// phone's own signed "They match" again, byte for byte, with `Prefer: wait=<waitSeconds>` when
+    /// `waitSeconds` is above 0 (only to a Mac that offers `pair-wait`). Only ever sent on screen;
+    /// leaving the screen cancels it.
+    case checkMacConfirmation(waitSeconds: Int)
     /// Discard this phone's key for that origin.
     case forgetIdentity(origin: String)
     /// Open this app's page in iPhone Settings (camera or microphone turned off).
@@ -260,6 +270,9 @@ public enum Effect: Equatable, Sendable {
     /// Ask the OS for notification permission and register with the Mac (native push, contract §7.2).
     case requestNotifications(previews: Bool)
     case unregisterNotifications
+    /// Remove every RichOS reply notification still in Notification Center: notifications were turned
+    /// off, or the Mac was forgotten (D04).
+    case withdrawNotifications
     case openAppStore
     case openSupport
     case openPrivacyPolicy
@@ -299,7 +312,7 @@ public enum Reducer {
             ConnectionReducer.reduce(&next, action, &effects)
             ConversationReducer.reduce(&next, action, &effects)
             VoiceReducer.reduce(&next, action, &effects)
-        case .voicePress, .voiceStartLocked, .microphonePermission, .voiceMove, .voiceRelease, .voiceLockedSend, .voiceLockedCancel,
+        case .voicePress, .voiceStartLocked, .microphonePermission, .dismissMicrophoneCard, .voiceMove, .voiceRelease, .voiceLockedSend, .voiceLockedCancel,
              .voiceTouchCanceled, .voiceStartFailed, .voiceInterrupted, .voiceLevel, .voiceSettled, .sendKept, .discardKept, .playRecording:
             VoiceReducer.reduce(&next, action, &effects)
         case .turnOnNotifications, .notificationsResult, .turnOffNotifications, .dismissNotificationOffer, .setPreviews,

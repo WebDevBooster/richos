@@ -203,7 +203,7 @@ session**, not this one.
 | `scripts/hooks/notice-ceo-ruled-prose.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/notice-ceo-unasked.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/notice-claim-capability.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
-| `scripts/hooks/notice-disk-alert.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
+| `scripts/hooks/release-land-leases.sh` | a | files on disk / its own state (lease files, the repository's Git state) | no | added 2026-09-24 after this audit, registered on Stop; reads no prompt and no transcript || `scripts/hooks/notice-disk-alert.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/notice-escalations.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/notice-hook-staleness.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/notice-inflight-acks.sh` | a | the transcript, joined on TOOL CALLS / agent ids | no | 1 non-comment hit(s), first: 187:    d=json.load(sys.stdin); print(str(d.get("transcript_path","") or "") if isinstance |
@@ -222,6 +222,7 @@ session**, not this one.
 | `scripts/hooks/session-start-ci-surface.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/session-start-escalations.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/session-start-scratch.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
+| `scripts/hooks/session-start-quota.sh` | a | files on disk (the status-line payload, one config line) | no | added 2026-09-25, after this audit; 0 hits for the pattern set in it, `scripts/quota-watch.sh` and `scripts/lib/quota_watch.py`. It PRINTS ruling §87 as a fixed quotation and reads none of his words |
 | `scripts/hooks/shell-evidence.py` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/shell-evidence.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/snapshot-agent-definitions.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |

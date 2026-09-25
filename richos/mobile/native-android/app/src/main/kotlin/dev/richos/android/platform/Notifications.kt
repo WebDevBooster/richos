@@ -566,19 +566,22 @@ object Replies {
                 else -> target.thread == thread && target.event in events
             }
         }
-        gone.forEach { manager.cancel(it.tag, it.id) }
         val newest = left.maxWithOrNull(compareBy({ it.postTime }, { it.notification.`when` }))
-        when {
-            newest == null -> {
-                if (summaryPosted) manager.cancel(SUMMARY_ID)
-                clearedAt.accumulateAndGet(generation, ::maxOf)
-            }
-            gone.isNotEmpty() && summaryPosted -> {
-                val extras = newest.notification.extras
-                val text = extras.getCharSequence(Notification.EXTRA_TEXT) ?: NotificationPreview.GENERIC
-                manager.notify(SUMMARY_ID, summary(context, text, openIntent(context, NotificationTarget.fromExtras(extras))))
-            }
+        if (newest == null) {
+            gone.forEach { manager.cancel(it.tag, it.id) }
+            if (summaryPosted) manager.cancel(SUMMARY_ID)
+            clearedAt.accumulateAndGet(generation, ::maxOf)
+            return
         }
+        // The summary is re-pointed BEFORE the read replies go, so at no moment does the collapsed
+        // group open a reply already withdrawn: withdrawn first, there was a window (a stall here,
+        // or the process ending) in which its tap still opened the reply just read.
+        if (gone.isNotEmpty() && summaryPosted) {
+            val extras = newest.notification.extras
+            val text = extras.getCharSequence(Notification.EXTRA_TEXT) ?: NotificationPreview.GENERIC
+            manager.notify(SUMMARY_ID, summary(context, text, openIntent(context, NotificationTarget.fromExtras(extras))))
+        }
+        gone.forEach { manager.cancel(it.tag, it.id) }
     }
 
     /** Every reply and the summary leave the shade: notifications turned off, or the Mac forgotten (D04). */

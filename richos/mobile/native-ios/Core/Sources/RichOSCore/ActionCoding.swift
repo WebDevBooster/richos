@@ -12,7 +12,7 @@ import Foundation
 /// Also new: `share-take` (`intake`, a share from the Share extension) and `notification-open` with
 /// `event` instead of `id` (the reply's SHA-256 reference, for a reply not loaded yet). Pairing v2
 /// adds `pairing-needs-mac-update` and `mac-confirmation` (`confirmation`: `confirmed`, `awaiting` or
-/// `refused`, with `at`), the Mac's word on the press ON THE MAC.
+/// `refused`, with `at` and optionally `askedAt`), the Mac's word on the press ON THE MAC.
 ///
 /// Time and idempotency stamps (`at`, `clientId` on `send`) are optional on the wire: omitted, they
 /// are stamped from the clock when the command arrives; given, a scenario replays exactly.
@@ -60,6 +60,7 @@ extension Action: Codable {
         var bytes: Int?
         var tooLarge: Bool?
         var confirmation: MacConfirmation?
+        var askedAt: Int64?
 
         init(_ type: String) { self.type = type }
     }
@@ -73,7 +74,7 @@ extension Action: Codable {
         "notification-open", "notification-focused", "share-take", "reply-play", "playback-started", "playback-progress",
         "playback-ended", "playback-stop", "dismiss-toast",
         "network", "connection-lost", "connected", "connection-diagnosed", "mac-capabilities", "pairing-revoked", "foregrounded", "backgrounded", "mac-attachment-limits", "push-registered",
-        "voice-press", "voice-start-locked", "microphone-permission", "voice-move", "voice-release", "voice-locked-send",
+        "voice-press", "voice-start-locked", "microphone-permission", "dismiss-microphone-card", "voice-move", "voice-release", "voice-locked-send",
         "voice-locked-cancel", "voice-touch-canceled", "voice-interrupted", "voice-level", "voice-settled",
         "send-kept", "discard-kept", "record-play",
         "notifications-enable", "notifications-result", "notifications-disable", "dismiss-notification-offer",
@@ -106,7 +107,7 @@ extension Action: Codable {
         case "pairing-unreachable": self = .pairingUnreachable
         case "pairing-needs-mac-update": self = .pairingNeedsMacUpdate
         case "confirm-pair": self = try need(w.matched, "matched") ? .confirmWords : .rejectWords
-        case "mac-confirmation": self = .macConfirmation(try need(w.confirmation, "confirmation"), at: now)
+        case "mac-confirmation": self = .macConfirmation(try need(w.confirmation, "confirmation"), at: now, askedAt: w.askedAt)
         case "accept-consent": self = .acceptConsent
         case "dismiss-pairing-problem": self = .dismissPairingProblem
         case "discard-and-pair": self = .discardUnsentAndPair
@@ -152,6 +153,7 @@ extension Action: Codable {
         case "voice-press": self = .voicePress(id: w.id ?? UUID().uuidString.lowercased(), width: try need(w.width, "width"), at: now)
         case "voice-start-locked": self = .voiceStartLocked(id: w.id ?? UUID().uuidString.lowercased(), width: try need(w.width, "width"), at: now)
         case "microphone-permission": self = .microphonePermission(try need(w.permission, "permission"))
+        case "dismiss-microphone-card": self = .dismissMicrophoneCard
         case "voice-move": self = .voiceMove(dx: try need(w.dx, "dx"), dy: try need(w.dy, "dy"), at: now)
         case "voice-release": self = .voiceRelease(at: now)
         case "voice-locked-send": self = .voiceLockedSend(at: now)
@@ -213,7 +215,7 @@ extension Action: Codable {
         case .pairingNeedsMacUpdate: w = Wire("pairing-needs-mac-update")
         case .confirmWords: w = Wire("confirm-pair"); w.matched = true
         case .rejectWords: w = Wire("confirm-pair"); w.matched = false
-        case .macConfirmation(let c, let at): w = Wire("mac-confirmation"); w.confirmation = c; w.at = at
+        case .macConfirmation(let c, let at, let askedAt): w = Wire("mac-confirmation"); w.confirmation = c; w.at = at; w.askedAt = askedAt
         case .acceptConsent: w = Wire("accept-consent")
         case .dismissPairingProblem: w = Wire("dismiss-pairing-problem")
         case .discardUnsentAndPair: w = Wire("discard-and-pair")
@@ -257,6 +259,7 @@ extension Action: Codable {
         case .voicePress(let id, let width, let at): w = Wire("voice-press"); w.id = id; w.width = width; w.at = at
         case .voiceStartLocked(let id, let width, let at): w = Wire("voice-start-locked"); w.id = id; w.width = width; w.at = at
         case .microphonePermission(let p): w = Wire("microphone-permission"); w.permission = p
+        case .dismissMicrophoneCard: w = Wire("dismiss-microphone-card")
         case .voiceMove(let dx, let dy, let at): w = Wire("voice-move"); w.dx = dx; w.dy = dy; w.at = at
         case .voiceRelease(let at): w = Wire("voice-release"); w.at = at
         case .voiceLockedSend(let at): w = Wire("voice-locked-send"); w.at = at

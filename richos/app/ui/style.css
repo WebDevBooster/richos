@@ -2419,6 +2419,157 @@ body.bp-narrow .first-run {
   color: var(--ink);
 }
 
+/* ---- SCREENSHOTS AND FILES ON THE COMPOSER (CEO §86, `attachments.js`) ------------------
+   Round 12.1's attachment append is the reference (frozen, read, not edited): a tray above
+   the text line, one chip per file with its name, type and size, each with its own remove
+   control. Every color is an existing composer token; nothing new is introduced.
+
+   CONTRAST, both themes, computed by `tests/attachments.js` from WebKit's resolved colors
+   (the arithmetic of `tests/lib/contrast.js`), and re-checked every run rather than trusted
+   from this comment:
+     .attach-name    `--ink`        on `--surface` (the card)        text, 4.5:1
+     .attach-meta    `--ink-soft`   on `--surface`                   text, 4.5:1
+     .attach-remove  `--ink-soft`   on `--surface`                   the × glyph, 3:1 non-text
+     .attach-chip    `--line-control` edge against `--paper`         3:1 non-text
+     .attach-drop    `--accent-text` dashed edge against `--paper`   3:1 non-text; text `--ink`
+     .attach-note    `--attention`  on `--paper`                     text, 4.5:1
+
+   DECLARED, because an undeclared exemption is a failure wearing a justification: the tile's
+   extension (`PDF`, `PNG`) is 14px, the skippable tier of §15's type scale, because it
+   repeats what the 16px `.attach-meta` line beside it says in words. It still clears 4.5:1
+   in both themes and is measured with everything else; it is exempt from the 16px size floor
+   only, never from contrast. */
+#attach-tray {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 12px 28px 0;
+}
+
+.attach-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.attach-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 300px;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--line-control);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.attach-tile {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--surface-sunk);
+  color: var(--ink-soft);
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.attach-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.attach-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Two lines and then an ellipsis, never a cut through the middle of a word he would read as
+   one (round 12.1, `att-pending-file`: "name (two lines, never cut in the middle of
+   meaning)"). The full name is the chip's tooltip and the remove control's accessible name. */
+.attach-name {
+  font-size: 1rem;
+  line-height: 1.3;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.attach-meta {
+  font-size: 1rem;
+  line-height: 1.3;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.attach-remove {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink-soft);
+  font-family: inherit;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.attach-remove:hover {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+
+.attach-remove:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* While the file is still being added the control waits; it stays at full ink so the chip
+   does not read as broken, and it simply does not respond until the file is in. */
+.attach-remove:disabled {
+  cursor: default;
+}
+
+.attach-drop {
+  margin: 0 0 8px;
+  padding: 14px;
+  border: 2px dashed var(--accent-text);
+  border-radius: var(--radius);
+  text-align: center;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.attach-note {
+  max-width: 680px;
+  margin: 8px auto 0;
+  padding: 0 28px;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--attention);
+  white-space: pre-line;
+}
+
 /* THE CONTROL THAT CLEARS THE ONE BLOCKED STATE HE OWNS. Border is `--line-control`, the
    token this file already reserves for indicator-grade edges (see `.overlay-input`), and
    not `--line`, which is a divider: this outline is the only thing that says "this is a

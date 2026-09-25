@@ -78,6 +78,10 @@ public struct AppState: Codable, Equatable, Sendable {
     /// TRANSIENT MIRRORS of the OS permission state (PRD §3: no parallel permission state is stored).
     public var microphone: Permission = .unknown
     public var camera: Permission = .unknown
+    /// TRANSIENT. A press found the microphone off: the microphone-off card is up (round-12
+    /// `rec-mic-denied`, D03). Only a press raises it; "Not now", a grant or forgetting the pairing
+    /// takes it down. Never saved, and printed only while up (Android's `microphoneCard`).
+    public var microphoneCard = false
 
     // MARK: connection (group 7)
     /// TRANSIENT. `nil` while healthy — routine recovery is invisible, and a notice exists only for a
@@ -135,7 +139,7 @@ extension AppState {
     /// Every field, plus the derived `screen`, so a CLI reader sees the surface directly. Absent
     /// fields decode to a new install's values; `screen` is ignored on the way in.
     private enum CodingKeys: String, CodingKey {
-        case readingAnchor, schema, pairing, mac, fingerprintWords, macWait, consentGiven, scanner, pairingProblem, messages, draft, outbox, reply, history, following, focusedMessageID, notifiedReply, composerFocused, playback, voice, keptRecordings, voiceAvailability, microphone, camera, connectionNotice, troubleSinceMs, notifications, sheet, update, attachmentLimits, toast, appearance, screen
+        case readingAnchor, schema, pairing, mac, fingerprintWords, macWait, consentGiven, scanner, pairingProblem, messages, draft, outbox, reply, history, following, focusedMessageID, notifiedReply, composerFocused, playback, voice, keptRecordings, voiceAvailability, microphone, microphoneCard, camera, connectionNotice, troubleSinceMs, notifications, sheet, update, attachmentLimits, toast, appearance, screen
     }
 
     public init(from decoder: Decoder) throws {
@@ -165,6 +169,7 @@ extension AppState {
         keptRecordings = try c.decodeIfPresent([KeptRecording].self, forKey: .keptRecordings) ?? d.keptRecordings
         voiceAvailability = try c.decodeIfPresent(VoiceAvailability.self, forKey: .voiceAvailability) ?? d.voiceAvailability
         microphone = try c.decodeIfPresent(Permission.self, forKey: .microphone) ?? d.microphone
+        microphoneCard = try c.decodeIfPresent(Bool.self, forKey: .microphoneCard) ?? d.microphoneCard
         camera = try c.decodeIfPresent(Permission.self, forKey: .camera) ?? d.camera
         connectionNotice = try c.decodeIfPresent(ConnectionNotice.self, forKey: .connectionNotice)
         troubleSinceMs = try c.decodeIfPresent(Int64.self, forKey: .troubleSinceMs)
@@ -201,6 +206,7 @@ extension AppState {
         try c.encode(keptRecordings, forKey: .keptRecordings)
         try c.encode(voiceAvailability, forKey: .voiceAvailability)
         try c.encode(microphone, forKey: .microphone)
+        if microphoneCard { try c.encode(microphoneCard, forKey: .microphoneCard) }
         try c.encode(camera, forKey: .camera)
         try c.encode(connectionNotice, forKey: .connectionNotice)
         try c.encode(troubleSinceMs, forKey: .troubleSinceMs)
@@ -245,6 +251,9 @@ extension AppState {
         public var macWaitBoundMs: Int64? = nil
         public var macWaitDeadlineMs: Int64? = nil
         public var macWaitRequests: Int? = nil
+        /// The Mac offered `pair-wait`, so a relaunch keeps asking it to hold (and keeps 7 s between
+        /// asks). Absent means no, as in every state written before it.
+        public var macWaitHolds: Bool? = nil
     }
 
     public var persisted: Persisted {
@@ -259,7 +268,8 @@ extension AppState {
                       return KeptRecording(id: v.id, durationMs: 0, levels: [], reason: .interrupted, recordedAt: start)
                   },
                   macWaitBoundMs: macWait?.boundMs, macWaitDeadlineMs: macWait?.deadlineMs,
-                  macWaitRequests: macWait.flatMap { $0.requests > 0 ? $0.requests : nil })
+                  macWaitRequests: macWait.flatMap { $0.requests > 0 ? $0.requests : nil },
+                  macWaitHolds: macWait.flatMap { $0.holds ? true : nil })
     }
 
     public init(restoring p: Persisted) throws {
@@ -273,9 +283,10 @@ extension AppState {
         readingAnchor = p.readingAnchor
         if pairing == .confirming || pairing == .awaitingMac {
             // Restored paused: a launch is a return to the screen, and `foregrounded` resumes the wait
-            // (or ends it, past the bound).
+            // (or, past the bound, makes its last ask).
             macWait = MacWait(boundMs: p.macWaitBoundMs ?? MacWait.windowMs, deadlineMs: p.macWaitDeadlineMs,
-                              requests: p.macWaitRequests ?? 0, paused: pairing == .awaitingMac)
+                              requests: p.macWaitRequests ?? 0, paused: pairing == .awaitingMac,
+                              holds: p.macWaitHolds ?? false)
         }
         // A message that was mid-send when the app stopped is re-sent at once on this launch: the
         // Mac's `client_id` receipt makes that free (the reference queue's rule 3).

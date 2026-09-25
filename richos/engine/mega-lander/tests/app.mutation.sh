@@ -72,8 +72,8 @@ mutant partition-home-accepted "test_the_land_lock_refuses_to_live_inside_either
 # every ordinary overlap refuses reviewed work and costs it an implementation
 # and a review to recover.
 mutant contention-refuses-instead-of-waiting "test_the_second_lander_waits_for_the_first_and_never_refuses_the_work" "$A" \
-    '                waited = time.monotonic() - started{NL}                if waited >= timeout:' \
-    '                waited = time.monotonic() - started{NL}                if True:' \
+    '            waited = time.monotonic() - started{NL}            if waited >= timeout:' \
+    '            waited = time.monotonic() - started{NL}            if True:' \
     "a land that merely overlapped another would be refused instead of queued, and a refused land sends finished, reviewed work back for a fresh implementation and a fresh review."
 
 # --- 6. AND THE REFUSAL NAMES THE HOLDER ---------------------------------

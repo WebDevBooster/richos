@@ -7,7 +7,8 @@ import Foundation
 ///
 /// Rules that are never broken, each a test: an interruption or a permission prompt is never a
 /// send; a recording that reaches the ceiling or is interrupted is KEPT, never sent by itself and
-/// never discarded; a release under 500 ms sends nothing.
+/// never discarded; a release under 500 ms sends nothing; a press while the microphone is off always
+/// answers with the microphone-off card, and nothing but a press raises it (D03).
 enum VoiceReducer {
     static func reduce(_ s: inout AppState, _ action: Action, _ effects: inout [Effect]) {
         switch action {
@@ -16,7 +17,10 @@ enum VoiceReducer {
                   s.connectionNotice != .incompatible else { return }
             switch s.microphone {
             case .denied:
-                return  // the recovery card explains and offers Settings (round-12 `rec-mic-denied`)
+                // D03: the press is answered by the card that says the microphone is off and offers
+                // iPhone Settings (round-12 `rec-mic-denied`). The press never asks again: iOS shows
+                // its question once, and the person already answered it.
+                s.microphoneCard = true
             case .unknown:
                 // The system asks once, on the first deliberate press. This press never records.
                 s.voice = VoiceSession(id: id, phase: .pressed, startedAtMs: at, nowMs: at, recordingStartedAtMs: nil, width: width)
@@ -27,6 +31,8 @@ enum VoiceReducer {
             }
         case .microphonePermission(let permission):
             s.microphone = permission
+            // The card stays while the microphone is still off; it goes the moment it is allowed.
+            if permission != .denied { s.microphoneCard = false }
             if s.sheet == .microphonePrompt {
                 s.sheet = nil
                 s.voice = nil  // the press that asked is over; the next press records
@@ -107,6 +113,8 @@ enum VoiceReducer {
         case .voiceLevel(let level):
             guard let v = s.voice, v.phase == .held || v.phase == .locked else { return }
             s.voice?.levels.append(min(1, max(0, level)))
+        case .dismissMicrophoneCard:
+            s.microphoneCard = false
         case .voiceSettled:
             if case .ending? = s.voice?.phase { s.voice = nil }
             if s.toast == .tooShort { s.toast = nil }
@@ -115,6 +123,11 @@ enum VoiceReducer {
             guard s.voice == nil, s.pairing == .paired, s.consentGiven, s.voiceAvailability == .available,
                   s.connectionNotice != .incompatible, s.microphone == .granted else {
                 if s.microphone == .unknown, s.voice == nil { effects.append(.requestMicrophone) }
+                // The same answer a held press gets while the microphone is off (D03).
+                if s.microphone == .denied, s.voice == nil, s.pairing == .paired, s.consentGiven,
+                   s.voiceAvailability == .available, s.connectionNotice != .incompatible {
+                    s.microphoneCard = true
+                }
                 return
             }
             s.voice = VoiceSession(id: id, phase: .locked, startedAtMs: at, nowMs: at, recordingStartedAtMs: at,

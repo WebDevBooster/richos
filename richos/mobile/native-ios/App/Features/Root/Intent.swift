@@ -150,6 +150,9 @@ enum Intent: Equatable, Sendable {
             }
         case .removePending(let id): return .removePendingAttachment(id: id)
         case .dismissCard(let id) where id.hasPrefix("attach-"): return .dismissAttachNotice
+        // The microphone-off card's "Not now" (D03). Before, this id fell through to `nil` and the
+        // button did nothing.
+        case .dismissCard(let id) where id == ScreenModel.Card.microphoneDenied.id: return .dismissMicrophoneCard
         default: return nil
         }
     }

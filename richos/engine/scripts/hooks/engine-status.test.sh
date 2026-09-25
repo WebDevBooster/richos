@@ -733,6 +733,14 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # a person deleting it by hand after the operating system shouted. It resolves
 # no entity root, so it is declared in the probe's R_ROOTLESS_HOOKS; suite:
 # session-start-scratch.test.sh (9 cases, four of them silence).
+# session-start-quota.sh, ADDED 2026-09-25 — SessionStart, refuses nothing. It
+# tells every lead the CEO's 93% quota rule in his words (ruling §87), the
+# threshold as declared (QUOTA_PAUSE_PERCENT in orchestration.config), the
+# reading now, and the command that starts scripts/quota-watch.sh --watch. On
+# additionalContext only, never systemMessage: the budget design notes keep
+# the percentage out of the CEO's view (R4). Silent where the engine is not
+# adopted. It resolves no entity root itself (quota-watch.sh does), so it is
+# declared in the probe's R_ROOTLESS_HOOKS; suite: session-start-quota.test.sh.
 # notice-disk-alert.sh, ADDED 2026-09-19 — SessionStart, refuses nothing, and
 # the CEO's own §54: when the disk falls below the declared DISK_CEO_NOTIFY_GB
 # it tells him at session start and keeps telling him until the space is back,
@@ -799,9 +807,25 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # prompts and briefs: ONE refused, and it is the dispatch that caused the
 # incident. Suite: guard-public-record-repo.test.sh (30 cases); harness:
 # public-record-repo.mutation.sh.
+# release-land-leases.sh, ADDED 2026-09-24 — Stop, NEVER BLOCKS. The operator
+# back end's land lease ends at its holder's turn end once the land is at rest
+# (clean, nothing in progress, pushed); otherwise it is kept and the hold is
+# announced, naming the dirty paths (richos-hq spec r3 e6, Frank F3 and G5).
+# Behind OPERATOR_FENCES: with the switch off no lease exists and it prints
+# nothing. Suite: release-land-leases.test.sh; harness: release-land-leases.mutation.sh.
+# guard-land-lease-commands.sh, ADDED 2026-09-24 — BLOCKING, a module of the Bash
+# chain's manifest. The operator fence's early check: it refuses, before it runs,
+# a cherry-pick, revert, am, rebase, stash, commit, reset or merge --abort aimed at
+# a fenced main checkout by a session without that repository's land lease
+# (richos-hq spec r3 e7, Frank G1; reset and merge --abort because the Git fence
+# stops them only after the shared tree is rewritten, measured on both gits).
+# Off or absent fence: never refuses. Suite: guard-land-lease-commands.test.sh;
+# harness: land-lease-commands.mutation.sh.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
 guard-host-display-power.sh
+guard-land-lease-commands.sh
 guard-public-record-repo.sh
+release-land-leases.sh
 guard-reference-ledger.sh
 guard-no-home-network-phone.sh
 notice-disk-alert.sh
@@ -865,6 +889,7 @@ scan-secrets.sh
 session-start-ceo-ask.sh
 session-start-ci-surface.sh
 session-start-escalations.sh
+session-start-quota.sh
 session-start-scratch.sh
 shell-evidence.sh
 snapshot-agent-definitions.sh

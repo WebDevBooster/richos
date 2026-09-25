@@ -82,7 +82,10 @@ else bad "S4 permanent application identity agrees across packaging and push" "a
 # Re-based 2026-09-24 to include c5250dc9 (the PWA's v2 pairing: the Mac must press "They match"),
 # the one deliberate change since the 2026-09-22 tag: a security fix the PWA needs because it is the
 # CEO's Android stand-in (§76 preservation was Rich's technical call, not a CEO sentence).
-TAG="preserved/mobile-ios-and-pwa-2026-09-24"
+# Re-based again 2026-09-25 to include e2da1f28, f03d89dd and addaee46 (the PWA's pair-wait, Urban's
+# pairing wording and Sage's old-Mac sentence), deliberate so the PWA says and does what both native
+# apps do. Only app.js and lib/api.js moved; the preserved iPhone app and its UI are unchanged.
+TAG="preserved/mobile-ios-and-pwa-2026-09-25"
 PRESERVED=(richos/mobile/ios richos/mobile/ui richos/web/web-app)
 NOT_PRODUCT=(richos/mobile/ios/Tests richos/mobile/ios/UITests richos/web/web-app/test)
 if git -C "$ROOT" rev-parse -q --verify "$TAG^{commit}" >/dev/null 2>&1; then

@@ -136,6 +136,10 @@ struct ScreenModel: Equatable, Sendable {
         var sharedFrom: String? = nil
         /// Upload progress, 0…1, while an attachment is sending.
         var progress: Double? = nil
+        /// The line's identity in the list when it differs from `id`: one of your messages keeps its
+        /// client id from Send to the Mac's row for it (`Message.lineID`).
+        var lineID: String? = nil
+        var listID: String { lineID ?? id }
     }
 
     struct ConnectionLine: Equatable, Sendable {
@@ -252,7 +256,7 @@ extension ScreenModel {
             thread = cachedTranscript
         } else {
         let staged = Dictionary(s.outbox.flatMap { $0.files ?? [] }.map { ($0.id, $0.path) }, uniquingKeysWith: { a, _ in a })
-        thread.rows = s.messages.map { Row(message: $0, stagedPath: { staged[$0] }, directory: attachments) }
+        thread.rows = RichOSCore.Transcript.visible(s).map { Row(message: $0, stagedPath: { staged[$0] }, directory: attachments) }
         if let playback = s.playback, let i = thread.rows.firstIndex(where: { $0.id == playback.messageID }) {
             thread.rows[i].audio = playback.phase == .preparing ? .preparing : .playing(progress: playback.progress)
         }
@@ -332,7 +336,8 @@ extension ScreenModel {
             }
             cards.append(.keptRecording(KeptRecording(id: r.id, durationMs: r.durationMs, levels: r.levels, reason: reason)))
         }
-        if s.microphone == .denied { cards.append(.microphoneDenied) }
+        // Only after a press found the microphone off (D03), never from the OS's answer alone.
+        if s.microphoneCard, s.microphone == .denied { cards.append(.microphoneDenied) }
         if s.pairing == .paired, s.notifications.status == .notAsked, !s.notifications.offerDismissed {
             cards.append(.notificationOffer)
         }
@@ -388,6 +393,18 @@ extension ScreenModel {
     }
 }
 
+extension ScreenModel.Card {
+    /// The card the region above the composer brings into view after `before` became `after`: the
+    /// last card that was not there before, or `nil` when none was added (I05). That region is at most
+    /// 40% of the screen and scrolls, so a card raised under one already showing (the microphone-off
+    /// card under "Waiting to send") was laid out behind the message field, and a press looked like
+    /// it did nothing. A card that only changed (a new count) is not new, and nothing moves for it.
+    static func raised(before: [ScreenModel.Card], after: [ScreenModel.Card]) -> String? {
+        let shown = Set(before.map(\.id))
+        return after.last { !shown.contains($0.id) }?.id
+    }
+}
+
 extension ScreenModel {
     /// A staged photo on this phone, or a plain tile when there is no copy to show.
     static func photoSource(path: String?, directory: URL?) -> AttachPhoto.Source {
@@ -437,6 +454,7 @@ extension ScreenModel.Row {
         }
         self.init(id: m.id, author: author, body: body, sentAt: m.sentAt, delivery: delivery,
                   isRecent: delivery == .sending || delivery == .waiting)
+        if m.lineID != m.id { lineID = m.lineID }
     }
 }
 

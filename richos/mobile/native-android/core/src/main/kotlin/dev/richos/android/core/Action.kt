@@ -79,9 +79,13 @@ sealed interface Action {
     @Serializable @SerialName("link")
     data class Link(val status: LinkStatus) : Action
 
-    /** What a diagnosis found while away: the phone's own network, and the managed service. */
+    /**
+     * What a diagnosis found while away: the phone's own network, and the managed service. And
+     * [vpn], the OS's own report of whether the default network runs through a VPN (Tailscale on
+     * Android is one), from its network callback, never a probe (D05).
+     */
     @Serializable @SerialName("health")
-    data class Health(val phoneOnline: Boolean? = null, val service: ServiceState? = null) : Action
+    data class Health(val phoneOnline: Boolean? = null, val service: ServiceState? = null, val vpn: Boolean? = null) : Action
 
     /** Time passed: republish time-derived state (the reconnecting notice, the voice timer). The app's one timer sends it. */
     @Serializable @SerialName("tick")

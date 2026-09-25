@@ -54,6 +54,7 @@ WHAT IS RECORDED, AND BY WHOM (never inferred):
                    process is gone or is a different process  (point 12)
 """
 
+import calendar
 import errno
 import fcntl
 import glob
@@ -3181,9 +3182,58 @@ def _recreate_deleted_ref(repo, branch, tip, who):
     (docs/verification/ref-write-forensics-2026-09-14.md). An automated system
     writing a ref anonymously is indefensible and the message is free.
 
+    UNDER THE OPERATOR FENCE (spec r3 e2, Frank G3). Git deletes a branch's
+    reflog together with the branch, so the fence cannot recognize this restore
+    from the reflog. When the repository's fence is on, a one-line RESTORE INTENT
+    is written first, into the lease home the fence reads (baked into its
+    launcher, never this process's environment): the ref, the value, and this
+    process's pid and start time. The fence passes the creation of a missing
+    `main` only when the new value equals the intent's and the intent's process
+    is an ancestor of the Git call. It is removed afterwards. With the fence off,
+    or absent, nothing is written and this function is what it always was.
+
     Returns git's own (rc, out, err)."""
     msg = "richos engine: protected ref restored after it was deleted during %s's tool call" % who
-    return git(repo, "update-ref", "-m", msg, "--no-deref", "refs/heads/" + branch, tip, "")
+    intent = _fence_restore_intent(repo, branch, tip)
+    try:
+        return git(repo, "update-ref", "-m", msg, "--no-deref", "refs/heads/" + branch, tip, "")
+    finally:
+        if intent:
+            try:
+                os.unlink(intent)
+            except OSError:
+                pass
+
+
+def _fence_restore_intent(repo, branch, tip):
+    """Write the G3 restore intent when `repo`'s operator fence is on; return its
+    path, or '' when nothing was written. Never raises."""
+    try:
+        rc, out, _ = git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir")
+        if rc != 0:
+            return ""
+        launcher = os.path.join(out.strip(), "hooks", "reference-transaction")
+        with open(launcher, encoding="utf-8") as fh:
+            text = fh.read(65536)
+        if "richos-operator-fence-launcher" not in text:
+            return ""
+        conf = dict(re.findall(r'(?m)^OPERATOR_FENCES_([A-Z_]+)="([^"]*)"\s*$', text))
+        if conf.get("STATE") != "on" or not conf.get("HOME") or not conf.get("KEY"):
+            return ""
+        st, started = process_start(os.getpid())
+        if st != "ok":
+            return ""
+        epoch = calendar.timegm(time.strptime(" ".join(started.split()), "%a %b %d %H:%M:%S %Y"))
+        path = os.path.join(conf["HOME"], "restore-intents", conf["KEY"] + ".json")
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        tmp = "%s.%d.tmp" % (path, os.getpid())
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"ref": "refs/heads/" + branch, "value": tip, "pid": os.getpid(),
+                                 "start": epoch, "at": iso()}) + "\n")
+        os.replace(tmp, path)
+        return path
+    except (OSError, ValueError, OverflowError):
+        return ""
 
 
 def _restore_protected_refs(rec, priors, latest):

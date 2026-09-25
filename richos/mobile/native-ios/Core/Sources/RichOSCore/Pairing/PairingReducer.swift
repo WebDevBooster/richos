@@ -51,7 +51,8 @@ enum PairingReducer {
             mac.name = answer.macName
             s.mac = mac
             s.pairing = .confirming
-            s.macWait = MacWait(boundMs: MacWait.boundMs(confirmWithinSeconds: answer.confirmWithinSeconds))
+            s.macWait = MacWait(boundMs: MacWait.boundMs(confirmWithinSeconds: answer.confirmWithinSeconds),
+                                holds: answer.offersPairWait == true)
             s.scanner = nil
         case .pairingRefused:
             guard s.pairing == .connecting else { return }
@@ -69,11 +70,15 @@ enum PairingReducer {
             effects.append(.forgetIdentity(origin: origin))
         case .confirmWords:
             // Said on the phone; the Mac lets this phone in only after the same press ON THE MAC. The
-            // words stay up, and the Mac's answer to this press starts the wait (`macConfirmation`).
+            // words stay up. THE PRESS IS THE FIRST ASK (Sage's pair-v2 hypotheses review §1, point 1):
+            // the phone's signed "They match", held by a Mac that offers `pair-wait` for as long as the
+            // bound allows (at most 14 s), and its answer starts the bound (`macConfirmation`).
             guard s.pairing == .confirming else { return }
             s.pairing = .awaitingMac
-            s.macWait = MacWait(boundMs: s.macWait?.boundMs ?? MacWait.windowMs)
-            effects.append(.confirmFingerprint(matches: true))
+            var wait = MacWait(boundMs: s.macWait?.boundMs ?? MacWait.windowMs, holds: s.macWait?.holds ?? false)
+            wait.asking = true
+            s.macWait = wait
+            effects.append(.checkMacConfirmation(waitSeconds: MacWait.holdSeconds(holds: wait.holds, leftMs: wait.boundMs)))
         case .rejectWords:
             // The Mac forgets the phone synchronously and the phone discards its key on the same
             // press (contract §2.5). Nothing about this pairing is kept. Also the way out while the
@@ -86,17 +91,17 @@ enum PairingReducer {
             effects.append(.confirmFingerprint(matches: false))
             if let origin = s.mac?.origin { effects.append(.forgetIdentity(origin: origin)) }
             s.mac = nil
-        case .macConfirmation(let answer, let at):
-            guard s.pairing == .awaitingMac, var wait = s.macWait else { return }
-            // The first answer is the Mac's to the phone's own "They match"; it starts the bound.
-            // After that only the answer to the probe in flight is taken: one that arrives after the
-            // app left the screen is dropped, and the return to the screen asks again.
-            if wait.deadlineMs == nil {
-                wait.deadlineMs = at + wait.boundMs
-            } else if !wait.asking {
-                return
-            }
+        case .macConfirmation(let answer, let at, let askedAt):
+            // Only the answer to the ask in flight is taken: one that arrives after the app left the
+            // screen is dropped, and the return to the screen asks again.
+            guard s.pairing == .awaitingMac, var wait = s.macWait, wait.asking else { return }
+            let started = askedAt ?? wait.lastAskAtMs ?? at
+            // The first answer is the Mac's to the press on the phone: the bound counts from the press.
+            if wait.deadlineMs == nil { wait.deadlineMs = started + wait.boundMs }
+            let final = wait.finalAsk
             wait.asking = false
+            wait.finalAsk = false
+            wait.lastAskAtMs = started
             s.macWait = wait
             switch answer {
             case .confirmed:
@@ -107,26 +112,34 @@ enum PairingReducer {
                 effects.append(.connect)
             case .refused:
                 end(&s, .notAcceptedByMac, &effects)
+            case .awaiting where final:
+                // The last ask, and the Mac still had not said yes (or could not be reached): the phone
+                // stops, and says it did not hear back, which is true either way.
+                end(&s, .macAnswerExpired, &effects)
             case .awaiting:
-                schedule(&s, at: at, &effects)
+                schedule(&s, askedAt: started, answeredAt: at)
             }
         case .tick(let at):
             guard s.pairing == .awaitingMac, let wait = s.macWait, !wait.paused, !wait.asking,
                   let due = wait.nextAskAtMs, at >= due else { return }
-            askOrEnd(&s, at: at, &effects)
-        case .backgrounded:
+            ask(&s, at: at, &effects)
+        case .backgrounded(let at):
             // Off screen nothing is asked, scheduled or retried; an answer already on its way is
-            // dropped (the app cancels the request).
+            // dropped (the app cancels the request). A canceled ask still counts as the latest one for
+            // the 7 s spacing; the press carries no time of its own, so leaving stands in for it.
             guard s.pairing == .awaitingMac, var wait = s.macWait else { return }
+            if wait.asking, wait.lastAskAtMs == nil { wait.lastAskAtMs = at }
             wait.paused = true
             wait.asking = false
+            wait.finalAsk = false
             wait.nextAskAtMs = nil
             s.macWait = wait
         case .foregrounded(let at):
-            // Back on screen (or a relaunch, which restores the wait paused): past the bound the wait
-            // ends truthfully; inside it the phone asks at once. A relaunch before the Mac answered the
-            // phone's own "They match" starts the bound now. The app never left the screen (an alert
-            // or Control Center came and went): the schedule, or the answer on its way, stands.
+            // Back on screen (or a relaunch, which restores the wait paused): the phone asks again, at
+            // once or, while the Mac holds, as soon as 7 s have passed since the previous ask. Past the
+            // bound that ask is the last one. A relaunch before the Mac answered the press starts the
+            // bound now. The app never left the screen (an alert or Control Center came and went): the
+            // schedule, or the answer on its way, stands.
             guard s.pairing == .awaitingMac else { return }
             var wait = s.macWait ?? MacWait(paused: true)
             guard wait.paused else { return }
@@ -134,7 +147,11 @@ enum PairingReducer {
             wait.asking = false
             if wait.deadlineMs == nil { wait.deadlineMs = at + wait.boundMs }
             s.macWait = wait
-            askOrEnd(&s, at: at, &effects)
+            if wait.holds, let last = wait.lastAskAtMs, at < last + MacWait.minAskSpacingMs {
+                s.macWait?.nextAskAtMs = last + MacWait.minAskSpacingMs
+            } else {
+                ask(&s, at: at, &effects)
+            }
         case .acceptConsent:
             s.consentGiven = true
         case .dismissPairingProblem:
@@ -206,40 +223,48 @@ enum PairingReducer {
 
     // MARK: the wait for the press on the Mac (`MacWait`)
 
-    /// After an answer that says "not yet": the next probe on the schedule, never past the bound and
-    /// never more than `MacWait.maxRequests`; past the bound, the end. Off screen, nothing.
-    private static func schedule(_ s: inout AppState, at: Int64, _ effects: inout [Effect]) {
+    /// After an answer that says "not yet": the next ask (`MacWait.nextAskAt`), never later than the
+    /// deadline except that the last ask keeps 7 s from the previous one while the Mac holds; at the
+    /// ceiling of `MacWait.maxRequests`, only the last ask. Off screen, nothing.
+    private static func schedule(_ s: inout AppState, askedAt: Int64, answeredAt: Int64) {
         guard var wait = s.macWait, let deadline = wait.deadlineMs else { return }
-        if at >= deadline { return end(&s, .macAnswerExpired, &effects) }
         if wait.paused {
             wait.nextAskAtMs = nil
         } else if wait.requests >= MacWait.maxRequests {
-            wait.nextAskAtMs = deadline
+            wait.nextAskAtMs = MacWait.lastAskAt(askedAt: askedAt, until: deadline, holds: wait.holds)
         } else {
-            wait.nextAskAtMs = min(at + MacWait.delayMs(attempt: wait.requests), deadline)
+            wait.nextAskAtMs = MacWait.nextAskAt(attempt: wait.requests, askedAt: askedAt, answeredAt: answeredAt,
+                                                 until: deadline, holds: wait.holds)
         }
         s.macWait = wait
     }
 
-    /// The moment a probe is owed (a tick at its time, or the return to the screen): past the bound
-    /// the wait ends; at the request ceiling it only waits for the bound; otherwise one probe goes.
-    private static func askOrEnd(_ s: inout AppState, at: Int64, _ effects: inout [Effect]) {
+    /// The moment an ask is owed (a tick at its time, or the return to the screen). At or past the
+    /// deadline it is the last ask, with no hold; at the ceiling the phone only waits for that last
+    /// ask; otherwise one ask goes, held by a Mac that offers it for as long as the deadline allows.
+    private static func ask(_ s: inout AppState, at: Int64, _ effects: inout [Effect]) {
         guard var wait = s.macWait, let deadline = wait.deadlineMs else { return }
-        if at >= deadline { return end(&s, .macAnswerExpired, &effects) }
-        if wait.requests >= MacWait.maxRequests {
-            wait.nextAskAtMs = deadline
+        if at >= deadline {
+            wait.finalAsk = true
+            wait.asking = true
+            wait.nextAskAtMs = nil
+            wait.lastAskAtMs = at
+            effects.append(.checkMacConfirmation(waitSeconds: 0))
+        } else if wait.requests >= MacWait.maxRequests {
+            wait.nextAskAtMs = MacWait.lastAskAt(askedAt: wait.lastAskAtMs, until: deadline, holds: wait.holds)
         } else {
             wait.requests += 1
             wait.asking = true
             wait.nextAskAtMs = nil
-            effects.append(.checkMacConfirmation)
+            wait.lastAskAtMs = at
+            effects.append(.checkMacConfirmation(waitSeconds: MacWait.holdSeconds(holds: wait.holds, leftMs: deadline - at)))
         }
         s.macWait = wait
     }
 
-    /// The wait is over without a pairing: the Mac refused this phone, or the bound passed. The Mac
-    /// has already forgotten the key (it refused it, or its own window closed); the phone forgets it
-    /// too, and the person is told what happened and how to pair again.
+    /// The wait is over without a pairing: the Mac refused this phone, or its last ask went unanswered
+    /// by a yes. The Mac has already forgotten the key (it refused it, or its own window closed); the
+    /// phone forgets it too, and the person is told what happened and how to pair again.
     private static func end(_ s: inout AppState, _ problem: PairingProblem, _ effects: inout [Effect]) {
         if let origin = s.mac?.origin { effects.append(.forgetIdentity(origin: origin)) }
         s.pairing = .unpaired
