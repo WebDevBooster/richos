@@ -333,6 +333,8 @@ class Files(object):
         self.restore_intent = os.path.join(self.home, "restore-intents", self.key + ".json")
         self.refusals = os.path.join(self.home, "fence-refusals.jsonl")
         self.preserved = os.path.join(self.home, "preserved")
+        # The repository name a refusal record carries (cmd_fence writes the same value).
+        self.repo = conf.get("REPO") or conf.get("COMMON") or ""
 
 
 def declared_holders(conf):
@@ -596,6 +598,40 @@ def writer_git_argv(chain):
     return []
 
 
+def _refusals_of(files, head, started_at):
+    """Refusal records of ONE unfinished operation, newest first: this
+    repository, carrying its head, and no older than its head file. The same
+    commit can be merged or cherry-picked again later, so an older refusal of
+    the same head never describes a newer operation (measured in F13)."""
+    out = []
+    if not head:
+        return out
+    for rec in reversed(_read_refusals(files)):
+        if rec.get("repository") != files.repo:
+            continue
+        if head not in (rec.get("merge_head"), rec.get("cherry_pick_head"), rec.get("revert_head")):
+            continue
+        try:
+            if started_at is None or float(rec.get("epoch")) < started_at - 0.5:
+                continue
+        except (TypeError, ValueError):
+            continue
+        out.append(rec)
+    return out
+
+
+def _cap(text):
+    return text[:1].upper() + text[1:]
+
+
+def _writer_text(rec):
+    argv = rec.get("writer_argv") or []
+    caller = rec.get("caller") or {}
+    return "a refused `git %s` from %s at %s" % (
+        " ".join(argv[:8]) or "(argv not recorded)",
+        holder_label(caller) if caller.get("pid") else "a caller with no recorded identity", rec.get("at", "?"))
+
+
 def fence_decide(lines, common, gitdir, files, chain, argv_of_writer=None):
     """[(line, why)] of refused updates, [] when everything passes.
 
@@ -768,29 +804,25 @@ def merge_owner(conf, paths, chain=None, consider_lease=True):
             if is_ancestor(h["pid"], h["start"], chain):
                 return {"verdict": "mine", "kind": kind, "head": head, "label": holder_label(h)}
             return {"verdict": "other-holder", "kind": kind, "head": head, "label": holder_label(h)}
-    started_at = _head_mtime(gitdir, kind)
-    if head:
-        for rec in reversed(_read_refusals(files)):
-            if rec.get("repository") != conf.get("REPO"):
-                continue
-            if head not in (rec.get("merge_head"), rec.get("cherry_pick_head"), rec.get("revert_head")):
-                continue
-            # A refusal describes THIS operation only if it came after the head
-            # file appeared. The same commit can be cherry-picked again later by
-            # someone else, and an older refusal of the same head must not make
-            # a live starter's operation look refused (measured in F13: it did).
-            try:
-                if started_at is None or float(rec.get("epoch")) < started_at - 0.5:
-                    continue
-            except (TypeError, ValueError):
-                continue
-            caller = rec.get("caller") or {}
-            mine = bool(me) and caller.get("pid") == me["pid"] and caller.get("start") == me["start"]
-            return {"verdict": "refused-mine" if mine else "refused-other", "kind": kind, "head": head,
-                    "label": holder_label(caller) if caller else "an unknown caller"}
     rec = read_json(files.in_progress)
     owner = (rec or {}).get("owner")
-    if owner and _record_matches(rec, kind, head, gitdir):
+    starter = owner if owner and _record_matches(rec, kind, head, gitdir) else None
+    # A refusal describes THIS operation only if it came after the head file
+    # appeared (_refusals_of). And it ORPHANS the operation only when it really
+    # does (Fix 3): an ORIG_HEAD refusal, whose writer had already rewritten the
+    # index (Fix 1's case), or a refusal of the operation's own recorded
+    # starter, which cannot conclude what it started. Another writer's refused
+    # `git commit` during a healthy, resolved merge by the holder orphans nothing.
+    for ref_rec in _refusals_of(files, head, _head_mtime(gitdir, kind)):
+        caller = ref_rec.get("caller") or {}
+        rewrote = ref_rec.get("ref") == "ORIG_HEAD"
+        if not rewrote and not same_holder(caller, starter):
+            continue
+        mine = bool(me) and caller.get("pid") == me["pid"] and caller.get("start") == me["start"]
+        return {"verdict": "refused-mine" if mine else "refused-other", "kind": kind, "head": head,
+                "label": holder_label(caller) if caller else "an unknown caller",
+                "rewrote": _writer_text(ref_rec) if rewrote else ""}
+    if starter:
         if not alive(owner.get("pid"), owner.get("start", -1)):
             return {"verdict": "owner-ended", "kind": kind, "head": head, "label": holder_label(owner)}
         if me and same_holder(me, owner):
@@ -1082,11 +1114,16 @@ def _report_in_progress(conf, paths):
     what = {"MERGE_HEAD": "a merge", "CHERRY_PICK_HEAD": "a cherry-pick",
             "REVERT_HEAD": "a revert"}.get(verdict.get("kind"), "an unfinished operation")
     if verdict["verdict"] in ("owner-ended", "refused-mine", "refused-other"):
+        if verdict["verdict"] == "owner-ended":
+            why = "its owner has ended"
+        elif verdict.get("rewrote"):
+            why = ("%s had already rewritten its index before the fence refused it, so its staged resolution "
+                   "is gone. Do not commit on top of it" % verdict["rewrote"])
+        else:
+            why = "the fence refused its own starter's move"
         _say("land-lease: %s is in progress in %s (%s), started by %s, and it can never finish: %s. Preserve and "
              "abort it with: land-lease.sh abort-orphan --repo %s, and name %s in your land's report."
-             % (what, paths["main"], head, verdict.get("label"),
-                "its owner has ended" if verdict["verdict"] == "owner-ended" else "the fence refused it",
-                paths["main"], head))
+             % (what, paths["main"], head, verdict.get("label"), why, paths["main"], head))
     else:
         _say("land-lease: %s is in progress in %s (%s), started by %s, who may still be finishing it. "
              "Leave it: never abort a merge you did not start." % (what, paths["main"], head, verdict.get("label")))

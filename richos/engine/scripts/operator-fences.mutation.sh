@@ -115,9 +115,14 @@ mutant orphan-abort-of-a-live-starter "F13 " "$L" \
     '    if False:' \
     "G6: the lease holder would abort a cherry-pick whose starter is alive and still resolving it."
 mutant stale-refusal-matches "F13 " "$L" \
-    '                if started_at is None or float(rec.get("epoch")) < started_at - 0.5:' \
-    '                if False:' \
+    '            if started_at is None or float(rec.get("epoch")) < started_at - 0.5:' \
+    '            if False:' \
     "an old refusal of the same commit would make a live starter's new cherry-pick look refused, and it would be aborted (measured in this suite before the fix)."
+
+mutant refused-commit-orphans "F33 " "$L" \
+    '        if not rewrote and not same_holder(caller, starter):' \
+    '        if False:' \
+    "Fix 3: another writer's refused commit during the holder's healthy merge would make acquire call that merge orphaned and send the holder to abort-orphan."
 
 # --- the launcher and the switch (e8, G12) --------------------------------------------
 mutant off-can-refuse "F20 " "$T" \

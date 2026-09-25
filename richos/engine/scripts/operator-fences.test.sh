@@ -68,6 +68,8 @@
 #   F28  a lease naming a live pid with another start time is dead: a recycled
 #        pid is never mistaken for the holder
 #   F29  a live, in-time lease cannot be taken over (G5)
+#   F33  a non-starter's refused commit during the holder's live merge does not
+#        make the merge "orphaned" (Fix 3)
 #   F3L, F12L  measured limits, asserted so the record goes red if Git changes:
 #        a refused reset --hard and a refused merge --abort have already
 #        rewritten the tree (the early check exists for exactly these)
@@ -360,6 +362,30 @@ ofx_in D "$(ofx_lease acquire --repo "$R") && git -C '$R' cherry-pick --abort &&
 [ $rc1 -ne 0 ] && [ $rc2 = 0 ] && [ ! -f "$R/.git/CHERRY_PICK_HEAD" ]
 expect "F13" "[git $G] its own starter aborts it once it takes the lease (the abort writes ORIG_HEAD)" "$?" "rc=$rc1/$rc2 $OFX_OUT"
 ofx_end D
+
+# ---- F33: another writer's refused commit orphans nothing (Fix 3) ----------------
+# The holder resolves a conflicted merge. A non-starter's `git commit` in the
+# same checkout is refused at the move of main, and its refusal carries the
+# merge's head; it orphans nothing, so acquire must not call the holder's own
+# live merge "can never finish" and send it to abort-orphan.
+M5="$(rev "$R" main)"
+( cd "$W" && git switch -q -c hfeat "$M5" && printf 'hside\n' > f.txt && printf 'h2\n' > h2.txt \
+  && git add f.txt h2.txt && git commit -q -m h && git switch -q feat ) >/dev/null 2>&1
+HF="$(rev "$R" hfeat)"
+ofx_in A "$(ofx_lease acquire --repo "$R") && cd '$R' && printf 'hmain\n' > f.txt && git commit -q -am hmain && git merge -q hfeat -m h; printf 'resolved-h\n' > f.txt && git add f.txt"
+if [ -f "$R/.git/MERGE_HEAD" ] && [ -n "$HF" ]; then
+    ofx_in B "cd '$R' && git commit -q --no-edit"; rcb=$?
+    ofx_in A "$(ofx_lease acquire --repo "$R")"; rca=$?; aout="$OFX_OUT"
+    [ $rcb -ne 0 ] && [ $rca = 0 ] && printf '%s' "$aout" | grep -q "RENEWED" && [ -f "$R/.git/MERGE_HEAD" ] \
+        && ! printf '%s' "$aout" | grep -q "can never finish" && ! printf '%s' "$aout" | grep -q "abort-orphan"
+    expect "F33" "[git $G] a non-starter's refused commit during the holder's live merge does not make acquire call it orphaned" "$?" "rc=$rcb/$rca $aout"
+    ofx_in A "cd '$R' && git commit -q --no-edit && git push -q origin main"; rc=$?
+    [ $rc = 0 ] && git -C "$R" merge-base --is-ancestor "$HF" main && [ "$(git -C "$R" show main:h2.txt 2>/dev/null)" = "h2" ]
+    expect "F33" "[git $G] and the holder's commit concludes it, the branch's clean file on main" "$?" "rc=$rc $OFX_OUT"
+else
+    bad "F33 [git $G] the fixture's merge did not conflict, so the case proves nothing" "$OFX_OUT"
+fi
+ofx_in A "$(ofx_lease release --repo "$R")"
 
 # ---- F15: the bypass that exists, asserted (G2) ----------------------------------------
 before="$(grep -c . "$OFX/forensics/ref-transactions.jsonl")"; rbefore="$(grep -c . "$REF")"
