@@ -132,8 +132,8 @@
     field("quota-release").textContent = held.length ? "Let them continue now" : "Turn pause off";
     if (held.length) {
       title.textContent = !enabled || state === "ready" ? "Releasing the pause…" : agents ? `${agents} ${agents === 1 ? "agent is" : "agents are"} paused` : assignments ? `${assignments} ${assignments === 1 ? "assignment is" : "assignments are"} paused` : "Waiting to start an agent";
-      detail.textContent = !enabled || state === "ready" ? "The allowance permits work. Waiting for each pause to clear." : activity.resumesAt ? `Can continue just after ${clock(activity.resumesAt)} when the reset is under 20 minutes away, or sooner if a fresh reading permits it.` : "Waiting for a current five-hour reading. Their work is saved.";
-      if (enabled) detail.textContent += " Letting them continue now turns automatic pause off.";
+      detail.textContent = !enabled || state === "ready" ? "The allowance permits work. Waiting for each pause to clear." : activity.resumesAt ? `Can continue just after ${clock(activity.resumesAt)} when the reset is under 20 minutes away.` : "Waiting for a current five-hour reading. Their work is saved.";
+      if (enabled) detail.textContent += " Continuing now turns automatic pause off.";
     } else if (released.length && (!enabled || state === "ready")) {
       title.textContent = "Pause released"; detail.textContent = "These waits have cleared. Work can continue from its saved place.";
     } else if (!enabled) {

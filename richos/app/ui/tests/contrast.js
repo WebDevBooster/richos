@@ -107,7 +107,7 @@ const C = require("./lib/contrast");
 const SOURCES = require("./lib/ui-sources");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
-const SHOTS = path.join(__dirname, "shots-contrast");
+const SHOTS = path.join(__dirname, ".shots", "contrast");
 const DEBT_FILE = path.join(__dirname, "contrast-debt.json");
 // THE TWO SOURCE LISTS ARE DERIVED, AND BOTH WERE SHORT.
 //
@@ -344,8 +344,9 @@ const SURFACES = [
   {
     name: "quota-work-status",
     what: "a paused agent's conversation status, without technical quota controls",
-    preset: {quotaActivity: {held: [{kind: "agent", id: "agt_frank_1", name: "Frank", threadId: "general", sinceAt: quotaNow}], released: []}},
+    preset: {quota: quotaReading, quotaActivity: {held: [{kind: "agent", id: "agt_frank_1", name: "Frank", threadId: "general", sinceAt: quotaNow}], released: []}},
     drive: async p => {
+      await p.evaluate(() => window.RichBridge.invoke("set_claude_quota_policy", {policy: {enabled: true, pausePercent: 93}}));
       await p.waitForSelector("#quota-work-status:not([hidden])");
       assert((await p.locator("#quota-work-status").innerText()).includes("Their work is saved."));
     },
