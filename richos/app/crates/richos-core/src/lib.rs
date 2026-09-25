@@ -227,3 +227,6 @@ pub mod operator_report;
 ///   - `operator_lead` — the operator client: his lead over stream-json, declaring the per-task
 ///                    stop, never setting `priority`, kept on every error ((g), (r), (d)).
 pub mod operator_lead;
+///   - `operator_claim` — the lead claim's app side: the terminal and the app never run his team
+///                    at once, by the file contract the engine side reads ((e), G11).
+pub mod operator_claim;
