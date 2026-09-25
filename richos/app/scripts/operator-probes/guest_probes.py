@@ -2479,7 +2479,8 @@ def w2(ctx, r):
 
         # ---- step 4: a question round trip on one handle ----------------------------------
         s4 = steps.setdefault('4', {})
-        handle = walk.call('register', thread=A[0], title='W2 question')['handle']
+        s4['register'] = walk.call('register', thread=A[0], title='W2 question')
+        handle = s4['register'].get('handle') or 'no-handle-registered'
         start = walk.count()
         walk.call('relay', thread=A[0], title=A[1], handle=handle, origin='desk-typed', text=FIXTURE_NOTE + (
             'Call mcp__richos_operator__report with kind question, handle %s, and text "W2 question: blue or green?". '

@@ -146,7 +146,10 @@ fn host(data: &Path, state: &Path, root: &Path) -> Result<(), String> {
                 let reg = richos_core::assignment::Registration {
                     entity_id: k.entity_id.clone(), thread_id: k.thread_id.clone(),
                     obligation_id: format!("walk-{}", uuid::Uuid::new_v4()),
-                    instruction_ledger_ref: format!("walk:{}", k.thread_id), instruction_sha256: "0".repeat(64),
+                    // The register requires a ledger reference of the conversation's own turn
+                    // (`ledger:<thread>:…`, assignment::register_kind); the walk has no ledger, so it
+                    // names its own turn in that shape.
+                    instruction_ledger_ref: format!("ledger:{}:walk", k.thread_id), instruction_sha256: "0".repeat(64),
                     title: v["title"].as_str().unwrap_or("Walk assignment").to_string(), repositories: vec![],
                     needs_screen: false,
                 };
