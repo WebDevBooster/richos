@@ -56,12 +56,20 @@ pub fn run_engine_script(declaration: &Declaration, script: &str, args: &[&str],
     let (mut out, mut err) = (child.stdout.take().expect("piped"), child.stderr.take().expect("piped"));
     let reader = std::thread::spawn(move || {
         let mut text = String::new();
-        let _ = out.by_ref().take(1024 * 1024).read_to_string(&mut text);
+        // Unreadable output (not UTF-8) is kept as a marker, so a caller parsing it refuses
+        // rather than reading a silently truncated answer.
+        if let Err(e) = out.by_ref().take(1024 * 1024).read_to_string(&mut text) {
+            text.push_str(&format!("\n[output unreadable: {e}]"));
+        }
         text
     });
     let errors = std::thread::spawn(move || {
         let mut text = String::new();
-        let _ = err.by_ref().take(256 * 1024).read_to_string(&mut text);
+        // Unreadable output (not UTF-8) is kept as a marker, so a caller parsing it refuses
+        // rather than reading a silently truncated answer.
+        if let Err(e) = err.by_ref().take(256 * 1024).read_to_string(&mut text) {
+            text.push_str(&format!("\n[output unreadable: {e}]"));
+        }
         text
     });
     let mut child = crate::owned_process::OwnedChild::new(child);
@@ -70,8 +78,9 @@ pub fn run_engine_script(declaration: &Declaration, script: &str, args: &[&str],
         match child.try_wait() {
             Ok(Some(status)) => break status.code(),
             Ok(None) if Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
+                // Either fails only when the script has just exited on its own, which is fine.
+                child.kill().ok();
+                child.wait().ok();
                 return Err(format!("{script} did not answer within {} s", timeout.as_secs()));
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(20)),
@@ -223,7 +232,10 @@ impl LeadHandle for ClaimedLead {
     fn quit(&self) -> Quit {
         let quit = self.lead.quit(QUIT_GRACE);
         if let (Some(supervisor), Some(claude)) = (self.supervisor, self.claude) {
-            let _ = self.claim.remove_lead(supervisor, claude, &Kernel);
+            if let Err(refusal) = self.claim.remove_lead(supervisor, claude, &Kernel) {
+                // The lead is gone either way; a stale entry is read as dead by its start time.
+                eprintln!("operator claim: the ended lead could not be removed ({})", refusal.0);
+            }
         }
         quit
     }
@@ -286,7 +298,10 @@ impl ProfileLauncher {
     /// Give the claim up at quit, after every lead has quit.
     pub fn release(&self) {
         if let Some(claim) = self.claim.lock().unwrap().take() {
-            let _ = claim.release(&Kernel);
+            if let Err(refusal) = claim.release(&Kernel) {
+                // A claim left behind names this app's pid and start, which read dead once it exits.
+                eprintln!("operator claim: the claim could not be released ({})", refusal.0);
+            }
         }
     }
 }
@@ -394,16 +409,19 @@ pub struct OperatorNotice {
     pub delivered_at_ms: Option<u64>,
 }
 
+/// A live surface to push each notice to as it is said.
+pub type NoticePush = Box<dyn Fn(&ConversationKey, &OperatorNotice) + Send + Sync>;
+
 /// [`OperatorDelivery`] that appends to `<operator root>/<entity>/<thread>/notices.jsonl`, and
 /// pushes to a live surface when one is attached.
 pub struct DurableDelivery {
     root: PathBuf,
-    push: Option<Box<dyn Fn(&ConversationKey, &OperatorNotice) + Send + Sync>>,
+    push: Option<NoticePush>,
     lock: Mutex<()>,
 }
 
 impl DurableDelivery {
-    pub fn new(root: &Path, push: Option<Box<dyn Fn(&ConversationKey, &OperatorNotice) + Send + Sync>>) -> Self {
+    pub fn new(root: &Path, push: Option<NoticePush>) -> Self {
         DurableDelivery { root: root.to_path_buf(), push, lock: Mutex::new(()) }
     }
 
@@ -448,13 +466,18 @@ impl OperatorDelivery for DurableDelivery {
         {
             let _guard = self.lock.lock().unwrap();
             let path = self.path(key);
-            if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            if let (Ok(mut file), Ok(line)) = (std::fs::OpenOptions::new().create(true).append(true).open(&path),
-                                               serde_json::to_string(&notice)) {
-                use std::io::Write;
-                let _ = writeln!(file, "{line}");
+            let saved = serde_json::to_string(&notice).map_err(|e| e.to_string()).and_then(|line| {
+                path.parent().map_or(Ok(()), std::fs::create_dir_all)
+                    .and_then(|_| std::fs::OpenOptions::new().create(true).append(true).open(&path))
+                    .and_then(|mut file| {
+                        use std::io::Write;
+                        writeln!(file, "{line}")
+                    })
+                    .map_err(|e| e.to_string())
+            });
+            if let Err(e) = saved {
+                // Still pushed below if a surface is attached; never dropped without a trace.
+                eprintln!("operator notice: not saved at {} ({e}): {}", path.display(), notice.text);
             }
         }
         if let Some(push) = &self.push {

@@ -45,7 +45,7 @@ impl Settle for RecordedSettle {
                 evidence: &[String], _answer_text: &str) -> Result<(), String> {
         let line = json!({"thread": key.thread_id, "obligation_id": obligation_id, "source_ref": source_ref,
                           "status": status, "evidence": evidence});
-        let _ = writeln!(self.0.lock().unwrap(), "{line}");
+        writeln!(self.0.lock().unwrap(), "{line}").map_err(|e| format!("the walk's settle record could not be written ({e})"))?;
         Err("not wired in the walk: operator-complete needs the conversation's ECS binding, which the spine mints".into())
     }
 }
@@ -67,8 +67,10 @@ struct Out(Mutex<std::io::Stdout>);
 impl Out {
     fn line(&self, value: &Value) {
         let mut out = self.0.lock().unwrap();
-        let _ = writeln!(out, "{value}");
-        let _ = out.flush();
+        // The harness reads this stream; a line it cannot get is said on stderr, which it keeps.
+        if let Err(e) = writeln!(out, "{value}").and_then(|_| out.flush()) {
+            eprintln!("operator_walk: stdout: {e}: {value}");
+        }
     }
 }
 

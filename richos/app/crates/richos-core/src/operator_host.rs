@@ -463,7 +463,8 @@ struct ConversationSink(Mutex<Sender<LeadEvent>>);
 
 impl LeadSink for ConversationSink {
     fn event(&self, event: LeadEvent) {
-        let _ = self.0.lock().unwrap().send(event);
+        // A closed channel means the conversation's worker has ended; the event has nowhere to go.
+        self.0.lock().unwrap().send(event).ok();
     }
 }
 
@@ -486,13 +487,26 @@ impl OperatorHost {
         })
     }
 
+    /// The operator log is where every other failure goes, so its own failure goes to stderr.
     fn log(&self, line: &str) {
-        let _ = std::fs::create_dir_all(&self.root);
         let stamp = crate::operator_claim::iso_utc(
             SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0));
-        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(self.log_path()) {
-            use std::io::Write;
-            let _ = writeln!(file, "{stamp} host: {line}");
+        let written = std::fs::create_dir_all(&self.root)
+            .and_then(|_| std::fs::OpenOptions::new().create(true).append(true).open(self.log_path()))
+            .and_then(|mut file| {
+                use std::io::Write;
+                writeln!(file, "{stamp} host: {line}")
+            });
+        if let Err(e) = written {
+            eprintln!("{stamp} operator host: the operator log could not be written ({e}): {line}");
+        }
+    }
+
+    /// The lead record is what a restart resumes from; a record that could not be saved is logged,
+    /// never passed over (the conversation still runs on what is in memory).
+    fn save(&self, path: &Path, record: &LeadRecord) {
+        if let Err(e) = write_record(path, record) {
+            self.log(&format!("the lead record {} could not be saved ({e})", path.display()));
         }
     }
 
@@ -558,7 +572,7 @@ impl OperatorHost {
         conversation.quitting = false;
         conversation.started_digest = snapshot_digest(&self.declaration);
         conversation.record.last_session = Some(lead.session_id());
-        let _ = write_record(&conversation.paths.record, &conversation.record);
+        self.save(&conversation.paths.record, &conversation.record);
         conversation.lead = Some(lead.clone());
         self.log(&format!("lead started for {}/{} ({})", conversation.key.entity_id, conversation.key.thread_id,
                           match &start { LeadStart::New(s) => format!("new session {s}"), LeadStart::Resume(s) => format!("resumed {s}") }));
@@ -625,7 +639,7 @@ impl OperatorHost {
                 c.questions.retain(|(q, _)| q.as_deref() != Some(h));
             }
         }
-        let _ = write_record(&c.paths.record, &c.record);
+        self.save(&c.paths.record, &c.record);
         Ok(Relayed::Sent { uuid })
     }
 
@@ -763,7 +777,7 @@ impl OperatorHost {
             self.report(conversation, &key, record);
             let mut c = conversation.lock().unwrap();
             c.record.outbox_read = index + 1;
-            let _ = write_record(&c.paths.record, &c.record);
+            self.save(&c.paths.record, &c.record);
         }
     }
 
@@ -833,7 +847,7 @@ impl OperatorHost {
                 let mut c = conversation.lock().unwrap();
                 c.record.open_handles.remove(handle);
                 c.questions.retain(|(q, _)| q.as_deref() != Some(handle));
-                let _ = write_record(&c.paths.record, &c.record);
+                self.save(&c.paths.record, &c.record);
                 drop(c);
                 self.delivery.say(key, &lane, if failed { Say::Failed } else { Say::Outcome }, text);
             }

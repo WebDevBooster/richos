@@ -604,7 +604,7 @@ impl OperatorLead {
         let Some(mut child) = self.child.lock().unwrap().take() else { return Quit::AlreadyEnded };
         if *ended || exited_without_reaping(self.pid) {
             fence_group(self.pid);
-            let _ = child.wait();
+            reap(&mut child);
             *ended = true;
             return Quit::AlreadyEnded;
         }
@@ -613,17 +613,22 @@ impl OperatorLead {
         while began.elapsed() < grace {
             if exited_without_reaping(self.pid) {
                 fence_group(self.pid);
-                let _ = child.wait();
+                reap(&mut child);
                 *ended = true;
                 return Quit::Terminated { waited: began.elapsed() };
             }
             std::thread::sleep(Duration::from_millis(20));
         }
         fence_group(self.pid);
-        let _ = child.wait();
+        reap(&mut child);
         *ended = true;
         Quit::GroupKilled
     }
+}
+
+/// Reap the supervisor. `wait` fails only when it was already reaped, which is the state wanted.
+fn reap(child: &mut Child) {
+    child.wait().ok();
 }
 
 impl Drop for OperatorLead {
@@ -742,7 +747,8 @@ fn read_frames(stdout: std::process::ChildStdout, pending: Pending, book: Arc<Mu
                 let waiter = pending.lock().unwrap().remove(&id);
                 match waiter {
                     Some(tx) => {
-                        let _ = tx.send(response);
+                        // A closed waiter gave up at its timeout and already said so.
+                        tx.send(response).ok();
                     }
                     None => sink.event(LeadEvent::Protocol(format!("a reply to a request this client did not make ({id})"))),
                 }

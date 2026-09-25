@@ -333,12 +333,14 @@ fn write_claim(path: &Path, record: &Value) -> Result<(), String> {
         use std::io::Write;
         f.write_all(text.as_bytes()).and_then(|_| f.sync_all())
     });
+    // The claim itself is untouched on either failure; a temporary file that also cannot be
+    // removed is overwritten by the next write, so its own error adds nothing to the sentence.
     if let Err(e) = written {
-        let _ = std::fs::remove_file(&tmp);
+        std::fs::remove_file(&tmp).ok();
         return Err(format!("the claim could not be written ({e})"));
     }
     std::fs::rename(&tmp, path).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
+        std::fs::remove_file(&tmp).ok();
         format!("the claim could not be written ({e})")
     })
 }
