@@ -89,11 +89,38 @@
 #   evidence      an extended regular expression. Lines of the check's output
 #                 that match it are the evidence quoted in the refusal. Omitted
 #                 -> the first four non-blank lines.
-#   match         an extended regular expression over an Agent spawn prompt.
-#                 A dispatch that matches is ADDRESSING this system, so it is
-#                 allowed and it discharges the demand. This is what keeps the
-#                 gate from being a wall: the natural reply to being refused —
-#                 putting somebody on the problem — is the thing that clears it.
+#   measure       OPTIONAL. A regular expression with ONE capture group, over
+#                 the check's output, that reads THE SIZE OF THE PROBLEM as a
+#                 number (outstanding escalations, unresolved gaps, stranded
+#                 branches). When a session is first refused over this row the
+#                 size is taken FRESH as its baseline; the first later dispatch
+#                 that finds it smaller is allowed and recorded as `progress`.
+#   backlog       OPTIONAL. One capture group: how many items are older than
+#                 the row's tolerated age. A read ZERO means standing but
+#                 WITHIN TOLERANCE, so the row is reported and not demanded.
+#                 A pattern that does not match reads as unknown, never zero.
+#   since         OPTIONAL. One capture group: an ISO-8601 UTC time for the
+#                 oldest item. When it is earlier than the first observation,
+#                 the row's age is the item's own age. Nothing resets it.
+#   triage        OPTIONAL. A regular expression over an Agent spawn prompt
+#                 that names this system's OWN RECORD explicitly (a file, never
+#                 a word stem). A dispatch that matches while this row is the
+#                 demanded one is allowed and recorded as `triage`.
+#   match         IGNORED since 2026-09-25, and read only so an old
+#                 declaration stays readable. It was a keyword pattern, and a
+#                 keyword in a prompt counted as ADDRESSING the system. The
+#                 dispositions ledger shows the escalations row "addressed"
+#                 once in fifteen days, by an unrelated dispatch, while its
+#                 backlog reached 143 and `staging|deploy` cleared nearly every
+#                 session for free. A mention is not work. What counts now is
+#                 the problem getting SMALLER (`measure`, `backlog`, a check
+#                 that passes), a named `triage`, or an ack with a reason.
+#
+#                 WHERE A ROW HAS NO measure, AND WHY: `ci`, `staging` and
+#                 `executables` are binary. "Smaller" for them is the check
+#                 passing, which counts as progress on its own. `ci` is also
+#                 the one row whose check (180 s) is too slow to re-run on the
+#                 refusal path, so it heals on the next full sweep, not sooner.
 #   timeout       seconds. A check that overruns is UNKNOWN, named. Default 45.
 #                 This is a budget, not a preference: the gate runs on a
 #                 PreToolUse path and a hook that spends a minute is a hook
@@ -123,7 +150,6 @@ title: Continuous integration across every governed repository
 check: bash {engine}/scripts/ci-status.sh --offline
 unknown-exit: 2 3
 evidence: (\.yml.*\[active|RED for|NO GREEN RUN|NEVER RUN|never passed|concluded)
-match: (\bCI\b|workflow|ci-surface|ci-status|engine-self-verify|ui-suite-ci|packaging-ci|app-spine-ci|app-voice-ci|github actions|red on main)
 timeout: 180
 why: Three workflows were red on main for 13, 10 and 4 days and the founder was the one who noticed.
 
@@ -132,17 +158,20 @@ title: Escalations raised by teammates and never acknowledged
 jurisdiction: test -f {engine}/scripts/escalate.sh
 check: bash {engine}/scripts/escalate.sh list
 unknown-exit: 2
-evidence: (OUTSTANDING|^=== esc-|^  title|^  raised)
-match: (escalat|esc-2026|escalate\.sh|--disposition)
+evidence: (OUTSTANDING|for the CEO:|^=== esc-|^  title|^  raised)
+measure: ([0-9]+) OUTSTANDING \(raised
+backlog: older than [0-9]+h: ([0-9]+)
+since: oldest raised ([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]+Z)
+triage: escalations\.jsonl
 timeout: 45
-why: Two teammates escalated correctly on 2026-09-02 and were found two days later by somebody counting directories; the channel now delivers, and an undelivered answer is the same failure one step later.
+why: Two teammates escalated correctly on 2026-09-02 and were found two days later by somebody counting directories; the channel now delivers, and an undelivered answer is the same failure one step later. Then on 2026-09-25 the backlog stood at 143, the oldest 19 days, 13 for the CEO, behind a gate a keyword satisfied.
 
 id: ecs
 title: Executive Continuity System capture health
 jurisdiction: test -x {entity}/scripts/ecs/ecs
 check: {entity}/scripts/ecs/ecs capture-status
 evidence: (capture_complete|historical_unresolved|unresolved|meaning_verified)
-match: (\bECS\b|capture-status|continuity|rehydrate)
+measure: "historical_unresolved": ([0-9]+)
 timeout: 60
 why: Its own status reports capture_complete false and a historical backlog in the hundreds, and nothing has ever been required to act on that number.
 
@@ -152,7 +181,6 @@ jurisdiction: bash {engine}/scripts/owned-state-checks/staging-current.sh --root
 check: bash {engine}/scripts/owned-state-checks/staging-current.sh --root {entity}
 unknown-exit: 2
 evidence: (STALE|NO RECORD|behind|commit)
-match: (staging|deploy|deploy-avelor|deploy-staging|staging-record)
 timeout: 45
 why: The rule that staging must be current before the next product run has always been a paragraph, and a paragraph is a promise.
 
@@ -162,7 +190,7 @@ jurisdiction: test -f {engine}/scripts/unlanded-branches-lint.sh
 check: bash {engine}/scripts/unlanded-branches-lint.sh {entity} --line
 unknown-exit: 2
 evidence: (UNLANDED|branch|commit)
-match: (unlanded|land the|merge the branch|strand)
+measure: NOBODY HOLDING IT - ([0-9]+) branch
 timeout: 60
 why: Added by this row's author, not by the brief — `git status` clean and `main == origin/main` are both TRUE while a teammate's finished commits sit unmerged, which is the same absence-reads-as-success shape as every other row here.
 
@@ -171,6 +199,5 @@ title: Every script something is configured to run is actually runnable
 check: python3 {engine}/scripts/owned-state-checks/registered-executables.py --entity {entity} --engine {engine}
 unknown-exit: 2
 evidence: (MISSING|NOT RUNNABLE)
-match: (executable|chmod|not runnable|registered script|launchd|scheduled job)
 timeout: 45
 why: Three scripts were committed 644 on one day — two wired guards that loaded nothing while the session banner read a confident 60/62, and the entry point of a scheduled job; none was red, none was reported, and every test that ran, ran.

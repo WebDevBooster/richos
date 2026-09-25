@@ -54,10 +54,11 @@
 #   * The gate demands a disposition for the SINGLE oldest standing system.
 #   * ANY disposition recorded this session satisfies the gate for the whole
 #     session. Not one per system. One, total, ever, per session.
-#   * A dispatch that ADDRESSES a standing system is itself a disposition, so
-#     the natural reply to being refused — putting somebody on the problem —
-#     is what clears it. This gate wants to be answered with work, not with a
-#     marker.
+#   * MAKING THE DEMANDED SYSTEM SMALLER is itself a disposition, so the
+#     natural reply to being refused — doing something about the problem — is
+#     what clears it. This gate wants to be answered with work, not with a
+#     marker. (Until 2026-09-25 "a prompt that mentions it" counted as work.
+#     It was not; see the next section but one.)
 #
 # COST, STATED HONESTLY AND MEASURED RATHER THAN ASSERTED: at most ONE
 # deliberate act per session, at the first teammate dispatch, and complete
@@ -91,20 +92,30 @@
 #     the `unlanded` row's own failure mode.
 #
 # ===========================================================================
-# WHAT COUNTS AS ADDRESSING IT — AND WHY THE GATE ALLOWS THAT SILENTLY
+# WHAT COUNTS AS ADDRESSING IT: THE PROBLEM GOT SMALLER, NOT A PROMPT NAMED IT
 # ===========================================================================
-# Each row declares a `match:` regular expression over the spawn prompt. A
-# dispatch that matches a STANDING system is working on it, so it is allowed,
-# recorded as the session's disposition, and nothing is printed. A gate that
-# lectured the operator at the exact moment he did the right thing would be
-# teaching the wrong lesson.
+# THE FIRST VERSION GOT THIS WRONG, AND IT IS WORTH READING WHY. Each row
+# declared a `match:` keyword pattern, and a dispatch whose prompt matched any
+# standing row counted as working on it and cleared the gate for the whole
+# session. The argument was that a false ADDRESS was cheap. The ledger says it
+# was not. On 2026-09-25 the founder asked whether the escalation backlog (143
+# outstanding, the oldest 19 days, 13 for him) had been "purely just discovered
+# by accident". The dispositions log showed the escalations system "addressed"
+# ONCE in fifteen days, by an unrelated dispatch whose text contained the word,
+# while `staging|deploy` matched nearly every product dispatch and cleared every
+# session for free. A keyword is not work. It is a waiver nobody had to type.
 #
-# The match is deliberately allowed to be a little broad, because the cost of a
-# false ADDRESS is small — it permits one dispatch that was going to be
-# permitted by an ack anyway — while the cost of a false REFUSAL is a gate
-# routed around. This is the mirror image of guard-stale-staging.sh's scope
-# classifier, which is allowed to be broad because a second, narrow fact gates
-# it.
+# So the predicate (scripts/lib/owned-systems.py, "WHAT ADDRESSED MEANS")
+# decides, and it counts exactly three things:
+#   progress  the system THIS SESSION WAS REFUSED OVER got smaller: its check
+#             passes, its `measure:` fell below the fresh baseline taken at that
+#             refusal, or its `backlog:` past the tolerated age reached zero.
+#             Measured by the predicate. This hook sees it as exit 0.
+#   triage    the prompt matches the DEMANDED row's `triage:` pattern, which
+#             names the system's own record (for escalations, the ledger file).
+#   ack       the line below.
+# All three are silent when they clear a dispatch. A gate that lectured the
+# operator at the moment he did the right thing would teach the wrong lesson.
 #
 # ===========================================================================
 # THE ESCAPE HATCH — a live prompt line, with a reason, logged
@@ -321,10 +332,11 @@ fi
 # Cached inside the library, so the checks are run at most once per session.
 DRC=0
 DEMAND="$(python3 "$LIB" demanded --entity "$ENTITY_ROOT" --engine "$ENGINE_ROOT" \
-            --session "$SESSION_ID" 2>/dev/null)" || DRC=$?
+            --session "$SESSION_ID" --agent "${NAME:-${SUBAGENT_TYPE:-<unset>}}" 2>/dev/null)" || DRC=$?
 
 case "$DRC" in
-    0) exit 0 ;;          # nothing standing, or this session already disposed
+    0) exit 0 ;;          # nothing demanded, this session already disposed, or
+                          # the demanded system got smaller (recorded as progress)
     1) ;;                 # a system is demanded
     *)
         announce_off "OWNED-STATE GATE IS OFF: the owned-systems declaration could not be read, so nothing is being watched and this dispatch is UNGATED. Run scripts/owned-state.sh to see the error in full."
@@ -337,40 +349,40 @@ if [ -z "$DEMANDED_ID" ]; then
     exit 0
 fi
 
-# --- IS THIS DISPATCH ADDRESSING A STANDING SYSTEM? ------------------------
-# Allowed, recorded, SILENT. Putting somebody on the problem is the answer this
-# gate is asking for, and being lectured at that moment teaches the wrong
-# lesson.
-ADDRESSED="$(printf '%s' "$DEMAND" | PROMPT_TEXT="$PROMPT" python3 -c '
+# --- IS THIS DISPATCH A NAMED TRIAGE OF THE DEMANDED SYSTEM? ---------------
+# NOT "does the prompt mention it". Until 2026-09-25 a keyword did, and the
+# dispositions ledger is the proof of what that bought: the escalations system
+# was "addressed" once in fifteen days, by an unrelated dispatch whose text
+# happened to contain the word, while its backlog grew to 143. The demanded
+# row's `triage:` pattern names the system's own record explicitly (for
+# escalations, the ledger FILE), and only the DEMANDED row's pattern is
+# consulted: a triage of a cheaper system is the rotation this gate refuses.
+TRIAGED="$(printf '%s' "$DEMAND" | PROMPT_TEXT="$PROMPT" python3 -c '
 import json, os, re, sys
 d = json.load(sys.stdin)
+pattern = d.get("triage") or ""
+if not pattern:
+    sys.exit(0)
 prompt = os.environ.get("PROMPT_TEXT", "")
 # THE ACK LINE IS NOT PART OF THE PROMPT FOR THIS TEST, and the first version of
-# this hook proved why: an ack reading `owned-state-ack: alpha - ...` contains
-# the word `alpha`, matched alphas own match pattern, and was recorded as a
-# dispatch ADDRESSING the system it was asking to defer. A malformed ack that
-# should have been refused sailed through as work. An escape hatch that
-# satisfies the gate merely by naming the system is not a hatch, it is a hole.
+# this hook proved why: an ack reading `owned-state-ack: alpha - ...` matched
+# alphas own pattern and was recorded as a dispatch WORKING on the system it
+# was asking to defer. An escape hatch that satisfies the gate merely by naming
+# the system is not a hatch, it is a hole.
 prompt = "\n".join(l for l in prompt.splitlines()
                    if not re.match(r"^\s*owned-state-ack:", l))
-cands = [(d["demanded"], d.get("match", ""))]
-for o in d.get("others", []):
-    cands.append((o["id"], o.get("match", "")))
-for sid, pattern in cands:
-    if not pattern:
-        continue
-    try:
-        if re.search(pattern, prompt, re.IGNORECASE):
-            print(sid)
-            break
-    except re.error:
-        continue
+try:
+    m = re.search(pattern, prompt, re.IGNORECASE)
+except re.error:
+    m = None
+if m:
+    print(m.group(0))
 ' 2>/dev/null || true)"
 
-if [ -n "$ADDRESSED" ]; then
+if [ -n "$TRIAGED" ]; then
     python3 "$LIB" dispose --entity "$ENTITY_ROOT" --session "$SESSION_ID" \
-        --system "$ADDRESSED" --how addressed --agent "${NAME:-${SUBAGENT_TYPE:-<unset>}}" \
-        --reason "dispatch matched this system's declared match pattern" >/dev/null 2>&1 || true
+        --system "$DEMANDED_ID" --how triage --agent "${NAME:-${SUBAGENT_TYPE:-<unset>}}" \
+        --reason "dispatch names the system's own record: ${TRIAGED}" >/dev/null 2>&1 || true
     exit 0
 fi
 
@@ -424,6 +436,8 @@ print("=== A SYSTEM YOU OWN THE HEALTH OF IS %s AND NOTHING HAS BEEN DONE ABOUT 
 print("")
 print("  system   : %s — %s" % (d["demanded"], d["title"]))
 print("  standing : %s" % d["age"])
+if d.get("size"):
+    print("  size     : %s" % d["size"])
 print("  decided  : %s" % d.get("via", "?"))
 print("  taken    : %s%s" % (d.get("taken", "?"), " (cached)" if d.get("from_cache") else ""))
 print("")
@@ -447,11 +461,24 @@ if others:
     echo "  read past. Surfacing had already failed. So a known-bad state now costs"
     echo "  the one thing that changes behavior: getting on with something else."
     echo ""
+    echo "  A prompt that MENTIONS this system does not count. Until 2026-09-25 it"
+    echo "  did, and the escalations backlog reached 143 (the oldest 19 days) behind"
+    echo "  a gate that a stray keyword satisfied every session."
+    echo ""
     echo "  ONE of these, and this session is clear — all of it, not one per system:"
     echo ""
-    echo "    1. DISPATCH SOMEBODY AT IT. A spawn whose prompt is about a standing"
-    echo "       system is allowed, silently, and satisfies this gate. That is the"
-    echo "       answer this is asking for."
+    echo "    1. MAKE IT SMALLER. The next dispatch is allowed, silently, once:"
+    printf '%s' "$DEMAND" | python3 -c '
+import json, sys
+for w in json.load(sys.stdin).get("progress", []):
+    print("         - %s" % w)
+' 2>/dev/null || true
+    TRIAGE_PAT="$(printf '%s' "$DEMAND" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("triage") or "")' 2>/dev/null || true)"
+    if [ -n "$TRIAGE_PAT" ]; then
+        echo ""
+        echo "       Or DISPATCH A TRIAGE: a spawn whose prompt names this system's own"
+        echo "       record explicitly (pattern: ${TRIAGE_PAT}) is allowed and logged."
+    fi
     echo ""
     echo "    2. SAY IT CAN WAIT, ON THE RECORD. Add this line to the spawn prompt:"
     echo ""
@@ -462,7 +489,8 @@ if others:
     echo "       days. The reason needs 15 characters or more; a bare marker exempts"
     echo "       nothing. It is logged to .claude/state/owned-state-acks.log, which"
     echo "       notice-waiver-repetition.py reads, so the same excuse repeated"
-    echo "       session after session gets named."
+    echo "       session after session gets named. It clears THIS session only and"
+    echo "       stops no clock: the next session is asked again, older."
     if [ -n "$ACK_PROBLEM" ]; then
         echo ""
         echo "  THIS PROMPT CARRIES AN ACK AND IT DOES NOT COUNT: ${ACK_PROBLEM}."

@@ -19,6 +19,15 @@
 #       a dispatch ADDRESSING the very system it asked to defer — so a bare,
 #       malformed ack sailed through as work. Found by running the thing.
 #
+# AND SECTION 7, added 2026-09-25, is the case this gate failed in production.
+# A keyword in a prompt counted as "addressing" a system, the escalation
+# backlog reached 143 (the oldest 19 days, 13 for the CEO), and the gate
+# cleared itself session after session. 4h now asserts a keyword is REFUSED;
+# section 7 runs the SHIPPED escalations row against the SHIPPED list output
+# and proves the three things that do count (a real drop, nothing past the
+# tolerated age, a named triage) and the ones that do not. Every one of them
+# is proven load-bearing by owned-state.mutation.sh.
+#
 # Exit codes: 0 all cases pass; 1 a case failed.
 set -uo pipefail
 
@@ -137,6 +146,19 @@ if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'no .id:. or no .check:'; the
     ok "1b  a row with no check is refused, never silently dropped"
 else
     bad "1b  a row with no check did not refuse" "rc=$RC"
+fi
+
+cat >"$ENTITY/owned-systems.declaration" <<'DECL'
+id: alpha
+check: bash -c 'echo "3 OUTSTANDING"; exit 1'
+measure: [0-9]+ OUTSTANDING
+DECL
+reset_state
+OUT="$(report_json)"; RC=$?
+if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'no capture group'; then
+    ok "1d  a measure with no capture group is refused: a measure that can never read a number is a wall"
+else
+    bad "1d  a measure that cannot read a number was accepted" "rc=$RC"
 fi
 
 write_declaration
@@ -383,12 +405,17 @@ else
     bad "4g  the gate stayed clear across sessions" "rc=$RC"
 fi
 
+# THE INVERSION OF THE ORIGINAL 4h (2026-09-25). This case used to assert that
+# a prompt matching the row's `match:` keywords was ALLOWED as "addressing" it.
+# That is the hole the escalation backlog grew behind, so it now asserts the
+# opposite: the fixture still declares `match: (alpha|widget)`, the prompt
+# hits both words, and the dispatch is refused with nothing recorded.
 run_hook "$(payload s3 "Fix the alpha widget pipeline end to end.")"
-if [ "$RC" -eq 0 ] && [ -z "$OUT" ] \
-   && grep -q 'session=s3.*how=addressed' "$ENTITY/.claude/state/owned-state-dispositions.log" 2>/dev/null; then
-    ok "4h  a dispatch that ADDRESSES a standing system is allowed silently and recorded"
+if [ "$RC" -eq 2 ] \
+   && ! grep -q 'session=s3' "$ENTITY/.claude/state/owned-state-dispositions.log" 2>/dev/null; then
+    ok "4h  a prompt that merely MENTIONS a standing system is refused, and nothing is recorded"
 else
-    bad "4h  putting somebody on the problem did not satisfy the gate" "rc=$RC"
+    bad "4h  a keyword in the prompt still satisfies the gate" "rc=$RC"
 fi
 
 run_hook "$(payload s4 "$(printf 'Refactor the login screen.\nowned-state-ack: alpha\n')")"
@@ -526,6 +553,221 @@ if [ "$RC" -eq 2 ]; then
     ok "6d  no readable registration surface is UNKNOWN, never a clean bill of health"
 else
     bad "6d  an unreadable surface reported a verdict" "rc=$RC"
+fi
+
+echo ""
+echo "=== 7. escalations: addressed means the backlog got SMALLER, never a keyword ==="
+
+# THE SHIPPED ROW AGAINST THE SHIPPED LIST OUTPUT. The row is copied out of the
+# engine's own declaration rather than restated here, so its `measure:`,
+# `backlog:`, `since:` and `triage:` patterns are tested against the real text
+# of `escalate.sh list`. A fixture row would test a pattern nobody ships, and a
+# rewording of the list header would then silently stop the gate measuring
+# anything while this suite stayed green.
+#
+# The incident these cases rebuild (2026-09-25): 143 escalations outstanding,
+# the oldest 19 days, 13 for the CEO, and the gate cleared for session after
+# session because a prompt contained a keyword.
+ESC_PY="$ENGINE_ROOT/scripts/lib/escalations.py"
+ESC_LEDGER="$SB/esc/escalations.jsonl"
+mkdir -p "$SB/esc"
+export RICHOS_ESCALATION_LEDGER="$ESC_LEDGER"
+
+write_config
+if ! python3 - "$ENGINE_ROOT/owned-systems.declaration" "$ENTITY/owned-systems.declaration" <<'ROW'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+rec, recs = [], []
+for line in open(src, encoding="utf-8"):
+    if line.startswith("#"):
+        continue
+    if not line.strip():
+        if rec:
+            recs.append(rec)
+        rec = []
+        continue
+    rec.append(line)
+if rec:
+    recs.append(rec)
+row = [r for r in recs if r and r[0].strip() == "id: escalations"]
+if len(row) != 1:
+    sys.exit(1)
+open(dst, "w", encoding="utf-8").write("".join(row[0]))
+ROW
+then
+    bad "7-  the shipped declaration has no single 'escalations' row to test"
+fi
+
+esc_reset() { reset_state; : >"$ESC_LEDGER"; }
+
+esc_add() {   # <id> <for> <hours-ago>
+    python3 - "$ESC_LEDGER" "$1" "$2" "$3" <<'ADD'
+import json, sys
+from datetime import datetime, timedelta, timezone
+path, rid, audience, hours = sys.argv[1], sys.argv[2], sys.argv[3], float(sys.argv[4])
+raised = (datetime.now(timezone.utc) - timedelta(hours=hours)).replace(microsecond=0)
+row = {"event": "Escalation", "id": rid,
+       "raised": raised.isoformat().replace("+00:00", "Z"),
+       "teammate": "fixture-" + rid, "state": "proceeding", "for": audience,
+       "title": "fixture escalation " + rid,
+       "question": "a fixture question long enough to be a question"}
+with open(path, "a", encoding="utf-8") as fh:
+    fh.write(json.dumps(row) + "\n")
+ADD
+}
+
+esc_ack() {   # <id>
+    python3 "$ESC_PY" ack --id "$1" \
+        --disposition "handled by the owned-state suite; this is a fixture row" >/dev/null 2>&1
+}
+
+disposed() {   # <session> <how>  — exit 0 if the ledger holds that disposition
+    grep -q "session=$1"$'\t'".*how=$2" "$ENTITY/.claude/state/owned-state-dispositions.log" 2>/dev/null
+}
+
+# Three escalations, raised three days ago, one of them for the CEO.
+esc_reset
+esc_add esc-fx-a ceo 72
+esc_add esc-fx-b lead 72
+esc_add esc-fx-c lead 72
+
+# --- 7a. THE KEYWORD DISPATCH ----------------------------------------------
+# Every keyword the old `match:` pattern held, and the 2026-09-18 shape: a
+# dispatch that talks about escalations without doing anything to the backlog.
+run_hook "$(payload e1 "Please look at the escalation protocol. Run escalate.sh list, and use --disposition on the esc-2026 items when you get to them.")"
+if [ "$RC" -eq 2 ] \
+   && printf '%s' "$OUT" | grep -q 'system   : escalations' \
+   && ! disposed e1 '[a-z]*'; then
+    ok "7a  a KEYWORD-ONLY dispatch about escalations is refused, and nothing is recorded"
+else
+    bad "7a  a keyword-only dispatch satisfied the gate" "rc=$RC"
+fi
+
+# --- 7b. THE OLD BACKLOG STILL REFUSES AFTER IT ----------------------------
+run_hook "$(payload e1 "Refactor the login screen.")"
+if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'oldest item raised 3.0 days ago'; then
+    ok "7b  after the keyword dispatch the old backlog STILL refuses, dated by its oldest item"
+else
+    bad "7b  the keyword dispatch cleared the session, or the age is not the item's own" "rc=$RC"
+fi
+
+# --- 7c. A REAL DROP IN THE COUNT IS ALLOWED -------------------------------
+esc_ack esc-fx-a
+run_hook "$(payload e1 "Refactor the login screen.")"
+if [ "$RC" -eq 0 ] && [ -z "$OUT" ] && disposed e1 progress \
+   && grep -q 'fell from 3 to 2' "$ENTITY/.claude/state/owned-state-dispositions.log"; then
+    ok "7c  once the outstanding count FALLS this session, the next dispatch is allowed and recorded as progress"
+else
+    bad "7c  a real drop in the count did not clear the session" "rc=$RC"
+fi
+
+# --- 7d. THE NEXT SESSION IS ASKED AGAIN -----------------------------------
+run_hook "$(payload e2 "Refactor the login screen.")"
+if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'size     : size 2; 2 past the tolerated age'; then
+    ok "7d  a new session is asked again while old items remain, with the size printed"
+else
+    bad "7d  a drop in one session carried over to the next" "rc=$RC"
+fi
+
+# --- 7e. NOTHING PAST THE TOLERATED AGE: allowed, even at the same count ---
+# Isolated from the count on purpose: two fresh escalations arrive and the two
+# old ones are acknowledged, so the count is exactly the baseline e2 was
+# refused at. Only the backlog condition can clear this.
+esc_add esc-fx-d lead 1
+esc_add esc-fx-e ceo 1
+esc_ack esc-fx-b
+esc_ack esc-fx-c
+run_hook "$(payload e2 "Refactor the login screen.")"
+if [ "$RC" -eq 0 ] && [ -z "$OUT" ] && disposed e2 progress \
+   && grep -q 'nothing is past its tolerated age' "$ENTITY/.claude/state/owned-state-dispositions.log"; then
+    ok "7e  once every escalation older than 24h is acknowledged, dispatch is allowed at an unchanged count"
+else
+    bad "7e  the backlog-age condition did not clear the session" "rc=$RC"
+fi
+run_hook "$(payload e3 "Refactor the login screen.")"
+if [ "$RC" -eq 0 ] && [ -z "$OUT" ]; then
+    ok "7i  and a new session is not asked at all: an hour-old escalation is news, not neglect"
+else
+    bad "7i  escalations younger than the tolerated age were demanded" "rc=$RC"
+fi
+
+# --- 7f. A NAMED TRIAGE OF THE LEDGER --------------------------------------
+esc_reset
+esc_add esc-fx-f ceo 72
+run_hook "$(payload e4 "Triage every outstanding row in ~/.claude/state/escalations.jsonl and acknowledge each one with its disposition.")"
+if [ "$RC" -eq 0 ] && [ -z "$OUT" ] && disposed e4 triage; then
+    ok "7f  a triage dispatch that names the escalation ledger file is allowed and recorded as triage"
+else
+    bad "7f  a triage naming the ledger was refused or not recorded" "rc=$RC"
+fi
+
+# --- 7g. THE ACK LINE: needs its reason, and stops no clock ----------------
+run_hook "$(payload e5 "$(printf 'Refactor.\nowned-state-ack: escalations — ok\n')")"
+if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'is a bare marker'; then
+    ok "7k  an escalations ack with a token reason is refused"
+else
+    bad "7k  a token reason cleared the escalations demand" "rc=$RC"
+fi
+SEEN_BEFORE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("escalations",""))' \
+               "$ENTITY/.claude/state/owned-state-seen.json" 2>/dev/null)"
+run_hook "$(payload e5 "$(printf 'Refactor.\nowned-state-ack: escalations — the founder is on a live demo right now\n')")"
+ACK_RC=$RC
+SEEN_AFTER="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("escalations",""))' \
+              "$ENTITY/.claude/state/owned-state-seen.json" 2>/dev/null)"
+run_hook "$(payload e6 "Refactor the login screen.")"
+if [ "$ACK_RC" -eq 0 ] && [ -n "$SEEN_BEFORE" ] && [ "$SEEN_BEFORE" = "$SEEN_AFTER" ] \
+   && [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'oldest item raised 3.0 days ago'; then
+    ok "7g  a reasoned ack clears ONE session, leaves the age clock untouched, and the next session is refused at the same age"
+else
+    bad "7g  the ack reset the age or carried past its session" "ack rc=$ACK_RC seen $SEEN_BEFORE -> $SEEN_AFTER, next rc=$RC"
+fi
+
+# --- 7h. THE BASELINE IS FRESH, NEVER THE CACHE ----------------------------
+# A cached verdict from BEFORE the previous session's triage would hand the next
+# session a free "drop" it never made. Session e7 is refused at 5 and caches
+# it; two are acknowledged; session e8, inside the cache's lifetime, must take
+# its baseline at 3 and stay refused while nothing changes.
+esc_reset
+for i in 1 2 3 4 5; do esc_add "esc-fx-h$i" lead 72; done
+run_hook "$(payload e7 "Refactor the login screen.")"
+esc_ack esc-fx-h1
+esc_ack esc-fx-h2
+run_hook "$(payload e8 "Refactor the login screen.")"
+FIRST_RC=$RC
+run_hook "$(payload e8 "Refactor the login screen.")"
+if [ "$FIRST_RC" -eq 2 ] && [ "$RC" -eq 2 ] && ! disposed e8 progress; then
+    ok "7h  a new session's baseline is taken FRESH: a drop made before it began is not credited to it"
+else
+    bad "7h  a stale cached count was used as the baseline and credited a drop nobody made" "rc=$FIRST_RC then $RC"
+fi
+
+# --- 7j. THE OLD KEYWORD DISPOSITIONS CLEAR NOTHING ------------------------
+# The live ledger holds eleven `how=addressed` rows written by keyword matches.
+# They stay, as history, and must not clear a session.
+printf 'at=2026-09-18T16:03:08Z\tsession=e9\tsystem=escalations\thow=addressed\tagent=legacy\treason=dispatch matched this system'"'"'s declared match pattern\n' \
+    >>"$ENTITY/.claude/state/owned-state-dispositions.log"
+run_hook "$(payload e9 "Refactor the login screen.")"
+if [ "$RC" -eq 2 ]; then
+    ok "7j  a legacy keyword 'addressed' row in the ledger clears nothing"
+else
+    bad "7j  a legacy keyword disposition still clears a session" "rc=$RC"
+fi
+
+unset RICHOS_ESCALATION_LEDGER
+
+# --- 8. THE MUTATION HARNESS -----------------------------------------------
+# Every case above is evidence of nothing until it has been watched going red
+# for the right reason. owned-state.mutation.sh removes one property at a time
+# from a throwaway copy of the engine and asserts THIS suite fails at the named
+# case. It is run from here so the runner that discovers *.test.sh runs it too.
+if [ -x "$SCRIPT_DIR/owned-state.mutation.sh" ] && [ -z "${RICHOS_MUTATION_INNER:-}" ]; then
+    echo ""
+    echo "=== 8. running the mutation harness: owned-state.mutation.sh ==="
+    if "$SCRIPT_DIR/owned-state.mutation.sh"; then
+        ok "8a  every mutation was caught at its named case"
+    else
+        bad "8a  a mutation survived — a property this suite claims to prove is not proven"
+    fi
 fi
 
 echo ""

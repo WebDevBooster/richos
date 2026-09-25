@@ -196,6 +196,16 @@ AGE_BUCKETS = ((72 * 60, "72h"), (24 * 60, "24h"), (60, "1h"), (0, "new"))
 MIN_QUESTION = 20
 MIN_DISPOSITION = 30
 
+# THE TOLERATED AGE, in hours. An escalation younger than this is news; one
+# older than this is a BACKLOG, and the owned-state gate refuses dispatches
+# while any backlog item is outstanding and nothing has made it smaller this
+# session (owned-systems.declaration, row `escalations`). 24 h because it is
+# the loudness bucket this channel already shouts at, and one working day is
+# the longest a teammate's question should wait on a lead who is working.
+# It is printed in the summary line below, and the declaration's `backlog:`
+# pattern reads the number back from there, so the threshold lives here once.
+BACKLOG_AGE_HOURS = 24
+
 STATE_GLOSS = {
     "work-complete": "work COMPLETE — a record, NOT a stall",
     "proceeding": "still working on everything that does not depend on this",
@@ -367,6 +377,42 @@ def outstanding(rows, now=None):
     return out
 
 
+def counts(live):
+    """The three numbers every reader leads with, computed in ONE place.
+
+    2026-09-25: the backlog stood at 143 outstanding, the oldest 19 days, 13
+    addressed to the CEO, and it was printed at every session start for a week
+    — with the CEO's share at the END of a block that listed every escalation
+    in full. The number was there; nobody read that far. So every surface now
+    opens with these numbers, and they come from here so no two can disagree.
+
+    An escalation whose `raised` cannot be parsed counts as backlog: an age
+    nobody can read is never allowed to pass as young.
+    """
+    ceo = len([e for e in live if e.get("for") == "ceo"])
+    floor = BACKLOG_AGE_HOURS * 60
+    backlog = len([e for e in live
+                   if e.get("age_min") is None or e.get("age_min") >= floor])
+    return {"outstanding": len(live), "ceo": ceo, "backlog": backlog}
+
+
+def summary_line(live):
+    """The one line, under the header, that the owned-state gate reads.
+
+    The `measure:`, `backlog:` and `since:` patterns of the `escalations` row in
+    owned-systems.declaration are written against THIS line and the header
+    above it, so rewording it is a change to that row too. owned-state.test.sh
+    runs the SHIPPED row against the SHIPPED list output, which is what catches
+    that drift instead of a gate that silently stops measuring.
+    """
+    c = counts(live)
+    oldest = live[0] if live else None
+    return ("  for the CEO: %d; older than %dh: %d; oldest raised %s (%s)."
+            % (c["ceo"], BACKLOG_AGE_HOURS, c["backlog"],
+               (oldest.get("raised") or "unknown") if oldest else "none",
+               age_phrase(oldest.get("age_min")) if oldest else "none"))
+
+
 def acks_for(rows, rid):
     return [r for r in rows
             if r.get("event") == "EscalationAck" and str(r.get("id")) == str(rid)]
@@ -457,6 +503,7 @@ def render_text(rows, bad, now=None):
         out.append("")
         out.append("  Nothing outstanding.")
         return "\n".join(out)
+    out.append(summary_line(live))
     for e in live:
         out.append("")
         out.append("=== %s ===" % e["id"])
@@ -541,9 +588,15 @@ def render_session_context(rows, bad, now=None):
     live = outstanding(rows, now)
     if not live and not bad:
         return ""
-    model = ["%d ESCALATION(S) RAISED BY TEAMMATES ARE OUTSTANDING — raised, never "
-             "acknowledged, and waiting for you. This is the whole content; nothing has to be "
-             "merged, and no worktree has to still exist, to read it." % len(live)]
+    # THE FIRST LINE IS THE COUNT AND THE CEO'S SHARE OF IT (2026-09-25). The
+    # old first line gave the total and then listed every escalation in full;
+    # the number addressed to the CEO came after all 143 entries, and a week of
+    # session starts read past it.
+    c = counts(live)
+    model = ["%d ESCALATION(S) OUTSTANDING, %d FOR THE CEO (for=ceo), %d older than %dh — "
+             "raised by teammates, never acknowledged, and waiting for you. This is the whole "
+             "content; nothing has to be merged, and no worktree has to still exist, to read it."
+             % (c["outstanding"], c["ceo"], c["backlog"], BACKLOG_AGE_HOURS)]
     for e in live:
         model.append(
             "  [%s] %s (%s), from %s, state=%s (%s), for=%s. QUESTION: %s%s%s"
@@ -568,8 +621,9 @@ def render_session_context(rows, bad, now=None):
                  "every session start and gets louder at 1h, 24h and 72h.")
     if live:
         oldest = live[0]
-        op = ("%d ESCALATION(S) OUTSTANDING — oldest %s from %s: \"%s\". escalate.sh list"
-              % (len(live), age_phrase(oldest.get("age_min")),
+        op = ("%d ESCALATION(S) OUTSTANDING, %d FOR THE CEO — oldest %s from %s: \"%s\". "
+              "escalate.sh list"
+              % (c["outstanding"], c["ceo"], age_phrase(oldest.get("age_min")),
                  oldest.get("teammate") or "a teammate", oldest.get("title", "")))
     else:
         op = "%d unreadable line(s) in the escalation ledger — escalate.sh list" % bad

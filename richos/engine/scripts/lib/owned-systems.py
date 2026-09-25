@@ -96,17 +96,64 @@ accrue their own state with no session at all. But if the founder wants the
 AGE to be true rather than conservative, this layer needs a scheduled sweep of
 its own, and that is a decision with a cost rather than an oversight.
 
+===========================================================================
+WHAT "ADDRESSED" MEANS: THE PROBLEM GOT SMALLER (2026-09-25)
+===========================================================================
+Until 2026-09-25 a dispatch whose prompt matched a row's `match:` keyword
+pattern counted as ADDRESSING that system, and one such match cleared the gate
+for the whole session. The dispositions ledger shows what that bought. The
+escalations system was "addressed" exactly once in fifteen days, on 2026-09-18,
+by an unrelated dispatch whose text happened to contain the word, and the
+`staging|deploy` pattern matched nearly every product dispatch in the governed
+repository, so the gate cleared itself for session after session while the
+escalation backlog grew to 143 outstanding, the oldest 19 days, 13 of them for
+the CEO. It was printed at every session start and never forced anything. The
+founder asked whether it had been "purely just discovered by accident", and the
+honest answer is that the guard built to force it was satisfied by a keyword.
+
+So a keyword now counts for NOTHING, and a disposition is one of exactly three
+things, each recorded in the session ledger with the name of what caused it:
+
+  progress  the system THIS SESSION WAS ASKED ABOUT got smaller since it was
+            asked: its check now passes, or its declared `measure:` number
+            fell below the baseline taken, fresh, when the session was first
+            refused over it, or its declared `backlog:` (items older than the
+            tolerated age) reached zero. Measured by this file, never claimed
+            by a prompt.
+  triage    a dispatch whose prompt matches the demanded row's `triage:`
+            pattern, which names the system's own record explicitly (for
+            escalations, the ledger file), never a word stem.
+  ack       the escape hatch: one `owned-state-ack:` line with a reason, for
+            the demanded system only. It clears THIS session and changes
+            nothing else. It never touches the age clock, so the next session
+            is asked again with a larger number in front of it.
+
+Only the DEMANDED system's progress counts. Progress on a cheaper system while
+the oldest one stands is the rotation this gate exists to stop.
+
+A row with a `backlog:` pattern whose count is zero is standing but WITHIN
+TOLERANCE: it is reported, and it is not demanded. An escalation raised an hour
+ago is news, not neglect. A pattern that does not match reads as unknown, and
+unknown is never within tolerance.
+
+The baseline is taken FRESH. A verdict up to fifteen minutes old may be served
+from the cache, and a cached count from before the previous session's triage
+would hand the next session a free "drop" it never made. So a row whose check
+fits the re-check budget is re-run before a baseline is taken from it and
+before progress is judged against it.
+
 CLI
     owned-systems.py report   --entity R --engine E [--json] [--refresh]
-    owned-systems.py demanded --entity R --engine E --session S [--json]
+    owned-systems.py demanded --entity R --engine E --session S [--agent A] [--json]
     owned-systems.py dispose  --entity R --session S --system ID
-                              --how ack|addressed --reason TEXT [--agent A]
+                              --how ack|triage|progress --reason TEXT [--agent A]
 
 Exit codes
     report    0 every system in jurisdiction is healthy
               1 at least one is not (each named, with its evidence)
               2 the declaration could not be read — NEVER the same code as 0
-    demanded  0 nothing is demanded of this session
+    demanded  0 nothing is demanded of this session (including: the demanded
+                system got smaller, which is recorded as `progress`)
               1 a system is demanded (printed)
               2 broken
     dispose   0 recorded · 2 refused
@@ -121,6 +168,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ci_pause import pause_for
 import time
+from datetime import datetime, timezone
 
 DEFAULT_TIMEOUT = 45
 DEFAULT_TTL = 900
@@ -129,6 +177,22 @@ SEEN_NAME = "owned-state-seen.json"
 VERDICT_NAME = "owned-state-verdict.json"
 ACK_LOG_NAME = "owned-state-acks.log"
 DISPOSITION_LOG_NAME = "owned-state-dispositions.log"
+SESSIONS_NAME = "owned-state-sessions.json"
+
+# THE DISPOSITIONS THAT CLEAR A SESSION. `addressed` is deliberately absent: it
+# is what a keyword match used to write, and the ledger still holds those rows.
+# They are history, and they clear nothing.
+COUNTING = ("ack", "progress", "triage")
+
+# Seconds. A row whose declared timeout fits inside this is re-run on the
+# refusal path when the verdict came from the cache, so a baseline or a drop is
+# never judged on a number from before the fact. The CI row (180 s) does not
+# fit, and a PreToolUse hook that spends three minutes gets switched off; it is
+# judged on the cached verdict, and it heals on the next full sweep.
+RECHECK_BUDGET = 60
+
+# Session baselines older than this are pruned when the file is written.
+SESSION_KEEP_DAYS = 30
 
 HEALTHY = "HEALTHY"
 UNHEALTHY = "UNHEALTHY"
@@ -266,6 +330,28 @@ def parse_declaration(path):
                 raise DeclarationError(
                     "%s: system '%s' declares unknown-exit %r, which is not a number"
                     % (path, rec["id"], tok))
+        # THE PROGRESS PATTERNS. A pattern that cannot compile, or a number
+        # pattern with no capture group, is REFUSED rather than ignored: a
+        # measure that silently never matches turns "the count fell" into a
+        # condition that can never be met, and the row into a wall that gets
+        # waived every session.
+        pats = {}
+        for key, needs_group in (("measure", True), ("backlog", True),
+                                 ("since", True), ("triage", False)):
+            raw = rec.get(key, "")
+            pats[key] = raw
+            if not raw:
+                continue
+            try:
+                rx = re.compile(raw)
+            except re.error as exc:
+                raise DeclarationError(
+                    "%s: system '%s' declares %s %r, which is not a valid regular "
+                    "expression: %s" % (path, rec["id"], key, raw, exc))
+            if needs_group and rx.groups < 1:
+                raise DeclarationError(
+                    "%s: system '%s' declares %s %r with no capture group; the group "
+                    "is the value it reads" % (path, rec["id"], key, raw))
         out.append({
             "id": rec["id"],
             "unknown_exit": unknown_exit,
@@ -273,7 +359,16 @@ def parse_declaration(path):
             "jurisdiction": rec.get("jurisdiction", ""),
             "check": rec["check"],
             "evidence": rec.get("evidence", ""),
-            "match": rec.get("match", ""),
+            "measure": pats["measure"],
+            "backlog": pats["backlog"],
+            "since": pats["since"],
+            "triage": pats["triage"],
+            # `match:` IS READ AND IGNORED. A keyword in a prompt addressed a
+            # system until 2026-09-25 and it never once forced anything (see the
+            # header). Refusing the key would make an adopting repository's old
+            # declaration unreadable, which fails the whole gate OPEN; ignoring
+            # it, and saying so in the report, fails nothing.
+            "match_ignored": bool(rec.get("match", "")),
             "timeout": timeout,
             "why": rec.get("why", ""),
             "line": ln,
@@ -350,6 +445,47 @@ def run(cmd, timeout, cwd):
     except OSError as exc:
         return None, "the check could not be started: %s" % exc
     return proc.returncode, proc.stdout.decode("utf-8", "replace")
+
+
+def read_int(pattern, output):
+    """The first capture group of the first match, as an integer, or None.
+
+    None means UNREAD, and every caller treats it as unknown: never as zero,
+    never as within tolerance, never as a drop."""
+    if not pattern or not output:
+        return None
+    try:
+        m = re.search(pattern, output, re.MULTILINE)
+    except re.error:
+        return None
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
+def read_epoch(pattern, output):
+    """The first capture group, read as an ISO-8601 UTC time, as an epoch."""
+    if not pattern or not output:
+        return None
+    try:
+        m = re.search(pattern, output, re.MULTILINE)
+    except re.error:
+        return None
+    if not m:
+        return None
+    t = (m.group(1) or "").strip()
+    if t.endswith("Z"):
+        t = t[:-1] + "+00:00"
+    try:
+        d = datetime.fromisoformat(t)
+    except ValueError:
+        return None
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)
+    return d.timestamp()
 
 
 def evidence_lines(output, pattern, limit=6):
@@ -460,8 +596,8 @@ def record_disposition(entity_root, session_id, system, how, reason, agent=""):
     loop was clever. Verified by running the lint, not by reading the analyzer.
 
     Both ledgers now classify as hatches, and the dispositions one is arguably
-    over-classified because it also records dispatches that ADDRESSED a system,
-    which are not waivers at all. That is the direction the analyzer's own
+    over-classified because it also records `progress` and `triage` (and, before
+    2026-09-25, keyword `addressed` rows), which are not waivers at all. That is the direction the analyzer's own
     header says it chooses to fail in: an over-classified record costs the
     operator a line he can dismiss, an under-classified hatch is a defect
     nobody is told about."""
@@ -492,71 +628,138 @@ def record_disposition(entity_root, session_id, system, how, reason, agent=""):
     return ok
 
 
+def counting_dispositions(entity_root, session_id):
+    """The dispositions that clear this session: ack, progress, triage.
+
+    Legacy `addressed` rows — a keyword match, before 2026-09-25 — are read
+    and ignored. The ledger is append-only history and is never rewritten."""
+    return [d for d in session_dispositions(entity_root, session_id)
+            if d.get("how") in COUNTING]
+
+
+def _sessions(entity_root):
+    doc = _read_json(state_path(entity_root, SESSIONS_NAME), {})
+    return doc if isinstance(doc, dict) else {}
+
+
+def session_asked(entity_root, session_id):
+    """{system id: {"baseline": int|None, "at": iso}} — what this session has
+    been refused over, and the size of each when it was first refused."""
+    ent = _sessions(entity_root).get(session_id)
+    if not isinstance(ent, dict):
+        return {}
+    systems = ent.get("systems")
+    return systems if isinstance(systems, dict) else {}
+
+
+def note_asked(entity_root, session_id, system_id, baseline):
+    """Record that this session is being refused over `system_id`.
+
+    The FIRST fresh measurement is the baseline and is never overwritten by a
+    later one. A later, smaller number overwriting it would erase the very
+    drop it exists to detect. A baseline recorded as None (the row has no
+    measure, or its number could not be read fresh) is filled by the first
+    fresh reading, which is conservative: it can only miss a drop that
+    happened before any fresh reading, never invent one."""
+    if not session_id:
+        return
+    path = state_path(entity_root, SESSIONS_NAME)
+    doc = _sessions(entity_root)
+    cutoff = now() - SESSION_KEEP_DAYS * 86400
+    kept = {}
+    for sid, ent in doc.items():
+        try:
+            if isinstance(ent, dict) and float(ent.get("ts", 0)) >= cutoff:
+                kept[sid] = ent
+        except (TypeError, ValueError):
+            continue
+    ent = kept.setdefault(session_id, {"ts": now(), "systems": {}})
+    ent["ts"] = now()
+    systems = ent.setdefault("systems", {})
+    cur = systems.get(system_id)
+    if not isinstance(cur, dict):
+        systems[system_id] = {"baseline": baseline, "at": iso(now())}
+    elif cur.get("baseline") is None and baseline is not None:
+        cur["baseline"] = baseline
+    _write_json(path, kept)
+
+
 # ---------------------------------------------------------------------------
 # THE SWEEP
 # ---------------------------------------------------------------------------
 
+def judge(sysrec, entity_root, engine_root, ci_pause):
+    """Run ONE declared row and return its verdict record. No state is written."""
+    rec = {
+        "id": sysrec["id"],
+        "title": sysrec["title"],
+        "why": sysrec["why"],
+        "triage": sysrec.get("triage", ""),
+        "has_measure": bool(sysrec.get("measure")),
+        "has_backlog": bool(sysrec.get("backlog")),
+        "match_ignored": sysrec.get("match_ignored", False),
+        "measure": None,
+        "backlog": None,
+        "since": None,
+        "taken": iso(now()),
+    }
+    if sysrec["id"] == "ci" and ci_pause:
+        rec.update({"status": "PAUSED", "via": "operator-pause", "exit": None,
+                    "evidence": [ci_pause["reason"]]})
+        return rec
+    jur = sysrec["jurisdiction"].strip()
+    if jur:
+        jcmd = expand(jur, entity_root, engine_root)
+        jrc, _jout = run(jcmd, 20, entity_root)
+        if jrc is None or jrc != 0:
+            rec.update({"status": "OUT-OF-JURISDICTION", "via": jcmd,
+                        "evidence": [], "exit": jrc})
+            return rec
+    cmd, present, alts = choose_command(sysrec["check"], entity_root, engine_root)
+    rec["via"] = cmd
+    rec["alternatives"] = alts
+    if cmd is None:
+        rec.update({"status": UNKNOWN, "exit": None, "evidence": [
+            "this system declares no runnable check command"]})
+        return rec
+    if not present:
+        rec.update({"status": UNKNOWN, "exit": None, "evidence": [
+            "the declared check is not on disk: %s" % _program_of(cmd),
+            "an absent check is not a passing check",
+        ]})
+        return rec
+    rc, out = run(cmd, sysrec["timeout"], entity_root)
+    if rc is None:
+        rec.update({"status": UNKNOWN, "exit": None, "evidence": [out]})
+    elif rc == 0:
+        rec.update({"status": HEALTHY, "exit": 0, "evidence": []})
+    elif rc in (sysrec.get("unknown_exit") or []):
+        # The row DECLARES which exit code means "I could not decide".
+        # It is per-row and not a global convention because the codes
+        # genuinely disagree across the tools this inventory consumes:
+        # escalate.sh reserves 2 for an unreadable ledger, while the ECS
+        # capture status uses 2 for a real finding. A global rule would
+        # have read one of them backwards, and reading a finding as
+        # "unknown" is how a defect goes quiet.
+        rec.update({"status": UNKNOWN, "exit": rc,
+                    "evidence": evidence_lines(out, sysrec["evidence"]) or [
+                        "the check exited %d, which this row declares as "
+                        "'could not decide'" % rc]})
+    else:
+        rec.update({"status": UNHEALTHY, "exit": rc,
+                    "evidence": evidence_lines(out, sysrec["evidence"])})
+        # The size of the problem, read only from a REAL finding. A number
+        # printed beside "could not decide" is not a measurement.
+        rec["measure"] = read_int(sysrec.get("measure"), out)
+        rec["backlog"] = read_int(sysrec.get("backlog"), out)
+        rec["since"] = read_epoch(sysrec.get("since"), out)
+    return rec
+
+
 def sweep(entity_root, engine_root, decl_path, systems):
     at = now()
-    results = []
     ci_pause = pause_for(entity_root)
-    for sysrec in systems:
-        rec = {
-            "id": sysrec["id"],
-            "title": sysrec["title"],
-            "why": sysrec["why"],
-            "match": sysrec["match"],
-        }
-        if sysrec["id"] == "ci" and ci_pause:
-            rec.update({"status": "PAUSED", "via": "operator-pause", "exit": None,
-                        "evidence": [ci_pause["reason"]]})
-            results.append(rec)
-            continue
-        jur = sysrec["jurisdiction"].strip()
-        if jur:
-            jcmd = expand(jur, entity_root, engine_root)
-            jrc, _jout = run(jcmd, 20, entity_root)
-            if jrc is None or jrc != 0:
-                rec.update({"status": "OUT-OF-JURISDICTION", "via": jcmd,
-                            "evidence": [], "exit": jrc})
-                results.append(rec)
-                continue
-        cmd, present, alts = choose_command(sysrec["check"], entity_root, engine_root)
-        rec["via"] = cmd
-        rec["alternatives"] = alts
-        if cmd is None:
-            rec.update({"status": UNKNOWN, "exit": None, "evidence": [
-                "this system declares no runnable check command"]})
-            results.append(rec)
-            continue
-        if not present:
-            rec.update({"status": UNKNOWN, "exit": None, "evidence": [
-                "the declared check is not on disk: %s" % _program_of(cmd),
-                "an absent check is not a passing check",
-            ]})
-            results.append(rec)
-            continue
-        rc, out = run(cmd, sysrec["timeout"], entity_root)
-        if rc is None:
-            rec.update({"status": UNKNOWN, "exit": None, "evidence": [out]})
-        elif rc == 0:
-            rec.update({"status": HEALTHY, "exit": 0, "evidence": []})
-        elif rc in (sysrec.get("unknown_exit") or []):
-            # The row DECLARES which exit code means "I could not decide".
-            # It is per-row and not a global convention because the codes
-            # genuinely disagree across the tools this inventory consumes:
-            # escalate.sh reserves 2 for an unreadable ledger, while the ECS
-            # capture status uses 2 for a real finding. A global rule would
-            # have read one of them backwards, and reading a finding as
-            # "unknown" is how a defect goes quiet.
-            rec.update({"status": UNKNOWN, "exit": rc,
-                        "evidence": evidence_lines(out, sysrec["evidence"]) or [
-                            "the check exited %d, which this row declares as "
-                            "'could not decide'" % rc]})
-        else:
-            rec.update({"status": UNHEALTHY, "exit": rc,
-                        "evidence": evidence_lines(out, sysrec["evidence"])})
-        results.append(rec)
+    results = [judge(sysrec, entity_root, engine_root, ci_pause) for sysrec in systems]
 
     # EVERY judged system, not only the standing ones. Passing just the standing
     # list looks right and silently breaks the clearing half: a system that
@@ -578,12 +781,55 @@ def sweep(entity_root, engine_root, decl_path, systems):
     }
 
 
+def opened_at(r):
+    """When this standing state began, as well as the engine can know it.
+
+    The first observation, unless the row's own output dates its oldest item
+    earlier (`since:`). The escalations ledger dates every row it holds, so its
+    age is the oldest outstanding escalation's, 19 days on 2026-09-25, not
+    'first observed' 15 days earlier by a sweep. A tie at the first-observation
+    stamp (every row first seen by the same sweep) was broken by id, which put
+    `ecs` ahead of `escalations` alphabetically and never the other way."""
+    stamps = [x for x in (r.get("first_seen"), r.get("since")) if x]
+    return min(stamps) if stamps else None
+
+
+def within_tolerance(r):
+    """Standing, but nothing in it is older than its tolerated age.
+
+    Only a READ zero counts. A backlog pattern that did not match is None, and
+    None is never tolerance."""
+    return r.get("status") == UNHEALTHY and r.get("backlog") == 0
+
+
 def ordered_standing(doc):
     """Every standing state, worst-and-oldest first."""
     standing = [r for r in doc["systems"] if r["status"] in (UNHEALTHY, UNKNOWN)]
     return sorted(standing, key=lambda r: (RANK[r["status"]],
-                                           r.get("first_seen") or 0,
+                                           opened_at(r) or 0,
                                            r["id"]))
+
+
+def demandable(doc):
+    """What the gate may demand: standing, and not within tolerance."""
+    return [r for r in ordered_standing(doc) if not within_tolerance(r)]
+
+
+def recheck(entity_root, engine_root, doc, sysrec):
+    """Re-run ONE row now, fold it into the document and the cache, and return it.
+
+    Used on the refusal path only, and only for a row whose timeout fits
+    RECHECK_BUDGET: a baseline or a drop judged on a cached number from before
+    the fact is the free pass this layer exists to refuse."""
+    rec = judge(sysrec, entity_root, engine_root, pause_for(entity_root))
+    if rec["status"] in (HEALTHY, UNHEALTHY, UNKNOWN):
+        update_seen(entity_root, [rec], now())
+    rec.setdefault("first_seen", None)
+    doc["systems"] = [rec if r["id"] == rec["id"] else r for r in doc["systems"]]
+    stored = dict(doc)
+    stored["from_cache"] = False
+    _write_json(state_path(entity_root, VERDICT_NAME), stored)
+    return rec
 
 
 def load_or_sweep(entity_root, engine_root, refresh, ttl):
@@ -622,13 +868,37 @@ def load_or_sweep(entity_root, engine_root, refresh, ttl):
 # REPORT — the positive probe
 # ---------------------------------------------------------------------------
 
-def age_text(first_seen):
+def _ago(ts):
+    days = (now() - float(ts)) / 86400.0
+    if days < 1:
+        return "%.1fh ago" % (days * 24)
+    return "%.1f days ago" % days
+
+
+def age_text(r):
+    """The age of a standing state, naming which clock it read.
+
+    `first observed` is the engine's own clock. `oldest item raised` is the
+    row's own date for its oldest item, used when it is earlier: an ack, a
+    triage or a new session never resets it, because nothing here writes it."""
+    first_seen = r.get("first_seen")
+    since = r.get("since")
+    if since and (not first_seen or since < first_seen):
+        return "oldest item raised %s (%s)" % (_ago(since), iso(since))
     if not first_seen:
         return "age unknown"
-    days = (now() - float(first_seen)) / 86400.0
-    if days < 1:
-        return "first observed %.1fh ago" % (days * 24)
-    return "first observed %.1f days ago" % days
+    return "first observed %s" % _ago(first_seen)
+
+
+def size_text(r):
+    """The row's own measurements, for the report and the refusal."""
+    bits = []
+    if r.get("has_measure"):
+        bits.append("size %s" % ("unread" if r.get("measure") is None else r["measure"]))
+    if r.get("has_backlog"):
+        bits.append("%s past the tolerated age" % (
+            "unread" if r.get("backlog") is None else r["backlog"]))
+    return "; ".join(bits)
 
 
 def render(doc):
@@ -653,12 +923,22 @@ def render(doc):
         if r["status"] == HEALTHY:
             continue
         lines.append("      state: %s, exit %s, %s" % (
-            r["status"], r.get("exit"), age_text(r.get("first_seen"))))
+            r["status"], r.get("exit"), age_text(r)))
+        size = size_text(r)
+        if size:
+            lines.append("      size : %s%s" % (size, (
+                " — WITHIN TOLERANCE: standing, and not demanded, because "
+                "nothing in it is past its tolerated age") if within_tolerance(r) else ""))
         for ev in r.get("evidence", []):
             lines.append("      >    %s" % ev.strip())
         if r.get("why"):
             lines.append("      why  : %s" % r["why"])
     lines.append("")
+    if any(r.get("match_ignored") for r in doc["systems"]):
+        lines.append("  NOTE: a `match:` line in the declaration is IGNORED. A keyword in a")
+        lines.append("  prompt never addresses a system (2026-09-25); `measure:`, `backlog:`")
+        lines.append("  and `triage:` are what count now.")
+        lines.append("")
     if not standing:
         if any(r["status"] == "PAUSED" for r in doc["systems"]):
             lines.append("  No active system is standing; paused systems were not checked.")
@@ -693,31 +973,111 @@ def cmd_demanded(args):
     except DeclarationError as exc:
         sys.stderr.write("owned-systems: BROKEN — %s\n" % exc)
         return 2
-    standing = ordered_standing(doc)
+    if not demandable(doc):
+        return 0
+    if counting_dispositions(args.entity, args.session):
+        return 0
+    try:
+        rows = dict((s["id"], s) for s in parse_declaration(doc["declaration"]))
+    except DeclarationError as exc:
+        sys.stderr.write("owned-systems: BROKEN — %s\n" % exc)
+        return 2
+
+    rechecked = set()
+
+    def current(system_id):
+        """This row's verdict, re-run now if the document is a cached one and
+        the row's check fits the budget. Returns (record, fresh)."""
+        rec = next((r for r in doc["systems"] if r["id"] == system_id), None)
+        sysrec = rows.get(system_id)
+        if rec is None or sysrec is None:
+            return rec, False
+        if system_id in rechecked or not doc.get("from_cache"):
+            return rec, True
+        if sysrec["timeout"] > RECHECK_BUDGET:
+            return rec, False
+        rechecked.add(system_id)
+        return recheck(args.entity, args.engine, doc, sysrec), True
+
+    # --- 1. DID WHAT THIS SESSION WAS ASKED ABOUT GET SMALLER? ---------------
+    # Only a system this session was already refused over. Progress on some
+    # other, cheaper system is real, and it is not what was asked: letting it
+    # clear the oldest demand is the rotation that let thirteen days happen.
+    asked = session_asked(args.entity, args.session) if args.session else {}
+    for system_id, info in asked.items():
+        rec, fresh = current(system_id)
+        if rec is None:
+            continue
+        why = ""
+        base = info.get("baseline") if isinstance(info, dict) else None
+        if rec["status"] not in (UNHEALTHY, UNKNOWN):
+            why = "%s is no longer standing: its check now reads %s" % (system_id, rec["status"])
+        elif within_tolerance(rec):
+            why = ("%s: nothing is past its tolerated age any more (the backlog reads 0)"
+                   % system_id)
+        elif fresh and base is not None and rec.get("measure") is not None \
+                and rec["measure"] < base:
+            why = ("%s fell from %d to %d since this session was first refused over it"
+                   % (system_id, base, rec["measure"]))
+        if why:
+            record_disposition(args.entity, args.session, system_id, "progress", why,
+                               args.agent)
+            return 0
+
+    # --- 2. WHAT IS DEMANDED NOW ---------------------------------------------
+    # Re-sorted after every fresh re-check: a cached verdict may name a system
+    # that has healed since, and demanding it would refuse a dispatch over a
+    # problem that no longer exists.
+    # Bounded: each pass re-runs at most one row, and a row is re-run once.
+    top, fresh = None, False
+    for _ in range(len(doc["systems"]) + 1):
+        standing = demandable(doc)
+        if not standing:
+            return 0
+        top, fresh = current(standing[0]["id"])
+        standing = demandable(doc)
+        if standing and top is not None and standing[0]["id"] == top["id"]:
+            break
+    standing = demandable(doc)
     if not standing:
         return 0
-    disposed = session_dispositions(args.entity, args.session)
-    if disposed:
-        return 0
-    top = standing[0]
+    if top is None or top["id"] != standing[0]["id"]:
+        top, fresh = standing[0], not doc.get("from_cache")
+
+    note_asked(args.entity, args.session, top["id"],
+               top.get("measure") if fresh else None)
+    base = session_asked(args.entity, args.session).get(top["id"], {}).get("baseline") \
+        if args.session else None
+
+    ways = []
+    if top.get("has_measure"):
+        ways.append("its size falls below %s, the size when this session was first "
+                    "refused over it (now %s)" % (
+                        "an unrecorded baseline" if base is None else base,
+                        "unread" if top.get("measure") is None else top["measure"]))
+    if top.get("has_backlog"):
+        ways.append("nothing in it is past its tolerated age (now %s)" % (
+            "unread" if top.get("backlog") is None else top["backlog"]))
+    ways.append("its check passes")
+
     out = {
         "demanded": top["id"],
         "title": top["title"],
         "status": top["status"],
-        "age": age_text(top.get("first_seen")),
+        "age": age_text(top),
         "via": top.get("via"),
-        "match": top.get("match", ""),
+        "triage": top.get("triage", ""),
+        "measure": top.get("measure"),
+        "backlog": top.get("backlog"),
+        "baseline": base,
+        "size": size_text(top),
+        "progress": ways,
         "evidence": top.get("evidence", []),
         "why": top.get("why", ""),
-        # EVERY standing system carries its own `match`, not just the demanded
-        # one: a dispatch at ANY of them is motion toward an owned system, and
-        # refusing that because it aimed at the second-oldest would be a gate
-        # punishing the behavior it exists to produce.
         "others": [{"id": r["id"], "status": r["status"], "title": r["title"],
-                    "match": r.get("match", ""),
-                    "age": age_text(r.get("first_seen"))} for r in standing[1:]],
-        "taken": doc["generated_at"],
-        "from_cache": doc.get("from_cache", False),
+                    "age": age_text(r)} for r in standing if r["id"] != top["id"]],
+        "taken": top.get("taken") or doc["generated_at"],
+        "from_cache": bool(doc.get("from_cache")) and not fresh,
     }
     print(json.dumps(out, indent=2, sort_keys=True))
     return 1
@@ -755,6 +1115,7 @@ def main(argv=None):
     p = sub.add_parser("demanded")
     common(p)
     p.add_argument("--session", default="")
+    p.add_argument("--agent", default="")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_demanded)
 
@@ -762,7 +1123,7 @@ def main(argv=None):
     p.add_argument("--entity", required=True)
     p.add_argument("--session", default="")
     p.add_argument("--system", required=True)
-    p.add_argument("--how", choices=("ack", "addressed"), required=True)
+    p.add_argument("--how", choices=COUNTING, required=True)
     p.add_argument("--reason", default="")
     p.add_argument("--agent", default="")
     p.set_defaults(func=cmd_dispose)
