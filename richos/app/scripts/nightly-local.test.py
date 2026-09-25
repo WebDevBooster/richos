@@ -1049,6 +1049,9 @@ while True: time.sleep(.02)
         # The middle iPhone size runs before every nightly (CEO, 2026-09-23, "Only before
         # nightlies"): stated at this call site, where a failure stops the nightly.
         self.assertEqual(env["RICHOS_NATIVE_IOS_APP_A8"], "1")
+        # The simulator suites queue for the one prepared-simulator lease for as long as this
+        # gate may run, never the CLI's 300 s default that failed them side by side.
+        self.assertEqual(env["RICHOS_IOS_POOL_WAIT"], str(m.GATE_BUDGETS["gates/script-suites"]))
         # ...and so does the workspace-spec mutation pass, at its own gate.
         mut = [c for c in r.command.call_args_list
                if "workspace-spec-fourteen.test.sh" in " ".join(str(a) for a in c.args)]

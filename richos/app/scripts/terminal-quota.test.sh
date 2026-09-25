@@ -2,6 +2,7 @@
 # Terminal entrypoint authorization and state-path tests. No live account access.
 # run-tests: inputs richos/app/scripts/terminal-quota.test.sh richos/app/Cargo.toml richos/app/Cargo.lock richos/app/crates/richos-core richos/engine/scripts/quota-reset.sh
 # run-tests: covers richos/app/crates/richos-core/src/bin/richos-quota.rs richos/app/crates/richos-core/examples/terminal_quota_proof.rs richos/app/crates/richos-core/src/quota/terminal.rs
+# run-tests: no-host-screen: richos-quota and terminal_quota_proof are command-line binaries, and the "RichOS.app" it runs is a two-line shell stand-in in a temporary HOME that prints its arguments and exits; nothing is drawn
 set -euo pipefail
 cd "$(dirname "$0")/.."
 python3 - <<'PY'

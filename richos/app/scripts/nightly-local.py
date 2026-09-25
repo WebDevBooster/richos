@@ -546,6 +546,10 @@ GATE_SET_PER_STEP = (
     # native-ios-app.test.sh case A8, the middle iPhone size: off every land, on before every
     # nightly (CEO, 2026-09-23, "Only before nightlies"). Set at the script-suites call site.
     "RICHOS_NATIVE_IOS_APP_A8",
+    # How long a simulator suite waits for the machine's one prepared-simulator lease
+    # (testdevices.py pool_wait_seconds): the script-suites gate's own deadline, so the iOS
+    # suites it starts side by side queue for the pool instead of failing after 300 s.
+    "RICHOS_IOS_POOL_WAIT",
     # The workspace-spec mutation pass, the same ruling; set at the workspace-mutants gate.
     "RICHOS_FOURTEEN_MUTANTS",
 )
@@ -1112,7 +1116,13 @@ class Runner:
                      # The iPhone UI tests on the middle screen size run HERE, before every
                      # nightly, and nowhere on a land (CEO, 2026-09-23, "Only before
                      # nightlies"). A failure fails this gate and so stops the nightly.
-                     "RICHOS_NATIVE_IOS_APP_A8": "1"}
+                     "RICHOS_NATIVE_IOS_APP_A8": "1",
+                     # native-ios-app, native-ios-ui and native-ios-share run side by side here
+                     # and the machine admits one prepared-simulator lease at a time; A8 alone
+                     # holds it about 26 minutes. With the default 300 s wait, whichever suite
+                     # waited failed (run 20260925T190759Z-2b4b0a7e: A8 and share's S7 both gave
+                     # up at 300 s). Waiting up to this gate's own deadline queues them instead.
+                     "RICHOS_IOS_POOL_WAIT": str(GATE_BUDGETS["gates/script-suites"])}
             if skip_unchanged:
                 extra["RUN_TESTS_SKIP_UNCHANGED"] = "1"
             args = ["bash", self.source / SCRIPTS / "run-tests.sh",

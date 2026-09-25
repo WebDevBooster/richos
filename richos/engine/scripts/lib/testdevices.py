@@ -1444,7 +1444,34 @@ def same_owner(a, b):
     return not a.get("unknown") and all(a.get(k) is not None and a.get(k) == b.get(k) for k in keys)
 
 
-def acquire_ios(device_type, runtime, owner_pid=None, checkout="", timeout=300, purpose=None):
+POOL_WAIT_SECONDS = 300
+POOL_WAIT_ENV = "RICHOS_IOS_POOL_WAIT"
+
+
+def pool_wait_seconds():
+    """How long `acquire-ios` waits for the one machine-wide prepared-simulator lease.
+
+    300 s unless RICHOS_IOS_POOL_WAIT names another positive number of seconds. A gate
+    that runs several simulator suites side by side sets it to its own deadline: on
+    2026-09-25 native-ios-app's A8 held the pool for about 26 minutes, so native-ios-ui
+    and native-ios-app, started together by the nightly script-suites gate, could each
+    only fail after 300 s waiting for the other (run 20260925T190759Z-2b4b0a7e: A8's
+    lease acquire gave up at exactly 300 s). Waiting longer queues them; it never lets
+    two runs share a device, and a lease's own lifetime is untouched. A value that is
+    not a positive number is refused, never read as the default."""
+    raw = (os.environ.get(POOL_WAIT_ENV) or "").strip()
+    if not raw:
+        return POOL_WAIT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        raise ValueError("%s=%r is not a number of seconds" % (POOL_WAIT_ENV, raw)) from None
+    if not value > 0 or value != value or value == float("inf"):
+        raise ValueError("%s=%r must be a positive, finite number of seconds" % (POOL_WAIT_ENV, raw))
+    return value
+
+
+def acquire_ios(device_type, runtime, owner_pid=None, checkout="", timeout=POOL_WAIT_SECONDS, purpose=None):
     """One active pool lease per machine; one retained OS per type/runtime.
 
     `purpose` names a declared lifetime from LEASE_PURPOSES for a NEW lease.
@@ -1786,7 +1813,8 @@ def _main(argv):
         global REGISTRY_LOCK_SECONDS
         REGISTRY_LOCK_SECONDS = CLI_REGISTRY_LOCK_SECONDS
     if a.cmd == "acquire-ios":
-        print(acquire_ios(a.type, a.runtime, a.owner_pid, a.checkout, purpose=a.purpose))
+        print(acquire_ios(a.type, a.runtime, a.owner_pid, a.checkout, purpose=a.purpose,
+                          timeout=pool_wait_seconds()))
         return 0
     if a.cmd == "run-active":
         command = a.command[1:] if a.command[:1] == ["--"] else a.command

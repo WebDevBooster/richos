@@ -985,6 +985,34 @@ class Collector(Base):
         with self.assertRaisesRegex(ValueError, "unknown lease purpose"):
             T.acquire_ios("iPhone", "runtime", os.getpid(), purpose="forever")
 
+    def test_T50b_the_pool_wait_is_300_s_unless_a_gate_names_a_positive_number(self):
+        with patch.dict(os.environ, {T.POOL_WAIT_ENV: ""}):
+            self.assertEqual(T.pool_wait_seconds(), 300)
+        with patch.dict(os.environ, {T.POOL_WAIT_ENV: "6900"}):
+            self.assertEqual(T.pool_wait_seconds(), 6900)
+            # ...and the CLI hands exactly that to acquire_ios, for rios's calls as much as a suite's.
+            # _main raises the module's REGISTRY_LOCK_SECONDS to the CLI's; restore it for later tests.
+            with patch.object(T, "acquire_ios", return_value="UDID") as acquire, \
+                    patch.object(T, "REGISTRY_LOCK_SECONDS", T.REGISTRY_LOCK_SECONDS), \
+                    patch("sys.stdout"):
+                self.assertEqual(T._main(["acquire-ios", "--type", "t", "--runtime", "r"]), 0)
+            self.assertEqual(acquire.call_args.kwargs["timeout"], 6900)
+        for bad in ("soon", "0", "-5", "nan", "inf"):
+            with self.subTest(value=bad), patch.dict(os.environ, {T.POOL_WAIT_ENV: bad}):
+                with self.assertRaisesRegex(ValueError, T.POOL_WAIT_ENV):
+                    T.pool_wait_seconds()
+        # Positive control: a second holder really does make a short wait give up, so the
+        # longer wait is what separates a queued suite from a failed one.
+        other = T.acquire_ios("iPhone", "runtime", os.getpid())
+        waiter = subprocess.Popen(["sleep", "30"])
+        try:
+            with self.assertRaisesRegex(TimeoutError, "leased by another run"):
+                T.acquire_ios("iPad", "runtime", waiter.pid, timeout=1)
+        finally:
+            waiter.kill()
+            waiter.wait()
+            T.release_ios(other, os.getpid())
+
     def test_T52_the_lease_report_shows_age_inactivity_and_activity_without_changing_anything(self):
         udid = self.device("rios-ui-report")
         rec = T.register("ios-simulator", udid, os.getpid())
