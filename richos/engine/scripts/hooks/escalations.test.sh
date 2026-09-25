@@ -454,6 +454,21 @@ case "$SYS" in
     *"ESCALATION(S) OUTSTANDING"*) ok "4e  and the operator gets a line too — both channels, always" ;;
     *) bad "4e  systemMessage at SessionStart" "got: $SYS" ;;
 esac
+# THE FIRST LINE IS THE COUNT AND THE CEO'S SHARE (2026-09-25). 143 were
+# outstanding, 13 of them for the CEO, and the CEO's number sat at the end of a
+# block listing every one in full; a week of session starts read past it. So the
+# assertion is on the FIRST line, not on "somewhere in the output".
+CTX_FIRST="$(printf '%s\n' "$CTX" | head -1)"
+case "$CTX_FIRST" in
+    "1 ESCALATION(S) OUTSTANDING, 1 FOR THE CEO (for=ceo), "*)
+        ok "4f  the model's FIRST line is the outstanding count and the count for the CEO" ;;
+    *)  bad "4f  first line of the SessionStart context" "got: $CTX_FIRST" ;;
+esac
+case "$SYS" in
+    "1 ESCALATION(S) OUTSTANDING, 1 FOR THE CEO — "*)
+        ok "4g  the operator's line OPENS with the same two counts" ;;
+    *)  bad "4g  operator line opens with the counts" "got: $SYS" ;;
+esac
 
 # ===========================================================================
 # 5. THE NEGATIVE TWIN: an EMPTY ledger must produce SILENCE on both hooks.
