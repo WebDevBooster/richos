@@ -136,6 +136,10 @@ struct ScreenModel: Equatable, Sendable {
         var sharedFrom: String? = nil
         /// Upload progress, 0…1, while an attachment is sending.
         var progress: Double? = nil
+        /// The line's identity in the list when it differs from `id`: one of your messages keeps its
+        /// client id from Send to the Mac's row for it (`Message.lineID`).
+        var lineID: String? = nil
+        var listID: String { lineID ?? id }
     }
 
     struct ConnectionLine: Equatable, Sendable {
@@ -252,7 +256,7 @@ extension ScreenModel {
             thread = cachedTranscript
         } else {
         let staged = Dictionary(s.outbox.flatMap { $0.files ?? [] }.map { ($0.id, $0.path) }, uniquingKeysWith: { a, _ in a })
-        thread.rows = s.messages.map { Row(message: $0, stagedPath: { staged[$0] }, directory: attachments) }
+        thread.rows = RichOSCore.Transcript.visible(s).map { Row(message: $0, stagedPath: { staged[$0] }, directory: attachments) }
         if let playback = s.playback, let i = thread.rows.firstIndex(where: { $0.id == playback.messageID }) {
             thread.rows[i].audio = playback.phase == .preparing ? .preparing : .playing(progress: playback.progress)
         }
@@ -437,6 +441,7 @@ extension ScreenModel.Row {
         }
         self.init(id: m.id, author: author, body: body, sentAt: m.sentAt, delivery: delivery,
                   isRecent: delivery == .sending || delivery == .waiting)
+        if m.lineID != m.id { lineID = m.lineID }
     }
 }
 
