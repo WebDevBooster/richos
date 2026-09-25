@@ -1069,6 +1069,56 @@ class Collector(Base):
         self.assertTrue(T.same_owner(T.records()[0]["owner"], T.choose_owner(other.pid)))
         T.release_ios(udid, other.pid)
 
+    def run_tree(self):
+        """A run with a child of its own, as xcodebuild has: prints both pids, then waits."""
+        return ["sh", "-c", "sleep 120 & echo $$ $!; wait"]
+
+    def test_T57_a_run_whose_lease_is_handed_to_another_run_stops_at_once_and_is_not_run(self):
+        # esc-20260925T014934Z-0a4bf206: the lease ended mid-run, another run leased the same
+        # prepared simulator, and the first run went on executing the other checkout's bundle.
+        import cpu_guard
+        lost = os.path.join(self.root, "test-0.lost")
+        udid = T.acquire_ios("iPhone", "runtime", os.getpid(), purpose="ui-suite")
+        T.boot_ios(udid)
+        p = subprocess.Popen([sys.executable, "-B", os.path.join(HERE, "testdevices.py"), "run-active",
+                              "--kind", "ios-simulator", "--id", udid, "--owner-pid", str(os.getpid()),
+                              "--interval", "0.3", "--check", "0.2", "--lost-file", lost, "--"] + self.run_tree(),
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.procs.append(p)
+        leader, grandchild = (int(x) for x in p.stdout.readline().split())
+        # The handover: the lease ends (as the collector ends one), and another run takes it.
+        rec = T._read_json(T._record_path("ios-simulator", udid))
+        rec["lease"]["last_use"] = time.time() - T.LEASE_IDLE_SECONDS - 1
+        T._write_json(T._record_path("ios-simulator", udid), rec)
+        with patch.object(cpu_guard, "event"):
+            self.assertEqual(T.expire_leases(), 0)
+        other = self.proc()
+        taken = T.acquire_ios("iPhone", "runtime", other.pid, timeout=5)
+        self.assertEqual(taken, udid)
+        start = time.monotonic()
+        self.assertEqual(p.wait(timeout=20), T.LEASE_LOST_EXIT)       # requirement 1: it stops
+        self.assertLess(time.monotonic() - start, 15)
+        self.assertIn("LEASE LOST", p.stderr.read())                   # loudly
+        self.assertEqual(T.process_start(leader), "")                  # the run and everything
+        self.assertEqual(T.process_start(grandchild), "")              # it started are gone
+        self.assertIn("why", T._read_json(lost))                       # and it is recorded
+        # The other run's lease is untouched by the first run's exit.
+        self.assertTrue(T.same_owner(T.records()[0]["owner"], T.choose_owner(other.pid)))
+        T.release_ios(udid, other.pid)
+
+    def test_T58_a_signal_to_the_renewer_reaches_the_whole_run(self):
+        udid = self.device("rios-ui-signal")
+        T.register("ios-simulator", udid, os.getpid())
+        p = subprocess.Popen([sys.executable, "-B", os.path.join(HERE, "testdevices.py"), "run-active",
+                              "--kind", "ios-simulator", "--id", udid, "--owner-pid", str(os.getpid()),
+                              "--"] + self.run_tree(), stdout=subprocess.PIPE, text=True)
+        self.procs.append(p)
+        leader, grandchild = (int(x) for x in p.stdout.readline().split())
+        p.terminate()                                                  # the pid captured at spawn
+        self.assertEqual(p.wait(timeout=15), 143)
+        time.sleep(0.3)
+        self.assertEqual((T.process_start(leader), T.process_start(grandchild)), ("", ""))
+
     def test_T51_renewal_stops_when_the_owned_run_ends(self):
         udid = self.device("rios-ui-run-ended")
         rec = T.register("ios-simulator", udid, os.getpid())

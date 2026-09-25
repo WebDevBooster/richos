@@ -491,7 +491,46 @@ def renew_activity(kind, ident, owner, created, child):
     return True, ""
 
 
-def run_active(kind, ident, command, owner_pid=None, checkout="", interval=None):
+LEASE_LOST_EXIT = 75
+
+
+def lease_still_ours(kind, ident, owner, created):
+    """(ours, why not): a lock-free read of the record. The record is replaced atomically
+    (os.replace), so a read sees one whole version; the lock is not needed to ask."""
+    rec = _read_json(_record_path(kind, _norm(kind, ident)))
+    lease = (rec or {}).get("lease")
+    if not lease:
+        return False, "the device's lease was ended (by the collector, a release or a stop)"
+    if lease.get("created") != created:
+        return False, "the device was leased again, to a new lease generation"
+    if not any(same_owner(o, owner) for o in rec.get("owners", [rec.get("owner", {})])):
+        return False, "the device now belongs to another run"
+    if lease_expired(rec):
+        return False, "the lease reached its lifetime or inactivity limit"
+    return True, ""
+
+
+def _end_group(pgid, child, grace=10):
+    """TERM, a bounded wait, then KILL, to the process group this renewer created for
+    its own child (pgid = the child's pid, captured at spawn). Never a name match."""
+    for sig, wait in ((signal.SIGTERM, grace), (signal.SIGKILL, 5)):
+        try:
+            os.killpg(pgid, sig)
+        except ProcessLookupError:
+            break
+        try:
+            child.wait(timeout=wait)
+            break
+        except subprocess.TimeoutExpired:
+            continue
+    try:
+        os.killpg(pgid, signal.SIGKILL)       # descendants that outlived the leader
+    except ProcessLookupError:
+        pass
+
+
+def run_active(kind, ident, command, owner_pid=None, checkout="", interval=None, check=2.0,
+               lost_file=""):
     """Run COMMAND as the owned activity of an existing lease; return its exit status.
 
     A lease's inactivity limit is written for a CLI that touches its device
@@ -499,9 +538,18 @@ def run_active(kind, ident, command, owner_pid=None, checkout="", interval=None)
     ran 787-884 s per device on 2026-09-24 and nothing renewed the lease, so the
     collector shut the simulator down five minutes in (escalation
     esc-20260924T220236Z-52fae3ec). This renews activity from the process that
-    started the run, for exactly as long as that process lives. It stops the
-    moment the run ends, the owner ends, this renewer ends or the lease is
-    gone, and it cannot extend the lifetime.
+    started the run, for exactly as long as that process lives, and never
+    extends the lifetime.
+
+    A RUN WHOSE LEASE HAS ENDED NEVER KEEPS USING THE DEVICE (escalation
+    esc-20260925T014934Z-0a4bf206). On 2026-09-25 a run's lease ended mid-suite,
+    another run leased the same prepared simulator and installed its own build,
+    and the first run's xcodebuild restarted on the device and executed the OTHER
+    checkout's test bundle. So every `check` seconds this reads the lease: the
+    moment it is gone, replaced, another run's or expired, the whole run (its own
+    process group, created here) is ended, the reason is printed loudly and
+    written to `lost_file`, and the exit status is LEASE_LOST_EXIT (75), which
+    callers report as NOT RUN, never as a result.
     """
     owner = choose_owner(owner_pid, checkout, "run-active")
     if owner.get("unknown"):
@@ -516,32 +564,52 @@ def run_active(kind, ident, command, owner_pid=None, checkout="", interval=None)
             raise ValueError("device lease expired; stop and prepare the device again")
         created = rec["lease"]["created"]
     interval = LEASE_RENEW_SECONDS if interval is None else interval
-    # Same process group as this renewer: a signal to the run's group reaches both.
+    # The run gets a process group of its own, so ending it ends xcodebuild and everything
+    # it started. Signals this renewer receives are passed on to that group.
     try:
-        child = subprocess.Popen(command)
+        child = subprocess.Popen(command, start_new_session=True)
     except OSError as exc:
         sys.stderr.write("testdevices run-active: cannot start %s: %s\n" % (command[0], exc))
         return 127
-    renewing = True
-    while True:
+    pgid = child.pid
+
+    def forward(signum, _frame):
         try:
-            code = child.wait(timeout=interval)
-            break
-        except subprocess.TimeoutExpired:
+            os.killpg(pgid, signum)
+        except ProcessLookupError:
             pass
-        except KeyboardInterrupt:
-            renewing = False
-            continue
-        if not renewing:
-            continue
-        try:
-            renewed, why = renew_activity(kind, ident, owner, created, child)
-        except (OSError, TimeoutError, ValueError) as exc:
-            renewed, why = False, "renewal failed: %s" % exc
-        if not renewed:
-            renewing = False
-            if child.poll() is None:
-                sys.stderr.write("testdevices run-active: stopped renewing %s: %s\n" % (ident, why))
+    previous = {s: signal.signal(s, forward) for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+    try:
+        renewing, next_renewal = True, time.monotonic() + interval
+        while True:
+            try:
+                code = child.wait(timeout=max(0.05, min(check, next_renewal - time.monotonic())))
+                break
+            except subprocess.TimeoutExpired:
+                pass
+            ours, why = lease_still_ours(kind, ident, owner, created)
+            if not ours and child.poll() is None:
+                message = ("testdevices run-active: LEASE LOST on %s: %s. Stopping this run; its "
+                           "results are NOT RUN, never a verdict." % (ident, why))
+                sys.stderr.write(message + "\n")
+                sys.stderr.flush()
+                _end_group(pgid, child)
+                if lost_file:
+                    _write_json(lost_file, {"device": ident, "why": why, "at": time.time()})
+                return LEASE_LOST_EXIT
+            if renewing and time.monotonic() >= next_renewal:
+                next_renewal = time.monotonic() + interval
+                try:
+                    renewed, why = renew_activity(kind, ident, owner, created, child)
+                except (OSError, TimeoutError, ValueError) as exc:
+                    renewed, why = False, "renewal failed: %s" % exc
+                if not renewed:
+                    renewing = False
+                    if child.poll() is None:
+                        sys.stderr.write("testdevices run-active: stopped renewing %s: %s\n" % (ident, why))
+    finally:
+        for s, h in previous.items():
+            signal.signal(s, h)
     return code if code >= 0 else 128 - code
 
 
@@ -1620,6 +1688,9 @@ def _main(argv):
     active.add_argument("--owner-pid", type=int)
     active.add_argument("--checkout", default="")
     active.add_argument("--interval", type=float, default=None, help=argparse.SUPPRESS)
+    active.add_argument("--check", type=float, default=2.0, help=argparse.SUPPRESS)
+    active.add_argument("--lost-file", default="",
+                        help="where to record why the lease was lost, if it is (exit 75 = NOT RUN)")
     active.add_argument("command", nargs=argparse.REMAINDER)
     release = sub.add_parser("release-ios")
     release.add_argument("--id", required=True)
@@ -1674,7 +1745,7 @@ def _main(argv):
         if not command:
             ap.error("run-active requires a command after --")
         try:
-            return run_active(a.kind, a.id, command, a.owner_pid, a.checkout, a.interval)
+            return run_active(a.kind, a.id, command, a.owner_pid, a.checkout, a.interval, a.check, a.lost_file)
         except ValueError as e:
             sys.stderr.write("testdevices run-active: %s\n" % e)
             return 2

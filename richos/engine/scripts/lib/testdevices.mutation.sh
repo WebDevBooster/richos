@@ -113,4 +113,14 @@ mutant orphan-booted-prepared-not-shut-down "test_T55" "$D" \
     '                if False:' \
     "a prepared simulator an old run left booted would fail the next lease's boot (2026-09-24, iPhone SE)."
 
+mutant lost-lease-run-keeps-going "test_T57" "$D" \
+    '            if not ours and child.poll() is None:' \
+    '            if False:' \
+    "a run whose lease was handed to another run would go on driving that run's device (esc-20260925T014934Z-0a4bf206)."
+
+mutant run-not-in-its-own-group "test_T58" "$D" \
+    '        child = subprocess.Popen(command, start_new_session=True)' \
+    '        child = subprocess.Popen(command)' \
+    "ending a run would end only its first process, leaving xcodebuild's children on the device."
+
 mutation_end
