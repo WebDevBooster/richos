@@ -35,6 +35,6 @@ env TMPDIR=/Users/admin/quota-proof/tmp \
   bash richos/app/scripts/gui-boot.test.sh
 ```
 
-The expected `src-tauri/target` path linked to the guest cache. The suite's own `mktemp -t` uses the guest's system temporary directory; both locations are physically inside the external-SSD clone disk. Front-door used [this command](front-door-command.sh), first with the original harness and then with the isolated harness fix.
+The expected `src-tauri/target` path linked to the guest cache. The suite's own `mktemp -t` uses the guest's system temporary directory; both locations are physically inside the external-SSD clone disk. Front-door used [this command](front-door-command.txt), first with the original harness and then with the isolated harness fix.
 
 [Cleanup log](cleanup.log): the VM was stopped, the clone deleted and run state removed. The owned host scratch directory was then deleted. Full logs and AX evidence were preserved at `/Volumes/E1TB/reports/richos-quota-vm-742c7f09/` before deletion.
