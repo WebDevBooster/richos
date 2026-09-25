@@ -632,20 +632,40 @@ def _writer_text(rec):
         holder_label(caller) if caller.get("pid") else "a caller with no recorded identity", rec.get("at", "?"))
 
 
-def fence_decide(lines, common, gitdir, files, chain, argv_of_writer=None):
-    """[(line, why)] of refused updates, [] when everything passes.
+def discarded_operation(files, gitdir):
+    """Fix 1 (Frank's re-check §2, case G): (kind, head, refusal) when the
+    merge, cherry-pick or revert in progress here has an ORIG_HEAD refusal on
+    record, newer than its head file. That refusal's writer (an --abort or a
+    reset) had already rewritten the index, so the staged resolution is gone
+    while the head file stays, and concluding it would record an empty-diff
+    merge that every "landed" check accepts. It clears itself: a new merge
+    writes a newer head file."""
+    for kind in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"):
+        head = head_value(gitdir, kind)
+        for rec in _refusals_of(files, head, _head_mtime(gitdir, kind)):
+            if rec.get("ref") == "ORIG_HEAD":
+                return kind, head, rec
+    return None
 
-    `lines` are (old, new, ref). A refusal is only ever a missing lease; every
-    rule below decides whether an update NEEDS one."""
+
+def fence_decide(lines, common, gitdir, files, chain, argv_of_writer=None):
+    """[(line, why, detail)] of refused updates, [] when everything passes.
+
+    `lines` are (old, new, ref). Almost every refusal is a missing lease, and
+    every rule below decides whether an update NEEDS one (detail None). Two
+    refuse even the lease holder, because the index under it was already
+    rewritten by a refused writer (Frank's Fixes 1 and 2); their detail is the
+    text that says so."""
     main_worktree = os.path.realpath(gitdir) == os.path.realpath(common)
     held = None
+    lease = None
     writer = None
     refused = []
 
     def lease_held():
-        nonlocal held
+        nonlocal held, lease
         if held is None:
-            held = authorized(files, chain)[0]
+            held, lease = authorized(files, chain)
         return held
 
     def writer_argv():
@@ -679,8 +699,28 @@ def fence_decide(lines, common, gitdir, files, chain, argv_of_writer=None):
             if leaves_main and writer_argv()[:2] != ["worktree", "add"]:
                 need, why = True, "switching the main checkout away from main"
         if need and not lease_held():
-            refused.append(((old, new, ref), why))
+            refused.append(((old, new, ref), why, None))
+        elif need and ref == MAIN and main_worktree and not is_zero(new):
+            detail = _holder_refusal(files, gitdir, lease, new)
+            if detail:
+                refused.append(((old, new, ref), "a move of main over a refused writer's residue", detail))
     return refused
+
+
+def _holder_refusal(files, gitdir, lease, new):
+    """The text refusing the LEASE HOLDER's move of main (Fix 1), or ''."""
+    found = discarded_operation(files, gitdir)
+    if found:
+        kind, head, rec = found
+        return ("%s had already discarded the staged resolution of the %s in progress here (%s %s) before "
+                "the fence refused it: Git rewrites the index first. Committing now would record that "
+                "operation without its changes, and every 'landed' check would accept it. Run "
+                "land-lease.sh abort-orphan (it preserves first), then start it again."
+                % (_cap(_writer_text(rec)), _KIND_WORD.get(kind, "operation"), kind, head))
+    return ""
+
+
+_KIND_WORD = {"MERGE_HEAD": "merge", "CHERRY_PICK_HEAD": "cherry-pick", "REVERT_HEAD": "revert"}
 
 
 def _restore_intent_matches(files, new, chain):
@@ -695,6 +735,12 @@ def _restore_intent_matches(files, new, chain):
 
 def fence_refusal_text(conf, files, refused, lease, repo):
     engine = conf.get("ENGINE") or "<engine>"
+    held_over = [detail for _l, _w, detail in refused if detail]
+    if held_over:
+        return "\n".join(["=== OPERATOR FENCE: refused in %s, even for the lease holder ===" % repo]
+                         + ["  " + d for d in held_over]
+                         + ["  If this refusal is a defect in the fence itself, Rich turns it off with one",
+                            "  command: %s/scripts/operator-fences.sh off" % engine])
     state = lease_state(lease)
     if state == "none":
         held = "The land lease for this repository is free."
@@ -703,7 +749,7 @@ def fence_refusal_text(conf, files, refused, lease, repo):
         held = "The land lease is held by %s, taken %s ago%s." % (
             holder_label(h), age_text(now() - float(lease.get("acquired_epoch") or now())),
             {"dead": " (its holder has ended)", "expired": " (past its time)"}.get(state, ""))
-    what = "; ".join(sorted(set(why for _l, why in refused)))
+    what = "; ".join(sorted(set(why for _l, why, _d in refused)))
     return "\n".join([
         "=== OPERATOR FENCE: refused in %s ===" % repo,
         "  What: %s." % what,
@@ -745,14 +791,16 @@ def cmd_fence(argv):
         lease = read_lease(files)
         repo = conf.get("REPO") or common
         who = caller_identity(conf, chain) or {}
-        for (old, new, ref), why in refused:
-            append_jsonl(files.refusals, {
+        argv = writer_git_argv(chain)
+        for (old, new, ref), why, detail in refused:
+            rec = {
                 "at": iso(), "epoch": now(), "repository": repo, "ref": ref, "old": old, "new": new, "why": why,
                 "caller": {k: who.get(k) for k in ("kind", "pid", "start", "session_id") if k in who},
-                "writer_pid": chain[1][0] if len(chain) > 1 else None,
+                "writer_pid": chain[1][0] if len(chain) > 1 else None, "writer_argv": argv[:24],
                 "merge_head": head_value(gitdir, "MERGE_HEAD"),
                 "cherry_pick_head": head_value(gitdir, "CHERRY_PICK_HEAD"),
-                "revert_head": head_value(gitdir, "REVERT_HEAD")})
+                "revert_head": head_value(gitdir, "REVERT_HEAD")}
+            append_jsonl(files.refusals, rec)
         sys.stderr.write(fence_refusal_text(conf, files, refused, lease, repo) + "\n")
         return 1
     if phase == "committed" and os.path.realpath(gitdir) == os.path.realpath(common):

@@ -68,6 +68,9 @@
 #   F28  a lease naming a live pid with another start time is dead: a recycled
 #        pid is never mistaken for the holder
 #   F29  a live, in-time lease cannot be taken over (G5)
+#   F31  the holder's commit of a merge whose resolution a refused `--abort`
+#        already discarded is refused, naming abort-orphan; a new merge clears
+#        it (Frank's case G, Fix 1)
 #   F33  a non-starter's refused commit during the holder's live merge does not
 #        make the merge "orphaned" (Fix 3)
 #   F3L, F12L  measured limits, asserted so the record goes red if Git changes:
@@ -384,6 +387,39 @@ if [ -f "$R/.git/MERGE_HEAD" ] && [ -n "$HF" ]; then
     expect "F33" "[git $G] and the holder's commit concludes it, the branch's clean file on main" "$?" "rc=$rc $OFX_OUT"
 else
     bad "F33 [git $G] the fixture's merge did not conflict, so the case proves nothing" "$OFX_OUT"
+fi
+ofx_in A "$(ofx_lease release --repo "$R")"
+
+# ---- F31: a refused abort's residue is never concluded silently (Fix 1) -----------
+# Frank's case G (re-check §2): the holder resolves a conflicted merge; another
+# writer's `merge --abort`, run where the early check cannot see it, is refused
+# at ORIG_HEAD AFTER discarding the staged resolution and leaving MERGE_HEAD.
+# Without Fix 1 the holder's `git commit --no-edit` records an empty-diff merge
+# that `merge-base --is-ancestor` reports as landed, with the branch's files
+# missing from main. (The branch forks from main, never from `clash`, which
+# F20 later needs unmerged.)
+M6="$(rev "$R" main)"
+( cd "$W" && git switch -q -c gfeat "$M6" && printf 'gside\n' > f.txt && printf 'g2\n' > g2.txt \
+  && git add f.txt g2.txt && git commit -q -m g && git switch -q feat ) >/dev/null 2>&1
+GF="$(rev "$R" gfeat)"
+ofx_in A "$(ofx_lease acquire --repo "$R") && cd '$R' && printf 'gmain\n' > f.txt && git commit -q -am gmain && git merge -q gfeat -m g"
+M3="$(rev "$R" main)"
+if [ -f "$R/.git/MERGE_HEAD" ] && [ -n "$GF" ]; then
+    ofx_in A "cd '$R' && printf 'resolved\n' > f.txt && git add f.txt"
+    ofx_in B "sh -c 'git -C $R merge --abort'"; rcb=$?
+    ofx_in A "cd '$R' && git commit -q --no-edit"; rc=$?; cout="$OFX_OUT"
+    [ $rcb -ne 0 ] && [ $rc -ne 0 ] && [ "$(rev "$R" main)" = "$M3" ] && [ -f "$R/.git/MERGE_HEAD" ] \
+        && printf '%s' "$cout" | grep -q "abort-orphan" && printf '%s' "$cout" | grep -q "merge --abort"
+    expect "F31" "[git $G] the holder's commit of a merge whose resolution a refused abort discarded is refused, naming the abort and abort-orphan" "$?" "rc=$rcb/$rc $cout"
+    ofx_in A "$(ofx_lease abort-orphan --repo "$R")"; rc=$?
+    [ $rc = 0 ] && [ ! -f "$R/.git/MERGE_HEAD" ] && [ "$(rev "$R" main)" = "$M3" ]
+    expect "F31" "[git $G] abort-orphan clears it (preserving first) and main has not moved" "$?" "rc=$rc $OFX_OUT"
+    sleep 1     # the next merge's MERGE_HEAD must be visibly newer than the refusal
+    ofx_in A "git -C '$R' merge -q gfeat -m g2; cd '$R' && printf 'resolved\n' > f.txt && git add f.txt && git commit -q --no-edit && git push -q origin main"; rc=$?
+    [ $rc = 0 ] && git -C "$R" merge-base --is-ancestor "$GF" main && [ "$(git -C "$R" show main:g2.txt 2>/dev/null)" = "g2" ]
+    expect "F31" "[git $G] a new merge clears the rule by itself: its commit passes and the branch's clean file is on main" "$?" "rc=$rc $OFX_OUT"
+else
+    bad "F31 [git $G] the fixture's merge did not conflict, so the case proves nothing" "$OFX_OUT"
 fi
 ofx_in A "$(ofx_lease release --repo "$R")"
 

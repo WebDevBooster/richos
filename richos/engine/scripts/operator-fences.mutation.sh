@@ -124,6 +124,12 @@ mutant refused-commit-orphans "F33 " "$L" \
     '        if False:' \
     "Fix 3: another writer's refused commit during the holder's healthy merge would make acquire call that merge orphaned and send the holder to abort-orphan."
 
+# --- the residue a refused writer leaves (Frank's re-check §2, Fixes 1 and 2) -----------
+mutant discarded-operation-concluded "F31 " "$L" \
+    '    found = discarded_operation(files, gitdir)' \
+    '    found = None' \
+    "Fix 1: after a refused merge --abort discarded the holder's resolution, its commit would record an empty-diff merge that every 'landed' check accepts (case G)."
+
 # --- the launcher and the switch (e8, G12) --------------------------------------------
 mutant off-can-refuse "F20 " "$T" \
     'if [ "$OPERATOR_FENCES_STATE" = "on" ]; then' \
