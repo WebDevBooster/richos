@@ -78,9 +78,11 @@ actor CorpusIdentityStore: IdentityStore {
         #expect(MacWait.boundMs(confirmWithinSeconds: 0) == MacWait.windowMs && MacWait.boundMs(confirmWithinSeconds: .nan) == MacWait.windowMs)
     }
 
-    /// The whole wait through the reducer and the app's one timer on virtual time: a Mac that never
-    /// gets its press is asked exactly at `asked_at_ms`, at most `max_requests_in_the_window` times,
-    /// never past the bound, and the wait then ends truthfully. A 240 s bound stops earlier.
+    /// The whole wait through the reducer and the app's one timer on virtual time, for a Mac that does
+    /// not offer `pair-wait`: a Mac that never gets its press is asked exactly at `asked_at_ms`, at
+    /// most `max_requests_in_the_window` times inside the bound, then ONE last time at the bound
+    /// (`pair_wait`, Sage's pair-v2 hypotheses review §2), and the wait then ends truthfully. A 240 s
+    /// bound stops earlier.
     @Test func theWaitAsksOnTheScheduleOnlyAndEndsAtTheBound() throws {
         let c = try section()
         let expected = try Corpus.cases(c, "wait_schedule_ms").map { Int64(try #require($0["asked_at_ms"] as? Int)) }
@@ -93,15 +95,16 @@ actor CorpusIdentityStore: IdentityStore {
                 wakeups += 1
                 let (next, effects) = Reducer.reduce(s, .tick(at: due))
                 s = next
-                if effects.contains(.checkMacConfirmation) {
+                if effects.contains(.checkMacConfirmation(waitSeconds: 0)) {
                     asked.append(due - t0)
                     s = Reducer.reduce(s, .macConfirmation(.awaiting, at: due)).state
                 }
-                #expect(wakeups <= expected.count + 1, "the timer does not spin")
-                if wakeups > expected.count + 1 { break }
+                #expect(wakeups <= expected.count + 2, "the timer does not spin")
+                if wakeups > expected.count + 2 { break }
             }
-            #expect(asked == expected.filter { $0 < bound }, "bound \(bound): asked at the corpus's times inside the bound")
-            #expect(asked.count <= MacWait.maxRequests)
+            #expect(asked == expected.filter { $0 < bound } + [bound],
+                    "bound \(bound): asked at the corpus's times inside the bound, then once at the bound")
+            #expect(asked.count <= MacWait.maxRequests + 1)
             #expect(s.screen == .pairIntro && s.pairingProblem == .macAnswerExpired && s.mac == nil && s.macWait == nil,
                     "bound \(bound): the wait ended, truthfully, with nothing kept")
             #expect(TickSchedule.nextTick(s) == nil, "and nothing more is owed")
@@ -120,7 +123,7 @@ actor CorpusIdentityStore: IdentityStore {
         #expect(required["client_action"] as? String == "retry_same_bytes_after_backoff")
         #expect(ClientAction.classify(response, attempt: 1) == .retrySameBytes(afterMs: Int64(try #require(required["retry_after_ms"] as? Int))),
                 "a message waiting behind the press stays in the outbox and is retried")
-        #expect(MacConfirmation.ofProbe(response) == .awaiting && MacConfirmation.ofConfirmation(response) == .awaiting, "the wait goes on")
+        #expect(MacConfirmation.ofConfirmation(response) == .awaiting, "the wait goes on")
         #expect(APIClient.classify(response).retryable, "never final")
     }
 
@@ -156,38 +159,30 @@ actor CorpusIdentityStore: IdentityStore {
         #expect(next.screen == .pairAwaitingMac && next.macWait?.deadlineMs == 5_000 + 300_000 && next.macWait?.nextAskAtMs == 5_000 + 2_000)
     }
 
-    /// `probes`: each probe is the recorded signed read of one backfill row, and the phone takes each
-    /// recorded answer as recorded: still waiting, pressed, or refused (final).
-    @Test func everyProbeIsTheRecordedRequestAndEndsAsRecorded() async throws {
-        let c = try section()
-        for probe in try Corpus.cases(c, "probes") {
-            let name = probe["name"] as? String ?? "?"
-            let recorded = try #require((probe["requests"] as? [[String: Any]])?.first)
+    /// `pair_wait.asks` answered to a wait in progress: the phone takes each recorded answer as
+    /// recorded: still waiting, pressed, or refused (final). (The `probes` of this section describe
+    /// the wait before `pair_wait` — a signed read of one backfill row — which the phone no longer
+    /// makes; `PairWaitConformance` replays the asks' requests.)
+    @Test func everyAskAnswerMovesTheWaitAsRecorded() async throws {
+        let asks = try Corpus.cases(try #require(try Corpus.load("pairing")["pair_wait"] as? [String: Any]), "asks")
+        #expect(asks.count == 6)
+        for ask in asks {
+            let name = ask["name"] as? String ?? "?"
+            let recorded = try #require((ask["requests"] as? [[String: Any]])?.first)
             let signed = try #require(recorded["signed"] as? [String: Any])
             let mac = ScriptedMac([
                 ["status": 200, "headers": ["X-RichOS-Challenge": signed["challenge"] as Any]],
-                try #require(probe["mac_answer"] as? [String: Any]),
+                try #require(ask["mac_answer"] as? [String: Any]),
             ])
             let network = NetworkEffects(transport: mac, stream: ScriptedStream([]), identities: CorpusIdentityStore(), clock: FixedClock(ms: 9_000))
             var s = Reducer.reduce(try waiting(bound: 300), .macConfirmation(.awaiting, at: 1_000)).state
             s.mac?.deviceID = "dev_8d4c57b7ff82"
             s = Reducer.reduce(s, .tick(at: 3_000)).state
-            #expect(s.macWait?.asking == true, "\(name): a probe is owed")
-            let answers = await network.handle(.checkMacConfirmation, state: s)
-            let sent = await mac.requests
-            #expect(sent.map(\.method) == ["GET", "GET"] && sent.first?.target == "/api/challenge", "\(name): challenge, then one probe")
-            let ours = try #require(sent.last)
-            #expect(ours.body == nil && ours.headers["Authorization"] == nil, "\(name): no body; the credential is in the query")
-            let pathWithQuery = try #require(ours.target.components(separatedBy: "&auth=").first)
-            #expect(pathWithQuery == signed["path_with_query"] as? String, "\(name): the recorded read of one backfill row")
-            #expect(RequestSigning.withQueryCredential(pathWithQuery, authorization: try #require(Corpus.credential(["target": ours.target])))
-                    == ours.target, "\(name): the credential is the last query parameter")
-            let verdict = MacVerifier.verify(["method": ours.method, "target": ours.target, "headers": ours.headers], publicKey: Corpus.testKey.publicKey)
-            #expect(verdict.accepted && verdict.signingString == (recorded["mac"] as? [String: Any])?["signing_string"] as? String,
-                    "\(name): the recorded signing string, and it verifies")
-            let outcome = try #require(probe["outcome"] as? [String: Any])
+            #expect(s.macWait?.asking == true, "\(name): an ask is owed")
+            let answers = await network.handle(.checkMacConfirmation(waitSeconds: 0), state: s)
+            let outcome = try #require(ask["outcome"] as? [String: Any])
             let want: MacConfirmation = outcome["ok"] as? Bool == true ? (outcome["value"] as? Bool == true ? .confirmed : .awaiting) : .refused
-            #expect(answers == [.macConfirmation(want, at: 9_000)], "\(name): \(want)")
+            #expect(answers == [.macConfirmation(want, at: 9_000, askedAt: 9_000)], "\(name): \(want)")
             let after = Reducer.reduce(s, answers[0])
             switch want {
             case .confirmed:
@@ -242,7 +237,7 @@ actor CorpusIdentityStore: IdentityStore {
     @Test func offScreenNothingIsOwedAndALateAnswerIsDropped() throws {
         let t0: Int64 = 1_000_000
         var s = Reducer.reduce(awaiting(deadline: t0 + 300_000), .foregrounded(at: t0))
-        #expect(s.effects == [.persist, .checkMacConfirmation] && s.state.macWait?.asking == true, "on screen: one probe at once")
+        #expect(s.effects == [.persist, .checkMacConfirmation(waitSeconds: 0)] && s.state.macWait?.asking == true, "on screen: one probe at once")
         let asked = s.state
         s = Reducer.reduce(asked, .backgrounded(at: t0 + 100))
         #expect(s.effects.isEmpty && s.state.macWait?.paused == true && s.state.macWait?.asking == false)
@@ -256,12 +251,14 @@ actor CorpusIdentityStore: IdentityStore {
             let tick = Reducer.reduce(background, .tick(at: t0 + Int64(minute) * 60_000))
             #expect(tick.state == background && tick.effects.isEmpty, "no retry off screen")
         }
-        // Back inside the bound: one probe at once. Past it: the end, truthfully, with nothing asked.
+        // Back inside the bound: one probe at once. Past it: one last ask, and a "not yet" to it is the
+        // end, truthfully (Sage's pair-v2 hypotheses review §2).
         let back = Reducer.reduce(background, .foregrounded(at: t0 + 60_000))
-        #expect(back.effects == [.persist, .checkMacConfirmation] && back.state.macWait?.requests == 2)
+        #expect(back.effects == [.persist, .checkMacConfirmation(waitSeconds: 0)] && back.state.macWait?.requests == 2)
         let late = Reducer.reduce(background, .foregrounded(at: t0 + 300_000))
-        #expect(!late.effects.contains(.checkMacConfirmation) && late.state.pairingProblem == .macAnswerExpired
-                && late.effects.contains(.forgetIdentity(origin: Self.origin)))
+        #expect(late.effects == [.checkMacConfirmation(waitSeconds: 0)] && late.state.macWait?.finalAsk == true && late.state.macWait?.requests == 1)
+        let ended = Reducer.reduce(late.state, .macConfirmation(.awaiting, at: t0 + 300_100))
+        #expect(ended.state.pairingProblem == .macAnswerExpired && ended.effects.contains(.forgetIdentity(origin: Self.origin)))
     }
 
     /// Coming and going cannot beat the ceiling: at most `max_requests_in_the_window` probes in one wait.
@@ -272,10 +269,23 @@ actor CorpusIdentityStore: IdentityStore {
         for i in 0..<100 {
             let at = t0 + Int64(i) * 1_000
             let front = Reducer.reduce(s, .foregrounded(at: at))
-            probes += front.effects.filter { $0 == .checkMacConfirmation }.count
+            probes += front.effects.filter { $0 == .checkMacConfirmation(waitSeconds: 0) }.count
             s = Reducer.reduce(front.state, .backgrounded(at: at + 500)).state
         }
         #expect(probes == MacWait.maxRequests && s.pairing == .awaitingMac)
+        // A Mac that holds is asked no more often than every 7 s, however often the screen comes back.
+        var held = awaiting(deadline: t0 + 300_000)
+        held.macWait?.holds = true
+        var asks: [Int64] = []
+        for i in 0..<100 {
+            let at = t0 + Int64(i) * 1_000
+            var front = Reducer.reduce(held, .foregrounded(at: at))
+            if let due = front.state.macWait?.nextAskAtMs, due <= at + 500 { front = Reducer.reduce(front.state, .tick(at: due)) }
+            if front.effects.contains(where: { if case .checkMacConfirmation = $0 { return true }; return false }) { asks.append(at) }
+            held = Reducer.reduce(front.state, .backgrounded(at: at + 500)).state
+        }
+        #expect(zip(asks.dropFirst(), asks).allSatisfy { $0 - $1 >= MacWait.minAskSpacingMs } && asks.count == 15,
+                "asks at \(asks.map { $0 - t0 })")
     }
 
     /// Nor can relaunching: the probe count and the deadline survive a restart.
@@ -285,13 +295,16 @@ actor CorpusIdentityStore: IdentityStore {
         var probes = 0
         for i in 0..<100 {
             let front = Reducer.reduce(s, .foregrounded(at: t0 + Int64(i) * 1_000))
-            probes += front.effects.filter { $0 == .checkMacConfirmation }.count
+            probes += front.effects.filter { $0 == .checkMacConfirmation(waitSeconds: 0) }.count
             s = try AppState(restoring: front.state.persisted)  // the process is killed and relaunched
             #expect(s.macWait?.deadlineMs == t0 + 300_000 && s.macWait?.paused == true)
         }
         #expect(probes == MacWait.maxRequests && s.macWait?.requests == MacWait.maxRequests)
+        // Past the bound a relaunch asks once more, and that ask decides.
         let late = Reducer.reduce(s, .foregrounded(at: t0 + 300_000))
-        #expect(late.state.pairingProblem == .macAnswerExpired && !late.effects.contains(.checkMacConfirmation))
+        #expect(late.effects == [.checkMacConfirmation(waitSeconds: 0)] && late.state.macWait?.finalAsk == true)
+        let ended = Reducer.reduce(late.state, .macConfirmation(.awaiting, at: t0 + 300_100)).state
+        #expect(ended.pairingProblem == .macAnswerExpired && TickSchedule.nextTick(ended) == nil)
     }
 
     /// An alert or Control Center passing over the app is not a return: the schedule stands.
@@ -330,8 +343,8 @@ actor CorpusIdentityStore: IdentityStore {
         store.becameActive(at: t0 + 60_000)
         for _ in 0..<200 where store.state.pairing != .paired { try await Task.sleep(nanoseconds: 5_000_000) }
         #expect(store.state.pairing == .paired && store.state.screen == .pairConsent && store.state.macWait == nil)
-        let probes = await mac.targets.filter { $0.hasPrefix("GET /api/events") }
-        #expect(probes == ["GET /api/events?thread_id=thr_5c1e&before=0&limit=1"], "exactly one probe after the return")
+        let probes = await mac.targets.filter { $0 == "POST /api/pair" }
+        #expect(probes == ["POST /api/pair"], "exactly one ask after the return: the phone's own They match")
         // Leave nothing running: off screen the live stream closes.
         store.wentToBackground(at: t0 + 61_000)
         var waited = 0
@@ -378,7 +391,9 @@ actor GatedMac: HTTPTransport {
     func send(_ request: HTTPRequest, origin: String) async throws -> HTTPResponse {
         targets.append(request.method + " " + (request.target.components(separatedBy: "&auth=").first ?? request.target))
         if free {
-            return HTTPResponse(status: 200, headers: ["X-RichOS-Challenge": "c-\(targets.count)"], body: Data(#"{"messages":[],"more":false}"#.utf8))
+            // The Mac has been pressed: the wait's ask is answered `{"ok":true}`, anything else as usual.
+            let body = request.target == "/api/pair" ? #"{"ok":true}"# : #"{"messages":[],"more":false}"#
+            return HTTPResponse(status: 200, headers: ["X-RichOS-Challenge": "c-\(targets.count)"], body: Data(body.utf8))
         }
         return await withCheckedContinuation { waiting.append($0) }
     }

@@ -12,7 +12,7 @@ enum TranscriptItem: Equatable, Identifiable, Sendable {
         case .loadingOlder: return "~loading"
         case .beginning: return "~beginning"
         case .day(let label): return "~day-\(label)"
-        case .row(let row, _, _): return row.id
+        case .row(let row, _, _): return row.listID
         }
     }
 

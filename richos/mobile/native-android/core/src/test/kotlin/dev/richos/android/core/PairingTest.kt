@@ -90,11 +90,27 @@ class PairingTest {
         assertFailsWith<CoreError>("They match cannot be pressed twice") { runtime.core.dispatch(Action.ConfirmWords(true)) }
         val s = runtime.core.dispatch(Action.ConfirmWords(false))
         assertEquals(PairingPhase.UNPAIRED, s.pairing.phase)
+        assertEquals(RichCore.PROBLEM_WORDS_REJECTED, s.pairing.problem, "the screen says nothing was paired (Urban's review, state 4)")
         assertEquals(null, s.macWaitDueInMs)
         assertEquals(null, runtime.export().mac.devicePoint, "the Mac forgot the phone")
         assertFalse(Fixtures.ORIGIN in runtime.export().keys)
         runtime.execute(DevRequest.parse("advance", "60000"))
-        assertEquals(0, runtime.export().mac.eventReads, "nothing is asked after the wait stopped")
+        assertEquals(1, runtime.export().mac.answers, "the press was the only They match, and nothing is asked after the wait stopped")
+        // The next scan clears the card: a fresh code is a fresh start.
+        runtime.execute(DevRequest.parse("fixture", "unpaired"))
+        assertEquals(null, runtime.core.dispatch(Action.Pair(Fixtures.PAIR_LINK)).pairing.problem)
+    }
+
+    @Test
+    fun `They do not match on the six words says nothing was paired too`() = runTest {
+        val runtime = unpaired()
+        runtime.core.dispatch(Action.Pair(Fixtures.PAIR_LINK))
+        val s = runtime.core.dispatch(Action.ConfirmWords(false))
+        assertEquals(PairingPhase.UNPAIRED, s.pairing.phase)
+        assertEquals(RichCore.PROBLEM_WORDS_REJECTED, s.pairing.problem)
+        assertTrue(s.pairing.words.isEmpty())
+        assertFalse(Fixtures.ORIGIN in runtime.export().keys)
+        assertEquals(0, runtime.export().mac.answers, "no They match was ever sent")
     }
 
     @Test

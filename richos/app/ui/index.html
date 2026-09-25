@@ -577,6 +577,20 @@
                well. Saying so in the wrong place would be a second untruth on top of the
                silence. -->
           <p id="voice-unavailable" class="composer-voice-note" hidden role="status"></p>
+          <!-- SCREENSHOTS AND FILES HANDED TO RICH (CEO §86, 2026-09-24). Round 12.1's
+               attachment append is the reference: the tray grows above the text line, every
+               file has its own remove control, and what he types goes in the same message.
+               Filled by `attachments.js`; hidden while it holds nothing and no drag is over
+               the window. The refusal line is `role="status"` because it answers something
+               he just did (a paste or a drop) without him having to look for it. -->
+          <div id="attach-tray" hidden>
+            <!-- Empty until a drag is over the window: `attachments.js` writes its words then,
+                 so the shell as it opens carries no text node it did not carry before
+                 (`tests/contrast.js` 9z measures the bare shell's node count). -->
+            <p id="attach-drop" class="attach-drop" hidden></p>
+            <ul id="attach-list" class="attach-list" hidden></ul>
+          </div>
+          <p id="attach-note" class="attach-note" hidden role="status"></p>
           <div id="composer-row">
             <!-- Persistent across text/voice modes — this is the SAME ◉ the voice
                  footnote refers to ("tap ◉ to end voice"), so it must never hide. -->
@@ -1247,6 +1261,7 @@
          better home for a thing whose whole point is that the CEO can see it. -->
     <script src="updates.js"></script>
     <script src="work-summary.js"></script>
+    <script src="attachments.js"></script>
     <script src="main.js"></script>
     <script src="qr.js"></script>
     <script src="phone.js"></script>

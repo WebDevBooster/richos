@@ -120,7 +120,7 @@ struct TranscriptView: UIViewRepresentable {
             // RichOS: a message of yours newly at the end means you just sent: resume following.
             var sentByMe = false
             if lastIDChanged, !isInitialLoad, case .row(let row, _, _)? = newItems.last, row.author == .me,
-               !previousIDs.contains(row.id) {
+               !previousIDs.contains(row.listID) {
                 sentByMe = true
             }
             let prepended = !isInitialLoad && newIDs.count > previousIDs.count

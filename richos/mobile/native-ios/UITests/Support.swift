@@ -10,11 +10,13 @@ enum Screen {
 
     @discardableResult
     static func launch(_ id: String, appearance: String = "dark", textSize: String? = nil,
-                       interactive: Bool = false) -> XCUIApplication {
+                       interactive: Bool = false, mac: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-rios-fixture", id, "-rios-appearance", appearance]
         if interactive {
             app.launchArguments += ["-rios-interactive-fixture", "YES"]
+            // A stand-in Mac for the wait for the press on the Mac (`DevBridgeFixtureMac`).
+            if let mac { app.launchArguments += ["-rios-fixture-mac", mac] }
         } else {
             app.launchArguments += ["-rios-now", fixtureNow]
         }

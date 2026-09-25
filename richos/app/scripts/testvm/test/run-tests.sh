@@ -1311,6 +1311,81 @@ t "files-since: every class, the baseline window, and a control that must be fou
 t_done
 
 # ===========================================================================
+# hand-file.sh — a FILE handed to the app, pasted or dragged, the way a person does
+# ===========================================================================
+# Added 2026-09-24 with the Mac composer's attachments (CEO §86). What is asserted is what
+# the stub can see and what matters most: the program goes to the guest on stdin (a guest
+# path with a space in it never becomes part of a command line), it is addressed to the PID
+# run.sh recorded and carries the frontmost check, a refusal from the guest is a failure,
+# and the arguments that would send input to the wrong place are refused before the guest
+# is touched. Whether a real WKWebView takes the paste and whether Finder starts a real drag
+# is the live walk's question, answered in the walk's record.
+HFVM="richos-test-hf"
+mkdir -p "$TESTVM_RUN/$HFVM"
+echo 718 > "$TESTVM_RUN/$HFVM/app.pid"
+printf '%s\n' '{"handed":"paste","file":"shot 1.png","as":"image data (public.png)","pid":718}' > "$TMP/hf-paste.json"
+printf '%s\n' '{"handed":"drag","file":"a.pdf","from":{"x":1600,"y":80},"to":{"x":900,"y":640.5},"pid":718}' > "$TMP/hf-drag.json"
+printf '%s\n' '{"error":"notfront","reason":"refusing: the app under test is not frontmost, so no key was sent"}' > "$TMP/hf-notfront.json"
+
+hfrun() {  # hfrun <fixture> <args...> — run hand-file.sh against the stub guest
+  local fixture="$1"; shift
+  STUB_AX_FIXTURE="$fixture" STUB_AX_SCRIPT="$TMP/hf-sent.js" STUB_LOG="$TMP/hf.log" \
+    "$TESTVM_DIR/hand-file.sh" "$HFVM" "$@" 2>"$TMP/hf.err"
+}
+
+t "hand-file: a paste goes on stdin, to the recorded pid, behind the frontmost check"
+  : > "$TMP/hf.log"
+  out="$(hfrun "$TMP/hf-paste.json" paste '/Users/admin/walk/shot 1.png')"; ok $? "$(cat "$TMP/hf.err")"
+  has   "$out" '"handed":"paste"'
+  has   "$(cat "$TMP/hf-sent.js")" '"pid": 718'
+  has   "$(cat "$TMP/hf-sent.js")" '"path": "/Users/admin/walk/shot 1.png"'
+  has   "$(cat "$TMP/hf-sent.js")" 'bringToFront'
+  has   "$(cat "$TMP/hf-sent.js")" 'refusing: the app under test is not frontmost'
+  hasnt "$(cat "$TMP/hf.log")" 'shot 1.png'
+t_done
+
+t "hand-file: the guest refusing (app not frontmost) is a failure, never a success"
+  out="$(hfrun "$TMP/hf-notfront.json" paste /Users/admin/walk/a.pdf)"; no $? "a refusal must not exit 0"
+  has "$out" '"error":"notfront"'
+t_done
+
+t "hand-file: a drag carries its target into the program as numbers"
+  out="$(hfrun "$TMP/hf-drag.json" drag /Users/admin/walk/a.pdf --to 900,640.5)"; ok $? "$(cat "$TMP/hf.err")"
+  has "$out" '"handed":"drag"'
+  has "$(cat "$TMP/hf-sent.js")" '"tox": 900.0'
+  has "$(cat "$TMP/hf-sent.js")" '"toy": 640.5'
+t_done
+
+t "hand-file: arguments that would put input in the wrong place are refused before the guest"
+  : > "$TMP/hf.log"
+  hfrun "$TMP/hf-paste.json" drag /Users/admin/walk/a.pdf >/dev/null; no $?
+  has "$(cat "$TMP/hf.err")" "drag needs --to"
+  hfrun "$TMP/hf-paste.json" drag /Users/admin/walk/a.pdf --to 1,2x >/dev/null; no $?
+  has "$(cat "$TMP/hf.err")" "takes numbers"
+  hfrun "$TMP/hf-paste.json" paste /Users/admin/walk/a.pdf --to 1,2 >/dev/null; no $?
+  has "$(cat "$TMP/hf.err")" "belongs to drag"
+  hfrun "$TMP/hf-paste.json" paste walk/relative.pdf >/dev/null; no $?
+  has "$(cat "$TMP/hf.err")" "absolute path"
+  eq "$(wc -l < "$TMP/hf.log" | tr -d ' ')" "0" "a refused argument reached the guest"
+t_done
+
+t "hand-file: the guest program runs under its own deadline, so a timed-out call cannot act later"
+  : > "$TMP/hf.log"
+  hfrun "$TMP/hf-paste.json" paste /Users/admin/walk/a.png >/dev/null; ok $? "$(cat "$TMP/hf.err")"
+  has "$(cat "$TMP/hf.log")" "python3 -c"
+  has "$(cat "$TMP/hf.log")" "osascript -l JavaScript -"
+t_done
+
+t "hand-file: the drag never scripts Finder (an Apple Event raises a consent dialog nobody answers)"
+  eq "$(grep -v '^[[:space:]]*//' "$TESTVM_DIR/hand-file.js" | grep -c 'Application("Finder")' | tr -d ' ')" "0" "Finder is scripted"
+t_done
+
+t "hand-file: no recorded pid, no input sent"
+  out="$(STUB_AX_FIXTURE="$TMP/hf-paste.json" STUB_LOG="$TMP/hf2.log" "$TESTVM_DIR/hand-file.sh" richos-test-nopid paste /Users/admin/a.png 2>&1)"; no $?
+  has "$out" "no app pid recorded"
+t_done
+
+# ===========================================================================
 echo
 if [ "$FAIL" -eq 0 ]; then
   echo "$PASS passed, 0 failed."

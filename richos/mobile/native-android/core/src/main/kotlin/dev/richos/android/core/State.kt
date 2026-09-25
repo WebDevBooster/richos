@@ -79,6 +79,7 @@ data class Pairing(
     @EncodeDefault(EncodeDefault.Mode.NEVER) val awaitingUntil: Long? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val macAsks: Int = 0,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val nextAskAt: Long? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val lastAskAt: Long? = null,
 )
 
 /** What the user owns on this phone and what survives a restart: `app.js`'s `model`, plus `theme` and `pairing`. */

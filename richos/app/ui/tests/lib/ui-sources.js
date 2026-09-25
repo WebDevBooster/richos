@@ -76,6 +76,12 @@ const ENTRY = "index.html";
 const ROLES = {
   "index.html": { role: "ui", why: "the shell Tauri loads" },
   "main.js": { role: "ui", why: "the chat surface and the bridge" },
+  "attachments.js": {
+    role: "ui",
+    why:
+      "screenshots and files on the composer (CEO §86): the tray, its remove controls, the drop " +
+      "target and every refusal he reads under the composer",
+  },
   "work-summary.js": { role: "ui", why: "saved work receipts and their availability states" },
   "repositories.js": { role: "ui", why: "company repository connections and their status" },
   "permissions.js": { role: "ui", why: "native action permission requests and their answers" },

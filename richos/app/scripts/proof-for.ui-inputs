@@ -57,7 +57,7 @@
 #                                     genuinely read all of them.
 # ========================================================================================
 
-@shell   richos/app/ui/index.html richos/app/ui/main.js richos/app/ui/style.css
+@shell   richos/app/ui/index.html richos/app/ui/main.js richos/app/ui/style.css richos/app/ui/attachments.js
 @home    richos/app/ui/home.js richos/app/ui/home.css richos/app/ui/home/field-engine.js richos/app/ui/home/field-prep.js richos/app/ui/home/field-ref.js
 @splash  richos/app/ui/splash.js richos/app/ui/splash-library.js richos/app/ui/splash.css richos/app/ui/theme-boot.js
 @phone   richos/app/ui/phone.js richos/app/ui/qr.js
@@ -77,6 +77,7 @@ splash.js               @allui
 # ---- the chat surface and its states ----------------------------------------------------
 compaction-notice.js    @shell
 compaction-progress.js  @shell
+attachments.js          @shell richos/app/ui/mock.js richos/app/src-tauri/src/phone/attachments.rs richos/app/src-tauri/src/mac_attachments.rs
 composer-off.js         @shell
 composer-scroll.js      @shell
 control-names.js        @shell

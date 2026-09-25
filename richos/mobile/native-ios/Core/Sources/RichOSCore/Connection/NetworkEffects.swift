@@ -113,7 +113,8 @@ public actor NetworkEffects: EffectHandler {
                     api = APIClient(origin: link.origin, deviceID: paired.answer.deviceID, challenge: paired.challenge, signer: signer, transport: transport)
                     var actions: [Action] = [.pairingAnswered(PairAnswer(deviceID: paired.answer.deviceID, fingerprintHex: paired.answer.caFingerprint,
                                                                          threadID: paired.answer.threadID, devicePoint: Base64URL.encode(point),
-                                                                         confirmWithinSeconds: paired.answer.confirmWithinSeconds))]
+                                                                         confirmWithinSeconds: paired.answer.confirmWithinSeconds,
+                                                                         offersPairWait: paired.answer.offersPairWait))]
                     if let capabilities = paired.answer.capabilities, !capabilities.isEmpty {
                         actions.append(.macCapabilities(text: capabilities.contains("text"), voice: capabilities.contains("voice")))
                         actions.append(.macAttachmentLimits(capabilities.contains("attachments") ? paired.answer.attachmentLimits : nil))
@@ -136,8 +137,10 @@ public actor NetworkEffects: EffectHandler {
                 return [.pairingRefused]
             }
         case .confirmFingerprint(let matches):
-            // "They match" is answered with the Mac's word on its own press (`macConfirmation`); the
-            // live connection opens only once the Mac has let this phone in (`.connect`).
+            // The reducer sends this only for "They do not match" now: "They match" is the wait's
+            // first ask (`checkMacConfirmation`). Kept whole, so a "They match" sent this way is still
+            // answered with the Mac's word on its own press (`macConfirmation`); the live connection
+            // opens only once the Mac has let this phone in (`.connect`).
             guard let api = await client(for: state) else {
                 return matches ? [.macConfirmation(.awaiting, at: clock.nowMs())] : []
             }
@@ -147,7 +150,11 @@ public actor NetworkEffects: EffectHandler {
             guard matches else { return [] }
             // No answer is not a refusal: the wait asks the Mac itself.
             return [.macConfirmation(response.map(MacConfirmation.ofConfirmation) ?? .awaiting, at: clock.nowMs())]
-        case .checkMacConfirmation:
+        case .checkMacConfirmation(let waitSeconds):
+            // One ask of the wait: the phone's own signed "They match" again (`pair_wait`), held by a
+            // Mac that offers it for up to `waitSeconds`. The request timeout outlasts the hold
+            // (`URLSessionTransport.defaultRequestTimeout`, `request_timeout_must_exceed_ms`).
+            let askedAt = clock.nowMs()
             let answer: MacConfirmation
             switch await lookup(for: state) {
             case .keyMissing:
@@ -156,15 +163,14 @@ public actor NetworkEffects: EffectHandler {
             case .unavailable:
                 answer = .awaiting
             case .ready(let api):
-                var path = "/api/events?"
-                if let thread = state.mac?.threadID { path += "thread_id=\(Delivery.formEncode(thread))&" }
-                path += "before=0&limit=1"
-                let response = try? await api.signed("GET", path, credential: .query)
-                answer = response.map(MacConfirmation.ofProbe) ?? .awaiting
+                let response = try? await PairingWire.askForTheMacsPress(api, deviceID: state.mac?.deviceID ?? api.deviceID,
+                                                                          waitSeconds: waitSeconds)
+                // No answer is not a refusal: the wait asks again (and, at the last ask, has expired).
+                answer = response.map(MacConfirmation.ofConfirmation) ?? .awaiting
             }
             // The app left the screen meanwhile: the request was canceled and its answer is not one.
             if Task.isCancelled { return [] }
-            return [.macConfirmation(answer, at: clock.nowMs())]
+            return [.macConfirmation(answer, at: clock.nowMs(), askedAt: askedAt)]
         case .forgetIdentity(let origin):
             await stopLive()
             replay = nil

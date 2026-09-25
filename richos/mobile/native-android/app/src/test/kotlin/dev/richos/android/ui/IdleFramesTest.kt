@@ -102,7 +102,7 @@ class IdleFramesTest {
     @Test
     fun `waiting for the press on the Mac, and each of its outcomes, draw nothing at rest, both themes`() {
         for (theme in listOf(Theme.DARK, Theme.LIGHT)) {
-            for (id in listOf("pair-waiting-mac", "pair-mac-update", "pair-mac-declined", "pair-expired")) {
+            for (id in listOf("pair-waiting-mac", "pair-mac-update", "pair-mac-declined", "pair-expired", "pair-words-rejected", "pair-fault")) {
                 assertEquals("$id ($theme): busy frames in 2 s at rest", 0, atRest(screen(id, theme)))
             }
         }
@@ -110,7 +110,7 @@ class IdleFramesTest {
 
     @Test
     fun `the other screens a person leaves open draw nothing at rest`() {
-        for (id in listOf("comp-idle", "comp-typing", "conv-beginning", "conv-scrolled", "conn-offline", "conn-mac", "conn-revoked", "settings", "notif-offer", "voice-too-short", "rec-card", "upd-banner")) {
+        for (id in listOf("comp-idle", "comp-typing", "conv-beginning", "conv-scrolled", "conn-offline", "conn-mac", "conn-revoked", "conn-tailscale-off", "settings", "notif-offer", "voice-too-short", "rec-card", "upd-banner")) {
             assertEquals("$id: busy frames in 2 s at rest", 0, atRest(screen(id)))
         }
     }
