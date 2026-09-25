@@ -1863,8 +1863,11 @@ def p15(ctx, r):
                     except ProcessLookupError:
                         pass
     control = r['control-no-reap']
-    if not control.get('alive_after_grace_plus_one', {}).get('bg-self'):
-        return 'PREMISE-FALSE', 'without --reap-descendants the background command did not survive, so the control shows nothing'
+    # The premise is that tool shells outlive the app's death under today's supervisor. Any
+    # recorded shell shows it (rerun 2: the lead started only the foreground one that time).
+    shells = {k: v for k, v in control.get('alive_after_grace_plus_one', {}).items() if k.endswith('-self')}
+    if not shells or not any(shells.values()):
+        return 'PREMISE-FALSE', 'without --reap-descendants no recorded tool shell survived, so the control shows nothing: %s' % shells
     if not reaps:
         return 'NOT-RUN', ('the process groups are recorded (own group: %s); the reap half needs provider-supervisor.py '
                            '--reap-descendants, which this engine does not have yet (r3 (q), zach)') % control.get('own_group')
