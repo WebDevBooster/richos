@@ -372,7 +372,19 @@ Every file-writing teammate spawn requires an isolated worktree — enforced str
 - **A deletion that FAILS is durable.** It is retried every run regardless of age and keeps alerting until the path is gone. That is not defensive coding: the first real sweep failed on five paths and the NEXT run reported `failures=0` with all five still on disk, because the partial `rmtree` had bumped each directory's mtime and the age floor then kept it silently. The reaper's own failure erased its own evidence.
 - **When the alert says a path could not be deleted, Rich deletes it by hand.** That is the second half of the ruling and it is not optional: `scripts/disk-watchdog.sh --status` names the paths and how long each has been stuck.
 
-**A SUBAGENT CANNOT BE PAUSED — ONLY DESTROYED, and that is why the rule above is not bookkeeping.** `TaskStop` is the only lever the platform has, and it is a destructor: everything the agent has not committed is gone, unrecoverably. On 2026-09-10 two mid-flight teammates were stopped inside a minute; `zach-opus-dor1` lost almost nothing because it had committed as it went, and `echo-opus-hw2` lost its entire session because it had not. **So the corollary for whoever is conserving budget: work already in flight is already PAID FOR.** Killing it refunds nothing and forfeits the result — the lever that actually costs nothing is to **stop DISPATCHING**. Enforced at the destructive end by `scripts/hooks/guard-stop-live-work.sh`, which refuses a `TaskStop` against a provably live teammate unless a reason is written first — `scripts/stop-work-ack.sh` when it is your call, or `scripts/stop.sh <names> --ceo-word "<his sentence>"` when the CEO ordered it, which writes the same ack per named target in a second. **The guard does not read anybody's sentences.** It carried a clause that did, until 2026-09-20, when that clause was measured reading *"how is the stop command coming along"* as an order to destroy a live agent; a predicate over prose cannot tell an order from a conversation about orders, and on this tool being wrong is unrecoverable.
+**PAUSE IS NOT STOP. Rich sends exactly one standard pause message.** Generate its
+SendMessage payload with `python3 <engine>/scripts/lib/pause_protocol.py --to <exact-agent-name>`
+(for a quota hold add `--reason quota --reset HH:MMZ`). Send the returned payload
+unchanged. Do not write, append, summarize or "improve" pause instructions.
+The quota watcher uses this same template; the terminal and desktop delivery
+guards reject altered pause messages before delivery. In the desktop, use
+`richos_work.pause_message` for the same payload. Pause preserves the same task,
+context, workspaces and work in progress. Never substitute TaskStop, termination,
+cancellation, hand-in, workspace removal or a replacement. In particular, never
+add "end any heavy run" or "re-run what was cut off". A request sent is not proof
+of a pause: check the actual hold and report a limitation honestly. Stop remains
+a separate destructive operation under `guard-stop-live-work.sh`; a pause request
+never authorizes it.
 
 ## Working Rules - adopted from T3 Code's agent contract
 
@@ -383,6 +395,21 @@ Adapted from [T3 Code's agent contract](https://github.com/pingdotgg/t3code/blob
 2. **Every surface, with an applicability statement.** A change can work on the path you tested and be missing everywhere else. Before reporting, state which surfaces applied and what you checked: every entrance to the action, including buttons, menus, keyboard, voice and remote clients; affected clients, providers and shared wire contracts; light and dark themes; first-run and returning-user paths; reconnect behavior and reverse transitions; isolation of test data from live data. If you added a way in, add the way out and the way to see its state. A one-way door is a bug. Mark unrelated surfaces as not applicable rather than walking them without a reason.
 
 3. **Smallest proof, then the required checks.** Run the tests covering the change, using the assigned repository's own proof selector when available from the assigned worktree. Use that worktree's copy when the selector derives the checkout from its own location. Include the owning suite of any screen you changed and run it twice back to back when a screenshot is involved. Do not run repo-wide checks unless the brief asks; required landing and release checks remain the lead's and the build's responsibility. Before starting work that needs a shared build lock, wait for the current build to release it and report how long you waited. Do not bypass the lock.
+
+   **Retry unresolved failures first.** Before launching or resuming verification,
+   inspect existing results and source identity. Test the failed, timed-out,
+   refused or unrun unit before repeating unchanged passing work. Preserve
+   optimized runner defaults and resource guards; do not silently reduce workers
+   or shards or raise limits. Diagnose admission and timeout failures from their
+   logs before changing execution settings. Before any broad rerun, record the
+   specific invalidation or fresh-run requirement and why an isolated retry plus
+   applicable receipts cannot close the gap. Use the existing receipt verifier
+   where available; check source fingerprints and relevant inputs independently.
+   Preserve superseded failures and receipt provenance. Never claim that a
+   reconciled result was a single clean invocation. Stop once required evidence
+   is complete. In RichOS repository work, read `AGENTS.md` and
+   `docs/development/verification-retries.md` before running tests. Instructions
+   alone are not a claim of mechanical enforcement.
 
 4. **Working material.** Keep disposable scratch outside the worktree, in the session scratchpad or configured `TMPDIR`; engine code uses the engine's registered scratch allocator. Do not introduce a competing allocation convention. Preserve useful results, then delete your disposable scratch before reporting and show the cleanup command's result. Plans, research and private incident details belong in the private record repository, never a publication-bound repository; follow a brief that asks for a durable record there. A helper you needed and did not find in the committed toolkit is added to the toolkit and committed, never written as a throwaway.
 

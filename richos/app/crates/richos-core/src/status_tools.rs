@@ -179,6 +179,7 @@ pub fn call(
     let mut running: Vec<&Assignment> = Vec::new();
     let mut waiting: Vec<&Assignment> = Vec::new();
     let mut waiting_for_screen: Vec<&Assignment> = Vec::new();
+    let mut waiting_for_quota: Vec<&Assignment> = Vec::new();
     let mut finished: Vec<&Assignment> = Vec::new();
     for item in &items {
         match item.state {
@@ -191,6 +192,7 @@ pub fn call(
             // The bucket label is what the model reads — that is Ray's candidate-.7 row 2,
             // recorded a few lines below — so the label has to be the true one.
             AssignmentState::WaitingForScreen => waiting_for_screen.push(item),
+            AssignmentState::WaitingForQuota => waiting_for_quota.push(item),
             // **`Unknown` is waiting for him, and it is not finished.** It was running when
             // RichOS last looked and nothing has witnessed how it ended (spec §6.2), so the
             // only thing that moves it is his word (§6.3). Sorting it under `finished`
@@ -218,13 +220,14 @@ pub fn call(
     }
     // Newest movement first in every section: the thing that just changed is the thing he
     // is most likely asking about.
-    for list in [&mut starting, &mut running, &mut waiting, &mut waiting_for_screen, &mut finished] {
+    for list in [&mut starting, &mut running, &mut waiting, &mut waiting_for_screen, &mut waiting_for_quota, &mut finished] {
         list.sort_by(|a, b| b.updated_at_ms.cmp(&a.updated_at_ms));
     }
     let (starting_rows, starting_omitted) = section(&starting);
     let (running_rows, running_omitted) = section(&running);
     let (waiting_rows, waiting_omitted) = section(&waiting);
     let (screen_rows, screen_omitted) = section(&waiting_for_screen);
+    let (quota_rows, quota_omitted) = section(&waiting_for_quota);
     let (finished_rows, finished_omitted) = section(&finished);
     Ok(json!({
         "as_of_ms": assignment::now_ms(),
@@ -232,11 +235,13 @@ pub fn call(
         "running": running_rows,
         "waiting_for_you": waiting_rows,
         "waiting_for_the_screen": screen_rows,
+        "waiting_for_allowance": quota_rows,
         "finished": finished_rows,
         "omitted": starting_omitted
             + running_omitted
             + waiting_omitted
             + screen_omitted
+            + quota_omitted
             + finished_omitted,
         // **The sentence the front desk says about the §56 section, given rather than left to
         // be composed.** It is the CEO's own wording from the §56 brief, and it is handed over

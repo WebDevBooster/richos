@@ -228,6 +228,17 @@ impl EngineProfile {
               &json!({"hooks":{"PreToolUse":[{"matcher":"Agent","hooks":preflight}]}}).to_string())?;
         Ok(Self { engine, coordination, plugin, state, runtime, work_scope: None, permissions: Default::default() })
     }
+    /// Install the desktop executable's quota wrapper. Source-test clients which
+    /// do not implement that CLI entrypoint keep their canonical hooks unchanged.
+    pub fn install_quota_gate(&self, executable: &Path) -> Result<(), RuntimeError> {
+        let path = self.plugin.join("hooks/hooks.json");
+        let mut manifest: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path)
+            .map_err(|e| RuntimeError(e.to_string()))?).map_err(|e| RuntimeError(e.to_string()))?;
+        let command = format!("{} --claude-quota-gate {} {}", quote(executable),
+            quote(&self.runtime.python), quote(&self.engine.join("scripts/app-engine-hook.py")));
+        manifest["hooks"]["PreToolUse"] = json!([{"hooks":[{"type":"command", "command":command, "timeout":21600}]}]);
+        write(&path, &manifest.to_string())
+    }
     /// The standing instruction this lease comes up with — **and it is now different for
     /// the two Riches, because their jobs are.**
     ///
@@ -255,7 +266,7 @@ impl EngineProfile {
             Ok(text)
         };
         let job = match role {
-            crate::native::LeaseRole::Work => read(&self.engine.join("mega-lander/DESKTOP.md"))?,
+            crate::native::LeaseRole::Work => format!("{}{}", crate::quota::reset_tools::INSTRUCTION, read(&self.engine.join("mega-lander/DESKTOP.md"))?),
             crate::native::LeaseRole::Conversation => crate::doctrine::FRONT_DESK_DOCTRINE.to_string(),
         };
         let body = read(app_doctrine)? + "\n\n" + &job;

@@ -238,6 +238,12 @@ if [ "$STATUS" = "PARSEFAIL" ]; then
   exit 2
 fi
 
+# Pause is an orchestrator control message. Validate it before the liveness
+# fast path, protocol exemption or resume-ack can allow delivery.
+if ! printf '%s' "$INPUT" | python3 "$ENGINE_ROOT/scripts/lib/pause_protocol.py" --check; then
+  exit 2
+fi
+
 # --- (4a) lead / reply channel — NEVER blocked ---------------------------
 # A message to the lead/reply channel cannot resume a specific completed
 # teammate, so it is never the failure mode. Also covers the background-agent

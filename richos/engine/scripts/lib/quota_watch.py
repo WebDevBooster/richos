@@ -28,15 +28,12 @@ its threshold_and_twenty_minute_boundaries test): the exception applies when
 resets_at does not move inside one window. A window that has ended is
 UNKNOWN, as before, never "inside the exception".
 
-What "pause" means is his too, confirmed on 2026-09-10 (session d0eef867,
-09:28Z): commit what you have, then hold — end your turn, do nothing further,
-wait to be messaged. The same agent keeps its context and its workspace, and
-the lead's message at the reset wakes it. The workspace registry
-(mega-lander/workspaces.py, point 11) already records exactly that state, and
-the trigger is a `pause-until:` line in the lead's message. On 2026-09-18 the
-three hold messages carried no such line, so each SubagentStop recorded a
-FINISHED agent, and the wake at 15:09Z was refused. The pause message printed
-below carries the line, and quota-watch.test.sh proves it end to end.
+PAUSE MESSAGES ARE NOT WRITTEN BY THE LEAD. scripts/lib/pause_protocol.py renders
+the one standard message used here and by manual pauses. The terminal and desktop
+SendMessage gates validate its complete text before delivery. The lead may not
+append termination, cancellation, hand-in or restart instructions. The pause-until
+line retains the existing registry binding; delivery is a request, not evidence
+that execution is already held. No subagent implementation is changed here.
 
 THE READING, FIRST: CLAUDE CODE'S OWN `get_usage` (2026-09-25). Each poll starts
 `claude` as a CONTROL-ONLY connection and asks it for the account's usage,
@@ -131,6 +128,9 @@ import signal
 import subprocess
 import sys
 import time
+
+# Shared with the terminal and desktop SendMessage delivery guards.
+import pause_protocol
 
 HIS_WORDS = ('"quota polling: every 5 minutes from now. And once it crosses the 93% '
              'threshold: PAUSE subagents. Then resume after quota rest."')
@@ -520,20 +520,8 @@ def worker_line(w):
 # the two messages the lead sends
 # ---------------------------------------------------------------------------
 
-def pause_until_line(resets_at):
-    return "pause-until: %s at %s" % (PAUSE_UNTIL_PREFIX, hhmm(resets_at))
-
-
 def pause_message(r, threshold):
-    return "\n".join([
-        "PAUSE: the CEO's quota rule (%s), in his words: %s" % (RULING, HIS_WORDS),
-        "The five-hour window is at %s%% (threshold %s%%) and resets at %s."
-        % (fmt_pct(r["used"]), fmt_pct(threshold), hhmm(r["resets_at"])),
-        "Commit what you have, then hold: end your turn, do nothing further, and wait to be messaged.",
-        "Do not hand off and do not mark your task complete: a hand-in finishes you, and a finished "
-        "agent cannot be woken. Your context and your workspace stay exactly as they are.",
-        pause_until_line(r["resets_at"]),
-    ])
+    return pause_protocol.render("quota", hhmm(r["resets_at"]))
 
 
 def resume_message(reset_at):
@@ -633,8 +621,8 @@ def _emit_threshold(a, r, now, w):
     for ln in pause_message(r, a.threshold).splitlines():
         print("  " + ln)
     print("  ---- message ends ----")
-    print("  The last line is what records the PAUSE (mega-lander point 11): without it the agent's end of")
-    print("  run is recorded as FINISHED and the wake at the reset is refused (2026-09-18).")
+    print("  Use summary: " + pause_protocol.SUMMARY)
+    print("  Delivery is only a request. Check the actual hold before reporting anyone paused.")
     print("  Then start the watcher again; with nothing working it waits, and wakes you with the resume message")
     print("  when the reset is less than 20 minutes away (the hold releases there, %s):" % RULING)
     print("    %s --watch" % a.command)

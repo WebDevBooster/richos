@@ -144,6 +144,10 @@ fn the_crate_depends_on_nothing_that_could_open_a_connection() {
     // `sha2` is `#![no_std]`-capable, which is a stronger statement than "we checked" — a
     // crate that compiles without `std` cannot be opening a connection.
     //
+    // `time` supplies RFC3339 parsing for Claude quota reset timestamps. Its enabled
+    // parsing feature operates on input bytes and date/time values, with no socket,
+    // HTTP client or TLS dependency. It is not called by the feedback path.
+    //
     // AND THE THING THAT MAKES THIS SAFE IS WHERE THE NETWORK ACTUALLY IS. `setup.rs`
     // downloads, and it does so through `/usr/bin/curl` — a subprocess, spawned only by
     // `CurlFetcher`, which the feedback channel neither constructs nor can reach. The
@@ -165,7 +169,7 @@ fn the_crate_depends_on_nothing_that_could_open_a_connection() {
         }
     }
     let expected: BTreeSet<&str> =
-        ["serde", "serde_json", "uuid", "thiserror", "sha2"].into_iter().collect();
+        ["serde", "serde_json", "uuid", "thiserror", "sha2", "time"].into_iter().collect();
     assert_eq!(
         found, expected,
         "richos-core's dependency set changed. That is not automatically wrong — but the \

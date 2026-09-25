@@ -84,8 +84,8 @@ mutant poll-not-five-minutes "W09" "$L" \
 #    records the agent's own end of run as FINISHED, and the wake at the reset
 #    is refused: 2026-09-18, exactly.
 mutant pause-message-without-pause-until "E02" "$L" \
-    '        pause_until_line(r["resets_at"]),{NL}    ])' \
-    '    ])' \
+    'return pause_protocol.render("quota", hhmm(r["resets_at"]))' \
+    'return pause_protocol.render("quota", hhmm(r["resets_at"])).split("\npause-until:", 1)[0]' \
     "The pause message would read correctly and record nothing, and every paused agent would be finished at its first SubagentStop."
 
 mutant resume-message-re-pauses "E09" "$L" \

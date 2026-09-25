@@ -284,6 +284,7 @@ impl richos_core::work_host::WorkNotifier for WorkNotice {
 /// That is the same shape as the `lease_ready` snapshot fixed earlier the same day: an answer
 /// cached before the thing it describes existed. `run_setup` writes both cells.
 struct EngineLeaseFactory {
+    quota: Arc<richos_core::quota::Service>,
     permissions: Arc<richos_core::permissions::PermissionDesk>,
     claude_bin: Arc<Mutex<PathBuf>>,
     engine_dir: Arc<Mutex<PathBuf>>,
@@ -340,6 +341,7 @@ impl LeaseFactory for EngineLeaseFactory {
     /// copying them cannot diverge from anything.
     fn duplicate(&self) -> Option<Box<dyn LeaseFactory>> {
         Some(Box::new(EngineLeaseFactory {
+            quota: self.quota.clone(),
             permissions: self.permissions.clone(),
             claude_bin: self.claude_bin.clone(),
             engine_dir: self.engine_dir.clone(),
@@ -412,9 +414,11 @@ impl LeaseFactory for EngineLeaseFactory {
         let mut profile = richos_core::engine_profile::EngineProfile::prepare(&dir, &self.data_dir, runtime.clone())
             .map_err(|e| CognitionError::Io(e.to_string()))?;
         profile.scope_to(binding).map_err(|e| CognitionError::Io(e.to_string()))?;
+        profile.install_quota_gate(&executable).map_err(|e| CognitionError::Io(e.to_string()))?;
         profile.permissions = self.permissions.clone();
         let bridge = richos_core::ecs::EcsBridge::new(&runtime.python, &dir, &self.data_dir.join("ecs"))
             .map_err(|e| CognitionError::Io(e.to_string()))?;
+        self.quota.request_refresh();
         let cog = richos_core::native::NativeCognition::start_work_lease(&bin, &doctrine, &skills, &executable, bridge, profile)?;
         Ok(Box::new(cog))
     }
@@ -478,9 +482,11 @@ impl EngineLeaseFactory {
         let mut profile = richos_core::engine_profile::EngineProfile::prepare(&dir, &self.data_dir, runtime.clone())
             .map_err(|e| CognitionError::Io(e.to_string()))?;
         if let Some(binding) = binding { profile.scope_to(binding).map_err(|e| CognitionError::Io(e.to_string()))?; }
+        profile.install_quota_gate(&executable).map_err(|e| CognitionError::Io(e.to_string()))?;
         profile.permissions = self.permissions.clone();
         let bridge = richos_core::ecs::EcsBridge::new(&runtime.python, &dir, &self.data_dir.join("ecs"))
             .map_err(|e| CognitionError::Io(e.to_string()))?;
+        self.quota.request_refresh();
         let cog = NativeCognition::start_with_engine(&bin, &doctrine, &skills, &executable, bridge, profile, control)?;
         Ok(Box::new(cog))
     }
@@ -489,6 +495,7 @@ impl EngineLeaseFactory {
 /// The durable Rich, guarded for cross-invocation access. `Spine` is `Send` (its
 /// compute lease is `Box<dyn Cognition + Send>`), so `Mutex<Spine>` is valid Tauri state.
 struct AppState {
+    quota: Arc<richos_core::quota::Service>,
     permissions: Arc<richos_core::permissions::PermissionDesk>,
     /// **The second compute lease and the actor that owns it** — the background-work spec
     /// §2.1's work host.
@@ -799,7 +806,7 @@ fn phone_reject_on_mac(runtime: State<std::sync::Arc<phone::PhoneRuntime>>) -> p
 /// **Open one of the addresses the how-to screens print** (CEO §61.1).
 ///
 /// `target` is the address exactly as the screen prints it, and it is a KEY rather than a URL:
-/// `opener::resolve` matches the whole string against a five-entry table and refuses anything
+/// `opener::resolve` matches the whole string against a fixed table and refuses anything
 /// else. See `opener.rs` for why that is the shape and not a general URL opener.
 ///
 /// The screens keep the address written out beside every one of these controls, so a Mac where
@@ -1787,6 +1794,16 @@ fn install_correction_desk(
 }
 
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("--claude-reset-mcp") {
+        let args: Vec<_> = std::env::args_os().skip(2).collect();
+        let result = if args.len() == 3 {
+            richos_core::quota::reset_tools::run_stdio(Path::new(&args[0]), Path::new(&args[1]), Path::new(&args[2]))
+        } else { Err(std::io::Error::other("quota MCP requires a scope, data directory and Claude executable")) };
+        std::process::exit(if result.is_ok() { 0 } else { 1 });
+    }
+    if std::env::args().nth(1).as_deref() == Some("--claude-quota-gate") {
+        std::process::exit(richos_core::quota::gate::run_cli());
+    }
     if std::env::args().nth(1).as_deref() == Some("--richos-connect-guard") {
         std::process::exit(phone::connect::supervisor::guard_main());
     }
@@ -2676,6 +2693,24 @@ fn main() {
             // if Claude wasn't signed in at launch, wiring the factory means a later sign-in
             // + retry (or a crash recovery attempt) has a real respawn path rather than none.
             let permissions = Arc::new(richos_core::permissions::PermissionDesk::default());
+            let quota = Arc::new(richos_core::quota::Service::open(&data_dir)?);
+            // Read immediately at startup, regardless of the pause switch. Session
+            // starts and account changes wake this same reader. Otherwise its cache
+            // enforces five-minute polling, with reset deadlines and error backoff.
+            let quota_weak = Arc::downgrade(&quota);
+            let quota_bin = claude_bin_cell.clone();
+            std::thread::spawn(move || {
+                let mut wait = std::time::Duration::ZERO;
+                loop {
+                    let Some(quota) = quota_weak.upgrade() else { break };
+                    let force = quota.wait_for_refresh(wait);
+                    if quota.is_shutdown() { break; }
+                    let bin = quota_bin.lock().unwrap().clone();
+                    quota.refresh(&bin, force);
+                    quota.run_approved_weekly_reset(&bin);
+                    wait = std::time::Duration::from_secs(1);
+                }
+            });
             // Whether THIS launch was told which engine to use. `EnvEngineDir` and
             // `EnvEngineRoot` are the only two sources that are a statement rather than a
             // search (`engine.rs` candidates 1 and 2).
@@ -2684,6 +2719,7 @@ fn main() {
                 Some(engine::EngineSource::EnvEngineDir) | Some(engine::EngineSource::EnvEngineRoot)
             );
             let lease_factory = || EngineLeaseFactory {
+                quota: quota.clone(),
                 permissions: permissions.clone(),
                 claude_bin: Arc::clone(&claude_bin_cell),
                 engine_dir: Arc::clone(&engine_cell),
@@ -2710,6 +2746,7 @@ fn main() {
                 // assignment and are released with it — and for nothing else.
                 permissions.clone(),
             );
+            work.set_quota(quota.clone());
             work.start();
             eprintln!("[richos] compute connection: starts with the first cancellable request over {}", claude_bin.display());
 
@@ -3039,6 +3076,7 @@ fn main() {
             };
 
             app.manage(AppState {
+                quota: quota.clone(),
                 permissions,
                 work,
                 quit_confirmed: std::sync::atomic::AtomicBool::new(false),
@@ -3083,7 +3121,7 @@ fn main() {
                 // would let `run_setup` update one and leave the other pointing at the
                 // directory the boot failed to find.
                 engine_dir: engine_cell,
-                claude_bin: claude_bin_cell,
+                claude_bin: claude_bin_cell.clone(),
                 boot_engine,
             });
 
@@ -3183,6 +3221,11 @@ fn main() {
         })
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            claude_quota,
+            claude_quota_activity,
+            set_claude_quota_policy,
+            approve_claude_reset,
+            revoke_claude_reset,
             phone_status,
             phone_begin_pairing,
             phone_connect_enable,
@@ -3423,6 +3466,7 @@ fn main() {
             }
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = handle.try_state::<AppState>() {
+                    state.quota.shutdown();
                     let _ = state.control.request_stop();
                     state.control.shutdown_lease();
                     // **The WORK lease is stopped BY NAME, because nothing else reaches it**
@@ -4837,21 +4881,64 @@ fn provision_memory(
 #[tauri::command(async)]
 fn provider_auth_status(state: State<AppState>) -> richos_core::provider_auth::AuthView {
     let bin = resolve_claude_bin();
-    state.provider_auth.lock().unwrap().refresh(&bin)
+    let view = state.provider_auth.lock().unwrap().refresh(&bin);
+    state.quota.set_connecting(view.state == richos_core::provider_auth::AuthState::Connecting);
+    view
 }
 #[tauri::command(async)]
 fn provider_auth_start(state: State<AppState>, console: bool) -> richos_core::provider_auth::AuthView {
+    state.quota.set_connecting(true);
     let bin = resolve_claude_bin();
-    state.provider_auth.lock().unwrap().start(&bin, console)
+    let view = state.provider_auth.lock().unwrap().start(&bin, console);
+    state.quota.set_connecting(view.state == richos_core::provider_auth::AuthState::Connecting);
+    view
 }
 #[tauri::command(async)]
 fn provider_auth_poll(state: State<AppState>) -> richos_core::provider_auth::AuthView {
     let bin = resolve_claude_bin();
-    state.provider_auth.lock().unwrap().poll(&bin)
+    let view = state.provider_auth.lock().unwrap().poll(&bin);
+    state.quota.set_connecting(view.state == richos_core::provider_auth::AuthState::Connecting);
+    view
 }
 #[tauri::command(async)]
 fn provider_auth_cancel(state: State<AppState>) -> richos_core::provider_auth::AuthView {
-    state.provider_auth.lock().unwrap().cancel()
+    let view = state.provider_auth.lock().unwrap().cancel();
+    state.quota.set_connecting(false);
+    view
+}
+
+#[tauri::command(async)]
+fn claude_quota(state: State<AppState>, refresh: bool) -> richos_core::quota::View {
+    let bin = state.claude_bin.lock().unwrap().clone();
+    state.quota.refresh(&bin, refresh)
+}
+
+#[tauri::command(async)]
+fn claude_quota_activity(state: State<AppState>, thread_id: Option<String>) -> Result<richos_core::quota::holds::Activity, String> {
+    let entity = thread_id.as_deref().map(|thread| assignment_scope(&state, thread)).transpose()?;
+    let scope = entity.as_ref().zip(thread_id.as_ref()).map(|(entity, thread)| (entity.as_str(), thread.as_str()));
+    let mut activity = richos_core::quota::holds::read(&state.data_dir.join("engine-state"), scope).map_err(|e| e.to_string())?;
+    if let richos_core::quota::Admission::Held { resets_at } = state.quota.view().admission {
+        // Exactly twenty minutes still holds. Release begins after that instant.
+        activity.resumes_at = Some(resets_at.saturating_sub(20 * 60_000).saturating_add(1));
+    }
+    Ok(activity)
+}
+
+#[tauri::command(async)]
+fn approve_claude_reset(state: State<AppState>, offer: richos_core::quota::resets::Offer) -> Result<richos_core::quota::resets::View, String> {
+    let view = state.quota.resets.approve(&offer)?;
+    state.quota.request_refresh();
+    Ok(view)
+}
+#[tauri::command(async)]
+fn revoke_claude_reset(state: State<AppState>) -> Result<richos_core::quota::resets::View, String> {
+    state.quota.resets.revoke()
+}
+
+#[tauri::command(async)]
+fn set_claude_quota_policy(state: State<AppState>, policy: richos_core::quota::Policy) -> Result<richos_core::quota::View, String> {
+    state.quota.set_policy(policy).map_err(|e| e.to_string())
 }
 
 /// What this machine is missing, and what the sheet should say about it.
@@ -4898,6 +4985,7 @@ fn run_setup(app: tauri::AppHandle, state: State<AppState>) -> Result<serde_json
     spine.retire_idle_lease()?;
     let installed = setup_view::run(&app, Some(&selected), &state.engine_dir);
     *state.claude_bin.lock().map_err(|_| "The connection settings could not be updated. Please reopen RichOS.")? = resolve_claude_bin();
+    state.quota.disconnect(); // Recheck after installation or a changed Claude binary.
     let engine = state.engine_dir.lock().unwrap().clone();
     spine.clear_memory_wiring();
     let wired = memory::wire_company_memory(&mut spine, &state.loro_provenance, &registry, &engine);
@@ -5556,6 +5644,7 @@ mod operator_gate_tests {
         let thread = spine.create_thread("Gate", &EntityId::parse("femcboost").unwrap()).unwrap();
         let binding = spine.ledger().thread_binding(&thread).unwrap();
         let factory = EngineLeaseFactory {
+            quota: Arc::new(richos_core::quota::Service::open(&data).unwrap()),
             permissions: Default::default(),
             claude_bin: Arc::new(Mutex::new(PathBuf::from("/nonexistent/claude"))),
             engine_dir: Arc::new(Mutex::new(root.join("no-engine-here"))),
@@ -5593,7 +5682,7 @@ mod operator_gate_tests {
         assert_eq!(why, expected);
         assert!(!why.contains("Your team"), "the operator gate spoke on an install with no declaration: {why}");
         // And the product path really started: it renders the standing instruction first.
-        assert!(std::fs::read_dir(&factory.data_dir).unwrap().next().is_some(),
+        assert!(richos_core::doctrine::doctrine_path(&factory.data_dir).is_file(),
             "the product path writes its standing instruction before it checks the engine");
         assert!(!factory.data_dir.join(richos_core::operator_declaration::DECLARATION_FILE).exists());
         if let Err(error) = std::fs::remove_dir_all(&root) { eprintln!("fixture cleanup: {error}"); }
@@ -5603,11 +5692,17 @@ mod operator_gate_tests {
     fn a_broken_declaration_refuses_before_the_product_path_starts() {
         let (root, binding, factory) = fixture("broken");
         std::fs::write(factory.data_dir.join(richos_core::operator_declaration::DECLARATION_FILE), "{").unwrap();
+        // Quota initialization already published its snapshot. The gate must leave
+        // that existing file untouched and must not render the product doctrine.
+        let snapshot = factory.data_dir.join("engine-state/claude-quota.json");
+        let before = std::fs::read(&snapshot).unwrap();
         let why = io_error(factory.spawn_work(&binding));
         assert!(why.starts_with("Your team is switched off on this Mac because "), "{why}");
         // The product path renders the standing instruction first thing; it never ran.
-        let written: Vec<_> = std::fs::read_dir(&factory.data_dir).unwrap().map(|e| e.unwrap().file_name()).collect();
-        assert_eq!(written, [std::ffi::OsString::from(richos_core::operator_declaration::DECLARATION_FILE)]);
+        assert!(!richos_core::doctrine::doctrine_path(&factory.data_dir).exists());
+        assert_eq!(std::fs::read(&snapshot).unwrap(), before);
+        let written: std::collections::BTreeSet<_> = std::fs::read_dir(&factory.data_dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(written, [std::ffi::OsString::from("engine-state"), std::ffi::OsString::from(richos_core::operator_declaration::DECLARATION_FILE)].into_iter().collect());
         if let Err(error) = std::fs::remove_dir_all(&root) { eprintln!("fixture cleanup: {error}"); }
     }
 }

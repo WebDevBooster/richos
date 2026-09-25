@@ -1624,7 +1624,7 @@ fn preflight(bin: &Path, cwd: &Path, doctrine: Option<&Path>, skills: Option<&Pa
 ///   page, finding 6).
 fn mcp_config(executable: &Path, onboarding_scope: &Path, assignments_scope: &Path, status_scope: &Path,
     continuity: Option<(&crate::ecs::EcsBridge, &Path)>, continuity_tools_scope: Option<&Path>,
-    profile: Option<&crate::engine_profile::EngineProfile>, role: LeaseRole) -> Value {
+    profile: Option<&crate::engine_profile::EngineProfile>, role: LeaseRole, claude_bin: &Path) -> Value {
     let mut config = json!({"mcpServers": {}});
     // **The company-notes tools, on the CONVERSATION lease only** (`onboarding_tools.rs`).
     //
@@ -1674,6 +1674,10 @@ fn mcp_config(executable: &Path, onboarding_scope: &Path, assignments_scope: &Pa
             "args":[bridge.component.join("adapters/mcp.py"),tools_scope], "env":{"PYTHONDONTWRITEBYTECODE":"1"}});
     }
     if let (Some(profile), Some((bridge, scope))) = (profile, continuity.filter(|_| role == LeaseRole::Work)) {
+        if let Some(root) = profile.state.parent() {
+            config["mcpServers"][crate::quota::reset_tools::SERVER] = json!({"type":"stdio", "command":executable,
+                "args":["--claude-reset-mcp", scope, root, claude_bin]});
+        }
         config["mcpServers"]["richos_work"] = json!({"type":"stdio", "command":bridge.python,
             "args":[profile.engine.join("mega-lander/app.py"),scope], "env":{"PYTHONDONTWRITEBYTECODE":"1"}});
     }
@@ -1712,7 +1716,7 @@ impl NativeClient {
             None => child_args(&session_id),
         };
         if let Some((executable, scope, assignments, status)) = onboarding {
-            let config = mcp_config(executable, scope, assignments, status, continuity, continuity_tools, profile, role);
+            let config = mcp_config(executable, scope, assignments, status, continuity, continuity_tools, profile, role, bin);
             args.extend(["--strict-mcp-config".into(), "--mcp-config".into(), config.to_string()]);
         }
         // The supervisor observes parent death, including a crash where Rust
@@ -3892,7 +3896,7 @@ mod native_driver_tests {
         let assignments = root.join("assignments.json");
         let status = root.join("status.json");
 
-        let work = mcp_config(&executable, &scope, &assignments, &status, Some((&bridge, &continuity)), Some(continuity_tools.as_path()), Some(&profile), LeaseRole::Work);
+        let work = mcp_config(&executable, &scope, &assignments, &status, Some((&bridge, &continuity)), Some(continuity_tools.as_path()), Some(&profile), LeaseRole::Work, Path::new("claude"));
         let servers = &work["mcpServers"];
         assert!(servers.get("richos_continuity").is_none(), "the work lease was given the continuity server");
         assert!(servers.get("richos_work").is_some(), "the work lease was not given the work server");
@@ -3910,7 +3914,7 @@ mod native_driver_tests {
             "the work lease was given the front desk's status server");
 
         // Positive control: the same call for the conversation DOES register its two.
-        let chat = mcp_config(&executable, &scope, &assignments, &status, Some((&bridge, &continuity)), Some(continuity_tools.as_path()), Some(&profile), LeaseRole::Conversation);
+        let chat = mcp_config(&executable, &scope, &assignments, &status, Some((&bridge, &continuity)), Some(continuity_tools.as_path()), Some(&profile), LeaseRole::Conversation, Path::new("claude"));
         assert!(chat["mcpServers"].get("richos_continuity").is_some(), "the conversation lost its continuity server");
         assert!(chat["mcpServers"].get(crate::assignment_tools::SERVER_NAME).is_some(),
             "the conversation has no way to end a turn on a receipt");
@@ -3981,7 +3985,7 @@ mod native_driver_tests {
         };
 
         let chat = mcp_config(&executable, &scope, &assignments, &status,
-            Some((&bridge, &continuity)), Some(continuity_tools.as_path()), Some(&profile), LeaseRole::Conversation);
+            Some((&bridge, &continuity)), Some(continuity_tools.as_path()), Some(&profile), LeaseRole::Conversation, Path::new("claude"));
         assert_eq!(
             names(&chat),
             vec!["richos_assignments", "richos_continuity", "richos_onboarding", "richos_status"],
@@ -3994,10 +3998,10 @@ mod native_driver_tests {
         // The back end is the other half of the same sentence: it holds the work, and it can
         // neither give itself more of it nor read the front desk's record.
         let work = mcp_config(&executable, &scope, &assignments, &status,
-            Some((&bridge, &continuity)), Some(continuity_tools.as_path()), Some(&profile), LeaseRole::Work);
+            Some((&bridge, &continuity)), Some(continuity_tools.as_path()), Some(&profile), LeaseRole::Work, Path::new("claude"));
         assert_eq!(
             names(&work),
-            vec!["richos_work"],
+            vec!["richos_quota", "richos_work"],
             "the back end's tool list moved"
         );
         // **The back end holds the work and NOTHING ELSE, and that is the third absence.**
