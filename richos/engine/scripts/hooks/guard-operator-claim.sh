@@ -3,12 +3,14 @@
 # guard-operator-claim.sh: PreToolUse. While the RichOS app runs his team, his
 # terminal does not (richos-hq spec r3 (e) "The claim", items 6 and 7).
 #
-# Registered on Agent, TaskStop and SendMessage, and a module of the Bash and
+# Registered on Agent and SendMessage, and a module of the Bash and
 # Write chains of dispatch-pretooluse.sh. In a TERMINAL session of his entity
 # (entrypoint not `sdk-*`, seated at the entity root, not in .claude/worktrees/;
 # Frank G11), while <claude dir>/state/operator-lead.json holds a LIVE app claim,
 # it refuses, by tool name:
-#   * Agent, TaskStop, SendMessage (starting, stopping or messaging his team);
+#   * Agent and SendMessage (starting or messaging his team). NEVER TaskStop: a
+#     stop only removes, reaches only this terminal's own tasks, and must never
+#     wait on a claim file (ceo-decisions §67);
 #   * a Bash command that takes the land lease (`land-lease.sh acquire|takeover`);
 #   * a Write, Edit, MultiEdit or NotebookEdit into his memory directory or into a
 #     main checkout of a fenced repository (the record).

@@ -1280,7 +1280,6 @@ guard-operator-claim.sh|PreToolUse
 guard-operator-claim.sh|PreToolUse
 guard-operator-claim.sh|PreToolUse
 guard-operator-claim.sh|PreToolUse
-guard-operator-claim.sh|PreToolUse
 guard-live-names.sh|PreToolUse
 guard-shared-writes.sh|PreToolUse
 release-shared-writes.sh|PostToolUse

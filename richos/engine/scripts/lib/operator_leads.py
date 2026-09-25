@@ -13,7 +13,8 @@ the question "is this path in a fenced main checkout?":
 
   the claim (e)   His terminal and the app never run his team at once. A terminal
                   session in his entity claims at SessionStart; while a live app
-                  claim exists, it refuses Agent, TaskStop and SendMessage, the
+                  claim exists, it refuses Agent and SendMessage (never TaskStop:
+                  a stop only removes, ceo-decisions §67), the
                   land lease, and writes to the record and to his memory.
   e3              Shared writes. A write into his memory directory takes a short
                   lease, so two leads never interleave there; a write into a main
@@ -51,7 +52,12 @@ CLAIM_LOCK_WAIT = 5.0          # seconds; a claim write takes milliseconds
 MEMORY_LEASE_WAIT = 10.0       # e3: wait up to 10 s, then refuse naming the holder
 MEMORY_LEASE_STALE = 5.0       # e3: no longer than the wait; a Write takes milliseconds
 WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
-TEAM_TOOLS = ("Agent", "TaskStop", "SendMessage")
+# TaskStop is deliberately NOT here. r3 (e) item 7 lists it, but a stop only
+# removes capability (§67; r3 (d) item 7 accepts a stop from every channel for
+# that reason), a terminal's TaskStop reaches only that terminal's own tasks,
+# and refusing it would block him stopping his own agents whenever the claim file
+# is unreadable. As-built deviation, recorded in the fence record.
+TEAM_TOOLS = ("Agent", "SendMessage")
 EXIT_REFUSE = 2
 EXIT_INTERNAL = 3
 
@@ -295,7 +301,7 @@ def cmd_claim_start(payload):
             if state == "unreadable":
                 return system_message(unreadable_text(reason, "run your team"))
             if state == "app":
-                return system_message(app_running_text(rec, "start agents, stop tasks, message teammates, "
+                return system_message(app_running_text(rec, "start agents, message teammates, "
                                                             "take the land lease or write the record and memory"))
             entry = {"role": "terminal", "pid": who["pid"], "start": who["start"],
                      "session_id": who.get("session_id") or ""}
@@ -367,7 +373,7 @@ def claim_blocks(payload):
     tool = payload.get("tool_name") or ""
     tool_input = payload.get("tool_input") if isinstance(payload.get("tool_input"), dict) else {}
     if tool in TEAM_TOOLS:
-        return {"Agent": "start agents", "TaskStop": "stop tasks", "SendMessage": "message teammates"}[tool]
+        return {"Agent": "start agents", "SendMessage": "message teammates"}[tool]
     if tool in WRITE_TOOLS:
         path = target_path(tool_input)
         if memory_dir_of(path):

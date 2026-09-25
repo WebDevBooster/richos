@@ -10,7 +10,7 @@
 #     C3   a print-mode (`sdk-cli`) session never claims as the terminal
 #     C4   a session seated in .claude/worktrees/ never claims
 #     C5   a live APP claim: the terminal claims nothing and says so
-#     C6   ... and the terminal is refused Agent, TaskStop, SendMessage, the land
+#     C6   ... and the terminal is refused Agent, SendMessage, the land
 #          lease, a memory write and a record write; other calls pass
 #     C7   the app's own lead (RICHOS_OPERATOR_LEAD matching the live claim) passes
 #          and its SessionStart writes nothing
@@ -172,15 +172,17 @@ hook T "$H_CLAIM" start; rc=$?
 { [ $rc = 0 ] && [ "$(shasum "$CLAIM")" = "$sum_app" ] && printf '%s' "$OFX_OUT" | python3 -c 'import json,sys; m=json.load(sys.stdin)["systemMessage"]; sys.exit(0 if "running in the RichOS app (\"Fixture conversation\")" in m else 1)'; }
 check "C5 a live app claim: the terminal claims nothing and says so" $? "$OFX_OUT"
 
-r=0; for p in agent stop msg lease memw recw; do
+r=0; for p in agent msg lease memw recw; do
     hook T "$H_GUARD" "$p"; rc=$?
     { [ $rc = 2 ] && printf '%s' "$OFX_OUT" | grep -q 'running in the RichOS app'; } || { r=1; echo "        $p rc=$rc"; }
 done
-check "C6a with the app claim live, the terminal is refused Agent, TaskStop, SendMessage, the lease, memory and record writes" $r
+check "C6a with the app claim live, the terminal is refused Agent, SendMessage, the lease, memory and record writes" $r
 r=0; for p in ls elsew; do hook T "$H_GUARD" "$p" || r=1; [ -z "$OFX_OUT" ] || r=1; done
 check "C6b ... and every other call passes, silently" $r "$OFX_OUT"
 hook D "$H_GUARD" agent; rc=$?
 check "C6c ... and a non-terminal session is never refused by the claim" $rc "$OFX_OUT"
+hook T "$H_GUARD" stop; rc=$?
+{ [ $rc = 0 ] && [ -z "$OFX_OUT" ]; }; check "C6d ... and a TaskStop is never refused: a stop only removes (§67)" $? "rc=$rc $OFX_OUT"
 
 hook APP "$H_GUARD" agent RICHOS_OPERATOR_LEAD=app-1; r1=$?
 sess APP cli "$E"
@@ -315,7 +317,7 @@ manifest = [l.strip() for l in open(os.path.join(root, "scripts", "hooks", "disp
 W = "Write|Edit|MultiEdit|NotebookEdit"
 want = {
     "operator-claim.sh": [("SessionStart", "")],
-    "guard-operator-claim.sh": [("PreToolUse", "Agent"), ("PreToolUse", "SendMessage"), ("PreToolUse", "TaskStop")],
+    "guard-operator-claim.sh": [("PreToolUse", "Agent"), ("PreToolUse", "SendMessage")],
     "guard-live-names.sh": [("PreToolUse", "Agent")],
     "release-shared-writes.sh": [("PostToolUse", W), ("PostToolUseFailure", W)],
     "guard-shared-writes.sh": [],

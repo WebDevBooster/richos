@@ -279,11 +279,6 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-stop-live-work.sh",
             "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-operator-claim.sh",
-            "timeout": 20
           }
         ]
       }

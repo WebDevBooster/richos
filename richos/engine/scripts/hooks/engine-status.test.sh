@@ -826,7 +826,7 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # side of several operator leads on one Mac (richos-hq spec r3 (e) the claim, e3,
 # e5; r4 §2.4). operator-claim.sh (SessionStart, never blocks) writes his
 # terminal's claim; guard-operator-claim.sh (BLOCKING: PreToolUse[Agent|
-# SendMessage|TaskStop] and the Bash and Write chains) refuses a terminal's team
+# SendMessage] and the Bash and Write chains; never TaskStop) refuses a terminal's team
 # calls while the app's claim is live; guard-shared-writes.sh (BLOCKING, the Write
 # chain) serializes memory writes and needs the land lease for a record write;
 # release-shared-writes.sh (PostToolUse and PostToolUseFailure, never blocks)

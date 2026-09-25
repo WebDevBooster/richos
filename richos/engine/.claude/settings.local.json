@@ -306,11 +306,6 @@
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-stop-live-work.sh",
             "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-operator-claim.sh",
-            "timeout": 20
           }
         ]
       }
