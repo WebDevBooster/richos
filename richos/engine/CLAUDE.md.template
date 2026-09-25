@@ -396,6 +396,21 @@ Adapted from [T3 Code's agent contract](https://github.com/pingdotgg/t3code/blob
 
 3. **Smallest proof, then the required checks.** Run the tests covering the change, using the assigned repository's own proof selector when available from the assigned worktree. Use that worktree's copy when the selector derives the checkout from its own location. Include the owning suite of any screen you changed and run it twice back to back when a screenshot is involved. Do not run repo-wide checks unless the brief asks; required landing and release checks remain the lead's and the build's responsibility. Before starting work that needs a shared build lock, wait for the current build to release it and report how long you waited. Do not bypass the lock.
 
+   **Retry unresolved failures first.** Before launching or resuming verification,
+   inspect existing results and source identity. Test the failed, timed-out,
+   refused or unrun unit before repeating unchanged passing work. Preserve
+   optimized runner defaults and resource guards; do not silently reduce workers
+   or shards or raise limits. Diagnose admission and timeout failures from their
+   logs before changing execution settings. Before any broad rerun, record the
+   specific invalidation or fresh-run requirement and why an isolated retry plus
+   applicable receipts cannot close the gap. Use the existing receipt verifier
+   where available; check source fingerprints and relevant inputs independently.
+   Preserve superseded failures and receipt provenance. Never claim that a
+   reconciled result was a single clean invocation. Stop once required evidence
+   is complete. In RichOS repository work, read `AGENTS.md` and
+   `docs/development/verification-retries.md` before running tests. Instructions
+   alone are not a claim of mechanical enforcement.
+
 4. **Working material.** Keep disposable scratch outside the worktree, in the session scratchpad or configured `TMPDIR`; engine code uses the engine's registered scratch allocator. Do not introduce a competing allocation convention. Preserve useful results, then delete your disposable scratch before reporting and show the cleanup command's result. Plans, research and private incident details belong in the private record repository, never a publication-bound repository; follow a brief that asks for a durable record there. A helper you needed and did not find in the committed toolkit is added to the toolkit and committed, never written as a throwaway.
 
 contract-rules: 2026-09-20
