@@ -97,6 +97,35 @@ fun Header(notice: ConnectionNotice, onEvent: (UiEvent) -> Unit, modifier: Modif
     }
 }
 
+/**
+ * "Showing what was on this phone · your Mac is out of reach" (`conn-cached`), pinned under the
+ * header while the conversation on screen is the copy kept on this phone and the Mac has not
+ * answered since launch.
+ *
+ * Round 12 draws it as the thread's day label. The thread opens following the newest message, so
+ * that label was scrolled out above the screen (never composed, measured headless) or, in a short
+ * conversation, under the header's fade: the iPhone read it at 1.38:1 (I02, native acceptance r1;
+ * isaac-opus-ux3 `2059fa19`). Pinned, it is never under the header and never scrolls away. Set in
+ * the reading ink on the floating surface, as on the iPhone: 13.02:1 dark, 17.02:1 light
+ * (`ContrastPairings`, "ink on surface"; also measured on the rendered frame by OutOfReachLineTest).
+ * A deliberate deviation from round 12: not a row, and ink rather than ink-soft.
+ */
+@Composable
+fun OutOfReachLine(modifier: Modifier = Modifier) {
+    val c = Rich.colors
+    val t = Rich.type
+    Box(modifier.fillMaxWidth().padding(horizontal = 14.dp).padding(top = 8.dp), contentAlignment = Alignment.Center) {
+        BasicText(
+            OUT_OF_REACH,
+            style = t.read.copy(color = c.ink, textAlign = androidx.compose.ui.text.style.TextAlign.Center),
+            modifier = Modifier.plane(RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 6.dp)
+                .semantics { testTag = "out-of-reach-line" },
+        )
+    }
+}
+
+const val OUT_OF_REACH = "Showing what was on this phone · your Mac is out of reach"
+
 @Composable
 private fun Nameplate(line: Pair<String, String>?, pulse: Boolean, modifier: Modifier) {
     val c = Rich.colors

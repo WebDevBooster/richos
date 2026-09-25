@@ -73,4 +73,69 @@ mutant interrupted-collector-silent "test_T32" "$D" \
     '                pass' \
     "a killed cleanup pass would leave no alert."
 
+mutant owned-run-not-renewed "test_T44" "$D" \
+    '        lease["last_use"] = time.time(){NL}        lease["activity"] = {"pid": child.pid, "renewer": os.getpid(), "renewed": lease["last_use"]}' \
+    '        lease["activity"] = {"pid": child.pid, "renewer": os.getpid(), "renewed": time.time()}' \
+    "a live, owned xcodebuild run would lose its simulator five minutes in (esc-20260924T220236Z-52fae3ec)."
+
+mutant dead-owner-still-renewed "test_T45" "$D" \
+    '    if owner_state(owner)[0] != "alive":{NL}        return False, "the run'"'"'s owner is not proven alive"' \
+    '    if False:{NL}        return False, "the run'"'"'s owner is not proven alive"' \
+    "an orphaned run would keep renewing a lease whose owner is gone."
+
+mutant expired-lease-renewed "test_T46b" "$D" \
+    '        if lease_expired(rec):{NL}            return False, "the lease reached its lifetime or inactivity limit"' \
+    '        if False:{NL}            return False, "the lease reached its lifetime or inactivity limit"' \
+    "renewal would keep writing to a lease past its lifetime."
+
+mutant ended-run-still-renewed "test_T51" "$D" \
+    '    if child.poll() is not None:{NL}        return False, "the owned run ended"' \
+    '    if False:{NL}        return False, "the owned run ended"' \
+    "a finished run would keep its device from counting as idle."
+
+mutant reregister-keeps-long-lifetime "test_T50" "$D" \
+    '"max_seconds": LEASE_MAX_SECONDS,' \
+    '"max_seconds": old_lease.get("max_seconds", LEASE_MAX_SECONDS),' \
+    "registering again would carry a declared lifetime to a caller that never declared it."
+
+mutant busy-registry-crashes-collector "test_T53" "$D" \
+    '        except RegistryBusy as exc:' \
+    '        except ZeroDivisionError as exc:' \
+    "a registry lock held for five seconds would kill the collector and close native admission (2026-09-24)."
+
+mutant wedged-registry-tolerated "test_T54" "$D" \
+    '            if now - since >= COLLECTOR_BUSY_ALERT_SECONDS:' \
+    '            if False:' \
+    "a registry lock that never frees would be skipped silently for ever, with no lease ever expired."
+
+mutant orphan-booted-prepared-not-shut-down "test_T55" "$D" \
+    '                if found and found.get("state") not in ("", "Shutdown"):' \
+    '                if False:' \
+    "a prepared simulator an old run left booted would fail the next lease's boot (2026-09-24, iPhone SE)."
+
+mutant lost-lease-run-keeps-going "test_T57" "$D" \
+    '            if not ours and child.poll() is None:' \
+    '            if False:' \
+    "a run whose lease was handed to another run would go on driving that run's device (esc-20260925T014934Z-0a4bf206)."
+
+mutant run-not-in-its-own-group "test_T58" "$D" \
+    '        child = subprocess.Popen(command, start_new_session=True)' \
+    '        child = subprocess.Popen(command)' \
+    "ending a run would end only its first process, leaving xcodebuild's children on the device."
+
+mutant cli-gives-up-at-the-collectors-five-seconds "test_T59" "$D" \
+    '        REGISTRY_LOCK_SECONDS = CLI_REGISTRY_LOCK_SECONDS' \
+    '        pass' \
+    "a UI suite's acquire or release would fail whenever simctl held the registry for five seconds (2026-09-25)."
+
+mutant device-admission-back-to-sixty-seconds "test_T60" "$D" \
+    '        held.append(worker_tokens.Budget(worker_tokens.machine_directory(), runner=True).acquire(timeout=left()))' \
+    '        held.append(worker_tokens.Budget(worker_tokens.machine_directory(), runner=True).acquire(timeout=60))' \
+    "a busy host would fail a test's device launch after 60 s instead of waiting its bounded turn (2026-09-25)."
+
+mutant boot-wait-lets-the-lease-idle-out "test_T61" "$D" \
+    '                touch_lease(kind, ident)' \
+    '                pass' \
+    "a boot waiting its bounded turn for admission would lose its device to the inactivity limit."
+
 mutation_end

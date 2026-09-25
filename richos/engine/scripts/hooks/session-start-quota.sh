@@ -7,6 +7,11 @@
 #   "quota polling: every 5 minutes from now. And once it crosses the 93%
 #    threshold: PAUSE subagents. Then resume after quota rest."
 #
+# HIS UPDATE, 2026-09-25 (ruling §87), quoted in the notice as the rule now
+# stands: at or above the threshold, no pause when the reset is less than 20
+# minutes away (exactly 20 still pauses), and a hold in place releases inside
+# that window. Polling stays every 5 minutes at every usage level.
+#
 # On 2026-09-25 he asked when the rule would be "burned in everywhere where it
 # should be" and when there would be "a re-usable script for that". The script
 # is scripts/quota-watch.sh. This notice is the burning-in: every lead, in

@@ -110,9 +110,22 @@ class IdleFramesTest {
 
     @Test
     fun `the other screens a person leaves open draw nothing at rest`() {
-        for (id in listOf("comp-idle", "comp-typing", "conv-beginning", "conv-scrolled", "conn-offline", "conn-mac", "conn-revoked", "conn-tailscale-off", "settings", "notif-offer", "voice-too-short", "rec-card", "upd-banner")) {
+        for (id in listOf("comp-idle", "comp-typing", "conv-beginning", "conv-scrolled", "conn-offline", "conn-mac", "conn-revoked", "conn-tailscale-off", "conn-cached", "settings", "notif-offer", "voice-too-short", "rec-card", "upd-banner")) {
             assertEquals("$id: busy frames in 2 s at rest", 0, atRest(screen(id)))
         }
+    }
+
+    /** I05: a card raised while another shows scrolls into view once, and then the screen rests. */
+    @Test
+    fun `a card brought into view above the composer scrolls once, then draws nothing`() {
+        val retry = screen("conv-retry")
+        show(retry)
+        // conv-retry's Reconnecting dot breathes its 10 s first; measure after it rests.
+        compose.mainClock.advanceTimeBy(RichMotion.PULSE_FOR_MS + 1_500L)
+        assertEquals("conv-retry at rest", 0, busyFrames())
+        show(retry.copy(app = retry.app.copy(microphone = dev.richos.android.core.Microphone.DENIED, microphoneCard = true, microphoneCanAsk = false)))
+        compose.mainClock.advanceTimeBy(3_000)
+        assertEquals("after the card came into view, at rest", 0, busyFrames())
     }
 
     @Test

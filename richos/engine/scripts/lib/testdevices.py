@@ -84,6 +84,24 @@ class BudgetExpired(TimeoutError):
     pass
 
 
+class RegistryBusy(TimeoutError):
+    """Another process held the registry lock for the whole wait."""
+
+
+# How long a registry call waits for the lock before giving up. The collector keeps five
+# seconds and skips a busy cycle (expire_leases); it runs every two seconds and must not block.
+REGISTRY_LOCK_SECONDS = 5
+# A CLI verb that a test run depends on (acquire, boot, release, run-active...) waits longer.
+# The lock is held across simctl calls, which took more than five seconds on the pinned host
+# of 2026-09-25, and a UI suite's second device then failed on its acquire.
+CLI_REGISTRY_LOCK_SECONDS = 90
+# The lease collector SKIPS a cycle when the registry is busy and retries on the next one
+# (every two seconds). A lock held longer than this is no longer a busy moment: the longest
+# legitimate hold is a simctl call under the lock (acquire, release, collect), bounded at
+# 120 s by simctl(), so past 180 s the collector reports a failure and the watchdog alerts.
+COLLECTOR_BUSY_ALERT_SECONDS = 180
+
+
 def _timeout(maximum):
     deadline = _DEADLINE.get()
     remaining = maximum if deadline is None else min(maximum, deadline - time.time())
@@ -100,14 +118,15 @@ def registry_lock():
         return
     os.makedirs(registry_dir(), exist_ok=True)
     with open(os.path.join(registry_dir(), ".lock"), "a") as handle:
-        lock_deadline = time.monotonic() + 5
+        lock_deadline = time.monotonic() + REGISTRY_LOCK_SECONDS
         while True:
             try:
                 fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 break
             except BlockingIOError:
                 if time.monotonic() >= lock_deadline:
-                    raise TimeoutError("test-device registry lock stayed busy for five seconds")
+                    raise RegistryBusy("test-device registry lock stayed busy for %g seconds"
+                                       % REGISTRY_LOCK_SECONDS)
                 time.sleep(min(0.05, _timeout(5)))
         token = _LOCKED.set(True)
         try:
@@ -352,6 +371,21 @@ def owner_state(owner):
 
 KINDS = ("ios-simulator", "android-emulator", "ios-cache", "android-cache")
 
+# A device lease has two independent limits (host-cpu-enforcement.md). The
+# inactivity limit catches a device its CLI forgot; the lifetime is absolute and
+# nothing renews it.
+LEASE_MAX_SECONDS = 900
+LEASE_IDLE_SECONDS = 300
+# How often run-active renews an owned run's activity: ten renewals fit inside
+# one inactivity limit, so a renewer starved by a busy host still keeps up.
+LEASE_RENEW_SECONDS = 30
+# A DECLARED purpose may name a longer lifetime; a caller never names a number.
+# The native iOS UI suite runs its whole selection serially on one device and
+# took 787-884 s per device under load on 2026-09-24, against a 900 s lifetime
+# that also covers the boot. 1800 s is twice that measurement. Owner death and
+# lease-holder death still collect at once whatever the lifetime is.
+LEASE_PURPOSES = {"ui-suite": 1800}
+
 
 def _record_path(kind, ident):
     h = hashlib.sha1(("%s\0%s" % (kind, ident)).encode("utf-8")).hexdigest()[:16]
@@ -401,8 +435,12 @@ def register(kind, ident, owner_pid=None, script="", checkout="", device_set="")
             rec["prepared"] = previous["prepared"]
         if kind in ("ios-simulator", "android-emulator"):
             old_lease = previous.get("lease", {}) if previous.get("generation") == generation else {}
+            # Re-registering never lengthens a lease: a declared purpose's
+            # lifetime is set once, by acquire_ios, and this resets to the default.
             rec["lease"] = {**old_lease, "created": old_lease.get("created", time.time()),
-                            "last_use": time.time(), "max_seconds": 900, "idle_seconds": 300}
+                            "last_use": time.time(), "max_seconds": LEASE_MAX_SECONDS,
+                            "idle_seconds": LEASE_IDLE_SECONDS}
+            rec["lease"].pop("purpose", None)
         _write_json(path, rec)
     return rec
 
@@ -423,6 +461,161 @@ def touch_lease(kind, ident):
         if rec.get("lease"):
             rec["lease"]["last_use"] = time.time()
             _write_json(path, rec)
+
+
+def renew_activity(kind, ident, owner, created, child):
+    """One renewal on behalf of an OWNED, LIVE run: (renewed, why not).
+
+    Renews only the inactivity clock of the exact lease generation `created`,
+    only while `child` (a process this renewer started) still runs, and only
+    while the lease's registered owner is `owner` and is alive. The lifetime is
+    never touched, and an expired lease is never renewed, so a runaway run ends
+    at its lifetime like any other.
+    """
+    if child.poll() is not None:
+        return False, "the owned run ended"
+    # Read the owner's process before taking the registry lock: `ps` stalled
+    # for seconds under the September 24 load, and the collector needs the lock.
+    if owner_state(owner)[0] != "alive":
+        return False, "the run's owner is not proven alive"
+    with registry_lock():
+        path = _record_path(kind, _norm(kind, ident))
+        rec = _read_json(path)
+        lease = (rec or {}).get("lease")
+        if not lease:
+            return False, "the device has no lease any more"
+        if lease.get("created") != created:
+            return False, "the lease was replaced by another generation"
+        if not any(same_owner(o, owner) for o in rec.get("owners", [rec.get("owner", {})])):
+            return False, "the lease belongs to another run"
+        if lease_expired(rec):
+            return False, "the lease reached its lifetime or inactivity limit"
+        lease["last_use"] = time.time()
+        lease["activity"] = {"pid": child.pid, "renewer": os.getpid(), "renewed": lease["last_use"]}
+        _write_json(path, rec)
+    return True, ""
+
+
+LEASE_LOST_EXIT = 75
+
+
+def lease_still_ours(kind, ident, owner, created):
+    """(ours, why not): a lock-free read of the record. The record is replaced atomically
+    (os.replace), so a read sees one whole version; the lock is not needed to ask."""
+    rec = _read_json(_record_path(kind, _norm(kind, ident)))
+    lease = (rec or {}).get("lease")
+    if not lease:
+        return False, "the device's lease was ended (by the collector, a release or a stop)"
+    if lease.get("created") != created:
+        return False, "the device was leased again, to a new lease generation"
+    if not any(same_owner(o, owner) for o in rec.get("owners", [rec.get("owner", {})])):
+        return False, "the device now belongs to another run"
+    if lease_expired(rec):
+        return False, "the lease reached its lifetime or inactivity limit"
+    return True, ""
+
+
+def _end_group(pgid, child, grace=10):
+    """TERM, a bounded wait, then KILL, to the process group this renewer created for
+    its own child (pgid = the child's pid, captured at spawn). Never a name match."""
+    for sig, wait in ((signal.SIGTERM, grace), (signal.SIGKILL, 5)):
+        try:
+            os.killpg(pgid, sig)
+        except ProcessLookupError:
+            break
+        try:
+            child.wait(timeout=wait)
+            break
+        except subprocess.TimeoutExpired:
+            continue
+    try:
+        os.killpg(pgid, signal.SIGKILL)       # descendants that outlived the leader
+    except ProcessLookupError:
+        pass
+
+
+def run_active(kind, ident, command, owner_pid=None, checkout="", interval=None, check=2.0,
+               lost_file=""):
+    """Run COMMAND as the owned activity of an existing lease; return its exit status.
+
+    A lease's inactivity limit is written for a CLI that touches its device
+    between calls. A test run is one long call: `xcodebuild test-without-building`
+    ran 787-884 s per device on 2026-09-24 and nothing renewed the lease, so the
+    collector shut the simulator down five minutes in (escalation
+    esc-20260924T220236Z-52fae3ec). This renews activity from the process that
+    started the run, for exactly as long as that process lives, and never
+    extends the lifetime.
+
+    A RUN WHOSE LEASE HAS ENDED NEVER KEEPS USING THE DEVICE (escalation
+    esc-20260925T014934Z-0a4bf206). On 2026-09-25 a run's lease ended mid-suite,
+    another run leased the same prepared simulator and installed its own build,
+    and the first run's xcodebuild restarted on the device and executed the OTHER
+    checkout's test bundle. So every `check` seconds this reads the lease: the
+    moment it is gone, replaced, another run's or expired, the whole run (its own
+    process group, created here) is ended, the reason is printed loudly and
+    written to `lost_file`, and the exit status is LEASE_LOST_EXIT (75), which
+    callers report as NOT RUN, never as a result.
+    """
+    owner = choose_owner(owner_pid, checkout, "run-active")
+    if owner.get("unknown"):
+        raise ValueError("an owned run needs a durable owner: " + owner["unknown"])
+    with registry_lock():
+        rec = _read_json(_record_path(kind, _norm(kind, ident)))
+        if not rec or not rec.get("lease"):
+            raise ValueError("device has no registered lease; prepare it again")
+        if not any(same_owner(o, owner) for o in rec.get("owners", [rec.get("owner", {})])):
+            raise ValueError("cannot run under another run's device lease")
+        if lease_expired(rec):
+            raise ValueError("device lease expired; stop and prepare the device again")
+        created = rec["lease"]["created"]
+    interval = LEASE_RENEW_SECONDS if interval is None else interval
+    # The run gets a process group of its own, so ending it ends xcodebuild and everything
+    # it started. Signals this renewer receives are passed on to that group.
+    try:
+        child = subprocess.Popen(command, start_new_session=True)
+    except OSError as exc:
+        sys.stderr.write("testdevices run-active: cannot start %s: %s\n" % (command[0], exc))
+        return 127
+    pgid = child.pid
+
+    def forward(signum, _frame):
+        try:
+            os.killpg(pgid, signum)
+        except ProcessLookupError:
+            pass
+    previous = {s: signal.signal(s, forward) for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+    try:
+        renewing, next_renewal = True, time.monotonic() + interval
+        while True:
+            try:
+                code = child.wait(timeout=max(0.05, min(check, next_renewal - time.monotonic())))
+                break
+            except subprocess.TimeoutExpired:
+                pass
+            ours, why = lease_still_ours(kind, ident, owner, created)
+            if not ours and child.poll() is None:
+                message = ("testdevices run-active: LEASE LOST on %s: %s. Stopping this run; its "
+                           "results are NOT RUN, never a verdict." % (ident, why))
+                sys.stderr.write(message + "\n")
+                sys.stderr.flush()
+                _end_group(pgid, child)
+                if lost_file:
+                    _write_json(lost_file, {"device": ident, "why": why, "at": time.time()})
+                return LEASE_LOST_EXIT
+            if renewing and time.monotonic() >= next_renewal:
+                next_renewal = time.monotonic() + interval
+                try:
+                    renewed, why = renew_activity(kind, ident, owner, created, child)
+                except (OSError, TimeoutError, ValueError) as exc:
+                    renewed, why = False, "renewal failed: %s" % exc
+                if not renewed:
+                    renewing = False
+                    if child.poll() is None:
+                        sys.stderr.write("testdevices run-active: stopped renewing %s: %s\n" % (ident, why))
+    finally:
+        for s, h in previous.items():
+            signal.signal(s, h)
+    return code if code >= 0 else 128 - code
 
 
 def lease_expired(rec, now=None):
@@ -1033,6 +1226,39 @@ def record_failures(survivors, undecided, seen, path=None, notes=(), deferred=()
     return rows
 
 
+# How long a device launch waits, in total, for its machine worker token, a live slot and a
+# boot slot. The admission rules are unchanged (the boot slot still samples CPU and memory every
+# 30 s); only the wait is longer. At 60 s each, a busy host turned a test into a red result: on
+# 2026-09-25 native-ios-ui's second device failed "worker admission timed out after 60s" and
+# native-ios-app failed "simulator boot admission exceeded 60s", both while other runs held the
+# machine. A launch still refuses when the bound is reached; it is never unbounded.
+DEVICE_ADMISSION_SECONDS = 900
+
+
+def _admitted_keeping_lease(kind, ident, every=None):
+    """_device_admission() for a device whose lease already exists, renewing that lease's
+    inactivity clock while the wait lasts. The wait is bounded (DEVICE_ADMISSION_SECONDS) and
+    can outlast the 300 s inactivity limit; this call is the owner's own activity on the lease.
+    touch_lease never renews an expired lease or touches the lifetime."""
+    import threading
+    every = LEASE_RENEW_SECONDS if every is None else every
+    done = threading.Event()
+
+    def keep():
+        while not done.wait(every):
+            try:
+                touch_lease(kind, ident)
+            except (ValueError, TimeoutError, OSError):
+                return            # gone or expired: boot_ios refuses it after admission
+    keeper = threading.Thread(target=keep, daemon=True)
+    keeper.start()
+    try:
+        return _device_admission()
+    finally:
+        done.set()
+        keeper.join(timeout=every + 10)
+
+
 def _device_admission():
     """The same boot/live pool as iOS, and a machine token held until shutdown."""
     from pathlib import Path
@@ -1043,10 +1269,17 @@ def _device_admission():
     sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "app/scripts/lib"))
     import simulator_budget
     held = []
+    deadline = time.monotonic() + DEVICE_ADMISSION_SECONDS
+
+    def left():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("device admission exceeded %gs" % DEVICE_ADMISSION_SECONDS)
+        return remaining
     try:
-        held.append(worker_tokens.Budget(worker_tokens.machine_directory(), runner=True).acquire(timeout=60))
-        held.append(simulator_budget.acquire("live", timeout=60))
-        held.append(simulator_budget.acquire("boot", timeout=60))
+        held.append(worker_tokens.Budget(worker_tokens.machine_directory(), runner=True).acquire(timeout=left()))
+        held.append(simulator_budget.acquire("live", timeout=left()))
+        held.append(simulator_budget.acquire("boot", timeout=left()))
         return held
     except BaseException:
         for token in held:
@@ -1104,7 +1337,7 @@ def boot_ios(udid):
     cpu_guard.require_ios()
     if not _read_json(_record_path("ios-simulator", udid)):
         raise ValueError("register the exact simulator before booting it")
-    tokens = _device_admission()
+    tokens = _admitted_keeping_lease("ios-simulator", udid)
     deadline_token = None
     try:
         cpu_guard.require_ios()
@@ -1124,6 +1357,17 @@ def boot_ios(udid):
             _write_json(_record_path("ios-simulator", udid), rec)
         deadline_token = _DEADLINE.set(boot["deadline"])
         try:
+            if rec.get("prepared"):
+                # This lease is the pool's only one, so a prepared device found running is
+                # an orphan: on 2026-09-24 the collector ended a run's expired lease and
+                # shut the device down, the run's own xcodebuild booted it again, and the
+                # next lease's boot failed "Unable to boot device in current state: Booted".
+                # Shut the exact UDID down, and boot it clean as this lease promises.
+                found = next((d for d in ios_devices() or [] if d["udid"] == udid), None)
+                if found and found.get("state") not in ("", "Shutdown"):
+                    checked_simctl("shutdown", udid)
+                    cpu_guard.note("Prepared simulator was running without a lease; shut down before boot",
+                                   device=udid, state=found["state"])
             checked_simctl("boot", udid)
             with registry_lock():
                 _transfer_device_leases(tokens, "ios-simulator", udid)
@@ -1200,9 +1444,14 @@ def same_owner(a, b):
     return not a.get("unknown") and all(a.get(k) is not None and a.get(k) == b.get(k) for k in keys)
 
 
-def acquire_ios(device_type, runtime, owner_pid=None, checkout="", timeout=300):
-    """One active pool lease per machine; one retained OS per type/runtime."""
+def acquire_ios(device_type, runtime, owner_pid=None, checkout="", timeout=300, purpose=None):
+    """One active pool lease per machine; one retained OS per type/runtime.
+
+    `purpose` names a declared lifetime from LEASE_PURPOSES for a NEW lease.
+    An existing lease is never lengthened by acquiring it again."""
     import cpu_guard
+    if purpose is not None and purpose not in LEASE_PURPOSES:
+        raise ValueError("unknown lease purpose %r (declared: %s)" % (purpose, ", ".join(sorted(LEASE_PURPOSES))))
     cpu_guard.require_ios()
     owner = choose_owner(owner_pid, checkout, "prepared-ios")
     if owner.get("unknown"):
@@ -1235,6 +1484,9 @@ def acquire_ios(device_type, runtime, owner_pid=None, checkout="", timeout=300):
                 else:
                     rec = register("ios-simulator", udid, owner_pid, "prepared-ios", checkout)
                     rec["prepared"] = key
+                    if purpose is not None:
+                        rec["lease"]["max_seconds"] = LEASE_PURPOSES[purpose]
+                        rec["lease"]["purpose"] = purpose
                     _write_json(_record_path("ios-simulator", udid), rec)
                 return udid
         if time.monotonic() >= deadline:
@@ -1242,13 +1494,22 @@ def acquire_ios(device_type, runtime, owner_pid=None, checkout="", timeout=300):
         time.sleep(.5)
 
 
-def release_ios(udid, owner_pid=None, checkout=""):
+def release_ios(udid, owner_pid=None, checkout="", if_ours=False):
+    """Shut down and unlease the caller's own prepared simulator.
+
+    Releasing another run's lease is refused. With `if_ours`, a cleanup path that may run
+    after its own lease already ended (and the pool leased the device to someone else)
+    leaves that other run's device alone and returns, instead of failing: on 2026-09-25 a
+    UI suite's final release reached a device another run had leased a minute later."""
     with registry_lock():
         rec = _read_json(_record_path("ios-simulator", udid))
         if not rec:
             return
         owner = choose_owner(owner_pid, checkout, "prepared-ios")
         if not same_owner(rec.get("owner", {}), owner):
+            if if_ours:
+                sys.stderr.write("testdevices: %s is leased by another run now; left alone\n" % udid)
+                return
             raise ValueError("cannot release another run's simulator")
         ok, why = _ios_remove(dict(udid=udid, state="Booted", device_set=""))
         if not ok:
@@ -1265,11 +1526,66 @@ def use_ios(udid, owner_pid=None, checkout=""):
         touch_lease("ios-simulator", udid)
 
 
+def lease_report(now=None):
+    """Read-only: every registered device lease, its age and its inactivity, for status."""
+    now = time.time() if now is None else now
+    rows = []
+    for rec in records():
+        lease = rec.get("lease")
+        if not lease:
+            continue
+        owner = rec.get("owner") or {}
+        rows.append({"kind": rec.get("kind"), "id": rec.get("id"), "script": owner.get("script"),
+                     "owner_pid": owner.get("pid"), "purpose": lease.get("purpose"),
+                     "max_seconds": lease.get("max_seconds"), "idle_seconds": lease.get("idle_seconds"),
+                     "age": round(now - lease.get("created", now), 1),
+                     "idle": round(now - lease.get("last_use", now), 1),
+                     "activity": lease.get("activity"), "expired": lease_expired(rec, now)})
+    return rows
+
+
+def _busy_path():
+    return os.path.join(registry_dir(), ".collector-busy.json")
+
+
 def expire_leases(pressure=False):
-    """Bounded collection of exact registered devices, without workspace discovery."""
+    """Bounded collection of exact registered devices, without workspace discovery.
+
+    A registry lock held by another caller is a SKIPPED cycle, never a collector failure:
+    the watchdog runs this every two seconds, and a failure closes native admission. On
+    2026-09-24 the collector died on "registry lock stayed busy for five seconds" under
+    load 26-39. The first skip of a busy spell is noted in the guard's history, the next
+    cycle retries, and a spell longer than COLLECTOR_BUSY_ALERT_SECONDS is a failure again,
+    so a wedged lock is never tolerated silently.
+    """
+    import cpu_guard
     token = _DEADLINE.set(time.time() + 12)
     try:
-        return _expire_leases(pressure)
+        try:
+            code = _expire_leases(pressure)
+        except RegistryBusy as exc:
+            busy = _read_json(_busy_path()) or {}
+            now = time.time()
+            since = busy.get("since", now)
+            busy = {"since": since, "skipped": busy.get("skipped", 0) + 1, "last": now}
+            _write_json(_busy_path(), busy)
+            if busy["skipped"] == 1:
+                cpu_guard.note("Device lease collection skipped: registry lock busy; retrying next cycle",
+                               error=str(exc))
+            if now - since >= COLLECTOR_BUSY_ALERT_SECONDS:
+                message = ("CPU device lease cleanup: registry lock busy for %d s (%d cycles skipped)"
+                           % (now - since, busy["skipped"]))
+                record_collector_failure(message)
+                print(message, file=sys.stderr)
+                return 1
+            print("CPU device lease cleanup: skipped, %s" % exc, file=sys.stderr)
+            return 0
+        busy = _read_json(_busy_path())
+        if busy:
+            cpu_guard.note("Device lease collection resumed after a busy registry",
+                           skipped=busy.get("skipped"), seconds=round(time.time() - busy.get("since", time.time())))
+            os.unlink(_busy_path())
+        return code
     finally:
         _DEADLINE.reset(token)
 
@@ -1409,16 +1725,31 @@ def _main(argv):
     pool.add_argument("--runtime", required=True)
     pool.add_argument("--owner-pid", type=int)
     pool.add_argument("--checkout", default="")
+    pool.add_argument("--purpose", choices=sorted(LEASE_PURPOSES),
+                      help="a declared purpose whose lease lifetime is longer (never a number)")
+    active = sub.add_parser("run-active", help="run COMMAND as the owned activity of an existing lease")
+    active.add_argument("--kind", required=True, choices=["android-emulator", "ios-simulator"])
+    active.add_argument("--id", required=True)
+    active.add_argument("--owner-pid", type=int)
+    active.add_argument("--checkout", default="")
+    active.add_argument("--interval", type=float, default=None, help=argparse.SUPPRESS)
+    active.add_argument("--check", type=float, default=2.0, help=argparse.SUPPRESS)
+    active.add_argument("--lost-file", default="",
+                        help="where to record why the lease was lost, if it is (exit 75 = NOT RUN)")
+    active.add_argument("command", nargs=argparse.REMAINDER)
     release = sub.add_parser("release-ios")
     release.add_argument("--id", required=True)
     release.add_argument("--owner-pid", type=int)
     release.add_argument("--checkout", default="")
+    release.add_argument("--if-ours", action="store_true",
+                         help="for cleanup paths: a device another run now leases is left alone, not an error")
     use = sub.add_parser("use-ios")
     use.add_argument("--id", required=True)
     use.add_argument("--owner-pid", type=int)
     use.add_argument("--checkout", default="")
     expire = sub.add_parser("expire-leases")
     expire.add_argument("--pressure", action="store_true")
+    sub.add_parser("leases", help="print every registered device lease as JSON (read-only)")
     touch = sub.add_parser("touch-lease")
     touch.add_argument("--kind", required=True, choices=["android-emulator", "ios-simulator"])
     touch.add_argument("--id", required=True)
@@ -1451,14 +1782,29 @@ def _main(argv):
                    help="a checkout being deleted right now: treat it as gone")
     c.add_argument("--budget", type=float, default=0.0, help="seconds for removals (0 = unbounded)")
     a = ap.parse_args(argv)
+    if a.cmd not in ("expire-leases", "collect", "leases"):
+        global REGISTRY_LOCK_SECONDS
+        REGISTRY_LOCK_SECONDS = CLI_REGISTRY_LOCK_SECONDS
     if a.cmd == "acquire-ios":
-        print(acquire_ios(a.type, a.runtime, a.owner_pid, a.checkout))
+        print(acquire_ios(a.type, a.runtime, a.owner_pid, a.checkout, purpose=a.purpose))
         return 0
+    if a.cmd == "run-active":
+        command = a.command[1:] if a.command[:1] == ["--"] else a.command
+        if not command:
+            ap.error("run-active requires a command after --")
+        try:
+            return run_active(a.kind, a.id, command, a.owner_pid, a.checkout, a.interval, a.check, a.lost_file)
+        except ValueError as e:
+            sys.stderr.write("testdevices run-active: %s\n" % e)
+            return 2
     if a.cmd == "release-ios":
-        release_ios(a.id, a.owner_pid, a.checkout)
+        release_ios(a.id, a.owner_pid, a.checkout, a.if_ours)
         return 0
     if a.cmd == "use-ios":
         use_ios(a.id, a.owner_pid, a.checkout)
+        return 0
+    if a.cmd == "leases":
+        print(json.dumps({"at": time.time(), "leases": lease_report()}, sort_keys=True))
         return 0
     if a.cmd == "touch-lease":
         touch_lease(a.kind, a.id)

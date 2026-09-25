@@ -437,6 +437,7 @@ JUDGED = {
     "WorktreeRemove":   "a lifecycle observation",
     "TeammateIdle":     "an observation, not a verdict",
     "TaskCompleted":    "can hold a task open, and its hook already records an unreadable payload and exits 0",
+    "PostToolUseFailure": "fires after a call that already failed; its one hook, release-shared-writes.sh, removes this call's own lease file and always exits 0",
 }
 
 counts = {}
