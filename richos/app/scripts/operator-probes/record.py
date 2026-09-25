@@ -22,6 +22,32 @@ import sys
 
 MAX_STRING = 4000
 
+# A content check of the destination after every copy: the results are already redacted at
+# the source, and this refuses to call the record done if anything credential-shaped or any
+# address got through anyway.
+CREDENTIAL_SHAPES = {
+    'anthropic key': r'sk-ant-[A-Za-z0-9_-]{8,}',
+    'account field': r'"(accessToken|refreshToken|oauthAccount|emailAddress|organizationUuid|accountUuid)"',
+    'secret value': r'(TOKEN|SECRET|PASSWORD|API_KEY)=[^\s"\\,]{6,}',
+    'bearer token': r'Bearer [A-Za-z0-9._-]{16,}',
+    'email address': r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}',
+}
+
+
+def scan(folder):
+    """{(shape, file): count} for every credential-shaped string under `folder`."""
+    import re
+    hits = {}
+    for path in Path(folder).rglob('*'):
+        if not path.is_file():
+            continue
+        text = path.read_text(errors='replace')
+        for label, pattern in CREDENTIAL_SHAPES.items():
+            n = len(re.findall(pattern, text))
+            if n:
+                hits['%s in %s' % (label, path.relative_to(folder))] = n
+    return hits
+
 
 def bound(value):
     if isinstance(value, dict):
@@ -86,6 +112,9 @@ def main():
     existing.update(summary)
     merged.write_text(json.dumps(dict(sorted(existing.items(), key=lambda kv: int(kv[0][1:]))), indent=1) + '\n')
     print(json.dumps(existing, indent=1))
+    hits = scan(dest)
+    if hits:
+        sys.exit('REFUSED: credential-shaped content reached the record; remove it before committing: %s' % hits)
 
 
 if __name__ == '__main__':

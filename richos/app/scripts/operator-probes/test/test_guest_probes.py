@@ -129,6 +129,12 @@ class Record(unittest.TestCase):
         record = importlib.util.module_from_spec(rspec)
         rspec.loader.exec_module(record)
         self.assertTrue(record.public(HERE), 'this harness lives in the public richos repository')
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            Path(folder, 'clean.json').write_text('{"names": ["PATH", "HOME"]}')
+            self.assertEqual(record.scan(folder), {})
+            Path(folder, 'leak.jsonl').write_text('{"x": "someone@example.org", "y": "API_KEY=abcdefgh"}')
+            self.assertEqual(sorted(record.scan(folder)), ['email address in leak.jsonl', 'secret value in leak.jsonl'])
         bounded = record.bound({'a': 'x' * (record.MAX_STRING + 50), 'b': ['short']})
         self.assertTrue(bounded['a'].endswith('[cut by record.py: %d characters in the run]' % (record.MAX_STRING + 50)))
         self.assertEqual(bounded['b'], ['short'])
