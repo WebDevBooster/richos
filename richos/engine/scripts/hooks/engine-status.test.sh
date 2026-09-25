@@ -821,6 +821,15 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # stops them only after the shared tree is rewritten, measured on both gits).
 # Off or absent fence: never refuses. Suite: guard-land-lease-commands.test.sh;
 # harness: land-lease-commands.mutation.sh.
+# guard-foreign-app-data.sh, ADDED 2026-09-25 — BLOCKING, a module of the Bash
+# chain's manifest. It refuses a command that reads another app's Containers or
+# Group Containers folder, or walks the home folder, its Library, /Users or /
+# deep enough to open one (find, du, ls -R, grep -r, rg). Inside a RichOS session
+# such a command makes macOS ask the USER whether RichOS may access data from
+# other apps; the CEO, 2026-09-25: "a regular user of RichOS is not expected to
+# keep clicking those things". Measured over 166,915 distinct Bash commands from
+# this Mac's transcripts: 113 refused. Suite: guard-foreign-app-data.test.sh;
+# harness: foreign-app-data.mutation.sh.
 # operator-claim.sh, guard-operator-claim.sh, guard-shared-writes.sh,
 # release-shared-writes.sh and guard-live-names.sh, ADDED 2026-09-25 — the engine
 # side of several operator leads on one Mac (richos-hq spec r3 (e) the claim, e3,
@@ -835,6 +844,7 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # OPERATOR_FENCES: with the entity's launcher off they never start their checks
 # and never refuse. Suite: operator-leads.test.sh; harness: operator-leads.mutation.sh.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
+guard-foreign-app-data.sh
 operator-claim.sh
 guard-operator-claim.sh
 guard-shared-writes.sh

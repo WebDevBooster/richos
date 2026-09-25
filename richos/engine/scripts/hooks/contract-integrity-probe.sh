@@ -459,11 +459,15 @@ run_layer_R() {
     #     subject is the repository the COMMAND targets (`-C`, `cd`, cwd), and that
     #     repository's own launcher says whether its fence is on; the session's
     #     entity root would be the wrong repository for a `git -C` elsewhere.
+    #   guard-foreign-app-data — the Bash rule against reading another app's data.
+    #     Its subject is the COMMAND's text and the payload's cwd; which repository the
+    #     session sits in changes nothing about whether `find ~` opens other apps'
+    #     containers, so it asks for no root.
     R_ROOTLESS_HOOKS="guard-brief-scope notice-claim-capability handoff-facts-annotate \
     notice-inflight-sends session-start-ci-surface session-start-scratch session-start-quota shell-evidence \
     task-completed-handoff teammate-idle-handoff \
     worker-created-handoff worker-started-handoff worker-updated-handoff worker-ended-handoff \
-    guard-ci-red-lands guard-land-lease-commands"
+    guard-ci-red-lands guard-land-lease-commands guard-foreign-app-data"
 
     # FAIL LOUD, NEVER FALL BACK. A typed list kept here "in case the derivation
     # cannot run" would be the second inventory this change exists to delete, and
@@ -1234,6 +1238,7 @@ guard-hook-registration-commits.sh|PreToolUse
 guard-workflow-ban.sh|PreToolUse
 guard-ci-red-lands.sh|PreToolUse
 guard-land-lease-commands.sh|PreToolUse
+guard-foreign-app-data.sh|PreToolUse
 guard-stop-live-work.sh|PreToolUse
 observe-created-refs.sh|PostToolUse
 detect-nonnative-worktree.sh|PostToolUse

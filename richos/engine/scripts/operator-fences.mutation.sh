@@ -115,9 +115,47 @@ mutant orphan-abort-of-a-live-starter "F13 " "$L" \
     '    if False:' \
     "G6: the lease holder would abort a cherry-pick whose starter is alive and still resolving it."
 mutant stale-refusal-matches "F13 " "$L" \
-    '                if started_at is None or float(rec.get("epoch")) < started_at - 0.5:' \
-    '                if False:' \
+    '            if started_at is None or float(rec.get("epoch")) < started_at - 0.5:' \
+    '            if False:' \
     "an old refusal of the same commit would make a live starter's new cherry-pick look refused, and it would be aborted (measured in this suite before the fix)."
+
+mutant refused-commit-orphans "F33 " "$L" \
+    '        if not rewrote and not same_holder(caller, starter):' \
+    '        if False:' \
+    "Fix 3: another writer's refused commit during the holder's healthy merge would make acquire call that merge orphaned and send the holder to abort-orphan."
+
+# --- the residue a refused writer leaves (Frank's re-check §2, Fixes 1 and 2) -----------
+mutant discarded-operation-concluded "F31 " "$L" \
+    '    found = discarded_operation(files, gitdir)' \
+    '    found = None' \
+    "Fix 1: after a refused merge --abort discarded the holder's resolution, its commit would record an empty-diff merge that every 'landed' check accepts (case G)."
+mutant residue-committed-silently "F32 " "$L" \
+    '    found = residue_committed(files, lease, new, os.getcwd())' \
+    '    found = None' \
+    "Fix 2: after a refused reset --hard rewrote the index, the holder's next ordinary commit would silently revert the previous commit (case E)."
+mutant residue-never-named "F32 " "$L" \
+    '    moved = _main_moved_at(paths["common"])' \
+    '    return []' \
+    "Fix 2 point 4: acquire and status would say nothing about a tree a refused writer had already rewritten."
+
+# --- the ingress takes the lease; it is never exempt (Frank's re-check §4, Fix 4) -------
+I="scripts/hooks/commit-ceo-inputs.py"
+mutant ingress-exempt "F30 " "$I" \
+    '    return LAUNCHER_MARKER in text and \' \
+    '    return False and \' \
+    "Fix 4: the ingress would commit without the lease, so with the switch on the fence refuses it and his file is not committed (or, exempted, it would move main in the middle of another lead's land)."
+mutant ingress-releases-the-leads-lease "F30 " "$I" \
+    '        if lease == "acquired":' \
+    '        if lease in ("acquired", "renewed"):' \
+    "Fix 4: a file handed over mid-land would release the lead's own land lease in the middle of its land."
+mutant ingress-swallows-lease-notes "F30 " "$I" \
+    '    notes = [ln.strip() for ln in out.strip().splitlines()[1:] if ln.strip()]' \
+    '    notes = []' \
+    "Fix 4: the ingress's renewal of the lead's lease would lift the residue refusal while what it named went nowhere."
+mutant ingress-drops-pending "F30 " "$I" \
+    '    cands += [(p, "pending") for p in pending_paths(state_dir) if p not in named] if state_dir else []' \
+    '    cands += []' \
+    "Fix 4: a file handed over while another land held the lease would never be committed unless he named it again."
 
 # --- the launcher and the switch (e8, G12) --------------------------------------------
 mutant off-can-refuse "F20 " "$T" \
@@ -146,6 +184,10 @@ mutant land-lock-ignores-lease "F27 " "mega-lander/app.py" \
     '                leased = _live_fence_lease(repo)' \
     '                leased = None' \
     "G2: the product lander, which Git's hooks never see, would merge in the middle of a lease holder's land."
+mutant non-utf8-hook-raises "F27 " "mega-lander/app.py" \
+    '                  errors="replace") as handle:' \
+    '                  errors="strict") as handle:' \
+    "Frank's #13: a hook that is not UTF-8 would raise UnicodeDecodeError into the product lander, even with the switch off."
 mutant restore-writes-no-intent "F10 " "mega-lander/workspaces.py" \
     '    intent = _fence_restore_intent(repo, branch, tip)' \
     '    intent = ""' \

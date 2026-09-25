@@ -92,6 +92,18 @@
 #        answer (W21), it is not an ALERT (W21a), and when the sweeper cannot be
 #        run the fallback says how old its number is (W21b).
 #
+# --- added 2026-09-25, after "python3.14 would like to access data from other
+# apps" kept appearing on the CEO's screen -------------------------------------
+#   W22  THE WATCHDOG NEVER WALKS ANOTHER APP'S DATA. Its `du` walked the folder
+#        where macOS keeps other apps' sandboxed data, and macOS asked the CEO for
+#        permission on every alerting run; allowing it did not stick. W22 plants
+#        that folder, its holders ($HOME, ~/Library) and an app-group folder in
+#        the candidate list of a forced alert, with a `du` stub that records every
+#        path it is handed: none of them may reach `du`, each must be reported as
+#        refused, and an ordinary folder beside them MUST still be measured
+#        (the positive probe). W22d is the declaration itself: no entry of the
+#        REAL orchestration.config may enter that data.
+#
 # Exit 0 = every case passed; exit 1 = at least one failed.
 
 set -uo pipefail
@@ -1131,6 +1143,68 @@ if printf '%s' "$OUT" | grep -q 'measured .* ago'; then
 else
     bad "W21b the fallback prints a stale figure with no date on it"
     printf '%s\n' "$OUT" | sed 's/^/        /' | head -12
+fi
+
+# ===========================================================================
+# W22 — never another app's data (2026-09-25)
+# ===========================================================================
+world appdata
+write_cfg 999999 999999 0 0            # force an alert, so attribution runs
+touch "$W_LA/com.richos.disk-watchdog.plist"
+FAKE_HOME="$W_DIR/home"
+C_APPS="$FAKE_HOME/Library/Containers"  # foreign-app-data-exempt: a fake one, inside this suite's sandbox
+C_GROUP="$FAKE_HOME/Library/Group Containers/group.example"  # foreign-app-data-exempt: a fake one, inside this suite's sandbox
+mkdir -p "$C_APPS/com.example.other/Data" "$C_GROUP" "$W_DIR/measured"
+DU_LOG="$W_DIR/du-calls.txt"
+cat >"$W_BIN/du" <<STUB
+#!/bin/sh
+# Records every path it is asked to measure, and measures nothing.
+for a in "\$@"; do case "\$a" in -*) ;; *) printf '%s\n' "\$a" >>"$DU_LOG"; printf '4\t%s\n' "\$a" ;; esac; done
+exit 0
+STUB
+chmod +x "$W_BIN/du"
+# The group folder has a space in its name, which a space-separated list cannot
+# carry; its parent's holder (~/Library) and the apps' folder cover the rule.
+echo "DISK_CONSUMER_CANDIDATES=\"$W_DIR/measured $C_APPS $FAKE_HOME/Library $FAKE_HOME\"" >>"$W_CFG"
+OUT="$(HOME="$FAKE_HOME" run_wd --check)"
+if grep -qx "$W_DIR/measured" "$DU_LOG" 2>/dev/null; then
+    ok "W22  POSITIVE PROBE: an ordinary candidate is still measured by du"
+else
+    bad "W22  the ordinary candidate was not measured — the guard refuses everything"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
+fi
+if grep -q "^$FAKE_HOME\(/Library\)\{0,1\}\(/Containers.*\)\{0,1\}$" "$DU_LOG" 2>/dev/null; then
+    bad "W22a du was handed another app's data (or a folder holding it)"
+    sed 's/^/        /' "$DU_LOG"
+else
+    ok "W22a du is never handed another app's data, ~/Library or the home folder"
+fi
+REFUSED="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1])).get("consumers_refused") or []))' "$W_STATE" 2>/dev/null)"
+if [ "$REFUSED" = "3" ] && grep -q 'refused-candidate' "$W_LOG"; then
+    ok "W22b each refused candidate is visible: state consumers_refused=3 and a log line"
+else
+    bad "W22b refused candidates are not reported (consumers_refused=$REFUSED)"
+fi
+# An entry INSIDE an app-group folder is refused by the same rule.
+if python3 "$SCRIPT_DIR/lib/foreign_app_data.py" check "$C_GROUP" --home "$FAKE_HOME" >/dev/null; then
+    bad "W22c an app-group folder was allowed"
+else
+    ok "W22c an app-group folder is refused too"
+fi
+# THE DECLARATION ITSELF. The cause on 2026-09-25 was one word in the real
+# config; this reads that config with the real HOME and checks every entry.
+# shellcheck disable=SC2016  # expanded by the inner shell, after it sources the config
+REAL_CANDIDATES="$(env -i HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" bash -c '. "$1" >/dev/null 2>&1; printf "%s" "$DISK_CONSUMER_CANDIDATES"' _ "$SCRIPT_DIR/../orchestration.config")"
+W22D_BAD=""
+for c in $REAL_CANDIDATES; do
+    if ! python3 "$SCRIPT_DIR/lib/foreign_app_data.py" check "$c" >/dev/null; then
+        W22D_BAD="$W22D_BAD $c"
+    fi
+done
+if [ -n "$REAL_CANDIDATES" ] && [ -z "$W22D_BAD" ]; then
+    ok "W22d no entry of the real DISK_CONSUMER_CANDIDATES enters another app's data"
+else
+    bad "W22d the real declaration enters another app's data:${W22D_BAD:- (it could not be read)}"
 fi
 
 echo ""

@@ -141,6 +141,10 @@ raised to 600000 ms you may pass `--wait 540`. If it reports an orphaned merge
 (its starter has ended, or the fence refused it), clear it with
 `<engine>/scripts/land-lease.sh abort-orphan --repo <repo root>`, which preserves it first,
 and name the head it prints in the land's report.
+If it names a tree that a refused writer had already rewritten (paths you did not
+change), **stop and report it; never commit over it.** The fence refuses such a
+commit only from a holder whose lease predates that refusal; a lease taken or
+renewed afterwards is told by this line instead, so the stop is yours.
 
 **Never abort a merge you did not start.**
 
