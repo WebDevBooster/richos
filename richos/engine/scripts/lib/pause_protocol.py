@@ -32,12 +32,21 @@ INTENT = re.compile(r"\b(?:pause|pausing|paused)\b|\bhold(?:\s+(?:now|your|all|t
 
 
 def render(reason, reset=None):
-    if reason not in ("manual", "quota"):
-        raise ValueError("reason must be manual or quota")
+    if reason not in ("manual", "quota", "weekly-quota"):
+        raise ValueError("reason must be manual, quota or weekly-quota")
     if reason == "quota":
         if not isinstance(reset, str) or not CLOCK.fullmatch(reset):
             raise ValueError("quota pause requires its reset time as HH:MMZ")
         until = "the five-hour quota reset at " + reset
+    elif reason == "weekly-quota":
+        import datetime
+        if reset is None:
+            until = "the weekly quota reset confirmed by a fresh reading"
+        elif not isinstance(reset, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", reset):
+            raise ValueError("weekly pause requires its full UTC reset time")
+        else:
+            datetime.datetime.fromisoformat(reset.replace("Z", "+00:00"))
+            until = "the weekly quota reset at " + reset
     else:
         if reset is not None:
             raise ValueError("manual holds have no automatic reset")
@@ -112,7 +121,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="validate a hook payload on stdin")
     parser.add_argument("--to")
-    parser.add_argument("--reason", choices=("manual", "quota"), default="manual")
+    parser.add_argument("--reason", choices=("manual", "quota", "weekly-quota"), default="manual")
     parser.add_argument("--reset")
     args = parser.parse_args()
     try:

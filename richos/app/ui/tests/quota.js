@@ -142,6 +142,18 @@ async function main() {
     assertEqual(await page.locator("#quota-enabled").getAttribute("aria-checked"), "false");
     await page.close();
   });
+  await run.check("weekly 99% names the weekly hold without promising the five-hour exception", async () => {
+    const weekly = {...quota, windows: quota.windows.map(w => ({...w, usedPercent: w.id === "seven_day" ? 99 : 10}))};
+    const activity = {held: [{kind: "agent", id: "weekly-worker", name: "Weekly worker", sinceAt: now - 1000}], released: [], resumesAt: now + 86400000};
+    const page = await open("dark", weekly, 100, activity, true);
+    await enableTechnical(page); await page.click("#set-quota-open");
+    await page.waitForFunction(() => document.getElementById("quota-hold-detail").textContent.includes("Weekly usage reached 99%"));
+    assert(!(await page.locator("#quota-hold-detail").innerText()).includes("under 20 minutes"));
+    assert(await page.locator("#quota-release").isEnabled());
+    await page.click("#quota-release");
+    await page.waitForFunction(() => document.getElementById("quota-enabled").getAttribute("aria-checked") === "false");
+    await page.close();
+  });
   await run.check("missing windows stay absent and low usage keeps the five minute cadence", async () => {
     const page = await open("dark", {...quota, windows: [{...quota.windows[0], usedPercent: 35}]});
     await enableTechnical(page); await page.click("#set-quota-open");
@@ -260,13 +272,15 @@ async function main() {
       { ...resetFixture, offers: [{ ...offer, expiresAt: now - 1000 }] },
       { ...resetFixture, offers: [{ ...offer, clears: ["five_hour"] }] },
       { ...resetFixture, lastAttempt: { grantId: "launch", outcome: "uncertain" } },
+      { ...resetFixture, lastAttempt: { grantId: "another-offer", outcome: "uncertain" } },
+      { ...resetFixture, lastAttempt: { grantId: "launch", outcome: "notUsed" } },
     ];
     for (const resets of variants) {
       const page = await open("dark", { ...quota, resets });
       await enableTechnical(page); await page.click("#set-quota-open"); await page.waitForSelector("#quota-reset-offers p");
       assertEqual(await page.locator("#quota-reset-prepare-launch").count(), 0);
       assertEqual(await page.evaluate(() => window.__richosResetCalls), []);
-      if (resets.lastAttempt) {
+      if (resets.lastAttempt?.outcome === "uncertain") {
         assert((await page.locator("#quota-reset-offers").innerText()).includes("Automatic retry is blocked"));
         await page.click("#quota-usage-open");
         assertEqual(await page.evaluate(() => window.__RICHOS_OPENED__), ["claude.ai/new#settings/usage"]);

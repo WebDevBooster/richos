@@ -190,8 +190,8 @@ mutant get-usage-no-fallback "G03" "$L" \
     "A failed get_usage would leave the watcher blind although the status-line file is fresh."
 
 mutant watch-reads-file-only "R04" "$L" \
-    '        r = read_source(a, now){NL}        if r.get("fallback_why"):' \
-    '        r = read_reading(a.payload, now){NL}        if r.get("fallback_why"):' \
+    '        r = read_source(a, now){NL}        w = workers(a.engine_root)' \
+    '        r = read_reading(a.payload, now){NL}        w = workers(a.engine_root)' \
     "Every poll after the first would read the status-line file: the 07:57Z/08:07Z miss again."
 
 # 9. THE FALLBACK IS REFRESHED BEFORE IT TURNS ONE POLL OLD (the pause fired at

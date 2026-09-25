@@ -1794,6 +1794,9 @@ fn install_correction_desk(
 }
 
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some(richos_core::quota::terminal::HEADLESS_PROTOCOL) {
+        std::process::exit(richos_core::quota::terminal::run(std::env::args().skip(2).collect()));
+    }
     if std::env::args().nth(1).as_deref() == Some("--claude-reset-mcp") {
         let args: Vec<_> = std::env::args_os().skip(2).collect();
         let result = if args.len() == 3 {
@@ -4918,9 +4921,14 @@ fn claude_quota_activity(state: State<AppState>, thread_id: Option<String>) -> R
     let entity = thread_id.as_deref().map(|thread| assignment_scope(&state, thread)).transpose()?;
     let scope = entity.as_ref().zip(thread_id.as_ref()).map(|(entity, thread)| (entity.as_str(), thread.as_str()));
     let mut activity = richos_core::quota::holds::read(&state.data_dir.join("engine-state"), scope).map_err(|e| e.to_string())?;
-    if let richos_core::quota::Admission::Held { resets_at } = state.quota.view().admission {
-        // Exactly twenty minutes still holds. Release begins after that instant.
-        activity.resumes_at = Some(resets_at.saturating_sub(20 * 60_000).saturating_add(1));
+    let quota = state.quota.view();
+    if let richos_core::quota::Admission::Held { resets_at } = quota.admission {
+        let weekly = quota.windows.iter().any(|w| w.id == "seven_day"
+            && w.used_percent >= richos_core::quota::resets::WEEKLY_THRESHOLD
+            && w.resets_at == Some(resets_at));
+        // The 20-minute exception belongs only to the five-hour window.
+        activity.resumes_at = Some(if weekly { resets_at }
+            else { resets_at.saturating_sub(20 * 60_000).saturating_add(1) });
     }
     Ok(activity)
 }

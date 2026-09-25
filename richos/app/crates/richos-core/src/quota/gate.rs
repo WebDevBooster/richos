@@ -179,6 +179,26 @@ mod tests {
         service.publish().unwrap();
     }
     #[test]
+    fn weekly_hold_survives_five_hour_exception_and_elapsed_reset() {
+        let (_root, service, state, _scope) = setup();
+        publish(&service, 600_000);
+        let now = crate::util::now_millis();
+        {
+            let mut snapshot = service.snapshot.lock().unwrap();
+            snapshot.windows.push(Window { id: "seven_day".into(), label: "Weekly".into(),
+                used_percent: 99., resets_at: Some(now + 60_000), duration_ms: 604_800_000 });
+        }
+        service.publish().unwrap();
+        assert!(matches!(admission(&state, now), Admission::Held { .. }));
+        assert_eq!(admission(&state, now + 60_001), Admission::Unknown);
+        service.snapshot.lock().unwrap().windows[1].used_percent = 0.;
+        service.publish().unwrap();
+        assert_eq!(admission(&state, now), Admission::Ready);
+        service.snapshot.lock().unwrap().windows[0].resets_at = Some(now + 3_600_000);
+        service.publish().unwrap();
+        assert!(matches!(admission(&state, now), Admission::Held { .. }));
+    }
+    #[test]
     fn same_worker_waits_then_resumes_when_reset_is_near() {
         let (_root, service, state, scope) = setup();
         publish(&service, 3_600_000);

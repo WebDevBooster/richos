@@ -404,6 +404,15 @@ impl Service {
         let _best_effort = self.save(&record);
         Self::visible(record.view, crate::util::now_millis())
     }
+    pub fn refresh_transport(&self, t: &mut dyn Transport) -> Result<View, String> {
+        let (account, reading) = Self::read_transport(t)?;
+        let _lock = self.lock()?;
+        let mut record = self.read()?;
+        Self::update(&mut record, account, reading, crate::util::now_millis());
+        self.save(&record)?;
+        Ok(self.view())
+    }
+
     fn read_transport(t: &mut dyn Transport) -> Result<(Account, Reading), String> {
         let account = t.account()?;
         if account.key.is_empty() {
@@ -420,7 +429,7 @@ impl Service {
             }
         }
     }
-    /// Called only by the desktop settings command. There is no MCP approval tool.
+    /// Called only by user approval surfaces. There is no MCP approval tool.
     pub fn approve(&self, offer: &Offer) -> Result<View, String> {
         let _lock = self.lock()?;
         let mut record = self.read()?;
@@ -457,7 +466,7 @@ impl Service {
     fn attempt_blocks(r: &Record, grant: &str) -> bool {
         r.attempts
             .iter()
-            .any(|a| a.account == r.account && a.grant_id == grant && a.outcome != "notUsed")
+            .any(|a| a.account == r.account && (a.grant_id == grant || a.outcome == "uncertain"))
     }
     pub fn use_approved(
         &self,
@@ -470,7 +479,7 @@ impl Service {
             .view
             .approval
             .clone()
-            .ok_or("The user has not approved a weekly reset in Technical Settings.")?;
+            .ok_or("The user has not approved a weekly reset in Technical Settings or the terminal.")?;
         let approval_account = record.account.clone();
         drop(lock); // A user can revoke approval while read-only preflight is in flight.
         if !still_authorized() {
@@ -758,6 +767,56 @@ mod tests {
             assert_eq!(t.posts, 1);
         }
     }
+    #[test]
+    fn uncertain_attempt_blocks_even_a_different_offer() {
+        let root = Scratch::new();
+        let mut t = Fake::new(99.);
+        let desktop = seeded(root.path(), &mut t);
+        approve(&desktop);
+        t.reply = Err("response lost".into());
+        desktop.use_approved(&mut t, || true).unwrap();
+        t.usage["cedar_ember"]["grants"][0]["id"] = json!("another");
+        t.usage["cedar_ember"]["next_grant_id"] = json!("another");
+        let terminal = Service::new(root.path());
+        terminal.refresh_transport(&mut t).unwrap();
+        assert!(terminal.approve(&terminal.view().offers[0]).is_err());
+        assert_eq!(t.posts, 1);
+    }
+
+    #[test]
+    #[ignore = "invoked by the cross-process proof"]
+    fn reset_process_peer() {
+        let root = std::env::var_os("RICHOS_RESET_PEER_ROOT").unwrap();
+        let mut t = Fake::new(99.);
+        let service = Service::new(Path::new(&root));
+        let _outcome = service.use_approved(&mut t, || true);
+        if t.posts != 0 {
+            use std::io::Write;
+            let mut log = fs::OpenOptions::new().create(true).append(true)
+                .open(Path::new(&root).join("posts")).unwrap();
+            writeln!(log, "redeemed").unwrap();
+        }
+    }
+
+    #[test]
+    fn desktop_and_terminal_processes_consume_one_shared_approval() {
+        let root = Scratch::new();
+        let mut t = Fake::new(20.);
+        let desktop = seeded(root.path(), &mut t);
+        approve(&desktop);
+        let peer = || std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--ignored", "--exact", "quota::resets::tests::reset_process_peer"])
+            .env("RICHOS_RESET_PEER_ROOT", root.path())
+            .stdout(std::process::Stdio::null()).spawn().unwrap();
+        let mut a = peer();
+        let mut b = peer();
+        assert!(a.wait().unwrap().success());
+        assert!(b.wait().unwrap().success());
+        assert_eq!(fs::read_to_string(root.path().join("posts")).unwrap(), "redeemed\n");
+        assert!(desktop.view().approval.is_none());
+        assert_eq!(desktop.view().last_attempt.unwrap().outcome, "used");
+    }
+
     #[test]
     fn ending_critical_section_unlocks_even_with_an_inherited_descriptor() {
         let root = Scratch::new();

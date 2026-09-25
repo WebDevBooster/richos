@@ -12,6 +12,7 @@ pub mod gate;
 pub mod holds;
 pub mod probe;
 pub mod resets;
+pub mod terminal;
 pub mod reset_transport;
 pub mod reset_tools;
 
@@ -213,6 +214,15 @@ struct Snapshot {
     error: Option<ReadError>,
 }
 impl Snapshot {
+    fn accept(&mut self, mut windows: Vec<Window>, observed: u64) {
+        // Missing weekly data is not evidence that a known weekly hold ended.
+        let missing_held_weekly = (!windows.iter().any(|w| w.id == "seven_day"))
+            .then(|| self.windows.iter().find(|w| w.id == "seven_day"
+                && w.used_percent >= resets::WEEKLY_THRESHOLD).cloned()).flatten();
+        let error = missing_held_weekly.as_ref().map(|_| ReadError::Malformed);
+        if let Some(previous) = missing_held_weekly { windows.push(previous); }
+        *self = Self { windows, checked_at: Some(observed), retry_at: None, error };
+    }
     fn view(&self, policy: Policy, now: u64) -> View {
         let interval = REFRESH_INTERVAL_MS;
         let expired = self
@@ -235,6 +245,15 @@ impl Snapshot {
             Admission::Disabled
         } else if self.checked_at.is_none_or(|t| t > now) {
             Admission::Unknown
+        } else if let Some(until) = self.windows.iter()
+            .filter(|w| w.id == "seven_day" && w.used_percent >= resets::WEEKLY_THRESHOLD)
+            .filter_map(|w| w.resets_at.filter(|t| *t > now)).max() {
+            // Weekly exhaustion never inherits the five-hour 20-minute exception.
+            // An approval is not allowance: hold until a fresh post-reset reading.
+            Admission::Held { resets_at: until }
+        } else if self.windows.iter().any(|w| w.id == "seven_day"
+            && w.used_percent >= resets::WEEKLY_THRESHOLD) {
+            Admission::Unknown // Expired or unreadable weekly reset needs a new reading.
         } else {
             match self.windows.iter().find(|w| w.id == "five_hour") {
                 Some(w)
@@ -428,12 +447,7 @@ impl Service {
         let mut snapshot = self.snapshot.lock().unwrap();
         match result {
             Ok(windows) => {
-                *snapshot = Snapshot {
-                    windows,
-                    checked_at: Some(observed),
-                    retry_at: None,
-                    error: None,
-                }
+                snapshot.accept(windows, observed);
             }
             Err(error) => {
                 if error == ReadError::Unsupported {
@@ -544,6 +558,31 @@ mod tests {
             ..Default::default()
         }
     }
+    #[test]
+    fn weekly_99_holds_until_fresh_allowance_even_near_five_hour_reset() {
+        let mut state = snapshot(100., RESET_EXEMPTION_MS - 1);
+        state.windows.push(Window { id: "seven_day".into(), label: "Weekly".into(),
+            used_percent: 99., resets_at: Some(NOW + 600_000), duration_ms: 604_800_000 });
+        assert_eq!(state.view(policy(), NOW).admission, Admission::Held { resets_at: NOW + 600_000 });
+        // An old high reading also holds; time passing alone cannot invent allowance.
+        assert!(matches!(state.view(policy(), NOW + 300_000).admission, Admission::Held { .. }));
+        assert_eq!(state.view(policy(), NOW + 600_000).admission, Admission::Unknown);
+        state.windows[1].resets_at = None;
+        assert_eq!(state.view(policy(), NOW).admission, Admission::Unknown);
+        let fresh_five = snapshot(10., 3_600_000).windows;
+        state.accept(fresh_five, NOW);
+        assert_eq!(state.view(policy(), NOW).admission, Admission::Unknown);
+        assert_eq!(state.view(policy(), NOW).state, State::Stale);
+        // A fresh, explicit weekly reading is required to clear that hold.
+        state.windows[1].resets_at = Some(NOW + 600_000);
+        state.windows[0] = snapshot(100., RESET_EXEMPTION_MS - 1).windows.remove(0);
+        state.error = None;
+        state.windows[1].used_percent = 98.99;
+        assert_eq!(state.view(policy(), NOW).admission, Admission::Ready);
+        state.windows[0].resets_at = Some(NOW + 3_600_000);
+        assert!(matches!(state.view(policy(), NOW).admission, Admission::Held { .. }));
+    }
+
     #[test]
     fn threshold_and_twenty_minute_boundaries() {
         assert_eq!(

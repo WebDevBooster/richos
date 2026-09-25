@@ -38,8 +38,8 @@
         <div class="quota-status-actions"><button id="quota-hold-refresh" type="button" class="quota-btn" hidden>Refresh</button>
           <button id="quota-release" type="button" class="quota-btn" hidden>Let them continue now</button></div>
       </div>
-      <div class="quota-boundary"><p><b>A pause keeps their place.</b> Each agent finishes its current step, then waits before the next, keeping everything it knows.</p>
-        <p>They continue automatically when the allowance permits it. You can keep talking to Rich.</p>
+      <div class="quota-boundary"><p><b>A pause keeps context and work.</b> Agents finish their step, then wait.</p>
+        <p>Weekly 99% pauses until allowance returns or an approved free reset succeeds. No weekly 20-minute exception.</p>
         <p>Checks at app and session start, then every 5 minutes.</p></div>
     </form></div></section>`;
   document.body.appendChild(sheet);
@@ -100,7 +100,7 @@
       const row = node("section", "quota-window " + (primary ? "quota-hero" : "quota-weekly") + (old ? " quota-window--stale" : ""));
       const heading = node("div", "quota-window-summary");
       const title = node("h3", "quota-window-label", window.label);
-      if (primary) title.appendChild(node("span", "quota-muted", "the one the pause watches"));
+      if (primary) title.appendChild(node("span", "quota-muted", "five-hour pause threshold"));
       heading.appendChild(title);
       const value = node("div", "quota-used", String(Math.round(window.usedPercent)));
       value.append(node("span", "quota-percent", "%"), node("span", "quota-unit", "used"));
@@ -120,6 +120,7 @@
   }
   function renderStatus() {
     const held = activity?.held || [], released = activity?.released || [];
+    const weeklyHeld = view?.windows?.some(w => w.id === "seven_day" && w.usedPercent >= 99 && w.resetsAt > Date.now());
     const enabled = view?.policy.enabled, state = view?.admission?.state;
     const title = field("quota-hold-status"), detail = field("quota-hold-detail"), list = field("quota-held");
     const agents = held.filter(r => r.kind === "agent").length;
@@ -132,7 +133,7 @@
     field("quota-release").textContent = held.length ? "Let them continue now" : "Turn pause off";
     if (held.length) {
       title.textContent = !enabled || state === "ready" ? "Releasing the pause…" : agents ? `${agents} ${agents === 1 ? "agent is" : "agents are"} paused` : assignments ? `${assignments} ${assignments === 1 ? "assignment is" : "assignments are"} paused` : "Waiting to start an agent";
-      detail.textContent = !enabled || state === "ready" ? "The allowance permits work. Waiting for each pause to clear." : activity.resumesAt ? `Can continue just after ${clock(activity.resumesAt)} when the reset is under 20 minutes away.` : "Waiting for a current five-hour reading. Their work is saved.";
+      detail.textContent = !enabled || state === "ready" ? "The allowance permits work. Waiting for each pause to clear." : weeklyHeld ? "Weekly usage reached 99%. Waiting for a confirmed reset and available allowance." : activity.resumesAt ? `Can continue just after ${clock(activity.resumesAt)} when the reset is under 20 minutes away.` : "Waiting for a current five-hour reading. Their work is saved.";
       if (enabled) detail.textContent += " Continuing now turns automatic pause off.";
     } else if (released.length && (!enabled || state === "ready")) {
       title.textContent = "Pause released"; detail.textContent = "These waits have cleared. Work can continue from its saved place.";
@@ -141,7 +142,7 @@
     } else if (state === "unknown") {
       title.textContent = "Waiting for a current reading"; detail.textContent = "New background work will wait until the five-hour allowance is known. Refresh the reading or turn pause off.";
     } else if (state === "held") {
-      title.textContent = "Ready to pause"; detail.textContent = `The five-hour allowance has reached ${view.policy.pausePercent}%. Agents will pause when they finish their current step. No pauses observed yet.`;
+      title.textContent = "Ready to pause"; detail.textContent = weeklyHeld ? "Weekly usage reached 99%. Agents will pause at their next step until allowance is confirmed." : `The five-hour allowance has reached ${view.policy.pausePercent}%. Agents will pause when they finish their current step. No pauses observed yet.`;
     } else {
       title.textContent = "Automatic pause is on"; detail.textContent = "The allowance permits work. No pauses observed.";
     }
@@ -180,7 +181,7 @@
     const compact = !offers.length && !r.approval && !r.lastAttempt;
     container.classList.toggle("is-empty", compact);
     if (!compact) container.appendChild(node("h3", "", "Weekly quota reset"));
-    if (!compact) container.appendChild(node("p", "quota-muted", "Approve in advance. Rich will use one reset automatically at 99% weekly usage while RichOS is running. Checks every 5 minutes. Five-hour usage never triggers it."));
+    if (!compact) container.appendChild(node("p", "quota-muted", "Approve in advance. Rich will use one reset automatically at 99% weekly usage while the desktop app or terminal watcher is running. They share one approval and attempt record. Checks every 5 minutes. Five-hour usage never triggers it."));
     if (r.lastAttempt) {
       const text = { used: "Your approved reset was used. Checking the new allowance…", alreadyUsed: "Anthropic reports this reset was already used.", notUsed: "Anthropic did not use the reset. The approval has ended.", uncertain: "The reset outcome is unconfirmed. Automatic retry is blocked. Check Claude’s Usage page before taking further action." }[r.lastAttempt.outcome] || "Reset outcome unavailable. Check Claude’s Usage page.";
       container.appendChild(node("p", "quota-reset-result", text));
@@ -194,7 +195,7 @@
       card.appendChild(node("p", "quota-muted", "Resets " + offer.clears.map(resetLimitName).join(", ") + "."));
       const approved = r.approval?.offer.id === offer.id && r.approval.offer.expiresAt > now;
       const weekly = offer.clears.includes("seven_day");
-      const attempted = r.lastAttempt?.grantId === offer.id && r.lastAttempt.outcome !== "notUsed";
+      const attempted = r.lastAttempt?.grantId === offer.id || r.lastAttempt?.outcome === "uncertain";
       if (approved) {
         card.appendChild(node("p", "quota-reset-armed", fresh ? "Approved and ready · one use at 99% weekly usage. Approval expires with this offer." : "Approved in advance · waiting for a fresh eligibility check."));
       } else if (!weekly) card.appendChild(node("p", "quota-muted", "This offer does not reset weekly quota."));

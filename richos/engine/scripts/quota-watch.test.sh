@@ -159,6 +159,8 @@ export QUOTA_WATCH_STALE_SECONDS=30
 # every case reads the status-line fallback, as before; the G cases point this
 # at the fixture below, which answers the control protocol from files.
 export QUOTA_CLAUDE_BIN="$SB/no-claude-here"
+# Reset integration has its own fake-transport suite; never contact the real account here.
+export QUOTA_RESET_HELPER=/usr/bin/false
 FAKE="$SB/fake"
 SID="beadfeed-0000-4000-8000-00000000q001"
 export RICHOS_SESSION_ID="$SID"
