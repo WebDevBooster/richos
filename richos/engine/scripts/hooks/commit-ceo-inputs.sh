@@ -318,6 +318,7 @@ except Exception:
 
 committed = d.get("committed") or []
 refused = d.get("refused") or []
+pending = d.get("pending") or []
 reported = d.get("reported") or []
 undecided = d.get("undecided") or []
 
@@ -333,6 +334,17 @@ if refused:
     for r in refused[:20]:
         lines.append("  REFUSED    %s" % r.get("path", ""))
         lines.append("             %s" % r.get("why", ""))
+if pending:
+    lines.append("")
+    lines.append("NOT COMMITTED YET: ANOTHER LAND HOLDS THE LAND LEASE. Kept pending and retried on the next message:")
+    for r in pending[:20]:
+        lines.append("  PENDING    %s" % r.get("path", ""))
+        lines.append("             %s" % r.get("why", ""))
+if d.get("lease_notes"):
+    lines.append("")
+    lines.append("THE LAND LEASE SAID, when the ingress took it for this commit (read it: a renewal is how a holder is told):")
+    for n in d["lease_notes"][:10]:
+        lines.append("  " + n)
 if reported:
     lines.append("")
     lines.append("UNHELD, AND NO REPOSITORY OBVIOUSLY OWNS IT:")
@@ -360,6 +372,10 @@ if nc:
     bits.append("%d file%s you handed over committed" % (nc, "" if nc == 1 else "s"))
 if nr:
     bits.append("%d REFUSED by a safety gate" % nr)
+if pending:
+    bits.append("%d not committed yet (another land holds the lease; retried on your next message)" % len(pending))
+if d.get("lease_notes"):
+    bits.append("the land lease named something unfinished in the checkout")
 if reported:
     bits.append("%d unheld outside every repository" % len(reported))
 if undecided:

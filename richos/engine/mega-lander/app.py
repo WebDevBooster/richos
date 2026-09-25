@@ -783,7 +783,10 @@ def _live_fence_lease(repo):
         rc, out, _err = W.git(str(repo), "rev-parse", "--path-format=absolute", "--git-common-dir")
         if rc != 0:
             return None
-        with open(os.path.join(out.strip(), "hooks", "reference-transaction"), encoding="utf-8") as handle:
+        # errors="replace": a hook that is not UTF-8 is simply not ours, and a
+        # UnicodeDecodeError must never reach the product lander (Frank's #13).
+        with open(os.path.join(out.strip(), "hooks", "reference-transaction"), encoding="utf-8",
+                  errors="replace") as handle:
             text = handle.read(65536)
     except OSError:
         return None

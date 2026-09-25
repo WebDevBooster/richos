@@ -64,9 +64,22 @@
 #   F25  a dead Claude holder's lease: taken at rest, takeover otherwise
 #   F26  install-ref-forensics.sh installs into the chain, never over the launcher
 #   F27  the product lander's land_lock() waits on a live lease (G2)
+#        and a hook that is not UTF-8 reads as no lease, never an exception (#13)
 #   F28  a lease naming a live pid with another start time is dead: a recycled
 #        pid is never mistaken for the holder
 #   F29  a live, in-time lease cannot be taken over (G5)
+#   F30  commit-ceo-inputs takes the lease and is never exempt: free, it takes
+#        and releases; held by the lead, it commits and never releases; held by
+#        another holder, his file stays pending, the holder is named, and the
+#        next prompt retries it (Frank's re-check §4, Fix 4)
+#   F31  the holder's commit of a merge whose resolution a refused `--abort`
+#        already discarded is refused, naming abort-orphan; a new merge clears
+#        it (Frank's case G, Fix 1)
+#   F32  a refused reset names what it had already rewritten, records it
+#        (argv, residue), and the holder's commit that would record it is
+#        refused; acquire and status name it (Frank's case E, Fix 2)
+#   F33  a non-starter's refused commit during the holder's live merge does not
+#        make the merge "orphaned" (Fix 3)
 #   F3L, F12L  measured limits, asserted so the record goes red if Git changes:
 #        a refused reset --hard and a refused merge --abort have already
 #        rewritten the tree (the early check exists for exactly these)
@@ -360,6 +373,140 @@ ofx_in D "$(ofx_lease acquire --repo "$R") && git -C '$R' cherry-pick --abort &&
 expect "F13" "[git $G] its own starter aborts it once it takes the lease (the abort writes ORIG_HEAD)" "$?" "rc=$rc1/$rc2 $OFX_OUT"
 ofx_end D
 
+# ---- F33: another writer's refused commit orphans nothing (Fix 3) ----------------
+# The holder resolves a conflicted merge. A non-starter's `git commit` in the
+# same checkout is refused at the move of main, and its refusal carries the
+# merge's head; it orphans nothing, so acquire must not call the holder's own
+# live merge "can never finish" and send it to abort-orphan.
+M5="$(rev "$R" main)"
+( cd "$W" && git switch -q -c hfeat "$M5" && printf 'hside\n' > f.txt && printf 'h2\n' > h2.txt \
+  && git add f.txt h2.txt && git commit -q -m h && git switch -q feat ) >/dev/null 2>&1
+HF="$(rev "$R" hfeat)"
+ofx_in A "$(ofx_lease acquire --repo "$R") && cd '$R' && printf 'hmain\n' > f.txt && git commit -q -am hmain && git merge -q hfeat -m h; printf 'resolved-h\n' > f.txt && git add f.txt"
+if [ -f "$R/.git/MERGE_HEAD" ] && [ -n "$HF" ]; then
+    ofx_in B "cd '$R' && git commit -q --no-edit"; rcb=$?
+    ofx_in A "$(ofx_lease acquire --repo "$R")"; rca=$?; aout="$OFX_OUT"
+    [ $rcb -ne 0 ] && [ $rca = 0 ] && printf '%s' "$aout" | grep -q "RENEWED" && [ -f "$R/.git/MERGE_HEAD" ] \
+        && ! printf '%s' "$aout" | grep -q "can never finish" && ! printf '%s' "$aout" | grep -q "abort-orphan"
+    expect "F33" "[git $G] a non-starter's refused commit during the holder's live merge does not make acquire call it orphaned" "$?" "rc=$rcb/$rca $aout"
+    ofx_in A "cd '$R' && git commit -q --no-edit && git push -q origin main"; rc=$?
+    [ $rc = 0 ] && git -C "$R" merge-base --is-ancestor "$HF" main && [ "$(git -C "$R" show main:h2.txt 2>/dev/null)" = "h2" ]
+    expect "F33" "[git $G] and the holder's commit concludes it, the branch's clean file on main" "$?" "rc=$rc $OFX_OUT"
+else
+    bad "F33 [git $G] the fixture's merge did not conflict, so the case proves nothing" "$OFX_OUT"
+fi
+ofx_in A "$(ofx_lease release --repo "$R")"
+
+# ---- F31: a refused abort's residue is never concluded silently (Fix 1) -----------
+# Frank's case G (re-check §2): the holder resolves a conflicted merge; another
+# writer's `merge --abort`, run where the early check cannot see it, is refused
+# at ORIG_HEAD AFTER discarding the staged resolution and leaving MERGE_HEAD.
+# Without Fix 1 the holder's `git commit --no-edit` records an empty-diff merge
+# that `merge-base --is-ancestor` reports as landed, with the branch's files
+# missing from main. (The branch forks from main, never from `clash`, which
+# F20 later needs unmerged.)
+M6="$(rev "$R" main)"
+( cd "$W" && git switch -q -c gfeat "$M6" && printf 'gside\n' > f.txt && printf 'g2\n' > g2.txt \
+  && git add f.txt g2.txt && git commit -q -m g && git switch -q feat ) >/dev/null 2>&1
+GF="$(rev "$R" gfeat)"
+ofx_in A "$(ofx_lease acquire --repo "$R") && cd '$R' && printf 'gmain\n' > f.txt && git commit -q -am gmain && git merge -q gfeat -m g"
+M3="$(rev "$R" main)"
+if [ -f "$R/.git/MERGE_HEAD" ] && [ -n "$GF" ]; then
+    ofx_in A "cd '$R' && printf 'resolved\n' > f.txt && git add f.txt"
+    ofx_in B "sh -c 'git -C $R merge --abort'"; rcb=$?
+    ofx_in A "cd '$R' && git commit -q --no-edit"; rc=$?; cout="$OFX_OUT"
+    [ $rcb -ne 0 ] && [ $rc -ne 0 ] && [ "$(rev "$R" main)" = "$M3" ] && [ -f "$R/.git/MERGE_HEAD" ] \
+        && printf '%s' "$cout" | grep -q "abort-orphan" && printf '%s' "$cout" | grep -q "merge --abort"
+    expect "F31" "[git $G] the holder's commit of a merge whose resolution a refused abort discarded is refused, naming the abort and abort-orphan" "$?" "rc=$rcb/$rc $cout"
+    ofx_in A "$(ofx_lease abort-orphan --repo "$R")"; rc=$?
+    [ $rc = 0 ] && [ ! -f "$R/.git/MERGE_HEAD" ] && [ "$(rev "$R" main)" = "$M3" ]
+    expect "F31" "[git $G] abort-orphan clears it (preserving first) and main has not moved" "$?" "rc=$rc $OFX_OUT"
+    sleep 1     # the next merge's MERGE_HEAD must be visibly newer than the refusal
+    ofx_in A "git -C '$R' merge -q gfeat -m g2; cd '$R' && printf 'resolved\n' > f.txt && git add f.txt && git commit -q --no-edit && git push -q origin main"; rc=$?
+    [ $rc = 0 ] && git -C "$R" merge-base --is-ancestor "$GF" main && [ "$(git -C "$R" show main:g2.txt 2>/dev/null)" = "g2" ]
+    expect "F31" "[git $G] a new merge clears the rule by itself: its commit passes and the branch's clean file is on main" "$?" "rc=$rc $OFX_OUT"
+else
+    bad "F31 [git $G] the fixture's merge did not conflict, so the case proves nothing" "$OFX_OUT"
+fi
+ofx_in A "$(ofx_lease release --repo "$R")"
+
+# ---- F32: a refused reset's residue is named, and is never committed silently (Fix 2) ----
+# Frank's case E: a refused `reset --hard HEAD~1` has already rewritten the
+# index and tree; without Fix 2 the holder's next `git add X; git commit`
+# silently reverts the previous commit.
+M4="$(rev "$R" main)"
+ofx_in A "$(ofx_lease acquire --repo "$R")"
+ofx_in B "sh -c 'git -C $R reset -q --hard HEAD~1'"; rcb=$?; bout="$OFX_OUT"
+[ $rcb -ne 0 ] && [ "$(rev "$R" main)" = "$M4" ] && printf '%s' "$bout" | grep -q "already rewritten" \
+    && ! printf '%s' "$bout" | grep -q "before the tree is touched"
+expect "F32" "[git $G] the refused reset says it had already rewritten the index and tree (and no longer says 'before the tree is touched')" "$?" "rc=$rcb $bout"
+python3 - "$REF" <<'PY'
+import json, sys
+rows = [json.loads(l) for l in open(sys.argv[1])]
+last = [r for r in rows if r.get("ref") == "ORIG_HEAD"][-1]
+paths = [e.get("path") for e in last.get("residue_paths") or []]
+sys.exit(0 if (last.get("writer_argv") or [""])[0] == "reset" and last.get("residue") is True and "g2.txt" in paths else 1)
+PY
+expect "F32" "[git $G] the refusal record carries the writer's argv and residue: true, with the rewritten paths" "$?"
+ofx_in A "cd '$R' && printf 'n\n' > n.txt && git add n.txt && git commit -q -m n"; rc=$?; cout="$OFX_OUT"
+[ $rc -ne 0 ] && [ "$(rev "$R" main)" = "$M4" ] && printf '%s' "$cout" | grep -q "reset" && printf '%s' "$cout" | grep -q "git restore"
+expect "F32" "[git $G] the holder's next commit, which would record the rewrite (a silent revert), is refused and names the reset" "$?" "rc=$rc $cout"
+ofx_in A "$(ofx_lease status --repo "$R")"; sout="$OFX_OUT"
+printf '%s' "$sout" | grep -q "g2.txt" && printf '%s' "$sout" | grep -q "rewrote"
+expect "F32" "[git $G] status names the residue and its paths" "$?" "$sout"
+ofx_in A "cd '$R' && git restore --source=HEAD --staged --worktree -- . && printf 'n\n' > n.txt && git add n.txt && git commit -q -m n && git push -q origin main"; rc=$?
+[ $rc = 0 ] && [ "$(git -C "$R" diff --name-only main~1 main)" = "n.txt" ]
+expect "F32" "[git $G] once restored, the holder's commit passes and records only its own file" "$?" "rc=$rc $OFX_OUT"
+ofx_in A "$(ofx_lease release --repo "$R")"
+ofx_in B "sh -c 'git -C $R reset -q --hard HEAD~1'"
+ofx_in A "$(ofx_lease acquire --repo "$R")"; rca=$?; aout="$OFX_OUT"
+[ $rca = 0 ] && printf '%s' "$aout" | grep -q "rewrote" && printf '%s' "$aout" | grep -q "n.txt"
+expect "F32" "[git $G] a lease taken after a refused reset names the residue and its paths (Fix 2 point 4)" "$?" "rc=$rca $aout"
+ofx_in A "cd '$R' && git restore --source=HEAD --staged --worktree -- . && $(ofx_lease status --repo "$R")"; sout="$OFX_OUT"
+[ -z "$(git -C "$R" status --porcelain --untracked-files=no)" ] && ! printf '%s' "$sout" | grep -q "rewrote"
+expect "F32" "[git $G] once the tree is restored, status no longer names it" "$?" "$sout"
+ofx_in A "$(ofx_lease release --repo "$R")"
+
+# ---- F30: commit-ceo-inputs takes the lease; it is never exempt (Frank §4, Fix 4) ----
+INGRESS="$ENGINE_ROOT/scripts/hooks/commit-ceo-inputs.py"
+mkdir -p "$R/docs" "$OFX/ingress"
+ingress() { # <session> <prompt>: runs the ingress analyzer inside that session; OFX_OUT is its JSON
+    python3 -c 'import json, sys; print(json.dumps({"session_id": "ingress-fixture", "cwd": sys.argv[1], "prompt": sys.argv[2]}))' \
+        "$R" "$2" > "$OFX/ingress/payload.json"
+    ofx_in "$1" "RICHOS_ENGINE_ROOT_FOR_GATES='$ENGINE_ROOT' RICHOS_INGRESS_STATE_DIR='$OFX/ingress' RICHOS_INGRESS_SEAT_ROOT='$OFX/entity' python3 '$INGRESS' < '$OFX/ingress/payload.json' 2>/dev/null"
+}
+tracked() { git -C "$R" ls-files --error-unmatch -- "$1" >/dev/null 2>&1; }
+printf 'one\n' > "$R/docs/in1.md"
+ingress A "Handle this: $R/docs/in1.md"; rc=$?
+[ $rc = 3 ] && tracked docs/in1.md && [ -z "$(lease_file)" ]
+expect "F30" "[git $G] ingress, lease free: it takes the lease, commits his file onto main, and releases what it took" "$?" "rc=$rc $OFX_OUT"
+ofx_in A "$(ofx_lease acquire --repo "$R")"
+printf 'two\n' > "$R/docs/in2.md"
+ingress A "Handle this: $R/docs/in2.md"; rc=$?
+[ $rc = 3 ] && tracked docs/in2.md && [ -n "$(lease_file)" ] && grep -q '"pid": '"$PID_A" "$(lease_file)"
+expect "F30" "[git $G] ingress, the lead already holds the lease: it commits and never releases the lead's lease" "$?" "rc=$rc $OFX_OUT"
+# Its renewal is how a holder is told about a refused writer's residue (and it
+# lifts the holder's residue refusal), so what that renewal said reaches the lead.
+ofx_in B "sh -c 'git -C $R reset -q --hard HEAD~1'"
+printf 'two-b\n' > "$R/docs/in2b.md"
+ingress A "Handle this: $R/docs/in2b.md"; rc=$?; iout="$OFX_OUT"
+[ $rc = 4 ] && tracked docs/in2b.md && printf '%s' "$iout" | grep -q '"lease_notes": \["land-lease: a refused `git reset'
+expect "F30" "[git $G] ingress, renewing the lead's lease: what that renewal names (a refused reset's residue) is relayed, never swallowed" "$?" "rc=$rc $iout"
+git -C "$R" restore --source=HEAD --staged --worktree -- . >/dev/null 2>&1
+ofx_in A "$(ofx_lease release --repo "$R")"
+ofx_session X2 codex
+ofx_in X2 "$(ofx_lease acquire --repo "$R" --holder codex)"
+printf 'three\n' > "$R/docs/in3.md"
+ingress A "Handle this: $R/docs/in3.md"; rc=$?; iout="$OFX_OUT"
+[ $rc = 4 ] && ! tracked docs/in3.md && printf '%s' "$iout" | grep -q "Codex" && printf '%s' "$iout" | grep -q "landing" \
+    && ! printf '%s' "$iout" | grep -q "branch moved" && tail -1 "$OFX/ingress/ceo-inputs.jsonl" | grep -q '"pending": true'
+expect "F30" "[git $G] ingress, another holder landing: not committed yet, names the holder, keeps his file pending (never 'the branch moved')" "$?" "rc=$rc $iout"
+ofx_in X2 "$(ofx_lease release --repo "$R" --holder codex)"; ofx_end X2
+ingress A "an ordinary next message"; rc=$?
+[ $rc = 3 ] && tracked docs/in3.md && [ -z "$(lease_file)" ]
+expect "F30" "[git $G] ingress retries a pending file on the next prompt, once the lease is free" "$?" "rc=$rc $OFX_OUT"
+ofx_in A "$(ofx_lease acquire --repo "$R") && git -C '$R' push -q origin main && $(ofx_lease release --repo "$R")"
+
 # ---- F15: the bypass that exists, asserted (G2) ----------------------------------------
 before="$(grep -c . "$OFX/forensics/ref-transactions.jsonl")"; rbefore="$(grep -c . "$REF")"
 M2="$(rev "$R" main)"
@@ -461,6 +608,16 @@ ofx_in A "$(ofx_lease release --repo "$R")"
 free="$(RICHOS_LAND_LOCK_TIMEOUT=2 python3 -c "$LL" 2>&1)"
 printf '%s' "$held" | grep -q "operator land lease" && printf '%s' "$free" | grep -q "ENTERED"
 expect "F27" "[git $G] land_lock() waits on a live lease, and enters once it is released" "$?" "held: $held | free: $free"
+# Frank's #13: a reference-transaction hook that is not UTF-8 is not ours. It
+# reads as "no lease" in the product lander and as "fences off" in the lease
+# commands, never as an exception.
+ofx_repo "u$N"; U="$OFX_R"
+printf '#!/bin/sh\n# richos-operator-fence-launcher \377\376\n' > "$U/.git/hooks/reference-transaction"
+u1="$(python3 -c "import sys; sys.path.insert(0, '$ENGINE_ROOT/mega-lander'); import app; print('RESULT', app._live_fence_lease('$U'))" 2>&1)"
+u2="$(bash "$LEASE" status --repo "$U" 2>&1)"; rcu=$?
+printf '%s' "$u1" | grep -q "RESULT None" && [ $rcu = 0 ] && printf '%s' "$u2" | grep -q "operator fences are" \
+    && ! printf '%s%s' "$u1" "$u2" | grep -q "Traceback"
+expect "F27" "[git $G] a hook that is not UTF-8 reads as no lease, never an exception (#13)" "$?" "$u1 | $u2"
 
 # ---- F21: on, and the fence cannot decide: refuse, name the way out (e8) -------------------
 PROG="$R/.git/hooks/operator-fences/operator_fences.py"
@@ -501,6 +658,10 @@ expect "F20" "[git $G] OFF: merge, reset, switch, detach, merge --abort, commit,
 ofx_in B "$(ofx_lease acquire --repo "$R")"; rc=$?
 [ $rc = 0 ] && printf '%s' "$OFX_OUT" | grep -q "off" && [ -z "$(lease_file)" ]
 expect "F20" "[git $G] OFF: the lease commands are no-ops that say so and write nothing" "$?" "$OFX_OUT"
+printf 'off\n' > "$R/docs/off1.md"
+ingress B "Handle this: $R/docs/off1.md"; rc=$?
+[ $rc = 3 ] && tracked docs/off1.md && [ -z "$(lease_file)" ]
+expect "F20" "[git $G] OFF: the ingress commits his file with no lease taken, exactly as today" "$?" "rc=$rc $OFX_OUT"
 payload="$(printf '{"tool_name":"Bash","tool_input":{"command":"git -C %s commit -m x"},"cwd":"%s"}' "$R" "$R")"
 printf '%s' "$payload" | bash "$ENGINE_ROOT/scripts/hooks/guard-land-lease-commands.sh" >/dev/null 2>&1
 expect "F20" "[git $G] OFF: the early Bash check never refuses" "$?"
