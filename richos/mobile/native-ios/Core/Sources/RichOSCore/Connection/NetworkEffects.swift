@@ -186,7 +186,12 @@ public actor NetworkEffects: EffectHandler {
             guard let item = state.outbox.first(where: { $0.clientID == clientID }), let api = await client(for: state) else {
                 return [.deliveryFailed(clientID: clientID, failure: .retryable(reason: "unreachable", afterMs: nil), at: clock.nowMs())]
             }
-            return [await Courier(api: api, recordings: recordings, attachments: attachments).deliver(item, at: clock.nowMs()).action]
+            let result = await Courier(api: api, recordings: recordings, attachments: attachments).deliver(item, at: clock.nowMs())
+            // Stamped when the answer came, not when the attempt began: a retry's wait counts from the
+            // failure (Android `Outbox.kt`: `notBefore = clock.now() + retryDelayMs(...)`). From the
+            // start, a request that hung for its 30 s timeout left every wait (1 s to 16 s) already in
+            // the past, and the next attempt began the moment it timed out (I06).
+            return [Self.answered(result.action, at: clock.nowMs())]
         case .deleteAttachments(let paths):
             for path in paths { await attachments?.remove(path: path) }
             return []
@@ -231,6 +236,15 @@ public actor NetworkEffects: EffectHandler {
     }
 
     private struct OlderPage: Decodable { var messages: [StreamRow]; var more: Bool }
+
+    /// A delivery's answer, restamped with the time it arrived.
+    static func answered(_ action: Action, at: Int64) -> Action {
+        switch action {
+        case .deliveryFailed(let clientID, let failure, _): return .deliveryFailed(clientID: clientID, failure: failure, at: at)
+        case .deliveryAccepted(let clientID, _, let hash): return .deliveryAccepted(clientID: clientID, at: at, textSHA256: hash)
+        default: return action
+        }
+    }
 
     /// The client for the paired Mac, rebuilt after a relaunch from the persisted pairing. With no
     /// challenge held, its first signed request probes for one.
