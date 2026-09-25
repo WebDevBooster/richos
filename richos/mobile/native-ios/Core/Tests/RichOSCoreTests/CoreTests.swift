@@ -109,7 +109,7 @@ let repositoryRoot: URL = {
             .openedFromNotification(messageID: "r1"), .openedFromNotificationReference(String(repeating: "ab", count: 32)), .takeShare(SharedIntake(messages: [.init(clientID: "s1", commitBody: "{}", text: "Hi", files: [OutboxFile(id: "p", name: "a.jpg", mediaType: "image/jpeg", byteCount: 1, sha256: "00", path: "s1/p-a.jpg")])], createdAt: 1, alreadyAccepted: false), at: 2), .clearFocus, .hearReply(id: "r1"), .playbackStarted(id: "r1"),
             .playbackProgress(id: "r1", progress: 0.5), .playbackEnded, .stopPlayback, .dismissToast,
             .networkChanged(online: false, at: 6), .connectionLost(at: 7), .connected(at: 8),
-            .connectionDiagnosed(.macUnreachable), .macCapabilities(text: true, voice: false), .pairingRevoked, .pairingUnreachable, .foregrounded(at: 20), .backgrounded(at: 21), .pushRegistered(hostID: "h"), .macAttachmentLimits(nil),
+            .connectionDiagnosed(.macUnreachable), .tunnelChanged(up: false), .macCapabilities(text: true, voice: false), .pairingRevoked, .pairingUnreachable, .foregrounded(at: 20), .backgrounded(at: 21), .pushRegistered(hostID: "h"), .macAttachmentLimits(nil),
             .voicePress(id: "v", width: 386, at: 9), .voiceStartLocked(id: "v", width: 386, at: 9), .microphonePermission(.granted), .dismissMicrophoneCard, .voiceMove(dx: -10, dy: -5, at: 10),
             .voiceRelease(at: 11), .voiceLockedSend(at: 12), .voiceLockedCancel(at: 13), .voiceTouchCanceled(at: 14),
             .voiceInterrupted(at: 15), .voiceLevel(0.4), .voiceSettled, .sendKept(id: "k", at: 16), .discardKept(id: "k"),
@@ -616,10 +616,15 @@ actor FakePlatform: EffectHandler {
     static let pairingV2Screens = ["pair-awaiting-mac", "pair-mac-update", "pair-mac-refused", "pair-mac-expired",
                                    "pair-words-rejected", "pair-unreachable"]
 
+    /// States found in native acceptance that round 12 has no picture of (Android's catalog ids).
+    static let acceptanceScreens = ["conn-tailscale-off"]
+
     @Test func thereIsOneFixturePerRound12AppScreen() {
         #expect(Self.round12AppScreens.count == 63)
-        #expect(Fixture.all.map(\.name).filter { !Self.pairingV2Screens.contains($0) } == Self.round12AppScreens)
+        let added = Self.pairingV2Screens + Self.acceptanceScreens
+        #expect(Fixture.all.map(\.name).filter { !added.contains($0) } == Self.round12AppScreens)
         #expect(Fixture.all.map(\.name).filter(Self.pairingV2Screens.contains) == Self.pairingV2Screens)
+        #expect(Fixture.all.map(\.name).filter(Self.acceptanceScreens.contains) == Self.acceptanceScreens)
     }
 
     @Test func everyFixtureIsOnTheFullScreenSurfaceItsDesignShows() throws {

@@ -48,6 +48,9 @@ public struct Fixture: Sendable {
             s.notifications.status = .on
             s.messages = (full ? Conversation.older : []) + Conversation.round12 + extra
             edit(&s)
+            // A still frame of a phone talking to its Mac: the stream is open unless the frame shows
+            // trouble (`AppState.linkOpen`).
+            s.linkOpen = s.pairing == .paired && s.connectionNotice == nil
             // Every unsent bubble is backed by its outbox item, exactly as a real send leaves it.
             for m in s.messages where m.delivery != nil && !s.outbox.contains(where: { $0.clientID == m.id }) {
                 let state: OutboxItem.State = m.delivery == .sending ? .sending : m.delivery == .waiting ? .waiting : .blocked
@@ -131,7 +134,7 @@ public struct Fixture: Sendable {
     static let portland = "Here it is. Portland team: thank you for the sprint on the Henderson bid. It landed, and it landed because of you."
 
     static let conversation: [Fixture] = [
-        Fixture(name: "conv-empty", state: make { $0.pairing = .paired; $0.mac = pairedMac; $0.consentGiven = true; $0.notifications.status = .on }),
+        Fixture(name: "conv-empty", state: make { $0.pairing = .paired; $0.mac = pairedMac; $0.consentGiven = true; $0.notifications.status = .on; $0.linkOpen = true }),
         Fixture(name: "conv-populated", state: paired(full: true)),
         Fixture(name: "conv-pending", state: paired(extra: [
             me("p1", "Book the 7:10 to Denver, aisle.", now, .sending),
@@ -230,6 +233,11 @@ public struct Fixture: Sendable {
         Fixture(name: "conn-offline", state: paired { $0.connectionNotice = .phoneOffline }),
         Fixture(name: "conn-service", state: paired { $0.connectionNotice = .serviceUnavailable; $0.mac?.route = .connect }),
         Fixture(name: "conn-mac", state: paired { $0.connectionNotice = .macUnreachable }),
+        // D05, not in round 12 (Android `conn-tailscale-off`): round 12's nameplate line, adapted.
+        Fixture(name: "conn-tailscale-off", state: paired(extra: [me("q1", "Move the Friday review to 3 PM.", now, .waiting)]) {
+            $0.connectionNotice = .tailscaleOff
+            $0.tunnelUp = false
+        }),
         Fixture(name: "conn-revoked", state: paired { $0.pairing = .revoked }),
         Fixture(name: "conn-incompatible", state: paired(extra: [me("q1", "Send the Q4 deck to the board.", now, .waiting)]) {
             $0.connectionNotice = .incompatible
@@ -350,6 +358,7 @@ public struct Scenario: Sendable {
             Command(.action, action: .tick(at: t0 + 1050)),
             Command(.restart),
             Command(.action, action: .tick(at: t0 + 1100)),
+            Command(.action, action: .connected(at: t0 + 1150)),
             Command(.action, action: .deliveryAccepted(clientID: "c1", at: t0 + 1200)),
         ], check: { s in
             try require(s[2].outbox.count == 1 && s[2].outbox[0].state == .sending && s[2].draft.isEmpty, "a send is persisted and in flight at once")
@@ -357,10 +366,11 @@ public struct Scenario: Sendable {
             try require(s[3].outbox[0].state == .waiting && s[3].outbox[0].notBefore == t0 + 1050, "a retryable failure waits 1 s")
             try require(s[4] == s[3], "nothing is attempted before the backoff ends")
             try require(s[5].outbox[0].state == .sending && s[5].outbox[0].attempts == 1, "then it is sent again")
-            try require(s[6].outbox[0].state == .waiting && s[6].outbox[0].notBefore == 0, "a relaunch mid-send resends at once")
-            try require(s[7].outbox[0].state == .sending, "and it goes")
-            try require(Set(s.prefix(8).dropFirst(2).map { $0.outbox[0].body }).count == 1, "every attempt carries the same bytes")
-            try require(s[8].outbox.isEmpty && s[8].messages.last?.delivery == nil, "accepted: delivered, nothing left to send")
+            try require(s[6].outbox[0].state == .waiting && s[6].outbox[0].notBefore == 0, "a relaunch mid-send owes the resend at once")
+            try require(s[7].outbox[0].state == .waiting && !s[7].linkOpen, "but nothing goes before the Mac's stream answers")
+            try require(s[8].outbox[0].state == .sending, "and it goes the moment it does")
+            try require(Set(s.prefix(9).dropFirst(2).map { $0.outbox[0].body }).count == 1, "every attempt carries the same bytes")
+            try require(s[9].outbox.isEmpty && s[9].messages.last?.delivery == nil, "accepted: delivered, nothing left to send")
         }),
         // First in, first out: a final refusal blocks that message only; the next one goes.
         Scenario(name: "outbox-refused-continues", steps: [
@@ -389,8 +399,8 @@ public struct Scenario: Sendable {
             Command(.restart),
             Command(.action, action: .networkChanged(online: false, at: t0 + 150)),
             Command(.action, action: .networkChanged(online: true, at: t0 + 200)),
+            Command(.action, action: .connected(at: t0 + 250)),
             Command(.action, action: .deliveryFailed(clientID: "o1", failure: .retryable(reason: "unreachable"), at: t0 + 300)),
-            Command(.action, action: .connected(at: t0 + 400)),
             Command(.action, action: .tick(at: t0 + 1300)),
             Command(.action, action: .deliveryAccepted(clientID: "o1", at: t0 + 1400)),
             Command(.action, action: .connectionLost(at: t0 + 2000)),
@@ -403,8 +413,9 @@ public struct Scenario: Sendable {
             try require(s[1].connectionNotice == .phoneOffline, "no network is said at once")
             try require(s[3].outbox.first?.state == .waiting && s[3].messages.last?.delivery == .waiting, "a send offline is kept, not attempted")
             try require(s[4].outbox == s[3].outbox, "the queued message survives a relaunch")
-            try require(s[6].connectionNotice == nil && s[6].outbox.first?.state == .sending, "back online: it goes, and nothing is announced")
-            try require(s[7].outbox.first?.notBefore == t0 + 1300, "a lost acknowledgement waits its backoff")
+            try require(s[6].connectionNotice == nil && s[6].outbox.first?.state == .waiting, "back online: nothing is announced, and it waits for the Mac")
+            try require(s[7].outbox.first?.state == .sending, "the Mac's stream answers: it goes")
+            try require(s[8].outbox.first?.notBefore == t0 + 1300, "a lost acknowledgement waits its backoff")
             try require(s[9].outbox.first?.state == .sending, "then resends")
             try require(s[10].outbox.isEmpty, "delivered once")
             try require(s[12].connectionNotice == nil && s[13].connectionNotice == nil, "a drop shorter than 3 s shows nothing")
@@ -504,8 +515,11 @@ public struct Scenario: Sendable {
             try require(s[0].screen == .conversationEmpty, "starts on conv-empty")
             try require(s[1].draft == "Hello Rich", "compose sets the draft")
             try require(s[2].appearance == .light && s[2].draft == "Hello Rich", "theme change keeps the draft")
-            try require(s[3] == s[2], "restart restores the persisted draft and theme")
-            try require(s[5] == s[0], "clearing the draft and theme returns to the fixture")
+            // A relaunch has no stream open until the Mac answers again (`linkOpen` is transient).
+            var relaunched = s[2], fixture = s[0]
+            relaunched.linkOpen = false; fixture.linkOpen = false
+            try require(s[3] == relaunched, "restart restores the persisted draft and theme")
+            try require(s[5] == fixture, "clearing the draft and theme returns to the fixture")
         }),
         // Scan → found → progress → six v2 words (computed on the phone) → match → the press on the
         // Mac → consent → empty chat.

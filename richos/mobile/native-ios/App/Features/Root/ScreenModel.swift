@@ -161,6 +161,8 @@ struct ScreenModel: Equatable, Sendable {
         enum Kind: Equatable, Sendable {
             case reconnecting, phoneOffline, serviceUnavailable, macUnreachable, incompatible
             case voiceUnsupported, voicePaused, attachmentsUnsupported
+            /// D05: on the Tailscale route, this phone is not on Tailscale.
+            case tailscaleOff
         }
         var kind: Kind
     }
@@ -300,6 +302,7 @@ extension ScreenModel {
             case .serviceUnavailable: connection = ConnectionLine(kind: .serviceUnavailable)
             case .macUnreachable: connection = ConnectionLine(kind: .macUnreachable)
             case .incompatible: connection = ConnectionLine(kind: .incompatible)
+            case .tailscaleOff: connection = ConnectionLine(kind: .tailscaleOff)
             }
         } else if s.voiceAvailability == .unsupportedByMac {
             connection = ConnectionLine(kind: .voiceUnsupported)

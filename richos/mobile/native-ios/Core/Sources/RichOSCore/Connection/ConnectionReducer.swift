@@ -9,11 +9,25 @@ public enum ConnectionReducer {
     /// Routine reconnects are presentation-silent for three seconds (preserved client, DEVELOPMENT.md).
     public static let quietMs: Int64 = 3000
 
+    /// **D05: WHAT THE PHONE CAN SAY ABOUT TAILSCALE, FROM THE OS'S OWN WORD** (Android
+    /// `Connections.cause`). Paired over the Tailscale route, with the OS showing no Tailscale tunnel on
+    /// this phone, a phone that is merely away cannot reconnect by itself: "Reconnecting…" would not be
+    /// true, and the fix is the person's to make. Only the quiet reasons are refined; offline, the
+    /// service and incompatible say what they say. An unknown report (`nil`) is never guessed.
+    static func cause(_ notice: ConnectionNotice, _ s: AppState) -> ConnectionNotice {
+        guard s.pairing == .paired, s.mac?.route == .tailnet, s.tunnelUp == false else { return notice }
+        switch notice {
+        case .reconnecting, .macUnreachable: return .tailscaleOff
+        default: return notice
+        }
+    }
+
     static func reduce(_ s: inout AppState, _ action: Action, _ effects: inout [Effect]) {
         switch action {
         case .networkChanged(let online, let at):
             if !online {
                 s.connectionNotice = .phoneOffline
+                s.linkOpen = false
                 effects.append(.disconnect)
                 s.troubleSinceMs = s.troubleSinceMs ?? at
             } else if s.connectionNotice == .phoneOffline {
@@ -26,8 +40,10 @@ public enum ConnectionReducer {
             }
         case .connectionLost(let at):
             s.troubleSinceMs = s.troubleSinceMs ?? at
+            s.linkOpen = false
         case .connected(let at):
             s.troubleSinceMs = nil
+            s.linkOpen = true
             if s.connectionNotice != .incompatible { s.connectionNotice = nil }
             // History on screen has now been reconciled with the Mac.
             s.history.cached = false
@@ -35,7 +51,25 @@ public enum ConnectionReducer {
         case .connectionDiagnosed(let notice):
             // Evidence-based only (contract §6.3): the transport's probe says which.
             guard notice != .reconnecting, s.connectionNotice != .incompatible, s.connectionNotice != .phoneOffline else { return }
-            s.connectionNotice = notice
+            s.connectionNotice = cause(notice, s)
+        case .tunnelChanged(let up):
+            // Came up: known down before (a first report is not a change the person made).
+            let cameUp = up && s.tunnelUp == false
+            s.tunnelUp = up
+            switch s.connectionNotice {
+            case .tailscaleOff? where up:
+                // The fix is done: the line says what is true now, until the Mac answers.
+                s.connectionNotice = .reconnecting
+            case .reconnecting?, .macUnreachable?:
+                s.connectionNotice = cause(s.connectionNotice!, s)
+            default:
+                break
+            }
+            // A tunnel that came up is a useful moment to try, now rather than at the end of the
+            // back-off (Android: `if (up) wake()`); one that went down is not.
+            if cameUp, s.pairing == .paired, !s.linkOpen, s.connectionNotice != .phoneOffline, s.connectionNotice != .incompatible {
+                effects.append(.connect)
+            }
         case .macCapabilities(let text, let voice):
             s.connectionNotice = text ? (s.connectionNotice == .incompatible ? nil : s.connectionNotice) : .incompatible
             if voice {
@@ -48,6 +82,7 @@ public enum ConnectionReducer {
             s.pairing = .revoked
             s.troubleSinceMs = nil
             s.connectionNotice = nil
+            s.linkOpen = false
             effects.append(.disconnect)
         case .macAttachmentLimits(let limits):
             s.attachmentLimits = limits
@@ -58,15 +93,21 @@ public enum ConnectionReducer {
         case .foregrounded(let at):
             guard s.pairing == .paired, s.connectionNotice != .phoneOffline else { return }
             effects.append(.connect)
+            // Connecting is trouble until the Mac answers: a Mac that takes the connection and never
+            // answers is explained after the same quiet 3 s as one that refuses it, not after the
+            // stream's minute-long timeout (I06). The reference starts its 3 s at `opening`, Android
+            // at `Link(OPENING)`. A healthy stream opens well inside the quiet period and clears it.
+            if !s.linkOpen { s.troubleSinceMs = s.troubleSinceMs ?? at }
             ConversationReducer.pump(&s, at: at, &effects)
         case .backgrounded:
             // No stream in the background (build plan §3.2): APNs is for awareness, the foreground
             // reconciles. The quiet period restarts on return.
             s.troubleSinceMs = nil
+            s.linkOpen = false
             if s.pairing == .paired { effects.append(.disconnect) }
         case .tick(let at):
             if let since = s.troubleSinceMs, s.connectionNotice == nil, at - since >= quietMs {
-                s.connectionNotice = .reconnecting
+                s.connectionNotice = cause(.reconnecting, s)
             }
         default:
             break

@@ -44,8 +44,9 @@ actor RoutedMac: HTTPTransport {
         let exchange = try #require(try Corpus.cases(try Corpus.load("pairing"), "pair_exchanges").first)
         let answer = try JSONSerialization.data(withJSONObject: try #require((exchange["mac_answers"] as? [[String: Any]])?.first?["body"]))
         let mac = RoutedMac(pairAnswer: answer)
-        let wire = Data((try Corpus.cases(try Corpus.load("events"), "wire_cases")[0]["wire_utf8"] as? String ?? "").utf8)
-        let stream = ScriptedStream([.init(response: HTTPResponse(status: 200), chunks: [wire])])
+        let wire = try Corpus.cases(try Corpus.load("events"), "wire_cases")[0]["wire_utf8"] as? String ?? ""
+        // The stream stays open after the turn, as a Mac's does: the outbox moves only on an open one.
+        let stream = LifecycleStream([.open(chunks: [wire])])
         let identities = MemoryIdentityStore()
         let network = NetworkEffects(transport: mac, stream: stream, identities: identities, clock: FixedClock(ms: 100),
                                      sleep: { _ in throw CancellationError() })
@@ -77,6 +78,7 @@ actor RoutedMac: HTTPTransport {
         #expect(pairBody["platform"] as? String == "ios" && pairBody["pairing_version"] as? Int == 2 && sent[0].headers["Authorization"] == nil)
         #expect(String(decoding: sent[1].body ?? Data(), as: UTF8.self).contains(#""fingerprint_confirmed":true"#) && sent[1].headers["Authorization"] != nil)
         #expect(sent.contains { $0.target == "/api/messages" && String(decoding: $0.body ?? Data(), as: UTF8.self).contains(#""text":"Thanks""#) })
+        _ = try await host.dispatch(.backgrounded(at: 300))
     }
 
     @Test func notificationRegistrationWaitsForTheTokenAndKeepsTheHostID() async throws {

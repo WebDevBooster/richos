@@ -75,18 +75,10 @@ struct ConnectionText: View {
         .accessibilityIdentifier("connection.line")
     }
 
-    /// Round 12's sentences (`screens.js` group 7, `rec-unsupported`, `upd-feature-off`).
+    /// The sentence for `kind`, from the one table of connection wording (`ConnectionWords`).
     static func words(_ kind: ScreenModel.ConnectionLine.Kind) -> (String, String) {
-        switch kind {
-        case .reconnecting: return ("Reconnecting…", "Your messages are saved.")
-        case .phoneOffline: return ("No internet connection.", "Messages stay on this phone.")
-        case .serviceUnavailable: return ("RichOS Connect is temporarily unavailable.", "Messages stay on this phone.")
-        case .macUnreachable: return ("Your Mac cannot be reached. Keep it awake with RichOS running.", "Messages stay on this phone.")
-        case .incompatible: return ("This Mac needs a newer RichOS app.", "Your queued messages are kept.")
-        case .voiceUnsupported: return ("This Mac cannot accept voice yet.", "Your recording stays on this phone.")
-        case .voicePaused: return ("Voice messages are paused while we fix a problem.", "Typing works.")
-        case .attachmentsUnsupported: return ("This Mac needs a newer RichOS for photos and files.", "Text and voice work.")
-        }
+        let w = ConnectionWords.words(kind)
+        return (w.lead, w.reassurance)
     }
 }
 

@@ -25,8 +25,8 @@
 # Missing Xcode, the iOS runtime, xcodegen or `native-ios/project.yml` exits 2 with NOT RUN; a failure
 # on a capable host is red.
 # run-tests: no-host-screen: simctl and XCUITest run on simulators this suite creates, booted headless without Simulator.app
-# run-tests: inputs richos/app/scripts/lib/simulator_budget.py richos/app/scripts/native-ios-ui.test.sh richos/app/scripts/lib/ios_ui_shards.py richos/engine/scripts/lib/worker_tokens.py richos/mobile/native-ios/App/Design richos/mobile/native-ios/App/Features richos/mobile/native-ios/UITests richos/mobile/native-ios/UnitTests richos/mobile/native-ios/Core/Sources/RichOSCore richos/mobile/native-ios/Core/Sources/RichOSFixtures richos/mobile/native-ios/project.yml richos/engine/scripts/lib/proc_tree.py richos/engine/scripts/lib/testdevices.py richos/app/scripts/testvm/reserve.py richos/mobile/native-ios/App/App/ShareIntake.swift richos/mobile/native-ios/App/Platform/Shared/PlatformIdentity.swift richos/mobile/native-ios/DevBridge/DevBridgeFixtureMac.swift
-# run-tests: covers richos/app/scripts/lib/ios_ui_shards.py richos/mobile/native-ios/App/Design/Palette.swift richos/mobile/native-ios/App/Design/RoundSpec.swift richos/mobile/native-ios/App/Features/Conversation/PulseSchedule.swift richos/mobile/native-ios/App/Design/Typography.swift richos/mobile/native-ios/App/Design/Motion.swift richos/mobile/native-ios/App/Design/SVGPath.swift richos/mobile/native-ios/App/Design/Icons.swift richos/mobile/native-ios/App/Design/Mark.swift richos/mobile/native-ios/App/Design/Components.swift richos/mobile/native-ios/App/Features/Root/ScreenModel.swift richos/mobile/native-ios/App/Features/Root/Intent.swift richos/mobile/native-ios/App/Features/Root/RootView.swift richos/mobile/native-ios/App/Features/Conversation/Rows.swift richos/mobile/native-ios/App/Features/Conversation/VoiceBubble.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptView.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptViewportGeometry.swift richos/mobile/native-ios/App/Features/Conversation/ConversationChrome.swift richos/mobile/native-ios/App/Features/Composer/ComposerView.swift richos/mobile/native-ios/App/Features/Voice/VoiceChrome.swift richos/mobile/native-ios/App/Features/Voice/TooShortLine.swift richos/mobile/native-ios/App/Features/Pairing/Takeovers.swift richos/mobile/native-ios/App/Features/Pairing/Scanner.swift richos/mobile/native-ios/App/Features/Pairing/PairingLinkSheet.swift richos/mobile/native-ios/App/Features/Settings/Overlays.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentModel.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentViews.swift richos/mobile/native-ios/App/Features/Attachments/PhotoScene.swift richos/mobile/native-ios/UITests/Support.swift richos/mobile/native-ios/UITests/ScreenshotTests.swift richos/mobile/native-ios/UITests/InteractionTests.swift richos/mobile/native-ios/UITests/AccessibilityLayoutTests.swift richos/mobile/native-ios/UITests/PairWaitInteractionTests.swift richos/mobile/native-ios/DevBridge/DevBridgeFixtureMac.swift richos/mobile/native-ios/UnitTests/TranscriptViewportGeometryTests.swift richos/mobile/native-ios/UnitTests/ShareIntakeTests.swift richos/mobile/native-ios/UnitTests/TooShortLineTests.swift richos/mobile/native-ios/App/App/ShareIntake.swift richos/mobile/native-ios/App/Design/SpinSchedule.swift richos/mobile/native-ios/UnitTests/ShareContextMirrorTests.swift
+# run-tests: inputs richos/app/scripts/lib/simulator_budget.py richos/app/scripts/native-ios-ui.test.sh richos/app/scripts/lib/ios_ui_shards.py richos/engine/scripts/lib/worker_tokens.py richos/mobile/native-ios/App/Design richos/mobile/native-ios/App/Features richos/mobile/native-ios/UITests richos/mobile/native-ios/UnitTests richos/mobile/native-ios/Core/Sources/RichOSCore richos/mobile/native-ios/Core/Sources/RichOSFixtures richos/mobile/native-ios/project.yml richos/engine/scripts/lib/proc_tree.py richos/engine/scripts/lib/testdevices.py richos/app/scripts/testvm/reserve.py richos/mobile/native-ios/App/App/ShareIntake.swift richos/mobile/native-ios/App/Platform/Shared/PlatformIdentity.swift richos/mobile/native-ios/DevBridge/DevBridgeFixtureMac.swift richos/mobile/native-ios/App/Platform/NetworkMonitor.swift
+# run-tests: covers richos/app/scripts/lib/ios_ui_shards.py richos/mobile/native-ios/App/Design/Palette.swift richos/mobile/native-ios/App/Design/RoundSpec.swift richos/mobile/native-ios/App/Features/Conversation/PulseSchedule.swift richos/mobile/native-ios/App/Design/Typography.swift richos/mobile/native-ios/App/Design/Motion.swift richos/mobile/native-ios/App/Design/SVGPath.swift richos/mobile/native-ios/App/Design/Icons.swift richos/mobile/native-ios/App/Design/Mark.swift richos/mobile/native-ios/App/Design/Components.swift richos/mobile/native-ios/App/Features/Root/ScreenModel.swift richos/mobile/native-ios/App/Features/Root/Intent.swift richos/mobile/native-ios/App/Features/Root/RootView.swift richos/mobile/native-ios/App/Features/Conversation/Rows.swift richos/mobile/native-ios/App/Features/Conversation/VoiceBubble.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptView.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptViewportGeometry.swift richos/mobile/native-ios/App/Features/Conversation/ConversationChrome.swift richos/mobile/native-ios/App/Features/Conversation/ConnectionWords.swift richos/mobile/native-ios/App/Features/Composer/ComposerView.swift richos/mobile/native-ios/App/Features/Voice/VoiceChrome.swift richos/mobile/native-ios/App/Features/Voice/TooShortLine.swift richos/mobile/native-ios/App/Features/Pairing/Takeovers.swift richos/mobile/native-ios/App/Features/Pairing/Scanner.swift richos/mobile/native-ios/App/Features/Pairing/PairingLinkSheet.swift richos/mobile/native-ios/App/Features/Settings/Overlays.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentModel.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentViews.swift richos/mobile/native-ios/App/Features/Attachments/PhotoScene.swift richos/mobile/native-ios/UITests/Support.swift richos/mobile/native-ios/UITests/ScreenshotTests.swift richos/mobile/native-ios/UITests/InteractionTests.swift richos/mobile/native-ios/UITests/AccessibilityLayoutTests.swift richos/mobile/native-ios/UITests/PairWaitInteractionTests.swift richos/mobile/native-ios/DevBridge/DevBridgeFixtureMac.swift richos/mobile/native-ios/UnitTests/TranscriptViewportGeometryTests.swift richos/mobile/native-ios/UnitTests/ShareIntakeTests.swift richos/mobile/native-ios/UnitTests/TooShortLineTests.swift richos/mobile/native-ios/App/App/ShareIntake.swift richos/mobile/native-ios/App/Design/SpinSchedule.swift richos/mobile/native-ios/UnitTests/ShareContextMirrorTests.swift richos/mobile/native-ios/App/Platform/NetworkMonitor.swift richos/mobile/native-ios/UnitTests/NetworkMonitorTests.swift
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -170,6 +170,8 @@ let expect: [String: (M) -> Bool] = [
     "conn-offline": { $0.connection?.kind == .phoneOffline },
     "conn-service": { $0.connection?.kind == .serviceUnavailable },
     "conn-mac": { $0.connection?.kind == .macUnreachable },
+    // D05 (Android `conn-tailscale-off`): the line names the fix, the waiting message keeps its card.
+    "conn-tailscale-off": { $0.connection?.kind == .tailscaleOff && $0.cards.contains(.waitingToSend(count: 1)) },
     "conn-revoked": { $0.takeover == .removedFromMac },
     "conn-incompatible": { $0.connection?.kind == .incompatible && $0.composer.disabledReason != nil },
     "conn-cached": { $0.thread.cached && $0.connection?.kind == .phoneOffline },
@@ -184,7 +186,14 @@ let expect: [String: (M) -> Bool] = [
     "upd-feature-off": { $0.connection?.kind == .voicePaused && !$0.composer.voiceAvailable },
     "launch-cached": { $0.thread.cached && $0.thread.rows.count == 10 },
 ]
-check(Fixture.all.count == 63 + 6, "the core has all 63 in-app round-12 fixtures and pairing v2's 6 (it has \(Fixture.all.count))")
+check(Fixture.all.count == 63 + 6 + 1, "the core has all 63 in-app round-12 fixtures, pairing v2's 6 and D05's Tailscale line (it has \(Fixture.all.count))")
+// D05: the Tailscale line names the fix, in the words Android shows, and nothing pulses beside it.
+do {
+    let w = ConnectionWords.words(.tailscaleOff)
+    check(w.lead == "This phone is not on Tailscale. Turn Tailscale on to reach your Mac." && w.reassurance == "Messages stay on this phone.",
+          "conn-tailscale-off says: \(w.lead) \(w.reassurance)")
+    check(ConnectionWords.words(.reconnecting).lead == "Reconnecting…", "Reconnecting… keeps its words")
+}
 for f in Fixture.all {
     guard let rule = expect[f.name] else { check(false, "\(f.name): no expectation for this fixture"); continue }
     check(rule(ScreenModel(state: f.state)), "\(f.name) draws its round-12 screen")
@@ -333,7 +342,11 @@ MainActor.assumeIsolated {
     check(frozen.state == retry, "G11 a fixture is unchanged by coming to the front and leaving it")
     let live = AppStore(state: retry, runner: EffectRunner(storage: MemoryStorage()))
     live.becameActive(at: Fixture.now + 1_000)
-    check(live.state.messages.last?.delivery == .sending, "G11 a live app coming to the front tries the waiting message at once")
+    // I06: the outbox moves on an open stream. Coming to the front reconnects; the message waits,
+    // still, until the Mac's stream answers, and goes the moment it does.
+    check(live.state.messages.last?.delivery == .waiting, "G11 a live app coming to the front reconnects and the message waits for the Mac")
+    live.receive(.connected(at: Fixture.now + 1_200))
+    check(live.state.messages.last?.delivery == .sending, "G11 the Mac's stream answers: the waiting message goes at once")
 }
 
 // G2 (Urban's audit §4.1): after the Mac removed this phone, "Pair again" with a message waiting asks
@@ -513,6 +526,7 @@ if ! xcrun swiftc -Onone -D DEBUG -module-name RichOSCore -target "$(uname -m)-a
     "$NATIVE/App/Design/Palette.swift" \
     "$NATIVE/App/Design/RoundSpec.swift" \
     "$NATIVE/App/Features/Root/ScreenModel.swift" \
+    "$NATIVE/App/Features/Conversation/ConnectionWords.swift" \
     "$NATIVE/App/Features/Attachments/AttachmentModel.swift" \
     "$NATIVE/App/Features/Conversation/TranscriptViewportGeometry.swift" \
     "$NATIVE/App/Features/Conversation/PulseSchedule.swift" \
