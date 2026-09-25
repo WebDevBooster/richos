@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+#
+# quota-watch.sh — the CEO's 93% quota rule, as the one command a lead runs.
+#
+# HIS WORDS, the whole behavior (ruling §87, richos-hq/wiki/ceo-decisions.md):
+#   "quota polling: every 5 minutes from now. And once it crosses the 93%
+#    threshold: PAUSE subagents. Then resume after quota rest."
+#
+#   quota-watch.sh --once
+#       one line: the reading, its age and the reset time.
+#       exit 0 below the threshold, 1 at or above it, 2 unknown
+#   quota-watch.sh --status
+#       the same reading, human-readable, with this session's live workers
+#   quota-watch.sh --watch [--until-reset]
+#       polls every 300 s. Run it as a BACKGROUND command (Bash with
+#       run_in_background: true) so its exit wakes the lead. It exits after
+#       printing ONE event:
+#         QUOTA-THRESHOLD  at or above the threshold with a worker running:
+#                          the exact pause message, the names to send it to,
+#                          the minutes to reset and the live-worker count
+#         WINDOW-RESET     the window turned over: the exact resume message and
+#                          the names of the agents paused for the quota
+#         QUOTA-UNKNOWN    the reading has been missing, malformed or stale for
+#                          three polls while a worker runs, so the watcher is
+#                          blind; the lead's own turn refreshes the payload
+#       --until-reset wakes only at the reset: for a window in which the lead
+#       has already decided (paused, or chose to keep working).
+#
+# THE THRESHOLD is QUOTA_PAUSE_PERCENT in the governed repository's
+# orchestration.config, beside MODEL_CEILING, read here and nowhere else.
+# Undeclared is UNKNOWN (exit 2), never a built-in 93.
+#
+# It reads ~/.claude/statusline-payload.json (QUOTA_PAYLOAD overrides, for
+# tests) and the workspace registry. It never messages, pauses, stops or
+# spawns anything, and it never reads a credential. The lead acts.
+#
+# The logic, and every choice in it: scripts/lib/quota_watch.py.
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB="$SCRIPT_DIR/lib/quota_watch.py"
+RR="$SCRIPT_DIR/lib/resolve-roots.sh"
+
+command -v python3 >/dev/null 2>&1 || { echo "quota-watch.sh: python3 is required" >&2; exit 2; }
+[ -f "$LIB" ] || { echo "quota-watch.sh: $LIB is missing" >&2; exit 2; }
+[ -f "$RR" ] || { echo "quota-watch.sh: $RR is missing" >&2; exit 2; }
+
+# shellcheck source=lib/resolve-roots.sh
+. "$RR"
+ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR/lib")"
+
+# The governed repository, the same way every rooted engine script finds it:
+# RICHOS_ENTITY_ROOT, then CLAUDE_PROJECT_DIR, then the working directory.
+CONFIG=""
+RAW=""
+if resolve_entity_root ""; then
+    CONFIG="$RICHOS_ENTITY_ROOT_RESOLVED/orchestration.config"
+    if [ -f "$CONFIG" ]; then
+        # Sourced in a subshell, exactly as the guards read MODEL_CEILING: the
+        # declaration is shell, and nothing it sets leaks into this process.
+        RAW="$( ( . "$CONFIG" >/dev/null 2>&1; printf '%s' "${QUOTA_PAUSE_PERCENT:-}" ) 2>/dev/null || true )"
+    fi
+else
+    CONFIG=""
+fi
+
+# The command a lead is told to run, spelled the way it can be copied.
+SELF="$SCRIPT_DIR/quota-watch.sh"
+
+exec python3 "$LIB" "$@" --threshold-raw "$RAW" --config "$CONFIG" \
+    --engine-root "$ENGINE_ROOT" --command "$SELF"
