@@ -4,7 +4,9 @@
 # (richos-hq spec r3 (e) the claim, e3, e5; r4 §2.4; Frank G11).
 #
 #   The claim (operator-claim.sh, SessionStart; guard-operator-claim.sh, PreToolUse)
-#     C0   OFF: no claim written, nothing said, nothing refused, even with a live app claim
+#     C0   OFF: no claim written, nothing said, nothing refused, even with a live app claim;
+#          no hook starts operator_leads.py (C0c), and asked directly it decides
+#          nothing (C0d): the bash gate and the Python gate are each proven alone
 #     C1   a terminal session in the entity claims at startup
 #     C2   idempotent: `compact` and `resume` rewrite nothing (r4 §2.4)
 #     C3   a print-mode (`sdk-cli`) session never claims as the terminal
@@ -144,9 +146,31 @@ hook T "$H_CLAIM" start; rc=$?
 plant_claim app app-1 APP
 r=0; for p in agent stop msg lease memw recw; do hook T "$H_GUARD" "$p" || r=1; [ -z "$OFX_OUT" ] || r=1; done
 check "C0b OFF: with a live app claim, nothing is refused and nothing is said" $r "$OFX_OUT"
+
+# C0c: the bash layer. A python3 first on PATH records every start of
+# operator_leads.py and then runs the real interpreter. OFF: no hook starts it.
+REALPY="$(command -v python3)"
+mkdir -p "$OFX/fakepy"
+printf '#!/bin/bash\ncase "$*" in *operator_leads.py*) echo started >> "%s/leads-started" ;; esac\nexec "%s" "$@"\n' \
+    "$OFX" "$REALPY" > "$OFX/fakepy/python3"
+chmod +x "$OFX/fakepy/python3"
+FP="PATH=$OFX/fakepy:$PATH"
+hook T "$H_CLAIM" start "$FP"; hook T "$H_GUARD" agent "$FP"; hook T "$H_NAMES" agent "$FP"
+hook T "$H_SW" memw "$FP"; hook T "$H_REL" memw "$FP"
+off_started=0; [ -f "$OFX/leads-started" ] && off_started=1
+
+# C0d: the Python layer, asked directly (no wrapper): OFF decides nothing either.
+ofx_in T "cd '$E' && OPERATOR_ENTITY_ROOT='$E' python3 '$LIB' claim-guard < '$OFX/p/agent.json'"; d1=$?; o1="$OFX_OUT"
+ofx_in T "cd '$E' && OPERATOR_ENTITY_ROOT='$E' python3 '$LIB' shared-writes-pre < '$OFX/p/memw.json'"; d2=$?
+{ [ $d1 = 0 ] && [ -z "$o1" ] && [ $d2 = 0 ] && [ ! -d "$OFX/claude/state/shared-writes" ]; }
+check "C0d OFF: operator_leads.py itself decides nothing when asked directly" $? "d1=$d1 d2=$d2 $o1"
 rm -f "$CLAIM"
 
 switch on
+hook T "$H_GUARD" agent "$FP"
+{ [ "$off_started" = 0 ] && [ -f "$OFX/leads-started" ]; }
+check "C0c OFF: no hook starts operator_leads.py (and ON, the same call does)" $? "off_started=$off_started"
+rm -f "$OFX/leads-started"
 hook T "$H_CLAIM" start; rc=$?
 python3 - "$CLAIM" "$(cat "$OFX/s/T.pid")" <<'P'; c1=$?
 import json, sys
