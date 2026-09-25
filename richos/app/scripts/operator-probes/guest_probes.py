@@ -857,8 +857,10 @@ def spawn_teammate(ctx, lead, name, agent_type, seconds, timeout=300, dirty=Fals
     with run_in_background, exactly as his terminal's lead does (engine-status banner)."""
     before = set(r['worktree'] for r in ctx.worktrees())
     ctx.spawned.append(name)
-    command = '%s %s --repo %s --type %s --brief %s --model sonnet' % (
-        ctx.p.engine / 'scripts' / 'spawn.sh', name, ctx.p.entity, agent_type, brief(ctx, name, seconds, dirty))
+    # --description: the Agent tool requires one and spawn.sh adds it only when asked (final run:
+    # "The parameter `description` type is expected as `string` but provided as `unknown`").
+    command = "%s %s --repo %s --type %s --brief %s --model sonnet --description 'Probe teammate %s'" % (
+        ctx.p.engine / 'scripts' / 'spawn.sh', name, ctx.p.entity, agent_type, brief(ctx, name, seconds, dirty), name)
     start, got = do(lead, (
         'Start one teammate. Step 1: run exactly this Bash command and read its standard output:\n%s\n'
         'Step 2: its standard output is one JSON object of Agent tool parameters. Call the Agent tool ONCE with '
@@ -1663,13 +1665,15 @@ def p12(ctx, r):
         # Run 6 showed NOT-ALIVE decided only by the platform deleting a CLEAN worktree; the
         # registry still said RUNNING. Claude Code keeps a worktree with changes, so this is
         # the case where the resolver would need another signal.
-        c_id, c_wt, c_detail = spawn_teammate(ctx, lead, 'probe-sonnet-p12c', 'alpha', 480, dirty=True)
+        c_id, c_wt, c_detail = spawn_teammate(ctx, lead, 'probe-sonnet-p12c', 'alpha', 480)
         r['spawn_c'] = c_detail
         if c_id and c_wt:
-            deadline = time.time() + 120
-            while time.time() < deadline and not (Path(c_wt) / 'probe-change.txt').exists():
-                time.sleep(1)
-            r['dirty_before_stop'] = (Path(c_wt) / 'probe-change.txt').exists()
+            # What matters to the platform at the stop is that the workspace HOLDS a change, not
+            # who wrote it (final run: a teammate briefed to write it did not), so the harness
+            # writes it into the agent's own worktree.
+            (Path(c_wt) / 'probe-change.txt').write_text('change\n')
+            code, out, _ = run(['git', '-C', c_wt, 'status', '--porcelain'], timeout=30)
+            r['dirty_before_stop'] = 'probe-change.txt' in out
             r['liveness_c_before'] = ctx.liveness(c_wt)[0]
             rid = lead.control('stop_task', task_id=c_id)
             lead.wait(lambda f: f.get('type') == 'control_response' and
@@ -1703,34 +1707,40 @@ def p12(ctx, r):
 
 
 def priority_order(ctx, r, key, use_priority):
+    """The order the CLI TAKES the three messages in, read off its own replay of each one
+    (--replay-user-messages echoes a user message, by its uuid, when it is dequeued), not off
+    the model's replies: the final run showed three queued messages answered in one turn."""
     rec = r.setdefault(key, {})
-    lead = Lead(ctx, 'P13', key, ctx.lead_args())
+    lead = Lead(ctx, 'P13', key, ctx.lead_args(extra=['--replay-user-messages']))
     try:
         lead.initialize()
         start = lead.count()
         lead.user(lead_long_task(ctx, 30, 'with exactly: A-DONE'))
         rec['lead_in_shell'] = bool(in_lead_shell(ctx, lead, start))
-        lead.user('Reply with exactly: MARK-B', priority='later' if use_priority else None)
-        lead.user('Reply with exactly: MARK-C', priority='later' if use_priority else None)
-        lead.user('Reply with exactly: MARK-D', priority='now' if use_priority else None)
+        uuids = {
+            'MARK-B': lead.user('Reply with exactly: MARK-B', priority='later' if use_priority else None),
+            'MARK-C': lead.user('Reply with exactly: MARK-C', priority='later' if use_priority else None),
+            'MARK-D': lead.user('Reply with exactly: MARK-D', priority='now' if use_priority else None),
+        }
+        by_uuid = {v: k for k, v in uuids.items()}
         deadline = time.time() + 300
-        while time.time() < deadline:
-            text = lead.text(start)
-            if all(m in text for m in ('MARK-B', 'MARK-C', 'MARK-D')):
-                break
-            time.sleep(2)
-        time.sleep(5)
-        text = lead.text(start)
-        # Did the running turn finish, or was it aborted? The lead's OWN long task's result
-        # says (run 7: "The user doesn't want to take this action right now. STOP ...").
+        taken = []
+        while time.time() < deadline and len(taken) < 3:
+            taken = []
+            for f in lead.all_frames()[start:]:
+                if f.get('type') == 'user' and f.get('uuid') in by_uuid and by_uuid[f['uuid']] not in taken:
+                    taken.append(by_uuid[f['uuid']])
+            time.sleep(1)
+        lead.result_after(lead.count(), 60)
+        time.sleep(3)
+        rec['taken_order'] = taken
+        rec['replies'] = lead.text(start)[-300:]
         own = [b for b in tool_uses(lead, start, 'Bash') if 'long-task.py' in json.dumps(b.get('input'))]
         result = tool_result_text(lead, own[0].get('id')) if own else None
         rec['own_command_result'] = (result or '')[:300]
         rec['aborted_running_turn'] = bool(result) and 'long task: done' not in result
     finally:
         lead.close()
-    order = sorted((text.find(m), m) for m in ('A-DONE', 'MARK-B', 'MARK-C', 'MARK-D') if m in text)
-    rec['order'] = [m for _, m in order]
     return rec
 
 
@@ -1738,20 +1748,20 @@ def priority_order(ctx, r, key, use_priority):
 def p13(ctx, r):
     main = priority_order(ctx, r, 'with-priority', True)
     control = priority_order(ctx, r, 'control-no-priority', False)
-    marks = ('MARK-B', 'MARK-C', 'MARK-D')
-    if not control['lead_in_shell'] or not all(m in control['order'] for m in marks) or \
-            control['order'][-1] != 'MARK-D' or control['aborted_running_turn']:
-        return 'PREMISE-FALSE', 'without priority the queue was not first-come-first-served behind a finished turn: %s' % control
-    if not main['lead_in_shell'] or not all(m in main['order'] for m in marks):
-        return 'PREMISE-FALSE', 'with priority the lead did not answer all three: %s' % main
-    first = main['order'].index('MARK-D') < min(main['order'].index('MARK-B'), main['order'].index('MARK-C'))
+    if not control['lead_in_shell'] or control['taken_order'] != ['MARK-B', 'MARK-C', 'MARK-D'] or \
+            control['aborted_running_turn']:
+        return 'PREMISE-FALSE', ('without priority the CLI did not take the messages first-come-first-served behind a '
+                                 'finished turn: %s' % control)
+    if not main['lead_in_shell'] or len(main['taken_order']) != 3:
+        return 'PREMISE-FALSE', 'with priority the CLI did not take all three: %s' % main
+    first = main['taken_order'][0] == 'MARK-D'
     if first and not main['aborted_running_turn']:
-        return 'PASS', 'now was handled before two later messages, after the running turn finished: %s' % main['order']
+        return 'PASS', 'now was taken before two later messages, after the running turn finished: %s' % main['taken_order']
     if first:
-        return 'FAIL', ('now was handled first by ABORTING the running turn: the lead\'s own foreground command got the '
-                        'interrupt (%r). It jumps the queue by interrupting the lead, which (d) forbids for a named stop; '
-                        'control order %s' % (main['own_command_result'][:90], control['order']))
-    return 'FAIL', 'now was not handled first: %s; control %s' % (main['order'], control['order'])
+        return 'FAIL', ('now was taken first by ABORTING the running turn: the lead\'s own foreground command got the '
+                        'interrupt (%r). It jumps the queue by interrupting the lead, which (d) forbids for a named stop. '
+                        'Control, without priority: %s' % (main['own_command_result'][:90], control['taken_order']))
+    return 'FAIL', 'now was not taken first: %s; control %s' % (main['taken_order'], control['taken_order'])
 
 
 @probe('P14')
@@ -1794,8 +1804,13 @@ def p14(ctx, r):
 def p15(ctx, r):
     reaps = ctx.supervisor_reaps()
     r['supervisor_has_reap_descendants'] = reaps
-    runs = [('control-no-reap', False)] + ([('reap', True)] if reaps else [])
-    for key, reap in runs:
+    # Two triggers: the app's death (the owner stand-in is killed), and, Frank's G9 on r3, the
+    # LEAD's own crash (SIGKILL by its recorded pid). Both run under today's supervisor as the
+    # controls; both run again under --reap-descendants when the engine has it.
+    runs = [('control-no-reap', False, 'owner'), ('control-no-reap-lead-crash', False, 'lead')]
+    if reaps:
+        runs += [('reap', True, 'owner'), ('reap-lead-crash', True, 'lead')]
+    for key, reap, trigger in runs:
         rec = r.setdefault(key, {})
         fg, bg = ctx.p.work / ('p15-%s-fg.txt' % key), ctx.p.work / ('p15-%s-bg.txt' % key)
         # The trigger is the app's death (r3 (q) item 2: "the owner's death"): the owner
@@ -1807,13 +1822,14 @@ def p15(ctx, r):
             rec['supervisor_pid'] = lead.supervisor_pid()
             rec['supervisor_pgid'] = pgid_of(rec['supervisor_pid']) if rec['supervisor_pid'] else None
             start = lead.count()
-            prompt = ('Make these two Bash calls, in this order. First, with run_in_background set to true: '
-                      'bash -c \'echo self=$$ pgid=$(ps -o pgid= -p $$) tty=$(ps -o tty= -p $$) > %s; '
-                      '(LONGTASK 600 & echo grandchild=$! >> %s); LONGTASK 600\'\n'
-                      'Second, in the foreground, with the Bash tool\'s timeout parameter set to 600000: '
-                      'bash -c \'echo self=$$ pgid=$(ps -o pgid= -p $$) tty=$(ps -o tty= -p $$) > %s; '
-                      '(LONGTASK 600 & echo grandchild=$! >> %s); LONGTASK 500\'') % (bg, bg, fg, fg)
-            lead.user(FIXTURE_NOTE + prompt.replace('LONGTASK', 'python3 %s' % (ctx.p.work / 'long-task.py')))
+            task = 'python3 %s' % (ctx.p.work / 'long-task.py')
+            shell = ('bash -c \'echo self=$$ pgid=$(ps -o pgid= -p $$) tty=$(ps -o tty= -p $$) > %s; '
+                     '(' + task + ' 600 & echo grandchild=$! >> %s); ' + task + ' %d\'')
+            do(lead, 'Start this Bash command with run_in_background set to true, then reply started. It records its own '
+                     'process ids into a scratch file and runs a stand-in for a long build: ' + shell % (bg, bg, 600), 240)
+            lead.user(FIXTURE_NOTE + 'Now run this Bash command yourself in the foreground, with the Bash tool\'s timeout '
+                      'parameter set to 600000, and wait for it. It records its own process ids into a scratch file and '
+                      'runs a stand-in for a long build: ' + shell % (fg, fg, 500))
             deadline = time.time() + 180
             while time.time() < deadline and not (fg.exists() and bg.exists() and
                                                   'grandchild' in fg.read_text() and 'grandchild' in bg.read_text()):
@@ -1830,7 +1846,11 @@ def p15(ctx, r):
                         recorded.append((label + '-' + k, int(values[k])))
             rec['own_group'] = {label: rec.get(label, {}).get('pgid', '').strip() not in ('', str(rec['lead_pgid']))
                                 for label in ('fg', 'bg')}
-            os.kill(lead.proc.pid, signal.SIGKILL)  # owned: the app stand-in this harness started
+            rec['trigger'] = trigger
+            if trigger == 'owner':
+                os.kill(lead.proc.pid, signal.SIGKILL)  # owned: the app stand-in this harness started
+            elif rec['claude_pid']:
+                os.kill(rec['claude_pid'], signal.SIGKILL)  # owned: the lead, our supervisor's own child
             grace = 5  # OPERATOR_REAP_GRACE's default (r3 (q) item 2)
             time.sleep(grace + 1)
             rec['alive_after_grace_plus_one'] = {name: alive(pid) for name, pid in recorded}
@@ -1848,9 +1868,11 @@ def p15(ctx, r):
     if not reaps:
         return 'NOT-RUN', ('the process groups are recorded (own group: %s); the reap half needs provider-supervisor.py '
                            '--reap-descendants, which this engine does not have yet (r3 (q), zach)') % control.get('own_group')
-    survivors = [n for n, a in r['reap']['alive_after_grace_plus_one'].items() if a]
-    return ('PASS', 'all gone within the grace period plus one second') if not survivors else \
-        ('FAIL', 'still alive: %s' % survivors)
+    survivors = {key: [n for n, a in r[key]['alive_after_grace_plus_one'].items() if a]
+                 for key in ('reap', 'reap-lead-crash')}
+    if not any(survivors.values()):
+        return 'PASS', 'on the app\'s death and on the lead\'s crash, all gone within the grace period plus one second'
+    return 'FAIL', 'still alive: %s' % survivors
 
 
 # =============================================================================================
