@@ -1,6 +1,6 @@
 //! Read-only offer polling and a separately authorized, one-use weekly reset action.
-//! Neither polling nor approval redeems anything. Only the orchestrator's tool can
-//! consume an approval, after fresh account, grant and weekly-usage checks.
+//! Neither polling nor approval redeems anything. The prepared desktop action or
+//! orchestrator tool can consume approval after fresh account, grant and usage checks.
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -239,6 +239,19 @@ fn parse(body: &Value) -> Result<Reading, String> {
     })
 }
 
+struct RecordLock(fs::File);
+impl Drop for RecordLock {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsRawFd;
+            // Closing alone can leave flock held by a concurrently spawned child's
+            // inherited descriptor until exec. End our critical section explicitly.
+            let _best_effort = unsafe { libc::flock(self.0.as_raw_fd(), libc::LOCK_UN) };
+        }
+    }
+}
+
 pub struct Service {
     root: PathBuf,
 }
@@ -258,7 +271,7 @@ impl Service {
             .and_then(|_| fs::File::open(&self.root)?.sync_all())
             .map_err(|_| "Could not save the reset record. No further action was taken.".into())
     }
-    fn lock(&self) -> Result<fs::File, String> {
+    fn lock(&self) -> Result<RecordLock, String> {
         fs::create_dir_all(&self.root).map_err(|_| "Reset storage unavailable.")?;
         let mut options = fs::OpenOptions::new();
         options.read(true).write(true).create(true).truncate(false);
@@ -272,7 +285,7 @@ impl Service {
             if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
                 return Err("A reset check or action is in progress. Try again shortly.".into());
             }
-            Ok(file)
+            Ok(RecordLock(file))
         }
         #[cfg(not(unix))]
         {
@@ -744,6 +757,20 @@ mod tests {
             assert!(restarted.approve(&restarted.view().offers[0]).is_err());
             assert_eq!(t.posts, 1);
         }
+    }
+    #[test]
+    fn ending_critical_section_unlocks_even_with_an_inherited_descriptor() {
+        let root = Scratch::new();
+        let s = Service::new(root.path());
+        let lock = s.lock().unwrap();
+        let inherited = lock.0.try_clone().unwrap();
+        assert!(s.lock().is_err());
+        drop(lock);
+        let next = s.lock().expect("descriptor inheritance must not retain the lock");
+        drop(inherited);
+        assert!(s.lock().is_err(), "old descriptor must not release the new lock");
+        drop(next);
+        assert!(s.lock().is_ok());
     }
     #[test]
     fn disk_corruption_and_competing_process_lock_fail_closed() {
