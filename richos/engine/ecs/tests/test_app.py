@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -663,6 +664,130 @@ class CeoThreadSeatTests(unittest.TestCase):
         self.assertFalse(self.call("release-seat", seat=self.seat("thread-a"), binding=live,
                                    person_id=self.seat("thread-b"), request_id="rel-5",
                                    source_ref="reconcile:5", expected_revision=1)["released"])
+
+
+WITHDRAWN = "cancelled"  # dialect-exempt: the ECS store's own terminal status value (ecs_core.py)
+
+
+class OperatorCompleteTests(unittest.TestCase):
+    """`operator-complete`: how the app closes the obligation of an assignment his
+    OWN team carried (richos-hq operator back-end spec r1 (c), r3 (c)). The lead
+    reports through `richos_operator.report`; the host then asks this verb, which
+    re-verifies every piece of evidence itself and accepts only
+    `git:<repo>:<branch>:<sha>` (the commit is in that branch) or
+    `answer:<sha256>` (the digest of the answer text sent with it). A model
+    checkpoint still cannot certify completion; this verb is the host's."""
+
+    call = WorkSeatTests.call
+    bind = WorkSeatTests.bind
+    rows = WorkSeatTests.rows
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="ecs operator ")
+        self.root = Path(self.temp.name)
+        self.state = self.root / "state"
+        self.repo = self.root / "repo"
+        self.git("init", "-q", "-b", "main", str(self.repo), cwd=self.root)
+        (self.repo / "f.txt").write_text("base\n")
+        self.git("add", "f.txt")
+        self.git("commit", "-q", "-m", "base")
+        self.landed = self.git("rev-parse", "HEAD").strip()
+        self.git("switch", "-q", "-c", "side")
+        (self.repo / "f.txt").write_text("side\n")
+        self.git("commit", "-q", "-am", "side")
+        self.unlanded = self.git("rev-parse", "HEAD").strip()
+        self.git("switch", "-q", "main")
+        self.ceo = self.bind("depot", "thread-a", "session-conv", "turn-1", None)
+        self.assertTrue(self.call("checkpoint", request_id="open-1", binding=self.ceo, checkpoint={
+            "statements": [{"verb": "commitment", "fields": {"id": "ship-it", "title": "Ship it"}},
+                           {"verb": "commitment", "fields": {"id": "answer-it", "title": "Answer it"}}]})["accepted"])
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def git(self, *args, cwd=None):
+        env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+               "GIT_AUTHOR_NAME": "Fixture", "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+               "GIT_COMMITTER_NAME": "Fixture", "GIT_COMMITTER_EMAIL": "fixture@example.invalid"}
+        result = subprocess.run(["git", *args], cwd=cwd or self.repo, env=env, text=True,
+                                capture_output=True, check=True)
+        return result.stdout
+
+    def complete(self, ok=True, obligation="ship-it", **fields):
+        fields.setdefault("source_ref", "operator-report:1")
+        return self.call("operator-complete", ok=ok, binding=self.ceo, obligation_id=obligation, **fields)
+
+    def status(self, item):
+        return self.rows("SELECT status, evidence_ref FROM ecs_continuity_items WHERE item_id=?", item)[0]
+
+    def still_open(self, item):
+        self.assertNotIn(self.status(item)["status"], ("completed", WITHDRAWN))
+
+    def test_O1_a_verified_land_closes_the_obligation_and_a_replay_is_a_duplicate(self):
+        evidence = [f"git:{self.repo}:main:{self.landed}"]
+        first = self.complete(evidence=evidence)
+        self.assertEqual((first["obligation_closed"], first["status"], first["duplicate"]),
+                         (True, "completed", False))
+        self.assertEqual(self.status("ship-it")["status"], "completed")
+        self.assertIn(self.landed, self.status("ship-it")["evidence_ref"])
+        again = self.complete(evidence=evidence)
+        self.assertTrue(again["duplicate"])
+        self.assertEqual(len(self.rows("SELECT sequence FROM ecs_events WHERE event_type='continuity.item_closed'")), 1)
+
+    def test_O2_a_commit_not_in_the_branch_is_refused_and_the_obligation_stays_open(self):
+        message = self.complete(ok=False, evidence=[f"git:{self.repo}:main:{self.unlanded}"])
+        self.assertIn("could not be confirmed", message)
+        self.still_open("ship-it")
+        self.assertIn("could not be confirmed",
+                      self.complete(ok=False, evidence=[f"git:{self.root}/absent:main:{self.landed}"]))
+
+    def test_O3_an_answer_is_its_text_digest_and_nothing_else(self):
+        text = "Nothing to land: the answer is in the notice."
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        self.assertIn("SHA-256", self.complete(ok=False, obligation="answer-it",
+                                               evidence=[f"answer:{digest}"], answer_text=text + "!"))
+        self.assertIn("SHA-256", self.complete(ok=False, obligation="answer-it", evidence=[f"answer:{digest}"]))
+        done = self.complete(obligation="answer-it", evidence=[f"answer:{digest}"], answer_text=text)
+        self.assertEqual((done["status"], self.status("answer-it")["status"]), ("completed", "completed"))
+
+    def test_O4_every_other_shape_of_evidence_is_refused(self):
+        for bad in ([self.landed], [f"review:x:{self.landed}:passed"], [f"git:relative/repo:main:{self.landed}"],
+                    [f"git:{self.repo}:main:{self.landed[:12]}"], [f"git:{self.repo}:-main:{self.landed}"],
+                    [], "git:x", [f"answer:{'0' * 64}", f"answer:{'1' * 64}"]):
+            self.complete(ok=False, evidence=bad, answer_text="x")
+        self.still_open("ship-it")
+
+    def test_O5_a_work_seat_cannot_close_an_obligation_this_way(self):
+        seat = "work-seat:assign-7"
+        work = self.bind("depot", "thread-a", "session-w", "ship-it", None, seat=seat, audience="worker")
+        message = self.call("operator-complete", ok=False, seat=seat, binding=work, obligation_id="ship-it",
+                            source_ref="x", evidence=[f"git:{self.repo}:main:{self.landed}"])
+        self.assertIn("conversation's own seat", message)
+        self.still_open("ship-it")
+
+    def test_O6_a_closed_obligation_is_not_closed_again_with_other_evidence(self):
+        self.complete(evidence=[f"git:{self.repo}:main:{self.landed}"])
+        text = "later"
+        self.assertIn("open", self.complete(ok=False, evidence=[
+            f"answer:{hashlib.sha256(text.encode()).hexdigest()}"], answer_text=text))
+
+    def test_O7_a_failed_assignment_is_closed_with_its_answer_never_with_a_land(self):
+        text = "It failed: the fixture repository refused the push."
+        digest = hashlib.sha256(text.encode()).hexdigest()
+        self.assertIn("cannot close a failed", self.complete(ok=False, status=WITHDRAWN,
+                                                             evidence=[f"git:{self.repo}:main:{self.landed}"]))
+        done = self.complete(status=WITHDRAWN, evidence=[f"answer:{digest}"], answer_text=text)
+        self.assertEqual((done["status"], self.status("ship-it")["status"]), (WITHDRAWN, WITHDRAWN))
+        self.complete(ok=False, obligation="answer-it", status="completed-ish",
+                      evidence=[f"answer:{digest}"], answer_text=text)
+
+    def test_O8_the_host_verb_is_announced_and_never_a_model_tool(self):
+        self.assertIn("operator-complete", self.call("hello")["commands"])
+        scope = self.root / "scope.json"
+        scope.write_text(json.dumps({"version": 1, "actions_allowed": True, "binding": self.ceo,
+                                     "state_root": str(self.state)}))
+        with self.assertRaises(ValueError):
+            tool_call(str(scope), "operator-complete", {"obligation_id": "ship-it", "evidence": []})
 
 
 if __name__ == "__main__":
