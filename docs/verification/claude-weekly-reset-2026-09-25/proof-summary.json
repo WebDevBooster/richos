@@ -1,0 +1,783 @@
+{
+ "wall_seconds": 73.7,
+ "serial_seconds": 0.0,
+ "host": [
+  "host during the run: 7 samples, total CPU mean 99%, max 100%, at or over the 80% admission line in 7 of them (system CPU mean 45%, max 54%); worker tokens held: max 1 of 8, nested workers waiting for one: max 0"
+ ],
+ "checks": [
+  {
+   "check": "affordances.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node affordances.js"
+  },
+  {
+   "check": "appearance.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node appearance.js"
+  },
+  {
+   "check": "attachments.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node attachments.js"
+  },
+  {
+   "check": "background-work.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node background-work.js"
+  },
+  {
+   "check": "chrome-align.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node chrome-align.js"
+  },
+  {
+   "check": "compaction-notice.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node compaction-notice.js"
+  },
+  {
+   "check": "compaction-progress.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node compaction-progress.js"
+  },
+  {
+   "check": "composer-off.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node composer-off.js"
+  },
+  {
+   "check": "composer-scroll.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node composer-scroll.js"
+  },
+  {
+   "check": "contrast.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node contrast.js"
+  },
+  {
+   "check": "control-names.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node control-names.js"
+  },
+  {
+   "check": "corrections.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node corrections.js"
+  },
+  {
+   "check": "dialect.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node dialect.js"
+  },
+  {
+   "check": "escape.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node escape.js"
+  },
+  {
+   "check": "feedback.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node feedback.js"
+  },
+  {
+   "check": "first-run-sheet.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node first-run-sheet.js"
+  },
+  {
+   "check": "front-door.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node front-door.js"
+  },
+  {
+   "check": "home-fit.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node home-fit.js"
+  },
+  {
+   "check": "home.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node home.js"
+  },
+  {
+   "check": "inspector.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node inspector.js"
+  },
+  {
+   "check": "interruption.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node interruption.js"
+  },
+  {
+   "check": "live-workers.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node live-workers.js"
+  },
+  {
+   "check": "local-notice.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node local-notice.js"
+  },
+  {
+   "check": "markdown.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node markdown.js"
+  },
+  {
+   "check": "memory-strategy.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node memory-strategy.js"
+  },
+  {
+   "check": "memory.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node memory.js"
+  },
+  {
+   "check": "navigation-evidence.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node navigation-evidence.js"
+  },
+  {
+   "check": "no-home-network.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node no-home-network.js"
+  },
+  {
+   "check": "onboarding-lifecycle.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node onboarding-lifecycle.js"
+  },
+  {
+   "check": "onboarding.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node onboarding.js"
+  },
+  {
+   "check": "outage.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node outage.js"
+  },
+  {
+   "check": "permissions.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node permissions.js"
+  },
+  {
+   "check": "phone.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node phone.js"
+  },
+  {
+   "check": "provider-auth.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node provider-auth.js"
+  },
+  {
+   "check": "question-timer.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node question-timer.js"
+  },
+  {
+   "check": "quit-question.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node quit-question.js"
+  },
+  {
+   "check": "quota.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node quota.js"
+  },
+  {
+   "check": "realbytes.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node realbytes.js"
+  },
+  {
+   "check": "repositories.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node repositories.js"
+  },
+  {
+   "check": "restart-scope.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node restart-scope.js"
+  },
+  {
+   "check": "retention.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node retention.js"
+  },
+  {
+   "check": "scale.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node scale.js"
+  },
+  {
+   "check": "second-mouth.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node second-mouth.js"
+  },
+  {
+   "check": "settings-fit.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node settings-fit.js"
+  },
+  {
+   "check": "setup.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node setup.js"
+  },
+  {
+   "check": "slow-bridge.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node slow-bridge.js"
+  },
+  {
+   "check": "splash.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node splash.js"
+  },
+  {
+   "check": "steering.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node steering.js"
+  },
+  {
+   "check": "techy.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node techy.js"
+  },
+  {
+   "check": "thread-switch.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node thread-switch.js"
+  },
+  {
+   "check": "ticker-wrap.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node ticker-wrap.js"
+  },
+  {
+   "check": "updates.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node updates.js"
+  },
+  {
+   "check": "voice-model.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node voice-model.js"
+  },
+  {
+   "check": "waiting-lifecycle.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node waiting-lifecycle.js"
+  },
+  {
+   "check": "waiting-state.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node waiting-state.js"
+  },
+  {
+   "check": "work-summary.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node work-summary.js"
+  },
+  {
+   "check": "workers.js",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/ui/tests && node workers.js"
+  },
+  {
+   "check": "make-engine-asset",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && bash scripts/make-engine-asset.test.sh"
+  },
+  {
+   "check": "claude-quota",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && scripts/run-tests.sh --no-host-screen --only claude-quota.test.sh"
+  },
+  {
+   "check": "front-door",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && scripts/run-tests.sh --no-host-screen --only front-door.test.sh"
+  },
+  {
+   "check": "frontend-payload",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && scripts/run-tests.sh --no-host-screen --only frontend-payload.test.sh"
+  },
+  {
+   "check": "gui-boot",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && scripts/run-tests.sh --no-host-screen --only gui-boot.test.sh"
+  },
+  {
+   "check": "lint",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && scripts/run-tests.sh --no-host-screen --only lint.test.sh"
+  },
+  {
+   "check": "make-release",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && scripts/run-tests.sh --no-host-screen --only make-release.test.sh"
+  },
+  {
+   "check": "mobile-mac",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && scripts/run-tests.sh --no-host-screen --only mobile-mac.test.sh"
+  },
+  {
+   "check": "mobile-pwa",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && scripts/run-tests.sh --no-host-screen --only mobile-pwa.test.sh"
+  },
+  {
+   "check": "no-compile-time-paths",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && scripts/run-tests.sh --no-host-screen --only no-compile-time-paths.test.sh"
+  },
+  {
+   "check": "no-foreign-app-data",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && scripts/run-tests.sh --no-host-screen --only no-foreign-app-data.test.sh"
+  },
+  {
+   "check": "proof-for",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && scripts/run-tests.sh --no-host-screen --only proof-for.test.sh"
+  },
+  {
+   "check": "ui-ledger",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && scripts/run-tests.sh --no-host-screen --only ui-ledger.test.sh"
+  },
+  {
+   "check": "cargo -p richos-core",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && cargo test -p richos-core"
+  },
+  {
+   "check": "cargo -p richos-core --test between_turn_tests",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && cargo test -p richos-core --test between_turn_tests"
+  },
+  {
+   "check": "cargo -p richos-core --test between_turn_thread_tests",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && cargo test -p richos-core --test between_turn_thread_tests"
+  },
+  {
+   "check": "cargo -p richos-core --test doctrine_sentinel",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && cargo test -p richos-core --test doctrine_sentinel"
+  },
+  {
+   "check": "cargo -p richos-core --test engine_profile",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && cargo test -p richos-core --test engine_profile"
+  },
+  {
+   "check": "cargo -p richos-core --test feedback_no_outbound_tests",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && cargo test -p richos-core --test feedback_no_outbound_tests"
+  },
+  {
+   "check": "cargo -p richos-core --test native_cancel_tests",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && cargo test -p richos-core --test native_cancel_tests"
+  },
+  {
+   "check": "cargo -p richos-core --test native_onboarding_grant_tests",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && cargo test -p richos-core --test native_onboarding_grant_tests"
+  },
+  {
+   "check": "cargo -p richos-core --lib",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && cargo test -p richos-core --lib"
+  },
+  {
+   "check": "cargo assignment::",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && cargo test -p richos-core --lib assignment::"
+  },
+  {
+   "check": "cargo native::",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && cargo test -p richos-core --lib native::"
+  },
+  {
+   "check": "cargo quota::",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && cargo test -p richos-core --lib quota::"
+  },
+  {
+   "check": "cargo recovery::",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && cargo test -p richos-core --lib recovery::"
+  },
+  {
+   "check": "cargo status_tools::",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && cargo test -p richos-core --lib status_tools::"
+  },
+  {
+   "check": "cargo work_host::",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app && cargo test -p richos-core --lib work_host::"
+  },
+  {
+   "check": "cargo --bin richos-tauri",
+   "result": "not-admitted",
+   "seconds": 0.0,
+   "admission_wait": 0.0,
+   "exit": null,
+   "log": null,
+   "command": "cd richos/app/src-tauri && cargo test --bin richos-tauri"
+  }
+ ]
+}

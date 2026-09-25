@@ -60,4 +60,33 @@ and expired offers, changing grants, provider refusal, contention, scope revocat
 ambiguous replies and a crash after durable intent. UI tests cover early two-step
 approval, cancellation, revocation, uncertain results and both themes.
 
-Full proof runner results are recorded after the final run below.
+### Result: verification blocked, not ready to merge
+
+Implementation through `2495a072`; the working tree was clean for the final selection.
+`origin/main` was `9a51c580`, already an ancestor of the worktree base.
+
+- The requested `python3 richos/app/scripts/proof-run.py --keep-going origin/main..HEAD`
+  was run. It found and led to fixes for a reset lock inheritance race and the earlier
+  quota change's missing `time` dependency audit. The restarted default run waited
+  for host CPU admission without starting a check and was interrupted.
+- To obtain a complete bounded report without bypassing CPU or worker limits, the
+  final invocation added `--admission-wait 0`. It exited **1**: **86 checks selected,
+  0 passed, 0 test failures, 86 not admitted**. Host sampling reported mean 99% CPU,
+  maximum 100%; all seven samples exceeded the 80% admission line. Some checks also
+  encountered the shared machine worker ceiling. This is not a passing proof.
+- The exact generated report is [proof-summary.json](proof-summary.json), with the
+  tested commit recorded in [proof-source.json](proof-source.json).
+- Earlier executed checks: all 32 quota unit tests passed after the lock fix; the
+  full core unit suite then passed 864 tests with one ignored. The core integration
+  run stopped at the dependency audit, which is now corrected but not rerun.
+- Tauri test compilation passed after the missing `quota` fixture was fixed.
+  The standalone lint run passed before the final review fixes, reporting
+  `clippy::let_underscore_must_use` at 777 for rust-fast and 165 for Tauri.
+- The earlier UI run passed 15 of 16 checks. Its remaining selector was corrected,
+  but the final quota UI suite and refreshed screenshots remain unverified because
+  the full selection could not obtain admission. Do not treat older screenshots as
+  proof of this final revision.
+
+Rerun the full command above when host capacity is available. The full suite must
+pass before handing this branch to Rich as merge-ready. No reset was approved or
+redeemed and no app was installed by this work.
