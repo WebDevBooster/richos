@@ -1670,27 +1670,6 @@ def p11(ctx, r):
     return 'RECORDED', '%d tools only in his terminal, each with a disposition in the result' % len(r['missing_from_lead'])
 
 
-def registry_rows(text, names):
-    """{name: (state, why)} from `workspaces.sh status`: `PENDING  <name>  <why>` lines and
-    `<STATE> <name>  <why>` lines (WORKING, FINISHED, PAUSED, RETRYING). The why is the
-    registry's own words (`finished_state`): "its run has not ended" is a run still open,
-    "it was stopped (…)" is a run the registry recorded as stopped."""
-    found = {}
-    for line in text.splitlines():
-        parts = line.split(None, 2)
-        if len(parts) >= 2 and parts[0] in ('PENDING', 'WORKING', 'FINISHED', 'PAUSED', 'RETRYING') and parts[1] in names:
-            found.setdefault(parts[1], (parts[0], parts[2].strip() if len(parts) > 2 else ''))
-    return found
-
-
-def registry_says_stopped(row):
-    return bool(row) and row[1].startswith('it was stopped')
-
-
-def registry_says_running(row):
-    return bool(row) and row[1].startswith('its run has not ended')
-
-
 def workspaces(ctx, session_id, *args):
     """His engine's registry command, from the guest's engine root, with RICHOS_SESSION_ID
     naming the lead's session: the host is not the lead's descendant, so the ancestor walk
@@ -1736,9 +1715,14 @@ def p12(ctx, r):
         # Control first: after the stop and NOT-ALIVE, the registry still reads the run as
         # open (P12 measured RUNNING: no PostToolUse[TaskStop], no stoppedByUser). Then the
         # host's step, exactly r4's command, while the lead's session is still alive.
-        names = ('probe-sonnet-p12a', 'probe-sonnet-p12b')
+        # The registry is read the way P12 measured it: agent-liveness.sh's own JSON, on the
+        # agent's worktree, `evidence.registry_finished` / `registry_why`. (Run 2026-09-25 read
+        # `workspaces.sh status` instead, which lists no row for a stopped agent whose clean
+        # worktree the platform removed, and asked liveness BY NAME, which the resolver never
+        # resolves: a name is "absent/unregistered", a false NOT-ALIVE for a live agent.)
         code, out, err = workspaces(ctx, sid, '--session', sid, 'status')
-        r['registry_before_step'] = {'exit': code, 'rows': registry_rows(out, names)}
+        r['status_before_step'] = out.strip()[-1500:]
+        r['registry_before_step'] = {'a': registry_of(ctx.liveness(a_wt)), 'b': registry_of(ctx.liveness(b_wt))}
         if 'stopped' in r['notification_a'] and r['seconds_to_not_alive'] is not None:
             code, out, err = workspaces(ctx, sid, 'stop', 'probe-sonnet-p12a',
                                         '--why', 'operator probe P12: stop probe-sonnet-p12a')
@@ -1746,8 +1730,9 @@ def p12(ctx, r):
         else:
             r['registry_step'] = {'not_run': 'no task_notification stopped with NOT-ALIVE for a: %s' % r['notification_a']}
         code, out, err = workspaces(ctx, sid, '--session', sid, 'status')
-        r['registry_after_step'] = {'exit': code, 'rows': registry_rows(out, names)}
-        r['liveness_after_step'] = {'a': ctx.liveness('probe-sonnet-p12a')[0], 'b': ctx.liveness('probe-sonnet-p12b')[0]}
+        r['status_after_step'] = out.strip()[-1500:]
+        r['registry_after_step'] = {'a': registry_of(ctx.liveness(a_wt)), 'b': registry_of(ctx.liveness(b_wt))}
+        r['by_name_control'] = {'b_by_name': ctx.liveness('probe-sonnet-p12b')[0], 'b_by_worktree': ctx.liveness(b_wt)[0]}
         # ---- the realistic case: an agent whose workspace has an uncommitted change --------
         # Run 6 showed NOT-ALIVE decided only by the platform deleting a CLEAN worktree; the
         # registry still said RUNNING. Claude Code keeps a worktree with changes, so this is
@@ -1797,22 +1782,29 @@ def p12(ctx, r):
                     % (r['seconds_to_not_alive'], r['seconds_to_not_alive_c'], registry_note))
 
 
+def registry_of(liveness):
+    """(verdict, registry_finished, registry_why) from one agent-liveness.sh --json answer."""
+    verdict, detail = liveness
+    evidence = (detail or {}).get('evidence') or {}
+    return [verdict, evidence.get('registry_finished'), evidence.get('registry_why')]
+
+
 def grade_registry_step(r):
-    """P12′'s added line (r4 §5). Control: before the step the registry reads a's run as open.
-    Pass: after it, a reads stopped and NOT-ALIVE, b reads open and ALIVE."""
-    a, b = 'probe-sonnet-p12a', 'probe-sonnet-p12b'
-    before = (r.get('registry_before_step') or {}).get('rows') or {}
-    after = (r.get('registry_after_step') or {}).get('rows') or {}
-    live = r.get('liveness_after_step') or {}
-    if not registry_says_running(before.get(a)):
-        return 'PREMISE-FALSE', ('before the registry step the registry already read %s for a, so the step is not what '
-                                 'closed it' % (before.get(a),))
+    """P12′'s added line (r4 §5). Control: before the step the registry reads a's run as open
+    ("its run has not ended", as P12 measured). Pass: after it, a is NOT-ALIVE and its run is
+    finished as stopped; b is ALIVE and its run still open."""
+    before = r.get('registry_before_step') or {}
+    after = r.get('registry_after_step') or {}
+    a0, a1, b1 = before.get('a') or [None] * 3, after.get('a') or [None] * 3, after.get('b') or [None] * 3
+    if a0[1] is not False or not str(a0[2] or '').startswith('its run has not ended'):
+        return 'PREMISE-FALSE', ('before the registry step the registry read %s for a, not an open run, so the step is '
+                                 'not what closed it' % (a0,))
     if (r.get('registry_step') or {}).get('exit') != 0:
         return 'FAIL', 'the registry step did not run cleanly: %s' % r.get('registry_step')
-    if registry_says_stopped(after.get(a)) and live.get('a') == 'NOT-ALIVE' and \
-            registry_says_running(after.get(b)) and live.get('b') == 'ALIVE':
-        return 'PASS', 'registry step: a %s and %s; b %s and %s' % (after[a], live['a'], after[b], live['b'])
-    return 'FAIL', 'after the registry step: a %s, %s; b %s, %s' % (after.get(a), live.get('a'), after.get(b), live.get('b'))
+    if a1[0] == 'NOT-ALIVE' and a1[1] is True and str(a1[2] or '').startswith('it was stopped') and \
+            b1[0] == 'ALIVE' and b1[1] is False:
+        return 'PASS', 'registry step: before a %s; after a %s, b %s' % (a0, a1, b1)
+    return 'FAIL', 'after the registry step: a %s; b %s' % (a1, b1)
 
 
 def priority_order(ctx, r, key, use_priority):
@@ -2121,6 +2113,17 @@ def scrub_artifact_results(ids):
     return scrub
 
 
+def artifact_action(tool_input):
+    """r4 names the two read-only actions `list_types` and `list`. The 2.1.282 tool spells the
+    first `{"action": "list", "scope": "types"}` (measured, run 2026-09-25): it has no
+    `list_types` action. Both spellings are the same read-only question."""
+    tool_input = tool_input or {}
+    action = tool_input.get('action')
+    if action == 'list_types' or (action == 'list' and tool_input.get('scope') == 'types'):
+        return 'list_types'
+    return action
+
+
 @probe('P17')
 def p17(ctx, r):
     for key, extra in (('artifact', {'CLAUDE_CODE_ARTIFACT': '1'}), ('control', {})):
@@ -2140,7 +2143,7 @@ def p17(ctx, r):
                 for u in tool_uses(lead, start, 'Artifact'):
                     seen.add(u.get('id'))
                     text, is_error = tool_result(lead, u.get('id'))
-                    calls.append({'action': (u.get('input') or {}).get('action'), 'is_error': is_error,
+                    calls.append({'action': artifact_action(u.get('input')), 'input': u.get('input'), 'is_error': is_error,
                                   'answered': text is not None, 'result_chars': len(text or '')})
                 rec['calls'] = calls
         finally:
@@ -2151,7 +2154,7 @@ def p17(ctx, r):
     if not main.get('artifact_in_init_tools'):
         return 'FAIL', 'with CLAUDE_CODE_ARTIFACT=1 the lead still has no Artifact tool'
     by_action = {c['action']: c for c in main.get('calls') or []}
-    ok = all(a in by_action and by_action[a]['answered'] and by_action[a]['is_error'] is False for a in ('list_types', 'list'))
+    ok = all(a in by_action and by_action[a]['answered'] and by_action[a]['is_error'] is not True for a in ('list_types', 'list'))
     if ok:
         return 'PASS', 'with CLAUDE_CODE_ARTIFACT=1 Artifact is listed and list_types and list both succeed; without it, absent'
     return 'FAIL', 'Artifact is listed, but the read-only calls did not both succeed: %s' % main.get('calls')
@@ -2176,7 +2179,45 @@ def regrade_p5(frames_path, task_id):
     return grade_p5(rows, task_id, first_result)
 
 
+def regrade_p17(artifact_frames, control_frames):
+    """Grade a RECORDED P17 run with no guest: the tool inputs and the error flags are in the
+    saved frames (only the results' text was scrubbed)."""
+    def rows(path):
+        return [json.loads(line)['frame'] for line in Path(path).read_text().splitlines() if line.strip()]
+    r = {'artifact': {}, 'control': {}}
+    for key, path in (('artifact', artifact_frames), ('control', control_frames)):
+        frames = rows(path)
+        init = next((f for f in frames if f.get('type') == 'system' and f.get('subtype') == 'init'), {})
+        r[key]['artifact_in_init_tools'] = 'Artifact' in (init.get('tools') or [])
+        uses = [b for f in frames if f.get('type') == 'assistant' for b in (f.get('message') or {}).get('content') or []
+                if b.get('type') == 'tool_use' and b.get('name') == 'Artifact']
+        results = {b.get('tool_use_id'): b for f in frames if f.get('type') == 'user'
+                   for b in (f.get('message') or {}).get('content') or [] if isinstance(b, dict) and b.get('type') == 'tool_result'}
+        r[key]['calls'] = [{'action': artifact_action(u.get('input')), 'input': u.get('input'),
+                            'is_error': (results.get(u.get('id')) or {}).get('is_error'),
+                            'answered': u.get('id') in results} for u in uses]
+    main, control = r['artifact'], r['control']
+    if control['artifact_in_init_tools']:
+        return 'PREMISE-FALSE', 'without the variable the lead has Artifact too', r
+    if not main['artifact_in_init_tools']:
+        return 'FAIL', 'with CLAUDE_CODE_ARTIFACT=1 the lead still has no Artifact tool', r
+    by_action = {c['action']: c for c in main['calls']}
+    ok = all(a in by_action and by_action[a]['answered'] and by_action[a]['is_error'] is not True for a in ('list_types', 'list'))
+    if ok:
+        return 'PASS', ('with CLAUDE_CODE_ARTIFACT=1 Artifact is listed and both read-only calls answered without error '
+                        '(list with scope types, then list); without it, absent'), r
+    return 'FAIL', 'the read-only calls did not both succeed: %s' % main['calls'], r
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == '--grade-p17':
+        if len(sys.argv) != 4:
+            print('usage: guest_probes.py --grade-p17 <P17-artifact.jsonl> <P17-control.jsonl>', file=sys.stderr)
+            return 2
+        verdict, why, facts = regrade_p17(sys.argv[2], sys.argv[3])
+        print(json.dumps({'probe': 'P17', 'graded_from': sys.argv[2:], 'verdict': verdict, 'why': why, 'facts': facts},
+                         indent=1))
+        return 0 if verdict == 'PASS' else 1
     if len(sys.argv) > 1 and sys.argv[1] == '--grade-p5':
         if len(sys.argv) != 4:
             print('usage: guest_probes.py --grade-p5 <P5-lead.jsonl> <task id>', file=sys.stderr)

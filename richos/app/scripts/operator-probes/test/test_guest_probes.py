@@ -174,34 +174,37 @@ class GradeP5(unittest.TestCase):
 
 
 class RegistryStep(unittest.TestCase):
-    """P12′ (r4 §2.1, §5): the registry's own words, parsed from `workspaces.sh status`."""
-    STATUS_BEFORE = ('session: s-1\npending: none\n'
-                     'WORKING  probe-sonnet-p12a  its run has not ended\n'
-                     'WORKING  probe-sonnet-p12b  its run has not ended\n')
-    STATUS_AFTER = ('session: s-1\n'
-                    'PENDING  probe-sonnet-p12a  it was stopped (operator probe P12: stop probe-sonnet-p12a)\n'
-                    '           /w/a  cc/probe-sonnet-p12a\n'
-                    'WORKING  probe-sonnet-p12b  its run has not ended\n')
-    NAMES = ('probe-sonnet-p12a', 'probe-sonnet-p12b')
+    """P12′ (r4 §2.1, §5): the registry read the way P12 measured it, from agent-liveness.sh's
+    JSON on the worktree (`evidence.registry_finished`, `registry_why`)."""
+    def live(self, verdict, finished, why):
+        return (verdict, {'evidence': {'registry_finished': finished, 'registry_why': why}})
 
-    def result(self, before, after, live_a='NOT-ALIVE', live_b='ALIVE', step_exit=0):
-        return {'registry_before_step': {'rows': gp.registry_rows(before, self.NAMES)},
-                'registry_step': {'exit': step_exit},
-                'registry_after_step': {'rows': gp.registry_rows(after, self.NAMES)},
-                'liveness_after_step': {'a': live_a, 'b': live_b}}
+    def result(self, before_a, after_a, after_b, step_exit=0):
+        return {'registry_before_step': {'a': gp.registry_of(before_a)}, 'registry_step': {'exit': step_exit},
+                'registry_after_step': {'a': gp.registry_of(after_a), 'b': gp.registry_of(after_b)}}
 
-    def test_rows_are_read_from_pending_and_state_lines(self):
-        rows = gp.registry_rows(self.STATUS_AFTER, self.NAMES)
-        self.assertEqual(rows['probe-sonnet-p12a'][0], 'PENDING')
-        self.assertTrue(gp.registry_says_stopped(rows['probe-sonnet-p12a']))
-        self.assertTrue(gp.registry_says_running(rows['probe-sonnet-p12b']))
+    def test_the_step_passes_only_with_its_control_and_both_agents_right(self):
+        open_ = self.live('NOT-ALIVE', False, 'its run has not ended')
+        stopped = self.live('NOT-ALIVE', True, 'it was stopped (operator probe P12: stop probe-sonnet-p12a)')
+        b_alive = self.live('ALIVE', False, 'its run has not ended')
+        self.assertEqual(gp.grade_registry_step(self.result(open_, stopped, b_alive))[0], 'PASS')
+        self.assertEqual(gp.grade_registry_step(self.result(stopped, stopped, b_alive))[0], 'PREMISE-FALSE')
+        self.assertEqual(gp.grade_registry_step(self.result(open_, open_, b_alive))[0], 'FAIL')
+        self.assertEqual(gp.grade_registry_step(self.result(open_, stopped, self.live('NOT-ALIVE', False, 'x')))[0], 'FAIL')
+        self.assertEqual(gp.grade_registry_step(self.result(open_, stopped, b_alive, step_exit=1))[0], 'FAIL')
 
-    def test_the_step_passes_only_with_its_control_and_both_names_right(self):
-        self.assertEqual(gp.grade_registry_step(self.result(self.STATUS_BEFORE, self.STATUS_AFTER))[0], 'PASS')
-        self.assertEqual(gp.grade_registry_step(self.result(self.STATUS_AFTER, self.STATUS_AFTER))[0], 'PREMISE-FALSE')
-        self.assertEqual(gp.grade_registry_step(self.result(self.STATUS_BEFORE, self.STATUS_BEFORE))[0], 'FAIL')
-        self.assertEqual(gp.grade_registry_step(self.result(self.STATUS_BEFORE, self.STATUS_AFTER, live_b='NOT-ALIVE'))[0], 'FAIL')
-        self.assertEqual(gp.grade_registry_step(self.result(self.STATUS_BEFORE, self.STATUS_AFTER, step_exit=1))[0], 'FAIL')
+    def test_a_liveness_answer_without_a_registry_reading_is_never_an_open_run(self):
+        self.assertEqual(gp.registry_of(('NOT-ALIVE', {})), ['NOT-ALIVE', None, None])
+        self.assertEqual(gp.grade_registry_step(self.result(('NOT-ALIVE', {}), ('NOT-ALIVE', {}), ('ALIVE', {})))[0],
+                         'PREMISE-FALSE')
+
+
+class ArtifactActions(unittest.TestCase):
+    def test_the_binary_s_list_with_scope_types_is_r4_s_list_types(self):
+        self.assertEqual(gp.artifact_action({'action': 'list', 'scope': 'types'}), 'list_types')
+        self.assertEqual(gp.artifact_action({'action': 'list_types'}), 'list_types')
+        self.assertEqual(gp.artifact_action({'action': 'list'}), 'list')
+        self.assertEqual(gp.artifact_action({'action': 'publish'}), 'publish')
 
 
 class GradeP16(unittest.TestCase):
