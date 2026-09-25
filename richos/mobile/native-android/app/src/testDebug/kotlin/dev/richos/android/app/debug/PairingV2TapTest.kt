@@ -80,7 +80,7 @@ class PairingV2TapTest {
     }
 
     @Test
-    fun `They do not match on the waiting screen stops the wait, and the Mac forgets the phone`() {
+    fun `They do not match on the waiting screen stops the wait, says nothing was paired, and the Mac forgets the phone`() {
         words()
         compose.onNodeWithText("They match").performClick()
         idleUntil { store.states.value?.pairing?.phase == PairingPhase.AWAITING_MAC }
@@ -89,9 +89,28 @@ class PairingV2TapTest {
         idleUntil { store.states.value?.pairing?.phase == PairingPhase.UNPAIRED }
         val s = store.states.value!!
         assertEquals(PairingPhase.UNPAIRED, s.pairing.phase)
+        assertEquals(RichCore.PROBLEM_WORDS_REJECTED, s.pairing.problem)
         assertNull(s.macWaitDueInMs)
         compose.waitForIdle()
+        // Urban's review, state 4 (the BLOCKER): the security decision is confirmed, never a silent reset.
+        compose.onNodeWithText("Stopped, and nothing was paired").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Scan your Mac’s code").assertIsDisplayed()
+    }
+
+    @Test
+    fun `They do not match on the six words says nothing was paired, and a new code clears it`() {
+        words()
+        compose.onNodeWithText("They do not match").performClick()
+        idleUntil { store.states.value?.pairing?.problem == RichCore.PROBLEM_WORDS_REJECTED }
+        compose.waitForIdle()
+        compose.onNodeWithText("Stopped, and nothing was paired").performScrollTo().assertIsDisplayed()
+        // The Mac opens a fresh window and the person scans again: the card goes with the new code.
+        run("fixture", "unpaired")
+        run("action", """{"type":"pair","link":"${Fixtures.PAIR_LINK}"}""")
+        idleUntil { store.states.value?.pairing?.phase == PairingPhase.CONFIRMING }
+        compose.waitForIdle()
+        compose.onNodeWithText("Stopped, and nothing was paired").assertDoesNotExist()
+        assertNull(store.states.value?.pairing?.problem)
     }
 
     @Test
@@ -101,7 +120,7 @@ class PairingV2TapTest {
         run("action", """{"type":"pair","link":"${Fixtures.PAIR_LINK}"}""")
         idleUntil { store.states.value?.pairing?.problem == RichCore.PROBLEM_MAC_NEEDS_UPDATE }
         compose.waitForIdle()
-        compose.onNodeWithText("Your Mac needs an update before this phone can pair with it").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Your Mac needs an update").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Do they match your Mac?").assertDoesNotExist()
     }
 }

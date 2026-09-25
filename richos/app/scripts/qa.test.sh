@@ -46,11 +46,15 @@
 #           scripted adb (no phone)
 #   L1-L4   lab-ledger: exactly once passes; missing, duplicated or altered
 #           fails; a timeline without the isolated lab's owner marker is refused
+#   I1-I16  phone-ios: a step list validated before any build, refusals, the
+#           per-step log read once each, no picture of the person's account,
+#           a reused build trusted only against its stamp, no lock without a
+#           person to open it, a bounded log capture kept on the SSD
 #   X1      the committed fixtures still match their generator
 #
 # run-tests: no-host-screen: its only capture/keystroke references are the strings it asserts those two tools REFUSE to act on, and its frames are committed PNG fixtures
 # run-tests: inputs richos/app/scripts/qa.test.sh richos/app/scripts/qa
-# run-tests: covers richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-android.py richos/app/scripts/qa/lab-ledger.py richos/app/scripts/qa/fixtures/make-fixtures.py
+# run-tests: covers richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-android.py richos/app/scripts/qa/lab-ledger.py richos/app/scripts/qa/fixtures/make-fixtures.py richos/app/scripts/qa/phone-ios.py
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -90,7 +94,7 @@ python3 -c 'import PIL' >/dev/null 2>&1 && HAVE_PIL=1
 echo ""
 echo "=== H. every tool answers for itself ==="
 for t in contrast.py frame.py redact.py timeline.py ocr-gate.sh ocr-find.sh \
-         ocr-watch.sh wait-for.sh phone-client.mjs flake-rate.sh phone-android.py lab-ledger.py fixtures/make-fixtures.py; do
+         ocr-watch.sh wait-for.sh phone-client.mjs flake-rate.sh phone-android.py lab-ledger.py phone-ios.py fixtures/make-fixtures.py; do
   if [ ! -x "$QA/$t" ]; then
     bad "H $t is executable" "not present or not executable at $QA/$t"
     continue
@@ -680,6 +684,74 @@ expect "L3 an altered message (one character) FAILS, exit 1" 1 '"userRows": 0'
 mkdir -p "$TMP/notlab"; cp "$TMP/lab/timeline.json" "$TMP/notlab/timeline.json"
 run "$QA/lab-ledger.py" --timeline "$TMP/notlab/timeline.json" one
 expect "L4 a timeline that is not the isolated lab's is refused, never read" 2 "owner marker"
+echo "=== I. phone-ios: a physical iPhone's real controls, validated before any build ==="
+
+printf '%s' '[{"do":"launch"},{"do":"tap","id":"composer.send"},{"do":"sleep","seconds":2},{"do":"alert","button":"Allow","in":"springboard"}]' > "$TMP/ios-ok.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-ok.json"
+expect "I1 a well-formed step list validates without a device" 0 '"steps": 4'
+
+printf '%s' '[{"do":"launch"},{"do":"reboot"}]' > "$TMP/ios-unknown.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-unknown.json"
+expect "I2 an unknown step is refused by name before anything is built" 2 "unknown step 'reboot'"
+
+printf '%s' '[{"do":"tap"}]' > "$TMP/ios-notarget.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-notarget.json"
+expect "I3 a tap that names no element is refused" 2 "names no id or label"
+
+printf '%s' '[{"do":"wait","id":"pair.link","timout":5}]' > "$TMP/ios-typo.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-typo.json"
+expect "I4 a misspelled key is refused, never silently ignored" 2 "unexpected keys ['timout']"
+
+printf '%s' '[{"do":"activate","in":"tailscale"},{"do":"value","kind":"switch","in":"tailscale"},{"do":"shot","screen":true}]' > "$TMP/ios-account.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-account.json"
+expect "I8 a list that touches the person's Tailscale account may keep no picture of it" 2 "may not keep a shot, tree or audit"
+
+printf '%s' '[{"do":"activate","in":"tailscale"},{"do":"value","kind":"switch","in":"tailscale"}]' > "$TMP/ios-switch.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-switch.json"
+expect "I9 reading the route's switch by kind alone validates" 0 '"steps": 2'
+
+run env RICHOS_IOS_DEVICE=x RICHOS_APPLE_TEAM=y python3 "$QA/phone-ios.py" run "$TMP/ios-ok.json" --out /Volumes/E1TB/nonexistent-qa-test --prebuilt
+expect "I10 reusing an earlier build without its stamp is refused" 2 "--prebuilt needs --stamp"
+
+mkdir -p "$TMP/Fake.app" && printf 'bytes' > "$TMP/Fake.app/RichOSNative"
+printf '{"artifact":"%s","sha256":"0000000000000000","commit":"abc","dirty":false}' "$TMP/Fake.app" > "$TMP/fake-stamp.json"
+run env RICHOS_IOS_DEVICE=x RICHOS_APPLE_TEAM=y python3 "$QA/phone-ios.py" run "$TMP/ios-ok.json" --out /Volumes/E1TB/nonexistent-qa-test --prebuilt --stamp "$TMP/fake-stamp.json"
+expect "I11 a reused app whose bytes differ from its stamp is refused: identity or refuse" 2 "freshness mismatch"
+
+printf '%s' '[{"do":"launch"},{"do":"lock"}]' > "$TMP/ios-lock.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-lock.json"
+expect "I12 locking the phone without a person there to open it is refused" 2 "only a person can open the phone again"
+
+printf '%s' '[{"do":"unlock"}]' > "$TMP/ios-unlock.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-unlock.json"
+expect "I13 there is no scripted unlock: XCTest's Home press does not open an iOS 26 lock screen" 2 "unknown step 'unlock'"
+
+run python3 "$QA/phone-ios.py" syslog --device x --seconds 0 --out /Volumes/E1TB/nonexistent-qa-test.txt
+expect "I14 a log capture with no interval is refused" 2 "--seconds must be 1 to 3600"
+
+run python3 "$QA/phone-ios.py" syslog --device x --seconds 5 --out "$TMP/syslog.txt"
+expect "I15 a log capture off the external SSD is refused before the relay starts" 2 "--out must be on /Volumes/E1TB"
+
+run python3 "$QA/phone-ios.py" battery --device 00000000-NOT-A-PHONE --network
+expect "I16 a battery reading from a phone that is not there is refused, never a number" 2 "did not report the battery"
+
+run env -u RICHOS_IOS_DEVICE python3 "$QA/phone-ios.py" run "$TMP/ios-ok.json" --out /Volumes/E1TB/nonexistent-qa-test
+expect "I5 run refuses without a named phone" 2 "set RICHOS_IOS_DEVICE"
+
+run env RICHOS_IOS_DEVICE=x RICHOS_APPLE_TEAM=y python3 "$QA/phone-ios.py" run "$TMP/ios-ok.json" --out "$TMP/ios-out"
+expect "I6 run refuses an output directory off the external SSD" 2 "must be on /Volumes/E1TB"
+
+{
+  echo 'Test Case started'
+  echo 'PHONE_STEP {"i": 0, "do": "launch", "ok": true}'
+  echo '    t =  1.00s PHONE_STEP {"i": 0, "do": "launch", "ok": true}'
+  echo 'PHONE_STEP {"i": 1, "do": "wait", "ok": false, "error": "not on screen'
+  echo 'PHONE_STEP {"i": 1, "do": "wait", "ok": false, "error": "not on screen within 5 s"}'
+} > "$TMP/ios-test.log"
+run python3 "$QA/phone-ios.py" parse-log "$TMP/ios-test.log"
+if [ "$CODE" = 0 ] && [ "$(printf '%s' "$OUT" | grep -c '"do"')" = 2 ] && printf '%s' "$OUT" | grep -Fq "not on screen within 5 s"; then
+  ok "I7 parse-log keeps each step once and skips a line cut in half"
+else bad "I7 parse-log keeps each step once" "exit $CODE: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-240)"; fi
 
 echo ""
 echo "=== X. the fixtures are still the fixtures ==="

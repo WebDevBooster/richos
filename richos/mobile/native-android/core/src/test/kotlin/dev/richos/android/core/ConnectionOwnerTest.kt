@@ -359,6 +359,34 @@ class ConnectionOwnerTest {
         job.cancel()
     }
 
+    /**
+     * D05: what the OS reports about the VPN on the default network reaches the core as evidence
+     * (never a probe of our own), and Tailscale coming back is a useful connectivity event: the
+     * pending retry fires at once instead of at the end of a back-off of up to 30 s.
+     */
+    @Test
+    fun `D05 - the OS's VPN report reaches the core, and Tailscale coming back retries at once`() = runTest {
+        val mac = Mac { r -> HttpResponse(if (r.url.contains("before=0")) 200 else 404, mapOf("x-richos-challenge" to "c"), """{"messages":[],"more":false}""".toByteArray()) }
+        val core = core(mac)
+        val streams = Streams({ _, _ -> throw IOException("no route to the tailnet") }, { _, _ -> throw IOException("no route to the tailnet") }, { _, _ -> throw IOException("down") })
+        val owner = ConnectionOwner(core, MacApi(mac, keys), streams)
+        val job = backgroundScope.launch { owner.run() }
+        runCurrent()
+        assertEquals(1, streams.opened.size)
+        owner.tunnelChanged(false)
+        runCurrent()
+        assertEquals(ConnectionReason.TAILSCALE_OFF, core.state.connection.reason, "the OS's word, not a guess")
+        advanceTimeBy(1_001)
+        runCurrent()
+        assertEquals(2, streams.opened.size, "the ordinary back-off goes on, foreground only")
+        // Tailscale switched back on: no 2 s wait for the next attempt.
+        owner.tunnelChanged(true)
+        runCurrent()
+        assertEquals(3, streams.opened.size)
+        assertEquals(ConnectionReason.RECONNECTING, core.state.connection.reason)
+        job.cancel()
+    }
+
     @Test
     fun `wake fires a pending retry at once`() = runTest {
         val mac = Mac { r -> HttpResponse(if (r.url.contains("before=0")) 200 else 404, mapOf("x-richos-challenge" to "c"), """{"messages":[],"more":false}""".toByteArray()) }
