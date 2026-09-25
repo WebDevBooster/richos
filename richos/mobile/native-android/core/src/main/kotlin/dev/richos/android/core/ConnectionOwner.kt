@@ -10,6 +10,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -36,7 +37,8 @@ fun interface EventStream {
  * back-off 1 s doubling to 30 s with no jitter, reset when a stream OPENS (a reconnect with
  * `since` may send nothing at once), a revocation probe after a stream that never opened (a stream
  * cannot read a refusal body), and [wake] (the app returning to the foreground) fires a pending
- * retry at once without resetting the back-off.
+ * retry at once without resetting the back-off, as does "Try now" while the stream is down
+ * ([RichCore.onTryNowWhileAway]).
  *
  * Everything it learns goes into the core through the same inputs a script uses (`link`, the
  * stream bytes, the challenge), so the screen and the CLI see one truth.
@@ -95,6 +97,10 @@ class ConnectionOwner(
         // Each report once (a StateFlow never repeats a value), whether on screen or not: it is
         // only state. A tunnel that came up wakes the pending retry; one that went down does not
         // (an attempt now would only fail).
+        // "Try now" with the stream down (core's `retry`): this owner asks the Mac at once, skipping
+        // what is left of its wait without resetting the back-off. Never a second owner (I06).
+        core.onTryNowWhileAway(::wake)
+        coroutineContext.job.invokeOnCompletion { core.onTryNowWhileAway(null) }
         launch {
             tunnel.filterNotNull().collect { up ->
                 try { core.dispatch(Action.Health(vpn = up)) } catch (failure: IOException) { onStorageFailure(failure) }
@@ -163,6 +169,9 @@ class ConnectionOwner(
                                 if (status == 200) {
                                     opened = true
                                     attempt = 0
+                                    // Open: a wake that came while it was opening has been answered,
+                                    // and must not skip the wait after some later drop.
+                                    wakeups.tryReceive()
                                     // A finite send batch belongs to the application, not the SSE
                                     // socket. Closing the stream must not cancel useful delivery.
                                     core.openedWithoutDraining()

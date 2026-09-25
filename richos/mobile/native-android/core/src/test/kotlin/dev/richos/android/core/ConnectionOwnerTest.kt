@@ -404,6 +404,60 @@ class ConnectionOwnerTest {
         job.cancel()
     }
 
+    /**
+     * I06 parity (isaac-opus-conn1, `cefad030`): "Try now" is core's `retry`, and with the stream
+     * down the outbox cannot move (flush needs an open link), so on its own it did nothing until
+     * the owner's back-off ran out, up to 30 s later. It now asks the ONE owner to try at once,
+     * skipping what is left of its wait without resetting the back-off. Never a second owner.
+     */
+    @Test
+    fun `Try now while the stream is down asks the owner at once, without resetting its back-off`() = runTest {
+        val mac = Mac { r -> HttpResponse(if (r.url.contains("before=0")) 200 else 404, mapOf("x-richos-challenge" to "c"), """{"messages":[],"more":false}""".toByteArray()) }
+        val core = core(mac)
+        val down: suspend (suspend (Int) -> Unit, suspend (ByteArray) -> Unit) -> Unit = { _, _ -> throw IOException("the Mac is out of reach") }
+        val streams = Streams(down, down, down, down, down, down)
+        val owner = ConnectionOwner(core, MacApi(mac, keys), streams)
+        val job = backgroundScope.launch { owner.run() }
+        runCurrent()
+        advanceTimeBy(1_001); runCurrent()
+        advanceTimeBy(2_001); runCurrent()
+        assertEquals(3, streams.opened.size, "attempts at 0, 1 and 3 s; the next is owed at 7 s")
+        assertEquals(false, core.state.online)
+        advanceTimeBy(1_000); runCurrent()
+        core.dispatch(Action.Retry)
+        runCurrent()
+        assertEquals(4, streams.opened.size, "Try now asks the Mac at once, not at the end of the 4 s wait")
+        // The back-off is not reset: after the fourth failure the wait is 8 s, not 1 s.
+        advanceTimeBy(7_999); runCurrent()
+        assertEquals(4, streams.opened.size, "Try now does not reset the back-off")
+        advanceTimeBy(2); runCurrent()
+        assertEquals(5, streams.opened.size)
+        job.cancel()
+    }
+
+    /** A Try now while the stream is open, or while it is opening, is spent: it never skips a later wait. */
+    @Test
+    fun `Try now with the stream open or opening leaves no stale wake behind`() = runTest {
+        val mac = Mac { r -> HttpResponse(if (r.url.contains("before=0")) 200 else 404, mapOf("x-richos-challenge" to "c"), """{"messages":[],"more":false}""".toByteArray()) }
+        val core = core(mac)
+        val drop = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val streams = Streams(
+            { onOpen, onBytes -> core.dispatch(Action.Retry); onOpen(200); onBytes(hello.toByteArray()); core.dispatch(Action.Retry); drop.await() },
+            { _, _ -> throw IOException("down") },
+            { _, _ -> throw IOException("down") },
+        )
+        val owner = ConnectionOwner(core, MacApi(mac, keys), streams)
+        val job = backgroundScope.launch { owner.run() }
+        runCurrent()
+        assertEquals(1, streams.opened.size)
+        assertEquals(ConnectionReason.CONNECTED, core.state.connection.reason)
+        drop.complete(Unit); runCurrent()
+        assertEquals(1, streams.opened.size, "the dropped stream waits its 1 s: no banked Try now skips it")
+        advanceTimeBy(1_001); runCurrent()
+        assertEquals(2, streams.opened.size)
+        job.cancel()
+    }
+
     @Test
     fun `a reconnect replays from the last live frame id, never from a row's history cursor`() = runTest {
         val core = core(Mac { HttpResponse(404, emptyMap(), ByteArray(0)) })
