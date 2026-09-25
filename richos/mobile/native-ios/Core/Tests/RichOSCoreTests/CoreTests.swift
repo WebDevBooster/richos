@@ -97,9 +97,10 @@ let repositoryRoot: URL = {
     @Test func everyActionRoundTripsThroughJSON() throws {
         let all: [Action] = [
             .compose(text: "x"), .setAppearance(.light), .openScanner, .closeScanner, .scanned(text: "x"),
-            .submitPairingLink(text: "x"), .cameraPermission(.denied), .pairingAnswered(Scenario.answer), .pairingRefused,
-            .confirmWords, .rejectWords, .acceptConsent, .dismissPairingProblem, .openSheet(.forget), .closeSheet,
+            .submitPairingLink(text: "x"), .cameraPermission(.denied), .pairingAnswered(Scenario.answer), .pairingAnswered(Scenario.holdingAnswer),
+            .pairingRefused, .confirmWords, .rejectWords, .acceptConsent, .dismissPairingProblem, .openSheet(.forget), .closeSheet,
             .pairingNeedsMacUpdate, .macConfirmation(.awaiting, at: 22), .macConfirmation(.confirmed, at: 23), .macConfirmation(.refused, at: 24),
+            .macConfirmation(.awaiting, at: 25, askedAt: 11),
             .sendDraft(clientID: "c", at: 1), .deliveryAccepted(clientID: "c", at: 2),
             .deliveryFailed(clientID: "c", failure: .retryable(reason: "x"), at: 3), .deliveryFailed(clientID: "c", failure: .revoked, at: 3),
             .tick(at: 4), .retryNow(at: 5), .discardMessage(id: "c"), .messagesArrived(Conversation.round12), .replyStarted,

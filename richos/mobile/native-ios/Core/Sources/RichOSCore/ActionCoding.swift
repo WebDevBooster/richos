@@ -12,7 +12,7 @@ import Foundation
 /// Also new: `share-take` (`intake`, a share from the Share extension) and `notification-open` with
 /// `event` instead of `id` (the reply's SHA-256 reference, for a reply not loaded yet). Pairing v2
 /// adds `pairing-needs-mac-update` and `mac-confirmation` (`confirmation`: `confirmed`, `awaiting` or
-/// `refused`, with `at`), the Mac's word on the press ON THE MAC.
+/// `refused`, with `at` and optionally `askedAt`), the Mac's word on the press ON THE MAC.
 ///
 /// Time and idempotency stamps (`at`, `clientId` on `send`) are optional on the wire: omitted, they
 /// are stamped from the clock when the command arrives; given, a scenario replays exactly.
@@ -60,6 +60,7 @@ extension Action: Codable {
         var bytes: Int?
         var tooLarge: Bool?
         var confirmation: MacConfirmation?
+        var askedAt: Int64?
 
         init(_ type: String) { self.type = type }
     }
@@ -106,7 +107,7 @@ extension Action: Codable {
         case "pairing-unreachable": self = .pairingUnreachable
         case "pairing-needs-mac-update": self = .pairingNeedsMacUpdate
         case "confirm-pair": self = try need(w.matched, "matched") ? .confirmWords : .rejectWords
-        case "mac-confirmation": self = .macConfirmation(try need(w.confirmation, "confirmation"), at: now)
+        case "mac-confirmation": self = .macConfirmation(try need(w.confirmation, "confirmation"), at: now, askedAt: w.askedAt)
         case "accept-consent": self = .acceptConsent
         case "dismiss-pairing-problem": self = .dismissPairingProblem
         case "discard-and-pair": self = .discardUnsentAndPair
@@ -213,7 +214,7 @@ extension Action: Codable {
         case .pairingNeedsMacUpdate: w = Wire("pairing-needs-mac-update")
         case .confirmWords: w = Wire("confirm-pair"); w.matched = true
         case .rejectWords: w = Wire("confirm-pair"); w.matched = false
-        case .macConfirmation(let c, let at): w = Wire("mac-confirmation"); w.confirmation = c; w.at = at
+        case .macConfirmation(let c, let at, let askedAt): w = Wire("mac-confirmation"); w.confirmation = c; w.at = at; w.askedAt = askedAt
         case .acceptConsent: w = Wire("accept-consent")
         case .dismissPairingProblem: w = Wire("dismiss-pairing-problem")
         case .discardUnsentAndPair: w = Wire("discard-and-pair")

@@ -214,11 +214,12 @@ final class InteractionTests: XCTestCase {
     }
 
     /// Coming to the front is what resumes the wait, so it is where a wait whose bound has passed
-    /// ends. Interactive fixtures run the real clock; the fixture's deadline is the fixtures' morning
-    /// (2026-09-22), long past, so the launch's return to the front ends it truthfully. "Scan your
-    /// Mac's code" is a real tap that opens the scanner, and backing out leaves the card where it was.
+    /// makes its last ask. Interactive fixtures run the real clock; the fixture's deadline is the
+    /// fixtures' morning (2026-09-22), long past, so the launch asks once more, the stand-in Mac
+    /// cannot be reached, and the wait ends truthfully. "Scan your Mac's code" is a real tap that
+    /// opens the scanner, and backing out leaves the card where it was.
     func testAWaitPastItsBoundSaysSoAndTheScannerIsTheWayBack() {
-        let app = Screen.launch("pair-awaiting-mac", interactive: true)
+        let app = Screen.launch("pair-awaiting-mac", interactive: true, mac: "unreachable")
         let card = app.descendants(matching: .any)["pair.error"]
         XCTAssertTrue(card.waitForExistence(timeout: 5), "the ended wait is not explained")
         XCTAssertTrue(card.label.contains("Pairing timed out"), "unexpected explanation: \(card.label)")
