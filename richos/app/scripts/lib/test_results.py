@@ -130,6 +130,12 @@ LOG_PATTERNS = (
     (re.compile(r"✘ Test (.+?) failed"), lambda m: (m.group(1), "")),
     # Gradle's console: dev.richos.X > a test name FAILED
     (re.compile(r"^([\w.$]+) > (.+) FAILED\s*$"), lambda m: ("%s > %s" % (m.group(1), m.group(2)), "")),
+    # Python unittest: FAIL: test_x (__main__.Reliability.test_x)  (3.11+; older: (module.Class))
+    (re.compile(r"^(?:FAIL|ERROR): (\w+) \(([\w.]+?)(?:\.\1)?\)"), lambda m: ("%s > %s" % (m.group(2), m.group(1)), "")),
+    # cargo test: test phone::rows::keeps_order ... FAILED
+    (re.compile(r"^test (\S+) \.\.\. FAILED\s*$"), lambda m: (m.group(1), "")),
+    # node --test (TAP): not ok 3 - the outbox drains
+    (re.compile(r"^\s*not ok \d+ - (.+?)\s*$"), lambda m: (m.group(1), "")),
 )
 
 

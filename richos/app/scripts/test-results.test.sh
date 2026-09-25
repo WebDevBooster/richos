@@ -97,11 +97,21 @@ Test Case '-[RichOSCoreTests.PairingTests testWordsMatch]' failed (0.004 seconds
 ✘ Test draftSurvivesRestart() failed after 0.002 seconds with 1 issue.
 dev.fake.CoreTest > the outbox drains FAILED
 Test Case '-[RichOSCoreTests.PairingTests testPasses]' passed (0.001 seconds).
+FAIL: test_sigkill_owner_cleans_up (__main__.Reliability.test_sigkill_owner_cleans_up)
+ERROR: test_boots (runner.Tests)
+test phone::rows::keeps_order ... FAILED
+test phone::rows::passes ... ok
+not ok 3 - the share inbox delivers
+ok 4 - the share inbox passes
 LOG
 out="$(python3 "$KEEPER" names --log "$TMP/n/test.log")"
 if has "$out" "RichOSCoreTests.PairingTests > testWordsMatch" && has "$out" "draftSurvivesRestart()" \
-   && has "$out" "dev.fake.CoreTest > the outbox drains" && ! has "$out" "testPasses"; then
-  ok "N3 a test log (XCTest, swift-testing, Gradle's console): each failed test named, a pass not"
+   && has "$out" "dev.fake.CoreTest > the outbox drains" && ! has "$out" "testPasses" \
+   && has "$out" "  FAILED TEST  __main__.Reliability > test_sigkill_owner_cleans_up" \
+   && has "$out" "  FAILED TEST  runner.Tests > test_boots" \
+   && has "$out" "  FAILED TEST  phone::rows::keeps_order" && has "$out" "  FAILED TEST  the share inbox delivers" \
+   && ! has "$out" "passes"; then
+  ok "N3 a test log (XCTest, swift-testing, Gradle, unittest, cargo, node TAP): each failed test named, a pass not"
 else bad "N3 log failures named" "$out"; fi
 
 out="$(python3 "$KEEPER" names --log "$TMP/n/test.log" "$TMP/n/xml")"
