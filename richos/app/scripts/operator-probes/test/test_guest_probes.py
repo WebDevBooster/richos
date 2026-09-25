@@ -252,7 +252,7 @@ class Arguments(unittest.TestCase):
         ctx.python = '/opt/homebrew/bin/python3'
         a = ctx.lead_args(session_id='s-1')
         for flag in ['--print', '--input-format=stream-json', '--output-format=stream-json', '--include-partial-messages',
-                     '--verbose', '--include-hook-events', '--dangerously-skip-permissions']:
+                     '--verbose', '--include-hook-events', '--replay-user-messages', '--dangerously-skip-permissions']:
             self.assertIn(flag, a)
         self.assertEqual(a[a.index('--setting-sources') + 1], 'user,project,local')
         self.assertEqual(a[a.index('--permission-prompt-tool') + 1], 'stdio')
@@ -262,7 +262,7 @@ class Arguments(unittest.TestCase):
         self.assertEqual(a[-2], '--mcp-config')
         rust = (HERE.parents[2] / 'crates' / 'richos-core' / 'src' / 'operator_profile.rs').read_text()
         for flag in ['"--include-hook-events"', '"user,project,local"', '"--disallowed-tools"', '"--mcp-config"',
-                     '"--dangerously-skip-permissions"']:
+                     '"--dangerously-skip-permissions"', '"--replay-user-messages"', '"CLAUDE_CODE_ARTIFACT"']:
             self.assertIn(flag, rust, 'the profile no longer carries %s: update the harness with it' % flag)
 
 

@@ -47,8 +47,10 @@ ALLOWLIST = ['PATH', 'LANG', 'USER', 'LOGNAME', 'SHELL', 'JAVA_HOME', 'ANDROID_H
 # The harness's one addition, stated: `claude` updates itself, and a lead that updated itself
 # mid-probe would stop being the version this run records (testvm/lib.sh, TESTVM_CLAUDE_PIN).
 HARNESS_PIN = {'DISABLE_AUTOUPDATER': '1'}
-# The app's own additions (r3 (i)): the claim id, and the supervisor's pid variable.
-APP_NAMES = ['HOME', 'SSH_AUTH_SOCK', 'TMPDIR', 'RICHOS_OPERATOR_LEAD']
+# The app's own additions (r3 (i)): the claim id, and the supervisor's pid variable; and r4
+# §2.3's one CLAUDE_* exception, set by the app since P17 passed (operator_profile.rs ARTIFACT_ENV).
+APP_NAMES = ['HOME', 'SSH_AUTH_SOCK', 'TMPDIR', 'RICHOS_OPERATOR_LEAD', 'CLAUDE_CODE_ARTIFACT']
+ARTIFACT = ('CLAUDE_CODE_ARTIFACT', '1')
 SUPERVISOR_NAMES = ['RICHOS_SESSION_PID']
 # Names any Python adds to its own environment on macOS (operator_profile.rs,
 # INTERPRETER_ADDED_NAMES, measured 2026-09-24).
@@ -499,6 +501,7 @@ class Context(object):
             env['SSH_AUTH_SOCK'] = self.ssh_auth_sock
         env['TMPDIR'] = self.tmpdir
         env['RICHOS_OPERATOR_LEAD'] = claim
+        env[ARTIFACT[0]] = ARTIFACT[1]
         env.update(HARNESS_PIN)
         return env
 
@@ -511,7 +514,7 @@ class Context(object):
         """operator_profile::child_args, in order, plus --model. `disallow` extends the one
         --disallowed-tools flag rather than adding a second one."""
         args = ['--print', '--input-format=stream-json', '--output-format=stream-json', '--include-partial-messages',
-                '--verbose', '--include-hook-events', '--setting-sources', sources]
+                '--verbose', '--include-hook-events', '--replay-user-messages', '--setting-sources', sources]
         args += ['--resume', resume] if resume else ['--session-id', session_id or str(uuid.uuid4())]
         args += ['--permission-prompt-tool', 'stdio', '--dangerously-skip-permissions',
                  '--disallowed-tools'] + list(disallow) + ['--model', model]
@@ -1812,7 +1815,7 @@ def priority_order(ctx, r, key, use_priority):
     (--replay-user-messages echoes a user message, by its uuid, when it is dequeued), not off
     the model's replies: the final run showed three queued messages answered in one turn."""
     rec = r.setdefault(key, {})
-    lead = Lead(ctx, 'P13', key, ctx.lead_args(extra=['--replay-user-messages']))
+    lead = Lead(ctx, 'P13', key, ctx.lead_args())  # the profile carries --replay-user-messages now
     try:
         lead.initialize()
         start = lead.count()
@@ -2126,11 +2129,13 @@ def artifact_action(tool_input):
 
 @probe('P17')
 def p17(ctx, r):
-    for key, extra in (('artifact', {'CLAUDE_CODE_ARTIFACT': '1'}), ('control', {})):
-        rec = r.setdefault(key, {'environment_adds': sorted(extra)})
+    for key, with_variable in (('artifact', True), ('control', False)):
+        env = ctx.lead_env()
+        if not with_variable:
+            env.pop(ARTIFACT[0], None)
+        rec = r.setdefault(key, {'has_variable': ARTIFACT[0] in env})
         seen = set()
-        lead = Lead(ctx, 'P17', key, ctx.lead_args(), env=dict(ctx.lead_env(), **extra),
-                    scrub=scrub_artifact_results(lambda: seen))
+        lead = Lead(ctx, 'P17', key, ctx.lead_args(), env=env, scrub=scrub_artifact_results(lambda: seen))
         try:
             rec['initialize'] = lead.initialize(perTaskStopAffordance=True)
             ask(lead, 'Reply with exactly the word ready.', 180)
