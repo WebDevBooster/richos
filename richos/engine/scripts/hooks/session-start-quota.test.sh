@@ -4,8 +4,8 @@
 #                                WITH THE COMMAND; THE CEO DOES NOT SEE A METER.
 #
 #   N1  an adopted repository with QUOTA_PAUSE_PERCENT declared: the lead is
-#       told his words verbatim, the declared line, the reading now and the
-#       exact command that starts the watcher
+#       told his words verbatim, his 2026-09-25 update, the declared line, the
+#       reading now and the exact command that starts the watcher
 #   N2  it goes to the MODEL only (additionalContext), never to the person
 #       (systemMessage): the budget design notes, R4, keep the percentage out
 #       of the CEO's ordinary view
@@ -17,6 +17,9 @@
 #   N7  nothing on stderr, and stdout is one JSON object
 #   N8  the watcher script missing: silent, exit 0 (a notice never breaks a
 #       session)
+#   N9  at or above the threshold with the reset less than 20 minutes away:
+#       it says NO PAUSE (his 2026-09-25 update, ruling §87); N1 also checks
+#       that the update is quoted
 #
 # Exit 0 = every case passed; exit 1 = at least one failed.
 
@@ -68,6 +71,8 @@ C="$(ctx)"
 if [ "$RC" -eq 0 ] \
    && printf '%s' "$C" | grep -qF '"quota polling: every 5 minutes from now. And once it crosses the 93% threshold: PAUSE subagents. Then resume after quota rest."' \
    && printf '%s' "$C" | grep -q 'QUOTA_PAUSE_PERCENT=93' \
+   && printf '%s' "$C" | grep -qF 'Updated 2026-09-25: at or above the threshold, do not pause when the reset is less than 20 minutes away (exactly 20 minutes still pauses)' \
+   && printf '%s' "$C" | grep -q 'Polling stays every 5 minutes at every usage level' \
    && printf '%s' "$C" | grep -q '41% of the five-hour window' \
    && printf '%s' "$C" | grep -qE '/scripts/quota-watch\.sh --watch$' \
    && printf '%s' "$C" | grep -q 'run_in_background: true'; then
@@ -103,12 +108,21 @@ else
     bad "N5  rc=$RC context=$C"
 fi
 
-write_payload 95 600
+write_payload 95 3600
 run_hook; C="$(ctx)"
 if [ "$RC" -eq 0 ] && printf '%s' "$C" | grep -q 'ALREADY AT OR ABOVE THE THRESHOLD'; then
     ok "N6  already at or above the threshold at session start: it says so"
 else
     bad "N6  rc=$RC context=$C"
+fi
+
+write_payload 95 600
+run_hook; C="$(ctx)"
+if [ "$RC" -eq 0 ] && printf '%s' "$C" | grep -q 'AT OR ABOVE THE THRESHOLD, NO PAUSE' \
+   && printf '%s' "$C" | grep -q 'less than 20 minutes' && ! printf '%s' "$C" | grep -q 'ALREADY AT OR ABOVE'; then
+    ok "N9  at or above with the reset 10 minutes away: it says NO PAUSE (his 2026-09-25 update)"
+else
+    bad "N9  rc=$RC context=$C"
 fi
 
 # N4: a directory that never adopted the engine, found the way a session finds it.
