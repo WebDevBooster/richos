@@ -230,3 +230,10 @@ pub mod operator_lead;
 ///   - `operator_claim` — the lead claim's app side: the terminal and the app never run his team
 ///                    at once, by the file contract the engine side reads ((e), G11).
 pub mod operator_claim;
+///   - `operator_snapshot` — the digest of what a lead read at start, so a stale lead is retired
+///                    at its next idle moment ((q) item 4).
+pub mod operator_snapshot;
+///   - `operator_host` — one lead per conversation: relay, never hold; only a report settles;
+///                    named stops, the Esc, the read, team liveness, idle retirement ((g), (c),
+///                    (d), (o), (m), (q), (r), (s), e4; the §88 answer seam).
+pub mod operator_host;
