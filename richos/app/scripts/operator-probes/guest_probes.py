@@ -10,6 +10,7 @@ his lead, with its CONTROL in the same run. Verdicts:
   PREMISE-FALSE  the control did not behave as the premise says; nothing can be concluded
   NOT-RUN        something the probe needs is absent (named); nothing was concluded
   RECORDED       a measurement probe with no pass line (P11, P14): the numbers are the result
+  RETIRED        kept in this file as the record of what it measured, and never run again (P6, r4 §1.1)
   ERROR          the harness itself failed; the traceback is recorded
 
 Results: `<payload>/results/<probe>.json`, the redacted frames of every session
@@ -365,6 +366,11 @@ def setup_fixture(p, record):
             '---\nname: %s\ndescription: Probe teammate %s. Runs exactly the shell command its brief names.\n'
             'model: sonnet\ntools: Bash\n---\nYou are a probe teammate. Run exactly the one Bash command your '
             'brief names, in the foreground, then reply with the single word finished.\n' % (name, name))
+    # P16 (r4 §5): a teammate that can also message its lead, for the recorded half of P16.
+    (agents / 'gamma.md').write_text(
+        '---\nname: gamma\ndescription: Probe teammate gamma. Runs the shell command its brief names, then sends '
+        'the message its brief names.\nmodel: sonnet\ntools: Bash, SendMessage\n---\nYou are a probe teammate. Do '
+        'exactly what your brief says, in order, then reply with the single word finished.\n')
     (p.entity / '.claude' / 'settings.local.json').write_text(json.dumps(
         {'env': {'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS': '1'}}, indent=1) + '\n')
     (p.entity / '.gitignore').write_text('/.claude/worktrees/*\n')
@@ -572,8 +578,11 @@ class Lead(object):
     for the app between this harness and the supervisor, so the app's death can be caused."""
 
     def __init__(self, ctx, probe, name, args, env=None, supervised=True, reap=False, cwd=None,
-                 permission='allow', owner=False):
+                 permission='allow', owner=False, scrub=None):
         self.ctx, self.probe, self.name = ctx, probe, name
+        # A frame rewrite applied only when the frames are SAVED (P17: his account's artifact
+        # list is read to prove the tool works, and never written into the record).
+        self.scrub = scrub
         self.supervised = supervised
         self.frames = []
         self.requests = []
@@ -755,6 +764,8 @@ class Lead(object):
                     frame = {'type': 'control_response', 'response': {'subtype': frame['response'].get('subtype'),
                                                                       'request_id': frame['response'].get('request_id'),
                                                                       'response': '<initialize reply removed>'}}
+                if self.scrub:
+                    frame = self.scrub(frame)
                 f.write(json.dumps({'t': round(t - self.started, 3), 'frame': redact(frame)}) + '\n')
 
 
@@ -818,7 +829,7 @@ def bash_output(lead, text, timeout=300):
 # teammates, started the way his lead starts them: spawn.sh, then the Agent call it prints
 # =============================================================================================
 
-def brief(ctx, name, seconds, dirty=False):
+def brief(ctx, name, seconds, dirty=False, then=''):
     path = ctx.p.work / ('brief-%s.md' % name)
     first = ('First, give your workspace one uncommitted change by running exactly this Bash command in your '
              'current working directory: echo change > probe-change.txt\nThen: ') if dirty else ''
@@ -826,10 +837,10 @@ def brief(ctx, name, seconds, dirty=False):
     # (run 3: the fixture has no CI, so its CI check reports unhealthy and refuses every spawn).
     path.write_text(first + 'Run exactly this Bash command in the foreground, with the Bash tool\'s timeout parameter set to '
                     '600000, and wait for it to finish: %s\n'
-                    'It is a stand-in for a long build and takes about %d seconds. Then reply with the single word '
+                    'It is a stand-in for a long build and takes about %d seconds. %sThen reply with the single word '
                     'finished. Do nothing else.\n\n'
                     'owned-state-ack: ci — this probe fixture has no CI at all, and its VM is deleted after the run\n'
-                    % (long_task(ctx, seconds), seconds))
+                    % (long_task(ctx, seconds), seconds, (then + ' ') if then else ''))
     return path
 
 
@@ -852,7 +863,7 @@ def lead_long_task(ctx, seconds, then):
                            'Then reply %s.' % (long_task(ctx, seconds), then))
 
 
-def spawn_teammate(ctx, lead, name, agent_type, seconds, timeout=300, dirty=False):
+def spawn_teammate(ctx, lead, name, agent_type, seconds, timeout=300, dirty=False, then=''):
     """Returns (task_id, worktree_path, detail). The lead runs spawn.sh and makes the Agent call
     with run_in_background, exactly as his terminal's lead does (engine-status banner)."""
     before = set(r['worktree'] for r in ctx.worktrees())
@@ -860,7 +871,7 @@ def spawn_teammate(ctx, lead, name, agent_type, seconds, timeout=300, dirty=Fals
     # --description: the Agent tool requires one and spawn.sh adds it only when asked (final run:
     # "The parameter `description` type is expected as `string` but provided as `unknown`").
     command = "%s %s --repo %s --type %s --brief %s --model sonnet --description 'Probe teammate %s'" % (
-        ctx.p.engine / 'scripts' / 'spawn.sh', name, ctx.p.entity, agent_type, brief(ctx, name, seconds, dirty), name)
+        ctx.p.engine / 'scripts' / 'spawn.sh', name, ctx.p.entity, agent_type, brief(ctx, name, seconds, dirty, then), name)
     start, got = do(lead, (
         'Start one teammate. Step 1: run exactly this Bash command and read its standard output:\n%s\n'
         'Step 2: its standard output is one JSON object of Agent tool parameters. Call the Agent tool ONCE with '
@@ -890,11 +901,16 @@ def spawn_teammate(ctx, lead, name, agent_type, seconds, timeout=300, dirty=Fals
 # =============================================================================================
 
 PROBES = []
+RETIRED = {}
 
 
-def probe(pid):
+def probe(pid, retired=None):
+    """Register a probe. A RETIRED one stays in the file as the record of what it measured and
+    is never run again: its verdict is RETIRED with the reason."""
     def register(fn):
         PROBES.append((pid, fn))
+        if retired:
+            RETIRED[pid] = retired
         return fn
     return register
 
@@ -1215,44 +1231,65 @@ def p4(ctx, r):
     return 'FAIL', 'a: %s after %s s, b: %s' % (r['liveness_a'][0], r['seconds_to_not_alive'], r['liveness_b'][0])
 
 
+def grade_p5(rows, task_id, sent_until):
+    """P5's pass line as r4 §1.1 and §5 state it (docs/plans/2026-09-25-operator-back-end-spec-r4.md):
+    "a lead turn starts with nothing sent after the agent's task_notification, and SubagentStop
+    fires". `rows` are (seconds, frame) in stream order; nothing was sent to the lead after
+    `sent_until`. Pure, so the same function grades a live run and the recorded P5 frames.
+
+    TeammateIdle and TaskCompleted are recorded and never required: r4 §1.1 measured that his
+    terminal does not get them either, so nothing of his depends on them."""
+    facts = {'task_id': task_id, 'sent_until': sent_until}
+    notified = [t for t, f in rows if f.get('type') == 'system' and f.get('subtype') == 'task_notification'
+                and f.get('task_id') == task_id and f.get('status') == 'completed']
+    facts['notification_completed_at'] = notified[0] if notified else None
+    facts['subagent_stop_at'] = [t for t, f in rows if f.get('type') == 'system' and f.get('subtype') == 'hook_response'
+                                 and f.get('hook_event') == 'SubagentStop']
+    facts['teammate_hooks_fired'] = sorted(set(f.get('hook_event') for _, f in rows if f.get('type') == 'system'
+                                               and f.get('subtype') in ('hook_started', 'hook_response')
+                                               and f.get('hook_event') in ('TeammateIdle', 'TaskCompleted')))
+    if not notified:
+        return 'FAIL', 'the host saw no task_notification completed for the agent', facts
+    if notified[0] <= sent_until:
+        return 'PREMISE-FALSE', 'the agent ended before the harness stopped sending, so a platform turn cannot be told apart', facts
+    starts = [t for t, f in rows if t > notified[0] and f.get('type') == 'system' and f.get('subtype') == 'hook_started'
+              and f.get('hook_event') == 'UserPromptSubmit']
+    facts['turn_started_at'] = starts[0] if starts else None
+    facts['seconds_notification_to_turn'] = round(starts[0] - notified[0], 3) if starts else None
+    ended = [t for t, f in rows if starts and t > starts[0] and f.get('type') == 'result']
+    facts['turn_result_at'] = ended[0] if ended else None
+    if not starts or not ended:
+        return 'FAIL', 'no lead turn started and ended after the task_notification, with nothing sent', facts
+    if not facts['subagent_stop_at']:
+        return 'FAIL', 'a platform turn started, but SubagentStop never fired, so his registry never saw the end', facts
+    return 'PASS', ('task_notification completed at %s s; a lead turn started with nothing sent %s s later; SubagentStop '
+                    'fired at %s' % (notified[0], facts['seconds_notification_to_turn'], facts['subagent_stop_at'])), facts
+
+
 @probe('P5')
 def p5(ctx, r):
     sid = str(uuid.uuid4())
     lead = Lead(ctx, 'P5', 'lead', ctx.lead_args(session_id=sid))
     try:
-        lead.initialize()
+        lead.initialize(perTaskStopAffordance=True)
         task_id, worktree, detail = spawn_teammate(ctx, lead, 'probe-sonnet-p5a', 'alpha', 20)
         r['spawn'] = detail
         if not task_id:
             return 'NOT-RUN', 'no teammate could be started (see spawn)'
-        results_before = sum(1 for f in lead.all_frames() if f.get('type') == 'result')
-        mark = lead.count()
         # Nothing is sent from here on. A new turn must start by itself when the agent ends.
-        new_turn = lead.wait(lambda f: f.get('type') == 'result', 300, mark)
-        r['platform_started_turn'] = bool(new_turn)
-        r['seconds_to_new_turn'] = round(new_turn[1] - lead.frames[mark][0], 2) if new_turn and mark < lead.count() else None
-        events = [f.get('hook_event') for f in lead.all_frames() if f.get('type') == 'system'
-                  and f.get('subtype') in ('hook_started', 'hook_response')]
-        r['hook_events_seen'] = sorted(set(e for e in events if e))
-        r['results_before'] = results_before
-        # What the HOST sees when the teammate ends, whatever the hooks do: the stream's own
-        # task notification (a substitute signal for femcboost's handoff detection if the
-        # teammate hooks do not fire here).
-        r['task_notifications_for_teammate'] = [f.get('status') for f in lead.all_frames()
-                                                if f.get('subtype') == 'task_notification' and f.get('task_id') == task_id]
+        sent_until = time.time() - lead.started
+        mark = lead.count()
+        lead.wait(lambda f: f.get('type') == 'system' and f.get('subtype') == 'task_notification'
+                  and f.get('task_id') == task_id, 300, mark)
+        lead.wait(lambda f: f.get('type') == 'result', 120, mark)
         r['session_team'] = session_team(ctx, sid)
     finally:
         lead.close()
-    fired = {'TeammateIdle', 'TaskCompleted'} & set(r['hook_events_seen'])
-    r['teammate_hooks_fired'] = sorted(fired)
-    if not r['platform_started_turn']:
-        return 'FAIL', 'no turn started after the agent ended, with nothing sent'
-    if fired != {'TeammateIdle', 'TaskCompleted'}:
-        return 'FAIL', ('a platform turn started with nothing sent (after %s s), but TeammateIdle/TaskCompleted fired: %s; '
-                        'the lead had %s session team; the host did see task_notification %s'
-                        % (r['seconds_to_new_turn'], sorted(fired), 'a' if r['session_team'] else 'NO',
-                           r['task_notifications_for_teammate']))
-    return 'PASS', 'a platform turn started with nothing sent; TeammateIdle and TaskCompleted fired'
+    with lead.cond:
+        rows = [(round(t - lead.started, 3), f) for t, f in lead.frames]
+    verdict, why, facts = grade_p5(rows, task_id, round(sent_until, 3))
+    r.update(facts)
+    return verdict, why
 
 
 def session_team(ctx, session_id):
@@ -1268,7 +1305,8 @@ def session_team(ctx, session_id):
         return None
 
 
-@probe('P6')
+@probe('P6', retired='r4 §1.1: his terminal has no consumer of the session team\'s two hooks either, so the switch '
+                     'has nothing to decide; the code stays as the record of what it measured')
 def p6(ctx, r):
     # 1) As femcboost sets it: the switch comes from the entity's project settings.
     sid = str(uuid.uuid4())
@@ -1632,9 +1670,42 @@ def p11(ctx, r):
     return 'RECORDED', '%d tools only in his terminal, each with a disposition in the result' % len(r['missing_from_lead'])
 
 
+def registry_rows(text, names):
+    """{name: (state, why)} from `workspaces.sh status`: `PENDING  <name>  <why>` lines and
+    `<STATE> <name>  <why>` lines (WORKING, FINISHED, PAUSED, RETRYING). The why is the
+    registry's own words (`finished_state`): "its run has not ended" is a run still open,
+    "it was stopped (…)" is a run the registry recorded as stopped."""
+    found = {}
+    for line in text.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) >= 2 and parts[0] in ('PENDING', 'WORKING', 'FINISHED', 'PAUSED', 'RETRYING') and parts[1] in names:
+            found.setdefault(parts[1], (parts[0], parts[2].strip() if len(parts) > 2 else ''))
+    return found
+
+
+def registry_says_stopped(row):
+    return bool(row) and row[1].startswith('it was stopped')
+
+
+def registry_says_running(row):
+    return bool(row) and row[1].startswith('its run has not ended')
+
+
+def workspaces(ctx, session_id, *args):
+    """His engine's registry command, from the guest's engine root, with RICHOS_SESSION_ID
+    naming the lead's session: the host is not the lead's descendant, so the ancestor walk
+    cannot find it (r4 §2.1, workspaces.py current_session)."""
+    env = dict(ctx.stored, HOME=str(ctx.p.home), CLAUDE_PROJECT_DIR=str(ctx.p.entity), RICHOS_SESSION_ID=session_id)
+    code, out, err = run(['/bin/bash', str(ctx.p.engine / 'scripts' / 'workspaces.sh')] + list(args),
+                         env=env, cwd=str(ctx.p.entity), timeout=120)
+    return code, out, err
+
+
 @probe('P12')
 def p12(ctx, r):
-    lead = Lead(ctx, 'P12', 'lead', ctx.lead_args())
+    sid = str(uuid.uuid4())
+    r['lead_session'] = sid
+    lead = Lead(ctx, 'P12', 'lead', ctx.lead_args(session_id=sid))
     try:
         # Declared as the app's operator client will declare it: it renders a per-task stop.
         r['initialize'] = lead.initialize(perTaskStopAffordance=True)
@@ -1661,6 +1732,22 @@ def p12(ctx, r):
         r['lead_said'] = lead.text(start)[-400:]
         r['notification_a'] = [f.get('status') for f in lead.all_frames()
                                if f.get('subtype') == 'task_notification' and f.get('task_id') == a_id]
+        # ---- P12′ (r4 §2.1, §5): the host's registry step after its own stop_task ------------
+        # Control first: after the stop and NOT-ALIVE, the registry still reads the run as
+        # open (P12 measured RUNNING: no PostToolUse[TaskStop], no stoppedByUser). Then the
+        # host's step, exactly r4's command, while the lead's session is still alive.
+        names = ('probe-sonnet-p12a', 'probe-sonnet-p12b')
+        code, out, err = workspaces(ctx, sid, '--session', sid, 'status')
+        r['registry_before_step'] = {'exit': code, 'rows': registry_rows(out, names)}
+        if 'stopped' in r['notification_a'] and r['seconds_to_not_alive'] is not None:
+            code, out, err = workspaces(ctx, sid, 'stop', 'probe-sonnet-p12a',
+                                        '--why', 'operator probe P12: stop probe-sonnet-p12a')
+            r['registry_step'] = {'exit': code, 'said': (out + err).strip()[-400:]}
+        else:
+            r['registry_step'] = {'not_run': 'no task_notification stopped with NOT-ALIVE for a: %s' % r['notification_a']}
+        code, out, err = workspaces(ctx, sid, '--session', sid, 'status')
+        r['registry_after_step'] = {'exit': code, 'rows': registry_rows(out, names)}
+        r['liveness_after_step'] = {'a': ctx.liveness('probe-sonnet-p12a')[0], 'b': ctx.liveness('probe-sonnet-p12b')[0]}
         # ---- the realistic case: an agent whose workspace has an uncommitted change --------
         # Run 6 showed NOT-ALIVE decided only by the platform deleting a CLEAN worktree; the
         # registry still said RUNNING. Claude Code keeps a worktree with changes, so this is
@@ -1694,16 +1781,38 @@ def p12(ctx, r):
     if not ok:
         return 'FAIL', 'a: %s after %s s; b: %s; lead said %r' % ((r.get('liveness_a') or [None])[0], r['seconds_to_not_alive'],
                                                                   r['liveness_b'][0], r['lead_said'][-80:])
+    verdict, registry_note = grade_registry_step(r)
+    if verdict != 'PASS':
+        return verdict, registry_note
     if not r.get('dirty_before_stop') or r.get('liveness_c_before') != 'ALIVE':
         return 'PASS', ('clean worktree: NOT-ALIVE in %s s, the other ALIVE, the lead\'s command finished. The dirty-'
-                        'worktree case could not be set up (see spawn_c), so it is NOT measured' % r['seconds_to_not_alive'])
+                        'worktree case could not be set up (see spawn_c), so it is NOT measured; %s' % (r['seconds_to_not_alive'],
+                                                                                          registry_note))
     if r['seconds_to_not_alive_c'] is None:
         return 'FAIL', ('stop_task works (clean worktree NOT-ALIVE in %s s, the other ALIVE, the lead\'s command finished), '
                         'but a stopped agent whose worktree holds a change still reads %s after 60 s: the platform keeps '
                         'the locked worktree and the registry never learns of the stop'
                         % (r['seconds_to_not_alive'], (r.get('liveness_c') or [None])[0]))
-    return 'PASS', ('NOT-ALIVE in %s s (clean) and %s s (with a change); the other ALIVE; the lead\'s command finished'
-                    % (r['seconds_to_not_alive'], r['seconds_to_not_alive_c']))
+    return 'PASS', ('NOT-ALIVE in %s s (clean) and %s s (with a change); the other ALIVE; the lead\'s command finished; %s'
+                    % (r['seconds_to_not_alive'], r['seconds_to_not_alive_c'], registry_note))
+
+
+def grade_registry_step(r):
+    """P12′'s added line (r4 §5). Control: before the step the registry reads a's run as open.
+    Pass: after it, a reads stopped and NOT-ALIVE, b reads open and ALIVE."""
+    a, b = 'probe-sonnet-p12a', 'probe-sonnet-p12b'
+    before = (r.get('registry_before_step') or {}).get('rows') or {}
+    after = (r.get('registry_after_step') or {}).get('rows') or {}
+    live = r.get('liveness_after_step') or {}
+    if not registry_says_running(before.get(a)):
+        return 'PREMISE-FALSE', ('before the registry step the registry already read %s for a, so the step is not what '
+                                 'closed it' % (before.get(a),))
+    if (r.get('registry_step') or {}).get('exit') != 0:
+        return 'FAIL', 'the registry step did not run cleanly: %s' % r.get('registry_step')
+    if registry_says_stopped(after.get(a)) and live.get('a') == 'NOT-ALIVE' and \
+            registry_says_running(after.get(b)) and live.get('b') == 'ALIVE':
+        return 'PASS', 'registry step: a %s and %s; b %s and %s' % (after[a], live['a'], after[b], live['b'])
+    return 'FAIL', 'after the registry step: a %s, %s; b %s, %s' % (after.get(a), live.get('a'), after.get(b), live.get('b'))
 
 
 def priority_order(ctx, r, key, use_priority):
@@ -1878,11 +1987,204 @@ def p15(ctx, r):
     return 'FAIL', 'still alive: %s' % survivors
 
 
+def team_state(team_dir):
+    """What the session team directory holds: whether it exists, whether it has the roster
+    `config.json` an interactive session gets, and the names its spawn ledger holds."""
+    d = Path(team_dir)
+    return {'exists': d.is_dir(), 'config_json': (d / 'config.json').is_file(),
+            'spawned_names': names_file(d / 'spawned-names.log') if (d / 'spawned-names.log').exists() else None}
+
+
+def tool_result(lead, tool_use_id):
+    """(text, is_error) of one tool call, read off the stream."""
+    for f in lead.all_frames():
+        if f.get('type') != 'user':
+            continue
+        for b in (f.get('message') or {}).get('content') or []:
+            if isinstance(b, dict) and b.get('type') == 'tool_result' and b.get('tool_use_id') == tool_use_id:
+                c = b.get('content')
+                text = c if isinstance(c, str) else '\n'.join(x.get('text', '') for x in c or [] if isinstance(x, dict))
+                return text, bool(b.get('is_error'))
+    return None, None
+
+
+def subagent_transcripts(ctx, session_id, agent_id):
+    """A teammate's own transcript: `<claude dir>/projects/<project>/<lead session>/subagents/agent-<id>.jsonl`
+    (the layout of his own session directory, measured on the host 2026-09-25)."""
+    return sorted(glob.glob(str(ctx.p.claude_dir / 'projects' / '*' / session_id / 'subagents' / ('agent-%s.jsonl' % agent_id))))
+
+
+def grade_p16(r):
+    """r4 §5, P16. Required: (1) the name-reuse clause refuses A's name and a fresh control name
+    passes; (2) the team directory resolves by exact session id; (3) the lead's SendMessage to
+    running B reaches B's transcript. Recorded only: B's message to the lead."""
+    reuse = r.get('reuse_a') or {}
+    fresh = r.get('control_fresh_name') or {}
+    one = 'BLOCKED (name reuse)' in (reuse.get('said') or '') and bool(fresh.get('agent_call'))
+    two = (r.get('resolve_teams_dir') or '').startswith('exact session id match')
+    three = bool(r.get('token_in_b_transcript'))
+    r['required'] = {'1_name_reuse_refused_and_fresh_passes': one, '2_exact_session_match': two,
+                     '3_send_message_reached_b': three}
+    if not r.get('b_alive_at_send') == 'ALIVE':
+        return 'PREMISE-FALSE', 'B was %s when the lead sent its message, so "a running teammate" was not tested' % r.get('b_alive_at_send')
+    if not fresh.get('agent_call'):
+        return 'PREMISE-FALSE', 'the fresh-name control did not spawn, so the reuse refusal cannot be told from a broken spawn'
+    if one and two and three:
+        return 'PASS', ('team dir before the first spawn %s, after %s; name reuse refused, fresh name passed; %s; the lead\'s '
+                        'message reached B' % (r['team_dir_before_first_spawn'], r['team_dir_after_first_spawn'],
+                                               r['resolve_teams_dir']))
+    return 'FAIL', 'required: %s' % r['required']
+
+
+@probe('P16')
+def p16(ctx, r):
+    sid = str(uuid.uuid4())
+    team = ctx.p.claude_dir / 'teams' / ('session-%s' % sid[:8])
+    token_to_b = 'P16-LEAD-TO-B-' + uuid.uuid4().hex[:8]
+    token_to_lead = 'P16-B-TO-LEAD-' + uuid.uuid4().hex[:8]
+    lead = Lead(ctx, 'P16', 'lead', ctx.lead_args(session_id=sid))
+    try:
+        r['initialize'] = lead.initialize(perTaskStopAffordance=True)
+        ask(lead, 'Reply with exactly the word ready.', 180)
+        r['team_dir_before_first_spawn'] = team_state(team)
+        a_id, a_wt, r['spawn_a'] = spawn_teammate(ctx, lead, 'probe-sonnet-p16a', 'alpha', 15)
+        r['team_dir_after_first_spawn'] = team_state(team)
+        b_id, b_wt, r['spawn_b'] = spawn_teammate(
+            ctx, lead, 'probe-sonnet-p16b', 'gamma', 150,
+            then='Then use the SendMessage tool once to send team-lead exactly this message: "Fixture note from B: %s".'
+                 % token_to_lead)
+        if not (a_id and b_id and b_wt):
+            return 'NOT-RUN', 'two teammates could not be started (see spawn_a, spawn_b)'
+        env = dict(ctx.stored, HOME=str(ctx.p.home))
+        code, out, err = run(['python3', str(ctx.p.engine / 'scripts' / 'lib' / 'teammate-identity.py'),
+                              '--resolve-teams-dir', '--session', sid, '--how'], env=env, timeout=60)
+        r['resolve_teams_dir'] = out.strip() or err.strip()[-300:]
+        # ListAgents while B runs (recorded).
+        r['b_alive_at_list'] = ctx.liveness(b_wt)[0]
+        start, _ = do(lead, 'Call the ListAgents tool once, then reply with the single word listed.', 180)
+        uses = tool_uses(lead, start, 'ListAgents')
+        r['list_agents'] = [dict(zip(('text', 'is_error'), tool_result(lead, u.get('id')))) for u in uses]
+        # (3) A message from the lead to running B.
+        r['b_alive_at_send'] = ctx.liveness(b_wt)[0]
+        start, _ = do(lead, 'Use the SendMessage tool once to send the running teammate named probe-sonnet-p16b exactly this '
+                            'message: "Fixture note: %s. No action is needed." Then reply with the single word sent.'
+                      % token_to_b, 180)
+        uses = tool_uses(lead, start, 'SendMessage')
+        r['send_message_calls'] = [{'input_keys': sorted((u.get('input') or {}).keys()),
+                                    'result': dict(zip(('text', 'is_error'), tool_result(lead, u.get('id'))))} for u in uses]
+        # (1) Once A has ended, its name again; then the fresh-name control.
+        lead.wait(lambda f: f.get('subtype') == 'task_notification' and f.get('task_id') == a_id, 120)
+        r['a_ended'] = [f.get('status') for f in lead.all_frames()
+                        if f.get('subtype') == 'task_notification' and f.get('task_id') == a_id]
+        command = "%s probe-sonnet-p16a --repo %s --type alpha --brief %s --model sonnet --description 'Probe teammate again'" % (
+            ctx.p.engine / 'scripts' / 'spawn.sh', ctx.p.entity, brief(ctx, 'probe-sonnet-p16a-again', 10))
+        output, _ = bash_output(lead, 'Run exactly this Bash command once and reply with its full output. Do not call the '
+                                      'Agent tool, whatever it prints: %s' % command, 180)
+        r['reuse_a'] = {'said': (output or '')[-2000:]}
+        c_id, c_wt, fresh = spawn_teammate(ctx, lead, 'probe-sonnet-p16c', 'alpha', 10)
+        r['control_fresh_name'] = fresh
+        # (3) continued: B's own transcript, once B has had its turn boundary.
+        lead.wait(lambda f: f.get('subtype') == 'task_notification' and f.get('task_id') == b_id, 300)
+        deadline = time.time() + 90
+        found = []
+        while time.time() < deadline:
+            files = subagent_transcripts(ctx, sid, b_id)
+            found = [x for x in files if token_to_b in Path(x).read_text(errors='replace')]
+            if found:
+                break
+            time.sleep(3)
+        r['b_transcripts'] = subagent_transcripts(ctx, sid, b_id)
+        r['token_in_b_transcript'] = bool(found)
+        # Recorded only: did B's message to team-lead reach the lead's stream?
+        r['b_to_lead_seen_by_lead'] = token_to_lead in json.dumps(lead.all_frames())
+        r['team_dir_at_end'] = team_state(team)
+    finally:
+        lead.close()
+    return grade_p16(r)
+
+
+def scrub_artifact_results(ids):
+    """Replace the text of these tool results with their length: P17 reads his account's
+    artifact list to prove the tool works, and the record keeps only that it answered."""
+    def scrub(frame):
+        if frame.get('type') != 'user':
+            return frame
+        blocks = (frame.get('message') or {}).get('content')
+        if not isinstance(blocks, list) or not any(isinstance(b, dict) and b.get('tool_use_id') in ids() for b in blocks):
+            return frame
+        out = json.loads(json.dumps(frame))
+        for b in out['message']['content']:
+            if isinstance(b, dict) and b.get('tool_use_id') in ids():
+                text = json.dumps(b.get('content'))
+                b['content'] = '<Artifact result removed by the probe: %d characters, is_error %s>' % (len(text), b.get('is_error'))
+        return out
+    return scrub
+
+
+@probe('P17')
+def p17(ctx, r):
+    for key, extra in (('artifact', {'CLAUDE_CODE_ARTIFACT': '1'}), ('control', {})):
+        rec = r.setdefault(key, {'environment_adds': sorted(extra)})
+        seen = set()
+        lead = Lead(ctx, 'P17', key, ctx.lead_args(), env=dict(ctx.lead_env(), **extra),
+                    scrub=scrub_artifact_results(lambda: seen))
+        try:
+            rec['initialize'] = lead.initialize(perTaskStopAffordance=True)
+            ask(lead, 'Reply with exactly the word ready.', 180)
+            rec['artifact_in_init_tools'] = 'Artifact' in ((lead.init_frame() or {}).get('tools') or [])
+            if key == 'artifact' and rec['artifact_in_init_tools']:
+                start, _ = do(lead, 'Call the Artifact tool twice, both read-only: first with the action list_types, then '
+                                    'with the action list. Publish nothing, create nothing and change nothing. Then reply '
+                                    'with the single word done.', 300)
+                calls = []
+                for u in tool_uses(lead, start, 'Artifact'):
+                    seen.add(u.get('id'))
+                    text, is_error = tool_result(lead, u.get('id'))
+                    calls.append({'action': (u.get('input') or {}).get('action'), 'is_error': is_error,
+                                  'answered': text is not None, 'result_chars': len(text or '')})
+                rec['calls'] = calls
+        finally:
+            lead.close()
+    main, control = r['artifact'], r['control']
+    if control.get('artifact_in_init_tools'):
+        return 'PREMISE-FALSE', 'without the variable the lead has Artifact too, so the variable is not what grants it'
+    if not main.get('artifact_in_init_tools'):
+        return 'FAIL', 'with CLAUDE_CODE_ARTIFACT=1 the lead still has no Artifact tool'
+    by_action = {c['action']: c for c in main.get('calls') or []}
+    ok = all(a in by_action and by_action[a]['answered'] and by_action[a]['is_error'] is False for a in ('list_types', 'list'))
+    if ok:
+        return 'PASS', 'with CLAUDE_CODE_ARTIFACT=1 Artifact is listed and list_types and list both succeed; without it, absent'
+    return 'FAIL', 'Artifact is listed, but the read-only calls did not both succeed: %s' % main.get('calls')
+
+
 # =============================================================================================
 # driver
 # =============================================================================================
 
+def regrade_p5(frames_path, task_id):
+    """Grade a RECORDED P5 run by r4's line, with no guest and no model (r4 §5: "re-graded PASS
+    from the existing record; no re-run"). Nothing was sent after the spawn turn ended, so that
+    turn's `result` is where sending stopped."""
+    rows = []
+    for line in Path(frames_path).read_text().splitlines():
+        if line.strip():
+            row = json.loads(line)
+            rows.append((row['t'], row['frame']))
+    first_result = next((t for t, f in rows if f.get('type') == 'result'), None)
+    if first_result is None:
+        return 'ERROR', 'the record has no result frame, so where sending stopped cannot be read', {}
+    return grade_p5(rows, task_id, first_result)
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == '--grade-p5':
+        if len(sys.argv) != 4:
+            print('usage: guest_probes.py --grade-p5 <P5-lead.jsonl> <task id>', file=sys.stderr)
+            return 2
+        verdict, why, facts = regrade_p5(sys.argv[2], sys.argv[3])
+        print(json.dumps({'probe': 'P5', 'graded_from': sys.argv[2], 'verdict': verdict, 'why': why, 'facts': facts},
+                         indent=1))
+        return 0 if verdict == 'PASS' else 1
     ap = argparse.ArgumentParser()
     ap.add_argument('--payload', required=True)
     ap.add_argument('--engine-commit', required=True)
@@ -1918,10 +2220,13 @@ def main():
             continue
         record = {'probe': pid, 'claude_version': setup['claude_version'], 'started': time.time()}
         print('=== %s' % pid, flush=True)
-        try:
-            verdict, why = fn(ctx, record)
-        except Exception:  # noqa: BLE001
-            verdict, why = 'ERROR', traceback.format_exc()[-3000:]
+        if pid in RETIRED:
+            verdict, why = 'RETIRED', RETIRED[pid]
+        else:
+            try:
+                verdict, why = fn(ctx, record)
+            except Exception:  # noqa: BLE001
+                verdict, why = 'ERROR', traceback.format_exc()[-3000:]
         if ctx.spawned:
             try:
                 record['cleanup'] = ctx.clean_up_teammates()

@@ -140,6 +140,107 @@ class Record(unittest.TestCase):
         self.assertEqual(bounded['b'], ['short'])
 
 
+def sysf(subtype, **kw):
+    return dict({'type': 'system', 'subtype': subtype}, **kw)
+
+
+class GradeP5(unittest.TestCase):
+    """r4 §1.1/§5: a turn started with nothing sent after the agent's task_notification, and
+    SubagentStop fired. TeammateIdle/TaskCompleted are recorded, never required."""
+    def rows(self, subagent_stop=True, turn=True, notify_at=10.0):
+        rows = [(1.0, {'type': 'result'})]
+        if subagent_stop:
+            rows.append((notify_at - 0.2, sysf('hook_response', hook_event='SubagentStop')))
+        rows.append((notify_at, sysf('task_notification', task_id='a1', status='completed')))
+        rows.append((notify_at, sysf('task_notification', task_id='b-bash', status='completed')))
+        if turn:
+            rows.append((notify_at + 0.5, sysf('hook_started', hook_event='UserPromptSubmit')))
+            rows.append((notify_at + 3.0, {'type': 'result'}))
+        return rows
+
+    def test_the_measured_shape_passes_with_no_teammate_hooks(self):
+        verdict, why, facts = gp.grade_p5(self.rows(), 'a1', 1.0)
+        self.assertEqual(verdict, 'PASS', why)
+        self.assertEqual(facts['seconds_notification_to_turn'], 0.5)
+        self.assertEqual(facts['teammate_hooks_fired'], [])
+
+    def test_each_missing_signal_fails(self):
+        self.assertEqual(gp.grade_p5(self.rows(subagent_stop=False), 'a1', 1.0)[0], 'FAIL')
+        self.assertEqual(gp.grade_p5(self.rows(turn=False), 'a1', 1.0)[0], 'FAIL')
+        self.assertEqual(gp.grade_p5(self.rows(), 'someone-else', 1.0)[0], 'FAIL')
+
+    def test_an_agent_that_ended_while_the_harness_was_still_sending_proves_nothing(self):
+        self.assertEqual(gp.grade_p5(self.rows(notify_at=0.5), 'a1', 1.0)[0], 'PREMISE-FALSE')
+
+
+class RegistryStep(unittest.TestCase):
+    """P12′ (r4 §2.1, §5): the registry's own words, parsed from `workspaces.sh status`."""
+    STATUS_BEFORE = ('session: s-1\npending: none\n'
+                     'WORKING  probe-sonnet-p12a  its run has not ended\n'
+                     'WORKING  probe-sonnet-p12b  its run has not ended\n')
+    STATUS_AFTER = ('session: s-1\n'
+                    'PENDING  probe-sonnet-p12a  it was stopped (operator probe P12: stop probe-sonnet-p12a)\n'
+                    '           /w/a  cc/probe-sonnet-p12a\n'
+                    'WORKING  probe-sonnet-p12b  its run has not ended\n')
+    NAMES = ('probe-sonnet-p12a', 'probe-sonnet-p12b')
+
+    def result(self, before, after, live_a='NOT-ALIVE', live_b='ALIVE', step_exit=0):
+        return {'registry_before_step': {'rows': gp.registry_rows(before, self.NAMES)},
+                'registry_step': {'exit': step_exit},
+                'registry_after_step': {'rows': gp.registry_rows(after, self.NAMES)},
+                'liveness_after_step': {'a': live_a, 'b': live_b}}
+
+    def test_rows_are_read_from_pending_and_state_lines(self):
+        rows = gp.registry_rows(self.STATUS_AFTER, self.NAMES)
+        self.assertEqual(rows['probe-sonnet-p12a'][0], 'PENDING')
+        self.assertTrue(gp.registry_says_stopped(rows['probe-sonnet-p12a']))
+        self.assertTrue(gp.registry_says_running(rows['probe-sonnet-p12b']))
+
+    def test_the_step_passes_only_with_its_control_and_both_names_right(self):
+        self.assertEqual(gp.grade_registry_step(self.result(self.STATUS_BEFORE, self.STATUS_AFTER))[0], 'PASS')
+        self.assertEqual(gp.grade_registry_step(self.result(self.STATUS_AFTER, self.STATUS_AFTER))[0], 'PREMISE-FALSE')
+        self.assertEqual(gp.grade_registry_step(self.result(self.STATUS_BEFORE, self.STATUS_BEFORE))[0], 'FAIL')
+        self.assertEqual(gp.grade_registry_step(self.result(self.STATUS_BEFORE, self.STATUS_AFTER, live_b='NOT-ALIVE'))[0], 'FAIL')
+        self.assertEqual(gp.grade_registry_step(self.result(self.STATUS_BEFORE, self.STATUS_AFTER, step_exit=1))[0], 'FAIL')
+
+
+class GradeP16(unittest.TestCase):
+    def result(self, said='=== Teammate-spawn guard: BLOCKED (name reuse) ===', fresh=True,
+               how='exact session id match (session-12345678)', token=True, b_alive='ALIVE'):
+        return {'reuse_a': {'said': said}, 'control_fresh_name': {'agent_call': fresh}, 'resolve_teams_dir': how,
+                'token_in_b_transcript': token, 'b_alive_at_send': b_alive,
+                'team_dir_before_first_spawn': {}, 'team_dir_after_first_spawn': {}}
+
+    def test_all_three_required_lines(self):
+        self.assertEqual(gp.grade_p16(self.result())[0], 'PASS')
+        self.assertEqual(gp.grade_p16(self.result(said='spawn: ready'))[0], 'FAIL')
+        self.assertEqual(gp.grade_p16(self.result(how='the only session team directory under /x'))[0], 'FAIL')
+        self.assertEqual(gp.grade_p16(self.result(token=False))[0], 'FAIL')
+        self.assertEqual(gp.grade_p16(self.result(fresh=False))[0], 'PREMISE-FALSE')
+        self.assertEqual(gp.grade_p16(self.result(b_alive='NOT-ALIVE'))[0], 'PREMISE-FALSE')
+
+
+class Retired(unittest.TestCase):
+    def test_p6_is_retired_with_its_reason_and_p5_p12_p16_p17_are_registered(self):
+        self.assertIn('P6', gp.RETIRED)
+        self.assertIn('r4', gp.RETIRED['P6'])
+        ids = [pid for pid, _ in gp.PROBES]
+        for pid in ('P5', 'P12', 'P15', 'P16', 'P17'):
+            self.assertIn(pid, ids)
+
+
+class ArtifactScrub(unittest.TestCase):
+    def test_his_artifact_list_never_reaches_the_record(self):
+        scrub = gp.scrub_artifact_results(lambda: {'t-1'})
+        frame = {'type': 'user', 'message': {'content': [
+            {'type': 'tool_result', 'tool_use_id': 't-1', 'content': 'My private artifact title', 'is_error': False},
+            {'type': 'tool_result', 'tool_use_id': 't-2', 'content': 'kept'}]}}
+        out = json.dumps(scrub(frame))
+        self.assertNotIn('private artifact title', out)
+        self.assertIn('kept', out)
+        self.assertIn('private artifact title', json.dumps(frame), 'the live frame is not changed, only the saved copy')
+
+
 class Arguments(unittest.TestCase):
     def test_the_lead_arguments_mirror_the_operator_profile(self):
         """operator_profile::child_args, flag for flag. If the profile changes, this list must."""
