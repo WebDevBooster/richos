@@ -40,7 +40,15 @@ GATE_BUDGETS = {
     "gates/release-smoke": 60,   # One-minute startup floor for fixture-only Python work.
     "gates/core-tests": 300,    # At least 5x the worst cold/warm Cargo sample.
     "gates/updater-tests": 360, # At least 5x its separate workspace's cold/warm sample.
-    "gates/script-suites": 1800, # At least 2x the full-execution envelope, without reuse.
+    # At least 2x the full-execution envelope, without reuse. Re-derived 2026-09-25 when the
+    # nightly-only A8 case made the simulator suites the long pole: the machine admits one
+    # prepared-simulator lease at a time, so native-ios-app (1572 s alone with A8, measured
+    # 2026-09-25) and native-ios-ui (two devices at 787-884 s each, measured 2026-09-24) run one
+    # after the other -- native-ios-ui sat waiting for 16 minutes in run 20260925T173516Z-218870fc
+    # -- while every other suite finishes in parallel inside the first 7.3 minutes. Envelope
+    # about 3340 s; 2x is 6680 s, rounded up to five minutes. The 1800 s it replaces predates A8
+    # (the whole gate took 413 s on 2026-09-22) and killed that run with the suite still passing.
+    "gates/script-suites": 6900,
     "gates/lint-tauri": 300,    # At least 10x the full-lint sample; headroom beyond the 180s inner cap.
     "gates/workspace-mutants": 1800,  # About 2x its 792 s measured on this Mac, 2026-09-23.
     "gates/ui-suite": 1200,    # At least 2x the fresh-browser four-shard reference.
