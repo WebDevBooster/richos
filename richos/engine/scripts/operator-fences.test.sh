@@ -64,6 +64,7 @@
 #   F25  a dead Claude holder's lease: taken at rest, takeover otherwise
 #   F26  install-ref-forensics.sh installs into the chain, never over the launcher
 #   F27  the product lander's land_lock() waits on a live lease (G2)
+#        and a hook that is not UTF-8 reads as no lease, never an exception (#13)
 #   F28  a lease naming a live pid with another start time is dead: a recycled
 #        pid is never mistaken for the holder
 #   F29  a live, in-time lease cannot be taken over (G5)
@@ -461,6 +462,16 @@ ofx_in A "$(ofx_lease release --repo "$R")"
 free="$(RICHOS_LAND_LOCK_TIMEOUT=2 python3 -c "$LL" 2>&1)"
 printf '%s' "$held" | grep -q "operator land lease" && printf '%s' "$free" | grep -q "ENTERED"
 expect "F27" "[git $G] land_lock() waits on a live lease, and enters once it is released" "$?" "held: $held | free: $free"
+# Frank's #13: a reference-transaction hook that is not UTF-8 is not ours. It
+# reads as "no lease" in the product lander and as "fences off" in the lease
+# commands, never as an exception.
+ofx_repo "u$N"; U="$OFX_R"
+printf '#!/bin/sh\n# richos-operator-fence-launcher \377\376\n' > "$U/.git/hooks/reference-transaction"
+u1="$(python3 -c "import sys; sys.path.insert(0, '$ENGINE_ROOT/mega-lander'); import app; print('RESULT', app._live_fence_lease('$U'))" 2>&1)"
+u2="$(bash "$LEASE" status --repo "$U" 2>&1)"; rcu=$?
+printf '%s' "$u1" | grep -q "RESULT None" && [ $rcu = 0 ] && printf '%s' "$u2" | grep -q "operator fences are" \
+    && ! printf '%s%s' "$u1" "$u2" | grep -q "Traceback"
+expect "F27" "[git $G] a hook that is not UTF-8 reads as no lease, never an exception (#13)" "$?" "$u1 | $u2"
 
 # ---- F21: on, and the fence cannot decide: refuse, name the way out (e8) -------------------
 PROG="$R/.git/hooks/operator-fences/operator_fences.py"

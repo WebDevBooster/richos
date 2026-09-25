@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # operator-fences-mutation.test.sh: runs scripts/operator-fences.mutation.sh, the
-# fence suite's mutation harness (25 mutants over the fence, the lease, merge
+# fence suite's mutation harness (26 mutants over the fence, the lease, merge
 # ownership, the launcher, the recorder, the installer, land_lock() and the
 # restore intent), as a unit of its own.
 #

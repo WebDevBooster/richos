@@ -275,7 +275,8 @@ def read_launcher(path):
     """The OPERATOR_FENCES_* assignments of a launcher, or None when the file is
     absent or not ours."""
     try:
-        with open(path, encoding="utf-8") as fh:
+        # errors="replace": a hook that is not UTF-8 is not ours (Frank's #13).
+        with open(path, encoding="utf-8", errors="replace") as fh:
             text = fh.read(65536)
     except OSError:
         return None

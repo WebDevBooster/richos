@@ -146,6 +146,10 @@ mutant land-lock-ignores-lease "F27 " "mega-lander/app.py" \
     '                leased = _live_fence_lease(repo)' \
     '                leased = None' \
     "G2: the product lander, which Git's hooks never see, would merge in the middle of a lease holder's land."
+mutant non-utf8-hook-raises "F27 " "mega-lander/app.py" \
+    '                  errors="replace") as handle:' \
+    '                  errors="strict") as handle:' \
+    "Frank's #13: a hook that is not UTF-8 would raise UnicodeDecodeError into the product lander, even with the switch off."
 mutant restore-writes-no-intent "F10 " "mega-lander/workspaces.py" \
     '    intent = _fence_restore_intent(repo, branch, tip)' \
     '    intent = ""' \
