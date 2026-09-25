@@ -14,6 +14,7 @@ public enum ConnectionReducer {
         case .networkChanged(let online, let at):
             if !online {
                 s.connectionNotice = .phoneOffline
+                s.linkOpen = false
                 effects.append(.disconnect)
                 s.troubleSinceMs = s.troubleSinceMs ?? at
             } else if s.connectionNotice == .phoneOffline {
@@ -26,8 +27,10 @@ public enum ConnectionReducer {
             }
         case .connectionLost(let at):
             s.troubleSinceMs = s.troubleSinceMs ?? at
+            s.linkOpen = false
         case .connected(let at):
             s.troubleSinceMs = nil
+            s.linkOpen = true
             if s.connectionNotice != .incompatible { s.connectionNotice = nil }
             // History on screen has now been reconciled with the Mac.
             s.history.cached = false
@@ -48,6 +51,7 @@ public enum ConnectionReducer {
             s.pairing = .revoked
             s.troubleSinceMs = nil
             s.connectionNotice = nil
+            s.linkOpen = false
             effects.append(.disconnect)
         case .macAttachmentLimits(let limits):
             s.attachmentLimits = limits
@@ -58,11 +62,17 @@ public enum ConnectionReducer {
         case .foregrounded(let at):
             guard s.pairing == .paired, s.connectionNotice != .phoneOffline else { return }
             effects.append(.connect)
+            // Connecting is trouble until the Mac answers: a Mac that takes the connection and never
+            // answers is explained after the same quiet 3 s as one that refuses it, not after the
+            // stream's minute-long timeout (I06). The reference starts its 3 s at `opening`, Android
+            // at `Link(OPENING)`. A healthy stream opens well inside the quiet period and clears it.
+            if !s.linkOpen { s.troubleSinceMs = s.troubleSinceMs ?? at }
             ConversationReducer.pump(&s, at: at, &effects)
         case .backgrounded:
             // No stream in the background (build plan §3.2): APNs is for awareness, the foreground
             // reconciles. The quiet period restarts on return.
             s.troubleSinceMs = nil
+            s.linkOpen = false
             if s.pairing == .paired { effects.append(.disconnect) }
         case .tick(let at):
             if let since = s.troubleSinceMs, s.connectionNotice == nil, at - since >= quietMs {

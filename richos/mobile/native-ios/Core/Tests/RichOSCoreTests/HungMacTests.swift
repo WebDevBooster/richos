@@ -56,6 +56,7 @@ actor HungMac: HTTPTransport, EventStreamTransport {
         var s = try Fixture.named("conv-empty").state
         s.connectionNotice = nil
         s.troubleSinceMs = nil
+        s.linkOpen = false
         return s
     }
 
@@ -158,5 +159,62 @@ actor HungMac: HTTPTransport, EventStreamTransport {
         #expect(waits.prefix(6) == [1_000, 2_000, 4_000, 8_000, 16_000, 16_000],
                 "the wait after each timed-out attempt: \(waits) ms")
         #expect(await mac.mostInFlight == 1, "one request at a time")
+    }
+
+    /// The stream's owner is now the only one asking a hung Mac. It asks one request at a time and waits
+    /// longer after each failed round (1 s doubling to 30 s), so ten minutes of a hung Mac cost a
+    /// bounded, shrinking number of requests (the battery evidence for I06).
+    @Test func theStreamOwnerAsksAHungMacOneRequestAtATimeWithAGrowingWait() async throws {
+        let clock = VirtualClock(Self.t0)
+        let mac = HungMac(clock: clock)
+        let api = APIClient(origin: "https://mm1.tail1a2b3c.ts.net:8443", deviceID: "dev_8d4c57b7ff82", challenge: "c",
+                            signer: SoftwareSigner(key: Corpus.testKey), transport: mac)
+        let seen = Collected()
+        let end = Self.t0 + 10 * 60_000
+        let connection = LiveConnection(api: api, stream: mac, threadID: "thr_5c1e", clock: clock,
+                                        sleep: { ms in
+                                            await seen.slept(ms)
+                                            clock.advance(ms)
+                                            if clock.nowMs() >= end { throw CancellationError() }
+                                        },
+                                        sink: { await seen.add($0) })
+        await connection.start()
+        await connection.finished()
+        let requests = await mac.starts
+        let inTenMinutes = requests.filter { $0.at < end }.count
+        #expect(await mac.mostInFlight == 1, "never two requests at the Mac at once")
+        let sleeps = await seen.sleeps
+        #expect(Array(sleeps.prefix(5)) == [1_000, 2_000, 4_000, 8_000, 16_000], "each round waits longer: \(sleeps)")
+        #expect(sleeps.dropFirst(5).allSatisfy { $0 == LiveConnection.maxRetryMs })
+        #expect(!(await seen.actions).contains { if case .connected = $0 { return true } else { return false } })
+        // One round against a hung Mac: the challenge (30 s), the stream (60 s), the revocation probe
+        // (30 s); the first round holds a challenge and skips it.
+        #expect(inTenMinutes <= 15, "requests to a hung Mac in ten minutes: \(inTenMinutes) (\(requests.map { $0.target }))")
+        print("I06-evidence: stream owner, hung Mac, 10 min: \(inTenMinutes) requests, most in flight \(await mac.mostInFlight), waits \(sleeps.map { $0 / 1000 }) s")
+    }
+
+    /// "Try now" (and a route that came up): the owner skips what is left of its wait and tries at once,
+    /// without resetting the back-off, and the next wait is the next one in the sequence.
+    @Test func tryNowSkipsWhatIsLeftOfTheWaitWithoutResettingTheBackOff() async throws {
+        let stream = LifecycleStream([], fallback: .unreachable)
+        let waits = Waits()
+        let network = NetworkEffects(transport: LifecycleMac(), stream: stream, identities: PairedMemoryIdentityStore(),
+                                     clock: FixedClock(ms: 5), sleep: waits.sleep)
+        let host = try await HeadlessHost(storage: MemoryStorage(), handler: network)
+        var paired = try Fixture.named("conv-retry").state
+        paired.linkOpen = false
+        _ = try await host.replace(with: paired)
+        await network.setSink { action in _ = try? await host.dispatch(action) }
+        _ = try await host.dispatch(.foregrounded(at: 1))
+        #expect(await becomes { await waits.asked == [1_000] }, "one attempt, then the first wait")
+        #expect(await holds { await stream.opened.count == 1 })
+        let (_, effects) = Reducer.reduce(try await host.currentState(), .retryNow(at: 2))
+        #expect(effects.contains(.connect), "Try now asks the owner, not the outbox")
+        _ = try await host.dispatch(.retryNow(at: 2))
+        #expect(await becomes { await stream.opened.count == 2 }, "tried at once")
+        #expect(await becomes { await waits.asked == [1_000, 2_000] }, "and the back-off went on, not back to 1 s")
+        #expect(try await host.currentState().outbox.allSatisfy { $0.state == .waiting }, "nothing was sent without the stream")
+        _ = try await host.dispatch(.backgrounded(at: 3))
+        #expect(await becomes { await waits.canceled >= 2 })
     }
 }

@@ -209,6 +209,9 @@ public actor NetworkEffects: EffectHandler {
             let asked = lifecycle
             if state.pairing == .paired, case .keyMissing = await lookup(for: state) { return [.pairingRevoked] }
             guard asked == lifecycle else { return [] }
+            // Already an owner: this is "try now" ("Try now", a route that came up, a return to the
+            // screen while on it). The owner skips what is left of its back-off; never a second owner.
+            if let live { await live.wake(); return [] }
             await startLive(state)
             return []
         case .disconnect:

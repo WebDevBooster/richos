@@ -114,6 +114,8 @@ private actor DeliveryWitness: EffectHandler {
         await store.apply(.sendDraft(clientID: "queued", at: 2)).value
         await storage.configure(fail: true)
         await store.apply(.networkChanged(online: true, at: 3)).value
+        // The Mac's stream answers: the queue would move, and the save that authorizes it fails.
+        await store.apply(.connected(at: 4)).value
         #expect(store.persistenceProblem != nil)
         #expect(store.state.outbox.single?.state == .waiting)
         #expect(await witness.delivered.isEmpty)

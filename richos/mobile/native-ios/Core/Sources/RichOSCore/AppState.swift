@@ -89,6 +89,11 @@ public struct AppState: Codable, Equatable, Sendable {
     public var connectionNotice: ConnectionNotice?
     /// TRANSIENT. When the current transport trouble began; the notice waits `ConnectionReducer.quietMs`.
     public var troubleSinceMs: Int64?
+    /// TRANSIENT. The Mac's live stream is open: it answered the phone's signed request and has not
+    /// dropped since. The outbox moves only while it is (the reference client's `online`, set from the
+    /// link's `open`; Android's `session.online`): one connection owner and one retry policy, so a Mac
+    /// that cannot answer is asked by the stream's back-off alone, never by a second loop of sends (I06).
+    public var linkOpen = false
 
     // MARK: notifications, settings, updates (groups 8, 9, 10)
     public var notifications = Notifications()
@@ -139,7 +144,7 @@ extension AppState {
     /// Every field, plus the derived `screen`, so a CLI reader sees the surface directly. Absent
     /// fields decode to a new install's values; `screen` is ignored on the way in.
     private enum CodingKeys: String, CodingKey {
-        case readingAnchor, schema, pairing, mac, fingerprintWords, macWait, consentGiven, scanner, pairingProblem, messages, draft, outbox, reply, history, following, focusedMessageID, notifiedReply, composerFocused, playback, voice, keptRecordings, voiceAvailability, microphone, microphoneCard, camera, connectionNotice, troubleSinceMs, notifications, sheet, update, attachmentLimits, toast, appearance, screen
+        case readingAnchor, schema, pairing, mac, fingerprintWords, macWait, consentGiven, scanner, pairingProblem, messages, draft, outbox, reply, history, following, focusedMessageID, notifiedReply, composerFocused, playback, voice, keptRecordings, voiceAvailability, microphone, microphoneCard, camera, connectionNotice, troubleSinceMs, linkOpen, notifications, sheet, update, attachmentLimits, toast, appearance, screen
     }
 
     public init(from decoder: Decoder) throws {
@@ -173,6 +178,7 @@ extension AppState {
         camera = try c.decodeIfPresent(Permission.self, forKey: .camera) ?? d.camera
         connectionNotice = try c.decodeIfPresent(ConnectionNotice.self, forKey: .connectionNotice)
         troubleSinceMs = try c.decodeIfPresent(Int64.self, forKey: .troubleSinceMs)
+        linkOpen = try c.decodeIfPresent(Bool.self, forKey: .linkOpen) ?? d.linkOpen
         notifications = try c.decodeIfPresent(Notifications.self, forKey: .notifications) ?? d.notifications
         sheet = try c.decodeIfPresent(Sheet.self, forKey: .sheet)
         update = try c.decodeIfPresent(UpdateNotice.self, forKey: .update)
@@ -210,6 +216,7 @@ extension AppState {
         try c.encode(camera, forKey: .camera)
         try c.encode(connectionNotice, forKey: .connectionNotice)
         try c.encode(troubleSinceMs, forKey: .troubleSinceMs)
+        try c.encode(linkOpen, forKey: .linkOpen)
         try c.encode(notifications, forKey: .notifications)
         try c.encode(sheet, forKey: .sheet)
         try c.encode(update, forKey: .update)

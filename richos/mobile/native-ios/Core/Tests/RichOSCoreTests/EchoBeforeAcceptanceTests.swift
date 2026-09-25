@@ -110,7 +110,8 @@ import Testing
         #expect(shown(s, "again") == keys, "relaunched between the two echoes: the same lines in the same order")
         try await step(apply(&s, .messagesArrived(Self.earlier + [old, first])))
         #expect(shown(s, "again") == keys, "a replayed snapshot cannot consume the second send")
-        try await step(apply(&s, .tick(at: 20)))
+        // The relaunched phone's stream answers; the queue moves on it.
+        try await step(apply(&s, .connected(at: 20)))
         #expect(s.outbox.first { $0.clientID == "c2" }?.body == c2Body, "the re-send carries the same bytes")
 
         let second = row("t3:user", 5, "again", at: 21)

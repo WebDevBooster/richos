@@ -38,6 +38,12 @@ public actor LiveConnection {
     private var stopped = false
     private struct IncompatibleProtocol: Error {}
     public private(set) var attempts = 0
+    /// The back-off wait in progress, which `wake` ends early.
+    private var napping: Task<Void, Error>?
+    /// A wake that came while an attempt was under way: the wait after it is skipped (Android's
+    /// `wakeups` channel). Never set while the stream is open, so a healthy stream keeps nothing owed.
+    private var wakeOwed = false
+    private var isOpen = false
 
     public static let firstRetryMs: Int64 = 1000
     public static let maxRetryMs: Int64 = 30000
@@ -81,6 +87,14 @@ public actor LiveConnection {
         generation += 1
         task?.cancel()
         task = nil
+    }
+
+    /// Try now: the person pressed "Try now", or a route came up (a tunnel, the network). What is left of
+    /// the back-off is skipped and the next attempt starts at once; the back-off itself is not reset, so
+    /// a Mac still out of reach is asked no more often than before (Android `ConnectionOwner.wake`).
+    public func wake() {
+        guard task != nil, !stopped, !isOpen else { return }
+        if let napping { napping.cancel() } else { wakeOwed = true }
     }
 
     /// The oldest cursor held, for `before=` when older history is asked for.
@@ -128,6 +142,8 @@ public actor LiveConnection {
                 // healthy stream (Sage's review T9). The reference's `accepted()`
                 // (`web/web-app/lib/link.js`) and Android's `Link(OPEN)`; it resets the back-off too.
                 delay = Self.firstRetryMs
+                isOpen = true
+                wakeOwed = false
                 await sink(.connected(at: clock.nowMs()))
                 var parser = SSEParser()
                 for try await chunk in bytes {
@@ -144,6 +160,7 @@ public actor LiveConnection {
             } catch {
                 // fall through to the retry below
             }
+            isOpen = false
             guard mine == generation, !Task.isCancelled else { return }
             if resnapshot {
                 since = nil
@@ -159,10 +176,30 @@ public actor LiveConnection {
                 }
             }
             if !resnapshot {
-                do { try await sleep(delay) } catch { return }
+                guard await nap(delay, mine) else { return }
                 delay = min(delay * 2, Self.maxRetryMs)
             }
         }
+    }
+
+    /// The back-off wait. `true` to go on: it ran out, or `wake` ended it. `false` when the owner was
+    /// stopped (or the injected wait gave up), which ends the run.
+    private func nap(_ ms: Int64, _ mine: Int) async -> Bool {
+        if wakeOwed { wakeOwed = false; return true }
+        let wait = Task { [sleep] in try await sleep(ms) }
+        napping = wait
+        let woke: Bool
+        do {
+            try await withTaskCancellationHandler { try await wait.value } onCancel: { wait.cancel() }
+            woke = false
+        } catch {
+            woke = true
+        }
+        napping = nil
+        guard mine == generation, !Task.isCancelled else { return false }
+        // The wait threw without a wake (a test's wait that stops the owner): the run ends as before.
+        if woke, !wait.isCancelled { return false }
+        return true
     }
 
     /// Opens the stream signed with the challenge held. Every answer's `X-RichOS-Challenge` replaces

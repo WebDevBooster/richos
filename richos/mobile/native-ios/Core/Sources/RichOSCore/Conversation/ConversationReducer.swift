@@ -32,7 +32,9 @@ public enum ConversationReducer {
             releaseFiles(of: s.outbox.remove(at: i), &effects)
             setDelivery(&s, clientID, nil)
             reconcile(&s)
-            pump(&s, at: at, &effects)
+            // The Mac just answered: the batch goes on, as Android's drain loop does inside one flush,
+            // including the bounded completion after the app leaves the screen (PRD §6).
+            pump(&s, at: at, &effects, answered: true)
         case .deliveryFailed(let clientID, let failure, let at):
             guard let i = s.outbox.firstIndex(where: { $0.clientID == clientID }) else { return }
             switch failure {
@@ -50,7 +52,7 @@ public enum ConversationReducer {
                 s.outbox[i].state = .blocked
                 s.outbox[i].lastReason = reason
                 setDelivery(&s, clientID, .needsAttention)
-                pump(&s, at: at, &effects)
+                pump(&s, at: at, &effects, answered: true)
             case .refusedStopQueue(let reason):
                 s.outbox[i].state = .blocked
                 s.outbox[i].lastReason = reason
@@ -68,6 +70,11 @@ public enum ConversationReducer {
             for i in s.outbox.indices where s.outbox[i].state == .waiting { s.outbox[i].notBefore = 0 }
             // "Send it first" in `pair-blocked` is this action: the choice is made, the dialog goes.
             if case .blockedByUnsentWork = s.pairingProblem { s.pairingProblem = nil }
+            // "Try now" with the Mac out of reach: the one connection owner tries now, skipping what is
+            // left of its back-off (never resetting it); the message goes once the Mac answers.
+            if s.pairing == .paired, !s.linkOpen, s.connectionNotice != .phoneOffline, s.connectionNotice != .incompatible {
+                effects.append(.connect)
+            }
             pump(&s, at: at, &effects)
         case .discardMessage(let id):
             guard let i = s.outbox.firstIndex(where: { $0.clientID == id }), s.outbox[i].state != .sending else { return }
@@ -178,8 +185,14 @@ public enum ConversationReducer {
 
     /// Starts the next delivery if the queue may move: one in flight, first in first out, nothing
     /// while offline, revoked or incompatible, and nothing before the head's retry time.
-    static func pump(_ s: inout AppState, at: Int64, _ effects: inout [Effect]) {
-        guard s.pairing == .paired, !s.outbox.contains(where: { $0.state == .sending }) else { return }
+    ///
+    /// And nothing while the Mac's stream is not open (`linkOpen`), unless the Mac has just `answered`
+    /// the delivery before it. The stream's owner is the one that asks a Mac out of reach, on its own
+    /// back-off; a second loop of sends beside it kept two requests in flight at a hung Mac, each
+    /// replaced as it timed out, and drew "Sending…" on an idle screen (I06). The message waits,
+    /// saying so, and goes the moment the stream opens (`connected` pumps).
+    static func pump(_ s: inout AppState, at: Int64, _ effects: inout [Effect], answered: Bool = false) {
+        guard s.pairing == .paired, s.linkOpen || answered, !s.outbox.contains(where: { $0.state == .sending }) else { return }
         switch s.connectionNotice {
         case .phoneOffline?, .incompatible?: return
         default: break

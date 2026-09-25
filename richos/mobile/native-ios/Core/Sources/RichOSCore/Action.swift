@@ -326,6 +326,9 @@ public enum Reducer {
         default:
             ConversationReducer.reduce(&next, action, &effects)
         }
+        // Whatever closes the stream (leaving the screen, no network, revocation, forgetting the Mac)
+        // closes the link the outbox moves on.
+        if effects.contains(.disconnect) { next.linkOpen = false }
         // Persist only when something durable changed: a touch-rate action never writes a file.
         if next.persisted != state.persisted { effects.insert(.persist, at: 0) }
         return (next, effects)

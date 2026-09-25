@@ -53,9 +53,11 @@ public enum TickSchedule {
     }
 
     /// The outbox head's retry, under exactly the conditions `ConversationReducer.pump` would move it:
-    /// paired, nothing in flight, the phone online and the Mac not incompatible.
+    /// paired, the Mac's stream open, nothing in flight, the phone online and the Mac not incompatible.
+    /// With the stream down nothing is owed: the stream's own back-off asks the Mac, and `connected`
+    /// moves the queue (I06).
     static func outbox(_ s: AppState) -> Int64? {
-        guard s.pairing == .paired, !s.outbox.contains(where: { $0.state == .sending }) else { return nil }
+        guard s.pairing == .paired, s.linkOpen, !s.outbox.contains(where: { $0.state == .sending }) else { return nil }
         switch s.connectionNotice {
         case .phoneOffline?, .incompatible?: return nil
         default: break
