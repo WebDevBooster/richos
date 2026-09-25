@@ -233,6 +233,11 @@ public struct Fixture: Sendable {
         Fixture(name: "conn-offline", state: paired { $0.connectionNotice = .phoneOffline }),
         Fixture(name: "conn-service", state: paired { $0.connectionNotice = .serviceUnavailable; $0.mac?.route = .connect }),
         Fixture(name: "conn-mac", state: paired { $0.connectionNotice = .macUnreachable }),
+        // D05, not in round 12 (Android `conn-tailscale-off`): round 12's nameplate line, adapted.
+        Fixture(name: "conn-tailscale-off", state: paired(extra: [me("q1", "Move the Friday review to 3 PM.", now, .waiting)]) {
+            $0.connectionNotice = .tailscaleOff
+            $0.tunnelUp = false
+        }),
         Fixture(name: "conn-revoked", state: paired { $0.pairing = .revoked }),
         Fixture(name: "conn-incompatible", state: paired(extra: [me("q1", "Send the Q4 deck to the board.", now, .waiting)]) {
             $0.connectionNotice = .incompatible

@@ -51,7 +51,7 @@ enum Screen {
                        "voice-interrupted"],
         "recovery": ["rec-card", "rec-unsupported", "rec-mic-denied"],
         "connection": ["conn-reconnecting", "conn-offline", "conn-service", "conn-mac", "conn-revoked",
-                       "conn-incompatible", "conn-cached"],
+                       "conn-incompatible", "conn-cached", "conn-tailscale-off"],
         "notifications": ["notif-offer", "notif-settings"],
         "settings": ["settings", "settings-forget", "settings-forget-blocked"],
         "updates": ["upd-banner", "upd-dialog", "upd-blocking", "upd-feature-off"],
