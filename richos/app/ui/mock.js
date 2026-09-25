@@ -1917,6 +1917,8 @@
 
   let quotaPolicy = { enabled: false, pausePercent: 93 };
   try { quotaPolicy = JSON.parse(localStorage.getItem("richos-mock-quota-policy")) || quotaPolicy; } catch (_) {}
+  let resetOffers = structuredClone(preset.quota?.resets || { state: "unknown", offers: [], approval: null, lastAttempt: null, weeklyThreshold: 99, message: "Reset availability is unknown in this preview." });
+  window.__richosResetCalls = [];
   function quotaView() {
     const fixture = preset.quota || { state: "unavailable", windows: [], checkedAt: null, retryAt: null, message: "Quota is unavailable in this browser preview." };
     const window = fixture.windows.find(w => w.id === "five_hour");
@@ -1925,7 +1927,7 @@
     const admission = !quotaPolicy.enabled ? { state: "disabled" } : !window || remaining <= 0 ? { state: "unknown" }
       : high && remaining < 20 * 60000 ? { state: "ready" } : high ? { state: "held", resetsAt: window.resetsAt }
       : fixture.state === "fresh" ? { state: "ready" } : { state: "unknown" };
-    return { ...fixture, refreshIntervalMs: 5 * 60000, policy: { ...quotaPolicy }, admission };
+    return { ...fixture, resets: structuredClone(resetOffers), refreshIntervalMs: 5 * 60000, policy: { ...quotaPolicy }, admission };
   }
   window.RichBridge = {
     isMock: true,
@@ -1934,6 +1936,17 @@
       args = args || {};
       switch (cmd) {
         case "claude_quota": return quotaView();
+        case "approve_claude_reset": {
+          window.__richosResetCalls.push({ cmd, offer: args.offer });
+          if (preset.resetApprovalFails) throw "A reset check is in progress. Try again shortly.";
+          if (resetOffers.state !== "fresh" || !resetOffers.offers.some(o => o.id === args.offer.id && o.clears.includes("seven_day"))) throw "Refresh offers first.";
+          resetOffers.approval = { offer: structuredClone(args.offer), approvedAt: Date.now(), weeklyThreshold: 99 };
+          return structuredClone(resetOffers);
+        }
+        case "revoke_claude_reset": {
+          window.__richosResetCalls.push({ cmd }); resetOffers.approval = null;
+          return structuredClone(resetOffers);
+        }
         case "claude_quota_activity": {
           const activity = preset.quotaActivity || { held: [], released: [] };
           const scoped = rows => (rows || []).filter(r => !args.threadId || r.threadId === args.threadId);

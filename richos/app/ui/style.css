@@ -6764,3 +6764,16 @@ body.home-open {
   .quota-policy { border-top: 1px solid var(--line-soft); padding: 24px 0 0; }
 }
 @media (prefers-reduced-motion: reduce) { #quota-sheet, #quota-sheet * { animation: none !important; transition: none !important; } }
+
+/* Weekly reset approval is separate from the five-hour pause policy. */
+.quota-reset-offers { border-top: 1px solid var(--line-soft); margin-top: 24px; padding-top: 20px; }
+.quota-reset-offers h3 { font-size: 1.125rem; margin: 0 0 8px; }
+.quota-reset-offers h4 { font-size: 1rem; margin: 0 0 8px; }
+.quota-reset-offers p { font-size: 1rem; line-height: 1.5; margin: 8px 0; overflow-wrap: anywhere; }
+.quota-reset-offer { margin: 16px 0; }
+.quota-reset-offers button { white-space: normal; margin: 4px 8px 4px 0; }
+.quota-reset-confirm { border: 1px solid var(--line-soft); border-radius: 8px; padding: 12px; margin-top: 12px; }
+.quota-reset-armed { font-weight: 600; }
+#quota-reset-feedback { font-size: 1rem; line-height: 1.5; }
+
+.quota-reset-offers.is-empty { margin-top: 12px; padding-top: 8px; }

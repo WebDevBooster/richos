@@ -1794,6 +1794,13 @@ fn install_correction_desk(
 }
 
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("--claude-reset-mcp") {
+        let args: Vec<_> = std::env::args_os().skip(2).collect();
+        let result = if args.len() == 3 {
+            richos_core::quota::reset_tools::run_stdio(Path::new(&args[0]), Path::new(&args[1]), Path::new(&args[2]))
+        } else { Err(std::io::Error::other("quota MCP requires a scope, data directory and Claude executable")) };
+        std::process::exit(if result.is_ok() { 0 } else { 1 });
+    }
     if std::env::args().nth(1).as_deref() == Some("--claude-quota-gate") {
         std::process::exit(richos_core::quota::gate::run_cli());
     }
@@ -2700,6 +2707,7 @@ fn main() {
                     if quota.is_shutdown() { break; }
                     let bin = quota_bin.lock().unwrap().clone();
                     quota.refresh(&bin, force);
+                    quota.run_approved_weekly_reset(&bin);
                     wait = std::time::Duration::from_secs(1);
                 }
             });
@@ -3216,6 +3224,8 @@ fn main() {
             claude_quota,
             claude_quota_activity,
             set_claude_quota_policy,
+            approve_claude_reset,
+            revoke_claude_reset,
             phone_status,
             phone_begin_pairing,
             phone_connect_enable,
@@ -4913,6 +4923,17 @@ fn claude_quota_activity(state: State<AppState>, thread_id: Option<String>) -> R
         activity.resumes_at = Some(resets_at.saturating_sub(20 * 60_000).saturating_add(1));
     }
     Ok(activity)
+}
+
+#[tauri::command(async)]
+fn approve_claude_reset(state: State<AppState>, offer: richos_core::quota::resets::Offer) -> Result<richos_core::quota::resets::View, String> {
+    let view = state.quota.resets.approve(&offer)?;
+    state.quota.request_refresh();
+    Ok(view)
+}
+#[tauri::command(async)]
+fn revoke_claude_reset(state: State<AppState>) -> Result<richos_core::quota::resets::View, String> {
+    state.quota.resets.revoke()
 }
 
 #[tauri::command(async)]

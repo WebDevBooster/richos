@@ -217,6 +217,59 @@ async function main() {
     }
     await page.close();
   });
+  const offer = { id: "launch", label: "Claude Opus 5.5 launch reset", remaining: 1,
+    startsAt: now - 86400000, expiresAt: now + 27 * 86400000,
+    clears: ["five_hour", "seven_day", "seven_day_overage_included"], usableNow: true, requiresLimit: false };
+  const resetFixture = { state: "fresh", checkedAt: now, retryAt: null, offers: [offer], approval: null, lastAttempt: null, weeklyThreshold: 99, weeklyUsed: 32 };
+  for (const theme of ["dark", "light"]) await run.check(theme + " weekly approval is explicit, early, one-use and revocable", async () => {
+    const page = await open(theme, { ...quota, resets: resetFixture });
+    await enableTechnical(page); await page.click("#set-quota-open");
+    await page.waitForSelector("#quota-reset-prepare-launch");
+    await page.evaluate(t => document.documentElement.setAttribute("data-theme", t), theme);
+    await page.setViewportSize({ width: 1440, height: 1200 });
+    assert((await page.locator("#quota-reset-offers").innerText()).includes("99% weekly usage"));
+    assert((await page.locator("#quota-reset-offers").innerText()).includes("weekly quota"));
+    assertEqual(await page.evaluate(() => window.__richosResetCalls), []);
+    await page.locator("#quota-reset-prepare-launch").scrollIntoViewIfNeeded();
+    await shot(page, "claude-reset-offer-" + theme, { fullPage: false });
+    await page.click("#quota-reset-prepare-launch");
+    assertEqual(await page.evaluate(() => window.__richosResetCalls), []);
+    await page.keyboard.press("Escape");
+    assert(await page.locator("#quota-sheet").isVisible());
+    assertEqual(await page.evaluate(() => window.__richosResetCalls), []);
+    await page.click("#quota-reset-prepare-launch");
+    await page.click("#quota-reset-confirm");
+    await page.waitForSelector("#quota-reset-revoke");
+    assertEqual(await page.evaluate(() => window.__richosResetCalls.map(c => c.cmd)), ["approve_claude_reset"]);
+    assert((await page.locator("#quota-reset-offers").innerText()).includes("Approved and ready"));
+    await page.click("#quota-close"); await page.click("#set-btn"); await page.click("#set-quota-open");
+    await page.waitForSelector("#quota-reset-revoke");
+    await page.locator("#quota-reset-revoke").scrollIntoViewIfNeeded();
+    await shot(page, "claude-reset-armed-" + theme, { fullPage: false });
+    await page.click("#quota-reset-revoke");
+    await page.waitForSelector("#quota-reset-prepare-launch");
+    assertEqual(await page.evaluate(() => window.__richosResetCalls.map(c => c.cmd)), ["approve_claude_reset", "revoke_claude_reset"]);
+    await page.setViewportSize({width: 1024, height: 700});
+    await page.locator("#quota-reset-prepare-launch").scrollIntoViewIfNeeded();
+    assert(await page.evaluate(() => { const p = document.querySelector(".quota-body"); return p.scrollWidth <= p.clientWidth; }));
+    await page.close();
+  });
+  await run.check("unknown, expired, five-hour-only and uncertain reset offers cannot be approved", async () => {
+    const variants = [
+      { ...resetFixture, state: "unknown", offers: [], message: "Reset availability unknown." },
+      { ...resetFixture, offers: [{ ...offer, expiresAt: now - 1000 }] },
+      { ...resetFixture, offers: [{ ...offer, clears: ["five_hour"] }] },
+      { ...resetFixture, lastAttempt: { grantId: "launch", outcome: "uncertain" } },
+    ];
+    for (const resets of variants) {
+      const page = await open("dark", { ...quota, resets });
+      await enableTechnical(page); await page.click("#set-quota-open"); await page.waitForSelector("#quota-reset-offers p");
+      assertEqual(await page.locator("#quota-reset-prepare-launch").count(), 0);
+      assertEqual(await page.evaluate(() => window.__richosResetCalls), []);
+      if (resets.lastAttempt) assert((await page.locator("#quota-reset-offers").innerText()).includes("Automatic retry is blocked"));
+      await page.close();
+    }
+  });
   await run.check("no renderer errors", async () => assertEqual(errors, []));
   await browser.close();
   process.exitCode = run.report() ? 1 : 0;

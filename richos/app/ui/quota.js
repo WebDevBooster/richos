@@ -18,6 +18,8 @@
       <div id="quota-windows" aria-label="Claude Code quota windows"></div>
       <div id="quota-empty" hidden><h3>No reading yet.</h3><p>Claude Code has not reported an allowance. There is no usage figure to show yet.</p></div>
       <p class="quota-legend">Gold is what you have <b>used</b>. The tick is where the clock is <b>now</b>. Bar past the tick means you are spending faster than the window is passing.</p>
+      <section id="quota-reset-offers" class="quota-reset-offers" aria-label="Weekly quota resets"></section>
+      <p id="quota-reset-feedback" role="status" aria-live="polite"></p>
     </div><form id="quota-policy" class="quota-policy" novalidate>
       <h3>Automatic pause</h3>
       <div class="quota-switch-row"><button id="quota-enabled" class="quota-switch" type="button" role="switch" aria-checked="false" aria-label="Automatically pause Rich’s agents"></button>
@@ -42,6 +44,7 @@
   document.body.appendChild(sheet);
   const field = id => sheet.querySelector("#" + id);
   let view = null, activity = null, busy = false, saving = false, dirty = false, generation = 0;
+  let resetDraft = null, resetSaving = false, resetPaint = "";
   let timer = null, lastPoll = 0, lastActivity = 0, activityBusy = false;
   const duration = ms => {
     const m = Math.max(1, Math.ceil(ms / 60000));
@@ -159,6 +162,77 @@
     mini.hidden = !five;
     mini.classList.toggle("is-stale", stale()); mini.firstChild.style.width = (five?.usedPercent || 0) + "%";
   }
+  const resetLimitName = id => ({ five_hour: "five-hour quota", seven_day: "weekly quota", seven_day_overage_included: "weekly allowance including overage" }[id] || id.replaceAll("_", " "));
+  function renderResets() {
+    const r = view?.resets || { state: "unknown", offers: [] }, now = Date.now();
+    const fresh = r.state === "fresh" && r.checkedAt <= now && now - r.checkedAt < 300000;
+    const offers = (r.offers || []).filter(o => o.remaining > 0 && o.expiresAt > now);
+    const key = JSON.stringify([r, fresh, offers.map(o => o.id), resetDraft, resetSaving]);
+    if (key === resetPaint) return;
+    resetPaint = key;
+    const container = field("quota-reset-offers"), focus = document.activeElement?.id;
+    container.replaceChildren();
+    const compact = !offers.length && !r.approval && !r.lastAttempt;
+    container.classList.toggle("is-empty", compact);
+    if (!compact) container.appendChild(node("h3", "", "Weekly quota reset"));
+    if (!compact) container.appendChild(node("p", "quota-muted", "Approve in advance. Rich will use one reset automatically at 99% weekly usage while RichOS is running. Checks every 5 minutes. Five-hour usage never triggers it."));
+    if (r.lastAttempt) {
+      const text = { used: "Your approved reset was used. Checking the new allowance…", alreadyUsed: "Anthropic reports this reset was already used.", notUsed: "Anthropic did not use the reset. The approval has ended.", uncertain: "The reset outcome is unconfirmed. Automatic retry is blocked. Check Claude’s Usage page before taking further action." }[r.lastAttempt.outcome] || "Reset outcome unavailable. Check Claude’s Usage page.";
+      container.appendChild(node("p", "quota-reset-result", text));
+    }
+    if (!fresh) container.appendChild(node("p", "quota-muted", r.message || "Weekly reset availability is unknown. Refresh to check again."));
+    if (fresh && !offers.length) container.appendChild(node("p", "quota-muted", "No reset offer is available."));
+    for (const offer of offers) {
+      const card = node("div", "quota-reset-offer");
+      card.appendChild(node("h4", "", offer.label || "Claude usage-limit reset"));
+      card.appendChild(node("p", "", `${offer.remaining} ${offer.remaining === 1 ? "reset" : "resets"} available · Expires ${new Date(offer.expiresAt).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}`));
+      card.appendChild(node("p", "quota-muted", "Resets " + offer.clears.map(resetLimitName).join(", ") + "."));
+      const approved = r.approval?.offer.id === offer.id && r.approval.offer.expiresAt > now;
+      const weekly = offer.clears.includes("seven_day");
+      const attempted = r.lastAttempt?.grantId === offer.id && r.lastAttempt.outcome !== "notUsed";
+      if (approved) {
+        card.appendChild(node("p", "quota-reset-armed", "Approved and ready · one use at 99% weekly usage. Approval expires with this offer."));
+      } else if (!weekly) card.appendChild(node("p", "quota-muted", "This offer does not reset weekly quota."));
+      else if (offer.requiresLimit) card.appendChild(node("p", "quota-muted", "Anthropic requires an exhausted limit for this offer; it may not be usable at 99%."));
+      if (weekly && !approved && !attempted) {
+        const prepare = node("button", "quota-btn", "Allow Rich to use this reset…"); prepare.type = "button";
+        prepare.id = "quota-reset-prepare-" + offer.id; prepare.disabled = !fresh || resetSaving || offer.startsAt > now;
+        prepare.addEventListener("click", () => { resetDraft = structuredClone(offer); renderResets(); field("quota-reset-confirm")?.focus(); });
+        card.appendChild(prepare);
+      }
+      container.appendChild(card);
+    }
+    // Revocation remains available if the account reader is offline or the offer vanished.
+    if (r.approval) {
+      const revoke = node("button", "quota-btn", "Revoke reset approval"); revoke.type = "button"; revoke.id = "quota-reset-revoke";
+      revoke.disabled = resetSaving; revoke.addEventListener("click", () => resetPermission(false)); container.appendChild(revoke);
+    }
+    if (resetDraft) {
+      const confirm = node("div", "quota-reset-confirm");
+      confirm.appendChild(node("p", "", `Allow Rich to use one “${resetDraft.label}” reset automatically when weekly usage reaches 99%? This approval is only for this offer, expires with it and can be revoked before use. Using a reset cannot be undone.`));
+      const yes = node("button", "quota-btn quota-btn-primary", "Approve one automatic reset"); yes.type = "button"; yes.id = "quota-reset-confirm";
+      yes.disabled = resetSaving || !fresh; yes.addEventListener("click", () => resetPermission(true));
+      const no = node("button", "quota-btn", "Keep unapproved"); no.type = "button"; no.disabled = resetSaving;
+      no.addEventListener("click", () => { resetDraft = null; renderResets(); container.querySelector("button")?.focus(); });
+      confirm.append(yes, no); container.appendChild(confirm);
+    }
+    if (focus?.startsWith("quota-reset-")) field(focus)?.focus();
+  }
+  async function resetPermission(allow) {
+    if (resetSaving || (allow && !resetDraft)) return;
+    const offer = resetDraft;
+    resetSaving = true; generation++; busy = false; field("quota-reset-feedback").textContent = ""; renderResets();
+    try {
+      const next = await bridge.invoke(allow ? "approve_claude_reset" : "revoke_claude_reset", allow ? { offer } : {});
+      view.resets = next; resetDraft = null;
+      field("quota-reset-feedback").textContent = allow ? "Approved in advance. Rich is ready to use one reset at 99% weekly usage." : "Reset approval revoked.";
+    } catch (error) {
+      field("quota-reset-feedback").textContent = typeof error === "string" ? error : "Could not change reset approval. Refresh and try again.";
+    } finally {
+      resetSaving = false; renderResets();
+      if (!sheet.hidden) (field("quota-reset-revoke") || field("quota-reset-confirm") || field("quota-reset-offers").querySelector("button"))?.focus();
+    }
+  }
   function render() {
     paintMenu();
     field("quota-refresh").disabled = busy || saving || !!(view?.retryAt > Date.now());
@@ -169,6 +243,7 @@
     field("quota-message").textContent = (view.message || "") + (view.retryAt > now ? ` Next refresh available in ${duration(view.retryAt - now)}.` : "");
     field("quota-message").hidden = !field("quota-message").textContent;
     renderWindows();
+    renderResets();
     field("quota-enabled").setAttribute("aria-checked", String(view.policy.enabled));
     field("quota-enabled").disabled = saving || !!view.policyUnavailable;
     if (!dirty) field("quota-threshold").value = view.policy.pausePercent;
@@ -191,7 +266,7 @@
     finally { activityBusy = false; lastActivity = Date.now(); if (!sheet.hidden) renderStatus(); paintMenu(); }
   }
   async function refresh(force) {
-    if (busy || saving) return;
+    if (busy || saving || resetSaving) return;
     const request = generation; busy = true; if (!sheet.hidden) render();
     try {
       const next = await bridge.invoke("claude_quota", { refresh: force });
@@ -215,6 +290,7 @@
   }
   function keep() { dirty = false; say(""); render(); }
   function close() {
+    resetDraft = null; resetPaint = "";
     sheet.hidden = true; generation++; busy = false; clearInterval(timer); timer = null;
     queueMicrotask(() => { if (sheet.hidden) document.getElementById("set-btn")?.focus(); });
   }
@@ -236,7 +312,7 @@
   field("quota-keep").addEventListener("click", keep);
   field("quota-policy").addEventListener("submit", event => { event.preventDefault(); if (validDraft() && dirty) save({ ...view.policy, pausePercent: Number(field("quota-threshold").value) }); });
   sheet.addEventListener("keydown", event => {
-    if (event.key === "Escape") { event.stopPropagation(); event.preventDefault(); if (dirty && !saving) keep(); else close(); }
+    if (event.key === "Escape") { event.stopPropagation(); event.preventDefault(); if (resetDraft && !resetSaving) { resetDraft = null; renderResets(); } else if (dirty && !saving) keep(); else close(); }
     if (event.key === "Tab") {
       const controls = [...sheet.querySelectorAll("button, input")].filter(n => !n.disabled && n.getClientRects().length);
       if (event.shiftKey && document.activeElement === controls[0]) { event.preventDefault(); controls.at(-1)?.focus(); }

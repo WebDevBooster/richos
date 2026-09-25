@@ -11,6 +11,9 @@ use std::{
 pub mod gate;
 pub mod holds;
 pub mod probe;
+pub mod resets;
+pub mod reset_transport;
+pub mod reset_tools;
 
 pub const REFRESH_INTERVAL_MS: u64 = 5 * 60_000;
 pub const RESET_EXEMPTION_MS: u64 = 20 * 60_000;
@@ -78,6 +81,8 @@ impl Admission {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct View {
+    #[serde(default)]
+    pub resets: resets::View,
     pub state: State,
     pub windows: Vec<Window>,
     pub checked_at: Option<u64>,
@@ -253,6 +258,7 @@ impl Snapshot {
             }
         };
         View {
+            resets: resets::View::default(),
             state,
             windows: self.windows.clone(),
             checked_at: self.checked_at,
@@ -275,6 +281,9 @@ impl Snapshot {
 /// Probe I/O and published state have separate locks: a slow control reply cannot
 /// freeze a scheduler, a settings paint or shutdown. Concurrent refreshes coalesce.
 pub struct Service {
+    pub resets: resets::Service,
+    last_reset_marker: Mutex<Option<String>>,
+    last_reset_check: Mutex<u64>,
     source: Mutex<Box<dyn Source>>,
     snapshot: Mutex<Snapshot>,
     policy: Mutex<Policy>,
@@ -300,6 +309,9 @@ impl Service {
         };
         let control = std::sync::Arc::new(probe::Control::default());
         let service = Self {
+            resets: resets::Service::new(data_dir),
+            last_reset_marker: Mutex::new(None),
+            last_reset_check: Mutex::new(0),
             source: Mutex::new(Box::new(probe::ClaudeSource::controlled(control.clone()))),
             snapshot: Mutex::new(Snapshot::default()),
             policy: Mutex::new(policy),
@@ -339,10 +351,9 @@ impl Service {
         std::mem::take(&mut *requested)
     }
     fn view_at(&self, now: u64) -> View {
-        self.snapshot
-            .lock()
-            .unwrap()
-            .view(self.policy.lock().unwrap().clone(), now)
+        let mut view = self.snapshot.lock().unwrap().view(self.policy.lock().unwrap().clone(), now);
+        view.resets = self.resets.view();
+        view
     }
     pub fn set_policy(&self, policy: Policy) -> io::Result<View> {
         policy.validate().map_err(io::Error::other)?;
@@ -356,6 +367,40 @@ impl Service {
         Ok(self.view())
     }
     pub fn refresh(&self, bin: &Path, force: bool) -> View {
+        if self.is_shutdown() || self.connecting.load(std::sync::atomic::Ordering::SeqCst) { return self.view(); }
+        let marker = fs::read_to_string(self.cwd.join("claude-reset-refresh.json")).ok();
+        let changed = {
+            let mut last = self.last_reset_marker.lock().unwrap();
+            if marker != *last { *last = marker; true } else { false }
+        };
+        if changed {
+            self.source.lock().unwrap().disconnect();
+            *self.snapshot.lock().unwrap() = Snapshot::default();
+        }
+        self.refresh_windows(bin, force || changed);
+        self.resets.refresh(bin, force || changed);
+        self.view()
+    }
+    /// Run the user's prepared weekly action without depending on another model turn.
+    /// Only the desktop monitor calls this; settings reads and approval never redeem.
+    pub fn run_approved_weekly_reset(&self, bin: &Path) {
+        let now = crate::util::now_millis();
+        if self.is_shutdown() || self.connecting.load(std::sync::atomic::Ordering::SeqCst)
+            || !self.resets.prepared_action_due(now) { return; }
+        {
+            let mut last = self.last_reset_check.lock().unwrap();
+            if now.saturating_sub(*last) < REFRESH_INTERVAL_MS { return; }
+            *last = now;
+        }
+        #[cfg(not(test))]
+        if let Ok(mut transport) = reset_transport::System::connect(bin) {
+            let _best_effort = self.resets.use_approved(&mut transport, || !self.is_shutdown()
+                && !self.connecting.load(std::sync::atomic::Ordering::SeqCst));
+            self.request_refresh();
+        }
+        #[cfg(test)] let _best_effort = bin;
+    }
+    fn refresh_windows(&self, bin: &Path, force: bool) -> View {
         if self.is_shutdown() {
             return self.view();
         }
@@ -417,6 +462,7 @@ impl Service {
     /// Called when the account connection changes. Old account readings cannot survive it.
     pub fn disconnect(&self) {
         self.source.lock().unwrap().disconnect();
+        self.resets.clear_connection();
         *self.snapshot.lock().unwrap() = Snapshot::default();
         let _best_effort = self.publish();
         self.request_refresh();
@@ -426,7 +472,9 @@ impl Service {
     }
     pub fn shutdown(&self) {
         self.control.stop();
-        self.disconnect();
+        self.source.lock().unwrap().disconnect();
+        // Approval survives app restarts; a fresh authenticated account check fences use.
+        self.request_refresh();
     }
 }
 
