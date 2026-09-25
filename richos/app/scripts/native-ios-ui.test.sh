@@ -333,7 +333,11 @@ MainActor.assumeIsolated {
     check(frozen.state == retry, "G11 a fixture is unchanged by coming to the front and leaving it")
     let live = AppStore(state: retry, runner: EffectRunner(storage: MemoryStorage()))
     live.becameActive(at: Fixture.now + 1_000)
-    check(live.state.messages.last?.delivery == .sending, "G11 a live app coming to the front tries the waiting message at once")
+    // I06: the outbox moves on an open stream. Coming to the front reconnects; the message waits,
+    // still, until the Mac's stream answers, and goes the moment it does.
+    check(live.state.messages.last?.delivery == .waiting, "G11 a live app coming to the front reconnects and the message waits for the Mac")
+    live.receive(.connected(at: Fixture.now + 1_200))
+    check(live.state.messages.last?.delivery == .sending, "G11 the Mac's stream answers: the waiting message goes at once")
 }
 
 // G2 (Urban's audit §4.1): after the Mac removed this phone, "Pair again" with a message waiting asks
