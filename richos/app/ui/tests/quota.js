@@ -32,7 +32,7 @@ async function main() {
   const quota = { state: "fresh", checkedAt: now, retryAt: null, message: null, windows: [
     { id: "five_hour", label: "Five-hour", usedPercent: 94, resetsAt: now + 2 * 3600000, durationMs: 5 * 3600000 },
     { id: "seven_day", label: "Weekly", usedPercent: 32, resetsAt: now + 4 * 86400000, durationMs: 7 * 86400000 },
-    { id: "model:Sonnet", label: "Weekly · Sonnet", usedPercent: 12, resetsAt: now + 4 * 86400000, durationMs: 7 * 86400000 },
+    { id: "model:Fable", label: "Weekly · Fable", usedPercent: 12, resetsAt: now + 4 * 86400000, durationMs: 7 * 86400000 },
   ] };
   await run.check("quota stays hidden until technical view is enabled", async () => {
     const page = await open("dark", quota);
@@ -42,6 +42,7 @@ async function main() {
     await page.click("#set-quota-open");
     await page.waitForSelector(".quota-window");
     assertEqual(await page.locator(".quota-window").count(), 3);
+    assertEqual(await page.locator(".quota-window-label").last().innerText(), "Weekly · Fable");
     assertEqual(await page.locator(".quota-remaining").first().innerText(), "6% left");
     assertEqual(await page.locator("#quota-threshold").inputValue(), "93");
     await page.check("#quota-enabled");

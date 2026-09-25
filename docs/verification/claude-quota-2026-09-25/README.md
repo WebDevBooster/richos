@@ -76,7 +76,8 @@ disclosure row. The Escape suite discovers the quota sheet automatically.
 ## Screenshots
 
 These are screenshots of the implemented renderer under WebKit using fixture
-quota values, not live account usage. Layout checks run at 1024×700; the images
+quota values, not live account usage. The model fixture is Fable; production model
+labels come from Claude Code's `model_scoped[].display_name`. Layout checks run at 1024×700; the images
 below use a taller viewport to show the controls and all three rows together.
 
 ![Dark quota settings](dark.png)

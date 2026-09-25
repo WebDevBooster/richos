@@ -562,11 +562,12 @@ mod tests {
         let response = json!({"rate_limits_available":true,"session":{"secret":"never retained"},"rate_limits":{
             "five_hour":{"utilization":93,"resets_at":"2026-09-25T12:00:00Z"},
             "seven_day":{"utilization":101}, "extra_usage":{"utilization":45,"spend":100},
-            "model_scoped":[{"display_name":"Sonnet","utilization":25,"resets_at":"bad"}]}});
+            "model_scoped":[{"display_name":"Fable","utilization":25,"resets_at":"bad"}]}});
         let windows = normalize(&response).unwrap();
         assert_eq!(windows.len(), 2);
         assert!(windows[0].resets_at.is_some());
         assert_eq!(windows[1].resets_at, None);
+        assert_eq!(windows[1].label, "Weekly · Fable");
         assert!(!serde_json::to_string(&windows).unwrap().contains("secret"));
         assert_eq!(
             normalize(&json!({"rate_limits_available":false})),
