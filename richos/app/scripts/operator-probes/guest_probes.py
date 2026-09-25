@@ -1713,33 +1713,16 @@ def p12(ctx, r):
         r['stop_task_reply'] = redact(reply[2]) if reply else None
         r['seconds_to_not_alive'], r['liveness_a'] = wait_not_alive(ctx, a_wt, 120)
         r['liveness_b'] = ctx.liveness(b_wt)
+        # P12′ (r4 §2.1, §5): the host's registry step, taken the moment the stream says stopped
+        # and the resolver says NOT-ALIVE — when the host takes it — never a minute later: by
+        # then the lead's own engine may have closed a clean agent itself (run 2026-09-25 11:26,
+        # "its work was landed" after the platform removed the clean worktree).
+        r['registry_a'] = registry_step(ctx, lead, sid, 'probe-sonnet-p12a', a_id, a_wt, b_wt)
         done = lead.result_after(start, 300)
         r['lead_turn_result'] = done[2].get('subtype') if done else None
         r['lead_said'] = lead.text(start)[-400:]
         r['notification_a'] = [f.get('status') for f in lead.all_frames()
                                if f.get('subtype') == 'task_notification' and f.get('task_id') == a_id]
-        # ---- P12′ (r4 §2.1, §5): the host's registry step after its own stop_task ------------
-        # Control first: after the stop and NOT-ALIVE, the registry still reads the run as
-        # open (P12 measured RUNNING: no PostToolUse[TaskStop], no stoppedByUser). Then the
-        # host's step, exactly r4's command, while the lead's session is still alive.
-        # The registry is read the way P12 measured it: agent-liveness.sh's own JSON, on the
-        # agent's worktree, `evidence.registry_finished` / `registry_why`. (Run 2026-09-25 read
-        # `workspaces.sh status` instead, which lists no row for a stopped agent whose clean
-        # worktree the platform removed, and asked liveness BY NAME, which the resolver never
-        # resolves: a name is "absent/unregistered", a false NOT-ALIVE for a live agent.)
-        code, out, err = workspaces(ctx, sid, '--session', sid, 'status')
-        r['status_before_step'] = out.strip()[-1500:]
-        r['registry_before_step'] = {'a': registry_of(ctx.liveness(a_wt)), 'b': registry_of(ctx.liveness(b_wt))}
-        if 'stopped' in r['notification_a'] and r['seconds_to_not_alive'] is not None:
-            code, out, err = workspaces(ctx, sid, 'stop', 'probe-sonnet-p12a',
-                                        '--why', 'operator probe P12: stop probe-sonnet-p12a')
-            r['registry_step'] = {'exit': code, 'said': (out + err).strip()[-400:]}
-        else:
-            r['registry_step'] = {'not_run': 'no task_notification stopped with NOT-ALIVE for a: %s' % r['notification_a']}
-        code, out, err = workspaces(ctx, sid, '--session', sid, 'status')
-        r['status_after_step'] = out.strip()[-1500:]
-        r['registry_after_step'] = {'a': registry_of(ctx.liveness(a_wt)), 'b': registry_of(ctx.liveness(b_wt))}
-        r['by_name_control'] = {'b_by_name': ctx.liveness('probe-sonnet-p12b')[0], 'b_by_worktree': ctx.liveness(b_wt)[0]}
         # ---- the realistic case: an agent whose workspace has an uncommitted change --------
         # Run 6 showed NOT-ALIVE decided only by the platform deleting a CLEAN worktree; the
         # registry still said RUNNING. Claude Code keeps a worktree with changes, so this is
@@ -1762,6 +1745,10 @@ def p12(ctx, r):
             r['notification_c'] = got[2].get('status') if got else None
             r['seconds_to_not_alive_c'], r['liveness_c'] = wait_not_alive(ctx, c_wt, 60)
             r['worktree_c_after'] = [w for w in ctx.worktrees() if w['worktree'] == c_wt]
+            if r['seconds_to_not_alive_c'] is not None:
+                r['registry_c'] = registry_step(ctx, lead, sid, 'probe-sonnet-p12c', c_id, c_wt, b_wt)
+        # What the lead's own engine had recorded for a by the end (informational).
+        r['registry_a_at_end'] = registry_of(ctx.liveness(a_wt))
     finally:
         lead.close()
     detail = (r.get('liveness_a') or [None, {}])[1]
@@ -1773,7 +1760,10 @@ def p12(ctx, r):
     if not ok:
         return 'FAIL', 'a: %s after %s s; b: %s; lead said %r' % ((r.get('liveness_a') or [None])[0], r['seconds_to_not_alive'],
                                                                   r['liveness_b'][0], r['lead_said'][-80:])
-    verdict, registry_note = grade_registry_step(r)
+    verdict, registry_note = grade_registry_step(r.get('registry_a') or {})
+    if verdict == 'PASS' and r.get('registry_c'):
+        verdict_c, note_c = grade_registry_step(r['registry_c'])
+        verdict, registry_note = (verdict_c, 'a: %s; c (with a change): %s' % (registry_note, note_c))
     if verdict != 'PASS':
         return verdict, registry_note
     if not r.get('dirty_before_stop') or r.get('liveness_c_before') != 'ALIVE':
@@ -1796,22 +1786,37 @@ def registry_of(liveness):
     return [verdict, evidence.get('registry_finished'), evidence.get('registry_why')]
 
 
-def grade_registry_step(r):
-    """P12′'s added line (r4 §5). Control: before the step the registry reads a's run as open
-    ("its run has not ended", as P12 measured). Pass: after it, a is NOT-ALIVE and its run is
-    finished as stopped; b is ALIVE and its run still open."""
-    before = r.get('registry_before_step') or {}
-    after = r.get('registry_after_step') or {}
-    a0, a1, b1 = before.get('a') or [None] * 3, after.get('a') or [None] * 3, after.get('b') or [None] * 3
-    if a0[1] is not False or not str(a0[2] or '').startswith('its run has not ended'):
-        return 'PREMISE-FALSE', ('before the registry step the registry read %s for a, not an open run, so the step is '
-                                 'not what closed it' % (a0,))
-    if (r.get('registry_step') or {}).get('exit') != 0:
-        return 'FAIL', 'the registry step did not run cleanly: %s' % r.get('registry_step')
-    if a1[0] == 'NOT-ALIVE' and a1[1] is True and str(a1[2] or '').startswith('it was stopped') and \
-            b1[0] == 'ALIVE' and b1[1] is False:
-        return 'PASS', 'registry step: before a %s; after a %s, b %s' % (a0, a1, b1)
-    return 'FAIL', 'after the registry step: a %s; b %s' % (a1, b1)
+def registry_step(ctx, lead, session_id, name, task_id, worktree, other_worktree):
+    """r4 §2.1 item 3a as the host does it: wait for the stream's `stopped` for that task, read
+    the registry (the control), run `RICHOS_SESSION_ID=<lead session> workspaces.sh stop <name>
+    --why '<words>'`, read it again for the stopped agent and the other one."""
+    got = lead.wait(lambda f: f.get('subtype') == 'task_notification' and f.get('task_id') == task_id
+                    and f.get('status') == 'stopped', 10)
+    step = {'stream_said_stopped': bool(got),
+            'before': registry_of(ctx.liveness(worktree)), 'other_before': registry_of(ctx.liveness(other_worktree))}
+    code, out, err = workspaces(ctx, session_id, 'stop', name, '--why', 'operator probe P12: stop %s' % name)
+    step['run'] = {'exit': code, 'said': (out + err).strip()[-400:]}
+    step['after'] = registry_of(ctx.liveness(worktree))
+    step['other_after'] = registry_of(ctx.liveness(other_worktree))
+    return step
+
+
+def grade_registry_step(step):
+    """P12′'s added line (r4 §5). Control: when the stream has said stopped and the resolver says
+    NOT-ALIVE, the registry still reads the run as open. Pass: after the step, the stopped agent
+    is NOT-ALIVE and finished as stopped; the other is ALIVE with its run still open."""
+    before, after, other = step.get('before') or [None] * 3, step.get('after') or [None] * 3, step.get('other_after') or [None] * 3
+    if not step.get('stream_said_stopped'):
+        return 'PREMISE-FALSE', 'the stream never said stopped for the task, so the host would not take the step'
+    if before[1] is not False or not str(before[2] or '').startswith('its run has not ended'):
+        return 'PREMISE-FALSE', ('before the registry step the registry read %s, not an open run, so the step is not what '
+                                 'closed it' % (before,))
+    if (step.get('run') or {}).get('exit') != 0:
+        return 'FAIL', 'the registry step did not run cleanly: %s' % step.get('run')
+    if after[0] == 'NOT-ALIVE' and after[1] is True and str(after[2] or '').startswith('it was stopped') and \
+            other[0] == 'ALIVE' and other[1] is False:
+        return 'PASS', 'registry step: before %s; after %s; the other %s' % (before, after, other)
+    return 'FAIL', 'after the registry step: %s; the other %s' % (after, other)
 
 
 def priority_order(ctx, r, key, use_priority):

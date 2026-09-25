@@ -174,29 +174,29 @@ class GradeP5(unittest.TestCase):
 
 
 class RegistryStep(unittest.TestCase):
-    """P12′ (r4 §2.1, §5): the registry read the way P12 measured it, from agent-liveness.sh's
-    JSON on the worktree (`evidence.registry_finished`, `registry_why`)."""
-    def live(self, verdict, finished, why):
-        return (verdict, {'evidence': {'registry_finished': finished, 'registry_why': why}})
+    """P12′ (r4 §2.1, §5): the registry read from agent-liveness.sh's JSON on the worktree, the
+    step taken when the host takes it."""
+    OPEN = ['NOT-ALIVE', False, 'its run has not ended']
+    STOPPED = ['NOT-ALIVE', True, 'it was stopped (operator probe P12: stop probe-sonnet-p12a)']
+    OTHER = ['ALIVE', False, 'its run has not ended']
 
-    def result(self, before_a, after_a, after_b, step_exit=0):
-        return {'registry_before_step': {'a': gp.registry_of(before_a)}, 'registry_step': {'exit': step_exit},
-                'registry_after_step': {'a': gp.registry_of(after_a), 'b': gp.registry_of(after_b)}}
+    def step(self, before=None, after=None, other=None, said=True, code=0):
+        return {'stream_said_stopped': said, 'before': before or self.OPEN, 'run': {'exit': code},
+                'after': after or self.STOPPED, 'other_after': other or self.OTHER}
 
     def test_the_step_passes_only_with_its_control_and_both_agents_right(self):
-        open_ = self.live('NOT-ALIVE', False, 'its run has not ended')
-        stopped = self.live('NOT-ALIVE', True, 'it was stopped (operator probe P12: stop probe-sonnet-p12a)')
-        b_alive = self.live('ALIVE', False, 'its run has not ended')
-        self.assertEqual(gp.grade_registry_step(self.result(open_, stopped, b_alive))[0], 'PASS')
-        self.assertEqual(gp.grade_registry_step(self.result(stopped, stopped, b_alive))[0], 'PREMISE-FALSE')
-        self.assertEqual(gp.grade_registry_step(self.result(open_, open_, b_alive))[0], 'FAIL')
-        self.assertEqual(gp.grade_registry_step(self.result(open_, stopped, self.live('NOT-ALIVE', False, 'x')))[0], 'FAIL')
-        self.assertEqual(gp.grade_registry_step(self.result(open_, stopped, b_alive, step_exit=1))[0], 'FAIL')
+        self.assertEqual(gp.grade_registry_step(self.step())[0], 'PASS')
+        # Run 2026-09-25 11:26: a minute later the lead's engine had closed the clean agent itself.
+        landed = ['NOT-ALIVE', True, 'its work was landed']
+        self.assertEqual(gp.grade_registry_step(self.step(before=landed))[0], 'PREMISE-FALSE')
+        self.assertEqual(gp.grade_registry_step(self.step(said=False))[0], 'PREMISE-FALSE')
+        self.assertEqual(gp.grade_registry_step(self.step(after=self.OPEN))[0], 'FAIL')
+        self.assertEqual(gp.grade_registry_step(self.step(other=['NOT-ALIVE', False, 'x']))[0], 'FAIL')
+        self.assertEqual(gp.grade_registry_step(self.step(code=1))[0], 'FAIL')
 
     def test_a_liveness_answer_without_a_registry_reading_is_never_an_open_run(self):
         self.assertEqual(gp.registry_of(('NOT-ALIVE', {})), ['NOT-ALIVE', None, None])
-        self.assertEqual(gp.grade_registry_step(self.result(('NOT-ALIVE', {}), ('NOT-ALIVE', {}), ('ALIVE', {})))[0],
-                         'PREMISE-FALSE')
+        self.assertEqual(gp.grade_registry_step(self.step(before=['NOT-ALIVE', None, None]))[0], 'PREMISE-FALSE')
 
 
 class ArtifactActions(unittest.TestCase):
