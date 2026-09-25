@@ -798,11 +798,13 @@ def bash_output(lead, text, timeout=300):
 # teammates, started the way his lead starts them: spawn.sh, then the Agent call it prints
 # =============================================================================================
 
-def brief(ctx, name, seconds):
+def brief(ctx, name, seconds, dirty=False):
     path = ctx.p.work / ('brief-%s.md' % name)
+    first = ('First, give your workspace one uncommitted change by running exactly this Bash command in your '
+             'current working directory: echo change > probe-change.txt\nThen: ') if dirty else ''
     # The owned-state line is the engine's own documented way through guard-owned-state.sh
     # (run 3: the fixture has no CI, so its CI check reports unhealthy and refuses every spawn).
-    path.write_text('Run exactly this Bash command in the foreground, with the Bash tool\'s timeout parameter set to '
+    path.write_text(first + 'Run exactly this Bash command in the foreground, with the Bash tool\'s timeout parameter set to '
                     '600000, and wait for it to finish: %s\n'
                     'It is a stand-in for a long build and takes about %d seconds. Then reply with the single word '
                     'finished. Do nothing else.\n\n'
@@ -830,12 +832,12 @@ def lead_long_task(ctx, seconds, then):
                            'Then reply %s.' % (long_task(ctx, seconds), then))
 
 
-def spawn_teammate(ctx, lead, name, agent_type, seconds, timeout=300):
+def spawn_teammate(ctx, lead, name, agent_type, seconds, timeout=300, dirty=False):
     """Returns (task_id, worktree_path, detail). The lead runs spawn.sh and makes the Agent call
     with run_in_background, exactly as his terminal's lead does (engine-status banner)."""
     before = set(r['worktree'] for r in ctx.worktrees())
     command = '%s %s --repo %s --type %s --brief %s --model sonnet' % (
-        ctx.p.engine / 'scripts' / 'spawn.sh', name, ctx.p.entity, agent_type, brief(ctx, name, seconds))
+        ctx.p.engine / 'scripts' / 'spawn.sh', name, ctx.p.entity, agent_type, brief(ctx, name, seconds, dirty))
     start, got = do(lead, (
         'Start one teammate. Step 1: run exactly this Bash command and read its standard output:\n%s\n'
         'Step 2: its standard output is one JSON object of Agent tool parameters. Call the Agent tool ONCE with '
@@ -1192,7 +1194,8 @@ def p4(ctx, r):
 
 @probe('P5')
 def p5(ctx, r):
-    lead = Lead(ctx, 'P5', 'lead', ctx.lead_args())
+    sid = str(uuid.uuid4())
+    lead = Lead(ctx, 'P5', 'lead', ctx.lead_args(session_id=sid))
     try:
         lead.initialize()
         task_id, worktree, detail = spawn_teammate(ctx, lead, 'probe-sonnet-p5a', 'alpha', 20)
@@ -1209,6 +1212,12 @@ def p5(ctx, r):
                   and f.get('subtype') in ('hook_started', 'hook_response')]
         r['hook_events_seen'] = sorted(set(e for e in events if e))
         r['results_before'] = results_before
+        # What the HOST sees when the teammate ends, whatever the hooks do: the stream's own
+        # task notification (a substitute signal for femcboost's handoff detection if the
+        # teammate hooks do not fire here).
+        r['task_notifications_for_teammate'] = [f.get('status') for f in lead.all_frames()
+                                                if f.get('subtype') == 'task_notification' and f.get('task_id') == task_id]
+        r['session_team'] = session_team(ctx, sid)
     finally:
         lead.close()
     fired = {'TeammateIdle', 'TaskCompleted'} & set(r['hook_events_seen'])
@@ -1216,50 +1225,72 @@ def p5(ctx, r):
     if not r['platform_started_turn']:
         return 'FAIL', 'no turn started after the agent ended, with nothing sent'
     if fired != {'TeammateIdle', 'TaskCompleted'}:
-        return 'FAIL', 'a platform turn started, but TeammateIdle/TaskCompleted fired: %s' % sorted(fired)
+        return 'FAIL', ('a platform turn started with nothing sent (after %s s), but TeammateIdle/TaskCompleted fired: %s; '
+                        'the lead had %s session team; the host did see task_notification %s'
+                        % (r['seconds_to_new_turn'], sorted(fired), 'a' if r['session_team'] else 'NO',
+                           r['task_notifications_for_teammate']))
     return 'PASS', 'a platform turn started with nothing sent; TeammateIdle and TaskCompleted fired'
+
+
+def session_team(ctx, session_id):
+    """The session team his terminal's lead gets: ~/.claude/teams/session-<first 8>/config.json,
+    naming the lead's session (measured on the host: name, createdAt, leadAgentId,
+    leadSessionId, members)."""
+    path = ctx.p.claude_dir / 'teams' / ('session-%s' % session_id[:8]) / 'config.json'
+    try:
+        d = json.loads(path.read_text())
+        return {'path': str(path), 'leadSessionId': d.get('leadSessionId'),
+                'members': [m.get('name') for m in d.get('members') or []]}
+    except (OSError, ValueError):
+        return None
 
 
 @probe('P6')
 def p6(ctx, r):
-    def teams():
-        found = {}
-        for path in glob.glob(str(ctx.p.claude_dir / 'teams' / '*' / 'config.json')):
-            try:
-                found[path] = json.loads(Path(path).read_text())
-            except (OSError, ValueError):
-                found[path] = None
-        return found
-    before = teams()
-    lead = Lead(ctx, 'P6', 'lead', ctx.lead_args())
+    # 1) As femcboost sets it: the switch comes from the entity's project settings.
+    sid = str(uuid.uuid4())
+    lead = Lead(ctx, 'P6', 'lead-project-settings', ctx.lead_args(session_id=sid))
     try:
         lead.initialize()
         task_id, worktree, detail = spawn_teammate(ctx, lead, 'probe-sonnet-p6a', 'alpha', 15)
         r['spawn'] = detail
-        after = teams()
-        r['team_configs_new'] = sorted(set(after) - set(before))
-        r['member_named'] = any('probe-sonnet-p6a' in json.dumps(v) for v in after.values())
+        r['team_from_project_settings'] = session_team(ctx, sid)
+        r['lead_tools_team'] = sorted(t for t in (lead.init_frame() or {}).get('tools') or []
+                                      if t in ('TeamCreate', 'TeamDelete', 'SendMessage', 'TaskCreate', 'TaskUpdate'))
     finally:
         lead.close()
-    control_before = teams()
-    control = Lead(ctx, 'P6', 'control-no-project-settings', ctx.lead_args(sources='user'))
+    # 2) r3's fallback: the switch in the lead's own environment.
+    sid2 = str(uuid.uuid4())
+    forced = Lead(ctx, 'P6', 'lead-switch-in-environment', ctx.lead_args(session_id=sid2),
+                  env=dict(ctx.lead_env(), CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS='1'))
     try:
-        control.initialize()
-        cinit_start, _ = ask(control, 'Reply with exactly the word ready.', 180)
-        cinit = control.init_frame() or {}
-        r['control_tools_include_team_tools'] = sorted(t for t in cinit.get('tools') or []
-                                                       if t in ('TeamCreate', 'TeamDelete', 'SendMessage'))
-        r['lead_tools_include_team_tools'] = sorted(t for t in (lead.init_frame() or {}).get('tools') or []
-                                                    if t in ('TeamCreate', 'TeamDelete', 'SendMessage'))
-        r['control_team_configs_new'] = sorted(set(teams()) - set(control_before))
+        forced.initialize()
+        ask(forced, 'Reply with exactly the word ready.', 180)
+        time.sleep(3)
+        r['team_from_environment'] = session_team(ctx, sid2)
     finally:
-        control.close()
-    if r['control_tools_include_team_tools'] == r['lead_tools_include_team_tools']:
-        return 'PREMISE-FALSE', ('the control without project settings offered the same team tools, so the switch '
-                                 'cannot be told apart from the default')
-    if not task_id or not r['member_named']:
-        return 'FAIL', 'the named teammate did not appear in a team configuration'
-    return 'PASS', 'a named teammate spawned and its team configuration was written'
+        forced.close()
+    # 3) The control: an interactive session in the same entity, as his terminal runs.
+    ipid, ifd, record, screen = interactive_session(ctx, r)
+    try:
+        type_into(ifd, 'Reply with exactly the word ready.', screen)
+        deadline = time.time() + 90
+        team = None
+        while time.time() < deadline and team is None:
+            drain(ifd, screen, 1.0)
+            team = session_team(ctx, (record or {}).get('sessionId') or '') if record else None
+        r['interactive_record'] = record
+        r['team_interactive'] = team
+    finally:
+        end_interactive(ipid, ifd)
+    if not r['team_interactive']:
+        return 'PREMISE-FALSE', 'the interactive control got no session team either, so the fixture cannot make one'
+    if r['team_from_project_settings']:
+        return 'PASS', 'the project-settings switch is honored in print mode: the lead got its session team'
+    if r['team_from_environment']:
+        return 'FAIL', ('the switch from project settings is NOT honored in print mode, and it IS when it is in the lead\'s '
+                        'environment: it goes into the stored environment (r3 P6 fallback)')
+    return 'FAIL', 'print mode created no session team with the switch from settings or from the environment'
 
 
 def filler_files(ctx, count, kib):
@@ -1602,17 +1633,47 @@ def p12(ctx, r):
         r['lead_said'] = lead.text(start)[-400:]
         r['notification_a'] = [f.get('status') for f in lead.all_frames()
                                if f.get('subtype') == 'task_notification' and f.get('task_id') == a_id]
+        # ---- the realistic case: an agent whose workspace has an uncommitted change --------
+        # Run 6 showed NOT-ALIVE decided only by the platform deleting a CLEAN worktree; the
+        # registry still said RUNNING. Claude Code keeps a worktree with changes, so this is
+        # the case where the resolver would need another signal.
+        c_id, c_wt, c_detail = spawn_teammate(ctx, lead, 'probe-sonnet-p12c', 'alpha', 480, dirty=True)
+        r['spawn_c'] = c_detail
+        if c_id and c_wt:
+            deadline = time.time() + 120
+            while time.time() < deadline and not (Path(c_wt) / 'probe-change.txt').exists():
+                time.sleep(1)
+            r['dirty_before_stop'] = (Path(c_wt) / 'probe-change.txt').exists()
+            r['liveness_c_before'] = ctx.liveness(c_wt)[0]
+            rid = lead.control('stop_task', task_id=c_id)
+            lead.wait(lambda f: f.get('type') == 'control_response' and
+                      (f.get('response') or {}).get('request_id') == rid, 30)
+            r['notification_c'] = None
+            got = lead.wait(lambda f: f.get('subtype') == 'task_notification' and f.get('task_id') == c_id, 30)
+            r['notification_c'] = got[2].get('status') if got else None
+            r['seconds_to_not_alive_c'], r['liveness_c'] = wait_not_alive(ctx, c_wt, 60)
+            r['worktree_c_after'] = [w for w in ctx.worktrees() if w['worktree'] == c_wt]
     finally:
         lead.close()
     detail = (r.get('liveness_a') or [None, {}])[1]
     r['signal_that_decided'] = json.dumps(detail)[:1500]
+    r['signal_that_decided_c'] = json.dumps((r.get('liveness_c') or [None, {}])[1])[:1500]
     if not r['lead_in_shell']:
         return 'PREMISE-FALSE', 'the lead never started its shell command, so stop_task did not land mid-turn'
     ok = r['seconds_to_not_alive'] is not None and r['liveness_b'][0] == 'ALIVE' and 'slept' in r['lead_said']
-    if ok:
-        return 'PASS', 'NOT-ALIVE in %s s; the other ALIVE; the lead\'s command finished' % r['seconds_to_not_alive']
-    return 'FAIL', 'a: %s after %s s; b: %s; lead said %r' % ((r.get('liveness_a') or [None])[0], r['seconds_to_not_alive'],
-                                                              r['liveness_b'][0], r['lead_said'][-80:])
+    if not ok:
+        return 'FAIL', 'a: %s after %s s; b: %s; lead said %r' % ((r.get('liveness_a') or [None])[0], r['seconds_to_not_alive'],
+                                                                  r['liveness_b'][0], r['lead_said'][-80:])
+    if not r.get('dirty_before_stop') or r.get('liveness_c_before') != 'ALIVE':
+        return 'PASS', ('clean worktree: NOT-ALIVE in %s s, the other ALIVE, the lead\'s command finished. The dirty-'
+                        'worktree case could not be set up (see spawn_c), so it is NOT measured' % r['seconds_to_not_alive'])
+    if r['seconds_to_not_alive_c'] is None:
+        return 'FAIL', ('stop_task works (clean worktree NOT-ALIVE in %s s, the other ALIVE, the lead\'s command finished), '
+                        'but a stopped agent whose worktree holds a change still reads %s after 60 s: the platform keeps '
+                        'the locked worktree and the registry never learns of the stop'
+                        % (r['seconds_to_not_alive'], (r.get('liveness_c') or [None])[0]))
+    return 'PASS', ('NOT-ALIVE in %s s (clean) and %s s (with a change); the other ALIVE; the lead\'s command finished'
+                    % (r['seconds_to_not_alive'], r['seconds_to_not_alive_c']))
 
 
 def priority_order(ctx, r, key, use_priority):

@@ -123,6 +123,17 @@ class KernelEnvironment(unittest.TestCase):
         self.assertIsNone(self.read(['/bin/sleep', '30'], {'PROBE_NAME_ONE': 'x', 'PATH': '/usr/bin:/bin'}))
 
 
+class Record(unittest.TestCase):
+    def test_the_record_step_refuses_the_public_repository_and_bounds_long_strings(self):
+        rspec = importlib.util.spec_from_file_location('record', HERE.parent / 'record.py')
+        record = importlib.util.module_from_spec(rspec)
+        rspec.loader.exec_module(record)
+        self.assertTrue(record.public(HERE), 'this harness lives in the public richos repository')
+        bounded = record.bound({'a': 'x' * (record.MAX_STRING + 50), 'b': ['short']})
+        self.assertTrue(bounded['a'].endswith('[cut by record.py: %d characters in the run]' % (record.MAX_STRING + 50)))
+        self.assertEqual(bounded['b'], ['short'])
+
+
 class Arguments(unittest.TestCase):
     def test_the_lead_arguments_mirror_the_operator_profile(self):
         """operator_profile::child_args, flag for flag. If the profile changes, this list must."""
