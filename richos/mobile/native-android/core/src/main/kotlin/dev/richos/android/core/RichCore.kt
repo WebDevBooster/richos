@@ -66,6 +66,19 @@ class RichCore private constructor(
     /** The last committed state; the app collects this. */
     val states: StateFlow<AppState> = flow.asStateFlow()
 
+    @Volatile private var tryNow: (() -> Unit)? = null
+
+    /**
+     * "Try now" pressed while the stream to the Mac is down (I06, parity with the iPhone's `retryNow`
+     * emitting `connect`): the outbox cannot move without an open link, so the ask goes to the ONE
+     * connection owner, which tries at once, skipping what is left of its wait without resetting
+     * the back-off ([ConnectionOwner.wake]). Called in order with the action, so the owner never
+     * sees it late. Nothing listens in a development world, and nothing is kept for later.
+     */
+    fun onTryNowWhileAway(listener: (() -> Unit)?) {
+        tryNow = listener
+    }
+
     val state: AppState get() = flow.value
 
     suspend fun dispatch(action: Action): AppState {
@@ -169,6 +182,7 @@ class RichCore private constructor(
             mutex.withLock {
                 if (!session.paired) throw CoreError("Pairing has been revoked")
                 outbox.retryEverythingNow()
+                if (!session.online) tryNow?.invoke()
                 emit()
             }
             flush()
