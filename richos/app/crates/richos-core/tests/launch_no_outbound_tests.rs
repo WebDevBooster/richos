@@ -144,6 +144,11 @@ fn the_crate_depends_on_nothing_that_could_open_a_connection() {
     // for `setup.rs`'s engine pin, `no_std`-capable, and no dependency of it links a socket
     // or a TLS stack. Where the network actually is, is `/usr/bin/curl` — a subprocess,
     // spawned only by `CurlFetcher`, which nothing in this module can reach.
+    //
+    // `time` now parses provider RFC3339 quota reset timestamps, including their
+    // offsets. Its parsing feature works on bytes and date/time values without a
+    // socket, HTTP client or TLS dependency. The launch record still uses its own
+    // local-calendar arithmetic and cannot reach the quota transport.
     let mut found: BTreeSet<&str> = BTreeSet::new();
     let mut in_deps = false;
     for line in MANIFEST.lines() {
@@ -160,13 +165,12 @@ fn the_crate_depends_on_nothing_that_could_open_a_connection() {
         }
     }
     let expected: BTreeSet<&str> =
-        ["serde", "serde_json", "uuid", "thiserror", "sha2"].into_iter().collect();
+        ["serde", "serde_json", "uuid", "thiserror", "sha2", "time"].into_iter().collect();
     assert_eq!(
         found, expected,
         "richos-core's dependency set changed. The launch record's 'never outbound' \
-         guarantee rests on this crate having no network-capable dependency — and so does \
-         the decision NOT to add a date/time crate for the local-calendar arithmetic, which \
-         `launch.rs` does by hand for exactly this reason. State what the new one is and why \
+         guarantee rests on this crate having no network-capable dependency. \
+         State what the new one is and why \
          it cannot reach a host, then update this list."
     );
 }
