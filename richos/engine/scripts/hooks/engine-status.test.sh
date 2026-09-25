@@ -832,8 +832,8 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # release-shared-writes.sh (PostToolUse and PostToolUseFailure, never blocks)
 # releases the memory lease; guard-live-names.sh (BLOCKING, PreToolUse[Agent])
 # refuses a name a live agent of another session holds. All behind
-# OPERATOR_FENCES: with the entity's launcher off they start no interpreter and
-# never refuse. Suite: operator-leads.test.sh; harness: operator-leads.mutation.sh.
+# OPERATOR_FENCES: with the entity's launcher off they never start their checks
+# and never refuse. Suite: operator-leads.test.sh; harness: operator-leads.mutation.sh.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
 operator-claim.sh
 guard-operator-claim.sh

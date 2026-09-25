@@ -10,7 +10,7 @@
 # lease file this very call created; with no readable payload there is no
 # tool_use_id to match, nothing is removed, and the lease goes stale in 5 s.
 #
-# WITH THE SWITCH OFF it starts no interpreter: no lease was taken.
+# WITH THE SWITCH OFF it never starts its check: no lease was taken.
 
 # --- ROOT RESOLUTION -------------------------------------------------------
 # TWO ROOTS, NEVER ONE. The full contract, and why the old single-root

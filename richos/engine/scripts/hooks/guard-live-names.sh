@@ -12,8 +12,8 @@
 # (finished_state: running or paused). A finished agent's name is free to other
 # sessions, exactly as before.
 #
-# WITH THE SWITCH OFF (the entity's launcher is off or absent) it starts no
-# interpreter and never refuses. An error inside the check passes the spawn and
+# WITH THE SWITCH OFF (the entity's launcher is off or absent) it never starts
+# its check and never refuses. An error inside the check passes the spawn and
 # says so.
 
 # --- ROOT RESOLUTION -------------------------------------------------------

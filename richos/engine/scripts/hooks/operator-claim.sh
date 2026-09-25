@@ -22,7 +22,7 @@
 # Nothing is ever written into ~/.claude/sessions/ (r3 F6).
 #
 # WITH THE SWITCH OFF (the entity's launcher says OPERATOR_FENCES_STATE="off", or
-# there is none) this hook starts no interpreter, writes nothing and says nothing.
+# there is none) this hook never starts its check, writes nothing and says nothing.
 #
 # STDIN IS READ WITH A TIMEOUT: a SessionStart hook is runnable as a CLI tool with
 # an inherited stdin nobody closes (session-start-stdin.test.sh).

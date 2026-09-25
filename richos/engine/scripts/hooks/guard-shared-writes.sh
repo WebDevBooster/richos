@@ -21,8 +21,8 @@
 # the Git fence refuses the commit without the lease; for memory, this is the
 # only fence (r3 e3).
 #
-# WITH THE SWITCH OFF (the entity's launcher is off or absent) it starts no
-# interpreter, takes no lease and never refuses. An error inside the check passes
+# WITH THE SWITCH OFF (the entity's launcher is off or absent) it never starts
+# its check, takes no lease and never refuses. An error inside the check passes
 # the call and says so.
 
 # --- ROOT RESOLUTION -------------------------------------------------------

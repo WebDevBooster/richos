@@ -16,8 +16,8 @@
 # (item 6). The app's own leads (RICHOS_OPERATOR_LEAD matching the live app claim
 # that lists them) and every non-terminal session pass untouched.
 #
-# WITH THE SWITCH OFF (the entity's launcher is off or absent) it starts no
-# interpreter and never refuses. An error inside the check passes the call and
+# WITH THE SWITCH OFF (the entity's launcher is off or absent) it never starts
+# its check and never refuses. An error inside the check passes the call and
 # says so: a defect here must never be what stops his terminal.
 
 # --- ROOT RESOLUTION -------------------------------------------------------

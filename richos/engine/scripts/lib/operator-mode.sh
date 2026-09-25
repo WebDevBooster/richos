@@ -6,9 +6,12 @@
 # The switch lives in the entity repository's own `reference-transaction`
 # launcher (OPERATOR_FENCES_STATE, Frank G12), the file the Git fence itself
 # reads. This reader uses bash builtins only, so a hook whose switch is off
-# starts no interpreter and no process at all: with the switch off, the
-# operator-lead hooks (the claim, shared writes, live names) cost his terminal
-# one small file read per call and change nothing it does.
+# never starts operator_leads.py: past the root resolution and payload check
+# every engine hook shares, it reads one file and exits. Measured 2026-09-25,
+# switch off, on a loaded Mac: 70-130 ms per call, run beside the event's other
+# hooks (an existing guard on the same event measured 246 ms).
+# With the switch off the operator-lead hooks (the claim, shared writes, live
+# names) decide nothing, write nothing and say nothing on a readable payload.
 #
 # It reads <root>/.git/hooks/reference-transaction, which is where
 # `operator-fences.sh install` writes the launcher of a main checkout (the
