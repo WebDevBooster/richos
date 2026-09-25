@@ -133,4 +133,9 @@ mutant device-admission-back-to-sixty-seconds "test_T60" "$D" \
     '        held.append(worker_tokens.Budget(worker_tokens.machine_directory(), runner=True).acquire(timeout=60))' \
     "a busy host would fail a test's device launch after 60 s instead of waiting its bounded turn (2026-09-25)."
 
+mutant boot-wait-lets-the-lease-idle-out "test_T61" "$D" \
+    '                touch_lease(kind, ident)' \
+    '                pass' \
+    "a boot waiting its bounded turn for admission would lose its device to the inactivity limit."
+
 mutation_end

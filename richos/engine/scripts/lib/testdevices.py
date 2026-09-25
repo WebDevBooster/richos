@@ -1235,6 +1235,30 @@ def record_failures(survivors, undecided, seen, path=None, notes=(), deferred=()
 DEVICE_ADMISSION_SECONDS = 900
 
 
+def _admitted_keeping_lease(kind, ident, every=None):
+    """_device_admission() for a device whose lease already exists, renewing that lease's
+    inactivity clock while the wait lasts. The wait is bounded (DEVICE_ADMISSION_SECONDS) and
+    can outlast the 300 s inactivity limit; this call is the owner's own activity on the lease.
+    touch_lease never renews an expired lease or touches the lifetime."""
+    import threading
+    every = LEASE_RENEW_SECONDS if every is None else every
+    done = threading.Event()
+
+    def keep():
+        while not done.wait(every):
+            try:
+                touch_lease(kind, ident)
+            except (ValueError, TimeoutError, OSError):
+                return            # gone or expired: boot_ios refuses it after admission
+    keeper = threading.Thread(target=keep, daemon=True)
+    keeper.start()
+    try:
+        return _device_admission()
+    finally:
+        done.set()
+        keeper.join(timeout=every + 10)
+
+
 def _device_admission():
     """The same boot/live pool as iOS, and a machine token held until shutdown."""
     from pathlib import Path
@@ -1313,7 +1337,7 @@ def boot_ios(udid):
     cpu_guard.require_ios()
     if not _read_json(_record_path("ios-simulator", udid)):
         raise ValueError("register the exact simulator before booting it")
-    tokens = _device_admission()
+    tokens = _admitted_keeping_lease("ios-simulator", udid)
     deadline_token = None
     try:
         cpu_guard.require_ios()

@@ -1180,6 +1180,27 @@ class Collector(Base):
             self.assertIn(("release", "worker"), seen)                             # nothing leaks
             self.assertIn(("release", "live"), seen)
 
+    def test_T61_a_lease_is_kept_alive_while_its_boot_waits_for_admission(self):
+        udid = T.acquire_ios("iPhone", "runtime", os.getpid())
+        rec = T._read_json(T._record_path("ios-simulator", udid))
+        rec["lease"]["last_use"] = time.time() - (T.LEASE_IDLE_SECONDS - 1)     # 1 s of idle left
+        T._write_json(T._record_path("ios-simulator", udid), rec)
+        waited = []
+
+        def slow_admission():
+            time.sleep(1.6)                                   # longer than the idle left
+            waited.append(T.lease_expired(T._read_json(T._record_path("ios-simulator", udid))))
+            return []
+        with patch.object(T, "_device_admission", side_effect=slow_admission):
+            T._admitted_keeping_lease("ios-simulator", udid, every=0.3)
+        self.assertEqual(waited, [False])                      # renewed while it waited
+        created = rec["lease"]["created"]
+        self.assertEqual(T._read_json(T._record_path("ios-simulator", udid))["lease"]["created"], created)
+        stopped = T._read_json(T._record_path("ios-simulator", udid))["lease"]["last_use"]
+        time.sleep(0.8)                                        # and not after it
+        self.assertEqual(T._read_json(T._record_path("ios-simulator", udid))["lease"]["last_use"], stopped)
+        T.release_ios(udid, os.getpid())
+
     def test_T51_renewal_stops_when_the_owned_run_ends(self):
         udid = self.device("rios-ui-run-ended")
         rec = T.register("ios-simulator", udid, os.getpid())
