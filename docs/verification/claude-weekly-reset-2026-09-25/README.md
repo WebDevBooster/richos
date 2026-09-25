@@ -1,7 +1,7 @@
 # Desktop Claude weekly reset integration
 
-Implemented on `codex/claude-reset-offers`, starting from `33db5a7a`, the quota merge
-onto `9a51c580`. No engine quota watcher or private HQ rulings were changed.
+Implemented on `codex/claude-reset-offers`, rebased onto main `261bc268`
+(which includes the requested `9a51c580` base). No engine quota watcher or private HQ rulings were changed.
 
 ## Behavior
 
@@ -60,33 +60,46 @@ and expired offers, changing grants, provider refusal, contention, scope revocat
 ambiguous replies and a crash after durable intent. UI tests cover early two-step
 approval, cancellation, revocation, uncertain results and both themes.
 
-### Result: verification blocked, not ready to merge
+### Result: full proof passed
 
-Implementation through `2495a072`; the working tree was clean for the final selection.
-`origin/main` was `9a51c580`, already an ancestor of the worktree base.
+Tested clean commit `9cb275328ac5e09e0a5336a0bf918f00ad44ffb4` against
+`origin/main` at `261bc268bb87d488407f0b2cc6a88d06a08aff02`.
 
-- The requested `python3 richos/app/scripts/proof-run.py --keep-going origin/main..HEAD`
-  was run. It found and led to fixes for a reset lock inheritance race and the earlier
-  quota change's missing `time` dependency audit. The restarted default run waited
-  for host CPU admission without starting a check and was interrupted.
-- To obtain a complete bounded report without bypassing CPU or worker limits, the
-  final invocation added `--admission-wait 0`. It exited **1**: **86 checks selected,
-  0 passed, 0 test failures, 86 not admitted**. Host sampling reported mean 99% CPU,
-  maximum 100%; all seven samples exceeded the 80% admission line. Some checks also
-  encountered the shared machine worker ceiling. This is not a passing proof.
-- The exact generated report is [proof-admission-report.md](proof-admission-report.md), with the
-  tested commit recorded in the same report.
-- Earlier executed checks: all 32 quota unit tests passed after the lock fix; the
-  full core unit suite then passed 864 tests with one ignored. The core integration
-  run stopped at the dependency audit, which is now corrected but not rerun.
-- Tauri test compilation passed after the missing `quota` fixture was fixed.
-  The standalone lint run passed before the final review fixes, reporting
-  `clippy::let_underscore_must_use` at 777 for rust-fast and 165 for Tauri.
-- The earlier UI run passed 15 of 16 checks. Its remaining selector was corrected,
-  but the final quota UI suite and refreshed screenshots remain unverified because
-  the full selection could not obtain admission. Do not treat older screenshots as
-  proof of this final revision.
+```sh
+python3 richos/app/scripts/proof-run.py --keep-going origin/main..HEAD
+```
 
-Rerun the full command above when host capacity is available. The full suite must
-pass before handing this branch to Rich as merge-ready. No reset was approved or
-redeemed and no app was installed by this work.
+**Exit 0: all 88 selected checks passed in 625 seconds.** The source fingerprints
+were unchanged throughout the run. The final commit adds only this evidence.
+
+The runner marks two native GUI commands successful while their inner suites report
+**NOT RUN (no screen)**: `front-door.test.sh` and `gui-boot.test.sh`. This is the
+selector's existing `--no-host-screen` behavior. It is not evidence of a native app
+launch. The browser UI suites, including front-door, quota, appearance, affordances,
+contrast, scale and settings fit, did run and pass.
+
+The full core suite, Tauri binary tests, quota tests, dependency audits, release
+checks and lint all passed. `clippy::let_underscore_must_use` is **777** in the Rust
+fast set and **165** for Tauri. No lint baseline or coverage exclusion was relaxed.
+`proof-for.sh origin/main..HEAD` also exits 0.
+
+The test fixes cover the initialized quota snapshot in the operator-gate fixture,
+quota's UI role and explicit text inventory, the Settings order under ruling §15,
+real walks of quota/reset screens for contrast and the `time` dependency audit.
+The held-agent panel fits 1440 × 900 in both themes at the existing text-size floor.
+Contrast evidence now goes into the ignored screenshot directory, so running the
+suite does not alter the source fingerprint.
+
+[Full proof report](proof-passing-report.md) lists every selected command and result.
+The earlier [admission report](proof-admission-report.md) is historical and superseded.
+
+### Screenshots from the passing full run
+
+All figures, names and offers are test fixtures. No real reset was approved or redeemed.
+
+- Available offer: [dark](reset-offer-dark.png), [light](reset-offer-light.png).
+- Approved in advance: [dark](reset-armed-dark.png), [light](reset-armed-light.png).
+- Paused agents: [dark](holding-dark.png), [light](holding-light.png).
+
+No engine quota watcher or HQ rulings were changed. No app was installed and no
+branch was pushed or merged by this work.
