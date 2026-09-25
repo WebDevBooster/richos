@@ -266,7 +266,7 @@ impl EngineProfile {
             Ok(text)
         };
         let job = match role {
-            crate::native::LeaseRole::Work => format!("{}{}", read(&self.engine.join("mega-lander/DESKTOP.md"))?, crate::quota::reset_tools::INSTRUCTION),
+            crate::native::LeaseRole::Work => format!("{}{}", crate::quota::reset_tools::INSTRUCTION, read(&self.engine.join("mega-lander/DESKTOP.md"))?),
             crate::native::LeaseRole::Conversation => crate::doctrine::FRONT_DESK_DOCTRINE.to_string(),
         };
         let body = read(app_doctrine)? + "\n\n" + &job;

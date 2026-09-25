@@ -50,6 +50,7 @@ impl Offer {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Approval {
+    pub id: String,
     pub offer: Offer,
     pub approved_at: u64,
     pub weekly_threshold: u8,
@@ -425,6 +426,7 @@ impl Service {
             );
         }
         record.view.approval = Some(Approval {
+            id: uuid::Uuid::new_v4().to_string(),
             offer: offer.clone(),
             approved_at: now,
             weekly_threshold: WEEKLY_THRESHOLD as u8,
@@ -449,17 +451,32 @@ impl Service {
         t: &mut dyn Transport,
         still_authorized: impl Fn() -> bool,
     ) -> Result<View, String> {
-        let _lock = self.lock()?;
-        let mut record = self.read()?;
+        let lock = self.lock()?;
+        let record = self.read()?;
         let approved = record
             .view
             .approval
             .clone()
             .ok_or("The user has not approved a weekly reset in Technical Settings.")?;
+        let approval_account = record.account.clone();
+        drop(lock); // A user can revoke approval while read-only preflight is in flight.
         if !still_authorized() {
             return Err("This work session is no longer authorized.".into());
         }
         let (account, reading) = Self::read_transport(t)?;
+        let _lock = self.lock()?;
+        let mut record = self.read()?;
+        if record.account != approval_account
+            || record
+                .view
+                .approval
+                .as_ref()
+                .is_none_or(|a| a.id != approved.id)
+        {
+            return Err(
+                "Reset approval was revoked or replaced during the check. Nothing was used.".into(),
+            );
+        }
         let now = crate::util::now_millis();
         if account.key != record.account {
             Self::update(&mut record, account, reading, now);
@@ -783,5 +800,38 @@ mod tests {
         assert_eq!(restarted.view().last_attempt.unwrap().outcome, "uncertain");
         assert!(restarted.use_approved(&mut t, || true).is_err());
         assert_eq!(t.posts, 0);
+    }
+    #[test]
+    fn revocation_during_network_preflight_prevents_the_post() {
+        struct Revoking<'a> {
+            service: &'a Service,
+            fake: Fake,
+        }
+        impl Transport for Revoking<'_> {
+            fn account(&mut self) -> Result<Account, String> {
+                self.fake.account()
+            }
+            fn usage(&mut self) -> Result<Value, String> {
+                self.service.revoke().unwrap();
+                self.fake.usage()
+            }
+            fn redeem(&mut self, grant: &str, request: &str) -> Result<Value, String> {
+                self.fake.redeem(grant, request)
+            }
+        }
+        let root = Scratch::new();
+        let mut fake = Fake::new(99.);
+        let service = seeded(root.path(), &mut fake);
+        approve(&service);
+        let mut transport = Revoking {
+            service: &service,
+            fake,
+        };
+        assert!(service
+            .use_approved(&mut transport, || true)
+            .unwrap_err()
+            .contains("revoked"));
+        assert_eq!(transport.fake.posts, 0);
+        assert!(service.view().approval.is_none());
     }
 }

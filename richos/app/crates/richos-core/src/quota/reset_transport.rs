@@ -68,7 +68,7 @@ impl System {
     }
     fn request(&self, path: &str, body: Option<Value>) -> Result<Value, String> {
         // Paths and the host are internal constants or validated UUIDs. No redirects,
-        // retries, proxy credentials or curl config inherited from the user's shell.
+        // retries or user curl configuration. Proxy settings follow the environment.
         let mut config = format!("url = \"https://api.anthropic.com{path}\"\nheader = \"Authorization: Bearer {}\"\nheader = \"anthropic-beta: oauth-2025-04-20\"\nheader = \"User-Agent: claude-cli/{} (external, cli)\"\nheader = \"Content-Type: application/json\"\n", self.token, self.version);
         if let Some(body) = body {
             let escaped = body.to_string().replace('\\', "\\\\").replace('"', "\\\"");

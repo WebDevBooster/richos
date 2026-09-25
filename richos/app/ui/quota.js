@@ -185,13 +185,13 @@
     for (const offer of offers) {
       const card = node("div", "quota-reset-offer");
       card.appendChild(node("h4", "", offer.label || "Claude usage-limit reset"));
-      card.appendChild(node("p", "", `${offer.remaining} ${offer.remaining === 1 ? "reset" : "resets"} available · Expires ${new Date(offer.expiresAt).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}`));
+      card.appendChild(node("p", "", `${offer.remaining} ${offer.remaining === 1 ? "reset" : "resets"} ${fresh ? "available" : "last reported"} · Expires ${new Date(offer.expiresAt).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}`));
       card.appendChild(node("p", "quota-muted", "Resets " + offer.clears.map(resetLimitName).join(", ") + "."));
       const approved = r.approval?.offer.id === offer.id && r.approval.offer.expiresAt > now;
       const weekly = offer.clears.includes("seven_day");
       const attempted = r.lastAttempt?.grantId === offer.id && r.lastAttempt.outcome !== "notUsed";
       if (approved) {
-        card.appendChild(node("p", "quota-reset-armed", "Approved and ready · one use at 99% weekly usage. Approval expires with this offer."));
+        card.appendChild(node("p", "quota-reset-armed", fresh ? "Approved and ready · one use at 99% weekly usage. Approval expires with this offer." : "Approved in advance · waiting for a fresh eligibility check."));
       } else if (!weekly) card.appendChild(node("p", "quota-muted", "This offer does not reset weekly quota."));
       else if (offer.requiresLimit) card.appendChild(node("p", "quota-muted", "Anthropic requires an exhausted limit for this offer; it may not be usable at 99%."));
       if (weekly && !approved && !attempted) {
