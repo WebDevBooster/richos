@@ -464,6 +464,26 @@ class Context(object):
         self.python = python3_for_supervisor(self.stored['PATH'])
         code, out, _ = run(['/bin/zsh', '-lc', 'command -v node'], timeout=30)
         self.node = out.strip() or 'node'
+        self.spawned = []
+
+    def clean_up_teammates(self):
+        """Discard every teammate this probe started, through his engine's own registry, so the
+        next probe's lead is not sent off by the engine's turn-end gates to deal with them
+        (run 7: P13's lead spent its turns discarding P12's leftover). Their leads have ended,
+        so they are no longer running. Then drop any worktree git still lists for them."""
+        env = dict(self.stored, HOME=str(self.p.home), CLAUDE_PROJECT_DIR=str(self.p.entity))
+        said = {}
+        for name in self.spawned:
+            code, out, err = run(['/bin/bash', str(self.p.engine / 'scripts' / 'workspaces.sh'), 'discard', name,
+                                  '--reason', 'operator probe fixture cleanup',
+                                  '--not-ceo-ordered', 'the probe harness removes the teammates it started'],
+                                 env=env, cwd=str(self.p.entity), timeout=120)
+            said[name] = {'exit': code, 'said': (out + err).strip()[-300:]}
+        for row in self.worktrees():
+            run(['git', '-C', str(self.p.entity), 'worktree', 'remove', '--force', row['worktree']], timeout=60)
+        run(['git', '-C', str(self.p.entity), 'worktree', 'prune'], timeout=60)
+        self.spawned = []
+        return said
 
     def lead_env(self, claim='probe-claim'):
         """operator_profile::environment, built from empty, plus the harness pin."""
@@ -836,6 +856,7 @@ def spawn_teammate(ctx, lead, name, agent_type, seconds, timeout=300, dirty=Fals
     """Returns (task_id, worktree_path, detail). The lead runs spawn.sh and makes the Agent call
     with run_in_background, exactly as his terminal's lead does (engine-status banner)."""
     before = set(r['worktree'] for r in ctx.worktrees())
+    ctx.spawned.append(name)
     command = '%s %s --repo %s --type %s --brief %s --model sonnet' % (
         ctx.p.engine / 'scripts' / 'spawn.sh', name, ctx.p.entity, agent_type, brief(ctx, name, seconds, dirty))
     start, got = do(lead, (
@@ -1597,7 +1618,12 @@ def p11(ctx, r):
     r['interactive_tools_model_reported'] = interactive
     r['missing_from_lead'] = sorted(set(interactive) - set(lead_tools))
     r['only_in_lead'] = sorted(set(lead_tools) - set(interactive))
-    disposition = {'AskUserQuestion': 'replaced by report(question): disallowed on purpose, spec (n)'}
+    # Dispositions stated from evidence in these runs; anything else goes to Rich.
+    disposition = {
+        'AskUserQuestion': 'replaced by report(question): disallowed on purpose, spec (n)',
+        'Agent': 'not missing: system/init lists the same tool as Task, and the lead called Agent in P2-P12',
+        'SendFeedback': 'not needed: it sends product feedback to Anthropic and plays no part in his team\'s work',
+    }
     r['dispositions'] = {t: disposition.get(t, 'NEEDS A DISPOSITION FROM RICH') for t in r['missing_from_lead']}
     if not interactive:
         return 'PREMISE-FALSE', 'the interactive session did not list its tools'
@@ -1677,12 +1703,13 @@ def p12(ctx, r):
 
 
 def priority_order(ctx, r, key, use_priority):
+    rec = r.setdefault(key, {})
     lead = Lead(ctx, 'P13', key, ctx.lead_args())
     try:
         lead.initialize()
         start = lead.count()
         lead.user(lead_long_task(ctx, 30, 'with exactly: A-DONE'))
-        r[key + '_lead_in_shell'] = bool(in_lead_shell(ctx, lead, start))
+        rec['lead_in_shell'] = bool(in_lead_shell(ctx, lead, start))
         lead.user('Reply with exactly: MARK-B', priority='later' if use_priority else None)
         lead.user('Reply with exactly: MARK-C', priority='later' if use_priority else None)
         lead.user('Reply with exactly: MARK-D', priority='now' if use_priority else None)
@@ -1692,24 +1719,39 @@ def priority_order(ctx, r, key, use_priority):
             if all(m in text for m in ('MARK-B', 'MARK-C', 'MARK-D')):
                 break
             time.sleep(2)
+        time.sleep(5)
         text = lead.text(start)
+        # Did the running turn finish, or was it aborted? The lead's OWN long task's result
+        # says (run 7: "The user doesn't want to take this action right now. STOP ...").
+        own = [b for b in tool_uses(lead, start, 'Bash') if 'long-task.py' in json.dumps(b.get('input'))]
+        result = tool_result_text(lead, own[0].get('id')) if own else None
+        rec['own_command_result'] = (result or '')[:300]
+        rec['aborted_running_turn'] = bool(result) and 'long task: done' not in result
     finally:
         lead.close()
     order = sorted((text.find(m), m) for m in ('A-DONE', 'MARK-B', 'MARK-C', 'MARK-D') if m in text)
-    r[key + '_order'] = [m for _, m in order]
-    return r[key + '_order']
+    rec['order'] = [m for _, m in order]
+    return rec
 
 
 @probe('P13')
 def p13(ctx, r):
     main = priority_order(ctx, r, 'with-priority', True)
     control = priority_order(ctx, r, 'control-no-priority', False)
-    if control and control[-1] != 'MARK-D':
-        return 'PREMISE-FALSE', 'without priority, MARK-D was not handled last: %s' % control
-    if main.index('MARK-D') < main.index('MARK-B') and main.index('MARK-D') < main.index('MARK-C') \
-            if all(m in main for m in ('MARK-B', 'MARK-C', 'MARK-D')) else False:
-        return 'PASS', 'now before later: %s; control %s' % (main, control)
-    return 'FAIL', 'order with priority %s; control %s' % (main, control)
+    marks = ('MARK-B', 'MARK-C', 'MARK-D')
+    if not control['lead_in_shell'] or not all(m in control['order'] for m in marks) or \
+            control['order'][-1] != 'MARK-D' or control['aborted_running_turn']:
+        return 'PREMISE-FALSE', 'without priority the queue was not first-come-first-served behind a finished turn: %s' % control
+    if not main['lead_in_shell'] or not all(m in main['order'] for m in marks):
+        return 'PREMISE-FALSE', 'with priority the lead did not answer all three: %s' % main
+    first = main['order'].index('MARK-D') < min(main['order'].index('MARK-B'), main['order'].index('MARK-C'))
+    if first and not main['aborted_running_turn']:
+        return 'PASS', 'now was handled before two later messages, after the running turn finished: %s' % main['order']
+    if first:
+        return 'FAIL', ('now was handled first by ABORTING the running turn: the lead\'s own foreground command got the '
+                        'interrupt (%r). It jumps the queue by interrupting the lead, which (d) forbids for a named stop; '
+                        'control order %s' % (main['own_command_result'][:90], control['order']))
+    return 'FAIL', 'now was not handled first: %s; control %s' % (main['order'], control['order'])
 
 
 @probe('P14')
@@ -1855,6 +1897,11 @@ def main():
             verdict, why = fn(ctx, record)
         except Exception:  # noqa: BLE001
             verdict, why = 'ERROR', traceback.format_exc()[-3000:]
+        if ctx.spawned:
+            try:
+                record['cleanup'] = ctx.clean_up_teammates()
+            except Exception:  # noqa: BLE001
+                record['cleanup'] = {'error': traceback.format_exc()[-1500:]}
         record.update(verdict=verdict, why=why, seconds=round(time.time() - record['started'], 1))
         (p.results / ('%s.json' % pid)).write_text(json.dumps(redact(record), indent=1, default=str) + '\n')
         summary['probes'][pid] = {'verdict': verdict, 'why': why if verdict != 'ERROR' else why.splitlines()[-1]}
