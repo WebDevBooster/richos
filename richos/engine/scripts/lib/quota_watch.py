@@ -29,16 +29,36 @@ THE READING (design notes: richos-hq/docs/plans/budget-self-management-2026-09-1
 
   R6 of the design notes: a reading that is missing, stale or unreadable is its
   OWN state and is never rounded to "plenty left". The file only refreshes when
-  a status line renders, so its AGE is always printed. Measured over the 149
-  samples in ~/.claude/state/quota-samples.jsonl (2026-09-10): median payload
-  age 282 s, p90 1495 s, max 3103 s. Staleness is therefore normal, which is
-  why it is reported rather than hidden, and why a stale reading only wakes the
-  lead when there is a worker whose spend it could be hiding.
+  a status line renders, so its AGE is checked on EVERY poll.
+
+  HOW THE RULE FAILED ON 2026-09-25, AND WHY STALE IS ONE POLL. The lead's own
+  one-off watcher read five_hour stuck at 56% from 00:43Z to 01:08Z, at 71%
+  from 01:13Z to 01:33Z and at 89% from 01:53Z to 02:13Z, then 100% at 02:18Z.
+  The lead was idle waiting on teammates, its status line did not render, the
+  payload did not refresh, and the 93% crossing was never seen. The threshold
+  was right; the reading was old. So a reading older than ONE poll interval is
+  UNKNOWN — never the current value — and the watcher wakes the lead with
+  QUOTA-STALE, because the lead's own reply is what re-renders the status line
+  (the host runs it when "a new assistant message arrives"). The replay of
+  that log is quota-watch.test.sh case R01.
+
+  WHAT ELSE REFRESHES IT, checked 2026-09-25: only ~/.claude/statusline.sh
+  writes the file (grep over ~/.claude's scripts and settings, and this engine,
+  which only reads it). The host runs that script at session start, on a new
+  assistant message, after /compact, on a permission or vim mode change, when a
+  rate-limit window's resets_at passes, and on an optional statusLine
+  `refreshInterval` timer (code.claude.com/docs/en/statusline, "When it
+  updates"; not set on this machine). Teammate activity is not on that list.
+  A refreshInterval would re-render while the lead is idle, but whether the
+  host's rate_limits figure moves with teammates' API responses is NOT
+  verified, and a re-render that rewrites an old figure would make the file's
+  age a false freshness signal. So nothing here depends on it.
 
   Within one window usage only grows, so a STALE reading at or above the
-  threshold is still at or above it. A stale reading BELOW the threshold proves
-  nothing and is UNKNOWN. A reading whose window has already ended describes a
-  window that no longer exists and is UNKNOWN.
+  threshold is still at or above it: it is reported as "at least", and the
+  lead is woken to pause. A stale reading BELOW the threshold proves nothing
+  and is UNKNOWN. A reading whose window has already ended describes a window
+  that no longer exists and is UNKNOWN.
 
 THE THRESHOLD is data, declared once: QUOTA_PAUSE_PERCENT in the entity's
 orchestration.config, beside MODEL_CEILING. quota-watch.sh resolves the entity
@@ -48,8 +68,8 @@ a default, because a second place holding 93 is how the number drifts.
 EXIT CODES
   --once    0 below the threshold, 1 at or above it, 2 unknown
   --status  the same codes as --once
-  --watch   0 after printing one event (QUOTA-THRESHOLD, WINDOW-RESET or
-            QUOTA-UNKNOWN), 2 when it cannot watch at all
+  --watch   0 after printing one event (QUOTA-THRESHOLD, WINDOW-RESET,
+            QUOTA-STALE or QUOTA-UNKNOWN), 2 when it cannot watch at all
   --notice  always 0 (it is a SessionStart hook's body)
 """
 
@@ -68,10 +88,10 @@ RULING = "ruling §87, richos-hq/wiki/ceo-decisions.md"
 # His "every 5 minutes". The environment override exists for the test suite
 # only, which cannot wait five minutes per case.
 POLL_SECONDS = 300
-# A reading older than three polls is stale. Three, not one: the 2026-09-10
-# samples put the median age at 282 s, so one poll would call half of all
-# healthy readings stale and the word would stop meaning anything.
-STALE_SECONDS = 900
+# A reading older than ONE poll interval is stale (see "HOW THE RULE FAILED"
+# above): the stale bound IS the poll interval, set in main(). The test suite
+# may override it separately, only so that its accelerated clock is not at the
+# mercy of a one-second scheduler.
 
 PAUSE_UNTIL_PREFIX = "the five-hour quota reset"
 CONFIG_KEY = "QUOTA_PAUSE_PERCENT"
@@ -360,6 +380,9 @@ def mode_status(a, now):
 def _emit_threshold(a, r, now, w):
     print("QUOTA-THRESHOLD %s%%" % fmt_pct(r["used"]))
     print("  %s" % describe(r, a.threshold, now))
+    if r["age"] is not None and r["age"] > a.stale:
+        print("  The reading is stale, so this is a FLOOR: usage is at least %s%% now (it only grows inside a"
+              " window)." % fmt_pct(r["used"]))
     print("  minutes to reset: %d" % max(0, (r["resets_at"] - now) // 60))
     print("  %s" % worker_line(w))
     print("  The CEO's rule (%s): %s" % (RULING, HIS_WORDS))
@@ -445,22 +468,31 @@ def mode_watch(a):
             if verdict == "unknown":
                 if blind_since is None:
                     blind_since = now
-                # A STALE reading has been blind for its whole age already. Any
-                # other unknown (missing, malformed, a window that has ended)
-                # counts from this watcher's own clock, so a payload that has
-                # not yet re-rendered after a reset gets three polls to do so.
-                stale_age = int(r["age"] or 0) if (r["state"] == "ok" and not r["ended"]) else 0
-                blind = max(now - blind_since, stale_age)
-                if blind >= a.stale:
+                # A STALE reading (older than one poll) is blind NOW: it is the
+                # 2026-09-25 failure, and waiting another poll on it is how the
+                # 93% crossing went unseen. Any other unknown (missing,
+                # malformed, a window that has ended) counts from this
+                # watcher's own clock, so a payload that has not yet
+                # re-rendered after a reset gets one poll to do so.
+                stale = r["state"] == "ok" and not r["ended"]
+                if stale or now - blind_since >= a.stale:
                     w = workers(a.engine_root)
                     if w["known"] and not w["working"]:
                         print("  the reading is unknown but nothing is working: no spend it could hide", flush=True)
                     else:
-                        print("QUOTA-UNKNOWN: %s" % (why or r["why"]))
-                        print("  The watcher is blind and cannot tell whether the threshold was crossed.")
+                        if stale:
+                            print("QUOTA-STALE: the reading is %s old (one poll is %d s), so the current value is UNKNOWN"
+                                  % (span(r["age"] or 0), a.poll))
+                            print("  Last value seen: %s%%. It is NOT the current value: usage has only grown since."
+                                  % fmt_pct(r["used"]))
+                        else:
+                            print("QUOTA-UNKNOWN: %s" % (why or r["why"]))
+                        print("  The watcher cannot tell whether the threshold was crossed.")
                         print("  %s" % worker_line(w))
-                        print("  Your own next turn refreshes the payload (the status line renders); then start the")
-                        print("  watcher again:  %s --watch" % a.command)
+                        print("  REFRESH THE READING: reply once, in this turn. The payload is rewritten only when your")
+                        print("  status line renders, and it renders when a new assistant message of yours arrives;")
+                        print("  teammates' work does not render it. Then start the watcher again:")
+                        print("    %s --watch" % a.command)
                         return 0
             else:
                 blind_since = None
@@ -518,7 +550,7 @@ def main(argv):
         ap.error("--until-reset goes with --watch")
     a.payload = default_payload_path()
     a.poll = _env_int("QUOTA_WATCH_POLL_SECONDS", POLL_SECONDS)
-    a.stale = _env_int("QUOTA_WATCH_STALE_SECONDS", STALE_SECONDS)
+    a.stale = _env_int("QUOTA_WATCH_STALE_SECONDS", a.poll)
     a.threshold_raw = (a.threshold_raw or "").strip()
     a.threshold, a.threshold_problem = parse_threshold(a.threshold_raw)
     a.engine_root = a.engine_root or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

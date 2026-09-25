@@ -25,8 +25,12 @@
 #   W03      at or above the threshold with NOTHING working, --watch does not
 #            fire: there is nothing to pause, and it waits for the reset
 #   W04      --watch --until-reset never fires the threshold, only the reset
-#   W05      a stale reading with a worker running wakes the lead with
-#            QUOTA-UNKNOWN (the watcher is blind)
+#   W05      a reading older than one poll, with a worker running, wakes the
+#            lead with QUOTA-STALE: not the current value, refresh it
+#   Q16      by default "stale" is ONE poll: 400 s old is unknown, 200 s is not
+#   R01      2026-09-25's log replayed: the payload sat at 56/71/89% and jumped
+#            to 100% while the lead was idle; the watcher raises QUOTA-STALE
+#            while it sits at 56%, and QUOTA-THRESHOLD fires before 100%
 #   W06      a stale reading with nothing running does NOT wake the lead
 #   W07      no payload at all: --watch cannot watch, exit 2
 #   W08      no threshold declared: --watch cannot watch, exit 2
@@ -167,6 +171,13 @@ OUT="$(bash "$Q" --status 2>&1)"; RC=$?
 check "Q15  --status: his words, the declared line and the live workers" \
     "$([ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF 'PAUSE subagents. Then resume after quota rest.' \
        && printf '%s' "$OUT" | grep -q 'QUOTA_PAUSE_PERCENT=93' && printf '%s' "$OUT" | grep -q 'live workers:'; echo $?)" "rc=$RC out=$OUT"
+
+write_payload 50 3600 400
+OUT="$( unset QUOTA_WATCH_POLL_SECONDS QUOTA_WATCH_STALE_SECONDS; bash "$Q" --once 2>&1 )"; RC400=$?
+write_payload 50 3600 200
+OUT2="$( unset QUOTA_WATCH_POLL_SECONDS QUOTA_WATCH_STALE_SECONDS; bash "$Q" --once 2>&1 )"; RC200=$?
+check "Q16  by default a reading older than ONE 5-minute poll is UNKNOWN (400 s: exit 2), a younger one is not (200 s: exit 0)" \
+    "$([ "$RC400" -eq 2 ] && [ "$RC200" -eq 0 ]; echo $?)" "rc400=$RC400 ($OUT) rc200=$RC200 ($OUT2)"
 
 # --- W: --watch ------------------------------------------------------------
 start_watch() { # <outfile> [args...]
@@ -319,8 +330,81 @@ check "W04  --until-reset never fires the threshold, only the reset" \
     "$([ "$WRC" -eq 0 ] && ! printf '%s' "$OUT" | grep -q '^QUOTA-THRESHOLD' && printf '%s' "$OUT" | grep -q '^WINDOW-RESET'; echo $?)" "rc=$WRC out=$OUT"
 write_payload 50 3600 60
 start_watch "$SB/w05.out"; finish_watch 10; OUT="$(cat "$SB/w05.out")"
-check "W05  a stale reading with a worker running wakes the lead with QUOTA-UNKNOWN" \
-    "$([ "$WRC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^QUOTA-UNKNOWN' && printf '%s' "$OUT" | grep -q 'stale'; echo $?)" "rc=$WRC out=$OUT"
+check "W05  a stale reading with a worker running wakes the lead with QUOTA-STALE and tells it to refresh" \
+    "$([ "$WRC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^QUOTA-STALE' && printf '%s' "$OUT" | grep -q 'REFRESH THE READING' \
+       && printf '%s' "$OUT" | grep -q 'NOT the current value'; echo $?)" "rc=$WRC out=$OUT"
+
+# --- R01: tonight's log, replayed ------------------------------------------
+# 2026-09-25, the lead's own watcher (session c47f83d0, task bm7x9unl0): the
+# payload re-rendered only when the lead spoke, so five_hour sat at 56% from
+# 00:43Z to 01:08Z, at 71% to 01:33Z, at 89% from 01:53Z to 02:13Z, and next
+# read 100% at 02:18Z. The 93% crossing was never seen.
+#
+# The replay: one real second is one five-minute poll. The payload is rewritten
+# ONLY at the minutes that log shows a new value, exactly as the idle lead's
+# status line did — and whenever the watcher wakes the lead with QUOTA-STALE,
+# the "lead" replies, which re-renders the status line with the TRUE value
+# (the log's change points joined by straight lines; usage grows between
+# them). Proven: the alarm comes long before 100%, and QUOTA-THRESHOLD fires
+# while the true value is still below 100%.
+python3 - "$Q" "$QUOTA_PAYLOAD" "$SB/r01" >"$SB/r01.report" 2>&1 <<'PY'
+import json, os, subprocess, sys, time
+q, payload, work = sys.argv[1], sys.argv[2], sys.argv[3]
+os.makedirs(work, exist_ok=True)
+# (sim minute after midnight UTC, value) — the minutes tonight's log first shows each value
+renders = [(28, 49), (33, 51), (38, 54), (43, 56), (73, 71), (98, 81), (113, 89), (138, 100)]
+def truth(m):
+    for (m0, v0), (m1, v1) in zip(renders, renders[1:]):
+        if m0 <= m <= m1:
+            return int(v0 + (v1 - v0) * (m - m0) / float(m1 - m0))
+    return renders[-1][1]
+def write(v):
+    now = time.time()
+    tmp = payload + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump({"rate_limits": {"five_hour": {"used_percentage": v, "resets_at": int(now) + 3600}}}, fh)
+    os.replace(tmp, payload)
+env = dict(os.environ, QUOTA_WATCH_POLL_SECONDS="1", QUOTA_WATCH_STALE_SECONDS="1")
+t0 = time.time()
+sim = lambda: 28 + 5 * (time.time() - t0)
+write(49)
+done, first_alarm, stale_wakes, n = None, None, 0, 0
+proc = None
+next_render = 1
+while sim() < 140 and done is None:
+    if proc is None:
+        n += 1
+        out = open(os.path.join(work, "run%02d.out" % n), "w")
+        proc = subprocess.Popen(["bash", q, "--watch"], stdout=out, stderr=subprocess.STDOUT, env=env)
+    while next_render < len(renders) and sim() >= renders[next_render][0]:
+        write(renders[next_render][1]); next_render += 1
+    if proc.poll() is not None:
+        text = open(os.path.join(work, "run%02d.out" % n)).read()
+        m = sim()
+        if "\nQUOTA-THRESHOLD" in "\n" + text:
+            done = ("THRESHOLD", m, truth(m))
+            first_alarm = first_alarm or m
+        elif "\nQUOTA-STALE" in "\n" + text:
+            stale_wakes += 1
+            first_alarm = first_alarm or m
+            write(truth(m))          # the lead replies: its status line renders the true value
+        else:
+            done = ("OTHER", m, text[-400:])
+        proc = None
+        continue
+    time.sleep(0.1)
+if proc is not None and proc.poll() is None:
+    proc.terminate(); proc.wait()
+print(json.dumps({"done": done, "first_alarm_min": first_alarm, "stale_wakes": stale_wakes}))
+PY
+R01="$(tail -1 "$SB/r01.report")"
+check "R01  tonight's log replayed: QUOTA-STALE while stuck at 56%, and QUOTA-THRESHOLD before 100% (02:18Z) $R01" \
+    "$(printf '%s' "$R01" | python3 -c '
+import json, sys
+d = json.loads(sys.stdin.read())
+kind, minute, val = d["done"]
+ok = kind == "THRESHOLD" and minute < 138 and val < 100 and d["first_alarm_min"] < 73 and d["stale_wakes"] >= 1
+sys.exit(0 if ok else 1)' 2>/dev/null; echo $?)" "report=$(cat "$SB/r01.report")"
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then

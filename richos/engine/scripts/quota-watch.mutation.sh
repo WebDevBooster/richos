@@ -45,15 +45,25 @@ mutant unknown-exits-zero "Q04" "$L" \
     'return {"below": 0, "at-or-above": 1}.get(verdict, 0)' \
     "A missing or unreadable payload would exit exactly like a healthy reading below the threshold."
 
-mutant stale-read-as-fresh "Q08" "$L" \
+mutant stale-read-as-fresh "R01" "$L" \
     'if r["age"] is not None and r["age"] > stale_after:' \
     'if False:' \
-    "A reading an hour old would be reported as a fresh 'below the threshold'."
+    "A reading an hour old would be reported as a fresh 'below the threshold': 2026-09-25, replayed by R01."
 
 mutant ended-window-read-as-current "Q10" "$L" \
     '    if r["ended"]:{NL}        return "unknown"' \
     '    if False:{NL}        return "unknown"' \
     "A reading of a window that no longer exists would be trusted."
+
+mutant stale-bound-three-polls "Q16" "$L" \
+    'a.stale = _env_int("QUOTA_WATCH_STALE_SECONDS", a.poll)' \
+    'a.stale = _env_int("QUOTA_WATCH_STALE_SECONDS", 3 * a.poll)' \
+    "A reading two polls old would pass as current, which is how the 93% crossing went unseen."
+
+mutant stale-wakes-nobody "W05" "$L" \
+    'stale = r["state"] == "ok" and not r["ended"]' \
+    'stale = False' \
+    "A stale reading would wait out a further poll on the watcher's own clock before telling the lead to refresh."
 
 # 4. HIS "every 5 minutes".
 mutant poll-not-five-minutes "W09" "$L" \
