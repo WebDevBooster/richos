@@ -14,13 +14,15 @@
 # and its result file must still exist, after the second has replaced the shared folder.
 #
 # CASES
-#   N1-N5  lib/test_results.py reads JUnit XML, an Xcode bundle (through a stand-in
-#          xcresulttool), test logs, and an unreadable result file, and names each failure
+#   N1-N6  lib/test_results.py reads JUnit XML, an Xcode bundle (through a stand-in
+#          xcresulttool), test logs, and an unreadable result file, and names each failure;
+#          and the last error of a check that died before any test ran
 #   L1     two test runs on one lock and one shared folder, overlapping: each run's copy holds
 #          its own result, and the second waited for the first
-#   R1-R4  the incident through run-tests.sh, serial and concurrent: named in the summary and in
-#          --results-out, the result file kept, the shared folder really overwritten
-#   P1     the incident through proof-run.py: named beside the check and in summary.json, the
+#   R1-R5  the incident through run-tests.sh, serial and concurrent: named in the summary and in
+#          --results-out, the result file kept, the shared folder really overwritten, the kept
+#          store bounded; a suite with no test named by its last error
+#   P1-P2  the same through proof-run.py: named beside the check and in summary.json, the
 #          result file in the run's own log directory, nothing left for the suite that passed
 #   M1-M4  MUTATIONS, each of which this file must catch: the fake Gradle called directly (the
 #          shape before the fix), the copy removed, the lock removed, and run-tests.sh no
@@ -126,6 +128,14 @@ if has "$out" "unreadable result file $TMP/n/run/TEST-cut.xml" && has "$out" "un
    && has "$out" "testWordsMatch"; then
   ok "N5 a result file that cannot be read is reported by path, and the log still names the tests"
 else bad "N5 unreadable result files reported, log still read" "$out"; fi
+
+printf '%s\n' 'Traceback (most recent call last):' '  File "testdevices.py", line 1241, in acquire_ios' \
+  'TimeoutError: prepared simulator is leased by another run' 'native-ios-ui: failure evidence retained' > "$TMP/n/died.log"
+out="$(python3 "$KEEPER" last-error "$TMP/n/died.log")"
+if [ "$out" = "TimeoutError: prepared simulator is leased by another run" ] \
+   && [ -z "$(python3 "$KEEPER" last-error "$TMP/n/xml/TEST-dev.fake.AppTest.xml.none" 2>/dev/null)" ]; then
+  ok "N6 a check that died before any test ran: its last error line is read back, exactly"
+else bad "N6 last-error" "$out"; fi
 
 # ------------------------------------------------------------------------------------------
 # The fixture: a fake Gradle that owns ONE results folder, as bin/randroid's test tasks do,
@@ -262,6 +272,22 @@ if [ "$left" = 10 ] && grep -rq '<failure' "$TMP/rk/old" 2>/dev/null && [ ! -e "
   ok "R4 the store of kept results is bounded: the newest 10 folders, the oldest deleted (§54)"
 else bad "R4 the kept store is bounded at 10" "$left left: $(entries "$TMP/rk/old" | head -3)"; fi
 
+# R5 — a suite that dies before any test runs (the shape native-ios-ui had in this branch's own
+# proof run: no simulator lease) is still named by what went wrong, not "named nothing".
+make_box "$TMP/rd"
+rm -f "$TMP/rd/scripts/a.test.sh" "$TMP/rd/scripts/b.test.sh"
+cat > "$TMP/rd/scripts/c.test.sh" <<'SH'
+#!/usr/bin/env bash
+# run-tests: no-host-screen: fixture output only
+echo 'Traceback (most recent call last):'
+echo 'TimeoutError: prepared simulator is leased by another run'
+exit 1
+SH
+out="$(RUN_TESTS_RESULTS_STATE="$TMP/rd/kept" bash "$TMP/rd/scripts/run-tests.sh" 2>&1)"
+if has "$(tail -3 <<<"$out")" "c.test.sh: (no test ran to fail) TimeoutError: prepared simulator is leased by another run"; then
+  ok "R5 a suite that died before any test ran is named by its last error beside it in the summary"
+else bad "R5 a suite with no test is named by its last error" "$(tail -4 <<<"$out")"; fi
+
 # ------------------------------------------------------------------------------------------
 # P1: the incident through proof-run.py, as Rich runs it (--keep-going; both suites in the
 # gradle lane, one after the other). The host sample is stubbed so a busy Mac cannot turn this
@@ -300,6 +326,21 @@ then
     ok "P1 proof-run: a is failed BY NAME beside the check and in summary.json, its result file in the run's own log directory, b left nothing"
   else bad "P1 proof-run prints the name beside the check" "$(tail -12 "$TMP/p/out")"; fi
 else bad "P1 proof-run names the failing test and keeps its result file" "exit $prc; $(tail -15 "$TMP/p/out")"; fi
+
+# P2 — R5's suite through proof-run: the check is named by its last error, in summary.json too.
+echo "cd $TMP/rd && scripts/run-tests.sh --only c.test.sh" > "$TMP/rd/commands"
+RICHOS_PROOF_RUN_DIR="$TMP/rd/state" RICHOS_RUNTIME_DIR="$TMP/rd/no-runtime" RICHOS_MACHINE_WORKERS="$TMP/rd/machine" \
+  RUN_TESTS_RESULTS_STATE="$TMP/rd/kept" \
+  python3 -c "$BOOT" "$DIR/testvm" "$DIR/proof-run.py" --keep-going --commands "$TMP/rd/commands" \
+  --log-dir "$TMP/rd/log" > "$TMP/rd/out" 2>&1
+if [ -f "$TMP/rd/log/summary.json" ] && python3 - "$TMP/rd/log/summary.json" <<'PY'
+import json, sys
+c = {c["check"]: c for c in json.load(open(sys.argv[1]))["checks"]}["c"]
+assert c["result"] == "failed", c
+assert c["failing_tests"] == ["(no test ran to fail) TimeoutError: prepared simulator is leased by another run"], c
+PY
+then ok "P2 proof-run: a check that died before any test ran is named by its last error, in summary.json too"
+else bad "P2 proof-run names a no-test failure by its last error" "$(tail -8 "$TMP/rd/out")"; fi
 
 # ------------------------------------------------------------------------------------------
 # M: mutations. Each is a way to lose the name; each must turn a case above red.

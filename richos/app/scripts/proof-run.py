@@ -638,7 +638,7 @@ def name_failures(it):
     """What failed in a finished check, BY NAME, into it.failing: the failing tests its result
     files hold (JUnit XML, Xcode bundles, under it.results), else the names its log carries
     (the FAILED TEST lines a test run prints, XCTest and Gradle lines), else its own `  FAIL  `
-    lines. A check that passed leaves no results folder behind. 2026-09-25: a check failed with
+    lines, else the last error it printed. A check that passed leaves no results folder behind. 2026-09-25: a check failed with
     "133 tests completed, 1 failed" and no name, and the report that had one was replaced by
     the next check's before anyone read it."""
     if it.state == "passed":
@@ -657,6 +657,12 @@ def name_failures(it):
                 it.failing = [l[len("  FAIL  "):].rstrip("\n") for l in fh if l.startswith("  FAIL  ")][:SHOWN_FAILURES]
         except OSError:
             pass
+    if not it.failing and it.log:
+        # Died before any test ran (a simulator never leased, a build that did not compile):
+        # the last error it printed, so the line beside the check still says what went wrong.
+        err = test_results.last_error(it.log)
+        if err:
+            it.failing = ["(no test ran to fail) " + err]
 
 
 def stop_item(it):

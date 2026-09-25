@@ -443,8 +443,9 @@ FAILING=()
 results_dir() { printf '%s/%s\n' "$RESULTS_ROOT" "${REL[$1]%.test.sh}"; }  # $1 = suite index
 
 # The failing tests of suite $1, one line each: from its result files, else its log, else the
-# suite's own `  FAIL  ` lines. Its results folder is kept (and moved to the store when this
-# run's root is scratch); FAILING[$1] remembers the names for the summary and --results-out.
+# suite's own `  FAIL  ` lines, else, for a suite that died before any test ran, the last error it
+# printed. Its results folder is kept (and moved to the store when this run's root is scratch);
+# FAILING[$1] remembers the names for the summary and --results-out.
 name_failures() {
   local idx="$1" rel="${REL[$1]}" dir found dest old n count
   dir="$(results_dir "$idx")"
@@ -455,12 +456,15 @@ name_failures() {
   if [ -z "$found" ]; then
     found="$(sed -n 's/^  FAIL  //p' "$WORK/$idx.out" 2>/dev/null | head -20)"
   fi
+  if [ -z "$found" ]; then
+    found="$(python3 "$KEEPER" last-error "$WORK/$idx.out" 2>/dev/null | sed 's/^/(no test ran to fail) /')"
+  fi
   FAILING[idx]="$found"
   if [ -n "$found" ]; then
     echo "    failed in $rel:"
     printf '%s\n' "$found" | sed 's/^/      /'
   else
-    echo "    $rel failed and named nothing: no result file, no test log line and no FAIL line of its own"
+    echo "    $rel failed and named nothing: no result file, no test log line, no FAIL line and no error line"
   fi
   if [ -d "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
     if [ -n "$RESULTS_KEEP" ]; then

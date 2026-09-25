@@ -10,6 +10,9 @@
         Copy each SRC (a result folder, a bundle or a log) to DIR/NAME, never over an earlier
         copy, then name every failing test they hold. --move moves instead (a bundle this run
         alone made). Without --into nothing is copied or moved.
+    test_results.py last-error LOG...
+        The last error line each log printed (`SomethingError: ...`, `error: ...`), for a check that
+        failed before any test ran and so names no test.
     test_results.py run --lock FILE --label L [--into DIR] [--collect NAME=SRC]... -- COMMAND...
         Run COMMAND holding FILE exclusively; when it ends, and BEFORE the lock is released, do
         `report` over what COMMAND wrote (files older than its start are not its results). Exits
@@ -153,6 +156,24 @@ def log(path):
     except OSError:
         pass
     return found
+
+
+# The last error a log printed, for a check that failed before any test could (a simulator that
+# was never leased, a build that did not compile): "failed and named nothing" is not an answer.
+ERROR_LINE = re.compile(r"(\b[A-Z]\w*(?:Error|Exception)\b: .+|(?:^|\s)error: .+)")
+
+
+def last_error(path):
+    found = ""
+    try:
+        with open(path, errors="replace") as fh:
+            for text_line in fh:
+                m = ERROR_LINE.search(text_line.rstrip("\n"))
+                if m:
+                    found = m.group(1).strip()
+    except OSError:
+        pass
+    return found[:DETAIL_CHARS]
 
 
 def results(path, since=None):
@@ -337,6 +358,12 @@ def main(argv):
         for name, detail in names(paths, opts["--log"]):
             print(line(name, detail))
         return 0
+    if cmd == "last-error":
+        for p in paths:
+            err = last_error(p)
+            if err:
+                print(err)
+        return 0
     label = opts["--label"] or "tests"
     collect = parse_collect(opts["--collect"]) + parse_collect(opts["--move"], move=True)
     into = opts["--into"] or None
@@ -348,7 +375,7 @@ def main(argv):
         if not opts["--lock"] or not command:
             raise SystemExit("test_results.py: run needs --lock FILE and -- COMMAND")
         return run(opts["--lock"], label, collect, into, command)
-    raise SystemExit("test_results.py: unknown command %r (names, report, run)" % cmd)
+    raise SystemExit("test_results.py: unknown command %r (names, last-error, report, run)" % cmd)
 
 
 if __name__ == "__main__":
