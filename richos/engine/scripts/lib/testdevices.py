@@ -1226,6 +1226,15 @@ def record_failures(survivors, undecided, seen, path=None, notes=(), deferred=()
     return rows
 
 
+# How long a device launch waits, in total, for its machine worker token, a live slot and a
+# boot slot. The admission rules are unchanged (the boot slot still samples CPU and memory every
+# 30 s); only the wait is longer. At 60 s each, a busy host turned a test into a red result: on
+# 2026-09-25 native-ios-ui's second device failed "worker admission timed out after 60s" and
+# native-ios-app failed "simulator boot admission exceeded 60s", both while other runs held the
+# machine. A launch still refuses when the bound is reached; it is never unbounded.
+DEVICE_ADMISSION_SECONDS = 900
+
+
 def _device_admission():
     """The same boot/live pool as iOS, and a machine token held until shutdown."""
     from pathlib import Path
@@ -1236,10 +1245,17 @@ def _device_admission():
     sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "app/scripts/lib"))
     import simulator_budget
     held = []
+    deadline = time.monotonic() + DEVICE_ADMISSION_SECONDS
+
+    def left():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("device admission exceeded %gs" % DEVICE_ADMISSION_SECONDS)
+        return remaining
     try:
-        held.append(worker_tokens.Budget(worker_tokens.machine_directory(), runner=True).acquire(timeout=60))
-        held.append(simulator_budget.acquire("live", timeout=60))
-        held.append(simulator_budget.acquire("boot", timeout=60))
+        held.append(worker_tokens.Budget(worker_tokens.machine_directory(), runner=True).acquire(timeout=left()))
+        held.append(simulator_budget.acquire("live", timeout=left()))
+        held.append(simulator_budget.acquire("boot", timeout=left()))
         return held
     except BaseException:
         for token in held:

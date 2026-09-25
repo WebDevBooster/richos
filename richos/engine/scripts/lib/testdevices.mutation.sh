@@ -128,4 +128,9 @@ mutant cli-gives-up-at-the-collectors-five-seconds "test_T59" "$D" \
     '        pass' \
     "a UI suite's acquire or release would fail whenever simctl held the registry for five seconds (2026-09-25)."
 
+mutant device-admission-back-to-sixty-seconds "test_T60" "$D" \
+    '        held.append(worker_tokens.Budget(worker_tokens.machine_directory(), runner=True).acquire(timeout=left()))' \
+    '        held.append(worker_tokens.Budget(worker_tokens.machine_directory(), runner=True).acquire(timeout=60))' \
+    "a busy host would fail a test's device launch after 60 s instead of waiting its bounded turn (2026-09-25)."
+
 mutation_end

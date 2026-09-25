@@ -1136,6 +1136,50 @@ class Collector(Base):
         self.assertEqual(T.records()[0]["id"], r.stdout.strip())
         T.release_ios(r.stdout.strip(), os.getpid())
 
+    def test_T60_device_admission_waits_one_shared_bound_not_sixty_seconds_per_step(self):
+        import types
+        seen = []
+
+        class Token:
+            def __init__(self, what):
+                self.what = what
+            def release(self):
+                seen.append(("release", self.what))
+
+        class Budget:
+            def __init__(self, *a, **k):
+                pass
+            def acquire(self, timeout):
+                seen.append(("worker", timeout))
+                return Token("worker")
+        fake_tokens = types.SimpleNamespace(Budget=Budget, machine_directory=lambda: "/nonexistent")
+
+        def sim_acquire(kind, timeout):
+            seen.append((kind, timeout))
+            if kind == "boot" and fail[0]:
+                raise TimeoutError("simulator boot admission exceeded %gs" % timeout)
+            return Token(kind)
+        fake_budget = types.SimpleNamespace(acquire=sim_acquire)
+        fail = [False]
+        import cpu_guard
+        mods = {"worker_tokens": fake_tokens, "simulator_budget": fake_budget}
+        with patch.dict(sys.modules, mods), patch.object(cpu_guard, "healthy", return_value=True):
+            # setUp replaced T._device_admission; load the module's own copy of it.
+            source = importlib.util.spec_from_file_location("td_real", os.path.join(HERE, "testdevices.py"))
+            td = importlib.util.module_from_spec(source)
+            source.loader.exec_module(td)
+            held = td._device_admission()
+            self.assertEqual([w for w, _ in seen], ["worker", "live", "boot"])
+            self.assertTrue(all(t > 60 for _, t in seen))                           # not 60 s each
+            self.assertTrue(all(t <= td.DEVICE_ADMISSION_SECONDS for _, t in seen))  # one shared bound
+            self.assertEqual(len(held), 3)
+            seen.clear()
+            fail[0] = True
+            with self.assertRaises(TimeoutError):
+                td._device_admission()
+            self.assertIn(("release", "worker"), seen)                             # nothing leaks
+            self.assertIn(("release", "live"), seen)
+
     def test_T51_renewal_stops_when_the_owned_run_ends(self):
         udid = self.device("rios-ui-run-ended")
         rec = T.register("ios-simulator", udid, os.getpid())
