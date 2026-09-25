@@ -1119,6 +1119,23 @@ class Collector(Base):
         time.sleep(0.3)
         self.assertEqual((T.process_start(leader), T.process_start(grandchild)), ("", ""))
 
+    def test_T59_a_cli_acquire_outwaits_a_registry_lock_busy_past_the_collectors_five_seconds(self):
+        command = ("import fcntl,sys,time; f=open(sys.argv[1],'a'); fcntl.flock(f,fcntl.LOCK_EX); "
+                   "print('ready',flush=True); time.sleep(7)")
+        os.makedirs(T.registry_dir(), exist_ok=True)
+        holder = subprocess.Popen([sys.executable, "-c", command, os.path.join(T.registry_dir(), ".lock")],
+                                  stdout=subprocess.PIPE, text=True)
+        self.procs.append(holder)
+        self.assertEqual(holder.stdout.readline().strip(), "ready")
+        start = time.monotonic()
+        r = subprocess.run([sys.executable, "-B", os.path.join(HERE, "testdevices.py"), "acquire-ios",
+                            "--type", "iPhone", "--runtime", "runtime", "--owner-pid", str(os.getpid())],
+                           capture_output=True, text=True, timeout=120)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertGreater(time.monotonic() - start, T.REGISTRY_LOCK_SECONDS)   # it really waited
+        self.assertEqual(T.records()[0]["id"], r.stdout.strip())
+        T.release_ios(r.stdout.strip(), os.getpid())
+
     def test_T51_renewal_stops_when_the_owned_run_ends(self):
         udid = self.device("rios-ui-run-ended")
         rec = T.register("ios-simulator", udid, os.getpid())

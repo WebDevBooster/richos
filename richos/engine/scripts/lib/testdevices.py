@@ -88,8 +88,13 @@ class RegistryBusy(TimeoutError):
     """Another process held the registry lock for the whole wait."""
 
 
-# How long a registry call waits for the lock before giving up.
+# How long a registry call waits for the lock before giving up. The collector keeps five
+# seconds and skips a busy cycle (expire_leases); it runs every two seconds and must not block.
 REGISTRY_LOCK_SECONDS = 5
+# A CLI verb that a test run depends on (acquire, boot, release, run-active...) waits longer.
+# The lock is held across simctl calls, which took more than five seconds on the pinned host
+# of 2026-09-25, and a UI suite's second device then failed on its acquire.
+CLI_REGISTRY_LOCK_SECONDS = 90
 # The lease collector SKIPS a cycle when the registry is busy and retries on the next one
 # (every two seconds). A lock held longer than this is no longer a busy moment: the longest
 # legitimate hold is a simctl call under the lock (acquire, release, collect), bounded at
@@ -1737,6 +1742,9 @@ def _main(argv):
                    help="a checkout being deleted right now: treat it as gone")
     c.add_argument("--budget", type=float, default=0.0, help="seconds for removals (0 = unbounded)")
     a = ap.parse_args(argv)
+    if a.cmd not in ("expire-leases", "collect", "leases"):
+        global REGISTRY_LOCK_SECONDS
+        REGISTRY_LOCK_SECONDS = CLI_REGISTRY_LOCK_SECONDS
     if a.cmd == "acquire-ios":
         print(acquire_ios(a.type, a.runtime, a.owner_pid, a.checkout, purpose=a.purpose))
         return 0

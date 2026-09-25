@@ -123,4 +123,9 @@ mutant run-not-in-its-own-group "test_T58" "$D" \
     '        child = subprocess.Popen(command)' \
     "ending a run would end only its first process, leaving xcodebuild's children on the device."
 
+mutant cli-gives-up-at-the-collectors-five-seconds "test_T59" "$D" \
+    '        REGISTRY_LOCK_SECONDS = CLI_REGISTRY_LOCK_SECONDS' \
+    '        pass' \
+    "a UI suite's acquire or release would fail whenever simctl held the registry for five seconds (2026-09-25)."
+
 mutation_end
