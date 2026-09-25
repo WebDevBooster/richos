@@ -2410,7 +2410,36 @@ def w2(ctx, r):
     walk = Walk(ctx, data, state, root, 'first')
     r['walk_ready'] = walk.ready
     A, B = ('w2-a', 'Walk A: land'), ('w2-b', 'Walk B: stop')
+    claim_file = p.claude_dir / 'state' / 'operator-lead.json'
     try:
+        # ---- step 6 FIRST: the claim is taken at the first lead, so the terminal must be live
+        # before any lead opens for the app-side refusal to be what decides -------------------
+        s6 = steps.setdefault('6', {})
+        ipid, ifd, record, screen = interactive_session(ctx, r)
+        try:
+            s6['terminal_record'] = record
+            s6['with_terminal'] = walk.call('relay', thread=A[0], title=A[1], origin='desk-typed',
+                                            text='Reply with exactly: W2-CLAIM-1')
+        finally:
+            end_interactive(ipid, ifd)
+        time.sleep(2)
+        s6['after_terminal_ended'] = walk.call('relay', thread=A[0], title=A[1], origin='desk-typed',
+                                               text='Reply with exactly: W2-CLAIM-2')
+        opened = walk.wait_say(lambda s: s['thread'] == A[0] and 'W2-CLAIM-2' in s['text'], 240)
+        s6['claim_while_running'] = json.loads(claim_file.read_text()) if claim_file.exists() else None
+        # A corrupted claim: a new lead refuses and names the way through; restored after.
+        good = claim_file.read_text() if claim_file.exists() else ''
+        claim_file.write_text('{ corrupted by the walk')
+        s6['with_corrupt_claim'] = walk.call('relay', thread='w2-d', title='Walk D: corrupt claim', origin='desk-typed',
+                                             text='Reply with exactly: W2-D')
+        claim_file.write_text(good)
+        s6['pass'] = ('running in the terminal' in (s6['with_terminal'].get('error') or '')
+                      and s6['after_terminal_ended'].get('relayed') is True and bool(opened)
+                      and bool(s6['claim_while_running']) and s6['claim_while_running'].get('owner') == 'app'
+                      and 'unreadable' in (s6['with_corrupt_claim'].get('error') or ''))
+        left.append('step 6: a fresh terminal refusing Agent and the lease while the app runs his team is the engine '
+                    'claim hook\'s (zach C6a); the walk shows the app side of the claim only')
+
         # ---- step 1: a land, pushed, confirmed in Git; step 2: B picked up while A lands ----
         s1 = steps.setdefault('1', {})
         start = walk.count()
@@ -2533,24 +2562,6 @@ def w2(ctx, r):
             and s10['no_origin'].get('relayed') is False and not s10['no_origin'].get('sentence')
         left.append('step 10: the spine does not yet carry the intake channel to the host (r3 (s): a new optional field '
                     'on the prompt record); the walk hands the origin in directly')
-
-        # ---- step 6: the claim ---------------------------------------------------------------
-        s6 = steps.setdefault('6', {})
-        claim_file = p.claude_dir / 'state' / 'operator-lead.json'
-        s6['claim_while_running'] = json.loads(claim_file.read_text()) if claim_file.exists() else None
-        ipid, ifd, record, screen = interactive_session(ctx, r)
-        try:
-            s6['terminal_record'] = record
-            s6['with_terminal'] = walk.call('relay', thread='w2-c', title='Walk C: claim', origin='desk-typed',
-                                            text='Reply with exactly: W2-C')
-        finally:
-            end_interactive(ipid, ifd)
-        s6['pass'] = 'running in the terminal' in (s6['with_terminal'].get('error') or '') \
-            or s6['with_terminal'].get('relayed') is True
-        s6['note'] = ('the app already held its claim when the terminal started, so the refusal belongs to the terminal '
-                      'side (the engine claim hook), and the app keeps its leads')
-        left.append('step 6: a fresh terminal refusing Agent and the lease while the app runs his team is the engine '
-                    'claim hook (zach), not walked here')
 
         # ---- step 11: the app's death takes the whole tree with it ----------------------------
         s11 = steps.setdefault('11', {})
