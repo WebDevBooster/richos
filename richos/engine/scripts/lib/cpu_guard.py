@@ -80,11 +80,17 @@ def register(pid, label, role='session'):
     return record
 
 
-def event(message, **details):
+def note(message, **details):
+    """Record an event in the history without raising it as the latest alert."""
     record = dict(at=time.time(), message=message, **details)
     STATE.mkdir(parents=True, exist_ok=True)
     with (STATE / 'events.jsonl').open('a') as out:
         out.write(json.dumps(record) + '\n')
+    return record
+
+
+def event(message, **details):
+    record = note(message, **details)
     write_json(STATE / 'alert.json', record)
 
 

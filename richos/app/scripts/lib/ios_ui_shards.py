@@ -110,11 +110,13 @@ def result_tests(bundle, runner=subprocess.run):
     counts = {k: int(summ.get(key) or 0) for k, key in (("passed", "passedTests"), ("failed", "failedTests"),
                                                           ("skipped", "skippedTests"), ("total", "totalTestCount"))}
     rows = []
+    kinds = {}
 
     def walk(n, bundle_name):
         kind = n.get("nodeType", "")
         if kind in ("Unit test bundle", "UI test bundle"):
             bundle_name = n.get("name", "")
+            kinds[bundle_name] = kind
         if kind == "Test Case":
             ident = n.get("nodeIdentifier") or n.get("name", "")
             reason = ""
@@ -127,16 +129,43 @@ def result_tests(bundle, runner=subprocess.run):
             walk(c, bundle_name)
     for n in get("tests").get("testNodes", []):
         walk(n, "")
+    result_tests.kinds = kinds
     return counts, rows
 
 
+STAMP_ATTACHMENT = "richos-build-stamp"
+
+
+def stamps(bundle, out, runner=subprocess.run):
+    """{"Class/test()": stamp} from one result bundle's exported attachments.
+
+    TestSupport/BuildStamp.swift attaches the stamp its bundle was built with to every test."""
+    os.makedirs(out, exist_ok=True)
+    result = runner(["xcrun", "xcresulttool", "export", "attachments", "--path", bundle, "--output-path", out],
+                    capture_output=True, text=True)
+    if getattr(result, "returncode", 0):
+        raise ValueError("xcresulttool could not export attachments")
+    found = {}
+    for test in json.load(open(os.path.join(out, "manifest.json"))):
+        for a in test.get("attachments", []):
+            if a.get("suggestedHumanReadableName", "").startswith(STAMP_ATTACHMENT):
+                with open(os.path.join(out, a["exportedFileName"])) as fh:
+                    found[norm(test["testIdentifier"])] = fh.read().strip()
+    return found
+
+
 def cmd_verify(work, shards, times, devices, runner=subprocess.run):
+    """0 every device green; 1 any failure; 2 a device NOT RUN (its lease ended) and no failure."""
     shards = int(shards)
     expected = sorted(set(norm(l) for l in open(os.path.join(work, "expected.txt")).read().split("\n") if l))
+    try:
+        build_stamp = open(os.path.join(work, "build-stamp.txt")).read().strip()
+    except OSError:
+        build_stamp = ""
     status, seconds = 0, {}
     for d, device in enumerate(devices):
         counts = {"passed": 0, "failed": 0, "skipped": 0, "total": 0}
-        ran, walls, bad = [], [], []
+        ran, walls, bad, lost = [], [], [], []
         for s in range(shards):
             i = d * shards + s
 
@@ -145,6 +174,16 @@ def cmd_verify(work, shards, times, devices, runner=subprocess.run):
                     return open(os.path.join(work, name)).read().strip() or default
                 except OSError:
                     return default
+            # A run whose lease ended was stopped by run-active: whatever its bundle holds may
+            # be another run's device's doing, so it is NOT RUN, never read as a result.
+            if os.path.exists(os.path.join(work, "test-%d.lost" % i)):
+                try:
+                    why = json.load(open(os.path.join(work, "test-%d.lost" % i))).get("why", "")
+                except (OSError, ValueError):
+                    why = "unreadable record"
+                lost.append("simulator %d of %d: its lease ended mid-run (%s); the run was stopped" % (s + 1, shards, why))
+                walls.append(int(read("test-%d.secs" % i, "0")))
+                continue
             rc = read("test-%d.rc" % i, "no exit status")
             walls.append(int(read("test-%d.secs" % i, "0")))
             if rc != "0":
@@ -158,6 +197,38 @@ def cmd_verify(work, shards, times, devices, runner=subprocess.run):
                 bad.append("simulator %d reports a failed or unknown test result" % (s + 1))
             if c["total"] != len(rows) or c["passed"] + c["failed"] + c["skipped"] != c["total"]:
                 bad.append("simulator %d has inconsistent result counts" % (s + 1))
+            if build_stamp:
+                # ATTRIBUTION: every test that ran must carry THIS run's build stamp. A test
+                # without it, or with another build's, came from a bundle this run did not build.
+                try:
+                    got_stamps = stamps(os.path.join(work, "result-%d.xcresult" % i),
+                                        os.path.join(work, "attribution-%d" % i), runner)
+                except (ValueError, OSError, KeyError) as exc:
+                    got_stamps = None
+                    bad.append("simulator %d: its tests' build stamps could not be read (%s)" % (s + 1, exc))
+                if got_stamps is not None:
+                    # Every XCTest in a UI test bundle carries the stamp itself. A bundle of Swift
+                    # Testing tests (which never pass through XCTestCase) is proven by its stamped
+                    # BuildStampTests probe. No test anywhere may carry another build's stamp.
+                    kinds = getattr(result_tests, "kinds", {})
+                    foreign, proven, ran_bundles = [], set(), set()
+                    for ident, result, _, _ in rows:
+                        if result == "Skipped":
+                            continue
+                        bundle, _, key = ident.partition("/")
+                        ran_bundles.add(bundle)
+                        got = got_stamps.get(key)
+                        if got == build_stamp:
+                            proven.add(bundle)
+                        elif got is not None or kinds.get(bundle) == "UI test bundle":
+                            foreign.append("%s (%s)" % (key, got or "no stamp"))
+                    unproven = sorted(ran_bundles - proven)
+                    if foreign:
+                        bad.append("simulator %d ran %d test(s) NOT from this run's build %s: %s" % (
+                            s + 1, len(foreign), build_stamp, ", ".join(foreign[:4])))
+                    if unproven:
+                        bad.append("simulator %d: no test in %s carries this run's build stamp %s, so nothing "
+                                   "proves which build ran it" % (s + 1, ", ".join(unproven), build_stamp))
             for k in counts:
                 counts[k] += c[k]
             for ident, result, dur, reason in rows:
@@ -176,14 +247,22 @@ def cmd_verify(work, shards, times, devices, runner=subprocess.run):
                     len(set(expected) & set(got)), len(expected), ", ".join(missing[:6]) or "none",
                     "; not listed: " + ", ".join(extra[:6]) if extra else "",
                     "; ran twice: " + ", ".join(twice[:6]) if twice else ""))
-        elif counts["total"] == 0:
+        elif counts["total"] == 0 and not lost:
             bad.append("no test ran")
+        if lost and not bad:
+            print("  NOT RUN  %s: its simulator lease ended mid-run, so this device has no result" % device)
+            for b in lost:
+                print("        %s" % b)
+            status = status or 2
+            continue
+        bad = lost + bad
         line = "%s: UI tests %s in %d s on %d simulator(s)" % (device, "FAILED" if bad else "passed", max(walls or [0]), shards)
         print(("  FAIL  " if bad else "  ok    ") + line)
         print("        %d passed, %d failed, %d skipped of %d" % (counts["passed"], counts["failed"], counts["skipped"], counts["total"]))
         for b in bad:
             print("        %s" % b)
-        status = status or (1 if bad else 0)
+        if bad:
+            status = 1
     if seconds:
         old = read_times(times)
         old.update(seconds)
@@ -199,6 +278,8 @@ def cmd_name_shots(src, out):
         return 0
     for test in json.load(open(m)):
         for a in test.get("attachments", []):
+            if a.get("suggestedHumanReadableName", "").startswith(STAMP_ATTACHMENT):
+                continue                  # attribution, not a screen
             path = os.path.join(src, a["exportedFileName"])
             name = re.sub(r"_\d+_[0-9A-F-]+(\.\w+)$", r"\1", a["suggestedHumanReadableName"])
             if a.get("isAssociatedWithFailure"):
@@ -277,6 +358,73 @@ def selftest():
         open(os.path.join(work, "test-4.rc"), "w").write("65")
         rc = cmd_verify(work, 3, os.path.join(work, "t.tsv"), ["complete", "a-shard-exited-65"], runner)
         check(rc == 1, "a simulator whose xcodebuild exited non-zero fails its device even if its bundle looks whole")
+    # ATTRIBUTION AND THE LOST LEASE (esc-20260925T014934Z-0a4bf206), one device per case.
+    with tempfile.TemporaryDirectory() as work, contextlib.redirect_stdout(io.StringIO()) as said:
+        open(os.path.join(work, "expected.txt"), "w").write("")
+        open(os.path.join(work, "build-stamp.txt"), "w").write("key-abc123-run.OWN\n")
+        results = {}                      # bundle -> [(Class/test(), result, stamp or None)]
+
+        class R:
+            def __init__(self, out):
+                self.stdout, self.returncode = out, 0
+
+        def runner(argv, **_kw):
+            if argv[2] == "export":
+                bundle, out = argv[argv.index("--path") + 1], argv[argv.index("--output-path") + 1]
+                manifest = []
+                for n, (ident, _res, stamp) in enumerate(results[bundle]):
+                    if stamp is not None:
+                        open(os.path.join(out, "s%d.txt" % n), "w").write(stamp)
+                        manifest.append({"testIdentifier": ident, "attachments": [
+                            {"exportedFileName": "s%d.txt" % n,
+                             "suggestedHumanReadableName": STAMP_ATTACHMENT + "_0_AB-CD.txt"}]})
+                json.dump(manifest, open(os.path.join(out, "manifest.json"), "w"))
+                return R("")
+            rows = results[argv[-1]]
+            if argv[4] == "summary":
+                return R(json.dumps({"passedTests": sum(r == "Passed" for _, r, _ in rows), "failedTests": 0,
+                                     "skippedTests": sum(r == "Skipped" for _, r, _ in rows), "totalTestCount": len(rows)}))
+            kind = "Unit test bundle" if any(i.startswith("Unit.") for i, _, _ in rows) else "UI test bundle"
+            return R(json.dumps({"testNodes": [{"nodeType": kind, "name": "U", "children": [
+                {"nodeType": "Test Case", "nodeIdentifier": i, "result": r, "durationInSeconds": 1.0} for i, r, _ in rows]}]}))
+
+        def case(rows, lost=False):
+            bundle = os.path.join(work, "result-0.xcresult")
+            results[bundle] = rows
+            open(os.path.join(work, "test-0.rc"), "w").write("75" if lost else "0")
+            open(os.path.join(work, "test-0.secs"), "w").write("5")
+            lost_file = os.path.join(work, "test-0.lost")
+            if lost:
+                json.dump({"why": "the device now belongs to another run"}, open(lost_file, "w"))
+            elif os.path.exists(lost_file):
+                os.unlink(lost_file)
+            return cmd_verify(work, 1, os.path.join(work, "t.tsv"), ["device"], runner)
+        own = "key-abc123-run.OWN"
+        rc_own = case([("C/a()", "Passed", own), ("C/b()", "Passed", own), ("C/skip()", "Skipped", None)])
+        rc_foreign = case([("C/a()", "Passed", own), ("C/onlyOnTheOtherBranch()", "Passed", "key-def456-run.OTHER")])
+        foreign_said = said.getvalue()
+        before = len(said.getvalue())
+        rc_unstamped = case([("C/a()", "Passed", own), ("C/b()", "Passed", None)])
+        said_unstamped = said.getvalue()[before:]
+        # The handover itself: the bundle LOOKS whole and green, but the lease was lost mid-run.
+        rc_lost = case([("C/a()", "Passed", own), ("C/onlyOnTheOtherBranch()", "Passed", "key-def456-run.OTHER")], lost=True)
+        lost_said = said.getvalue()
+        # A Swift Testing bundle: its tests carry no stamp of their own; its probe does.
+        rc_unit_probe = case([("Unit.S/swiftTesting()", "Passed", None), ("BuildStampTests/probe()", "Passed", own)])
+        before = len(said.getvalue())
+        rc_unit_bare = case([("Unit.S/swiftTesting()", "Passed", None), ("Unit.S/other()", "Passed", None)])
+        said_bare = said.getvalue()[before:]
+    check(rc_unit_probe == 0, "a Swift Testing bundle is proven by its stamped probe test")
+    check(rc_unit_bare == 1 and "nothing proves which build ran it" in said_bare,
+          "a bundle with no stamped test at all is a FAILURE")
+    check(rc_own == 0, "every test that ran carries this run's build stamp: green")
+    check(rc_foreign == 1 and "ran 1 test(s) NOT from this run's build" in foreign_said
+          and "onlyOnTheOtherBranch (key-def456-run.OTHER)" in foreign_said,
+          "a test stamped by another checkout's build is a FAILURE, named")
+    check(rc_unstamped == 1 and "C/b (no stamp)" in said_unstamped,
+          "a test that carries no stamp is a FAILURE: nothing proves whose bundle ran it")
+    check(rc_lost == 2 and "NOT RUN" in lost_said.split("onlyOnTheOtherBranch")[-1],
+          "a run whose lease was lost is NOT RUN (exit 2) even when its bundle looks green")
     print("  shards selftest: %d passed, %d failed" % (ok, bad))
     return 1 if bad else 0
 

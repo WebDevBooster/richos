@@ -476,8 +476,17 @@ gui_boot() {
   # cwd=/ and an empty environment, exactly as measured. `USER` is passed because launchd
   # passes it; nothing reads it, and leaving it out would make this a condition no launch
   # actually produces. `exec` so that this subshell IS the app — see the header above.
-  ( cd / && exec env -i HOME="$home" USER="${USER:-unknown}" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
-      "$bin" >> "$out" 2>&1 ) &
+  #
+  # CFFIXED_USER_HOME IS THE SAME HOME, AND HOME ALONE IS NOT ENOUGH. Foundation answers
+  # NSHomeDirectory() from the account record, not from HOME, so a boot under HOME alone put
+  # WebKit's store and the URL cache in the REAL ~/Library/WebKit/com.richos.app and
+  # ~/Library/Caches/com.richos.app, the folders his daily driver (same bundle identifier)
+  # uses. Measured in a test guest on 2026-09-24 (richos-hq
+  # docs/verification/2026-09-24-nightly-launcher/, run 1 finding 3); nightly-launch.sh sets
+  # both for that reason. On a real double-click the two agree, so setting both is the
+  # condition a launch actually has: one home.
+  ( cd / && exec env -i HOME="$home" CFFIXED_USER_HOME="$home" USER="${USER:-unknown}" \
+      PATH=/usr/bin:/bin:/usr/sbin:/sbin "$bin" >> "$out" 2>&1 ) &
   local pid=$!
   [ -n "${GUI_LAUNCHED_PIDS:-}" ] && printf '%s\n' "$pid" >> "$GUI_LAUNCHED_PIDS"
 

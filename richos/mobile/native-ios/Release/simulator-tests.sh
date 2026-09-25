@@ -43,11 +43,22 @@ python3 "$HERE/../../engine/scripts/lib/testdevices.py" register --kind ios-simu
 python3 "$HERE/../../engine/scripts/lib/testdevices.py" boot-ios --id "$UDID" >/dev/null || { echo "FAIL simctl boot $UDID"; exit 1; }
 xcrun simctl privacy "$UDID" grant microphone dev.richos.connect >/dev/null 2>&1 || true
 
-TEST_RUNNER_RICHOS_SNAPSHOT_DIR="$OUT/snapshots" python3 "$HERE/../../engine/scripts/lib/native-work.py" -- xcodebuild test -project "$PROJECT" -scheme RichOSPlatformTests \
+# run-active renews the lease's inactivity clock while this build-and-test run lives; without it a
+# run longer than five minutes lost its simulator to the collector (esc-20260924T220236Z-52fae3ec).
+TEST_RUNNER_RICHOS_SNAPSHOT_DIR="$OUT/snapshots" python3 "$HERE/../../engine/scripts/lib/testdevices.py" run-active \
+  --kind ios-simulator --id "$UDID" --owner-pid $$ -- \
+  python3 "$HERE/../../engine/scripts/lib/native-work.py" -- xcodebuild test -project "$PROJECT" -scheme RichOSPlatformTests \
   -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath "$OUT/DerivedData" \
   -clonedSourcePackagesDirPath "$OUT/SourcePackages" -resultBundlePath "$OUT/result.xcresult" \
   CODE_SIGN_IDENTITY=- >"$OUT/logs/test.log" 2>&1
 CODE=$?
+# 75: the lease ended mid-run and run-active stopped the run (esc-20260925T014934Z-0a4bf206).
+# Whatever the result bundle holds may be another run's device's doing: NOT RUN, never a verdict.
+if [ "$CODE" -eq 75 ]; then
+  grep 'LEASE LOST' "$OUT/logs/test.log" | head -1
+  echo "NOT RUN simulator tests: this run's simulator lease ended mid-run; full log $OUT/logs/test.log"
+  exit 75
+fi
 
 SUMMARY="$(xcrun xcresulttool get test-results summary --path "$OUT/result.xcresult" 2>/dev/null)"
 COUNTS="$(printf '%s' "$SUMMARY" | python3 -c 'import json,sys
