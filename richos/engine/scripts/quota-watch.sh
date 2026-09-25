@@ -32,9 +32,12 @@
 #                          and their names (the hold releases there)
 #         WINDOW-RESET     the window turned over: the exact resume message and
 #                          the names of the agents paused for the quota
-#         QUOTA-STALE      the reading is older than one poll while a worker
-#                          runs: its value is not the current one, and the
-#                          lead's own turn refreshes the payload
+#         QUOTA-REFRESH    get_usage failed, and the status-line reading will
+#                          turn one poll old before the next check: the lead's
+#                          reply refreshes it (woken at 270 s, not after 300)
+#         QUOTA-STALE      get_usage failed and the status-line reading is
+#                          older than one poll while a worker runs: its value
+#                          is not the current one; the lead's turn refreshes it
 #         QUOTA-UNKNOWN    the reading has been missing or malformed for one
 #                          poll while a worker runs, so the watcher is blind
 #       --until-reset never fires the threshold: for a window in which the
@@ -46,9 +49,16 @@
 # orchestration.config, beside MODEL_CEILING, read here and nowhere else.
 # Undeclared is UNKNOWN (exit 2), never a built-in 93.
 #
-# It reads ~/.claude/statusline-payload.json (QUOTA_PAYLOAD overrides, for
-# tests) and the workspace registry. It never messages, pauses, stops or
-# spawns anything, and it never reads a credential. The lead acts.
+# THE READING, at every poll: Claude Code's own get_usage control request,
+# from a bounded control-only `claude` process (no prompt, no tools, no
+# settings, no MCP, no session persistence) that it starts in its own process
+# group and ends on every read. The desktop app's design, copied (Codex,
+# codex/claude-quota-settings, quota/probe.rs). When that fails it says why and
+# falls back to ~/.claude/statusline-payload.json (QUOTA_PAYLOAD overrides, for
+# tests). --notice reads only the file: a SessionStart hook does not wait
+# seconds on a process. It also reads the workspace registry. It never
+# messages, pauses, stops or spawns an agent, and it never reads a credential
+# itself. The lead acts.
 #
 # The logic, and every choice in it: scripts/lib/quota_watch.py.
 

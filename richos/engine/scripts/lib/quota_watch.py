@@ -38,7 +38,33 @@ three hold messages carried no such line, so each SubagentStop recorded a
 FINISHED agent, and the wake at 15:09Z was refused. The pause message printed
 below carries the line, and quota-watch.test.sh proves it end to end.
 
-THE READING (design notes: richos-hq/docs/plans/budget-self-management-2026-09-10.md)
+THE READING, FIRST: CLAUDE CODE'S OWN `get_usage` (2026-09-25). Each poll starts
+`claude` as a CONTROL-ONLY connection and asks it for the account's usage,
+exactly as the desktop app does (Codex, codex/claude-quota-settings at
+c53f85c9, richos-core/src/quota/probe.rs; spec: richos-hq
+docs/plans/desktop-claude-quota-settings-2026-09-25.md, "Data source and
+process ownership"): stream-json in and out, no setting sources, no session
+persistence, no tools, strict and empty MCP config, CLAUDECODE removed, an
+`initialize` then a `get_usage` control request, each bounded at 20 s, frames
+capped at 256 KiB. It never sends a user message, so it is not a model turn.
+One difference, on purpose: the desktop keeps one connection open; this
+watcher is a short-lived script with 5 minutes between polls, so it starts
+the process in its own process group, captured at spawn, and ends that group
+on every read. The working directory is `/`, which this user cannot write, so
+a read cannot leave anything behind. Measured here on 2026-09-25 with claude
+2.1.282: initialize 1.2 s, get_usage 7.2 s, five_hour answered, the only
+message type on stdout `control_response`, nothing written to the working
+directory and no transcript under ~/.claude/projects.
+
+Why it is first: the status-line file below re-renders only when the lead
+speaks, so an idle lead left the reading 10 minutes old at the 91%/95%
+readings of 07:57Z and 08:07Z. get_usage is fresh at every poll. When it
+fails (no `claude`, a timeout, an error, no subscription limits reported, or
+an answer this file cannot read), the watcher says why and falls back to the
+status-line file, where every rule below still applies, including waking the
+lead to refresh it.
+
+THE FALLBACK READING (design notes: richos-hq/docs/plans/budget-self-management-2026-09-10.md)
   ~/.claude/statusline-payload.json -> rate_limits.five_hour.used_percentage and
   .resets_at (epoch seconds). ~/.claude/statusline.sh copies the host's payload
   there on every status-line render (since 2026-09-10). Nothing else is read,
@@ -88,8 +114,8 @@ EXIT CODES
             pause; a hold in place releases)
   --status  the same codes as --once
   --watch   0 after printing one event (QUOTA-THRESHOLD, QUOTA-RELEASE,
-            WINDOW-RESET, QUOTA-STALE or QUOTA-UNKNOWN), 2 when it cannot
-            watch at all
+            WINDOW-RESET, QUOTA-REFRESH, QUOTA-STALE or QUOTA-UNKNOWN), 2 when
+            it cannot watch at all
   --notice  always 0 (it is a SessionStart hook's body)
 """
 
@@ -97,7 +123,12 @@ import argparse
 import datetime as _dt
 import importlib.util
 import json
+import math
 import os
+import selectors
+import shutil
+import signal
+import subprocess
 import sys
 import time
 
@@ -122,6 +153,27 @@ POLL_SECONDS = 300
 # LESS than this far away; exactly this far still pauses. The same seconds
 # release a hold already in place. The desktop app's RESET_EXEMPTION_MS.
 RESET_EXEMPTION_SECONDS = 20 * 60
+
+# WAKE THE LEAD BEFORE THE READING TURNS ONE POLL OLD (2026-09-25, measured).
+# The lead read 91% at 07:57Z and 95% at 08:07Z: the pause fired at 95, not 93.
+# A reading is current up to one poll (300 s) old, so a loop that polls every
+# 300 s first saw it as stale at its SECOND poll, about 600 s after the render.
+# With the lead idle, only the lead's reply re-renders the payload, so the
+# effective refresh was every 10 minutes against his "Keep it consistent at 5
+# minutes". Below the threshold, with a worker running, the watcher wakes the
+# lead (QUOTA-REFRESH) this many seconds BEFORE the reading turns one poll old,
+# and schedules its poll for that moment. A tenth of the bound when the bound
+# is shorter (the suite's accelerated clock).
+REFRESH_AHEAD_SECONDS = 30
+
+# get_usage: one control request's bound (the desktop's DEADLINE) and the
+# largest frame read (its MAX_FRAME). The environment override is for the test
+# suite's hanging fixture only.
+GET_USAGE_SECONDS = 20
+MAX_FRAME = 256 * 1024
+CONTROL_ARGS = ["--print", "--input-format=stream-json", "--output-format=stream-json", "--verbose",
+                "--setting-sources", "", "--no-session-persistence", "--tools", "",
+                "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
 
 PAUSE_UNTIL_PREFIX = "the five-hour quota reset"
 CONFIG_KEY = "QUOTA_PAUSE_PERCENT"
@@ -231,6 +283,128 @@ def read_reading(path, now):
     return r
 
 
+def claude_binary():
+    """QUOTA_CLAUDE_BIN (tests point it at a fixture or at nothing), else
+    `claude` on PATH."""
+    return (os.environ.get("QUOTA_CLAUDE_BIN") or "").strip() or shutil.which("claude") or ""
+
+
+def _parse_reset(v):
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)) and v > 0:
+        return int(v)
+    if isinstance(v, str):
+        try:
+            d = _dt.datetime.fromisoformat(v.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if d.tzinfo is None:
+            return None
+        return int(d.timestamp())
+    return None
+
+
+def read_get_usage(now, deadline_s=None):
+    """One reading from Claude Code's get_usage control request. Never raises.
+    The same shape as read_reading(), with source 'get_usage' and age 0."""
+    r = {"path": "get_usage", "source": "get_usage", "state": "", "why": "", "used": None,
+         "resets_at": None, "age": 0.0, "ended": False}
+    b = claude_binary()
+    if not b:
+        r["state"], r["why"] = "failed", "no `claude` on PATH"
+        return r
+    deadline_s = deadline_s or _env_int("QUOTA_WATCH_GET_USAGE_SECONDS", GET_USAGE_SECONDS)
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+    try:
+        proc = subprocess.Popen([b] + CONTROL_ARGS, cwd="/", env=env, stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError as e:
+        r["state"], r["why"] = "failed", "cannot start %s (%s)" % (b, e.__class__.__name__)
+        return r
+    buf = [b""]
+    sel = selectors.DefaultSelector()
+
+    def request(rid, subtype):
+        proc.stdin.write((json.dumps({"type": "control_request", "request_id": rid,
+                                      "request": {"subtype": subtype, "hooks": {}}}) + "\n").encode())
+        proc.stdin.flush()
+        until = time.time() + deadline_s
+        while True:
+            while b"\n" in buf[0]:
+                line, buf[0] = buf[0].split(b"\n", 1)
+                v = json.loads(line.decode("utf-8"))
+                if (isinstance(v, dict) and v.get("type") == "control_response"
+                        and isinstance(v.get("response"), dict) and v["response"].get("request_id") == rid):
+                    return v["response"]
+            if len(buf[0]) > MAX_FRAME:
+                raise ValueError("a frame over %d bytes" % MAX_FRAME)
+            left = until - time.time()
+            if left <= 0 or not sel.select(timeout=left):
+                raise TimeoutError("no answer to %s within %d s" % (subtype, deadline_s))
+            chunk = os.read(proc.stdout.fileno(), 65536)
+            if not chunk:
+                raise EOFError("claude closed its output before answering %s" % subtype)
+            buf[0] += chunk
+
+    try:
+        sel.register(proc.stdout, selectors.EVENT_READ)
+        init = request("quota-1", "initialize")
+        if init.get("subtype") != "success":
+            raise ValueError("initialize was refused")
+        usage = request("quota-2", "get_usage")
+    except (OSError, ValueError, TimeoutError, EOFError, UnicodeDecodeError) as e:
+        r["state"], r["why"] = "failed", "get_usage failed: %s" % (str(e) or e.__class__.__name__)
+        return r
+    finally:
+        # The process group is this call's own (start_new_session, pid captured
+        # at spawn): end it on every read, whatever happened.
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(proc.pid, sig)
+            except (ProcessLookupError, PermissionError):
+                break
+            try:
+                proc.wait(timeout=5)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+        sel.close()
+        for fh in (proc.stdin, proc.stdout):
+            try:
+                fh.close()
+            except OSError:
+                pass
+    if usage.get("subtype") != "success":
+        r["state"], r["why"] = "failed", "get_usage was refused"
+        return r
+    body = usage.get("response") if isinstance(usage.get("response"), dict) else {}
+    if body.get("rate_limits_available") is False:
+        r["state"], r["why"] = "failed", "Claude Code did not report subscription limits for this account"
+        return r
+    five = (body.get("rate_limits") or {}).get("five_hour") if isinstance(body.get("rate_limits"), dict) else None
+    used = five.get("utilization") if isinstance(five, dict) else None
+    resets = _parse_reset(five.get("resets_at")) if isinstance(five, dict) else None
+    if (body.get("rate_limits_available") is not True or isinstance(used, bool)
+            or not isinstance(used, (int, float)) or not (0 <= used <= 100) or resets is None):
+        r["state"], r["why"] = "failed", "get_usage answered in a shape this watcher cannot read"
+        return r
+    r["state"], r["used"], r["resets_at"] = "ok", used, resets
+    r["ended"] = resets <= now
+    return r
+
+
+def read_source(a, now):
+    """get_usage first; the status-line file when it fails, saying why."""
+    g = read_get_usage(now)
+    if g["state"] == "ok":
+        return g
+    f = read_reading(a.payload, now)
+    f["source"] = "the status line"
+    f["fallback_why"] = g["why"]
+    return f
+
+
 def classify(r, threshold, stale_after):
     """('below' | 'at-or-above' | 'unknown', why)."""
     if r["state"] != "ok":
@@ -267,7 +441,7 @@ def describe(r, threshold, now):
         return "UNKNOWN: %s" % r["why"]
     bits = ["%s%% of the five-hour window" % fmt_pct(r["used"]),
             "threshold %s%%" % fmt_pct(threshold) if threshold is not None else "threshold UNDECLARED",
-            "read %s ago" % span(r["age"] or 0)]
+            "read %s ago" % span(r["age"] or 0) + (" via %s" % r["source"] if r.get("source") else "")]
     if r["ended"]:
         bits.append("window ended at %s" % hhmm(r["resets_at"]))
     else:
@@ -386,7 +560,7 @@ def _exit_for(verdict):
 
 
 def mode_once(a, now):
-    r = read_reading(a.payload, now)
+    r = read_source(a, now)
     if a.threshold is None:
         print("quota: UNKNOWN: %s is %s in %s" % (CONFIG_KEY, a.threshold_problem, a.config or "(no config)"))
         return 2
@@ -399,11 +573,13 @@ def mode_once(a, now):
     elif verdict == "near-reset":
         line += "  [AT OR ABOVE THE THRESHOLD, NO PAUSE: %s]" % why
     print("quota: " + line)
+    if r.get("fallback_why"):
+        print("quota: source: the status-line file, because %s" % r["fallback_why"])
     return _exit_for(verdict)
 
 
 def mode_status(a, now):
-    r = read_reading(a.payload, now)
+    r = read_source(a, now)
     print("THE 93%% QUOTA RULE (%s)" % RULING)
     print("  his words : %s" % HIS_WORDS)
     print("  update    : %s" % RULE_UPDATE)
@@ -411,12 +587,16 @@ def mode_status(a, now):
         print("  threshold : UNKNOWN: %s is %s in %s" % (CONFIG_KEY, a.threshold_problem, a.config or "(no config)"))
     else:
         print("  threshold : %s%%  (%s=%s in %s)" % (fmt_pct(a.threshold), CONFIG_KEY, a.threshold_raw, a.config))
-    print("  payload   : %s" % a.payload)
+    if r.get("fallback_why"):
+        print("  source    : the status-line file %s, because %s" % (a.payload, r["fallback_why"]))
+    else:
+        print("  source    : Claude Code's get_usage (%s), fresh at this read" % claude_binary())
     if r["state"] != "ok":
         print("  reading   : UNKNOWN: %s" % r["why"])
     else:
         print("  reading   : %s%% of the five-hour window" % fmt_pct(r["used"]))
-        print("  age       : %s (the payload refreshes only when a status line renders)" % span(r["age"] or 0))
+        print("  age       : %s%s" % (span(r["age"] or 0), " (the payload refreshes only when a status line renders)"
+                                       if r.get("fallback_why") else " (read at this poll)"))
         if r["ended"]:
             print("  window    : ENDED at %s; this reading describes a window that no longer exists"
                   % hhmm(r["resets_at"]))
@@ -502,12 +682,33 @@ def _emit_release(a, reset_at, now, w):
     print("    %s --watch" % a.command)
 
 
+def refresh_point(stale_after):
+    """The age at which a below-threshold reading is refreshed: before it turns
+    one poll old, never at or after."""
+    return stale_after - min(REFRESH_AHEAD_SECONDS, stale_after // 10)
+
+
+def _emit_refresh(a, r, w, at):
+    print("QUOTA-REFRESH: the reading is %d s old and stops counting as current at %d s (one poll); refresh it now"
+          % (int(r["age"] or 0), a.stale))
+    if r.get("fallback_why"):
+        print("  The reading comes from the status-line file, because %s." % r["fallback_why"])
+    print("  Last value: %s%%, below the threshold %s%%. The CEO's rule (%s) checks every 5 minutes, so the"
+          % (fmt_pct(r["used"]), fmt_pct(a.threshold), RULING))
+    print("  watcher wakes you at %d s, before the reading ages past one poll, not a poll after it." % at)
+    print("  %s" % worker_line(w))
+    print("  REFRESH THE READING: reply once, in this turn. The payload is rewritten only when your")
+    print("  status line renders, and it renders when a new assistant message of yours arrives;")
+    print("  teammates' work does not render it. Then start the watcher again:")
+    print("    %s --watch" % a.command)
+
+
 def mode_watch(a):
     if a.threshold is None:
         print("QUOTA-UNKNOWN: cannot watch: %s is %s in %s" % (CONFIG_KEY, a.threshold_problem, a.config or "(no config)"))
         return 2
     now = int(time.time())
-    r = read_reading(a.payload, now)
+    r = read_source(a, now)
     if r["state"] == "missing":
         print("QUOTA-UNKNOWN: cannot watch: %s" % r["why"])
         return 2
@@ -522,6 +723,7 @@ def mode_watch(a):
         print("QUOTA-UNKNOWN: cannot wait for the reset: %s" % r["why"])
         return 2
     blind_since = None
+    refresh_in = None
     print("quota-watch: polling every %d s; threshold %s%%%s" % (
         a.poll, fmt_pct(a.threshold), "; waking only at the reset" if a.until_reset else ""), flush=True)
     while True:
@@ -537,7 +739,9 @@ def mode_watch(a):
             if not w["known"] or w["quota_paused"]:
                 _emit_release(a, window_end, now, w)
                 return 0
-        r = read_reading(a.payload, now)
+        r = read_source(a, now)
+        if r.get("fallback_why"):
+            print("  source: the status-line file, because %s" % r["fallback_why"], flush=True)
         if window_end is None and r["state"] == "ok" and not r["ended"]:
             window_end = r["resets_at"]
         verdict, why = rule_verdict(r, a.threshold, a.stale, now)
@@ -572,6 +776,8 @@ def mode_watch(a):
                         if stale:
                             print("QUOTA-STALE: the reading is %s old (one poll is %d s), so the current value is UNKNOWN"
                                   % (span(r["age"] or 0), a.poll))
+                            if r.get("fallback_why"):
+                                print("  It came from the status-line file, because %s." % r["fallback_why"])
                             print("  Last value seen: %s%%. It is NOT the current value: usage has only grown since."
                                   % fmt_pct(r["used"]))
                         else:
@@ -585,6 +791,18 @@ def mode_watch(a):
                         return 0
             else:
                 blind_since = None
+            if verdict == "below" and r["age"] is not None and r.get("source") != "get_usage":
+                at = refresh_point(a.stale)
+                if r["age"] >= at:
+                    w = workers(a.engine_root)
+                    if w["known"] and not w["working"]:
+                        print("  the reading is about to turn one poll old, but nothing is working: no refresh needed",
+                              flush=True)
+                    else:
+                        _emit_refresh(a, r, w, at)
+                        return 0
+                else:
+                    refresh_in = at - r["age"]
         sleep_for = a.poll
         if window_end is not None:
             sleep_for = max(1, min(a.poll, window_end - now))
@@ -593,6 +811,11 @@ def mode_watch(a):
             to_release = window_end - now - (RESET_EXEMPTION_SECONDS - 1)
             if to_release > 0:
                 sleep_for = max(1, min(sleep_for, to_release))
+        if refresh_in is not None:
+            # Poll again when the reading reaches the refresh point, not a full
+            # poll later (the 07:57Z/08:07Z defect above).
+            sleep_for = max(1, min(sleep_for, int(math.ceil(refresh_in))))
+            refresh_in = None
         time.sleep(sleep_for)
 
 
@@ -623,7 +846,9 @@ def mode_notice(a, now):
         lines.append("  Now: %s" % now_line)
         lines.append("  Start the watcher as a background command (Bash with run_in_background: true):")
         lines.append("    %s --watch" % a.command)
-        lines.append("  It polls every 5 minutes and wakes you at the threshold with the pause message and the")
+        lines.append("  Every 5 minutes it reads Claude Code's own get_usage (the status-line file only as a fallback;")
+        lines.append("  the reading above is that file, read without waiting on a process at session start).")
+        lines.append("  It wakes you at the threshold with the pause message and the")
         lines.append("  names to send it to (never inside the last 20 minutes before the reset), when the reset is")
         lines.append("  less than 20 minutes away with the resume message and the paused names, and at the reset.")
     print("\n".join(lines))

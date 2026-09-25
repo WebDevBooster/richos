@@ -18,6 +18,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/mutation-harness.sh
 . "$SCRIPT_DIR/lib/mutation-harness.sh"
 mutation_begin "quota-watch (the CEO's 93% rule)" "scripts/quota-watch.test.sh"
+# The suite's cases share state and run in sequence, and a printed
+# `FAIL  <case>` line always ends it red (check() counts it; the suite exits 1
+# on any failure). So each mutant stops at its own FAIL line instead of running
+# the rest: on 2026-09-25 the whole-suite form ran past ci-shard's 900 s unit
+# deadline once the suite grew to cover get_usage and the 20-minute window.
+mutation_focus stop-at-want
 
 L="scripts/lib/quota_watch.py"
 
@@ -45,10 +51,13 @@ mutant unknown-exits-zero "Q04" "$L" \
     'return {"below": 0, "at-or-above": 1, "near-reset": 3}.get(verdict, 0)' \
     "A missing or unreadable payload would exit exactly like a healthy reading below the threshold."
 
-mutant stale-read-as-fresh "R01" "$L" \
+# Targets Q08, the direct case. R01 no longer depends on it: since the fallback
+# is refreshed before it turns one poll old (W12), R01's lead is woken by
+# QUOTA-REFRESH before the reading can go stale.
+mutant stale-read-as-fresh "Q08" "$L" \
     'if r["age"] is not None and r["age"] > stale_after:' \
     'if False:' \
-    "A reading an hour old would be reported as a fresh 'below the threshold': 2026-09-25, replayed by R01."
+    "A reading an hour old would be reported as a fresh 'below the threshold': the 2026-09-25 failure."
 
 mutant ended-window-read-as-current "Q10" "$L" \
     '    if r["ended"]:{NL}        return "unknown"' \
@@ -158,5 +167,53 @@ mutant status-omits-update "Q24" "$L" \
     '    print("  update    : %s" % RULE_UPDATE)' \
     '    pass' \
     "--status would state the rule without his 2026-09-25 update."
+
+# 8. THE READING COMES FROM CLAUDE CODE ITSELF, AT EVERY POLL (2026-09-25).
+mutant get-usage-never-used "G01" "$L" \
+    '    g = read_get_usage(now){NL}    if g["state"] == "ok":' \
+    '    g = {"state": "failed", "why": "mutated"}{NL}    if g["state"] == "ok":' \
+    "The watcher would read only the status-line file, which an idle lead leaves ten minutes old."
+
+mutant get-usage-process-left-running "G02" "$L" \
+    '                os.killpg(proc.pid, sig)' \
+    '                pass' \
+    "Every poll would leave a claude process behind."
+
+mutant get-usage-unbounded "G05" "$L" \
+    '        until = time.time() + deadline_s' \
+    '        until = time.time() + 3600' \
+    "A claude that never answers would hang the watcher for an hour instead of falling back."
+
+mutant get-usage-no-fallback "G03" "$L" \
+    '    f = read_reading(a.payload, now){NL}    f["source"] = "the status line"' \
+    '    f = dict(g){NL}    f["source"] = "the status line"' \
+    "A failed get_usage would leave the watcher blind although the status-line file is fresh."
+
+mutant watch-reads-file-only "R04" "$L" \
+    '        r = read_source(a, now){NL}        if r.get("fallback_why"):' \
+    '        r = read_reading(a.payload, now){NL}        if r.get("fallback_why"):' \
+    "Every poll after the first would read the status-line file: the 07:57Z/08:07Z miss again."
+
+# 9. THE FALLBACK IS REFRESHED BEFORE IT TURNS ONE POLL OLD (the pause fired at
+#    95%, not 93%, on 2026-09-25: a 300 s poll first saw the file stale ~600 s on).
+mutant refresh-never "W12" "$L" \
+    '                if r["age"] >= at:{NL}                    w = workers' \
+    '                if False:{NL}                    w = workers' \
+    "An idle lead would be woken only once the reading was already a poll old: every 10 minutes."
+
+mutant refresh-at-the-bound "W12" "$L" \
+    '    return stale_after - min(REFRESH_AHEAD_SECONDS, stale_after // 10)' \
+    '    return stale_after' \
+    "The lead would be woken as the reading turns 300 s old, so its reply lands after it."
+
+mutant refresh-not-scheduled "W12" "$L" \
+    '            sleep_for = max(1, min(sleep_for, int(math.ceil(refresh_in))))' \
+    '            pass' \
+    "The poll would come a full interval later, past the refresh point, and see the reading stale."
+
+mutant refresh-with-nothing-working "W13" "$L" \
+    '                    if w["known"] and not w["working"]:{NL}                        print("  the reading is about to turn' \
+    '                    if False:{NL}                        print("  the reading is about to turn' \
+    "A quiet session would be woken every 5 minutes to refresh a number that nothing is spending."
 
 mutation_end
