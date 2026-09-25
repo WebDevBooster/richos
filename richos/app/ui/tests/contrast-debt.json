@@ -27,7 +27,7 @@
     }
   ],
   "floorReference": {
-    "//": "All surface counts come from the same WebKit run. The quit question ships its panel in the shared shell, hidden until he presses Quit with work running, so every surface gained exactly 6 CONSIDERED nodes and no measured ones; all floors were rebased together by +6, exactly as the previous shared-markup rebase (+10) did, and the measured counts are untouched. The existing three-node tolerance and shrink compensation remain unchanged. AMENDED 2026-09-19 for Urban's N3 (signoff 2026-09-19 10.40): the At-home route's screen gained the fifth `Pick a different way`, and that button lives in `#phone-sheet`'s markup, which ships in the shared shell and is hidden on every surface but one. So every surface gained exactly 2 CONSIDERED nodes — one per theme walk — and not one MEASURED node moved. MEASURED RATHER THAN ASSUMED, and isolated rather than inferred: contrast.js was run three times, on the branch point (bare shell 92 of 624, 9z green), on main with this work absent (92 of 624, 9z green) and on this branch (92 of 626, 9z RED on phone-identity, memory-setup, memory-no-compiler and updates-waiting) — and the per-surface deltas across all 42 surfaces were uniformly checked +0, considered +2. The four are the same thin surfaces the +4 chevron rebase caught, for the same reason: their considered margin over the shell is 4, and 9z's three-node tolerance eats the rest. All floors are therefore rebased together by +2, leaving every margin exactly as it was; `floorReference.shell` is deliberately untouched, because it feeds the SHRINK compensation only and 448 is already far below the live shell. AMENDED 2026-09-19, FIFTH ENTRY OF THE DAY, for CEO §61 — and this is a SHRINK, the second in this file's history and by far the largest. `phone.js` mounts `#phone-sheet` against document.body on EVERY screen, exactly as `settings-button.js` mounts the universal menu, so its markup is shared and every surface counts it whether or not the sheet is open. §61 removes the route chooser and everything the second option led to: the two option labels and their three notes, the screen's own lede and heading, the two unverified-certificate warnings, the trust QR's heading and address, the sixteen certificate taps (built at load into the shared markup, so counted on every surface), the screen that option landed on and its two controls, and the four `Pick a different way` copies that led back to the chooser. MEASURED RATHER THAN ASSUMED, and measured the only way that isolates this branch: `contrast.js` was run twice on this machine in one session — once against a `git archive` of the branch point `529dd6ec` extracted to a scratch tree with none of this branch's edits (42 surfaces), and once with all of it in place (42 surfaces, same 42 names, none added and none lost). THE CONSIDERED DELTA CAME BACK AS THE SINGLE VALUE -66 ACROSS ALL 38 SHARED SURFACES, 38 of 38, so every one of those floors is lowered by exactly 66 and no further. FOUR SURFACES HAVE THEIR OWN NUMBER BECAUSE THE SHEET IS OPEN ON THEM, and what the markup stopped carrying is partly what their render puts back: `phone-identity` and `phone-pairing` came back at -58 each and `phone-paired` and `phone-tailscale-ready` at -68 each, and each is lowered by its own number. THE MARGIN OVER THE SHELL IS PRESERVED OR IMPROVED EVERYWHERE, which is what check 9z tests: the shell loses the same 66 as the 38, so their margins are unchanged to the node; the four phone surfaces go to 12, 18, 10 and 10 nodes of margin over the shell's 560, all far outside the three-node tolerance, so none of them needs a `cannotBite` entry. THE CHECKED DELTA WAS 0 ON 39 OF 42, and the three that moved are the three surfaces where the removed markup was VISIBLE rather than hidden, which is explained rather than tolerated: `phone-pairing` -14 (the two warnings, the trust address and the sixteen steps were all on that screen), `phone-identity` -2 and `phone-tailscale-ready` -2 (one `Pick a different way` label each, in both themes). Those three checked floors are lowered by exactly that and no further. Every other checked floor is untouched, including `saved-work`'s pre-existing slack (118 measured against 71 committed), for the reason every amendment above this one gives: a branch that did not measure its variability does not get to tighten it. `floorReference.shell` stays 448/92, the shrink-compensation reference — and note again that the compensation could not have covered this: it triggers on the shell falling below 448, and the shell is at 560. AMENDED 2026-09-22 for managed Connect, measured on main 37d33269 and a temporary merge with ab228318. Both walks reached all 43 existing surfaces; panel coverage and inspected screenshots confirmed arrival. Eight added hidden text nodes per theme grow the shared shell from 564 to 580 considered nodes, with 94 checked unchanged. Every existing surface gained 16 considered nodes except the five phone views, which gained 18 because render also fills the new status text. Existing considered floors and the shell shrink reference rise by exactly 16, preserving their margins; no checked floor, tolerance, contrast debt or cannotBite exemption changes. The unrelated techy-nothing-recorded checked count varied by one within the existing tolerance and is not rebased. Three explicit Connect walks additionally assert their visible state before measurement; their initial floors use the measured counts recorded on the rows. AMENDED 2026-09-24 for Sage's pairing review (F1, section 3.1): `phone.js` mounts `#phone-sheet` against document.body on every screen, and the paired card gained the two buttons that answer the six words on the Mac (They match / They do not match) and the spent-code warning line, while the pairing screen lost its six-word node (the words now appear only once a phone has reached the Mac). MEASURED RATHER THAN ASSUMED: `contrast.js` was run on a scratch extract of main's UI at d17008c9 (exit 0, green, bare shell 94 of 580) and on this branch (bare shell 94 of 584). THE CONSIDERED DELTA CAME BACK AS +2 on 4 surface(s), +4 on 42 surface(s): +4 on every surface where the sheet is hidden, +2 on the four phone surfaces where part of the new markup is rendered or the removed word node was. Each considered floor is raised by exactly its own measured delta, so every margin over the shell is unchanged to the node and check 9z stays able to bite. NO `checked` FLOOR IS TOUCHED. `checked` moved by -2 on `phone-pairing` and `phone-connect-pairing` (the six-word node no longer rendered there, by design) and by -1 or -2 on `technical-view` across two runs (observed variability on a surface this branch does not touch, as the 2026-09-19 note records); all three committed checked floors already sit more than three nodes below those readings. One new surface, `phone-awaiting-mac`, with its own floor. `floorReference.shell` stays the shrink-compensation reference, as every amendment above leaves it.",
+    "//": "All surface counts come from the same WebKit run. The quit question ships its panel in the shared shell, hidden until he presses Quit with work running, so every surface gained exactly 6 CONSIDERED nodes and no measured ones; all floors were rebased together by +6, exactly as the previous shared-markup rebase (+10) did, and the measured counts are untouched. The existing three-node tolerance and shrink compensation remain unchanged. AMENDED 2026-09-19 for Urban's N3 (signoff 2026-09-19 10.40): the At-home route's screen gained the fifth `Pick a different way`, and that button lives in `#phone-sheet`'s markup, which ships in the shared shell and is hidden on every surface but one. So every surface gained exactly 2 CONSIDERED nodes — one per theme walk — and not one MEASURED node moved. MEASURED RATHER THAN ASSUMED, and isolated rather than inferred: contrast.js was run three times, on the branch point (bare shell 92 of 624, 9z green), on main with this work absent (92 of 624, 9z green) and on this branch (92 of 626, 9z RED on phone-identity, memory-setup, memory-no-compiler and updates-waiting) — and the per-surface deltas across all 42 surfaces were uniformly checked +0, considered +2. The four are the same thin surfaces the +4 chevron rebase caught, for the same reason: their considered margin over the shell is 4, and 9z's three-node tolerance eats the rest. All floors are therefore rebased together by +2, leaving every margin exactly as it was; `floorReference.shell` is deliberately untouched, because it feeds the SHRINK compensation only and 448 is already far below the live shell. AMENDED 2026-09-19, FIFTH ENTRY OF THE DAY, for CEO §61 — and this is a SHRINK, the second in this file's history and by far the largest. `phone.js` mounts `#phone-sheet` against document.body on EVERY screen, exactly as `settings-button.js` mounts the universal menu, so its markup is shared and every surface counts it whether or not the sheet is open. §61 removes the route chooser and everything the second option led to: the two option labels and their three notes, the screen's own lede and heading, the two unverified-certificate warnings, the trust QR's heading and address, the sixteen certificate taps (built at load into the shared markup, so counted on every surface), the screen that option landed on and its two controls, and the four `Pick a different way` copies that led back to the chooser. MEASURED RATHER THAN ASSUMED, and measured the only way that isolates this branch: `contrast.js` was run twice on this machine in one session — once against a `git archive` of the branch point `529dd6ec` extracted to a scratch tree with none of this branch's edits (42 surfaces), and once with all of it in place (42 surfaces, same 42 names, none added and none lost). THE CONSIDERED DELTA CAME BACK AS THE SINGLE VALUE -66 ACROSS ALL 38 SHARED SURFACES, 38 of 38, so every one of those floors is lowered by exactly 66 and no further. FOUR SURFACES HAVE THEIR OWN NUMBER BECAUSE THE SHEET IS OPEN ON THEM, and what the markup stopped carrying is partly what their render puts back: `phone-identity` and `phone-pairing` came back at -58 each and `phone-paired` and `phone-tailscale-ready` at -68 each, and each is lowered by its own number. THE MARGIN OVER THE SHELL IS PRESERVED OR IMPROVED EVERYWHERE, which is what check 9z tests: the shell loses the same 66 as the 38, so their margins are unchanged to the node; the four phone surfaces go to 12, 18, 10 and 10 nodes of margin over the shell's 560, all far outside the three-node tolerance, so none of them needs a `cannotBite` entry. THE CHECKED DELTA WAS 0 ON 39 OF 42, and the three that moved are the three surfaces where the removed markup was VISIBLE rather than hidden, which is explained rather than tolerated: `phone-pairing` -14 (the two warnings, the trust address and the sixteen steps were all on that screen), `phone-identity` -2 and `phone-tailscale-ready` -2 (one `Pick a different way` label each, in both themes). Those three checked floors are lowered by exactly that and no further. Every other checked floor is untouched, including `saved-work`'s pre-existing slack (118 measured against 71 committed), for the reason every amendment above this one gives: a branch that did not measure its variability does not get to tighten it. `floorReference.shell` stays 448/92, the shrink-compensation reference — and note again that the compensation could not have covered this: it triggers on the shell falling below 448, and the shell is at 560. AMENDED 2026-09-22 for managed Connect, measured on main 37d33269 and a temporary merge with ab228318. Both walks reached all 43 existing surfaces; panel coverage and inspected screenshots confirmed arrival. Eight added hidden text nodes per theme grow the shared shell from 564 to 580 considered nodes, with 94 checked unchanged. Every existing surface gained 16 considered nodes except the five phone views, which gained 18 because render also fills the new status text. Existing considered floors and the shell shrink reference rise by exactly 16, preserving their margins; no checked floor, tolerance, contrast debt or cannotBite exemption changes. The unrelated techy-nothing-recorded checked count varied by one within the existing tolerance and is not rebased. Three explicit Connect walks additionally assert their visible state before measurement; their initial floors use the measured counts recorded on the rows. AMENDED 2026-09-24 for Sage's pairing review (F1, section 3.1): `phone.js` mounts `#phone-sheet` against document.body on every screen, and the paired card gained the two buttons that answer the six words on the Mac (They match / They do not match) and the spent-code warning line, while the pairing screen lost its six-word node (the words now appear only once a phone has reached the Mac). MEASURED RATHER THAN ASSUMED: `contrast.js` was run on a scratch extract of main's UI at d17008c9 (exit 0, green, bare shell 94 of 580) and on this branch (bare shell 94 of 584). THE CONSIDERED DELTA CAME BACK AS +2 on 4 surface(s), +4 on 42 surface(s): +4 on every surface where the sheet is hidden, +2 on the four phone surfaces where part of the new markup is rendered or the removed word node was. Each considered floor is raised by exactly its own measured delta, so every margin over the shell is unchanged to the node and check 9z stays able to bite. NO `checked` FLOOR IS TOUCHED. `checked` moved by -2 on `phone-pairing` and `phone-connect-pairing` (the six-word node no longer rendered there, by design) and by -1 or -2 on `technical-view` across two runs (observed variability on a surface this branch does not touch, as the 2026-09-19 note records); all three committed checked floors already sit more than three nodes below those readings. One new surface, `phone-awaiting-mac`, with its own floor. `floorReference.shell` stays the shrink-compensation reference, as every amendment above leaves it. AMENDED 2026-09-25 for the desktop quota panel: the recorded shared shell was 584 considered nodes (phone-awaiting-mac reference) and the full contrast run now measures 642, with 94 checked unchanged. Raise every existing considered floor by the shared 58-node growth; leave checked floors, tolerance, exemptions and contrast thresholds unchanged. Check 9z still has exactly the five existing cannotBite surfaces. Dedicated quota walks now cover offers, approval, uncertain results and the conversation pause status. The subsequent move of the Usage-page control into the existing toolbar removes one hidden address text node per theme, so the shared considered-floor adjustment is +56 rather than +58. The new quota floors will be set from their first measured walk.",
     "measuredOn": "2026-09-17 macOS WebKit: all 34 surfaces in one run, after adding three speech-model walks (voice-model-offer / -progress / -failed). ONLY `considered` was rebased, and by exactly +10 on every surface: the four speech-model rows are markup inside #voice-panel and are therefore part of the shared shell (448 -> 458), while its 92 MEASURED nodes did not move, because those rows stay hidden until a machine with no speech model opens the panel. No `checked` floor was touched except the three new surfaces (98 each, which bites against the shell's 92 at tolerance 3). `saved-work` measures 118 checked against its committed 71 - pre-existing slack, unrelated to this work, deliberately NOT tightened on a branch that did not measure its variability. AMENDED SAME DAY, LATER, for audit D7's `.chrome-select` fix: the two selects named unstyled in the nightly audit each gained a custom chevron `<span>`, adding one hidden text node per theme to the shared shell (458 -> 462, `checked` unchanged). THE FIRST DRAFT OF THIS AMENDMENT ASSERTED GROWTH NEVER NEEDS A REBASE, AND CHECK 9z DISAGREED ON THE SPOT: four thin surfaces (`permission`, `memory-setup`, `memory-no-compiler`, `updates-waiting`) had a considered-margin over the shell of exactly 4-6 nodes, and the shell's own +4 ate enough of that margin to put all four inside the three-node tolerance, so the bare shell would have cleared their floors — the precise failure 9z exists to catch. `>=` being monotone in the SURFACE's own considered count says nothing about its MARGIN over a shell that grew under it. So every existing floor's `considered` was rebased by the same +4, exactly as the four-days-of-precedent comment above this one already prescribes for shared-markup growth; every `checked` floor is untouched. Only the new `setup-account-connect` surface (the first driver to reach `#provider-account-select` visible) needed a floor of its own — checked 16 / considered 464 — declared in `cannotBite` because its own margin over the rebased shell (462) is inside tolerance. AMENDED AGAIN, on the branch that merged D7, for audit D5's first-run deferral: the company question gained a Not now and the line saying what deferring costs (#entity-picker-later, #entity-picker-defer-note), which is two more text nodes shipped in index.html and therefore two more on EVERY surface's considered count (462 -> 466). Check 9z named the same four thin surfaces it named for D7 — `permission`, `memory-setup`, `memory-no-compiler`, `updates-waiting` — for the same reason, which is the second independent confirmation that shared-markup growth always needs the rebase the note above prescribes. Measured rather than assumed: the delta was computed across all 35 surfaces and came back as the single value 4. `checked` moved on exactly one surface, `company-picker` +4 — the surface those two controls are VISIBLE on — and that is recorded rather than tolerated. Every other `checked` floor is untouched; the slack on `saved-work` (118 against 71) and on the three `updates-*` surfaces (+2) is pre-existing, measured identically before and after this work, and deliberately not tightened by a branch that did not measure its variability. AMENDED 2026-09-18 for audit-7 row 13: the settings menu gained a `Memory folder` row (the offer needs a door now that \"Not now\" is remembered), and `settings-button.js` mounts that menu against document.body on EVERY screen — so it is shared markup and every surface gained the same considered nodes. Check 9z said so on the spot, naming `memory-setup`, `memory-no-compiler` and `updates-waiting`: the same thin surfaces the D7 and D5 amendments named, for the third time, which is the third independent confirmation that shared-markup growth always needs the rebase the note above prescribes. MEASURED RATHER THAN ASSUMED, across all 37 surfaces: the considered delta came back as the single value 2 on every one of them, 37 of 37. `checked` moved on exactly three surfaces, the three `updates-*` ones at +2 each, and that is explained rather than tolerated: those are the only drivers that walk with the universal menu OPEN, so the new row is VISIBLE and measured there and nowhere else. Those three floors are raised by exactly that +2 and no further, which leaves the pre-existing +2 of slack on them where the note above left it. The slack on `saved-work` (118 measured against 71 committed) is untouched for the same reason it was untouched before: a branch that did not measure its variability does not get to tighten it. `floorReference.shell` is deliberately left at 448/92, exactly as the three amendments before this one left it — it is the shrink-compensation reference and moving it would lower every floor on a future shell that shrank, which is a change to the gate rather than to this row. AMENDED 2026-09-18 for the phone channel's pairing screen (`phone.js`, plan §4.1). `phone.js` mounts `#phone-sheet` against document.body on EVERY screen, exactly as `settings-button.js` mounts the universal menu, so it is shared markup and every surface gained the same considered nodes. MEASURED RATHER THAN ASSUMED, and measured the only way that isolates this branch's own contribution: the suite was run twice on this machine in the same session, once with `phone.js`/`qr.js` removed from the tree and their driver, roles and menu row reverted (exit 0, green, and the shell came back at exactly the committed 474) and once with all of it in place. The considered delta came back as the single value 72 across all 37 shared surfaces, 37 of 37, so every existing considered floor is raised by exactly 72 and no further. `checked` moved on exactly three surfaces, the three `updates-*` ones at +2 each, for the fourth time and the same reason the `Memory folder` amendment gives: those are the only drivers that walk with the universal menu OPEN, so the new `Use Rich from your phone` row is VISIBLE and measured there and nowhere else. Those three floors are raised by exactly that +2. Every other checked floor is untouched, including `saved-work`'s pre-existing slack, for the reason the notes above give: a branch that did not measure its variability does not get to tighten it. `floorReference.shell` is left at 448/92 as the shrink-compensation reference, as all four amendments before this one left it. Two new surfaces are declared, and the pairing screen's two QR canvases are excluded from check 14 by name with `tests/phone.js` named as where they ARE measured — from the pixels, in this same WebKit. CORRECTED WITHIN THE SAME BRANCH, and the correction is the gate working: the first draft of this screen carried THREE Close buttons, one inside each state block, and `ui/tests/escape.js` refused it — `data-dismiss` names one control and a button hidden with its block cannot be clicked, so two of the three states could not be dismissed from the keyboard. One always-visible Close is both the simpler markup and the only shape that satisfies the contract, and it removes four considered nodes from every surface. So the shared-markup delta is +68 rather than +72, re-derived across all 37 surfaces against the same removed-from-the-tree baseline, 37 of 37 at the single value 68. `phone-pairing` is 552/70 and `phone-paired` is 546/22. AMENDED 2026-09-18 for audit-9 row 5: the approval sheet's raw request moved behind a disclosure, and that control's label is markup `permissions.js` appends to document.body at boot — so it is shared markup and every surface gained the same considered node. MEASURED RATHER THAN ASSUMED, across all 37 surfaces against a clean run of 6a5b6496: the considered delta came back as the single value 2, 37 of 37, and `checked` moved on NONE of them, 37 of 37 — the label is considered and not measured, so its four ratios (5.78:1 dark and 6.38:1 light for the label, 6.36:1 and 3.83:1 for the focus ring) are computed in the commit that added it rather than walked here. Every `considered` floor is raised by exactly that 2 and no further; every `checked` floor is untouched, which leaves the pre-existing slack on `saved-work` (118 measured against 71 committed) and on the three `updates-*` surfaces exactly where the three amendments before this one left it. `floorReference.shell` is again left at 448/92 for the reason those amendments give: it is the shrink-compensation reference, and moving it would lower every floor on a future shell that shrank. ONE THING THIS AMENDMENT CAUGHT THAT NOTHING ELSE DID, and it is why the rebase was measured rather than typed: the first draft of the row-3 fix gated the opening screen's field on `state.open` instead of on the launch kind, and `leaveHome` — which every suite calls — leaves before the document has finished parsing, so the picture never started. The `permission` surface alone came back at 418 against 480 while the other 36 were at +2, and the 31 missing per theme were the home screen's own text: `#home-owner`, `#home-brand-line`, the six `li#home-spc-*` and the nine `span.v` counters. Nothing a person could have seen. The count floor saw it. AMENDED 2026-09-18 for §7.1's three-way scope sheet (the CEO's answer to \"global default, or per-thread only?\": both, plus a company tier, chosen at switch-on from inside a conversation). `#techy-scope` ships in `index.html` like every other overlay in this app rather than being built on demand in JS — the honest choice and also the expensive one, because shipped markup is counted by `considered` on EVERY surface whether or not it is on screen. Building it in JS would have kept every floor still AND kept the sheet out of `declaredPanels`, so check 10c would never have asked for a driver: that is evading the gate, not passing it. MEASURED RATHER THAN ASSUMED, and measured TWICE because main moved under this branch mid-flight: once against the tree at 88499da5 and again, after rebasing onto 4eeb5143 (the front door's merge, which had itself raised every considered floor by 2), against the floors committed there. BOTH TIMES the considered delta came back as the single value 12 across all 39 surfaces, 39 of 39 — which is the useful part: this branch's contribution is 12 and is independent of what landed under it, so the floors are raised by exactly 12 on top of THEIR numbers rather than by replaying mine. THE CHECKED DELTA WAS 0 ON 38 OF 39; the one exception is `saved-work` at 118 against its committed 71, which is the pre-existing slack every note above this one already records by that exact number, is unrelated to this work, and is deliberately left where it is — a branch that did not measure its variability does not get to tighten it. So no checked floor is touched at all, including the three `updates-*` ones that moved on each of the last two amendments. Check 9z named nine thin surfaces before the rebase (phone-pairing, phone-paired, permission, feedback, memory-setup, memory-no-compiler, setup-sheet, setup-blocked, updates-waiting) — the fifth independent confirmation that shared-markup growth always needs the rebase the notes above prescribe. One new surface, `techy-scope` (18 of 572), declared with a floor of its own and NOT in `cannotBite` because its floor can bite. IT IS WALKED ON `hiring` AND THAT IS CHECK 11'S DOING, not a preference: the sheet is `aria-modal`, so everything behind it is obscured, and the first draft opened `acme` — a conversation no other driver in that file opens — which made seven of that thread's turn nodes reachable-but-measured-nowhere and turned check 11 red, naming all seven. Walking a modal over a thread another surface already measures in full is the condition, and it is now written in the driver. `floorReference.shell` is left at 448/92 as the shrink-compensation reference, as all five amendments before this one left it. AMENDED 2026-09-19 for CEO §61.1, the identity trap made crystal-clear. `phone.js` mounts `#phone-sheet` against document.body on EVERY screen, exactly as `settings-button.js` mounts the universal menu, so its new markup — the identity screen, the two route groups in Urban's own shape, the account line and the phone-watch line on the ready screen, and the control that opens each named address — is SHARED markup and every surface gained the same considered nodes. MEASURED RATHER THAN ASSUMED, the only way that isolates this branch's contribution: the suite was run twice on this machine in the same session, once with `ui/phone.js`, `ui/mock.js`, `tests/contrast.js` and `tests/phone.js` reverted to HEAD and once with all of it in place. The considered delta came back as the single value 22 across all 40 shared surfaces, 40 of 40, so every existing considered floor is raised by exactly 22 and no further. THE CHECKED DELTA WAS 0 ON 38 OF 40. The two exceptions are `technical-view` (148 -> 147) and `techy-nothing-recorded` (118 -> 117), both -1 and both on surfaces this branch does not touch; that is observed variability rather than a change, their committed floors already sit below both readings, and no checked floor is touched — including `saved-work`'s pre-existing slack, for the reason every note above gives. Two new surfaces are declared: `phone-identity` (36 of 634) and `phone-tailscale-ready` (24 of 640), neither in `cannotBite`, because each one's considered margin over the rebased shell (632) is outside the three-node tolerance. `floorReference.shell` is left at 448/92 as the shrink-compensation reference, as all six amendments before this one left it. AMENDED 2026-09-19, SECOND ENTRY OF THE DAY, and this one is a REPAIR rather than a rebase. Check 9z had been red on main since before `ec678bae`, naming fifteen surfaces whose floors the BARE SHELL would clear — repositories, phone-pairing, phone-paired, permission, saved-work, corrections, feedback, company-picker, company-blocked, memory-setup, memory-no-compiler, setup-sheet, setup-blocked, updates-waiting, techy-scope. Measured, the cause is one number: every one of those fifteen sat exactly 54 considered nodes below what it measures, which is 22 from this branch's own markup plus 32 of shared-markup growth that landed without the rebase the notes above prescribe. A floor 54 nodes low is not a floor for a thin surface: its whole margin over the shell is between 4 and 34 nodes. So each of the fifteen is re-derived from THIS run — the one that actually opened it — exactly as 9z's own message prescribes, and every one of them now has a margin over the shell (632) outside the three-node tolerance, so all fifteen can bite and none needs a `cannotBite` entry. ONLY THOSE FIFTEEN ARE TOUCHED, and only their `considered`: the remaining floors carry the same 54-node slack and still bite comfortably, and a branch that measured them once does not get to tighten what it did not measure the variability of — the rule every amendment above this one states. `saved-work`'s checked slack (118 measured against 71 committed) is left exactly where six amendments have left it, for that reason. `floorReference.shell` stays 448/92, the shrink-compensation reference. AMENDED 2026-09-19, THIRD ENTRY OF THE DAY, and this one LOWERS `considered` rather than raising it — the first shrink in this file's history, from four fixes to the phone sheet's own markup (Ray's candidate .11 walk, defects 3.1, 3.2, 3.3 and 4.5). `phone.js` mounts `#phone-sheet` against document.body on EVERY screen, so its markup is shared exactly as the universal settings menu's is, and four paragraphs that used to carry their text as literals in that markup now carry it as nothing until the render fills them: the lead paragraph (one sentence per chosen route rather than one fixed sentence describing the option he did not choose), the Tailscale limit line, and the two forget notes, which became ONE node filled from the device record. One `<h3>` was added for the expiry the screen used to announce by vanishing. MEASURED RATHER THAN ASSUMED, the only way that isolates this branch: the suite was run twice on this machine in the same session, once against a tree at 05ab7a0c with this branch's `ui/phone.js`, `ui/mock.js` and `ui/style.css` absent (exit 0, green, 42 surfaces) and once with all of it in place. THE CONSIDERED DELTA CAME BACK AS THE SINGLE VALUE -8 ACROSS ALL 38 SHARED SURFACES, 38 of 38, so every one of those floors is lowered by exactly 8 and no further. FOUR SURFACES HAVE THEIR OWN NUMBER BECAUSE THE SHEET IS OPEN ON THEM AND the nodes that emptied in the markup are filled by the render there: `phone-identity`, `phone-pairing` and `phone-tailscale-ready` came back at -6 each and are lowered by 6; `phone-paired` came back at exactly 0 and is NOT touched. THE MARGIN OVER THE SHELL IS PRESERVED OR IMPROVED EVERYWHERE, which is what check 9z tests: the shell loses the same 8 as the 38, so their margins are unchanged to the node, and the four phone surfaces' margins GROW by 2, 2, 2 and 8 — which incidentally retires the `phone-paired` note above that recorded its four-node margin as barely biting, now twelve. THE CHECKED DELTA WAS 0 on every surface where both runs reported one, and is re-verified against the rebased run; no `checked` floor is touched, which leaves `saved-work`'s pre-existing slack (118 measured against 71 committed) exactly where eight amendments have left it, for the reason all of them give. `floorReference.shell` stays 448/92, the shrink-compensation reference — and note that the shrink compensation could not have covered this: it triggers on the shell falling below 448 and the shell is at 624, so a shared-markup SHRINK needs this rebase in the same way a shared-markup GROWTH needs the seven above it. AND CHECK 9z TOOK `phone-identity` OFF `cannotBite` ON THE SPOT, which is the mechanism working rather than a thing to pre-empt: that surface was declared unable to prove arrival by count because its margin over the shell was two nodes, inside the three-node tolerance. The shrink above lowered the shell by 8 and that surface by 6, so its margin is FOUR and its floor can bite. The declaration is removed rather than kept as a courtesy — a stale exemption is a guard nobody is getting, in 9z's own words. Its driver still waits on `#phone-identity:not([hidden])`, so it now has both proofs instead of one. AMENDED 2026-09-19, FOURTH ENTRY OF THE DAY, for Urban's phone-flow signoff (G2-G8, G10, G12-G14) — and this one MOVES NO FLOOR, which is the finding rather than an omission. The branch grows shared markup: `phone.js` mounts `#phone-sheet` against document.body on every screen, and it gains one visible label (`Pick a different way` on the pairing screen, G2). MEASURED THE WAY EVERY AMENDMENT ABOVE PRESCRIBES — `contrast.js` run twice on this machine in one session, once against the tree at 2c95c27d before any of this branch's edits existed and once with all of them in place, both exit 0. THE CONSIDERED DELTA CAME BACK AS THE SINGLE VALUE +2 ON 40 OF 42 SURFACES, and the two exceptions are explained rather than tolerated: `phone-tailscale-ready` is +4 considered and +2 checked, because G14 gives the account sentence a `<strong>` on the one surface where that sentence is VISIBLE and therefore measured; `phone-pairing` is +0/+0, because it is the one surface where the new label and the socket dump G5 deleted are both rendered, and they cancel. THE SHELL GREW BY THE SAME +2 (622 -> 624 in these runs), so every surface's MARGIN over it is unchanged to the node on 39 of 41, and the two that move go 12 -> 10 and 10 -> 12 — both far outside the three-node tolerance. Check 9z reported identically before and after: 36 floors proven able to fail, the same 5 declared unable to. A rebase here would raise 42 floors to preserve margins that are already preserved, and would bury a ten-line contrast change in a forty-two-line diff, so nothing is touched. ONE THING THE MEASUREMENT FOUND THAT IS NOT THIS BRANCH'S AND IS NOT FIXED HERE: on 2c95c27d the committed floors already disagree with what the suite measures, in two groups — 17 surfaces sit 2 considered nodes ABOVE their measurement (inside the tolerance, which is why the suite is green) and 25 sit 52 BELOW it, which is the same species of slack the repair amendment above this one fixed for fifteen surfaces. It is recorded here because a branch that measured it once does not get to re-derive forty-two floors it did not measure the variability of — the rule every amendment above states. `floorReference.shell` stays 448/92, the shrink-compensation reference.",
     "tolerance": 3,
     "toleranceWhy": "Three nodes, and the number is bounded from both sides rather than picked. BELOW: the thinnest panel in the set, `first-run-unusable`, contributes 4 measured and 4 considered nodes over the bare shell, so a tolerance of 3 still fails if that panel vanishes — which is the whole job. ABOVE: measured surface-over-shell deltas moved by at most 2 between the 2026-09-06 runner run and this local one, across four days of product change and a different machine, so 3 covers the observed spread with one to spare.",
@@ -40,225 +40,246 @@
       "settings": "The assertiveness popover unhides existing markup: both it and the shell consider 448 nodes. It measures 74 against the shell's 92 because the panel obscures the shell. The driver requires #assertiveness-popover:not([hidden]) and awaits its completed entry animation; an unopened panel fails that wait.",
       "settings-tooltip": "The tooltip is stylesheet-generated content, not a DOM text node. Its node counts equal the shell's 92 of 448. The driver requires an opaque ::after pseudo-element, and check 11b separately requires the authored Settings string to be measured.",
       "setup-account-connect": "The account-type label and select are markup already in index.html's #setup-sheet, hidden until renderProviderAuth reaches a connectable state; the surface considers 464 nodes against the shell's 462 (post audit-D7 chevron spans), two apart and inside the three-node tolerance, so the count floor alone cannot prove arrival. The driver requires #provider-account-kind:not([hidden]), which only turns true once openAccountConnection -> renderProviderAuth sets canConnect for a provider state that is neither connected, unavailable nor connecting.",
-      "quit-question": "The quit question is built at load and unhidden by the event, so it considers 474 nodes against the shell's 472 — two apart, inside the three-node tolerance — and it measures 12 against the shell's 92 because an aria-modal sheet files everything behind it as obscured. No whole-page count can tell \"the driver opened it\" from \"the driver did nothing\" for a surface shaped like that, and saying so is the only honest option. WHAT PROVES THE DRIVER ARRIVED INSTEAD: the driver calls RichQuitQuestion.show and then overlaySettled(#quit-question), which waits on the sheet being unhidden and settled — a driver that never reached the state hangs there rather than passing — and the 12 nodes it measures are the sheet's own four (title, question, and both controls) in both themes, which is exactly what ui/tests/quit-question.js measures independently, in both themes, with the ratios stated: dark 5.78/5.78/5.78/7.68:1, light 6.38/6.38/6.38/4.72:1."
+      "quit-question": "The quit question is built at load and unhidden by the event, so it considers 474 nodes against the shell's 472 — two apart, inside the three-node tolerance — and it measures 12 against the shell's 92 because an aria-modal sheet files everything behind it as obscured. No whole-page count can tell \"the driver opened it\" from \"the driver did nothing\" for a surface shaped like that, and saying so is the only honest option. WHAT PROVES THE DRIVER ARRIVED INSTEAD: the driver calls RichQuitQuestion.show and then overlaySettled(#quit-question), which waits on the sheet being unhidden and settled — a driver that never reached the state hangs there rather than passing — and the 12 nodes it measures are the sheet's own four (title, question, and both controls) in both themes, which is exactly what ui/tests/quit-question.js measures independently, in both themes, with the ratios stated: dark 5.78/5.78/5.78/7.68:1, light 6.38/6.38/6.38/4.72:1.",
+      "quota-work-status": "A single status sentence adds only two nodes across both themes, inside the unchanged three-node tolerance. Its driver waits for #quota-work-status:not([hidden]) and asserts the saved-work sentence before measuring it."
     }
   },
   "surfaceFloors": {
     "shell": {
       "checked": 94,
-      "considered": 528
+      "considered": 584
     },
     "settings-tooltip": {
       "//": "The DOM node counts equal the shell. The separate pseudo-element opacity and generated-content checks prove that the tooltip was reached and measured.",
       "checked": 94,
-      "considered": 528
+      "considered": 584
     },
     "thread": {
       "checked": 106,
-      "considered": 544
+      "considered": 600
     },
     "pending-user-bubble": {
       "//": "Audit-7 row 11. The same thread as `thread`, held at the moment the CEO has pressed Return and the spine has not answered: 8 more nodes measured than the settled walk, which is his bubble, its text and the turn scaffolding around it. Both themes agree on 112/500. The failure this surface exists to catch was `opacity: 0.72` on the whole bubble, 3.09:1 light on his own words against a 4.5:1 floor.",
       "checked": 114,
-      "considered": 556
+      "considered": 612
     },
     "composer-attachments": {
       "//": "CEO §86, 2026-09-24: files on the composer. The `hiring` thread with two chips (a PNG and a PDF), the refusal line for a zip and the drop target raised by a drag over the window. Set from its first run, 2026-09-24, both themes: 126 measured of 620 considered, against the bare shell's 94 of 584 in the same run, so a driver that never reached the tray fails this floor by 29 measured and 33 considered nodes after the 3-node tolerance. The bare shell itself is unchanged by this surface's markup (584 before and after; the drop target's words are written only while a drag is over the window).",
       "checked": 126,
-      "considered": 620
+      "considered": 676
     },
     "corrections": {
       "checked": 46,
-      "considered": 616
+      "considered": 672
     },
     "feedback": {
       "checked": 22,
-      "considered": 592
+      "considered": 648
     },
     "search": {
       "checked": 92,
-      "considered": 616
+      "considered": 672
     },
     "inspector": {
       "checked": 160,
-      "considered": 612
+      "considered": 668
     },
     "technical-view": {
       "checked": 150,
-      "considered": 580
+      "considered": 636
     },
     "unbound": {
       "checked": 98,
-      "considered": 534
+      "considered": 590
     },
     "settings": {
       "//": "74 -> 72 on 2026-09-01, when the app stopped borrowing the platform's typeface and started shipping its own. Inter's metrics are not SF Pro's, so the rail's thread rows sit at slightly different heights, and ONE MORE nav-thread-title now falls underneath the assertiveness popover. Diffed node by node rather than assumed: `considered` is 132 per theme before and after, `invisible` is 77 before and after, and the single lost path is li.nav-thread-item > div.nav-thread-row > button.nav-thread > span.nav-thread-title, which moves from measured into `obscured` (its recorded example goes from \"Partner book review\" to \"Q4 hiring\"). Nothing stopped rendering, which is the failure this floor exists to catch (see mutation 9b in contrast.js: `.nav-thread-title { display: none }`). Check 11 still passes, which is the proof that matters here — every obscured node is measured on some other surface, so no contrast coverage was lost, only relocated.",
       "checked": 76,
-      "considered": 528
+      "considered": 584
     },
     "history-notice": {
       "//": "Added 2026-09-05 with the tolerant ledger reader. The shell walk is 90 of 408; this is 94 of 412, and the delta is exactly the notice: two paragraphs, both themes, both MEASURED rather than filed invisible or obscured. Computed before the walk ran and unchanged by it: headline --attention on --surface-raised is 7.05:1 dark and 6.19:1 light, detail --ink on --surface-raised is 13.02:1 dark and 17.02:1 light, and the --attention border (a non-text indicator, floor 3:1) is 7.05:1 / 7.88:1 dark and 6.19:1 / 5.42:1 light against the panel and the ground behind it. Nothing here is exempt; the sentence explaining why part of his history is missing is the last text in this app anyone should have to squint at.",
       "checked": 98,
-      "considered": 532
+      "considered": 588
     },
     "opening-screen": {
       "checked": 0,
-      "considered": 528
+      "considered": 584
     },
     "updates-available": {
       "checked": 138,
-      "considered": 532
+      "considered": 588
     },
     "updates-downloading": {
       "checked": 136,
-      "considered": 530
+      "considered": 586
     },
     "updates-failed": {
       "checked": 140,
-      "considered": 532
+      "considered": 588
     },
     "updates-waiting": {
       "//": "RE-DERIVED 2026-09-20, and the reason is not this surface at all: the phone sheet's markup lives in the always-present shell, so adding the screen the phone's `They do not match` leaves behind (Ray's nightly `.8` defect 1) raised EVERY surface's `considered` by four — the bare shell from 558 to 562 and this surface from 562 to 566. This row's margin over the shell was the minimum four, so the bare shell drew level with its floor and check 9z correctly reported that a driver which never reached this state would now pass. The floor is re-derived from that run and is the measurement itself, 566, which restores the margin over the bare shell; nothing about what this surface renders changed.",
       "checked": 96,
-      "considered": 588
+      "considered": 644
     },
     "company-picker": {
       "checked": 44,
-      "considered": 600
+      "considered": 656
     },
     "company-blocked": {
       "checked": 82,
-      "considered": 600
+      "considered": 656
     },
     "memory-setup": {
       "//": "RE-DERIVED 2026-09-20, and the reason is not this surface at all: the phone sheet's markup lives in the always-present shell, so adding the screen the phone's `They do not match` leaves behind (Ray's nightly `.8` defect 1) raised EVERY surface's `considered` by four — the bare shell from 558 to 562 and this surface from 562 to 566. This row's margin over the shell was the minimum four, so the bare shell drew level with its floor and check 9z correctly reported that a driver which never reached this state would now pass. The floor is re-derived from that run and is the measurement itself, 566, which restores the margin over the bare shell; nothing about what this surface renders changed.",
       "checked": 16,
-      "considered": 588
+      "considered": 644
     },
     "memory-no-compiler": {
       "//": "RE-DERIVED 2026-09-20, and the reason is not this surface at all: the phone sheet's markup lives in the always-present shell, so adding the screen the phone's `They do not match` leaves behind (Ray's nightly `.8` defect 1) raised EVERY surface's `considered` by four — the bare shell from 558 to 562 and this surface from 562 to 566. This row's margin over the shell was the minimum four, so the bare shell drew level with its floor and check 9z correctly reported that a driver which never reached this state would now pass. The floor is re-derived from that run and is the measurement itself, 566, which restores the margin over the bare shell; nothing about what this surface renders changed.",
       "checked": 14,
-      "considered": 588
+      "considered": 644
     },
     "setup-sheet": {
       "checked": 24,
-      "considered": 594
+      "considered": 650
     },
     "setup-account-connect": {
       "checked": 18,
-      "considered": 530
+      "considered": 586
     },
     "setup-blocked": {
       "checked": 22,
-      "considered": 594
+      "considered": 650
     },
     "voice-model-offer": {
       "//": "the offer row: the sentence, the attention dot and the download control. ADDED 2026-09-17 with the speech-model provisioning work; walked with NO audio device open, which is why this panel is measurable where the listening row is not.",
       "checked": 100,
-      "considered": 530
+      "considered": 586
     },
     "voice-model-progress": {
       "//": "the transfer row: the progress line plus the bar fill and track, which are the only non-text progress indicators this suite measures outside the update row. ADDED 2026-09-17 with the speech-model provisioning work; walked with NO audio device open, which is why this panel is measurable where the listening row is not.",
       "checked": 100,
-      "considered": 532
+      "considered": 588
     },
     "voice-model-failed": {
       "//": "the refusal row: the sentence and the retry control it must render beside. ADDED 2026-09-17 with the speech-model provisioning work; walked with NO audio device open, which is why this panel is measurable where the listening row is not.",
       "checked": 100,
-      "considered": 534
+      "considered": 590
     },
     "entity-view": {
       "checked": 114,
-      "considered": 556
+      "considered": 612
     },
     "thread-menu": {
       "checked": 102,
-      "considered": 534
+      "considered": 590
     },
     "techy-nothing-recorded": {
       "checked": 120,
-      "considered": 550
+      "considered": 606
     },
     "first-run-notice": {
       "//": "Added 2026-09-06 with the first-run notice. The shell walk is 96 of 418 in the same run; this is 106 of 424, and the delta is exactly the panel — a headline, two paragraphs and two controls, both themes, every one MEASURED rather than filed invisible, obscured or unprovable. Computed against the surfaces they are actually painted on before the walk ran, and unchanged by it: headline and body --ink on --surface-raised are 13.02:1 dark and 17.02:1 light; the consequence line --ink-soft on the same panel is 6.09:1 dark and 6.24:1 light; the Start label --on-gold on --accent is 7.68:1 dark and 4.72:1 light with its fill at 6.87:1 / 3.60:1 against the panel; the Not now label is --ink and its edge --line-control at 4.09:1 / 3.82:1; and the panel's own --line-control border, a non-text indicator with a 3:1 floor, is 4.57:1 dark and 3.35:1 light against the pane behind it. NOTHING HERE IS EXEMPT AND NOTHING CLAIMS TO BE — including the consequence line, which is the only place the effect of the second control is stated, and which is exactly the sort of line an exemption gets claimed for.",
       "checked": 104,
-      "considered": 534
+      "considered": 590
     },
     "first-run-unusable": {
       "//": "Added 2026-09-06 beside it, and a SEPARATE surface rather than the same one twice: this state paints different ink. 100 of 422 against the shell's 96 of 418 — two paragraphs, both themes. The headline and the panel border are --attention, the app's one 'needs your hand' color, computed 7.05:1 dark and 6.19:1 light on the panel and 7.88:1 / 5.42:1 against the pane behind it; the body is --ink at 13.02:1 / 17.02:1. It draws NO control, so it contributes no indicator beyond that border — which is the point of the state rather than an omission: no button could fix a file the app cannot read.",
       "checked": 98,
-      "considered": 532
+      "considered": 588
     },
     "repositories": {
       "checked": 22,
-      "considered": 598
+      "considered": 654
     },
     "permission": {
       "checked": 20,
-      "considered": 588
+      "considered": 644
     },
     "saved-work": {
       "checked": 71,
-      "considered": 612
+      "considered": 668
     },
     "saved-work-chip": {
       "checked": 106,
-      "considered": 544
+      "considered": 600
     },
     "quit-question": {
       "//": "The quit question (background-work spec 2.5/2.5a). 12 measured nodes across both themes: the title, the question and the two controls, each measured in dark and light, plus the two the shell shares with every surface. Its own suite, ui/tests/quit-question.js, states the ratios; this floor is what stops a sheet that has stopped rendering from reading as clean.",
       "checked": 14,
-      "considered": 530
+      "considered": 586
     },
     "phone-pairing": {
       "//": "The pairing screen. `checked` 56 is lower than the bare shell's 92 because the sheet covers the shell it opened over, so the floor that bites for this surface is the `considered` one: 580 against the shell's 506 is a margin of 74, far outside the three-node tolerance, so check 9z's control passes without a `cannotBite` declaration. Both numbers fell under CEO §61 — `considered` by 58 with the rest of the sheet's shared markup, `checked` by 14, which is the only large visible drop in the set: the two unverified-certificate warnings, the trust address and the sixteen certificate taps were all ON this screen rather than hidden in the shared markup.",
       "checked": 58,
-      "considered": 600
+      "considered": 656
     },
     "phone-paired": {
       "//": "The same panel once a phone is paired. Its margin over the shell was four nodes when this floor was first set and twelve after the 2026-09-19 shrink; it is 64 now (considered 570 against the shell's 506) because §61 took 66 nodes out of the shell and 68 out of this surface. `checked` is untouched at 22: the card's own lines are filled by the render from the device record, and the two that changed wording did not change in number. Its driver's real proof of arrival is still waiting for `#phone-device-name` to carry text, which only the paired state paints.",
       "checked": 24,
-      "considered": 590
+      "considered": 646
     },
     "techy-scope": {
       "//": "§7.1's three-way scope sheet (CEO, 2026-09-18), walked on `hiring` — see the driver's own note for why not `acme`. 18 of 572 across both themes: NINE measured nodes per theme, which is the whole sheet (title, three option labels, Cancel, the confirm button, and the three radio indicators) and nothing else, because an `aria-modal` sheet files everything behind it as obscured — the same shape `quit-question` has. FEWER measured nodes than the bare shell's 92, so `checked` cannot prove arrival here; `considered` can and does, at 572 against the shell's 556, which is 16 clear and well outside the three-node tolerance. That is why this surface needs no `cannotBite` entry: a driver that never opened the sheet leaves 556 against a floor of 569 and fails.",
       "checked": 18,
-      "considered": 598
+      "considered": 654
     },
     "phone-identity": {
       "//": "CEO §61.1's identity screen, which since §61 is the FIRST screen of the sheet rather than a screen behind a chosen route — its driver no longer clicks anything to reach it, and that is the arrival proof that matters here. 34 measured of 572 across both themes. `checked` 34 is lower than the bare shell's 92 because the sheet covers the shell it opened over, so the floor that bites is `considered`: 572 against the shell's 506 is a margin of 66, far outside the three-node tolerance — it was 2 when this surface was declared unable to bite and 4 after the first shrink. `checked` fell by 2 under §61: the `Pick a different way` beside `I understand`, in both themes. THE NOTE THIS ROW USED TO CARRY IS RETIRED WITH ITS SUBJECT: it recorded that this was the only surface where a control's BORDER separated two decisions (`.phone-route > button` at `--line-control`, 3.79:1 dark and 4.06:1 light). §61 removed the screen with two decisions on it. The token still carries that job on `.desk-btn` itself, measured at the same ratios from the rendered pixels — Urban's G6 — because on the paired card that border is the only thing that makes a button a button.",
       "checked": 36,
-      "considered": 594
+      "considered": 650
     },
     "phone-rejected": {
       "//": "The screen the phone's `They do not match` leaves behind — Ray's nightly `.8` walk in the test VM, defect 1. Measured in one run on 2026-09-20: 104 of 566 across both themes, against a bare shell of 92 of 562 in the same run. `considered` is the absolute count and it is the number that bites here: 566 against the shell's 562 is a margin of 4, outside the three-node tolerance, so a driver that never reached this state fails check 9 — which is why no `cannotBite` declaration is needed and why check 9z passes with this row in. `checked` is the surface's OWN contribution, 12, on the same footing as the three rows below it: the shell's 92 measurable nodes are counted on every surface, and holding this figure absolute would turn any future edit to the sheet's shared markup into a red run on this one surface alone. The screen carries one heading, one sentence and one control; `tests/phone.js` check 9f measures that sentence itself in both themes (5.78:1 dark, 6.38:1 light at 16px) rather than leaving it to the walk's node count.",
       "checked": 14,
-      "considered": 588
+      "considered": 644
     },
     "phone-tailscale-ready": {
       "//": "The ready screen with an account known and a phone that is registered and switched off — the state this Mac was actually in on 2026-09-19. 24 measured of 570 across both themes: the tailnet name in monospace, the sentence naming the provider and login name, the exposure note, the phone-watch line and the one control. 570 against the shell's 506 is a margin of 64, far outside the three-node tolerance, so the floor bites without a `cannotBite` declaration. `checked` fell by 2 under CEO §61 — the `Pick a different way` beside `Set my phone up`, in both themes — which leaves `Set my phone up` and the account line it sits under.",
       "checked": 24,
-      "considered": 590
+      "considered": 646
     },
     "phone-connect-setup": {
       "//": "Measured in both themes with #phone-connect and the state-specific control visible. The bare shell is 94 checked / 580 considered; this floor must reject it under unchanged tolerance 3.",
       "checked": 114,
-      "considered": 588
+      "considered": 644
     },
     "phone-connect-pairing": {
       "//": "Measured in both themes with #phone-connect and the state-specific control visible. The bare shell is 94 checked / 580 considered; this floor must reject it under unchanged tolerance 3.",
       "checked": 128,
-      "considered": 602
+      "considered": 658
     },
     "phone-connect-recovery": {
       "//": "Measured in both themes with #phone-connect and the state-specific control visible. The bare shell is 94 checked / 580 considered; this floor must reject it under unchanged tolerance 3.",
       "checked": 120,
-      "considered": 600
+      "considered": 656
     },
     "phone-awaiting-mac": {
       "//": "The card a phone reaches, waiting for the press on this Mac (Sage's pairing review F1): the six words derived over the key that phone registered, and They match / They do not match. Set from the run that opened it; its considered margin over the shell (584) is 18, outside the three-node tolerance, so it bites without a cannotBite entry.",
       "checked": 110,
-      "considered": 602
+      "considered": 658
+    },
+    "quota-offer": {
+      "checked": 100,
+      "considered": 650,
+      "//": "Initial conservative floor for a new driver; replace with observed counts after its first complete walk."
+    },
+    "quota-approved": {
+      "checked": 100,
+      "considered": 650,
+      "//": "Initial conservative floor for a new driver; replace with observed counts after its first complete walk."
+    },
+    "quota-uncertain": {
+      "checked": 100,
+      "considered": 650,
+      "//": "Initial conservative floor for a new driver; replace with observed counts after its first complete walk."
+    },
+    "quota-work-status": {
+      "checked": 96,
+      "considered": 642,
+      "//": "The pause label adds two text nodes across both themes; its driver additionally asserts the visible saved-work sentence."
     }
   },
   "signatures": {}

@@ -305,11 +305,50 @@ async function assertStillHiring(p, surface) {
 // same everywhere, which is what makes adding a surface one entry rather than one suite.
 // ---------------------------------------------------------------------------------------
 
+const quotaNow = Date.now();
+const quotaOffer = { id: "launch", label: "Claude weekly reset", remaining: 1,
+  startsAt: quotaNow - 86400000, expiresAt: quotaNow + 86400000,
+  clears: ["five_hour", "seven_day"], usableNow: true, requiresLimit: false };
+const quotaReading = {state: "fresh", checkedAt: quotaNow, retryAt: null, message: null,
+  windows: [{id: "five_hour", label: "Five-hour", usedPercent: 94, resetsAt: quotaNow + 7200000, durationMs: 18000000},
+    {id: "seven_day", label: "Weekly", usedPercent: 32, resetsAt: quotaNow + 345600000, durationMs: 604800000}],
+  resets: {state: "fresh", checkedAt: quotaNow, offers: [quotaOffer], approval: null, lastAttempt: null, weeklyThreshold: 99}};
+async function openQuota(p) {
+  await p.click("#set-btn");
+  await p.check("#set-techy");
+  await p.waitForFunction(() => !document.getElementById("set-quota-open").hidden || !document.getElementById("techy-scope").hidden);
+  if (await p.locator("#techy-scope").isVisible()) await p.click("#techy-scope-confirm");
+  if (await p.locator("#set-menu").isHidden()) await p.click("#set-btn");
+  await p.click("#set-quota-open");
+  await p.waitForSelector(".quota-window");
+  await overlaySettled(p, "#quota-sheet");
+}
+
 const SURFACES = [
   {
     name: "shell",
     what: "the shell as it opens: rail, scope line, first turn, composer",
     drive: async () => {},
+  },
+  ...["offer", "approved", "uncertain"].map(state => ({
+    name: "quota-" + state,
+    what: "desktop quota windows and the " + state + " weekly reset state",
+    preset: {quota: {...quotaReading, resets: {...quotaReading.resets,
+      approval: state === "approved" ? {offer: quotaOffer, approvedAt: quotaNow, weeklyThreshold: 99} : null,
+      lastAttempt: state === "uncertain" ? {grantId: "launch", outcome: "uncertain"} : null}}},
+    drive: async p => {
+      await openQuota(p);
+      await p.waitForSelector(state === "approved" ? "#quota-reset-revoke" : state === "offer" ? "#quota-reset-prepare-launch" : ".quota-reset-result");
+    },
+  })),
+  {
+    name: "quota-work-status",
+    what: "a paused agent's conversation status, without technical quota controls",
+    preset: {quotaActivity: {held: [{kind: "agent", id: "agt_frank_1", name: "Frank", threadId: "general", sinceAt: quotaNow}], released: []}},
+    drive: async p => {
+      await p.waitForSelector("#quota-work-status:not([hidden])");
+      assert((await p.locator("#quota-work-status").innerText()).includes("Their work is saved."));
+    },
   },
   {
     name: "repositories",
