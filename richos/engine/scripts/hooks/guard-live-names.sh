@@ -74,17 +74,19 @@ ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
 INPUT="$(cat)"
 
+ENTITY_ROOT=""
+resolve_entity_root "$INPUT" && ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
+
 _UE_LIB="$SCRIPT_DIR/../lib/unevaluated-notice.sh"
 if [ -f "$_UE_LIB" ]; then
     # shellcheck source=../lib/unevaluated-notice.sh
     . "$_UE_LIB"
-    unevaluated_or_continue "guard-live-names.sh" "$INPUT" "" \
+    unevaluated_or_continue "guard-live-names.sh" "$INPUT" \
+        "${ENTITY_ROOT:-${SEAT_ROOT:-${RICHOS_ENTITY_ROOT_RESOLVED:-}}}" \
         "whether a live agent of another session already holds this spawn's name"
 fi
 
-if resolve_entity_root "$INPUT"; then
-    ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
-else
+if [ -z "$ENTITY_ROOT" ]; then
     exit 0
 fi
 
