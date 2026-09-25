@@ -104,8 +104,60 @@ def finish_group(process):
         raise CommandCleanupError(f"owned command group {process.pid} did not exit after bounded cleanup")
 
 
-def owned_run(args, *, timeout=None, **kwargs):
-    """subprocess.run's result shape with bounded, owned-group cleanup on all exits."""
+class GateStopped(RuntimeError):
+    """A gate's command was not started because another gate already refused the build."""
+
+
+class OwnedGroups:
+    """The process groups this run started and still owns, so one failure can stop the rest.
+
+    Only groups registered here at spawn are ever signalled -- the pid Popen returned, never
+    one found by name. `stop()` sends each live group the SIGTERM that finish_group() sends
+    first anyway; the thread that owns the command then sees it end and runs finish_group()'s
+    bounded TERM-then-KILL cleanup exactly as it does on a timeout. Cleanup commands (the UI
+    suite's `git status`/`git checkout` that put the source tree back) are registered as
+    such and are left to finish: tidying up after a stop is not something a stop cancels.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._live = {}
+        self.stopping = False
+
+    def add(self, process, cleanup=False):
+        with self._lock:
+            self._live[process.pid] = (process, cleanup)
+            late = self.stopping and not cleanup
+        if late:
+            # Spawned in the instant between the stop and this registration: it goes too.
+            self._term(process)
+
+    def discard(self, process):
+        with self._lock:
+            self._live.pop(process.pid, None)
+
+    def stop(self):
+        with self._lock:
+            self.stopping = True
+            live = [process for process, cleanup in self._live.values() if not cleanup]
+        for process in live:
+            self._term(process)
+
+    @staticmethod
+    def _term(process):
+        if process.returncode is not None:
+            return  # Already reaped by its owner: the id is no longer ours to signal.
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
+def owned_run(args, *, timeout=None, groups=None, cleanup=False, **kwargs):
+    """subprocess.run's result shape with bounded, owned-group cleanup on all exits.
+
+    `groups`, when given, is the run's OwnedGroups: the command is registered there for as
+    long as it lives, so a failing gate elsewhere can stop it (Runner.run_gates)."""
     library = Path(__file__).resolve().parents[2] / "engine/scripts/lib"
     worker = library / "worker_tokens.py"
     # The worker wrapper owns its command, but does not watch this coordinator.
@@ -116,12 +168,16 @@ def owned_run(args, *, timeout=None, **kwargs):
                                 sys.executable, str(worker), "machine", "--", *map(str, args)],
                                start_new_session=True, **kwargs)
     try:
+        if groups is not None:
+            groups.add(process, cleanup)
         stdout, stderr = process.communicate(timeout=timeout)
         return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
     finally:
         try:
             finish_group(process)
         finally:
+            if groups is not None:
+                groups.discard(process)
             for stream in (process.stdout, process.stderr):
                 if stream is not None:
                     stream.close()
@@ -247,6 +303,44 @@ UI_SHARDS = 4
 # the coverage job reconciled all four shards green. There is nothing to quarantine today.
 UI_QUARANTINE = ()
 
+# ── How much runs at once: two decisions the operator makes on every build ───────────────
+#
+# THE CEO, 2026-09-25: "why the fuck do I fucking have to wait for ONE FUCKING HOUR WHEN THE
+# WHOLE FUCKING MAC IS FREE???" -- and, asked what happens with ten engineers working: the
+# number is chosen when the build is started, from what is running on the Mac at the time.
+# Then: "how do I know that you won't fuck this up next time?" So there is NO DEFAULT.
+# `build`, `release` and `stable` refuse to start unless both are named on the command line,
+# and the run log's first lines say what was chosen and by whom. A forgotten decision is a
+# refusal nobody can miss, not an hour of a free Mac running things in a line.
+#
+#   --gates-at-once N|all   how many of the gates below run at the same time. 1 is the old
+#                           order exactly (one after another, inline, in GATE ORDER below);
+#                           `all` starts every gate whose inputs are ready.
+#   --simulated-phones N    how many prepared iPhone simulators the suites may lease at once
+#                           (testdevices.py pool_leases). Handed to the script-suites gate as
+#                           RICHOS_IOS_POOL_LEASES; every other caller keeps one.
+#
+# Neither replaces a backstop. Every command still takes a machine worker token
+# (worker_tokens.py), a simulator boot still passes simulator_budget.py's live/boot limits
+# and its CPU/memory check, and cargo still serializes builds on one target directory.
+GATES_AT_ONCE_FLAG = "--gates-at-once"
+SIMULATED_PHONES_FLAG = "--simulated-phones"
+SIMULATED_PHONES_ENV = "RICHOS_IOS_POOL_LEASES"
+GATE_COMMANDS = ("build", "release", "stable")
+
+# WHICH GATE CONSUMES WHAT ANOTHER GATE PRODUCES. Everything not listed here reads nothing
+# another gate writes and starts at once; these wait, and only for the gates named. The order
+# of the gates themselves (the old one-after-another order, which `--gates-at-once 1` keeps)
+# is written in gates().
+GATE_AFTER = {
+    # `lint.sh --all --suite-results` reads the script-suites receipt to skip the fast lint
+    # that lint.test.sh already ran in this build (lint/driver.py fast_was_run).
+    "gates/lint-tauri": ("gates/script-suites",),
+    # `named-persons.sh --tree` scans the tree that ships, and the UI suite rewrites committed
+    # screenshots in that tree until restore_source_tree() puts them back.
+    "gates/privacy-sweep": (UI_SUITE_GATE,),
+}
+
 # The inside of the one long `nightly.py build` step, matched IN ORDER against the lines
 # its children stream past TimestampedLog, so the split is readable without coupling this
 # script to a child's internals beyond these strings.
@@ -307,7 +401,8 @@ class TimestampedLog:
     SENTINEL = "richos-nightly-log-sync-"
 
     def __init__(self, path, milestones=()):
-        self.file = path.open("w")
+        self.path = Path(path)
+        self.file = self.path.open("w")
         read_fd, self._write_fd = os.pipe()
         self._reader = os.fdopen(read_fd, "rb")
         self._milestones = list(milestones)
@@ -315,6 +410,7 @@ class TimestampedLog:
         self._armed = False
         self._awaited = None
         self._lock = threading.Lock()
+        self._file_lock = threading.Lock()
         self._synced = threading.Event()
         self.seen = []
         self._thread = threading.Thread(target=self._pump, daemon=True)
@@ -333,8 +429,10 @@ class TimestampedLog:
                     if re.search(pattern, line):
                         self.seen.append((name, now))
                         self._next += 1
-            self.file.write(f"{stamp(now)} {line}\n")
-        self.file.flush()
+            with self._file_lock:
+                self.file.write(f"{stamp(now)} {line}\n")
+        with self._file_lock:
+            self.file.flush()
 
     def fileno(self):
         """Every existing `stdout=self.log` / `stderr=self.log` call site keeps working."""
@@ -371,6 +469,19 @@ class TimestampedLog:
         """
         os.write(self._write_fd, text.encode("utf-8", "replace"))
 
+    def append_verbatim(self, text):
+        """Put lines that are ALREADY stamped straight into the file, in one piece.
+
+        A gate that ran beside others wrote its own stamped log (Runner.run_gates); this is
+        how that log becomes one unbroken section of the run log, every line keeping the time
+        it was written rather than the time it was copied. Everything already in the pipe is
+        written first (sync), so the section lands after the lines that announced it.
+        """
+        self.sync()
+        with self._file_lock:
+            self.file.write(text if not text or text.endswith("\n") else text + "\n")
+            self.file.flush()
+
     def close(self):
         os.close(self._write_fd)
         self._thread.join(timeout=30)
@@ -383,6 +494,28 @@ class TimestampedLog:
     def __exit__(self, *_):
         self.close()
         return False
+
+
+class _BufferedGateLog:
+    """A gate's own log when the run log is a plain stream rather than a TimestampedLog.
+
+    It has a real descriptor, because command() hands the log to a child as its stdout.
+    """
+
+    def __init__(self):
+        self._file = tempfile.TemporaryFile()
+
+    def fileno(self):
+        return self._file.fileno()
+
+    def write(self, text):
+        os.write(self._file.fileno(), text.encode("utf-8", "replace"))
+
+    def read(self):
+        self._file.seek(0)
+        text = self._file.read().decode("utf-8", "replace")
+        self._file.close()
+        return text
 
 
 def private_file(path):
@@ -552,6 +685,9 @@ GATE_SET_PER_STEP = (
     "RICHOS_IOS_POOL_WAIT",
     # The workspace-spec mutation pass, the same ruling; set at the workspace-mutants gate.
     "RICHOS_FOURTEEN_MUTANTS",
+    # How many prepared-simulator leases the pool hands out at once (testdevices.py
+    # pool_leases): the operator's `--simulated-phones`, set at the script-suites call site.
+    SIMULATED_PHONES_ENV,
 )
 
 
@@ -649,7 +785,12 @@ def exclusive(state):
 
 
 class Runner:
-    def __init__(self, repo, state, env, log, credentials=None):
+    def __init__(self, repo, state, env, log, credentials=None, gates_at_once=1,
+                 simulated_phones=1, chosen_by=None):
+        # What runs in a gate's own thread -- its phase and its log -- is per thread, so gates
+        # running side by side never write into each other's section or claim each other's
+        # deadline. Outside a gate thread both are the run's own.
+        self._local = threading.local()
         self.repo, self.state, self.env, self.log = repo, state, env, log
         # Merged in only where `credentials=True` says a step signs or notarizes.
         self.credentials = dict(credentials or {})
@@ -658,6 +799,37 @@ class Runner:
         self.skipped = {}
         self.started = time.time()
         self.active_phase = None
+        # The operator's two decisions (GATES_AT_ONCE_FLAG, SIMULATED_PHONES_FLAG). main()
+        # refuses a gate-running command that does not name both; 1 and 1 here is what a
+        # Runner built by hand gets, which is the old behavior exactly.
+        self.gates_at_once = gates_at_once
+        self.simulated_phones = simulated_phones
+        self.chosen_by = chosen_by
+        self.groups = OwnedGroups()
+
+    @property
+    def log(self):
+        return getattr(self._local, "log", None) or self._log
+
+    @log.setter
+    def log(self, value):
+        self._log = value
+
+    @property
+    def active_phase(self):
+        return getattr(self._local, "phase", None)
+
+    @active_phase.setter
+    def active_phase(self, value):
+        self._local.phase = value
+
+    def record_settings(self):
+        """The run log's first lines: what runs at once, and who decided it."""
+        who = self.chosen_by or "whoever constructed this Runner (no command line)"
+        self.announce(f"Gates at once: {self.gates_at_once} "
+                      f"({GATES_AT_ONCE_FLAG} {self.gates_at_once}, chosen by {who})")
+        self.announce(f"Simulated phones at once: {self.simulated_phones} "
+                      f"({SIMULATED_PHONES_FLAG} {self.simulated_phones}, chosen by {who})")
 
     def announce(self, text):
         """Say it on the terminal AND in the run log, so neither has to be read beside
@@ -736,7 +908,10 @@ class Runner:
         self.announce(f"  {'total'.ljust(width)} : {time.time() - self.started:7.1f}s")
 
     def command(self, *args, cwd=None, capture=False, timeout=None, credentials=False,
-                env_extra=None):
+                env_extra=None, cleanup=False):
+        if self.groups.stopping and not cleanup:
+            raise GateStopped(f"{self.active_phase or Path(str(args[0])).name} was stopped: "
+                              "another gate already refused this build")
         env = {**self.env, **self.credentials} if credentials else self.env
         # A value this build states about ONE step, never a channel for the operator's
         # shell: everything in `env_extra` is written literally at the call site.
@@ -746,7 +921,8 @@ class Runner:
             result = owned_run([str(a) for a in args], cwd=cwd or self.source,
                                env=env, stdin=subprocess.DEVNULL, text=True,
                                stdout=subprocess.PIPE if capture else self.log,
-                               stderr=self.log, timeout=timeout)
+                               stderr=self.log, timeout=timeout,
+                               groups=self.groups, cleanup=cleanup)
         except CommandCleanupError as error:
             label = self.active_phase or Path(str(args[0])).name
             raise CommandCleanupError(f"{label} cleanup failed (command budget {timeout}s): {error}") from None
@@ -1030,7 +1206,8 @@ class Runner:
         # message with a git error -- losing the only sentence that says what actually
         # happened. Tidying up is never allowed to become the reported failure.
         try:
-            dirty = self.command("git", "status", "--porcelain", cwd=self.source, capture=True, timeout=CLEANUP_TIMEOUT)
+            dirty = self.command("git", "status", "--porcelain", cwd=self.source, capture=True,
+                                 timeout=CLEANUP_TIMEOUT, cleanup=True)
         except (RuntimeError, OSError) as error:
             self.announce(f"  could not check whether {who} left its checkout dirty: {error}")
             return
@@ -1044,7 +1221,8 @@ class Runner:
                       "not a file to re-commit from here; if it differs run to run, it belongs "
                       "in richos/app/ui/tests/lib/shot-stability.js with its cause and bound.")
         try:
-            self.command("git", "checkout", "--", ".", cwd=self.source, timeout=CLEANUP_TIMEOUT)
+            self.command("git", "checkout", "--", ".", cwd=self.source, timeout=CLEANUP_TIMEOUT,
+                         cleanup=True)
         except (RuntimeError, OSError) as error:
             # Say it plainly rather than swallowing it: the next build will refuse to start
             # and this line is what tells somebody why.
@@ -1077,80 +1255,105 @@ class Runner:
         # notary key answers questions the suites ask precisely because the answer
         # should be absent. See split_credentials() and package-app.test.sh section E.
         self.announce("Running core, updater and packaging checks...")
-        # FIRST, AND IT COSTS A QUARTER OF A SECOND. Every step a release performs and an
-        # ordinary day does not -- the version written into the manifest, the endpoint
-        # compiled into the binary, the candidate's digests, the updater metadata, the
-        # CEO's promotion record -- exercised against a throwaway directory before a
-        # single crate is compiled. See `nightly.py`'s `release_smoke` for what is in it
-        # and what is deliberately not.
-        #
-        # AHEAD OF `cargo test` DELIBERATELY. The gates below already put the cheap
-        # refusals first; this is the cheapest refusal there is, and the class it catches
-        # -- a release-only step that rotted since the last release -- would otherwise be
-        # found forty minutes in, by the release that needed it. It is NEVER skipped for a
-        # candidate: skipping is for work whose inputs are unchanged, and this gate's
-        # input is the release path itself.
-        with self.phase("gates/release-smoke"):
-            self.command(sys.executable, self.source / SCRIPTS / "nightly.py",
-                         "release-smoke", "--out", self.state / "release-smoke",
-                         timeout=GATE_BUDGETS["gates/release-smoke"])
-        if checks_done_at_land:
-            self.skip(LAND_PROVEN_GATE,
-                      f"the land already ran `cargo test -p richos-core` on {checks_done_at_land}, "
-                      "which is the commit this run fetched")
-        else:
+        results = self.state / SUITE_RESULTS
+
+        # FIRST IN THE ORDER, AND IT COSTS A QUARTER OF A SECOND. Every step a release
+        # performs and an ordinary day does not -- the version written into the manifest,
+        # the endpoint compiled into the binary, the candidate's digests, the updater
+        # metadata, the CEO's promotion record -- exercised against a throwaway directory
+        # before a single crate is compiled. See `nightly.py`'s `release_smoke` for what is
+        # in it and what is deliberately not. It is NEVER skipped for a candidate: skipping
+        # is for work whose inputs are unchanged, and this gate's input is the release path
+        # itself. With gates side by side it starts with the rest and still refuses first.
+        def release_smoke():
+            with self.phase("gates/release-smoke"):
+                self.command(sys.executable, self.source / SCRIPTS / "nightly.py",
+                             "release-smoke", "--out", self.state / "release-smoke",
+                             timeout=GATE_BUDGETS["gates/release-smoke"])
+
+        def core_tests():
+            if checks_done_at_land:
+                self.skip(LAND_PROVEN_GATE,
+                          f"the land already ran `cargo test -p richos-core` on {checks_done_at_land}, "
+                          "which is the commit this run fetched")
+                return
             with self.phase(LAND_PROVEN_GATE):
                 self.command("cargo", "test", "--locked", "--manifest-path",
                              "richos/app/Cargo.toml", "-p", "richos-core",
                              timeout=GATE_BUDGETS[LAND_PROVEN_GATE])
-        with self.phase("gates/updater-tests"):
-            self.command("cargo", "test", "--locked", "--manifest-path",
-                         "richos/app/crates/richos-user-update/Cargo.toml",
-                         timeout=GATE_BUDGETS["gates/updater-tests"])
-        results = self.state / SUITE_RESULTS
-        with self.phase("gates/script-suites"):
-            # Every one of these is written literally at this call site rather than taken
-            # from the operator's shell, for the same reason DECLARED_GAPS is: a stray
-            # export must not be able to hold back a suite or skip one.
-            extra = {"RUN_TESTS_DECLARED_GAPS": DECLARED_GAPS,
-                     # The iPhone UI tests on the middle screen size run HERE, before every
-                     # nightly, and nowhere on a land (CEO, 2026-09-23, "Only before
-                     # nightlies"). A failure fails this gate and so stops the nightly.
-                     "RICHOS_NATIVE_IOS_APP_A8": "1",
-                     # native-ios-app, native-ios-ui and native-ios-share run side by side here
-                     # and the machine admits one prepared-simulator lease at a time; A8 alone
-                     # holds it about 26 minutes. With the default 300 s wait, whichever suite
-                     # waited failed (run 20260925T190759Z-2b4b0a7e: A8 and share's S7 both gave
-                     # up at 300 s). Waiting up to this gate's own deadline queues them instead.
-                     "RICHOS_IOS_POOL_WAIT": str(GATE_BUDGETS["gates/script-suites"])}
-            if skip_unchanged:
-                extra["RUN_TESTS_SKIP_UNCHANGED"] = "1"
-            args = ["bash", self.source / SCRIPTS / "run-tests.sh",
-                    "--results-out", results]
-            if no_host_screen:
-                args.append("--no-host-screen")
-            self.command(*args, env_extra=extra, timeout=GATE_BUDGETS["gates/script-suites"])
-        with self.phase("gates/lint-tauri"):
-            self.command("bash", self.source / SCRIPTS / "lint.sh", "--all",
-                         "--suite-results", results, timeout=GATE_BUDGETS["gates/lint-tauri"])
+
+        def updater_tests():
+            with self.phase("gates/updater-tests"):
+                self.command("cargo", "test", "--locked", "--manifest-path",
+                             "richos/app/crates/richos-user-update/Cargo.toml",
+                             timeout=GATE_BUDGETS["gates/updater-tests"])
+
+        def script_suites():
+            with self.phase("gates/script-suites"):
+                # Every one of these is written literally at this call site rather than taken
+                # from the operator's shell, for the same reason DECLARED_GAPS is: a stray
+                # export must not be able to hold back a suite or skip one.
+                extra = {"RUN_TESTS_DECLARED_GAPS": DECLARED_GAPS,
+                         # The iPhone UI tests on the middle screen size run HERE, before every
+                         # nightly, and nowhere on a land (CEO, 2026-09-23, "Only before
+                         # nightlies"). A failure fails this gate and so stops the nightly.
+                         "RICHOS_NATIVE_IOS_APP_A8": "1",
+                         # native-ios-app, native-ios-ui and native-ios-share run side by side
+                         # here and the pool admits `--simulated-phones` leases at once (one per
+                         # device type); A8 alone holds one about 26 minutes. With the default
+                         # 300 s wait, whichever suite waited failed (run
+                         # 20260925T190759Z-2b4b0a7e: A8 and share's S7 both gave up at 300 s).
+                         # Waiting up to this gate's own deadline queues them instead.
+                         "RICHOS_IOS_POOL_WAIT": str(GATE_BUDGETS["gates/script-suites"]),
+                         # The operator's own number, from the command line (never the shell).
+                         SIMULATED_PHONES_ENV: str(self.simulated_phones)}
+                if skip_unchanged:
+                    extra["RUN_TESTS_SKIP_UNCHANGED"] = "1"
+                args = ["bash", self.source / SCRIPTS / "run-tests.sh",
+                        "--results-out", results]
+                if no_host_screen:
+                    args.append("--no-host-screen")
+                self.command(*args, env_extra=extra, timeout=GATE_BUDGETS["gates/script-suites"])
+
+        def lint_tauri():
+            with self.phase("gates/lint-tauri"):
+                self.command("bash", self.source / SCRIPTS / "lint.sh", "--all",
+                             "--suite-results", results, timeout=GATE_BUDGETS["gates/lint-tauri"])
+
         # The workspace-spec mutation pass: 86 deliberately broken copies of the workspace code,
         # each of which one of the suite's checks must catch. OFF every land and ON before
         # every nightly (CEO, 2026-09-23, "Only before nightlies", esc-20260923T123440Z-b5371531);
         # the suite's fourteen checks still run on every land that touches that code. Through
         # ci-shard.sh, so the unit keeps its leak canary and its deadline; a failed or unproven
-        # mutant fails this gate and stops the nightly.
-        with self.phase(WORKSPACE_MUTANTS_GATE):
-            self.command("bash", "richos/engine/scripts/ci-shard.sh", "--only-units",
-                         "mega-lander/tests/workspace-spec-fourteen.test.sh",
-                         env_extra={"RICHOS_FOURTEEN_MUTANTS": "1"},
-                         timeout=GATE_BUDGETS[WORKSPACE_MUTANTS_GATE])
-        # AFTER the script suites and BEFORE the privacy sweep. It is the longest gate, so
-        # the cheap refusals get to refuse first: there is no sense spending 378 s of WebKit
-        # to learn that `cargo test` was going to fail anyway.
-        self.ui_suite(checks_done_at_land)
-        with self.phase("gates/privacy-sweep"):
-            self.command("bash", "richos/engine/scripts/named-persons.sh", "--tree",
-                         "--repo", self.source, timeout=GATE_BUDGETS["gates/privacy-sweep"])
+        # mutant fails this gate and stops the nightly. Every mutant works in its own copy of
+        # the engine (mutation-harness.sh), so nothing it does touches the tree another gate reads.
+        def workspace_mutants():
+            with self.phase(WORKSPACE_MUTANTS_GATE):
+                self.command("bash", "richos/engine/scripts/ci-shard.sh", "--only-units",
+                             "mega-lander/tests/workspace-spec-fourteen.test.sh",
+                             env_extra={"RICHOS_FOURTEEN_MUTANTS": "1"},
+                             timeout=GATE_BUDGETS[WORKSPACE_MUTANTS_GATE])
+
+        def privacy_sweep():
+            with self.phase("gates/privacy-sweep"):
+                self.command("bash", "richos/engine/scripts/named-persons.sh", "--tree",
+                             "--repo", self.source, timeout=GATE_BUDGETS["gates/privacy-sweep"])
+
+        # GATE ORDER: the old one-after-another order, which `--gates-at-once 1` runs exactly
+        # and which is also the order a limited number of slots is filled in. The cheap
+        # refusals come first so that, one at a time, there is no sense spending 378 s of
+        # WebKit to learn that `cargo test` was going to fail anyway. What waits for what is
+        # GATE_AFTER, and nothing else.
+        self.run_gates([
+            ("gates/release-smoke", release_smoke),
+            (LAND_PROVEN_GATE, core_tests),
+            ("gates/updater-tests", updater_tests),
+            ("gates/script-suites", script_suites),
+            ("gates/lint-tauri", lint_tauri),
+            (WORKSPACE_MUTANTS_GATE, workspace_mutants),
+            (UI_SUITE_GATE, lambda: self.ui_suite(checks_done_at_land)),
+            ("gates/privacy-sweep", privacy_sweep),
+        ])
         try:
             return json.loads(results.read_text())
         except (OSError, ValueError):
@@ -1159,6 +1362,134 @@ class Runner:
             # does: a candidate with no recorded gui-boot result is treated exactly like
             # one that recorded NOT RUN.
             return None
+
+    def run_gates(self, gates):
+        """Run `gates` -- (name, body) pairs in GATE ORDER -- `gates_at_once` at a time.
+
+        One at a time is the old path exactly: inline, in order, into the run log, and the
+        first failure propagates before the next gate starts.
+
+        More than one: each gate runs in its own thread, as soon as a slot is free and every
+        gate GATE_AFTER names for it has passed. Each keeps its own deadline (command()),
+        its own log (a stamped file of its own, copied whole into the run log as one section
+        when it ends) and its own verdict line. The FIRST gate to fail refuses the build:
+        no further gate starts, every running one is stopped through the process groups
+        this run owns (OwnedGroups), and once all of them have ended the first failure is
+        raised as it would have been one at a time. The wall clock of the whole set is
+        recorded as the `gates-wall-clock` timing either way.
+        """
+        names = [name for name, _ in gates]
+        unknown = {d for name in names for d in GATE_AFTER.get(name, ()) if d not in names}
+        if unknown:
+            raise ValueError(f"GATE_AFTER names gates this build does not run: {sorted(unknown)}")
+        limit = len(gates) if self.gates_at_once == "all" else int(self.gates_at_once)
+        started = time.time()
+        try:
+            if limit <= 1:
+                for _, body in gates:
+                    body()
+                return
+            self._run_gates_side_by_side(gates, limit)
+        finally:
+            self.timings.append(("gates-wall-clock", started, time.time()))
+
+    def _gate_log(self, name):
+        """A log of the gate's own: (writable log, its file or None)."""
+        main = self._log
+        if isinstance(main, TimestampedLog):
+            folder = main.path.with_name(main.path.name + ".gates")
+            folder.mkdir(mode=0o700, exist_ok=True)
+            path = folder / (name.replace("/", "-") + ".log")
+            return TimestampedLog(path), path
+        return _BufferedGateLog(), None
+
+    def _merge_gate_log(self, log, path, verdict):
+        """Copy a finished gate's log into the run log as one section, then drop the copy."""
+        if path is not None:
+            self._log.append_verbatim(path.read_text(errors="replace"))
+            try:
+                path.unlink()
+                path.parent.rmdir()  # Succeeds only once the last gate's file is gone.
+            except OSError:
+                pass
+        else:
+            text = log.read()
+            if text:
+                self._log.write(text if text.endswith("\n") else text + "\n")
+        self.announce(f"  {verdict}")
+
+    def _run_gates_side_by_side(self, gates, limit):
+        import queue
+        finished = queue.Queue()
+        pending = list(gates)
+        running = {}
+        passed = set()
+        first = None      # (name, exception) of the gate that refused the build
+
+        def work(name, body, log):
+            self._local.log = log
+            error = None
+            try:
+                body()
+            except BaseException as exc:  # carried to the coordinator, which raises it
+                error = exc
+            finally:
+                self._local.log = None
+                self._local.phase = None
+                if isinstance(log, TimestampedLog):
+                    log.close()
+                finished.put((name, error))
+
+        try:
+            while pending or running:
+                if first is None:
+                    for gate in list(pending):
+                        if len(running) >= limit:
+                            break
+                        name, body = gate
+                        if not all(d in passed for d in GATE_AFTER.get(name, ())):
+                            continue
+                        pending.remove(gate)
+                        log, path = self._gate_log(name)
+                        where = f" (its log until it ends: {path})" if path else ""
+                        self.announce(f"  started {name}{where}")
+                        thread = threading.Thread(target=work, args=(name, body, log),
+                                                  name=name, daemon=True)
+                        running[name] = (thread, log, path, time.time())
+                        thread.start()
+                if not running:
+                    break
+                name, error = finished.get()
+                thread, log, path, began = running.pop(name)
+                thread.join()
+                took = time.time() - began
+                if error is None:
+                    passed.add(name)
+                    verdict = (f"SKIPPED {name}" if name in self.skipped
+                               else f"PASSED {name} in {took:.1f}s")
+                elif first is None:
+                    first = (name, error)
+                    self.groups.stop()
+                    verdict = f"FAILED {name} after {took:.1f}s: {error}"
+                else:
+                    verdict = (f"STOPPED {name} after {took:.1f}s, because {first[0]} failed "
+                               f"first ({error})")
+                self._merge_gate_log(log, path, verdict)
+                if first is not None and first[0] == name and running:
+                    self.announce(f"  stopping {', '.join(running)}: {name} refused this build")
+        except BaseException:
+            # Interrupted here (Ctrl-C): stop what runs, and wait for the owners' bounded cleanup.
+            self.groups.stop()
+            for thread, *_ in running.values():
+                thread.join(timeout=CLEANUP_TIMEOUT + TERM_GRACE + KILL_GRACE)
+            raise
+        if first is not None:
+            if pending:
+                self.announce(f"  never started: {', '.join(name for name, _ in pending)}")
+            raise first[1]
+        if pending:
+            # Reachable only if GATE_AFTER could never be satisfied: say so, never pass.
+            raise RuntimeError(f"gates never started: {', '.join(n for n, _ in pending)}")
 
     def run_pointer(self, run_id):
         if not run_id or "/" in run_id or run_id in (".", ".."):
@@ -1346,6 +1677,9 @@ class Runner:
     def perform(self, command, force=False, runtime=None, run_id=None,
                 checks_done_at_land=None, no_host_screen=False, gui_proof=None,
                 from_nightly=None, dry_run=False):
+        if command in GATE_COMMANDS and not (command == "stable" and dry_run):
+            # The run log's first lines: what runs at once, and who chose it.
+            self.record_settings()
         if command == "stable":
             # THE COMMIT, NOT THE BYTES. T3 Code's sentence, which is what is being copied
             # (`t3code:.github/workflows/release.yml:44-47`): *"Manual stable releases
@@ -1501,6 +1835,35 @@ class Runner:
         self.print_candidate(candidate_info, out)
 
 
+def gates_at_once_value(text):
+    """`--gates-at-once`: a whole number of at least 1, or `all`."""
+    if text == "all":
+        return "all"
+    if text.isdigit() and int(text) >= 1:
+        return int(text)
+    raise argparse.ArgumentTypeError(f"{text!r} is not a whole number of at least 1, or all")
+
+
+def simulated_phones_value(text):
+    """`--simulated-phones`: a whole number of at least 1."""
+    if text.isdigit() and int(text) >= 1:
+        return int(text)
+    raise argparse.ArgumentTypeError(f"{text!r} is not a whole number of at least 1")
+
+
+def chosen_by():
+    """Who named the settings: this account, on this command line, started from what."""
+    import pwd
+    user = pwd.getpwuid(os.getuid()).pw_name
+    try:
+        parent = subprocess.run(["ps", "-o", "comm=", "-p", str(os.getppid())],
+                                capture_output=True, text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        parent = ""
+    started = f" (started from {Path(parent).name}, pid {os.getppid()})" if parent else ""
+    return f"{user} on the command line{started}"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["check", "build", "publish", "candidate",
@@ -1525,6 +1888,15 @@ def main():
                              "tag is recorded (ceo-decisions §69)")
     parser.add_argument("--dry-run", action="store_true",
                         help="print exactly what `stable` would build and publish, and stop")
+    parser.add_argument(GATES_AT_ONCE_FLAG, type=gates_at_once_value, metavar="N|all",
+                        help="REQUIRED for build, release and stable: how many gates run at the "
+                             "same time. 1 runs them one after another; all starts every gate "
+                             "whose inputs are ready. Choose it from what else is running on "
+                             "this Mac.")
+    parser.add_argument(SIMULATED_PHONES_FLAG, type=simulated_phones_value, metavar="N",
+                        help="REQUIRED for build, release and stable: how many simulated "
+                             "iPhones the suites may use at once (one per device type; the "
+                             "machine still boots at most two simulators at a time).")
     parser.add_argument("--gui-proof", metavar="PATH",
                         help="a gui-boot proof taken against this candidate's commit, required "
                              "to publish a candidate built with --no-host-screen")
@@ -1565,6 +1937,24 @@ def main():
     if args.gui_proof and args.command != "publish":
         parser.error("--gui-proof is evidence `publish` demands; it means nothing to any other "
                      "command")
+    # NO SILENT DEFAULT (CEO, 2026-09-25: "how do I know that you won't fuck this up next
+    # time?"). A command that runs the gates names both numbers, or it does not start.
+    runs_gates = args.command in GATE_COMMANDS and not (args.command == "stable" and args.dry_run)
+    missing = [flag for flag, value in ((GATES_AT_ONCE_FLAG, args.gates_at_once),
+                                        (SIMULATED_PHONES_FLAG, args.simulated_phones))
+               if value is None]
+    if runs_gates and missing:
+        parser.error(
+            f"{args.command} refuses to start without {GATES_AT_ONCE_FLAG} and "
+            f"{SIMULATED_PHONES_FLAG}, and this command line is missing {' and '.join(missing)}. "
+            f"{GATES_AT_ONCE_FLAG} N|all is how many gates run at the same time (1 = one after "
+            f"another, all = every gate whose inputs are ready); {SIMULATED_PHONES_FLAG} N is "
+            "how many simulated iPhones the suites may use at once. Choose both from what else "
+            "is running on this Mac: all and 2 on a free Mac, fewer when engineers are busy.")
+    if not runs_gates and len(missing) < 2:
+        parser.error(f"{GATES_AT_ONCE_FLAG} and {SIMULATED_PHONES_FLAG} decide how the gates run; "
+                     f"they mean nothing to {args.command}"
+                     + (" --dry-run, which runs no gate" if args.command == "stable" else ""))
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         parser.error("local nightly releases currently require an Apple Silicon Mac")
     os.umask(0o077)
@@ -1576,7 +1966,9 @@ def main():
         log_path = logs / (env["RICHOS_NIGHTLY_RUN_ID"] + ".log")
         print(f"Run log: {log_path}", flush=True)
         with TimestampedLog(log_path, BUILD_MILESTONES) as log:
-            Runner(args.repo.resolve(), state, env, log, credentials).perform(
+            Runner(args.repo.resolve(), state, env, log, credentials,
+                   gates_at_once=args.gates_at_once, simulated_phones=args.simulated_phones,
+                   chosen_by=chosen_by()).perform(
                 args.command, args.force, args.runtime_dir.resolve() if args.runtime_dir else None,
                 args.run, args.checks_done_at_land, args.no_host_screen, args.gui_proof,
                 args.from_nightly, args.dry_run)

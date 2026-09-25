@@ -138,4 +138,19 @@ mutant boot-wait-lets-the-lease-idle-out "test_T61" "$D" \
     '                pass' \
     "a boot waiting its bounded turn for admission would lose its device to the inactivity limit."
 
+mutant pool-count-ignored "test_T63" "$D" \
+    '            if len(busy) < limit and not any(r["prepared"] == key for r in busy):' \
+    '            if not busy:' \
+    "a nightly that chose two simulated phones would still run its iPhone suites one after another (2026-09-25)."
+
+mutant raised-pool-shares-one-device "test_T63" "$D" \
+    '            if len(busy) < limit and not any(r["prepared"] == key for r in busy):' \
+    '            if len(busy) < limit:' \
+    "with room in the pool, a second run would be handed a device type another run is driving."
+
+mutant pool-default-not-one "test_T62" "$D" \
+    'POOL_LEASES = 1{NL}' \
+    'POOL_LEASES = 2{NL}' \
+    "every land and every engineer's suite would take a second simulator nobody chose."
+
 mutation_end
