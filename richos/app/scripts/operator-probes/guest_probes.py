@@ -121,7 +121,12 @@ def pgid_of(pid):
 def environ_names(pid):
     """The variable NAMES a running process was started with, from the kernel
     (sysctl CTL_KERN / KERN_PROCARGS2), without asking the process or its model anything.
-    Values are read into memory and dropped; only names leave this function."""
+    Values are read into memory and dropped; only names leave this function.
+
+    macOS withholds the environment of Apple platform binaries (/bin/sleep, /bin/zsh) even
+    from the same user: the kernel returns their arguments and no environment (measured
+    2026-09-25 on the host). So None means "withheld or unreadable", never "empty"; read a
+    non-Apple child instead (`claude` itself, or node)."""
     import ctypes
     import ctypes.util
     libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)
@@ -147,7 +152,7 @@ def environ_names(pid):
         name = item.split(b'=', 1)[0].decode('utf-8', 'replace')
         if name:
             names.append(name)
-    return sorted(set(names))
+    return sorted(set(names)) or None
 
 
 def descendants(pid):
@@ -385,6 +390,16 @@ def setup_fixture(p, record):
     p.contract.write_text('You are the operator lead for this fixture. CLAUDE.md wins on any question of '
                           'substance. Use richos_operator.report to tell the CEO about a land, a file or a question.\n')
     p.stub_mcp.write_text(STUB_MCP)
+    # A stand-in for a long build. Run 5: 2.1.282's Bash tool refuses a standalone `sleep 400`
+    # ("Blocked: standalone sleep 400"), so a teammate briefed to sleep backgrounded it and
+    # finished at once; this prints progress every ten seconds and is what it says it is.
+    (p.work / 'long-task.py').write_text(
+        'import sys, time\n'
+        'n = int(sys.argv[1]); t0 = time.time()\n'
+        'while time.time() - t0 < n:\n'
+        '    print("long task: %d of %d seconds" % (int(time.time() - t0), n), flush=True)\n'
+        '    time.sleep(min(10, max(0.1, n - (time.time() - t0))))\n'
+        'print("long task: done", flush=True)\n')
     plugin = p.app_engine_plugin / '.claude-plugin'
     plugin.mkdir(parents=True, exist_ok=True)
     (plugin / 'plugin.json').write_text(json.dumps({'name': 'richos-app-engine', 'version': '1.2.0'}) + '\n')
@@ -447,6 +462,8 @@ class Context(object):
         code, out, _ = run(['getconf', 'DARWIN_USER_TEMP_DIR'])
         self.tmpdir = out.strip()
         self.python = python3_for_supervisor(self.stored['PATH'])
+        code, out, _ = run(['/bin/zsh', '-lc', 'command -v node'], timeout=30)
+        self.node = out.strip() or 'node'
 
     def lead_env(self, claim='probe-claim'):
         """operator_profile::environment, built from empty, plus the harness pin."""
@@ -785,11 +802,32 @@ def brief(ctx, name, seconds):
     path = ctx.p.work / ('brief-%s.md' % name)
     # The owned-state line is the engine's own documented way through guard-owned-state.sh
     # (run 3: the fixture has no CI, so its CI check reports unhealthy and refuses every spawn).
-    path.write_text('Run exactly this Bash command in the foreground and wait for it to finish: sleep %d\n'
-                    'Then reply with the single word finished. Do nothing else.\n\n'
+    path.write_text('Run exactly this Bash command in the foreground, with the Bash tool\'s timeout parameter set to '
+                    '600000, and wait for it to finish: %s\n'
+                    'It is a stand-in for a long build and takes about %d seconds. Then reply with the single word '
+                    'finished. Do nothing else.\n\n'
                     'owned-state-ack: ci — this probe fixture has no CI at all, and its VM is deleted after the run\n'
-                    % seconds)
+                    % (long_task(ctx, seconds), seconds))
     return path
+
+
+def long_task(ctx, seconds):
+    return 'python3 %s %d' % (ctx.p.work / 'long-task.py', seconds)
+
+
+def in_lead_shell(ctx, lead, start, timeout=120):
+    """Wait until the LEAD ITSELF (not one of its agents, whose frames carry a
+    parent_tool_use_id) makes a Bash call."""
+    return lead.wait(lambda f: f.get('type') == 'assistant' and not f.get('parent_tool_use_id') and any(
+        b.get('type') == 'tool_use' and b.get('name') == 'Bash' for b in (f.get('message') or {}).get('content') or []),
+        timeout, start)
+
+
+def lead_long_task(ctx, seconds, then):
+    """The prompt that puts the lead itself mid-turn in a shell command for `seconds`."""
+    return FIXTURE_NOTE + ('Run exactly this Bash command yourself, in the foreground, with the Bash tool\'s timeout '
+                           'parameter set to 600000, and wait for it: %s. It is a stand-in for a long build. '
+                           'Then reply %s.' % (long_task(ctx, seconds), then))
 
 
 def spawn_teammate(ctx, lead, name, agent_type, seconds, timeout=300):
@@ -1042,19 +1080,18 @@ def interrupt_run(ctx, r, key, declared):
     lead = Lead(ctx, 'P3', key, ctx.lead_args())
     try:
         rec['initialize'] = lead.initialize(**({'perTaskStopAffordance': True} if declared else {}))
-        task_id, worktree, detail = spawn_teammate(ctx, lead, 'probe-sonnet-p3%s' % ('d' if declared else 'u'), 'alpha', 240)
+        task_id, worktree, detail = spawn_teammate(ctx, lead, 'probe-sonnet-p3%s' % ('d' if declared else 'u'), 'alpha', 420)
         rec['spawn'] = detail
         if not worktree:
             rec['not_run'] = 'no teammate could be started (see spawn)'
             return rec
         start = lead.count()
-        lead.user(FIXTURE_NOTE + 'Run exactly this Bash command in the foreground and wait for it: sleep 90. Then reply slept.')
-        got = lead.wait(lambda f: f.get('type') == 'assistant' and any(
-            b.get('type') == 'tool_use' and b.get('name') == 'Bash' for b in (f.get('message') or {}).get('content') or []),
-            120, start)
-        rec['lead_in_shell'] = bool(got)
+        lead.user(lead_long_task(ctx, 90, 'slept'))
+        rec['lead_in_shell'] = bool(in_lead_shell(ctx, lead, start))
         queued = lead.user('Reply with exactly: QUEUED-MARK')
         time.sleep(3)
+        # The premise: the agent is running at the moment of the interrupt.
+        rec['liveness_before_interrupt'] = ctx.liveness(worktree)[0]
         rec['interrupt_sent_at'] = round(time.time() - lead.started, 3)
         rid = lead.control('interrupt')
         reply = lead.wait(lambda f: f.get('type') == 'control_response' and
@@ -1091,6 +1128,8 @@ def p3(ctx, r):
             return 'NOT-RUN', rec['not_run']
         if not rec.get('lead_in_shell'):
             return 'PREMISE-FALSE', 'a lead never started its shell command, so the interrupt did not land mid-command'
+        if rec.get('liveness_before_interrupt') != 'ALIVE':
+            return 'PREMISE-FALSE', 'an agent was already %s before the interrupt' % rec.get('liveness_before_interrupt')
     if control['agent_survived']:
         return 'PREMISE-FALSE', 'without the declaration the agent survived too, so the declaration was not what spared it'
     if main['agent_survived'] and main['turn_ended']:
@@ -1101,8 +1140,8 @@ def p3(ctx, r):
 
 
 def two_teammates(ctx, lead, r, tag):
-    a_id, a_wt, a_detail = spawn_teammate(ctx, lead, 'probe-sonnet-%sa' % tag, 'alpha', 400)
-    b_id, b_wt, b_detail = spawn_teammate(ctx, lead, 'probe-sonnet-%sb' % tag, 'beta', 400)
+    a_id, a_wt, a_detail = spawn_teammate(ctx, lead, 'probe-sonnet-%sa' % tag, 'alpha', 480)
+    b_id, b_wt, b_detail = spawn_teammate(ctx, lead, 'probe-sonnet-%sb' % tag, 'beta', 480)
     r['spawn_a'], r['spawn_b'] = a_detail, b_detail
     return (a_id, a_wt), (b_id, b_wt)
 
@@ -1126,6 +1165,9 @@ def p4(ctx, r):
         (a_id, a_wt), (b_id, b_wt) = two_teammates(ctx, lead, r, 'p4')
         if not (a_wt and b_wt):
             return 'NOT-RUN', 'two teammates could not be started (see spawn_a, spawn_b)'
+        r['liveness_before'] = {'a': ctx.liveness(a_wt)[0], 'b': ctx.liveness(b_wt)[0]}
+        if r['liveness_before'] != {'a': 'ALIVE', 'b': 'ALIVE'}:
+            return 'PREMISE-FALSE', 'before the stop the agents were %s' % r['liveness_before']
         t0 = time.time()
         start = lead.count()
         lead.user(FIXTURE_NOTE + 'Stop the teammate named probe-sonnet-p4a, and ONLY that one: first run exactly this Bash command: '
@@ -1292,19 +1334,25 @@ def p7(ctx, r):
 
 
 def shell_names(ctx, lead, root_pid, seconds=23):
-    """Have the lead run `sleep <seconds>` in its tool shell and read that process's variable
-    names from the kernel. The model is asked for nothing but a sleep; run 4 showed a lead
-    rightly refusing to list its environment on request."""
+    """Have the lead's tool shell run a short timer and read that process's variable names from
+    the kernel. The model is asked for nothing but a wait; run 4 showed a lead rightly refusing
+    to list its environment on request.
+
+    The timer is node, not sleep: macOS withholds the environment of Apple binaries (sleep and
+    the shell itself), and node, started by the shell, carries the shell's exported environment
+    untouched."""
+    marker = 'setTimeout(function(){}, %d000)' % seconds
     start = lead.count()
-    lead.user(FIXTURE_NOTE + 'Run exactly this Bash command in the foreground and wait for it to finish: sleep %d. '
-                             'Then reply slept.' % seconds)
+    lead.user(FIXTURE_NOTE + 'Run exactly this Bash command in the foreground and wait for it to finish '
+                             '(it waits %d seconds and prints nothing): %s -e "%s". Then reply waited.'
+              % (seconds, ctx.node, marker))
     names, deadline = None, time.time() + 120
     while names is None and time.time() < deadline:
         for pid, command in descendants(root_pid):
-            if re.search(r'(^|/)sleep %d$' % seconds, command.strip()):
+            if marker in command and 'node' in command.split()[0]:
                 names = environ_names(pid)
                 break
-        else:
+        if names is None:
             time.sleep(0.5)
     lead.result_after(start, 180)
     return names
@@ -1537,18 +1585,19 @@ def p12(ctx, r):
         if not (a_id and b_id and a_wt and b_wt):
             return 'NOT-RUN', 'two teammates could not be started or mapped (see spawn_a, spawn_b)'
         start = lead.count()
-        lead.user(FIXTURE_NOTE + 'Run exactly this Bash command in the foreground and wait for it: sleep 45. Then reply slept.')
-        busy = lead.wait(lambda f: f.get('type') == 'assistant' and any(
-            b.get('type') == 'tool_use' and b.get('name') == 'Bash' for b in (f.get('message') or {}).get('content') or []),
-            120, start)
-        r['lead_in_shell'] = bool(busy)
+        lead.user(lead_long_task(ctx, 60, 'slept'))
+        r['lead_in_shell'] = bool(in_lead_shell(ctx, lead, start))
+        time.sleep(3)
+        r['liveness_before'] = {'a': ctx.liveness(a_wt)[0], 'b': ctx.liveness(b_wt)[0]}
+        if r['liveness_before'] != {'a': 'ALIVE', 'b': 'ALIVE'}:
+            return 'PREMISE-FALSE', 'before stop_task the agents were %s' % r['liveness_before']
         rid = lead.control('stop_task', task_id=a_id)
         reply = lead.wait(lambda f: f.get('type') == 'control_response' and
                           (f.get('response') or {}).get('request_id') == rid, 30)
         r['stop_task_reply'] = redact(reply[2]) if reply else None
         r['seconds_to_not_alive'], r['liveness_a'] = wait_not_alive(ctx, a_wt, 120)
         r['liveness_b'] = ctx.liveness(b_wt)
-        done = lead.result_after(start, 120)
+        done = lead.result_after(start, 300)
         r['lead_turn_result'] = done[2].get('subtype') if done else None
         r['lead_said'] = lead.text(start)[-400:]
         r['notification_a'] = [f.get('status') for f in lead.all_frames()
@@ -1571,10 +1620,8 @@ def priority_order(ctx, r, key, use_priority):
     try:
         lead.initialize()
         start = lead.count()
-        lead.user(FIXTURE_NOTE + 'Run exactly this Bash command in the foreground and wait for it: sleep 25. Then reply with exactly: A-DONE')
-        lead.wait(lambda f: f.get('type') == 'assistant' and any(
-            b.get('type') == 'tool_use' and b.get('name') == 'Bash' for b in (f.get('message') or {}).get('content') or []),
-            120, start)
+        lead.user(lead_long_task(ctx, 30, 'with exactly: A-DONE'))
+        r[key + '_lead_in_shell'] = bool(in_lead_shell(ctx, lead, start))
         lead.user('Reply with exactly: MARK-B', priority='later' if use_priority else None)
         lead.user('Reply with exactly: MARK-C', priority='later' if use_priority else None)
         lead.user('Reply with exactly: MARK-D', priority='now' if use_priority else None)
@@ -1657,11 +1704,13 @@ def p15(ctx, r):
             rec['supervisor_pid'] = lead.supervisor_pid()
             rec['supervisor_pgid'] = pgid_of(rec['supervisor_pid']) if rec['supervisor_pid'] else None
             start = lead.count()
-            lead.user(FIXTURE_NOTE + ('Make these two Bash calls, in this order. First, with run_in_background set to true: '
-                       'bash -c \'echo self=$$ pgid=$(ps -o pgid= -p $$) tty=$(ps -o tty= -p $$) > %s; '
-                       '(sleep 600 & echo grandchild=$! >> %s); sleep 600\'\n'
-                       'Second, in the foreground: bash -c \'echo self=$$ pgid=$(ps -o pgid= -p $$) tty=$(ps -o tty= -p $$) > %s; '
-                       '(sleep 600 & echo grandchild=$! >> %s); sleep 600\'') % (bg, bg, fg, fg))
+            prompt = ('Make these two Bash calls, in this order. First, with run_in_background set to true: '
+                      'bash -c \'echo self=$$ pgid=$(ps -o pgid= -p $$) tty=$(ps -o tty= -p $$) > %s; '
+                      '(LONGTASK 600 & echo grandchild=$! >> %s); LONGTASK 600\'\n'
+                      'Second, in the foreground, with the Bash tool\'s timeout parameter set to 600000: '
+                      'bash -c \'echo self=$$ pgid=$(ps -o pgid= -p $$) tty=$(ps -o tty= -p $$) > %s; '
+                      '(LONGTASK 600 & echo grandchild=$! >> %s); LONGTASK 500\'') % (bg, bg, fg, fg)
+            lead.user(FIXTURE_NOTE + prompt.replace('LONGTASK', 'python3 %s' % (ctx.p.work / 'long-task.py')))
             deadline = time.time() + 180
             while time.time() < deadline and not (fg.exists() and bg.exists() and
                                                   'grandchild' in fg.read_text() and 'grandchild' in bg.read_text()):

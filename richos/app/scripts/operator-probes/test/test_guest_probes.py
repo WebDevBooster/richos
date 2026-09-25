@@ -92,6 +92,37 @@ class Redaction(unittest.TestCase):
         self.assertIn('<removed>', out)
 
 
+class KernelEnvironment(unittest.TestCase):
+    def read(self, argv, env):
+        import subprocess
+        import time
+        child = subprocess.Popen(argv, env=env)
+        try:
+            names = None
+            for _ in range(40):
+                names = gp.environ_names(child.pid)
+                if names:
+                    break
+                time.sleep(0.05)
+            return names
+        finally:
+            child.kill()
+            child.wait()
+
+    def test_names_are_read_off_a_non_apple_child_and_no_values_leave(self):
+        node = '/opt/homebrew/bin/node'
+        if not Path(node).exists():
+            self.skipTest('no Homebrew node on this machine')
+        names = self.read([node, '-e', 'setTimeout(function(){}, 30000)'],
+                          {'PROBE_NAME_ONE': 'secret-value', 'PATH': '/usr/bin:/bin'})
+        self.assertEqual(names, ['PATH', 'PROBE_NAME_ONE'])
+        self.assertNotIn('secret-value', json.dumps(names))
+
+    def test_an_apple_binary_s_environment_is_withheld_and_reads_as_none_never_as_empty(self):
+        """Measured 2026-09-25: the kernel returns /bin/sleep's arguments and no environment."""
+        self.assertIsNone(self.read(['/bin/sleep', '30'], {'PROBE_NAME_ONE': 'x', 'PATH': '/usr/bin:/bin'}))
+
+
 class Arguments(unittest.TestCase):
     def test_the_lead_arguments_mirror_the_operator_profile(self):
         """operator_profile::child_args, flag for flag. If the profile changes, this list must."""
