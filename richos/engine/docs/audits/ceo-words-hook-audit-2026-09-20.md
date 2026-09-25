@@ -203,7 +203,13 @@ session**, not this one.
 | `scripts/hooks/notice-ceo-ruled-prose.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/notice-ceo-unasked.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/notice-claim-capability.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
-| `scripts/hooks/release-land-leases.sh` | a | files on disk / its own state (lease files, the repository's Git state) | no | added 2026-09-24 after this audit, registered on Stop; reads no prompt and no transcript || `scripts/hooks/notice-disk-alert.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
+| `scripts/hooks/release-land-leases.sh` | a | files on disk / its own state (lease files, the repository's Git state) | no | added 2026-09-24 after this audit, registered on Stop; reads no prompt and no transcript |
+| `scripts/hooks/operator-claim.sh` | a | its own session record / the operator claim file / the entity's launcher | no | added 2026-09-25 after this audit, registered on SessionStart; reads the payload's cwd and source only, no prompt and no transcript |
+| `scripts/hooks/guard-operator-claim.sh` | a | tool input (tool name, target path, command) / the operator claim file / its own session record | no | added 2026-09-25 after this audit, PreToolUse on Agent, SendMessage, TaskStop and the Bash and Write chains; reads no prompt text and no transcript |
+| `scripts/hooks/guard-shared-writes.sh` | a | tool input (target path) / lease files / the target repository's Git state | no | added 2026-09-25 after this audit, a module of the Write chain; reads no prompt and no transcript |
+| `scripts/hooks/release-shared-writes.sh` | a | tool input (target path, tool_use_id) / lease files | no | added 2026-09-25 after this audit, PostToolUse and PostToolUseFailure; reads no prompt and no transcript |
+| `scripts/hooks/guard-live-names.sh` | a | tool input (the spawn's name) / the workspace registry | no | added 2026-09-25 after this audit, PreToolUse[Agent]; reads the name only, never the prompt's words |
+| `scripts/hooks/notice-disk-alert.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/notice-escalations.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/notice-hook-staleness.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/notice-inflight-acks.sh` | a | the transcript, joined on TOOL CALLS / agent ids | no | 1 non-comment hit(s), first: 187:    d=json.load(sys.stdin); print(str(d.get("transcript_path","") or "") if isinstance |
