@@ -6658,3 +6658,41 @@ body.home-open {
   color: var(--ink);
   overflow-wrap: anywhere;
 }
+/* Claude subscription quota: desktop technical settings, one account per window. */
+#quota-sheet { padding-top: 40px; }
+.quota-panel { padding: 26px; width: min(860px, calc(100vw - 48px)); max-width: none; max-height: calc(100vh - 80px); overflow-y: auto; }
+.quota-heading, .quota-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.quota-heading { margin-bottom: 10px; }
+.quota-heading .overlay-title { margin: 0; font-size: 1.3rem; }
+.quota-eyebrow { margin: 0 0 5px; color: var(--ink-soft); font-size: .8rem; }
+.quota-muted, .quota-legend, .quota-reset { color: var(--ink-soft); font-size: .85rem; }
+.quota-toolbar { margin: 22px 0 12px; }
+.quota-message { font-size: .9rem; padding: 10px 0; }
+.quota-window { display: grid; grid-template-columns: 210px minmax(0, 1fr); align-items: center; gap: 24px; padding: 22px; margin: 10px 0; border: 1px solid var(--line-strong); border-radius: 12px; }
+.quota-window h3 { font-size: .9rem; font-weight: 500; margin: 0 0 6px; }
+.quota-remaining { font-size: 2rem; line-height: 1.2; font-weight: 600; font-variant-numeric: tabular-nums; }
+.quota-remaining span { font-weight: 400; }
+.quota-reset { display: block; margin-top: 7px; }
+.quota-chart { min-width: 0; }
+.quota-bar { position: relative; height: 28px; border-radius: 6px; background: repeating-linear-gradient(135deg, transparent, transparent 3px, var(--line-strong) 3px, var(--line-strong) 4px); }
+.quota-fill { height: 100%; border-radius: 6px; background: #b86545; }
+.quota-marker { position: absolute; height: 36px; top: -4px; width: 2px; transform: translateX(-1px); background: var(--ink); }
+.quota-window--stale .quota-fill { opacity: .5; }
+.quota-date { text-align: right; margin-top: 10px; font-variant-numeric: tabular-nums; }
+.quota-legend { margin: 14px 0 25px; line-height: 1.5; }
+.quota-policy { border-top: 1px solid var(--line-strong); padding-top: 20px; }
+.quota-policy h3 { margin: 0 0 14px; font-size: 1rem; }
+.quota-toggle { display: flex; align-items: center; gap: 9px; font-size: .95rem; }
+.quota-toggle input { accent-color: #b86545; }
+.quota-threshold { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 16px 0; }
+.quota-threshold input { width: 72px; border: 1px solid var(--line-control); border-radius: 6px; color: var(--ink); background: var(--surface-raised); padding: 7px; font: inherit; }
+.quota-threshold .desk-btn { margin-left: auto; }
+.quota-policy .quota-muted { line-height: 1.5; }
+.quota-hold-status { font-size: .9rem; font-weight: 500; }
+#quota-save-status { min-height: 1.5em; font-size: .9rem; }
+@media (max-width: 700px) {
+  #quota-sheet { padding-top: 40px; }
+.quota-panel { padding: 26px; width: calc(100vw - 32px); padding: 20px; }
+  .quota-window { grid-template-columns: minmax(0, 1fr); gap: 18px; padding: 16px; }
+  .quota-heading { align-items: flex-start; }
+}

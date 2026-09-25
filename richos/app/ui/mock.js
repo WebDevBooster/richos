@@ -1915,12 +1915,29 @@
     return Promise.resolve(view);
   }
 
+  let quotaPolicy = { enabled: false, pausePercent: 93 };
+  try { quotaPolicy = JSON.parse(localStorage.getItem("richos-mock-quota-policy")) || quotaPolicy; } catch (_) {}
+  function quotaView() {
+    const fixture = preset.quota || { state: "unavailable", windows: [], checkedAt: null, retryAt: null, message: "Quota is unavailable in this browser preview." };
+    const window = fixture.windows.find(w => w.id === "five_hour");
+    const remaining = (window?.resetsAt || 0) - Date.now();
+    const high = window?.usedPercent >= quotaPolicy.pausePercent;
+    const admission = !quotaPolicy.enabled ? { state: "disabled" } : !window || remaining <= 0 ? { state: "unknown" }
+      : high && remaining < 20 * 60000 ? { state: "ready" } : high ? { state: "held", resetsAt: window.resetsAt }
+      : fixture.state === "fresh" ? { state: "ready" } : { state: "unknown" };
+    return { ...fixture, refreshIntervalMs: window?.usedPercent < 70 ? 30 * 60000 : 5 * 60000, policy: { ...quotaPolicy }, admission };
+  }
   window.RichBridge = {
     isMock: true,
 
     async invoke(cmd, args, options) {
       args = args || {};
       switch (cmd) {
+        case "claude_quota": return quotaView();
+        case "set_claude_quota_policy": {
+          if (!Number.isInteger(args.policy.pausePercent) || args.policy.pausePercent < 1 || args.policy.pausePercent > 99) throw new Error("Invalid pause threshold.");
+          quotaPolicy = { ...args.policy }; localStorage.setItem("richos-mock-quota-policy", JSON.stringify(quotaPolicy)); return quotaView();
+        }
         // ---- screenshots and files on the Mac composer (CEO §86) -------------------------
         case "attach_pasted_file": {
           const h = (options && options.headers) || {};
