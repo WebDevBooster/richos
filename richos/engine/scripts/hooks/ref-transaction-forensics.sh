@@ -94,8 +94,15 @@ RICHOS_REF_FORENSICS_LOG="${RICHOS_REF_FORENSICS_LOG:-$RICHOS_REF_FORENSICS_DIR/
     # This hook is a child of the process that opened the transaction, so the
     # parent chain IS the answer to "who ran it". Walk it to the top and
     # capture each ancestor's full command line before any of them exits.
+    #
+    # UNDER THE OPERATOR-FENCE LAUNCHER this hook is not Git's child but the
+    # launcher's (scripts/lib/operator-fence-launcher.sh runs its chain as
+    # children), so its own parent is the launcher and every row would name
+    # "bash .../reference-transaction" as the writer. The launcher hands its own
+    # parent, the Git process, down as RICHOS_REF_HOOK_PARENT, and the walk
+    # starts there, so a record reads the same with or without the launcher.
     CHAIN=""
-    p="${PPID:-0}"
+    p="${RICHOS_REF_HOOK_PARENT:-${PPID:-0}}"
     depth=0
     WRITER_PID=""
     WRITER_CMD=""

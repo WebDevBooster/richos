@@ -241,3 +241,5 @@ mega-lander/tests/workspace-probes.test.sh	114.0	linux-run-34945072758
 mega-lander/tests/workspace-spec-fourteen.test.sh	2811.7	linux-run-34945072758
 mega-lander/tests/workspace-stopped-ending.test.sh	6.9	linux-run-34945072758
 mega-lander/tests/workspaces-e2e.test.sh	10.2	linux-run-34945072758
+scripts/operator-fences.test.sh	317.0	darwin-local-2026-09-25-zach-opus-fence1
+scripts/operator-fences-mutation.test.sh	651.0	darwin-local-2026-09-25-zach-opus-fence1

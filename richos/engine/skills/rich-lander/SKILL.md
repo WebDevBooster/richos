@@ -125,6 +125,25 @@ Run this even if you are not removing the worktree yet — the evidence is only
 guaranteed while the worktree exists. (The dirs it collects are configured as
 `ARTIFACT_MERGE_DIRS` / `ARTIFACT_REPLACE_DIRS` in `orchestration.config`.)
 
+### 3b. Take the land lease, immediately before the merge
+
+```bash
+<engine>/scripts/land-lease.sh acquire --repo <repo root>
+```
+
+With the operator fence off (its state today) this says so and does nothing.
+With it on, several conversations, and Codex, land into the same repositories,
+and the fence refuses a merge, commit, reset or switch in a main checkout by
+anyone who does not hold that repository's lease. **Exit 75 means another holder
+is landing**: the line names who, for how long and in what state; run the
+command again. One call waits at most 90 seconds; with the Bash tool timeout
+raised to 600000 ms you may pass `--wait 540`. If it reports an orphaned merge
+(its starter has ended, or the fence refused it), clear it with
+`<engine>/scripts/land-lease.sh abort-orphan --repo <repo root>`, which preserves it first,
+and name the head it prints in the land's report.
+
+**Never abort a merge you did not start.**
+
 ### 4. Merge FROM THE MAIN CHECKOUT
 
 ```bash
@@ -135,7 +154,8 @@ git merge --no-ff worktree-<id>
 - **Merging from inside a worktree merges the branch into itself — a silent
   no-op.** Always `cd` to the repo root first.
 - Fast-forward is fine when main hasn't moved; a merge commit is fine when it
-  has. On a **conflict**, stop: `git merge --abort`, and re-engage the engineer
+  has. On a **conflict**, stop: `git merge --abort` (your own merge, under your
+  lease), and re-engage the engineer
   durably (re-spawn with the conflicted files + "rebase onto latest main,
   resolve, recommit" in the spawn prompt, or write the correction to their
   task — a message to an idled teammate can drop). **The orchestrator never
@@ -193,6 +213,16 @@ that it is held, and on whose word.
 ```bash
 git push origin main
 ```
+
+Then release the land lease:
+
+```bash
+<engine>/scripts/land-lease.sh release --repo <repo root>
+```
+
+(The turn-end hook also releases it once the repository is at rest. A lease left
+holding a merge in progress, uncommitted changes or unpushed commits is kept and
+announced, naming the dirty paths.)
 
 **This is where the in-flight sweep is enforced** — see §8b. If a live teammate
 is behind with no witnessed notice naming this commit, the push is refused, by

@@ -51,6 +51,17 @@ case "$COMMON" in
 esac
 TARGET="$COMMON/hooks/$HOOK_NAME"
 
+# --- The operator-fence launcher owns the hook when it is there --------------
+# `operator-fences.sh install` (spec r3 e8: "one installer owns the chain")
+# writes a launcher as the repository's reference-transaction hook and runs the
+# hooks in reference-transaction.d/ as its chain, refused transactions included.
+# When the launcher is present, the recorder goes into its slot in that chain
+# and NEVER over the launcher: copying over it would silently remove the fence.
+LAUNCHER_MARKER="richos-operator-fence-launcher"
+if [ -f "$TARGET" ] && grep -q "$LAUNCHER_MARKER" "$TARGET" 2>/dev/null; then
+    TARGET="$COMMON/hooks/reference-transaction.d/20-ref-transaction-forensics.sh"
+fi
+
 # --- Will a repo-local hook actually be invoked here? ------------------------
 HOOKS_PATH="$(git -C "$REPO" config --get core.hooksPath 2>/dev/null || true)"
 chain_ok() {
@@ -99,7 +110,7 @@ if [ -f "$TARGET" ] && ! grep -q "$MARKER" "$TARGET" 2>/dev/null; then
     die "$TARGET already exists and is not ours. Refusing to clobber it."
 fi
 
-mkdir -p "$COMMON/hooks"
+mkdir -p "$(dirname "$TARGET")"
 cp "$SOURCE_HOOK" "$TARGET"
 chmod +x "$TARGET"
 
