@@ -418,7 +418,7 @@ impl Service {
     pub fn disconnect(&self) {
         self.source.lock().unwrap().disconnect();
         *self.snapshot.lock().unwrap() = Snapshot::default();
-        let _ = self.publish();
+        let _best_effort = self.publish();
         self.request_refresh();
     }
     pub fn is_shutdown(&self) -> bool {
@@ -451,7 +451,7 @@ fn atomic_write(path: &Path, value: &impl Serialize) -> io::Result<()> {
         fs::rename(&temporary, path)
     })();
     if result.is_err() {
-        let _ = fs::remove_file(temporary);
+        let _best_effort = fs::remove_file(temporary);
     }
     result
 }
@@ -473,7 +473,7 @@ mod tests {
     }
     impl Drop for Scratch {
         fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
+            let _best_effort = fs::remove_dir_all(&self.0);
         }
     }
     const NOW: u64 = 1_000_000_000;

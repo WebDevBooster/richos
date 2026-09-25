@@ -72,7 +72,7 @@ fn lock(file: &File, exclusive: bool) -> io::Result<bool> {
     }
     #[cfg(not(unix))]
     {
-        let _ = (file, exclusive);
+        let _best_effort = (file, exclusive);
         Err(io::Error::other(
             "Pause observation is unavailable on this platform",
         ))
@@ -127,7 +127,7 @@ impl Guard {
                             .is_none_or(|t| crate::util::now_millis().saturating_sub(t) > 60_000)
                     })
                 {
-                    let _ = fs::remove_file(path);
+                    let _best_effort = fs::remove_file(path);
                 }
             }
         }
@@ -144,7 +144,7 @@ impl Guard {
             fs::rename(&staging, &path)
         })();
         if let Err(e) = result {
-            let _ = fs::remove_file(staging);
+            let _best_effort = fs::remove_file(staging);
             return Err(e);
         }
         Ok(Self { file, path, record })
@@ -153,13 +153,13 @@ impl Guard {
     /// process death must never be shown as a successful continuation.
     pub fn release(mut self) {
         self.record.released_at = Some(crate::util::now_millis());
-        let _ = super::atomic_write(&self.path.with_extension("released.json"), &self.record);
+        let _best_effort = super::atomic_write(&self.path.with_extension("released.json"), &self.record);
     }
 }
 impl Drop for Guard {
     fn drop(&mut self) {
-        let _ = &self.file;
-        let _ = fs::remove_file(&self.path);
+        let _best_effort = &self.file;
+        let _best_effort = fs::remove_file(&self.path);
     }
 }
 

@@ -133,10 +133,10 @@ impl Connection {
 }
 impl Drop for Connection {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        let _best_effort = self.child.kill();
+        let _best_effort = self.child.wait();
         if let Some(reader) = self.reader.take() {
-            let _ = reader.join();
+            let _best_effort = reader.join();
         }
     }
 }

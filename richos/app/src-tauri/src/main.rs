@@ -5623,6 +5623,7 @@ mod operator_gate_tests {
         let thread = spine.create_thread("Gate", &EntityId::parse("femcboost").unwrap()).unwrap();
         let binding = spine.ledger().thread_binding(&thread).unwrap();
         let factory = EngineLeaseFactory {
+            quota: Arc::new(richos_core::quota::Service::open(&data).unwrap()),
             permissions: Default::default(),
             claude_bin: Arc::new(Mutex::new(PathBuf::from("/nonexistent/claude"))),
             engine_dir: Arc::new(Mutex::new(root.join("no-engine-here"))),

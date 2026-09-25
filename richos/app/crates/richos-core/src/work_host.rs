@@ -435,7 +435,7 @@ impl WorkHost {
                 let next = if inner.live.is_some() { AssignmentState::Running } else { record.state };
                 drop(inner);
                 if waiting {
-                    let _ = assignment::advance(&self.state, &record.entity_id, &record.thread_id, &record.id,
+                    let _publication = assignment::advance(&self.state, &record.entity_id, &record.thread_id, &record.id,
                         next, "The allowance is available. Continuing where it paused.");
                 }
                 return true;
@@ -450,7 +450,7 @@ impl WorkHost {
                     crate::quota::Admission::Held { .. } => "Waiting for the allowance to refresh. Work is saved and will continue automatically.",
                     _ => "Waiting for a current allowance reading before continuing. Work is saved.",
                 };
-                let _ = assignment::advance(&self.state, &record.entity_id, &record.thread_id, &record.id,
+                let _publication = assignment::advance(&self.state, &record.entity_id, &record.thread_id, &record.id,
                     AssignmentState::WaitingForQuota, detail);
                 waiting = true;
             }
