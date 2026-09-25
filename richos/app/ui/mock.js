@@ -1924,7 +1924,8 @@
     const window = fixture.windows.find(w => w.id === "five_hour");
     const remaining = (window?.resetsAt || 0) - Date.now();
     const high = window?.usedPercent >= quotaPolicy.pausePercent;
-    const admission = !quotaPolicy.enabled ? { state: "disabled" } : !window || remaining <= 0 ? { state: "unknown" }
+    const weekly = fixture.windows.find(w => w.id === "seven_day" && w.usedPercent >= 99);
+    const admission = !quotaPolicy.enabled ? { state: "disabled" } : weekly ? (weekly.resetsAt > Date.now() ? { state: "held", resetsAt: weekly.resetsAt } : { state: "unknown" }) : !window || remaining <= 0 ? { state: "unknown" }
       : high && remaining < 20 * 60000 ? { state: "ready" } : high ? { state: "held", resetsAt: window.resetsAt }
       : fixture.state === "fresh" ? { state: "ready" } : { state: "unknown" };
     return { ...fixture, resets: structuredClone(resetOffers), refreshIntervalMs: 5 * 60000, policy: { ...quotaPolicy }, admission };
@@ -1955,7 +1956,7 @@
           if (["disabled", "ready"].includes(admission.state) && held.length) {
             return { held: [], released: held.map(r => ({ ...r, releasedAt: Date.now() })), resumesAt: null };
           }
-          return { ...activity, held, released: scoped(activity.released), resumesAt: admission.state === "held" ? admission.resetsAt - 20 * 60000 + 1 : null };
+          return { ...activity, held, released: scoped(activity.released), resumesAt: admission.state === "held" ? admission.resetsAt - (quotaView().windows.some(w => w.id === "seven_day" && w.usedPercent >= 99 && w.resetsAt === admission.resetsAt) ? 0 : 20 * 60000 - 1) : null };
         }
         case "set_claude_quota_policy": {
           if (!Number.isInteger(args.policy.pausePercent) || args.policy.pausePercent < 1 || args.policy.pausePercent > 99) throw new Error("Invalid pause threshold.");
