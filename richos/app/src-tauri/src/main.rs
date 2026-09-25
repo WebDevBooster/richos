@@ -363,6 +363,20 @@ impl LeaseFactory for EngineLeaseFactory {
     /// host reports it in those words rather than leaving it to surface later as a worker
     /// that never speaks.
     fn spawn_work(&self, binding: &richos_core::entity::ThreadBinding) -> Result<Box<dyn Cognition>, CognitionError> {
+        // **THE OPERATOR GATE** (operator back-end spec r2 (f); CEO ruling §86). No
+        // `operator.json` in this install's data folder is the product path, byte for byte
+        // what ran before this line existed. A present file never falls back to the customer
+        // worker (Frank's B8): broken refuses with its one sentence, and valid refuses too on
+        // a build that does not yet carry his team's back end.
+        match richos_core::operator_declaration::gate(&self.data_dir) {
+            richos_core::operator_declaration::Gate::Product => {}
+            richos_core::operator_declaration::Gate::Refused(refusal) => {
+                return Err(CognitionError::Io(refusal.sentence()));
+            }
+            richos_core::operator_declaration::Gate::Operator(_) => {
+                return Err(CognitionError::Io(richos_core::operator_declaration::NOT_IN_THIS_BUILD.to_string()));
+            }
+        }
         let dir = self
             .engine_dir
             .lock()
@@ -1872,6 +1886,23 @@ fn main() {
             startup_alert::cannot_start(
                 &format!("status tool server: {error}"),
                 "RichOS could not start the helper it uses to look at work that is already running.",
+            );
+            std::process::exit(1);
+        }
+        return;
+    }
+    // HIS LEAD'S REPORT TOOL (`richos-core`'s `operator_report.rs`; operator back-end spec r2
+    // (c)), the same shape as the three servers around it. Only an operator lead is ever given
+    // it (`operator_profile::mcp_config`), and only on an install whose `operator.json` passed
+    // the gate; nothing in the product path names this argument.
+    if first.as_deref() == Some(std::ffi::OsStr::new("--operator-mcp")) {
+        let result = args.next().ok_or_else(|| "Missing report scope".to_string())
+            .and_then(|scope| richos_core::operator_report::run_stdio(Path::new(&scope))
+                .map_err(|e| e.to_string()));
+        if let Err(error) = result {
+            startup_alert::cannot_start(
+                &format!("operator report server: {error}"),
+                "RichOS could not start the helper your team reports to you through.",
             );
             std::process::exit(1);
         }
@@ -5498,6 +5529,87 @@ fn set_thread_archived(state: State<AppState>, thread_id: String, archived: bool
 #[tauri::command(async)]
 fn rename_thread(state: State<AppState>, thread_id: String, title: String) -> Result<(), String> {
     state.nav.lock().unwrap().rename_thread(&thread_id, &title).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod operator_gate_tests {
+    //! **N1, the negative control, at the seam where the back end opens** (operator back-end
+    //! spec r2 §6, verification step 3; CEO ruling §86: off by default for everyone).
+    //!
+    //! The work lease factory is driven for real, against an engine directory that does not
+    //! exist, so the product path runs until its own first refusal and no process is
+    //! spawned. Without `operator.json` that refusal is the product path's own, word for
+    //! word, which is what "starts exactly as it does today" can be measured as here. With a
+    //! broken or a valid file the gate answers first and the product path never starts.
+    use super::*;
+    use richos_core::entity::{Entity, EntityId, EntityRegistry};
+
+    fn fixture(tag: &str) -> (PathBuf, richos_core::entity::ThreadBinding, EngineLeaseFactory) {
+        let root = std::env::temp_dir().join(format!("richos-operator-gate-{tag}-{}-{}", std::process::id(), richos_core::util::now_millis()));
+        let data = root.join("data");
+        std::fs::create_dir_all(&data).unwrap();
+        let ledger = Ledger::open(root.join("ledger.jsonl")).expect("open ledger");
+        let mut spine = Spine::new(ledger);
+        spine.set_entity_registry(EntityRegistry::new(vec![
+            Entity::new("femcboost", "FemcBoost", &["/fixture/ab/femcboost"]).unwrap(),
+        ]).unwrap());
+        let thread = spine.create_thread("Gate", &EntityId::parse("femcboost").unwrap()).unwrap();
+        let binding = spine.ledger().thread_binding(&thread).unwrap();
+        let factory = EngineLeaseFactory {
+            permissions: Default::default(),
+            claude_bin: Arc::new(Mutex::new(PathBuf::from("/nonexistent/claude"))),
+            engine_dir: Arc::new(Mutex::new(root.join("no-engine-here"))),
+            data_dir: data,
+            explicit_engine: false,
+        };
+        (root, binding, factory)
+    }
+
+    fn io_error(result: Result<Box<dyn Cognition>, CognitionError>) -> String {
+        match result {
+            Err(CognitionError::Io(why)) => why,
+            Err(other) => panic!("expected an Io refusal, got {other:?}"),
+            Ok(_) => panic!("nothing can start against an engine that is not there"),
+        }
+    }
+
+    #[test]
+    fn without_the_declaration_the_work_lease_takes_exactly_todays_path() {
+        let (root, binding, factory) = fixture("absent");
+        let why = io_error(factory.spawn_work(&binding));
+        // The product path's own first refusal for this engine directory, computed by the
+        // same two calls the factory makes in the same order (the release gate, which a
+        // development build without a pin passes, then the runtime check) — so the gate added
+        // nothing and took nothing away.
+        let dir = root.join("no-engine-here");
+        let expected = richos_core::setup::engine_boot_refusal_demand(
+            &dir,
+            false,
+            richos_core::setup::EngineDemand::pinned(richos_core::setup::engine_pin().as_ref()),
+        ).unwrap_or_else(|| match richos_core::runtime::verify_engine(&dir) {
+            Err(e) => e.to_string(),
+            Ok(_) => panic!("a missing engine cannot verify"),
+        });
+        assert_eq!(why, expected);
+        assert!(!why.contains("Your team"), "the operator gate spoke on an install with no declaration: {why}");
+        // And the product path really started: it renders the standing instruction first.
+        assert!(std::fs::read_dir(&factory.data_dir).unwrap().next().is_some(),
+            "the product path writes its standing instruction before it checks the engine");
+        assert!(!factory.data_dir.join(richos_core::operator_declaration::DECLARATION_FILE).exists());
+        if let Err(error) = std::fs::remove_dir_all(&root) { eprintln!("fixture cleanup: {error}"); }
+    }
+
+    #[test]
+    fn a_broken_declaration_refuses_before_the_product_path_starts() {
+        let (root, binding, factory) = fixture("broken");
+        std::fs::write(factory.data_dir.join(richos_core::operator_declaration::DECLARATION_FILE), "{").unwrap();
+        let why = io_error(factory.spawn_work(&binding));
+        assert!(why.starts_with("Your team is switched off on this Mac because "), "{why}");
+        // The product path renders the standing instruction first thing; it never ran.
+        let written: Vec<_> = std::fs::read_dir(&factory.data_dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(written, [std::ffi::OsString::from(richos_core::operator_declaration::DECLARATION_FILE)]);
+        if let Err(error) = std::fs::remove_dir_all(&root) { eprintln!("fixture cleanup: {error}"); }
+    }
 }
 
 #[cfg(test)]

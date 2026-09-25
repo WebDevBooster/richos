@@ -807,9 +807,25 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # prompts and briefs: ONE refused, and it is the dispatch that caused the
 # incident. Suite: guard-public-record-repo.test.sh (30 cases); harness:
 # public-record-repo.mutation.sh.
+# release-land-leases.sh, ADDED 2026-09-24 — Stop, NEVER BLOCKS. The operator
+# back end's land lease ends at its holder's turn end once the land is at rest
+# (clean, nothing in progress, pushed); otherwise it is kept and the hold is
+# announced, naming the dirty paths (richos-hq spec r3 e6, Frank F3 and G5).
+# Behind OPERATOR_FENCES: with the switch off no lease exists and it prints
+# nothing. Suite: release-land-leases.test.sh; harness: release-land-leases.mutation.sh.
+# guard-land-lease-commands.sh, ADDED 2026-09-24 — BLOCKING, a module of the Bash
+# chain's manifest. The operator fence's early check: it refuses, before it runs,
+# a cherry-pick, revert, am, rebase, stash, commit, reset or merge --abort aimed at
+# a fenced main checkout by a session without that repository's land lease
+# (richos-hq spec r3 e7, Frank G1; reset and merge --abort because the Git fence
+# stops them only after the shared tree is rewritten, measured on both gits).
+# Off or absent fence: never refuses. Suite: guard-land-lease-commands.test.sh;
+# harness: land-lease-commands.mutation.sh.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
 guard-host-display-power.sh
+guard-land-lease-commands.sh
 guard-public-record-repo.sh
+release-land-leases.sh
 guard-reference-ledger.sh
 guard-no-home-network-phone.sh
 notice-disk-alert.sh

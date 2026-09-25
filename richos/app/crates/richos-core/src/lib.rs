@@ -208,3 +208,19 @@ pub mod work_host;
 pub mod first_reply;
 
 pub mod read_view;
+
+/// **HIS TEAM BEHIND THE APP, ON HIS MAC ONLY** (CEO ruling §86; the operator back-end spec
+/// r2, richos-hq `docs/plans/2026-09-24-operator-back-end-spec-r2.md`). Off by default for
+/// everyone: nothing here runs unless the install's data folder holds `operator.json`.
+///   - `operator_declaration` — the gate (f): absent is the product, present and broken
+///                    refuses background work, and nothing falls back to the customer worker.
+pub mod operator_declaration;
+///   - `operator_profile` — his lead's arguments and environment, built from empty, and the
+///                    init check it passes before it takes work ((b), (i)).
+pub mod operator_profile;
+///   - `operator_frames` — his engine's alarms read off the lead's hook frames, verbatim and
+///                    delivered once across every lead ((r)).
+pub mod operator_frames;
+///   - `operator_report` — `richos_operator.report`, the tool his lead tells him things with;
+///                    every "landed" is checked in Git before it is said ((c)).
+pub mod operator_report;
