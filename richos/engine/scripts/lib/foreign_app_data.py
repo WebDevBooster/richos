@@ -49,9 +49,12 @@ Usage:
   foreign_app_data.py --self-test
 """
 
+import json
 import os
 import re
+import shlex
 import sys
+import time
 
 # The per-user folders macOS guards with App Data protection, relative to the home folder.
 PROTECTED_RELATIVE = (
@@ -256,12 +259,313 @@ def self_test():
     return 1 if bad else 0
 
 
+# ---------------------------------------------------------------------------
+# the Bash rule: commands an agent composes at runtime (2026-09-25)
+# ---------------------------------------------------------------------------
+# The static scan cannot see a command an agent types. Inside a RichOS session that command
+# runs as a child of RichOS.app, so `find ~ -name x` there makes macOS ask the USER whether
+# RichOS may access data from other apps. scripts/hooks/guard-foreign-app-data.sh runs this
+# on every Bash call. It refuses exactly two shapes and nothing else:
+#   (a) a path under another app's Containers or Group Containers folder, spelled with ~,
+#       $HOME, ${HOME} or /Users/<name> (our own com.richos.* containers are allowed);
+#   (b) find, du, ls -R, grep -r or rg whose root is the whole home folder, its Library,
+#       /Users or / (the folder, `<it>/*`, or `.` while the working directory is one of them).
+# Commands that only MENTION a path (echo, printf, git, gh) are not reads. A heredoc body is
+# checked only when it feeds an interpreter. `# foreign-app-data-exempt: <reason>` on the
+# command passes it and is logged.
+
+BASH_HOME = r"(?:~|\$HOME|\$\{HOME\}|/Users/[^/\s'\"$`]+)"
+BASH_CONTAINER = re.compile(
+    r"(?:^|(?<=[\s'\"=(:,]))" + BASH_HOME
+    + r"/Library/(Containers|Group Containers)(?=$|[/\s'\"`);|&])(?:/([^/\s'\"`);|&]*))?")  # foreign-app-data-exempt: the Bash rule's own pattern
+OWN_CONTAINER_PREFIXES = ("com.richos.", "group.com.richos.")
+MENTION_ONLY = {"echo", "printf", "git", "gh", ":", "true", "false"}
+INTERPRETERS = re.compile(
+    r"(?:^|[\s/;&|(])(?:python[0-9.]*|node|bash|sh|zsh|ruby|perl|osascript|swift)(?=\s|$)")
+WRAPPERS = {"sudo", "command", "time", "nohup", "exec", "builtin", "$"}
+HEREDOC = re.compile(r"<<(-?)\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2")
+REDIRECT = re.compile(r"^\d*(?:>>?|<|>&|<&)")
+SEPARATORS = ";&|()\n"
+
+
+def _strip_heredocs(text):
+    """The command text with each heredoc body removed, unless it feeds an interpreter."""
+    lines = text.split("\n")
+    out, i = [], 0
+    while i < len(lines):
+        line = lines[i]
+        out.append(line)
+        i += 1
+        m = HEREDOC.search(line)
+        if not m:
+            continue
+        tag, dash = m.group(3), m.group(1) == "-"
+        keep = bool(INTERPRETERS.search(line[:m.start()]))
+        while i < len(lines):
+            body = lines[i]
+            i += 1
+            if (body.lstrip("\t") if dash else body) == tag:
+                break
+            if keep:
+                out.append(body)
+    return "\n".join(out)
+
+
+def _tokens(text):
+    text = text.replace("\\\n", " ")  # a continued line is one command, not two
+    lx = shlex.shlex(text, posix=True, punctuation_chars=SEPARATORS)
+    lx.whitespace = " \t\r"
+    lx.whitespace_split = True
+    try:
+        return list(lx)
+    except ValueError:
+        return text.split()
+
+
+def _segments(tokens):
+    seg = []
+    for t in tokens:
+        if t and all(c in SEPARATORS for c in t):
+            if seg:
+                yield seg
+            seg = []
+        else:
+            seg.append(t)
+    if seg:
+        yield seg
+
+
+def _command(seg):
+    """(command basename, its arguments): assignments, wrappers and redirections removed."""
+    words, skip = [], False
+    for t in seg:
+        if skip:
+            skip = False
+            continue
+        if REDIRECT.match(t):
+            skip = bool(re.fullmatch(r"\d*(?:>>?|<|>&|<&)", t))
+            continue
+        words.append(t)
+    while words and (re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]) or words[0] in WRAPPERS):
+        words = words[1:]
+    if words and os.path.basename(words[0]) == "env":
+        words = words[1:]
+        while words and ("=" in words[0] or words[0].startswith("-")):
+            words = words[1:]
+    if words and os.path.basename(words[0]) in ("nice", "timeout"):
+        words = words[1:]
+        while words and (words[0].startswith("-") or re.fullmatch(r"[0-9.]+[smhd]?", words[0])):
+            words = words[1:]
+    if not words:
+        return "", []
+    return os.path.basename(words[0]), words[1:]
+
+
+def _positionals(args, takes_value):
+    """Operands of a command line, skipping options and the values they consume."""
+    out, i, ended = [], 0, False
+    while i < len(args):
+        a = args[i]
+        if ended or not a.startswith("-") or a == "-":
+            out.append(a)
+        elif a == "--":
+            ended = True
+        elif a.startswith("--"):
+            if "=" not in a and a[2:] in takes_value:
+                i += 1
+        else:
+            for j, c in enumerate(a[1:], 1):
+                if c in takes_value:
+                    if j == len(a) - 1:
+                        i += 1
+                    break
+        i += 1
+    return out
+
+
+def _walk_roots(cmd, args):
+    """The roots a recursive walker would start from, or None when it does not recurse."""
+    if cmd == "find":
+        roots, i = [], 0
+        while i < len(args) and args[i] in ("-H", "-L", "-P", "-E", "-X", "-d", "-s", "-x", "-f"):
+            if args[i] == "-f" and i + 1 < len(args):
+                roots.append(args[i + 1])
+                i += 1
+            i += 1
+        while i < len(args) and not args[i].startswith(("-", "(", "!")):
+            roots.append(args[i])
+            i += 1
+        return roots or ["."]
+    if cmd == "du":
+        return _positionals(args, {"d", "B", "t", "I", "max-depth", "threshold", "exclude"}) or ["."]
+    if cmd == "ls":
+        rec = any(a == "--recursive" or (a.startswith("-") and not a.startswith("--") and "R" in a)
+                  for a in args)
+        return (_positionals(args, set()) or ["."]) if rec else None
+    if cmd in ("grep", "egrep", "fgrep"):
+        rec = any(a in ("--recursive", "--dereference-recursive", "--directories=recurse")
+                  or (a.startswith("-") and not a.startswith("--") and ("r" in a or "R" in a))
+                  for a in args)
+        if not rec:
+            return None
+        pos = _positionals(args, set("efmABCdD") | {"regexp", "file", "max-count", "context",
+                                                     "include", "exclude", "exclude-dir"})
+        by_option = any(a.startswith(("-e", "-f", "--regexp", "--file")) for a in args)
+        return pos if by_option else pos[1:]
+    if cmd == "rg":
+        pos = _positionals(args, set("efgtTmABCjM") | {"regexp", "file", "glob", "type",
+                                                       "type-not", "max-count", "context",
+                                                       "threads", "max-columns"})
+        if "--files" in args or any(a.startswith(("-e", "-f", "--regexp", "--file")) for a in args):
+            return pos or ["."]
+        return pos[1:] or ["."]
+    return None
+
+
+# HOW DEEP A WALK FROM EACH HOLDER MAY GO BEFORE IT OPENS ANOTHER APP'S CONTAINER. The kernel
+# refuses `file-read-data` on the container folder of each app (measured 2026-09-25:
+# `du(62614) deny(1) file-read-data .../Containers/com.apple.VoiceMemos`). Listing the
+# Containers folder itself names those folders without opening them. From the home folder a
+# container folder is an entry at depth 3, and it is opened only to list depth 4. So
+# `find ~ -maxdepth 3` never opens one, and `-maxdepth 4` does. The budget for each holder is
+# the deepest `-maxdepth` that stays out of every container folder.
+_DEPTH_BUDGET = (("/", 5), ("/Users", 4), ("HOME", 3), ("HOME/Library", 2),
+                 ("HOME/Library/Containers", 1), ("HOME/Library/Group Containers", 1))  # foreign-app-data-exempt: the holders the Bash rule measures depth from
+
+
+def _depth_budget(root, cwd, home):
+    """The deepest safe -maxdepth for a walk rooted at `root`, or None if it holds no app data."""
+    r = root.rstrip("/") or "/"
+    glob = 0
+    if r.endswith("/*") or r.endswith("/.*"):
+        r, glob = (r.rsplit("/", 1)[0] or "/"), 1
+    elif r in ("*", ".*"):
+        r, glob = ".", 1
+    if r in (".", "./"):
+        if cwd is None:
+            return None
+        r = cwd.rstrip("/") or "/"
+    h = home.rstrip("/")
+    for alias in (r"~", r"\$HOME", r"\$\{HOME\}", r"/Users/[^/\s'\"$`]+", re.escape(h)):
+        m = re.match(alias + r"(?=/|$)", r)
+        if m:
+            r = "HOME" + r[m.end():]
+            break
+    for holder, budget in _DEPTH_BUDGET:
+        if r == holder:
+            return budget - glob
+    return None
+
+
+def _max_depth(cmd, args):
+    """The walk's -maxdepth (find) or --max-depth (rg), or None when it is unbounded."""
+    found = []
+    for i, a in enumerate(args):
+        nxt = args[i + 1] if i + 1 < len(args) else ""
+        if cmd == "find" and a == "-maxdepth" and nxt.isdigit():
+            found.append(int(nxt))
+        if cmd == "rg":
+            if a in ("--max-depth", "-d", "--maxdepth") and nxt.isdigit():
+                found.append(int(nxt))
+            elif a.startswith("--max-depth=") and a.split("=", 1)[1].isdigit():
+                found.append(int(a.split("=", 1)[1]))
+    return min(found) if found else None
+
+
+def bash_verdict(command, cwd=None, home=None):
+    """None when the command may run; otherwise the sentence the refusal prints."""
+    home = _home(home)
+    if not command or EXEMPT.search(command):
+        return None
+    effective_cwd = cwd
+    for seg in _segments(_tokens(_strip_heredocs(command))):
+        cmd, args = _command(seg)
+        if cmd == "cd":
+            target = args[0] if args else home
+            target = re.sub(r"^(?:~|\$HOME|\$\{HOME\})", home.rstrip("/"), target)
+            if target.startswith("/"):
+                effective_cwd = target
+            continue
+        if cmd not in MENTION_ONLY:
+            # A path is a word of its own (or follows `=`/`:` as in --file=PATH). Inside a
+            # longer word it is prose (an --tried "…" or --body "…" sentence) unless the
+            # word is code handed to an interpreter (python3 -c "open('…')").
+            code = bool(INTERPRETERS.search(" " + cmd))
+            for t in seg:
+                for m in BASH_CONTAINER.finditer(t):
+                    if not code and m.start() > 0 and t[m.start() - 1] not in "=:":
+                        continue
+                    owner = m.group(2) or ""
+                    # The folder itself (no app named) is a listing of names, not a read of
+                    # any app's data; walking it is the depth rule's business below.
+                    if not owner or owner.startswith(OWN_CONTAINER_PREFIXES):
+                        continue
+                    return ("`%s` reads %s, which is another app's data. macOS would ask the "
+                            "user whether RichOS may access data from other apps."
+                            % (cmd or "the command", m.group(0)))
+        depth = _max_depth(cmd, args)
+        # `-xdev` does NOT keep `find /` out of the home folder: measured 2026-09-25,
+        # `stat -f %d / /Users /Users/alex` gives one device id for all three (firmlinks).
+        for root in _walk_roots(cmd, args) or []:
+            budget = _depth_budget(root, effective_cwd, home)
+            if budget is None or (depth is not None and depth <= budget):
+                continue
+            where = root if root.rstrip("/") not in (".", "./*", "*") else \
+                "%s (the working directory)" % effective_cwd
+            return ("`%s` walks %s%s, which holds other apps' data. macOS would ask the user "
+                    "whether RichOS may access data from other apps."
+                    % (cmd, where, "" if depth is None else " to depth %d" % depth))
+    return None
+
+
+def bash_check(payload_text, log_path=None):
+    """PreToolUse[Bash]: 2 with the refusal on stderr, else 0. Unreadable input passes."""
+    try:
+        payload = json.loads(payload_text)
+    except ValueError:
+        return 0
+    if not isinstance(payload, dict) or payload.get("tool_name") not in (None, "Bash"):
+        return 0
+    command = (payload.get("tool_input") or {}).get("command") or ""
+    if not isinstance(command, str):
+        return 0
+    marker = EXEMPT.search(command)
+    if marker:
+        if log_path:
+            try:
+                os.makedirs(os.path.dirname(log_path), exist_ok=True)
+                with open(log_path, "a", encoding="utf-8") as fh:
+                    line = command[marker.start():].split("\n")[0][:200]
+                    fh.write("%s\t%s\t%s\n" % (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                               payload.get("session_id", ""), line))
+            except OSError:
+                pass
+        return 0
+    why = bash_verdict(command, cwd=payload.get("cwd"))
+    if not why:
+        return 0
+    sys.stderr.write(
+        "REFUSED (guard-foreign-app-data): %s\n"
+        "  Use the specific directory you need instead (for example ~/ab/<repo> or ~/.claude),\n"
+        "  never the whole home folder or another app's container folder.\n"
+        "  If it really is needed, add `# foreign-app-data-exempt: <reason>` to the command;\n"
+        "  that is logged.\n" % why)
+    return 2
+
+
 def main(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
         return 0
     if argv[0] == "--self-test":
         return self_test()
+    if argv[0] == "bash-check":
+        base = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(_home(), ".claude")
+        return bash_check(sys.stdin.read(), os.path.join(base, "state", "foreign-app-data-acks.log"))
+    if argv[0] == "bash-verdict":
+        why = bash_verdict(argv[1] if len(argv) > 1 else "", cwd=argv[2] if len(argv) > 2 else None)
+        print(why or "allowed")
+        return 1 if why else 0
     if argv[0] == "check":
         if len(argv) < 2:
             return 2
