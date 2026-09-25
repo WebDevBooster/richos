@@ -770,3 +770,26 @@ Two rules for whoever renders it:
 registered, the last window closing keeps the process alive with no window and no question —
 the CEO's decision, 2026-09-17: *"OK, window-closed only."* The Dock icon brings the window
 back. With nothing registered, closing the last window still quits exactly as it always has.
+
+## Files dropped on the window: `rich://file-drag` and `rich://file-drop`
+
+The tenth family, added 2026-09-24 for screenshots and files on the Mac composer (CEO ruling
+§86). Source of truth: `richos/app/src-tauri/src/mac_attachments.rs`, the constants
+`EVENT_FILE_DRAG` and `EVENT_FILE_DROP`, emitted by `listen_for_drops` from the window's own
+drag-and-drop events.
+
+| Event name | When | Payload |
+|---|---|---|
+| `rich://file-drag` | A drag carrying files entered the window (`enter`), or left it or landed (`leave`). | `{ phase, count }`: `phase` is `enter` or `leave`; `count` is how many paths the drag carries, 0 on `leave` |
+| `rich://file-drop` | Files landed on the window. | `{ drop, files: [{ index, name }] }`: a drop number and each file's display name, **never its path** |
+
+**The page never receives a path, and cannot name one.** The window's drag-and-drop handler
+takes the drop before the webview sees it, so the paths arrive in Rust. They are kept there,
+per drop, and the page asks for a file by `(drop, index)` with `attach_dropped_file`; each path
+is handed out once. No command takes a path from the page. A paste is the other way in: the
+page already holds the bytes, and `attach_pasted_file` takes them as a raw body.
+
+**What the page does with them** is `ui/attachments.js`: a chip per file on the composer, a
+remove control per chip, and on Send `commit_attachments`, which moves the files into the
+conversation's folder and returns the words Rich receives, in the same shape the phone's
+attachments reach him (`phone/attachments.rs`, `describe_from`).

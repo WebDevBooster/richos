@@ -1848,12 +1848,115 @@
     return { ...mockUpdate.view };
   }
 
+  // ---- screenshots and files on the Mac composer (CEO §86, `src-tauri/src/mac_attachments.rs`)
+  //
+  // The desk's accepted kinds and the Mac's sentences, VERBATIM from `phone/attachments.rs`
+  // (`ACCEPTED`, `Origin::Mac`) — `tests/attachments.js` reads the Rust and asserts each one
+  // matches, so the preview cannot rehearse a refusal the product no longer says.
+  const MOCK_ATTACH_KINDS = [
+    { mediaType: "image/jpeg", extension: "jpg", extensions: ["jpg", "jpeg"], label: "JPEG photo", magic: [0xff, 0xd8, 0xff] },
+    { mediaType: "image/png", extension: "png", extensions: ["png"], label: "PNG image", magic: [0x89, 0x50, 0x4e, 0x47] },
+    { mediaType: "image/heic", extension: "heic", extensions: ["heic", "heif"], label: "HEIC photo" },
+    { mediaType: "image/heif", extension: "heif", extensions: ["heif", "heic"], label: "HEIF photo" },
+    { mediaType: "image/gif", extension: "gif", extensions: ["gif"], label: "GIF image", magic: [0x47, 0x49, 0x46, 0x38] },
+    { mediaType: "image/webp", extension: "webp", extensions: ["webp"], label: "WebP image" },
+    { mediaType: "application/pdf", extension: "pdf", extensions: ["pdf"], label: "PDF", magic: [0x25, 0x50, 0x44, 0x46, 0x2d] },
+    { mediaType: "text/plain", extension: "txt", extensions: ["txt", "text", "log"], label: "text file" },
+    { mediaType: "text/markdown", extension: "md", extensions: ["md", "markdown"], label: "Markdown file" },
+    { mediaType: "text/csv", extension: "csv", extensions: ["csv"], label: "CSV file" },
+    { mediaType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", extension: "docx", extensions: ["docx"], label: "Word document" },
+    { mediaType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", extension: "xlsx", extensions: ["xlsx"], label: "Excel workbook" },
+    { mediaType: "application/vnd.openxmlformats-officedocument.presentationml.presentation", extension: "pptx", extensions: ["pptx"], label: "PowerPoint presentation" },
+  ];
+  const MOCK_ATTACH_SAYS = {
+    unknownType: "RichOS can't take this kind of file yet. Photos, PDFs, text and Office documents work. Nothing was attached.",
+    empty: "This file is empty. Nothing was attached.",
+    tooLarge: "This file is larger than 25 MB, the most RichOS takes in one file. Nothing was attached.",
+    notWhatItSays: (label) => "This file does not look like a " + label + ". Nothing was attached.",
+    tooMany: "A message can carry at most 10 files.",
+  };
+  /// Where the mock "keeps" a committed file. A path of the real shape, under a folder that
+  /// cannot exist on anybody's Mac.
+  const MOCK_ATTACH_HOME = "/mock/Library/Application Support/com.richos.app/attachments";
+  const mockAttach = { staged: new Map(), drops: new Map(), nextDrop: 0, calls: [], missingNext: null };
+
+  function mockKindFor(declared, name) {
+    const bare = String(declared || "").split(";")[0].trim().toLowerCase();
+    const byType = MOCK_ATTACH_KINDS.find((k) => k.mediaType === bare);
+    if (byType) return byType;
+    const dot = String(name || "").lastIndexOf(".");
+    if (dot < 0) return null;
+    const ext = name.slice(dot + 1).toLowerCase();
+    return MOCK_ATTACH_KINDS.find((k) => k.extension === ext) || MOCK_ATTACH_KINDS.find((k) => k.extensions.includes(ext)) || null;
+  }
+
+  /// The desk's `stage_from(Origin::Mac, …)`, as far as a browser preview needs it.
+  function mockStage(draftId, id, name, declared, bytes) {
+    const kind = mockKindFor(declared, name);
+    if (!kind) return Promise.reject(MOCK_ATTACH_SAYS.unknownType);
+    if (!bytes.length) return Promise.reject(MOCK_ATTACH_SAYS.empty);
+    if (bytes.length > 25 * 1024 * 1024) return Promise.reject(MOCK_ATTACH_SAYS.tooLarge);
+    if (kind.magic && !kind.magic.every((b, i) => bytes[i] === b)) return Promise.reject(MOCK_ATTACH_SAYS.notWhatItSays(kind.label));
+    const inDraft = [...mockAttach.staged.values()].filter((s) => s.draftId === draftId);
+    if (inDraft.length >= 10) return Promise.reject(MOCK_ATTACH_SAYS.tooMany);
+    const staged = {
+      draftId,
+      id,
+      name: String(name || "attachment").split("/").pop(),
+      mediaType: kind.mediaType,
+      label: kind.label,
+      size: bytes.length,
+      // Not a real SHA-256: the mock binds the id to its length and name, which is all a
+      // browser preview can check. The Rust desk hashes the bytes.
+      sha256: ("m" + bytes.length + "-" + name).replace(/[^A-Za-z0-9]/g, "").padEnd(64, "0").slice(0, 64),
+    };
+    mockAttach.staged.set(draftId + "/" + id, staged);
+    const { draftId: _d, ...view } = staged;
+    return Promise.resolve(view);
+  }
+
   window.RichBridge = {
     isMock: true,
 
-    async invoke(cmd, args) {
+    async invoke(cmd, args, options) {
       args = args || {};
       switch (cmd) {
+        // ---- screenshots and files on the Mac composer (CEO §86) -------------------------
+        case "attach_pasted_file": {
+          const h = (options && options.headers) || {};
+          mockAttach.calls.push({ cmd, name: decodeURIComponent(h["x-richos-name"] || ""), type: h["x-richos-type"] || "", size: args.length });
+          return mockStage(h["x-richos-draft"], h["x-richos-attachment"], decodeURIComponent(h["x-richos-name"] || ""), h["x-richos-type"], args);
+        }
+        case "attach_dropped_file": {
+          const drop = mockAttach.drops.get(args.drop);
+          const file = drop && drop[args.index];
+          mockAttach.calls.push({ cmd, drop: args.drop, index: args.index, name: file ? file.name : null });
+          if (!file) return Promise.reject("That drop is no longer available. Drop the file again.");
+          drop[args.index] = null;
+          if (file.folder) return Promise.reject("This is a folder, not a file. Drop the files inside it instead. Nothing was attached.");
+          return mockStage(args.draftId, args.attachmentId, file.name, "", file.bytes);
+        }
+        case "discard_attachment": {
+          mockAttach.calls.push({ cmd, draftId: args.draftId, attachmentId: args.attachmentId });
+          return mockAttach.staged.delete(args.draftId + "/" + args.attachmentId);
+        }
+        case "commit_attachments": {
+          mockAttach.calls.push({ cmd, threadId: args.threadId, draftId: args.draftId, text: args.text, attachments: args.attachments });
+          const missing = (mockAttach.missingNext || []).filter((id) => args.attachments.some((a) => a.id === id));
+          mockAttach.missingNext = null;
+          const found = args.attachments.map((a) => mockAttach.staged.get(args.draftId + "/" + a.id));
+          args.attachments.forEach((a, i) => { if (!found[i] && !missing.includes(a.id)) missing.push(a.id); });
+          if (missing.length) return { text: null, files: [], missing };
+          found.forEach((f) => mockAttach.staged.delete(args.draftId + "/" + f.id));
+          const count = found.length === 1 ? "1 file" : found.length + " files";
+          const lines = found.map((f) => `- ${MOCK_ATTACH_HOME}/${args.threadId}/${args.draftId}/${f.name} (${f.mediaType}, ${f.size} bytes)`);
+          const words = String(args.text || "").trim();
+          return {
+            text: (words ? words + "\n\n" : "") + `Attached on this Mac (${count}, saved by RichOS):\n` + lines.join("\n"),
+            files: found.map(({ draftId: _d, ...f }) => f),
+            missing: [],
+          };
+        }
         case "list_threads":
           return threads.map((t) => ({ ...t, message_count: (messagesByThread[t.id] || []).length }));
         case "active_thread":
@@ -3474,6 +3577,35 @@
 
   // --- dev-only test hooks, exercised by a headless check, never by real users ----------
   window.__RICHOS_MOCK__ = {
+    // ---- screenshots and files on the Mac composer (CEO §86) -------------------------------
+    /// Drop files on the window, the way the shell reports one: a `rich://file-drag` enter and
+    /// leave, then `rich://file-drop` with a drop number and names only. Each file is
+    /// `{ name, bytes: number[] }` or `{ name, folder: true }`.
+    dropFiles(files) {
+      const id = ++mockAttach.nextDrop;
+      mockAttach.drops.set(id, files.map((f) => ({ name: f.name, folder: !!f.folder, bytes: Uint8Array.from(f.bytes || []) })));
+      emit("rich://file-drag", { phase: "enter", count: files.length });
+      emit("rich://file-drag", { phase: "leave", count: 0 });
+      emit("rich://file-drop", { drop: id, files: files.map((f, index) => ({ index, name: f.name })) });
+      return id;
+    },
+    /// A drag hovering over the window, without landing.
+    dragOver(on) {
+      emit("rich://file-drag", on ? { phase: "enter", count: 1 } : { phase: "leave", count: 0 });
+    },
+    /// Every attachment command the surface issued, in order.
+    attachCalls() {
+      return mockAttach.calls.map((c) => ({ ...c }));
+    },
+    /// The next `commit_attachments` answers these ids as no longer held (the sweep, or room
+    /// made for newer files), exactly as the desk's `Missing` does.
+    attachMissingNext(ids) {
+      mockAttach.missingNext = ids.slice();
+    },
+    /// How many files the mock desk holds un-sent.
+    attachStagedCount() {
+      return mockAttach.staged.size;
+    },
     // ---- the update path (RICH-TODOs row 12) ------------------------------------------
     /// Put the panel into a state, and optionally queue what the NEXT command returns.
     /// Emits `rich://update` as well as setting the value, because the real shell reaches

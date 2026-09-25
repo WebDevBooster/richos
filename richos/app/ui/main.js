@@ -17,7 +17,9 @@ if (!window.RichBridge) {
   const listen = window.__TAURI__.event.listen;
   window.RichBridge = {
     isMock: false,
-    invoke: (cmd, args) => invoke(cmd, args),
+    // `options` carries the headers of a raw-bytes call (a pasted file, `attachments.js`);
+    // every other call passes two arguments and is unchanged.
+    invoke: (cmd, args, options) => invoke(cmd, args, options),
     listen: (name, cb) => listen(name, cb),
   };
 }
@@ -764,6 +766,8 @@ function setMainView(view) {
   // The waiting band is a conversation surface. It never sits over the entity screen or the
   // §21 unbound screen, where there is no turn on screen for it to describe.
   hideWaitBandOffConversation();
+  // The files on the composer belong to what it is writing TO, like its words.
+  if (window.RichAttachments) window.RichAttachments.sync();
 }
 
 function showConversationView() {
@@ -1760,6 +1764,46 @@ function replayHeldSend(threadId) {
   send();
 }
 
+/// True while `commit_attachments` runs, so a second Send in that gap is not a second message.
+let foldingAttachments = false;
+
+/// **Put the composer's files into the conversation and return the words Rich receives**, or
+/// `null` when they could not be, having said why on the tray's line. A file the desk no longer
+/// holds is taken off the tray by name and NOTHING is committed (the Rust side moves all or
+/// none), so no message ever leaves with part of its files.
+async function foldAttachments(text, threadId, files) {
+  foldingAttachments = true;
+  try {
+    const answer = await Bridge.invoke("commit_attachments", {
+      threadId,
+      draftId: files.draftId,
+      text,
+      attachments: files.attachments,
+    });
+    if (answer && Array.isArray(answer.missing) && answer.missing.length) {
+      window.RichAttachments.forget(files.key, answer.missing);
+      return null;
+    }
+    window.RichAttachments.sent(files.key);
+    return answer.text;
+  } catch (e) {
+    window.RichAttachments.note(
+      typeof e === "string" && e.trim()
+        ? e.trim()
+        : "RichOS couldn't attach your files just now. They are still attached; press Send to try again."
+    );
+    return null;
+  } finally {
+    foldingAttachments = false;
+  }
+}
+
+/// What the new-thread bubble says for the second before the thread exists.
+function attachingLine(files) {
+  const n = files.names.length;
+  return (n === 1 ? "Attaching 1 file: " : "Attaching " + n + " files: ") + files.names.join(", ");
+}
+
 async function send(explicitText) {
   // AUDIT-7 ROW 10, AND IT WAS A SILENT DROP, NOT A REFUSAL. `mainView === "opening"` is the
   // window between a thread being asked for and its timeline being on screen — six bridge
@@ -1793,21 +1837,55 @@ async function send(explicitText) {
     }
     return;
   }
+  // One Send at a time while files are being filed into the conversation: a second Return in
+  // that gap would otherwise send the same words twice, once with the files and once without.
+  if (foldingAttachments) return;
   // Start/Resume sends its own acceptance without silently submitting or deleting a draft.
   const preserveDraft = typeof explicitText === "string";
-  const text = preserveDraft ? explicitText.trim() : inputEl.value.trim();
-  if (!text) return;
+  let text = preserveDraft ? explicitText.trim() : inputEl.value.trim();
+  // FILES HE DROPPED OR PASTED (CEO §86). Never on a Start/Resume send, which is not his
+  // composer's content.
+  const files = preserveDraft || !window.RichAttachments ? null : window.RichAttachments.forSend();
+  if (!text && !files) return;
+  if (files && files.busy) {
+    window.RichAttachments.note(window.RichAttachments.STILL_ADDING);
+    return;
+  }
   // §9.2: "The composer remains enabled. This is essential. Long work should not trap the
   // CEO in a passive state." Until this slice the line here read `if (anyLiveTurn()) return;`
   // — an honest refusal, because the spine's mutex is held for the whole turn and there was
   // nowhere durable to put the words. There is now (`steering.rs`), so they go there.
-  if (anyLiveTurn()) return steer(text, preserveDraft);
+  if (anyLiveTurn()) {
+    if (files) {
+      const folded = await foldAttachments(text, activeThreadId, files);
+      if (folded === null) return;
+      text = folded;
+    }
+    return steer(text, preserveDraft);
+  }
   // §21 "Entity binding failure": BLOCK SEND and state why. Never quietly file the CEO's
   // words somewhere Rich guessed.
   if (sendBlockedReason) {
     composerBlockedEl.textContent = sendBlockedReason;
     composerBlockedEl.hidden = false;
     return;
+  }
+  // THE FILES GO INTO THE CONVERSATION'S FOLDER BEFORE THE WORDS LEAVE THE BOX, so a refusal
+  // leaves both where he put them. What Rich receives is the phone's shape: his words, then
+  // one line per file with its path, type and size (`describe_from` in Rust). A new thread's
+  // files wait for the thread to exist; that case is below.
+  if (files && !draftEntityId) {
+    const foldThread = activeThreadId;
+    const folded = await foldAttachments(text, foldThread, files);
+    if (folded === null) return;
+    if (activeThreadId !== foldThread || mainView !== "conversation") {
+      // He moved in the milliseconds the files took. They are filed under the thread he sent
+      // from, so the message stays with it, as its draft, ready to send.
+      drafts.set(foldThread, folded);
+      parkViewStateNow();
+      return;
+    }
+    text = folded;
   }
   const keptDraft = preserveDraft ? inputEl.value : "";
   if (!preserveDraft) inputEl.value = "";
@@ -1859,7 +1937,13 @@ async function send(explicitText) {
     // active one. The early return stays unreachable on this path.
     timelineModel = window.RichTimeline.createModel();
     showConversationView(); // clears `draftEntityId`; `entityId` is captured above
-    const optimisticId = window.RichTimeline.addPendingUserMessage(timelineModel, text, Date.now());
+    // The throwaway bubble names the files it is carrying; the real one, below, carries the
+    // exact words Rich receives once the thread exists and the files are in its folder.
+    const optimisticId = window.RichTimeline.addPendingUserMessage(
+      timelineModel,
+      files ? [text, attachingLine(files)].filter(Boolean).join("\n\n") : text,
+      Date.now()
+    );
     pendingSends.set(optimisticId, { model: timelineModel, threadId: null, turnId: null, startedAt: Date.now() });
     startOrStopWaitTimer();
     renderWaitBand();
@@ -1868,7 +1952,10 @@ async function send(explicitText) {
 
     let newId;
     try {
-      newId = await Bridge.invoke("create_thread_in", { entityId, title: provisionalTitle(text) });
+      newId = await Bridge.invoke("create_thread_in", {
+        entityId,
+        title: provisionalTitle(text || (files ? files.names[0] : "")),
+      });
     } catch (e) {
       // THE BUBBLE IS WITHDRAWN BEFORE ANYTHING ELSE. No thread was created, so nothing was
       // sent; a sentence left on screen looking delivered would be a worse lie than the
@@ -1895,6 +1982,25 @@ async function send(explicitText) {
       inputEl.value = text; // never swallow the CEO's words
       autoGrow();
       return;
+    }
+    if (files) {
+      const folded = await foldAttachments(text, newId, files);
+      if (folded === null) {
+        // THE SAME WITHDRAWAL AS A THREAD THAT COULD NOT START: nothing was sent, so nothing
+        // may look sent. His words go back in the box and his files stay on the composer
+        // (they are keyed to this company's new-thread draft, which is where he is returned).
+        // `foldAttachments` has already said what happened to the files.
+        pendingSends.delete(optimisticId);
+        startOrStopWaitTimer();
+        removeWaitBand();
+        window.RichTimeline.dropPendingUserMessage(timelineModel, optimisticId);
+        scheduleRender();
+        showEntityView(entityId, "new");
+        inputEl.value = text;
+        autoGrow();
+        return;
+      }
+      text = folded;
     }
     drafts.delete(ENTITY_DRAFT_PREFIX + entityId);
     if (preserveDraft && keptDraft) drafts.set(newId, keptDraft);
@@ -2157,7 +2263,9 @@ function syncComposerMode() {
   }
   const working = anyLiveTurn();
   const stopping = anyStoppingTurn();
-  const empty = inputEl.value.trim().length === 0;
+  // A file on the composer is something to send, with or without words.
+  const empty =
+    inputEl.value.trim().length === 0 && !(window.RichAttachments && window.RichAttachments.hasItems());
 
   inputEl.placeholder = working ? "Add context or steer Rich…" : idlePlaceholder;
 
@@ -2891,6 +2999,9 @@ function autoGrow() {
   inputEl.style.height = "auto";
   const max = 5 * 22; // ~5 lines
   inputEl.style.height = Math.min(inputEl.scrollHeight, max) + "px";
+  // Every place the composer's words are swapped for another thread's calls this, so it is
+  // also where the attachment tray follows them (a no-op when nothing moved).
+  if (window.RichAttachments) window.RichAttachments.sync();
 }
 inputEl.addEventListener("input", () => {
   autoGrow();
@@ -2900,6 +3011,23 @@ inputEl.addEventListener("input", () => {
   // The half-written sentence outlives the process. Debounced — see PARK_DEBOUNCE_MS.
   parkViewStateSoon();
 });
+
+// SCREENSHOTS AND FILES ON THE COMPOSER (CEO §86). The tray is keyed like the drafts: to the
+// thread the composer is writing to, or to a company's new-thread draft, and to nothing while
+// the home screen covers the composer. A file dropped while he looks at thread A is thread A's.
+if (window.RichAttachments) {
+  window.RichAttachments.init({
+    bridge: Bridge,
+    composerKey: () => {
+      if (window.RichHome && window.RichHome.isOpen && window.RichHome.isOpen()) return null;
+      if (mainView === "opening" && openingThread) return openingThread.threadId;
+      if (mainView === "entity" && viewEntityId) return ENTITY_DRAFT_PREFIX + viewEntityId;
+      if (mainView === "conversation" && activeThreadId) return activeThreadId;
+      return null;
+    },
+    onChange: () => syncComposerMode(),
+  });
+}
 
 // **THE TEXT SIZE MOVES THE FIELD TOO** — Ray's candidate .13 defect R1, and the CEO's own
 // sentence about the composer is what it breaks: *"the 2 buttons at the bottom need to be
