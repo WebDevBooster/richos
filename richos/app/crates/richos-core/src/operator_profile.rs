@@ -42,12 +42,21 @@ pub const LEAD_CLAIM_ENV: &str = "RICHOS_OPERATOR_LEAD";
 /// The supervisor flag that makes it reap the lead's whole tree (r3 (q) item 2).
 pub const REAP_DESCENDANTS: &str = "--reap-descendants";
 /// The only tool taken away from his lead: nobody is at a terminal to answer it (n).
+///
+/// **Known gap, not built here** (esc-20260925T050529Z-a3d5a077): with this tool withheld, his
+/// engine's two CEO-ask gates (`guard-ceo-ruled-ask.sh`, and the witness `guard-ceo-ask-first.sh`
+/// reads) cannot see a question from the lead. A PRD covers the question path. Until it lands, the
+/// lead passes the ask-first gate only with the logged `ceo-todos-deferred:` line. The operator
+/// probes never hit that gate (20 of 20 `ok`, a fixture with no prepared question).
 pub const DISALLOWED_TOOL: &str = "AskUserQuestion";
 
 /// The `claude` versions the probe harness has measured this path against (r2 (b), note 7).
 /// A lead on any other version still opens, and he is told once that the harness should be
 /// run again. Updated from the harness's recorded `claude --version`, never by hand.
-pub const MEASURED_CLAUDE_VERSIONS: &[&str] = &[];
+///
+/// 2.1.282: the operator probes P1-P15, 2026-09-24/25, every run report's `claude_version`
+/// (richos-hq `docs/verification/2026-09-24-operator-probes/summary.json`).
+pub const MEASURED_CLAUDE_VERSIONS: &[&str] = &["2.1.282"];
 
 /// The two values derived fresh at every lead start (r3 (i)).
 #[derive(Clone, Debug, PartialEq, Eq)]
