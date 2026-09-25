@@ -438,7 +438,7 @@ run_layer_R() {
     # ROOTLESS, EACH FOR A REASON READ OFF ITS SOURCE RATHER THAN ITS INTENT:
     #   guard-brief-scope, notice-claim-capability, handoff-facts-annotate,
     #   notice-inflight-sends, session-start-ci-surface, session-start-scratch,
-    #   shell-evidence — they
+    #   session-start-quota, shell-evidence — they
     #     resolve no entity root at all, so naming them would make this layer
     #     assert something false about them (hook-registration-completeness.sh
     #     names handoff-facts-annotate.sh as a live instance of exactly that).
@@ -456,7 +456,7 @@ run_layer_R() {
     #     is not one. Sourcing the library is not the same claim as resolving a
     #     root, which is why this exemption is declared and not derived.
     R_ROOTLESS_HOOKS="guard-brief-scope notice-claim-capability handoff-facts-annotate \
-    notice-inflight-sends session-start-ci-surface session-start-scratch shell-evidence \
+    notice-inflight-sends session-start-ci-surface session-start-scratch session-start-quota shell-evidence \
     task-completed-handoff teammate-idle-handoff \
     worker-created-handoff worker-started-handoff worker-updated-handoff worker-ended-handoff \
     guard-ci-red-lands"
@@ -1187,6 +1187,7 @@ session-start-escalations.sh|SessionStart
 session-start-ci-surface.sh|SessionStart
 notice-disk-alert.sh|SessionStart
 session-start-scratch.sh|SessionStart
+session-start-quota.sh|SessionStart
 left-off-report.sh|SessionStart
 guard-sealed-worktree.sh|PreToolUse
 guard-worktree-isolation.sh|PreToolUse
