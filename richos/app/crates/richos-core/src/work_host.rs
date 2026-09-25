@@ -278,6 +278,7 @@ pub struct WorkHost {
     /// shortens it for the same reason [`WorkHost::set_context_budget`] exists — a test that
     /// slept two seconds per sample is a test nobody runs.
     screen_poll: Mutex<std::time::Duration>,
+    quota: Mutex<Option<Arc<crate::quota::Service>>>,
 }
 
 /// The context window this build assumes while a back end has reported nothing, and the
@@ -407,7 +408,44 @@ impl WorkHost {
             // host that loses the feature rather than one that loses the work.
             screen: Mutex::new(Arc::new(crate::screen::UnknownScreen)),
             screen_poll: Mutex::new(crate::screen::SCREEN_POLL),
+            quota: Mutex::new(None),
         })
+    }
+
+    pub fn set_quota(&self, quota: Arc<crate::quota::Service>) {
+        *self.quota.lock().unwrap() = Some(quota);
+    }
+
+    /// Wait between background turns, never cancel a turn to enforce a quota hold.
+    /// No lease/config lock is acquired here. Stop and quit remain reachable.
+    fn quota_gate(&self, backend: &Arc<Backend>, record: &Assignment) -> bool {
+        let quota = self.quota.lock().unwrap().clone();
+        let Some(quota) = quota else { return true };
+        let mut waiting = false;
+        loop {
+            let inner = backend.inner.lock().unwrap();
+            if inner.closing || inner.stopped.iter().any(|id| id == &record.id) { return false; }
+            let admission = quota.view().admission;
+            if admission.allows_work() {
+                let next = if inner.live.is_some() { AssignmentState::Running } else { record.state };
+                drop(inner);
+                if waiting {
+                    let _ = assignment::advance(&self.state, &record.entity_id, &record.thread_id, &record.id,
+                        next, "The allowance is available. Continuing where it paused.");
+                }
+                return true;
+            }
+            if !waiting {
+                let detail = match admission {
+                    crate::quota::Admission::Held { .. } => "Waiting for the allowance to refresh. Work is saved and will continue automatically.",
+                    _ => "Waiting for a current allowance reading before continuing. Work is saved.",
+                };
+                let _ = assignment::advance(&self.state, &record.entity_id, &record.thread_id, &record.id,
+                    AssignmentState::WaitingForQuota, detail);
+                waiting = true;
+            }
+            drop(backend.wake.wait_timeout(inner, std::time::Duration::from_millis(250)).unwrap());
+        }
     }
 
     /// How often a screen wait looks. Test scaffolding, same reason and same shape as
@@ -694,6 +732,10 @@ impl WorkHost {
 
     /// One assignment, start to the end of its back end's own turn.
     fn run_one(self: &Arc<Self>, backend: &Arc<Backend>, binding: &ThreadBinding, record: &Assignment, resumed: bool) {
+        if !self.quota_gate(backend, record) {
+            self.settle_stopped(backend, record);
+            return;
+        }
         let scope = (record.entity_id.clone(), record.thread_id.clone(), record.id.clone());
         let advance = |to: AssignmentState, detail: &str| {
             let _ = assignment::advance(&self.state, &scope.0, &scope.1, &scope.2, to, detail);
@@ -882,6 +924,9 @@ impl WorkHost {
         // ever take a turn"; this is "did THIS turn produce anything at all", and the two are
         // different questions. See [`CONTINUATION_REASK_LIMIT`].
         let mut say = |lease: &mut Box<dyn Cognition>, text: &str, items: &mut usize| {
+            if !self.quota_gate(backend, record) {
+                return Err(CognitionError::Protocol("The waiting assignment was stopped.".into()));
+            }
             lease.prompt(text, &mut |item: TurnItem| {
                 *items += 1;
                 if !confirmed {
@@ -1320,8 +1365,11 @@ impl WorkHost {
     fn wait_for_owned_workers(
         self: &Arc<Self>, backend: &Arc<Backend>, record: &Assignment, session: &str,
     ) -> bool {
-        let deadline = std::time::Instant::now() + WORKER_WAIT_BUDGET;
+        let mut deadline = std::time::Instant::now() + WORKER_WAIT_BUDGET;
         loop {
+            let before = std::time::Instant::now();
+            if !self.quota_gate(backend, record) { return false; }
+            deadline += before.elapsed();
             {
                 let inner = backend.inner.lock().unwrap();
                 if inner.closing || inner.stopped.iter().any(|id| *id == record.id) {
@@ -2897,6 +2945,44 @@ mod tests {
         assert_ne!(row.state, AssignmentState::Registered, "the runner never picked it up");
         assert_eq!(h.bound.lock().unwrap().len(), 1, "the assignment never reached the work lease");
         h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    #[test]
+    fn quota_hold_does_not_start_a_lease_and_disabling_it_continues_the_assignment() {
+        let h = harness(5);
+        let quota = Arc::new(crate::quota::Service::open(&h.root).unwrap());
+        quota.set_policy(crate::quota::Policy { enabled: true, pause_percent: 93 }).unwrap();
+        h.host.set_quota(quota.clone());
+        h.host.start();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+            if row.state == AssignmentState::WaitingForQuota { break; }
+            assert!(std::time::Instant::now() < deadline, "assignment did not enter the quota hold");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 0);
+        quota.set_policy(crate::quota::Policy::default()).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(5)));
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 1);
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    #[test]
+    fn stopping_a_quota_held_assignment_never_opens_a_lease() {
+        let h = harness(5);
+        let quota = Arc::new(crate::quota::Service::open(&h.root).unwrap());
+        quota.set_policy(crate::quota::Policy { enabled: true, pause_percent: 93 }).unwrap();
+        h.host.set_quota(quota);
+        h.host.start();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        h.host.stop_assignment("depot", "thread-one", &receipt.id).unwrap();
+        h.host.shutdown();
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 0);
+        assert_eq!(assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap().state, AssignmentState::Interrupted);
         std::fs::remove_dir_all(h.root).unwrap();
     }
 

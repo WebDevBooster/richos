@@ -3457,10 +3457,12 @@ function renderDrillChip() {
   // it. **MOST STUCK FIRST** is the order: his decision, then a wait that clears itself, then
   // what is starting, then what is running.
   const forScreen = rows.filter((row) => row.state === "waiting-for-screen").length;
+  const forQuota = rows.filter((row) => row.state === "waiting-for-quota").length;
   const starting = rows.filter((row) => row.state === "registered" || row.state === "preparing").length;
   const running = rows.filter((row) => row.state === "running").length;
   if (awaiting) parts.push(`${awaiting} waiting for you`);
   if (forScreen) parts.push(counted(forScreen, "assignment", "assignments") + " waiting for the screen");
+  if (forQuota) parts.push(counted(forQuota, "assignment", "assignments") + " waiting to continue");
   if (starting) parts.push(counted(starting, "assignment", "assignments") + " starting");
   if (running) parts.push(counted(running, "assignment", "assignments") + " running");
   // Plain language for the state the design calls `not_found`. "1 unknown" reads like an

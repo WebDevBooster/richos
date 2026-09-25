@@ -83,6 +83,8 @@ pub enum AssignmentState {
     /// clean quit is different and is already witnessed: the quit stops the wait and the
     /// state is [`Self::Interrupted`], which is a fact rather than an inference.
     WaitingForScreen,
+    /// An automatic background-turn hold. The existing lease and files are retained.
+    WaitingForQuota,
     /// On the work lease, inside `richos_work.prepare`.
     Preparing,
     /// Prepared and dispatched. A worker start has been recorded.
@@ -135,7 +137,7 @@ impl AssignmentState {
             self,
             // `WaitingForScreen` IS open: something is outstanding inside this app and an
             // update must not install over it, even though nothing is on a lease yet.
-            Self::Registered | Self::WaitingForScreen | Self::Preparing | Self::Running | Self::Blocked
+            Self::Registered | Self::WaitingForScreen | Self::WaitingForQuota | Self::Preparing | Self::Running | Self::Blocked
         )
     }
     /// Is this assignment waiting on a decision only he can make? `Blocked` is the step it
@@ -149,15 +151,16 @@ impl AssignmentState {
         matches!(self, Self::Blocked | Self::Unknown)
     }
     /// **Is this assignment waiting for something outside the app that will arrive by
-    /// itself?** Today that is only the screen. It exists so a surface can say *"waiting"*
+    /// itself?** This includes the screen and an automatic allowance hold. It exists so a surface can say *"waiting"*
     /// without having to mean *"waiting for you"*.
     pub fn waits_for_the_world(self) -> bool {
-        matches!(self, Self::WaitingForScreen)
+        matches!(self, Self::WaitingForScreen | Self::WaitingForQuota)
     }
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Registered => "registered",
             Self::WaitingForScreen => "waiting-for-screen",
+            Self::WaitingForQuota => "waiting-for-quota",
             Self::Preparing => "preparing",
             Self::Running => "running",
             Self::Blocked => "blocked",
