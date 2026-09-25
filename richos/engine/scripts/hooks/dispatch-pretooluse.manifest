@@ -40,6 +40,7 @@ Bash|guard-host-display-power.sh
 Bash|guard-public-record-repo.sh
 Bash|guard-land-lease-commands.sh
 Bash|guard-foreign-app-data.sh
+Bash|guard-operator-claim.sh
 
 Write|guard-main-checkout-writes.sh
 Write|scan-secrets.sh
@@ -48,3 +49,5 @@ Write|guard-named-persons-writes.sh
 Write|guard-dialect.sh
 Write|guard-no-home-network-phone.sh
 Write|guard-host-display-power.sh
+Write|guard-operator-claim.sh
+Write|guard-shared-writes.sh

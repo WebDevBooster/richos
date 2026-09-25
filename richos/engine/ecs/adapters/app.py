@@ -3,7 +3,10 @@
 from dataclasses import asdict
 import hashlib
 import json
+import os
 from pathlib import Path
+import re
+import subprocess
 
 from ecs_core import (CEO_SEAT_PREFIX, EventStore, PERSON_ID, ScopeError, ValidationError,
                       canonical_json, ceo_seat, is_ceo_row)
@@ -37,6 +40,101 @@ CONVERSATION_ONLY = ("checkpoint", "receipt", "brief")
 # Enumerating and releasing seats is the HOST's reconciliation, never a background
 # lease's: a lease that could release seats could release another lease's.
 HOST_ONLY = ("seats", "release-seat")
+
+
+# THE OPERATOR'S COMPLETION (richos-hq operator back-end spec r1 (c), r3 (c)). His own
+# team, run behind the app, reports through `richos_operator.report`; the host then
+# closes the assignment's obligation through `operator-complete`, and nothing else
+# can. The evidence is re-verified HERE, never taken from the report:
+#   git:<absolute repo>:<branch>:<full sha>   the commit is in refs/heads/<branch>
+#   answer:<sha256>                           the digest of `answer_text`, sent with it
+# The status is `completed`, or the store's withdrawn status for a failed assignment,
+# which only an answer can close: a land never closes a failure.
+OPERATOR_ACTOR = "richos-operator-v1"
+OPERATOR_WITHDRAWN = "cancelled"  # dialect-exempt: the store's own terminal status value (ecs_core.py)
+OPERATOR_OPEN = ("candidate", "accepted", "active", "blocked", "pending")
+_OPERATOR_GIT = re.compile(r"^git:(/[^:\n]+):([A-Za-z0-9._/][A-Za-z0-9._/-]{0,199}):([0-9a-f]{40}|[0-9a-f]{64})$")
+_OPERATOR_ANSWER = re.compile(r"^answer:([0-9a-f]{64})$")
+_OPERATOR_ANSWER_LIMIT = 262144
+
+
+def _operator_git_verified(repo, branch, commit):
+    if ".." in branch.split("/") or branch.endswith((".lock", "/")) or "//" in branch:
+        raise ValidationError(f"the land in {repo} could not be confirmed: {branch!r} is not a branch name")
+    env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", "LC_ALL": "C"}
+    for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"):
+        env.pop(name, None)
+    try:
+        result = subprocess.run(["git", "-C", repo, "-c", "core.hooksPath=/dev/null", "merge-base",
+                                 "--is-ancestor", commit, "refs/heads/" + branch],
+                                capture_output=True, text=True, timeout=30, env=env)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise ValidationError(f"the land in {repo} could not be confirmed: git could not run ({error})")
+    if result.returncode != 0:
+        raise ValidationError(f"the land in {repo} could not be confirmed: {commit[:12]} is not in {branch}")
+
+
+def operator_evidence(request):
+    """The sorted evidence list, every item verified, or a ValidationError."""
+    items = request.get("evidence")
+    if (not isinstance(items, list) or not 1 <= len(items) <= 20
+            or any(not isinstance(e, str) or len(e) > 1024 for e in items) or len(set(items)) != len(items)):
+        raise ValidationError("operator completion needs one to twenty distinct evidence strings")
+    answers = 0
+    for item in items:
+        land = _OPERATOR_GIT.match(item)
+        if land:
+            repo, branch, commit = land.groups()
+            if not Path(repo).is_dir():
+                raise ValidationError(f"the land in {repo} could not be confirmed: no such repository")
+            _operator_git_verified(repo, branch, commit)
+            continue
+        answer = _OPERATOR_ANSWER.match(item)
+        if answer:
+            answers += 1
+            text = request.get("answer_text")
+            if (not isinstance(text, str) or len(text.encode("utf-8")) > _OPERATOR_ANSWER_LIMIT
+                    or hashlib.sha256(text.encode("utf-8")).hexdigest() != answer.group(1)):
+                raise ValidationError("answer evidence must be the SHA-256 of the answer_text sent with it")
+            continue
+        raise ValidationError("operator evidence is git:<absolute repo>:<branch>:<full sha> or "
+                              "answer:<sha256>, and nothing else")
+    if answers > 1:
+        raise ValidationError("operator completion carries at most one answer")
+    return sorted(items)
+
+
+def operator_complete(store, request, context):
+    if not is_ceo_row(context):
+        raise ScopeError("operator completion belongs to the conversation's own seat")
+    obligation = required(request, "obligation_id")
+    status = request.get("status", "completed")
+    if status not in ("completed", OPERATOR_WITHDRAWN):
+        raise ValidationError("operator completion closes an obligation as completed or withdrawn, nothing else")
+    evidence = operator_evidence(request)
+    if status == OPERATOR_WITHDRAWN and any(item.startswith("git:") for item in evidence):
+        raise ValidationError("a land cannot close a failed assignment; send the failure's answer instead")
+    identity = hashlib.sha256(canonical_json([obligation, status, evidence]).encode("utf-8")).hexdigest()
+    payload = {"item_id": obligation, "status": status, "evidence_ref": "operator:" + ";".join(evidence)}
+    key = "app-operator-complete:" + identity
+    existing = store.existing_event(key)
+    if existing:
+        if (existing["entity_id"] != context["entity_id"] or existing["thread_id"] != context["thread_id"]
+                or json.loads(existing["payload_json"]) != payload):
+            raise ScopeError("operator completion receipt does not match its original scope or evidence")
+        duplicate = True
+    else:
+        item = inspect_records(store, person_id=context["person_id"], item_id=obligation)["item"]
+        if item["status"] not in OPERATOR_OPEN:
+            raise ValidationError(f"only an open assignment can be closed; {obligation} is {item['status']}")
+        store.append("continuity.item_closed", entity_id=context["entity_id"], thread_id=context["thread_id"],
+                     session_id=context["session_id"], active_context_revision=context["revision"],
+                     person_id=context["person_id"], actor_kind="authority_adapter", actor_id=OPERATOR_ACTOR,
+                     source_ref=required(request, "source_ref"), idempotency_key=key,
+                     expected_revision=item["revision"], payload=payload)
+        duplicate = False
+    return {"obligation_closed": True, "obligation_id": obligation, "status": status,
+            "evidence_ref": payload["evidence_ref"], "duplicate": duplicate}
 
 
 def required(document, key):
@@ -139,7 +237,7 @@ def execute(state_root, request):
         return {"protocol": PROTOCOL_VERSION, "event_schema": 1,
                 "migration_digest": identity.hexdigest(), "state_root": str(root),
                 "ceo_thread_seats": True, "ceo_seat_prefix": CEO_SEAT_PREFIX,
-                "commands": ["current", "bind", "checkpoint", "receipt", "brief", "inspect", "observe", "verified-work", "observation-receipt", "import-preview", "import-apply", "sync-loro-receipts", "complete-obligation", "seats", "release-seat"]}
+                "commands": ["current", "bind", "checkpoint", "receipt", "brief", "inspect", "observe", "verified-work", "observation-receipt", "import-preview", "import-apply", "sync-loro-receipts", "complete-obligation", "operator-complete", "seats", "release-seat"]}
     if command == "import-preview":
         from import_records import preview
         return preview(root, request.get("envelope"), request.get("target"))
@@ -302,6 +400,10 @@ def execute(state_root, request):
                 actor_kind="authority_adapter",actor_id="richos-provider-v1",source_ref=receipt["source_ref"],
                 idempotency_key=key,expected_revision=receipt["expected_revision"],payload=payload)
         result={"obligation_closed":True,"obligation_id":receipt["obligation_id"],"evidence_ref":receipt["evidence_ref"]}
+    elif command == "operator-complete":
+        # Host-only, like complete-obligation: his team's report never closes an
+        # obligation by itself. The MCP server does not expose it (mcp.py TOOLS).
+        result = operator_complete(store, request, context)
     elif command in ("observe", "verified-work"):
         # Host-issued observations only. The app translates provider facts;
         # generic checkpoints cannot impersonate a task authority.

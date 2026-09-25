@@ -1279,7 +1279,16 @@ guard-stated-actions.sh|Stop
 commit-ceo-inputs.sh|UserPromptSubmit
 left-off-report.sh|UserPromptSubmit
 notice-ceo-inputs-unheld.sh|Stop
-release-land-leases.sh|Stop"
+release-land-leases.sh|Stop
+operator-claim.sh|SessionStart
+guard-operator-claim.sh|PreToolUse
+guard-operator-claim.sh|PreToolUse
+guard-operator-claim.sh|PreToolUse
+guard-operator-claim.sh|PreToolUse
+guard-live-names.sh|PreToolUse
+guard-shared-writes.sh|PreToolUse
+release-shared-writes.sh|PostToolUse
+release-shared-writes.sh|PostToolUseFailure"
 
     # DERIVED, never hand-maintained. A literal count in the PASS text is a
     # drift surface of exactly the kind this probe exists to remove: add a

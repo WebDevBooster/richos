@@ -830,8 +830,26 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # keep clicking those things". Measured over 166,915 distinct Bash commands from
 # this Mac's transcripts: 113 refused. Suite: guard-foreign-app-data.test.sh;
 # harness: foreign-app-data.mutation.sh.
+# operator-claim.sh, guard-operator-claim.sh, guard-shared-writes.sh,
+# release-shared-writes.sh and guard-live-names.sh, ADDED 2026-09-25 — the engine
+# side of several operator leads on one Mac (richos-hq spec r3 (e) the claim, e3,
+# e5; r4 §2.4). operator-claim.sh (SessionStart, never blocks) writes his
+# terminal's claim; guard-operator-claim.sh (BLOCKING: PreToolUse[Agent|
+# SendMessage] and the Bash and Write chains; never TaskStop) refuses a terminal's team
+# calls while the app's claim is live; guard-shared-writes.sh (BLOCKING, the Write
+# chain) serializes memory writes and needs the land lease for a record write;
+# release-shared-writes.sh (PostToolUse and PostToolUseFailure, never blocks)
+# releases the memory lease; guard-live-names.sh (BLOCKING, PreToolUse[Agent])
+# refuses a name a live agent of another session holds. All behind
+# OPERATOR_FENCES: with the entity's launcher off they never start their checks
+# and never refuse. Suite: operator-leads.test.sh; harness: operator-leads.mutation.sh.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
 guard-foreign-app-data.sh
+operator-claim.sh
+guard-operator-claim.sh
+guard-shared-writes.sh
+release-shared-writes.sh
+guard-live-names.sh
 guard-host-display-power.sh
 guard-land-lease-commands.sh
 guard-public-record-repo.sh
