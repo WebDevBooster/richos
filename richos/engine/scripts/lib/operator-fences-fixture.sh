@@ -23,8 +23,13 @@
 
 OFX_ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
+# The scratch root comes from the engine's one allocator (scripts/lib/scratch.sh),
+# so the sweeper finds it even if a run is killed before ofx_cleanup runs.
+# shellcheck source=scratch.sh
+. "$OFX_ENGINE/scripts/lib/scratch.sh"
+
 ofx_init() {
-    OFX="$(mktemp -d "${TMPDIR:-/tmp}/operator-fences-suite.XXXXXX")" || return 1
+    OFX="$(scratch_new operator-fences-suite)" || return 1
     OFX="$(cd "$OFX" && pwd -P)"
     mkdir -p "$OFX/claude/sessions" "$OFX/locks" "$OFX/hooks" "$OFX/bin" "$OFX/s" "$OFX/forensics" "$OFX/entity"
     export CLAUDE_CONFIG_DIR="$OFX/claude"
@@ -170,7 +175,7 @@ ofx_end() { # <name>: end the server we spawned, by the pid captured at spawn
 ofx_cleanup() {
     local entry
     for entry in $OFX_SERVERS; do ofx_end "${entry%%:*}"; done
-    [ -n "${OFX:-}" ] && [ -d "$OFX" ] && rm -rf "$OFX"
+    [ -n "${OFX:-}" ] && [ -d "$OFX" ] && { scratch_release "$OFX" >/dev/null 2>&1 || rm -rf "$OFX"; }
 }
 
 ofx_install() { # <repo> -- install the launcher (state off), with the fixture entity
