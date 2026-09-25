@@ -120,6 +120,11 @@ final class PlatformEffects: EffectHandler, @unchecked Sendable {
             guard status == .turningOn else { return [.notificationsResult(status)] }
             return await network?.handle(effect, state: state) ?? [.notificationsResult(status)]
 
+        case .withdrawNotifications:
+            // Notifications off, or the Mac forgotten: what is already delivered goes too (D04).
+            await MainActor.run { NotificationPlatform.shared.withdrawAll() }
+            return []
+
         case .openAppStore, .openSupport, .openPrivacyPolicy:
             // The addresses live in one place, `AppLinks`; until the CEO fills them they are marked
             // placeholders (App Store listing drafts, blockers 1-4).

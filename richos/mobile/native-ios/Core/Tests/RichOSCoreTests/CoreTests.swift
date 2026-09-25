@@ -110,7 +110,7 @@ let repositoryRoot: URL = {
             .playbackProgress(id: "r1", progress: 0.5), .playbackEnded, .stopPlayback, .dismissToast,
             .networkChanged(online: false, at: 6), .connectionLost(at: 7), .connected(at: 8),
             .connectionDiagnosed(.macUnreachable), .macCapabilities(text: true, voice: false), .pairingRevoked, .pairingUnreachable, .foregrounded(at: 20), .backgrounded(at: 21), .pushRegistered(hostID: "h"), .macAttachmentLimits(nil),
-            .voicePress(id: "v", width: 386, at: 9), .voiceStartLocked(id: "v", width: 386, at: 9), .microphonePermission(.granted), .voiceMove(dx: -10, dy: -5, at: 10),
+            .voicePress(id: "v", width: 386, at: 9), .voiceStartLocked(id: "v", width: 386, at: 9), .microphonePermission(.granted), .dismissMicrophoneCard, .voiceMove(dx: -10, dy: -5, at: 10),
             .voiceRelease(at: 11), .voiceLockedSend(at: 12), .voiceLockedCancel(at: 13), .voiceTouchCanceled(at: 14),
             .voiceInterrupted(at: 15), .voiceLevel(0.4), .voiceSettled, .sendKept(id: "k", at: 16), .discardKept(id: "k"),
             .playRecording(id: "k"),
@@ -504,7 +504,7 @@ let repositoryRoot: URL = {
         var s = try Fixture.named("rec-card").state
         s = Reducer.reduce(s, .forgetPairing).state
         let (forgotten, effects) = Reducer.reduce(s, .confirmForget)
-        #expect(effects == [.persist, .unregisterNotifications, .disconnect, .forgetIdentity(origin: "https://mm1.tail1a2b3c.ts.net:8443")])
+        #expect(effects == [.persist, .unregisterNotifications, .withdrawNotifications, .disconnect, .forgetIdentity(origin: "https://mm1.tail1a2b3c.ts.net:8443")])
         #expect(forgotten.screen == .pairIntro && forgotten.messages.isEmpty && forgotten.mac == nil && !forgotten.consentGiven)
         #expect(forgotten.keptRecordings.count == 1)
     }

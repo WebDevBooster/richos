@@ -84,9 +84,14 @@ struct ScreenView: View {
             let small = root.size.width < 380 || root.size.height < 700
             ZStack(alignment: .top) {
                 GroundBackground()
-                conversation(root: root, safeTop: safeTop)
-                    .accessibilityHidden(model.takeover != nil || model.dialog != nil || model.scanner != nil
-                                         || model.attach.viewer != nil)
+                // A takeover REPLACES the conversation, as Android's RichApp draws one or the other
+                // (`RichApp.kt` `when`: a pairing step, removed, a required update, else `Conversation`).
+                // Drawn beneath the opaque takeover and only marked hidden, the empty conversation, the
+                // message field, Attach and Record stayed in VoiceOver's tree on first launch (I01).
+                if model.takeover == nil {
+                    conversation(root: root, safeTop: safeTop)
+                        .accessibilityHidden(model.dialog != nil || model.scanner != nil || model.attach.viewer != nil)
+                }
                 if let dialog = model.dialog {
                     DialogView(dialog: dialog, send: send)
                         .transition(.opacity)
@@ -187,13 +192,22 @@ struct ScreenView: View {
             }
             VStack(spacing: 8) {
                 if !model.cards.isEmpty || model.toast != nil {
-                    ScrollView {
-                        AboveComposer(cards: model.cards, toast: model.toast, send: send)
-                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { aboveHeight = $0 }
+                    ScrollViewReader { region in
+                        ScrollView {
+                            AboveComposer(cards: model.cards, toast: model.toast, send: send)
+                                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { aboveHeight = $0 }
+                        }
+                        .scrollBounceBehavior(.basedOnSize)
+                        .scrollIndicators(.hidden)
+                        .frame(height: min(max(aboveHeight, 1), height * 0.4))
+                        // I05: a card raised while another shows is brought into view, the least
+                        // scroll that shows it, once, when it is raised: never a timer or a redraw.
+                        .onChange(of: model.cards) { before, after in
+                            guard let raised = ScreenModel.Card.raised(before: before, after: after) else { return }
+                            // After this update lays the new card out, so the reader can find it.
+                            DispatchQueue.main.async { withAnimation(Motion.card) { region.scrollTo(raised) } }
+                        }
                     }
-                    .scrollBounceBehavior(.basedOnSize)
-                    .scrollIndicators(.hidden)
-                    .frame(height: min(max(aboveHeight, 1), height * 0.4))
                 }
                 ComposerView(composer: model.composer, voice: model.voice, pending: model.attach.pending,
                              attachMenuOpen: model.attach.menuOpen, send: send)

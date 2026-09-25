@@ -94,6 +94,29 @@ final class NotificationPlatform: NSObject, UNUserNotificationCenterDelegate {
         guard let onOpen, let target = NotificationRouteMailbox.shared.take() else { return }
         onOpen(target)
     }
+
+    // MARK: Read replies leave Notification Center (D04)
+
+    /// Takes the notifications of replies the person has read out of Notification Center, however the
+    /// app was opened. A tapped notification is already gone (iOS removes it); the others read with it
+    /// follow here. Called only while the app is on screen and only when what is read changed
+    /// (`RichOSNativeApp`); one read of the delivered list, one removal, no timer.
+    func withdrawRead(_ read: ReadReplies.Read, hostID: String?) {
+        guard hostID != nil else { return }  // not registered with this Mac: nothing can be ours
+        let center = UNUserNotificationCenter.current()
+        Task {
+            let delivered = await center.deliveredNotifications()
+                .map { (identifier: $0.request.identifier, userInfo: $0.request.content.userInfo) }
+            let read = NotificationWithdrawal.identifiers(of: delivered, read: read, hostID: hostID)
+            if !read.isEmpty { center.removeDeliveredNotifications(withIdentifiers: read) }
+        }
+    }
+
+    /// Every RichOS notification leaves Notification Center: notifications were turned off, or the
+    /// Mac was forgotten. The app posts nothing else, so this is all of its delivered notifications.
+    func withdrawAll() {
+        UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+    }
 }
 
 /// The app delegate the SwiftUI app adopts for the two callbacks SwiftUI has no equivalent for.

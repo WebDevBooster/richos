@@ -74,7 +74,7 @@ extension Action: Codable {
         "notification-open", "notification-focused", "share-take", "reply-play", "playback-started", "playback-progress",
         "playback-ended", "playback-stop", "dismiss-toast",
         "network", "connection-lost", "connected", "connection-diagnosed", "mac-capabilities", "pairing-revoked", "foregrounded", "backgrounded", "mac-attachment-limits", "push-registered",
-        "voice-press", "voice-start-locked", "microphone-permission", "voice-move", "voice-release", "voice-locked-send",
+        "voice-press", "voice-start-locked", "microphone-permission", "dismiss-microphone-card", "voice-move", "voice-release", "voice-locked-send",
         "voice-locked-cancel", "voice-touch-canceled", "voice-interrupted", "voice-level", "voice-settled",
         "send-kept", "discard-kept", "record-play",
         "notifications-enable", "notifications-result", "notifications-disable", "dismiss-notification-offer",
@@ -153,6 +153,7 @@ extension Action: Codable {
         case "voice-press": self = .voicePress(id: w.id ?? UUID().uuidString.lowercased(), width: try need(w.width, "width"), at: now)
         case "voice-start-locked": self = .voiceStartLocked(id: w.id ?? UUID().uuidString.lowercased(), width: try need(w.width, "width"), at: now)
         case "microphone-permission": self = .microphonePermission(try need(w.permission, "permission"))
+        case "dismiss-microphone-card": self = .dismissMicrophoneCard
         case "voice-move": self = .voiceMove(dx: try need(w.dx, "dx"), dy: try need(w.dy, "dy"), at: now)
         case "voice-release": self = .voiceRelease(at: now)
         case "voice-locked-send": self = .voiceLockedSend(at: now)
@@ -258,6 +259,7 @@ extension Action: Codable {
         case .voicePress(let id, let width, let at): w = Wire("voice-press"); w.id = id; w.width = width; w.at = at
         case .voiceStartLocked(let id, let width, let at): w = Wire("voice-start-locked"); w.id = id; w.width = width; w.at = at
         case .microphonePermission(let p): w = Wire("microphone-permission"); w.permission = p
+        case .dismissMicrophoneCard: w = Wire("dismiss-microphone-card")
         case .voiceMove(let dx, let dy, let at): w = Wire("voice-move"); w.dx = dx; w.dy = dy; w.at = at
         case .voiceRelease(let at): w = Wire("voice-release"); w.at = at
         case .voiceLockedSend(let at): w = Wire("voice-locked-send"); w.at = at

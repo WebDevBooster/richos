@@ -106,6 +106,28 @@ let mailbox = NotificationRouteMailbox()
 mailbox.put(target)
 check("T12 the mailbox hands a cold-launch tap over once", mailbox.take() == target && mailbox.take() == nil)
 
+// --- D04: which delivered notifications a read conversation withdraws ----------------------------
+func delivered(_ id: String, host h: String = host, thread: String = "thr_5c1e", event: String) -> (identifier: String, userInfo: [AnyHashable: Any]) {
+    (id, ["richos": ["host": h, "thread": NotificationTarget.reference(thread), "event": NotificationTarget.reference(event)]])
+}
+let shade = [delivered("n-earlier", event: "turn_8:text:0"), delivered("n-answer", event: "turn_9:text:0"),
+             delivered("n-unseen", event: "turn_10:text:0"), delivered("n-other-mac", host: String(repeating: "f", count: 32), event: "turn_9:text:0"),
+             delivered("n-other-thread", thread: "thr_other", event: "turn_9:text:0"), ("n-foreign", ["aps": ["alert": "x"]])]
+let readAll = ReadReplies.of(state)!
+check("W1 the open conversation, following, has read both loaded replies", readAll.replyIDs == ["turn_8:text:0", "turn_9:text:0"])
+check("W2 read replies from this Mac and conversation are withdrawn, and only those",
+      NotificationWithdrawal.identifiers(of: shade, read: readAll, hostID: host) == ["n-earlier", "n-answer"])
+check("W3 a reply not on this phone yet keeps its notification",
+      !NotificationWithdrawal.identifiers(of: shade, read: readAll, hostID: host).contains("n-unseen"))
+var scrolled = state
+scrolled.following = false
+scrolled.readingAnchor = ReadingAnchor(messageID: "turn_8:text:0", offset: 0)
+check("W4 scrolled up to the earlier reply: the answer below it stays",
+      NotificationWithdrawal.identifiers(of: shade, read: ReadReplies.of(scrolled)!, hostID: host) == ["n-earlier"])
+check("W5 no registration answer yet (no host id): nothing is withdrawn",
+      NotificationWithdrawal.identifiers(of: shade, read: readAll, hostID: nil).isEmpty)
+check("W6 nothing delivered: nothing to do", NotificationWithdrawal.identifiers(of: [], read: readAll, hostID: host).isEmpty)
+
 // --- the registration body and its answers (contract §7.2) --------------------------------------
 let token = String(repeating: "ab", count: 32)
 let body = PairingWire.pushRegistrationBody(tokenHex: token, sandbox: true, previewKey: key, previews: true)

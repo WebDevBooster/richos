@@ -45,7 +45,7 @@ time, and that answer decides. Only while the app is on screen: leaving it cance
 
 **Scenarios** (`compose-draft`, `pair-by-scan`, `pair-mac-wait`, `pair-mac-hold`, `pair-refused-and-rejected`, `outbox-retry`,
 `outbox-refused-continues`, `offline-reconnect`, `voice-hold-send`, `voice-lock-send`,
-`voice-interrupted`, `revoked`) carry their own checks and run identically headless and in the
+`voice-interrupted`, `voice-mic-denied`, `revoked`) carry their own checks and run identically headless and in the
 simulator (`sim verify` requires byte-identical results).
 
 ## Physical iPhone checks

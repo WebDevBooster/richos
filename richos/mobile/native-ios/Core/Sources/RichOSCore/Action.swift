@@ -113,6 +113,9 @@ public enum Action: Equatable, Sendable {
     case voiceStartLocked(id: String, width: Double, at: Int64)
     /// The OS answered or reports the microphone permission (a mirror; nothing parallel is stored).
     case microphonePermission(Permission)
+    /// The microphone-off card's "Not now": the card goes until the next press finds the microphone
+    /// off (D03; Android's `dismiss-microphone-card`).
+    case dismissMicrophoneCard
     /// The finger moved: offsets from the touch-down point, in points (negative = left / up).
     case voiceMove(dx: Double, dy: Double, at: Int64)
     case voiceRelease(at: Int64)
@@ -267,6 +270,9 @@ public enum Effect: Equatable, Sendable {
     /// Ask the OS for notification permission and register with the Mac (native push, contract §7.2).
     case requestNotifications(previews: Bool)
     case unregisterNotifications
+    /// Remove every RichOS reply notification still in Notification Center: notifications were turned
+    /// off, or the Mac was forgotten (D04).
+    case withdrawNotifications
     case openAppStore
     case openSupport
     case openPrivacyPolicy
@@ -306,7 +312,7 @@ public enum Reducer {
             ConnectionReducer.reduce(&next, action, &effects)
             ConversationReducer.reduce(&next, action, &effects)
             VoiceReducer.reduce(&next, action, &effects)
-        case .voicePress, .voiceStartLocked, .microphonePermission, .voiceMove, .voiceRelease, .voiceLockedSend, .voiceLockedCancel,
+        case .voicePress, .voiceStartLocked, .microphonePermission, .dismissMicrophoneCard, .voiceMove, .voiceRelease, .voiceLockedSend, .voiceLockedCancel,
              .voiceTouchCanceled, .voiceStartFailed, .voiceInterrupted, .voiceLevel, .voiceSettled, .sendKept, .discardKept, .playRecording:
             VoiceReducer.reduce(&next, action, &effects)
         case .turnOnNotifications, .notificationsResult, .turnOffNotifications, .dismissNotificationOffer, .setPreviews,

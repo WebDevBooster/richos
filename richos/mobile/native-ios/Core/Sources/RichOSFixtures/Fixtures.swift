@@ -219,7 +219,8 @@ public struct Fixture: Sendable {
     static let recovery: [Fixture] = [
         Fixture(name: "rec-card", state: paired { $0.keptRecordings = [kept(.unsent, 42000)] }),
         Fixture(name: "rec-unsupported", state: paired { $0.voiceAvailability = .unsupportedByMac; $0.keptRecordings = [kept(.unsent, 42000)] }),
-        Fixture(name: "rec-mic-denied", state: paired { $0.microphone = .denied }),
+        // The card answers a press while the microphone is off (D03); a denial alone raises nothing.
+        Fixture(name: "rec-mic-denied", state: paired { $0.microphone = .denied; $0.microphoneCard = true }),
     ]
 
     // MARK: 7 · connection
@@ -456,6 +457,29 @@ public struct Scenario: Sendable {
             try require(s[5].voice == nil && s[5].keptRecordings.first?.durationMs == 42_000 && s[5].outbox.isEmpty, "kept, not sent")
             try require(s[6].keptRecordings == s[5].keptRecordings, "the kept recording survives a relaunch")
             try require(s[7].keptRecordings.isEmpty && s[7].outbox.first?.recordingID == "v3", "Send on the card queues it")
+        }),
+        // D03: the microphone is off. The OS saying so raises nothing; a press raises the card and
+        // records nothing; Not now takes it down; the next press raises it again; a grant (Settings,
+        // then back to the app) takes it down and the next press records.
+        Scenario(name: "voice-mic-denied", steps: [
+            Command(.fixture, name: "comp-idle"),
+            Command(.action, action: .microphonePermission(.denied)),
+            Command(.action, action: .voicePress(id: "d1", width: 386, at: t0)),
+            Command(.action, action: .voiceRelease(at: t0 + 900)),
+            Command(.action, action: .dismissMicrophoneCard),
+            Command(.action, action: .microphonePermission(.denied)),
+            Command(.action, action: .voicePress(id: "d2", width: 386, at: t0 + 5_000)),
+            Command(.action, action: .microphonePermission(.granted)),
+            Command(.action, action: .voicePress(id: "d3", width: 386, at: t0 + 9_000)),
+        ], check: { s in
+            try require(s[1].microphone == .denied && !s[1].microphoneCard, "a denial alone raises no card")
+            try require(s[2].microphoneCard && s[2].voice == nil && s[2].sheet == nil, "a press raises the card and records nothing")
+            try require(s[3].microphoneCard && s[3].voice == nil && s[3].outbox.isEmpty, "the release sends nothing and the card stays")
+            try require(!s[4].microphoneCard, "Not now takes the card down")
+            try require(!s[5].microphoneCard, "coming back with the microphone still off does not bring it back")
+            try require(s[6].microphoneCard, "the next press raises it again")
+            try require(!s[7].microphoneCard && s[7].microphone == .granted, "a grant takes the card down")
+            try require(s[8].voice?.phase == .pressed && !s[8].microphoneCard, "and the next press records")
         }),
         // Removed from the Mac: final for the pairing, never for his words.
         Scenario(name: "revoked", steps: [
