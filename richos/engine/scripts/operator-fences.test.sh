@@ -70,7 +70,7 @@
 #   F3L, F12L  measured limits, asserted so the record goes red if Git changes:
 #        a refused reset --hard and a refused merge --abort have already
 #        rewritten the tree (the early check exists for exactly these)
-#   M    the mutation harness: every rule above watched fail
+#   M    the mutation harness runs as its own unit: operator-fences-mutation.test.sh
 #
 # Usage: scripts/operator-fences.test.sh
 # Exit 0 = every case passed under every git found.
@@ -539,15 +539,8 @@ ofx_end A; ofx_end B
 done
 export PATH="$ORIG_PATH"
 
-# ---- M: the mutation harness -----------------------------------------------------------------
-if [ -z "${RICHOS_MUTATION_INNER:-}" ] && [ -f "$SCRIPT_DIR/operator-fences.mutation.sh" ]; then
-    echo "=== running the mutation harness ==="
-    if bash "$SCRIPT_DIR/operator-fences.mutation.sh"; then
-        ok "M. every rule above has been watched fail"
-    else
-        bad "M. the mutation harness found a property this suite does not actually prove"
-    fi
-fi
+# M: this suite's mutation harness runs as its own unit,
+# scripts/operator-fences-mutation.test.sh, so each gets a deadline that fits it.
 
 printf 'operator-fences: %d passed, %d FAILED\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
