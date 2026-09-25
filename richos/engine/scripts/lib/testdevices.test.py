@@ -48,6 +48,8 @@ if a[0] == "listapps":
     print(plistlib.dumps({"dev.richos.connect": {"ApplicationType": "User"}, "com.apple.Preferences": {"ApplicationType": "System"}}).decode())
     sys.exit(0)
 if a[0] == "boot":
+    if dev[0]["state"] == "Booted":
+        sys.stderr.write("Unable to boot device in current state: Booted\n"); sys.exit(149)
     dev[0]["state"] = "Booted"
 if a[0] == "shutdown":
     dev[0]["state"] = "Shutdown"
@@ -1043,6 +1045,18 @@ class Collector(Base):
         with patch.object(T, "REGISTRY_LOCK_SECONDS", 0.2):
             self.assertEqual(T.expire_leases(), 1)
         self.assertIn("registry lock busy", self.rows()["collector:incomplete"]["why"])
+
+    def test_T55_a_prepared_simulator_left_running_without_a_lease_is_shut_down_then_booted(self):
+        udid = T.acquire_ios("iPhone", "runtime", os.getpid())
+        self.write_state([dict(d, state="Booted") for d in self.devices()])     # an orphan's xcodebuild
+        before = len(self.guard_events())
+        T.boot_ios(udid)
+        self.assertEqual(T.records()[0]["boot"]["phase"], "ready")
+        log = self.calls()
+        self.assertLess(log.index("shutdown " + udid), log.index("boot " + udid))
+        self.assertIn("Prepared simulator was running without a lease; shut down before boot",
+                      self.guard_events()[before:])
+        T.release_ios(udid, os.getpid())
 
     def test_T51_renewal_stops_when_the_owned_run_ends(self):
         udid = self.device("rios-ui-run-ended")

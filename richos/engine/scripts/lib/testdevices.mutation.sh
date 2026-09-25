@@ -108,4 +108,9 @@ mutant wedged-registry-tolerated "test_T54" "$D" \
     '            if False:' \
     "a registry lock that never frees would be skipped silently for ever, with no lease ever expired."
 
+mutant orphan-booted-prepared-not-shut-down "test_T55" "$D" \
+    '                if found and found.get("state") not in ("", "Shutdown"):' \
+    '                if False:' \
+    "a prepared simulator an old run left booted would fail the next lease's boot (2026-09-24, iPhone SE)."
+
 mutation_end

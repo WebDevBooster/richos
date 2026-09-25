@@ -1244,6 +1244,17 @@ def boot_ios(udid):
             _write_json(_record_path("ios-simulator", udid), rec)
         deadline_token = _DEADLINE.set(boot["deadline"])
         try:
+            if rec.get("prepared"):
+                # This lease is the pool's only one, so a prepared device found running is
+                # an orphan: on 2026-09-24 the collector ended a run's expired lease and
+                # shut the device down, the run's own xcodebuild booted it again, and the
+                # next lease's boot failed "Unable to boot device in current state: Booted".
+                # Shut the exact UDID down, and boot it clean as this lease promises.
+                found = next((d for d in ios_devices() or [] if d["udid"] == udid), None)
+                if found and found.get("state") not in ("", "Shutdown"):
+                    checked_simctl("shutdown", udid)
+                    cpu_guard.note("Prepared simulator was running without a lease; shut down before boot",
+                                   device=udid, state=found["state"])
             checked_simctl("boot", udid)
             with registry_lock():
                 _transfer_device_leases(tokens, "ios-simulator", udid)
