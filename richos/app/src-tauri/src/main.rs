@@ -5682,7 +5682,7 @@ mod operator_gate_tests {
         assert_eq!(why, expected);
         assert!(!why.contains("Your team"), "the operator gate spoke on an install with no declaration: {why}");
         // And the product path really started: it renders the standing instruction first.
-        assert!(std::fs::read_dir(&factory.data_dir).unwrap().next().is_some(),
+        assert!(richos_core::doctrine::doctrine_path(&factory.data_dir).is_file(),
             "the product path writes its standing instruction before it checks the engine");
         assert!(!factory.data_dir.join(richos_core::operator_declaration::DECLARATION_FILE).exists());
         if let Err(error) = std::fs::remove_dir_all(&root) { eprintln!("fixture cleanup: {error}"); }
@@ -5692,11 +5692,17 @@ mod operator_gate_tests {
     fn a_broken_declaration_refuses_before_the_product_path_starts() {
         let (root, binding, factory) = fixture("broken");
         std::fs::write(factory.data_dir.join(richos_core::operator_declaration::DECLARATION_FILE), "{").unwrap();
+        // Quota initialization already published its snapshot. The gate must leave
+        // that existing file untouched and must not render the product doctrine.
+        let snapshot = factory.data_dir.join("engine-state/claude-quota.json");
+        let before = std::fs::read(&snapshot).unwrap();
         let why = io_error(factory.spawn_work(&binding));
         assert!(why.starts_with("Your team is switched off on this Mac because "), "{why}");
         // The product path renders the standing instruction first thing; it never ran.
-        let written: Vec<_> = std::fs::read_dir(&factory.data_dir).unwrap().map(|e| e.unwrap().file_name()).collect();
-        assert_eq!(written, [std::ffi::OsString::from(richos_core::operator_declaration::DECLARATION_FILE)]);
+        assert!(!richos_core::doctrine::doctrine_path(&factory.data_dir).exists());
+        assert_eq!(std::fs::read(&snapshot).unwrap(), before);
+        let written: std::collections::BTreeSet<_> = std::fs::read_dir(&factory.data_dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(written, [std::ffi::OsString::from("engine-state"), std::ffi::OsString::from(richos_core::operator_declaration::DECLARATION_FILE)].into_iter().collect());
         if let Err(error) = std::fs::remove_dir_all(&root) { eprintln!("fixture cleanup: {error}"); }
     }
 }
