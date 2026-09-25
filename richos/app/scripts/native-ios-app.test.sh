@@ -117,9 +117,21 @@ else bad "A7 check-release" "$(tail -c 600 "$SCRATCH/err")"; fi
 if [ "${RICHOS_NATIVE_IOS_APP_A8:-}" != 1 ]; then
   echo "  NOT RUN  A8 UI tests on the middle iPhone size: they run before each nightly (CEO 2026-09-23, \"Only before nightlies\"); RICHOS_NATIVE_IOS_APP_A8=1 runs them here"
 elif find "$NATIVE/UITests" "$NATIVE/UnitTests" -name '*.swift' 2>/dev/null | grep -q .; then
+  touch "$SCRATCH/a8.start"; A8_SINCE=$(( $(date +%s) - 1 ))
   if "$RIOS" sim ui-test >"$SCRATCH/ui.json" 2>"$SCRATCH/err"; then
     ok "A8 UI tests: $(json 'd["result"]["tests"]' < "$SCRATCH/ui.json")"
-  else bad "A8 UI tests" "$(tail -c 600 "$SCRATCH/err")"; fi
+  else
+    bad "A8 UI tests" "$(tail -c 600 "$SCRATCH/err")"
+    # Every failing test by name, and this run's result bundle and log moved to the run's
+    # results (lib/test_results.py). The bundle is this run's alone (`ui-<time>.xcresult`); the
+    # log is logs/ui-test.log, which the next A8 run of this cache replaces.
+    KEEP=(--collect "ui-test.log=$RICHOS_NATIVE_IOS_CACHE/logs/ui-test.log")
+    for b in "$RICHOS_NATIVE_IOS_CACHE"/results/ui-*.xcresult; do
+      [ -d "$b" ] && [ "$b" -nt "$SCRATCH/a8.start" ] && KEEP+=(--move "$(basename "$b")=$b")
+    done
+    python3 "$DIR/lib/test_results.py" report --label "native-ios-app A8" --since "$A8_SINCE" \
+      ${RICHOS_TEST_RESULTS_DIR:+--into "$RICHOS_TEST_RESULTS_DIR"} "${KEEP[@]}"
+  fi
 else
   echo "  NOT RUN  A8 UI tests: UITests/ and UnitTests/ have no test files yet (stream I2 writes them)"
 fi
