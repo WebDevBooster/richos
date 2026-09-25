@@ -3980,10 +3980,45 @@ elif [ "$S_OK" -eq 1 ]; then
     emit_warn "S. FUNCTIONAL CANARY DID NOT RUN — python3 unavailable, so nothing here proves the worktree guard still blocks a raw removal or still allows a read. Wiring and hashes are verified; BEHAVIOR IS NOT."
 fi
 
+# --- Layer OF: the operator fence agrees with its declaration ------------------
+# richos-hq spec r3 e8 with Frank G12: the switch lives in the launcher that
+# operator-fences.sh installs as each repository's reference-transaction hook,
+# and OPERATOR_FENCES in orchestration.config is the DECLARATION this layer
+# compares the launchers against. Declared off: every declared repository's
+# launcher is off or absent. Declared on: every one is installed, on, running
+# the engine's current fence program, reachable through core.hooksPath, and its
+# chain (the forensic recorder, the repository's own hook) still intact. A fence
+# that vanished, or was turned off with `operator-fences.sh off` while the
+# declaration still says on, is reported here rather than discovered at a land.
+# Not declared at all: nothing to check. The tool missing (a sandbox that carries
+# only registered hooks) is announced, never a pass.
+run_layer_OF() {
+    local decl="${OPERATOR_FENCES:-}" tool="$ENGINE_ROOT/scripts/operator-fences.sh" args="" r out rc
+    if [ -z "$decl" ]; then
+        emit_pass "OF. no OPERATOR_FENCES declared in $CONFIG: the operator fence is not adopted here, nothing to compare"
+        return 0
+    fi
+    if [ ! -f "$tool" ]; then
+        emit_warn "OF. OPERATOR_FENCES=\"$decl\" is declared but $tool is not present, so nothing checked the launchers against it"
+        return 0
+    fi
+    for r in ${OPERATOR_FENCES_REPOS:-}; do
+        args="$args --repo ${r/#\~/$HOME}"
+    done
+    # shellcheck disable=SC2086
+    out="$(bash "$tool" status --declaration-check --entity "$REPO_ROOT" $args 2>&1)" && rc=0 || rc=$?
+    if [ "$rc" -eq 0 ]; then
+        emit_pass "OF. OPERATOR_FENCES=\"$decl\" and the launchers of ${OPERATOR_FENCES_REPOS:-(no declared repository)} agree"
+    else
+        emit_fail "OF. the operator fence disagrees with OPERATOR_FENCES=\"$decl\": $(printf '%s' "$out" | grep '^PROBLEM' | sed 's/^PROBLEM  //' | tr '\n' ';') Run $tool status --entity $REPO_ROOT for the whole report; 'operator-fences.sh install' and 'on'/'off' are the fixes, never an edit of a launcher by hand."
+    fi
+}
+
 run_layer_R
 run_layer_AL
 run_layer_MT
 run_layer_MC
+run_layer_OF
 # Layer EP lives in its own file, and this include is GUARDED rather than bare.
 # A bare `.` of a missing file under `set -e` ends the probe HERE — after every
 # ✗ has been printed and BEFORE the epilogue that turns them into exit 2 — so
