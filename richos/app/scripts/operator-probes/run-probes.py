@@ -60,6 +60,17 @@ def running_clones():
             if r.get('Source') == 'local' and r.get('Running') and r.get('Name') != base]
 
 
+STATUSLINE = Path.home() / '.claude' / 'statusline-payload.json'
+
+
+def five_hour_used():
+    """His five-hour quota reading (ruling §87's source), or None when it cannot be read."""
+    try:
+        return float(json.loads(STATUSLINE.read_text())['rate_limits']['five_hour']['used_percentage'])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 def engine_archive(rev, into):
     """The engine exactly as committed at `rev`, with the marketplace file that makes it a
     directory marketplace, as his terminal registers it (`~/.claude/settings.json`)."""
@@ -83,6 +94,9 @@ def main():
     p.add_argument('--wait', type=float, default=0, help='CPU admission wait, seconds (reserve.py rules)')
     p.add_argument('--survey', action='store_true', help='record the guest toolset only, run no probe')
     p.add_argument('--probe-timeout', type=int, default=900, help='seconds per probe inside the guest')
+    p.add_argument('--quota-ceiling', type=float, default=85.0,
+                   help='stop the run when his five-hour quota reading reaches this percent (default 85), so a '
+                        'probe never carries the account to ruling §87\'s 93%% pause for every other session')
     a = p.parse_args()
 
     out = a.out.resolve()
@@ -135,9 +149,29 @@ def main():
                     args += ['--survey']
                 command = ' '.join(shlex.quote(x) for x in args)
                 began = time.monotonic()
+                report['quota_at_start'] = five_hour_used()
+                if report['quota_at_start'] is not None and report['quota_at_start'] >= a.quota_ceiling:
+                    raise BlockingIOError('five-hour quota at %s%%, at or over the %s%% ceiling'
+                                          % (report['quota_at_start'], a.quota_ceiling))
                 with open(out / 'guest-driver.log', 'w') as log:
-                    driver = subprocess.run([str(TESTVM / 'guest.sh'), vm, command], stdout=log, stderr=subprocess.STDOUT,
-                                            text=True, timeout=a.probe_timeout * 20 + 600)
+                    # Owned: this Popen is the only process stopped here, and only by its own pid group.
+                    driver = subprocess.Popen([str(TESTVM / 'guest.sh'), vm, command], stdout=log,
+                                              stderr=subprocess.STDOUT, text=True, start_new_session=True)
+                    deadline = time.monotonic() + a.probe_timeout * 20 + 600
+                    while driver.poll() is None:
+                        used = five_hour_used()
+                        if used is not None and used >= a.quota_ceiling:
+                            report['stopped_at_quota'] = used
+                            os.killpg(driver.pid, signal.SIGTERM)
+                            driver.wait(timeout=60)
+                            break
+                        if time.monotonic() > deadline:
+                            os.killpg(driver.pid, signal.SIGTERM)
+                            driver.wait(timeout=60)
+                            report['stopped_at_deadline'] = True
+                            break
+                        time.sleep(30)
+                report['quota_at_end'] = five_hour_used()
                 report['driver_seconds'] = round(time.monotonic() - began, 1)
                 report['driver_exit'] = driver.returncode
                 pulled = sh([str(TESTVM / 'guest.sh'), vm, '--pull', f'{payload}/results', str(out)], timeout=600)
