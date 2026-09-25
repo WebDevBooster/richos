@@ -1282,6 +1282,11 @@ def complete(scope_path, scope, args):
 def call(scope_path, name, args):
     scope = read_scope(scope_path)
     if not isinstance(args,dict): raise ValueError("tool arguments must be an object")
+    if name == "pause_message":
+        if set(args) - {"to", "reason", "reset"}: raise ValueError("pause message has no free-text fields")
+        protocol = load("richos_pause_protocol", ENGINE / "scripts/lib/pause_protocol.py")
+        return {"message_payload": protocol.message_input(args.get("to"), args.get("reason", "manual"), args.get("reset")),
+                "delivered": False, "pause_confirmed": False}
     if name == "repositories": return {"repositories":repositories(scope)}
     if name == "prepare": return prepare(scope_path,scope,args)
     if name == "integrate": return integrate(scope_path,scope,args)
@@ -1308,6 +1313,7 @@ def call(scope_path, name, args):
 
 
 TOOLS = [
+    {"name":"pause_message","description":"Generate the one standard pause message. Submit message_payload unchanged to SendMessage. Do not write, append or summarize pause instructions yourself. Preparation and delivery do not confirm a pause. No process is stopped and no message is sent by this tool.","inputSchema":{"type":"object","properties":{"to":{"type":"string"},"reason":{"type":"string","enum":["manual","quota"]},"reset":{"type":"string","pattern":"^(?:[01][0-9]|2[0-3]):[0-5][0-9]Z$"}},"required":["to"],"additionalProperties":False}},
     {"name":"complete","description":"Close a code assignment in ECS only after every requirement is satisfied and every final worker has a passing independent review, verified local integration and completed cleanup. Your connection already knows which assignment you are carrying, so leave obligation_id out; never invent one. Supply all final worker receipts, across every repository. Unresolved execution or omitted work is refused. Do not use this to claim unrelated or unverified business outcomes. Local completion never means publication.","inputSchema":{"type":"object","properties":{"obligation_id":{"type":"string"},"worker_ids":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":50}},"required":["worker_ids"],"additionalProperties":False}},
     {"name":"repositories","description":"List repositories explicitly connected to this company. A company folder alone grants no execution access.","inputSchema":{"type":"object","properties":{},"additionalProperties":False}},
     {"name":"prepare","description":"Prepare an isolated generic worker or reviewer for the assignment this connection is carrying. Your connection already knows which assignment that is, so leave obligation_id out; never invent one. Persists intent before workspace creation. Returns agent_payload only while no dispatch has been attempted. Submit that exact JSON to Agent once. Preparation is not dispatch or completion. Reuse request_id for retries; uncertain work must be inspected first. To continue settled work, set continue_of to its worker receipt: the new worker starts at its actual saved commit. Dirty work is preserved and refused until its uncommitted files are reconciled. Never reset or discard those files to bypass the refusal. If this same worker also needs a workspace in other connected repositories, name them in repos; each gets its own isolated workspace, all under the one worker.","inputSchema":{"type":"object","properties":{**{key:{"type":"string"} for key in ("request_id","obligation_id","repo","title","brief","role","integration","base","review_of","continue_of")},"repos":{"type":"array","items":{"type":"string"},"maxItems":8}},"required":["request_id","repo","title","brief"],"additionalProperties":False}},

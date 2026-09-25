@@ -372,7 +372,19 @@ Every file-writing teammate spawn requires an isolated worktree — enforced str
 - **A deletion that FAILS is durable.** It is retried every run regardless of age and keeps alerting until the path is gone. That is not defensive coding: the first real sweep failed on five paths and the NEXT run reported `failures=0` with all five still on disk, because the partial `rmtree` had bumped each directory's mtime and the age floor then kept it silently. The reaper's own failure erased its own evidence.
 - **When the alert says a path could not be deleted, Rich deletes it by hand.** That is the second half of the ruling and it is not optional: `scripts/disk-watchdog.sh --status` names the paths and how long each has been stuck.
 
-**A SUBAGENT CANNOT BE PAUSED — ONLY DESTROYED, and that is why the rule above is not bookkeeping.** `TaskStop` is the only lever the platform has, and it is a destructor: everything the agent has not committed is gone, unrecoverably. On 2026-09-10 two mid-flight teammates were stopped inside a minute; `zach-opus-dor1` lost almost nothing because it had committed as it went, and `echo-opus-hw2` lost its entire session because it had not. **So the corollary for whoever is conserving budget: work already in flight is already PAID FOR.** Killing it refunds nothing and forfeits the result — the lever that actually costs nothing is to **stop DISPATCHING**. Enforced at the destructive end by `scripts/hooks/guard-stop-live-work.sh`, which refuses a `TaskStop` against a provably live teammate unless a reason is written first — `scripts/stop-work-ack.sh` when it is your call, or `scripts/stop.sh <names> --ceo-word "<his sentence>"` when the CEO ordered it, which writes the same ack per named target in a second. **The guard does not read anybody's sentences.** It carried a clause that did, until 2026-09-20, when that clause was measured reading *"how is the stop command coming along"* as an order to destroy a live agent; a predicate over prose cannot tell an order from a conversation about orders, and on this tool being wrong is unrecoverable.
+**PAUSE IS NOT STOP. Rich sends exactly one standard pause message.** Generate its
+SendMessage payload with `python3 <engine>/scripts/lib/pause_protocol.py --to <exact-agent-name>`
+(for a quota hold add `--reason quota --reset HH:MMZ`). Send the returned payload
+unchanged. Do not write, append, summarize or "improve" pause instructions.
+The quota watcher uses this same template; the terminal and desktop delivery
+guards reject altered pause messages before delivery. In the desktop, use
+`richos_work.pause_message` for the same payload. Pause preserves the same task,
+context, workspaces and work in progress. Never substitute TaskStop, termination,
+cancellation, hand-in, workspace removal or a replacement. In particular, never
+add "end any heavy run" or "re-run what was cut off". A request sent is not proof
+of a pause: check the actual hold and report a limitation honestly. Stop remains
+a separate destructive operation under `guard-stop-live-work.sh`; a pause request
+never authorizes it.
 
 ## Working Rules - adopted from T3 Code's agent contract
 

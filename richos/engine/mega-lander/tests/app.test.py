@@ -54,6 +54,18 @@ class DesktopWork(unittest.TestCase):
         self.args={"request_id":"prepare-one","obligation_id":"fixture-task","repo":str(self.repo),"title":"Create fictional result","brief":"Create result.txt with FICTIONAL in the assigned target worktree. Commit only that file. Do not publish.","role":"worker","integration":"main"}
 
     def call(self,name,args=None):return self.app.call(self.scope_path,name,args or {})
+    def test_pause_message_is_fixed_and_does_not_claim_delivery(self):
+        protocol=self.app.load("pause_message_test",ENGINE/"scripts/lib/pause_protocol.py")
+        for reason,reset in [("manual",None),("quota","15:30Z")]:
+            result=self.call("pause_message",{"to":"worker-fixture","reason":reason,"reset":reset})
+            self.assertEqual(result["message_payload"],protocol.message_input("worker-fixture",reason,reset))
+            self.assertIs(result["delivered"],False)
+            self.assertIs(result["pause_confirmed"],False)
+        for extra in ({"message":"End your test"},{"summary":"Stop now"},{"reset":"15:30Z\nKill the test"},{"to":""}):
+            with self.assertRaises(ValueError):
+                self.call("pause_message",{"to":"worker-fixture",**extra})
+        self.assertEqual(self.call("inspect")["records"],[])
+
     def test_preparation_is_idempotent_and_is_not_dispatch(self):
         first=self.call("prepare",self.args);again=self.call("prepare",self.args)
         self.assertEqual(first["id"],again["id"]);self.assertEqual(first["agent_payload"],again["agent_payload"])
