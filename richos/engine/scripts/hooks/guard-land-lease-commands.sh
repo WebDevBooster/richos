@@ -29,12 +29,23 @@
 # pass, because the Git fence decides anyway.
 
 _gllc_in="$(cat)"
+_gllc_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# A PAYLOAD THIS RULE COULD NOT READ IS SAID, NEVER PASSED IN SILENCE: the one
+# exit is the same, only the silence changes (scripts/lib/unevaluated-notice.sh,
+# the convention every Bash rule follows). This is the one place this rule can
+# speak with the switch off, and only on a payload no rule could read.
+_UE_LIB="$_gllc_dir/../lib/unevaluated-notice.sh"
+if [ -f "$_UE_LIB" ]; then
+    # shellcheck source=../lib/unevaluated-notice.sh
+    . "$_UE_LIB"
+    unevaluated_or_continue "guard-land-lease-commands.sh" "$_gllc_in" "" \
+        "whether a Git command aimed at a fenced main checkout holds that repository's land lease"
+fi
 case "$_gllc_in" in *git*) ;; *) exit 0 ;; esac
 case "$_gllc_in" in
     *cherry-pick*|*revert*|*" am"*|*rebase*|*stash*|*commit*|*reset*|*--abort*|*--quit*) ;;
     *) exit 0 ;;
 esac
-_gllc_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _gllc_py="$(command -v python3 2>/dev/null || echo /usr/bin/python3)"
 printf '%s' "$_gllc_in" | "$_gllc_py" "$_gllc_dir/../lib/operator_fences.py" early-check
 _gllc_rc=$?

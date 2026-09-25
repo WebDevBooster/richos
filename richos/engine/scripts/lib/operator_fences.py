@@ -1430,8 +1430,9 @@ def main(argv):
     if cmd == "turn-end":
         try:
             return cmd_turn_end(rest)
-        except Exception:   # noqa: BLE001  a Stop hook never fails the turn
-            return 0
+        except Exception as error:   # noqa: BLE001  never fails the turn: the hook announces it
+            sys.stderr.write("turn-end failed: %s\n" % error)
+            return 3
     if cmd == "early-check":
         return cmd_early_check(rest)
     if cmd == "admin":

@@ -455,9 +455,6 @@ run_layer_R() {
     #     whole remaining file against a bootstrap and report a divergence that
     #     is not one. Sourcing the library is not the same claim as resolving a
     #     root, which is why this exemption is declared and not derived.
-    #   release-land-leases — the operator fence's turn-end release. It asks no
-    #     entity root: the leases it may release name their own repositories, and
-    #     each repository's launcher (not the session) says whether its fence is on.
     #   guard-land-lease-commands — the operator fence's early Bash check. Its
     #     subject is the repository the COMMAND targets (`-C`, `cd`, cwd), and that
     #     repository's own launcher says whether its fence is on; the session's
@@ -466,7 +463,7 @@ run_layer_R() {
     notice-inflight-sends session-start-ci-surface session-start-scratch shell-evidence \
     task-completed-handoff teammate-idle-handoff \
     worker-created-handoff worker-started-handoff worker-updated-handoff worker-ended-handoff \
-    guard-ci-red-lands release-land-leases guard-land-lease-commands"
+    guard-ci-red-lands guard-land-lease-commands"
 
     # FAIL LOUD, NEVER FALL BACK. A typed list kept here "in case the derivation
     # cannot run" would be the second inventory this change exists to delete, and
