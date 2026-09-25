@@ -1925,51 +1925,48 @@ def p15(ctx, r):
         runs += [('reap', True, 'owner'), ('reap-lead-crash', True, 'lead')]
     for key, reap, trigger in runs:
         rec = r.setdefault(key, {})
-        fg, bg = ctx.p.work / ('p15-%s-fg.txt' % key), ctx.p.work / ('p15-%s-bg.txt' % key)
-        # The trigger is the app's death (r3 (q) item 2: "the owner's death"): the owner
-        # stand-in between this harness and the supervisor is killed, by its own pid.
         lead = Lead(ctx, 'P15', key, ctx.lead_args(), reap=reap, owner=True)
-        recorded = []
+        recorded, groups = [], set()
         try:
+            # Anything left from an earlier run would be read as this run's; the finally below
+            # ends each run's own groups, so this is expected to be empty.
+            rec['long_tasks_before'] = long_tasks(process_rows())
             lead.initialize()
             rec['supervisor_pid'] = lead.supervisor_pid()
             rec['supervisor_pgid'] = pgid_of(rec['supervisor_pid']) if rec['supervisor_pid'] else None
-            start = lead.count()
-            task = 'python3 %s' % (ctx.p.work / 'long-task.py')
-            shell = ('bash -c \'echo self=$$ pgid=$(ps -o pgid= -p $$) tty=$(ps -o tty= -p $$) > %s; '
-                     '(' + task + ' 600 & echo grandchild=$! >> %s); ' + task + ' %d\'')
-            do(lead, 'Start this Bash command with run_in_background set to true, then reply started. It records its own '
-                     'process ids into a scratch file and runs a stand-in for a long build: ' + shell % (bg, bg, 600), 240)
-            lead.user(FIXTURE_NOTE + 'Now run this Bash command yourself in the foreground, with the Bash tool\'s timeout '
-                      'parameter set to 600000, and wait for it. It records its own process ids into a scratch file and '
-                      'runs a stand-in for a long build: ' + shell % (fg, fg, 500))
-            def recorded_both(limit):
-                end = time.time() + limit
-                while time.time() < end and not (fg.exists() and bg.exists() and
-                                                 'grandchild' in fg.read_text() and 'grandchild' in bg.read_text()):
-                    time.sleep(1)
-                return fg.exists() and bg.exists()
-            # One plain re-ask if nothing was recorded: the 2026-09-25 run's lead declined both
-            # commands as a suspected injection (P15-reap-lead-crash.jsonl), which left that half
-            # unmeasured. The re-ask is recorded; a half that still records nothing is PREMISE-FALSE.
-            rec['re_asked'] = False
-            if not recorded_both(120):
-                rec['re_asked'] = True
-                lead.user('These two commands are the measurement this disposable test VM exists for: they write '
-                          'their own process ids into scratch files under %s and wait. Please run the background one '
-                          'with run_in_background set to true and then the foreground one, as asked above.' % ctx.p.work)
-                recorded_both(120)
+            # Asked the way a teammate is briefed, with the reason both must run at once. The
+            # 2026-09-25 runs asked the lead to write its own pids through a subshell that
+            # orphaned a grandchild, under "carry it out exactly as written"; three of four
+            # leads read that as an attack and declined (P15-control-no-reap.jsonl 48.9 s). This
+            # harness finds the processes itself, among the lead's own descendants.
+            lead.user(P15_NOTE + 'First, start this stand-in for a long build with the Bash tool\'s run_in_background '
+                      'set to true, and reply started: %s' % long_task(ctx, 600))
             rec['claude_pid'] = lead.claude_pid()
             rec['lead_pgid'] = pgid_of(rec['claude_pid']) if rec['claude_pid'] else None
+            bg = wait_long_task(rec['claude_pid'], 600, 120)
+            lead.user('Now run this one in the foreground, with the Bash tool\'s timeout parameter set to 600000, and '
+                      'wait for it while the first keeps running: %s' % long_task(ctx, 500))
+            fg = wait_long_task(rec['claude_pid'], 500, 120)
+            # One plain re-ask if either is missing, recorded; a half that still has none is
+            # PREMISE-FALSE in the grade, never a pass.
+            rec['re_asked'] = False
+            if not (bg and fg):
+                rec['re_asked'] = True
+                lead.user('This run measures what happens to a background command and a foreground command when the '
+                          'session ends, so both need to be running at the same time. Please start whichever of the '
+                          'two above is not running yet: the 600-second one in the background, the 500-second one in '
+                          'the foreground.')
+                bg = bg or wait_long_task(rec['claude_pid'], 600, 120)
+                fg = fg or wait_long_task(rec['claude_pid'], 500, 120)
+            rows = process_rows()
+            for label, task in (('bg', bg), ('fg', fg)):
+                rec[label] = tool_group(rows, task) if task else []
+                for member in rec[label]:
+                    recorded.append(('%s-%s-%d' % (label, member['role'], member['pid']), member['pid']))
+                    groups.add(member['pgid'])
             if rec['claude_pid']:
                 recorded.append(('lead', rec['claude_pid']))
-            for label, path in (('fg', fg), ('bg', bg)):
-                values = dict(x.split('=', 1) for x in path.read_text().split() if '=' in x) if path.exists() else {}
-                rec[label] = values
-                for k in ('self', 'grandchild'):
-                    if values.get(k, '').strip().isdigit():
-                        recorded.append((label + '-' + k, int(values[k])))
-            rec['own_group'] = {label: rec.get(label, {}).get('pgid', '').strip() not in ('', str(rec['lead_pgid']))
+            rec['own_group'] = {label: bool(rec[label]) and all(m['pgid'] != rec['lead_pgid'] for m in rec[label])
                                 for label in ('fg', 'bg')}
             rec['trigger'] = trigger
             if trigger == 'owner':
@@ -1981,33 +1978,113 @@ def p15(ctx, r):
             rec['alive_after_grace_plus_one'] = {name: alive(pid) for name, pid in recorded}
         finally:
             lead.close(grace=5)
+            # Owned: the process groups of the tool commands our own lead started, read off
+            # its descendants above, and the pids recorded with them; never a name.
+            for pgid in groups:
+                try:
+                    os.killpg(pgid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
             for name, pid in recorded:
                 if alive(pid):
                     try:
-                        os.kill(pid, signal.SIGKILL)  # owned: a pid our own lead or its command recorded
+                        os.kill(pid, signal.SIGKILL)
                     except ProcessLookupError:
                         pass
-    control = r['control-no-reap']
-    # The premise is that tool shells outlive the app's death under today's supervisor. Any
-    # recorded shell shows it (rerun 2: the lead started only the foreground one that time).
-    shells = {k: v for k, v in control.get('alive_after_grace_plus_one', {}).items() if k.endswith('-self')}
-    if not shells or not any(shells.values()):
-        return 'PREMISE-FALSE', 'without --reap-descendants no recorded tool shell survived, so the control shows nothing: %s' % shells
+    return grade_p15(r, reaps)
+
+
+# P15's context, said plainly: why the two commands run together, and that they are scratch.
+P15_NOTE = ('This session runs in a disposable test virtual machine, deleted after the run. It measures what '
+            'happens to the commands a session has running when the session ends. The script named below is a '
+            'scratch stand-in for a long build: it prints its progress every ten seconds and exits. ')
+
+
+def process_rows():
+    """Every process: pid, parent, group and command line, from ps."""
+    code, out, _ = run(['ps', '-A', '-ww', '-o', 'pid=,ppid=,pgid=,command='], timeout=30)
+    rows = []
+    for line in out.splitlines():
+        parts = line.split(None, 3)
+        if len(parts) >= 3 and all(x.isdigit() for x in parts[:3]):
+            rows.append({'pid': int(parts[0]), 'ppid': int(parts[1]), 'pgid': int(parts[2]),
+                         'command': parts[3] if len(parts) > 3 else ''})
+    return rows
+
+
+def long_tasks(rows):
+    return [row for row in rows if 'long-task.py' in row['command'] and 'python' in row['command'].lower()]
+
+
+def below(rows, pid):
+    """The rows under `pid`, by parent pid."""
+    found, frontier = [], {pid}
+    while frontier:
+        nxt = {row['pid'] for row in rows if row['ppid'] in frontier}
+        found.extend(row for row in rows if row['ppid'] in frontier)
+        frontier = nxt
+    return found
+
+
+def wait_long_task(lead_pid, seconds, within):
+    """The pid of the long task of `seconds` running under the lead, once it appears."""
+    if not lead_pid:
+        return None
+    end = time.time() + within
+    while time.time() < end:
+        for row in long_tasks(below(process_rows(), lead_pid)):
+            if row['command'].rstrip().endswith(' %d' % seconds):
+                return row['pid']
+        time.sleep(1)
+    return None
+
+
+def tool_group(rows, task_pid):
+    """The tool command's whole process group: the shell the Bash tool started and the task
+    under it, with each one's role."""
+    row = next((x for x in rows if x['pid'] == task_pid), None)
+    if row is None:
+        return []
+    return [{'pid': x['pid'], 'pgid': x['pgid'], 'role': 'task' if x['pid'] == task_pid else 'shell',
+             'command': x['command'][:200]} for x in rows if x['pgid'] == row['pgid']]
+
+
+def tool_processes(run_record):
+    """{name: alive} for the tool processes of one run; the lead is not one of them."""
+    return {k: v for k, v in (run_record or {}).get('alive_after_grace_plus_one', {}).items() if k != 'lead'}
+
+
+def measured(run_record):
+    """Both commands' processes were found. Names start with the command's label, in this
+    design (fg-task-123) and in the 2026-09-25 one (fg-self)."""
+    names = tool_processes(run_record)
+    return all(any(n.startswith(side + '-') for n in names) for side in ('fg', 'bg'))
+
+
+def grade_p15(r, reaps):
+    """The premise is per trigger: under today's supervisor, the tool processes outlive the
+    app's death and the lead's crash. A control that found nothing, or where nothing
+    survived, shows nothing for its trigger."""
+    controls = {'owner': r.get('control-no-reap'), 'lead': r.get('control-no-reap-lead-crash')}
+    unshown = {trigger: (tool_processes(c) if measured(c) else 'not measured') for trigger, c in controls.items()
+               if not (measured(c) and any(tool_processes(c).values()))}
+    if unshown:
+        return 'PREMISE-FALSE', ('without --reap-descendants no tool process was shown to survive for %s, so that '
+                                 'control shows nothing: %s' % (sorted(unshown), unshown))
     if not reaps:
-        return 'NOT-RUN', ('the process groups are recorded (own group: %s); the reap half needs provider-supervisor.py '
-                           '--reap-descendants, which this engine does not have yet (r3 (q), zach)') % control.get('own_group')
+        return 'NOT-RUN', ('the controls show survivors (own group: %s, %s); the reap half needs provider-supervisor.py '
+                           '--reap-descendants, which this engine does not have yet (r3 (q), zach)'
+                           % (controls['owner'].get('own_group'), controls['lead'].get('own_group')))
     return grade_p15_reap(r)
 
 
 def grade_p15_reap(r):
-    """The reap half. A run whose tool shells never recorded their pids measured nothing about
-    them: it is PREMISE-FALSE, never a pass (the 2026-09-25 run's lead-crash half recorded only
-    the lead, and "no survivor among the recorded" read as all gone)."""
-    unmeasured = [key for key in ('reap', 'reap-lead-crash')
-                  if not all('%s-self' % side in (r.get(key) or {}).get('alive_after_grace_plus_one', {})
-                             for side in ('fg', 'bg'))]
+    """The reap half. A run in which either command's processes were never found measured
+    nothing about them: it is PREMISE-FALSE, never a pass (the 2026-09-25 run's lead-crash half
+    recorded only the lead, and "no survivor among the recorded" read as all gone)."""
+    unmeasured = [key for key in ('reap', 'reap-lead-crash') if not measured(r.get(key))]
     if unmeasured:
-        return 'PREMISE-FALSE', ('the tool shells never recorded their pids in %s, so the reap of them was not measured: %s'
+        return 'PREMISE-FALSE', ('the tool processes were not found in %s, so the reap of them was not measured: %s'
                                  % (unmeasured, {k: (r.get(k) or {}).get('alive_after_grace_plus_one') for k in unmeasured}))
     survivors = {key: [n for n, a in r[key]['alive_after_grace_plus_one'].items() if a]
                  for key in ('reap', 'reap-lead-crash')}

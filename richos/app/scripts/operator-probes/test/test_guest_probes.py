@@ -256,6 +256,70 @@ class GradeP15Reap(unittest.TestCase):
         self.assertEqual(gp.grade_p15_reap({'reap': full, 'reap-lead-crash': {'alive_after_grace_plus_one': survivor}})[0],
                          'FAIL')
 
+    def test_the_harness_found_names_grade_the_same_way(self):
+        found = self.run_of(lead=False, **{'fg-shell-40': False, 'fg-task-41': False, 'bg-shell-50': False,
+                                           'bg-task-51': False})
+        self.assertEqual(gp.grade_p15_reap({'reap': found, 'reap-lead-crash': found})[0], 'PASS')
+        only_bg = self.run_of(lead=False, **{'bg-shell-50': False, 'bg-task-51': False})
+        self.assertEqual(gp.grade_p15_reap({'reap': found, 'reap-lead-crash': only_bg})[0], 'PREMISE-FALSE')
+
+
+class GradeP15Premise(unittest.TestCase):
+    """The premise is per trigger: the 2026-09-25 run's owner control found no processes while
+    its lead-crash control showed four survivors, and "no survivor" was read off the first."""
+
+    def run_of(self, **alive):
+        return {'alive_after_grace_plus_one': dict(alive), 'own_group': {'fg': True, 'bg': True}}
+
+    def survived(self):
+        return self.run_of(lead=False, **{'fg-task-1': True, 'bg-task-2': True})
+
+    def gone(self):
+        return self.run_of(lead=False, **{'fg-task-3': False, 'bg-task-4': False})
+
+    def test_each_trigger_needs_its_own_control_to_show_a_survivor(self):
+        r = {'control-no-reap': self.run_of(lead=False), 'control-no-reap-lead-crash': self.survived(),
+             'reap': self.gone(), 'reap-lead-crash': self.gone()}
+        verdict, why = gp.grade_p15(r, True)
+        self.assertEqual(verdict, 'PREMISE-FALSE')
+        self.assertIn('owner', why)
+        self.assertNotIn("'lead'", why)
+
+    def test_a_control_where_nothing_survived_shows_nothing(self):
+        r = {'control-no-reap': self.gone(), 'control-no-reap-lead-crash': self.survived()}
+        self.assertEqual(gp.grade_p15(r, True)[0], 'PREMISE-FALSE')
+
+    def test_both_premises_shown_then_the_reap_is_graded(self):
+        r = {'control-no-reap': self.survived(), 'control-no-reap-lead-crash': self.survived(),
+             'reap': self.gone(), 'reap-lead-crash': self.gone()}
+        self.assertEqual(gp.grade_p15(r, True)[0], 'PASS')
+        self.assertEqual(gp.grade_p15(r, False)[0], 'NOT-RUN')
+        r['reap-lead-crash'] = self.survived()
+        self.assertEqual(gp.grade_p15(r, True)[0], 'FAIL')
+
+
+class P15Processes(unittest.TestCase):
+    ROWS = [
+        {'pid': 10, 'ppid': 1, 'pgid': 10, 'command': 'python3 provider-supervisor.py claude'},
+        {'pid': 11, 'ppid': 10, 'pgid': 10, 'command': 'claude --print'},
+        {'pid': 20, 'ppid': 11, 'pgid': 20, 'command': "/bin/zsh -c eval 'python3 /w/long-task.py 600' < /dev/null"},
+        {'pid': 21, 'ppid': 20, 'pgid': 20, 'command': '/opt/homebrew/bin/python3 /w/long-task.py 600'},
+        {'pid': 30, 'ppid': 11, 'pgid': 30, 'command': "/bin/zsh -c eval 'python3 /w/long-task.py 500' < /dev/null"},
+        {'pid': 31, 'ppid': 30, 'pgid': 30, 'command': '/opt/homebrew/bin/python3 /w/long-task.py 500'},
+        {'pid': 40, 'ppid': 1, 'pgid': 40, 'command': '/opt/homebrew/bin/python3 /w/long-task.py 600'},
+    ]
+
+    def test_the_tasks_are_found_under_the_lead_only(self):
+        under = gp.below(self.ROWS, 11)
+        self.assertEqual(sorted(r['pid'] for r in under), [20, 21, 30, 31])
+        tasks = [r['pid'] for r in gp.long_tasks(under) if r['command'].rstrip().endswith(' 600')]
+        self.assertEqual(tasks, [21], 'the shell carries the same words, and pid 40 is not the lead\'s')
+
+    def test_a_tool_group_is_the_shell_and_the_task(self):
+        group = gp.tool_group(self.ROWS, 31)
+        self.assertEqual(sorted((m['pid'], m['role']) for m in group), [(30, 'shell'), (31, 'task')])
+        self.assertEqual(gp.tool_group(self.ROWS, 99), [])
+
 
 class ArtifactScrub(unittest.TestCase):
     def test_his_artifact_list_never_reaches_the_record(self):
