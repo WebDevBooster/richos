@@ -159,7 +159,8 @@ mod tests {
         let quota_js = include_str!("../../ui/quota.js");
         let usage = "claude.ai/new#settings/usage";
         assert!(quota_js.contains(&format!("target: \"{usage}\"")));
-        assert!(quota_js.contains(&format!(">{usage}</span>")), "the fallback address must be printed");
+        assert!(quota_js.contains(&format!("title=\"{usage}\"")), "the button must disclose its destination");
+        assert!(quota_js.contains(&format!("Open {usage} in your browser.")), "a failed opener must print the fallback address");
         assert_eq!(resolve(usage), Some(Target::Page("https://claude.ai/new#settings/usage")));
         assert_eq!(ALLOWED.len(), 6, "the allowlist grew or shrank without this test being told");
     }

@@ -13,15 +13,14 @@
       <button id="quota-close" type="button" aria-label="Close Claude Code quota">×</button></header>
     <div class="quota-body"><div class="quota-windows-col">
       <div class="quota-toolbar"><span id="quota-freshness">Loading quota…</span>
-        <button id="quota-refresh" class="quota-btn" type="button">Refresh</button></div>
+        <div class="quota-toolbar-actions"><button id="quota-usage-open" class="quota-btn" type="button" title="claude.ai/new#settings/usage">Open Claude Usage</button>
+          <button id="quota-refresh" class="quota-btn" type="button">Refresh</button></div></div>
       <p id="quota-message" class="quota-message" role="status" hidden></p>
       <div id="quota-windows" aria-label="Claude Code quota windows"></div>
       <div id="quota-empty" hidden><h3>No reading yet.</h3><p>Claude Code has not reported an allowance. There is no usage figure to show yet.</p></div>
       <p class="quota-legend">Gold is what you have <b>used</b>. The tick is where the clock is <b>now</b>. Bar past the tick means you are spending faster than the window is passing.</p>
       <section id="quota-reset-offers" class="quota-reset-offers" aria-label="Weekly quota resets"></section>
       <p id="quota-reset-feedback" role="status" aria-live="polite"></p>
-      <div class="quota-usage-link"><button id="quota-usage-open" class="quota-btn" type="button">Open Claude Usage</button>
-        <span class="quota-muted">claude.ai/new#settings/usage</span></div>
     </div><form id="quota-policy" class="quota-policy" novalidate>
       <h3>Automatic pause</h3>
       <div class="quota-switch-row"><button id="quota-enabled" class="quota-switch" type="button" role="switch" aria-checked="false" aria-label="Automatically pause Rich’s agents"></button>
@@ -47,7 +46,7 @@
   const field = id => sheet.querySelector("#" + id);
   field("quota-usage-open").addEventListener("click", async () => {
     try { await bridge.invoke("open_external", { target: "claude.ai/new#settings/usage" }); }
-    catch { field("quota-reset-feedback").textContent = "Could not open Claude Usage. Open the address shown here in your browser."; }
+    catch { field("quota-reset-feedback").textContent = "Could not open Claude Usage. Open claude.ai/new#settings/usage in your browser."; }
   });
   let view = null, activity = null, busy = false, saving = false, dirty = false, generation = 0;
   let resetDraft = null, resetSaving = false, resetPaint = "";

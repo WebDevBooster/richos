@@ -271,10 +271,13 @@ async function main() {
         await page.click("#quota-usage-open");
         assertEqual(await page.evaluate(() => window.__RICHOS_OPENED__), ["claude.ai/new#settings/usage"]);
         assertEqual(await page.evaluate(() => window.__richosResetCalls), []);
-        await page.evaluate(() => { window.__overrides.open_external = {reject: true, value: "unavailable"}; });
+        await page.evaluate(() => {
+          const original = window.RichBridge.invoke.bind(window.RichBridge);
+          window.RichBridge.invoke = (cmd, args) => cmd === "open_external" ? Promise.reject("unavailable") : original(cmd, args);
+        });
         await page.click("#quota-usage-open");
         await page.waitForFunction(() => document.getElementById("quota-reset-feedback").textContent.includes("Could not open"));
-        assert((await page.locator(".quota-usage-link").innerText()).includes("claude.ai/new#settings/usage"));
+        assert((await page.locator("#quota-reset-feedback").innerText()).includes("claude.ai/new#settings/usage"));
       }
       await page.close();
     }

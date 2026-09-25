@@ -3410,6 +3410,7 @@ function counted(n, singular, plural) {
 
 function renderQuotaWorkStatus() {
   const status = el("quota-work-status");
+  if (!status) return; // A pending read can finish after this document has been replaced.
   const n = (quotaActivity.held || []).filter(row => row.kind === "agent").length;
   status.hidden = !n;
   status.textContent = n ? counted(n, "agent", "agents") + " paused" + (techyOn() ? " for the quota" : ". Their work is saved.") : "";

@@ -6778,4 +6778,5 @@ body.home-open {
 
 .quota-reset-offers.is-empty { margin-top: 12px; padding-top: 8px; }
 
-.quota-usage-link { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-top: 12px; font-size: 1rem; overflow-wrap: anywhere; }
+.quota-toolbar { flex-wrap: wrap; gap: 8px; }
+.quota-toolbar-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
