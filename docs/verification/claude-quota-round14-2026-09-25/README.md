@@ -101,3 +101,26 @@ The engine quota watcher and private HQ rulings page were not changed.
 
 Follow-up verification: 19 targeted quota Rust tests, 13 WebKit quota checks and
 the desktop Cargo build check passed.
+
+## Merge proof registration
+
+Rebased `codex/claude-quota-settings` onto `origin/main` at `eca57bc1` without
+conflicts. The designer's round-14 implementation remains in the branch.
+
+- `proof-for.ui-inputs` now declares the quota UI suite and its shell, quota,
+  settings and mock inputs.
+- The probe's existing Unix tests use separate `cfg(test)` and `cfg(unix)`
+  attributes so the selector discovers them while preserving their platform gate.
+- `scripts/claude-quota.test.sh` claims the smoke example it actually runs. Its
+  five checks cover argument refusal, control-only reads and scratch cleanup,
+  provider EOF, retained callback handoff and revoked-work refusal. No account
+  credentials or model turns are needed. No exclusions were added.
+- Rebase verification: 16 quota module tests, five example subprocess checks,
+  nine declaration-contract tests and the 13 quota UI checks pass. ShellCheck
+  also passes for the new suite.
+
+The requested command is `bash richos/app/scripts/proof-for.sh origin/main..HEAD`.
+It exits **0**, including the quota UI suite, probe unit target and example suite.
+This proves the coverage mapping reconciles; the selector prints commands and
+does not execute every selected suite. The checks actually executed are listed
+above. The engine watcher and HQ rulings page were not edited.

@@ -93,6 +93,7 @@ onboarding.js           @shell richos/app/ui/mock.js
 onboarding-lifecycle.js @shell richos/app/ui/mock.js
 first-run-sheet.js      @shell richos/app/ui/mock.js
 voice-model.js          @shell richos/app/ui/mock.js
+quota.js                @shell richos/app/ui/quota.js richos/app/ui/settings-button.js richos/app/ui/mock.js
 provider-auth.js        @shell
 
 # ---- the timeline renderer ---------------------------------------------------------------
