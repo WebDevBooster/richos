@@ -616,10 +616,15 @@ actor FakePlatform: EffectHandler {
     static let pairingV2Screens = ["pair-awaiting-mac", "pair-mac-update", "pair-mac-refused", "pair-mac-expired",
                                    "pair-words-rejected", "pair-unreachable"]
 
+    /// States found in native acceptance that round 12 has no picture of (Android's catalog ids).
+    static let acceptanceScreens = ["conn-tailscale-off"]
+
     @Test func thereIsOneFixturePerRound12AppScreen() {
         #expect(Self.round12AppScreens.count == 63)
-        #expect(Fixture.all.map(\.name).filter { !Self.pairingV2Screens.contains($0) } == Self.round12AppScreens)
+        let added = Self.pairingV2Screens + Self.acceptanceScreens
+        #expect(Fixture.all.map(\.name).filter { !added.contains($0) } == Self.round12AppScreens)
         #expect(Fixture.all.map(\.name).filter(Self.pairingV2Screens.contains) == Self.pairingV2Screens)
+        #expect(Fixture.all.map(\.name).filter(Self.acceptanceScreens.contains) == Self.acceptanceScreens)
     }
 
     @Test func everyFixtureIsOnTheFullScreenSurfaceItsDesignShows() throws {
