@@ -1089,7 +1089,34 @@ def _lease_context(opts):
     return conf, Files(conf), repo, repo_paths(paths["main"])
 
 
-def _identify(opts, conf):
+def _identify(opts, conf, taking=False):
+    """The caller as a lease holder, or {"error": ...}. With `taking` (acquire and
+    takeover, never release), a holder the operator claim bars is refused too."""
+    who = _identify_holder(opts, conf)
+    if taking and who and "error" not in who:
+        barred = _claim_bars(who)
+        if barred:
+            return {"error": barred}
+    return who
+
+
+def _claim_bars(holder):
+    """r3 (e) item 7, asked by the lease itself: while the RichOS app runs his team
+    (its claim is live, or the claim is unreadable), his terminal takes no land
+    lease, whether a Bash command or a program asks (commit-ceo-inputs.py does).
+    The rule lives in operator_leads.lease_refusal; it is imported only here, from
+    the engine, never from the copy of this file a launcher runs."""
+    if holder.get("kind") != "claude":
+        return ""
+    sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+    try:
+        import operator_leads   # noqa: E402  (engine-only import)
+    finally:
+        sys.path.pop(0)
+    return operator_leads.lease_refusal(holder)
+
+
+def _identify_holder(opts, conf):
     chain = ancestors()
     kind = opts.get("--holder")
     if kind:
@@ -1188,7 +1215,7 @@ def cmd_acquire(opts):
         _say("land-lease: operator fences are off for %s. There is no lease to take and none is needed."
              % paths["main"])
         return 0
-    holder = _identify(opts, conf)
+    holder = _identify(opts, conf, taking=True)
     if not holder or "error" in holder:
         _say("land-lease: REFUSED. %s" % (holder or {}).get("error", "no holder could be identified"))
         return 2
@@ -1373,7 +1400,7 @@ def cmd_takeover(opts):
     if conf is None:
         _say("land-lease: operator fences are off for %s. There is nothing to take over." % paths["main"])
         return 0
-    holder = _identify(opts, conf)
+    holder = _identify(opts, conf, taking=True)
     if not holder or "error" in holder:
         _say("land-lease: REFUSED. %s" % (holder or {}).get("error", "no holder could be identified"))
         return 2

@@ -406,6 +406,32 @@ def cmd_claim_guard(payload):
     return refuse(app_running_text(rec, what))
 
 
+def lease_refusal(holder):
+    """Why this land-lease holder may not take a lease right now, or ''. Asked
+    by land-lease.sh acquire and takeover themselves (r3 (e) item 7), so a lease
+    taken by a program (commit-ceo-inputs.py, a script) is refused as surely as
+    one typed in a Bash command. Only a Claude holder whose entrypoint is not
+    `sdk-*` is ever refused, and only while the app's claim is live or the claim
+    is unreadable. There is no cwd rule here: the lease is per repository, and
+    any interactive session landing into it while the app runs his team is the
+    collision the claim exists to prevent. A declared non-Claude holder (Codex)
+    is not governed by the claim."""
+    if not holder or holder.get("kind") != "claude":
+        return ""
+    entry = holder.get("entrypoint") or ""
+    if not entry or entry.startswith("sdk-"):
+        return ""
+    state, rec, reason = claim_state()
+    if state not in ("app", "unreadable"):
+        return ""
+    who = {"pid": holder.get("pid"), "start": holder.get("start")}
+    if is_app_lead(who, state, rec):
+        return ""
+    if state == "unreadable":
+        return unreadable_text(reason, "take the land lease")
+    return app_running_text(rec, "take the land lease")
+
+
 # ---------------------------------------------------------------------------
 # e3: shared writes
 # ---------------------------------------------------------------------------

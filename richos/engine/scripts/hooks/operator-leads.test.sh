@@ -19,6 +19,10 @@
 #     C8   an unreadable claim is held: refused, naming the way through
 #     C9   a dead app claim is replaced by the terminal's
 #     C10  G11: an IDE entrypoint (claude-vscode) counts as the terminal
+#     C11  a second terminal session joins the terminal's claim
+#     C12  land-lease.sh acquire itself refuses the terminal while the app's claim is
+#          live (so commit-ceo-inputs.py, which takes the lease as a program, is
+#          barred too); a print-mode session and a claim-free terminal take it
 #   e3 (guard-shared-writes.sh, PreToolUse; release-shared-writes.sh, PostToolUse[Failure])
 #     S0   OFF: no lease taken, nothing refused
 #     S1   a memory write takes the lease; PostToolUse releases it
@@ -236,6 +240,22 @@ hook U "$H_CLAIM" start
 python3 -c "import json,sys; r=json.load(open('$CLAIM')); sys.exit(0 if len(r['processes'])==2 else 1)" 2>/dev/null
 check "C11 a second terminal session joins the terminal's claim" $?
 rm -f "$CLAIM"
+
+# C12: the lease itself refuses the terminal while the app runs his team, so a
+# program that takes it (commit-ceo-inputs.py) is barred as surely as a typed
+# command; a print-mode session still takes it, and so does the terminal once
+# the claim is gone.
+LL="bash '$ENGINE_ROOT/scripts/land-lease.sh'"
+plant_claim app app-1 APP
+ofx_in T "$LL acquire --repo '$R' --wait 0"; r1=$?; o1="$OFX_OUT"
+n1="$(ls "$OFX/locks/"*.lease 2>/dev/null | grep -c .)"
+ofx_in D "$LL acquire --repo '$R' --wait 0"; r2=$?
+ofx_in D "$LL release --repo '$R'"
+rm -f "$CLAIM"
+ofx_in T "$LL acquire --repo '$R' --wait 0"; r3=$?
+ofx_in T "$LL release --repo '$R'"
+{ [ $r1 = 2 ] && printf '%s' "$o1" | grep -q "running in the RichOS app" && [ "$n1" = 0 ] && [ $r2 = 0 ] && [ $r3 = 0 ]; }
+check "C12 land-lease.sh acquire refuses the terminal while the app's claim is live; sdk-cli and a claim-free terminal take it" $? "r1=$r1 n1=$n1 r2=$r2 r3=$r3 $o1"
 
 echo "=== operator-leads: e3, shared writes ==="
 LEASES="$OFX/claude/state/shared-writes"

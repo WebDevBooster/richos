@@ -87,6 +87,11 @@ mutant only-cli-is-terminal "C10 " "$L" \
     '    if entry != "cli":' \
     "G11: his team run from an IDE or desktop entrypoint would not count as the terminal."
 
+mutant lease-ignores-claim "C12 " "scripts/lib/operator_fences.py" \
+    '        barred = _claim_bars(who){NL}        if barred:' \
+    '        barred = _claim_bars(who){NL}        if False:' \
+    "item 7: commit-ceo-inputs.py (or any script) could take the land lease from his terminal while the app lands."
+
 # --- e3 -----------------------------------------------------------------------
 mutant memory-lease-not-taken "S1 " "$L" \
     '    memory = memory_dir_of(path){NL}    if memory:{NL}        ok, holder = take_memory_lease' \
