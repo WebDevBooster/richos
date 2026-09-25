@@ -17,8 +17,12 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -377,18 +381,24 @@ private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEven
                 val hasAbove = model.inlineNotice != null || waiting != null || model.cards.isNotEmpty() || model.keptRecording != null || model.notificationOffer ||
                     a.rejection != null || a.denied != null || a.macOffCard
                 if (hasAbove) {
+                    // The notes showing when the region opens start at its top. A note raised while it
+                    // is up is the answer to something just done (a press with the microphone off, a
+                    // failed send), so it is brought into view with the least scroll that shows it (I05).
+                    val opened = remember { BooleanArray(1) }
+                    SideEffect { opened[0] = true }
+                    val up = opened[0]
                     Column(
                         Modifier.fillMaxWidth().heightIn(max = maxAbove).verticalScroll(rememberScrollState()).padding(start = 2.dp, end = 2.dp, bottom = 8.dp),
                         verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
                     ) {
-                        model.inlineNotice?.let { InlineNoticeView(it) }
-                        if (waiting != null) WaitingToSendCard(waiting, onEvent)
-                        model.cards.forEach { ComposerCardView(it, onEvent) }
-                        if (model.notificationOffer) NotificationOfferCard(onEvent)
-                        model.keptRecording?.let { RecoveryCard(it, forward) }
-                        a.rejection?.let { RejectionCard(it, model.attachLimitMb, onEvent) }
-                        a.denied?.let { DeniedCard(it, onEvent) }
-                        if (a.macOffCard) MacOffCard(onEvent)
+                        model.inlineNotice?.let { n -> Note("inline:${n::class.simpleName}", up) { InlineNoticeView(n) } }
+                        if (waiting != null) Note("waiting", up) { WaitingToSendCard(waiting, onEvent) }
+                        model.cards.forEach { card -> Note("card:${card::class.simpleName}", up) { ComposerCardView(card, onEvent) } }
+                        if (model.notificationOffer) Note("notifications", up) { NotificationOfferCard(onEvent) }
+                        model.keptRecording?.let { k -> Note("kept", up) { RecoveryCard(k, forward) } }
+                        a.rejection?.let { r -> Note("rejection", up) { RejectionCard(r, model.attachLimitMb, onEvent) } }
+                        a.denied?.let { d -> Note("denied", up) { DeniedCard(d, onEvent) } }
+                        if (a.macOffCard) Note("mac-off", up) { MacOffCard(onEvent) }
                     }
                 }
                 Composer(
@@ -406,4 +416,19 @@ private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEven
         }
         if (menuOpen) AttachMenu(onEvent, Modifier.align(Alignment.BottomStart).padding(start = 10.dp, bottom = zoneDp + 6.dp))
     }
+}
+
+/**
+ * One note in the capped, scrolling region above the composer. Raised while the region was already
+ * up ([raisedWhileUp]), it asks its scrolling parent, once, to bring it into view: the least scroll
+ * that shows it whole, or its top when it is taller than the region (Compose's default
+ * bring-into-view). iPhone parity: isaac-opus-ux2 `94d47006`, `ScrollViewReader.scrollTo` (I05).
+ * One bounded scroll per raised note; nothing repeats.
+ */
+@Composable
+private fun Note(id: String, raisedWhileUp: Boolean, content: @Composable () -> Unit) = key(id) {
+    val requester = remember { BringIntoViewRequester() }
+    val raised = remember { raisedWhileUp }
+    LaunchedEffect(Unit) { if (raised) requester.bringIntoView() }
+    Box(Modifier.bringIntoViewRequester(requester)) { content() }
 }
