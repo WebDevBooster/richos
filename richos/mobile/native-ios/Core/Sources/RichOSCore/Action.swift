@@ -94,6 +94,9 @@ public enum Action: Equatable, Sendable {
     case connected(at: Int64)
     /// The transport's probe says why the Mac cannot be reached (evidence-based only).
     case connectionDiagnosed(ConnectionNotice)
+    /// The OS's word on whether this phone is on Tailscale, read from its interfaces when the network
+    /// path changes (D05; Android's `health` `vpn`). Evidence for the one line, never a probe.
+    case tunnelChanged(up: Bool)
     /// What the Mac says it accepts (capability negotiation, contract §12).
     case macCapabilities(text: Bool, voice: Bool)
     /// The Mac answered 403 `{"revoked":true}`: this phone was removed (round-12 `conn-revoked`).
@@ -299,7 +302,7 @@ public enum Reducer {
              .pairingRefused, .pairingUnreachable, .pairingNeedsMacUpdate, .confirmWords, .rejectWords, .macConfirmation,
              .acceptConsent, .dismissPairingProblem, .discardUnsentAndPair:
             PairingReducer.reduce(&next, action, &effects)
-        case .networkChanged, .connectionLost, .connected, .connectionDiagnosed, .macCapabilities, .pairingRevoked,
+        case .networkChanged, .connectionLost, .connected, .connectionDiagnosed, .tunnelChanged, .macCapabilities, .pairingRevoked,
              .macAttachmentLimits, .pushRegistered:
             ConnectionReducer.reduce(&next, action, &effects)
         case .foregrounded, .backgrounded:

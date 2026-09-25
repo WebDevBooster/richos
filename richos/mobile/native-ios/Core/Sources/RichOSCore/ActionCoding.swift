@@ -36,6 +36,7 @@ extension Action: Codable {
         var reachedBeginning: Bool?
         var value: Bool?
         var online: Bool?
+        var vpn: Bool?
         var matched: Bool?
         var confirm: Bool?
         var enabled: Bool?
@@ -73,7 +74,7 @@ extension Action: Codable {
         "reply-started", "reply-delta", "reply-finished", "older", "older-loaded", "remember-reading", "set-following", "set-composer-focus",
         "notification-open", "notification-focused", "share-take", "reply-play", "playback-started", "playback-progress",
         "playback-ended", "playback-stop", "dismiss-toast",
-        "network", "connection-lost", "connected", "connection-diagnosed", "mac-capabilities", "pairing-revoked", "foregrounded", "backgrounded", "mac-attachment-limits", "push-registered",
+        "network", "health", "connection-lost", "connected", "connection-diagnosed", "mac-capabilities", "pairing-revoked", "foregrounded", "backgrounded", "mac-attachment-limits", "push-registered",
         "voice-press", "voice-start-locked", "microphone-permission", "dismiss-microphone-card", "voice-move", "voice-release", "voice-locked-send",
         "voice-locked-cancel", "voice-touch-canceled", "voice-interrupted", "voice-level", "voice-settled",
         "send-kept", "discard-kept", "record-play",
@@ -141,6 +142,7 @@ extension Action: Codable {
         case "playback-stop": self = .stopPlayback
         case "dismiss-toast": self = .dismissToast
         case "network": self = .networkChanged(online: try need(w.online, "online"), at: now)
+        case "health": self = .tunnelChanged(up: try need(w.vpn, "vpn"))
         case "connection-lost": self = .connectionLost(at: now)
         case "connected": self = .connected(at: now)
         case "connection-diagnosed": self = .connectionDiagnosed(try need(w.notice, "notice"))
@@ -247,6 +249,7 @@ extension Action: Codable {
         case .stopPlayback: w = Wire("playback-stop")
         case .dismissToast: w = Wire("dismiss-toast")
         case .networkChanged(let online, let at): w = Wire("network"); w.online = online; w.at = at
+        case .tunnelChanged(let up): w = Wire("health"); w.vpn = up
         case .connectionLost(let at): w = Wire("connection-lost"); w.at = at
         case .connected(let at): w = Wire("connected"); w.at = at
         case .connectionDiagnosed(let n): w = Wire("connection-diagnosed"); w.notice = n
