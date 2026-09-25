@@ -10,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> io::Result<T> {
+pub(super) fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> io::Result<T> {
     let mut bytes = Vec::new();
     fs::File::open(path)?.take(262145).read_to_end(&mut bytes)?;
     if bytes.len() > 262144 {
@@ -67,6 +67,7 @@ fn wait(
         return Ok(());
     }
     let started = Instant::now();
+    let mut observation: Option<super::holds::Guard> = None;
     loop {
         if !authorized(scope, worker) {
             return Err(io::Error::other(
@@ -74,7 +75,13 @@ fn wait(
             ));
         }
         if admission(state, crate::util::now_millis()).allows_work() {
+            if let Some(guard) = observation.take() { guard.release(); }
             return Ok(());
+        }
+        if observation.is_none() {
+            // Observation failure must not let a paused tool through the gate.
+            observation = super::holds::from_hook(state, scope, payload)
+                .and_then(|row| super::holds::Guard::begin(state, row)).ok();
         }
         if started.elapsed() >= budget {
             return Err(io::Error::other(

@@ -9,6 +9,7 @@ use std::{
 };
 
 pub mod gate;
+pub mod holds;
 pub mod probe;
 
 pub const LOW_USAGE_REFRESH_MS: u64 = 30 * 60_000;

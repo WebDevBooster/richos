@@ -135,6 +135,8 @@ struct Scheduled {
 }
 
 struct Inner {
+    // Includes pre-lease waits and final receipt writes, not just a live lease.
+    processing: bool,
     queue: VecDeque<Scheduled>,
     /// The assignment that is ON this thread's back end right now. At most one: a lease runs
     /// one prompt at a time, so its assignments are serialized onto it and the host says so
@@ -214,6 +216,7 @@ impl Backend {
                 lease_session: None,
                 stopped: Vec::new(),
                 screen_wait: None,
+                processing: false,
                 binding: None,
                 closing: false,
                 completed: 0,
@@ -422,11 +425,13 @@ impl WorkHost {
         let quota = self.quota.lock().unwrap().clone();
         let Some(quota) = quota else { return true };
         let mut waiting = false;
+        let mut observation: Option<crate::quota::holds::Guard> = None;
         loop {
             let inner = backend.inner.lock().unwrap();
             if inner.closing || inner.stopped.iter().any(|id| id == &record.id) { return false; }
             let admission = quota.view().admission;
             if admission.allows_work() {
+                if let Some(guard) = observation.take() { guard.release(); }
                 let next = if inner.live.is_some() { AssignmentState::Running } else { record.state };
                 drop(inner);
                 if waiting {
@@ -436,6 +441,11 @@ impl WorkHost {
                 return true;
             }
             if !waiting {
+                observation = crate::quota::holds::Guard::begin(&self.state, crate::quota::holds::Hold {
+                    kind: "assignment".into(), id: record.id.clone(), entity_id: record.entity_id.clone(),
+                    thread_id: record.thread_id.clone(), session_id: String::new(),
+                    name: record.title.clone(), task: None, since_at: crate::util::now_millis(), released_at: None,
+                }).ok();
                 let detail = match admission {
                     crate::quota::Admission::Held { .. } => "Waiting for the allowance to refresh. Work is saved and will continue automatically.",
                     _ => "Waiting for a current allowance reading before continuing. Work is saved.",
@@ -643,6 +653,7 @@ impl WorkHost {
                         return;
                     }
                     if let Some(item) = inner.queue.pop_front() {
+                        inner.processing = true;
                         break Some(item);
                     }
                     inner = backend.wake.wait(inner).unwrap();
@@ -684,6 +695,8 @@ impl WorkHost {
             if self.open_assignments().map(|open| open.is_empty()).unwrap_or(false) {
                 self.notifier.nothing_left_to_do();
             }
+            backend.inner.lock().unwrap().processing = false;
+            backend.wake.notify_all();
         }
     }
 
@@ -2075,7 +2088,7 @@ impl WorkHost {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         for backend in &backends {
             let mut inner = backend.inner.lock().unwrap();
-            while inner.live.is_some() {
+            while inner.processing {
                 let left = deadline.saturating_duration_since(std::time::Instant::now());
                 if left.is_zero() {
                     break;

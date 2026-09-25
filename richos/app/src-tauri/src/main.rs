@@ -3206,6 +3206,7 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             claude_quota,
+            claude_quota_activity,
             set_claude_quota_policy,
             phone_status,
             phone_begin_pairing,
@@ -4892,6 +4893,18 @@ fn provider_auth_cancel(state: State<AppState>) -> richos_core::provider_auth::A
 fn claude_quota(state: State<AppState>, refresh: bool) -> richos_core::quota::View {
     let bin = state.claude_bin.lock().unwrap().clone();
     state.quota.refresh(&bin, refresh)
+}
+
+#[tauri::command(async)]
+fn claude_quota_activity(state: State<AppState>, thread_id: Option<String>) -> Result<richos_core::quota::holds::Activity, String> {
+    let entity = thread_id.as_deref().map(|thread| assignment_scope(&state, thread)).transpose()?;
+    let scope = entity.as_ref().zip(thread_id.as_ref()).map(|(entity, thread)| (entity.as_str(), thread.as_str()));
+    let mut activity = richos_core::quota::holds::read(&state.data_dir.join("engine-state"), scope).map_err(|e| e.to_string())?;
+    if let richos_core::quota::Admission::Held { resets_at } = state.quota.view().admission {
+        // Exactly twenty minutes still holds. Release begins after that instant.
+        activity.resumes_at = Some(resets_at.saturating_sub(20 * 60_000).saturating_add(1));
+    }
+    Ok(activity)
 }
 
 #[tauri::command(async)]
