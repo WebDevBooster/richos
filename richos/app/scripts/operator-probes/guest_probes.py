@@ -2414,6 +2414,9 @@ def w2(ctx, r):
 
     walk = Walk(ctx, data, state, root, 'first')
     r['walk_ready'] = walk.ready
+    if not walk.ready:
+        r['walk_stderr'] = walk.stderr_path.read_text()[-2000:] if walk.stderr_path.exists() else ''
+        return 'RECORDED', 'the walk\'s back end did not start past the gate: %s' % r['walk_stderr'][-300:]
     A, B = ('w2-a', 'Walk A: land'), ('w2-b', 'Walk B: stop')
     claim_file = p.claude_dir / 'state' / 'operator-lead.json'
     try:
