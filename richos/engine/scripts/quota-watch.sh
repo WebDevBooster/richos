@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 #
-# quota-watch.sh — the CEO's 93% quota rule, as the one command a lead runs.
+# quota-watch.sh: five-hour 93% and overall weekly 99%, every five minutes.
+# Prints every reported window. Weekly reset approvals are shared with the desktop
+# via quota-reset.sh; only its user-authenticated approve command can create one.
+# Without a usable approved reset, weekly 99% emits the standard pause message.
+# No five-hour release may release an active weekly hold.
 #
 # HIS WORDS, the whole behavior (ruling §87, richos-hq/wiki/ceo-decisions.md):
 #   "quota polling: every 5 minutes from now. And once it crosses the 93%
