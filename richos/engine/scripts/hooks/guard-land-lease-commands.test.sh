@@ -104,8 +104,16 @@ else
     bad "E9 dispatch-pretooluse.sh Bash runs this module and returns its refusal" "rc=$rc $out"
 fi
 
-# This rule's mutants (the verb list, the checkout-identity test, the switch)
-# live in scripts/operator-fences.mutation.sh, run from operator-fences.test.sh.
+# M: this rule's mutation harness (the verb list, the checkout-identity test,
+# cd tracking, the holder's authorization, the switch).
+if [ -z "${RICHOS_MUTATION_INNER:-}" ] && [ -f "$SCRIPT_DIR/land-lease-commands.mutation.sh" ]; then
+    echo "=== running the mutation harness ==="
+    if bash "$SCRIPT_DIR/land-lease-commands.mutation.sh"; then
+        ok "M. every rule above has been watched fail"
+    else
+        bad "M. the mutation harness found a property this suite does not actually prove"
+    fi
+fi
 
 printf 'guard-land-lease-commands: %d passed, %d FAILED\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

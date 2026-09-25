@@ -177,4 +177,32 @@ class ReapDescendants(unittest.TestCase):
         self.assertNotIn("reap", main_body, "the product main() must not know about reaping")
 
 
-if __name__=="__main__":unittest.main()
+class _Named(unittest.TextTestResult):
+    """Prints `  PASS  <id>` / `  FAIL  <id>` per test, where <id> is the method's
+    second word (R1, R2, ...; S1 for the product case), so a mutation harness can
+    tell "red for this reason" from "red somewhere else"."""
+
+    @staticmethod
+    def _id(test):
+        parts = test._testMethodName.split("_")
+        return parts[1] if len(parts) > 1 and parts[1][:1] == "R" else "S1"
+
+    def addSuccess(self, test):
+        super().addSuccess(test)
+        print("  PASS  %s %s" % (self._id(test), test._testMethodName), flush=True)
+
+    def addFailure(self, test, err):
+        super().addFailure(test, err)
+        print("  FAIL  %s %s" % (self._id(test), test._testMethodName), flush=True)
+
+    def addError(self, test, err):
+        super().addError(test, err)
+        print("  FAIL  %s %s (error)" % (self._id(test), test._testMethodName), flush=True)
+
+
+if __name__=="__main__":
+    runner = unittest.TextTestRunner(resultclass=_Named, verbosity=0)
+    result = runner.run(unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__]))
+    if not result.wasSuccessful():
+        sys.exit(1)
+    # The mutation harness is run by provider-supervisor.test.sh, after this.

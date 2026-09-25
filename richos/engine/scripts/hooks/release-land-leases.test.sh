@@ -93,5 +93,15 @@ ofx_on "$R" >/dev/null 2>&1
 turn_end A
 [ "$(lease_count)" = 0 ] && ok "T1 back on and at rest: the lease is released" || bad "T1 back on and at rest: the lease is released" "$OFX_OUT"
 
+ofx_end A; ofx_end B
+if [ -z "${RICHOS_MUTATION_INNER:-}" ] && [ -f "$SCRIPT_DIR/release-land-leases.mutation.sh" ]; then
+    echo "=== running the mutation harness ==="
+    if bash "$SCRIPT_DIR/release-land-leases.mutation.sh"; then
+        ok "M. every rule above has been watched fail"
+    else
+        bad "M. the mutation harness found a property this suite does not actually prove"
+    fi
+fi
+
 printf 'release-land-leases: %d passed, %d FAILED\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

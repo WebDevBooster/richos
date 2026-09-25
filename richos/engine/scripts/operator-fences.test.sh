@@ -64,6 +64,12 @@
 #   F25  a dead Claude holder's lease: taken at rest, takeover otherwise
 #   F26  install-ref-forensics.sh installs into the chain, never over the launcher
 #   F27  the product lander's land_lock() waits on a live lease (G2)
+#   F28  a lease naming a live pid with another start time is dead: a recycled
+#        pid is never mistaken for the holder
+#   F29  a live, in-time lease cannot be taken over (G5)
+#   F3L, F12L  measured limits, asserted so the record goes red if Git changes:
+#        a refused reset --hard and a refused merge --abort have already
+#        rewritten the tree (the early check exists for exactly these)
 #   M    the mutation harness: every rule above watched fail
 #
 # Usage: scripts/operator-fences.test.sh
@@ -189,13 +195,17 @@ ok = any(r["ref"] == "ORIG_HEAD" and (r.get("caller") or {}).get("session_id") =
 sys.exit(0 if ok else 1)
 PY
 expect "F14" "[git $G] a refusal is recorded with the caller's session and the refused update" "$?"
-python3 - "$OFX/forensics/ref-transactions.jsonl" "$R/.git" <<'PY'
+python3 - "$OFX/forensics/ref-transactions.jsonl" "$R/.git" "$M0" <<'PY'
 import json, sys
 rows = [json.loads(l) for l in open(sys.argv[1]) if sys.argv[2] in l]
 orig = [r for r in rows if r["ref"] == "ORIG_HEAD"]
-prep = [r for r in orig if r["phase"] == "prepared"]
+# The REFUSED transactions: B's merges and resets wrote ORIG_HEAD = main's tip M0,
+# and nothing before this point wrote that value successfully (the setup's own
+# ORIG_HEAD rows, from `git worktree add`, carry other values). So the prepared
+# rows carrying M0 exist only if the chain ran on the refused transactions.
+prep = [r for r in orig if r["phase"] == "prepared" and r["new"] == sys.argv[3]]
 ab = [r for r in orig if r["phase"] == "aborted"]
-writer_is_git = all(r["writer_cmd"].split()[0].endswith("git") for r in prep)
+writer_is_git = bool(prep) and all(r["writer_cmd"].split()[0].endswith("git") for r in prep)
 sys.exit(0 if prep and ab and writer_is_git else 1)
 PY
 expect "F14" "[git $G] the recorder logs refused transactions (prepared and aborted) and names Git as the writer" "$?"
@@ -410,6 +420,23 @@ ofx_in A "$(ofx_lease takeover --repo "$R")"; rct=$?
 [ $rc = 75 ] && printf '%s' "$aout" | grep -q "holder has ended" && [ $rct = 0 ]
 expect "F25" "[git $G] not at rest, a dead holder's lease is held (exit 75) until a takeover" "$?" "rc=$rc/$rct $aout"
 git -C "$R" checkout -- f.txt >/dev/null 2>&1
+ofx_in A "$(ofx_lease release --repo "$R")"
+
+# ---- F28/F29: a recycled pid is not the holder; a live lease cannot be taken over ---------
+LF="$(python3 -c "import sys; sys.path.insert(0, '$ENGINE_ROOT/scripts/lib'); import operator_fences as F; c=F.read_launcher('$R/.git/hooks/reference-transaction'); print(F.Files(c).lease)")"
+python3 - "$LF" "$$" "$R" <<'PY'
+import json, sys, time
+json.dump({"schema": 1, "repository": sys.argv[3], "acquired_epoch": time.time(), "expires": None,
+           "holder": {"kind": "claude", "pid": int(sys.argv[2]), "start": 1, "session_id": "recycled"}},
+          open(sys.argv[1], "w"))
+PY
+ofx_in A "$(ofx_lease status --repo "$R")"; st="$OFX_OUT"
+ofx_in A "$(ofx_lease acquire --repo "$R" --wait 1)"; rc=$?
+printf '%s' "$st" | grep -q "lease dead" && [ $rc = 0 ]
+expect "F28" "[git $G] a lease naming a live pid with another start time is dead (a recycled pid is never the holder)" "$?" "$st | $OFX_OUT"
+ofx_in B "$(ofx_lease takeover --repo "$R")"; rc=$?
+[ $rc -ne 0 ] && printf '%s' "$OFX_OUT" | grep -q "cannot be taken over"
+expect "F29" "[git $G] a live, in-time lease cannot be taken over" "$?" "rc=$rc $OFX_OUT"
 ofx_in A "$(ofx_lease release --repo "$R")"
 
 # ---- F18/F19: the wait and the home (G7, G10) -------------------------------------------
