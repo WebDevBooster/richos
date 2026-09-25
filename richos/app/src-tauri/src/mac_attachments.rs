@@ -453,6 +453,23 @@ mod tests {
     }
 
     #[test]
+    fn the_desk_and_the_session_name_every_conversation_folder_the_same_way() {
+        // The desk writes `<data>/attachments/<segment(thread)>`; the answering session is given
+        // `richos_core::attachments::conversation_folder` to read. Two copies of one rule (the
+        // desk's is compiled into the conformance verifier without richos_core), so they are
+        // held equal here, on safe ids, hostile ids and the pinned SHA-256 vector.
+        for id in ["thr_6ac252bf8292433c918493055f4167d0", "0f8e1c2a-9b1d-4c3e-8a7f-1234567890ab", "..", "../x", "a/b", "", ".", "x.y", &"a".repeat(64), &"a".repeat(65), "Grüße"] {
+            assert_eq!(attachments::segment(id), richos_core::attachments::segment(id), "{id:?}");
+        }
+        assert_eq!(attachments::segment("a/b"), "x.c14cddc033f64b9dea80ea675cf280a0");
+        let data = Path::new("/data");
+        assert_eq!(
+            richos_core::attachments::conversation_folder(data, "thr_1"),
+            data.join("attachments").join(attachments::segment("thr_1"))
+        );
+    }
+
+    #[test]
     fn a_drop_is_read_once_and_the_page_can_never_name_a_path() {
         let data = Scratch::new("data");
         let desktop = Scratch::new("desktop");

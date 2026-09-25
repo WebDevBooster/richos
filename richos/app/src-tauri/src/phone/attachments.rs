@@ -281,12 +281,19 @@ pub fn valid_id(id: &str) -> bool {
 /// plainly safe (`thr_…`, a UUID); otherwise replaced by `x.<hash>`, which can never collide
 /// with a kept one because kept ones contain no `.`.
 ///
-/// **The rule lives in `richos_core::attachments`**, because the session that answers the CEO
-/// is given this conversation's folder as a read root there (`engine_profile.rs`), and the
-/// folder the desk writes and the folder the session may read must be one name, not two
-/// copies of a rule.
+/// **`richos_core::attachments::segment` is the same rule, and must stay the same.** The
+/// session that answers the CEO is given this conversation's folder as a read root there
+/// (`engine_profile.rs`), so the folder this desk writes and the folder the session may read
+/// have to be one name. It is written out here rather than called, because this file is also
+/// compiled, unchanged and without `richos_core`, into the conformance verifier
+/// (`richos/mobile/conformance/verifier/build.rs`). `mac_attachments.rs`'s tests assert the two
+/// agree on every kind of identifier, and both pin the same SHA-256 vector.
 pub fn segment(id: &str) -> String {
-    richos_core::attachments::segment(id)
+    if !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
+        id.to_string()
+    } else {
+        format!("x.{}", &hex(&sha256(id.as_bytes()))[..32])
+    }
 }
 
 /// What the Mac holds for one uploaded, not-yet-committed file.
