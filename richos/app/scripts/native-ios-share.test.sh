@@ -110,8 +110,13 @@ fi
 # records from the Mac's own microphone. (ShareViewController is compiled and embedded; its three
 # lines of hosting run only inside a real share sheet.)
 if xcrun simctl list runtimes 2>/dev/null | grep -q '^iOS .*com.apple.CoreSimulator.SimRuntime.iOS'; then
-  if "$NATIVE/Release/simulator-tests.sh" "$CACHE/simulator" >"$SCRATCH/sim.log" 2>&1; then
+  if "$NATIVE/Release/simulator-tests.sh" "$CACHE/simulator" >"$SCRATCH/sim.log" 2>&1; then SIM_RC=0; else SIM_RC=$?; fi
+  if [ "$SIM_RC" -eq 0 ]; then
     ok "S7 $(grep '^simulator tests:' "$SCRATCH/sim.log")"
+  elif [ "$SIM_RC" -eq 75 ]; then
+    # The lease ended mid-run: no result from that device, never a pass (exit 2 below).
+    echo "  NOT RUN  S7 $(grep '^NOT RUN' "$SCRATCH/sim.log")"
+    S7_NOT_RUN=1
   else
     bad "S7 simulator tests" "$(tail -12 "$SCRATCH/sim.log" | tr '\n' ' ')"
   fi
@@ -119,6 +124,10 @@ else
   echo "  NOT RUN  S7 no iOS simulator runtime is installed"
 fi
 
+if [ "$FAILED" -eq 0 ] && [ -n "${S7_NOT_RUN:-}" ]; then
+  echo "=== native-ios-share tests: $PASS passed, S7 NOT RUN (its simulator lease ended mid-run) ==="
+  exit 2
+fi
 if [ "$FAILED" -eq 0 ]; then
   echo "=== native-ios-share tests: all $PASS passed ==="
   exit 0

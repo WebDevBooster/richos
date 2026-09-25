@@ -52,6 +52,13 @@ TEST_RUNNER_RICHOS_SNAPSHOT_DIR="$OUT/snapshots" python3 "$HERE/../../engine/scr
   -clonedSourcePackagesDirPath "$OUT/SourcePackages" -resultBundlePath "$OUT/result.xcresult" \
   CODE_SIGN_IDENTITY=- >"$OUT/logs/test.log" 2>&1
 CODE=$?
+# 75: the lease ended mid-run and run-active stopped the run (esc-20260925T014934Z-0a4bf206).
+# Whatever the result bundle holds may be another run's device's doing: NOT RUN, never a verdict.
+if [ "$CODE" -eq 75 ]; then
+  grep 'LEASE LOST' "$OUT/logs/test.log" | head -1
+  echo "NOT RUN simulator tests: this run's simulator lease ended mid-run; full log $OUT/logs/test.log"
+  exit 75
+fi
 
 SUMMARY="$(xcrun xcresulttool get test-results summary --path "$OUT/result.xcresult" 2>/dev/null)"
 COUNTS="$(printf '%s' "$SUMMARY" | python3 -c 'import json,sys
