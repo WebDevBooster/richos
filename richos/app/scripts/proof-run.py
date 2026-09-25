@@ -51,6 +51,14 @@ WHAT MUST NOT RUN AT THE SAME TIME, and how that is decided (derived, never type
   * iOS suites own their devices. Shared simulator limits serialize boots and cap live devices;
     per-cache locks prevent independent runs from replacing one another's build or device state.
 
+A FAILING CHECK IS NAMED BY WHAT FAILED IN IT (2026-09-25). Each check gets a results folder in
+this run's log directory (RICHOS_TEST_RESULTS_ROOT); run-tests.sh gives each suite one under it,
+and a test run copies its per-test result files there the moment it ends (lib/test_results.py),
+so a later check writing the same build folder cannot erase them. The failing tests' names are
+printed when the check ends and again beside it in the summary, and written to summary.json.
+The run that made this necessary: `native-android-app` failed "133 tests completed, 1 failed",
+and `native-android-ui` replaced the one report naming the test before anyone read it.
+
 ENGINE SHARDS SHARE THIS CHECKOUT. In CI each shard had a machine of its own; here they run side
 by side in one tree. Every unit still has ci-shard.sh's leak canary, so a write outside a sandbox
 is still caught; what changes is attribution: a leak by a unit in one shard can also be charged
@@ -123,6 +131,8 @@ ROOT = git_root()
 sys.path.insert(0, os.path.join(ROOT, "richos", "engine", "scripts", "lib"))
 import proc_tree  # noqa: E402
 import worker_tokens  # noqa: E402
+sys.path.insert(0, os.path.join(HERE, "lib"))
+import test_results  # noqa: E402  (what names a failing test; one reader for every caller)
 
 
 class Item:
@@ -140,6 +150,8 @@ class Item:
         self.env = {}
         self.token = None
         self.over_budget = False
+        self.results = None             # this check's own per-test results folder (launch)
+        self.failing = []               # what failed in it, by name (name_failures)
 
     @property
     def seconds(self):
@@ -346,6 +358,11 @@ def slug(label):
 
 def launch(item, n, logdir, tokens_dir, reserved):
     item.log = os.path.join(logdir, "%02d-%s.log" % (n, slug(item.label)))
+    # Its own per-test results folder, in this run's evidence: run-tests.sh gives each suite a
+    # folder under it, and the suites copy their result files there the moment a test run ends,
+    # before any other check can replace them (lib/test_results.py; 2026-09-25).
+    item.results = os.path.join(logdir, "results", "%02d-%s" % (n, slug(item.label)))
+    item.env["RICHOS_TEST_RESULTS_ROOT"] = item.results
     fh = open(item.log, "wb")
     fh.write(("$ cd %s && %s\n" % (os.path.relpath(item.cwd, ROOT), " ".join(shlex.quote(a) for a in item.argv))).encode())
     fh.flush()
@@ -547,6 +564,9 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 it.token.release()
                 print("[%s] %-6s %-40s %6.0f s%s" % (stamp(), {"passed": "PASS", "failed": "FAIL"}.get(it.state, "KILLED"),
                                                      it.label, it.seconds, "" if rc == 0 else "  (exit %d)" % rc), flush=True)
+                name_failures(it)
+                for name in it.failing[:SHOWN_FAILURES]:
+                    print("         failed: %s" % name, flush=True)
         if not getattr(args, "keep_going", True) and any(it.state in ("failed", "timed-out", "not-admitted") for it in items):
             for it in running:
                 stop_item(it)
@@ -609,6 +629,34 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                     if not running and s is not None:
                         print("[%s] wait   %-40s admission: %s" % (stamp(), it.label, reserve.describe(s)), flush=True)
         time.sleep(0.2)
+
+
+SHOWN_FAILURES = 20
+
+
+def name_failures(it):
+    """What failed in a finished check, BY NAME, into it.failing: the failing tests its result
+    files hold (JUnit XML, Xcode bundles, under it.results), else the names its log carries
+    (the FAILED TEST lines a test run prints, XCTest and Gradle lines), else its own `  FAIL  `
+    lines. A check that passed leaves no results folder behind. 2026-09-25: a check failed with
+    "133 tests completed, 1 failed" and no name, and the report that had one was replaced by
+    the next check's before anyone read it."""
+    if it.state == "passed":
+        if it.results:
+            shutil.rmtree(it.results, ignore_errors=True)
+        return
+    found = []
+    if it.results and os.path.isdir(it.results):
+        found = test_results.names([it.results])
+    if not found and it.log:
+        found = test_results.names([], [it.log])
+    it.failing = [n + (" — " + d if d else "") for n, d in found]
+    if not it.failing and it.log:
+        try:
+            with open(it.log, errors="replace") as fh:
+                it.failing = [l[len("  FAIL  "):].rstrip("\n") for l in fh if l.startswith("  FAIL  ")][:SHOWN_FAILURES]
+        except OSError:
+            pass
 
 
 def stop_item(it):
@@ -679,12 +727,25 @@ def summarize(items, wall, logdir, budget_seconds=600, monitor_lines=()):
             print("      OVER BUDGET: %.0f s is past the %.0f s budget one check may take" % (it.seconds, budget_seconds))
         for note in it.notes[:6]:
             print("      %s" % note)
+        # Beside the check, what failed in it, by name, and where its result files are kept.
+        for name in it.failing[:SHOWN_FAILURES]:
+            print("      failed: %s" % name)
+        if len(it.failing) > SHOWN_FAILURES:
+            print("      ... and %d more (summary.json lists every one)" % (len(it.failing) - SHOWN_FAILURES))
+        kept = it.results if it.results and os.path.isdir(it.results) and os.listdir(it.results) else None
+        if kept and it.state != "passed":
+            print("      per-test results: %s" % kept)
         rows.append({"check": it.label, "result": it.state, "seconds": round(it.seconds, 1),
                      "admission_wait": round(it.admission_wait, 1), "exit": it.rc, "log": it.log,
+                     "failing_tests": list(it.failing), "results": kept,
                      "command": "cd %s && %s" % (os.path.relpath(it.cwd, ROOT), " ".join(shlex.quote(a) for a in it.argv))})
     with open(os.path.join(logdir, "summary.json"), "w") as fh:
         json.dump({"wall_seconds": round(wall, 1), "serial_seconds": round(serial, 1), "host": list(monitor_lines),
                    "checks": rows}, fh, indent=1)
+    try:
+        os.rmdir(os.path.join(logdir, "results"))  # only when no check kept anything
+    except OSError:
+        pass
     bad = [it for it in items if it.state != "passed"]
     print("")
     if bad:
