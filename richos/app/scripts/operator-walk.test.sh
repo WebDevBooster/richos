@@ -38,7 +38,7 @@ WALK="${CARGO_TARGET_DIR:-$APP/target}/debug/examples/operator_walk"
 # W1: no declaration is the product path, as the shell's gate says.
 mkdir -p "$SCRATCH/none"
 out="$("$WALK" gate "$SCRATCH/none")"
-[ "$out" = '{"gate":"product"}' ] && ok "W1 no operator.json is the product path" || bad "W1 got: $out"
+if [ "$out" = '{"gate":"product"}' ]; then ok "W1 no operator.json is the product path"; else bad "W1 got: $out"; fi
 
 # W2: a present, broken declaration refuses, with his one sentence.
 mkdir -p "$SCRATCH/broken"
@@ -51,8 +51,8 @@ esac
 
 # W3: the walk will not host his team without a valid declaration, and says why.
 err="$("$WALK" host "$SCRATCH/none" "$SCRATCH/state" "$SCRATCH/operator" 2>&1 >/dev/null </dev/null)"; code=$?
-[ "$code" = 2 ] && [ "${err#*product path}" != "$err" ] && ok "W3 host refuses the product path (exit 2)" || bad "W3 exit $code: $err"
-[ ! -e "$SCRATCH/operator" ] && ok "W3 a refusal writes nothing" || bad "W3 the refusal wrote $SCRATCH/operator"
+if [ "$code" = 2 ] && [ "${err#*product path}" != "$err" ]; then ok "W3 host refuses the product path (exit 2)"; else bad "W3 exit $code: $err"; fi
+if [ ! -e "$SCRATCH/operator" ]; then ok "W3 a refusal writes nothing"; else bad "W3 the refusal wrote $SCRATCH/operator"; fi
 
 # W4: the report tool is the app's own server: it speaks MCP and refuses without a scope.
 reply="$(printf '%s\n%s\n' \
