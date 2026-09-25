@@ -1471,14 +1471,46 @@ def pool_wait_seconds():
     return value
 
 
-def acquire_ios(device_type, runtime, owner_pid=None, checkout="", timeout=POOL_WAIT_SECONDS, purpose=None):
-    """One active pool lease per machine; one retained OS per type/runtime.
+POOL_LEASES = 1
+POOL_LEASES_ENV = "RICHOS_IOS_POOL_LEASES"
+
+
+def pool_leases():
+    """How many prepared-simulator leases the machine hands out at once.
+
+    1 unless RICHOS_IOS_POOL_LEASES names another whole number of at least 1. The nightly
+    sets it from its own `--simulated-phones` flag, which the operator must give on every
+    build (nightly-local.py): that is where the decision is made, from what else is running
+    on the Mac. Every other caller -- a land, an engineer's suite, `rios` by hand -- keeps
+    the one lease at a time it has always had. A value that is not a whole number of at
+    least 1 is refused, never read as the default.
+
+    Raising it never lets two runs share a device: each device type and runtime still has
+    exactly one prepared simulator, so a second run wanting the SAME type waits for it
+    whatever this says. It admits runs on DIFFERENT types side by side (the nightly's
+    iPhone SE, iPhone 16 Pro and iPhone 16 Pro Max). Booting is still admitted separately,
+    by simulator_budget.py's machine-wide live and boot limits and the CPU/memory check."""
+    raw = (os.environ.get(POOL_LEASES_ENV) or "").strip()
+    if not raw:
+        return POOL_LEASES
+    if not raw.isdigit() or int(raw) < 1:
+        raise ValueError("%s=%r must be a whole number of simulators, at least 1" % (POOL_LEASES_ENV, raw))
+    return int(raw)
+
+
+def acquire_ios(device_type, runtime, owner_pid=None, checkout="", timeout=POOL_WAIT_SECONDS, purpose=None,
+                leases=None):
+    """`leases` active pool leases per machine (pool_leases(): 1 unless the nightly raised it);
+    one retained OS per type/runtime, which one run holds at a time.
 
     `purpose` names a declared lifetime from LEASE_PURPOSES for a NEW lease.
     An existing lease is never lengthened by acquiring it again."""
     import cpu_guard
     if purpose is not None and purpose not in LEASE_PURPOSES:
         raise ValueError("unknown lease purpose %r (declared: %s)" % (purpose, ", ".join(sorted(LEASE_PURPOSES))))
+    limit = pool_leases() if leases is None else int(leases)
+    if limit < 1:
+        raise ValueError("at least one prepared-simulator lease is needed, not %r" % leases)
     cpu_guard.require_ios()
     owner = choose_owner(owner_pid, checkout, "prepared-ios")
     if owner.get("unknown"):
@@ -1491,7 +1523,9 @@ def acquire_ios(device_type, runtime, owner_pid=None, checkout="", timeout=POOL_
         with registry_lock():
             busy = [r for r in records() if r.get("prepared") and
                     not (r["prepared"] == key and same_owner(r.get("owner", {}), owner))]
-            if not busy:
+            # Full, or THIS type's one prepared simulator is another run's: wait either way.
+            # At one lease the second condition is implied by the first, which is the old rule.
+            if len(busy) < limit and not any(r["prepared"] == key for r in busy):
                 manifest = _read_json(path)
                 inventory = ios_devices()
                 if inventory is None:
@@ -1814,7 +1848,7 @@ def _main(argv):
         REGISTRY_LOCK_SECONDS = CLI_REGISTRY_LOCK_SECONDS
     if a.cmd == "acquire-ios":
         print(acquire_ios(a.type, a.runtime, a.owner_pid, a.checkout, purpose=a.purpose,
-                          timeout=pool_wait_seconds()))
+                          timeout=pool_wait_seconds(), leases=pool_leases()))
         return 0
     if a.cmd == "run-active":
         command = a.command[1:] if a.command[:1] == ["--"] else a.command
