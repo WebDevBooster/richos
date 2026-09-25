@@ -466,7 +466,7 @@ window.RichSettings = (function () {
     if (!T.forcedDark()) menu.appendChild(buildThemeRow());
     menu.appendChild(buildFontRow()); // ...then Text size directly under it (§15)
     if (techy) menu.appendChild(buildTechyRow()); // ...and directly under that, Techy Mode
-    if (quota) menu.appendChild(buildDisclosureRow("set-quota-open", "Claude Code quota", function () { quota.open(); }));
+    if (quota) menu.appendChild(buildDisclosureRow("set-quota-open", "Claude Code quota", function () { quota.open(); }, "set-quota-state"));
     if (splash) menu.appendChild(buildSplashRow()); // ...then the opening screen's off switch
     if (company) menu.appendChild(buildCompanyRow()); // ...then which company this copy is for
     if (home) menu.appendChild(buildHomeRow()); // ...and directly under it, the home screen's buttons
@@ -565,7 +565,7 @@ window.RichSettings = (function () {
     var sw = menuEl.querySelector("#set-techy");
     if (sw && techy) sw.checked = !!techy.read();
     var quotaRow = menuEl.querySelector("#set-quota-open");
-    if (quotaRow) quotaRow.hidden = !(techy && techy.read());
+    if (quotaRow) { quotaRow.hidden = !(techy && techy.read()); if (quota.paint) quota.paint(); }
     var sp = menuEl.querySelector("#set-splash");
     if (sp && splash) sp.checked = !!splash.read();
     // The updates row is painted by its owner, because this file does not know what is in

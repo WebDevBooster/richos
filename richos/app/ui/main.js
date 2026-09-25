@@ -416,6 +416,7 @@ let drillItems = []; // populated from the real `get_worker_status` command — 
 // The view's OWN authoritative counts (§7.3). Never re-derived from `drillItems`, and
 // `needs_you` is deliberately absent: it is structurally 0 and there is no signal for it.
 let workerCounts = { active: 0, livenessUnknown: 0 };
+let quotaActivity = { held: [], released: [] };
 
 // COMPANY IDENTITY — the rail header per the UX direction §2.1 is "the company/CEO identity, not
 // RichOS." Backed by `get_company_name` (main.rs, wired in init() below). This constant
@@ -1063,6 +1064,7 @@ async function openThread(threadId, opts) {
   // chip is never another conversation's, and it is this conversation's in the first
   // rendered second.
   workerCounts = { active: 0, livenessUnknown: 0 };
+  quotaActivity = { held: [], released: [] };
   assignments = {rows: []};
   // The previous company's offer must not remain clickable while activation is pending.
   el("first-run").hidden = true;
@@ -3378,6 +3380,11 @@ async function pollWorkerStatus() {
       assignments = {rows: [], error: String(error)};
     }
   }
+  try {
+    const activity = thread ? await Bridge.invoke("claude_quota_activity", {threadId: thread}) : {held: [], released: []};
+    if (!current()) return;
+    quotaActivity = activity;
+  } catch (_) { if (!current()) return; quotaActivity = {held: [], released: [], error: true}; }
   renderDrillChip();
   if (!slideoverEl.hidden) renderSlideOver();
 }
@@ -3401,16 +3408,29 @@ function counted(n, singular, plural) {
   return `${n} ${n === 1 ? singular : plural}`;
 }
 
+function renderQuotaWorkStatus() {
+  const status = el("quota-work-status");
+  const n = (quotaActivity.held || []).filter(row => row.kind === "agent").length;
+  status.hidden = !n;
+  status.textContent = n ? counted(n, "agent", "agents") + " paused" + (techyOn() ? " for the quota" : ". Their work is saved.") : "";
+  if (n && techyOn() && quotaActivity.resumesAt) status.textContent += " · can resume just after " + new Date(quotaActivity.resumesAt).toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"});
+}
+
 function renderDrillChip() {
   drillChipEl.innerHTML = "";
-  // `active` comes from the view's own authoritative field, not from counting item labels:
-  // the count is the thing that was derived and probed, and re-deriving it here would be a
-  // second implementation of the one number that must not be wrong.
-  const active = workerCounts.active;
-  const unknown = workerCounts.livenessUnknown;
+  // Keep the provider's counts, then separate agents with an observed live pause.
+  // A quota threshold alone is never evidence that an agent has paused.
+  const heldAgents = (quotaActivity.held || []).filter(row => row.kind === "agent");
+  const heldIds = new Set(heldAgents.map(row => row.id));
+  const observedActiveHeld = new Set(drillItems.filter(item => item.state === "active" && heldIds.has(item.agent_id)).map(item => item.agent_id)).size;
+  const active = Math.max(0, workerCounts.active - observedActiveHeld);
+  const observedUnknownHeld = new Set(drillItems.filter(item => item.state === "unknown" && heldIds.has(item.agent_id)).map(item => item.agent_id)).size;
+  const unknown = Math.max(0, workerCounts.livenessUnknown - observedUnknownHeld);
   const done = drillItems.filter((i) => i.state === "done").length;
   const parts = [];
   if (active) parts.push(`${active} working`);
+  if (heldAgents.length) parts.push(`${heldAgents.length} paused`);
+  renderQuotaWorkStatus();
   if (done) parts.push(`${done} done`);
   if (savedWork.items?.length) parts.push(counted(savedWork.items.length, "saved work record", "saved work records"));
   if (savedWork.error) parts.push("Saved work unavailable");
@@ -3500,15 +3520,20 @@ function openSlideOver() {
 }
 function renderSlideOver() {
   slideoverBody.innerHTML = "";
-  for (const item of drillItems) {
+  const held = (quotaActivity.held || []).filter(row => row.kind === "agent");
+  const items = drillItems.map(item => held.some(row => row.id === item.agent_id) && item.state !== "done" ? {...item, state: "paused"} : item);
+  for (const record of held) {
+    if (!items.some(item => item.agent_id === record.id)) items.push({label: record.name, state: "paused"});
+  }
+  for (const item of items) {
     const row = document.createElement("div");
     row.className = "slide-item slide-item--" + item.state;
     // `unknown` is a real state from `worker_status.rs` (an open run whose host liveness
     // could not be established) and had no marker here at all, so it fell through to the
     // same filled dot as `active` — reading as "running". `needs_you` is gone: nothing can
     // produce it.
-    const marker = { active: "●", done: "○", unknown: "◇" }[item.state] || "·";
-    row.textContent = `${marker} ${item.label}`;
+    const marker = { active: "●", done: "○", unknown: "◇", paused: "Ⅱ" }[item.state] || "·";
+    row.textContent = `${marker} ${item.label}${item.state === "paused" ? " · paused" : ""}`;
     slideoverBody.appendChild(row);
   }
   window.RichWorkSummary.render(savedWork, slideoverBody);
@@ -7094,6 +7119,7 @@ async function refreshTechy(threadId) {
 
 /// §3.3's affordance rule, in one function: the chip exists only while the mode is ON.
 function renderTechyChip() {
+  renderQuotaWorkStatus();
   const on = techyOn();
   techyChipEl.hidden = !on;
   if (!on) return;

@@ -1934,6 +1934,16 @@
       args = args || {};
       switch (cmd) {
         case "claude_quota": return quotaView();
+        case "claude_quota_activity": {
+          const activity = preset.quotaActivity || { held: [], released: [] };
+          const scoped = rows => (rows || []).filter(r => !args.threadId || r.threadId === args.threadId);
+          const admission = quotaView().admission;
+          const held = scoped(activity.held);
+          if (["disabled", "ready"].includes(admission.state) && held.length) {
+            return { held: [], released: held.map(r => ({ ...r, releasedAt: Date.now() })), resumesAt: null };
+          }
+          return { ...activity, held, released: scoped(activity.released), resumesAt: admission.state === "held" ? admission.resetsAt - 20 * 60000 + 1 : null };
+        }
         case "set_claude_quota_policy": {
           if (!Number.isInteger(args.policy.pausePercent) || args.policy.pausePercent < 1 || args.policy.pausePercent > 99) throw new Error("Invalid pause threshold.");
           quotaPolicy = { ...args.policy }; localStorage.setItem("richos-mock-quota-policy", JSON.stringify(quotaPolicy)); return quotaView();

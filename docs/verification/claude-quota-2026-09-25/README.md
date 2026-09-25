@@ -1,5 +1,7 @@
 # Desktop Claude Code quota settings
 
+The initial layout below is superseded by [the round-14 implementation](../claude-quota-round14-2026-09-25/README.md).
+
 Implemented on top of `5f0402d8c894a425ba946623c1de4e9c79581c0d` in the
 `codex/claude-quota-settings` worktree. This is source verification, not a released
 or installed desktop build.
