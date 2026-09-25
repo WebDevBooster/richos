@@ -88,7 +88,7 @@ code=$?
 frames=$(find "$RICHOS_SHOTS" -name '*.png' | wc -l | tr -d ' ')
 echo "  $frames frames in $RICHOS_SHOTS ($(( $(date +%s) - started )) s)"
 if [ "$code" -ne 0 ]; then
-  echo "  FAIL  native-android-ui: a screen check or test failed (exit $code); the Gradle report names the screen and the problem"
+  echo "  FAIL  native-android-ui: a screen check or test failed (exit $code); each one is named above (FAILED TEST), with the screen and the problem"
   exit 1
 fi
 if [ "$#" -gt 0 ]; then

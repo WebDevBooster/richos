@@ -94,9 +94,33 @@ need_java() {
   [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ] || fail "NOT RUN: no Java 21+ runtime; set RANDROID_JAVA_HOME (Android Studio bundled JBR works)" 2
 }
 
+GRADLE=(python3 "$HERE/../../engine/scripts/lib/native-work.py" -- "$HERE/gradlew" -p "$HERE"
+        --project-cache-dir "$CACHE/gradle-project" -Prichos.out="$OUT")
 gradle() {
   need_java
-  python3 "$HERE/../../engine/scripts/lib/native-work.py" -- "$HERE/gradlew" -p "$HERE" --project-cache-dir "$CACHE/gradle-project" -Prichos.out="$OUT" "$@"
+  "${GRADLE[@]}" "$@"
+}
+
+# --- tests: every failure named, its result files copied out of $OUT -------------------------
+# A test task writes its JUnit XML and HTML report into ONE folder under $OUT, and every test
+# run of this checkout reuses it: on 2026-09-25 native-android-ui's run replaced the report of
+# native-android-app's failing test before anyone read it, and the test's name was gone. So a
+# test run holds $CACHE/test-results.lock from Gradle's start until its results are copied to
+# $RICHOS_TEST_RESULTS_DIR (run-tests.sh sets it per suite) and every failing test is printed
+# by name (richos/app/scripts/lib/test_results.py).
+tests() {  # tests <label> <module/task>... -- <gradle tasks and args>
+  local label="$1" keeper="$HERE/../../app/scripts/lib/test_results.py" collect=() r
+  shift
+  while [ "$1" != "--" ]; do
+    r="$1"; shift
+    collect+=(--collect "${r%%/*}-${r#*/}-xml=$OUT/${r%%/*}/test-results/${r#*/}"
+              --collect "${r%%/*}-${r#*/}-report=$OUT/${r%%/*}/reports/tests/${r#*/}")
+  done
+  shift
+  need_java
+  [ -f "$keeper" ] || fail "missing $keeper: a failing test would not be named"
+  python3 "$keeper" run --lock "$CACHE/test-results.lock" --label "randroid test $label" \
+    ${RICHOS_TEST_RESULTS_DIR:+--into "$RICHOS_TEST_RESULTS_DIR"} "${collect[@]}" -- "${GRADLE[@]}" "$@"
 }
 
 # --- L1′: headless --------------------------------------------------------------------------
@@ -613,9 +637,9 @@ case "$mode" in
   test)
     which="${1:-all}"; [ "$#" -gt 0 ] && shift
     case "$which" in
-      core) gradle :core:test :cli:test "$@" ;;
-      app) gradle :app:testDebugUnitTest "$@" ;;
-      all) gradle :core:test :cli:test :app:testDebugUnitTest "$@" ;;
+      core) tests core core/test cli/test -- :core:test :cli:test "$@" ;;
+      app) tests app app/testDebugUnitTest -- :app:testDebugUnitTest "$@" ;;
+      all) tests all core/test cli/test app/testDebugUnitTest -- :core:test :cli:test :app:testDebugUnitTest "$@" ;;
       *) fail "test takes core, app or all" ;;
     esac ;;
   build)
