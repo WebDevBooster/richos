@@ -120,6 +120,13 @@ fun Lede(text: String, modifier: Modifier = Modifier, top: Dp = 16.dp) {
 }
 
 @Composable
+fun Lede(text: androidx.compose.ui.text.AnnotatedString, modifier: Modifier = Modifier, top: Dp = 16.dp) {
+    val c = Rich.colors
+    val t = Rich.type
+    BasicText(text, style = t.answer.copy(color = c.ink), modifier = modifier.padding(top = top))
+}
+
+@Composable
 private fun BigMark() = Mark(64.dp, Modifier.padding(bottom = 18.dp))
 
 /** An honest card inside a takeover (`.errcard`): what happened, and that nothing was lost. */
@@ -140,26 +147,31 @@ private fun ErrorCard(title: String, body: String) {
 }
 
 /**
- * What an unsuccessful pairing says, from core's problem code. `refused` is round 12's card; the
- * other three follow its pattern (what happened, that nothing was paired, what to do) and are
- * additions, declared: round 12 draws only the refusal.
+ * What an unsuccessful pairing says, from core's problem code: what happened, and the one action,
+ * "scan it again", which is the intro's first button (the same verb on the card and the button;
+ * no second button and no "Pair again", Urban's review, question 1).
  *
- * Pairing v2's three outcomes say what the PWA says (`web/web-app/app.js`: the `macNeedsUpdate`
- * branch of `startPairing`, and `gaveUpWaiting`), with "scan it again" for the PWA's "open it on
- * this phone again", because this app's way back is the scanner (the intro's first button).
+ * The words are Urban's final text (richos-hq `docs/verification/2026-09-24-native-pair-v2/
+ * urban-review.md`, states 4 to 9), which the PWA (`web/web-app/app.js`) and the iPhone carry too,
+ * with "scan it again" for the PWA's "open it on this phone again". The update card's middle
+ * sentence is Sage's (pair-v2 hypotheses review §3): an older Mac shows "Your phone said the six
+ * words did not match" because this phone's refusal is the only way to make it forget the key. It
+ * must NOT reassure: a relay that strips `pair-v2` from a current Mac produces the same two screens.
  */
 fun pairingProblemCard(problem: String?): Pair<String, String>? = when (problem) {
     null -> null
-    "refused" -> "Your Mac did not accept this code" to "Stopped, and nothing was paired. Ask your Mac for a fresh code and scan again."
+    "refused" -> "Your Mac did not accept this code" to "Nothing was paired. Show a fresh code on your Mac and scan it again."
     "rate-limited" -> "Too many tries for now" to "Nothing was paired. Wait a minute, then scan the code again."
     "unreachable" -> "Your Mac could not be reached" to "Nothing was paired. Keep the Mac awake with RichOS running, then scan again."
-    RichCore.PROBLEM_MAC_NEEDS_UPDATE -> "Your Mac needs an update before this phone can pair with it" to
-        "Update RichOS on your Mac, then show a fresh code there and scan it again."
+    RichCore.PROBLEM_MAC_NEEDS_UPDATE -> "Your Mac needs an update" to
+        "This phone cannot pair with the version of RichOS on it. Your Mac may say the six words did not match: it stopped because this phone did. Update RichOS on your Mac, then show a fresh code there and scan it again."
     RichCore.PROBLEM_MAC_DECLINED -> "Your Mac did not accept this phone" to
-        "If They do not match was pressed on your Mac, that is why. Otherwise show a fresh code on your Mac and scan it again."
-    RichCore.PROBLEM_EXPIRED -> "Your Mac did not get an answer in time" to
-        "Nothing was paired. Show a fresh code on your Mac and scan it again."
-    else -> "Pairing did not finish" to "Nothing was paired. Ask your Mac for a fresh code and scan again."
+        "Nothing was paired. Either someone said the words did not match on your Mac, or pairing was stopped there. Show a fresh code on your Mac and scan it again."
+    RichCore.PROBLEM_EXPIRED -> "Pairing timed out" to
+        "This phone did not hear back from your Mac in time, so it stopped. Show a fresh code on your Mac and scan it again."
+    RichCore.PROBLEM_WORDS_REJECTED -> "Stopped, and nothing was paired" to
+        "If the words on this phone and your Mac were different, this phone was not talking to your Mac. Tell Rich on your Mac before you pair again."
+    else -> "Pairing did not finish" to "Nothing was paired. Show a fresh code on your Mac and scan it again."
 }
 
 /** 1 · Pairing intro — one calm screen, one primary action; a [problem] adds the honest card. */
@@ -172,11 +184,21 @@ fun PairingIntro(problem: String?, onEvent: (UiEvent) -> Unit) {
             RichButton("Use a pairing link instead", { onEvent(UiEvent.UsePairingLink) }, kind = ButtonKind.QUIET, wide = true)
         },
     ) {
-        BigMark()
-        Eyebrow("Your conversation, with you")
-        DisplayHeading("Take Rich with you")
-        Lede("Rich works on your Mac. Pair this phone once and your conversation comes along wherever you are.")
-        pairingProblemCard(problem)?.let { (title, body) -> ErrorCard(title, body) }
+        val card = pairingProblemCard(problem)
+        // Urban's review, acceptance check 3: at a large text size the card's title shows without
+        // scrolling. The mark, the eyebrow and the pitch are for a first visit, and a person reading
+        // a failure has already seen them, so with a card at large text they step aside. Urban
+        // named the lede; the lede alone does not clear it at 2x on the 360 x 640 dp phone (the
+        // update card's title measured 634-710 dp against a scroll edge at 367 dp), so the mark
+        // and the eyebrow go too. InteractionTest measures every card.
+        val compact = card != null && LocalDensity.current.fontScale >= 1.3f
+        if (!compact) {
+            BigMark()
+            Eyebrow("Your conversation, with you")
+        }
+        DisplayHeading("Take Rich with you", top = if (compact) 0.dp else 14.dp)
+        if (!compact) Lede("Rich works on your Mac. Pair this phone once and your conversation comes along wherever you are.")
+        card?.let { (title, body) -> ErrorCard(title, body) }
         Column(Modifier.padding(top = 22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Step(1, buildAnnotatedString {
                 append("On your Mac, open ")
@@ -231,7 +253,9 @@ fun SixWords(words: List<String>, onEvent: (UiEvent) -> Unit) {
     ) {
         Eyebrow("Check these words")
         DisplayHeading("Do they match your Mac?")
-        Lede("Your Mac shows the same six words. If they match, this connection is private to you.")
+        // Never "the same six words": telling the answer before the check primes a skimmer to press
+        // They match (Urban's review, state 2; the Mac's own "If they are the same six").
+        Lede("Your Mac shows six words too. If they are the same six, this connection is private to you.")
         WordGrid(words)
     }
 }
@@ -281,7 +305,14 @@ fun WaitingForMac(words: List<String>, onEvent: (UiEvent) -> Unit) {
     ) {
         Eyebrow("Almost there")
         DisplayHeading("Now press They match on your Mac")
-        Lede("This phone connects as soon as you do. If the words on your Mac are different, press They do not match here or there.")
+        // Urban's review, state 3: "carries on by itself" is true however long the Mac takes to be
+        // heard, "here or on your Mac" names both places, and the control's name is set in SemiBold,
+        // the weight the intro's steps give control names.
+        Lede(buildAnnotatedString {
+            append("This phone carries on by itself once you do. If the words on your Mac are different, press ")
+            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append("They do not match") }
+            append(", here or on your Mac.")
+        })
         if (words.isNotEmpty()) WordGrid(words)
     }
 }

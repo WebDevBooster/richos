@@ -278,8 +278,13 @@ final class Simulator {
         let before = try await request(Command(.action, action: .compose(text: "Survives process termination")))
         let after = try await launch(fixture: nil)
         // What a relaunch must keep is the durable state; transient fields (a connection attempt the
-        // fresh process makes, the cached-history marker) are rebuilt by design.
-        guard after.state?.persisted == before.state.persisted else {
+        // fresh process makes, the cached-history marker) are rebuilt by design. So is the
+        // appearance: every launch adopts the phone's own light or dark setting before the first
+        // frame (`followPhone(SystemAppearance.current())`, RichOSNativeApp.swift), so a fixture's
+        // dark relaunches in the simulator's light and that is correct, not lost state.
+        var expected = before.state.persisted
+        if let relaunched = after.state?.persisted { expected.appearance = relaunched.appearance }
+        guard after.state?.persisted == expected else {
             throw CoreError("durable state changed across a real process restart")
         }
         _ = try await request(Command(.fixture, name: "conv-empty"))

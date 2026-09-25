@@ -14,7 +14,7 @@ enum TranscriptItem: Equatable, Identifiable, Sendable {
         case .beginning: return "~beginning"
         case .cachedMarker: return "~cached"
         case .day(let label): return "~day-\(label)"
-        case .row(let row, _, _): return row.id
+        case .row(let row, _, _): return row.listID
         }
     }
 

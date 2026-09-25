@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import java.io.IOException
@@ -56,6 +57,15 @@ class ConnectionOwner(
     /** OS connectivity evidence, not a periodic reachability probe. */
     fun networkChanged(online: Boolean) { available.value = online }
 
+    private val tunnel = MutableStateFlow<Boolean?>(null)
+
+    /**
+     * The OS's report of whether the default network runs through a VPN (D05; Tailscale on Android
+     * is one), from the callback it already makes. Evidence for the core's one line, never a probe;
+     * and a tunnel coming UP is a useful connectivity event, so a pending retry fires at once.
+     */
+    fun tunnelChanged(up: Boolean) { tunnel.value = up }
+
     /** The network returned, or the app came back to the foreground: retry now if waiting. */
     fun wake() {
         wakeups.trySend(Unit)
@@ -82,6 +92,15 @@ class ConnectionOwner(
     /** Runs until its coroutine is stopped (the app's process scope owns it). */
     suspend fun run() = coroutineScope {
         val deliveryScope = this
+        // Each report once (a StateFlow never repeats a value), whether on screen or not: it is
+        // only state. A tunnel that came up wakes the pending retry; one that went down does not
+        // (an attempt now would only fail).
+        launch {
+            tunnel.filterNotNull().collect { up ->
+                try { core.dispatch(Action.Health(vpn = up)) } catch (failure: IOException) { onStorageFailure(failure) }
+                if (up) wake()
+            }
+        }
         // Remember connectivity while hidden without re-running lifecycle persistence for
         // every radio transition. On return, use the latest actual network availability.
         val pairing = core.states.map { state ->

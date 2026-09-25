@@ -31,15 +31,19 @@ app screens on iPhone, plus pairing v2's six (`pair-awaiting-mac`, `pair-mac-upd
 `pair-mac-refused`, `pair-mac-expired`, `pair-words-rejected`, `pair-unreachable`), which round 12
 predates (`bin/rios headless fixture nope` lists them).
 
-**Pairing is v2 only** (`../conformance/README.md`, `pairing.json` `pair_v2` and `mac_confirmation`,
-`fingerprint.json` `v2`). The six words are derived on the phone from the origin it dialed, the Mac's
-`ca_fingerprint_sha256` and its own key; a Mac without `pair-v2` is refused, never fallen back to.
-After "They match" on the phone, the phone waits for the same press on the Mac on one bounded
-schedule (2, 3, 5, 8, 13 s, then every 15 s; at most 22 probes in five minutes), only while the app
-is on screen (`Core/Sources/RichOSCore/Pairing/MacWait.swift`). `sim launch <fixture>` and the
-launch arguments `-rios-fixture <name> -rios-appearance dark|light` open the app straight onto one.
+**Pairing is v2 only** (`../conformance/README.md`, `pairing.json` `pair_v2`, `mac_confirmation` and
+`pair_wait`, `fingerprint.json` `v2`). The six words are derived on the phone from the origin it
+dialed, the Mac's `ca_fingerprint_sha256` and its own key; a Mac without `pair-v2` is refused, never
+fallen back to. After "They match" on the phone, the phone waits for the same press on the Mac by
+asking with its own signed "They match" again; the press on the phone is the first ask. A Mac that
+offers `pair-wait` holds each ask (`Prefer: wait=14`) and answers it the moment it is pressed, and two
+asks never start less than 7 s apart; a Mac that does not keeps one bounded schedule (2, 3, 5, 8,
+13 s, then every 15 s; at most 22 asks in five minutes). At the deadline the phone asks one last
+time, and that answer decides. Only while the app is on screen: leaving it cancels the ask in flight
+(`Core/Sources/RichOSCore/Pairing/MacWait.swift`). `sim launch <fixture>` and the launch arguments
+`-rios-fixture <name> -rios-appearance dark|light` open the app straight onto one.
 
-**Scenarios** (`compose-draft`, `pair-by-scan`, `pair-mac-wait`, `pair-refused-and-rejected`, `outbox-retry`,
+**Scenarios** (`compose-draft`, `pair-by-scan`, `pair-mac-wait`, `pair-mac-hold`, `pair-refused-and-rejected`, `outbox-retry`,
 `outbox-refused-continues`, `offline-reconnect`, `voice-hold-send`, `voice-lock-send`,
 `voice-interrupted`, `voice-mic-denied`, `revoked`) carry their own checks and run identically headless and in the
 simulator (`sim verify` requires byte-identical results).

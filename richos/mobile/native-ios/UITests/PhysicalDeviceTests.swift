@@ -257,4 +257,188 @@ final class PhysicalDeviceTests: XCTestCase {
         XCTAssertTrue(element("composer.mic").waitForExistence(timeout: 5))
         XCTAssertTrue(element("kept.send").exists, "Canceling a new recording discarded previously kept audio")
     }
+
+    /// A walker's list of real-control steps (`richos/app/scripts/qa/phone-ios.py`). The host
+    /// validates the vocabulary before anything is built; this runs it through XCUITest, the only
+    /// way to touch an iOS 26 phone's controls. Every step prints one `PHONE_STEP` JSON line with
+    /// its phone-clock start and end, so the host can join what the phone did with what it measured.
+    /// A failed step stops the script with its reason: nothing is retried and nothing is repaired.
+    func testScript() throws {
+        let raw = try XCTUnwrap(config["steps"], "A script check needs steps")
+        let steps = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [[String: Any]],
+                                  "steps must be a JSON list of objects")
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        for (index, step) in steps.enumerated() {
+            let action = step["do"] as? String ?? ""
+            let started = Date().timeIntervalSince1970
+            var detail: [String: Any] = [:]
+            let reason = perform(action, step, springboard: springboard, detail: &detail)
+            let line: [String: Any] = ["i": index, "do": action, "start": started, "end": Date().timeIntervalSince1970,
+                                       "ok": reason == nil, "error": reason ?? NSNull(), "detail": detail,
+                                       "appState": stateName(app.state)]
+            let data = try JSONSerialization.data(withJSONObject: line, options: [.sortedKeys])
+            print("PHONE_STEP " + String(decoding: data, as: UTF8.self))
+            if let reason, step["optional"] as? Bool != true {
+                keepScreenshot(app, name: "script-failed-step-\(index)")
+                XCTFail("step \(index) \(action): \(reason)")
+                return
+            }
+        }
+    }
+
+    private func stateName(_ state: XCUIApplication.State) -> String {
+        switch state {
+        case .notRunning: return "notRunning"
+        case .runningBackgroundSuspended: return "suspended"
+        case .runningBackground: return "background"
+        case .runningForeground: return "foreground"
+        default: return "unknown"
+        }
+    }
+
+    /// The element a step names: `id` (accessibility identifier) or `label` (substring of the
+    /// accessibility label), in the app or, with `"in": "springboard"`, in the system UI.
+    private func root(_ step: [String: Any], _ springboard: XCUIApplication) -> XCUIApplication {
+        switch step["in"] as? String {
+        case "springboard": return springboard
+        // The route under test (PRD §5): only its connect switch is ever read or pressed. The
+        // host refuses a shot or tree there, because its screen shows the person's own account.
+        case "tailscale": return XCUIApplication(bundleIdentifier: "io.tailscale.ipn.ios")
+        default: return app
+        }
+    }
+
+    private func target(_ step: [String: Any], _ springboard: XCUIApplication) -> XCUIElement? {
+        let root = root(step, springboard)
+        if step["id"] == nil, step["label"] == nil, let kind = step["kind"] as? String {
+            return kind == "switch" ? root.switches.firstMatch : root.buttons.firstMatch
+        }
+        if let id = step["id"] as? String {
+            return id == "composer.field" && root == app ? field : root.descendants(matching: .any)[id]
+        }
+        if let label = step["label"] as? String {
+            return root.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", label)).firstMatch
+        }
+        return nil
+    }
+
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
+    private func perform(_ action: String, _ step: [String: Any], springboard: XCUIApplication,
+                         detail: inout [String: Any]) -> String? {
+        let timeout = step["timeout"] as? Double ?? 5
+        switch action {
+        case "launch":
+            // Only Apple's own text-size override, never an app fixture: the app stays the Release app.
+            if let size = step["textSize"] as? String {
+                app.launchArguments = ["-UIPreferredContentSizeCategoryName", size]
+            } else {
+                app.launchArguments = []
+            }
+            app.launch()
+        case "activate": root(step, springboard).activate()
+        case "terminate": app.terminate()
+        case "home":
+            XCUIDevice.shared.press(.home)
+        case "lock":
+            let selector = NSSelectorFromString("pressLockButton")
+            guard XCUIDevice.shared.responds(to: selector) else { return "this XCTest has no lock button" }
+            XCUIDevice.shared.perform(selector)
+        case "unlock":
+            // Only for a phone with no passcode: Home wakes the lock screen, a second Home opens it.
+            XCUIDevice.shared.press(.home); Thread.sleep(forTimeInterval: 1); XCUIDevice.shared.press(.home)
+        case "sleep":
+            Thread.sleep(forTimeInterval: step["seconds"] as? Double ?? 1)
+        case "mark":
+            detail["label"] = step["label"] as? String ?? ""
+        case "state":
+            detail["springboardForeground"] = springboard.state == .runningForeground
+        case "waitState":
+            let want: XCUIApplication.State = ["background": .runningBackground, "suspended": .runningBackgroundSuspended,
+                                               "foreground": .runningForeground, "notRunning": .notRunning][step["state"] as? String ?? ""] ?? .unknown
+            if !app.wait(for: want, timeout: timeout) { return "app did not reach \(step["state"] ?? "")" }
+        case "wait", "tap", "type", "value", "gone", "press", "swipe", "exists":
+            guard let element = target(step, springboard) else { return "step names no id or label" }
+            let begin = Date()
+            if action == "gone" {
+                let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: element)
+                if XCTWaiter.wait(for: [gone], timeout: timeout) != .completed { return "still on screen after \(timeout) s" }
+                detail["waitedMs"] = Int(Date().timeIntervalSince(begin) * 1000); return nil
+            }
+            if action == "exists" { detail["exists"] = element.exists; return nil }
+            guard element.waitForExistence(timeout: timeout) else { return "not on screen within \(timeout) s" }
+            detail["waitedMs"] = Int(Date().timeIntervalSince(begin) * 1000)
+            detail["label"] = element.label
+            switch action {
+            case "tap": element.tap()
+            case "type":
+                if step["focus"] as? Bool != false { element.tap() }
+                let deletes = step["delete"] as? Int ?? 0
+                if deletes > 0 { element.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: deletes)) }
+                element.typeText(step["text"] as? String ?? "")
+            case "value":
+                let value = element.value as? String ?? ""
+                detail["value"] = value
+                if let want = step["equals"] as? String, value != want { return "value differs from what the step expected" }
+            case "press":
+                let start = element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                let seconds = step["seconds"] as? Double ?? 0.7
+                if let drag = step["drag"] as? [Double], drag.count == 2 {
+                    start.press(forDuration: seconds, thenDragTo: start.withOffset(CGVector(dx: drag[0], dy: drag[1])))
+                } else {
+                    start.press(forDuration: seconds)
+                }
+            case "swipe":
+                switch step["direction"] as? String {
+                case "up": element.swipeUp()
+                case "down": element.swipeDown()
+                case "left": element.swipeLeft()
+                case "right": element.swipeRight()
+                default: return "swipe needs direction up, down, left or right"
+                }
+            default: break
+            }
+        case "count":
+            guard let label = step["label"] as? String else { return "count needs a label" }
+            let root = root(step, springboard)
+            detail["count"] = root.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", label)).count
+            if let want = step["equals"] as? Int, detail["count"] as? Int != want { return "count differs from what the step expected" }
+        case "alert":
+            let alert = springboard.alerts.firstMatch
+            guard alert.waitForExistence(timeout: timeout) else { return "no system alert within \(timeout) s" }
+            detail["text"] = alert.staticTexts.allElementsBoundByIndex.map(\.label)
+            if let button = step["button"] as? String {
+                guard alert.buttons[button].exists else { return "the alert has no \(button) button" }
+                alert.buttons[button].tap()
+            }
+        case "shot":
+            // `screen: true` keeps the whole screen (lock screen, a system alert); the default keeps
+            // only this app, so nothing else on a person's phone lands in a record by accident.
+            let image = (step["screen"] as? Bool == true) ? XCUIScreen.main.screenshot() : app.screenshot()
+            let shot = XCTAttachment(screenshot: image)
+            shot.name = step["name"] as? String ?? "shot"
+            shot.lifetime = .keepAlways
+            add(shot)
+        case "audit":
+            // XCTest's accessibility audit of what is on screen now. Findings are recorded, never
+            // fixed or skipped here; the walker judges them.
+            var issues: [String] = []
+            do {
+                try app.performAccessibilityAudit { issue in
+                    issues.append("\(issue.auditType.rawValue)|\(issue.compactDescription)|\(issue.element?.identifier ?? "")|\(issue.element?.label ?? "")")
+                    return true
+                }
+            } catch {
+                return "the audit could not run: \(error.localizedDescription)"
+            }
+            detail["issues"] = issues
+        case "tree":
+            let tree = XCTAttachment(string: app.debugDescription)
+            tree.name = step["name"] as? String ?? "tree"
+            tree.lifetime = .keepAlways
+            add(tree)
+        default:
+            return "unknown step \(action)"
+        }
+        return nil
+    }
 }

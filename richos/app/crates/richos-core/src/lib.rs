@@ -61,6 +61,9 @@
 //!                   the user's specifics are unrepresentable rather than filtered out.
 //!                   Nothing in it sends anything, and its tests assert that.
 
+/// Where a conversation's attached files live, named once for the desk that writes them and
+/// the session that reads them (CEO §86, 2026-09-24).
+pub mod attachments;
 pub mod belief;
 pub mod cognition;
 pub mod company;

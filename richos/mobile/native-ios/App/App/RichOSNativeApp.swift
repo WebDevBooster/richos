@@ -100,8 +100,9 @@ struct RichOSNativeApp: App {
                 let effects: (any EffectHandler)?
                 #if DEBUG
                 // Gesture fixtures use the real core and storage with controlled
-                // non-storage effects, just as the headless CLI does.
-                effects = DevBridge.interactiveFixture ? nil : platform
+                // non-storage effects, just as the headless CLI does; `-rios-fixture-mac` adds a
+                // stand-in Mac for the wait for the press on the Mac (`DevBridgeFixtureMac`).
+                effects = DevBridge.interactiveFixture ? DevBridgeFixtureMac.fromLaunchArguments() : platform
                 #else
                 effects = platform
                 #endif

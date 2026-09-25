@@ -79,6 +79,11 @@
           },
           {
             "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start-quota.sh",
+            "timeout": 15
+          },
+          {
+            "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/left-off-report.sh --event SessionStart",
             "timeout": 15
           }

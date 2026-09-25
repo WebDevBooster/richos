@@ -251,6 +251,9 @@ extension AppState {
         public var macWaitBoundMs: Int64? = nil
         public var macWaitDeadlineMs: Int64? = nil
         public var macWaitRequests: Int? = nil
+        /// The Mac offered `pair-wait`, so a relaunch keeps asking it to hold (and keeps 7 s between
+        /// asks). Absent means no, as in every state written before it.
+        public var macWaitHolds: Bool? = nil
     }
 
     public var persisted: Persisted {
@@ -265,7 +268,8 @@ extension AppState {
                       return KeptRecording(id: v.id, durationMs: 0, levels: [], reason: .interrupted, recordedAt: start)
                   },
                   macWaitBoundMs: macWait?.boundMs, macWaitDeadlineMs: macWait?.deadlineMs,
-                  macWaitRequests: macWait.flatMap { $0.requests > 0 ? $0.requests : nil })
+                  macWaitRequests: macWait.flatMap { $0.requests > 0 ? $0.requests : nil },
+                  macWaitHolds: macWait.flatMap { $0.holds ? true : nil })
     }
 
     public init(restoring p: Persisted) throws {
@@ -279,9 +283,10 @@ extension AppState {
         readingAnchor = p.readingAnchor
         if pairing == .confirming || pairing == .awaitingMac {
             // Restored paused: a launch is a return to the screen, and `foregrounded` resumes the wait
-            // (or ends it, past the bound).
+            // (or, past the bound, makes its last ask).
             macWait = MacWait(boundMs: p.macWaitBoundMs ?? MacWait.windowMs, deadlineMs: p.macWaitDeadlineMs,
-                              requests: p.macWaitRequests ?? 0, paused: pairing == .awaitingMac)
+                              requests: p.macWaitRequests ?? 0, paused: pairing == .awaitingMac,
+                              holds: p.macWaitHolds ?? false)
         }
         // A message that was mid-send when the app stopped is re-sent at once on this launch: the
         // Mac's `client_id` receipt makes that free (the reference queue's rule 3).
