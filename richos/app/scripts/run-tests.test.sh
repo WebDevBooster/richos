@@ -45,7 +45,7 @@
 # scanner exempt from its own rule is a rule with a hole exactly where somebody clever would
 # put something.
 # run-tests: no-host-screen: its matches are its own S6 search pattern and the fake suites S1 writes under mktemp
-# run-tests: inputs richos/app/scripts/run-tests.test.sh richos/app/scripts/run-tests.sh richos/app/scripts/lib/worktree-resource.sh richos/app/scripts/lib/gui-launch.sh richos/app/scripts/testvm
+# run-tests: inputs richos/app/scripts/run-tests.test.sh richos/app/scripts/run-tests.sh richos/app/scripts/lib/worktree-resource.sh richos/app/scripts/lib/test_results.py richos/app/scripts/lib/gui-launch.sh richos/app/scripts/testvm
 # run-tests: covers richos/app/scripts/run-tests.sh richos/app/scripts/lib/worktree-resource.sh richos/app/scripts/lib/gui-launch.sh
 set -uo pipefail
 
@@ -60,10 +60,15 @@ install_harness() {  # install_harness <box directory>
   mkdir -p "$1/lib"
   cp "$HARNESS" "$1/run-tests.sh"
   cp "$DIR/lib/worktree-resource.sh" "$1/lib/worktree-resource.sh"
+  cp "$DIR/lib/test_results.py" "$1/lib/test_results.py"
 }
 
 TMP="$(mktemp -d -t run-tests-test.XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
+# A failed fake suite's results folder is kept in this scratch, never the operator's store; and a
+# caller's results root (a proof run around this suite) is not the fixtures' to write into.
+export RUN_TESTS_RESULTS_STATE="$TMP/kept-results"
+unset RICHOS_TEST_RESULTS_ROOT RICHOS_TEST_RESULTS_DIR
 
 PASS=0; FAIL=0
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
