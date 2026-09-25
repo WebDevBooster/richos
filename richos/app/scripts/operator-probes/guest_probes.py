@@ -2594,13 +2594,27 @@ def w2(ctx, r):
             s5['pass'] = res.get('state') == 'stopped' and res.get('detail', {}).get('registry') == 'told' \
                 and s5['after']['a'][0] == 'NOT-ALIVE' and s5['after']['b'][0] == 'ALIVE' and bool(done)
             # His Esc: the lead's turn ends, and b stays alive.
-            walk.call('relay', thread=B[0], title=B[1], origin='desk-typed', text=lead_long_task(ctx, 90, 'slept again'))
-            walk.call('relay', thread=B[0], title=B[1], origin='desk-typed', text='Reply with exactly: W2-QUEUED')
-            time.sleep(12)
-            s5['esc'] = walk.call('interrupt', thread=B[0], title=B[1])
-            time.sleep(5)
-            s5['b_after_esc'] = ctx.liveness(b_wt)[0]
-            s5['esc_pass'] = s5['b_after_esc'] == 'ALIVE' and 'still queued' in (s5['esc'].get('sentence') or '')
+            # The r4d run sent the second message 0 s after the first and pressed Esc 12 s
+            # later, and the interrupt answered 0 still queued: nothing recorded whether the
+            # lead was inside its command yet. Now the second message goes only once the
+            # lead's own 93-second command is running (read off the walk's descendants), and
+            # what the queued message did afterwards is recorded.
+            s5b = steps.setdefault('5b', {})  # his Esc, graded on its own
+            esc_start = walk.count()
+            s5b['esc_relay_long'] = walk.call('relay', thread=B[0], title=B[1], origin='desk-typed',
+                                             text=lead_long_task(ctx, 93, 'slept again'))
+            s5b['esc_long_task_pid'] = wait_long_task(walk.proc.pid, 93, 180)
+            s5b['esc_relay_queued'] = walk.call('relay', thread=B[0], title=B[1], origin='desk-typed',
+                                               text='Reply with exactly: W2-QUEUED')
+            time.sleep(3)
+            s5b['esc_queued_said_before_esc'] = any('W2-QUEUED' in s['text'] for s in walk.says[esc_start:])
+            s5b['esc'] = walk.call('interrupt', thread=B[0], title=B[1])
+            s5b['esc_long_task_alive_5s_after'] = bool(s5b['esc_long_task_pid']) and (time.sleep(5) or alive(s5b['esc_long_task_pid']))
+            s5b['b_after_esc'] = ctx.liveness(b_wt)[0]
+            ran = walk.wait_say(lambda s: s['thread'] == B[0] and 'W2-QUEUED' in s['text'], 120, esc_start)
+            s5b['esc_queued_ran_after'] = bool(ran)
+            s5b['pass'] = s5b['b_after_esc'] == 'ALIVE' and 'still queued' in (s5b['esc'].get('sentence') or '') \
+                and bool(ran)
         else:
             s5['pass'] = False
             s5['why'] = 'two teammates could not be started'
