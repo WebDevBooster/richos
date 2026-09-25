@@ -69,6 +69,7 @@ import dev.richos.android.ui.conversation.FollowThreshold
 import dev.richos.android.ui.conversation.Header
 import dev.richos.android.ui.conversation.HeaderFade
 import dev.richos.android.ui.conversation.LatestPill
+import dev.richos.android.ui.conversation.OutOfReachLine
 import dev.richos.android.ui.conversation.Thread
 import dev.richos.android.ui.conversation.distanceFromNewest
 import dev.richos.android.ui.conversation.rememberThreadController
@@ -323,7 +324,8 @@ private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEven
             Thread(
                 messages = thread,
                 edge = model.historyEdge,
-                dayLabel = if (model.cachedWhileOffline) "Showing what was on this phone · your Mac is out of reach" else "Today",
+                // The out-of-reach line is not a row: it is pinned under the header (I02, below).
+                dayLabel = "Today",
                 controller = controller,
                 topPadding = headerDp + 16.dp,
                 bottomPadding = zoneDp + 20.dp,
@@ -350,6 +352,9 @@ private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEven
         }
         Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).onSizeChanged { headerPx = it.height }) {
             Header(model.notice, onEvent)
+            // Part of the header's measured block, so the thread starts below it and fades under it,
+            // never over it (I02).
+            if (model.cachedWhileOffline && thread.isNotEmpty()) OutOfReachLine()
             val banner = model.update as? UpdateNotice.Banner
             if (banner != null) UpdateBanner(banner.version, banner.line, onEvent, Modifier.padding(top = 8.dp))
         }

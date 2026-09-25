@@ -110,7 +110,7 @@ class IdleFramesTest {
 
     @Test
     fun `the other screens a person leaves open draw nothing at rest`() {
-        for (id in listOf("comp-idle", "comp-typing", "conv-beginning", "conv-scrolled", "conn-offline", "conn-mac", "conn-revoked", "conn-tailscale-off", "settings", "notif-offer", "voice-too-short", "rec-card", "upd-banner")) {
+        for (id in listOf("comp-idle", "comp-typing", "conv-beginning", "conv-scrolled", "conn-offline", "conn-mac", "conn-revoked", "conn-tailscale-off", "conn-cached", "settings", "notif-offer", "voice-too-short", "rec-card", "upd-banner")) {
             assertEquals("$id: busy frames in 2 s at rest", 0, atRest(screen(id)))
         }
     }
