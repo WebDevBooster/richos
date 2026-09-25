@@ -1381,13 +1381,22 @@ def acquire_ios(device_type, runtime, owner_pid=None, checkout="", timeout=300, 
         time.sleep(.5)
 
 
-def release_ios(udid, owner_pid=None, checkout=""):
+def release_ios(udid, owner_pid=None, checkout="", if_ours=False):
+    """Shut down and unlease the caller's own prepared simulator.
+
+    Releasing another run's lease is refused. With `if_ours`, a cleanup path that may run
+    after its own lease already ended (and the pool leased the device to someone else)
+    leaves that other run's device alone and returns, instead of failing: on 2026-09-25 a
+    UI suite's final release reached a device another run had leased a minute later."""
     with registry_lock():
         rec = _read_json(_record_path("ios-simulator", udid))
         if not rec:
             return
         owner = choose_owner(owner_pid, checkout, "prepared-ios")
         if not same_owner(rec.get("owner", {}), owner):
+            if if_ours:
+                sys.stderr.write("testdevices: %s is leased by another run now; left alone\n" % udid)
+                return
             raise ValueError("cannot release another run's simulator")
         ok, why = _ios_remove(dict(udid=udid, state="Booted", device_set=""))
         if not ok:
@@ -1616,6 +1625,8 @@ def _main(argv):
     release.add_argument("--id", required=True)
     release.add_argument("--owner-pid", type=int)
     release.add_argument("--checkout", default="")
+    release.add_argument("--if-ours", action="store_true",
+                         help="for cleanup paths: a device another run now leases is left alone, not an error")
     use = sub.add_parser("use-ios")
     use.add_argument("--id", required=True)
     use.add_argument("--owner-pid", type=int)
@@ -1668,7 +1679,7 @@ def _main(argv):
             sys.stderr.write("testdevices run-active: %s\n" % e)
             return 2
     if a.cmd == "release-ios":
-        release_ios(a.id, a.owner_pid, a.checkout)
+        release_ios(a.id, a.owner_pid, a.checkout, a.if_ours)
         return 0
     if a.cmd == "use-ios":
         use_ios(a.id, a.owner_pid, a.checkout)

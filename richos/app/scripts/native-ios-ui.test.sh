@@ -88,7 +88,7 @@ udid=""
 # directory removed. Inline, as in native-ios-app.test.sh, so no trap-only function trips SC2329.
 trap 'rc=$?; for udid in "${CREATED[@]:-}"; do
   [ -n "$udid" ] || continue
-  python3 "$ROOT/richos/engine/scripts/lib/testdevices.py" release-ios --id "$udid" --owner-pid $$ >/dev/null || rc=1
+  python3 "$ROOT/richos/engine/scripts/lib/testdevices.py" release-ios --id "$udid" --owner-pid $$ --if-ours >/dev/null || rc=1
 done
 if [ "$rc" -eq 0 ]; then rm -rf "$WORK"; else echo "native-ios-ui: failure evidence retained at $WORK"; fi' EXIT
 
@@ -601,8 +601,10 @@ for i in "${!SIM_UDID[@]}"; do
   python3 "$DIR/lib/ios_ui_shards.py" name-shots "$OUT/shard-$i" "$OUT" || true
   rm -rf "$OUT/shard-$i"
 done
+# Each device's own run released it in run-simulator.sh's trap, so the pool may already have
+# leased it to another run: --if-ours leaves that run's device alone.
 for i in "${!SIM_UDID[@]}"; do
-  python3 "$RICHOS_TESTDEVICES" release-ios --id "${SIM_UDID[$i]}" --owner-pid $$ >/dev/null
+  python3 "$RICHOS_TESTDEVICES" release-ios --id "${SIM_UDID[$i]}" --owner-pid $$ --if-ours >/dev/null
   CREATED=("${CREATED[@]/${SIM_UDID[$i]}}")
 done
 echo "native-ios-ui: screenshots in $SHOTS"

@@ -1058,6 +1058,17 @@ class Collector(Base):
                       self.guard_events()[before:])
         T.release_ios(udid, os.getpid())
 
+    def test_T56_a_cleanup_release_leaves_a_device_another_run_now_leases(self):
+        other = self.proc()
+        udid = T.acquire_ios("iPhone", "runtime", other.pid)
+        T.boot_ios(udid)
+        with self.assertRaisesRegex(ValueError, "another run"):
+            T.release_ios(udid, os.getpid())                       # the default stays strict
+        T.release_ios(udid, os.getpid(), if_ours=True)              # a cleanup path: nothing to do
+        self.assertEqual(self.devices()[0]["state"], "Booted")
+        self.assertTrue(T.same_owner(T.records()[0]["owner"], T.choose_owner(other.pid)))
+        T.release_ios(udid, other.pid)
+
     def test_T51_renewal_stops_when_the_owned_run_ends(self):
         udid = self.device("rios-ui-run-ended")
         rec = T.register("ios-simulator", udid, os.getpid())
