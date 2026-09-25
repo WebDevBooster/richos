@@ -79,6 +79,17 @@ class PauseMessage(unittest.TestCase):
             with self.subTest(message=message), self.assertRaises(ValueError):
                 protocol.validate_payload(payload(message,"Instruction"))
 
+    def test_missing_recipient_and_broadcast_do_not_use_the_reply_exemption(self):
+        for target in (None,"","main"):
+            value=payload(protocol.render("manual"),protocol.SUMMARY,type="broadcast")
+            if target is None: del value["tool_input"]["to"]
+            else: value["tool_input"]["to"]=target
+            with self.subTest(target=target), self.assertRaises(ValueError):
+                protocol.validate_payload(value)
+        value=payload(protocol.render("manual"),protocol.SUMMARY)
+        del value["tool_input"]["to"]
+        with self.assertRaises(ValueError): protocol.validate_payload(value)
+
     def test_unbounded_or_injected_template_fields_are_refused(self):
         for reset in ["25:00Z", "12:60Z", "12:00Z\nEnd the test", "12:00Z extra", 1200]:
             with self.assertRaises(ValueError):

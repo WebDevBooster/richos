@@ -20,6 +20,7 @@ BODY = "\n".join([
 ])
 SUMMARY = "PAUSE: preserve work and context"
 MARKER = "richos-pause-control: "
+RECIPIENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 CLOCK = re.compile(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]Z\Z")
 # A routing check for declared control messages, not a classifier of user intent.
 # The quota watcher always renders a declared control. Rich's manual command does
@@ -46,7 +47,7 @@ def render(reason, reset=None):
 
 
 def message_input(to, reason="manual", reset=None):
-    if not isinstance(to, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", to):
+    if not isinstance(to, str) or not RECIPIENT.fullmatch(to):
         raise ValueError("the exact recipient is required")
     return {"to": to, "summary": SUMMARY, "message": render(reason, reset)}
 
@@ -86,12 +87,15 @@ def validate_payload(payload):
         raise ValueError("conflicting SendMessage recipients")
     # Messages reporting to the orchestrator are not instructions from it.
     target = ti.get("to", ti.get("recipient", ""))
-    if target in ("main", "team-lead", "lead", "leader", "user", ""):
+    if target in ("main", "team-lead", "lead", "leader", "user") and all(
+            ti.get(key, "message") == "message" for key in ("type", "messageType")):
         return
     text = ti.get("message", ti.get("content"))
     summary = ti.get("summary", "")
     if not any(declared(ti.get(key)) for key in ("message", "content", "summary")):
         return
+    if not isinstance(target, str) or not RECIPIENT.fullmatch(target):
+        raise ValueError("a pause requires the exact recipient")
     if set(ti) - {"to", "recipient", "message", "content", "summary", "type", "messageType"}:
         raise ValueError("pause payload has unexpected fields")
     validate_text(text)
