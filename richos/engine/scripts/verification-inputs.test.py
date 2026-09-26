@@ -236,6 +236,46 @@ class Closure(unittest.TestCase):
             self.assertTrue(closure["presence"])
             self.assertEqual(closure["fallback"], [])
 
+    def test_real_direct_and_transitive_key_readers_in_reviewed_subset(self):
+        document = json.loads((HERE / "lib/verification-dependencies.json").read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        guards = {"scripts/hooks/guard-main-checkout-writes.test.sh",
+                  "scripts/hooks/guard-bash-main-writes.test.sh"}
+        units = sorted(guards | {"scripts/check-census.test.sh", "scripts/hooks/ceo-asks.test.sh"})
+        for unit in units:
+            self.assertEqual(graph.closure(unit)["fallback"], [], unit)
+        for key, expected in (("PROTECTED_PATHS", guards),
+                              ("BAN_WORKFLOW_TOOL", {"scripts/check-census.test.sh"})):
+            change = inputs.config_change(key + "=before\n", key + "=after\n")
+            self.assertEqual(set(graph.config_units(change, units)), expected)
+        # Removing a real subprocess edge must not hide the indirect read.
+        document["nodes"]["scripts/check-census.test.sh"]["edges"] = [
+            edge for edge in document["nodes"]["scripts/check-census.test.sh"]["edges"]
+            if edge["to"] != "scripts/hooks/guard-workflow-ban.sh"]
+        closure = graph.closure("scripts/check-census.test.sh")
+        self.assertIn("omitted known execute edges", " ".join(closure["fallback"]))
+
+    def test_real_private_config_remains_independent_through_nested_mutants(self):
+        document = json.loads((HERE / "lib/verification-dependencies.json").read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = "scripts/hooks/ceo-asks.test.sh"
+        closure = graph.closure(unit)
+        self.assertEqual(closure, {"keys": {}, "whole": [], "presence": [], "fallback": []})
+        self.assertFalse(graph.config_units(inputs.config_change("CEO_TODOS_REPOS=a", "CEO_TODOS_REPOS=b"), [unit]))
+        # A broken nested helper qualification still blocks exclusion. Private
+        # fixture replacement cannot erase uncertainty about executed code.
+        document["nodes"]["scripts/lib/ceo-todos.py#items"]["sha256"] = "unreviewed"
+        self.assertIn(unit, graph.config_units(inputs.config_change("A=1", "A=2"), [unit]))
+
+    def test_global_validator_is_a_qualified_whole_config_obligation(self):
+        document = json.loads((HERE / "lib/verification-dependencies.json").read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = "scripts/verification-config.test.sh"
+        closure = graph.closure(unit)
+        self.assertEqual(closure["fallback"], [])
+        self.assertTrue(closure["whole"])
+        self.assertIn(unit, graph.config_units(inputs.config_change("A=1", "A=1\nUNUSED=2"), [unit]))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "status": "Partial reviewed contracts. Unlisted readers require qualification and remain conservative. Selector integration awaits complete incident closures.",
+  "status": "Partial reviewed contracts. Integrated selector keeps every unqualified unit conservative; frozen-cohort qualification is unfinished.",
   "config_keys": [
     "ALLOWED_MODELS",
     "APP_INSTANCE_FAILURES_STATE",
@@ -112,7 +112,14 @@
       "keys": [
         "CEO_TODOS_REPOS"
       ],
-      "edges": [],
+      "edges": [
+        {
+          "to": "scripts/lib/ceo-todos.sh#ask-items"
+        },
+        {
+          "to": "scripts/lib/ceo-asks.py"
+        }
+      ],
       "indirect": {
         "CA_REPOS_KEY": "CEO_TODOS_REPOS"
       },
@@ -158,7 +165,476 @@
         "q_env() {"
       ],
       "presence": "workspace fixture transports orchestration.config"
+    },
+    "scripts/lib/resolve-main-checkout.sh": {
+      "source": "scripts/lib/resolve-main-checkout.sh",
+      "sha256": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+      "evidence": "Resolves Git common-directory paths; does not read configuration values.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/resolve-roots.sh#roots": {
+      "source": "scripts/lib/resolve-roots.sh",
+      "sha256": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+      "evidence": "Root resolution and adoption test marker presence. Namespace/agent lookup functions below this region are not invoked by these guards.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-main-checkout.sh"
+        }
+      ],
+      "region": [
+        "if [ -n \"${_RESOLVE_ROOTS_SH_SOURCED:-}\" ]; then",
+        "strip_agent_namespace() {"
+      ],
+      "presence": "Root candidates test orchestration.config existence, never its values."
+    },
+    "scripts/lib/seat-jurisdiction.sh": {
+      "source": "scripts/lib/seat-jurisdiction.sh",
+      "sha256": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
+      "evidence": "Physical path and Git jurisdiction helpers test adoption-marker existence. They do not source configuration or read its keys.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-main-checkout.sh"
+        }
+      ],
+      "presence": "richos_governing_root tests the candidate repository adoption marker."
+    },
+    "scripts/lib/unevaluated-notice.sh": {
+      "source": "scripts/lib/unevaluated-notice.sh",
+      "sha256": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+      "evidence": "Parses payload JSON and writes a deduplicated diagnostic under the supplied entity root; no orchestration-config read.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/hooks/guard-main-checkout-writes.sh": {
+      "source": "scripts/hooks/guard-main-checkout-writes.sh",
+      "sha256": "15ef50dd54edf557ac14c16ce894b7212cfc692244d5fa19728cf2c6edad35a7",
+      "evidence": "Sources the governed configuration and reads PROTECTED_PATHS for empty/adopted checks and path matching, including the governing-root reload.",
+      "keys": [
+        "PROTECTED_PATHS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-bash-main-writes.sh": {
+      "source": "scripts/hooks/guard-bash-main-writes.sh",
+      "sha256": "103465d3f2a5744282c5147b4cf45db5f484318b6635412f9d6b3ea368e4033f",
+      "evidence": "Sources the governed configuration and passes only PROTECTED_PATHS to the embedded classifier as GUARD_TREES.",
+      "keys": [
+        "PROTECTED_PATHS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-main-checkout-writes.test.sh": {
+      "source": "scripts/hooks/guard-main-checkout-writes.test.sh",
+      "sha256": "666c9c0b49531a13f3d1f7dd73464682cf42fb9f4cb5ad5c4f9d5e9933e464fe",
+      "evidence": "The real engine config supplies protected paths to generated payloads. Every hook call explicitly governs that engine root; no other config value is asserted.",
+      "keys": [
+        "PROTECTED_PATHS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-main-checkout-writes.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-bash-main-writes.test.sh": {
+      "source": "scripts/hooks/guard-bash-main-writes.test.sh",
+      "sha256": "ade980639f3138b23b4759db99208a312d7804e4597d68a72fa5813801749ffd",
+      "evidence": "The real config supplies only PROTECTED_PATHS. The suite writes that one value into its private config; the empty-value arm supplies a separate constant config.",
+      "keys": [
+        "PROTECTED_PATHS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-bash-main-writes.sh",
+          "fixture": true
+        }
+      ]
+    },
+    "scripts/hooks/guard-workflow-ban.sh": {
+      "source": "scripts/hooks/guard-workflow-ban.sh",
+      "sha256": "2b93395b9ef6e99b03221e0dcf7682b926f366dbb7884c3889c00384cf550ade",
+      "evidence": "The production path sources the governed config and reads BAN_WORKFLOW_TOOL. Embedded self-tests use separately generated configs.",
+      "keys": [
+        "BAN_WORKFLOW_TOOL"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        }
+      ]
+    },
+    "scripts/lib/ci_pause.py": {
+      "source": "scripts/lib/ci_pause.py",
+      "sha256": "f41e86ea2b1aaa036c92eb44ddcb2fe2a6880724162561a5e31b84d556758693",
+      "evidence": "Reads the separately located CI pause JSON and optionally Git remote URLs. It does not open or source orchestration.config.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/hooks/session-start-ci-surface.sh": {
+      "source": "scripts/hooks/session-start-ci-surface.sh",
+      "sha256": "a4f1b332f362a2374ae1dad83d44af14a977d8cfdb753154014bbcc7e74c05a5",
+      "evidence": "Reads CI_SURFACE_STATE_DIR JSON, a HOME-relative launch agent and the separate CI pause registry. It does not load orchestration.config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/ci_pause.py"
+        }
+      ]
+    },
+    "scripts/hooks/notice-waiver-repetition.py#discovery": {
+      "source": "scripts/hooks/notice-waiver-repetition.py",
+      "sha256": "536de700653b2d81df7ea51223338be0a9e93e67c1203e9950ec33a312381125",
+      "evidence": "Source discovery scans script .sh/.py text and record discovery scans state logs. These functions neither execute discovered scripts nor read orchestration.config.",
+      "keys": [],
+      "edges": [],
+      "region": [
+        "def discover_from_source(engine_root):",
+        "def analyze_ledger(name, paths, today, jaccard=JACCARD):"
+      ]
+    },
+    "scripts/check-census.py": {
+      "source": "scripts/check-census.py",
+      "sha256": "00f62606001a522abe356512bf985bc9352a0cf2866ef3b0e9d27456c7fbaf33",
+      "evidence": "Reads registration/dispatcher inventories and hook source text as data, importing only the waiver discovery functions. It does not execute those registrations or source orchestration.config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/notice-waiver-repetition.py#discovery"
+        }
+      ]
+    },
+    "scripts/check-census.test.sh": {
+      "source": "scripts/check-census.test.sh",
+      "sha256": "381772e83dee1048b69d42f4c8ac7a582d5639bc877b654fd4d85141e6f23a55",
+      "evidence": "C2 invokes the real Workflow guard on an engine-root payload, so BAN_WORKFLOW_TOOL is a transitive dependency despite the config basename being absent. C3 supplies private HOME and CI state to the CI notice.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/check-census.py"
+        },
+        {
+          "to": "scripts/hooks/guard-workflow-ban.sh"
+        },
+        {
+          "to": "scripts/hooks/session-start-ci-surface.sh"
+        }
+      ]
+    },
+    "scripts/lib/ceo-todos.py#items": {
+      "source": "scripts/lib/ceo-todos.py",
+      "sha256": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
+      "evidence": "Items mode reads the supplied JSON job then returns after parsing/rendering its embedded record. The filesystem and done-check branches below this region are not entered.",
+      "keys": [],
+      "edges": [],
+      "region": [
+        "import hashlib",
+        "    skips = []"
+      ]
+    },
+    "scripts/lib/ceo-asks.py": {
+      "source": "scripts/lib/ceo-asks.py",
+      "sha256": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
+      "evidence": "Reads only the supplied job JSON and applies matching predicates; no configuration lookup.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/stop-hook-notice.sh": {
+      "source": "scripts/lib/stop-hook-notice.sh",
+      "sha256": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
+      "evidence": "Parses supplied payload and reads/writes the supplied entity-root notice state; no orchestration configuration lookup.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/hooks/notice-ceo-asks.sh": {
+      "source": "scripts/hooks/notice-ceo-asks.sh",
+      "sha256": "709e0a75bbb4538c3e1a7a7b36fc2c8e8005cd3a590b173fc44972d66ae909c9",
+      "evidence": "Resolves the governed root then delegates config access to ca_resolve. Its other inputs are the hook payload and per-session ledger.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/ceo-asks.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-ceo-ask-first.sh": {
+      "source": "scripts/hooks/guard-ceo-ask-first.sh",
+      "sha256": "4dc92ca5c60ff39ed949fc88a8a4955264ece2d17bc689f9c2a2eb8b1bae0728",
+      "evidence": "Resolves the governed root then delegates config access to ca_resolve. Its other inputs are the hook payload and per-session ledger.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/ceo-asks.sh"
+        }
+      ]
+    },
+    "scripts/hooks/notice-ceo-unasked.sh": {
+      "source": "scripts/hooks/notice-ceo-unasked.sh",
+      "sha256": "3eac14e8c4bb2fd3f73651e11cc703f5a121a2c6e9b7e752a11d66cb50d98daa",
+      "evidence": "Resolves the governed root then delegates config access to ca_resolve. Its other inputs are the hook payload and per-session ledger.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/ceo-asks.sh"
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        }
+      ]
+    },
+    "scripts/hooks/session-start-ceo-ask.sh": {
+      "source": "scripts/hooks/session-start-ceo-ask.sh",
+      "sha256": "3b0b8396d0e50a6145401df798bde92e7bc59ffd55a7260f160f7b1b8d72ec69",
+      "evidence": "Resolves the governed root then delegates config access to ca_resolve. Its other inputs are the hook payload and per-session ledger.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/ceo-asks.sh"
+        }
+      ]
+    },
+    "scripts/ceo-asks-status.sh": {
+      "source": "scripts/ceo-asks-status.sh",
+      "sha256": "ee087fd11e7a3a9507845240dd367c3528935f31d85c1ba7bb9eca004de2f7cf",
+      "evidence": "Uses the supplied entity-root argument, delegates config access to ca_resolve and reads that root\u2019s ask ledger.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/ceo-asks.sh"
+        }
+      ]
+    },
+    "scripts/lib/stopwatch.sh": {
+      "source": "scripts/lib/stopwatch.sh",
+      "sha256": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
+      "evidence": "Obtains clock values from shell builtins, date, Perl or Python. No configuration lookup.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/cpu_policy.py": {
+      "source": "scripts/lib/cpu_policy.py",
+      "sha256": "ca04ecbd2b7640dd6443ccc5089759bdd47e51653a54cfbfc632c026ace88cce",
+      "evidence": "Pure CPU percentage and admission predicates; no configuration or file reads.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/operator_fences.py#proc": {
+      "source": "scripts/lib/operator_fences.py",
+      "sha256": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+      "evidence": "Kernel process-generation routines read libproc or /proc only. Fence/lease commands below this region are not invoked by the process supervisor.",
+      "keys": [],
+      "edges": [],
+      "region": [
+        "class _BSDInfo(ctypes.Structure):",
+        "def proc_path(pid):"
+      ]
+    },
+    "scripts/lib/cpu_guard.py": {
+      "source": "scripts/lib/cpu_guard.py",
+      "sha256": "9dba71e5355da1c714928faec5952d27cda97fa7e32a4b677693c59f833e45ab",
+      "evidence": "Verification controller reads its own registration/pressure records and process samples. It never reads orchestration.config. Registered commands are separate caller edges.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/cpu_policy.py"
+        }
+      ]
+    },
+    "scripts/lib/proc_tree.py": {
+      "source": "scripts/lib/proc_tree.py",
+      "sha256": "0c66bb28b8be3c6f44bd262918466ca3deb4a2226e30cbf0819e0c3a5d11db8f",
+      "evidence": "Supervises the caller\u2019s command and samples owned processes. Its own inputs are environment, process identity and controller state, never orchestration settings.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/operator_fences.py#proc"
+        },
+        {
+          "to": "scripts/lib/cpu_guard.py"
+        }
+      ]
+    },
+    "scripts/lib/engine_pass.py": {
+      "source": "scripts/lib/engine_pass.py",
+      "sha256": "ec43e17edc9d741bfa6e6d1a435550658f6b8b813c773cf6214aac45a15c9625",
+      "evidence": "Admission/slot policy reads its own records, Git identity and process generations; no orchestration settings.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/proc_tree.py"
+        }
+      ]
+    },
+    "scripts/lib/worker_tokens.py": {
+      "source": "scripts/lib/worker_tokens.py",
+      "sha256": "7db2fc746add705a6f373ee76fade0c3f308d0c4bb4d58f2d383c73bf80df10f",
+      "evidence": "Worker leases read their budget files and invoke the caller\u2019s separately declared command, through process supervision and admission policy.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/proc_tree.py"
+        },
+        {
+          "to": "scripts/lib/engine_pass.py"
+        }
+      ]
+    },
+    "scripts/lib/mutation-pool.sh": {
+      "source": "scripts/lib/mutation-pool.sh",
+      "sha256": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
+      "evidence": "Runs the supplied mutation callback with worker leases; its own configuration is operational environment. Actual callback/helper relationships belong to each harness.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/worker_tokens.py"
+        },
+        {
+          "to": "scripts/lib/stopwatch.sh"
+        }
+      ]
+    },
+    "scripts/hooks/ceo-asks.test.sh": {
+      "source": "scripts/hooks/ceo-asks.test.sh",
+      "sha256": "935e2e04320b79a9ed7e1054aaad40b8f207330f5aa4b9749aec0916a811a87b",
+      "evidence": "Creates a private entity config and private TODO declaration from literal values. Every hook/status invocation receives that entity root. Real hooks.json, installer, probe and notice text are read as registration/source data only. It never transports the real config. Nested mutations rebuild the same fixtures.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/notice-ceo-asks.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-ceo-ask-first.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/notice-ceo-unasked.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/session-start-ceo-ask.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/ceo-asks.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/ceo-asks-status.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/ceo-asks.mutation.sh"
+        }
+      ]
+    },
+    "scripts/hooks/ceo-asks.mutation.sh": {
+      "source": "scripts/hooks/ceo-asks.mutation.sh",
+      "sha256": "4eaca1732fe8d951516e63b2531a7a96831cb9953f3c678eb878ca74a76104d0",
+      "evidence": "Copies a finite hook/helper list, never the real configuration. Thirteen literal mutations change matching, gating and reporting, not config provenance. Nested ceo-asks.test.sh reconstructs private configs before execution.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/stopwatch.sh"
+        },
+        {
+          "to": "scripts/lib/mutation-pool.sh"
+        },
+        {
+          "to": "scripts/hooks/ceo-asks.test.sh",
+          "fixture": true
+        }
+      ]
+    },
+    "scripts/lib/ceo-todos.sh#ask-items": {
+      "source": "scripts/lib/ceo-todos.sh",
+      "sha256": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
+      "evidence": "Reads the separate .ceo-todos declaration, supplied record, markdown entry points and cold-open records. Config keys here are CT_* declaration fields, not orchestration settings. This contract is used only by ca_items_json, which calls ct_load_declaration, ct_resolve_roots and ct_items.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-main-checkout.sh"
+        },
+        {
+          "to": "scripts/lib/ceo-todos.py#items"
+        }
+      ]
+    },
+    "scripts/lib/verification_inputs.py#config": {
+      "source": "scripts/lib/verification_inputs.py",
+      "sha256": "32574b4f964986f0743e27e6d357e9134e81b258c31dc51e5647e79e10a4e2df",
+      "evidence": "The config parser accepts assignment text as data, preserving key references and rejecting unsupported executable syntax. No selected hook or suite is invoked.",
+      "keys": [],
+      "edges": [],
+      "region": [
+        "ENVIRONMENT =",
+        "def hook_entries(text):"
+      ]
+    },
+    "scripts/lib/affected_units.py#validate-config": {
+      "source": "scripts/lib/affected_units.py",
+      "sha256": "5d0b1f450f101b1254065a99eeb11bf8e9f57e0da639950f5e2c9c6432e17268",
+      "evidence": "validate_config reads the real config and its declared key registry, rejecting unsupported syntax and unknown keys.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/verification_inputs.py#config"
+        }
+      ],
+      "region": [
+        "def validate_config(engine):",
+        "class Selection:"
+      ],
+      "whole": "global assignment syntax and key-registry validation"
+    },
+    "scripts/verification-config.test.sh": {
+      "source": "scripts/verification-config.test.sh",
+      "sha256": "39ffab1ec5a0ba2183223130431ea05557c6ca20877dc84feee7b4e68b43a878",
+      "evidence": "Runs only --validate-config; this is the whole-config validation obligation.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/affected_units.py#validate-config"
+        }
+      ]
     }
   },
-  "units": {}
+  "units": {
+    "scripts/hooks/guard-main-checkout-writes.test.sh": "scripts/hooks/guard-main-checkout-writes.test.sh",
+    "scripts/hooks/guard-bash-main-writes.test.sh": "scripts/hooks/guard-bash-main-writes.test.sh",
+    "scripts/check-census.test.sh": "scripts/check-census.test.sh",
+    "scripts/hooks/ceo-asks.test.sh": "scripts/hooks/ceo-asks.test.sh",
+    "scripts/verification-config.test.sh": "scripts/verification-config.test.sh"
+  }
 }

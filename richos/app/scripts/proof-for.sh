@@ -626,7 +626,15 @@ if [ -s "$WORK/engine" ]; then
   say "ENGINE — $(grep -c . "$WORK/engine") path(s), mapped by the engine's own script"
   if [ -x "$CI_AFFECTED" ]; then
     LIST="$(tr '\n' ',' < "$WORK/engine" | sed 's/,$//')"
-    UNITS="$("$CI_AFFECTED" --paths "$LIST" 2>/dev/null || true)"
+    ENGINE_ARGS=(--paths "$LIST" --strict)
+    case "${MODE:-working}" in
+      staged) ENGINE_ARGS+=(--staged) ;;
+      ref) ENGINE_ARGS+=(--range "$REF") ;;
+      paths) ;;
+      *) ENGINE_ARGS+=(--working --base "${BASE:-HEAD}") ;;
+    esac
+    [ "$EXPLAIN" -eq 0 ] || ENGINE_ARGS+=(--explain)
+    UNITS="$("$CI_AFFECTED" "${ENGINE_ARGS[@]}")" || die "engine selection failed; no executable plan was accepted"
     if [ -n "$UNITS" ]; then
       printf '%s\n' "$UNITS" | while IFS= read -r u; do
         [ -n "$u" ] && cmd "cd richos/engine && bash scripts/ci-shard.sh --only-units $u"

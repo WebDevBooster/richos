@@ -40,7 +40,7 @@ class Snapshot:
             raise Unsupported("input path must be repository-relative: " + str(path))
         if self.revision == "WORKTREE":
             try:
-                return (self.root / path).read_text()
+                return (self.root / path).read_text(errors="surrogateescape")
             except FileNotFoundError:
                 return None
         spec = ("" if self.revision == "INDEX" else self.revision) + ":" + path.as_posix()
@@ -51,7 +51,7 @@ class Snapshot:
             raise Unsupported("cannot inspect input inventory: " + spec)
         if not exists.stdout:
             return None
-        return subprocess.check_output(["git", "-C", str(self.root), "show", spec], text=True)
+        return subprocess.check_output(["git", "-C", str(self.root), "show", spec], text=True, errors="surrogateescape")
 
 
 def revisions(root, range_text):
@@ -262,8 +262,10 @@ class Dependencies:
     individual overrides mask only their named keys. Unqualified readers remain
     visible on their own consumer, never as an invented whole-file read.
     """
-    def __init__(self, root, declaration):
+    def __init__(self, root, declaration, read=None):
         self.root, self.declaration = Path(root), declaration
+        self.read = read or (lambda path: (self.root / path).read_text())
+        self.contents = {}
         if declaration.get("schema") != 1:
             raise ValueError("unsupported verification dependency schema")
 
@@ -275,7 +277,12 @@ class Dependencies:
         if source.is_absolute() or ".." in source.parts:
             raise Unsupported("non-relative dependency " + str(source))
         try:
-            content = (self.root / source).read_bytes()
+            if source not in self.contents:
+                self.contents[source] = self.read(str(source))
+            content = self.contents[source]
+            if content is None:
+                raise FileNotFoundError(source)
+            content = content.encode(errors="surrogateescape")
         except OSError:
             raise Unsupported("missing dependency " + str(source)) from None
         if hashlib.sha256(content).hexdigest() != row["sha256"]:
@@ -295,6 +302,22 @@ class Dependencies:
         declared = set(row.get("keys", []))
         if not row.get("whole") and not direct <= declared:
             raise Unsupported("omitted known key reads in " + str(source) + ": " + ", ".join(sorted(direct - declared)))
+        # A narrow independently derived floor catches concrete shell calls
+        # whose repository path is literal. Other aliases/call shapes still
+        # require the content-bound review, not a claim of shell interpretation.
+        calls = set(re.findall(
+            r'\b(?:bash|python3)\s+["\']?\$(?:ENGINE_ROOT|\{ENGINE_ROOT\})/([^"\'\s]+\.(?:sh|py))', text))
+        def exists(path):
+            try:
+                return self.read(path) is not None
+            except FileNotFoundError:
+                return False
+        calls = {path for path in calls if exists(path)}
+        targets = {self.declaration["nodes"].get(edge["to"], {}).get("source", edge["to"].split("#")[0])
+                   for edge in row.get("edges", [])}
+        if not calls <= targets:
+            raise Unsupported("omitted known execute edges in " + str(source) + ": "
+                              + ", ".join(sorted(calls - targets)))
         for alias, key in row.get("indirect", {}).items():
             assignment = re.search(r"(?m)^\s*" + re.escape(alias) + r"=['\"]?([A-Za-z_][A-Za-z_0-9]*)['\"]?\s*(?:#.*)?$", text)
             if not assignment or assignment[1] != key or key not in declared:

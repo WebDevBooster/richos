@@ -15,9 +15,26 @@ Missing or changed declarations remain unresolved for their consumers. Known
 direct reads and declared finite indirect aliases are checked against the source.
 These checks supplement reviewed contracts; they do not interpret arbitrary shell.
 
-The initial map covers the two finite indirect-key helpers and the two shared
-copy regions. Full unit closures and production selector integration are still
-pending. Until those are qualified, the existing selector remains authoritative.
+The map includes finite indirect-key helpers, the two shared copy regions and
+reviewed direct, transitive and private-fixture unit closures. Qualification of
+the complete incident cohort remains pending.
 Run `bash richos/engine/scripts/verification-inputs.test.sh` for the bounded parser
 and dependency fixtures. Do not regenerate source digests to silence a changed
 reader without checking its new input and execution relationships.
+
+The selector now uses these contracts for config changes. It reads the actual
+committed, staged or working versions, follows changed key references and always
+selects the global syntax/unknown-key check. `proof-for.sh` preserves that context
+and propagates selection failures. A path-only request has no value identity and
+uses an explained conservative selection. Unqualified unit closures also remain
+explicit conservative selections; full incident-cohort qualification is unfinished.
+The ordinary sibling, basename and per-section rules remain in place for other
+paths. Shared changes outside a section still select all sections.
+
+`affected-units.test.sh` covers planning without executing selected workloads.
+`verification-config.test.sh` validates the real configuration as data, including
+the key registry. The source-bound direct-read and literal execute-edge checks
+catch known omissions but do not replace review of indirect calls and fixture
+provenance. In the reviewed CEO-ask suite, generated configs remain independent
+through its nested mutation harness; an invalid helper declaration still prevents
+that exclusion.
