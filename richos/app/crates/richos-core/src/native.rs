@@ -3318,7 +3318,15 @@ impl Drop for NativeCognition {
         if let Some((_, path)) = &self.continuity { let _ = std::fs::remove_file(path); }
         if let Some(path) = &self.assignments_scope { let _ = std::fs::remove_file(path); }
         if let Some(path) = &self.status_scope { let _ = std::fs::remove_file(path); }
-        if let Some(path) = &self.assignments_scope { let _ = std::fs::remove_file(crate::operator_desk_tools::scope_beside(path)); }
+        // The operator scope beside the register's, written only on an operator install: gone
+        // already is the ordinary case, anything else is said.
+        if let Some(path) = &self.assignments_scope {
+            if let Err(e) = std::fs::remove_file(crate::operator_desk_tools::scope_beside(path)) {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    eprintln!("[richos] the front desk's operator scope could not be removed ({e})");
+                }
+            }
+        }
         if let Some(path) = &self.onboarding_scope {
             let _ = std::fs::remove_file(path);
         }
@@ -4014,7 +4022,7 @@ mod native_driver_tests {
         let work = mcp_config(&executable, &scope, &assignments, &status,
             Some((&bridge, &continuity)), Some(continuity_tools.as_path()), Some(&profile), LeaseRole::Work, Path::new("claude"));
         assert!(work["mcpServers"].get(crate::operator_desk_tools::SERVER_NAME).is_none(), "the back end stops nothing of his");
-        let _ = std::fs::remove_dir_all(&root);
+        if let Err(error) = std::fs::remove_dir_all(&root) { eprintln!("fixture cleanup: {error}"); }
     }
 
     #[test]

@@ -242,7 +242,10 @@ fn operator_desk_at_boot(
     Option<richos_core::operator_desk_tools::DeskAccess>,
 ) {
     let push: richos_core::operator_runtime::NoticePush = Box::new(move |key, notice| {
-        let _ = app.emit(EVENT_OPERATOR_NOTICE, serde_json::json!({"threadId": key.thread_id, "notice": notice}));
+        // Best-effort, like rich://work-notice: the notice is on disk before this runs.
+        if let Err(e) = app.emit(EVENT_OPERATOR_NOTICE, serde_json::json!({"threadId": key.thread_id, "notice": notice})) {
+            eprintln!("[richos] his team: a notice could not be pushed to the window ({e}); it is held on disk");
+        }
     });
     // Settling closes the obligation in the PINNED engine's store, the one the register opened
     // it in (`assignment_tools.rs`), through a bridge made on first use and kept.

@@ -525,6 +525,6 @@ fn a_keeping_spine_records_every_prompt_s_mouth_and_a_product_spine_records_none
             ],
             "keep = {keep}"
         );
-        let _ = std::fs::remove_file(ledger_path);
+        if let Err(error) = std::fs::remove_file(&ledger_path) { eprintln!("fixture cleanup: {error}"); }
     }
 }

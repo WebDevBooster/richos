@@ -496,9 +496,12 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
+    /// One stop the fake desk was asked for: the names, his words, the turn's reference.
+    type AskedStop = (Vec<String>, String, Option<String>);
+
     #[derive(Default)]
     struct FakeDesk {
-        stops: Mutex<Vec<(Vec<String>, String, Option<String>)>>,
+        stops: Mutex<Vec<AskedStop>>,
         interrupts: Mutex<Vec<ConversationKey>>,
     }
     impl DeskService for FakeDesk {

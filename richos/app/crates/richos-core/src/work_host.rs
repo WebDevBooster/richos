@@ -2889,13 +2889,13 @@ mod tests {
         let receipt = assignment::register_kind(&h.state, &registration(&h), assignment::AssignmentKind::Task).unwrap();
         assert_eq!(h.host.adopt_registered(&h.binding), 1);
         assert_eq!(h.host.adopt_registered(&h.binding), 0, "adopted once");
-        assert_eq!(*intake.taken.lock().unwrap(), [receipt.id.clone()]);
+        assert_eq!(*intake.taken.lock().unwrap(), std::slice::from_ref(&receipt.id));
         std::thread::sleep(std::time::Duration::from_millis(200));
         assert_eq!(h.spawns.load(Ordering::SeqCst), 0, "no work lease was opened for his team's assignment");
         assert_eq!(h.host.background_work(), crate::work_gate::BackgroundWork::nothing(),
                    "the register does not speak for his team");
         assert_eq!(h.host.stop_assignment("depot", "thread-one", &receipt.id), Ok(()));
-        assert_eq!(*intake.stopped.lock().unwrap(), [receipt.id.clone()]);
+        assert_eq!(*intake.stopped.lock().unwrap(), std::slice::from_ref(&receipt.id));
 
         // The positive control: the same registration on a product host reaches a lease.
         let product = harness(0);
