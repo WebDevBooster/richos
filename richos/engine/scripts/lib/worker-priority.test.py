@@ -169,6 +169,25 @@ class Priority(unittest.TestCase):
                 engine_pass.directory()
             create.assert_not_called()
 
+    def test_background_plan_drains_and_yields_to_integration(self):
+        with patch.dict(os.environ, {"RICHOS_ENGINE_PASS_DIR": str(self.root / "plan-slot")}):
+            background = engine_pass.PlanGate(20, "background", str(self.linked), wait=5)
+            integration = engine_pass.PlanGate(20, "integration", str(self.main), wait=5)
+            try:
+                self.assertTrue(background.ready(active=False))
+                self.assertFalse(integration.ready(active=False))
+                self.assertFalse(background.ready(active=True))
+                self.assertIsNotNone(background.slot, "running units retain protection")
+                self.assertFalse(background.ready(active=False))
+                self.assertEqual(background.yields, 1)
+                self.assertTrue(integration.ready(active=False))
+                self.assertFalse(background.ready(active=False))
+                integration.close()
+                self.assertTrue(background.ready(active=False))
+            finally:
+                background.close()
+                integration.close()
+
     def test_timing_separates_real_admission_wait_and_preserves_failure(self):
         holder = self.take(self.budget(self.linked))
         timer = threading.Timer(.4, holder.release)

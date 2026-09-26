@@ -156,6 +156,14 @@ class Item:
         self.over_budget = False
         self.results = None             # this check's own per-test results folder (launch)
         self.failing = []               # what failed in it, by name (name_failures)
+        self.slot_wait = 0.0
+        self.wait_times = {}
+        self.wait_reason = "ready"
+        self.queued_at = None
+
+    @property
+    def engine_unit(self):
+        return self.argv[:2] == ["bash", "scripts/ci-shard.sh"] and "--only-units" in self.argv
 
     @property
     def seconds(self):
@@ -380,6 +388,9 @@ def launch(item, n, logdir, tokens_dir, reserved):
            "RICHOS_WORKER_TOKENS_RESERVED": str(reserved),
            "RICHOS_MACHINE_WORKERS": item.machine_tokens, "RICHOS_WORKER_SLOT_HELD": "1",
            "RICHOS_WORKER_BORROW_LOCK": item.token.path + ".child"}
+    if item.engine_unit:
+        env["RICHOS_VERIFICATION_UNIT"] = item.argv[item.argv.index("--only-units") + 1]
+        env["RICHOS_VERIFICATION_RUNNER_WAIT"] = json.dumps(item.wait_times)
     # The toolchains a check calls by name (cargo, the Homebrew tools), found the way the nightly
     # finds them (nightly-local.py `local_environment`), appended so the caller's own come first.
     # The third full run died on `cargo` not being on the caller's PATH.
@@ -485,7 +496,14 @@ def run(items, args, logdir, sampler=None):
     reserved = reserved_tokens(args.capacity)
     order = sorted(items, key=lambda it: -it.weight)
     running = []
+    units = {it.argv[it.argv.index("--only-units") + 1] for it in items if it.engine_unit}
+    args.engine_gate = (engine_pass.PlanGate(len(units), "proof-run", ROOT, sorted(units),
+                                            getattr(args, "slot_wait", None))
+                        if engine_pass.needs_slot(len(units)) and not engine_pass.held_by_ancestor()
+                        else None)
     t0 = time.monotonic()
+    for item in items:
+        item.queued_at = t0
     monitor = Monitor(args.sample_every, budget, sampler)
     monitor.start()
 
@@ -532,6 +550,8 @@ def run(items, args, logdir, sampler=None):
             if it.token:
                 it.token.release()
         budget.close()
+        if args.engine_gate:
+            args.engine_gate.close()
         # The simulator daemon outlives command processes. Finalize only this run's
         # registered devices, after process cleanup and outside the killed trees.
         import testdevices
@@ -551,9 +571,16 @@ def run(items, args, logdir, sampler=None):
 
 def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, sampler):
     n, next_sample, last_launch = 0, 0.0, 0.0
+    admitted_lanes = set()
+    previous_loop = time.monotonic()
+    backoff_reason = "ready"
     heartbeat = time.monotonic() + 30
     while True:
         now = time.monotonic()
+        interval, previous_loop = now - previous_loop, now
+        for it in order:
+            if it.state == "waiting":
+                it.wait_times[it.wait_reason] = it.wait_times.get(it.wait_reason, 0.0) + interval
         for it in list(running):
             rc = it.proc.poll() if it.proc is not None else 127
             age = now - it.started
@@ -628,14 +655,51 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 it.notes.append("unsuccessful prerequisites: " + ", ".join(sorted(it.requires - passed)))
         waiting = [it for it in waiting if it.state == "waiting"]
         ready = [it for it in waiting if (not it.lane or it.lane not in busy_lanes) and it.after <= done]
+        for it in waiting:
+            it.wait_reason = ("dependency" if not it.after <= done else
+                              "lane" if it.lane and it.lane in busy_lanes else "ready")
+        gate = getattr(args, "engine_gate", None)
+        if gate:
+            engine_running = any(it.engine_unit for it in running)
+            engine_ready = [it for it in ready if it.engine_unit]
+            if not any(it.engine_unit for it in waiting) and not engine_running:
+                gate.close()
+            elif engine_ready:
+                try:
+                    allowed = gate.ready(engine_running)
+                except engine_pass.Refused as exc:
+                    allowed = False
+                    for it in waiting:
+                        if it.engine_unit:
+                            it.state, it.rc = "not-admitted", engine_pass.REFUSED
+                            it.notes.append(exc.message())
+                if not allowed:
+                    for it in engine_ready:
+                        it.slot_wait += interval
+                        it.wait_reason = "engine-slot"
+                    ready = [it for it in ready if not it.engine_unit]
         for it in ready:
             if it.first_wait is None:
                 it.first_wait = now
         # Ordering-only dependencies still run diagnostics after failure. Explicit success
         # prerequisites block dependent execution. Nested workers never take the
         # reserved tokens (worker_tokens.py), so a check not yet started always gets one.
-        if ready and now >= next_sample and now - last_launch >= (SETTLE_SECONDS if running else 0):
-            it = ready[0]
+        # Keep gradual ramp-up into additional lanes. A replacement in an
+        # already admitted lane does not increase the established concurrency;
+        # it still needs a fresh host sample and a real worker permit.
+        if not running:
+            admitted_lanes.clear()
+        eligible = [it for it in ready if not running or
+                    (it.lane is not None and it.lane in admitted_lanes) or
+                    now - last_launch >= SETTLE_SECONDS]
+        for it in ready:
+            if it not in eligible:
+                it.wait_reason = "ramp"
+        if now < next_sample:
+            for it in eligible:
+                it.wait_reason = backoff_reason
+        if eligible and now >= next_sample:
+            it = eligible[0]
             if it.first_wait is None:
                 it.first_wait = now
             token = budget.try_acquire()
@@ -649,25 +713,33 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 if not ok:
                     token.release()
             if ok:
-                it.admission_wait, it.token = now - it.first_wait, token
+                it.admission_wait, it.token = now - it.queued_at, token
                 n += 1
                 running.append(it)
+                if gate and it.engine_unit and gate.slot:
+                    it.slot_fds = (gate.slot.fd,)
                 launch(it, n, logdir, tokens_dir, reserved)
                 checkpoint(items, logdir)
-                last_launch = time.monotonic()
+                if it.lane is None or it.lane not in admitted_lanes:
+                    last_launch = time.monotonic()
+                if it.lane is not None:
+                    admitted_lanes.add(it.lane)
                 print("[%s] start  %-40s %s" % (stamp(), it.label,
-                                                "(waited %.0f s for admission)" % it.admission_wait if it.admission_wait >= 1 else ""),
+                                                "(queued %.0f s before launch)" % it.admission_wait if it.admission_wait >= 1 else ""),
                       flush=True)
             else:
+                for queued in eligible:
+                    queued.wait_reason = "host" if s is not None else "worker"
                 # Refused by the CPU line or the memory rule (not merely waiting for a token).
                 waited = now - it.first_wait
                 if waited >= args.admission_wait:
-                    it.state, it.admission_wait = "not-admitted", waited
+                    it.state, it.admission_wait = "not-admitted", now - it.queued_at
                     it.notes.append("not admitted after %.0f s: %s" % (waited, (reserve.describe(s) if s is not None else "worker budget is full")))
                     print("[%s] REFUSED %-39s not admitted after %.0f s (%s)" % (stamp(), it.label, waited,
                                                                                  (reserve.describe(s) if s is not None else "worker budget is full")), flush=True)
                 else:
                     next_sample = now + (reserve.MIN_RETRY_SECONDS if s is not None else 0.2)
+                    backoff_reason = "host" if s is not None else "worker"
                     if not running and s is not None:
                         print("[%s] wait   %-40s admission: %s" % (stamp(), it.label, reserve.describe(s)), flush=True)
         time.sleep(0.2)
@@ -767,7 +839,7 @@ def summarize(items, wall, logdir, budget_seconds=600, monitor_lines=()):
           (len(items), wall, wall / 60, serial))
     for line in monitor_lines:
         print("  " + line)
-    print("  %-40s %-12s %8s %10s  %s" % ("check", "result", "seconds", "admission", "log"))
+    print("  %-40s %-12s %8s %10s  %s" % ("check", "result", "seconds", "queue", "log"))
     rows = []
     for it in sorted(items, key=lambda i: -(i.seconds)):
         print("  %-40s %-12s %8.0f %9.0fs  %s" % (it.label, it.state.upper(), it.seconds, it.admission_wait,
@@ -785,7 +857,11 @@ def summarize(items, wall, logdir, budget_seconds=600, monitor_lines=()):
         if kept and it.state != "passed":
             print("      per-test results: %s" % kept)
         rows.append({"check": it.label, "result": it.state, "seconds": round(it.seconds, 1),
-                     "admission_wait": round(it.admission_wait, 1), "exit": it.rc, "log": it.log,
+                     "admission_wait": round(it.admission_wait, 1),  # legacy field: total queue
+                     "total_queue_seconds": round(it.admission_wait, 1),
+                     "engine_slot_wait": round(it.slot_wait, 1),
+                     "wait_seconds_by_reason": {k: round(v, 3) for k, v in it.wait_times.items()},
+                     "exit": it.rc, "log": it.log,
                      "failing_tests": list(it.failing), "results": kept,
                      "command": "cd %s && %s" % (os.path.relpath(it.cwd, ROOT), " ".join(shlex.quote(a) for a in it.argv))})
     with open(os.path.join(logdir, "summary.json"), "w") as fh:
@@ -897,26 +973,9 @@ def main(argv=None):
     before = source_identity()
     with open(os.path.join(logdir, "source.json"), "w") as out:
         json.dump(before, out, indent=2)
-    units = {it.argv[it.argv.index("--only-units") + 1] for it in items
-             if it.argv[:2] == ["bash", "scripts/ci-shard.sh"] and "--only-units" in it.argv}
-    slot = None
     started = time.monotonic()
-    try:
-        if engine_pass.needs_slot(len(units)) and not engine_pass.held_by_ancestor():
-            slot = engine_pass.acquire(len(units), "proof-run", ROOT, sorted(units), args.slot_wait)
-            for it in items:
-                it.slot_fds = (slot.fd,)
-        run(items, args, logdir)
-        wall = time.monotonic() - started
-    except engine_pass.Refused as exc:
-        for it in items:
-            it.state, it.rc = "not-admitted", engine_pass.REFUSED
-            it.notes.append(exc.message())
-        checkpoint(items, logdir)
-        wall = time.monotonic() - started
-    finally:
-        if slot:
-            slot.release()
+    run(items, args, logdir)
+    wall = time.monotonic() - started
     if source_identity() != before:
         changed = Item("source changed during verification", ROOT, [])
         changed.state, changed.rc = "failed", 1

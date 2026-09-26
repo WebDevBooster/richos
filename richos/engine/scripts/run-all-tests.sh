@@ -286,10 +286,15 @@ for tool in "$WORKER_TOOL" "$PASS_TOOL"; do
 done
 export RICHOS_VERIFICATION_CHECKOUT="${RICHOS_VERIFICATION_CHECKOUT:-$ENGINE_ROOT}"
 python3 "$PASS_TOOL" needed "$TOTAL"; PASS_RC=$?
+PASS_ARGS=()
 case "$PASS_RC" in
     0) ;;
-    10) exec python3 "$PASS_TOOL" hold --count "$TOTAL" --label "run-all-tests.sh" \
-            --checkout "$ENGINE_ROOT" -- bash "${BASH_SOURCE[0]}" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"} ;;
+    10) if [ "${RICHOS_WORKER_SLOT_HELD:-}" = 1 ]; then
+            echo "ERROR: large engine plan must acquire its slot before a worker; use proof-run's unit dispatch" >&2
+            exit 75
+        fi
+        PASS_ARGS=(python3 "$PASS_TOOL" hold --count "$TOTAL" --label "run-all-tests.sh"
+                   --checkout "$ENGINE_ROOT" --) ;;
     *) echo "ERROR: could not establish large-plan admission" >&2; exit 2 ;;
 esac
 
@@ -385,7 +390,7 @@ for t in "${SUITES[@]}"; do
     # Execution includes owned supervision/cleanup but excludes admission and
     # the canary baseline/diff. Queueing must not inflate execution weights.
     TIMING="$LOG_DIR/$i.timing.json"
-    python3 "$WORKER_TOOL" machine --timing "$TIMING" -- bash "$t" >"$LOG" 2>&1
+    ${PASS_ARGS[@]+"${PASS_ARGS[@]}"} python3 "$WORKER_TOOL" machine --timing "$TIMING" -- bash "$t" >"$LOG" 2>&1
     RC=$?
     SUITE_MS="$(python3 -c 'import json,sys; print(round(json.load(open(sys.argv[1]))["execution_seconds"] * 1000))' "$TIMING")" || RC=125
     QUEUED="$(python3 -c 'import json,sys; print(round(json.load(open(sys.argv[1]))["admission_seconds"], 1))' "$TIMING")" || RC=125

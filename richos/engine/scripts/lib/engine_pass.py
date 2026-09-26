@@ -8,6 +8,7 @@ This helper alone is neither a CPU quota nor universal execution enforcement.
 import argparse
 import fcntl
 import json
+import io
 import os
 import signal
 import subprocess
@@ -172,6 +173,77 @@ class Slot:
         if self.fd is not None:
             os.close(self.fd)
             self.fd = None
+
+
+class PlanGate:
+    """Nonblocking engine-only slot admission with draining at unit boundaries."""
+    def __init__(self, count, label, checkout, units=(), wait=None):
+        self.count, self.label, self.checkout, self.units = count, label, checkout, tuple(units)
+        self.main = is_main_checkout(checkout)
+        self.wait = (MAIN_WAIT if self.main else TEAMMATE_WAIT) if wait is None else wait
+        self.root = directory()
+        self.slot = None
+        self.priority_fd = None
+        self.started_waiting = None
+        self.waited = 0.0
+        self.yields = 0
+        self.marker = os.path.join(self.root, "wait-%s-%s.json" % (os.getpid(), uuid.uuid4().hex))
+
+    def ready(self, active):
+        if self.slot:
+            if self.main or not _locked(os.path.join(self.root, "priority.lock")):
+                return True
+            # Never interrupt an admitted unit to transfer the slot. No new
+            # engine units start while we drain. Non-engine work is unaffected.
+            if active:
+                return False
+            self.slot.release()
+            self.slot = None
+            self.yields += 1
+        if self.started_waiting is None:
+            self.started_waiting = time.monotonic()
+            with open(self.marker, "w") as out:
+                json.dump({"pid": os.getpid(), "birth": birth(os.getpid()), "main": self.main,
+                           "label": self.label, "checkout": self.checkout, "count": self.count,
+                           "since": time.time()}, out)
+        if self.main and self.priority_fd is None:
+            fd = os.open(os.path.join(self.root, "priority.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                self.priority_fd = fd
+            except BlockingIOError:
+                os.close(fd)  # an existing integration waiter already protects priority
+        elapsed = time.monotonic() - self.started_waiting
+        try:
+            self.slot = acquire(self.count, self.label, self.checkout, self.units, wait=0,
+                                out=io.StringIO())
+        except Refused as exc:
+            if self.waited + elapsed >= self.wait:
+                self.close()
+                raise Refused(self.waited, exc.rec, self.count, self.units, self.main)
+            return False
+        self.waited += elapsed
+        self.started_waiting = None
+        self._clear_priority()
+        return True
+
+    def _clear_priority(self):
+        if self.priority_fd is not None:
+            os.close(self.priority_fd)
+            self.priority_fd = None
+        try:
+            os.unlink(self.marker)
+        except FileNotFoundError:
+            pass
+
+    def close(self):
+        if self.slot:
+            self.slot.release()
+            self.slot = None
+        if self.started_waiting is not None:
+            self.waited += time.monotonic() - self.started_waiting
+            self.started_waiting = None
+        self._clear_priority()
 
 
 class Admission:

@@ -24,6 +24,11 @@
 # here.
 
 set -uo pipefail
+case "${1:-}" in
+    "") ;;
+    --record-only) echo "Focused record-canary cases only; other cases are not run." ;;
+    *) echo "usage: run-all-tests.test.sh [--record-only]" >&2; exit 2 ;;
+esac
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
@@ -90,6 +95,7 @@ EOF
 # ===========================================================================
 # 1. GREEN: well-behaved suites leave the runner green, and it SAYS it checked.
 # ===========================================================================
+if [ "${1:-}" != --record-only ]; then
 E1="$SANDBOX/e1"
 build_engine "$E1"
 clean_suite "$E1/engine/scripts/hooks/alpha.test.sh"
@@ -223,7 +229,10 @@ esac
 #    appends only a `finished` row runs before the contaminating suite and stays
 #    green, because that is the one exclusion the library states.
 # ===========================================================================
+fi
 E5="$SANDBOX/e5"
+# The exclusion concerns appended row content, not creation of a missing ledger.
+touch "$CLAUDE_CONFIG_DIR/state/worktree-ledger.jsonl"
 build_engine "$E5"
 clean_suite "$E5/engine/scripts/hooks/alpha.test.sh"
 cat > "$E5/engine/scripts/hooks/toucher.test.sh" <<EOF

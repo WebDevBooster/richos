@@ -65,6 +65,10 @@ def emit():
         }
         if "UNIT_EXECUTION" in os.environ:
             rec.update(schema=2, execution_status=os.environ["UNIT_EXECUTION"])
+        rec["admission_scope"] = "worker-wrapper"
+        rec["runner_wait_seconds"] = None
+        if os.environ.get("RICHOS_VERIFICATION_UNIT") == rec["unit"]:
+            rec["runner_wait_seconds"] = json.loads(os.environ["RICHOS_VERIFICATION_RUNNER_WAIT"])
     except KeyError as exc:
         sys.stderr.write("ci-receipts.py emit: missing environment variable %s\n" % exc)
         return 2

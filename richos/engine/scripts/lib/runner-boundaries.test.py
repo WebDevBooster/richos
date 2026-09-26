@@ -10,7 +10,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+from unittest.mock import patch
 
 import engine_pass
 
@@ -162,6 +164,47 @@ os.execv({sys.executable!r}, [{sys.executable!r}, *sys.argv[1:]])
             slot.release()
             child.communicate("\n", timeout=5)
         self.assertFalse(engine_pass._locked(str(path)))
+
+    def test_direct_large_background_shard_yields_between_units(self):
+        entered, release, second = [self.root / n for n in ("entered", "release", "second")]
+        (self.engine / "scripts/lib/00-first.test.sh").write_text(
+            "touch " + shlex.quote(str(entered)) + "\n" +
+            "while [ ! -f " + shlex.quote(str(release)) + " ]; do sleep 0.05; done\n")
+        (self.engine / "scripts/lib/01-second.test.sh").write_text(
+            "touch " + shlex.quote(str(second)) + "\nexit 1\n")
+        for n in range(2, 20):
+            (self.engine / ("scripts/lib/%02d-later.test.sh" % n)).write_text("exit 0\n")
+        self.snapshot()
+        linked = self.root / "linked"
+        subprocess.run(["git", "-C", str(self.engine.parent), "worktree", "add", "-q", "-b",
+                        "background", str(linked)], check=True, capture_output=True)
+        with patch.dict(os.environ, {"RICHOS_ENGINE_PASS_DIR": self.env["RICHOS_ENGINE_PASS_DIR"]}):
+            gate = engine_pass.PlanGate(20, "integration", str(self.engine.parent), wait=10)
+            child = subprocess.Popen(["bash", "scripts/ci-shard.sh", "--fail-fast"],
+                                     cwd=linked / "engine", env=self.env, stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT, text=True)
+            try:
+                until = time.monotonic() + 10
+                while not entered.exists() and time.monotonic() < until:
+                    time.sleep(.02)
+                self.assertTrue(entered.exists())
+                self.assertFalse(gate.ready(active=False))
+                release.touch()
+                until = time.monotonic() + 10
+                while not gate.ready(active=False) and time.monotonic() < until:
+                    time.sleep(.02)
+                self.assertIsNotNone(gate.slot)
+                self.assertFalse(second.exists(), "background started ahead of waiting integration")
+                gate.close()
+                output, _ = child.communicate(timeout=10)
+                self.assertEqual(child.returncode, 1, output)
+                self.assertTrue(second.exists(), output)
+            finally:
+                release.touch()
+                gate.close()
+                if child.poll() is None:
+                    child.terminate()
+                    child.communicate(timeout=10)
 
 
 if __name__ == "__main__":

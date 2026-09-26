@@ -505,12 +505,12 @@ fi
 # Acquire the large-plan slot before any worker permit. Unit admission below
 # releases the worker between units, including direct shard invocations.
 python3 "$SCRIPT_DIR/lib/engine_pass.py" needed "$N_SEL"; PASS_RC=$?
+PASS_ARGS=()
 case "$PASS_RC" in
     0) ;;
-    10) rm -f "$ALL_UNITS" "$SELECTED"
-        exec python3 "$SCRIPT_DIR/lib/engine_pass.py" hold --count "$N_SEL" \
-            --label "ci-shard.sh" --checkout "$ENGINE_ROOT" -- \
-            bash "${BASH_SOURCE[0]}" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"} ;;
+    10) [ "${RICHOS_WORKER_SLOT_HELD:-}" != 1 ] || die "large engine plan must acquire its slot before a worker; use proof-run's unit dispatch" 75
+        PASS_ARGS=(python3 "$SCRIPT_DIR/lib/engine_pass.py" hold --count "$N_SEL"
+                   --label "ci-shard.sh" --checkout "$ENGINE_ROOT" --) ;;
     *) die "could not establish large-plan admission" 2 ;;
 esac
 
@@ -574,9 +574,11 @@ while IFS= read -r id; do
     export -f run_with_deadline
     export SCRIPT_DIR
     TIMING="$LOG_DIR/$i.timing.json"
-    python3 "$SCRIPT_DIR/lib/worker_tokens.py" machine --timing "$TIMING" -- \
+    ${PASS_ARGS[@]+"${PASS_ARGS[@]}"} python3 "$SCRIPT_DIR/lib/worker_tokens.py" machine --timing "$TIMING" -- \
         bash -c 'run_with_deadline "$@"' bash "$DEADLINE" "$LOG" "${ARGV[@]}"
     RC=$?
+    SLOT_REFUSED=0
+    [ "$RC" -ne 75 ] || [ -f "$TIMING" ] || SLOT_REFUSED=1
     # Admission waits do not spend the unit's execution deadline or inflate
     # the planner's execution weight. Missing timing cannot earn a pass.
     EXECUTION="infrastructure-error"; SECS=0; QUEUED="unknown"
@@ -595,6 +597,7 @@ except (OSError, ValueError, KeyError, TypeError, AssertionError):
     print("infrastructure-error 0 unknown")
 PY
 )
+    if [ "$SLOT_REFUSED" -eq 1 ]; then EXECUTION="not-admitted"; fi
     printf '(admission %ss) ' "${QUEUED:-unknown}"
 
     ESCAPED="$(lc_escaped "$CANARY_DIR" "$LOG_DIR")"

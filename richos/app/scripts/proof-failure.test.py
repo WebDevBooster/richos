@@ -6,6 +6,7 @@ import io
 import os
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -29,7 +30,7 @@ class FailurePolicy(unittest.TestCase):
                                     budget=600, deadline=1800, sample_every=.1)
 
     def item(self, name, code, **kw):
-        return pr.Item(name, str(self.root), [sys.executable, "-c", code], weight=.1, **kw)
+        return pr.Item(name, str(self.root), [sys.executable, "-c", code], weight=kw.pop("weight", .1), **kw)
 
     def run_items(self, items):
         with patch.object(pr, "SETTLE_SECONDS", 0), patch.object(pr, "admitted", return_value=(True, {})), \
@@ -77,6 +78,44 @@ class FailurePolicy(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "prerequisites"):
                 self.run_items([item])
             self.assertIsNone(item.started)
+
+    def test_large_engine_slot_refusal_preserves_independent_check(self):
+        self.args.slot_wait = 0
+        slot_root = self.root / "engine-slot"
+        code = ("import sys; sys.path.insert(0,sys.argv[1]); import engine_pass; "
+                "s=engine_pass.acquire(20,'fixture',sys.argv[2],wait=0); "
+                "print('ready',flush=True); input()")
+        with patch.dict(os.environ, {"RICHOS_ENGINE_PASS_DIR": str(slot_root)}):
+            holder = subprocess.Popen([sys.executable, "-c", code,
+                                       str(Path(pr.engine_pass.__file__).parent), str(self.root)],
+                                      stdout=subprocess.PIPE, stdin=subprocess.PIPE,
+                                      stderr=subprocess.DEVNULL, text=True)
+            try:
+                self.assertEqual(holder.stdout.readline().strip(), "ready")
+                items = [pr.Item("engine-%d" % i, str(self.root),
+                                 ["bash", "scripts/ci-shard.sh", "--only-units", str(i)])
+                         for i in range(20)]
+                independent = self.item("independent", "pass")
+                items.append(independent)
+                self.run_items(items)
+                self.assertEqual(independent.state, "passed")
+                self.assertTrue(all(i.state == "not-admitted" for i in items[:-1]))
+                self.assertTrue(all(i.started is None for i in items[:-1]))
+            finally:
+                holder.communicate("\n", timeout=5)
+
+    def test_lane_refill_avoids_global_delay_but_new_lane_still_ramps(self):
+        items = [self.item("slow", "import time; time.sleep(4)", lane="a", weight=3),
+                 self.item("first", "pass", lane="b", weight=2),
+                 self.item("replacement", "pass", lane="b", weight=1)]
+        with patch.object(pr, "admitted", return_value=(True, {})), \
+                contextlib.redirect_stdout(io.StringIO()):
+            pr.run(items, self.args, str(self.root / "run"), sampler=lambda: {
+                "cpu_user_percent": 5, "cpu_system_percent": 2, "swapout_mb_per_s": 0,
+                "memory_pressure": "normal"})
+        self.assertTrue(all(i.state == "passed" for i in items))
+        self.assertGreaterEqual(items[1].started - items[0].started, pr.SETTLE_SECONDS)
+        self.assertLess(items[2].started - items[1].started, pr.SETTLE_SECONDS)
 
     def test_cli_defaults_and_compatibility(self):
         for flags, expected in (([], False), (["--keep-going"], False), (["--fail-fast"], True)):
