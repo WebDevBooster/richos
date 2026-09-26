@@ -15,6 +15,7 @@ import unittest
 from unittest.mock import patch
 
 import engine_pass
+import proc_tree
 
 LIB = Path(__file__).resolve().parent
 
@@ -205,6 +206,39 @@ os.execv({sys.executable!r}, [{sys.executable!r}, *sys.argv[1:]])
                 if child.poll() is None:
                     child.terminate()
                     child.communicate(timeout=10)
+
+    def test_slot_survives_worker_death_until_owned_cleanup(self):
+        record = self.root / "owned-pid"
+        payload = ("import os,signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+                   f"open({str(record)!r},'w').write(str(os.getpid())); time.sleep(60)")
+        driver = ("import os,sys; sys.path.insert(0,sys.argv[1]); import engine_pass,worker_tokens; "
+                  "slot=engine_pass.acquire(20,'fixture',sys.argv[2],wait=0); "
+                  "os.environ['RICHOS_ENGINE_PASS_FD']=str(slot.fd); "
+                  "sys.exit(worker_tokens.machine_command([sys.executable,'-c',sys.argv[3]]))")
+        child = subprocess.Popen([sys.executable, "-c", driver, str(LIB), str(self.root), payload],
+                                 env=self.env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        owned = None
+        lock = str(self.root / "slot/slot.lock")
+        try:
+            until = time.monotonic() + 10
+            while not record.exists() and time.monotonic() < until and child.poll() is None:
+                time.sleep(.02)
+            self.assertTrue(record.exists())
+            owned = int(record.read_text())
+            child.kill()
+            child.wait(timeout=5)
+            self.assertTrue(engine_pass._locked(lock), "slot freed before owned cleanup")
+            until = time.monotonic() + 10
+            while engine_pass._locked(lock) and time.monotonic() < until:
+                time.sleep(.05)
+            self.assertFalse(engine_pass._locked(lock))
+            self.assertFalse(proc_tree._alive([owned]))
+        finally:
+            if child.poll() is None:
+                child.kill()
+            child.communicate(timeout=10)
+            if owned and proc_tree._alive([owned]):
+                proc_tree.kill_tree(owned, .1)
 
 
 if __name__ == "__main__":

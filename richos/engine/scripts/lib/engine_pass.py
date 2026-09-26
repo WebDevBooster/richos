@@ -444,7 +444,8 @@ def hold(argv):
     try:
         # The command inherits the lock's descriptor, so the slot stays held for as long as the
         # pass runs even if this wrapper is killed first; it frees when the last holder exits.
-        child = subprocess.Popen(cmd, pass_fds=(slot.fd,))
+        inherited_env = {**os.environ, "RICHOS_ENGINE_PASS_FD": str(slot.fd)}
+        child = subprocess.Popen(cmd, pass_fds=(slot.fd,), env=inherited_env)
         def forward(signum, _frame):
             child.send_signal(signum)
         previous = {s: signal.signal(s, forward) for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}

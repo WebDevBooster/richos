@@ -60,8 +60,8 @@ mutant no-inheritance "EP08" "$P" \
 
 # 7. THE PASS KEEPS THE SLOT EVEN IF ITS WRAPPER DIES.
 mutant fd-not-inherited "EP10" "$P" \
-    'child = subprocess.Popen(cmd, pass_fds=(slot.fd,))' \
-    'child = subprocess.Popen(cmd)' \
+    'child = subprocess.Popen(cmd, pass_fds=(slot.fd,), env=inherited_env)' \
+    'child = subprocess.Popen(cmd, env=inherited_env)' \
     "Killing the wrapper would free the slot while its pass still ran, and a second pass could start."
 
 # 8. THE HOLDER IS NAMED, so a waiting run can say who it waits for.

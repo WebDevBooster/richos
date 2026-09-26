@@ -244,8 +244,21 @@ def run_command(cmd, token, env=None, worker=True):
     if worker:
         env.update(RICHOS_WORKER_SLOT_HELD="1", RICHOS_WORKER_BORROW_LOCK=token.path + ".child")
     try:
+        inherited = env.pop("RICHOS_ENGINE_PASS_FD", None)
+        lease_fds = list(token.fds)
+        if inherited is not None:
+            import engine_pass
+            fd = int(inherited)
+            actual = os.fstat(fd)
+            expected = os.stat(os.path.join(engine_pass.directory(), "slot.lock"))
+            if ((actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino) or
+                    not engine_pass.held_by_ancestor()):
+                raise ValueError("invalid inherited engine-slot descriptor")
+            # The supervisor retains the slot through owned cleanup even if this
+            # wrapper dies. Its child does not inherit an unusable FD hint.
+            lease_fds.append(fd)
         child = subprocess.Popen(proc_tree.command(cmd, owner=os.getpid()), env=env,
-                                 pass_fds=tuple(token.fds), start_new_session=True)
+                                 pass_fds=tuple(lease_fds), start_new_session=True)
         def stop(signum, _frame):
             child.send_signal(signum)
         previous = {sig: signal.signal(sig, stop) for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
