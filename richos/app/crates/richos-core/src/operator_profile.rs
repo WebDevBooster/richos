@@ -22,7 +22,10 @@
 //!
 //! `env_clear()`, then exactly: the names `enable.sh` stored from his terminal, `HOME` from the
 //! declaration, `SSH_AUTH_SOCK` from `launchctl getenv`, `TMPDIR` from the per-user temporary
-//! directory, and `RICHOS_OPERATOR_LEAD`. The supervisor adds `RICHOS_SESSION_PID`
+//! directory, `RICHOS_OPERATOR_LEAD`, r4 §2.3's `CLAUDE_CODE_ARTIFACT=1` (P17 passed), and, when
+//! the host gives them, the supervisor's two file paths (`RICHOS_OPERATOR_REAP_LOG`,
+//! `RICHOS_OPERATOR_REAP_STATE`), which `provider-supervisor.py` reads from its own environment
+//! and the lead therefore inherits. The supervisor adds `RICHOS_SESSION_PID`
 //! (`provider-supervisor.py:22`). Nothing of the app's own environment reaches his lead: not a
 //! nightly's scratch `HOME`, not its `CLAUDE_CONFIG_DIR`, not a planted `ANTHROPIC_API_KEY`.
 //! **`PATH` is the one stored at `enable.sh`**, so a tool installed later is invisible to his
@@ -41,6 +44,20 @@ pub const REPORT_TOOL: &str = "mcp__richos_operator__report";
 pub const LEAD_CLAIM_ENV: &str = "RICHOS_OPERATOR_LEAD";
 /// The supervisor flag that makes it reap the lead's whole tree (r3 (q) item 2).
 pub const REAP_DESCENDANTS: &str = "--reap-descendants";
+/// Where the supervisor appends what it killed (r3 (q) item 2: "the operator log names every
+/// process killed"). `provider-supervisor.py` reads it from its own environment, so it is set
+/// here, and the lead inherits it: an app-set path, never a credential.
+pub const REAP_LOG_ENV: &str = "RICHOS_OPERATOR_REAP_LOG";
+/// Where the supervisor writes its snapshot of the lead's descendants outside the lead's own
+/// group, once a second: the host's idle test (Frank's G8, r3 (q) item 4).
+pub const REAP_STATE_ENV: &str = "RICHOS_OPERATOR_REAP_STATE";
+/// **r4 §2.3's one stated exception to "never a `CLAUDE_*` name".** The 2.1.282 binary
+/// withholds `Artifact` from every `sdk-*` entrypoint unless this is truthy, and his terminal
+/// has the tool. P17 measured it (2026-09-25, VM probes-e620cde236d2): with it, `Artifact` is in
+/// `system/init.tools` and two read-only calls (`list` with `scope: types`, then `list`) answer
+/// with no error; without it, the tool is absent. Set by the app, never stored: `enable.sh` and
+/// [`crate::operator_declaration::is_denied_name`] still refuse every stored `CLAUDE*` name.
+pub const ARTIFACT_ENV: (&str, &str) = ("CLAUDE_CODE_ARTIFACT", "1");
 /// The only tool taken away from his lead: nobody is at a terminal to answer it (n).
 ///
 /// **Known gap, not built here** (esc-20260925T050529Z-a3d5a077): with this tool withheld, his
@@ -109,6 +126,8 @@ pub struct OperatorProfile {
     lead_claim: String,
     python: PathBuf,
     claude: PathBuf,
+    /// The supervisor's operator log and descendant snapshot, when the host has given them.
+    supervisor_files: Option<(PathBuf, PathBuf)>,
 }
 
 /// The per-user temporary folder, straight from the OS: `confstr(_CS_DARWIN_USER_TEMP_DIR)`,
@@ -213,7 +232,15 @@ impl OperatorProfile {
         else {
             return refuse("no claude is on the PATH stored for your team");
         };
-        Ok(OperatorProfile { declaration, session, lead_claim: lead_claim.to_string(), python, claude })
+        Ok(OperatorProfile { declaration, session, lead_claim: lead_claim.to_string(), python, claude,
+                             supervisor_files: None })
+    }
+
+    /// Give the supervisor its operator log and its descendant snapshot file (r3 (q) item 2,
+    /// G8). Both are absolute paths in this install's own operator folder.
+    pub fn with_supervisor_files(mut self, log: &Path, state: &Path) -> Self {
+        self.supervisor_files = Some((log.to_path_buf(), state.to_path_buf()));
+        self
     }
 
     pub fn declaration(&self) -> &Declaration {
@@ -227,6 +254,11 @@ impl OperatorProfile {
         environment.insert("SSH_AUTH_SOCK".into(), self.session.ssh_auth_sock.clone());
         environment.insert("TMPDIR".into(), self.session.tmpdir.clone());
         environment.insert(LEAD_CLAIM_ENV.into(), self.lead_claim.clone());
+        environment.insert(ARTIFACT_ENV.0.into(), ARTIFACT_ENV.1.into());
+        if let Some((log, state)) = &self.supervisor_files {
+            environment.insert(REAP_LOG_ENV.into(), log.display().to_string());
+            environment.insert(REAP_STATE_ENV.into(), state.display().to_string());
+        }
         environment
     }
 
@@ -243,6 +275,9 @@ impl OperatorProfile {
             "--verbose",
             // (r): his engine's alarms arrive as hook frames.
             "--include-hook-events",
+            // (c): the CLI echoes each message it takes, by uuid, so a turn is attributed to the
+            // handle whose message started it (P13 read queue order this way).
+            "--replay-user-messages",
             // (b): his settings, his CLAUDE.md, his plugin registration, as in his terminal.
             "--setting-sources",
             "user,project,local",
@@ -495,7 +530,9 @@ mod tests {
         let f = fixture();
         let env = profile(&f).environment();
         let names: Vec<&str> = env.keys().map(String::as_str).collect();
-        assert_eq!(names, ["GIT_EDITOR", "HOME", "LANG", "PATH", "RICHOS_OPERATOR_LEAD", "SSH_AUTH_SOCK", "TMPDIR", "USER"]);
+        assert_eq!(names, ["CLAUDE_CODE_ARTIFACT", "GIT_EDITOR", "HOME", "LANG", "PATH", "RICHOS_OPERATOR_LEAD", "SSH_AUTH_SOCK",
+                           "TMPDIR", "USER"]);
+        assert_eq!(env["CLAUDE_CODE_ARTIFACT"], "1", "r4 §2.3, P17");
         assert_eq!(env["HOME"], f.declaration.home.display().to_string());
         assert_eq!(env["SSH_AUTH_SOCK"], session().ssh_auth_sock);
         assert_eq!(env["TMPDIR"], session().tmpdir);
@@ -529,12 +566,28 @@ mod tests {
             .filter(|n| !["PWD", "OLDPWD", "SHLVL", "_"].contains(n) && !INTERPRETER_ADDED_NAMES.contains(n))
             .collect();
         names.sort();
-        assert_eq!(names, ["GIT_EDITOR", "HOME", "LANG", "PATH", "RICHOS_OPERATOR_LEAD", "RICHOS_SESSION_PID",
-                           "SSH_AUTH_SOCK", "TMPDIR", "USER"], "{text}");
+        assert_eq!(names, ["CLAUDE_CODE_ARTIFACT", "GIT_EDITOR", "HOME", "LANG", "PATH", "RICHOS_OPERATOR_LEAD",
+                           "RICHOS_SESSION_PID", "SSH_AUTH_SOCK", "TMPDIR", "USER"], "{text}");
         // The fixture's PATH offers only the xcrun shim; the profile must have gone around it.
         for shim_name in ["SDKROOT", "CPATH", "LIBRARY_PATH", "MANPATH"] {
             assert!(!text.lines().any(|l| l.starts_with(&format!("{shim_name}="))), "{shim_name} reached the lead: {text}");
         }
+    }
+
+    #[test]
+    fn the_supervisor_files_are_the_only_other_names_and_only_when_given() {
+        let f = fixture();
+        let log = f.root.join("operator/operator.log");
+        let state = f.root.join("operator/t/reap-state.json");
+        let env = profile(&f).with_supervisor_files(&log, &state).environment();
+        let names: Vec<&str> = env.keys().map(String::as_str).collect();
+        assert_eq!(names, ["CLAUDE_CODE_ARTIFACT", "GIT_EDITOR", "HOME", "LANG", "PATH", "RICHOS_OPERATOR_LEAD",
+                           REAP_LOG_ENV, REAP_STATE_ENV, "SSH_AUTH_SOCK", "TMPDIR", "USER"]);
+        assert_eq!(env[REAP_LOG_ENV], log.display().to_string());
+        assert_eq!(env[REAP_STATE_ENV], state.display().to_string());
+        assert!(!crate::operator_declaration::is_denied_name(REAP_LOG_ENV) && !crate::operator_declaration::is_denied_name(REAP_STATE_ENV));
+        assert!(crate::operator_declaration::is_denied_name(ARTIFACT_ENV.0),
+                "never STORED: the stored-environment rule still refuses it; only the app sets it");
     }
 
     #[test]
@@ -605,7 +658,7 @@ mod tests {
     fn the_wire_is_stream_json_with_hook_events_and_the_permission_route_kept() {
         let a = args(LeadStart::New("s-1".into()));
         for flag in ["--print", "--input-format=stream-json", "--output-format=stream-json", "--verbose",
-                     "--include-hook-events", "--dangerously-skip-permissions"] {
+                     "--include-hook-events", "--replay-user-messages", "--dangerously-skip-permissions"] {
             assert!(a.iter().any(|x| x == flag), "{flag} missing: {a:?}");
         }
         assert_eq!(value_after(&a, crate::native::PERMISSION_PROMPT_TOOL), Some("stdio"));

@@ -374,7 +374,13 @@ impl ScopedPermissions {
             // and on one stronger ground of its own: it changes nothing at all. There is no
             // input for him to approve, and a permission sheet asking him to allow Rich to
             // LOOK at his own record would be a question with one answer.
-            "mcp__richos_status__background_work") {
+            "mcp__richos_status__background_work"|
+            // HIS TEAM'S TOOLS (`operator_desk_tools.rs`), present only on an operator install's
+            // front desk. A named stop only removes (§67: *"unconditional for the agents his
+            // words name"*), the interrupt ends a turn and keeps its agents, and the read
+            // changes nothing: a sheet asking him to allow his own stop would be the delay the
+            // stop exists to remove.
+            "mcp__richos_operator__stop"|"mcp__richos_operator__interrupt"|"mcp__richos_operator__read") {
             return allow();
         }
         if tool.is_empty() || request.to_string().len()>65536 {return deny("The requested action could not be safely displayed.");}
