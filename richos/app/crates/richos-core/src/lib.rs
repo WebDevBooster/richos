@@ -245,3 +245,6 @@ pub mod operator_runtime;
 ///                    handle, his words and the origin the ledger kept; his stops, Esc and reads;
 ///                    the idle timer; the quit path (the operator-client record's §7 items 1-3).
 pub mod operator_desk;
+///   - `operator_desk_tools` — the front desk's `richos_operator` tools (stop, interrupt, read)
+///                    and the token-guarded socket they reach the live desk through.
+pub mod operator_desk_tools;

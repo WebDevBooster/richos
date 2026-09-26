@@ -102,6 +102,10 @@ pub struct EngineProfile {
     pub runtime: EngineRuntime,
     pub work_scope: Option<(String, String)>,
     pub permissions: std::sync::Arc<crate::permissions::PermissionDesk>,
+    /// **His team's desk, for the front desk's `richos_operator` tools** (the operator-client
+    /// record's §7 item 2). Set by the shell on an operator install only; `None` everywhere
+    /// else, which leaves the front desk's server list exactly what it was.
+    pub operator_desk: Option<crate::operator_desk_tools::DeskAccess>,
 }
 
 fn quote(path: &Path) -> String { format!("'{}'", path.to_string_lossy().replace('\'', "'\\''")) }
@@ -226,7 +230,8 @@ impl EngineProfile {
             .collect();
         write(&plugin.join("spawn-preflight.json"),
               &json!({"hooks":{"PreToolUse":[{"matcher":"Agent","hooks":preflight}]}}).to_string())?;
-        Ok(Self { engine, coordination, plugin, state, runtime, work_scope: None, permissions: Default::default() })
+        Ok(Self { engine, coordination, plugin, state, runtime, work_scope: None, permissions: Default::default(),
+                  operator_desk: None })
     }
     /// Install the desktop executable's quota wrapper. Source-test clients which
     /// do not implement that CLI entrypoint keep their canonical hooks unchanged.
