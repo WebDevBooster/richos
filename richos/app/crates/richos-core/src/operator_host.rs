@@ -85,6 +85,11 @@ pub struct ConversationKey {
 pub enum Origin {
     DeskTyped,
     DeskVoice,
+    /// **Reserved: nothing produces it yet** (Frank's review, question 3 (b)). A file dropped
+    /// at the desk reaches the ledger as a typed turn, so [`Origin::of_turn`] reads it as
+    /// [`Origin::DeskTyped`]. Every declaration lists `desk-file` beside `desk-typed`
+    /// (`operator_declaration.py` `ORIGINS`), so no behavior differs; only the log's label
+    /// would. A log line saying `DeskTyped` is no proof a file drop was told apart from typing.
     DeskFile,
     Phone,
     /// A mouth this build has never heard of, recorded on the turn by its intake record (r3
@@ -726,6 +731,11 @@ impl OperatorHost {
     /// question his team asked on `handle` (or on the conversation). It reaches the lead from ANY
     /// channel, with no hold and no confirmation (r4 §3). `delivery_id` is S6's durable delivery
     /// identity: the same one twice relays once. Returns whether it was relayed now.
+    ///
+    /// **No production caller until S6 lands** (Frank's F11): only the walk
+    /// (`examples/operator_walk.rs`) and the tests call it, through [`crate::operator_desk`].
+    /// Until then his answer to a question reaches the lead as an ordinary assignment, with a
+    /// title line and his words, never with "His answer to your question".
     pub fn deliver_answer(self: &Arc<Self>, key: &ConversationKey, title: &str, handle: Option<&str>,
                           delivery_id: &str, answer: &str) -> Result<bool, String> {
         {
