@@ -1057,7 +1057,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "b41bbf4937b923bbd84cb5eda853713f3d317cb04b493d000596976ef12496ea",
+      "sha256": "da175234c1b8872c5f86a4a5fb95a35b14a647f9f760ab6c029fe93e6455ba3b",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed.",
       "keys": [],
       "edges": [
@@ -1102,6 +1102,60 @@
           "to": "scripts/affected-units.test.py"
         }
       ]
+    },
+    "scripts/install-ack-protocol.sh": {
+      "source": "scripts/install-ack-protocol.sh",
+      "sha256": "17998a57400e7738c964a7b26c6436aa60a000231aa35cdeafeb990ec9e9de32",
+      "evidence": "Installer reads only its canonical reference markdown and the supplied repository agent definitions. Its embedded Python uses standard-library modules and never sources settings or executes another repository helper.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/install-ack-protocol.test.sh": {
+      "source": "scripts/install-ack-protocol.test.sh",
+      "sha256": "eb978d636a59e2a3c660325225d282f32d32112ed11143283e196ec753775592",
+      "evidence": "Every installer invocation supplies --repo beneath a private TMPDIR fixture. Canonical protocol text is source data. Generated definitions and missing-input copies do not contain or read real settings.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/install-ack-protocol.sh"
+        }
+      ]
+    },
+    "scripts/install-escalation-protocol.sh": {
+      "source": "scripts/install-escalation-protocol.sh",
+      "sha256": "9c1a646aad67e5b9a224491e501aeec7ffc7b8edafdfd5b69d738bd7feba4a74",
+      "evidence": "Installer reads only its canonical reference markdown and the supplied repository agent definitions. Its embedded Python uses standard-library modules and never sources settings or executes another repository helper.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/install-escalation-protocol.test.sh": {
+      "source": "scripts/install-escalation-protocol.test.sh",
+      "sha256": "5baa4d69d4612e4248855fca5767933065cb2458f9e9b6855bd02a22c2c73396",
+      "evidence": "Every installer invocation supplies --repo beneath a private TMPDIR fixture. Canonical protocol text is source data. Generated definitions and missing-input copies do not contain or read real settings.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/install-escalation-protocol.sh"
+        }
+      ]
+    },
+    "scripts/ci-verify.sh#stubbed-steps": {
+      "source": "scripts/ci-verify.sh",
+      "sha256": "40aa376d6bb316939af6bbf4dfd05f452585245b37d9e0439fb30b73922b5574",
+      "evidence": "This caller invokes the real file only with --list-steps, which returns before running steps. All other invocations use its private copied engine: run-all-tests, install, probe, demo and publication commands are literal stubs constructed by ci-verify.test.sh. Syntax checks read that private inventory. No real settings are copied or sourced.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/ci-verify.test.sh": {
+      "source": "scripts/ci-verify.test.sh",
+      "sha256": "cac5d233c7ac7292b8e73ab95f98b12c6050ed5b79c2fde0581282210fcc82da",
+      "evidence": "V1 reads/list-steps on the real orchestrator. V2-V7 execute its private copy with all five step commands replaced by literal fixtures. No actual suite inventory, installer, probe, demo or publication command runs.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/ci-verify.sh#stubbed-steps"
+        }
+      ]
     }
   },
   "units": {
@@ -1114,7 +1168,10 @@
     "scripts/hooks/ceo-inputs.test.sh": "scripts/hooks/ceo-inputs.test.sh",
     "scripts/hooks/ceo-ruled.test.sh": "scripts/hooks/ceo-ruled.test.sh",
     "scripts/verification-inputs.test.sh": "scripts/verification-inputs.test.sh",
-    "scripts/affected-units.test.sh": "scripts/affected-units.test.sh"
+    "scripts/affected-units.test.sh": "scripts/affected-units.test.sh",
+    "scripts/install-ack-protocol.test.sh": "scripts/install-ack-protocol.test.sh",
+    "scripts/install-escalation-protocol.test.sh": "scripts/install-escalation-protocol.test.sh",
+    "scripts/ci-verify.test.sh": "scripts/ci-verify.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {

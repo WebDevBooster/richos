@@ -316,6 +316,20 @@ class Closure(unittest.TestCase):
         self.assertTrue(closure["whole"])
         self.assertIn(unit, graph.config_units(inputs.config_change("A=1", "A=1\nUNUSED=2"), [unit]))
 
+    def test_protocol_installers_and_stubbed_ci_do_not_read_real_config(self):
+        document = json.loads((HERE / "lib/verification-dependencies.json").read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        helpers = {"scripts/ci-verify.test.sh": "scripts/ci-verify.sh#stubbed-steps",
+            "scripts/install-ack-protocol.test.sh": "scripts/install-ack-protocol.sh",
+            "scripts/install-escalation-protocol.test.sh": "scripts/install-escalation-protocol.sh"}
+        for unit, helper in helpers.items():
+            with self.subTest(unit=unit):
+                self.assertEqual(graph.closure(unit), {"keys": {}, "whole": [], "presence": [], "fallback": []})
+                original = document["nodes"][helper]["sha256"]
+                document["nodes"][helper]["sha256"] = "unreviewed"
+                self.assertIn(unit, graph.config_units(inputs.config_change("MODEL_CEILING=a", "MODEL_CEILING=b"), [unit]))
+                document["nodes"][helper]["sha256"] = original
+
 
 if __name__ == "__main__":
     unittest.main()
