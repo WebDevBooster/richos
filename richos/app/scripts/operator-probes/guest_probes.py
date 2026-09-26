@@ -2700,7 +2700,7 @@ def w2(ctx, r):
         s11['heartbeat_stopped_within_grace_plus_one'] = heartbeat_stopped(hb, 6)
         s11['claim_pids_alive_after'] = {str(x['pid']): alive(x['pid']) for x in claim_before.get('processes', [])
                                          if x.get('role') != 'app'}
-        log = root / 'operator.log'
+        log = data / 'operator' / 'operator.log'  # the desk's log, where the app keeps it
         s11['operator_log_tail'] = log.read_text()[-2500:] if log.exists() else ''
         walk = Walk(ctx, data, state, root, 'relaunched')
         s11['leads_before_a_message'] = (walk.call('read', thread=A[0], every=True).get('reply') or {}).get('conversations')

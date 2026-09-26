@@ -295,7 +295,14 @@ fn gate_json(data: &Path) -> Value {
     }
 }
 
-fn host(data: &Path, state: &Path, root: &Path) -> Result<(), String> {
+fn host(data: &Path, _driver_state: &Path, root: &Path) -> Result<(), String> {
+    // **The register and his team's files live where the app keeps them**: the desk works on
+    // `<data>/engine-state` and `<data>/operator` (`OperatorDesk::new`, as the shell's
+    // `operator_desk_at_boot` gives it the app's data folder), so the walk's register, launcher
+    // and report scope use the same folder. The driver's own state argument is kept for the
+    // command line's shape only; `root` holds the walk's settle record and tool scopes.
+    let state_dir = data.join("engine-state");
+    let state = state_dir.as_path();
     let declaration = match gate(data) {
         Gate::Operator(d) => *d,
         Gate::Refused(r) => return Err(r.sentence()),
