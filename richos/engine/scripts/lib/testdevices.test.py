@@ -185,6 +185,16 @@ class Collector(Base):
         with patch.object(T, 'ios_devices', side_effect=AssertionError('unexpected inventory')):
             self.assertEqual(T.cleanup_run_simulators('not-a-real-run'), [])
 
+    def test_run_finalizer_without_registry_leaves_records_untouched(self):
+        os.rmdir(self.devdir)
+        before = os.stat(self.root)
+        with patch.object(T, 'ios_devices', side_effect=AssertionError('unexpected inventory')):
+            self.assertEqual(T.cleanup_run_simulators('not-a-real-run'), [])
+        self.assertFalse(os.path.lexists(self.devdir))
+        after = os.stat(self.root)
+        self.assertEqual((before.st_mtime_ns, before.st_ctime_ns),
+                         (after.st_mtime_ns, after.st_ctime_ns))
+
     def test_run_finalizer_records_failed_deletion(self):
         device = self.device('rios-ui-busy')
         owner = self.proc()

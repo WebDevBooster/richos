@@ -1113,6 +1113,13 @@ def cleanup_run_simulators(run_id, budget=15):
     errors = []
     token = _DEADLINE.set(time.time() + budget)
     try:
+        # Owned processes have already ended. An absent registry cannot contain
+        # this run's device, so cleanup must not create state for an empty run.
+        # Other lookup errors still take the visible failure path below.
+        try:
+            os.stat(registry_dir())
+        except FileNotFoundError:
+            return []
         with registry_lock():
             regs = [r for r in records() if r["kind"] == "ios-simulator" and any(
                 o.get("verification_run") == run_id for o in r.get("owners", [r.get("owner", {})]))]
