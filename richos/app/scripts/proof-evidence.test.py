@@ -246,6 +246,21 @@ class Evidence(unittest.TestCase):
             evidence.recipe_identity(self.root, {"paths": [], "tools": [], "environment": [],
                 "external": [], "qualification": "missing.md"}, {})
 
+    def test_later_input_or_artifact_mutation_invalidates_an_earlier_pass(self):
+        for change in ("input", "log", "receipt"):
+            with self.subTest(change=change):
+                items, record = self.attempt(change)
+                self.passed(items, record)
+                if change == "input":
+                    record.current_identity = lambda item: {"external": "changed later"}
+                elif change == "log":
+                    Path(items[0].log).write_text("replaced after completion")
+                else:
+                    evidence.receipt_path(items[0]).write_text("replaced after completion")
+                record.finalize(items)
+                self.assertEqual(items[0].state, "invalid")
+                self.assertEqual(record.results["check"]["exit"], 125)
+
     def test_cli_restores_exact_plan_and_reports_reconciled_coverage(self):
         scripts = self.root / "richos/app/scripts"
         scripts.mkdir(parents=True)

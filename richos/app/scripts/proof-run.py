@@ -1070,6 +1070,7 @@ def main(argv=None):
             finally:
                 lease.close()
         run(items, args, logdir)
+        args.evidence.finalize(items)
     finally:
         args.evidence.close()
     wall = time.monotonic() - started

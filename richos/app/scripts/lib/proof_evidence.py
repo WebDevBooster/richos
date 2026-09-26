@@ -205,6 +205,27 @@ class Record:
     def close(self):
         self.lease.close()
 
+    def finalize(self, items):
+        """Later checks must not invalidate an earlier pass or its copied proof."""
+        source = self.current_source()
+        for item in items:
+            if item.state != "passed" or item.label not in self.results:
+                continue
+            row = self.results[item.label]
+            try:
+                if source != row["source"] or self.current_identity(item) != row["input"]:
+                    raise ValueError("inputs changed after this check completed")
+                if file_digest(item.log) != row["log_sha256"]:
+                    raise ValueError("completed check log changed")
+                if row["receipt"] and file_digest(row["receipt"]["path"]) != row["receipt"]["sha256"]:
+                    raise ValueError("completed check receipt changed")
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                item.state, item.rc = "invalid", 125
+                reason = "final evidence validation: " + str(exc)
+                item.notes.append(reason)
+                row.update(state=item.state, exit=item.rc, invalid=reason)
+        atomic(self.logdir / "outcomes.json", self.results)
+
 
 def read_plan(path):
     plan = json.loads((Path(path) / "plan.json").read_text())
