@@ -19,7 +19,7 @@ pub struct System {
     organization: String,
 }
 impl System {
-    pub fn connect(bin: &Path) -> Result<Self, String> {
+    pub fn validate_environment() -> Result<(), String> {
         if [
             "ANTHROPIC_API_KEY",
             "ANTHROPIC_AUTH_TOKEN",
@@ -37,8 +37,13 @@ impl System {
         {
             return Err("Reset offers need the saved Claude account connection, without authentication overrides.".into());
         }
+        Ok(())
+    }
+    pub fn connect(bin: &Path) -> Result<Self, String> {
+        Self::validate_environment()?;
         // Use the installed version, never a guessed newer client or a web identity.
-        let bytes = bounded(Command::new(bin).arg("--version"), None)?;
+        let bytes = bounded(Command::new(bin).arg("--version"), None)
+            .map_err(|e| format!("Claude Code version check: {e}"))?;
         let text = String::from_utf8(bytes).map_err(|_| "Claude Code version unavailable.")?;
         let version = text.split_whitespace().next().unwrap_or("");
         if !text.contains("Claude Code")
@@ -78,7 +83,8 @@ impl System {
         command.args([
             "-q",
             "--silent",
-            "--fail",
+            "--write-out",
+            "\n%{http_code}",
             "--proto",
             "=https",
             "--max-time",
@@ -90,11 +96,35 @@ impl System {
             "--config",
             "-",
         ]);
-        let bytes = bounded(&mut command, Some(config.into_bytes()))?;
-        serde_json::from_slice(&bytes)
-            .map_err(|_| "Anthropic returned an unreadable reset response.".into())
+        let stage = if body_is_redemption(path) { "redemption" }
+            else if path == "/api/oauth/profile" { "account check" } else { "eligibility check" };
+        let bytes = bounded(&mut command, Some(config.into_bytes()))
+            .map_err(|e| format!("Claude reset {stage}: {e}"))?;
+        response(&bytes).map_err(|e| format!("Claude reset {stage}: {e}"))
     }
 }
+fn body_is_redemption(path: &str) -> bool { path.ends_with("/reset_rate_limits") }
+
+// Only status and fixed descriptions leave this boundary. Provider error bodies can
+// contain account data, so neither bodies nor child stderr appear in errors or logs.
+fn response(bytes: &[u8]) -> Result<Value, String> {
+    let split = bytes.iter().rposition(|b| *b == b'\n')
+        .ok_or("HTTP status unavailable.")?;
+    let status = std::str::from_utf8(&bytes[split + 1..]).ok()
+        .filter(|s| s.len() == 3 && s.bytes().all(|b| b.is_ascii_digit()))
+        .and_then(|s| s.parse::<u16>().ok()).ok_or("HTTP status unavailable.")?;
+    if !(200..300).contains(&status) {
+        let reason = match status {
+            401 | 403 => "account authorization was rejected",
+            429 => "Anthropic rate-limited the check",
+            500..=599 => "Anthropic returned a server error",
+            _ => "Anthropic rejected the request",
+        };
+        return Err(format!("HTTP {status}: {reason}."));
+    }
+    serde_json::from_slice(&bytes[..split]).map_err(|_| "Anthropic returned an unreadable response.".into())
+}
+
 impl Transport for System {
     fn account(&mut self) -> Result<Account, String> {
         let profile = self.request("/api/oauth/profile", None)?;
@@ -162,7 +192,7 @@ fn credentials() -> Result<Value, String> {
                 &format!("Claude Code-credentials{suffix}"),
             ]),
             None,
-        )?;
+        ).map_err(|e| format!("Claude credential read: {e}"))?;
         serde_json::from_slice(&bytes).map_err(|_| "Claude credentials are unreadable.".into())
     }
     #[cfg(not(target_os = "macos"))]
@@ -235,9 +265,10 @@ fn bounded(command: &mut Command, input: Option<Vec<u8>>) -> Result<Vec<u8>, Str
     let _best_effort = writer.join();
     let _best_effort = reader.join();
     if !status.is_some_and(|s| s.success()) {
-        return Err(
-            "Claude reset service unavailable. Check your account connection or try later.".into(),
-        );
+        return Err(match status.and_then(|s| s.code()) {
+            Some(code) => format!("reader exited with code {code}."),
+            None => "reader ended without an exit status.".into(),
+        });
     }
     Ok(received.unwrap().unwrap())
 }
@@ -245,6 +276,17 @@ fn bounded(command: &mut Command, input: Option<Vec<u8>>) -> Result<Vec<u8>, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn http_status_identifies_auth_rate_limit_and_server_errors_without_leaking_bodies() {
+        for status in [401, 403, 429, 503] {
+            let error = response(format!("private account data\n{status}").as_bytes()).unwrap_err();
+            assert!(error.contains(&status.to_string()));
+            assert!(!error.contains("private"));
+        }
+        assert_eq!(response(b"{\"ok\":true}\n200").unwrap(), json!({"ok":true}));
+        assert!(response(b"private malformed response\n200").unwrap_err().contains("unreadable"));
+        assert!(response(b"secret\nnot a status").unwrap_err().contains("status unavailable"));
+    }
     #[test]
     fn bounded_reader_keeps_stderr_private_and_rejects_failed_or_oversized_output() {
         assert_eq!(
