@@ -49,6 +49,8 @@ use std::time::{Duration, Instant};
 
 /// What an assignment's record says once his team has it.
 pub const HANDED_OVER: &str = "Your team has it.";
+/// How the title line of a relayed assignment begins (F1): the front desk's label, not his words.
+pub const TITLE_LABEL: &str = "Title (the front desk's label for the job, not his words):";
 /// (s) rule 4 as it applies to an assignment: its turn's mouth was never recorded.
 pub const NO_ORIGIN_WORK: &str =
     "I can't tell where this was asked from, so I didn't hand it to your team. Ask me again at your desk.";
@@ -275,7 +277,10 @@ impl OperatorDesk {
         };
         let origin = Origin::of_turn(facts.source, facts.channel.as_deref());
         let title = self.origins.title(&record.thread_id).unwrap_or_default();
-        let text = format!("{}\n\nHis words, exactly as he said them:\n{}", record.title, facts.text);
+        // F1 of Frank's review: the title is the front desk's label, and the line says so
+        // itself, so a lead never takes it for his words (W2 r5a: a title was read as the
+        // instruction). His words come last, so everything after their marker is his, verbatim.
+        let text = format!("{TITLE_LABEL} {}\n\nHis words, exactly as he said them:\n{}", record.title, facts.text);
         match self.host.relay(&key, &title, Some(&record.id), &text, origin) {
             Ok(Relayed::Sent { .. }) => {
                 if let Err(e) = assignment::advance(&self.state_root, &record.entity_id, &record.thread_id, &record.id,
@@ -663,8 +668,9 @@ mod tests {
         let sent = sent(&d);
         assert_eq!(sent.len(), 1, "one relay: {sent:?}");
         assert!(sent[0].contains(&format!("Assignment handle: {}.", a.id)), "{}", sent[0]);
-        assert!(sent[0].contains("Land the pricing fix"), "{}", sent[0]);
-        assert!(sent[0].contains("His words, exactly as he said them:\nland the pricing fix on main"), "{}", sent[0]);
+        // F1: the title says it is the front desk's label, and his words are last, whole.
+        assert!(sent[0].ends_with("\n\nTitle (the front desk's label for the job, not his words): Land the pricing fix\
+                                   \n\nHis words, exactly as he said them:\nland the pricing fix on main"), "{}", sent[0]);
         assert_eq!(state_of(&d, &a), (AssignmentState::Running, HANDED_OVER.into()));
         let (key, _, _) = d.launcher.leads.lock().unwrap()[0].clone();
         assert_eq!(key.thread_id, "t-1");
