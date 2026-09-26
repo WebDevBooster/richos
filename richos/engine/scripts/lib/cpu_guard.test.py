@@ -40,6 +40,18 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(G.seconds('01:02.50'), 62.5)
         self.assertEqual(G.seconds('1-02:03:04'), 93784)
 
+    def test_staged_runtime_can_observe_orphans_without_the_source_checkout(self):
+        engine = Path(__file__).resolve().parents[2]
+        target = G.stage_runtime(engine, G.STATE / 'runtime')
+        code = ('import pathlib,sys,os; sys.path.insert(0,sys.argv[1]); '
+                'import cpu_guard,proc_tree; '
+                'assert pathlib.Path(proc_tree.__file__).parent == pathlib.Path(sys.argv[1]); '
+                'assert proc_tree._alive([os.getpid()]) == [os.getpid()]; '
+                'cpu_guard.HostMemory("/missing-source-checkout")')
+        result = subprocess.run([sys.executable, '-B', '-I', '-S', '-c', code, str(target.parent)],
+                                cwd=G.STATE, capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_sustained_load_and_unowned_process(self):
         self.root()
         watch = G.Watch()

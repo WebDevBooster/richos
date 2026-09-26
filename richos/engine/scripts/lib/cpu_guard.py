@@ -1039,16 +1039,22 @@ def watch(engine):
             time.sleep(INTERVAL)
 
 
-def install(engine):
-    if not os.path.ismount('/Volumes/E1TB'):
-        raise RuntimeError('Mount /Volumes/E1TB first')
-    runtime = STATE / 'runtime'
+def stage_runtime(engine, runtime):
+    """Copy every native observation/recovery dependency into the installed runtime."""
+    runtime = Path(runtime)
     runtime.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(Path(__file__).with_name('cpu_policy.py'), runtime / 'cpu_policy.py')
-    shutil.copy2(Path(__file__).with_name('operator_fences.py'), runtime / 'operator_fences.py')
+    for name in ('cpu_policy.py', 'operator_fences.py', 'proc_tree.py'):
+        shutil.copy2(Path(__file__).with_name(name), runtime / name)
     shutil.copy2(Path(engine).resolve().parent / 'app/scripts/testvm/reserve.py', runtime / 'reserve.py')
     target = runtime / 'cpu_guard.py'
     shutil.copy2(__file__, target)
+    return target
+
+
+def install(engine):
+    if not os.path.ismount('/Volumes/E1TB'):
+        raise RuntimeError('Mount /Volumes/E1TB first')
+    target = stage_runtime(engine, STATE / 'runtime')
     domain = 'gui/%s' % os.getuid()
     started = time.time()
     for label, action in [(LABEL + '.devices', 'watch-devices'), (LABEL, 'watch')]:
