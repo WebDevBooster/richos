@@ -5,8 +5,8 @@
 })(globalThis, function () {
   // Stands in for the running app while a synthetic policy is installed, so it mirrors the shipped
   // version and build in release-config.json (this file also runs in the page, where that file
-  // cannot be read synchronously). client-part2.test.js holds the two together; the offered
-  // release is the next minor version.
+  // cannot be read synchronously). client-part2.test.js holds the fixture to that file, which is
+  // the earlier iPhone app's own version and no other app's; the offered release is the next minor version.
   const client = { version: '1.0.0', build: '2', osVersion: '16.7.16', appId: '1234567890', storefront: 'GBR' };
   function policy(mode, revision = 1) {
     const now = Date.now();

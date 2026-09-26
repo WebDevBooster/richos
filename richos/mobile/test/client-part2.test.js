@@ -92,12 +92,13 @@ test('Release carries the hosted update-policy address; development keeps its lo
   assert.equal(configuration(file, false, 'Release').policyURL, 'https://policy-lab.example.net/v1/policy');
 });
 
-test('the iPhone and Android apps ship one version, the one in release-config.json', () => {
-  const { readFileSync } = require('node:fs'), { join } = require('node:path'), { compare } = require('../core/updates.js');
+// release-config.json is the earlier iPhone app's own version (richos/mobile/ios). The native iPhone
+// app sets its version in native-ios/project.yml and the Android app in native-android/app/
+// build.gradle.kts; nothing holds any of them to another (CEO ruling §91, 2026-09-26;
+// app/scripts/phone-apps-independent.test.sh).
+test('the development update fixture reports the version release-config.json ships and offers a newer one', () => {
+  const { compare } = require('../core/updates.js');
   const { version, build } = require('../release-config.json');
-  const setting = (file, pattern) => { const found = pattern.exec(readFileSync(join(__dirname, '..', file), 'utf8')); assert(found, `${file} sets no version`); return found[1]; };
-  assert.equal(setting('native-ios/project.yml', /^\s*MARKETING_VERSION:\s*"([^"]+)"/m), version, 'native iPhone MARKETING_VERSION');
-  assert.equal(setting('native-android/app/build.gradle.kts', /^\s*versionName\s*=\s*"([^"]+)"/m), version, 'native Android versionName');
   // The development update fixture stands in for the running app, so it reports the shipped identity
   // and offers a newer release.
   assert.deepEqual({ version: fixture.client.version, build: fixture.client.build }, { version, build }, 'dev/update-fixture.js client');
