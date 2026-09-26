@@ -1057,7 +1057,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "da175234c1b8872c5f86a4a5fb95a35b14a647f9f760ab6c029fe93e6455ba3b",
+      "sha256": "9742771d19d9d5f4c77a576c32c0b364019ecb5dce57303d093276c6606b38dc",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed.",
       "keys": [],
       "edges": [
@@ -1156,6 +1156,74 @@
           "to": "scripts/ci-verify.sh#stubbed-steps"
         }
       ]
+    },
+    "scripts/lib/pause_protocol.py": {
+      "source": "scripts/lib/pause_protocol.py",
+      "sha256": "fd5bbfe5320aed4a2e9d44ba2558eeb8e22c6bb7047412ae7b60e64c220efa5d",
+      "evidence": "Renders and validates strings using arguments and standard-library modules. No settings, filesystem or subprocess read occurs.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/quota_weekly.py#weekly-fixture": {
+      "source": "scripts/lib/quota_weekly.py",
+      "sha256": "9bd2e65fa1318ff43a0d0dbf96ff9abe8df363055e58c556b363f216733b51a1",
+      "evidence": "The weekly suite supplies readings, worker states and time as literals. Its reset_tick call patches subprocess.run; watcher cases patch reset_tick itself. No reset helper, live account or registry is contacted.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/pause_protocol.py"
+        }
+      ]
+    },
+    "scripts/lib/quota_watch.py#weekly-fixture": {
+      "source": "scripts/lib/quota_watch.py",
+      "sha256": "18047f7a75a35c3c2a169b8f93afa8bfc4f1ac8094fc96ef25ff002312b2517e",
+      "evidence": "The weekly suite calls _parse_reset and mode_watch with literal threshold/config arguments. mode_watch patches read_source, workers, time.time and weekly.reset_tick. Each reading triggers the weekly event before any sleep or five-hour path. No CLI wrapper, real config, usage API or registry code executes.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/quota_weekly.py#weekly-fixture"
+        },
+        {
+          "to": "scripts/lib/pause_protocol.py"
+        }
+      ]
+    },
+    "scripts/quota-weekly.test.sh": {
+      "source": "scripts/quota-weekly.test.sh",
+      "sha256": "7bde892a35a0cbc2f5e6ec018f8d6e4bc8ebd44ed04c90b5c71434676809083c",
+      "evidence": "All settings and time originate in the inline Python fixture. Reviewed imports and mocked subprocess/registry boundaries are explicit helper edges.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/quota_weekly.py#weekly-fixture"
+        },
+        {
+          "to": "scripts/lib/quota_watch.py#weekly-fixture"
+        },
+        {
+          "to": "scripts/lib/pause_protocol.py"
+        }
+      ]
+    },
+    "scripts/lib/foreign_app_data.py#source-scan": {
+      "source": "scripts/lib/foreign_app_data.py",
+      "sha256": "9fcafeaae9e177df0c15fc93b547b2aa08710f94f723e393d51239861859b00b",
+      "evidence": "The scan CLI reads source text and directory inventories, including every line of the real orchestration.config. Self-test uses literal source strings and path normalization. Other Bash guard operations are not called.",
+      "keys": [],
+      "edges": [],
+      "whole": "Static source policy scans the full real config: any value can introduce a forbidden path or command."
+    },
+    "scripts/no-foreign-app-data.test.sh": {
+      "source": "scripts/no-foreign-app-data.test.sh",
+      "sha256": "3c8ba416519da422c792fa59e7794386905314649778c6eec69b241c90737754",
+      "evidence": "F2 scans the real engine including orchestration.config. Remaining checks use literal private source fixtures or the self-test; none execute a scanned program.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/foreign_app_data.py#source-scan"
+        }
+      ]
     }
   },
   "units": {
@@ -1171,7 +1239,9 @@
     "scripts/affected-units.test.sh": "scripts/affected-units.test.sh",
     "scripts/install-ack-protocol.test.sh": "scripts/install-ack-protocol.test.sh",
     "scripts/install-escalation-protocol.test.sh": "scripts/install-escalation-protocol.test.sh",
-    "scripts/ci-verify.test.sh": "scripts/ci-verify.test.sh"
+    "scripts/ci-verify.test.sh": "scripts/ci-verify.test.sh",
+    "scripts/quota-weekly.test.sh": "scripts/quota-weekly.test.sh",
+    "scripts/no-foreign-app-data.test.sh": "scripts/no-foreign-app-data.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {

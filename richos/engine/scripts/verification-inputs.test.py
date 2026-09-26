@@ -330,6 +330,19 @@ class Closure(unittest.TestCase):
                 self.assertIn(unit, graph.config_units(inputs.config_change("MODEL_CEILING=a", "MODEL_CEILING=b"), [unit]))
                 document["nodes"][helper]["sha256"] = original
 
+    def test_weekly_policy_fixture_and_real_source_scan_have_different_inputs(self):
+        document = json.loads((HERE / "lib/verification-dependencies.json").read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        weekly = "scripts/quota-weekly.test.sh"
+        scan = "scripts/no-foreign-app-data.test.sh"
+        self.assertEqual(graph.closure(weekly), {"keys": {}, "whole": [], "presence": [], "fallback": []})
+        closure = graph.closure(scan)
+        self.assertEqual(closure["fallback"], [])
+        self.assertTrue(closure["whole"])
+        self.assertEqual(set(graph.config_units(inputs.config_change("QUOTA_PAUSE_PERCENT=93", "QUOTA_PAUSE_PERCENT=94"), [weekly, scan])), {scan})
+        document["nodes"]["scripts/lib/quota_watch.py#weekly-fixture"]["sha256"] = "changed"
+        self.assertIn(weekly, graph.config_units(inputs.config_change("MODEL_CEILING=a", "MODEL_CEILING=b"), [weekly]))
+
 
 if __name__ == "__main__":
     unittest.main()
