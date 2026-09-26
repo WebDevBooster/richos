@@ -6,7 +6,7 @@
 //! Every engine script runs from the DECLARED root (r3 (b), B9), seated in his entity, with his
 //! stored environment built from empty (`operator_declaration::script_environment`), bounded in
 //! time, in its own process group, and owned by pid: nothing here is ever selected by name.
-use crate::ecs::{Binding, EcsBridge};
+use crate::ecs::EcsBridge;
 use crate::operator_claim::{AppClaim, ClaimPlace, Kernel, ProcessId, ProcessTable};
 use crate::operator_declaration::{script_environment, Declaration, EngineFenceStatus, FenceStatus, Refusal};
 use crate::operator_host::{AgentLiveness, ConversationKey, ConversationPaths, Lane, LeadHandle, LeadLauncher,
@@ -355,22 +355,34 @@ impl LeadLauncher for ProfileLauncher {
 // closing an obligation: the engine's `operator-complete` (zach, contract §2.5)
 // =============================================================================================
 
-/// The conversation's current ECS binding, from whoever holds it (the spine, in the shell).
-pub type BindingSource = Box<dyn Fn(&ConversationKey) -> Option<Binding> + Send + Sync>;
+/// One request to the pinned engine's ECS store: a command and its fields in, the result or a
+/// sentence out. [`EcsBridge::request`] in production; a fake store in the tests, so this suite
+/// never needs a Python interpreter.
+pub type EcsCall = Box<dyn Fn(&str, Value) -> Result<Value, String> + Send + Sync>;
 
-/// [`Settle`] through the pinned engine's ECS app adapter.
+/// [`Settle`] through the pinned engine's ECS app adapter (zach's `operator-complete`, contract
+/// §2.5), on the CONVERSATION's own seat.
+///
+/// **The binding is the store's, read at the moment of closing.** The adapter's `fence` refuses
+/// any binding that is not the seat's current row (`engine/ecs/adapters/app.py` `fence`:
+/// *"stale app binding"*), and the front desk rebinds that row at every turn of his. So a
+/// binding kept from the turn that registered the work, or handed over by the spine, is stale
+/// by the time his team reports. The seat's own `current` is the one binding that cannot be.
 pub struct EcsSettle {
-    bridge: EcsBridge,
-    binding: BindingSource,
+    call: EcsCall,
 }
 
 impl EcsSettle {
-    pub fn new(bridge: EcsBridge, binding: BindingSource) -> Self {
-        EcsSettle { bridge, binding }
+    pub fn new(bridge: EcsBridge) -> Self {
+        Self::with(Box::new(move |command: &str, fields: Value| bridge.request(command, fields).map_err(|e| e.0)))
+    }
+
+    pub fn with(call: EcsCall) -> Self {
+        EcsSettle { call }
     }
 
     /// The request body, exactly the contract's fields (engine-rest-2026-09-25.md §2.5).
-    pub fn request_body(binding: &Binding, obligation_id: &str, source_ref: &str, status: &str, evidence: &[String],
+    pub fn request_body(binding: &Value, obligation_id: &str, source_ref: &str, status: &str, evidence: &[String],
                         answer_text: &str) -> Value {
         json!({"binding": binding, "obligation_id": obligation_id, "source_ref": source_ref, "status": status,
                "evidence": evidence, "answer_text": answer_text})
@@ -380,15 +392,28 @@ impl EcsSettle {
 impl Settle for EcsSettle {
     fn complete(&self, key: &ConversationKey, obligation_id: &str, source_ref: &str, status: &str,
                 evidence: &[String], answer_text: &str) -> Result<(), String> {
-        let binding = (self.binding)(key).ok_or("this conversation has no current binding to close it on")?;
-        let result = self.bridge.request("operator-complete",
-                                         Self::request_body(&binding, obligation_id, source_ref, status, evidence, answer_text))
-            .map_err(|e| e.0)?;
-        if result.get("obligation_closed").and_then(Value::as_bool) == Some(true) {
-            Ok(())
-        } else {
-            Err(format!("the engine did not close it ({result})"))
+        // His seat for this conversation, when the engine has per-thread seats: asked, never
+        // assumed, exactly as the front desk asks (`native.rs`'s `ceo_thread_seat`), because an
+        // older engine with one cursor would refuse a seat it does not have.
+        let hello = (self.call)("hello", json!({}))?;
+        let seats = hello["ceo_thread_seats"] == true && hello["ceo_seat_prefix"].as_str() == Some(crate::ecs::CEO_SEAT_PREFIX);
+        let seat = if seats { crate::ecs::ceo_seat(&key.thread_id) } else { None };
+        // The front desk rebinding between the read and the close is the one race; it is asked
+        // once more at the new binding, and never more than once.
+        for attempt in 0..2 {
+            let current = (self.call)("current", crate::ecs::seated_request(seat.as_deref(), json!({})))?;
+            let binding = current.get("binding").filter(|b| !b.is_null()).cloned()
+                .ok_or("this conversation has no current binding to close it on")?;
+            let body = crate::ecs::seated_request(seat.as_deref(),
+                Self::request_body(&binding, obligation_id, source_ref, status, evidence, answer_text));
+            match (self.call)("operator-complete", body) {
+                Ok(result) if result.get("obligation_closed").and_then(Value::as_bool) == Some(true) => return Ok(()),
+                Ok(result) => return Err(format!("the engine did not close it ({result})")),
+                Err(why) if attempt == 0 && why.contains("stale app binding") => continue,
+                Err(why) => return Err(why),
+            }
         }
+        Err("the conversation moved on twice while this was being closed".into())
     }
 }
 
@@ -601,14 +626,112 @@ mod tests {
 
     #[test]
     fn the_operator_complete_request_carries_exactly_the_contract_s_fields() {
-        let binding = Binding { entity_id: "femcboost".into(), thread_id: "t".into(), session_id: "s".into(),
-                                turn_id: "turn".into(), audience: "ceo".into(), revision: 3 };
+        let binding = serde_json::to_value(crate::ecs::Binding { entity_id: "femcboost".into(), thread_id: "t".into(),
+            session_id: "s".into(), turn_id: "turn".into(), audience: "ceo".into(), revision: 3 }).unwrap();
         let body = EcsSettle::request_body(&binding, "ob-1", "operator-report:claim:1", "completed",
                                            &["git:/r:main:abc".into()], "Done.");
         let mut keys: Vec<&str> = body.as_object().unwrap().keys().map(String::as_str).collect();
         keys.sort();
         assert_eq!(keys, ["answer_text", "binding", "evidence", "obligation_id", "source_ref", "status"]);
         assert_eq!(body["binding"]["revision"], 3);
+    }
+
+    /// A fake ECS store: answers `hello`, `current` and `operator-complete` the way the
+    /// engine's adapter does (`engine/ecs/adapters/app.py`), with the conversation's seat row
+    /// holding `revisions[i]` on the i-th `current`.
+    struct FakeStore {
+        seats: bool,
+        revisions: Mutex<Vec<Option<u64>>>,
+        stale_first: Mutex<bool>,
+        calls: Mutex<Vec<(String, Value)>>,
+    }
+    impl FakeStore {
+        fn new(seats: bool, revisions: Vec<Option<u64>>, stale_first: bool) -> Arc<Self> {
+            Arc::new(FakeStore { seats, revisions: Mutex::new(revisions), stale_first: Mutex::new(stale_first), calls: Mutex::new(Vec::new()) })
+        }
+        fn binding(revision: u64) -> Value {
+            json!({"entity_id": "femcboost", "thread_id": "t-9", "session_id": "desk-s", "turn_id": format!("turn-{revision}"),
+                   "audience": "ceo", "revision": revision})
+        }
+        fn call(self: &Arc<Self>) -> EcsCall {
+            let store = self.clone();
+            Box::new(move |command: &str, fields: Value| {
+                store.calls.lock().unwrap().push((command.to_string(), fields.clone()));
+                match command {
+                    "hello" => Ok(json!({"ceo_thread_seats": store.seats, "ceo_seat_prefix": crate::ecs::CEO_SEAT_PREFIX})),
+                    "current" => {
+                        let mut revisions = store.revisions.lock().unwrap();
+                        let next = if revisions.len() > 1 { revisions.remove(0) } else { revisions[0] };
+                        Ok(json!({"binding": next.map(Self::binding)}))
+                    }
+                    "operator-complete" => {
+                        if std::mem::replace(&mut *store.stale_first.lock().unwrap(), false) {
+                            return Err("stale app binding; reconcile in its original scope before retrying".into());
+                        }
+                        Ok(json!({"obligation_closed": true, "obligation_id": fields["obligation_id"], "duplicate": false}))
+                    }
+                    other => Err(format!("unexpected command {other}")),
+                }
+            })
+        }
+        fn sent(&self, command: &str) -> Vec<Value> {
+            self.calls.lock().unwrap().iter().filter(|(c, _)| c == command).map(|(_, f)| f.clone()).collect()
+        }
+    }
+
+    fn conversation() -> ConversationKey {
+        ConversationKey { entity_id: "femcboost".into(), thread_id: "t-9".into() }
+    }
+
+    /// **The settlement closes on the conversation's OWN seat, at that seat's live binding**
+    /// (zach's contract §2.5: *"Request, on the conversation's own seat (a work seat is
+    /// refused)"*; the adapter's `fence` refuses any binding that is not the seat's current
+    /// row, and an unseated request is fenced against `ceo-default`). The binding is asked of
+    /// the store at the moment of closing, because the front desk rebinds at every turn and a
+    /// binding kept from the register's turn would be stale by the time his team reports.
+    #[test]
+    fn the_settlement_names_the_conversation_s_seat_and_closes_at_its_live_binding() {
+        let store = FakeStore::new(true, vec![Some(7)], false);
+        let settle = EcsSettle::with(store.call());
+        settle.complete(&conversation(), "ob-1", "operator-report:c:1", "completed", &["answer:x".into()], "Done.").unwrap();
+        let current = store.sent("current");
+        assert_eq!(current.len(), 1);
+        assert_eq!(current[0]["seat"], "ceo-thread:t-9", "the live binding is read from the conversation's own seat");
+        let complete = store.sent("operator-complete");
+        assert_eq!(complete.len(), 1);
+        assert_eq!(complete[0]["seat"], "ceo-thread:t-9", "the close is fenced on the conversation's own seat: {}", complete[0]);
+        assert_eq!(complete[0]["binding"], FakeStore::binding(7));
+        assert_eq!(complete[0]["obligation_id"], "ob-1");
+    }
+
+    /// An engine without per-thread seats has one cursor, and a seated request would name a
+    /// row it does not have: the request carries no seat, as every call did before seats.
+    #[test]
+    fn an_engine_without_per_thread_seats_is_asked_without_a_seat() {
+        let store = FakeStore::new(false, vec![Some(3)], false);
+        EcsSettle::with(store.call()).complete(&conversation(), "ob-1", "s", "completed", &["answer:x".into()], "Done.").unwrap();
+        assert!(store.sent("current")[0].get("seat").is_none());
+        assert!(store.sent("operator-complete")[0].get("seat").is_none());
+    }
+
+    /// The front desk rebinding between the read and the close is the one race: the close is
+    /// asked once more at the new binding, and never more than once.
+    #[test]
+    fn a_rebind_between_the_read_and_the_close_is_retried_once_at_the_new_binding() {
+        let store = FakeStore::new(true, vec![Some(7), Some(8)], true);
+        EcsSettle::with(store.call()).complete(&conversation(), "ob-1", "s", "completed", &["answer:x".into()], "Done.").unwrap();
+        let complete = store.sent("operator-complete");
+        assert_eq!(complete.len(), 2);
+        assert_eq!(complete[1]["binding"], FakeStore::binding(8));
+    }
+
+    /// No binding on the seat is a sentence, never a close on some other cursor.
+    #[test]
+    fn a_conversation_the_store_has_no_binding_for_is_refused_in_a_sentence() {
+        let store = FakeStore::new(true, vec![None], false);
+        let err = EcsSettle::with(store.call()).complete(&conversation(), "ob-1", "s", "completed", &[], "Done.").unwrap_err();
+        assert!(err.contains("no current binding"), "{err}");
+        assert!(store.sent("operator-complete").is_empty());
     }
 
     // ---- delivery -------------------------------------------------------------------------
