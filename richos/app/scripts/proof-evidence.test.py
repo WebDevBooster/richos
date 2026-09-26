@@ -188,8 +188,9 @@ class Evidence(unittest.TestCase):
             path.write_text('#!/bin/bash\nprintf "' + name + '\\n" >> "$FIXTURE_COUNTER"\n')
             path.chmod(0o755)
         (self.root / "qualification.md").write_text("Fixture units append a label; no external content read.")
-        recipe = {"paths": ["richos/engine", "LICENSE"], "tools": ["bash", "python3", "git"],
-            "environment": ["PATH", "FIXTURE_COUNTER"], "external": [], "qualification": "qualification.md"}
+        recipe = {"paths": ["richos/engine", "richos/app/scripts", "LICENSE"], "tools": ["bash", "python3", "git"],
+            "environment": ["FIXTURE_COUNTER"], "external": [], "qualification": "qualification.md",
+            "isolation": evidence.PRIVATE_PROFILE}
         evidence.atomic(app / "proof-inputs.json", {"schema": 1,
             "checks": {"engine scripts/" + name + ".test.sh": recipe for name in ("alpha", "beta")}})
         def git(*args):
@@ -241,6 +242,66 @@ class Evidence(unittest.TestCase):
         git("commit", "-qm", "changed declared outside input")
         invoke("changed-input", "scripts/alpha.test.sh", "--reuse", str(target))
         self.assertEqual(counter.read_text().splitlines(), ["alpha", "beta", "alpha"])
+
+    def test_private_profile_drops_ambient_inputs_and_uses_fixed_fixture_seeds(self):
+        (self.root / "qualification.md").write_text("Controlled private profile fixture.")
+        recipe = {"paths": [], "tools": [], "environment": ["NAMED_INPUT"],
+            "external": ["FIXTURE_INPUT"], "qualification": "qualification.md",
+            "isolation": evidence.PRIVATE_PROFILE}
+        evidence.atomic(self.root / "richos/app/scripts/proof-inputs.json",
+                        {"schema": 1, "checks": {"check": recipe}})
+        external = Path(self.tmp.name) / "input"
+        external.write_text("first")
+        ambient = {**os.environ, "BASH_ENV": "/untrusted/startup", "PYTHONPATH": "/untrusted/imports",
+            "RICHOS_RUNTIME_DIR": "/untrusted/runtime", "NAMED_INPUT": "declared value",
+            "FIXTURE_INPUT": str(external), "SECRET_TOKEN": "must not reach test"}
+        identities = []
+        for name in ("one", "two"):
+            item = runner.Item("check", str(self.root), ["bash", "fixture.sh"])
+            item.env["RICHOS_RUNTIME_DIR"] = ambient["RICHOS_RUNTIME_DIR"]
+            directory = Path(self.tmp.name) / name
+            evidence.prepare_environment(item, self.root, directory, ambient)
+            env = runner.execution_environment(item)
+            self.assertFalse(set(env) & {"BASH_ENV", "PYTHONPATH", "SECRET_TOKEN", "RICHOS_RUNTIME_DIR"})
+            self.assertEqual(env["NAMED_INPUT"], "declared value")
+            self.assertEqual(Path(env["GIT_CONFIG_GLOBAL"]).read_text(), evidence.GIT_FIXTURE)
+            self.assertTrue(Path(env["TMPDIR"]).is_relative_to(directory))
+            result = subprocess.check_output(["python3", "-c",
+                "import sys; print(sys.flags.no_site, sys.flags.no_user_site)"], env=env, text=True)
+            self.assertEqual(result.strip(), "1 1")
+            program = ("import sys; sys.path.insert(0, " + repr(str(HERE.parents[1] / "engine/scripts/lib"))
+                       + "); import proc_tree; print(' '.join(proc_tree.command(['true'])))")
+            command = subprocess.check_output(["python3", "-c", program], env=env, text=True)
+            self.assertIn(" -S -s ", command, "nested supervision must preserve disabled site startup")
+            identities.append(evidence.recipe_identity(self.root, recipe, env))
+            # The coverage verifier reconstructs the profile without creating or
+            # replacing fixture state from a completed execution.
+            marker = Path(env["HOME"]) / "retained"
+            marker.write_text("execution output")
+            copy = runner.Item("check", str(self.root), ["bash", "fixture.sh"])
+            evidence.prepare_environment(copy, self.root, directory, ambient, create=False)
+            self.assertEqual(runner.execution_environment(copy), env)
+            self.assertEqual(marker.read_text(), "execution output")
+        self.assertEqual(*identities)
+        external.write_text("changed")
+        self.assertNotEqual(identities[0], evidence.recipe_identity(self.root, recipe, env))
+        external.write_text("first")
+        self.assertNotEqual(identities[0], evidence.recipe_identity(self.root, recipe, {**env, "NAMED_INPUT": "changed"}))
+
+    def test_python_runtime_binds_import_roots_and_ignores_disabled_site_packages(self):
+        library = Path(self.tmp.name) / "stdlib"
+        library.mkdir()
+        (library / "module.py").write_text("value = 1")
+        (library / "site-packages").mkdir()
+        ignored = library / "site-packages/disabled.pth"
+        ignored.write_text("disabled startup")
+        output = json.dumps({"version": "fixture", "paths": [str(library)], "prefix": str(library)})
+        with patch.object(evidence.subprocess, "run", return_value=SimpleNamespace(stdout=output)):
+            before = evidence.python_runtime("python3")
+            ignored.write_text("also disabled")
+            self.assertEqual(before, evidence.python_runtime("python3"))
+            (library / "module.py").write_text("value = 2")
+            self.assertNotEqual(before, evidence.python_runtime("python3"))
 
     def test_live_owner_prevents_resume_and_rotation(self):
         items, record = self.attempt("20260923T000000Z")

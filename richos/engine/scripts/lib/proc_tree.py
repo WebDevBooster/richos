@@ -120,7 +120,8 @@ SCOPE_ENV = "RICHOS_PROCESS_SCOPE"
 
 def command(argv, owner=None):
     """A separate supervisor survives the caller's SIGKILL and owns normal-exit cleanup too."""
-    return [sys.executable, os.path.abspath(__file__), "run", str(owner or os.getpid()), "--", *map(str, argv)]
+    flags = (["-S"] if sys.flags.no_site else []) + (["-s"] if sys.flags.no_user_site else [])
+    return [sys.executable, *flags, os.path.abspath(__file__), "run", str(owner or os.getpid()), "--", *map(str, argv)]
 
 
 def identity(pid):

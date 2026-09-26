@@ -10,7 +10,9 @@ import json
 import os
 from pathlib import Path
 import platform
+import shlex
 import shutil
+import subprocess
 import tempfile
 
 
@@ -63,6 +65,68 @@ def path_identity(path, ancestors=()):
     raise ValueError(f"unsupported input type: {path}")
 
 
+PRIVATE_PROFILE = "private-home-v1"
+GIT_FIXTURE = '[user]\n\tname = Verification Fixture\n\temail = verification@example.invalid\n'
+
+
+def python_runtime(executable):
+    """The private profile disables site startup; bind its remaining import roots."""
+    program = ('import json,sys,sysconfig; print(json.dumps({"version":sys.version,'
+               '"paths":[p for p in sys.path if p],"prefix":sys.base_prefix}))')
+    result = subprocess.run([executable, "-I", "-S", "-c", program],
+                            capture_output=True, text=True, timeout=15, check=True)
+    runtime = json.loads(result.stdout)
+    # -S excludes site-packages and .pth execution. Source imports ignore bytecode
+    # only when it is absent, so include existing bytecode as well as source.
+    def inputs(path):
+        path = Path(path)
+        if path.is_dir() and not path.is_symlink():
+            return {p.name: inputs(p) for p in sorted(path.iterdir())
+                    if p.name not in ("site-packages", "dist-packages")}
+        return path_identity(path)
+    runtime["paths"] = {p: digest(inputs(p)) for p in runtime["paths"]}
+    framework = Path(runtime["prefix"]) / "Python"
+    runtime["framework"] = path_identity(framework)
+    return runtime
+
+
+def prepare_environment(item, root, logdir, environment, create=True):
+    recipe = contract_for(root, item.label)
+    if not recipe.get("isolation"):
+        return
+    if recipe["isolation"] != PRIVATE_PROFILE:
+        raise ValueError("unsupported execution profile: " + recipe["isolation"])
+    private = Path(logdir).resolve() / "fixtures" / digest(item.label)
+    home, tmp = private / "home", private / "tmp"
+    tool_path = environment["PATH"]
+    python = shutil.which("python3", path=tool_path)
+    if not python:
+        raise ValueError("private execution profile requires python3")
+    if create:
+        home.mkdir(parents=True, mode=0o700)
+        tmp.mkdir(mode=0o700)
+        (home / ".claude/state").mkdir(parents=True)
+        (home / ".gitconfig").write_text(GIT_FIXTURE)
+        (private / "bin").mkdir(mode=0o700)
+        (private / "git-template").mkdir(mode=0o700)
+        wrapper = private / "bin/python3"
+        wrapper.write_text('#!/bin/sh\nexec ' + shlex.quote(python) + ' -s -S "$@"\n')
+        wrapper.chmod(0o700)
+    base = {"PATH": str(private / "bin") + os.pathsep + tool_path,
+        "RICHOS_VERIFICATION_TOOL_PATH": tool_path, "HOME": str(home), "TMPDIR": str(tmp),
+        "CLAUDE_CONFIG_DIR": str(home / ".claude"), "LANG": "C", "LC_ALL": "C", "TZ": "UTC",
+        "PYTHONDONTWRITEBYTECODE": "1", "PYTHONNOUSERSITE": "1", "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": str(home / ".gitconfig"), "GIT_TEMPLATE_DIR": str(private / "git-template"),
+        "RICHOS_VERIFICATION_FIXTURE_ROOT": str(private)}
+    # Only named stable inputs enter this profile. Per-run ownership/worker fields
+    # are attached by launch(), after this environment has been fingerprinted.
+    for name in set(recipe["environment"]) | set(recipe["external"]):
+        if name in environment and name not in base:
+            base[name] = environment[name]
+    item.private_environment = base
+    item.env = {key: value for key, value in item.env.items() if key in base}
+
+
 def recipe_identity(root, recipe, environment):
     """Validate the finite declaration, then fingerprint every declared input.
 
@@ -73,7 +137,7 @@ def recipe_identity(root, recipe, environment):
     if recipe.get("fresh"):
         return {"fresh": recipe["fresh"]}
     required = {"paths", "tools", "environment", "external", "qualification"}
-    if set(recipe) != required or not recipe["qualification"]:
+    if set(recipe) - {"isolation"} != required or not recipe["qualification"]:
         raise ValueError("incomplete verification input contract")
     root = Path(root).resolve()
     if not (root / recipe["qualification"]).is_file():
@@ -86,16 +150,32 @@ def recipe_identity(root, recipe, environment):
         paths[rel] = digest(path_identity(path))
     tools = {}
     for name in recipe["tools"]:
-        resolved = shutil.which(name, path=environment.get("PATH"))
+        resolved = shutil.which(name, path=environment.get("RICHOS_VERIFICATION_TOOL_PATH", environment.get("PATH")))
         tools[name] = ({"path": resolved, "input": path_identity(resolved)}
                        if resolved else {"absent": True})
+        if name == "python3" and resolved and recipe.get("isolation"):
+            tools[name]["runtime"] = python_runtime(resolved)
     external = {}
     for name in recipe["external"]:
         value = environment.get(name)
         external[name] = digest(path_identity(value)) if value else {"unset": True}
     values = {name: digest(environment[name]) if name in environment else None
               for name in recipe["environment"]}
-    return {"contract": digest(recipe), "paths": paths, "tools": tools,
+    profile = None
+    if recipe.get("isolation"):
+        if recipe["isolation"] != PRIVATE_PROFILE:
+            raise ValueError("unsupported execution profile")
+        private = environment.get("RICHOS_VERIFICATION_FIXTURE_ROOT")
+        if not private or environment.get("HOME") != str(Path(private) / "home"):
+            raise ValueError("qualified private execution environment is absent")
+        names = {"PATH", "HOME", "TMPDIR", "CLAUDE_CONFIG_DIR", "LANG", "LC_ALL", "TZ",
+                 "PYTHONDONTWRITEBYTECODE", "PYTHONNOUSERSITE", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL",
+                 "GIT_TEMPLATE_DIR", "RICHOS_VERIFICATION_TOOL_PATH", "RICHOS_VERIFICATION_FIXTURE_ROOT",
+                 *recipe["environment"], *recipe["external"]}
+        values = {name: digest(environment[name].replace(private, "$FIXTURE"))
+                  if name in environment else None for name in names}
+        profile = {"name": PRIVATE_PROFILE, "git_fixture": digest(GIT_FIXTURE)}
+    return {"contract": digest(recipe), "paths": paths, "tools": tools, "profile": profile,
             "environment": values, "external": external,
             "platform": [platform.system(), platform.release(), platform.machine(), platform.mac_ver()[0]]}
 
@@ -337,6 +417,8 @@ def verify_target_receipts(directory, rows, root):
     outcomes = json.loads((directory / "outcomes.json").read_text())
     items = [decode_item(row, runner.Item, root, directory) for row in plan["items"]]
     runner.supply_runtime(items)
+    for item in items:
+        prepare_environment(item, root, directory, runner.execution_environment(item), create=False)
     units = {item.argv[item.argv.index("--only-units") + 1]: item
              for item in items if item.engine_unit}
     if len(units) != sum(item.engine_unit for item in items):

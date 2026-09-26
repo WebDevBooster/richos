@@ -376,6 +376,8 @@ def slug(label):
 
 
 def execution_environment(item):
+    if hasattr(item, "private_environment"):
+        return {**item.private_environment, **item.env}
     env = {**os.environ, **item.env}
     path = env.get("PATH", "").split(os.pathsep)
     for extra in (os.path.join(os.path.expanduser("~"), ".cargo", "bin"), "/opt/homebrew/bin", "/usr/local/bin"):
@@ -412,6 +414,8 @@ def launch(item, n, logdir, tokens_dir, reserved):
            "RICHOS_WORKER_TOKENS_RESERVED": str(reserved),
            "RICHOS_MACHINE_WORKERS": item.machine_tokens, "RICHOS_WORKER_SLOT_HELD": "1",
            "RICHOS_WORKER_BORROW_LOCK": item.token.path + ".child"}
+    if os.environ.get(proc_tree.SCOPE_ENV):
+        env[proc_tree.SCOPE_ENV] = os.environ[proc_tree.SCOPE_ENV]
     if item.engine_unit:
         env["RICHOS_VERIFICATION_UNIT"] = item.argv[item.argv.index("--only-units") + 1]
         env["RICHOS_VERIFICATION_RUNNER_WAIT"] = json.dumps(item.wait_times)
@@ -422,7 +426,10 @@ def launch(item, n, logdir, tokens_dir, reserved):
     if evidence:
         evidence.save(item, evidence.current_source())
     try:
-        item.proc = subprocess.Popen(proc_tree.command(item.argv), cwd=item.cwd, stdout=fh, stderr=subprocess.STDOUT,
+        command = proc_tree.command(item.argv)
+        if hasattr(item, "private_environment"):
+            command[0] = "python3"  # The recipe's fingerprinted -s -S wrapper also covers supervision.
+        item.proc = subprocess.Popen(command, cwd=item.cwd, stdout=fh, stderr=subprocess.STDOUT,
                                      stdin=subprocess.DEVNULL, start_new_session=True, env=env,
                                      pass_fds=tuple(item.token.fds) + tuple(getattr(item, "slot_fds", ()))
                                      + ((evidence.lease.fd,) if evidence else ()))
@@ -1064,6 +1071,8 @@ def main(argv=None):
     before = source_identity()
     with open(os.path.join(logdir, "source.json"), "w") as out:
         json.dump(before, out, indent=2)
+    for item in items:
+        proof_evidence.prepare_environment(item, ROOT, logdir, execution_environment(item))
     def identity(item):
         return input_identity(item, args, logdir)
 
