@@ -210,7 +210,7 @@ _section() { # <section-id>
 # operator's pointer at a temp directory that is deleted seconds later, leaving
 # a dangling symlink on the machine. Observed, once, before the variable
 # existed — which is also how BR6b's dangling-pointer branch got written.
-CLAUDE_CONFIG_DIR="$(mktemp -d -t contract-integrity-cfg.XXXXXX)"
+CLAUDE_CONFIG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/contract-integrity-cfg.XXXXXX")"
 export CLAUDE_CONFIG_DIR
 trap 'rm -rf "$CLAUDE_CONFIG_DIR"' EXIT
 
@@ -982,7 +982,7 @@ init_sandbox_repo() { # <root>
 build_sandbox_template() {
     local root _ts0 _ts1 _ts2 _ts3 _ts4 _ts5
     _ts0="$(_t)"
-    root="$(mktemp -d -t contract-integrity-template.XXXXXX)"
+    root="$(mktemp -d "${TMPDIR:-/tmp}/contract-integrity-template.XXXXXX")"
     mkdir -p "$root/scripts/hooks" "$root/scripts/lib" "$root/.claude/state"
     cp "$SCRIPT_DIR/install.sh" "$root/scripts/hooks/"
     cp "$SCRIPT_DIR/contract-integrity-probe.sh" "$root/scripts/hooks/"
@@ -1047,7 +1047,7 @@ SANDBOX_TEMPLATE="$(build_sandbox_template)"
 [ -d "$SANDBOX_TEMPLATE" ] || { echo "FATAL: the sandbox template was not built — refusing to run a suite whose cases would each verify an empty directory" >&2; exit 1; }
 trap 'rm -rf "$CLAUDE_CONFIG_DIR" "$SANDBOX_TEMPLATE"' EXIT
 
-_CLONE_PROBE="$(mktemp -d -t contract-integrity-clonetest.XXXXXX)"
+_CLONE_PROBE="$(mktemp -d "${TMPDIR:-/tmp}/contract-integrity-clonetest.XXXXXX")"
 if cp -c -R "$SANDBOX_TEMPLATE/." "$_CLONE_PROBE/" 2>/dev/null; then
     SANDBOX_COPY_FLAGS="-c -R"
 else
@@ -1066,7 +1066,7 @@ clone_sandbox_into() { # <existing-directory>
 make_sandbox() {
     local root _ts0 _ts1
     _ts0="$(_t)"
-    root="$(mktemp -d -t contract-integrity.XXXXXX)"
+    root="$(mktemp -d "${TMPDIR:-/tmp}/contract-integrity.XXXXXX")"
     clone_sandbox_into "$root"
     _ts1="$(_t)"
     _trec sandbox "$_ts0" "$_ts1" TOTAL
@@ -1722,7 +1722,7 @@ rm -rf "$ROOT"
 #
 # Under a second, because it needs no sandbox: the clauses are about the
 # CONTENT of the file install.sh writes, and content can be crafted.
-C7M_LOG="$(mktemp -t case7-mutations.XXXXXX)"
+C7M_LOG="$(mktemp "${TMPDIR:-/tmp}/case7-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/contract-integrity-case7.mutation.sh" >"$C7M_LOG" 2>&1; rc=$?; set -e
 emit_case "7m.install-write-scope-mutations-all-load-bearing" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
@@ -1822,7 +1822,7 @@ fi  # _section — M
 if _section shim; then
 # Case 8 — Shim at non-canonical path with matching filename → FAIL.
 ROOT="$(make_sandbox)"
-SHIMDIR="$(mktemp -d -t shim.XXXXXX)"
+SHIMDIR="$(mktemp -d "${TMPDIR:-/tmp}/shim.XXXXXX")"
 SHIM="$SHIMDIR/guard-main-checkout-writes.sh"
 cat >"$SHIM" <<'SHIM_SH'
 #!/usr/bin/env bash
@@ -1851,7 +1851,7 @@ rm -rf "$ROOT"
 
 # Case 10 — Hook command points to symlink whose target is outside repo → FAIL.
 ROOT="$(make_sandbox)"
-OUTSIDE="$(mktemp -d -t outside.XXXXXX)"
+OUTSIDE="$(mktemp -d "${TMPDIR:-/tmp}/outside.XXXXXX")"
 cat >"$OUTSIDE/g.sh" <<'OUT_SH'
 #!/usr/bin/env bash
 exit 0
@@ -1870,7 +1870,7 @@ GUARD_ABS="$ROOT/scripts/hooks/guard-main-checkout-writes.sh"
 set_guard_command "$ROOT/.claude/settings.local.json" "$GUARD_ABS --flag"
 set +e; run_probe_in "$ROOT" >/dev/null; rc=$?; set -e
 emit_case "11.canonical-with-trailing-args-passes" 0 "$rc"
-SHIMDIR="$(mktemp -d -t shim.XXXXXX)"
+SHIMDIR="$(mktemp -d "${TMPDIR:-/tmp}/shim.XXXXXX")"
 SHIM="$SHIMDIR/guard-main-checkout-writes.sh"
 cp "$GUARD_ABS" "$SHIM"
 set_guard_command "$ROOT/.claude/settings.local.json" "$SHIM --flag"
@@ -2005,7 +2005,7 @@ fi  # _section — manifest
 # ---------------------------------------------------------------------------
 make_git_main() {
     local root
-    root="$(cd "$(mktemp -d -t contract-integrity-git.XXXXXX)" && pwd -P)"
+    root="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/contract-integrity-git.XXXXXX")" && pwd -P)"
     # The same skeleton make_sandbox produces, from the same template. This
     # function used to carry its own copy of the inventory -- a second hand-
     # maintained list of the engine's files, in the suite whose entire subject
@@ -2108,7 +2108,7 @@ rm -rf "$MAIN"
 fi  # _section — worktree
 
 if _section N; then
-NOIGNORE_CFG="$(mktemp -t contract-integrity-noignore.XXXXXX)"
+NOIGNORE_CFG="$(mktemp "${TMPDIR:-/tmp}/contract-integrity-noignore.XXXXXX")"
 # AND AN IDENTITY, because this throwaway config REPLACES the global one for
 # the whole probe invocation below, not just for the ignore lookup.
 #
@@ -2182,7 +2182,7 @@ fi  # _section — N
 # external tool these scripts need EXCEPT python3.
 make_fakebin_no_python3() {
     local dir
-    dir="$(mktemp -d -t fakebin-no-python3.XXXXXX)"
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/fakebin-no-python3.XXXXXX")"
     local tools="cat grep sed cut tr date mkdir git mktemp basename dirname rm ln awk sort uniq wc head tail shasum sha256sum env mv"
     local t p
     for t in $tools; do
@@ -2573,7 +2573,7 @@ rm -rf "$ROOT"
 # The trailing `|| true` is IP7's and is not decoration: errexit is live here,
 # a grep that matches nothing exits 1, and a no-match must not take the run
 # down before the summary that names the red case.
-C40_LOG="$(mktemp -t definition-drift-suite.XXXXXX)"
+C40_LOG="$(mktemp "${TMPDIR:-/tmp}/definition-drift-suite.XXXXXX")"
 set +e; "$SCRIPT_DIR/guard-definition-drift.test.sh" >"$C40_LOG" 2>&1; rc=$?; set -e
 emit_case "40.definition-drift-guard-suite-passes" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
@@ -2624,7 +2624,7 @@ rm -rf "$ROOT"
 # an identity guard in the operator's core.hooksPath refused the fixture's seed
 # commit). The canary commits with GIT_CONFIG_GLOBAL=/dev/null; 41f removes that
 # from the seed commit and the probe must fail AND say the canary did not run.
-HOSTILE_DIR="$(mktemp -d -t contract-integrity-hostile.XXXXXX)"
+HOSTILE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/contract-integrity-hostile.XXXXXX")"
 mkdir -p "$HOSTILE_DIR/hooks"
 printf '#!/bin/sh\necho "ambient pre-commit hook refuses this commit" >&2\nexit 1\n' > "$HOSTILE_DIR/hooks/pre-commit"
 chmod +x "$HOSTILE_DIR/hooks/pre-commit"
@@ -2830,7 +2830,7 @@ rm -rf "$ROOT"
 
 # Case 48 — the registry's OWN suite (a test per numbered point) passes.
 # Output KEPT on failure, with case 40's filter and for its reason.
-C48_LOG="$(mktemp -t workspace-registry-suite.XXXXXX)"
+C48_LOG="$(mktemp "${TMPDIR:-/tmp}/workspace-registry-suite.XXXXXX")"
 set +e; RICHOS_MUTATION_INNER=1 "$SCRIPT_DIR/../../mega-lander/tests/workspaces.test.sh" >"$C48_LOG" 2>&1; rc=$?; set -e
 emit_case "48.workspace-registry-suite-passes" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
@@ -2935,7 +2935,7 @@ rm -rf "$ROOT"
 
 # Case 53 — the end-to-end demonstration through the real hooks passes.
 # Output KEPT on failure, with case 40's filter and for its reason.
-C53_LOG="$(mktemp -t workspace-e2e-suite.XXXXXX)"
+C53_LOG="$(mktemp "${TMPDIR:-/tmp}/workspace-e2e-suite.XXXXXX")"
 set +e; RICHOS_MUTATION_INNER=1 "$SCRIPT_DIR/../../mega-lander/tests/workspaces-e2e.test.sh" >"$C53_LOG" 2>&1; rc=$?; set -e
 emit_case "53.workspace-spec-end-to-end-passes" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
@@ -3150,7 +3150,7 @@ rm -rf "$ROOT"
 # the mutation harness that proves that suite can fail, both against the live
 # scripts. Case 48 does the same for the reaper wrapper.
 # Output KEPT on failure, with case 40's filter and for its reason.
-IP6_LOG="$(mktemp -t interactive-prompt-suite.XXXXXX)"
+IP6_LOG="$(mktemp "${TMPDIR:-/tmp}/interactive-prompt-suite.XXXXXX")"
 set +e; "$SCRIPT_DIR/guard-interactive-prompt.test.sh" >"$IP6_LOG" 2>&1; rc=$?; set -e
 emit_case "IP6.interactive-prompt-guard-suite-passes" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
@@ -3172,7 +3172,7 @@ rm -f "$IP6_LOG"
 # The trailing `|| true` is not decoration either: errexit is live here, a grep
 # that matches nothing exits 1, and a no-match must not take the run down
 # before the summary that names the red case.
-IP7_LOG="$(mktemp -t interactive-prompt-mutations.XXXXXX)"
+IP7_LOG="$(mktemp "${TMPDIR:-/tmp}/interactive-prompt-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/interactive-prompt.mutation.sh" >"$IP7_LOG" 2>&1; rc=$?; set -e
 emit_case "IP7.interactive-prompt-mutations-all-load-bearing" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
@@ -3299,7 +3299,7 @@ rm -rf "$ROOT"
 # over a term that disarmed it, and a mutation run is the only thing that asks
 # whether a green tick is load-bearing.
 # Output KEPT on failure, with case 40's filter and for its reason.
-IL6_LOG="$(mktemp -t idle-land-suite.XXXXXX)"
+IL6_LOG="$(mktemp "${TMPDIR:-/tmp}/idle-land-suite.XXXXXX")"
 set +e; "$SCRIPT_DIR/guard-idle-land.test.sh" >"$IL6_LOG" 2>&1; rc=$?; set -e
 emit_case "IL6.idle-land-gate-suite-passes" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
@@ -3307,7 +3307,7 @@ if [ "$rc" -ne 0 ]; then
 fi
 rm -f "$IL6_LOG"
 # Output KEPT on failure, with IP7's anchor and for IP7's reason.
-IL7_LOG="$(mktemp -t idle-land-mutations.XXXXXX)"
+IL7_LOG="$(mktemp "${TMPDIR:-/tmp}/idle-land-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/idle-land.mutation.sh" >"$IL7_LOG" 2>&1; rc=$?; set -e
 emit_case "IL7.idle-land-mutations-all-load-bearing" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
@@ -3332,7 +3332,7 @@ if _section CL; then
 # "a false claim is refused" — a gate that refuses everything passes it. One of
 # the mutations empties the integration ref list precisely so a TRUE landing
 # claim gets refused, and asserts that the POSITIVE case goes red.
-CL1_LOG="$(mktemp -t claim-gate.XXXXXX)"
+CL1_LOG="$(mktemp "${TMPDIR:-/tmp}/claim-gate.XXXXXX")"
 set +e; "$SCRIPT_DIR/guard-unresolved-claims.test.sh" >"$CL1_LOG" 2>&1; rc=$?; set -e
 emit_case "CL1.claim-gate-suite-passes" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
@@ -3360,7 +3360,7 @@ rm -f "$CL1_LOG"
 # point of keeping the output. The exclusion form also keeps two things the old
 # anchor dropped on an ORDINARY failure: the 10-space `why` continuation under
 # each FAIL row, and the closing `N mutant(s) killed, M survived or misfired`.
-CL2_LOG="$(mktemp -t claim-mutations.XXXXXX)"
+CL2_LOG="$(mktemp "${TMPDIR:-/tmp}/claim-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/claim-roles.mutation.sh" >"$CL2_LOG" 2>&1; rc=$?; set -e
 emit_case "CL2.claim-gate-mutations-all-load-bearing" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
@@ -3378,7 +3378,7 @@ if _section RI; then
 # scripts/lib/git-jurisdiction.sh and so ran a guard that REFUSED TO START, which
 # reads exactly like a guard that caught the mutation.
 # Output KEPT on failure, with case 40's filter and for its reason.
-RI1_LOG="$(mktemp -t resume-isolation-suite.XXXXXX)"
+RI1_LOG="$(mktemp "${TMPDIR:-/tmp}/resume-isolation-suite.XXXXXX")"
 set +e; "$SCRIPT_DIR/guard-resume-isolation.test.sh" >"$RI1_LOG" 2>&1; rc=$?; set -e
 emit_case "RI1.resume-isolation-suite-passes" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
@@ -3386,7 +3386,7 @@ if [ "$rc" -ne 0 ]; then
 fi
 rm -f "$RI1_LOG"
 # Output KEPT on failure, with IP7's anchor and for IP7's reason.
-RI2_LOG="$(mktemp -t resume-isolation-mutations.XXXXXX)"
+RI2_LOG="$(mktemp "${TMPDIR:-/tmp}/resume-isolation-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/guard-resume-isolation.mutation.sh" >"$RI2_LOG" 2>&1; rc=$?; set -e
 emit_case "RI2.resume-isolation-mutations-all-load-bearing" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
@@ -3395,7 +3395,7 @@ if [ "$rc" -ne 0 ]; then
 fi
 rm -f "$RI2_LOG"
 # Output KEPT on failure, with IP7's anchor and for IP7's reason.
-IN2_LOG="$(mktemp -t inflight-notify-mutations.XXXXXX)"
+IN2_LOG="$(mktemp "${TMPDIR:-/tmp}/inflight-notify-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/inflight-notify.mutation.sh" >"$IN2_LOG" 2>&1; rc=$?; set -e
 emit_case "IN2.inflight-notify-mutations-all-load-bearing" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
@@ -3418,7 +3418,7 @@ if _section WTR; then
 # false-firing is to stop it firing. The harness's M6 mutant is the arm that
 # refuses that shortcut. An unrun mutant refuses nothing.
 # Output KEPT on failure, with IP7's anchor and for IP7's reason.
-WTR1_LOG="$(mktemp -t worktree-removal-mutations.XXXXXX)"
+WTR1_LOG="$(mktemp "${TMPDIR:-/tmp}/worktree-removal-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/guard-worktree-removal.mutation.sh" >"$WTR1_LOG" 2>&1; rc=$?; set -e
 emit_case "WTR1.worktree-removal-mutations-all-load-bearing" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
@@ -3655,7 +3655,7 @@ if _section MC6; then
 # and said nothing", which a hook that never ran also satisfies — so the mutants
 # are the only thing standing between this guard and a permanent false green.
 # Output KEPT on failure, with IP7's anchor and for IP7's reason.
-MC6_LOG="$(mktemp -t model-ceiling-mutations.XXXXXX)"
+MC6_LOG="$(mktemp "${TMPDIR:-/tmp}/model-ceiling-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/guard-model-ceiling.mutation.sh" >"$MC6_LOG" 2>&1; rc=$?; set -e
 emit_case "MC6.model-ceiling-mutations-all-load-bearing" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
@@ -3689,7 +3689,7 @@ if _section WTI; then
 # ask the red run which of the 23 mutants had survived. Diagnosis is not a fix
 # and this is not one; it is the difference between a red CI that says what
 # happened and a red CI that says only that it is red.
-WTI1_LOG="$(mktemp -t staffing-mutations.XXXXXX)"
+WTI1_LOG="$(mktemp "${TMPDIR:-/tmp}/staffing-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/guard-worktree-isolation.mutation.sh" >"$WTI1_LOG" 2>&1; rc=$?; set -e
 emit_case "WTI1.staffing-gate-mutations-all-load-bearing" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
@@ -3711,7 +3711,7 @@ if _section MF; then
 # discovery. Unregistered, it is itself an `unrun-harness` finding of the very
 # sweep it proves, and the sweep will write that row.
 # Output KEPT on failure, with IP7's anchor and for IP7's reason.
-MF1_LOG="$(mktemp -t mechanical-findings-mutations.XXXXXX)"
+MF1_LOG="$(mktemp "${TMPDIR:-/tmp}/mechanical-findings-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/mechanical-findings.mutation.sh" >"$MF1_LOG" 2>&1; rc=$?; set -e
 emit_case "MF1.mechanical-findings-mutations-all-load-bearing" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
@@ -3730,7 +3730,7 @@ if _section SA; then
 # one that refuses nothing. The harness carries both kinds of mutant, and an
 # unrun mutant refuses nothing. Output KEPT on failure, for CL2's reason.
 # Output KEPT on failure, with case 40's filter and for its reason.
-SA1_LOG="$(mktemp -t stated-actions-suite.XXXXXX)"
+SA1_LOG="$(mktemp "${TMPDIR:-/tmp}/stated-actions-suite.XXXXXX")"
 set +e; "$SCRIPT_DIR/../../ass-kicker/tests/guard-stated-actions.test.sh" >"$SA1_LOG" 2>&1; rc=$?; set -e
 emit_case "SA1.stated-actions-gate-suite-passes" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
@@ -3745,7 +3745,7 @@ rm -f "$SA1_LOG"
 # with a python3-less harness: `FATAL: python3 required` reached the report zero
 # times. The anchor also dropped the `why` continuation and the closing
 # `x N/M properties are NOT load-bearing` line on an ordinary failure.
-SA2_LOG="$(mktemp -t stated-actions-mutations.XXXXXX)"
+SA2_LOG="$(mktemp "${TMPDIR:-/tmp}/stated-actions-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/../../ass-kicker/tests/stated-actions.mutation.sh" >"$SA2_LOG" 2>&1; rc=$?; set -e
 emit_case "SA2.stated-actions-mutations-all-load-bearing" 0 "$rc"
 if [ "$rc" -ne 0 ]; then
@@ -3774,7 +3774,7 @@ if _section SCR; then
 # on a schedule, at 04:40, where nobody is watching. The reverse direction is
 # deliberately NOT checked: a declared value the code has stopped reading is
 # dead config, not a deleter that stopped working.
-SCR1_LOG="$(mktemp -t scratch-reaper-suite.XXXXXX)"
+SCR1_LOG="$(mktemp "${TMPDIR:-/tmp}/scratch-reaper-suite.XXXXXX")"
 set +e; "$SCRIPT_DIR/../scratch-reaper.test.sh" >"$SCR1_LOG" 2>&1; rc=$?; set -e
 emit_case "SCR1.scratch-reaper-suite-and-mutations-pass" 0 "$rc"
 if [ "$rc" -ne 0 ]; then

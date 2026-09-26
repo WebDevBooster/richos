@@ -35,27 +35,34 @@
 #   R9  `app` with a good receipt and no signing key refuses
 #   R10 `verify-release` with nothing staged refuses
 #
-# WHAT THIS SUITE READS, declared for `run-tests.sh --skip-unchanged`. Measured at 157.5 s
-# of a 950 s build (2026-09-19); the bulk of it is the four `make-release.sh app` cases,
-# each of which runs the privacy gate over every tracked file before it reaches the refusal
-# it is named after. Its inputs are therefore `make-release.sh` and the scripts it calls
-# (`package-app.sh`, `make-engine-asset.sh`), the app manifest it reads the version out of,
-# the engine VERSION it builds the asset name from, and the privacy gate under
-# `engine/scripts`. A DELIBERATE SUPERSET: `richos/app/scripts` is taken whole rather than
-# the three files named. The line lives here rather than in run-tests.sh because a suite is
-# the only thing that knows what it reads.
-# run-tests: inputs richos/app/scripts richos/app/src-tauri/Cargo.toml richos/engine/VERSION richos/engine/scripts
+# The refusal journeys use the real release script and names gate in a small tracked
+# tree. Scanning the entire working repository four times tests no additional ordering
+# behavior. A planted hit below proves the real gate still refuses before the pin check.
+# Full-tree privacy remains a production release gate and has its own owning suite.
+# run-tests: inputs richos/app/scripts/make-release.sh richos/app/scripts/lib/worktree-resource.sh richos/app/src-tauri/Cargo.toml richos/app/src-tauri/tauri.conf.json richos/engine/VERSION richos/engine/scripts/named-persons.sh richos/engine/scripts/lib/named-persons.sh richos/engine/scripts/lib/named-persons.py
 # run-tests: covers richos/app/scripts/make-release.sh
 set -uo pipefail
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP="$(cd "$SRC_DIR/.." && pwd)"
-SCRIPT="$SRC_DIR/make-release.sh"
 
 TMP="$(python3 -c 'import tempfile; print(tempfile.mkdtemp(prefix="make-release-test-"))')"
 SERVER_PID=""
 cleanup() { [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null; rm -rf "$TMP"; }
 trap cleanup EXIT
+
+FIXTURE="$TMP/repo"
+mkdir -p "$FIXTURE/richos/app/scripts" "$FIXTURE/richos/app/src-tauri" \
+         "$FIXTURE/richos/engine/scripts/lib"
+cp "$SRC_DIR/make-release.sh" "$FIXTURE/richos/app/scripts/"
+cp "$APP/src-tauri/Cargo.toml" "$APP/src-tauri/tauri.conf.json" "$FIXTURE/richos/app/src-tauri/"
+cp "$APP/../engine/VERSION" "$FIXTURE/richos/engine/"
+cp "$APP/../engine/scripts/named-persons.sh" "$FIXTURE/richos/engine/scripts/"
+cp "$APP/../engine/scripts/lib/named-persons.sh" "$APP/../engine/scripts/lib/named-persons.py" \
+   "$FIXTURE/richos/engine/scripts/lib/"
+git -C "$FIXTURE" init -q
+git -C "$FIXTURE" add .
+SCRIPT="$FIXTURE/richos/app/scripts/make-release.sh"
 
 PASS=0; FAIL=0
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
@@ -210,6 +217,20 @@ elif printf '%s' "$OUT" | grep -Fq "no pin at"; then
       "it reached the pin check as well — the gate did not stop the run"
 else
   ok "R5a app with no deny-list refuses at the names gate, before the pin"
+fi
+
+# A real tracked hit must also stop before the pin. No gate stub or skip flag is used.
+printf 'Aster Quill\n' > "$FIXTURE/fixture-name.txt"
+git -C "$FIXTURE" add fixture-name.txt
+printf 'Aster Quill\n' > "$TMP/matching-list"
+chmod 600 "$TMP/matching-list"
+run "${APP_ENV[@]}" RICHOS_NAMED_PERSONS_FILE="$TMP/matching-list" \
+        bash "$SCRIPT" app --tag "$TAG" --out "$NOPIN"
+if [ "$CODE" = 1 ] && printf '%s' "$OUT" | grep -Fq 'NAMED-PERSON DENY-LIST: BLOCKED' \
+   && ! printf '%s' "$OUT" | grep -Fq 'no pin at'; then
+  ok "R5b a tracked name refuses at the real names gate, before the pin"
+else
+  bad "R5b a tracked name refuses at the real names gate, before the pin" "exit $CODE; $OUT"
 fi
 
 run "${APP_ENV[@]}" RICHOS_NAMED_PERSONS_FILE="$NPLIST" \

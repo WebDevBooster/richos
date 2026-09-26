@@ -264,15 +264,17 @@ else
         "found $REAL_TP — a vendored work has lost its notice; see docs/legal/THIRD-PARTY-NOTICES.md"
 fi
 
-OUT="$(bash "$SCRIPT" --out "$WORK/real-out" --check 2>&1)"; CODE=$?
+# Two real builds cover both content and determinism. The --check control flow
+# is separately exercised by L20-L22 on the small fixture below.
+OUT="$(umask 022; TZ=Asia/Tokyo bash "$SCRIPT" --out "$WORK/real-out" 2>&1)"; CODE=$?
 REAL_TARBALL="$(ls "$WORK/real-out"/richos-engine-*.tar.gz 2>/dev/null | head -1)"
 RX="$WORK/real-x"; mkdir -p "$RX"
 [ -n "$REAL_TARBALL" ] && /usr/bin/tar -x -z --no-same-owner -f "$REAL_TARBALL" -C "$RX" 2>/dev/null
 SHIPPED="$(/usr/bin/shasum -a 256 "$RX/engine/LICENSE" 2>/dev/null | awk '{print $1}')"
 if [ "$CODE" -eq 0 ] && [ "$SHIPPED" = "$CANON_SHA" ]; then
-    ok "L12 the real archive builds deterministically and carries the canonical LICENSE"
+    ok "L12 the real archive builds and carries the canonical LICENSE"
 else
-    bad "L12 the real archive builds deterministically and carries the canonical LICENSE" \
+    bad "L12 the real archive builds and carries the canonical LICENSE" \
         "exit $CODE, shipped sha256 ${SHIPPED:-<absent>}: $(printf '%s' "$OUT" | tail -1)"
 fi
 
@@ -288,18 +290,18 @@ fi
 #   TZ     `date -u` printed the mtime stamp in UTC and `touch -t` read it back in the LOCAL
 #          zone, so the archive's timestamps moved with wherever the Mac was.
 #
-# This case runs the real script twice with both variables deliberately opposed. It is the
-# case that fails if `--check` is ever quietly reduced to running the same build twice.
-E1="$WORK/env-a"; E2="$WORK/env-b"
-( umask 077; TZ=UTC       bash "$SCRIPT" --out "$E1" >/dev/null 2>&1 )
-( umask 022; TZ=Asia/Tokyo bash "$SCRIPT" --out "$E2" >/dev/null 2>&1 )
+# Compare L12's real build against a second real build with both variables
+# opposed, independently of --check. Removing its second build cannot make
+# this test pass over nondeterministic bytes.
+E1="$WORK/real-out"; E2="$WORK/env-b"
+( umask 077; TZ=UTC bash "$SCRIPT" --out "$E2" >/dev/null 2>&1 )
 D1="$(/usr/bin/shasum -a 256 "$E1"/richos-engine-*.tar.gz 2>/dev/null | awk '{print $1}')"
 D2="$(/usr/bin/shasum -a 256 "$E2"/richos-engine-*.tar.gz 2>/dev/null | awk '{print $1}')"
 if [ -n "$D1" ] && [ "$D1" = "$D2" ]; then
     ok "L13 the digest survives a different umask and a different timezone ($D1)"
 else
     bad "L13 the digest survives a different umask and a different timezone" \
-        "umask 077 TZ=UTC gave ${D1:-<none>}; umask 022 TZ=Asia/Tokyo gave ${D2:-<none>}. The pin
+        "umask 022 TZ=Asia/Tokyo gave ${D1:-<none>}; umask 077 TZ=UTC gave ${D2:-<none>}. The pin
          compiled into the app would be a property of whoever built it, and a customer would
          discover that as a DigestMismatch."
 fi

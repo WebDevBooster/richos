@@ -18,12 +18,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/mutation-harness.sh
 . "$SCRIPT_DIR/lib/mutation-harness.sh"
 mutation_begin "quota-watch (the CEO's 93% rule)" "scripts/quota-watch.test.sh"
-# The suite's cases share state and run in sequence, and a printed
-# `FAIL  <case>` line always ends it red (check() counts it; the suite exits 1
-# on any failure). So each mutant stops at its own FAIL line instead of running
-# the rest: on 2026-09-25 the whole-suite form ran past ci-shard's 900 s unit
-# deadline once the suite grew to cover get_usage and the 20-minute window.
-mutation_focus stop-at-want
+# Each focused case retains its setup and exits only after its own verdict.
+# The harness first proves that exact focus green on an unmutated copy.
+mutation_focus want-as-argument
 
 L="scripts/lib/quota_watch.py"
 

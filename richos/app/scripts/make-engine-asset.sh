@@ -324,7 +324,7 @@ if [ "$CHECK" = "1" ] && [ -n "$CHECK_PROOF_DIR" ]; then
 fi
 if [ "$CHECK" = "1" ]; then
     echo "=== --check: building a second time, in a DIFFERENT environment, and comparing ==="
-    CHECK_TMP="$(mktemp -d /tmp/richos-engine-check.XXXXXX)"
+    CHECK_TMP="$(mktemp -d "${TMPDIR:-/tmp}/richos-engine-check.XXXXXX")"
     SECOND="$CHECK_TMP/second.tar.gz"
     echo "  second build runs under: umask 077, TMPDIR=$CHECK_TMP, LC_ALL=C, TZ=UTC"
     ( umask 077; TMPDIR="$CHECK_TMP" LC_ALL=C TZ=UTC build_into "$SECOND" ) || die "the second build failed"
