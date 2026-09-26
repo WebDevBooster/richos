@@ -360,6 +360,30 @@ struct LeadRecord {
     open_handles: BTreeSet<String>,
     /// §88 seam: answer deliveries already relayed, by S6's delivery identity.
     answers: Vec<AnswerRelay>,
+    /// **F8 of Frank's review: handles he stopped (the per-assignment Stop) or interrupted (his
+    /// Esc).** Taken out of `open_handles`, so a resume never calls them "still open", and
+    /// named to the lead in [`HELD_LINE`]: it continues none of them on its own; his next words
+    /// decide. New words of his on a handle (an answer) take it off this list.
+    ///
+    /// `#[serde(default)]` on this and `untold`: a record written before them must still read.
+    /// `read_record` falls back to an empty record on any parse error, which would lose the
+    /// session to resume and the outbox position, and settle every report again.
+    #[serde(default)]
+    held: BTreeSet<String>,
+    /// Held handles the lead has not been told about yet: named with its next message. A Stop
+    /// is told at once; an Esc is not, because a message after an Esc would start the very
+    /// turn he just ended.
+    #[serde(default)]
+    untold: BTreeSet<String>,
+}
+
+/// The line that names held handles to the lead (F8). Sent at once when he presses Stop on an
+/// assignment, with what the stop measured; otherwise first in its next message.
+pub const HELD_LINE: &str = "Stopped or interrupted by him:";
+
+fn held_line(handles: &BTreeSet<String>) -> String {
+    format!("{HELD_LINE} {}. They wait for his words; do not continue them on your own.",
+            handles.iter().cloned().collect::<Vec<_>>().join(", "))
 }
 
 /// One answer relayed to the lead. `answer_to` is the handle whose question it answers (r1
@@ -645,13 +669,24 @@ impl OperatorHost {
         let conversation = self.conversation(key, title);
         let mut c = conversation.lock().unwrap();
         let lead = self.ensure_lead(&mut c)?;
+        // F8: his words on a held handle are his next words about it; it is no longer held.
+        if let Some(h) = handle {
+            c.record.held.remove(h);
+            c.record.untold.remove(h);
+        }
         let mut lines = Vec::new();
         if c.first_after_resume {
             if !c.record.open_handles.is_empty() {
                 lines.push(format!("Open when you last ended: {}.",
                                    c.record.open_handles.iter().cloned().collect::<Vec<_>>().join(", ")));
             }
+            if !c.record.held.is_empty() {
+                // Every held handle, so every untold one (untold is always within held).
+                lines.push(held_line(&c.record.held));
+            }
             c.first_after_resume = false;
+        } else if !c.record.untold.is_empty() {
+            lines.push(held_line(&c.record.untold));
         }
         if let Some(since) = c.last_relay {
             if let Some(line) = changed_line(&changed_since(&watched_paths(&self.declaration), since)) {
@@ -671,6 +706,8 @@ impl OperatorHost {
         c.awaiting.insert(uuid.clone());
         c.last_relay = Some(SystemTime::now());
         c.last_activity = Instant::now();
+        // Every untold held handle was named in this message (above), and it was written.
+        c.record.untold.clear();
         if let Some(h) = handle {
             c.record.open_handles.insert(h.to_string());
         }
@@ -936,6 +973,8 @@ impl OperatorHost {
                 }
                 let mut c = conversation.lock().unwrap();
                 c.record.open_handles.remove(handle);
+                c.record.held.remove(handle);
+                c.record.untold.remove(handle);
                 c.questions.retain(|(q, _)| q.as_deref() != Some(handle));
                 self.save(&c.paths.record, &c.record);
                 drop(c);
@@ -1096,7 +1135,8 @@ impl OperatorHost {
     }
 
     /// (d) item 5: the per-assignment Stop stops exactly the names seen starting on that
-    /// assignment's turns, plus the names its reports named.
+    /// assignment's turns, plus the names its reports named. F8: the handle is then held, and
+    /// the lead is told at once, with what the stop measured.
     pub fn stop_assignment(&self, key: &ConversationKey, handle: &str, words: &str, origin: Origin) -> Vec<StopResult> {
         let names: Vec<String> = self.conversations.lock().unwrap().get(key)
             .and_then(|c| c.lock().unwrap().handle_agents.get(handle).cloned())
@@ -1104,15 +1144,63 @@ impl OperatorHost {
         if names.is_empty() {
             return Vec::new();
         }
-        self.stop_named(&names, words, origin)
+        let results = self.stop_named(&names, words, origin);
+        let measured = results.iter().map(StopResult::sentence).collect::<Vec<_>>().join(" ");
+        self.hold(key, handle, Some(&measured));
+        results
+    }
+
+    /// **F8: hold a handle he stopped or interrupted.** It leaves `open_handles` and joins
+    /// `held`. With `tell_now` (a Stop), the lead is sent [`HELD_LINE`] at once, followed by what
+    /// was measured; if it has no running lead or the write fails, the line waits for its next
+    /// message instead, which is also where an Esc's goes.
+    fn hold(&self, key: &ConversationKey, handle: &str, tell_now: Option<&str>) {
+        let Some(conversation) = self.conversations.lock().unwrap().get(key).cloned() else { return };
+        let mut c = conversation.lock().unwrap();
+        c.record.open_handles.remove(handle);
+        c.record.held.insert(handle.to_string());
+        let lead = c.lead.clone().filter(|l| !l.exited());
+        let told = match (tell_now, lead) {
+            (Some(measured), Some(lead)) => {
+                let one = BTreeSet::from([handle.to_string()]);
+                match lead.send(&format!("{}\n\n{measured}", held_line(&one))) {
+                    Ok(uuid) => {
+                        c.sent.insert(uuid.clone(), None);
+                        c.awaiting.insert(uuid);
+                        c.last_activity = Instant::now();
+                        true
+                    }
+                    Err(e) => {
+                        self.log(&format!("{}/{}: {handle} is held; the lead could not be told now ({e}), so its \
+                                           next message says so", key.entity_id, key.thread_id));
+                        false
+                    }
+                }
+            }
+            _ => false,
+        };
+        if !told {
+            c.record.untold.insert(handle.to_string());
+        }
+        self.log(&format!("{}/{}: {handle} held ({})", key.entity_id, key.thread_id,
+                          if tell_now.is_some() { "Stop" } else { "Esc" }));
+        self.save(&c.paths.record, &c.record);
     }
 
     /// (d) item 6, his Esc: end the lead's running turn, never its agents (P3). Returns the
     /// sentence the front desk says, with how many of his messages still run next (r4 §1.2).
+    /// F8: the assignment whose turn it was is held, and the lead hears so with its next message.
     pub fn interrupt(&self, key: &ConversationKey) -> String {
-        let lead = self.conversations.lock().unwrap().get(key).and_then(|c| c.lock().unwrap().lead.clone());
+        let (lead, turn_handle) = match self.conversations.lock().unwrap().get(key) {
+            Some(c) => { let c = c.lock().unwrap(); (c.lead.clone(), c.turn_handle.clone()) }
+            None => (None, None),
+        };
         let Some(lead) = lead else { return "Your team isn't doing anything in this conversation.".into() };
-        match lead.interrupt() {
+        let replied = lead.interrupt();
+        if let (Ok(_), Some(handle)) = (&replied, turn_handle) {
+            self.hold(key, &handle, None);
+        }
+        match replied {
             Ok(reply) => match reply.still_queued.len() {
                 0 => "Stopped what your team was doing here. Its agents keep running.".into(),
                 1 => "Stopped what your team was doing here. Its agents keep running, and 1 of your messages is still queued and runs next.".into(),
@@ -1857,6 +1945,71 @@ pub(crate) mod tests {
         assert_eq!(names, ["reported-on-h1", "started-on-h1"]);
         assert!(!lead.stops.lock().unwrap().contains(&"task-o".to_string()), "other work is never stopped");
         assert_eq!(results.len(), 2);
+    }
+
+    /// **F8 of Frank's review, the Stop half.** The per-assignment Stop tells the lead at once,
+    /// with what it measured, and holds the handle: a resume lists it as held, never as open.
+    #[test]
+    fn the_assignment_stop_tells_the_lead_at_once_and_a_resume_never_calls_it_open() {
+        let r = rig();
+        r.host.relay(&key("a"), "A", Some("h-1"), "go", Origin::DeskTyped).unwrap();
+        r.host.relay(&key("a"), "A", Some("h-2"), "and this", Origin::DeskTyped).unwrap();
+        let lead = lead_of(&r, "a");
+        r.host.handle(&key("a"), LeadEvent::Took("u-1".into()));
+        agent(&lead, "t-a", "mark-sonnet-a", "task-a");
+        r.host.handle(&key("a"), LeadEvent::Agent(AgentTask { name: "mark-sonnet-a".into(), task_id: "task-a".into(),
+                                                             tool_use_id: "t-a".into(), status: TaskStatus::Running }));
+        r.engine.not_alive.lock().unwrap().insert("task-a".into());
+        lead.feed(json!({"type":"system","subtype":"task_notification","task_id":"task-a","status":"stopped"}));
+        let results = r.host.stop_assignment(&key("a"), "h-1", "Stop, pressed", Origin::DeskTyped);
+        assert!(matches!(&results[0], StopResult::Stopped { .. }), "{results:?}");
+        let told = lead.sent.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(told, "Stopped or interrupted by him: h-1. They wait for his words; do not continue them on your own.\
+                          \n\nStopped mark-sonnet-a.");
+        assert_eq!(open_handles(&r, "a"), BTreeSet::from(["h-2".to_string()]));
+        // The next message does not say it twice.
+        r.host.relay(&key("a"), "A", None, "status?", Origin::DeskTyped).unwrap();
+        assert!(!lead.sent.lock().unwrap().last().unwrap().contains(HELD_LINE));
+        // A relaunch: open is h-2 only, and h-1 is named as held.
+        let host = OperatorHost::new(r.declaration.clone(), &r.state, &r.root.join("operator"), r.launcher.clone(),
+                                     r.engine.clone(), r.settle.clone(), r.said.clone(), Arc::new(SayQuestions(r.said.clone())));
+        host.relay(&key("a"), "A", None, "where are we?", Origin::DeskTyped).unwrap();
+        let first = lead_of(&r, "a").sent.lock().unwrap()[0].clone();
+        assert!(first.starts_with("Open when you last ended: h-2.\n\nStopped or interrupted by him: h-1."), "{first}");
+    }
+
+    /// **F8, the Esc half.** His Esc ends the turn and holds the assignment it belonged to.
+    /// Nothing is sent at once (a message would start the turn he just ended); the lead's next
+    /// message names it, once. His words on that handle release it.
+    #[test]
+    fn his_esc_holds_the_turn_s_assignment_and_the_next_message_names_it_once() {
+        let r = rig();
+        r.host.relay(&key("a"), "A", Some("h-1"), "go", Origin::DeskTyped).unwrap();
+        r.host.handle(&key("a"), LeadEvent::Took("u-1".into()));
+        let lead = lead_of(&r, "a");
+        r.host.interrupt(&key("a"));
+        assert_eq!(lead.sent.lock().unwrap().len(), 1, "nothing is sent at the Esc");
+        assert!(open_handles(&r, "a").is_empty());
+        r.host.relay(&key("a"), "A", None, "one more thing", Origin::DeskTyped).unwrap();
+        r.host.relay(&key("a"), "A", None, "and another", Origin::DeskTyped).unwrap();
+        let sent = lead.sent.lock().unwrap().clone();
+        assert!(sent[1].starts_with("Stopped or interrupted by him: h-1."), "{}", sent[1]);
+        assert!(!sent[2].contains(HELD_LINE), "said once: {}", sent[2]);
+        // His answer on that handle is his next words about it: it is open again, not held.
+        r.host.deliver_answer(&key("a"), "A", Some("h-1"), "delivery-1", "Carry on.").unwrap();
+        assert!(open_handles(&r, "a").contains("h-1"));
+        let record = r.host.conversations.lock().unwrap().get(&key("a")).unwrap().lock().unwrap().record.clone();
+        assert!(record.held.is_empty() && record.untold.is_empty(), "{record:?}");
+    }
+
+    /// A lead record written before `held` and `untold` existed still reads whole: a parse
+    /// failure would reset it, losing the session to resume and the outbox position.
+    #[test]
+    fn a_lead_record_written_before_held_handles_existed_still_resumes() {
+        let record: LeadRecord = serde_json::from_str(
+            r#"{"last_session":"s-old","outbox_read":3,"open_handles":["h-1"],"answers":[]}"#).unwrap();
+        assert_eq!((record.last_session.as_deref(), record.outbox_read), (Some("s-old"), 3));
+        assert!(record.held.is_empty() && record.untold.is_empty());
     }
 
     #[test]
