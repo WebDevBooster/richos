@@ -40,6 +40,12 @@ GATE_BUDGETS = {
     "gates/release-smoke": 60,   # One-minute startup floor for fixture-only Python work.
     "gates/core-tests": 300,    # At least 5x the worst cold/warm Cargo sample.
     "gates/updater-tests": 360, # At least 5x its separate workspace's cold/warm sample.
+    # UNVERIFIED SINCE 2026-09-26: this envelope was derived WITH the iPhone simulator suites,
+    # which `run-tests.sh --for desktop` no longer runs here (phone-app-suites.tsv), and every
+    # simulator figure below is theirs. The ceiling is left where it was rather than cut to a
+    # number nobody has measured (the 1800 s it replaced killed a run that was passing). One
+    # full no-reuse run of the desktop-only gate is what would settle it. The derivation as
+    # it stood:
     # At least 2x the full-execution envelope, without reuse. Re-derived 2026-09-25 when the
     # nightly-only A8 case made the simulator suites the long pole: the machine admits one
     # prepared-simulator lease at a time, so native-ios-app (1572 s alone with A8, measured
@@ -322,6 +328,11 @@ UI_QUARANTINE = ()
 #   --simulated-phones N    how many prepared iPhone simulators the suites may lease at once
 #                           (testdevices.py pool_leases). Handed to the script-suites gate as
 #                           RICHOS_IOS_POOL_LEASES; every other caller keeps one.
+#                           Since 2026-09-26 no suite in the desktop build leases one (the
+#                           phone apps' suites left it, phone-app-suites.tsv), so today the
+#                           number changes nothing. It is still required, because dropping a
+#                           required flag changes every operator's command line, and that is
+#                           a decision for whoever owns those command lines, not this change.
 #
 # Neither replaces a backstop. Every command still takes a machine worker token
 # (worker_tokens.py), a simulator boot still passes simulator_budget.py's live/boot limits
@@ -679,9 +690,6 @@ GATE_SET_BY_BUILD = (
 GATE_SET_PER_STEP = (
     "RUN_TESTS_DECLARED_GAPS",
     "RUN_TESTS_SKIP_UNCHANGED",
-    # native-ios-app.test.sh case A8, the middle iPhone size: off every land, on before every
-    # nightly (CEO, 2026-09-23, "Only before nightlies"). Set at the script-suites call site.
-    "RICHOS_NATIVE_IOS_APP_A8",
     # How long a simulator suite waits for the machine's one prepared-simulator lease
     # (testdevices.py pool_wait_seconds): the script-suites gate's own deadline, so the iOS
     # suites it starts side by side queue for the pool instead of failing after 300 s.
@@ -1297,22 +1305,25 @@ class Runner:
                 # from the operator's shell, for the same reason DECLARED_GAPS is: a stray
                 # export must not be able to hold back a suite or skip one.
                 extra = {"RUN_TESTS_DECLARED_GAPS": DECLARED_GAPS,
-                         # The iPhone UI tests on the middle screen size run HERE, before every
-                         # nightly, and nowhere on a land (CEO, 2026-09-23, "Only before
-                         # nightlies"). A failure fails this gate and so stops the nightly.
-                         "RICHOS_NATIVE_IOS_APP_A8": "1",
-                         # native-ios-app, native-ios-ui and native-ios-share run side by side
-                         # here and the pool admits `--simulated-phones` leases at once (one per
-                         # device type); A8 alone holds one about 26 minutes. With the default
-                         # 300 s wait, whichever suite waited failed (run
-                         # 20260925T190759Z-2b4b0a7e: A8 and share's S7 both gave up at 300 s).
-                         # Waiting up to this gate's own deadline queues them instead.
+                         # THE PHONE APPS ARE NOT THIS BUILD (CEO, 2026-09-26: "the native
+                         # mobile apps are 2 COMPLETELY INDEPENDENT DIFFERENT APPS ... So, WHY
+                         # THE FUCK ARE THEY PART OF THE SAME FUCKING BUILD???"). `--for
+                         # desktop` below leaves out every suite phone-app-suites.tsv names, so
+                         # native-ios-app's middle-size case A8 (RICHOS_NATIVE_IOS_APP_A8) is no
+                         # longer set here: it runs in the iPhone app's release check, and a
+                         # suite that no longer runs here has nothing to be told.
+                         #
+                         # No suite this build keeps leases an iPhone simulator. The pool's two
+                         # settings are still stated here, literally, so that a desktop suite
+                         # that someday does lease one queues for this gate's own deadline (run
+                         # 20260925T190759Z-2b4b0a7e: two suites gave up at the CLI's 300 s
+                         # default) and gets the operator's number, never the shell's.
                          "RICHOS_IOS_POOL_WAIT": str(GATE_BUDGETS["gates/script-suites"]),
                          # The operator's own number, from the command line (never the shell).
                          SIMULATED_PHONES_ENV: str(self.simulated_phones)}
                 if skip_unchanged:
                     extra["RUN_TESTS_SKIP_UNCHANGED"] = "1"
-                args = ["bash", self.source / SCRIPTS / "run-tests.sh",
+                args = ["bash", self.source / SCRIPTS / "run-tests.sh", "--for", "desktop",
                         "--results-out", results]
                 if no_host_screen:
                     args.append("--no-host-screen")
