@@ -307,27 +307,31 @@ def lease_worker(directory, owner, ready, release, free):
         token.release()
 
 
-def main(argv):
-    if argv == ["directory"]:
-        print(machine_directory())
-        return 0
-    if len(argv) == 6 and argv[0] == "lease":
-        return lease_worker(*argv[1:])
-    if len(argv) >= 3 and argv[:2] == ["machine", "--"]:
+def machine_command(command, timing=None):
+    start = time.monotonic()
+    acquired = None
+    rc = 125
+    budget = None
+    try:
         if os.environ.get("RICHOS_WORKER_TOKENS") and os.environ.get("RICHOS_WORKER_SLOT_HELD") == "1":
-            import proc_tree
-            command = proc_tree.command(argv[2:], owner=os.getppid())
-            os.execv(sys.executable, command)
+            if timing is None:
+                import proc_tree
+                os.execv(sys.executable, proc_tree.command(command, owner=os.getppid()))
+            acquired = time.monotonic()
+            rc = run_command(command, Token(None, ""), worker=False)
+            return rc
         directory = machine_directory()
-        token = Budget(directory, runner=True).acquire()
+        budget = Budget(directory, runner=True)
+        token = budget.acquire()
+        acquired = time.monotonic()
         env = {**os.environ, "RICHOS_MACHINE_WORKERS": directory,
                "RICHOS_WORKER_TOKENS": directory,
                "RICHOS_WORKER_TOKENS_TOOL": os.path.abspath(__file__),
-               "RICHOS_WORKER_TOKENS_RESERVED": str(max(1, len(Budget(directory).files) // 4))}
+               "RICHOS_WORKER_TOKENS_RESERVED": str(max(1, len(budget.files) // 4))}
         import uuid
         env["RICHOS_TEST_DEVICE_RUN_ID"] = uuid.uuid4().hex
         try:
-            return run_command(argv[2:], token, env)
+            rc = run_command(command, token, env)
         finally:
             # The complete engine owns test-device cleanup. Minimal test fixtures
             # copy only the process/budget helpers and never create real devices.
@@ -336,7 +340,30 @@ def main(argv):
                 errors = testdevices.cleanup_run_simulators(env["RICHOS_TEST_DEVICE_RUN_ID"])
                 if errors:
                     print("worker_tokens: simulator cleanup FAILED: " + "; ".join(errors), file=sys.stderr)
-                    raise SystemExit(125)
+                    rc = 125
+        return rc
+    finally:
+        if budget:
+            budget.close()
+        if timing is not None:
+            end = time.monotonic()
+            with open(timing + ".new", "w") as out:
+                json.dump({"admission_seconds": (acquired or end) - start,
+                           "execution_seconds": end - acquired if acquired else 0,
+                           "exit": rc, "admitted": acquired is not None}, out)
+            os.replace(timing + ".new", timing)
+
+
+def main(argv):
+    if len(argv) >= 5 and argv[:2] == ["machine", "--timing"] and argv[3] == "--":
+        return machine_command(argv[4:], timing=argv[2])
+    if argv == ["directory"]:
+        print(machine_directory())
+        return 0
+    if len(argv) == 6 and argv[0] == "lease":
+        return lease_worker(*argv[1:])
+    if len(argv) >= 3 and argv[:2] == ["machine", "--"]:
+        return machine_command(argv[2:])
     reserved = os.environ.get("RICHOS_WORKER_TOKENS_RESERVED", "0")
     reserved = int(reserved) if reserved.isdigit() else 0
     if len(argv) == 3 and argv[0] == "init":

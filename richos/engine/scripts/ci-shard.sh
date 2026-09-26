@@ -119,13 +119,12 @@
 # ===========================================================================
 
 set -uo pipefail
+ORIG_ARGS=("$@")
+export PYTHONDONTWRITEBYTECODE=1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-# Direct invocations share the same machine ceiling as proof-run and nightlies.
-if [ -z "${RICHOS_WORKER_TOKENS:-}" ]; then
-    exec python3 "$SCRIPT_DIR/lib/worker_tokens.py" machine -- bash "${BASH_SOURCE[0]}" "$@"
-fi
+export RICHOS_VERIFICATION_CHECKOUT="${RICHOS_VERIFICATION_CHECKOUT:-$ENGINE_ROOT}"
 UNITS_SH="$SCRIPT_DIR/ci-units.sh"
 KNOWN_RED="$ENGINE_ROOT/scripts/lib/ci-known-red.tsv"
 WEIGHTS_TSV="$ENGINE_ROOT/scripts/lib/ci-unit-weights.tsv"
@@ -503,6 +502,18 @@ if [ "$LIST_ONLY" -eq 1 ]; then
     exit 0
 fi
 
+# Acquire the large-plan slot before any worker permit. Unit admission below
+# releases the worker between units, including direct shard invocations.
+python3 "$SCRIPT_DIR/lib/engine_pass.py" needed "$N_SEL"; PASS_RC=$?
+case "$PASS_RC" in
+    0) ;;
+    10) rm -f "$ALL_UNITS" "$SELECTED"
+        exec python3 "$SCRIPT_DIR/lib/engine_pass.py" hold --count "$N_SEL" \
+            --label "ci-shard.sh" --checkout "$ENGINE_ROOT" -- \
+            bash "${BASH_SOURCE[0]}" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"} ;;
+    *) die "could not establish large-plan admission" 2 ;;
+esac
+
 # ---------------------------------------------------------------------------
 # the leak canary — same library, same contract as run-all-tests.sh
 # ---------------------------------------------------------------------------
@@ -560,11 +571,18 @@ while IFS= read -r id; do
     ARGV=()
     while IFS= read -r tok; do ARGV+=("$tok"); done < <(bash "$UNITS_SH" cmd "$id" | tr '\t' '\n')
 
-    START="$(python3 -c 'import time; print(time.time())')"
-    run_with_deadline "$DEADLINE" "$LOG" "${ARGV[@]}"
+    export -f run_with_deadline
+    export SCRIPT_DIR
+    TIMING="$LOG_DIR/$i.timing.json"
+    python3 "$SCRIPT_DIR/lib/worker_tokens.py" machine --timing "$TIMING" -- \
+        bash -c 'run_with_deadline "$@"' bash "$DEADLINE" "$LOG" "${ARGV[@]}"
     RC=$?
-    END="$(python3 -c 'import time; print(time.time())')"
-    SECS="$(python3 -c "print(round($END - $START, 1))")"
+    # Admission waits do not spend the unit's execution deadline or inflate
+    # the planner's execution weight. Missing timing cannot earn a pass.
+    SECS="$(python3 -c 'import json,sys; print(round(json.load(open(sys.argv[1]))["execution_seconds"], 1))' "$TIMING")" || RC=125
+    QUEUED="$(python3 -c 'import json,sys; print(round(json.load(open(sys.argv[1]))["admission_seconds"], 1))' "$TIMING")" || RC=125
+    [ -n "$SECS" ] || SECS=0
+    printf '(admission %ss) ' "${QUEUED:-unknown}"
 
     ESCAPED="$(lc_escaped "$CANARY_DIR" "$LOG_DIR")"
     TOUCHED="$(rc_escaped "$CANARY_DIR/record.txt")"
@@ -678,7 +696,7 @@ while IFS= read -r id; do
 
     if [ -n "$RECEIPT" ]; then
         UNIT_ID="$id" UNIT_RC="$RC" UNIT_EXP="${EXPECT_RC:-0}" UNIT_VERDICT="$VERDICT" \
-        UNIT_SECS="$SECS" UNIT_SHARD="${SHARD:-0}" UNIT_SHARDS="$SHARDS" UNIT_SHA="$SHA" \
+        UNIT_SECS="$SECS" UNIT_ADMISSION="${QUEUED:-}" UNIT_SHARD="${SHARD:-0}" UNIT_SHARDS="$SHARDS" UNIT_SHA="$SHA" \
         python3 "$SCRIPT_DIR/lib/ci-receipts.py" emit >> "$RECEIPT"
     fi
     # Contamination is independent of the assertion verdict (including a timeout).

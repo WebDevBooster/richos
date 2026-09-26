@@ -57,6 +57,8 @@ def emit():
             "expected_rc": int(os.environ["UNIT_EXP"]),
             "verdict": os.environ["UNIT_VERDICT"],
             "seconds": float(os.environ["UNIT_SECS"]),
+            "admission_seconds": (float(os.environ["UNIT_ADMISSION"])
+                                  if os.environ.get("UNIT_ADMISSION") else None),
             "shard": int(os.environ.get("UNIT_SHARD") or 0),
             "shards": int(os.environ.get("UNIT_SHARDS") or 0),
             "sha": os.environ["UNIT_SHA"],

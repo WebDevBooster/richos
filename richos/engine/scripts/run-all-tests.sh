@@ -348,7 +348,7 @@ printf '  leak canary: watching %s root(s); witness is contents%s\n' \
     "$CANARY_ROOTS_N" \
     "$(tw_mtime_available && printf ' and a proven sub-second mtime' || printf ' ALONE (no sub-second mtime format proved itself here)')"
 printf '  record canary: watching the operator'"'"'s record under %s (ledger rows except `finished`, the fallback event log, the team directory entries)\n' "$RC_CFG"
-printf '  timing: per suite, clock=%s%s\n' \
+printf '  timing: per suite, clock=python-monotonic; run clock=%s%s\n' \
     "$SW_METHOD" \
     "$([ -n "$TIMING_TSV" ] && printf ', TSV -> %s' "$TIMING_TSV")"
 
@@ -382,14 +382,15 @@ for t in "${SUITES[@]}"; do
     # takes arguments. Output is captured so a green run stays readable and a
     # red one can print EVERYTHING the failing suite said — a truncated failure
     # is a failure somebody has to reproduce by hand.
-    # The clock brackets the suite ONLY — not the canary baseline or diff around
-    # it. A timing table whose rows silently include the instrument's own two
-    # `git status` calls would attribute ~0.3s of runner overhead to every suite
-    # and make the 40 fast suites look twice their real cost.
-    SUITE_T0="$(sw_now_ms)"
-    python3 "$WORKER_TOOL" machine -- bash "$t" >"$LOG" 2>&1
+    # Execution includes owned supervision/cleanup but excludes admission and
+    # the canary baseline/diff. Queueing must not inflate execution weights.
+    TIMING="$LOG_DIR/$i.timing.json"
+    python3 "$WORKER_TOOL" machine --timing "$TIMING" -- bash "$t" >"$LOG" 2>&1
     RC=$?
-    SUITE_MS=$(( $(sw_now_ms) - SUITE_T0 ))
+    SUITE_MS="$(python3 -c 'import json,sys; print(round(json.load(open(sys.argv[1]))["execution_seconds"] * 1000))' "$TIMING")" || RC=125
+    QUEUED="$(python3 -c 'import json,sys; print(round(json.load(open(sys.argv[1]))["admission_seconds"], 1))' "$TIMING")" || RC=125
+    [ -n "$SUITE_MS" ] || SUITE_MS=0
+    printf '(admission %ss) ' "${QUEUED:-unknown}"
     TIMES_MS+=("$SUITE_MS")
     ESCAPED="$(lc_escaped "$CANARY_DIR" "$LOG_DIR")"
     TOUCHED="$(rc_escaped "$CANARY_DIR/record.txt")"
@@ -427,7 +428,7 @@ for t in "${SUITES[@]}"; do
         [ "$VERBOSE" -eq 1 ] && sed 's/^/        /' "$LOG"
     fi
     if [ -n "$TIMING_TSV" ]; then
-        printf '%s\t%s\t%s\t%s\n' "$REL" "$SUITE_MS" "${TIMES_VERDICT[$((i - 1))]}" "$SW_METHOD" >>"$TIMING_TSV"
+        printf '%s\t%s\t%s\t%s\n' "$REL" "$SUITE_MS" "${TIMES_VERDICT[$((i - 1))]}" "python-monotonic" >>"$TIMING_TSV"
     fi
 done
 RUN_MS=$(( $(sw_now_ms) - RUN_T0 ))
@@ -453,7 +454,7 @@ if [ "$TAIL_N" -gt 0 ]; then
         printf '%012d\t%s\t%s\n' "${TIMES_MS[$j]}" "${SUITES[$j]#"$ENGINE_ROOT"/}" "${TIMES_VERDICT[$j]}" >>"$TIMING_RAW"
         j=$(( j + 1 ))
     done
-    printf '  slowest %s of %s (suite time only; the run total above also carries the canary):\n' \
+    printf '  slowest %s of %s (admitted execution; run total also includes queueing and canaries):\n' \
         "$TAIL_N" "$TOTAL"
     LC_ALL=C sort -rn "$TIMING_RAW" | head -n "$TAIL_N" | while IFS="$(printf '\t')" read -r ms rel verdict; do
         # Share of the summed SUITE time, not of the run: the two differ by the
@@ -463,7 +464,7 @@ if [ "$TAIL_N" -gt 0 ]; then
         [ "$SUM_MS" -gt 0 ] && pct=$(( (10#$ms * 100) / SUM_MS ))
         printf '    %9s  %3s%%  %-58s %s\n' "$(sw_fmt "$((10#$ms))")" "$pct" "$rel" "$verdict"
     done
-    printf '  summed suite time %s across %s suite(s); runner overhead (canary etc.) %s\n' \
+    printf '  summed execution time %s across %s suite(s); queueing and runner overhead %s\n' \
         "$(sw_fmt "$SUM_MS")" "$TOTAL" "$(sw_fmt "$(( RUN_MS - SUM_MS ))")"
 fi
 

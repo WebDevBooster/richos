@@ -7,6 +7,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import threading
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -166,6 +168,43 @@ class Priority(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "/Volumes/E1TB"):
                 engine_pass.directory()
             create.assert_not_called()
+
+    def test_timing_separates_real_admission_wait_and_preserves_failure(self):
+        holder = self.take(self.budget(self.linked))
+        timer = threading.Timer(.4, holder.release)
+        timing = self.root / "timing.json"
+        cleanups = []
+        devices = SimpleNamespace(cleanup_run_simulators=lambda run: cleanups.append(run) or [])
+        with patch.dict(os.environ, {"RICHOS_WORKER_TOKENS": "", "RICHOS_WORKER_SLOT_HELD": ""}), \
+                patch.object(worker_tokens, "machine_directory", return_value=self.machine), \
+                patch.dict(sys.modules, {"testdevices": devices}):
+            timer.start()
+            try:
+                rc = worker_tokens.machine_command([sys.executable, "-c", "raise SystemExit(7)"],
+                                                   timing=str(timing))
+            finally:
+                timer.join()
+        report = json.loads(timing.read_text())
+        self.assertEqual((rc, report["exit"]), (7, 7))
+        self.assertTrue(report["admitted"])
+        self.assertGreaterEqual(report["admission_seconds"], .3)
+        self.assertGreater(report["execution_seconds"], 0)
+        self.assertEqual(len(cleanups), 1)
+        self.assertIsNotNone(self.take(self.budget(self.linked)))
+
+    def test_timed_nested_command_preserves_callers_borrow_slot(self):
+        holder = self.take(self.budget(self.linked))
+        timing = self.root / "nested-timing.json"
+        slot = self.root / "observed-slot"
+        with patch.dict(os.environ, {"RICHOS_WORKER_TOKENS": self.machine,
+                                     "RICHOS_WORKER_SLOT_HELD": "1",
+                                     "RICHOS_WORKER_BORROW_LOCK": holder.path + ".child"}):
+            rc = worker_tokens.machine_command(
+                [sys.executable, "-c", "import os,sys; open(sys.argv[1],'w').write("
+                 "os.environ['RICHOS_WORKER_BORROW_LOCK'])", str(slot)], timing=str(timing))
+        self.assertEqual(rc, 0)
+        self.assertEqual(slot.read_text(), holder.path + ".child")
+        self.assertEqual(self.budget(self.linked).held(), 1)
 
 
 if __name__ == "__main__":
