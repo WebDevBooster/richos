@@ -2697,6 +2697,8 @@ def w2(ctx, r):
         s11['heartbeat_running'] = hb.exists()
         claim_before = json.loads(claim_file.read_text()) if claim_file.exists() else {}
         walk.kill()
+        # What the first walk's leads said, whole, for the record (r5a kept only each step's extract).
+        r['says_first_walk'] = list(walk.says)
         s11['heartbeat_stopped_within_grace_plus_one'] = heartbeat_stopped(hb, 6)
         s11['claim_pids_alive_after'] = {str(x['pid']): alive(x['pid']) for x in claim_before.get('processes', [])
                                          if x.get('role') != 'app'}
@@ -2744,6 +2746,7 @@ def w2(ctx, r):
     finally:
         if walk.proc.poll() is None:
             walk.quit()
+        r['says_last_walk'] = list(walk.says)
     r['state_after'] = state_listing(p)
     r['state_new'] = sorted(set(r['state_after']) - set(r['state_before']))
     passed = sorted(k for k, v in steps.items() if v.get('pass'))

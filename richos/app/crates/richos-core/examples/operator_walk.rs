@@ -195,7 +195,13 @@ impl App {
     /// the desk. Answers with the record as the desk left it.
     fn assign(&self, v: &Value) -> Value {
         let name = v["thread"].as_str().unwrap_or("");
+        // The conversation's title names the thread; the ASSIGNMENT's title is what the front
+        // desk writes for this one request. r5a used the conversation's ("Walk A: land") for every
+        // assignment, and the leads rightly read a request to echo a word as a land to verify
+        // (steps 5, 7, 8 and 13's F). So the assignment gets its own, and a neutral one when the
+        // driver names none.
         let title = v["title"].as_str().unwrap_or("Walk assignment");
+        let task = v["task"].as_str().unwrap_or("Carry out the probe request in his words below");
         let text = v["text"].as_str().unwrap_or("");
         let via = v["origin"].as_str().unwrap_or("desk-typed");
         let run = || -> Result<Value, String> {
@@ -205,10 +211,14 @@ impl App {
             let mut opened = Value::Null;
             if let Some((bridge, _)) = &self.ecs {
                 let seat = self.seat(&id);
-                let desk = bridge.bind(ENTITY, &id, "walk-front-desk", &turn, seat.as_deref(), "ceo")
+                // One front-desk session per conversation, as the app has (each conversation's
+                // resident front desk): the store holds a session to the first conversation it
+                // bound ("session scope is immutable"), which r5a hit with one shared id.
+                let session = format!("walk-front-desk-{id}");
+                let desk = bridge.bind(ENTITY, &id, &session, &turn, seat.as_deref(), "ceo")
                     .map(|binding| ObligationDesk { bridge: bridge.clone(), binding, seat: seat.clone() })
                     .map_err(|e| e.to_string());
-                opened = match desk.and_then(|d| EcsObligations.open(&d, &obligation, title, AssignmentKind::Task)) {
+                opened = match desk.and_then(|d| EcsObligations.open(&d, &obligation, task, AssignmentKind::Task)) {
                     Ok(()) => json!("opened"),
                     Err(e) => json!(format!("not opened: {e}")),
                 };
@@ -218,7 +228,7 @@ impl App {
                 entity_id: ENTITY.into(), thread_id: id.clone(), obligation_id: obligation,
                 instruction_ledger_ref: format!("ledger:{id}:{turn}"),
                 instruction_sha256: format!("{:x}", sha2::Sha256::digest(text.as_bytes())),
-                title: title.to_string(), repositories: vec![], needs_screen: false,
+                title: task.to_string(), repositories: vec![], needs_screen: false,
             };
             let receipt = assignment::register_kind(&self.state, &registration, AssignmentKind::Task).map_err(|e| e.to_string())?;
             let binding = self.spine.lock().unwrap().ledger().thread_binding(&id).map_err(|e| e.to_string())?;
