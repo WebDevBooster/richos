@@ -328,7 +328,7 @@ pub struct ReportRecord {
 pub fn tools() -> Value {
     json!({"tools":[
         {"name": REPORT_TOOL_NAME,
-         "description": "Tell the CEO something. Everything you say at the end of a turn also reaches him; use this tool for a land, a file, a question, or a report on an assignment's handle. `kind`: `update` (progress), `question` (you need his answer; he is not at a terminal, so ask here and carry on with anything that does not depend on it), `answer` (to a question of his), `outcome` (the assignment is done), `failed` (it cannot be done). `handle`: the assignment this is about, exactly as the app gave it to you; leave it out for the conversation itself. `lands`: each land you are reporting, with the repository's absolute path, the FULL commit hash that is on the integration branch, the branch you merged, and `into` if the integration branch is not `main`. Every land is checked in Git before he is told it landed; one that cannot be confirmed is told to him as not confirmed. `files`: absolute paths of files he should see. `agents`: the names of the agents working on this handle.",
+         "description": "Tell the CEO something. Everything you say at the end of a turn also reaches him; use this tool for a land, a file, a question, or a report on an assignment's handle. `kind`: `update` (progress), `question` (you need his answer; he is not at a terminal, so ask here and carry on with anything that does not depend on it), `answer` (a reply to a question of his that came without a handle; it closes nothing), `outcome` (the assignment on the handle is done; a question of his that came with a handle is closed with `outcome`, and he sees it as the answer), `failed` (it cannot be done). Only `outcome` or `failed` on a handle closes it. `handle`: the assignment this is about, exactly as the app gave it to you; leave it out for the conversation itself. `lands`: each land you are reporting, with the repository's absolute path, the FULL commit hash that is on the integration branch, the branch you merged, and `into` if the integration branch is not `main`. Every land is checked in Git before he is told it landed; one that cannot be confirmed is told to him as not confirmed. `files`: absolute paths of files he should see. `agents`: the names of the agents working on this handle.",
          "inputSchema": {"type": "object", "additionalProperties": false, "required": ["kind", "text"],
             "properties": {
                 "handle": {"type": "string"},
@@ -531,6 +531,19 @@ pub fn run_stdio(scope_path: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The tool says what the host does** (Sage's contract notes §3 item 1, 2026-09-26: the
+    /// host settles only `outcome` and `failed`, and a lead following the old wording of
+    /// `answer` would have left his question open). The contract's sentence and this
+    /// description must agree.
+    #[test]
+    fn the_description_says_only_outcome_or_failed_closes_a_handle_and_answer_closes_nothing() {
+        let tools = tools();
+        let description = tools["tools"][0]["description"].as_str().unwrap();
+        assert!(description.contains("Only `outcome` or `failed` on a handle closes it."), "{description}");
+        assert!(description.contains("it closes nothing"), "{description}");
+        assert!(description.contains("closed with `outcome`"), "{description}");
+    }
     use crate::assignment::{self, AssignmentKind, Registration};
     use std::process::Command;
 

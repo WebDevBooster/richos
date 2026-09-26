@@ -362,6 +362,41 @@ pub fn call_with(
         );
     }
     // ===================================================================================
+    // HIS TEAM TAKES WORK ONLY FROM THE MOUTHS HE LISTED — answered here, in his turn
+    // ===================================================================================
+    //
+    // Operator back-end spec r3 (s) rule 1: *"The front desk answers: 'Your team only takes
+    // work from the Mac. I've noted it; ask me at your desk.'"*, and Sage's front-desk addendum:
+    // *"When the register hands you a sentence instead of 'On it!', say that sentence as it
+    // is."* On an operator install this turn's own mouth is
+    // read from the conversation ledger exactly as his team's desk reads it
+    // (`operator_desk::LedgerOrigins`), and work from any other is answered with the sentence,
+    // nothing opened and nothing written. `recorded: false` keeps the app from saying "On it!"
+    // itself (`first_reply::receipt_sentence`). The desk refuses it again if one ever got by.
+    //
+    // **The listed mouths come from the front desk's operator scope beside this one**
+    // (`operator_desk_tools::listed_origins_beside`), which only an operator install's front
+    // desk writes, every turn, from the same per-lease identity. So this register's own scope
+    // is the product's, field for field, and a product install reads nothing new. An operator
+    // scope that is there and cannot be read refuses the record rather than guessing.
+    let listed = crate::operator_desk_tools::listed_origins_beside(scope_path)
+        .map_err(|_| "RichOS cannot open a record for new work in this conversation right now. Nothing was recorded.".to_string())?;
+    if let Some(listed) = &listed {
+        use crate::operator_desk::TurnOrigins;
+        let facts = scope.state_root.parent().map(|data| data.join("conversation-ledger.jsonl"))
+            .and_then(|ledger| crate::operator_desk::LedgerOrigins::new(&ledger).turn(&scope.instruction_ledger_ref));
+        let origin = facts.map_or(crate::operator_host::Origin::NoOrigin,
+                                  |f| crate::operator_host::Origin::of_turn(f.source, f.channel.as_deref()));
+        if !origin.declared().is_some_and(|mouth| listed.iter().any(|l| l == mouth)) {
+            let say = if origin == crate::operator_host::Origin::NoOrigin {
+                crate::operator_desk::NO_ORIGIN_WORK
+            } else {
+                crate::operator_host::PHONE_ASSIGNMENT
+            };
+            return Ok(json!({RECEIPT_RECORDED_FIELD: false, RECEIPT_SAY_FIELD: say, "say_nothing_else": true}));
+        }
+    }
+    // ===================================================================================
     // THE OBLIGATION, OPENED HERE, WITH AN ID THE MODEL NEVER SEES
     // ===================================================================================
     //
@@ -608,6 +643,59 @@ mod tests {
         )
         .unwrap();
         Fixture { root, scope }
+    }
+
+    /// The same scope on an operator install: the front desk's operator scope beside it lists
+    /// his mouths, and the conversation ledger holds turn-7 as recorded through `mouth`
+    /// (`None`: recorded before keeping began).
+    fn operator_fixture(mouth: Option<&str>) -> Fixture {
+        let fixture = fixture();
+        crate::operator_desk_tools::write_scope(&crate::operator_desk_tools::scope_beside(&fixture.scope),
+            &crate::operator_desk_tools::DeskToolScope {
+                version: 1, socket: fixture.root.join("desk.sock"), token: "t".repeat(32), entity_id: "depot".into(),
+                thread_id: "thread-one".into(), ledger_ref: Some("ledger:thread-one:turn-7".into()),
+                origins: vec!["desk-typed".into(), "desk-voice".into(), "desk-file".into()],
+            }).unwrap();
+        let mut row = json!({"event":"PromptReceived","turn_id":"turn-7","thread_id":"thread-one","entity_id":"depot",
+                             "text":"land it","source":"text","at":1});
+        if let Some(mouth) = mouth {
+            row["channel"] = json!(mouth);
+        }
+        std::fs::write(fixture.root.join("conversation-ledger.jsonl"), row.to_string() + "\n").unwrap();
+        fixture
+    }
+
+    /// **On an operator install the register answers work his team may not take, in his turn**
+    /// (operator back-end spec r3 (s) rule 1: *"The front desk answers: 'Your team only takes
+    /// work from the Mac. I've noted it; ask me at your desk.'"*; Sage's front-desk addendum:
+    /// *"When the register hands you a sentence instead of 'On it!', say that sentence as it
+    /// is"*). Nothing is opened and nothing is written. The positive control, in the same test:
+    /// the same scope for a turn given at the desk records, and says "On it!".
+    #[test]
+    fn on_an_operator_install_the_register_answers_phone_or_unrecorded_work_and_writes_nothing() {
+        for (mouth, said) in [(Some("phone"), crate::operator_host::PHONE_ASSIGNMENT),
+                              (None, crate::operator_desk::NO_ORIGIN_WORK)] {
+            let fixture = operator_fixture(mouth);
+            let opened = Opened::default();
+            let result = call_with(&fixture.scope, RECORD_TOOL_NAME, json!({"assignment":"land it"}), &opened).unwrap();
+            assert_eq!(result["recorded"], false, "{mouth:?}: {result}");
+            assert_eq!(result["say"], said, "{mouth:?}");
+            assert!(opened.ids().is_empty(), "{mouth:?}: an obligation was opened");
+            assert!(assignment::read_all(&fixture.root.join("engine-state"), "depot", "thread-one").unwrap_or_default().is_empty(),
+                    "{mouth:?}: an assignment was written");
+        }
+        let desk = operator_fixture(Some("desk"));
+        let opened = Opened::default();
+        let result = call_with(&desk.scope, RECORD_TOOL_NAME, json!({"assignment":"land it"}), &opened).unwrap();
+        assert_eq!(result["recorded"], true);
+        assert_eq!(result["say"], "On it!");
+        assert_eq!(opened.ids().len(), 1);
+        // An operator scope that is there and unreadable refuses rather than guessing.
+        let broken = operator_fixture(Some("desk"));
+        std::fs::write(crate::operator_desk_tools::scope_beside(&broken.scope), "{").unwrap();
+        let opened = Opened::default();
+        assert!(call_with(&broken.scope, RECORD_TOOL_NAME, json!({"assignment":"land it"}), &opened).is_err());
+        assert!(opened.ids().is_empty());
     }
 
     /// What the register asked the ECS desk to do, recorded rather than performed — so every

@@ -225,3 +225,26 @@ pub mod operator_frames;
 ///   - `operator_report` — `richos_operator.report`, the tool his lead tells him things with;
 ///                    every "landed" is checked in Git before it is said ((c)).
 pub mod operator_report;
+///   - `operator_lead` — the operator client: his lead over stream-json, declaring the per-task
+///                    stop, never setting `priority`, kept on every error ((g), (r), (d)).
+pub mod operator_lead;
+///   - `operator_claim` — the lead claim's app side: the terminal and the app never run his team
+///                    at once, by the file contract the engine side reads ((e), G11).
+pub mod operator_claim;
+///   - `operator_snapshot` — the digest of what a lead read at start, so a stale lead is retired
+///                    at its next idle moment ((q) item 4).
+pub mod operator_snapshot;
+///   - `operator_host` — one lead per conversation: relay, never hold; only a report settles;
+///                    named stops, the Esc, the read, team liveness, idle retirement ((g), (c),
+///                    (d), (o), (m), (q), (r), (s), e4; the §88 answer seam).
+pub mod operator_host;
+///   - `operator_runtime` — the host's seams for real: his engine's scripts from the declared
+///                    root, the launcher with the claim, `operator-complete`, durable notices.
+pub mod operator_runtime;
+///   - `operator_desk` — his team wired into the app: every adopted assignment relayed with its
+///                    handle, his words and the origin the ledger kept; his stops, Esc and reads;
+///                    the idle timer; the quit path (the operator-client record's §7 items 1-3).
+pub mod operator_desk;
+///   - `operator_desk_tools` — the front desk's `richos_operator` tools (stop, interrupt, read)
+///                    and the token-guarded socket they reach the live desk through.
+pub mod operator_desk_tools;

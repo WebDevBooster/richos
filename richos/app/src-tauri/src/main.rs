@@ -222,6 +222,72 @@ impl MachineryObserver for TauriMachineryEmitter {
 /// exactly that. Nothing else reads it; the visibility is the gate.
 pub const EVENT_WORK_NOTICE: &str = "rich://work-notice";
 
+/// **His team said something** — an operator install's push lane (the operator-client record's
+/// §7 item 1). Best-effort like `rich://work-notice`: the notice is on disk before this is
+/// emitted, and `take_operator_notices` reads the durable copy. `pub` for the documentation gate.
+pub const EVENT_OPERATOR_NOTICE: &str = "rich://operator-notice";
+
+/// **His team's desk, built once at launch on an operator install** (the operator-client
+/// record's §7 items 1-3). Returns the desk, the socket its front-desk tools reach it through,
+/// and the access the front desk's lease is given. A socket that cannot be served costs the
+/// front desk its three tools and is said on the boot log; the desk itself still takes work.
+fn operator_desk_at_boot(
+    declaration: richos_core::operator_declaration::Declaration,
+    data_dir: &Path,
+    app: AppHandle,
+    engine_cell: Arc<Mutex<PathBuf>>,
+) -> (
+    Option<Arc<richos_core::operator_desk::OperatorDesk>>,
+    Option<richos_core::operator_desk_tools::DeskSocket>,
+    Option<richos_core::operator_desk_tools::DeskAccess>,
+) {
+    let push: richos_core::operator_runtime::NoticePush = Box::new(move |key, notice| {
+        // Best-effort, like rich://work-notice: the notice is on disk before this runs.
+        if let Err(e) = app.emit(EVENT_OPERATOR_NOTICE, serde_json::json!({"threadId": key.thread_id, "notice": notice})) {
+            eprintln!("[richos] his team: a notice could not be pushed to the window ({e}); it is held on disk");
+        }
+    });
+    // Settling closes the obligation in the PINNED engine's store, the one the register opened
+    // it in (`assignment_tools.rs`), through a bridge made on first use and kept.
+    let bridge: Arc<Mutex<Option<richos_core::ecs::EcsBridge>>> = Arc::new(Mutex::new(None));
+    let ecs_state = data_dir.join("ecs");
+    let settle = Arc::new(richos_core::operator_runtime::EcsSettle::with(Box::new(move |command, fields| {
+        let made = {
+            let mut held = bridge.lock().map_err(|_| "the engine's store could not be reached".to_string())?;
+            if held.is_none() {
+                let dir = engine_cell.lock().map(|d| d.clone()).map_err(|_| "the engine could not be located".to_string())?;
+                let runtime = richos_core::runtime::verify_engine(&dir).map_err(|e| e.to_string())?;
+                *held = Some(richos_core::ecs::EcsBridge::new(&runtime.python, &dir, &ecs_state).map_err(|e| e.0)?);
+            }
+            held.clone().expect("made above")
+        };
+        made.request(command, fields).map_err(|e| e.0)
+    })));
+    let origins = Arc::new(richos_core::operator_desk::LedgerOrigins::new(&data_dir.join("conversation-ledger.jsonl")));
+    let executable = std::env::current_exe().unwrap_or_else(|e| {
+        eprintln!("[richos] his team: this app's own path could not be read ({e}); his leads' report tool will not start");
+        PathBuf::from("/nonexistent/RichOS")
+    });
+    // (h): the lead's `can_use_tool` has nowhere to go but a refusal until the permission desk
+    // route is built; in the declared bypass mode P14 measured nothing reaching it at all.
+    let listed = declaration.origins.clone();
+    let desk = richos_core::operator_desk::OperatorDesk::for_app(declaration, data_dir, &executable, settle, origins, Some(push),
+                                                                 Arc::new(richos_core::operator_lead::NoPermissionDesk));
+    desk.start_default_retirement();
+    let token = richos_core::operator_desk_tools::new_token();
+    let path = richos_core::operator_desk_tools::socket_path(&data_dir.join("operator"));
+    eprintln!("[richos] his team: operator install; each conversation's lead starts on its next assignment (log {})",
+              desk.log_path().display());
+    match richos_core::operator_desk_tools::DeskSocket::serve(desk.clone(), &path, &token) {
+        Ok(socket) => (Some(desk), Some(socket),
+                       Some(richos_core::operator_desk_tools::DeskAccess { socket: path, token, origins: listed })),
+        Err(e) => {
+            eprintln!("[richos] his team: the front desk's stop and read could not be offered ({e}) at {}", path.display());
+            (Some(desk), None, None)
+        }
+    }
+}
+
 struct WorkNotice {
     app: AppHandle,
 }
@@ -316,6 +382,11 @@ struct EngineLeaseFactory {
     /// `spawn_chat` because a lease is spawned mid-turn, from inside the spine's mutex, and
     /// reading global state there is what this file keeps off the hot path on purpose.
     explicit_engine: bool,
+    /// **His team's desk, for the front desk's `richos_operator` tools** — `Some` only on an
+    /// install whose `operator.json` passed the gate at launch (the operator-client record's
+    /// §7 item 2). Given to the CONVERSATION lease only (`spawn_chat`); `None` everywhere else,
+    /// which leaves the front desk's tools exactly what they were.
+    operator_desk: Option<richos_core::operator_desk_tools::DeskAccess>,
 }
 
 impl LeaseFactory for EngineLeaseFactory {
@@ -347,6 +418,7 @@ impl LeaseFactory for EngineLeaseFactory {
             engine_dir: self.engine_dir.clone(),
             data_dir: self.data_dir.clone(),
             explicit_engine: self.explicit_engine,
+            operator_desk: self.operator_desk.clone(),
         }))
     }
 
@@ -368,15 +440,20 @@ impl LeaseFactory for EngineLeaseFactory {
         // **THE OPERATOR GATE** (operator back-end spec r2 (f); CEO ruling §86). No
         // `operator.json` in this install's data folder is the product path, byte for byte
         // what ran before this line existed. A present file never falls back to the customer
-        // worker (Frank's B8): broken refuses with its one sentence, and valid refuses too on
-        // a build that does not yet carry his team's back end.
+        // worker (Frank's B8): broken refuses with its one sentence.
+        //
+        // **A valid one never reaches this far on an install that launched with it.** His
+        // team's desk is built at launch (`operator_desk_at_boot`) and the work host hands it
+        // every assignment (`WorkHost::set_operator`), so no work lease is ever asked for. This
+        // arm is reached only by a declaration that appeared AFTER launch, and it refuses with
+        // the sentence that says so rather than half-honoring it.
         match richos_core::operator_declaration::gate(&self.data_dir) {
             richos_core::operator_declaration::Gate::Product => {}
             richos_core::operator_declaration::Gate::Refused(refusal) => {
                 return Err(CognitionError::Io(refusal.sentence()));
             }
             richos_core::operator_declaration::Gate::Operator(_) => {
-                return Err(CognitionError::Io(richos_core::operator_declaration::NOT_IN_THIS_BUILD.to_string()));
+                return Err(CognitionError::Io(richos_core::operator_declaration::SWITCHED_ON_AFTER_LAUNCH.to_string()));
             }
         }
         let dir = self
@@ -484,6 +561,7 @@ impl EngineLeaseFactory {
         if let Some(binding) = binding { profile.scope_to(binding).map_err(|e| CognitionError::Io(e.to_string()))?; }
         profile.install_quota_gate(&executable).map_err(|e| CognitionError::Io(e.to_string()))?;
         profile.permissions = self.permissions.clone();
+        profile.operator_desk = self.operator_desk.clone();
         let bridge = richos_core::ecs::EcsBridge::new(&runtime.python, &dir, &self.data_dir.join("ecs"))
             .map_err(|e| CognitionError::Io(e.to_string()))?;
         self.quota.request_refresh();
@@ -505,6 +583,13 @@ struct AppState {
     /// the whole of a turn (`:561`, still held at `:582`), which is the whole of §0 row 3.
     /// Read WITHOUT that lock everywhere it is read, like `control`.
     work: Arc<richos_core::work_host::WorkHost>,
+    /// **His team, on an operator install** (the operator-client record's §7 item 1): the desk
+    /// that relays each assignment to its conversation's lead. `None` on every product install,
+    /// and decided once, at launch.
+    operator: Option<Arc<richos_core::operator_desk::OperatorDesk>>,
+    /// The socket the front desk's `richos_operator` tools reach that desk through. Kept here
+    /// so it lives exactly as long as the app, and closed at exit.
+    operator_socket: Option<richos_core::operator_desk_tools::DeskSocket>,
     /// **He has been asked about the running work and said quit** (background-work spec
     /// §2.5a). The `ExitRequested` arm reads it on the second pass; without it the same arm
     /// would prevent the same quit for ever.
@@ -1928,6 +2013,23 @@ fn main() {
         }
         return;
     }
+    // HIS TEAM'S TOOLS ON THE FRONT DESK (`richos-core`'s `operator_desk_tools.rs`; the
+    // operator-client record's §7 item 2): stop named agents, stop his team's turn, read what it
+    // is doing. Only a front desk on an install whose `operator.json` passed the gate at launch
+    // is ever given it (`EngineProfile::operator_desk`); nothing in the product path names it.
+    if first.as_deref() == Some(std::ffi::OsStr::new("--operator-desk-mcp")) {
+        let result = args.next().ok_or_else(|| "Missing operator scope".to_string())
+            .and_then(|scope| richos_core::operator_desk_tools::run_stdio(Path::new(&scope))
+                .map_err(|e| e.to_string()));
+        if let Err(error) = result {
+            startup_alert::cannot_start(
+                &format!("operator desk tool server: {error}"),
+                "RichOS could not start the helper it uses to stop or check on your team.",
+            );
+            std::process::exit(1);
+        }
+        return;
+    }
     if first.as_deref() == Some(std::ffi::OsStr::new("--onboarding-mcp")) {
         let result = args.next().ok_or_else(|| "Missing onboarding scope".to_string())
             .and_then(|scope| richos_core::onboarding_tools::run_stdio(Path::new(&scope))
@@ -2721,6 +2823,27 @@ fn main() {
                 resolution.source,
                 Some(engine::EngineSource::EnvEngineDir) | Some(engine::EngineSource::EnvEngineRoot)
             );
+            // ==============================================================================
+            // HIS TEAM, ON AN OPERATOR INSTALL — decided once, here (operator back-end spec r3
+            // (f); the operator-client record's §7 items 1-3)
+            //
+            // No `operator.json` (every customer, and his app today): nothing below exists and
+            // this launch is the product, byte for byte. A broken one: nothing below exists
+            // either, and `spawn_work` refuses every assignment with its one sentence. A valid
+            // one: his team's desk, the socket its front-desk tools reach it through, and the
+            // spine keeping the mouth each sentence came through so a phone assignment can be
+            // told from one given at the desk.
+            // ==============================================================================
+            let (operator_desk, operator_socket, operator_access) =
+                match richos_core::operator_declaration::gate(&data_dir) {
+                    richos_core::operator_declaration::Gate::Operator(declaration) => {
+                        operator_desk_at_boot(*declaration, &data_dir, app.handle().clone(), Arc::clone(&engine_cell))
+                    }
+                    _ => (None, None, None),
+                };
+            if operator_desk.is_some() {
+                spine.keep_intake_channel(true);
+            }
             let lease_factory = || EngineLeaseFactory {
                 quota: quota.clone(),
                 permissions: permissions.clone(),
@@ -2728,6 +2851,7 @@ fn main() {
                 engine_dir: Arc::clone(&engine_cell),
                 data_dir: data_dir.clone(),
                 explicit_engine,
+                operator_desk: operator_access.clone(),
             };
             spine.set_lease_factory(Box::new(lease_factory()));
             // **THE WORK HOST — the background-work spec §2.1's second lease, and a SECOND
@@ -2750,6 +2874,9 @@ fn main() {
                 permissions.clone(),
             );
             work.set_quota(quota.clone());
+            if let Some(desk) = &operator_desk {
+                work.set_operator(desk.clone());
+            }
             work.start();
             eprintln!("[richos] compute connection: starts with the first cancellable request over {}", claude_bin.display());
 
@@ -3082,6 +3209,8 @@ fn main() {
                 quota: quota.clone(),
                 permissions,
                 work,
+                operator: operator_desk,
+                operator_socket,
                 quit_confirmed: std::sync::atomic::AtomicBool::new(false),
                 // The SAME decision the window was built from, carried rather than
                 // re-derived: two readings of "may this launch take the screen" is two
@@ -3251,6 +3380,7 @@ fn main() {
             get_work_status,
             get_assignments,
             take_work_notices,
+            take_operator_notices,
             stop_assignment,
             raise_proactive_message,
             // --- loro (2026-08-29) — appended, never reordered ---
@@ -3480,6 +3610,17 @@ fn main() {
                     // supervisor's 100 ms parent-death poll is a backstop, not the promise.
                     // Every assignment still open becomes `interrupted`; nothing becomes
                     // `settled` on the way out.
+                    // **HIS TEAM ENDS WITH THE APP, by its own quit path** (r3 (q) item 2): each
+                    // lead's supervisor gets SIGTERM and reaps the lead's whole tree, and only
+                    // after every lead has gone is the claim given up (e item 3), so his
+                    // terminal can take his team back the moment this process is gone.
+                    if let Some(desk) = &state.operator {
+                        let quits = desk.quit();
+                        eprintln!("[richos] his team: {} lead(s) ended by the quit path; the claim is released.", quits.len());
+                    }
+                    if let Some(socket) = &state.operator_socket {
+                        socket.close();
+                    }
                     state.work.shutdown();
                     if let Err(e) = state.launch.lock().unwrap().note_clean_exit() {
                         eprintln!("[richos] launch record: could not mark a clean exit: {e}");
@@ -3655,6 +3796,20 @@ fn take_work_notices(
         &thread_id,
     )
     .map_err(|e| e.to_string())
+}
+
+/// **What his team said on this conversation that the window has not shown yet** — the seam
+/// the operator notice surface reads when a conversation opens (the operator-client record's
+/// §7 item 1: *"`take_pending` feeds the notice surface on launch"*; the surface itself is
+/// item 4, Art's). Reads AND marks, like `take_work_notices`. Empty on a product install.
+#[tauri::command(async)]
+fn take_operator_notices(
+    state: State<AppState>,
+    thread_id: String,
+) -> Result<Vec<richos_core::operator_runtime::OperatorNotice>, String> {
+    let Some(desk) = &state.operator else { return Ok(Vec::new()) };
+    let entity = assignment_scope(&state, &thread_id)?;
+    desk.take_pending(&richos_core::operator_host::ConversationKey { entity_id: entity.as_str().to_string(), thread_id })
 }
 
 /// **The per-assignment stop** (spec §4.2). Not `stop_turn`, which is the conversation's
@@ -3987,6 +4142,17 @@ fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serd
             // about this audio that nothing downstream can reconstruct.
             if let Err(e) = spine.submit_prompt_spoken(&text, Source::Jam, rich_audible) {
                 eprintln!("[richos] voice turn failed: {e}");
+            }
+            // **WORK HE GAVE ALOUD REACHES HIS TEAM** (operator install only; `desk-voice` is
+            // a listed origin, r3 (s)). The typed path adopts at its turn boundary
+            // (`send_message`); the spoken path never has, so on an operator install it does
+            // the same here, after the spine is let go. The product path is untouched.
+            if state.operator.is_some() {
+                let binding = spine.active_thread().and_then(|t| spine.ledger().thread_binding(t).ok());
+                drop(spine);
+                if let Some(binding) = binding {
+                    state.work.adopt_registered(&binding);
+                }
             }
         });
 
@@ -5658,6 +5824,7 @@ mod operator_gate_tests {
             engine_dir: Arc::new(Mutex::new(root.join("no-engine-here"))),
             data_dir: data,
             explicit_engine: false,
+            operator_desk: None,
         };
         (root, binding, factory)
     }
@@ -6983,11 +7150,33 @@ struct StopReport {
 /// in `steering.rs` rather than here.
 #[tauri::command(async)]
 fn stop_turn(state: State<AppState>, expected_turn_id: Option<String>) -> Result<StopReport, String> {
+    // Which conversation his Esc was pressed in: the control's own record of the running turn,
+    // or else the thread the window shows. Both read without the spine's lock, and read BEFORE
+    // the front desk's stop below clears the running turn.
+    let team_key = state.operator.as_ref().and_then(|_| {
+        let thread = state.control.active_turn().map(|t| t.thread_id.clone())
+            .or_else(|| state.reader.snapshot().active_thread().map(str::to_string))?;
+        let entity = state.reader.snapshot().ledger().thread_binding(&thread).ok()?.entity_id().to_string();
+        Some(richos_core::operator_host::ConversationKey { entity_id: entity, thread_id: thread })
+    });
     let outcome = if let Some(expected) = expected_turn_id.as_deref() {
         state.control.request_stop_for(expected).map_err(|e| e.to_string())?
     } else {
         state.control.request_stop().map_err(|e| e.to_string())?
     };
+    // **HIS ESC, on an operator install, is his team's too** (r3 (d) item 6): the lead's turn in
+    // that conversation ends and its agents keep running (r4 §1.2). AFTER the front desk's stop
+    // and on its own thread, so a lead slow to answer the interrupt never delays the stop he
+    // sees; what his team did is said on the conversation by the desk.
+    if let (Some(desk), Some(key)) = (state.operator.clone(), team_key) {
+        let spawned = std::thread::Builder::new().name("richos-operator-esc".into()).spawn(move || {
+            let said = desk.interrupt(&key);
+            eprintln!("[richos] his team: Esc in {}: {said}", key.thread_id);
+        });
+        if let Err(e) = spawned {
+            eprintln!("[richos] his team: the Esc could not be sent to your team ({e})");
+        }
+    }
     match outcome {
         StopOutcome::NothingRunning => {
             Ok(StopReport { stopped: false, turn_id: None, requested_at: None, reached_lease: false })
@@ -8519,6 +8708,11 @@ fn registered_work(state: &AppState) -> lifecycle::Registered {
         running: work.running,
         awaiting_you: work.awaiting_you,
         readable: work.readable,
+        // **His team, on an operator install** (r3 (m)), read from the leads' own streams:
+        // this runs inside the exit callback, which must answer at once, so no script is run
+        // here (`OperatorHost::team_from_stream`). It names the agents the quit would stop.
+        team: state.operator.as_ref()
+            .and_then(|desk| richos_core::work_gate::operator_quit_sentence(&desk.team_from_stream())),
     }
 }
 
