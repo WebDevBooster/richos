@@ -1057,7 +1057,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "9742771d19d9d5f4c77a576c32c0b364019ecb5dce57303d093276c6606b38dc",
+      "sha256": "a21a2fa1e167b3865d0ce0347a160b82f38605d3dda0756dfd1191736578e4d5",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed.",
       "keys": [],
       "edges": [
@@ -1224,6 +1224,150 @@
           "to": "scripts/lib/foreign_app_data.py#source-scan"
         }
       ]
+    },
+    "scripts/lib/engine_pass.test.py": {
+      "source": "scripts/lib/engine_pass.test.py",
+      "sha256": "d2c5da9268bb15dc229354ae587229d556311564369f93205db712628c44becc",
+      "evidence": "Every hold/acquire/needed/status invocation targets engine_pass.py with a generated Git repository and private slot. Child programs record timestamps and sleep. No config is read.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/engine_pass.py"
+        }
+      ]
+    },
+    "scripts/engine_pass.mutation.sh": {
+      "source": "scripts/engine_pass.mutation.sh",
+      "sha256": "cf81ed1dcd9e97c632024d1803459054d0a4137f8f0b0de68ec0d304ef81d9ee",
+      "evidence": "Eight literal engine_pass.py transformations run the named nested case. The generic harness copies config but the nested slot fixture never consumes it.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/lib/engine_pass.test.sh"
+        }
+      ]
+    },
+    "scripts/lib/engine_pass.test.sh": {
+      "source": "scripts/lib/engine_pass.test.sh",
+      "sha256": "a59967851e01c0b27fdcb3333b20071d08ae57c395bf3740915e099315627887",
+      "evidence": "Runs the Python slot fixture and its focused mutations. Nested mutation execution is guarded by RICHOS_MUTATION_INNER.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/engine_pass.test.py"
+        },
+        {
+          "to": "scripts/engine_pass.mutation.sh"
+        }
+      ]
+    },
+    "scripts/lib/worker-priority.test.py": {
+      "source": "scripts/lib/worker-priority.test.py",
+      "sha256": "8df5f364bf4b93bffc05743b650c61fda23796797c24f53cfa147531b620f8d0",
+      "evidence": "Generated Git checkouts and private worker/slot records drive actual lease and supervision APIs. The machine-command cleanup case substitutes testdevices; the nested command path returns before device cleanup. No test sources config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/worker_tokens.py"
+        },
+        {
+          "to": "scripts/lib/engine_pass.py"
+        }
+      ]
+    },
+    "scripts/lib/worker-priority.test.sh": {
+      "source": "scripts/lib/worker-priority.test.sh",
+      "sha256": "dddd0f49c550091f133252b522756afdac80d73db8b5a363d5285d4ec25c03fa",
+      "evidence": "Executes only the adjacent Python priority fixture.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/worker-priority.test.py"
+        }
+      ]
+    },
+    "scripts/hooks/guard-resume-isolation.sh#pause-rejection": {
+      "source": "scripts/hooks/guard-resume-isolation.sh",
+      "sha256": "2366c33e6d87e0b53a7c1e18a6b153b72652ac86532f88e145fd66539e373f56",
+      "evidence": "The pause fixture sends an invalid pause message and exits at pause_protocol validation before recipient/workspace/liveness handling. It sources real config and materializes the SESSION_TEAMS_DIR default before rejection. Root resolution is the only other helper reached.",
+      "keys": [
+        "SESSION_TEAMS_DIR"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/pause_protocol.py"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "TO_LC=\"$(printf"
+      ]
+    },
+    "scripts/app-engine-hook.py#pause-rejection": {
+      "source": "scripts/app-engine-hook.py",
+      "sha256": "3015106cb719bc4a5e00d7f8bd36b62cced1df4362695c0b0e99d434e047b8bf",
+      "evidence": "The fixture loads the standard-library-only module, supplies explicit roots and calls handle with PreToolUse SendMessage. Invalid pause fails before scope; valid pause reaches the mocked scope exception. No evidence/workspace helper is loaded.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/pause_protocol.py"
+        }
+      ],
+      "region": [
+        "def handle(payload):",
+        "    evidence = load("
+      ]
+    },
+    "scripts/lib/quota_watch.py#message-fixture": {
+      "source": "scripts/lib/quota_watch.py",
+      "sha256": "18047f7a75a35c3c2a169b8f93afa8bfc4f1ac8094fc96ef25ff002312b2517e",
+      "evidence": "The fixture calls only pause_message, resume_message and release_message with literal reset timestamps. hhmm uses UTC conversion, pause text uses pause_protocol; no config/source/watch/reset operation runs.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/pause_protocol.py"
+        },
+        {
+          "to": "scripts/lib/quota_weekly.py#weekly-fixture"
+        }
+      ]
+    },
+    "scripts/lib/pause_protocol.test.py": {
+      "source": "scripts/lib/pause_protocol.test.py",
+      "sha256": "95495204070cc7716391ff9629c2207fcb678cd4586ce11f0e7a7502c070866a",
+      "evidence": "Standard-message fixtures invoke pause_protocol, literal-time watcher message formatting, terminal early rejection and desktop early rejection. Real guard/template source assertions read code, not config values.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/pause_protocol.py"
+        },
+        {
+          "to": "scripts/lib/quota_watch.py#message-fixture"
+        },
+        {
+          "to": "scripts/hooks/guard-resume-isolation.sh#pause-rejection"
+        },
+        {
+          "to": "scripts/app-engine-hook.py#pause-rejection"
+        }
+      ]
+    },
+    "scripts/lib/pause_protocol.test.sh": {
+      "source": "scripts/lib/pause_protocol.test.sh",
+      "sha256": "558f7cdaf40dee4e0d97e297c81216a45e50250f38f5b0479bff999e6ae1a040",
+      "evidence": "Runs the adjacent standard-library Python fixture.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/pause_protocol.test.py"
+        }
+      ]
     }
   },
   "units": {
@@ -1241,7 +1385,10 @@
     "scripts/install-escalation-protocol.test.sh": "scripts/install-escalation-protocol.test.sh",
     "scripts/ci-verify.test.sh": "scripts/ci-verify.test.sh",
     "scripts/quota-weekly.test.sh": "scripts/quota-weekly.test.sh",
-    "scripts/no-foreign-app-data.test.sh": "scripts/no-foreign-app-data.test.sh"
+    "scripts/no-foreign-app-data.test.sh": "scripts/no-foreign-app-data.test.sh",
+    "scripts/lib/engine_pass.test.sh": "scripts/lib/engine_pass.test.sh",
+    "scripts/lib/worker-priority.test.sh": "scripts/lib/worker-priority.test.sh",
+    "scripts/lib/pause_protocol.test.sh": "scripts/lib/pause_protocol.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {

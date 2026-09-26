@@ -330,6 +330,22 @@ class Closure(unittest.TestCase):
                 self.assertIn(unit, graph.config_units(inputs.config_change("MODEL_CEILING=a", "MODEL_CEILING=b"), [unit]))
                 document["nodes"][helper]["sha256"] = original
 
+    def test_slot_priority_and_pause_fixtures_have_reviewed_config_closures(self):
+        document = json.loads((HERE / "lib/verification-dependencies.json").read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        slot = "scripts/lib/engine_pass.test.sh"
+        priority = "scripts/lib/worker-priority.test.sh"
+        pause = "scripts/lib/pause_protocol.test.sh"
+        for unit in (slot, priority, pause):
+            closure = graph.closure(unit)
+            self.assertFalse(closure["whole"] or closure["fallback"], closure)
+        self.assertEqual(set(graph.closure(pause)["keys"]), {"SESSION_TEAMS_DIR"})
+        self.assertTrue(graph.closure(slot)["presence"])
+        change = inputs.config_change("BAN_WORKFLOW_TOOL=1", "BAN_WORKFLOW_TOOL=0")
+        self.assertEqual(graph.config_units(change, [slot, priority, pause]), {})
+        document["nodes"]["scripts/lib/worker_tokens.py"]["sha256"] = "changed"
+        self.assertIn(priority, graph.config_units(change, [priority]))
+
     def test_weekly_policy_fixture_and_real_source_scan_have_different_inputs(self):
         document = json.loads((HERE / "lib/verification-dependencies.json").read_text())
         graph = inputs.Dependencies(HERE.parent, document)
