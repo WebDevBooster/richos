@@ -79,8 +79,12 @@ pub enum Origin {
     DeskVoice,
     DeskFile,
     Phone,
-    /// A notice, a proactive turn, an internal re-prime: no intake origin (s) rule 4. Any
-    /// origin added later is treated as this until the declaration lists it.
+    /// A mouth this build has never heard of, recorded on the turn by its intake record (r3
+    /// (s): *"any future origin is unlisted until declared"*). Refused as work with the same
+    /// sentence as the phone, because it is not the Mac.
+    Undeclared,
+    /// A notice, a proactive turn, an internal re-prime, or a turn whose mouth was never
+    /// recorded: no intake origin, (s) rule 4. It relays nothing.
     NoOrigin,
 }
 
@@ -92,7 +96,29 @@ impl Origin {
             Self::DeskVoice => Some("desk-voice"),
             Self::DeskFile => Some("desk-file"),
             Self::Phone => Some("phone"),
+            Self::Undeclared => Some("undeclared"),
             Self::NoOrigin => None,
+        }
+    }
+
+    /// **Where a front-desk turn's words came from, read off the ledger** (r3 (s); the
+    /// operator-client record's §7 item 3: *"so the host receives `Origin` instead of the
+    /// walk handing it in"*). `channel` is `Turn::channel`, which a spine on an operator
+    /// install records for every sentence of his (`spine::DESK_CHANNEL` or the intake
+    /// record's own mouth).
+    ///
+    /// **An unrecorded mouth is no origin, never the desk.** A turn recorded before keeping
+    /// began, by a build that did not keep it, carries `None`; reading that as "typed at the
+    /// Mac" would let a phone sentence from yesterday become work today. Internal and
+    /// proactive turns carry no words of his and are no origin whatever they carry.
+    pub fn of_turn(source: crate::ledger::Source, channel: Option<&str>) -> Origin {
+        use crate::ledger::Source;
+        match (source, channel) {
+            (Source::Internal | Source::Proactive, _) | (_, None) => Origin::NoOrigin,
+            (_, Some("phone")) => Origin::Phone,
+            (Source::Text, Some(crate::spine::DESK_CHANNEL)) => Origin::DeskTyped,
+            (Source::Jam, Some(crate::spine::DESK_CHANNEL)) => Origin::DeskVoice,
+            (_, Some(_)) => Origin::Undeclared,
         }
     }
 }
@@ -1379,6 +1405,28 @@ mod tests {
         // Opening the phone is one line in the declaration, and his call.
         let open = rig_with(&["desk-typed", "phone"], 0);
         assert!(matches!(open.host.relay(&key("a"), "A", None, "x", Origin::Phone).unwrap(), Relayed::Sent { .. }));
+    }
+
+    #[test]
+    fn a_turn_s_origin_is_its_recorded_mouth_and_an_unrecorded_one_is_no_origin() {
+        use crate::ledger::Source::{Internal, Jam, Proactive, Text};
+        assert_eq!(Origin::of_turn(Text, Some("desk")), Origin::DeskTyped);
+        assert_eq!(Origin::of_turn(Jam, Some("desk")), Origin::DeskVoice);
+        assert_eq!(Origin::of_turn(Text, Some("phone")), Origin::Phone);
+        assert_eq!(Origin::of_turn(Jam, Some("phone")), Origin::Phone, "a voice note from the phone is the phone");
+        assert_eq!(Origin::of_turn(Text, Some("watch")), Origin::Undeclared);
+        assert_eq!(Origin::of_turn(Text, None), Origin::NoOrigin, "not recorded is never the desk");
+        assert_eq!(Origin::of_turn(Jam, None), Origin::NoOrigin);
+        assert_eq!(Origin::of_turn(Internal, Some("desk")), Origin::NoOrigin, "an internal turn carries none of his words");
+        assert_eq!(Origin::of_turn(Proactive, Some("desk")), Origin::NoOrigin);
+    }
+
+    #[test]
+    fn an_undeclared_mouth_is_refused_as_work_with_the_sentence() {
+        let r = rig_with(&["desk-typed", "desk-voice", "desk-file"], 0);
+        let said = r.host.relay(&key("t"), "T", None, "do the thing", Origin::Undeclared).unwrap();
+        assert_eq!(said, Relayed::Not { sentence: Some(PHONE_ASSIGNMENT.into()) });
+        assert!(r.launcher.leads.lock().unwrap().is_empty(), "no lead was started for it");
     }
 
     #[test]

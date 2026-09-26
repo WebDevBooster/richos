@@ -470,3 +470,61 @@ fn the_fence_on_his_phone_message_is_the_one_the_open_window_is_holding() {
 
     let _ = std::fs::remove_file(ledger_path);
 }
+
+// -------------------------------------------------------------------------------------
+// THE MOUTH, KEPT ON AN OPERATOR INSTALL (operator back-end spec r3 (s); the operator-client
+// record's §7 item 3)
+// -------------------------------------------------------------------------------------
+
+/// Every sentence of his in the ledger, as `(words, channel)`, in order.
+fn mouths(spine: &Spine, thread: &str) -> Vec<(String, Option<String>)> {
+    let binding = spine.ledger().thread_binding(thread).unwrap();
+    spine
+        .ledger()
+        .thread_turns_scoped(&binding)
+        .unwrap()
+        .into_iter()
+        .filter(|t| matches!(t.source, Source::Text | Source::Jam))
+        .map(|t| (t.user_text.clone(), t.channel.clone()))
+        .collect()
+}
+
+/// **The phone's words keep their mouth on an operator install, and nothing changes on a
+/// product one.** r3 (s): *"the spine erases their origin"* (`drain_intake`'s `Channel` arm
+/// files phone words as `Source::Text`), and the host must know it to refuse a phone
+/// assignment. So a spine told to keep the channel records `phone` for the phone, the
+/// record's own value for a mouth this build has never heard of, and `desk` for every road
+/// from the Mac (typed, spoken, deferred through the log); a spine never told records none,
+/// the product's lines exactly as before. Same fixture, same five sentences, both halves in
+/// one test so they cannot drift apart.
+#[test]
+fn a_keeping_spine_records_every_prompt_s_mouth_and_a_product_spine_records_none() {
+    for keep in [true, false] {
+        let (mut spine, control, thread, ledger_path) =
+            phone_ready(&format!("mouth-{keep}"), vec!["one", "two", "three", "four", "five"]);
+        if keep {
+            spine.keep_intake_channel(true);
+        }
+        control.submit_from_channel(&thread, Some(femcboost()), "from the couch", "phone").unwrap();
+        spine.poll_intake().unwrap();
+        spine.submit_prompt("typed at the desk", Source::Text).unwrap();
+        spine.submit_prompt_spoken("said at the desk", Source::Jam, false).unwrap();
+        control.submit_from_desk(&thread, Some(femcboost()), "deferred at the desk").unwrap();
+        spine.poll_intake().unwrap();
+        control.submit_from_channel(&thread, Some(femcboost()), "a new mouth", "watch").unwrap();
+        spine.poll_intake().unwrap();
+        let said = |mouth: &str| if keep { Some(mouth.to_string()) } else { None };
+        assert_eq!(
+            mouths(&spine, &thread),
+            vec![
+                ("from the couch".to_string(), said("phone")),
+                ("typed at the desk".to_string(), said("desk")),
+                ("said at the desk".to_string(), said("desk")),
+                ("deferred at the desk".to_string(), said("desk")),
+                ("a new mouth".to_string(), said("watch")),
+            ],
+            "keep = {keep}"
+        );
+        let _ = std::fs::remove_file(ledger_path);
+    }
+}
