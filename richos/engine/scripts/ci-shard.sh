@@ -579,16 +579,33 @@ while IFS= read -r id; do
     RC=$?
     # Admission waits do not spend the unit's execution deadline or inflate
     # the planner's execution weight. Missing timing cannot earn a pass.
-    SECS="$(python3 -c 'import json,sys; print(round(json.load(open(sys.argv[1]))["execution_seconds"], 1))' "$TIMING")" || RC=125
-    QUEUED="$(python3 -c 'import json,sys; print(round(json.load(open(sys.argv[1]))["admission_seconds"], 1))' "$TIMING")" || RC=125
-    [ -n "$SECS" ] || SECS=0
+    EXECUTION="infrastructure-error"; SECS=0; QUEUED="unknown"
+    read -r EXECUTION SECS QUEUED < <(python3 - "$TIMING" "$RC" <<'PY'
+import json, math, sys
+try:
+    row = json.load(open(sys.argv[1]))
+    elapsed, queue = row["execution_seconds"], row["admission_seconds"]
+    assert all(type(v) in (int, float) and math.isfinite(v) and v >= 0 for v in (elapsed, queue))
+    assert type(row["admitted"]) is bool and row["exit"] == int(sys.argv[2])
+    outcome = row["outcome"]
+    assert outcome in ("completed", "not-admitted", "infrastructure-error", "timed-out")
+    assert row["admitted"] or outcome in ("not-admitted", "infrastructure-error")
+    print(outcome, round(elapsed, 1), round(queue, 1))
+except (OSError, ValueError, KeyError, TypeError, AssertionError):
+    print("infrastructure-error 0 unknown")
+PY
+)
     printf '(admission %ss) ' "${QUEUED:-unknown}"
 
     ESCAPED="$(lc_escaped "$CANARY_DIR" "$LOG_DIR")"
     TOUCHED="$(rc_escaped "$CANARY_DIR/record.txt")"
 
     VERDICT=""
-    if [ "$RC" -eq 124 ] && [ "${DEADLINE:-0}" -gt 0 ]; then
+    if [ "$EXECUTION" = "not-admitted" ]; then
+        VERDICT="NOT-ADMITTED"
+    elif [ "$EXECUTION" = "infrastructure-error" ] || [ -z "$EXECUTION" ]; then
+        VERDICT="INFRASTRUCTURE-ERROR"
+    elif [ "$EXECUTION" = "timed-out" ]; then
         # FIRST, and ahead of the canary: a unit killed mid-flight has almost
         # certainly left residue, so the leak canary would fire too and the
         # report would name the wrong defect. The hang is the finding.
@@ -622,6 +639,11 @@ while IFS= read -r id; do
     fi
 
     case "$VERDICT" in
+        NOT-ADMITTED|INFRASTRUCTURE-ERROR)
+            printf '%s%s%s %ss (rc=%s)\n' "$C_RED" "$VERDICT" "$C_RESET" "$SECS" "$RC"
+            FAILED=$((FAILED + 1))
+            FAIL_LINES+=("$id — $VERDICT; no completed test verdict, not accepted coverage")
+            ;;
         PASS)
             printf '%sPASS%s %ss\n' "$C_GREEN" "$C_RESET" "$SECS"
             PASSED=$((PASSED + 1))
@@ -696,7 +718,8 @@ while IFS= read -r id; do
 
     if [ -n "$RECEIPT" ]; then
         UNIT_ID="$id" UNIT_RC="$RC" UNIT_EXP="${EXPECT_RC:-0}" UNIT_VERDICT="$VERDICT" \
-        UNIT_SECS="$SECS" UNIT_ADMISSION="${QUEUED:-}" UNIT_SHARD="${SHARD:-0}" UNIT_SHARDS="$SHARDS" UNIT_SHA="$SHA" \
+        UNIT_SECS="$SECS" UNIT_ADMISSION="${QUEUED:-}" UNIT_EXECUTION="$EXECUTION" \
+        UNIT_SHARD="${SHARD:-0}" UNIT_SHARDS="$SHARDS" UNIT_SHA="$SHA" \
         python3 "$SCRIPT_DIR/lib/ci-receipts.py" emit >> "$RECEIPT"
     fi
     # Contamination is independent of the assertion verdict (including a timeout).

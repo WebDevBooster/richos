@@ -311,6 +311,7 @@ def machine_command(command, timing=None):
     start = time.monotonic()
     acquired = None
     rc = 125
+    outcome = "infrastructure-error"
     budget = None
     try:
         if os.environ.get("RICHOS_WORKER_TOKENS") and os.environ.get("RICHOS_WORKER_SLOT_HELD") == "1":
@@ -319,6 +320,9 @@ def machine_command(command, timing=None):
                 os.execv(sys.executable, proc_tree.command(command, owner=os.getppid()))
             acquired = time.monotonic()
             rc = run_command(command, Token(None, ""), worker=False)
+            outcome = "completed" if rc < 124 else "infrastructure-error"
+            if rc == 124:
+                outcome = "timed-out"
             return rc
         directory = machine_directory()
         budget = Budget(directory, runner=True)
@@ -341,6 +345,14 @@ def machine_command(command, timing=None):
                 if errors:
                     print("worker_tokens: simulator cleanup FAILED: " + "; ".join(errors), file=sys.stderr)
                     rc = 125
+        outcome = "completed" if rc < 124 else "infrastructure-error"
+        if rc == 124:
+            outcome = "timed-out"
+        return rc
+    except (TimeoutError, OSError, ValueError) as exc:
+        outcome = "not-admitted" if acquired is None else "infrastructure-error"
+        rc = 75 if acquired is None else 125
+        print("worker_tokens: %s: %s" % (outcome, exc), file=sys.stderr)
         return rc
     finally:
         if budget:
@@ -350,7 +362,8 @@ def machine_command(command, timing=None):
             with open(timing + ".new", "w") as out:
                 json.dump({"admission_seconds": (acquired or end) - start,
                            "execution_seconds": end - acquired if acquired else 0,
-                           "exit": rc, "admitted": acquired is not None}, out)
+                           "exit": rc, "admitted": acquired is not None,
+                           "outcome": outcome}, out)
             os.replace(timing + ".new", timing)
 
 

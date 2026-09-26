@@ -220,7 +220,7 @@ esac
 #    row to the ownership ledger under the config directory — the exact shape
 #    session-start-stdin.test.sh 9b produced through the shipped reaper. The
 #    runner must fail it, name it, and print the row. Beside it, a suite that
-#    appends only a `finished` row (the platform's own per-turn row) stays
+#    appends only a `finished` row runs before the contaminating suite and stays
 #    green, because that is the one exclusion the library states.
 # ===========================================================================
 E5="$SANDBOX/e5"
@@ -233,13 +233,13 @@ printf '{"event": "terminated", "agent_id": "ae904aac1949e5696", "teammate": "sa
 echo "  PASS  every assertion passed"
 exit 0
 EOF
-cat > "$E5/engine/scripts/hooks/turn.test.sh" <<EOF
+cat > "$E5/engine/scripts/hooks/platform-turn.test.sh" <<EOF
 #!/usr/bin/env bash
 printf '{"event": "finished", "agent_id": "a1", "signal": "SubagentStop", "source": "worker-ended-handoff.sh", "ts": "t"}\n' >> "$CLAUDE_CONFIG_DIR/state/worktree-ledger.jsonl"
 echo "  PASS  every assertion passed"
 exit 0
 EOF
-chmod +x "$E5/engine/scripts/hooks/toucher.test.sh" "$E5/engine/scripts/hooks/turn.test.sh"
+chmod +x "$E5/engine/scripts/hooks/toucher.test.sh" "$E5/engine/scripts/hooks/platform-turn.test.sh"
 git_q "$E5" add -A; git_q "$E5" commit -q -m suites
 OUT5="$( cd "$E5/engine" && bash scripts/run-all-tests.sh 2>&1 )"; RC5=$?
 if [ "$RC5" -ne 0 ]; then
@@ -259,7 +259,7 @@ case "$OUT5" in
         ok "5c  and the row it wrote is printed (event, witness, teammate), so a reader can tell a false witness from a fixture at a glance" ;;
     *)  bad "5c  the row is printed" "got: $OUT5" ;;
 esac
-TURN_LINE="$(printf '%s\n' "$OUT5" | sed $'s/\033\\[[0-9;]*m//g' | grep 'turn\.test\.sh')"
+TURN_LINE="$(printf '%s\n' "$OUT5" | sed $'s/\033\\[[0-9;]*m//g' | grep 'platform-turn\.test\.sh')"
 case "$TURN_LINE" in
     *PASS*) ok "5d  and the suite beside it that appended only a 'finished' row is NOT blamed — the platform's own per-turn row is the stated exclusion, so a live-machine run does not cry wolf" ;;
     "")     bad "5d  the finished-only suite is not blamed" "turn.test.sh has no line in the output" ;;

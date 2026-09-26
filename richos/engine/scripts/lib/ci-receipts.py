@@ -58,11 +58,13 @@ def emit():
             "verdict": os.environ["UNIT_VERDICT"],
             "seconds": float(os.environ["UNIT_SECS"]),
             "admission_seconds": (float(os.environ["UNIT_ADMISSION"])
-                                  if os.environ.get("UNIT_ADMISSION") else None),
+                                  if os.environ.get("UNIT_ADMISSION") not in (None, "", "unknown") else None),
             "shard": int(os.environ.get("UNIT_SHARD") or 0),
             "shards": int(os.environ.get("UNIT_SHARDS") or 0),
             "sha": os.environ["UNIT_SHA"],
         }
+        if "UNIT_EXECUTION" in os.environ:
+            rec.update(schema=2, execution_status=os.environ["UNIT_EXECUTION"])
     except KeyError as exc:
         sys.stderr.write("ci-receipts.py emit: missing environment variable %s\n" % exc)
         return 2
@@ -228,6 +230,12 @@ def verify(plan_path, weights_path=None, emit_path=None):
         problems.append(
             "%d unit(s) did not reach a green verdict:\n    %s"
             % (len(red), "\n    ".join("%-72s %s (rc=%s)" % (u, v, rc) for u, v, rc in red)))
+
+    incomplete = sorted(u for u, recs in ran.items()
+                        if recs[0].get("schema") == 2 and
+                        recs[0].get("execution_status") != "completed")
+    if incomplete:
+        problems.append("no completed execution verdict for: " + ", ".join(incomplete))
 
     known_red = sorted(u for u, recs in ran.items() if recs[0].get("verdict") == "KNOWN-RED")
 

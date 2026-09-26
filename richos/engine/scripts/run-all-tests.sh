@@ -430,6 +430,21 @@ for t in "${SUITES[@]}"; do
     if [ -n "$TIMING_TSV" ]; then
         printf '%s\t%s\t%s\t%s\n' "$REL" "$SUITE_MS" "${TIMES_VERDICT[$((i - 1))]}" "python-monotonic" >>"$TIMING_TSV"
     fi
+    # Do not reset the baseline and earn later passes on contaminated inputs.
+    if [ "$CANARY_BASE_HEALTHY" -ne 1 ] || [ "$RECORD_BASE_HEALTHY" -ne 1 ] \
+       || [ -n "$TOUCHED" ] || [ -n "$ESCAPED" ]; then
+        if [ -n "${RICHOS_VERIFICATION_CONTAMINATION:-}" ]; then
+            mkdir -p "$RICHOS_VERIFICATION_CONTAMINATION"
+            python3 - "$RICHOS_VERIFICATION_CONTAMINATION" "$REL" <<'PY'
+import json, os, sys, tempfile
+fd, path = tempfile.mkstemp(prefix="suite-", suffix=".json", dir=sys.argv[1])
+with os.fdopen(fd, "w") as out:
+    json.dump({"unit": sys.argv[2], "reason": "contaminated or unwitnessed execution inputs"}, out)
+PY
+        fi
+        printf '  QUARANTINED: %s remaining suite(s) were not run after contamination.\n' "$((TOTAL - i))"
+        break
+    fi
 done
 RUN_MS=$(( $(sw_now_ms) - RUN_T0 ))
 
@@ -441,7 +456,7 @@ RUN_MS=$(( $(sw_now_ms) - RUN_T0 ))
 # suite's shape instead of reading a number the run already knew.
 echo ""
 printf '%s--- timing: %s suite(s) in %s (clock=%s) ---%s\n' \
-    "$C_BOLD" "$TOTAL" "$(sw_fmt "$RUN_MS")" "$SW_METHOD" "$C_RESET"
+    "$C_BOLD" "$i" "$(sw_fmt "$RUN_MS")" "$SW_METHOD" "$C_RESET"
 TAIL_N="${RICHOS_TIMING_TAIL:-10}"
 case "$TAIL_N" in ''|*[!0-9]*) TAIL_N=10 ;; esac
 if [ "$TAIL_N" -gt 0 ]; then
@@ -449,13 +464,13 @@ if [ "$TAIL_N" -gt 0 ]; then
     TIMING_RAW="$LOG_DIR/timing.raw"
     : >"$TIMING_RAW"
     j=0
-    while [ "$j" -lt "$TOTAL" ]; do
+    while [ "$j" -lt "$i" ]; do
         SUM_MS=$(( SUM_MS + ${TIMES_MS[$j]} ))
         printf '%012d\t%s\t%s\n' "${TIMES_MS[$j]}" "${SUITES[$j]#"$ENGINE_ROOT"/}" "${TIMES_VERDICT[$j]}" >>"$TIMING_RAW"
         j=$(( j + 1 ))
     done
     printf '  slowest %s of %s (admitted execution; run total also includes queueing and canaries):\n' \
-        "$TAIL_N" "$TOTAL"
+        "$TAIL_N" "$i"
     LC_ALL=C sort -rn "$TIMING_RAW" | head -n "$TAIL_N" | while IFS="$(printf '\t')" read -r ms rel verdict; do
         # Share of the summed SUITE time, not of the run: the two differ by the
         # canary, and a percentage that does not sum to 100 invites the reader
@@ -465,7 +480,7 @@ if [ "$TAIL_N" -gt 0 ]; then
         printf '    %9s  %3s%%  %-58s %s\n' "$(sw_fmt "$((10#$ms))")" "$pct" "$rel" "$verdict"
     done
     printf '  summed execution time %s across %s suite(s); queueing and runner overhead %s\n' \
-        "$(sw_fmt "$SUM_MS")" "$TOTAL" "$(sw_fmt "$(( RUN_MS - SUM_MS ))")"
+        "$(sw_fmt "$SUM_MS")" "$i" "$(sw_fmt "$(( RUN_MS - SUM_MS ))")"
 fi
 
 echo ""

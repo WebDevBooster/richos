@@ -167,12 +167,11 @@ class Slot:
         self.fd, self.waited = fd, waited
 
     def release(self):
+        # Inherited descriptors share the lock. Only the last close may release
+        # it; LOCK_UN would also release a still-running descendant's protection.
         if self.fd is not None:
-            try:
-                fcntl.flock(self.fd, fcntl.LOCK_UN)
-            finally:
-                os.close(self.fd)
-                self.fd = None
+            os.close(self.fd)
+            self.fd = None
 
 
 class Admission:
