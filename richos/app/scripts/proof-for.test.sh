@@ -183,10 +183,7 @@ echo "=== the refusals, which are the part that must not be decorative ==="
 # D. A changed CODE path nobody covers is a FAILURE, by name. This is the whole point: a
 #    targeting tool that exits 0 over an empty set has certified nothing.
 # -----------------------------------------------------------------------------------------
-mkdir -p "$ROOT/richos/app/.proof-for-probe" 2>/dev/null
-printf '#!/bin/sh\nexit 0\n' > "$ROOT/richos/app/.proof-for-probe/orphan.sh"
 run_pf "$WORK/d.out" --paths richos/app/.proof-for-probe/orphan.sh; D_RC=$RC
-rm -rf "$ROOT/richos/app/.proof-for-probe"
 if [ "$D_RC" -eq 1 ] && grep -q 'UNCOVERED' "$WORK/d.out" && grep -q 'orphan.sh' "$WORK/d.out"; then
   ok "D1 a code path no suite claims exits 1 and is named"
 else
@@ -332,11 +329,14 @@ else
   notrun "H  the cargo target names" "no cargo on this machine or on PATH"
 fi
 
-# Execute exactly the generated engine command. Other selections are syntax
-# checks only, so a selection containing this suite can never recurse.
+# Execute the generated command's dispatch contract. Its real target must
+# refuse a missing prerequisite; a controlled target proves cwd, environment
+# and exit propagation. The owning asset suite proves real packaging and is
+# selected independently. Recursing into that entire suite here duplicates its
+# builds without exercising another selector behavior.
 run_pf "$WORK/engine.out" --paths richos/app/scripts/make-engine-asset.test.sh
 if python3 - "$ROOT" "$WORK/engine.out" <<'PYTEST'
-import os, signal, subprocess, sys
+import os, subprocess, sys, tempfile
 from pathlib import Path
 lines = Path(sys.argv[2]).read_text().splitlines()
 commands = [line.strip() for line in lines if line.startswith("  cd ")]
@@ -352,26 +352,26 @@ missing.pop("RICHOS_RUNTIME_DIR", None)
 result = subprocess.run(["bash", "-c", command], cwd=sys.argv[1], env=missing,
                         capture_output=True, text=True, timeout=15)
 assert result.returncode == 2 and "Prerequisite: set RICHOS_RUNTIME_DIR" in result.stderr
-# This nested deadline owns a group too. Forward outer-gate cancellation into
-# its finally block so the generated command cannot outlive the test runner.
-def cancel(signum, frame):
-    raise SystemExit(128 + signum)
-signal.signal(signal.SIGTERM, cancel)
-signal.signal(signal.SIGINT, cancel)
-p = subprocess.Popen(["bash", "-c", command], cwd=sys.argv[1], start_new_session=True)
-try:
-    assert p.wait(timeout=600) == 0, "generated real-archive command failed"
-finally:
-    signal.signal(signal.SIGTERM, signal.SIG_IGN)
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
-    try:
-        os.killpg(p.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    p.wait(timeout=5)
+with tempfile.TemporaryDirectory(prefix="proof-generated-command-") as temporary:
+    root = Path(temporary)
+    scripts = root / "richos/app/scripts"
+    scripts.mkdir(parents=True)
+    target = scripts / "make-engine-asset.test.sh"
+    target.write_text('#!/bin/bash\n'
+                      '[ "$PWD" = "$EXPECTED_APP" ] || exit 91\n'
+                      '[ "$RICHOS_RUNTIME_DIR" = "$EXPECTED_RUNTIME" ] || exit 92\n'
+                      'echo generated-target-ran\nexit "$TARGET_EXIT"\n')
+    for code in (0, 7):
+        env = dict(os.environ, EXPECTED_APP=str(scripts.parent),
+                   RICHOS_RUNTIME_DIR=str(root / "runtime fixture"),
+                   EXPECTED_RUNTIME=str(root / "runtime fixture"), TARGET_EXIT=str(code))
+        result = subprocess.run(["bash", "-c", command], cwd=root, env=env,
+                                capture_output=True, text=True, timeout=15)
+        assert result.returncode == code and result.stdout.strip() == "generated-target-ran", result
+
 PYTEST
 then
-  ok "I1 generated engine command runs with its prerequisite and refuses without it; other commands parse"
+  ok "I1 generated command preserves cwd, prerequisite environment and target exit; the real target refuses a missing prerequisite"
 else
   bad "I1 generated engine command and prerequisite contract"
 fi

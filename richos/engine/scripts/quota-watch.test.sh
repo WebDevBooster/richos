@@ -137,11 +137,16 @@ cleanup() {
 }
 trap cleanup EXIT
 
+FOCUS="${1:-}"
+wants() { [ -z "$FOCUS" ] || [[ "$FOCUS" == $1 ]]; }
 PASS=0; FAIL=0
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); }
 check() { # <id+label> <condition-exit> <detail>
     if [ "$2" -eq 0 ]; then ok "$1"; else bad "$1 — $3"; fi
+    if [ -n "$FOCUS" ] && [ "${1%% *}" = "$FOCUS" ]; then
+        [ "$FAIL" -eq 0 ]; exit $?
+    fi
 }
 
 # --- isolation: nothing here reads the operator's payload, registry or sessions
@@ -191,6 +196,7 @@ once() { OUT="$(bash "$Q" --once 2>&1)"; RC=$?; }
 echo "=== quota-watch tests ==="
 set_threshold 93
 
+if wants "Q*"; then
 # --- Q: --once at the edges ------------------------------------------------
 write_payload 92 3600 10; once
 check "Q01  92% is below the threshold: exit 0" "$([ "$RC" -eq 0 ]; echo $?)" "rc=$RC out=$OUT"
@@ -298,6 +304,8 @@ check "Q24  --status names the 2026-09-25 update and says NO PAUSE inside the la
     "$([ "$RC" -eq 3 ] && printf '%s' "$OUT" | grep -q 'update    : Updated 2026-09-25' \
        && printf '%s' "$OUT" | grep -q 'verdict   : AT OR ABOVE the threshold, NO PAUSE'; echo $?)" "rc=$RC out=$OUT"
 
+fi
+
 # --- W: --watch ------------------------------------------------------------
 start_watch() { # <outfile> [args...]
     local out="$1"; shift
@@ -375,6 +383,7 @@ fake() { # <mode> [used] [reset-in] — resets the fixture's record
 last_fake_pid() { tail -1 "$FAKE/pids" 2>/dev/null; }
 gonce() { OUT="$(QUOTA_CLAUDE_BIN="$FAKE/claude" bash "$Q" --once 2>&1)"; RC=$?; }
 
+if wants "G0[1-6]"; then
 write_payload 50 3600 10
 fake ok 95; gonce
 check "G01  --once reads get_usage (95%), not the status-line file (50%): exit 1, via get_usage" \
@@ -407,37 +416,52 @@ check "G06  an unreadable answer and an early close both fall back to the status
     "$([ "$RCG" -eq 0 ] && printf '%s' "$OUTG" | grep -q 'cannot read' && [ "$RC" -eq 0 ] \
        && printf '%s' "$OUT" | grep -q 'closed its output'; echo $?)" "garbage: rc=$RCG $OUTG // eof: rc=$RC $OUT"
 
+fi
+
 # W01 needs a worker, so it runs after the registry exists; see the E block.
+if wants "W02"; then
 write_payload 50 3 10
 start_watch "$SB/w02.out"; finish_watch 10; OUT="$(cat "$SB/w02.out")"
 check "W02  the reset passing wakes the lead: WINDOW-RESET with the resume message and no pause-until: line" \
     "$([ "$WRC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^WINDOW-RESET' && printf '%s' "$OUT" | grep -q 'RESUME:' \
        && ! printf '%s' "$OUT" | grep -q 'pause-until:'; echo $?)" "rc=$WRC out=$OUT"
 
+fi
+
 # W03: 1203 s to the reset, so the first polls are outside the last 20 minutes
 # (nothing working: nothing to pause) and the polls from about 4 s on are
 # inside it (nobody held: nothing to release). It is still waiting at 8 s.
+if wants "W03"; then
 write_payload 96 1203 10
 start_watch "$SB/w03.out"; finish_watch 8; OUT="$(cat "$SB/w03.out")"
 check "W03  at the threshold with NOTHING working it does not fire, and with nobody held there is no QUOTA-RELEASE" \
     "$([ "$WRC" -eq 124 ] && ! printf '%s' "$OUT" | grep -q '^QUOTA-THRESHOLD' && ! printf '%s' "$OUT" | grep -q '^QUOTA-RELEASE' \
        && printf '%s' "$OUT" | grep -q 'nothing to pause' && printf '%s' "$OUT" | grep -q 'less than 20 minutes: no pause'; echo $?)" "rc=$WRC out=$OUT"
 
+fi
+
+if wants "W06"; then
 write_payload 50 3 60
 start_watch "$SB/w06.out"; finish_watch 10; OUT="$(cat "$SB/w06.out")"
 check "W06  a stale reading with nothing working does NOT wake the lead" \
     "$([ "$WRC" -eq 0 ] && ! printf '%s' "$OUT" | grep -q '^QUOTA-UNKNOWN' && printf '%s' "$OUT" | grep -q '^WINDOW-RESET'; echo $?)" "rc=$WRC out=$OUT"
 
+fi
+
 # W13: a reading at the refresh point (27 s of a 30 s bound) with nothing
 # working: there is no spend to hide, so the lead is not woken to refresh.
+if wants "W13"; then
 write_payload 50 3600 28
 start_watch "$SB/w13.out"; finish_watch 3; OUT="$(cat "$SB/w13.out")"
 check "W13  at the refresh point with nothing working, the lead is NOT woken to refresh" \
     "$([ "$WRC" -eq 124 ] && ! printf '%s' "$OUT" | grep -q '^QUOTA-REFRESH' && printf '%s' "$OUT" | grep -q 'no refresh needed'; echo $?)" "rc=$WRC out=$OUT"
 
+fi
+
 # W09: his "every 5 minutes" is the default. The registry cannot name this
 # session here (no session is given and none is recorded), so the watcher
 # cannot rule out a running worker and fires at once, after its first line.
+if wants "W09"; then
 write_payload 95 3600 0
 ( unset QUOTA_WATCH_POLL_SECONDS RICHOS_SESSION_ID; bash "$Q" --watch >"$SB/w09.out" 2>&1 ) &
 WATCH_PID=$!; finish_watch 10; OUT="$(cat "$SB/w09.out")"
@@ -445,16 +469,24 @@ check "W09  the default poll is his every 5 minutes (300 s), and an unnamed work
     "$([ "$WRC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'polling every 300 s' && printf '%s' "$OUT" | grep -q '^QUOTA-THRESHOLD' \
        && printf '%s' "$OUT" | grep -q 'live workers: UNKNOWN'; echo $?)" "rc=$WRC out=$OUT"
 
+fi
+
+if wants "W07"; then
 rm -f "$QUOTA_PAYLOAD"
 start_watch "$SB/w07.out"; finish_watch 5; OUT="$(cat "$SB/w07.out")"
 check "W07  no payload at all: --watch cannot watch, exit 2" \
     "$([ "$WRC" -eq 2 ] && printf '%s' "$OUT" | grep -q '^QUOTA-UNKNOWN'; echo $?)" "rc=$WRC out=$OUT"
 
+fi
+
+if wants "W08"; then
 write_payload 50 3600 10; set_threshold __none__
 start_watch "$SB/w08.out"; finish_watch 5; OUT="$(cat "$SB/w08.out")"
 check "W08  no threshold declared: --watch cannot watch, exit 2" \
     "$([ "$WRC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'not declared'; echo $?)" "rc=$WRC out=$OUT"
 set_threshold 93
+
+fi
 
 # --- E: end to end through the real registry and the real resume guard ----
 TX="$SB/tx"
@@ -498,6 +530,7 @@ OLD_AID="a0000000000q0918"
 ws_spawn dev-held "$HELD_AID"
 ws_spawn dev-0918 "$OLD_AID"
 
+if wants "E*" || wants W01; then
 # W01: crossing while two workers run, an hour before the reset.
 write_payload 50 3600 5
 start_watch "$SB/w01.out"
@@ -569,27 +602,41 @@ ws_send dev-held "$SB/resume.msg"
 check "E09  the printed resume message resumes it in the registry" \
     "$([ "$(recipient dev-held)" = active ]; echo $?)" "registry says: $(recipient dev-held)"
 
+fi
+
 # W04 / W05 / W10 / W11 need a worker running: dev-held is active again.
+if wants "W04"; then
 write_payload 97 3 0
 start_watch "$SB/w04.out" --until-reset; finish_watch 10; OUT="$(cat "$SB/w04.out")"
 check "W04  --until-reset never fires the threshold, only the reset" \
     "$([ "$WRC" -eq 0 ] && ! printf '%s' "$OUT" | grep -q '^QUOTA-THRESHOLD' && printf '%s' "$OUT" | grep -q '^WINDOW-RESET'; echo $?)" "rc=$WRC out=$OUT"
+fi
+
+if wants "W05"; then
 write_payload 50 3600 60
 start_watch "$SB/w05.out"; finish_watch 10; OUT="$(cat "$SB/w05.out")"
 check "W05  a stale reading with a worker running wakes the lead with QUOTA-STALE and tells it to refresh" \
     "$([ "$WRC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^QUOTA-STALE' && printf '%s' "$OUT" | grep -q 'REFRESH THE READING' \
        && printf '%s' "$OUT" | grep -q 'NOT the current value'; echo $?)" "rc=$WRC out=$OUT"
 
+fi
+
+if wants "W10"; then
 write_payload 96 1140 0
 start_watch "$SB/w10.out"; finish_watch 3; OUT="$(cat "$SB/w10.out")"
 check "W10  19 minutes to the reset with a worker running: no QUOTA-THRESHOLD, it says why and keeps watching" \
     "$([ "$WRC" -eq 124 ] && ! printf '%s' "$OUT" | grep -q '^QUOTA-THRESHOLD' && ! printf '%s' "$OUT" | grep -q '^QUOTA-RELEASE' \
        && printf '%s' "$OUT" | grep -q 'less than 20 minutes: no pause'; echo $?)" "rc=$WRC out=$OUT"
+fi
+
+if wants "W11"; then
 write_payload 96 1260 0
 start_watch "$SB/w11.out"; finish_watch 10; OUT="$(cat "$SB/w11.out")"
 check "W11  21 minutes to the reset with a worker running: QUOTA-THRESHOLD" \
     "$([ "$WRC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^QUOTA-THRESHOLD 96%' \
        && printf '%s' "$OUT" | grep -qE 'minutes to reset: (20|21)$'; echo $?)" "rc=$WRC out=$OUT"
+
+fi
 
 # --- R01 / R02: this morning's log, replayed -------------------------------
 # 2026-09-25, the lead's own watcher (session c47f83d0, task bm7x9unl0): the
@@ -598,14 +645,10 @@ check "W11  21 minutes to the reset with a worker running: QUOTA-THRESHOLD" \
 # read 100% at 02:18Z. Every line of that log reads resets_at=03:40Z. The 93%
 # crossing was never seen.
 #
-# The replay: one real second is one five-minute poll. The payload is rewritten
-# ONLY at the minutes that log shows a new value, exactly as the idle lead's
-# status line did — and whenever the watcher wakes the lead with QUOTA-REFRESH
-# or QUOTA-STALE,
-# the "lead" replies, which re-renders the status line with the TRUE value
-# (the log's change points joined by straight lines; usage grows between
-# them). Each write carries the reset as the log does, as minutes from the
-# simulated now, so the watcher sees the real time left.
+# The replay runs the production watch loop at its actual 300-second polling
+# interval on a simulated clock. Payload writes, registry reads and get_usage
+# transport are real. Only waiting for the historical timeline is simulated.
+# The lead replies to REFRESH/STALE by rendering the interpolated true value.
 #
 #   R01  the real reset, 03:40Z: the alarm comes long before 100%, and
 #        QUOTA-THRESHOLD fires while the true value is still below 100%, with
@@ -614,63 +657,11 @@ check "W11  21 minutes to the reset with a worker running: QUOTA-THRESHOLD" \
 #   R02  the same log with the reset moved to 02:20Z: the true value crosses
 #        93% at about 02:02Z, less than 20 minutes before the reset, so the
 #        watcher says "no pause" and QUOTA-THRESHOLD never fires
-replay() { # <label> <reset minute after midnight UTC> — writes $SB/<label>.report
-    python3 - "$Q" "$QUOTA_PAYLOAD" "$SB/$1" "$2" >"$SB/$1.report" 2>&1 <<'PY'
-import glob, json, os, re, subprocess, sys, time
-q, payload, work, reset_min = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
-os.makedirs(work, exist_ok=True)
-# (sim minute after midnight UTC, value) — the minutes this morning's log first shows each value
-renders = [(28, 49), (33, 51), (38, 54), (43, 56), (73, 71), (98, 81), (113, 89), (138, 100)]
-def truth(m):
-    for (m0, v0), (m1, v1) in zip(renders, renders[1:]):
-        if m0 <= m <= m1:
-            return int(v0 + (v1 - v0) * (m - m0) / float(m1 - m0))
-    return renders[-1][1]
-t0 = time.time()
-sim = lambda: 28 + 5 * (time.time() - t0)
-def write(v):
-    now = time.time()
-    tmp = payload + ".tmp"
-    with open(tmp, "w") as fh:
-        json.dump({"rate_limits": {"five_hour": {"used_percentage": v,
-                                                 "resets_at": int(now) + int((reset_min - sim()) * 60)}}}, fh)
-    os.replace(tmp, payload)
-env = dict(os.environ, QUOTA_WATCH_POLL_SECONDS="1", QUOTA_WATCH_STALE_SECONDS="1")
-write(49)
-done, first_alarm, stale_wakes, n = None, None, 0, 0
-proc = None
-next_render = 1
-while sim() < 140 and done is None:
-    if proc is None:
-        n += 1
-        out = open(os.path.join(work, "run%02d.out" % n), "w")
-        proc = subprocess.Popen(["bash", q, "--watch"], stdout=out, stderr=subprocess.STDOUT, env=env)
-    while next_render < len(renders) and sim() >= renders[next_render][0]:
-        write(renders[next_render][1]); next_render += 1
-    if proc.poll() is not None:
-        text = open(os.path.join(work, "run%02d.out" % n)).read()
-        m = sim()
-        if "\nQUOTA-THRESHOLD" in "\n" + text:
-            mins = re.search(r"minutes to reset: (\d+)", text)
-            done = ("THRESHOLD", m, truth(m), int(mins.group(1)) if mins else None)
-            first_alarm = first_alarm or m
-        elif "\nQUOTA-STALE" in "\n" + text or "\nQUOTA-REFRESH" in "\n" + text:
-            stale_wakes += 1
-            first_alarm = first_alarm or m
-            write(truth(m))          # the lead replies: its status line renders the true value
-        else:
-            done = ("OTHER", m, text[-400:], None)
-        proc = None
-        continue
-    time.sleep(0.1)
-if proc is not None and proc.poll() is None:
-    proc.terminate(); proc.wait()
-no_pause = any("less than 20 minutes: no pause" in open(f).read() for f in glob.glob(os.path.join(work, "run*.out")))
-print(json.dumps({"done": done, "first_alarm_min": first_alarm, "stale_wakes": stale_wakes,
-                  "said_no_pause": no_pause, "reset_min": reset_min}))
-PY
+replay() { # <label> <reset minute after midnight UTC>
+    python3 "$SCRIPT_DIR/lib/quota-watch-replay.py" "$1" "$QUOTA_PAYLOAD" "$SB/$1" "$ENGINE" "$FAKE" >"$SB/$1.report" 2>&1
 }
 
+if wants "R01"; then
 replay r01 220
 R01="$(tail -1 "$SB/r01.report")"
 check "R01  this morning's log replayed with its real reset (03:40Z): the lead is woken to refresh while stuck at 56%, and QUOTA-THRESHOLD before 100% (02:18Z), far from the reset $R01" \
@@ -682,6 +673,9 @@ ok = (kind == "THRESHOLD" and minute < 138 and val < 100 and d["first_alarm_min"
       and mins is not None and mins >= 20 and abs(mins - (220 - minute)) <= 2 and not d["said_no_pause"])
 sys.exit(0 if ok else 1)' 2>/dev/null; echo $?)" "report=$(cat "$SB/r01.report")"
 
+fi
+
+if wants "R02"; then
 replay r02 140
 R02="$(tail -1 "$SB/r02.report")"
 check "R02  the same log with the reset moved to 02:20Z: the crossing is inside the last 20 minutes, no pause $R02" \
@@ -690,6 +684,8 @@ import json, sys
 d = json.loads(sys.stdin.read())
 ok = d["done"] is None and d["said_no_pause"] and d["stale_wakes"] >= 1 and d["first_alarm_min"] < 73
 sys.exit(0 if ok else 1)' 2>/dev/null; echo $?)" "report=$(cat "$SB/r02.report")"
+
+fi
 
 # --- W12 / R03: the reading is refreshed BEFORE it turns one poll old -------
 # 2026-09-25, measured: the lead read 91% at 07:57Z and 95% at 08:07Z, and the
@@ -701,6 +697,7 @@ sys.exit(0 if ok else 1)' 2>/dev/null; echo $?)" "report=$(cat "$SB/r02.report")
 # W12: a 30 s bound (refresh point 27 s), a reading 25 s old with a worker
 # running. The watcher must schedule its poll for the refresh point and wake
 # the lead there, while the reading is still under 30 s old.
+if wants "W12"; then
 write_payload 50 3600 25
 ( export QUOTA_WATCH_POLL_SECONDS=30 QUOTA_WATCH_STALE_SECONDS=30; bash "$Q" --watch >"$SB/w12.out" 2>&1 ) &
 WATCH_PID=$!; finish_watch 10; OUT="$(cat "$SB/w12.out")"
@@ -708,50 +705,13 @@ check "W12  below the threshold, the lead is woken with QUOTA-REFRESH before the
     "$([ "$WRC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^QUOTA-REFRESH' \
        && printf '%s' "$OUT" | grep -qE 'the reading is 2[0-9] s old and stops counting as current at 30 s'; echo $?)" "rc=$WRC out=$OUT"
 
-# R03: this morning's shape, replayed. One poll is 10 real seconds standing for
-# 300 (one real second is 30 simulated seconds). The true value grows from 91%
-# at 07:57Z to 95% at 08:07Z, so it crosses 93% at 08:02Z. The payload is
-# rewritten only when the watcher wakes the lead (the idle lead's reply
-# renders the true value). Before the fix the lead was woken at 08:07Z with
-# 95%; now every wake comes while the reading is under one poll old, and the
-# threshold fires before 08:07Z at under 95%.
-python3 - "$Q" "$QUOTA_PAYLOAD" "$SB/r03" >"$SB/r03.report" 2>&1 <<'PY'
-import json, os, re, subprocess, sys, time
-q, payload, work = sys.argv[1], sys.argv[2], sys.argv[3]
-os.makedirs(work, exist_ok=True)
-SCALE = 30.0                      # simulated seconds per real second
-t0 = time.time()
-sim = lambda: (time.time() - t0) * SCALE
-truth = lambda s: int(91 + 4 * s / 600.0)
-def write(v):
-    now = time.time()
-    with open(payload + ".tmp", "w") as fh:
-        json.dump({"rate_limits": {"five_hour": {"used_percentage": v, "resets_at": int(now) + 7200}}}, fh)
-    os.replace(payload + ".tmp", payload)
-env = dict(os.environ, QUOTA_WATCH_POLL_SECONDS="10", QUOTA_WATCH_STALE_SECONDS="10")
-write(91)
-wake_ages, done, n = [], None, 0
-while sim() < 900 and done is None:
-    n += 1
-    path = os.path.join(work, "run%02d.out" % n)
-    proc = subprocess.Popen(["bash", q, "--watch"], stdout=open(path, "w"), stderr=subprocess.STDOUT, env=env)
-    while proc.poll() is None and sim() < 900:
-        time.sleep(0.05)
-    if proc.poll() is None:
-        proc.terminate(); proc.wait(); break
-    text, s = open(path).read(), sim()
-    m = re.search(r"^QUOTA-THRESHOLD (\d+)%", text, re.M)
-    if m:
-        done = ("THRESHOLD", s, int(m.group(1)))
-        break
-    m = re.search(r"^QUOTA-(REFRESH|STALE): the reading is (\d+) s old", text, re.M)
-    if not m:
-        done = ("OTHER", s, text[-300:])
-        break
-    wake_ages.append([m.group(1), int(m.group(2))])
-    write(truth(s))               # the lead replies: its status line renders the true value
-print(json.dumps({"done": done, "wake_ages": wake_ages}))
-PY
+fi
+
+# R03 uses the real watch loop, payload and registry with a simulated clock.
+# Every production poll remains 300 seconds. G07 below retains real repeated
+# transport and W12 above retains real scheduling, so replay need not sleep.
+if wants "R03"; then
+replay r03
 R03="$(tail -1 "$SB/r03.report")"
 check "R03  91% at 07:57Z, 95% at 08:07Z replayed: every wake is a REFRESH under one poll old, and the pause fires before 08:07Z under 95% $R03" \
     "$(printf '%s' "$R03" | python3 -c '
@@ -759,13 +719,16 @@ import json, sys
 d = json.loads(sys.stdin.read())
 kind, s, val = d["done"]
 ok = (kind == "THRESHOLD" and s < 600 and 93 <= val < 95 and d["wake_ages"]
-      and all(k == "REFRESH" and age < 10 for k, age in d["wake_ages"]))
+      and all(k == "REFRESH" and age < 300 for k, age in d["wake_ages"]))
 sys.exit(0 if ok else 1)' 2>/dev/null; echo $?)" "report=$(cat "$SB/r03.report")"
+
+fi
 
 # --- G07 / G08 / R04: --watch with get_usage (a worker is running) ---------
 # G07: get_usage answers at every poll, so a status-line file that is ten
 # minutes old does not matter: no QUOTA-STALE, no QUOTA-REFRESH, one fresh
 # get_usage per poll.
+if wants "G07"; then
 fake ok 60
 write_payload 50 3600 600
 ( QUOTA_CLAUDE_BIN="$FAKE/claude" bash "$Q" --watch >"$SB/g07.out" 2>&1 ) &
@@ -775,8 +738,11 @@ check "G07  --watch takes a fresh get_usage at every poll: a stale status-line f
     "$([ "$WRC" -eq 124 ] && [ "${NGET:-0}" -ge 2 ] && printf '%s' "$OUT" | grep -q '60% of the five-hour window.*via get_usage' \
        && ! printf '%s' "$OUT" | grep -qE '^QUOTA-(STALE|REFRESH|UNKNOWN)'; echo $?)" "rc=$WRC get_usage=$NGET out=$OUT"
 
+fi
+
 # G08: get_usage failing falls back to the file, and the file's rules wake the
 # lead exactly as before: a stale reading is QUOTA-STALE, saying why.
+if wants "G08"; then
 fake error
 write_payload 50 3600 60
 ( QUOTA_CLAUDE_BIN="$FAKE/claude" bash "$Q" --watch >"$SB/g08.out" 2>&1 ) &
@@ -785,44 +751,27 @@ check "G08  get_usage failing falls back to the file, and a stale file still wak
     "$([ "$WRC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^QUOTA-STALE' \
        && printf '%s' "$OUT" | grep -q 'status-line file, because get_usage was refused'; echo $?)" "rc=$WRC out=$OUT"
 
-# R04: this morning's shape again (91% at 07:57Z growing to 95% at 08:07Z), now
-# read through get_usage, with the lead idle the whole time and the status-line
-# file never rewritten after its first 91%. One poll is 5 real seconds standing
-# for 300 (one real second is 60 simulated seconds). The poll at 08:02Z reads
-# the true 93% and fires: no wake of the lead is needed to see it.
+fi
+
+# R04 uses the real get_usage transport at each simulated poll. The fixture's
+# value changes with the replay clock; the status-line file stays at 91%.
+if wants "R04"; then
 fake ok 91
-python3 - "$Q" "$QUOTA_PAYLOAD" "$FAKE" "$SB/r04.out" >"$SB/r04.report" 2>&1 <<'PY'
-import json, os, re, subprocess, sys, time
-q, payload, fake, out = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
-SCALE = 60.0
-with open(payload, "w") as fh:
-    json.dump({"rate_limits": {"five_hour": {"used_percentage": 91, "resets_at": int(time.time()) + 7200}}}, fh)
-t0 = time.time()
-sim = lambda: (time.time() - t0) * SCALE
-env = dict(os.environ, QUOTA_CLAUDE_BIN=os.path.join(fake, "claude"),
-           QUOTA_WATCH_POLL_SECONDS="5", QUOTA_WATCH_STALE_SECONDS="5")
-proc = subprocess.Popen(["bash", q, "--watch"], stdout=open(out, "w"), stderr=subprocess.STDOUT, env=env)
-while proc.poll() is None and sim() < 900:
-    with open(os.path.join(fake, "used.tmp"), "w") as fh:
-        fh.write(str(int(91 + 4 * sim() / 600.0)))
-    os.replace(os.path.join(fake, "used.tmp"), os.path.join(fake, "used"))
-    time.sleep(0.05)
-s = sim()
-if proc.poll() is None:
-    proc.terminate(); proc.wait()
-text = open(out).read()
-m = re.search(r"^QUOTA-THRESHOLD (\d+)%", text, re.M)
-print(json.dumps({"fired_at": s if m else None, "value": int(m.group(1)) if m else None,
-                  "lead_woken": bool(re.search(r"^QUOTA-(STALE|REFRESH|UNKNOWN)", text, re.M)),
-                  "via_get_usage": "via get_usage" in text}))
-PY
+replay r04
 R04="$(tail -1 "$SB/r04.report")"
 check "R04  91% at 07:57Z, 95% at 08:07Z, lead idle, read through get_usage: the pause fires before 08:07Z under 95%, with no wake of the lead $R04" \
     "$(printf '%s' "$R04" | python3 -c '
 import json, sys
 d = json.loads(sys.stdin.read())
 ok = d["fired_at"] is not None and d["fired_at"] < 600 and 93 <= d["value"] < 95 and not d["lead_woken"] and d["via_get_usage"]
-sys.exit(0 if ok else 1)' 2>/dev/null; echo $?)" "report=$(cat "$SB/r04.report") out=$(cat "$SB/r04.out")"
+sys.exit(0 if ok else 1)' 2>/dev/null; echo $?)" "report=$(cat "$SB/r04.report") out=$(cat "$SB/r04/transcript.log")"
+
+fi
+
+if [ -n "$FOCUS" ]; then
+    echo "FAIL  unknown quota-watch case: $FOCUS" >&2
+    exit 2
+fi
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then
