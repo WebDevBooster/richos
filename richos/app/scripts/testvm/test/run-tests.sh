@@ -752,14 +752,20 @@ t_done
 # ===========================================================================
 # A `security` for the HOST side that is not the CEO's. The tests never read,
 # and never could read, his real keychain item.
-FAKE_CRED='{"claudeAiOauth":{"accessToken":"not-a-real-token-0123456789","refreshToken":"also-not-real-9876543210"}}'
+FAKE_CRED='{"claudeAiOauth":{"accessToken":"not-a-real-token-0123456789","refreshToken":"also-not-real-9876543210","expiresAt":4102444800000,"refreshTokenExpiresAt":4105044800000},"unrelatedCredential":"also-not-real-other"}'
 cat > "$TMP/host-security.sh" <<PLACEHOLDER
 #!/usr/bin/env bash
 # find-generic-password [-s svc] [-a acct] [-w]
 WANT_W=0
 for a in "\$@"; do [ "\$a" = "-w" ] && WANT_W=1; done
 [ -n "\${HOST_SECURITY_LOGGED_OUT:-}" ] && exit 44
-[ "\$WANT_W" -eq 1 ] && printf '%s\n' '$FAKE_CRED'
+if [ "\$WANT_W" -eq 1 ]; then
+  if [ -n "\${HOST_SECURITY_CREDENTIAL_FILE:-}" ]; then
+    cat "\$HOST_SECURITY_CREDENTIAL_FILE"
+  else
+    printf '%s\n' '$FAKE_CRED'
+  fi
+fi
 exit 0
 PLACEHOLDER
 chmod 755 "$TMP/host-security.sh"
@@ -801,11 +807,51 @@ t "claude login: the credential reaches the guest ON STDIN, and is in no command
          "$TESTVM_DIR/claude-login.sh" push richos-test-a "/Users/admin/testvm/richos-test-a/home" 2>/dev/null)"
   ok $? "a present readback must report logged in"
   eq "$out" "claude login: guest logged in"
-  HEXCRED="$(printf '%s' "$FAKE_CRED" | xxd -p | tr -d '\n')"
+  GUEST_CRED='{"claudeAiOauth":{"accessToken":"not-a-real-token-0123456789","expiresAt":4102444800000}}'
+  HEXCRED="$(printf '%s' "$GUEST_CRED" | xxd -p | tr -d '\n')"
   has   "$(cat "$TMP/login.stdin")" "$HEXCRED"
   hasnt "$(cat "$TMP/login.log")"   "$HEXCRED"
   hasnt "$(cat "$TMP/login.log")"   "not-a-real-token"
   hasnt "$out" "not-a-real-token"
+t_done
+
+t "claude login: the guest never receives the host refresh token in either store"
+  # Decode the actual stdin payload, including both keychain rows. An unchanged
+  # copy passes all old storage tests but must fail this capability boundary.
+  python3 - "$TMP/login.stdin" "$STUB_GUEST_FS/credentials.json" <<'PYTEST'
+import json, pathlib, re, sys
+payload = pathlib.Path(sys.argv[1]).read_text()
+rows = re.findall(r'-X "([0-9a-f]+)"', payload)
+assert len(rows) == 2
+for raw in [pathlib.Path(sys.argv[2]).read_text()] + [bytes.fromhex(x).decode() for x in rows]:
+    data = json.loads(raw)
+    assert 'also-not-real' not in raw
+    assert 'refreshToken' not in raw
+    assert data['claudeAiOauth']['accessToken'] == 'not-a-real-token-0123456789'
+    assert data['claudeAiOauth']['expiresAt'] == 4102444800000
+PYTEST
+  ok $? "only access capability may cross into the guest"
+t_done
+
+t "claude login: invalid or expired snapshots never reach a guest store"
+  for invalid in \
+    'not-json' \
+    '{}' \
+    '{"claudeAiOauth":{"accessToken":"fake","expiresAt":1}}' \
+    '{"claudeAiOauth":{"accessToken":"fake","expiresAt":true}}' \
+    '{"claudeAiOauth":{"accessToken":"fake","expiresAt":NaN}}' \
+    '{"claudeAiOauth":{"accessToken":"","expiresAt":4102444800000}}'; do
+    printf '%s' "$invalid" > "$TMP/invalid-credential.json"
+    : > "$TMP/login-refused.log"
+    # shellcheck disable=SC2046  # login_env prints NAME=value words; splitting them is intended, as on every other login_env line
+    out="$(env $(login_env) HOST_SECURITY_CREDENTIAL_FILE="$TMP/invalid-credential.json" \
+      STUB_LOG="$TMP/login-refused.log" \
+      "$TESTVM_DIR/claude-login.sh" push richos-test-a "/Users/admin/testvm/richos-test-a/home" 2>"$TMP/login-refused.err")"
+    no $? "invalid/expired credentials must refuse"
+    eq "$out" "claude login: guest NOT logged in"
+    eq "$(wc -c < "$TMP/login-refused.log" | tr -d ' ')" "0" "a rejected credential reached the guest"
+    has "$(cat "$TMP/login-refused.err")" "No host refresh token was sent"
+  done
 t_done
 
 t "claude login: the item is written under BOTH names the guest could look up"
@@ -843,7 +889,8 @@ t "claude login: the credential file is the primary route, and it carries the VA
          "$TESTVM_DIR/claude-login.sh" push richos-test-a "/Users/admin/testvm/richos-test-a/home" 2>/dev/null)"
   ok $? "the file route alone must be enough"
   eq "$out" "claude login: guest logged in"
-  eq "$(cat "$STUB_GUEST_FS/credentials.json")" "$FAKE_CRED"
+  eq "$(cat "$STUB_GUEST_FS/credentials.json")" "$GUEST_CRED"
+  hasnt "$(cat "$STUB_GUEST_FS/credentials.json")" "refreshToken"
   has "$(cat "$TMP/login.log")" ".claude/.credentials.json"
   has "$(cat "$TMP/login.log")" "umask 077"
   hasnt "$(cat "$TMP/login.log")" "not-a-real-token"

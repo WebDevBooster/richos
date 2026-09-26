@@ -24,9 +24,11 @@
 # already replaced with a key.
 #
 # The new answer is that the guest never holds a login longer than one run: it
-# is copied from the host at the start of every run and destroyed with the
-# clone. There is no such thing as a stale login in here, because there is no
-# login in here that outlives the run that made it.
+# is projected from the host at the start of every run and destroyed with the
+# clone. ONLY the access token and its metadata cross this boundary. A copied
+# refresh token lets the guest rotate the host login without sharing its lock
+# or writing the replacement back. A fresh clone does not prevent that race.
+# The access snapshot can expire during a run; it cannot renew the host login.
 #
 # ===========================================================================
 # WHY THE VALUE IS NEVER ON A COMMAND LINE — AND HOW CLAUDE CODE ITSELF DOES IT
@@ -210,6 +212,32 @@ if [ -z "$SECRET" ]; then
   printf '[testvm] the host credential could not be read (locked keychain, or a dialog was waiting)\n' >&2
   exit 3
 fi
+# Drop refresh capability BEFORE either guest store is written. Use an explicit
+# field allowlist so future host credentials cannot accidentally cross as well.
+# Invalid/expired snapshots refuse provisioning; no token or parser input is logged.
+SECRET="$(printf '%s' "$SECRET" | python3 -c '
+import json, math, sys, time
+try:
+    data = json.load(sys.stdin)["claudeAiOauth"]
+    token = data["accessToken"]
+    expiry = data["expiresAt"]
+    if not isinstance(token, str) or not token:
+        raise ValueError()
+    if isinstance(expiry, bool) or not isinstance(expiry, (int, float)):
+        raise ValueError()
+    if not math.isfinite(expiry) or expiry <= time.time() * 1000:
+        raise ValueError()
+    fields = ("accessToken", "expiresAt", "scopes", "subscriptionType", "rateLimitTier")
+    snapshot = {k: data[k] for k in fields if k in data}
+    sys.stdout.write(json.dumps({"claudeAiOauth": snapshot}, separators=(",", ":")))
+except (KeyError, TypeError, ValueError, OverflowError):
+    sys.exit(1)
+' 2>/dev/null)" || {
+  SECRET=""
+  report "NOT logged in"
+  printf '[testvm] REFUSED: no unexpired Claude access credential; refresh the host login before retrying. No host refresh token was sent to the guest.\n' >&2
+  exit 3
+}
 SECRET_BYTES="${#SECRET}"
 HEX="$(printf '%s' "$SECRET" | xxd -p | tr -d '\n')"
 
@@ -230,7 +258,7 @@ HEX="$(printf '%s' "$SECRET" | xxd -p | tr -d '\n')"
 # The value goes in on STDIN once and is copied inside the guest, so it is never
 # an argument and never crosses the wire twice. `umask 077` before the write,
 # because the file IS the credential.
-log "writing the login into the guest's credential file (stdin only, never argv)"
+log "writing the access snapshot into the guest's credential file (no refresh token; may expire during the run)"
 FILE_BYTES="$(printf '%s' "$SECRET" | cg_stdin "umask 077; \
   mkdir -p '$GUEST_HOME/.claude' ~/.claude && \
   cat > '$GUEST_HOME/.claude/.credentials.json' && \
@@ -260,7 +288,7 @@ if [ "$LONGEST" -gt "$TESTVM_SECURITY_STDIN_MAX" ]; then
   exit 4
 fi
 
-log "copying this Mac's claude login into $VM (value on stdin only, never argv)"
+log "copying a Claude access snapshot into $VM (no refresh token; stdin only)"
 # The unlock is repeated here rather than trusted. `keychain.sh prepare` unlocked
 # this keychain, but in ITS ssh session; lock state is securityd's and an
 # already-unlocked keychain makes this a no-op that costs nothing. The
@@ -292,7 +320,7 @@ KC_OK=0
 guest_logged_in "$SVC_SCOPED" && KC_OK=1
 
 if [ "$FILE_OK" -eq 1 ] || [ "$KC_OK" -eq 1 ]; then
-  log "login stored: credential file $([ "$FILE_OK" -eq 1 ] && echo "yes ($SECRET_BYTES bytes, matching this Mac's)" || echo no), keychain item $([ "$KC_OK" -eq 1 ] && echo yes || echo no)"
+  log "login stored: credential file $([ "$FILE_OK" -eq 1 ] && echo "yes ($SECRET_BYTES bytes, matching the access snapshot)" || echo no), keychain item $([ "$KC_OK" -eq 1 ] && echo yes || echo no)"
   report "logged in"
   exit 0
 fi
@@ -301,7 +329,7 @@ report "NOT logged in"
 cat >&2 <<EOF
 [testvm] WARNING: $VM is NOT signed in to claude (write rc=$PUSH_RC).
          Neither store took it: the credential file is ${FILE_BYTES:-0} bytes where
-         this Mac's credential is $SECRET_BYTES, and no keychain item came back.
+         the access snapshot is $SECRET_BYTES, and no keychain item came back.
          Everything that needs no model turn still renders and still
          screenshots. A model turn in the guest will answer
          "Not logged in - Please run /login".
