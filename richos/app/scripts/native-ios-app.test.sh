@@ -108,12 +108,14 @@ if "$RIOS" sim check-release >"$SCRATCH/release.json" 2>"$SCRATCH/err"; then
 else bad "A7 check-release" "$(tail -c 600 "$SCRATCH/err")"; fi
 
 # A8 — visible-control UI tests and app unit tests, once the screens stream has written them, on
-# the MIDDLE screen size (iPhone 16 Pro). Nightly builds only, by the CEO's decision of 2026-09-23
+# the MIDDLE screen size (iPhone 16 Pro). Off every land, by the CEO's decision of 2026-09-23
 # (esc-20260923T113632Z-746305fb): native-ios-ui.test.sh runs the same tests on the smallest and
-# largest sizes on every land, and this third size is the slow one (1238 s measured below), so it
-# runs when the nightly build's script-suites gate sets RICHOS_NATIVE_IOS_APP_A8=1
-# (nightly-local.py, `gates`), where a failure stops that nightly. Anywhere else it says NOT RUN
-# and why; set the variable to run it by hand.
+# largest sizes on every land, and this third size is the slow one (1238 s measured below). That
+# decision put it before every nightly. Since 2026-09-26 the desktop nightly runs no phone-app
+# suite at all (CEO: "the native mobile apps are 2 COMPLETELY INDEPENDENT DIFFERENT APPS"), so A8
+# runs in the iPhone app's release check: `RICHOS_NATIVE_IOS_APP_A8=1 run-tests.sh --for ios`
+# (richos/mobile/native-ios/Release/README.md, "Upload"). Anywhere else it says NOT RUN and why;
+# set the variable to run it by hand.
 #
 # THE UI RUN HOLDS ITS OWN LEASE, THE WAY native-ios-ui.test.sh's DOES. `rios sim ui-test` is one
 # xcodebuild call that took 1238 s on 2026-09-25 (18:13:27Z-18:34:05Z, 77 passed, 8 skipped), and
@@ -128,7 +130,7 @@ else bad "A7 check-release" "$(tail -c 600 "$SCRATCH/err")"; fi
 # and ends it as NOT RUN (exit 75) if the lease is lost. A8b then proves the lease was still this
 # run's when the tests ended, which is what Z's shutdown depends on.
 if [ "${RICHOS_NATIVE_IOS_APP_A8:-}" != 1 ]; then
-  echo "  NOT RUN  A8: the middle-size iPhone UI and unit tests belong to nightly builds (decision of 2026-09-23, esc-20260923T113632Z-746305fb); RICHOS_NATIVE_IOS_APP_A8=1 runs them here"
+  echo "  NOT RUN  A8: the middle-size iPhone UI and unit tests are off every land (decision of 2026-09-23, esc-20260923T113632Z-746305fb) and run in the iPhone app's release check (native-ios/Release/README.md); RICHOS_NATIVE_IOS_APP_A8=1 runs them here"
 elif find "$NATIVE/UITests" "$NATIVE/UnitTests" -name '*.swift' 2>/dev/null | grep -q .; then
   TESTDEVICES="$ROOT/richos/engine/scripts/lib/testdevices.py"
   A8_TYPE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["type"])' "$RICHOS_NATIVE_IOS_CACHE/simulator.json" 2>/dev/null)"
