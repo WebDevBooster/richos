@@ -7150,28 +7150,33 @@ struct StopReport {
 /// in `steering.rs` rather than here.
 #[tauri::command(async)]
 fn stop_turn(state: State<AppState>, expected_turn_id: Option<String>) -> Result<StopReport, String> {
-    // **HIS ESC, on an operator install, is his team's too** (r3 (d) item 6): the lead's turn
-    // in this conversation ends and its agents keep running (r4 §1.2). Taken before the front
-    // desk's stop, from the control's own record of the running turn, or else the thread the
-    // window shows — both read without the spine's lock. What his team did is said on the
-    // conversation by the desk; the front desk's own stop below is unchanged.
-    if let Some(desk) = &state.operator {
+    // Which conversation his Esc was pressed in: the control's own record of the running turn,
+    // or else the thread the window shows. Both read without the spine's lock, and read BEFORE
+    // the front desk's stop below clears the running turn.
+    let team_key = state.operator.as_ref().and_then(|_| {
         let thread = state.control.active_turn().map(|t| t.thread_id.clone())
-            .or_else(|| state.reader.snapshot().active_thread().map(str::to_string));
-        let key = thread.and_then(|thread| {
-            let entity = state.reader.snapshot().ledger().thread_binding(&thread).ok()?.entity_id().to_string();
-            Some(richos_core::operator_host::ConversationKey { entity_id: entity, thread_id: thread })
-        });
-        if let Some(key) = key {
-            let said = desk.interrupt(&key);
-            eprintln!("[richos] his team: Esc in {}: {said}", key.thread_id);
-        }
-    }
+            .or_else(|| state.reader.snapshot().active_thread().map(str::to_string))?;
+        let entity = state.reader.snapshot().ledger().thread_binding(&thread).ok()?.entity_id().to_string();
+        Some(richos_core::operator_host::ConversationKey { entity_id: entity, thread_id: thread })
+    });
     let outcome = if let Some(expected) = expected_turn_id.as_deref() {
         state.control.request_stop_for(expected).map_err(|e| e.to_string())?
     } else {
         state.control.request_stop().map_err(|e| e.to_string())?
     };
+    // **HIS ESC, on an operator install, is his team's too** (r3 (d) item 6): the lead's turn in
+    // that conversation ends and its agents keep running (r4 §1.2). AFTER the front desk's stop
+    // and on its own thread, so a lead slow to answer the interrupt never delays the stop he
+    // sees; what his team did is said on the conversation by the desk.
+    if let (Some(desk), Some(key)) = (state.operator.clone(), team_key) {
+        let spawned = std::thread::Builder::new().name("richos-operator-esc".into()).spawn(move || {
+            let said = desk.interrupt(&key);
+            eprintln!("[richos] his team: Esc in {}: {said}", key.thread_id);
+        });
+        if let Err(e) = spawned {
+            eprintln!("[richos] his team: the Esc could not be sent to your team ({e})");
+        }
+    }
     match outcome {
         StopOutcome::NothingRunning => {
             Ok(StopReport { stopped: false, turn_id: None, requested_at: None, reached_lease: false })
