@@ -1035,6 +1035,73 @@
           "to": "scripts/hooks/ceo-ruled.mutation.sh"
         }
       ]
+    },
+    "scripts/lib/verification_inputs.py": {
+      "source": "scripts/lib/verification_inputs.py",
+      "sha256": "f6d2bf3fdce2242e8e77fb96de9974ea69ea0befb8a457e92c6817d8cae86d58",
+      "evidence": "Parser and dependency APIs read supplied text/paths. Snapshot executes only Git reads. It never executes a sourced configuration or a selected hook command.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/affected_units.py": {
+      "source": "scripts/lib/affected_units.py",
+      "sha256": "67d4c6bff62f88e32261fc0e087c3c0742e8720728b69b0d3a771a366647c678",
+      "evidence": "The selector can validate a supplied engine configuration and can compute config/hook/ordinary selections from supplied snapshots. Its only subprocesses are read-only Git operations.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/verification_inputs.py"
+        }
+      ],
+      "whole": "validate_config parses every assignment in the supplied engine root"
+    },
+    "scripts/verification-inputs.test.py": {
+      "source": "scripts/verification-inputs.test.py",
+      "sha256": "b41bbf4937b923bbd84cb5eda853713f3d317cb04b493d000596976ef12496ea",
+      "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/verification_inputs.py"
+        }
+      ],
+      "whole": "real-file grammar validation inspects all config assignment values",
+      "nonconfig_eval": true
+    },
+    "scripts/affected-units.test.py": {
+      "source": "scripts/affected-units.test.py",
+      "sha256": "eb845e44d0958686f993f2b43f90446eedddb5bb16e90611dff45aa1842e62bd",
+      "evidence": "All config reads use newly written fixture files or literal before/after text. The real-file planning case reads only hooks.json and source-bound registration declarations. Nested CLI invocations use a newly created Git repository, and selected commands are never executed.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/affected_units.py",
+          "fixture": true
+        }
+      ],
+      "nonconfig_eval": true
+    },
+    "scripts/verification-inputs.test.sh": {
+      "source": "scripts/verification-inputs.test.sh",
+      "sha256": "5c1044eb2b8c463aa4667b1f48c68e306157d3e72df91f700220498d97e4ba2e",
+      "evidence": "Thin Python test entry point; no other command or config sourcing.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/verification-inputs.test.py"
+        }
+      ]
+    },
+    "scripts/affected-units.test.sh": {
+      "source": "scripts/affected-units.test.sh",
+      "sha256": "16f35fe2745bb4c6297239aea50a1fb4e968f35e8e455a9c1855dd9ea755c7bd",
+      "evidence": "Thin Python test entry point; no other command or config sourcing.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/affected-units.test.py"
+        }
+      ]
     }
   },
   "units": {
@@ -1045,7 +1112,9 @@
     "scripts/verification-config.test.sh": "scripts/verification-config.test.sh",
     "scripts/hooks/guard-model-ceiling.test.sh": "scripts/hooks/guard-model-ceiling.test.sh",
     "scripts/hooks/ceo-inputs.test.sh": "scripts/hooks/ceo-inputs.test.sh",
-    "scripts/hooks/ceo-ruled.test.sh": "scripts/hooks/ceo-ruled.test.sh"
+    "scripts/hooks/ceo-ruled.test.sh": "scripts/hooks/ceo-ruled.test.sh",
+    "scripts/verification-inputs.test.sh": "scripts/verification-inputs.test.sh",
+    "scripts/affected-units.test.sh": "scripts/affected-units.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
