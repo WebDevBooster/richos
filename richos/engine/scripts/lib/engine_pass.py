@@ -13,6 +13,7 @@ import signal
 import subprocess
 import sys
 import time
+import uuid
 
 FULL_PASS_UNITS = 20
 MAIN_WAIT = 3600
@@ -21,6 +22,7 @@ POLL_SECONDS = float(os.environ.get("RICHOS_ENGINE_PASS_POLL") or 2.0)   # a sui
 REPORT_EVERY = 60
 REFUSED = 75
 NEEDED = 10
+BACKGROUND_PRIORITY_AGE = 120
 
 
 def directory():
@@ -180,15 +182,58 @@ class Admission:
     No queue age can override an integration waiter. Borrowing a caller's already
     held permit remains possible, so nested work can release occupied capacity.
     """
-    def __init__(self, root, checkout):
+    def __init__(self, root, checkout, permits=None):
         self.root = os.path.join(root, "admission")
         os.makedirs(self.root, mode=0o700, exist_ok=True)
         self.main = is_main_checkout(checkout)
         self.fd = None
+        self.wait_fd = None
         self.since = None
-        self.marker = os.path.join(self.root, "wait-%s-%s.json" % (os.getpid(), id(self)))
+        self.permits = permits
+        self.marker = os.path.join(self.root, "wait-%s-%s.json" % (os.getpid(), uuid.uuid4().hex))
+
+    def register(self):
+        if self.wait_fd is not None:
+            return
+        self.since = time.monotonic()
+        # A held descriptor establishes liveness without PID-reuse guesses. Publish
+        # only after the record is complete; a crash releases its kernel lease.
+        temporary = self.marker + ".new"
+        self.wait_fd = os.open(temporary, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)
+        fcntl.flock(self.wait_fd, fcntl.LOCK_EX)
+        record = {"pid": os.getpid(), "birth": birth(os.getpid()), "main": self.main,
+                  "since": self.since, "queued_at": time.time(), "permits": self.permits}
+        os.write(self.wait_fd, json.dumps(record).encode())
+        os.replace(temporary, self.marker)
+
+    def older_background_waiting(self):
+        now = time.monotonic()
+        for name in os.listdir(self.root):
+            path = os.path.join(self.root, name)
+            if not name.startswith("wait-") or not name.endswith(".json") or path == self.marker:
+                continue
+            try:
+                with open(path, "r+") as source:
+                    try:
+                        fcntl.flock(source.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        record = json.load(source)
+                    else:
+                        # Dead requests cannot reserve a later opportunity.
+                        os.unlink(path)
+                        continue
+            except FileNotFoundError:
+                continue
+            compatible = (self.permits is None or record.get("permits") is None or
+                          bool(set(self.permits).intersection(record["permits"])))
+            if (not record["main"] and compatible and
+                    now - record["since"] >= BACKGROUND_PRIORITY_AGE and
+                    (record["since"], path) < (self.since, self.marker)):
+                return True
+        return False
 
     def begin(self):
+        self.register()
         if self.fd is not None:
             return True
         fd = os.open(os.path.join(self.root, "priority.lock"), os.O_RDWR | os.O_CREAT, 0o600)
@@ -198,18 +243,20 @@ class Admission:
             os.close(fd)
             return False
         self.fd = fd
-        if self.since is None:
-            self.since = time.monotonic()
-            with open(self.marker, "w") as out:
-                json.dump({"pid": os.getpid(), "birth": birth(os.getpid()),
-                           "main": self.main, "since": time.time()}, out)
+        if not self.main and self.older_background_waiting():
+            os.close(self.fd)
+            self.fd = None
+            return False
         return True
 
     def attempted(self, acquired):
         # Keep integration intent while its permit is occupied. Background work
         # holds priority only during its attempt, never while queued.
-        if acquired or not self.main:
+        if acquired:
             self.close()
+        elif not self.main:
+            os.close(self.fd)
+            self.fd = None
 
     def close(self):
         if self.fd is not None:
@@ -219,6 +266,9 @@ class Admission:
             os.unlink(self.marker)
         except FileNotFoundError:
             pass
+        if self.wait_fd is not None:
+            os.close(self.wait_fd)
+            self.wait_fd = None
         self.since = None
 
 

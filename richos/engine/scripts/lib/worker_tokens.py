@@ -99,7 +99,8 @@ class Budget:
         import engine_pass
         if not hasattr(self, "admission"):
             self.admission = engine_pass.Admission(
-                self.dir, os.environ.get("RICHOS_VERIFICATION_CHECKOUT", os.getcwd()))
+                self.dir, os.environ.get("RICHOS_VERIFICATION_CHECKOUT", os.getcwd()),
+                permits=[os.path.basename(path) for path in self.usable])
         if not self.admission.begin():
             return None
         token = None

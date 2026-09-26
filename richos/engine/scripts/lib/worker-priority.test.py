@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Small real-lock fixtures for per-permit integration priority."""
 import os
+import json
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -50,19 +52,73 @@ class Priority(unittest.TestCase):
             self.tokens.append(token)
         return token
 
+    def age(self, budget, seconds=121):
+        admission = budget.admission
+        admission.since = time.monotonic() - seconds
+        with open(admission.marker) as source:
+            record = json.load(source)
+        record["since"] = admission.since
+        # Preserve the leased inode; replacing it would represent another owner.
+        with open(admission.marker, "w") as out:
+            json.dump(record, out)
+
     def test_waiting_integration_gets_next_permit_before_old_background(self):
         background = self.budget(self.linked)
         holder = self.take(background)
+        self.assertIsNone(self.take(background))
+        self.age(background)
         integration = self.budget(self.main)
         self.assertIsNone(self.take(integration))
         # Age does not grant a background request an exception to priority.
-        background.admission.since = -1000
         holder.release()
         self.assertIsNone(self.take(background))
         token = self.take(integration)
         self.assertIsNotNone(token)
         token.release()
         self.assertIsNotNone(self.take(background))
+
+    def test_aged_background_reserves_next_opportunity_after_integration(self):
+        holder = self.take(self.budget(self.linked))
+        old = self.budget(self.linked)
+        self.assertIsNone(self.take(old))
+        self.age(old)
+        newer = self.budget(self.linked)
+        integration = self.budget(self.main)
+        self.assertIsNone(self.take(integration))
+        holder.release()
+        for b in (old, newer):
+            self.assertIsNone(self.take(b))
+        self.take(integration).release()
+        self.assertIsNone(self.take(newer))
+        self.take(old).release()
+        self.assertIsNotNone(self.take(newer))
+
+    def test_failed_attempt_preserves_background_age(self):
+        self.take(self.budget(self.linked))
+        queued = self.budget(self.linked)
+        self.assertIsNone(self.take(queued))
+        self.age(queued)
+        since = queued.admission.since
+        self.assertIsNone(self.take(queued))
+        self.assertEqual(queued.admission.since, since)
+
+    def test_crashed_aged_background_cannot_reserve_capacity(self):
+        marker = Path(self.machine) / "admission" / "wait-dead.json"
+        background = self.budget(self.linked)
+        marker.write_text(json.dumps({"main": False, "since": time.monotonic() - 500,
+                                      "pid": os.getpid(), "birth": "old generation"}))
+        self.assertIsNotNone(self.take(background))
+        self.assertFalse(marker.exists())
+
+    def test_disjoint_permits_do_not_block_background_progress(self):
+        old = self.budget(self.linked)
+        old.admission.permits = ["token-000"]
+        old.admission.register()
+        self.age(old)
+        newer = self.budget(self.linked)
+        newer.admission.permits = ["token-001"]
+        self.assertTrue(newer.admission.begin())
+        newer.admission.attempted(False)
 
     def test_all_integration_waiters_keep_priority_until_admitted(self):
         background = self.budget(self.linked)

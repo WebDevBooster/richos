@@ -22,17 +22,17 @@ mutation_focus want-as-argument
 
 P="scripts/lib/engine_pass.py"
 
-# 1. THE SLOT ITSELF. Without the lock two full passes run side by side: the incident.
+# 1. THE SLOT ITSELF. Without the lock two large passes run side by side.
 mutant no-lock "EP05" "$P" \
     '                    fcntl.flock(slot, fcntl.LOCK_EX | fcntl.LOCK_NB){NL}                    break' \
     '                    break' \
-    "Two full engine passes would run at once, which is exactly what saturated the Mac for two hours."
+    "Two large engine passes would run at once despite the serialization policy."
 
 # 2. THE LINE BETWEEN A SCOPED RUN AND A FULL PASS.
 mutant threshold-moved "EP01" "$P" \
     'FULL_PASS_UNITS = 20{NL}MAIN_WAIT' \
     'FULL_PASS_UNITS = 30{NL}MAIN_WAIT' \
-    "A 29-unit selection (seen on 2026-09-26) would run beside the land pass without the slot."
+    "A 29-unit selection would run beside the integration pass without the required slot."
 
 # 3. THE BOUND. A teammate that waits forever is a run nobody can see the end of.
 mutant wait-unbounded "EP04" "$P" \
