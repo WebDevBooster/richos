@@ -75,6 +75,22 @@ pub struct DeskToolScope {
     /// origin. It never gates a stop.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ledger_ref: Option<String>,
+    /// The declaration's `origins`: the mouths that may give his team work. The front desk's
+    /// register reads them from here (`listed_origins_beside`) and answers work from any
+    /// other mouth itself, in his turn.
+    pub origins: Vec<String>,
+}
+
+/// **The mouths his team takes work from, for the register beside this scope** — `None` when
+/// no operator scope is there (every product install: the register is the product's), the
+/// listed mouths when it is, and `Err` when it is there and cannot be read (the register then
+/// refuses rather than guessing).
+pub fn listed_origins_beside(assignments_scope: &Path) -> Result<Option<Vec<String>>, String> {
+    let beside = scope_beside(assignments_scope);
+    if !beside.exists() {
+        return Ok(None);
+    }
+    read_scope(&beside).map(|scope| Some(scope.origins))
 }
 
 /// **What the front desk's lease is given to reach the desk**, on an operator install only
@@ -522,7 +538,8 @@ mod tests {
         let socket = DeskSocket::serve(desk.clone(), &root.join("desk.sock"), &token).unwrap();
         let scope = root.join("scope.json");
         write_scope(&scope, &DeskToolScope { version: 1, socket: socket.path().to_path_buf(), token, entity_id: "femcboost".into(),
-                                             thread_id: "t-1".into(), ledger_ref: Some("ledger:t-1:turn-9".into()) }).unwrap();
+                                             thread_id: "t-1".into(), ledger_ref: Some("ledger:t-1:turn-9".into()),
+                                             origins: vec!["desk-typed".into()] }).unwrap();
         Fixture { root, scope, desk, _socket: socket }
     }
 

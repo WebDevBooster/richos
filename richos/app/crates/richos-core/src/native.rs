@@ -3510,9 +3510,6 @@ impl Cognition for NativeCognition {
                 thread_id: binding.thread_id().to_string(),
                 instruction_ledger_ref: format!("ledger:{}:{turn}", binding.thread_id()),
                 instruction_sha256: format!("{:x}", sha2::Sha256::digest(text.as_bytes())),
-                // His team's listed mouths, on an operator install only: the register answers
-                // work from any other mouth itself, in this turn (r3 (s) rule 1).
-                operator_origins: self.engine_profile.as_ref().and_then(|p| p.operator_desk.as_ref()).map(|d| d.origins.clone()),
                 // **The register opens the obligation itself, so it carries the desk to open it
                 // on** (`assignment_tools.rs`'s module doc). These are the three values written
                 // one call above — the same bridge, the same binding, the same seat — so the
@@ -3546,7 +3543,7 @@ impl Cognition for NativeCognition {
         if let (Some(path), Some(desk)) = (&self.assignments_scope, desk) {
             crate::operator_desk_tools::write_scope(&crate::operator_desk_tools::scope_beside(path),
                 &crate::operator_desk_tools::DeskToolScope {
-                    version: 1, socket: desk.socket, token: desk.token,
+                    version: 1, socket: desk.socket, token: desk.token, origins: desk.origins,
                     entity_id: binding.entity_id().to_string(), thread_id: binding.thread_id().to_string(),
                     ledger_ref: Some(format!("ledger:{}:{turn}", binding.thread_id())),
                 })

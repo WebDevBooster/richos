@@ -1084,7 +1084,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             obligation_desk: Some(richos_core::assignment_tools::ObligationDesk {
                 bridge: bridge.clone(), binding, seat,
             }),
-            operator_origins: None,
         })?;
         // One of each kind, the same two the measured run puts in front of the model — so the
         // `commitment`/`open_loop` split is exercised here too, and both must dispatch.

@@ -118,6 +118,8 @@ struct App {
     control: TurnControl,
     names: Arc<Mutex<Names>>,
     socket: DeskSocket,
+    /// The declaration's listed mouths, written into each front-desk tool scope as the app does.
+    origins: Vec<String>,
     ecs: Option<(EcsBridge, bool)>,
 }
 
@@ -239,7 +241,7 @@ impl App {
         let run = || -> Result<Value, String> {
             richos_core::operator_desk_tools::write_scope(&scope, &DeskToolScope {
                 version: 1, socket: self.socket.path().to_path_buf(), token: self.socket.token().to_string(),
-                entity_id: ENTITY.into(), thread_id: id.to_string(), ledger_ref })?;
+                entity_id: ENTITY.into(), thread_id: id.to_string(), ledger_ref, origins: self.origins.clone() })?;
             let exe = std::env::current_exe().map_err(|e| e.to_string())?;
             let mut child = Command::new(exe).arg("--operator-desk-mcp").arg(&scope)
                 .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit()).spawn().map_err(|e| e.to_string())?;
@@ -374,7 +376,7 @@ fn host(data: &Path, state: &Path, root: &Path) -> Result<(), String> {
     let socket = DeskSocket::serve(desk.clone(), &richos_core::operator_desk_tools::socket_path(&data.join("operator")),
                                    &richos_core::operator_desk_tools::new_token()).map_err(|e| e.to_string())?;
     let app = App { data: data.to_path_buf(), root: root.to_path_buf(), state: state.to_path_buf(), desk, work, work_leases,
-                    spine: Mutex::new(spine), control, names, socket, ecs };
+                    spine: Mutex::new(spine), control, names, socket, ecs, origins: declaration.origins.clone() };
     let _ = root;
 
     out.line(&json!({"ready": true, "pid": std::process::id(), "ecs": app.ecs.as_ref().map(|(_, seats)| json!({"seats": seats}))}));

@@ -126,12 +126,6 @@ pub struct AssignmentToolScope {
     /// lease, minutes later, as a refused `prepare`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub obligation_desk: Option<ObligationDesk>,
-    /// **On an operator install, the mouths that may give his team work** (the declaration's
-    /// `origins`: operator back-end spec r3 (s)). `None` on every product install, where the
-    /// register is exactly what it was. When set, the register reads its own turn's mouth from
-    /// the conversation ledger and answers work from any other mouth itself, in his turn.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub operator_origins: Option<Vec<String>>,
 }
 
 /// The app's own seat at the engine's continuity store, carried into the register's
@@ -374,12 +368,20 @@ pub fn call_with(
     // Operator back-end spec r3 (s) rule 1: *"The front desk answers: 'Your team only takes
     // work from the Mac. I've noted it; ask me at your desk.'"*, and Sage's front-desk addendum:
     // *"When the register hands you a sentence instead of 'On it!', say that sentence as it
-    // is."* On an operator install the scope names the listed mouths; this turn's own mouth is
+    // is."* On an operator install this turn's own mouth is
     // read from the conversation ledger exactly as his team's desk reads it
     // (`operator_desk::LedgerOrigins`), and work from any other is answered with the sentence,
     // nothing opened and nothing written. `recorded: false` keeps the app from saying "On it!"
     // itself (`first_reply::receipt_sentence`). The desk refuses it again if one ever got by.
-    if let Some(listed) = &scope.operator_origins {
+    //
+    // **The listed mouths come from the front desk's operator scope beside this one**
+    // (`operator_desk_tools::listed_origins_beside`), which only an operator install's front
+    // desk writes, every turn, from the same per-lease identity. So this register's own scope
+    // is the product's, field for field, and a product install reads nothing new. An operator
+    // scope that is there and cannot be read refuses the record rather than guessing.
+    let listed = crate::operator_desk_tools::listed_origins_beside(scope_path)
+        .map_err(|_| "RichOS cannot open a record for new work in this conversation right now. Nothing was recorded.".to_string())?;
+    if let Some(listed) = &listed {
         use crate::operator_desk::TurnOrigins;
         let facts = scope.state_root.parent().map(|data| data.join("conversation-ledger.jsonl"))
             .and_then(|ledger| crate::operator_desk::LedgerOrigins::new(&ledger).turn(&scope.instruction_ledger_ref));
@@ -637,20 +639,23 @@ mod tests {
                 instruction_ledger_ref: "ledger:thread-one:turn-7".into(),
                 instruction_sha256: "a".repeat(64),
                 obligation_desk,
-                operator_origins: None,
             },
         )
         .unwrap();
         Fixture { root, scope }
     }
 
-    /// The same scope on an operator install, with the conversation ledger holding turn-7 as
-    /// recorded through `mouth` (`None`: recorded before keeping began).
+    /// The same scope on an operator install: the front desk's operator scope beside it lists
+    /// his mouths, and the conversation ledger holds turn-7 as recorded through `mouth`
+    /// (`None`: recorded before keeping began).
     fn operator_fixture(mouth: Option<&str>) -> Fixture {
         let fixture = fixture();
-        let mut scope = read_scope(&fixture.scope).unwrap();
-        scope.operator_origins = Some(vec!["desk-typed".into(), "desk-voice".into(), "desk-file".into()]);
-        write_scope(&fixture.scope, &scope).unwrap();
+        crate::operator_desk_tools::write_scope(&crate::operator_desk_tools::scope_beside(&fixture.scope),
+            &crate::operator_desk_tools::DeskToolScope {
+                version: 1, socket: fixture.root.join("desk.sock"), token: "t".repeat(32), entity_id: "depot".into(),
+                thread_id: "thread-one".into(), ledger_ref: Some("ledger:thread-one:turn-7".into()),
+                origins: vec!["desk-typed".into(), "desk-voice".into(), "desk-file".into()],
+            }).unwrap();
         let mut row = json!({"event":"PromptReceived","turn_id":"turn-7","thread_id":"thread-one","entity_id":"depot",
                              "text":"land it","source":"text","at":1});
         if let Some(mouth) = mouth {
@@ -685,6 +690,12 @@ mod tests {
         assert_eq!(result["recorded"], true);
         assert_eq!(result["say"], "On it!");
         assert_eq!(opened.ids().len(), 1);
+        // An operator scope that is there and unreadable refuses rather than guessing.
+        let broken = operator_fixture(Some("desk"));
+        std::fs::write(crate::operator_desk_tools::scope_beside(&broken.scope), "{").unwrap();
+        let opened = Opened::default();
+        assert!(call_with(&broken.scope, RECORD_TOOL_NAME, json!({"assignment":"land it"}), &opened).is_err());
+        assert!(opened.ids().is_empty());
     }
 
     /// What the register asked the ECS desk to do, recorded rather than performed — so every

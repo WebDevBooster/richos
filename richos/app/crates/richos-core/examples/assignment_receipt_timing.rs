@@ -108,7 +108,6 @@ fn main() {
                 instruction_ledger_ref: format!("ledger:thread-one:turn-{n}"),
                 instruction_sha256: "a".repeat(64),
                 obligation_desk: Some(desk.clone()),
-                operator_origins: None,
             },
         )
         .expect("scope");
