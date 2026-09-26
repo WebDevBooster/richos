@@ -78,22 +78,23 @@ def _send(pids, groups, sig, table=None):
 
 
 def _alive(pids):
+    pids = set(pids)
+    if not pids:
+        return []
+    # Unreadable native identities are common for other users' processes, not
+    # an exceptional one-PID case. One status snapshot preserves zombie/exit
+    # handling without spawning a ps child for every such process on every tick.
+    result = subprocess.run(["ps", "-o", "pid=,stat=", "-p", ",".join(map(str, sorted(pids)))],
+                            capture_output=True, text=True, timeout=10)
+    if result.returncode not in (0, 1) or (result.returncode == 0 and not result.stdout.strip()):
+        raise RuntimeError("cannot read owned process states")
     left = []
-    for p in pids:
-        try:
-            os.kill(p, 0)
-        except ProcessLookupError:
-            continue
-        except PermissionError:
-            pass
-        # A zombie is dead: it only waits for its parent to read its status.
-        result = subprocess.run(["ps", "-o", "stat=", "-p", str(p)],
-                                capture_output=True, text=True, timeout=10)
-        state = result.stdout.strip()
-        if result.returncode not in (0, 1) or (result.returncode == 0 and not state):
-            raise RuntimeError("cannot read process state: %s" % p)
-        if state and not state.startswith("Z"):
-            left.append(p)
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) != 2 or not fields[0].isdigit() or int(fields[0]) not in pids:
+            raise RuntimeError("invalid process state snapshot")
+        if not fields[1].startswith("Z"):
+            left.append(int(fields[0]))
     return left
 
 
@@ -142,6 +143,7 @@ def process_rows():
     result = subprocess.run(["ps", "-ax", "-o", "pid=,ppid=,pgid="],
                             capture_output=True, text=True, timeout=10, check=True)
     table = {}
+    unknown = set()
     for line in result.stdout.splitlines():
         fields = line.split()
         if len(fields) != 3 or not all(field.isdigit() for field in fields):
@@ -152,11 +154,12 @@ def process_rows():
             continue
         if row is None:
             # libproc can return ESRCH for an unreaped zombie while kill(pid, 0)
-            # still succeeds. Check state only on this exceptional path.
-            if not _alive([pid]):
-                continue
+            # still succeeds. Batch the status check for all unreadable rows.
+            unknown.add(pid)
         table[pid] = ((row["ppid"], row["pgid"], row["start"]) if row
                       else (parent, group, None))
+    for pid in unknown - set(_alive(unknown)):
+        del table[pid]
     return table
 
 

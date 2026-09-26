@@ -113,9 +113,10 @@ class Reliability(unittest.TestCase):
             self.assertEqual(tracker.groups, {})
 
     def test_exit_between_topology_and_native_read_is_not_unreadable(self):
-        with patch.object(proc_tree.subprocess, 'run', return_value=SimpleNamespace(stdout='100 1 100\n')), \
-                patch.object(proc_tree.operator_fences, 'proc', return_value=None), \
-                patch.object(proc_tree.os, 'kill', side_effect=ProcessLookupError):
+        with patch.object(proc_tree.subprocess, 'run', side_effect=[
+                SimpleNamespace(stdout='100 1 100\n', returncode=0),
+                SimpleNamespace(stdout='', returncode=1)]), \
+                patch.object(proc_tree.operator_fences, 'proc', return_value=None):
             self.assertEqual(proc_tree.process_rows(), {})
 
     def test_zombie_owner_is_dead_even_before_its_parent_reaps_it(self):
@@ -127,11 +128,27 @@ class Reliability(unittest.TestCase):
 
     def test_native_esrch_on_unreaped_zombie_is_not_unreadable_live_process(self):
         with patch.object(proc_tree.operator_fences, 'proc', return_value=None), \
-                patch.object(proc_tree.os, 'kill'), \
                 patch.object(proc_tree.subprocess, 'run', side_effect=[
                     SimpleNamespace(stdout='100 1 100\n', returncode=0),
-                    SimpleNamespace(stdout='Z\n', returncode=0)]):
+                    SimpleNamespace(stdout='100 Z\n', returncode=0)]):
             self.assertEqual(proc_tree.process_rows(), {})
+
+    def test_unreadable_states_are_batched_without_hiding_live_unknowns(self):
+        with patch.object(proc_tree.operator_fences, 'proc', return_value=None), \
+                patch.object(proc_tree.subprocess, 'run', side_effect=[
+                    SimpleNamespace(stdout='100 1 100\n101 100 100\n102 100 100\n', returncode=0),
+                    SimpleNamespace(stdout='100 S\n101 Z\n', returncode=0)]) as run:
+            self.assertEqual(proc_tree.process_rows(), {100: (1, 100, None)})
+            self.assertEqual(run.call_count, 2)
+            self.assertEqual(run.call_args.args[0][-1], '100,101,102')
+
+    def test_unreadable_state_errors_do_not_become_successful_cleanup(self):
+        for result in (SimpleNamespace(stdout='', returncode=2),
+                       SimpleNamespace(stdout='', returncode=0),
+                       SimpleNamespace(stdout='garbage\n', returncode=0)):
+            with self.subTest(result=result), patch.object(proc_tree.subprocess, 'run', return_value=result):
+                with self.assertRaises(RuntimeError):
+                    proc_tree._alive([100])
 
     def test_success_cleans_detached_reparented_child_and_preserves_unrelated(self):
         unrelated = subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(60)'])
