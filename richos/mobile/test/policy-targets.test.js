@@ -53,7 +53,15 @@ async function hosted(t) {
     return { read: async () => new TextDecoder().decode((await reader.read()).value), cancel: () => reader.cancel(),
       step: async () => { while (!pending.length) await new Promise(resolve => { notify = resolve; }); const { ms, resolve } = pending.shift(); time += ms; resolve(); } };
   };
-  return { worker, store, operator, authoring, db, env, publish, request, get, served, fetch, stream };
+  // The next chunk a stream sends within `polls` polls. It stops stepping the moment a chunk arrives,
+  // so a stream that announces something too early fails by its assertion instead of blocking on
+  // an unread write until the case times out.
+  const within = async (opened, polls) => {
+    let arrived = false; const next = opened.read().then(value => { arrived = true; return value; });
+    for (let i = 0; i < polls && !arrived; i++) await Promise.race([opened.step(), next]);
+    return next;
+  };
+  return { worker, store, operator, authoring, db, env, publish, request, get, served, fetch, stream, within };
 }
 
 test('each record reaches exactly one app: the preserved routes never serve a native record', async t => {
@@ -157,23 +165,21 @@ test('an iPhone release, minimum or blocked build never reaches the Android app,
   const androidStream = await h.stream('/v1/events/android-native'), iosStream = await h.stream('/v1/events/ios-native');
   t.after(async () => { await androidStream.cancel(); await iosStream.cancel(); });
   assert.equal(await androidStream.read(), 'event: policy\ndata: 1\n\n');
-  assert.equal(await iosStream.read(), 'event: policy\ndata: 0\n\n');
+  assert.equal(await iosStream.read(), 'event: policy\ndata: 0\n\n', 'the iPhone stream announces nothing for an Android revision');
   // A newer iPhone release that blocks every older iPhone build, and names one blocked build.
   const ios = iosNotice(2, { target: 'ios-native', blockedBuilds: ['1.0.0+9'] });
   await h.publish(ios, { availability: receipt(ios) });
   await iosStream.step();
   assert.equal(await iosStream.read(), 'event: policy\ndata: 2\n\n');
   assert.deepEqual(await (await h.get('/v1/policy/android-native')).json(), android, 'the Android route still serves the Android record');
-  for (let i = 0; i < 4; i++) await androidStream.step();
-  assert.equal(await androidStream.read(), ': alive\n\n', 'the Android stream announces nothing for an iPhone revision');
+  assert.equal(await h.within(androidStream, 4), ': alive\n\n', 'the Android stream announces nothing for an iPhone revision');
   // And the reverse: a newer Android block reaches neither the iPhone route nor its stream.
   const block = androidNotice(3, { severity: 'blocking', allowDismiss: false, minimum: { version: '1.1.0', build: '11' }, blockedBuilds: ['1.0.0+5'] });
   await h.publish(block, { availability: receipt(block) });
   await androidStream.step();
   assert.equal(await androidStream.read(), 'event: policy\ndata: 3\n\n');
   assert.deepEqual(await (await h.get('/v1/policy/ios-native')).json(), ios, 'the iPhone route still serves the iPhone record');
-  for (let i = 0; i < 4; i++) await iosStream.step();
-  assert.equal(await iosStream.read(), ': alive\n\n', 'the iPhone stream announces nothing for an Android revision');
+  assert.equal(await h.within(iosStream, 4), ': alive\n\n', 'the iPhone stream announces nothing for an Android revision');
   // The local file service keeps the same separation in both directions.
   const { publish, preview, readPolicy } = await import('../service/policy.mjs');
   const directory = createScratch('policy-native-pair');
