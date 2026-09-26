@@ -37,11 +37,14 @@
         "perl",
         "sleep",
         "xargs",
-        "env"
+        "env",
+        "rmdir",
+        "tee",
+        "seq"
       ],
       "environment": [],
       "external": [],
-      "qualification": "docs/development/verification-input-qualifications.md",
+      "qualification": "docs/development/verification-input-qualifications.json",
       "isolation": "private-home-v1"
     },
     "engine scripts/install-ack-protocol.test.sh": {
@@ -80,11 +83,14 @@
         "perl",
         "sleep",
         "xargs",
-        "env"
+        "env",
+        "rmdir",
+        "tee",
+        "seq"
       ],
       "environment": [],
       "external": [],
-      "qualification": "docs/development/verification-input-qualifications.md",
+      "qualification": "docs/development/verification-input-qualifications.json",
       "isolation": "private-home-v1"
     },
     "engine scripts/install-escalation-protocol.test.sh": {
@@ -123,11 +129,14 @@
         "perl",
         "sleep",
         "xargs",
-        "env"
+        "env",
+        "rmdir",
+        "tee",
+        "seq"
       ],
       "environment": [],
       "external": [],
-      "qualification": "docs/development/verification-input-qualifications.md",
+      "qualification": "docs/development/verification-input-qualifications.json",
       "isolation": "private-home-v1"
     },
     "engine scripts/verification-inputs.test.sh": {
@@ -166,11 +175,14 @@
         "perl",
         "sleep",
         "xargs",
-        "env"
+        "env",
+        "rmdir",
+        "tee",
+        "seq"
       ],
       "environment": [],
       "external": [],
-      "qualification": "docs/development/verification-input-qualifications.md",
+      "qualification": "docs/development/verification-input-qualifications.json",
       "isolation": "private-home-v1"
     },
     "engine scripts/affected-units.test.sh": {
@@ -209,11 +221,14 @@
         "perl",
         "sleep",
         "xargs",
-        "env"
+        "env",
+        "rmdir",
+        "tee",
+        "seq"
       ],
       "environment": [],
       "external": [],
-      "qualification": "docs/development/verification-input-qualifications.md",
+      "qualification": "docs/development/verification-input-qualifications.json",
       "isolation": "private-home-v1"
     }
   }

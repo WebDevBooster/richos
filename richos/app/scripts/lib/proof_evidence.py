@@ -127,6 +127,46 @@ def prepare_environment(item, root, logdir, environment, create=True):
     item.env = {key: value for key, value in item.env.items() if key in base}
 
 
+def qualify_recipe(root, recipe):
+    """Check the execution recipe against its independently reviewed read contract.
+
+    This is a finite input floor, not inference about arbitrary programs. Removing
+    a known tool or outside-root dependency must fail before reuse or execution.
+    """
+    root = Path(root)
+    def relative(value):
+        if not isinstance(value, str) or not value or Path(value).is_absolute() or ".." in Path(value).parts:
+            raise ValueError("input must be repository-relative: " + str(value))
+        return value
+    qualification = relative(recipe["qualification"])
+    if not (root / qualification).is_file():
+        raise ValueError("input qualification is missing: " + qualification)
+    contract = json.loads((root / qualification).read_text())
+    fields = {"paths", "tools", "environment", "external"}
+    if (not isinstance(contract, dict) or contract.get("schema") != 1
+            or not isinstance(contract.get("requires"), dict)
+            or set(contract["requires"]) != fields):
+        raise ValueError("invalid reviewed input qualification: " + qualification)
+    review = relative(contract.get("review"))
+    if not (root / review).is_file():
+        raise ValueError("input review is missing: " + review)
+    for field in sorted(fields):
+        for values in (recipe[field], contract["requires"][field]):
+            if not isinstance(values, list) or any(not isinstance(v, str) or not v for v in values):
+                raise ValueError("invalid input list: " + field)
+        required, declared = contract["requires"][field], recipe[field]
+        if field == "paths":
+            for path in [*required, *declared]:
+                relative(path)
+            missing = [path for path in required if not any(
+                Path(path).is_relative_to(parent) for parent in declared)]
+        else:
+            missing = sorted(set(required) - set(declared))
+        if missing:
+            raise ValueError("input qualification omits " + field + ": " + ", ".join(missing))
+    return [qualification, review]
+
+
 def recipe_identity(root, recipe, environment):
     """Validate the finite declaration, then fingerprint every declared input.
 
@@ -140,10 +180,9 @@ def recipe_identity(root, recipe, environment):
     if set(recipe) - {"isolation"} != required or not recipe["qualification"]:
         raise ValueError("incomplete verification input contract")
     root = Path(root).resolve()
-    if not (root / recipe["qualification"]).is_file():
-        raise ValueError("input qualification is missing: " + recipe["qualification"])
+    qualification_paths = qualify_recipe(root, recipe)
     paths = {}
-    for rel in [*recipe["paths"], recipe["qualification"]]:
+    for rel in [*recipe["paths"], *qualification_paths]:
         path = root / rel
         if Path(rel).is_absolute() or ".." in Path(rel).parts:
             raise ValueError(f"input must be repository-relative: {rel}")

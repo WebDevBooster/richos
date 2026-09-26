@@ -6,6 +6,20 @@ are content inputs. This is the conservative declared-root tier. Changes within
 either root rerun these checks until a narrower closure is separately qualified.
 Checks without a declaration remain fresh with an explicit reason.
 
+The adjacent `verification-input-qualifications.json` records the reviewed input
+floor for these units. Recipe validation checks that every required path, tool,
+environment value and external input is covered before accepting an identity.
+A declared directory covers its descendants. A similarly named sibling does not.
+The JSON contract and this review are both fingerprinted. This checks known reads;
+it does not claim to discover arbitrary new reads automatically.
+
+The common tool list deliberately covers the shared shard and all five reviewed
+units. In particular, acknowledgement fixtures invoke `seq` and the copied real
+verification orchestrator invokes `rmdir` and `tee`. Their omission from the first
+recipe version was a correctness defect. The corrected declaration invalidates
+those earlier identities. Omission fixtures now reject each of these three tools
+and an outside-root `LICENSE` input before reuse can be considered.
+
 ## Private fixture execution
 
 `private-home-v1` creates separate HOME, config, temporary and Git-template

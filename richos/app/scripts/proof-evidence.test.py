@@ -32,6 +32,39 @@ class Evidence(unittest.TestCase):
         self.source = {"commit": "a" * 40, "tracked_diff_sha256": "clean", "untracked_sha256": "clean"}
         self.inputs = {"paths": {"fixture": "digest"}}
 
+    def qualification(self, review, **required):
+        (self.root / "qualification.md").write_text(review)
+        evidence.atomic(self.root / "qualification.json", {"schema": 1,
+            "review": "qualification.md", "requires": {
+                key: required.get(key, []) for key in ("paths", "tools", "environment", "external")}})
+
+    def test_known_omitted_inputs_fail_qualification_before_reuse(self):
+        self.qualification("Fixture reads a helper, root license, declared tool and external data.",
+            paths=["engine/helper.sh", "LICENSE"], tools=["seq"],
+            environment=["OPTION"], external=["FIXTURE"])
+        recipe = {"paths": ["engine", "LICENSE"], "tools": ["seq"],
+            "environment": ["OPTION"], "external": ["FIXTURE"], "qualification": "qualification.json"}
+        evidence.qualify_recipe(self.root, recipe)
+        for field in ("paths", "tools", "environment", "external"):
+            with self.subTest(field=field):
+                broken = {**recipe, field: ["engine"] if field == "paths" else []}
+                with self.assertRaisesRegex(ValueError, "qualification omits " + field):
+                    evidence.recipe_identity(self.root, broken, {})
+        # A similarly named sibling is not coverage of a required directory.
+        with self.assertRaisesRegex(ValueError, "engine/helper.sh"):
+            evidence.qualify_recipe(self.root, {**recipe, "paths": ["engine-other", "LICENSE"]})
+
+    def test_production_recipes_reject_the_three_discovered_tool_omissions(self):
+        root = HERE.parents[2]
+        checks = json.loads((HERE / "proof-inputs.json").read_text())["checks"]
+        for label, recipe in checks.items():
+            with self.subTest(label=label):
+                evidence.qualify_recipe(root, recipe)
+                for tool in ("seq", "tee", "rmdir"):
+                    broken = {**recipe, "tools": [name for name in recipe["tools"] if name != tool]}
+                    with self.assertRaisesRegex(ValueError, "qualification omits tools: " + tool):
+                        evidence.recipe_identity(root, broken, {})
+
     def attempt(self, name, engine=True, identities=None):
         path = Path(self.tmp.name) / name
         path.mkdir()
@@ -192,9 +225,11 @@ class Evidence(unittest.TestCase):
             path = engine / "scripts" / (name + ".test.sh")
             path.write_text('#!/bin/bash\nprintf "' + name + '\\n" >> "$FIXTURE_COUNTER"\n')
             path.chmod(0o755)
-        (self.root / "qualification.md").write_text("Fixture units append a label; no external content read.")
+        self.qualification("Fixture units append a label; no external content read.",
+            paths=["richos/engine", "richos/app/scripts", "LICENSE"], tools=["bash", "python3", "git"],
+            environment=["FIXTURE_COUNTER"])
         recipe = {"paths": ["richos/engine", "richos/app/scripts", "LICENSE"], "tools": ["bash", "python3", "git"],
-            "environment": ["FIXTURE_COUNTER"], "external": [], "qualification": "qualification.md",
+            "environment": ["FIXTURE_COUNTER"], "external": [], "qualification": "qualification.json",
             "isolation": evidence.PRIVATE_PROFILE}
         evidence.atomic(app / "proof-inputs.json", {"schema": 1,
             "checks": {"engine scripts/" + name + ".test.sh": recipe for name in ("alpha", "beta")}})
@@ -250,9 +285,10 @@ class Evidence(unittest.TestCase):
         self.assertEqual(counter.read_text().splitlines(), ["alpha", "beta", "alpha"])
 
     def test_private_profile_drops_ambient_inputs_and_uses_fixed_fixture_seeds(self):
-        (self.root / "qualification.md").write_text("Controlled private profile fixture.")
+        self.qualification("Controlled private profile fixture.",
+            environment=["NAMED_INPUT"], external=["FIXTURE_INPUT"])
         recipe = {"paths": [], "tools": [], "environment": ["NAMED_INPUT"],
-            "external": ["FIXTURE_INPUT"], "qualification": "qualification.md",
+            "external": ["FIXTURE_INPUT"], "qualification": "qualification.json",
             "isolation": evidence.PRIVATE_PROFILE}
         evidence.atomic(self.root / "richos/app/scripts/proof-inputs.json",
                         {"schema": 1, "checks": {"check": recipe}})
@@ -402,10 +438,12 @@ class Evidence(unittest.TestCase):
             'printf "joined\\n" >> "$COUNTER"\n'
             'for i in $(seq 1 300); do [ ! -e "$RELEASE" ] || exit 0; sleep .1; done\nexit 1\n')
         (self.root / "independent.test.sh").write_text('printf "independent\\n" >> "$COUNTER"\n')
-        (self.root / "qualification.md").write_text("Private shell fixtures with a bounded coordination barrier.")
+        self.qualification("Private shell fixtures with a bounded coordination barrier.",
+            paths=["richos", "joined.test.sh", "independent.test.sh"],
+            tools=["bash", "python3", "seq", "sleep"], environment=["COUNTER", "RELEASE"])
         recipe = {"paths": ["richos", "joined.test.sh", "independent.test.sh"],
             "tools": ["bash", "python3", "seq", "sleep"], "environment": ["COUNTER", "RELEASE"],
-            "external": [], "qualification": "qualification.md", "isolation": evidence.PRIVATE_PROFILE}
+            "external": [], "qualification": "qualification.json", "isolation": evidence.PRIVATE_PROFILE}
         evidence.atomic(app / "proof-inputs.json", {"schema": 1,
             "checks": {label: recipe for label in ("joined", "independent")}})
         (app / "proof-inputs.json").chmod(0o644)  # Match Git's checkout mode for this source file.
@@ -500,11 +538,12 @@ class Evidence(unittest.TestCase):
         tool.write_text("#!/bin/sh\nexit 0\n")
         tool.chmod(0o755)
         qualification = self.root / "qualification.md"
-        qualification.write_text("fixture input contract")
+        self.qualification("fixture input contract", paths=["input"], tools=["tool"],
+            environment=["OPTION"], external=["FIXTURE"])
         external = Path(self.tmp.name) / "external"
         external.write_text("one")
         recipe = {"paths": ["input"], "tools": ["tool"], "environment": ["OPTION"],
-                  "external": ["FIXTURE"], "qualification": "qualification.md"}
+                  "external": ["FIXTURE"], "qualification": "qualification.json"}
         env = {"PATH": str(self.root), "OPTION": "secret-one", "FIXTURE": str(external)}
         base = evidence.recipe_identity(self.root, recipe, env)
         self.assertNotIn("secret-one", json.dumps(base))
@@ -613,9 +652,9 @@ class Evidence(unittest.TestCase):
             (self.root / (name + ".test.sh")).write_text(
                 'printf "%s\\n" "' + name + '" >> "$1"\n'
                 + ('[ ! -f "$2" ]\n' if name == "retry" else 'exit 0\n'))
-        (self.root / "qualification.md").write_text("Controlled shell fixture: only supplied scripts and arguments.")
+        self.qualification("Controlled shell fixture: only supplied scripts and arguments.")
         recipe = {"paths": ["pass.test.sh", "retry.test.sh"], "tools": ["bash"],
-            "external": [], "environment": ["PATH"], "qualification": "qualification.md"}
+            "external": [], "environment": ["PATH"], "qualification": "qualification.json"}
         evidence.atomic(scripts / "proof-inputs.json", {"schema": 1, "checks": {"pass": recipe, "retry": recipe}})
         olddir, newdir = [Path(self.tmp.name) / name for name in ("first", "second")]
         lines = [f"cd . && bash {name}.test.sh {output} {failure}" for name in ("pass", "retry")]

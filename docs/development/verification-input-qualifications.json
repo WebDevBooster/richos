@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "review": "docs/development/verification-input-qualifications.md",
+  "requires": {
+    "paths": [
+      "richos/engine",
+      "richos/app/scripts"
+    ],
+    "tools": [
+      "bash",
+      "sh",
+      "python3",
+      "git",
+      "awk",
+      "sed",
+      "grep",
+      "sort",
+      "find",
+      "date",
+      "mktemp",
+      "mkdir",
+      "dirname",
+      "head",
+      "tail",
+      "wc",
+      "tr",
+      "cut",
+      "cp",
+      "rm",
+      "chmod",
+      "cat",
+      "comm",
+      "cksum",
+      "stat",
+      "ps",
+      "shasum",
+      "perl",
+      "sleep",
+      "xargs",
+      "env",
+      "rmdir",
+      "tee",
+      "seq"
+    ],
+    "environment": [],
+    "external": []
+  }
+}
