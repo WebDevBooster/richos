@@ -432,7 +432,8 @@ def launch(item, n, logdir, tokens_dir, reserved):
         item.proc = subprocess.Popen(command, cwd=item.cwd, stdout=fh, stderr=subprocess.STDOUT,
                                      stdin=subprocess.DEVNULL, start_new_session=True, env=env,
                                      pass_fds=tuple(item.token.fds) + tuple(getattr(item, "slot_fds", ()))
-                                     + ((evidence.lease.fd,) if evidence else ()))
+                                     + ((evidence.lease.fd,) if evidence else ())
+                                     + ((item.input_owner_fd,) if hasattr(item, "input_owner_fd") else ()))
     except OSError as exc:
         # A check that cannot even start is a FAILED check, named, never a crash of the run
         # that leaves every other check running with nobody to stop it.
@@ -576,6 +577,8 @@ def run(items, args, logdir, sampler=None):
                 it.finish_queue()
                 it.state, it.rc, it.ended = "cancelled", 130, time.monotonic()
         checkpoint(items, logdir)
+        if getattr(args, "pool", None):
+            args.pool.close(items)
         running.clear()
         print("proof-run: interrupted; every check this run started was stopped%s. Logs: %s" % (
             "" if not left else " EXCEPT pids %s, which survived SIGKILL" % left, logdir), flush=True)
@@ -661,6 +664,8 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 running.remove(it)
                 it.token.release()
                 checkpoint(items, logdir)
+                if getattr(args, "pool", None):
+                    args.pool.finish(it)
                 print("[%s] %-6s %-40s %6.0f s%s" % (stamp(), {"passed": "PASS", "failed": "FAIL"}.get(it.state, "KILLED"),
                                                      it.label, it.seconds, "" if rc == 0 else "  (exit %d)" % rc), flush=True)
                 name_failures(it)
@@ -718,6 +723,21 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
         for it in waiting:
             it.wait_reason = ("dependency" if not it.after <= done else
                               "lane" if it.lane and it.lane in busy_lanes else "ready")
+        pool = getattr(args, "pool", None)
+        if pool:
+            owned = []
+            for it in ready:
+                if it.first_wait is None:
+                    it.first_wait = now
+                if pool.claim(it):
+                    owned.append(it)
+                elif it.state == "waiting":
+                    it.wait_reason = "identical-owner"
+                    if now - it.first_wait >= args.admission_wait:
+                        it.finish_queue()
+                        it.state, it.rc = "not-admitted", 75
+                        it.notes.append("identical owner did not finish within the admission wait")
+            ready = owned
         gate = getattr(args, "engine_gate", None)
         if gate:
             engine_running = any(it.engine_unit for it in running)
@@ -1001,6 +1021,7 @@ def main(argv=None):
     p.add_argument("--resume", help="retry the exact saved plan and validate reusable evidence")
     p.add_argument("--reuse", action="append", default=[],
                    help="validate prior evidence against the newly selected target plan and inputs")
+    p.add_argument("--retry-reason", help="diagnosis authorizing the one retry of unchanged failed inputs")
     failure_mode = p.add_mutually_exclusive_group()
     failure_mode.add_argument("--keep-going", action="store_true", help="continue independent checks (the default)")
     failure_mode.add_argument("--fail-fast", action="store_true", help="cancel unfinished checks after an ordinary failure")
@@ -1078,6 +1099,8 @@ def main(argv=None):
 
     args.evidence = proof_evidence.Record(ROOT, logdir, items, before,
         {item.label: identity(item) for item in items}, args.resume, source_identity, identity)
+    args.pool = proof_evidence.Pool(proof_evidence.pool_directory(ROOT, hist_dir), args.evidence,
+                                    args.retry_reason)
     started = time.monotonic()
     try:
         if args.resume:
@@ -1095,6 +1118,7 @@ def main(argv=None):
         run(items, args, logdir)
         args.evidence.finalize(items)
     finally:
+        args.pool.close(items)
         args.evidence.close()
     wall = time.monotonic() - started
     if source_identity() != before:

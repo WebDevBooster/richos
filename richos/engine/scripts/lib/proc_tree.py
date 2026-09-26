@@ -118,10 +118,14 @@ def kill_tree(root, grace=3.0):
 SCOPE_ENV = "RICHOS_PROCESS_SCOPE"
 
 
+def python_command():
+    flags = (["-S"] if sys.flags.no_site else []) + (["-s"] if sys.flags.no_user_site else [])
+    return [sys.executable, *flags]
+
+
 def command(argv, owner=None):
     """A separate supervisor survives the caller's SIGKILL and owns normal-exit cleanup too."""
-    flags = (["-S"] if sys.flags.no_site else []) + (["-s"] if sys.flags.no_user_site else [])
-    return [sys.executable, *flags, os.path.abspath(__file__), "run", str(owner or os.getpid()), "--", *map(str, argv)]
+    return [*python_command(), os.path.abspath(__file__), "run", str(owner or os.getpid()), "--", *map(str, argv)]
 
 
 def identity(pid):
@@ -289,7 +293,7 @@ def supervise(owner, argv, deadline=None, timeout_marker=None):
                  "try: os.execvpe(argv[0],argv,os.environ)\n"
                  "except OSError as e: print('could not start: '+str(e),file=sys.stderr); sys.exit(127)")
     try:
-        child = subprocess.Popen([sys.executable, "-c", bootstrap, str(read_fd), *argv],
+        child = subprocess.Popen([*python_command(), "-c", bootstrap, str(read_fd), *argv],
                                  env=env, start_new_session=True, pass_fds=(read_fd,))
     except OSError as exc:
         print("could not start: %s" % exc, file=sys.stderr)

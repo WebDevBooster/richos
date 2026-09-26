@@ -325,6 +325,127 @@ def read_plan(path):
     return plan
 
 
+def pool_directory(root, history):
+    common = subprocess.check_output(["git", "-C", str(root), "rev-parse",
+        "--path-format=absolute", "--git-common-dir"], text=True).strip()
+    return Path(history).parent / "input-owners" / digest(os.path.realpath(common))
+
+
+class Pool:
+    """One kernel-held owner per qualified input, pointing to existing evidence.
+
+    There is no cached verdict here. Every hit goes through reuse() and the
+    normal target coverage verifier. A completed unit can be joined while its
+    original run continues with other units: its own lock is the publication
+    boundary. Supervisors inherit it until owned cleanup has finished.
+    """
+    def __init__(self, directory, record, retry_reason=None):
+        self.directory, self.record = Path(directory), record
+        self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.retry_reason = retry_reason
+        self.held = {}
+
+    def claim(self, item):
+        identity = self.record.identities[item.label]
+        if identity.get("fresh") or item.label == "engine receipts":
+            return True
+        if item.label in self.held:
+            return True
+        key = digest({"check": item.label, "input": identity})
+        fd = os.open(self.directory / (key + ".lock"), os.O_CREAT | os.O_RDWR, 0o600)
+        path = self.directory / (key + ".json")
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(fd)
+            try:
+                owner = json.loads(path.read_text())
+                description = str(owner.get("run", "owner is publishing its identity"))
+            except (OSError, ValueError):
+                description = "owner is publishing its identity"
+            note = "join identical input owner: " + description
+            if note not in item.notes:
+                item.notes.append(note)
+                print("proof-run: %s: %s" % (item.label, note), flush=True)
+            return False
+        try:
+            try:
+                previous = json.loads(path.read_text())
+            except FileNotFoundError:
+                previous = {}
+            # Corrupt counters are not absence: refuse rather than reset a budget.
+            failures = previous.get("functional_failures", [])
+            if not isinstance(failures, list):
+                raise ValueError("invalid durable retry history: " + str(path))
+            if previous.get("run") and previous["run"] != str(self.record.logdir):
+                try:
+                    reuse(previous["run"], [item], self.record, exact=False)
+                except (OSError, ValueError, KeyError, TypeError) as exc:
+                    item.notes.append("prior evidence unavailable: " + str(exc))
+            if item.state not in ("waiting", "passed"):
+                os.close(fd)
+                return False
+            if item.state != "passed" and failures:
+                reason = ("unchanged inputs exhausted their two-attempt functional budget"
+                          if len(failures) >= 2 else
+                          "unchanged failed inputs require --retry-reason with the diagnosis")
+                if len(failures) >= 2 or not self.retry_reason:
+                    item.finish_queue()
+                    item.state, item.rc = "blocked", 75
+                    item.notes.append(reason + "; prior evidence: " + failures[-1]["run"])
+                    os.close(fd)
+                    return False
+            row = {"run": str(self.record.logdir), "check": item.label,
+                   "pid": os.getpid(), "functional_failures": failures,
+                   "retry_reason": self.retry_reason, "state": item.state}
+            atomic(path, row)
+            self.held[item.label] = (fd, path, row)
+            item.input_owner_fd = fd
+            if item.state == "passed":
+                item.finish_queue()
+                self.finish(item)
+                return False
+            return True
+        except BaseException:
+            os.close(fd)
+            raise
+
+    def finish(self, item):
+        held = self.held.pop(item.label, None)
+        if held is None:
+            return
+        fd, path, row = held
+        try:
+            row["state"] = item.state
+            if self.functional_failure(item):
+                row["functional_failures"].append({"run": str(self.record.logdir),
+                    "exit": item.rc, "diagnosis": self.retry_reason})
+            atomic(path, row)
+        finally:
+            # close, not LOCK_UN: an inherited supervisor still owns this flock
+            # if the caller is interrupted before descendant cleanup finishes.
+            os.close(fd)
+            del item.input_owner_fd
+
+    @staticmethod
+    def functional_failure(item):
+        if item.state != "failed":
+            return False
+        receipt = receipt_path(item)
+        if receipt:
+            try:
+                rows = [json.loads(line) for line in receipt.read_text().splitlines() if line.strip()]
+                return (len(rows) == 1 and rows[0].get("execution_status") == "completed"
+                        and rows[0].get("verdict") == "FAIL")
+            except (OSError, ValueError):
+                return False  # Missing execution evidence is not an assertion failure.
+        return item.rc not in (75, 124, 125, 126, 127, 130) and 0 < item.rc < 128
+
+    def close(self, items):
+        for item in items:
+            self.finish(item)
+
+
 def reuse(previous, items, record, exact=True):
     """Select exact applicable passes; leave failed evidence in its original run."""
     previous = Path(previous)

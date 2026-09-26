@@ -108,6 +108,21 @@ still need execution or the explicit same-commit reconciliation described above.
 The mechanism does not qualify a suite automatically: production execution recipes
 and their per-unit declarations remain necessary before reuse is available.
 
+Qualified inputs are also discovered automatically across this repository's
+worktrees. One kernel-held lock owns each identical execution identity. A second
+request joins that owner without occupying a worker permit; independent checks
+remain eligible. After cleanup the owner publishes its existing evidence, which
+the joiner validates through the same reuse and coverage paths. A damaged or
+rotated artifact is a cache miss, never a pass. Fresh checks still execute.
+
+The input owner record retains behavioral failures across new run directories.
+After diagnosing an unchanged failure, pass `--retry-reason "<diagnosis>"` for
+its one permitted retry. Two failed attempts require a relevant input change;
+renaming the run or supplying another explanation does not reset the count.
+Admission refusal, deadline and infrastructure failures do not spend this
+behavioral budget. Their distinct recovery policies still apply. A corrupt retry
+record refuses execution rather than silently clearing its history.
+
 If a required gate explicitly demands a fresh single invocation, preserve that
 requirement and run it after resolving the blocker. A request for full coverage
 alone does not require discarding applicable passing evidence. If only a
@@ -139,7 +154,8 @@ reconciled verification. Preserve useful evidence before deleting owned scratch.
 
 These are mandatory agent instructions. The existing coverage verifier and
 resource guards provide mechanical checks for their specific invariants. This
-runner adds durable exact-plan retry and unresolved-first scheduling. It does
-not add a universal command interceptor or a general result cache. Do not claim that instructions alone make
+runner adds durable exact-plan retry, unresolved-first scheduling and automatic
+reuse/joining for qualified input recipes. It does not add a universal command
+interceptor. Do not claim that instructions alone make
 recurrence technically impossible. A future mechanical change must preserve
 source/input identity checks, truthful failures and required coverage.

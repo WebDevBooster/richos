@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -165,7 +166,7 @@ class Evidence(unittest.TestCase):
         evidence.reuse(previous.logdir, new, current, exact=False)
         self.assertEqual(new[0].state, "waiting")
 
-    def test_actual_cross_commit_coverage_rechecks_inputs_and_keeps_original_sha(self):
+    def copy_runner_fixture(self):
         app = self.root / "richos/app/scripts"
         engine = self.root / "richos/engine"
         (app / "lib").mkdir(parents=True)
@@ -182,6 +183,10 @@ class Evidence(unittest.TestCase):
         shutil.copy2(HERE / "testvm/reserve.py", app / "testvm/reserve.py")
         shutil.copy2(HERE / "proof-run.py", app / "proof-run.py")
         (engine / "VERSION").write_text("1.0.0-test\n")
+        return app, engine
+
+    def test_actual_cross_commit_coverage_rechecks_inputs_and_keeps_original_sha(self):
+        app, engine = self.copy_runner_fixture()
         (self.root / "LICENSE").write_text("fixture license\n")
         for name in ("alpha", "beta"):
             path = engine / "scripts" / (name + ".test.sh")
@@ -204,6 +209,7 @@ class Evidence(unittest.TestCase):
         env = {k: v for k, v in os.environ.items() if not k.startswith("RICHOS_")}
         env.update(RICHOS_MACHINE_WORKERS=str(Path(self.tmp.name) / "machine"),
             RICHOS_ENGINE_PASS_DIR=str(Path(self.tmp.name) / "slot"),
+            RICHOS_PROOF_RUN_DIR=str(Path(self.tmp.name) / "history"),
             CLAUDE_CONFIG_DIR=str(Path(self.tmp.name) / "config"),
             FIXTURE_COUNTER=str(counter), PYTHONDONTWRITEBYTECODE="1")
         commands = Path(self.tmp.name) / "commands"
@@ -302,6 +308,178 @@ class Evidence(unittest.TestCase):
             self.assertEqual(before, evidence.python_runtime("python3"))
             (library / "module.py").write_text("value = 2")
             self.assertNotEqual(before, evidence.python_runtime("python3"))
+
+    def test_input_owner_joins_then_reuses_finished_evidence_while_original_run_stays_open(self):
+        old, previous = self.attempt("author")
+        new, current = self.attempt("target")
+        owner = evidence.Pool(Path(self.tmp.name) / "pool", previous)
+        joiner = evidence.Pool(Path(self.tmp.name) / "pool", current)
+        self.addCleanup(owner.close, old)
+        self.addCleanup(joiner.close, new)
+        self.assertTrue(owner.claim(old[0]))
+        self.assertFalse(joiner.claim(new[0]))
+        self.assertEqual(new[0].state, "waiting")
+        self.assertFalse(hasattr(new[0], "input_owner_fd"))
+        self.passed(old, previous)
+        owner.finish(old[0])
+        self.assertFalse(joiner.claim(new[0]))
+        self.assertEqual(new[0].state, "passed")
+        self.assertEqual(evidence.receipt_path(new[0]).read_bytes(), evidence.receipt_path(old[0]).read_bytes())
+
+    def test_input_owner_lock_survives_parent_close_until_inherited_holder_exits(self):
+        items, record = self.attempt("owner", engine=False)
+        pool = evidence.Pool(Path(self.tmp.name) / "pool", record)
+        self.assertTrue(pool.claim(items[0]))
+        child = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"],
+            stdin=subprocess.PIPE, pass_fds=(items[0].input_owner_fd,))
+        try:
+            pool.close(items)
+            other, current = self.attempt("joiner", engine=False)
+            joiner = evidence.Pool(Path(self.tmp.name) / "pool", current)
+            self.assertFalse(joiner.claim(other[0]))
+            child.communicate(timeout=5)
+            self.assertTrue(joiner.claim(other[0]))
+            joiner.close(other)
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=5)
+
+    def test_pool_revalidates_artifacts_and_preserves_corrupt_retry_history(self):
+        old, previous = self.attempt("author", engine=False)
+        pool = evidence.Pool(Path(self.tmp.name) / "pool", previous)
+        self.assertTrue(pool.claim(old[0]))
+        self.passed(old, previous)
+        pool.finish(old[0])
+        Path(old[0].log).write_text("tampered result")
+        new, current = self.attempt("target", engine=False)
+        next_pool = evidence.Pool(Path(self.tmp.name) / "pool", current)
+        self.assertTrue(next_pool.claim(new[0]))
+        self.assertEqual(new[0].state, "waiting")
+        next_pool.close(new)
+        path = next((Path(self.tmp.name) / "pool").glob("*.json"))
+        row = json.loads(path.read_text())
+        row["functional_failures"] = "corrupted"
+        evidence.atomic(path, row)
+        with self.assertRaisesRegex(ValueError, "invalid durable retry history"):
+            next_pool.claim(new[0])
+        self.assertEqual(json.loads(path.read_text())["functional_failures"], "corrupted")
+
+    def test_functional_retry_budget_survives_new_attempt_names(self):
+        directory = Path(self.tmp.name) / "pool"
+        for name, reason, expected in (("first", None, True), ("without-diagnosis", None, False),
+                ("diagnosed-retry", "identified transient fixture fault", True),
+                ("renamed-third", "same diagnosis", False)):
+            items, record = self.attempt(name, engine=False)
+            pool = evidence.Pool(directory, record, reason)
+            self.assertEqual(pool.claim(items[0]), expected)
+            if expected:
+                items[0].state, items[0].rc = "failed", 1
+                record.checkpoint(items)
+                pool.finish(items[0])
+            else:
+                self.assertEqual(items[0].state, "blocked")
+        items, record = self.attempt("changed-input", engine=False, identities={"check": {"changed": True}})
+        pool = evidence.Pool(directory, record)
+        self.assertTrue(pool.claim(items[0]))
+        pool.close(items)
+
+    def test_refusal_and_timeout_do_not_spend_functional_retry_budget(self):
+        for name, code in (("refused", 75), ("deadline", 124), ("infrastructure", 125)):
+            items, record = self.attempt(name, engine=False)
+            pool = evidence.Pool(Path(self.tmp.name) / "pool", record)
+            self.assertTrue(pool.claim(items[0]))
+            items[0].state, items[0].rc = "failed", code
+            record.checkpoint(items)
+            pool.finish(items[0])
+        saved = next((Path(self.tmp.name) / "pool").glob("*.json"))
+        self.assertEqual(json.loads(saved.read_text())["functional_failures"], [])
+
+    def test_actual_worktrees_join_one_execution_and_run_independent_work(self):
+        app, _engine = self.copy_runner_fixture()
+        temporary = Path(self.tmp.name)
+        (self.root / "joined.test.sh").write_text(
+            'printf "joined\\n" >> "$COUNTER"\n'
+            'for i in $(seq 1 300); do [ ! -e "$RELEASE" ] || exit 0; sleep .1; done\nexit 1\n')
+        (self.root / "independent.test.sh").write_text('printf "independent\\n" >> "$COUNTER"\n')
+        (self.root / "qualification.md").write_text("Private shell fixtures with a bounded coordination barrier.")
+        recipe = {"paths": ["richos", "joined.test.sh", "independent.test.sh"],
+            "tools": ["bash", "python3", "seq", "sleep"], "environment": ["COUNTER", "RELEASE"],
+            "external": [], "qualification": "qualification.md", "isolation": evidence.PRIVATE_PROFILE}
+        evidence.atomic(app / "proof-inputs.json", {"schema": 1,
+            "checks": {label: recipe for label in ("joined", "independent")}})
+        (app / "proof-inputs.json").chmod(0o644)  # Match Git's checkout mode for this source file.
+        def git(*args, cwd=None):
+            return subprocess.check_output(["git", "-c", "core.hooksPath=/dev/null", "-c", "user.name=fixture",
+                "-c", "user.email=fixture@example.invalid", *args], cwd=cwd or self.root,
+                text=True, stderr=subprocess.PIPE).strip()
+        git("init", "-q", "-b", "main")
+        git("add", ".")
+        git("commit", "-qm", "fixture")
+        checkout = temporary / "author-checkout"
+        git("worktree", "add", "-q", "-b", "author", str(checkout))
+        def differences(left, right, name=""):
+            if isinstance(left, dict) and isinstance(right, dict):
+                return [change for key in sorted(set(left) | set(right))
+                        for change in differences(left.get(key), right.get(key), name + "/" + key)]
+            return [] if left == right else [(name, left, right)]
+        self.assertEqual(differences(evidence.path_identity(self.root / "richos"),
+                                    evidence.path_identity(checkout / "richos")), [])
+        # A different target commit must not prevent joining identical declared inputs.
+        (self.root / "unrelated.md").write_text("Unrelated target change.\n")
+        git("add", "unrelated.md")
+        git("commit", "-qm", "unrelated target change")
+        env = {k: v for k, v in os.environ.items() if not k.startswith("RICHOS_")}
+        env.update(RICHOS_MACHINE_WORKERS=str(temporary / "machine"),
+            RICHOS_ENGINE_PASS_DIR=str(temporary / "slot"), RICHOS_PROOF_RUN_DIR=str(temporary / "history"),
+            CLAUDE_CONFIG_DIR=str(temporary / "config"), COUNTER=str(temporary / "counter"),
+            RELEASE=str(temporary / "release"), PYTHONDONTWRITEBYTECODE="1")
+        processes = []
+        def start(root, name, labels):
+            commands = temporary / (name + ".commands")
+            commands.write_text("".join("cd . && bash " + label + ".test.sh\n" for label in labels))
+            log = (temporary / (name + ".log")).open("w")
+            self.addCleanup(log.close)
+            process = subprocess.Popen([sys.executable, "-B", str(root / "richos/app/scripts/proof-run.py"),
+                "--commands", str(commands), "--log-dir", str(temporary / name)],
+                cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT)
+            processes.append(process)
+            return process
+        def wait_until(predicate):
+            limit = time.monotonic() + 20
+            while not predicate():
+                if time.monotonic() > limit:
+                    self.fail("coordination deadline\n" + "\n".join(p.read_text() for p in temporary.glob("*.log")))
+                time.sleep(.1)
+        try:
+            author = start(checkout, "author-run", ["joined"])
+            counter = temporary / "counter"
+            wait_until(counter.exists)
+            target = start(self.root, "target-run", ["joined", "independent"])
+            wait_until(lambda: (temporary / "target-run/plan.json").exists())
+            first = json.loads((temporary / "author-run/plan.json").read_text())["identities"]["joined"]
+            second = json.loads((temporary / "target-run/plan.json").read_text())["identities"]["joined"]
+            difference = {key: [first.get(key), second.get(key)] for key in first if first.get(key) != second.get(key)}
+            self.assertEqual(first, second, "different fixture identities: " + json.dumps(difference, indent=2))
+            wait_until(lambda: "join identical input owner" in (temporary / "target-run.log").read_text())
+            wait_until(lambda: "independent" in counter.read_text())
+            (temporary / "release").touch()
+            for process in (author, target):
+                self.assertEqual(process.wait(timeout=30), 0,
+                    "\n".join(p.read_text() for p in temporary.glob("*.log")))
+            self.assertEqual(counter.read_text().splitlines(), ["joined", "independent"])
+            target_rows = json.loads((temporary / "target-run/outcomes.json").read_text())
+            self.assertEqual(target_rows["joined"]["reused_from"], str(temporary / "author-run"))
+            # Automatic discovery also reuses completed evidence without --reuse.
+            later = start(self.root, "later-run", ["joined", "independent"])
+            self.assertEqual(later.wait(timeout=30), 0)
+            self.assertEqual(counter.read_text().splitlines(), ["joined", "independent"])
+        finally:
+            (temporary / "release").touch()
+            for process in processes:
+                if process.poll() is None:
+                    process.terminate()
+                    process.wait(timeout=20)
 
     def test_live_owner_prevents_resume_and_rotation(self):
         items, record = self.attempt("20260923T000000Z")
@@ -450,13 +628,15 @@ class Evidence(unittest.TestCase):
                 patch.object(runner, "ROOT", str(self.root)), \
                 patch.object(runner, "source_identity", return_value=self.source), \
                 patch.object(runner, "default_logdir", return_value=str(Path(self.tmp.name) / "history")), \
+                patch.object(evidence, "pool_directory", return_value=Path(self.tmp.name) / "pool"), \
                 patch.object(runner, "supply_runtime", return_value="private fixture"), \
                 patch.object(runner.reserve, "host_sample", side_effect=idle), \
                 patch.object(runner, "selection", return_value=lines) as selection, \
                 contextlib.redirect_stdout(captured):
             self.assertEqual(runner.main(["--log-dir", str(olddir)]), 1)
             failure.unlink()
-            self.assertEqual(runner.main(["--resume", str(olddir), "--log-dir", str(newdir)]), 0)
+            self.assertEqual(runner.main(["--resume", str(olddir), "--log-dir", str(newdir),
+                "--retry-reason", "removed the fixture failure control"]), 0)
             self.assertEqual(selection.call_count, 1)
         self.assertEqual(output.read_text().splitlines(), ["pass", "retry", "retry"])
         self.assertIn("reconciled with 1 reused result", captured.getvalue())
