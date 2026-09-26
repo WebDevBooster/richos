@@ -84,19 +84,29 @@ record the provenance of every selected receipt. Never manufacture a verdict,
 edit its SHA or overwrite the failed run's summary.
 
 Verify the selected receipt set against the original plan. The existing verifier
-rejects missing, duplicate, unplanned, non-green and mixed-commit receipts. Also
-check the source fingerprint and relevant environment independently; the receipt
-verifier is not a general environment-equivalence checker. For non-engine checks,
+rejects missing, duplicate, unplanned and non-green receipts. Mixed-commit receipts
+require target provenance; the legacy invocation still rejects them. For non-engine checks,
 preserve their full-run summary and logs and verify their actual scope and status.
 For a run with `plan.json` and `outcomes.json`, use
 `python3 richos/app/scripts/proof-run.py --resume <saved-run-directory>` to
 restore its exact plan. It creates a separate attempt, prioritizes unresolved
 checks and copies validated logs and receipts without rewriting their SHAs.
-Reuse currently requires the original checkout, identical source and a committed
-per-check input qualification. Missing qualification, changed inputs or damaged
-evidence requires execution with the reason recorded. Live known-red declarations
-are evaluated again. Older runs without the saved plan still need the explicit
-receipt reconciliation described above. This is not cross-commit result reuse.
+Exact resume requires the original checkout and frozen plan. For a newly selected
+target, including another checkout or commit, use
+`python3 richos/app/scripts/proof-run.py --reuse <author-run-directory> <target-range>`.
+`--reuse` may be repeated for more than one prior run. Each reused obligation must
+have identical qualified inputs and command. An unrelated commit does not itself
+invalidate its result. Missing qualification, changed inputs or damaged evidence
+requires execution with the reason recorded. Live known-red declarations are
+evaluated again and are never reused.
+
+The runner supplies target provenance to `ci-receipts.py verify --proof-run <target-run>`.
+The verifier independently recomputes target inputs and checks saved outcomes,
+log/receipt hashes and original receipt commits before accepting mixed-SHA coverage.
+Changing receipt SHAs is never valid. Older runs without saved input qualifications
+still need execution or the explicit same-commit reconciliation described above.
+The mechanism does not qualify a suite automatically: production execution recipes
+and their per-unit declarations remain necessary before reuse is available.
 
 If a required gate explicitly demands a fresh single invocation, preserve that
 requirement and run it after resolving the blocker. A request for full coverage

@@ -385,6 +385,15 @@ def execution_environment(item):
     return env
 
 
+def input_identity(item, args, logdir):
+    result = proof_evidence.recipe_identity(ROOT, proof_evidence.contract_for(ROOT, item.label),
+                                            execution_environment(item))
+    result["command"] = proof_evidence.command_identity(item, ROOT, logdir)
+    result["settings"] = {key: getattr(args, key) for key in (
+        "capacity", "engine_shards", "max_cpu", "budget", "deadline", "fail_fast", "admission_wait", "slot_wait")}
+    return result
+
+
 def launch(item, n, logdir, tokens_dir, reserved):
     item.log = os.path.join(logdir, "%02d-%s.log" % (n, slug(item.label)))
     # Its own per-test results folder, in this run's evidence: run-tests.sh gives each suite a
@@ -406,6 +415,8 @@ def launch(item, n, logdir, tokens_dir, reserved):
     if item.engine_unit:
         env["RICHOS_VERIFICATION_UNIT"] = item.argv[item.argv.index("--only-units") + 1]
         env["RICHOS_VERIFICATION_RUNNER_WAIT"] = json.dumps(item.wait_times)
+    if item.label == "engine receipts" and getattr(item, "evidence", None):
+        env["RICHOS_PROOF_RUN"] = str(logdir)
     item.state, item.started = "running", time.monotonic()
     evidence = getattr(item, "evidence", None)
     if evidence:
@@ -981,6 +992,8 @@ def main(argv=None):
                                 usage="proof-run.py [options] [proof-for arguments]")
     p.add_argument("--commands")
     p.add_argument("--resume", help="retry the exact saved plan and validate reusable evidence")
+    p.add_argument("--reuse", action="append", default=[],
+                   help="validate prior evidence against the newly selected target plan and inputs")
     failure_mode = p.add_mutually_exclusive_group()
     failure_mode.add_argument("--keep-going", action="store_true", help="continue independent checks (the default)")
     failure_mode.add_argument("--fail-fast", action="store_true", help="cancel unfinished checks after an ordinary failure")
@@ -997,7 +1010,7 @@ def main(argv=None):
     p.add_argument("--log-dir")
     args, rest = p.parse_known_args(argv)
     args.proof_for_args = rest
-    if args.resume and (args.commands or rest or args.as_printed):
+    if args.resume and (args.commands or rest or args.as_printed or args.reuse):
         p.error("--resume takes its frozen plan from the saved run; no new selection is allowed")
     if args.capacity < 1 or args.engine_shards < 1:
         p.error("--capacity and --engine-shards must be at least 1")
@@ -1052,12 +1065,7 @@ def main(argv=None):
     with open(os.path.join(logdir, "source.json"), "w") as out:
         json.dump(before, out, indent=2)
     def identity(item):
-        result = proof_evidence.recipe_identity(ROOT, proof_evidence.contract_for(ROOT, item.label),
-                                                execution_environment(item))
-        result["command"] = proof_evidence.encode_item(item, ROOT, logdir)
-        result["settings"] = {key: getattr(args, key) for key in (
-            "capacity", "engine_shards", "max_cpu", "budget", "deadline", "fail_fast", "admission_wait", "slot_wait")}
-        return result
+        return input_identity(item, args, logdir)
 
     args.evidence = proof_evidence.Record(ROOT, logdir, items, before,
         {item.label: identity(item) for item in items}, args.resume, source_identity, identity)
@@ -1067,6 +1075,12 @@ def main(argv=None):
             lease = proof_evidence.Lease(args.resume)
             try:
                 proof_evidence.reuse(args.resume, items, args.evidence)
+            finally:
+                lease.close()
+        for previous in args.reuse:
+            lease = proof_evidence.Lease(previous)
+            try:
+                proof_evidence.reuse(previous, items, args.evidence, exact=False)
             finally:
                 lease.close()
         run(items, args, logdir)

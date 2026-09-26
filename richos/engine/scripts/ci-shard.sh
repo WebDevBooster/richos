@@ -411,6 +411,7 @@ if [ -n "$VERIFY_DIR" ]; then
     # flag the workflow has to remember. The whole finding they answer is that
     # an opt-in maintenance step does not get opted into.
     RW_ARGS=(--plan "$PLAN_FILE")
+    [ -z "${RICHOS_PROOF_RUN:-}" ] || RW_ARGS+=(--proof-run "$RICHOS_PROOF_RUN")
     [ -f "$WEIGHTS_TSV" ] && RW_ARGS+=(--weights "$WEIGHTS_TSV")
     [ -n "$EMIT_WEIGHTS" ] && RW_ARGS+=(--emit-weights "$EMIT_WEIGHTS")
     find "$VERIFY_DIR" -type f -name '*.jsonl' -print0 2>/dev/null | xargs -0 cat 2>/dev/null \

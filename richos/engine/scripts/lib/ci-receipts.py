@@ -34,6 +34,7 @@ went wrong rather than only that something did.
 Usage:
     ci-receipts.py emit                    one JSON line, fields from UNIT_* env
     ci-receipts.py verify --plan <file>    receipts on stdin, plan ids in <file>
+        --proof-run <target directory>   validate current inputs and original-SHA provenance
 
 Exit codes:
     0  the union equals the plan and every verdict is green
@@ -157,7 +158,7 @@ def reweigh(ran, weights_path, emit_path):
             print("    %8.1fs  %-62s planned %.1fs (%.1fx)" % (secs, uid, w, secs / w))
 
 
-def verify(plan_path, weights_path=None, emit_path=None):
+def verify(plan_path, weights_path=None, emit_path=None, proof_run=None):
     try:
         with open(plan_path, encoding="utf-8") as fh:
             plan = {ln.strip() for ln in fh if ln.strip() and not ln.startswith("#")}
@@ -222,7 +223,18 @@ def verify(plan_path, weights_path=None, emit_path=None):
             "either the packing overlapped or a receipt was collected twice:\n    %s"
             % (len(duplicated), "\n    ".join(duplicated)))
 
-    if len(shas) > 1:
+    target_sha = None
+    if proof_run:
+        try:
+            import subprocess
+            from pathlib import Path
+            root = Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip())
+            sys.path.insert(0, str(root / "richos/app/scripts/lib"))
+            from proof_evidence import verify_target_receipts
+            target_sha = verify_target_receipts(proof_run, [r for records in ran.values() for r in records], root)
+        except (OSError, ValueError, KeyError, TypeError, ImportError, AttributeError, subprocess.CalledProcessError) as exc:
+            problems.append("target input/provenance validation failed: " + str(exc))
+    if len(shas) > 1 and target_sha is None:
         detail = "; ".join("%s (%d unit(s))" % (s or "<empty>", len(u)) for s, u in sorted(shas.items()))
         problems.append(
             "the shards did not all verify the SAME commit: %s. A union taken across two trees "
@@ -250,7 +262,7 @@ def verify(plan_path, weights_path=None, emit_path=None):
         by_shard.setdefault(int(rec.get("shard") or 0), 0.0)
         by_shard[int(rec.get("shard") or 0)] += float(rec.get("seconds") or 0)
 
-    sha = next(iter(shas)) if len(shas) == 1 else "MIXED"
+    sha = target_sha or (next(iter(shas)) if len(shas) == 1 else "MIXED")
     if problems:
         sys.stderr.write("\n✗ ci-receipts: this run does NOT certify %s.\n\n" % sha)
         for p in problems:
@@ -258,8 +270,13 @@ def verify(plan_path, weights_path=None, emit_path=None):
         sys.stderr.write("\n")
         return 1
 
-    print("✓ ci-receipts: %d/%d planned unit(s) ran, all green, all at %s."
-          % (len(ran), len(plan), sha))
+    if target_sha:
+        print("✓ ci-receipts: %d/%d planned unit(s) have validated coverage for target %s."
+              % (len(ran), len(plan), sha))
+        print("  original receipt commits preserved: " + ", ".join(sorted(shas)))
+    else:
+        print("✓ ci-receipts: %d/%d planned unit(s) ran, all green, all at %s."
+              % (len(ran), len(plan), sha))
     if known_red:
         print("  %d declared KNOWN-RED (lib/ci-known-red.tsv): %s"
               % (len(known_red), ", ".join(known_red)))
@@ -278,7 +295,7 @@ def main(argv):
     if argv[0] == "emit":
         return emit()
     if argv[0] == "verify":
-        plan = weights = emit_to = None
+        plan = weights = emit_to = proof_run = None
         rest = argv[1:]
         while rest:
             if rest[0] == "--plan" and len(rest) >= 2:
@@ -287,13 +304,15 @@ def main(argv):
                 weights, rest = rest[1], rest[2:]
             elif rest[0] == "--emit-weights" and len(rest) >= 2:
                 emit_to, rest = rest[1], rest[2:]
+            elif rest[0] == "--proof-run" and len(rest) >= 2:
+                proof_run, rest = rest[1], rest[2:]
             else:
                 sys.stderr.write("ci-receipts.py verify: unrecognized argument %r\n" % rest[0])
                 return 2
         if plan:
-            return verify(plan, weights, emit_to)
+            return verify(plan, weights, emit_to, proof_run)
         sys.stderr.write("ci-receipts.py verify needs --plan <file> "
-                         "[--weights <tsv>] [--emit-weights <path>]\n")
+                         "[--weights <tsv>] [--emit-weights <path>] [--proof-run <directory>]\n")
         return 2
     sys.stderr.write("ci-receipts.py: unknown subcommand %r\n" % argv[0])
     return 2

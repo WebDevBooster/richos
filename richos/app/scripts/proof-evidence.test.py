@@ -139,6 +139,109 @@ class Evidence(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "frozen plan"):
             evidence.reuse(previous.logdir, new, current)
 
+    def test_target_reuse_ignores_unrelated_commit_but_preserves_original_receipt(self):
+        old, previous = self.attempt("author")
+        self.passed(old, previous)
+        original = evidence.receipt_path(old[0]).read_bytes()
+        self.source = {**self.source, "commit": "b" * 40}
+        new, current = self.attempt("integration")
+        new[0].lane, new[0].weight = "another-placement", 100
+        evidence.reuse(previous.logdir, new, current, exact=False)
+        self.assertEqual(new[0].state, "passed")
+        self.assertEqual(evidence.receipt_path(new[0]).read_bytes(), original)
+        self.assertEqual(current.results["check"]["source"]["commit"], "b" * 40)
+        self.assertEqual(current.results["check"]["receipt_sha"], "a" * 40)
+        current.finalize(new)
+        self.assertEqual(new[0].state, "passed")
+
+    def test_different_target_plan_cannot_change_the_reused_command(self):
+        old, previous = self.attempt("author", engine=False)
+        old_identity = evidence.command_identity(old[0], self.root, previous.logdir)
+        previous.identities["check"] = {"command": old_identity}
+        self.passed(old, previous)
+        new, current = self.attempt("integration", engine=False)
+        new[0].argv.append("different-assertions")
+        current.identities["check"] = {"command": evidence.command_identity(new[0], self.root, current.logdir)}
+        evidence.reuse(previous.logdir, new, current, exact=False)
+        self.assertEqual(new[0].state, "waiting")
+
+    def test_actual_cross_commit_coverage_rechecks_inputs_and_keeps_original_sha(self):
+        app = self.root / "richos/app/scripts"
+        engine = self.root / "richos/engine"
+        (app / "lib").mkdir(parents=True)
+        (app / "testvm").mkdir()
+        (engine / "scripts/lib").mkdir(parents=True)
+        source_engine = HERE.parents[1] / "engine/scripts"
+        for path in (source_engine / "lib").iterdir():
+            if path.suffix in (".py", ".sh", ".tsv") and ".test." not in path.name:
+                shutil.copy2(path, engine / "scripts/lib" / path.name)
+        for name in ("ci-shard.sh", "ci-units.sh"):
+            shutil.copy2(source_engine / name, engine / "scripts" / name)
+        for name in ("proof_evidence.py", "test_results.py"):
+            shutil.copy2(HERE / "lib" / name, app / "lib" / name)
+        shutil.copy2(HERE / "testvm/reserve.py", app / "testvm/reserve.py")
+        shutil.copy2(HERE / "proof-run.py", app / "proof-run.py")
+        (engine / "VERSION").write_text("1.0.0-test\n")
+        (self.root / "LICENSE").write_text("fixture license\n")
+        for name in ("alpha", "beta"):
+            path = engine / "scripts" / (name + ".test.sh")
+            path.write_text('#!/bin/bash\nprintf "' + name + '\\n" >> "$FIXTURE_COUNTER"\n')
+            path.chmod(0o755)
+        (self.root / "qualification.md").write_text("Fixture units append a label; no external content read.")
+        recipe = {"paths": ["richos/engine", "LICENSE"], "tools": ["bash", "python3", "git"],
+            "environment": ["PATH", "FIXTURE_COUNTER"], "external": [], "qualification": "qualification.md"}
+        evidence.atomic(app / "proof-inputs.json", {"schema": 1,
+            "checks": {"engine scripts/" + name + ".test.sh": recipe for name in ("alpha", "beta")}})
+        def git(*args):
+            return subprocess.check_output(["git", "-c", "core.hooksPath=/dev/null", "-c", "user.name=fixture",
+                "-c", "user.email=fixture@example.invalid", *args], cwd=self.root, text=True, stderr=subprocess.PIPE).strip()
+        git("init", "-q", "-b", "main")
+        git("add", ".")
+        git("commit", "-qm", "fixture")
+        original_sha = git("rev-parse", "HEAD")
+        counter = Path(self.tmp.name) / "executions"
+        env = {k: v for k, v in os.environ.items() if not k.startswith("RICHOS_")}
+        env.update(RICHOS_MACHINE_WORKERS=str(Path(self.tmp.name) / "machine"),
+            RICHOS_ENGINE_PASS_DIR=str(Path(self.tmp.name) / "slot"),
+            CLAUDE_CONFIG_DIR=str(Path(self.tmp.name) / "config"),
+            FIXTURE_COUNTER=str(counter), PYTHONDONTWRITEBYTECODE="1")
+        commands = Path(self.tmp.name) / "commands"
+        def invoke(name, units, *options):
+            commands.write_text("cd richos/engine && bash scripts/ci-shard.sh --only-units " + units + "\n")
+            directory = Path(self.tmp.name) / name
+            result = subprocess.run([sys.executable, "-B", str(app / "proof-run.py"),
+                "--commands", str(commands), "--log-dir", str(directory), *options],
+                cwd=self.root, env=env, text=True, capture_output=True, timeout=45)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr + "\n" +
+                "\n".join(p.read_text() for p in directory.glob("*.log")))
+            return directory
+        author = invoke("author", "scripts/alpha.test.sh")
+        before = next((author / "engine-receipts").glob("*.jsonl")).read_bytes()
+        (self.root / "unrelated.md").write_text("An unrelated target commit.\n")
+        git("add", "unrelated.md")
+        git("commit", "-qm", "unrelated documentation")
+        target = invoke("target", "scripts/alpha.test.sh,scripts/beta.test.sh", "--reuse", str(author))
+        self.assertEqual(counter.read_text().splitlines(), ["alpha", "beta"])
+        receipts = [json.loads(p.read_text()) for p in (target / "engine-receipts").glob("*.jsonl")]
+        self.assertEqual({r["sha"] for r in receipts}, {original_sha, git("rev-parse", "HEAD")})
+        alpha = next(p for p in (target / "engine-receipts").glob("*.jsonl")
+                     if json.loads(p.read_text())["unit"] == "scripts/alpha.test.sh")
+        self.assertEqual(alpha.read_bytes(), before)
+        verifier = engine / "scripts/lib/ci-receipts.py"
+        args = [sys.executable, "-B", str(verifier), "verify", "--plan", str(target / "engine-units.txt")]
+        def verify(provenance=True):
+            return subprocess.run(args + (["--proof-run", str(target)] if provenance else []),
+                input="\n".join(json.dumps(r) for r in receipts), cwd=self.root,
+                env=env, text=True, capture_output=True, timeout=10)
+        self.assertNotEqual(verify(False).returncode, 0, "mixed commits need validated provenance")
+        self.assertEqual(verify().returncode, 0)
+        (self.root / "LICENSE").write_text("changed outside the engine root\n")
+        self.assertNotEqual(verify().returncode, 0)
+        git("add", "LICENSE")
+        git("commit", "-qm", "changed declared outside input")
+        invoke("changed-input", "scripts/alpha.test.sh", "--reuse", str(target))
+        self.assertEqual(counter.read_text().splitlines(), ["alpha", "beta", "alpha"])
+
     def test_live_owner_prevents_resume_and_rotation(self):
         items, record = self.attempt("20260923T000000Z")
         with self.assertRaisesRegex(ValueError, "active owner"):

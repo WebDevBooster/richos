@@ -126,6 +126,13 @@ def decode_item(row, factory, root, logdir):
                    row["lane"], row["weight"], row["after"], row["requires"])
 
 
+def command_identity(item, root, logdir):
+    # Placement and predicted duration are scheduling metadata. They do not
+    # change an exact unit's command, assertions or declared execution inputs.
+    row = encode_item(item, root, logdir)
+    return {key: row[key] for key in ("check", "cwd", "argv")}
+
+
 def receipt_path(item):
     if item.engine_unit:
         return Path(item.argv[item.argv.index("--receipt") + 1])
@@ -188,7 +195,8 @@ class Record:
                 try:
                     if self.current_identity(item) != self.identities[item.label]:
                         raise ValueError("execution inputs changed during the check")
-                    result["receipt"] = completed_receipt(item, source["commit"],
+                    result["receipt_sha"] = getattr(item, "receipt_sha", source["commit"])
+                    result["receipt"] = completed_receipt(item, result["receipt_sha"],
                         allow_known_red=not getattr(item, "reused_from", None))
                     result["log_sha256"] = file_digest(item.log)
                 except (OSError, ValueError, KeyError, TypeError) as exc:
@@ -237,19 +245,21 @@ def read_plan(path):
     return plan
 
 
-def reuse(previous, items, record):
+def reuse(previous, items, record, exact=True):
     """Select exact applicable passes; leave failed evidence in its original run."""
     previous = Path(previous)
     plan = read_plan(previous)
-    if plan["root"] != record.root:
+    if exact and plan["root"] != record.root:
         raise ValueError("exact resume requires the saved checkout")
-    if plan["items"] != record.plan["items"]:
+    if exact and plan["items"] != record.plan["items"]:
         raise ValueError("resume cannot change the frozen plan or execution recipe")
     try:
         outcomes = json.loads((previous / "outcomes.json").read_text())
     except FileNotFoundError:
         outcomes = {}
     for item in items:
+        if item.state == "passed":
+            continue
         old = outcomes.get(item.label, {})
         item.retry_first = old.get("state") != "passed"
         identity = record.identities[item.label]
@@ -260,8 +270,10 @@ def reuse(previous, items, record):
             reason = identity["fresh"]
         elif old.get("state") != "passed" or old.get("exit") != 0 or old.get("invalid"):
             reason = "no validated passing execution"
-        elif old.get("source") != record.source or plan["source"] != record.source:
+        elif exact and (old.get("source") != record.source or plan["source"] != record.source):
             reason = "source identity changed"
+        elif old.get("source") != plan["source"]:
+            reason = "source changed during the original execution"
         elif old.get("input") != identity:
             reason = "declared execution inputs changed"
         else:
@@ -275,7 +287,8 @@ def reuse(previous, items, record):
                         raise ValueError("receipt changed")
                     target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(original["path"], target)
-                    completed_receipt(item, record.source["commit"])
+                    item.receipt_sha = old.get("receipt_sha", old["source"]["commit"])
+                    completed_receipt(item, item.receipt_sha)
                 copied = record.logdir / "reused" / (digest(item.label) + ".log")
                 copied.parent.mkdir(exist_ok=True)
                 shutil.copyfile(old["log"], copied)
@@ -289,10 +302,80 @@ def reuse(previous, items, record):
             except (OSError, ValueError, KeyError, TypeError) as exc:
                 reason = "saved evidence failed validation: " + str(exc)
                 target = receipt_path(item)
+                item.state, item.rc, item.log = "waiting", None, None
+                for name in ("provenance", "reused_from"):
+                    if hasattr(item, name):
+                        delattr(item, name)
+                if hasattr(item, "receipt_sha"):
+                    del item.receipt_sha
                 if target and target.exists():
                     target.unlink()
         if reason:
             item.notes.append("execute: " + reason)
+
+
+def verify_target_receipts(directory, rows, root):
+    """Independently recheck the current inputs and exact artifacts for coverage.
+
+    Called by ci-receipts, the sole coverage authority. Historical receipt SHAs
+    remain immutable. A target outcome alone cannot excuse a missing, changed,
+    noncompleted or unqualified historical receipt.
+    """
+    import importlib.util
+    from types import SimpleNamespace
+    directory, root = Path(directory).resolve(), Path(root).resolve()
+    plan = read_plan(directory)
+    if Path(plan["root"]).resolve() != root:
+        raise ValueError("evidence belongs to a different target checkout")
+    spec = importlib.util.spec_from_file_location("verification_target_runner",
+        root / "richos/app/scripts/proof-run.py")
+    runner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runner)
+    runner.ROOT = str(root)
+    if runner.source_identity() != plan["source"]:
+        raise ValueError("target source changed since the plan was recorded")
+    outcomes = json.loads((directory / "outcomes.json").read_text())
+    items = [decode_item(row, runner.Item, root, directory) for row in plan["items"]]
+    runner.supply_runtime(items)
+    units = {item.argv[item.argv.index("--only-units") + 1]: item
+             for item in items if item.engine_unit}
+    if len(units) != sum(item.engine_unit for item in items):
+        raise ValueError("target execution plan contains duplicate engine obligations")
+    for row in rows:
+        unit = row["unit"]
+        if unit not in units:
+            raise ValueError("receipt absent from target execution plan: " + unit)
+        item = units[unit]
+        outcome = outcomes[item.label]
+        identity = plan["identities"][item.label]
+        if (outcome.get("state") != "passed" or outcome.get("exit") != 0
+                or outcome.get("invalid") or outcome.get("source") != plan["source"]
+                or outcome.get("input") != identity):
+            raise ValueError("no validated target outcome for " + unit)
+        actual = runner.input_identity(item, SimpleNamespace(**identity["settings"]), directory)
+        if actual != identity:
+            raise ValueError("target execution inputs changed for " + unit)
+        receipt = outcome["receipt"]
+        if file_digest(receipt["path"]) != receipt["sha256"]:
+            raise ValueError("target receipt artifact changed for " + unit)
+        stored = [json.loads(line) for line in Path(receipt["path"]).read_text().splitlines() if line.strip()]
+        if stored != [row]:
+            raise ValueError("coverage receipt differs from its validated artifact for " + unit)
+        if file_digest(outcome["log"]) != outcome["log_sha256"]:
+            raise ValueError("completed execution log changed for " + unit)
+        historical = row.get("sha") != plan["source"]["commit"]
+        provenance = outcome.get("provenance")
+        if historical or outcome.get("reused_from"):
+            if (identity.get("fresh") or not provenance or provenance.get("input") != identity
+                    or row.get("sha") != outcome.get("receipt_sha")
+                    or row.get("schema") != 2 or row.get("execution_status") != "completed"
+                    or row.get("verdict") != "PASS" or row.get("rc") != row.get("expected_rc")
+                    or provenance.get("receipt", {}).get("sha256") != receipt["sha256"]
+                    or provenance.get("log_sha256") != outcome["log_sha256"]):
+                raise ValueError("unqualified historical receipt for " + unit)
+        elif row.get("sha") != outcome.get("receipt_sha", plan["source"]["commit"]):
+            raise ValueError("receipt execution commit differs for " + unit)
+    return plan["source"]["commit"]
 
 
 class Lease:
