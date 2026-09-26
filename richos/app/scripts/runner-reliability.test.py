@@ -404,8 +404,8 @@ class Reliability(unittest.TestCase):
         rows = json.loads((logdir / 'progress.json').read_text())
         self.assertEqual([row['state'] for row in rows], ['cancelled', 'cancelled'])
 
-    def test_first_failure_cancels_pending_checks(self):
-        args = SimpleNamespace(capacity=1, sample_every=.1, max_cpu=80, keep_going=False,
+    def test_explicit_fail_fast_cancels_pending_checks(self):
+        args = SimpleNamespace(capacity=1, sample_every=.1, max_cpu=80, fail_fast=True,
                                admission_wait=1, deadline=2, budget=1)
         failed = pr.Item('bad', str(self.path), [sys.executable, '-c', 'raise SystemExit(7)'], weight=2)
         pending = pr.Item('pending', str(self.path), [sys.executable, '-c', 'raise Exception("ran")'], weight=1)

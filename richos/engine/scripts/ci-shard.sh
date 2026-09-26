@@ -681,6 +681,23 @@ while IFS= read -r id; do
         UNIT_SECS="$SECS" UNIT_SHARD="${SHARD:-0}" UNIT_SHARDS="$SHARDS" UNIT_SHA="$SHA" \
         python3 "$SCRIPT_DIR/lib/ci-receipts.py" emit >> "$RECEIPT"
     fi
+    # Contamination is independent of the assertion verdict (including a timeout).
+    # Stop this domain even in keep-going mode and notify concurrent sibling shards.
+    if [ "$CANARY_BASE_HEALTHY" -ne 1 ] || [ "$RECORD_BASE_HEALTHY" -ne 1 ] \
+       || [ -n "$TOUCHED" ] || [ -n "$ESCAPED" ]; then
+        if [ -n "${RICHOS_VERIFICATION_CONTAMINATION:-}" ]; then
+            mkdir -p "$RICHOS_VERIFICATION_CONTAMINATION"
+            UNIT_ID="$id" UNIT_VERDICT="$VERDICT" python3 - "$RICHOS_VERIFICATION_CONTAMINATION" <<'PY'
+import json, os, sys, tempfile
+fd, path = tempfile.mkstemp(prefix="unit-", suffix=".json", dir=sys.argv[1])
+with os.fdopen(fd, "w") as out:
+    json.dump({"unit": os.environ["UNIT_ID"], "verdict": os.environ["UNIT_VERDICT"],
+               "reason": "canary reported contamination or could not establish safety"}, out)
+PY
+        fi
+        printf 'ci-shard: contaminated execution domain; remaining units are unrun.\n'
+        break
+    fi
     if [ "$FAIL_FAST" -eq 1 ] && [ "$FAILED" -gt 0 ]; then
         printf 'ci-shard: stopping after the first failed unit; unfinished units have no passing receipt.\n'
         break

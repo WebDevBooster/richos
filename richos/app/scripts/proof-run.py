@@ -4,6 +4,8 @@
     proof-run.py [proof-for arguments]          e.g.  origin/main..main   |  --working  |  <sha>
     proof-run.py --commands <file>              a saved `proof-for.sh --quiet` output
     options:
+      --fail-fast          cancel independent unfinished work after a failure (opt-in)
+      --keep-going         compatibility alias for default continuation
       --dry-run            print the plan (items, lanes, expected seconds) and run nothing
       --as-printed         run the printed commands exactly as printed, one after another (the
                            hand-written loop's shape, to measure what the runner saves)
@@ -136,9 +138,10 @@ import test_results  # noqa: E402  (what names a failing test; one reader for ev
 
 
 class Item:
-    def __init__(self, label, cwd, argv, lane=None, weight=60.0, after=()):
+    def __init__(self, label, cwd, argv, lane=None, weight=60.0, after=(), requires=()):
         self.label, self.cwd, self.argv, self.lane = label, cwd, argv, lane
-        self.weight, self.after = weight, set(after)
+        self.weight, self.after = weight, set(after) | set(requires)
+        self.requires = set(requires)
         self.state = "waiting"          # waiting | running | passed | failed | not-admitted
         self.rc = None
         self.admission_wait = 0.0
@@ -336,7 +339,7 @@ def plan(lines, args, logdir, hist):
             items.append(Item(label, engine,
                               ["bash", "scripts/ci-shard.sh", "--units-file", ufile, "--shard", "%s/%d" % (i, k),
                                "--receipt", os.path.join(receipts, "shard-%s.jsonl" % i)] +
-                              ([] if getattr(args, "keep_going", False) else ["--fail-fast"]),
+                              (["--fail-fast"] if getattr(args, "fail_fast", False) else []),
                               None, sum(weight.get(u, 60.0) for u in per[i])))
             items[-1].notes.append("%d unit(s): %s" % (len(per[i]), ", ".join(per[i])))
         items.append(Item("engine receipts", engine,
@@ -455,6 +458,14 @@ def deadline_for(item, args):
 
 
 def run(items, args, logdir, sampler=None):
+    remaining = list(items)
+    resolved = set()
+    while remaining:
+        ready = [it for it in remaining if it.after <= resolved]
+        if not ready:
+            raise ValueError("unknown or cyclic check prerequisites: " + ", ".join(it.label for it in remaining))
+        resolved.update(it.label for it in ready)
+        remaining = [it for it in remaining if it not in ready]
     sampler = sampler or (lambda: reserve.host_sample())
     os.makedirs(logdir, exist_ok=True)
     tokens_dir = tempfile.mkdtemp(prefix="worker-tokens-", dir=logdir)
@@ -463,6 +474,7 @@ def run(items, args, logdir, sampler=None):
     for item in items:
         item.machine_tokens = machine
         item.env["RICHOS_TEST_DEVICE_RUN_ID"] = run_id
+        item.env["RICHOS_VERIFICATION_CONTAMINATION"] = os.path.join(logdir, "contamination")
     worker_tokens.init(tokens_dir, args.capacity)
     budget = worker_tokens.Budget(tokens_dir, runner=True, shared=machine)
     reserved = reserved_tokens(args.capacity)
@@ -567,16 +579,29 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 name_failures(it)
                 for name in it.failing[:SHOWN_FAILURES]:
                     print("         failed: %s" % name, flush=True)
-        if not getattr(args, "keep_going", True) and any(it.state in ("failed", "timed-out", "not-admitted") for it in items):
+        contamination = os.path.join(logdir, "contamination")
+        unsafe = os.path.isdir(contamination) and bool(os.listdir(contamination))
+        fail_fast = getattr(args, "fail_fast", False) and any(
+            it.state in ("failed", "timed-out", "not-admitted") for it in items)
+        if unsafe or fail_fast:
+            if unsafe:
+                finding = Item("execution domain contaminated", ROOT, [])
+                finding.state, finding.rc = "failed", 1
+                finding.notes.append("canary evidence: " + contamination)
+                items.append(finding)
             for it in running:
                 stop_item(it)
                 it.state, it.rc, it.ended = "cancelled", 125, time.monotonic()
+                it.notes.append("execution domain contaminated" if unsafe else "explicit fail-fast")
                 it.token.release()
             running.clear()
             for it in items:
                 if it.state == "waiting":
-                    it.state = "cancelled"
-            print("proof-run: stopping after the first failure; unfinished checks are CANCELLED", flush=True)
+                    it.state, it.rc = "cancelled", 125
+                    it.notes.append("execution domain contaminated" if unsafe else "explicit fail-fast")
+            print("proof-run: %s; unfinished checks are CANCELLED" % (
+                "execution domain contaminated" if unsafe else "stopping after the first failure"), flush=True)
+            checkpoint(items, logdir)
             break
         if time.monotonic() >= heartbeat:
             print("[%s] progress: %d finished; running %s; logs %s" % (
@@ -589,9 +614,15 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
             break
         busy_lanes = {it.lane for it in running if it.lane}
         done = {it.label for it in items if it.state not in ("waiting", "running")}
+        passed = {it.label for it in items if it.state == "passed"}
+        for it in waiting:
+            if it.requires <= done and not it.requires <= passed:
+                it.state = "blocked"
+                it.notes.append("unsuccessful prerequisites: " + ", ".join(sorted(it.requires - passed)))
+        waiting = [it for it in waiting if it.state == "waiting"]
         ready = [it for it in waiting if (not it.lane or it.lane not in busy_lanes) and it.after <= done]
-        # A check whose prerequisites failed still runs: the receipts check is what NAMES a
-        # shard that did not finish, so it is never skipped. Nested workers never take the
+        # Ordering-only dependencies still run diagnostics after failure. Explicit success
+        # prerequisites block dependent execution. Nested workers never take the
         # reserved tokens (worker_tokens.py), so a check not yet started always gets one.
         if ready and now >= next_sample and now - last_launch >= (SETTLE_SECONDS if running else 0):
             it = ready[0]
@@ -612,6 +643,7 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 n += 1
                 running.append(it)
                 launch(it, n, logdir, tokens_dir, reserved)
+                checkpoint(items, logdir)
                 last_launch = time.monotonic()
                 print("[%s] start  %-40s %s" % (stamp(), it.label,
                                                 "(waited %.0f s for admission)" % it.admission_wait if it.admission_wait >= 1 else ""),
@@ -682,7 +714,8 @@ def stop_item(it):
 def checkpoint(items, logdir):
     path = os.path.join(logdir, "progress.json")
     with open(path + ".new", "w") as out:
-        json.dump([{"check": i.label, "state": i.state, "exit": i.rc, "log": i.log} for i in items], out)
+        json.dump([{"check": i.label, "state": i.state, "exit": i.rc, "log": i.log,
+                    "notes": i.notes} for i in items], out)
     os.replace(path + ".new", path)
 
 
@@ -798,7 +831,9 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
                                 usage="proof-run.py [options] [proof-for arguments]")
     p.add_argument("--commands")
-    p.add_argument("--keep-going", action="store_true", help="finish other checks after a failure (default: cancel them)")
+    failure_mode = p.add_mutually_exclusive_group()
+    failure_mode.add_argument("--keep-going", action="store_true", help="continue independent checks (the default)")
+    failure_mode.add_argument("--fail-fast", action="store_true", help="cancel unfinished checks after an ordinary failure")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--as-printed", action="store_true")
     p.add_argument("--capacity", type=int, default=max(2, int((os.cpu_count() or 4) * 0.8)))

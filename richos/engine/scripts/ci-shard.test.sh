@@ -629,6 +629,25 @@ else
     bad "S22b full-inventory mode lost a unit"
 fi
 
+# A contamination finding stops the shard even with default continuation and
+# signals the outer runner without inventing receipts for units never executed.
+cat > "$E/scripts/lib/00-contaminate.test.sh" <<'CONTAMINATE'
+#!/usr/bin/env bash
+mkdir -p "$CLAUDE_CONFIG_DIR/state"
+printf '{"event":"terminated","agent_id":"contamination-fixture"}\n' >> "$CLAUDE_CONFIG_DIR/state/worktree-ledger.jsonl"
+CONTAMINATE
+export RICHOS_VERIFICATION_CONTAMINATION="$SANDBOX/contamination"
+RC="$(run_shard --only-units 'scripts/lib/00-contaminate.test.sh,scripts/lib/01-stop-green.test.sh' --receipt "$SANDBOX/unsafe.jsonl")"
+if [ "$RC" = 1 ] && [ "$(wc -l < "$SANDBOX/unsafe.jsonl" | tr -d ' ')" = 1 ] \
+   && grep -q 'RECORD-TOUCHED' "$SANDBOX/unsafe.jsonl" \
+   && [ "$(find "$RICHOS_VERIFICATION_CONTAMINATION" -name '*.json' | wc -l | tr -d ' ')" = 1 ]; then
+    ok "S23 contamination stops the domain and signals siblings in default continuation mode"
+else
+    bad "S23 contamination was continued or lost its signal"
+    sed 's/^/          /' "$SANDBOX/out"
+fi
+unset RICHOS_VERIFICATION_CONTAMINATION
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
     echo "=== ci-shard tests: all $PASS passed ==="
