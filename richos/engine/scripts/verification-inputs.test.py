@@ -1,0 +1,241 @@
+#!/usr/bin/env python3
+"""Semantic config and hook changes, including real repository grammar."""
+import json
+import hashlib
+import os
+from pathlib import Path
+import sys
+import subprocess
+import tempfile
+import unittest
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE / "lib"))
+import verification_inputs as inputs
+
+
+class Inputs(unittest.TestCase):
+    def test_assignment_context_is_preserved_across_commit_index_and_worktree(self):
+        with tempfile.TemporaryDirectory(prefix="config-versions.") as directory:
+            root = Path(directory)
+            env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
+                "GIT_AUTHOR_NAME": "fixture", "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+                "GIT_COMMITTER_NAME": "fixture", "GIT_COMMITTER_EMAIL": "fixture@example.invalid"}
+            def git(*args):
+                return subprocess.check_output(["git", "-C", directory, *args], env=env, text=True).strip()
+            git("init", "-q")
+            file = root / "orchestration.config"
+            file.write_text("A=base\nB=stable\n")
+            git("add", ".")
+            git("commit", "-q", "-m", "fixture")
+            original = inputs.Snapshot(root, "HEAD")
+            file.write_text("A=staged\nB=stable\n")
+            git("add", ".")
+            file.write_text("A=working\nB=stable\nNEW=working\n")
+            staged = inputs.Snapshot(root, "INDEX")
+            working = inputs.Snapshot(root, "WORKTREE")
+            self.assertEqual(inputs.config_change(original.read(file.name), staged.read(file.name))["keys"], ["A"])
+            self.assertEqual(inputs.config_change(staged.read(file.name), working.read(file.name))["keys"], ["A", "NEW"])
+            file.unlink()
+            self.assertIsNone(working.read(file.name))
+            self.assertIsNotNone(staged.read(file.name))
+            self.assertIsNone(original.read("not-present.config"))
+            self.assertEqual(inputs.revisions(root, "HEAD...HEAD"), (git("rev-parse", "HEAD"), "HEAD"))
+            with self.assertRaises(inputs.Unsupported):
+                inputs.Snapshot(root, "missing-ref")
+
+    def test_real_config_accepts_all_eight_environment_path_assignments(self):
+        parsed = inputs.config((HERE.parent / "orchestration.config").read_text())
+        expected = {"SCRATCH_CAMPAIGN_PARENT", "SCRATCH_NIGHTLY_DIR", "SCRATCH_FAILURES_STATE",
+                    "SCRATCH_REAPER_STATE", "APP_INSTANCE_FAILURES_STATE", "TEST_DEVICE_FAILURES_STATE",
+                    "DISK_CONSUMER_CANDIDATES", "DISK_STATE_JSON"}
+        actual = {key for key, row in parsed.items() if any(part[0] == "parameter" for part in row["value"])}
+        self.assertEqual(actual, expected)
+        self.assertEqual(len(parsed), 101)
+        self.assertIsNone(inputs.config_change("", (HERE.parent / "orchestration.config").read_text())["fallback"])
+
+    def test_semantic_values_ignore_comments_spacing_and_equivalent_quotes(self):
+        change = inputs.config_change("A=alpha\nB=\"literal # value\"\n",
+                                      '  A="alpha"  # explanation\nB=\'literal # value\'\n\n# end\n')
+        self.assertEqual(change["keys"], [])
+        self.assertTrue(change["content"])  # Whole-content assertions still observe bytes.
+        self.assertIsNone(change["fallback"])
+        self.assertEqual(inputs.config_change('A=""\n', 'A= # empty\n')["keys"], [])
+
+    def test_added_changed_deleted_and_transitively_referenced_keys(self):
+        before = 'A=old\nB="$A/path"\nC="${B:-$HOME/default}"\nDELETE=yes\n'
+        after = 'A=new\nB="$A/path"\nC="${B:-$HOME/default}"\nNEW=yes\n'
+        self.assertEqual(inputs.config_change(before, after)["keys"], ["A", "B", "C", "DELETE", "NEW"])
+        self.assertTrue(inputs.config_change(None, "A=one")["presence"])
+        self.assertTrue(inputs.config_change("A=one", None)["presence"])
+
+    def test_nested_defaults_and_environment_values_are_not_executed(self):
+        text = 'A="${CLAUDE_CONFIG_DIR:-${HOME:-/Users/fallback}/.claude}/state"\n'
+        self.assertIsNone(inputs.config_change(text, text.replace("/state", "/next"))["fallback"])
+        self.assertEqual(inputs.config_change('A="$HOME"', 'A=${HOME}')["keys"], [])
+        self.assertEqual(inputs.config_change('A=\\$HOME', "A='$HOME'")["keys"], [])
+
+    def test_unsupported_execution_dynamic_expansion_duplicates_and_multiline_are_visible(self):
+        cases = ['A=$(touch nowhere)', 'A=`touch nowhere`', 'A=$((1+1))', 'A="${HOME%/}"',
+                 'A="$UNDECLARED"', 'A="first\nsecond"', 'A=one\nA=two', 'A=ok; exit 0',
+                 'if true; then\nA=one\nfi', 'A =one', 'A= echo unsafe', 'export A=one',
+                 'A="$A"', 'A="$B"\nB=late']
+        for text in cases:
+            with self.subTest(text=text):
+                result = inputs.config_change('A=one\n', text)
+                self.assertTrue(result["fallback"])
+                self.assertEqual(result["keys"], [])
+        with tempfile.TemporaryDirectory(prefix="config-no-exec.") as directory:
+            marker = Path(directory) / "executed"
+            result = inputs.config_change("A=one", f'A="$(touch {marker})"')
+            self.assertTrue(result["fallback"])
+            self.assertFalse(marker.exists())
+            self.assertIsNone(inputs.config_change("A=one", f"A='$(touch {marker})'")["fallback"])
+            self.assertFalse(marker.exists())
+
+    def test_real_hooks_file_and_metadata_only_change(self):
+        original = (HERE.parent / "hooks/hooks.json").read_text()
+        self.assertIsNone(inputs.hooks_change(original, original)["fallback"])
+        changed = json.loads(original)
+        first_event = next(iter(changed["hooks"]))
+        first = changed["hooks"][first_event][0]
+        first["matcher"] = "ChangedMatcher"
+        difference = inputs.hooks_change(original, json.dumps(changed))
+        self.assertTrue(difference["metadata"])
+        self.assertIn(first["hooks"][0]["command"], difference["commands"])
+
+    def test_hook_removed_added_order_timeout_and_empty_group_changes(self):
+        def document(names):
+            return {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": name, "timeout": 10}]} for name in names]}}
+        before = document(["one", "two"])
+        after = document(["two", "three"])
+        difference = inputs.hooks_change(json.dumps(before), json.dumps(after))
+        self.assertEqual(difference["commands"], ["one", "three", "two"])
+        after = document(["two", "one"])
+        self.assertEqual(inputs.hooks_change(json.dumps(before), json.dumps(after))["commands"], ["one", "two"])
+        before = document(["one"])
+        after = document(["one"])
+        after["hooks"]["Stop"][0]["hooks"][0]["timeout"] = 20
+        self.assertEqual(inputs.hooks_change(json.dumps(before), json.dumps(after))["commands"], ["one"])
+        after = document(["one"])
+        after["hooks"]["Stop"].append({"hooks": []})
+        self.assertTrue(inputs.hooks_change(json.dumps(before), json.dumps(after))["metadata"])
+        after = {**before, "description": "only explanatory prose changed"}
+        difference = inputs.hooks_change(json.dumps(before), json.dumps(after))
+        self.assertFalse(difference["metadata"])
+        self.assertEqual(difference["commands"], [])
+
+    def test_unknown_hook_structure_has_explicit_fallback(self):
+        for text in ('[]', '{"hooks": []}', '{"hooks":{"Stop": [{"hooks": [{"type": "prompt"}]}]}}',
+                     '{"hooks":{"Stop":[{"future-matcher": 1, "hooks":[]}]}}',
+                     '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"x","async":"yes"}]}]}}'):
+            with self.subTest(text=text):
+                self.assertTrue(inputs.hooks_change('{"hooks":{}}', text)["fallback"])
+
+
+class Closure(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="dependency-closure.")
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.map = {"schema": 1, "config_keys": ["A", "B", "PLANTED"], "nodes": {}, "units": {}}
+
+    def node(self, name, content, **contract):
+        path = self.root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        row = {"source": name, "sha256": hashlib.sha256(content.encode()).hexdigest(),
+               "evidence": "controlled fixture read/call relationship", "keys": [], "edges": [], **contract}
+        self.map["nodes"][name] = row
+        return row
+
+    def selected(self, before, after, units):
+        return inputs.Dependencies(self.root, self.map).config_units(inputs.config_change(before, after), units)
+
+    def test_direct_nested_subprocess_and_both_named_copy_helpers(self):
+        self.node("reader.sh", 'printf "%s" "$A"\n', keys=["A"])
+        self.node("nested.sh", "bash reader.sh\n", edges=[{"to": "reader.sh"}])
+        copies = ["direct-copy.sh", "lib/mutation-harness.sh", "hooks/contract-integrity-probe.sh"]
+        for helper in copies:
+            self.node(helper, 'cp orchestration.config fixture/orchestration.config\nbash nested.sh\n',
+                presence="transport needs source file", edges=[{"to": "nested.sh"}])
+        self.node("unrelated.sh", 'printf "%s" "$B"\n', keys=["B"])
+        selected = self.selected("A=1\nB=1", "A=2\nB=1", [*copies, "unrelated.sh"])
+        self.assertEqual(set(selected), set(copies))
+        for reasons in selected.values():
+            self.assertTrue(any("nested.sh -> reader.sh" in reason for reason in reasons))
+        self.assertEqual(set(self.selected("A=1\nB=1", "A=1\nB=2", [*copies, "unrelated.sh"])), {"unrelated.sh"})
+
+    def test_copy_overrides_whole_content_presence_and_full_fixture_replacement(self):
+        self.node("reader.sh", 'printf "%s" "$A $B"\n', keys=["A", "B"])
+        self.node("override.sh", "copy_then_override\n", edges=[{"to": "reader.sh", "overrides": ["A"]}])
+        self.node("private.sh", "new_fixture_config\n", edges=[{"to": "reader.sh", "fixture": True}])
+        self.node("bytes.sh", "sha256sum orchestration.config\n", whole="hashes every byte")
+        self.node("adopt.sh", "test -f orchestration.config\n", presence="checks adoption")
+        units = ["override.sh", "private.sh", "bytes.sh", "adopt.sh"]
+        self.assertEqual(set(self.selected("A=1\nB=1", "A=2\nB=1", units)), {"bytes.sh"})
+        self.assertEqual(set(self.selected("A=1\nB=1", "A=1\nB=2", units)), {"override.sh", "bytes.sh"})
+        self.assertEqual(set(self.selected("A=1\nB=1", "A=1\nB=1\n# comment", units)), {"bytes.sh"})
+        self.assertIn("adopt.sh", self.selected(None, "A=1\nB=1", units))
+
+    def test_new_helper_and_key_selects_only_its_consumer_even_before_qualification(self):
+        self.node("consumer.sh", "bash new-helper.sh\n", edges=[{"to": "new-helper.sh"}])
+        self.node("unrelated.sh", 'printf "%s" "$B"\n', keys=["B"])
+        self.node("global.sh", "validate all config\n", whole="global config validation")
+        units = ["consumer.sh", "unrelated.sh", "global.sh"]
+        before, after = "A=1\nB=1", "A=1\nB=1\nPLANTED=1"
+        selected = self.selected(before, after, units)
+        self.assertEqual(set(selected), {"consumer.sh", "global.sh"})
+        self.assertIn("unqualified reader new-helper.sh", " ".join(selected["consumer.sh"]))
+        self.node("new-helper.sh", 'printf "%s" "$PLANTED"\n', keys=["PLANTED"])
+        selected = self.selected(before, after, units)
+        self.assertEqual(set(selected), {"consumer.sh", "global.sh"})
+        self.assertNotIn("unresolved", " ".join(selected["consumer.sh"]))
+        self.assertEqual(set(self.selected(after, after + "\nUNUSED=1\n", units)), {"global.sh"})
+
+    def test_known_omission_modified_helper_and_unbounded_eval_fail_closed(self):
+        self.node("omitted.sh", 'printf "%s" "$A"\n')
+        self.node("changed.sh", 'printf "%s" "$A"\n', keys=["A"])
+        (self.root / "changed.sh").write_text('printf "%s" "$A $B"\n')
+        self.node("dynamic.sh", 'eval "printf %s \\${$UNKNOWN}"\n')
+        self.node("unrelated.sh", "true\n")
+        units = ["omitted.sh", "changed.sh", "dynamic.sh", "unrelated.sh"]
+        selected = self.selected("A=1\nB=1", "A=1\nB=2", units)
+        self.assertEqual(set(selected), set(units) - {"unrelated.sh"})
+        self.assertIn("omitted known key", " ".join(selected["omitted.sh"]))
+        self.assertIn("changed reader", " ".join(selected["changed.sh"]))
+        self.assertIn("dynamic evaluation", " ".join(selected["dynamic.sh"]))
+
+    def test_finite_indirect_alias_is_bound_to_helper_content(self):
+        row = self.node("indirect.sh", 'CONFIG_KEY="A"\neval "printf %s \\${$CONFIG_KEY}"\n',
+                        keys=["A"], indirect={"CONFIG_KEY": "A"})
+        self.assertEqual(set(self.selected("A=1\nB=1", "A=2\nB=1", ["indirect.sh"])), {"indirect.sh"})
+        self.assertFalse(self.selected("A=1\nB=1", "A=1\nB=2", ["indirect.sh"]))
+        row["indirect"] = {"CONFIG_KEY": "B"}
+        self.assertIn("indirect.sh", self.selected("A=1\nB=1", "A=1\nB=2", ["indirect.sh"]))
+
+    def test_unsupported_config_syntax_selects_sourcing_readers_with_reason(self):
+        self.node("reader.sh", 'printf "%s" "$A"\n', keys=["A"])
+        self.node("unrelated.sh", "true\n")
+        selected = self.selected("A=1", "A=$(command)", ["reader.sh", "unrelated.sh"])
+        self.assertEqual(set(selected), {"reader.sh"})
+        self.assertIn("config syntax fallback", " ".join(selected["reader.sh"]))
+
+    def test_real_finite_aliases_and_copy_regions_match_reviewed_sources(self):
+        document = json.loads((HERE / "lib/verification-dependencies.json").read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        asks = graph.closure("scripts/lib/ceo-asks.sh")
+        ruled = graph.closure("scripts/lib/ceo-ruled.sh")
+        self.assertEqual(set(asks["keys"]), {"CEO_TODOS_REPOS"})
+        self.assertEqual(set(ruled["keys"]), {"CEO_RULINGS_PATHS", "CEO_TODOS_REPOS"})
+        self.assertFalse(asks["fallback"] + ruled["fallback"])
+        for name in ("scripts/lib/mutation-harness.sh#copy", "scripts/hooks/contract-integrity-probe.sh#workspace-copy"):
+            closure = graph.closure(name)
+            self.assertEqual(closure["keys"], {})
+            self.assertEqual(closure["whole"], [])
+            self.assertTrue(closure["presence"])
+            self.assertEqual(closure["fallback"], [])
+
+
+if __name__ == "__main__":
+    unittest.main()
