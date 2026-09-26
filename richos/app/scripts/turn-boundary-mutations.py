@@ -12,9 +12,12 @@ unmutated copy must pass first.
 
 THE CHECKOUT IS NEVER WRITTEN. The tracked sources at HEAD are exported (`git archive`) into a
 private copy at a FIXED path, the untracked build input `richos/app/ui-dist` is copied beside
-them, and every mutant is applied to and restored in that copy. The fixed path makes a second
-run reuse the artifacts it compiled in the shared Cargo cache instead of adding new ones; the
-copy itself is deleted at the end unless --keep is given. (`operator-mutations.py` mutates
+them, and every mutant is applied to and restored in that copy. It builds into a PRIVATE target
+beside the copy, never the shared Cargo cache: cargo judges a workspace member fresh by mtime
+and keys it relative to the workspace root, so a mutant compiled into the shared cache is what
+the next older checkout runs (esc-20260926T113721Z-70ef679e, measured on this harness's first
+version). The copy and its target are deleted at the end unless --keep is given; with --keep and
+the same --copy, a rerun is incremental. (`operator-mutations.py` mutates
 richos-core in place; these mutants reach the Tauri shell, whose build reads richos/web,
 richos/mobile and richos/engine/voice/models too, so a copy is the one way not to touch them.)
 
@@ -96,24 +99,22 @@ MUTANTS = [
 ]
 
 
-def cargo_env(workspace_dir, link):
+def cargo_env(target):
     env = dict(os.environ)
     env["PATH"] = f"{Path.home() / '.cargo/bin'}:{env.get('PATH', '')}"
-    shared = ROOT / link
-    if shared.is_symlink():
-        env["CARGO_TARGET_DIR"] = os.readlink(shared)
+    env["CARGO_TARGET_DIR"] = str(target)
     return env
 
 
-def run(copy, workspace, filt):
+def run(copy, target, workspace, filt):
     if workspace == "core":
         cwd = copy / APP
         cmd = ["cargo", "test", "-p", "richos-core", "--test", "ended_turn_tests"]
-        env = cargo_env(cwd, f"{APP}/target")
+        env = cargo_env(target / "workspace")
     else:
         cwd = copy / APP / "src-tauri"
         cmd = ["cargo", "test", "--bin", "richos-tauri", "--", filt]
-        env = cargo_env(cwd, f"{APP}/src-tauri/target")
+        env = cargo_env(target / "src-tauri")
     done = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True)
     out = done.stdout + done.stderr
     failed = set(re.findall(r"^test (\S+) \.\.\. FAILED$", out, re.M))
@@ -168,6 +169,11 @@ def main():
     if args.check:
         return check()
     copy = Path(args.copy)
+    # NEVER the shared cache. Cargo keys a workspace member relative to its workspace root and
+    # judges it fresh by mtime, so a mutant built here into the shared target is what every
+    # other checkout's `cargo test` runs next if its files are older (measured 2026-09-26,
+    # esc-20260926T113721Z-70ef679e). The mutants get a target of their own, beside the copy.
+    target = Path(str(copy) + "-target")
     head = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True, text=True,
                           check=True).stdout.strip()
     print(f"sources: HEAD {head}, exported to {copy}")
@@ -175,7 +181,7 @@ def main():
     bad = 0
     try:
         for workspace, filt in (("core", ""), ("shell", "turn_boundary_tests::")):
-            code, failed, passed, _, out = run(copy, workspace, filt)
+            code, failed, passed, _, out = run(copy, target, workspace, filt)
             print(f"UNMUTATED {workspace}: exit {code}, {len(passed)} passed, {len(failed)} failed")
             if code != 0 or failed or not passed:
                 print(out[-3000:])
@@ -189,7 +195,7 @@ def main():
                 continue
             path.write_text(original.replace(old, new))
             try:
-                code, failed, passed, compiled, out = run(copy, workspace, filt)
+                code, failed, passed, compiled, out = run(copy, target, workspace, filt)
             finally:
                 path.write_text(original)
             missing = [t for t in must_fail if t not in failed]
@@ -205,6 +211,7 @@ def main():
     finally:
         if not args.keep:
             shutil.rmtree(copy, ignore_errors=True)
+            shutil.rmtree(target, ignore_errors=True)
     print(f"{len(MUTANTS) - bad}/{len(MUTANTS)} mutants killed")
     return 1 if bad else 0
 

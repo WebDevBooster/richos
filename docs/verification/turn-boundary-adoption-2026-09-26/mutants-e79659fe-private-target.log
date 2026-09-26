@@ -1,6 +1,6 @@
-admission: user CPU 25.6%, system 9.6%, idle 64.8%; memory pressure normal, free 73%, swap used 6469 MB, swap-out 0.0 MB/s; waited 1s over 1 sample(s); load 6.97 is informational
+admission: user CPU 9.8%, system 15.2%, idle 75.0%; memory pressure normal, free 74%, swap used 6453 MB, swap-out 0.0 MB/s; waited 1s over 1 sample(s); load 6.22 is informational
 admitted without a lock (CEO ruling §77)
-sources: HEAD 45651a963706fab6fec6c90363f73f853ebf1525, exported to /Volumes/E1TB/tmp/codex/echo-opus-adopt1/mutant-copy
+sources: HEAD e79659fefb1dd6ac35429248a6324488a72c20a9, exported to /Volumes/E1TB/tmp/codex/echo-opus-adopt1/mutant-copy
 UNMUTATED core: exit 0, 8 passed, 0 failed
 UNMUTATED shell: exit 0, 5 passed, 0 failed
 M1 the spine forgets which turns ended: KILLED by a_typed_turn_is_reported_once_and_the_list_is_then_empty, a_spoken_turn_is_reported_exactly_as_a_typed_one, a_phone_turn_is_reported_on_its_own_thread_and_not_on_the_active_one (exit 101, 8 red)
