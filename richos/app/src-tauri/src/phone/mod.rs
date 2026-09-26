@@ -985,6 +985,12 @@ impl PhoneRuntime {
         self.sweep_expired_pairing();
         // FIRST, and out of the way, so no subprocess ever runs under the `running` lock.
         let tailnet = TailnetView::from(&self.tailnet_now());
+        // **THE REFUSAL, READ ONCE, INTO A LOCAL.** Both answers below used to lock `rejected`
+        // twice inside one struct literal; the first guard is a temporary that lives to the end
+        // of the statement, so the second `lock()` waited on it forever, with `running` held —
+        // the phone sheet opened empty on every install and pairing could never start
+        // (measured in a test guest 2026-09-26; `tests::status_answers_…`).
+        let refusal = *self.rejected.lock().unwrap();
         let running = self.running.lock().unwrap();
         let Some(running) = running.as_ref() else {
             // A listener failure does not erase the saved pairing. The recovery monitor
@@ -1024,8 +1030,8 @@ impl PhoneRuntime {
                 // AND THIS IS THE BRANCH IT IS ACTUALLY READ IN. A Mac that stopped because the
                 // phone rejected the words is a Mac with nothing running, so the early return
                 // is where the rejection screen is decided.
-                rejected: self.rejected.lock().unwrap().is_some(),
-                rejected_by: self.rejected.lock().unwrap().unwrap_or(device::StoppedBy::UNKNOWN).to_string(),
+                rejected: refusal.is_some(),
+                rejected_by: refusal.unwrap_or(device::StoppedBy::UNKNOWN).to_string(),
                 // In memory and about a running pairing; nothing is running here.
                 code_reused: false,
                 confirm_seconds_left: None,
@@ -1081,8 +1087,8 @@ impl PhoneRuntime {
             // False by construction here: the flag is only ever set after `forget()` has taken
             // the listener down, and this branch is a listener that is up. Read rather than
             // written as `false` so the two branches cannot drift.
-            rejected: self.rejected.lock().unwrap().is_some(),
-            rejected_by: self.rejected.lock().unwrap().unwrap_or(device::StoppedBy::UNKNOWN).to_string(),
+            rejected: refusal.is_some(),
+            rejected_by: refusal.unwrap_or(device::StoppedBy::UNKNOWN).to_string(),
             code_reused: running.channel.devices.code_reused(),
             confirm_seconds_left: device
                 .as_ref()
@@ -1728,6 +1734,59 @@ fn phone_assets() -> assets::PhoneApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **`status()` answers, with the phone off and with a refusal on file.**
+    ///
+    /// Measured in a test guest on 2026-09-26 (bundle `1.2.0-dev.590dda66`, a fresh install):
+    /// the "Use Rich from your phone" sheet opened empty and stayed empty, and a `sample` of the
+    /// app showed `PhoneRuntime::status` parked in `__psynch_mutexwait` while three more
+    /// `status` calls waited behind it in `sweep_expired_pairing`. `status` built its answer with
+    /// `rejected: self.rejected.lock()…` and `rejected_by: self.rejected.lock()…` in ONE struct
+    /// literal; the first guard is a temporary that lives to the end of that statement, so the
+    /// second `lock()` waited on the first forever, holding `running` as it did — and with
+    /// `running` held, pairing, the listener and every later `status` wait too.
+    ///
+    /// Run on its own thread with a bound, so a regression fails here instead of hanging the
+    /// suite. The tailnet reading is seeded so no `tailscale` subprocess runs.
+    #[test]
+    fn status_answers_with_the_phone_off_and_with_a_refusal_on_file() {
+        for refused in [None, Some(device::StoppedBy::UNKNOWN)] {
+            let dir = std::env::temp_dir().join(format!(
+                "richos-phone-status-{}-{}",
+                std::process::id(),
+                now_millis()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            let (runtime, _emitter) = PhoneRuntime::install(dir.clone());
+            *runtime.tailnet.lock().unwrap() = Some((now_millis(), tailnet::TailnetState::Absent));
+            *runtime.rejected.lock().unwrap() = refused;
+            let (tx, rx) = std::sync::mpsc::channel();
+            let asking = Arc::clone(&runtime);
+            std::thread::spawn(move || {
+                let first = asking.status();
+                let second = asking.status();
+                let _sent = tx.send((first.rejected, second.rejected, first.rejected_by));
+            });
+            let answer = rx.recv_timeout(std::time::Duration::from_secs(5));
+            let (first, second, by) = answer.unwrap_or_else(|_| {
+                panic!("PhoneRuntime::status did not answer in 5 s (refusal on file: {refused:?}): it is waiting on a lock it holds")
+            });
+            assert_eq!((first, second), (refused.is_some(), refused.is_some()));
+            assert_eq!(by, refused.unwrap_or(device::StoppedBy::UNKNOWN).to_string());
+            std::fs::remove_dir_all(&dir).expect("the test's own folder could not be removed");
+        }
+    }
+
+    /// The same rule for the branch a unit test cannot reach without a live listener: the refusal
+    /// is read ONCE per `status()`, into a local, and never twice inside one expression.
+    #[test]
+    fn status_reads_the_refusal_once() {
+        let source = include_str!("mod.rs");
+        let start = source.find("    pub fn status(&self) -> PhoneStatus {").expect("status() is where it was");
+        let end = start + source[start..].find("\n    }\n").expect("status() ends");
+        let body = &source[start..end];
+        assert_eq!(body.matches("self.rejected.lock()").count(), 1, "status() must lock `rejected` exactly once");
+    }
 
     /// **The seven key names `ui/phone.js` reads.** A rename on this side is a screen that draws
     /// nothing, silently, and serde's `rename_all` makes that a one-character mistake — so the
