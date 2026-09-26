@@ -343,6 +343,86 @@ class ReservationTests(unittest.TestCase):
         with self.assertRaises(BlockingIOError): guard.demand_capacity({**sample, 'unattributed_cores': float('nan')})
 
 
+class RecoveryTests(unittest.TestCase):
+    setUp = ReservationTests.setUp
+
+    def exhausted(self, key='a' * 64, kind='resource', cleanup='complete'):
+        result = str(guard.STATE / (key + '.result.json'))
+        for _ in range(1 if kind == 'resource' else 3):
+            guard.verification_recovery(key, kind, {'result': result, 'cores': 3, 'rss_mb': 2000})
+        guard.write_json(result, {'input_key': key, 'cleanup': cleanup,
+            'status': 'resource-envelope-exceeded' if kind == 'resource' else 'contained'})
+        return result
+
+    def test_recovery_preserves_original_counters_and_resolves_to_one_exclusive_policy(self):
+        key = 'a' * 64
+        result = self.exhausted(key, 'containment')
+        first = guard.request_verification_recovery(key, result)
+        self.assertEqual(first, guard.request_verification_recovery(key, result))
+        self.assertEqual(len(guard.verification_recovery(key)['containment']), 3)
+        self.assertEqual(guard.verification_recovery(first['variant'])['containment'], [])
+        context = guard.resolve_verification_policy({'input_key': key})
+        self.assertEqual(context['input_key'], first['variant'])
+        self.assertEqual(context['original_input_key'], key)
+        self.assertEqual(context['resource_policy'], 'exclusive-calibration-v1')
+        self.assertEqual(guard.resolve_verification_policy(dict(context)), context)
+
+    def test_incomplete_or_mismatched_cleanup_cannot_authorize_recovery(self):
+        result = self.exhausted(cleanup='pending')
+        with self.assertRaisesRegex(BlockingIOError, 'cleanup'):
+            guard.request_verification_recovery('a' * 64, result)
+        guard.write_json(result, {'input_key': 'b' * 64, 'cleanup': 'complete', 'status': 'contained'})
+        with self.assertRaisesRegex(BlockingIOError, 'cleanup'):
+            guard.request_verification_recovery('a' * 64, result)
+        self.assertFalse(list((guard.STATE / 'verification-policies').glob('*.json')))
+
+    def test_restart_finds_required_recovery_and_alternate_exhaustion_is_terminal(self):
+        self.exhausted()
+        context = guard.resolve_verification_policy({'input_key': 'a' * 64})
+        key = context['input_key']
+        result = self.exhausted(key)
+        with self.assertRaisesRegex(guard.RecoveryExhausted, 'exclusive recovery exhausted'):
+            guard.request_verification_recovery(key, result)
+        for lookup in (key, 'a' * 64):
+            with self.assertRaises(guard.RecoveryExhausted):
+                guard.resolve_verification_policy({'input_key': lookup})
+        self.assertEqual(len(list((guard.STATE / 'verification-policies').glob('*.json'))), 2)
+
+    def test_recalibration_reserves_exclusively_and_retains_the_fault_measurement_floor(self):
+        self.exhausted()
+        context = dict(self.context)
+        lease = guard.reserve_verification(context, 999990, 'fixture')
+        self.addCleanup(os.close, lease[0])
+        self.assertTrue(lease[1]['calibration'] and lease[1]['exclusive'])
+        other = {**self.context, 'input_key': 'b' * 64}
+        with self.assertRaisesRegex(BlockingIOError, 'calibration'):
+            guard.reserve_verification(other, 999992, 'fixture')
+        guard.qualify_demand(context['input_key'], {'samples': 3, 'sample_seconds': 4,
+            'cpu_seconds': 1, 'peak_cores': .5, 'peak_rss_mb': 100},
+            {'elapsed_seconds': 4, 'reaped_cpu_seconds': 1})
+        profile = guard.read_json(guard.STATE / 'verification-demand' / (context['input_key'] + '.json'))
+        self.assertTrue(profile['envelope']['exclusive'])
+        self.assertGreaterEqual(profile['envelope']['cores'], 4)
+        self.assertGreaterEqual(profile['envelope']['rss_mb'], 2564)
+
+    def test_partial_policy_publication_cannot_grant_another_recovery_variant(self):
+        key = 'a' * 64
+        result = self.exhausted(key)
+        real_write = guard.write_json
+        def interrupted(path, value, durable=False):
+            if str(path).endswith('/verification-policies/' + key + '.json'):
+                raise OSError('controlled interruption before origin publication')
+            return real_write(path, value, durable=durable)
+        with patch.object(guard, 'write_json', side_effect=interrupted):
+            with self.assertRaisesRegex(OSError, 'interruption'):
+                guard.request_verification_recovery(key, result)
+        variants = list((guard.STATE / 'verification-policies').glob('*.json'))
+        self.assertEqual(len(variants), 1)
+        record = guard.request_verification_recovery(key, result)
+        self.assertEqual(record['variant'], variants[0].stem)
+        self.assertEqual(len(guard.verification_recovery(key)['resource']), 1)
+
+
 class SupervisorTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='verification-client.')
@@ -423,6 +503,12 @@ class SupervisorTests(unittest.TestCase):
 class RunnerPressureTests(unittest.TestCase):
     setUp = SupervisorTests.setUp
     def test_runner_preserves_contained_attempt_then_retries_ahead_of_new_work(self):
+        self.runner_case('containment')
+
+    def test_runner_retries_resource_fault_in_exclusive_policy_with_private_environment(self):
+        self.runner_case('resource')
+
+    def runner_case(self, kind):
         import importlib.util
         from types import SimpleNamespace
         spec = importlib.util.spec_from_file_location('managed_runner_fixture',
@@ -430,17 +516,23 @@ class RunnerPressureTests(unittest.TestCase):
         runner = importlib.util.module_from_spec(spec); spec.loader.exec_module(runner)
         marker = self.root / 'executions'
         script = self.root / 'unit.py'
+        status = 'contained' if kind == 'containment' else 'resource-envelope-exceeded'
         script.write_text("import json,os,pathlib,signal,time\n"
+            + "import sys;sys.path.insert(0," + repr(str(Path(guard.__file__).parent)) + ")\n"
+            + "import cpu_guard\n"
             + "root=pathlib.Path(os.environ['RICHOS_CPU_GUARD_STATE'])\n"
             + "marker=root/'executions'\n"
             + "if not marker.exists():\n"
             + " marker.write_text('first')\n"
             + " row=json.loads(next((root/'roots').glob('*.json')).read_text())\n"
-            + " result={'input_key':row['verification']['input_key'],'root_generation':row['generation'],'status':'contained','cause':'host-pressure','cleanup':'pending','budget_used':1,'at':time.time()}\n"
+            + " cpu_guard.verification_recovery(row['verification']['input_key']," + repr(kind) + ",{'result':row['verification']['result']})\n"
+            + " result={'input_key':row['verification']['input_key'],'root_generation':row['generation'],'status':" + repr(status) + ",'cause':'injected fixture event','cleanup':'pending','budget_used':1,'at':time.time()}\n"
             + " pathlib.Path(row['verification']['result']).write_text(json.dumps(result))\n"
             + " os.kill(row['pid'],signal.SIGTERM);time.sleep(60)\n"
             + "else: marker.write_text('retried')\n")
         item = runner.Item('controlled pressure', runner.ROOT, [sys.executable, '-B', str(script)], 'fixture', 1)
+        if kind == 'resource':
+            item.private_environment = {'PATH': os.environ['PATH'], 'PYTHONDONTWRITEBYTECODE': '1'}
         other = runner.Item('independent', runner.ROOT, [sys.executable, '-B', '-c', 'print(123)'], 'fixture', 1)
         args = SimpleNamespace(capacity=2,engine_shards=2,admission_wait=5,max_cpu=80,budget=10,deadline=10,sample_every=.5,slot_wait=None)
         idle = lambda: {'cpu_user_percent': 5, 'cpu_system_percent': 2,'cpu_idle_percent':93,
@@ -450,9 +542,13 @@ class RunnerPressureTests(unittest.TestCase):
             runner.run([item, other], args, str(self.root / 'run'), sampler=idle)
         self.assertEqual((item.state, other.state), ('passed', 'passed'), item.notes)
         self.assertEqual(marker.read_text(), 'retried')
-        self.assertEqual([attempt['state'] for attempt in item.attempts], ['contained', 'passed'])
+        self.assertEqual([attempt['state'] for attempt in item.attempts], [status, 'passed'])
         self.assertTrue(all(Path(attempt['log']).is_file() for attempt in item.attempts))
         self.assertLess(item.ended, other.started)
+        if kind == 'resource':
+            context = guard.read_json(item.verification_context)
+            self.assertEqual(context['resource_policy'], 'exclusive-calibration-v1')
+            self.assertNotEqual(context['input_key'], context['original_input_key'])
 
 
 if __name__ == "__main__":

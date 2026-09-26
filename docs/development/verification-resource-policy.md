@@ -27,6 +27,14 @@ An owned demand-envelope breach uses a separate resource budget and requires mea
 recalibration. Neither outcome becomes an accepted receipt or consumes the behavioral
 failure budget.
 
+When that policy is exhausted, the runner can make one recorded change to exclusive
+calibration. The alternate identity is deterministic, links to the original counters
+and requires matching completed cleanup evidence. Its measured envelope retains a
+floor from the original fault measurements. It continues to reserve exclusive
+capacity after qualification. Its own bounded recovery counters can never create
+another alternate policy. Exhaustion refuses immediately and retains diagnostics;
+it does not spend an admission wait on a policy that cannot run.
+
 The enabled marker survives loss of controller telemetry, so deleting a heartbeat
 cannot return an installed runner to legacy admission. Completed receipts retain their
 original identities. Per-attempt logs, interrupted receipts and supervision records
@@ -38,6 +46,6 @@ reason instead of being reported as a shortage of worker permits.
 
 Current qualification boundary: proof-run and its nested supervised work use this
 protocol when advertised by the controller. Direct/nightly/older launcher routing,
-explicit fixture-mode enforcement, resource recalibration and fixed integration
-recovery still need qualification before installation. Do not describe this partial
+explicit fixture-mode enforcement, measured concurrent demand and fixed integration
+episodes still need qualification before installation. Do not describe this partial
 protocol as universal shell interception or as measured production performance.

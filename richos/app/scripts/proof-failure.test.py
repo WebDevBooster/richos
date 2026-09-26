@@ -169,8 +169,10 @@ class FailurePolicy(unittest.TestCase):
             item.started, item.ended, item.state, item.rc = start, end, 'passed', 0
             item.verification_result = str(self.root / ('attempt-%s.json' % index))
             Path(item.verification_result).write_text(json.dumps({
-                'status': state, 'cleanup': 'complete', 'reaped_cpu_seconds': cpu, 'input_key': 'a' * 64}))
-            with patch.object(pr.cpu_guard, 'verification_recovery', return_value={'blocked': None}):
+                'status': state, 'cleanup': 'complete', 'reaped_cpu_seconds': cpu, 'input_key': 'a' * 64,
+                'budget_used': 1}))
+            with patch.object(pr.cpu_guard, 'verification_recovery', return_value={
+                    'blocked': None, 'containment': [{'result': item.verification_result}]}):
                 retry = pr.finish_attempt(item)
             self.assertEqual(retry, index == 0)
             if retry:
@@ -221,6 +223,29 @@ class FailurePolicy(unittest.TestCase):
                                                              'reaped_cpu_seconds': 1}))
         self.assertFalse(pr.finish_attempt(item))
         self.assertEqual((item.state, item.rc, item.total_seconds), ('cancelled', 130, 5))
+
+    def test_exhausted_resource_policy_refuses_before_waiting_and_keeps_independent_work(self):
+        item = self.item('exhausted', "raise AssertionError('must not execute')")
+        other = self.item('independent', 'pass')
+        def reserve(candidate, *args):
+            if candidate is item:
+                raise pr.cpu_guard.RecoveryExhausted('resource-envelope-exceeded; exclusive recovery exhausted')
+        with patch.object(pr, 'reserve_item', side_effect=reserve):
+            self.run_items([item, other])
+        self.assertEqual((item.state, item.rc, other.state), ('resource-recovery-exhausted', 75, 'passed'))
+        self.assertIsNone(item.started)
+        self.assertLess(item.admission_wait, self.args.admission_wait)
+
+    def test_cancellation_label_without_a_durable_budget_event_cannot_loop(self):
+        item = self.item('unverified containment', 'pass')
+        item.started, item.ended, item.state, item.rc = 2, 7, 'failed', 143
+        item.verification_result = str(self.root / 'unverified.json')
+        Path(item.verification_result).write_text(json.dumps({'status': 'contained', 'cleanup': 'complete',
+                                                             'input_key': 'a' * 64, 'budget_used': 1}))
+        with patch.object(pr.cpu_guard, 'verification_recovery', return_value={'containment': [], 'blocked': None}):
+            self.assertFalse(pr.finish_attempt(item))
+        self.assertEqual((item.state, item.rc), ('infrastructure-failed', 125))
+        self.assertIn('no matching durable budget event', item.notes[-1])
 
 
 if __name__ == "__main__":

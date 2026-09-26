@@ -9,6 +9,7 @@ import argparse
 import contextlib
 import ctypes
 import fcntl
+import hashlib
 import importlib.util
 import json
 import math
@@ -145,6 +146,74 @@ def verification_recovery(input_key, charge=None, details=None):
         return {**record, 'blocked': blocked}
 
 
+class RecoveryExhausted(RuntimeError):
+    """A known exhausted policy cannot be repaired by waiting for capacity."""
+
+
+def request_verification_recovery(key, result_path):
+    """One recorded policy change: retry under exclusive measured calibration.
+
+    Original counters are immutable history. The alternate policy has its own
+    bounded counters and can never create another alternate. This gives resource
+    faults a real remedy without relabelling them as assertion failures or
+    repeatedly resetting the same concurrent policy.
+    """
+    history = verification_recovery(key)
+    if not history['blocked']:
+        raise ValueError('resource recovery requires an exhausted policy')
+    directory = STATE / 'verification-policies'
+    directory.mkdir(parents=True, exist_ok=True)
+    with (directory / (key + '.lock')).open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        path = directory / (key + '.json')
+        existing = read_json(path)
+        if existing:
+            if existing.get('original') != key:
+                raise RecoveryExhausted(history['blocked'] + '; exclusive recovery exhausted')
+            return existing
+        result = read_json(result_path, {})
+        events = history['resource'] or history['containment']
+        if (result.get('input_key') != key or result.get('cleanup') != 'complete'
+                or events[-1].get('result') != str(result_path)
+                or result.get('status') not in ('contained', 'resource-envelope-exceeded')):
+            raise BlockingIOError('resource recovery waits for matching completed owned cleanup')
+        variant = hashlib.sha256((key + ':exclusive-calibration-v1').encode()).hexdigest()
+        record = {'protocol': VERIFICATION_PROTOCOL, 'original': key, 'variant': variant,
+                  'mode': 'exclusive-calibration-v1', 'reason': history['blocked'],
+                  'result': str(result_path), 'at': time.time()}
+        # Publish the terminal alternate first. A crash between these writes is
+        # repaired by repeating this same deterministic publication, never by
+        # granting another recovery episode.
+        write_json(directory / (variant + '.json'), record, durable=True)
+        write_json(path, record, durable=True)
+        note('Verification resource recovery requires exclusive calibration', policy=record)
+        return record
+
+
+def resolve_verification_policy(context):
+    key = context['input_key']
+    history = verification_recovery(key)
+    record = read_json(STATE / 'verification-policies' / (key + '.json'))
+    if not record and history['blocked']:
+        events = history['resource'] or history['containment']
+        result = events[-1].get('result')
+        if not result:
+            raise RecoveryExhausted(history['blocked'] + '; matching cleanup evidence is unavailable')
+        record = request_verification_recovery(key, result)
+    if record:
+        expected = hashlib.sha256((record['original'] + ':exclusive-calibration-v1').encode()).hexdigest()
+        if (record.get('protocol') != VERIFICATION_PROTOCOL or record.get('variant') != expected
+                or key not in (record['original'], record['variant'])
+                or record.get('mode') != 'exclusive-calibration-v1'):
+            raise ValueError('invalid recorded verification recovery policy')
+        context.update(input_key=record['variant'], original_input_key=record['original'],
+                       resource_policy=record['mode'])
+    blocked = verification_recovery(context['input_key'])['blocked']
+    if blocked:
+        raise RecoveryExhausted(blocked + '; exclusive recovery exhausted')
+    return context
+
+
 def verification_enabled():
     expected = read_json(STATE / 'verification-enabled.json')
     if expected is not None:
@@ -185,6 +254,7 @@ class VerificationClient:
         self.context = read_json(context)
         if not isinstance(self.context, dict) or self.context.get('protocol') != VERIFICATION_PROTOCOL:
             raise ValueError('unsupported verification controller protocol')
+        resolve_verification_policy(self.context)
         self.pid = os.getpid()
         native = operator_fences.proc(self.pid, precise=True)
         if not native or native['zombie']:
@@ -288,6 +358,7 @@ def reserve_verification(context, pid, generation):
     with native surviving members still occupies its reservation. No lock file
     is resized and nested children share the tree's reservation.
     """
+    resolve_verification_policy(context)
     directory = STATE / 'verification-reservations'
     directory.mkdir(parents=True, exist_ok=True)
     with (directory / 'admission.lock').open('a') as admission:
@@ -296,7 +367,9 @@ def reserve_verification(context, pid, generation):
         profile = read_json(STATE / 'verification-demand' / (context['input_key'] + '.json'))
         if profile and profile.get('protocol') != VERIFICATION_PROTOCOL:
             raise BlockingIOError('stale verification demand envelope requires calibration')
-        envelope = (profile['envelope'] if profile else {**capacity, 'calibration': True})
+        envelope = dict(profile['envelope']) if profile else {**capacity, 'calibration': True}
+        if context.get('resource_policy') == 'exclusive-calibration-v1':
+            envelope['exclusive'] = True
         if any(not math.isfinite(envelope.get(k, 0)) or envelope.get(k, 0) <= 0 for k in ('cores', 'rss_mb')):
             raise BlockingIOError('no measured CPU/memory capacity for verification')
         active = []
@@ -335,11 +408,11 @@ def reserve_verification(context, pid, generation):
                     path.with_suffix('.lock').unlink()
             finally:
                 os.close(fd)
-        if envelope.get('calibration') and active:
+        if (envelope.get('calibration') or envelope.get('exclusive')) and active:
             raise BlockingIOError('unknown demand waits for exclusive bounded calibration')
         if any(r['input_key'] == context['input_key'] for r in active):
             raise BlockingIOError('identical verification inputs already own a reservation')
-        if any(r['envelope'].get('calibration') for r in active):
+        if any(r['envelope'].get('calibration') or r['envelope'].get('exclusive') for r in active):
             raise BlockingIOError('a verification demand calibration is active')
         for key in ('cores', 'rss_mb'):
             if sum(r['envelope'][key] for r in active) + envelope[key] > capacity[key] + .001:
@@ -369,6 +442,13 @@ def qualify_demand(key, measurement, completion):
     peak = max(measurement['peak_cores'], reaped_cpu / max(.001, elapsed)) + unseen
     envelope = {'cores': max(1.0, 1.25 * peak + .25),
                 'rss_mb': max(256.0, 1.25 * measurement['peak_rss_mb'] + 64), 'calibration': False}
+    policy = read_json(STATE / 'verification-policies' / (key + '.json'))
+    if policy:
+        history = verification_recovery(policy['original'])
+        for event in history['resource'] + history['containment']:
+            envelope['cores'] = max(envelope['cores'], 1.25 * event.get('cores', 0) + .25)
+            envelope['rss_mb'] = max(envelope['rss_mb'], 1.25 * event.get('rss_mb', 0) + 64)
+        envelope['exclusive'] = True
     write_json(STATE / 'verification-demand' / (key + '.json'),
         {'protocol': VERIFICATION_PROTOCOL, 'envelope': envelope, 'measurement': measurement,
          'completion': completion, 'at': time.time()}, durable=True)
@@ -797,7 +877,8 @@ class Watch:
             kind = 'resource' if cause == 'resource-envelope-exceeded' else 'containment'
             budget = verification_recovery(owner['input_key'], kind,
                 {'owner': owner['owner'], 'sampled_cpu_seconds': owner['cpu_seconds'],
-                 'cores': owner['cores'], 'rss_mb': owner['rss_mb'], 'host_busy': busy})
+                 'cores': owner['cores'], 'rss_mb': owner['rss_mb'], 'host_busy': busy,
+                 'result': owner['result']})
             record = {**owner, 'status': cause if kind == 'resource' else 'contained', 'cause': cause,
                       'at': time.time(), 'cleanup': 'pending', 'budget_used': len(budget[kind])}
             write_json(owner['result'], record, durable=True)

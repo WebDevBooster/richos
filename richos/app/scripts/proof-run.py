@@ -462,7 +462,15 @@ def finish_attempt(item):
                'cpu_seconds': record.get('reaped_cpu_seconds'),
                'log': item.log, 'supervision': path}
     item.attempts.append(attempt)
-    if status != 'contained':
+    if status not in ('contained', 'resource-envelope-exceeded'):
+        return False
+    recovery = cpu_guard.verification_recovery(record['input_key'])
+    kind = 'containment' if status == 'contained' else 'resource'
+    events = recovery.get(kind, [])
+    if not events or record.get('budget_used') != len(events) or events[-1].get('result') != path:
+        item.state, item.rc = 'infrastructure-failed', 125
+        attempt.update(state=item.state, exit=item.rc)
+        item.notes.append('controller cancellation has no matching durable budget event: ' + path)
         return False
     # Preserve the interrupted receipt before its one-unit retry writes a new one.
     receipt = proof_evidence.receipt_path(item)
@@ -470,12 +478,16 @@ def finish_attempt(item):
         target = Path(path).parent / 'interrupted-receipt.jsonl'
         shutil.move(receipt, target)
         attempt['receipt'] = str(target)
-    recovery = cpu_guard.verification_recovery(record['input_key'])
     if recovery['blocked']:
-        item.state = 'scheduler-starvation'
-        item.notes.append(recovery['blocked'] + '; evidence: ' + path)
-        return False
-    item.notes.append('pressure-contained attempt preserved; retry after controller recovery: ' + path)
+        try:
+            policy = cpu_guard.request_verification_recovery(record['input_key'], path)
+        except (BlockingIOError, cpu_guard.RecoveryExhausted) as exc:
+            item.state = 'scheduler-starvation' if status == 'contained' else status
+            item.notes.append(str(exc) + '; evidence: ' + path)
+            return False
+        item.notes.append('recorded exclusive calibration after ' + policy['reason'] + '; evidence: ' + path)
+    else:
+        item.notes.append('pressure-contained attempt preserved; retry after controller recovery: ' + path)
     return True
 
 
@@ -908,6 +920,13 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 for candidate in eligible:
                     try:
                         reserve_item(candidate, n + 1, args, logdir)
+                    except cpu_guard.RecoveryExhausted as exc:
+                        candidate.finish_queue()
+                        candidate.rc = 75
+                        candidate.state = ('scheduler-starvation' if 'scheduler-starvation' in str(exc)
+                                           else 'resource-recovery-exhausted')
+                        candidate.notes.append(str(exc))
+                        continue
                     except BlockingIOError as exc:
                         candidate.wait_reason = 'resource-envelope'
                         candidate.resource_refusal = str(exc)
@@ -916,6 +935,11 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                     break
                 if admitted_item is None:
                     token.release()
+                    eligible = [candidate for candidate in eligible if candidate.state == 'waiting']
+                    if not eligible:
+                        checkpoint(items, logdir)
+                        continue
+                    it = eligible[0]
                     ok = False
                     s = None
                 else:
