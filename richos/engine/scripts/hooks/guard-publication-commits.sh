@@ -633,9 +633,26 @@ pb_materialise() {
             fi
             _MODE=identity
         fi
-        printf '%s\t%s\t%s\n' "$rel" "$BLOB" "$_MODE" >> "$WORK/manifest"
+        # The same path as ALREADY PUBLISHED, when the public remote's main has
+        # it: a word-run the public repository already carries is not a new
+        # disclosure because a private record quotes it (publication-boundary.py,
+        # ALREADY PUBLISHED). No published copy, no exemption.
+        _PUB=""
+        if [ -n "$PB_PUBLISHED_REF" ] &&
+           git -C "$PB_REPO" show "$PB_PUBLISHED_REF:$rel" > "$WORK/published.$IDX" 2>/dev/null; then
+            _PUB="$WORK/published.$IDX"
+        fi
+        printf '%s\t%s\t%s\t%s\n' "$rel" "$BLOB" "$_MODE" "$_PUB" >> "$WORK/manifest"
     done
 }
+
+# What is already public: the public remote's main, as this checkout last saw it.
+# A stale copy only exempts less. Absent (a repository with no such remote), the
+# exemption is simply off.
+PB_PUBLISHED_REF=""
+if git -C "$PB_REPO" rev-parse -q --verify refs/remotes/origin/main >/dev/null 2>&1; then
+    PB_PUBLISHED_REF="refs/remotes/origin/main"
+fi
 
 # Piping into these would run them in a subshell and lose IDX; the heredocs keep
 # both passes in the shell that owns the counter — the same subshell trap this
@@ -669,6 +686,8 @@ with open(os.environ["PB_MANIFEST"], encoding="utf-8") as fh:
         item = {"label": label, "path": path}
         if len(parts) > 2 and parts[2] == "identity":
             item["identity_only"] = True
+        if len(parts) > 3 and parts[3]:
+            item["published_path"] = parts[3]
         items.append(item)
 job = {
     "min_speech_lines": int(os.environ.get("PB_MIN_SPEECH", "8")),

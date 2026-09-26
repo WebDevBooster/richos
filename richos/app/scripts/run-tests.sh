@@ -563,6 +563,92 @@ fi
 STATE="${RUN_TESTS_STATE:-$(worktree_dir "$(worktree_root "$DIR")" "$HOME/.richos-nightly/suite-proofs")}"
 HEAD_SHA="$(git -C "$DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
 
+# ---------------------------------------------------------------------------------------
+# A FAILING TEST IS NAMED, AND ITS RESULT FILES ARE KEPT (2026-09-25).
+# ---------------------------------------------------------------------------------------
+# A proof run's `native-android-app` said "133 tests completed, 1 failed" and named no test;
+# the Gradle report that did was in the checkout's build cache, and `native-android-ui`, the
+# next suite, replaced it with its own passing report before anyone read it. The failing test
+# could not be named. So every suite gets a results folder of its OWN, exported to it as
+# RICHOS_TEST_RESULTS_DIR: `bin/randroid test` and the iOS suites copy (or move) their per-test
+# results there the moment a test run ends (lib/test_results.py). A suite that fails is named
+# here with the tests that failed in it, read from those files, else from its log, else its own
+# `  FAIL  ` lines; its folder is kept and its path printed. A suite that passes leaves nothing.
+#
+# Where: under RICHOS_TEST_RESULTS_ROOT when the caller names one (proof-run.py names a folder in
+# the run's own log directory); otherwise in this run's scratch, and a FAILED suite's folder is
+# then moved to a per-checkout store (RUN_TESTS_RESULTS_STATE overrides it), which keeps the last
+# KEEP_FAILED_RESULTS and deletes older ones (CEO ruling §54: bounded by construction).
+KEEPER="$DIR/lib/test_results.py"
+if [ ! -f "$KEEPER" ]; then
+  echo "run-tests.sh: $KEEPER is missing, and it is what names a failing test. Without it a" >&2
+  echo "              failure would be reported as a count with no name, the defect it exists for." >&2
+  exit 2
+fi
+RESULTS_ROOT="${RICHOS_TEST_RESULTS_ROOT:-}"
+RESULTS_KEEP=""
+KEEP_FAILED_RESULTS=10
+if [ -z "$RESULTS_ROOT" ]; then
+  RESULTS_ROOT="$WORK/results"
+  if [ -n "${RUN_TESTS_RESULTS_STATE:-}" ]; then
+    RESULTS_KEEP="$RUN_TESTS_RESULTS_STATE"
+  elif [ -d /Volumes/E1TB ] && [ "$(stat -f %d /Volumes/E1TB)" != "$(stat -f %d /Volumes)" ]; then
+    RESULTS_KEEP="$(worktree_dir "$(worktree_root "$DIR")" /Volumes/E1TB/state/richos/test-results)"
+  else
+    RESULTS_KEEP="$(worktree_dir "$(worktree_root "$DIR")" "$HOME/.richos-nightly/test-results")"
+  fi
+fi
+FAILING=()
+
+results_dir() { printf '%s/%s\n' "$RESULTS_ROOT" "${REL[$1]%.test.sh}"; }  # $1 = suite index
+
+# The failing tests of suite $1, one line each: from its result files, else its log, else the
+# suite's own `  FAIL  ` lines, else, for a suite that died before any test ran, the last error it
+# printed. Its results folder is kept (and moved to the store when this run's root is scratch);
+# FAILING[$1] remembers the names for the summary and --results-out.
+name_failures() {
+  local idx="$1" rel="${REL[$1]}" dir found dest old n count
+  dir="$(results_dir "$idx")"
+  local paths=()
+  [ -d "$dir" ] && paths+=("$dir")
+  found="$(python3 "$KEEPER" names --log "$WORK/$idx.out" ${paths[@]+"${paths[@]}"} 2>&1 \
+           | sed -n 's/^  FAILED TEST  //p')"
+  if [ -z "$found" ]; then
+    found="$(sed -n 's/^  FAIL  //p' "$WORK/$idx.out" 2>/dev/null | head -20)"
+  fi
+  if [ -z "$found" ]; then
+    found="$(python3 "$KEEPER" last-error "$WORK/$idx.out" 2>/dev/null | sed 's/^/(no test ran to fail) /')"
+  fi
+  FAILING[idx]="$found"
+  if [ -n "$found" ]; then
+    echo "    failed in $rel:"
+    printf '%s\n' "$found" | sed 's/^/      /'
+  else
+    echo "    $rel failed and named nothing: no result file, no test log line, no FAIL line and no error line"
+  fi
+  if [ -d "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
+    if [ -n "$RESULTS_KEEP" ]; then
+      dest="$RESULTS_KEEP/$(date -u +%Y%m%dT%H%M%SZ)-${rel%.test.sh}-$$"
+      if mkdir -p "$RESULTS_KEEP" && mv "$dir" "$dest"; then
+        echo "    per-test results kept at $dest"
+        # Bounded: the newest KEEP_FAILED_RESULTS folders of this checkout, nothing older. The
+        # names start with a UTC time, so the glob's sorted order is oldest first.
+        old=("$RESULTS_KEEP"/*)
+        n=0
+        count="${#old[@]}"
+        while [ "$n" -lt $((count - KEEP_FAILED_RESULTS)) ]; do
+          rm -rf "${old[$n]}"
+          n=$((n + 1))
+        done
+      else
+        echo "    run-tests.sh: could NOT keep the per-test results at $dest; they are lost with $dir"
+      fi
+    else
+      echo "    per-test results kept at $dir"
+    fi
+  fi
+}
+
 suite_inputs() {  # $1 = full path to a suite; prints repo-relative paths, or exits 1
   # READ OUT OF THE SUITE, never from a table here. A second place to edit is the defect this
   # file's header counts five instances of, and the suite is the only thing that knows what
@@ -705,12 +791,15 @@ launch() {
   local idx="$1"
   local t="${SUITES[$idx]}"
   local lease=()
+  # This suite's own results folder; created by whoever writes into it, never shared.
+  local results; results="$(results_dir "$idx")"
   if [ -n "${RICHOS_WORKER_TOKENS:-}" ]; then
     lease=(python3 "${RICHOS_WORKER_TOKENS_TOOL:-$WORKER_TOOL}" run "$RICHOS_WORKER_TOKENS"
            --free "$WORK/suite-free.lock" --)
   fi
   case "${RUNNER[$idx]}" in
     vm:*)
+      # A guest cannot write this host's results folder: no RICHOS_TEST_RESULTS_DIR there.
       ( ${lease[@]+"${lease[@]}"} "$DIR/testvm/run-suite.sh" "${RUNNER[$idx]#vm:}" "$t" > "$WORK/$idx.out" 2>&1
         c=$?; date +%s > "$WORK/$idx.end"; echo $c > "$WORK/$idx.rc" ) &
       ;;
@@ -718,7 +807,7 @@ launch() {
       # The finish time is stamped by the child, never by the printer: output is drained in
       # discovery order, so a fast suite can sit finished for minutes waiting for a slow one
       # ahead of it, and timing it at print would charge it that wait.
-      ( ${lease[@]+"${lease[@]}"} bash "$t" > "$WORK/$idx.out" 2>&1
+      ( RICHOS_TEST_RESULTS_DIR="$results" ${lease[@]+"${lease[@]}"} bash "$t" > "$WORK/$idx.out" 2>&1
         c=$?; date +%s > "$WORK/$idx.end"; echo $c > "$WORK/$idx.rc" ) &
       ;;
   esac
@@ -803,12 +892,16 @@ print_result() {
     echo "    outranks it — this is counted as a FAILURE, and no declaration can tolerate it."
     printf '%s\n' "$out" | grep '^  FAIL  ' | sed 's/^/    /'
     FAILED+=("$rel")
+    name_failures "$idx"
   elif [ "$code" -eq 2 ]; then
     GAPPED+=("$rel")
+    rm -rf "$(results_dir "$idx")"
   elif [ "$code" -ne 0 ]; then
     FAILED+=("$rel")
+    name_failures "$idx"
   else
     [ -n "${DIGEST[$idx]}" ] && record_proof "$rel" "${DIGEST[$idx]}"
+    rm -rf "$(results_dir "$idx")"
   fi
   echo ""
 }
@@ -888,6 +981,14 @@ if [ -n "$RESULTS_OUT" ]; then
       printf '    {"name": "%s", "state": "%s", "seconds": %s, "where": "%s"' \
         "$(json_escape "${REL[$i]}")" "$state" "${ELAPSED[$i]:-0}" "$(json_escape "${RUNNER[$i]}")"
       [ -n "${DIGEST[$i]}" ] && printf ', "inputs_sha256": "%s"' "${DIGEST[$i]}"
+      if [ -n "${FAILING[$i]:-}" ]; then
+        printf ', "failing_tests": ['
+        sep=""
+        while IFS= read -r f; do
+          printf '%s"%s"' "$sep" "$(json_escape "$f")"; sep=", "
+        done <<<"${FAILING[$i]}"
+        printf ']'
+      fi
       if [ "${STATE_OF[$i]}" = "skipped" ] || [ "${STATE_OF[$i]}" = "notrun" ]; then
         printf ', "reason": "%s"' "$(json_escape "${NOTE[$i]}")"
       fi
@@ -907,6 +1008,14 @@ fi
 # A real failure outranks everything: report it and stop, so a gap can never be the
 # headline over a suite that ran and lost.
 if [ "${#FAILED[@]}" -gt 0 ]; then
+  # Beside each failed suite, what failed in it, so the last lines of a long log name it.
+  i=0
+  while [ "$i" -lt "$N" ]; do
+    if [ -n "${FAILING[$i]:-}" ]; then
+      while IFS= read -r f; do echo "  ${REL[$i]}: $f"; done <<<"${FAILING[$i]}"
+    fi
+    i=$((i + 1))
+  done
   echo "=== app/scripts: ${#FAILED[@]} of ${#SUITES[@]} suite(s) FAILED: ${FAILED[*]} ==="
   exit 1
 fi

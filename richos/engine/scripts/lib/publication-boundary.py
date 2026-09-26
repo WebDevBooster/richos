@@ -26,6 +26,11 @@ Contract with the caller (scripts/lib/publication-boundary.sh):
                     {"label": "docs/z.png", "path": "/tmp/blob", "identity_only": true}]
       }
 
+  An item may carry "published_path": the file's text as ALREADY PUBLISHED (the
+  commit guard passes the same path at the public remote's main). A word-run
+  that also appears verbatim there is not a new disclosure, and the
+  derived-from-private detector does not count it; see ALREADY PUBLISHED below.
+
   "private_files" is material that is private BY IDENTITY rather than by
   resembling a recording — see the identity section below. An item marked
   "identity_only" is judged by that rule ALONE: it is how a binary blob, and a
@@ -795,18 +800,54 @@ def index_corpus(corpus, n):
     return {hash(tuple(words[i:i + n])) for i in range(0, len(words) - n + 1)}
 
 
-def verbatim_run(content, corpus, index, n):
-    """First run of >= n consecutive words reproduced verbatim from the corpus.
+# --- ALREADY PUBLISHED (2026-09-25) -------------------------------------------
+#
+# The detector asks "are these words in a private record?". That is the wrong
+# question for words the public repository ALREADY carries: a private record
+# that quotes a public line (a console log quoting proof-run.py's output, a note
+# quoting a suite's NOT RUN message) does not make that line private, and a
+# commit that keeps it discloses nothing new. The rule refused exactly that
+# twice: native-ios-app.test.sh line 118 (quoted whole in a private record) and
+# proof-run.py (esc-20260924T234750Z-6bbc3ae9), so neither file could be
+# changed at all.
+#
+# So a window that also appears verbatim in the item's published text (the same
+# path at the public remote's main, supplied by the caller) is not counted. It
+# is narrow on purpose: EXACT windows of the SAME file as published, compared as
+# word tuples rather than hashes, so a collision can never excuse a private
+# phrase; any window with a new word in it is still judged, so a new private
+# phrase added to a public file is still refused. No published text, no
+# exemption.
+def published_windows(item, n):
+    """The exact n-word windows of the item's already-published text, or an
+    empty set when it has none."""
+    path = item.get('published_path')
+    if not path:
+        return set()
+    try:
+        with open(path, 'rb') as fh:
+            text = decode_best(fh.read(8_000_000))
+    except OSError:
+        return set()
+    words = normalise(text)  # dialect-exempt: existing identifier in this file
+    return {tuple(words[i:i + n]) for i in range(0, len(words) - n + 1)}
+
+
+def verbatim_run(content, corpus, index, n, published=frozenset()):
+    """First run of >= n consecutive words reproduced verbatim from the corpus
+    and NOT already in the published text (ALREADY PUBLISHED above).
 
     Short-circuits on the first hit, then extends it only far enough to report
     honest evidence — the author needs to know WHAT was reproduced, not every
     place it appears."""
     if not corpus or not index:
         return None
-    words = normalise(content)
+    words = normalise(content)  # dialect-exempt: existing identifier in this file
     for i in range(0, len(words) - n + 1):
         window = tuple(words[i:i + n])
         if hash(window) not in index:
+            continue
+        if window in published:     # already public: not a new disclosure
             continue
         cand = ' '.join(window)
         if cand not in corpus:      # collision — not a match, keep going
@@ -991,7 +1032,8 @@ def main():
         # Detector 1 — derived from private. The sharpest signal that needs no
         # declaration naming the file: no heuristic, no threshold on shape, just
         # "these exact words are already in a file we declared private".
-        run = verbatim_run(blob, corpus, corpus_index, min_quote)
+        run = verbatim_run(blob, corpus, corpus_index, min_quote,
+                           published_windows(item, min_quote))
         if run:
             findings.append((
                 'BLOCK', label, 'derived-from-private',

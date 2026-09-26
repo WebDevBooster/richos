@@ -85,6 +85,11 @@
 #       many declarations a run actually compared against. Every fixture is
 #       synthetic: the file this was built for never enters this repository,
 #       including as a test fixture, which would be the failure executed.
+#   (p) ALREADY PUBLISHED. A line the public remote's main already carries in
+#       the same file commits even when a private record quotes it; a NEW
+#       private phrase in that file is refused; a new file carrying the public
+#       line, or the same commit with no published copy, is refused. Three
+#       mutations of the rule, each caught.
 #   (j) FAIL-CLOSED / FAIL-OPEN conventions, matching the hook family.
 #   (k) REGISTRATION on BOTH surfaces plus the probe's oracle.
 #
@@ -1239,6 +1244,88 @@ if grep -q "scripts/lib/declaration-path.sh" "$ENGINE_ROOT/scripts/hooks/install
 else
     bad "scripts/lib/declaration-path.sh NOT hashed by install.sh"
 fi
+
+# ---------------------------------------------------------------------------
+# (p) ALREADY PUBLISHED — a private record quoting a PUBLIC line does not make
+#     the line private (2026-09-25).
+# ---------------------------------------------------------------------------
+# native-ios-app.test.sh could not be committed at all: its existing line 118
+# was quoted whole in a private record, and proof-run.py had the same problem
+# with console logs (esc-20260924T234750Z-6bbc3ae9). Text the public remote's
+# main already carries, in the same file, is not a new disclosure. A new private
+# phrase added to that file still is, and without a published copy nothing is
+# exempt. Each rule has a mutation this section must catch.
+PUBLIC_LINE="the runner stopped every check it started and kept each log beside its summary"
+NEW_PRIVATE="okay so the thing I wanted to walk through today is the migration"
+make_published_sandbox() {  # a repo whose origin/main carries PUBLIC_LINE in src/runner.sh
+    local sb
+    sb="$(make_default_sandbox)"
+    # The private record quotes the public line: one more speaker line of the
+    # recording, assembled at run time like every fixture here.
+    printf '%s00%s59%s %s%s %s\n' '[' ':' ']' "Dana" ':' "$PUBLIC_LINE" >> "$sb/private/recording.transcript.txt"
+    printf '#!/bin/sh\necho "%s"\n' "$PUBLIC_LINE" > "$sb/src/runner.sh"
+    git -C "$sb" add -A >/dev/null 2>&1
+    sandbox_commit "$sb" public
+    git -C "$sb" update-ref refs/remotes/origin/main HEAD
+    printf '%s' "$sb"
+}
+SB_P="$(make_published_sandbox)"
+printf 'echo done\n' >> "$SB_P/src/runner.sh"
+git -C "$SB_P" add src/runner.sh
+commit_case "published: a file whose public line a private record quotes still commits" 0 "$SB_P"
+printf 'echo "%s"\n' "$NEW_PRIVATE" >> "$SB_P/src/runner.sh"
+git -C "$SB_P" add src/runner.sh
+commit_case "published: a NEW private phrase added to that public file is refused" 2 "$SB_P"
+git -C "$SB_P" checkout -q HEAD -- src/runner.sh
+printf 'echo done\n' >> "$SB_P/src/runner.sh"
+git -C "$SB_P" add src/runner.sh
+cp "$SB_P/src/runner.sh" "$SB_P/src/copy.sh"
+git -C "$SB_P" add src/copy.sh
+commit_case "published: the exemption is the SAME path's published copy (a new file carrying the line is refused)" 2 "$SB_P"
+git -C "$SB_P" rm -q --cached src/copy.sh; rm -f "$SB_P/src/copy.sh"
+git -C "$SB_P" update-ref -d refs/remotes/origin/main
+commit_case "published: without a published copy the same line is refused (the corpus does hold it)" 2 "$SB_P"
+git -C "$SB_P" update-ref refs/remotes/origin/main HEAD
+
+# The mutations run a copy of the guard and its libraries with one rule broken.
+mutant_engine() {  # mutant_engine <dir> <file under scripts/> <python replace expression over s>
+    mkdir -p "$1/scripts"
+    cp -R "$ENGINE_ROOT/scripts/lib" "$1/scripts/lib"
+    mkdir -p "$1/scripts/hooks"
+    cp "$COMMIT_HOOK" "$1/scripts/hooks/guard-publication-commits.sh"
+    python3 - "$1/scripts/$2" "$3" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+t = eval(sys.argv[2], {"s": s})
+assert t != s, "mutation did not apply"
+open(p, "w").write(t)
+PY
+}
+mutant_case() {  # mutant_case <name> <expect-rc-of-the-MUTANT> <mutant engine> <sandbox>
+    local rc
+    bash_payload "git -C $4 commit -m msg" "$4" | "$3/scripts/hooks/guard-publication-commits.sh" >/dev/null 2>&1
+    rc=$?
+    if [ "$rc" -eq "$2" ]; then ok "$1"; else bad "$1 (the mutant exited $rc; the case above would not catch it)"; fi
+}
+MUT_A="$SCRATCH/mutant-no-exemption"
+if mutant_engine "$MUT_A" lib/publication-boundary.py 's.replace("        if window in published:     # already public: not a new disclosure\n            continue\n", "")'; then
+    mutant_case "MUTATION caught: with the exemption removed, the published-line commit is refused" 2 "$MUT_A" "$SB_P"
+else bad "MUTATION the exemption line is no longer where the mutation expects it"; fi
+MUT_B="$SCRATCH/mutant-exempt-all"
+if mutant_engine "$MUT_B" lib/publication-boundary.py 's.replace("if window in published:", "if published:")'; then
+    printf 'echo "%s"\n' "$NEW_PRIVATE" >> "$SB_P/src/runner.sh"
+    git -C "$SB_P" add src/runner.sh
+    mutant_case "MUTATION caught: exempting any file that has a published copy lets the new private phrase through" 0 "$MUT_B" "$SB_P"
+    git -C "$SB_P" checkout -q HEAD -- src/runner.sh
+    printf 'echo done\n' >> "$SB_P/src/runner.sh"
+    git -C "$SB_P" add src/runner.sh
+else bad "MUTATION the published test is no longer where the mutation expects it"; fi
+MUT_C="$SCRATCH/mutant-no-published-copy"
+if mutant_engine "$MUT_C" hooks/guard-publication-commits.sh 's.replace("item[\"published_path\"] = parts[3]", "pass")'; then
+    mutant_case "MUTATION caught: a guard that does not hand over the published copy refuses the published-line commit" 2 "$MUT_C" "$SB_P"
+else bad "MUTATION the published-copy hand-over is no longer where the mutation expects it"; fi
+rm -rf "$SB_P" "$MUT_A" "$MUT_B" "$MUT_C"
 
 # ---------------------------------------------------------------------------
 # (k) REGISTRATION — both surfaces, or the engine ships a guard nobody loads.

@@ -51,6 +51,9 @@ if "$NATIVE/Release/platform-tests.sh" "$CACHE/platform-tests" >"$SCRATCH/platfo
   else bad "S1 platform tests" "no passing counts: $(tail -3 "$SCRATCH/platform.log" | tr '\n' ' ')"; fi
 else
   bad "S1 platform tests" "$(grep -E 'error:|FAIL' "$SCRATCH/platform.log" | head -8 | tr '\n' ' ')"
+  # The whole log kept with the run (it is in scratch, deleted on exit), and any test it names.
+  python3 "$DIR/lib/test_results.py" report --label "native-ios-share S1" \
+    ${RICHOS_TEST_RESULTS_DIR:+--into "$RICHOS_TEST_RESULTS_DIR"} --collect "platform.log=$SCRATCH/platform.log"
 fi
 
 # S2 — the TestFlight tool against a fake App Store Connect (no request leaves this Mac).
@@ -113,6 +116,7 @@ fi
 # records from the Mac's own microphone. (ShareViewController is compiled and embedded; its three
 # lines of hosting run only inside a real share sheet.)
 if xcrun simctl list runtimes 2>/dev/null | grep -q '^iOS .*com.apple.CoreSimulator.SimRuntime.iOS'; then
+  touch "$SCRATCH/s7.start"
   if "$NATIVE/Release/simulator-tests.sh" "$CACHE/simulator" >"$SCRATCH/sim.log" 2>&1; then SIM_RC=0; else SIM_RC=$?; fi
   if [ "$SIM_RC" -eq 0 ]; then
     ok "S7 $(grep '^simulator tests:' "$SCRATCH/sim.log")"
@@ -122,6 +126,14 @@ if xcrun simctl list runtimes 2>/dev/null | grep -q '^iOS .*com.apple.CoreSimula
     S7_NOT_RUN=1
   else
     bad "S7 simulator tests" "$(tail -12 "$SCRATCH/sim.log" | tr '\n' ' ')"
+    # Every failing test by name; this run's bundle (the next run of this suite deletes it
+    # first, Release/simulator-tests.sh) moved, and the log copied, to the run's results.
+    KEEP=(--collect "sim.log=$SCRATCH/sim.log")
+    if [ -d "$CACHE/simulator/result.xcresult" ] && [ "$CACHE/simulator/result.xcresult" -nt "$SCRATCH/s7.start" ]; then
+      KEEP+=(--move "simulator-result.xcresult=$CACHE/simulator/result.xcresult")
+    fi
+    python3 "$DIR/lib/test_results.py" report --label "native-ios-share S7" \
+      ${RICHOS_TEST_RESULTS_DIR:+--into "$RICHOS_TEST_RESULTS_DIR"} "${KEEP[@]}"
   fi
 else
   echo "  NOT RUN  S7 no iOS simulator runtime is installed"

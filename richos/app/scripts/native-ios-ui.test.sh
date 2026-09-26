@@ -681,6 +681,18 @@ for i in "${!SIM_UDID[@]}"; do
   python3 "$DIR/lib/ios_ui_shards.py" name-shots "$OUT/shard-$i" "$OUT" || true
   rm -rf "$OUT/shard-$i"
 done
+# A failure (STATUS 1; 2 is NOT RUN, a lost lease, with nothing failed): every failing test by
+# name, and each simulator's bundle and log moved to the run's results (lib/test_results.py),
+# after the screenshots above were taken from the bundles.
+if [ "$STATUS" -eq 1 ]; then
+  KEEP=()
+  for i in "${!SIM_UDID[@]}"; do
+    KEEP+=(--collect "test-$i.log=$WORK/test-$i.log")
+    [ -d "$WORK/result-$i.xcresult" ] && KEEP+=(--move "result-$i.xcresult=$WORK/result-$i.xcresult")
+  done
+  python3 "$DIR/lib/test_results.py" report --label native-ios-ui \
+    ${RICHOS_TEST_RESULTS_DIR:+--into "$RICHOS_TEST_RESULTS_DIR"} "${KEEP[@]}"
+fi
 # Each device's own run released it in run-simulator.sh's trap, so the pool may already have
 # leased it to another run: --if-ours leaves that run's device alone.
 for i in "${!SIM_UDID[@]}"; do

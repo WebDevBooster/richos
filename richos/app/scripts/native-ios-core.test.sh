@@ -38,6 +38,10 @@ if "$RIOS" test >"$SCRATCH/test.log" 2>&1; then
   else bad "C1 core unit tests" "no passing test count in the output: $(tail -3 "$SCRATCH/test.log" | tr '\n' ' ')"; fi
 else
   bad "C1 core unit tests" "$(grep -E 'error:|✘|failed' "$SCRATCH/test.log" | head -5 | tr '\n' ' ')"
+  # Every failing test by name, and the whole log kept with the run (lib/test_results.py): the
+  # five lines above are a digest, and this log is in scratch that is deleted on exit.
+  python3 "$DIR/lib/test_results.py" report --label "native-ios-core C1" \
+    ${RICHOS_TEST_RESULTS_DIR:+--into "$RICHOS_TEST_RESULTS_DIR"} --collect "core-tests.log=$SCRATCH/test.log"
 fi
 
 # C2 — a scenario through the real core, as a separate CLI process (loop L1′).
