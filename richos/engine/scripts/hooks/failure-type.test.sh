@@ -420,7 +420,7 @@ CTX="$(ctx_of "$UOUT")"
 CTX_LEN="$(printf '%s' "$CTX" | wc -c | tr -d ' ')"
 CTX_LINES="$(printf '%s\n' "$CTX" | wc -l | tr -d ' ')"
 write_register 4 5.2
-if [ "${CTX_LEN:-0}" -gt 1000 ] && [ "$CTX_LEN" -le 7800 ] && [ "$CTX_LINES" -le 190 ] \
+if [ "${CTX_LEN:-0}" -gt 1000 ] && [ "$CTX_LEN" -le 9990 ] && [ "$CTX_LINES" -le 190 ] \
    && printf '%s' "$CTX" | grep -q "NOT SHOWN"; then
     ok "FT19 260 types: the context stays under the channel cap ($CTX_LEN chars, $CTX_LINES lines) and names what it left out"
 else

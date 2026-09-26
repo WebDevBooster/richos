@@ -139,9 +139,15 @@ TYPE_WORD = re.compile(r"typ(?:e|es|ed|ing)", re.I)
 FAILURE_WORD = re.compile(r"failures?", re.I)
 TOKEN = re.compile(r"[A-Za-z]+|\d+")
 
-# The measured channel cap (commit-ceo-inputs.sh: 8000 characters, 200 lines;
-# over it the host drops the whole object). The margin covers the envelope.
-CONTEXT_BUDGET = 7600
+# THE CHANNEL CAP, READ FROM THE HOST RATHER THAN INHERITED. commit-ceo-inputs.sh
+# records an older measurement (8000 characters, 200 lines, over it the whole
+# object dropped). In the 2.1.283 binary a hook's additionalContext passes
+# through `cae(..., {threshold: CLo})` with `CLo=1e4`: up to 10,000 characters
+# it is kept inline; over it the text is written to disk and only its head and
+# path reach the model. So the list is budgeted under 10,000 with a margin, and
+# anything that does not fit is NAMED as not shown rather than cut silently.
+# The line ceiling is the older measurement's, kept because it is the stricter.
+CONTEXT_BUDGET = 9600
 CONTEXT_MAX_LINES = 180
 
 MAX_TRANSCRIPT = 256 * 1024 * 1024
@@ -738,8 +744,8 @@ def cmd_stop(payload):
             why += " Named without the register's heading: " + "; ".join(
                 "Type %d, whose heading is \"%s\"" % (n, h) for n, h in loose[:3]) + "."
         if says_new and not new_headings:
-            why += (" It says \"new type\", but no `Type <M>:` heading was added to the register in a commit this "
-                    "turn; a new type is not new until it has its number (next free: %s)."
+            why += (" The reply uses the words \"new type\", but no `Type <M>:` heading was added to the register in "
+                    "a commit this turn; a new type is not new until it has its number (next free: %s)."
                     % (reg["box_type"] if reg["box_type"] is not None else reg["derived_type"]))
         lines.append(why)
     if not c_ok:

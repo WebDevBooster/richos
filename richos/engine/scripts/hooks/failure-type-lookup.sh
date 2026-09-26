@@ -47,10 +47,12 @@
 # ===========================================================================
 # additionalContext reaches the model at UserPromptSubmit and systemMessage
 # reaches the person; the measurement is in the table below and in
-# left-off-report.sh. The host's measured cap on additionalContext is 8000
-# characters and 200 lines (commit-ceo-inputs.sh), and over it the whole
-# object is DROPPED, so the analyzer budgets the list and names the types it
-# left out rather than being discarded at the boundary.
+# left-off-report.sh. The host keeps a hook's additionalContext inline up to
+# 10,000 characters (read from the 2.1.283 binary: `CLo=1e4`) and over that
+# puts only its head and a file path in front of the model; an older
+# measurement recorded in commit-ceo-inputs.sh says 8000 and a dropped object.
+# So the analyzer budgets the list under 10,000 and NAMES any type it could not
+# fit, rather than letting the host cut it where nobody can see.
 #
 # Stand down with CHECK_FAILURE_TYPE=0 in orchestration.config: announced when
 # his message carries the words, never silent.
