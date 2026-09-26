@@ -38,7 +38,9 @@ pair: PASS          phone-task: PASS    observe: PASS
 [testvm] 12:49:36Z clean: app quit, VM stopped, clone deleted, state removed.
 ```
 
-`scripted-run/observed.json`, on the guest's clock (ms):
+`scripted-run/observed.jsonl`, on the guest's clock (ms). (The walk writes `observed.json`,
+`report.json` and `run.json`; each is kept here as one JSON document on one line, `.jsonl`,
+because this folder is evidence and not configuration.)
 
 | event | guest ms | from the phone's words |
 |---|---|---|
@@ -72,7 +74,7 @@ assignment's own record carries `repositories: []`; the typed one's was not read
 for both entrances, and it is not what this branch changes; it is named here rather than left
 for someone to discover. Not diagnosed.
 
-`observed-phone-part.json` is the same verdict run on the rows before the typed control
+`hand-paired-run/observed-phone-part.jsonl` is the same verdict run on the rows before the typed control
 (PASS, +8 ms); on the whole file it fails, as it must: `a prompt on this conversation did not
 come from the phone` (the typed control).
 
