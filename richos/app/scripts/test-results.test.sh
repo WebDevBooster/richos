@@ -14,9 +14,9 @@
 # and its result file must still exist, after the second has replaced the shared folder.
 #
 # CASES
-#   N1-N6  lib/test_results.py reads JUnit XML, an Xcode bundle (through a stand-in
-#          xcresulttool), test logs, and an unreadable result file, and names each failure;
-#          and the last error of a check that died before any test ran
+#   N1-N7  lib/test_results.py reads JUnit XML, an Xcode bundle (through a stand-in
+#          xcresulttool), test logs, an engine shard's log, and an unreadable result file, and
+#          names each failure; and the last error of a check that died before any test ran
 #   L1     two test runs on one lock and one shared folder, overlapping: each run's copy holds
 #          its own result, and the second waited for the first
 #   R1-R5  the incident through run-tests.sh, serial and concurrent: named in the summary and in
@@ -128,6 +128,26 @@ if has "$out" "unreadable result file $TMP/n/run/TEST-cut.xml" && has "$out" "un
    && has "$out" "testWordsMatch"; then
   ok "N5 a result file that cannot be read is reported by path, and the log still names the tests"
 else bad "N5 unreadable result files reported, log still read" "$out"; fi
+
+# An engine shard's log, in ci-shard.sh's own shape (colored, as a proof run's log is): each failed
+# unit named with its reason, a passed unit and the canary's detail lines not.
+E=$'\033'
+cat > "$TMP/n/shard.log" <<LOG
+=== ci-shard: 3 unit(s), shard 3/5 at 0000000 ===
+  [  1/  3] scripts/hooks/contract-integrity.test.sh:MC     ${E}[32mPASS${E}[0m 94.8s
+  [  2/  3] scripts/hooks/contract-integrity.test.sh:SCR    ${E}[31mFAIL${E}[0m 901.6s — touched the operator's record
+        TOUCHED THE OPERATOR'S RECORD — the class that wrote a false termination:
+          workspace registry entry APPEARED: events.jsonl 1cb77d2cf8199354 event=end key=x
+  [  3/  3] scripts/lib/git-jurisdiction.test.sh            FAIL 3.1s (rc=1, expected 0)
+
+${E}[31m✗ ci-shard shard 3/5: 1/3 unit(s) passed, 2 FAILED.${E}[0m
+LOG
+out="$(python3 "$KEEPER" names --log "$TMP/n/shard.log")"
+if has "$out" "  FAILED TEST  scripts/hooks/contract-integrity.test.sh:SCR — touched the operator's record" \
+   && has "$out" "  FAILED TEST  scripts/lib/git-jurisdiction.test.sh — (rc=1, expected 0)" \
+   && ! has "$out" ":MC" && ! has "$out" "APPEARED" && [ "$(grep -c 'FAILED TEST' <<<"$out")" -eq 2 ]; then
+  ok "N7 an engine shard's log (ci-shard.sh): each failed unit named with its reason, a pass and the canary's detail not"
+else bad "N7 ci-shard failures named" "$out"; fi
 
 printf '%s\n' 'Traceback (most recent call last):' '  File "testdevices.py", line 1241, in acquire_ios' \
   'TimeoutError: prepared simulator is leased by another run' 'native-ios-ui: failure evidence retained' > "$TMP/n/died.log"

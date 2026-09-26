@@ -139,6 +139,14 @@ LOG_PATTERNS = (
     (re.compile(r"^test (\S+) \.\.\. FAILED\s*$"), lambda m: (m.group(1), "")),
     # node --test (TAP): not ok 3 - the outbox drains
     (re.compile(r"^\s*not ok \d+ - (.+?)\s*$"), lambda m: (m.group(1), "")),
+    # the engine's ci-shard.sh, one line per unit, colored or not:
+    #   [  4/  8] scripts/hooks/contract-integrity.test.sh:SCR   FAIL 901.6s — touched the operator's record
+    #   [  2/  3] scripts/lib/x.test.sh                           FAIL 3.1s (rc=1, expected 0)
+    # 2026-09-26: a proof run's engine shards failed and the summary listed every unit each shard
+    # held, with no line saying which of them failed.
+    (re.compile(r"^\s*\[\s*\d+/\s*\d+\] (\S+)\s+(?:\x1b\[[0-9;]*m)?FAIL(?:\x1b\[[0-9;]*m)? [\d.]+s"
+                r"(?: — (.+?)| (\(rc=[^)]*\)))?\s*$"),
+     lambda m: (m.group(1), m.group(2) or m.group(3) or "")),
 )
 
 
