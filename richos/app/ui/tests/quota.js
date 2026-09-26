@@ -7,8 +7,10 @@ async function main() {
   const run = createRun("Desktop Claude Code quota settings");
   const browser = await loadPlaywright().webkit.launch();
   const errors = [];
-  async function open(theme, quota, scale = 100, quotaActivity = null, enabled = false) {
-    const page = await browser.newPage({ viewport: { width: 1024, height: 700 } });
+  async function open(theme, quota, scale = 100, quotaActivity = null, enabled = false, options = {}) {
+    const { fixedTime, ...pageOptions } = options;
+    const page = await browser.newPage({ viewport: { width: 1024, height: 700 }, ...pageOptions });
+    if (fixedTime) await page.clock.setFixedTime(fixedTime);
     page.setDefaultTimeout(5000);
     page.on("pageerror", e => errors.push(String(e)));
     await page.addInitScript(({ theme, quota, scale, quotaActivity, enabled }) => {
@@ -36,6 +38,47 @@ async function main() {
     { id: "seven_day", label: "Weekly", usedPercent: 32, resetsAt: now + 4 * 86400000, durationMs: 7 * 86400000 },
     { id: "model:Fable", label: "Weekly · Fable", usedPercent: 12, resetsAt: now + 4 * 86400000, durationMs: 7 * 86400000 },
   ] };
+  await run.check("quota clock labels stay stable across second-boundary refreshes", async () => {
+    const fixedTime = new Date("2026-09-26T06:20:00Z");
+    for (const scenario of [
+      { timezoneId: "Europe/London", weekly: "2026-09-30T07:59:59Z", five: ["5:40 AM", "10:40 AM"], week: "Wed 9:00 AM" },
+      { timezoneId: "UTC", weekly: "2026-09-30T07:59:59Z", five: ["4:40 AM", "9:40 AM"], week: "Wed 8:00 AM" },
+      { timezoneId: "Europe/London", weekly: "2026-10-06T22:59:59Z", five: ["5:40 AM", "10:40 AM"], week: "Wed 12:00 AM" },
+    ]) {
+      const fixture = { ...quota, checkedAt: +fixedTime, windows: quota.windows.map(w => ({ ...w,
+        resetsAt: Date.parse(w.id === "five_hour" ? "2026-09-26T09:39:59Z" : scenario.weekly) })) };
+      const page = await open("dark", fixture, 100, null, false,
+        { locale: "en-US", timezoneId: scenario.timezoneId, fixedTime });
+      try {
+        await enableTechnical(page); await page.click("#set-quota-open");
+        await page.waitForSelector(".quota-ends");
+        const expected = ["began " + scenario.five[0], "resets " + scenario.five[1],
+          "began " + scenario.week, "resets " + scenario.week, "began " + scenario.week, "resets " + scenario.week];
+        const checkLabels = async () => {
+          assertEqual((await page.locator(".quota-ends span").allTextContents()).map(t => t.replace(/\s+/g, " ")), expected);
+          assert((await page.locator(".quota-hero .quota-reset").innerText()).replace(/\s+/g, " ").endsWith(scenario.five[1]));
+        };
+        await checkLabels();
+        await page.evaluate(() => {
+          const invoke = window.RichBridge.invoke.bind(window.RichBridge);
+          window.__quotaTimeRefreshes = 0;
+          window.RichBridge.invoke = async (cmd, ...args) => {
+            const result = await invoke(cmd, ...args);
+            if (cmd !== "claude_quota") return result;
+            const n = ++window.__quotaTimeRefreshes;
+            return { ...result, windows: result.windows.map(w => ({ ...w,
+              usedPercent: 20 + n, resetsAt: w.resetsAt + (n % 2 ? 1000 : 0) })) };
+          };
+        });
+        // Real refreshes alternate :59 and the following :00 for the same window.
+        for (const used of [21, 22]) {
+          await page.click("#quota-refresh");
+          await page.waitForFunction(value => document.querySelector(".quota-used").firstChild.textContent === String(value), used);
+          await checkLabels();
+        }
+      } finally { await page.close(); }
+    }
+  });
   await run.check("quota stays hidden until technical view is enabled", async () => {
     const page = await open("dark", quota);
     assert(await page.locator("#set-quota-open").isHidden());

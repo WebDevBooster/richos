@@ -55,8 +55,11 @@
     const m = Math.max(1, Math.ceil(ms / 60000));
     return m >= 1440 ? `${Math.floor(m / 1440)}d ${Math.floor(m % 1440 / 60)}h` : m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
   };
-  const clock = t => new Date(t).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-  const stamp = (t, weekly) => new Date(t).toLocaleString(undefined, { ...(weekly ? { weekday: "short" } : {}), hour: "numeric", minute: "2-digit" });
+  // Provider readings can differ by a second at a minute boundary. Round only
+  // the displayed date; countdowns, window progress and quota policy keep the exact timestamp.
+  const minuteDate = t => new Date(Math.round(t / 60000) * 60000);
+  const clock = t => minuteDate(t).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const stamp = (t, weekly) => minuteDate(t).toLocaleString(undefined, { ...(weekly ? { weekday: "short" } : {}), hour: "numeric", minute: "2-digit" });
   function node(tag, cls, text = "") { const n = document.createElement(tag); n.className = cls; n.textContent = text; return n; }
   function stale(now = Date.now()) { return !view || view.state !== "fresh" || !view.checkedAt || now < view.checkedAt || now - view.checkedAt >= view.refreshIntervalMs || view.windows.some(w => w.resetsAt && w.resetsAt <= now); }
   function validDraft() { return /^[0-9]{1,2}$/.test(field("quota-threshold").value) && Number(field("quota-threshold").value) >= 1; }
