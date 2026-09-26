@@ -30,8 +30,15 @@ fn tmp_path(tag: &str) -> std::path::PathBuf {
         std::process::id(),
         richos_core::util::now_millis()
     ));
-    let _ = std::fs::remove_file(&p);
+    remove_if_present(&p);
     p
+}
+
+/// A file this suite owns is gone afterwards; "it was never there" is the one acceptable failure.
+fn remove_if_present(p: &std::path::Path) {
+    if let Err(error) = std::fs::remove_file(p) {
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "could not remove {}: {error}", p.display());
+    }
 }
 
 /// Two conversations in one company, the first one active, with an intake log attached.
@@ -54,7 +61,7 @@ fn threads(ended: &[richos_core::entity::ThreadBinding]) -> Vec<String> {
 
 fn clean(paths: Vec<std::path::PathBuf>) {
     for p in paths {
-        let _ = std::fs::remove_file(p);
+        remove_if_present(&p);
     }
 }
 

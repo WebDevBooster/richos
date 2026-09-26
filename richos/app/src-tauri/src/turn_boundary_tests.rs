@@ -157,7 +157,7 @@ impl Mac {
     }
     fn finish(self) {
         self.work.shutdown();
-        let _ = std::fs::remove_dir_all(&self.root);
+        std::fs::remove_dir_all(&self.root).expect("the test's own directory could not be removed");
     }
 }
 
