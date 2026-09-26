@@ -50,6 +50,21 @@ fn app_profile_creates_neutral_coordination_and_one_hook_per_event() {
 }
 
 #[test]
+fn desktop_quota_wrapper_preserves_the_canonical_hook_and_its_full_tool_reach() {
+    let f = Scratch::new();
+    let profile = EngineProfile::prepare(&engine(), &f.0, f.runtime()).unwrap();
+    profile.install_quota_gate(Path::new("/Applications/RichOS Test.app/Contents/MacOS/richos")).unwrap();
+    let manifest: serde_json::Value = serde_json::from_slice(&std::fs::read(profile.plugin.join("hooks/hooks.json")).unwrap()).unwrap();
+    let group = &manifest["hooks"]["PreToolUse"][0];
+    assert!(group.get("matcher").is_none());
+    let hook = &group["hooks"][0];
+    assert!(hook["command"].as_str().unwrap().contains("--claude-quota-gate"));
+    assert!(hook["command"].as_str().unwrap().contains("app-engine-hook.py"));
+    assert_eq!(hook["timeout"], 21600);
+    assert_eq!(manifest["hooks"].as_object().unwrap().len(), 9);
+}
+
+#[test]
 fn an_unrelated_or_redirected_directory_is_never_adopted() {
     let f = Scratch::new(); std::fs::create_dir(f.0.join("coordination")).unwrap();
     std::fs::write(f.0.join("coordination/keep.txt"), "fictional user file").unwrap();

@@ -1,0 +1,234 @@
+  PASS  S1 every operator line in src-tauri carries the [richos] prefix
+  PASS  A0 the hand-written healthy log is accepted (the fixture the next four vary)
+  PASS  A1 a line no rule accounts for fails, and the line is printed verbatim
+  PASS  A2 a missing success line fails — silence is not success
+  PASS  A3 a declared gap passes and its reason is printed where a reviewer sees it
+  PASS  A4 a gap declared with no reason is refused
+  PASS  A5 an empty log fails, never 'all 0 lines accounted for'
+  PASS  A6 all 33 lines declared unaccountable are still unaccounted
+  PASS  A7 display-sized, restored and re-derived window placements are accounted for
+  PASS  A8 a missing window placement fails its own proof
+  PASS  C1 the harness builds a real .app — Contents/MacOS and Contents/Info.plist
+  PASS  C2 the Info.plist carries every key bundle_version reads: CFBundleIdentifier CFBundleShortVersionString
+  PASS  C3 the Info.plist declares com.richos.app, found by the product's own reader
+  PASS  C4 the Info.plist is mode 644, 1 link, 598 bytes, and parses
+  ... building richos-tauri (the artifact under test is built here, never assumed)
+warning: constant `OVERRIDE_ENV` is never used
+   --> src/activation.rs:346:11
+    |
+346 | pub const OVERRIDE_ENV: &str = "RICHOS_ACTIVATION";
+    |           ^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `OVERRIDE_REGULAR` is never used
+   --> src/activation.rs:348:11
+    |
+348 | pub const OVERRIDE_REGULAR: &str = "regular";
+    |           ^^^^^^^^^^^^^^^^
+
+warning: associated function `nothing` is never used
+  --> src/lifecycle.rs:70:12
+   |
+69 | impl Registered {
+   | --------------- associated function in this implementation
+70 |     pub fn nothing() -> Self {
+   |            ^^^^^^^
+
+warning: method `readable` is never used
+   --> src/nav.rs:145:12
+    |
+104 | impl NavStore {
+    | ------------- method in this implementation
+...
+145 |     pub fn readable(&self) -> bool {
+    |            ^^^^^^^^
+
+warning: variant `NoSecret` is never constructed
+   --> src/phone/mod.rs:154:5
+    |
+140 | pub enum PhoneError {
+    |          ---------- variant in this enum
+...
+154 |     NoSecret(String),
+    |     ^^^^^^^^
+    |
+    = note: `PhoneError` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: method `recheck_tailnet` is never used
+   --> src/phone/mod.rs:976:12
+    |
+899 | impl PhoneRuntime {
+    | ----------------- method in this implementation
+...
+976 |     pub fn recheck_tailnet(&self) {
+    |            ^^^^^^^^^^^^^^^
+
+warning: associated function `new` is never used
+  --> src/phone/api_base.rs:97:12
+   |
+96 | impl Unreachable {
+   | ---------------- associated function in this implementation
+97 |     pub fn new(name: &'static str) -> Self {
+   |            ^^^
+
+warning: methods `take_change` and `ranking` are never used
+   --> src/phone/api_base.rs:163:12
+    |
+133 | impl ApiBaseDesk {
+    | ---------------- methods in this implementation
+...
+163 |     pub fn take_change(&self) -> ApiBaseChange {
+    |            ^^^^^^^^^^^
+...
+184 |     pub fn ranking(&self) -> Vec<&'static str> {
+    |            ^^^^^^^
+
+warning: associated items `from_files`, `len`, `is_empty`, and `paths` are never used
+  --> src/phone/assets.rs:53:18
+   |
+37 | impl PhoneApp {
+   | ------------- associated items in this implementation
+...
+53 |     pub const fn from_files(files: &'static [(&'static str, &'static [u8])]) -> Self {
+   |                  ^^^^^^^^^^
+...
+73 |     pub fn len(&self) -> usize {
+   |            ^^^
+...
+77 |     pub fn is_empty(&self) -> bool {
+   |            ^^^^^^^^
+...
+82 |     pub fn paths(&self) -> impl Iterator<Item = &'static str> + '_ {
+   |            ^^^^^
+
+warning: associated constants `HOME` and `UNKNOWN` are never used
+   --> src/phone/device.rs:368:15
+    |
+362 | impl PairedVia {
+    | -------------- associated constants in this implementation
+...
+368 |     pub const HOME: &'static str = "home";
+    |               ^^^^
+369 |     /// A record written before this field existed. Never written by this build.
+370 |     pub const UNKNOWN: &'static str = "";
+    |               ^^^^^^^
+
+warning: associated constant `UNKNOWN` is never used
+   --> src/phone/device.rs:381:15
+    |
+375 | impl Platform {
+    | ------------- associated constant in this implementation
+...
+381 |     pub const UNKNOWN: &'static str = "";
+    |               ^^^^^^^
+
+warning: methods `fingerprint_confirmed` and `use_native_push` are never used
+    --> src/phone/device.rs:1308:12
+     |
+ 723 | impl DeviceDesk {
+     | --------------- methods in this implementation
+...
+1308 |     pub fn fingerprint_confirmed(&self) -> bool {
+     |            ^^^^^^^^^^^^^^^^^^^^^
+...
+1368 |     pub fn use_native_push(&self, device_id: &str) -> Result<(), PhoneError> {
+     |            ^^^^^^^^^^^^^^^
+
+warning: function `tls_config` is never used
+   --> src/phone/listen.rs:423:8
+    |
+423 | pub fn tls_config(
+    |        ^^^^^^^^^^
+
+  PASS  B0 a complete machine was built (corpus, tools, engine pointer, claude, saved company)
+         {"verified": true, "versions": {"python3": "Python 3.13.15", "node": "v24.21.0", "git": "git version 2.55.0", "jq": "jq-1.8.2"}}
+         compiler source : /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/machine.noindex/FixtureDelivery/engine/loro
+         corpus          : /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/machine.noindex/RichOS/corpus
+         pointer         : Some("/private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/machine.noindex/Library/Application Support/RichOS/corpus")
+         loro tools      : /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/machine.noindex/FixtureDelivery/engine/loro (already)
+         partitions      : 1
+         registry        : 1 compan(ies) in /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/machine.noindex/Library/Application Support/com.richos.app/entities.json
+         saved company   : northwind in /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/machine.noindex/Library/Application Support/com.richos.app/config.json
+         bundle identity : com.richos.app 1.2.0 (asked of the binary, not typed here)
+         binary          : /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/machine.noindex/Applications/RichOS.app/Contents/MacOS/richos-tauri
+  PASS  C5 the machine's bundle declares 1.2.0, the version the binary says it is
+  PASS  D1 an active-display count of 0 is refused
+  PASS  D2 an active-display count of 3 is accepted
+  PASS  D3 a count that could not be measured is neither a zero nor a pass
+  PASS  D4 this host can answer: 1 display(s) awake — the boot can be held to a placement backed by one of them (1 online)
+  PASS  B1 the healthy machine boots to completion under launchd's environment
+  PASS  B1a the boot took no Dock icon, no window and no focus, decided on its own facts
+  --- the boot log, as captured ---
+      [richos] activation: accessory — no Dock icon, no window on screen, no focus taken, because this is not an installed launch: a program is holding this process (parent pid 2070), and macOS hands a launch to launchd (pid 1). The window is still real and still driveable; call show() on it, or set RICHOS_ACTIVATION=regular for the whole normal treatment.
+      [richos] window: derived 1400x864 pt at (140,77), min 1024x700 — Monitor #0 work area 1680x940 pt at (0,25), scale 1 — the display is smaller than the preferred size, so the display decided
+      [richos] launch: fresh (start 1, 1 window(s))
+      [richos] company registry: 1 company from /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/machine.noindex/Library/Application Support/com.richos.app/entities.json
+      [richos] company registry: 1 compan(ies), /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/machine.noindex/Library/Application Support/com.richos.app/entities.json (file)
+      [richos] central folder: /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/machine.noindex/myrichos (present)
+      [richos] company: northwind (via the saved choice)
+      [richos] onboarding northwind: described — the company layer is in the priming turn
+      [richos] loro Tier C: compiling from /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/machine.noindex/Library/Application Support/RichOS/corpus (via the corpus pointer in Application Support), node /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/machine.noindex/.claude/richos-engine/runtime/bin/node
+      [richos] loro correction desk: writing to /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/machine.noindex/Library/Application Support/RichOS/corpus via /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/machine.noindex/.claude/richos-engine/loro/bin/loro-write.mjs (the same install the compiler above resolved)
+      [richos] loro Tier E: no evidence lookup for this install — a turn memory cannot answer will say so and stop there, rather than looking in the CEO's files. RICHOS_EVIDENCE_BIN names the entry point.
+      [richos] this app: built from 742c7f090f0ae8d6ee7284fe549fc0f52a0ee8be
+      [richos] engine directory: /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/machine.noindex/.claude/richos-engine (via engine install pointer, engine 1.2.0, pinned by nothing in this build)
+      [richos] compute connection: starts with the first cancellable request over /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/machine.noindex/.local/bin/claude
+      [richos] recovery: 0 assignment(s) unknown until re-witnessed, 0 left as recorded
+      [richos] first-run setup: nothing missing.
+      [richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
+      [richos] boot complete — every line above is what this launch resolved
+  --- accounting ---
+    DECLARED GAP  RICHOS_SERVICE_BIN
+                  CliVocabulary::from_env (staging.rs:187) is the same environment-only premise as 
+                  the three defects above, and it is left open ON PURPOSE: nothing installs a 
+                  vocabulary service, so there is no second candidate to fall back TO. Inventing a 
+                  path here would be a fabricated fix. Confirming a spoken correction reports that it 
+                  has nowhere to write, which is the honest behavior. CLOSE THIS by deciding where 
+                  the vocabulary service ships from, then delete this declaration and the check turns 
+                  red until the boot line goes away.     DECLARED GAP  RICHOS_EVIDENCE_BIN
+                  CliEvidenceLookup::from_env (evidence.rs:114) needs RICHOS_EVIDENCE_BIN, or 
+                  RICHOS_SERVICE_BIN with richos-evidence.mjs beside it, and nothing installs either 
+                  on a real machine today — this is the exact same open premise as the 
+                  RICHOS_SERVICE_BIN gap above, not a second one. A turn whose compiled slice has 
+                  nothing simply says so and stops, which is the honest behavior. CLOSE THIS the 
+                  moment RICHOS_SERVICE_BIN closes (they ship from the same package) by deciding 
+                  where tools/richos-service ships from, then delete this declaration and the check 
+                  turns red until the boot line goes away. 
+  PASS  B2 every line of a healthy Finder-condition boot is accounted for
+  PASS  B3 the engine pointer is removed -> caught
+           UNACCOUNTED  [richos] loro Tier C: corpus at /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/broken-B3.noindex/Library/Application Support/RichOS/corpus — but the memory compiler is not installed, so re-primes carry no company memory. Looked in: /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/broken-B3.noindex/Library/Application Support/RichOS/engine/loro (selected engine): loro tools not found: /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/broken-B3.noindex/Library/Application Support/RichOS/engine/loro/bin/loro-context.mjs is not a file
+           UNACCOUNTED  [richos] loro Tier C: the correction desk is unavailable for the same reason — loro-write.mjs is in the same directory that was not found.
+           UNACCOUNTED  [richos] engine directory: NOT FOUND — 5 place(s) tried
+           UNACCOUNTED  [richos]   looked in /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/broken-B3.noindex/Applications/RichOS.app/Contents/Resources/engine (app bundle resources)
+  PASS  B4 the corpus pointer is removed -> caught
+           UNACCOUNTED  [richos] loro Tier C: no corpus configured — re-primes carry no company memory
+           UNACCOUNTED  [richos] loro Tier C: tried /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/broken-B4.noindex/Library/Application Support/RichOS/corpus — not present
+           UNACCOUNTED  [richos] loro Tier C: tried /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/broken-B4.noindex/Library/Application Support/RichOS/loro-root — not present
+           UNACCOUNTED  [richos] loro Tier C: tried /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/broken-B4.noindex/RichOS/corpus — not present
+  PASS  B5 the delivered Loro component is removed -> caught
+           UNACCOUNTED  [richos] loro Tier C: corpus at /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/broken-B5.noindex/Library/Application Support/RichOS/corpus — but the memory compiler is not installed, so re-primes carry no company memory. Looked in: /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/broken-B5.noindex/.claude/richos-engine/loro (selected engine): loro tools not found: /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/broken-B5.noindex/.claude/richos-engine/loro/bin/loro-context.mjs is not a file
+           UNACCOUNTED  [richos] loro Tier C: the correction desk is unavailable for the same reason — loro-write.mjs is in the same directory that was not found.
+           UNACCOUNTED  [richos] recovery: this launch has no verified Git runtime, so an assignment's repository is recorded as unread rather than as unchanged.
+           UNACCOUNTED  [richos] first-run setup: the RichOS engine is NOT installed — 3 place(s) looked:
+  PASS  B6 the claude stand-in is removed -> caught
+           UNACCOUNTED  [richos] compute connection: no `claude` install could be found on this Mac — looked in: /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/broken-B6.noindex/.local/bin/claude; /opt/homebrew/bin/claude (Homebrew); /usr/local/bin/claude (Homebrew) — install Claude Code, or set RICHOS_CLAUDE_BIN to its path
+           UNACCOUNTED  [richos] first-run setup: Claude Code is NOT installed — 5 place(s) looked:
+           UNACCOUNTED  [richos]   looked in /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/broken-B6.noindex/.local/bin/claude
+           UNACCOUNTED  [richos]   looked in /usr/bin/claude
+  PASS  B6a missing Claude is rejected specifically by first-run setup
+  PASS  B7 the saved company is removed -> caught
+           UNACCOUNTED  [richos] entity not resolved from /: unknown root /: no registered entity owns this path — refusing to guess
+           UNACCOUNTED  [richos] no company resolved — RichOS will ask in the window and remember the answer.
+           UNACCOUNTED  [richos] operator: RICHOS_ENTITY (one of northwind) still overrides, as does launching from that entity's repository root.
+           UNACCOUNTED  [richos] onboarding: no company resolved, so nothing to ask about yet — the question comes after he says which company this is
+  PASS  B8 the company registry is corrupt -> caught
+           UNACCOUNTED  [richos] company registry at /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/broken-B8.noindex/Library/Application Support/com.richos.app/entities.json is not valid: key must be a string at line 1 column 3. Nothing was loaded from it — no company is registered until it parses.
+           UNACCOUNTED  [richos] company registry: 0 compan(ies), /private/var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/gui-boot-test.XXXXXX.joumuqlxHW/broken-B8.noindex/Library/Application Support/com.richos.app/entities.json (unreadable)
+           UNACCOUNTED  [richos] the saved company "northwind" is not a registered entity any more — ignoring it and asking again rather than filing work under a guess
+           UNACCOUNTED  [richos] entity not resolved from /: unknown root /: no registered entity owns this path — refusing to guess
+  PASS  Y1 gui_kill ends an ordinary process and the pid is gone when it returns
+  PASS  Y2 gui_kill escalates to KILL for a process that ignores TERM
+  PASS  Z this run launched 7 app(s) and 0 are still running
+
+=== gui-boot.test.sh: all 33 passed ===

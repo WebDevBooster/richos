@@ -985,6 +985,34 @@ class Collector(Base):
         with self.assertRaisesRegex(ValueError, "unknown lease purpose"):
             T.acquire_ios("iPhone", "runtime", os.getpid(), purpose="forever")
 
+    def test_T50b_the_pool_wait_is_300_s_unless_a_gate_names_a_positive_number(self):
+        with patch.dict(os.environ, {T.POOL_WAIT_ENV: ""}):
+            self.assertEqual(T.pool_wait_seconds(), 300)
+        with patch.dict(os.environ, {T.POOL_WAIT_ENV: "6900"}):
+            self.assertEqual(T.pool_wait_seconds(), 6900)
+            # ...and the CLI hands exactly that to acquire_ios, for rios's calls as much as a suite's.
+            # _main raises the module's REGISTRY_LOCK_SECONDS to the CLI's; restore it for later tests.
+            with patch.object(T, "acquire_ios", return_value="UDID") as acquire, \
+                    patch.object(T, "REGISTRY_LOCK_SECONDS", T.REGISTRY_LOCK_SECONDS), \
+                    patch("sys.stdout"):
+                self.assertEqual(T._main(["acquire-ios", "--type", "t", "--runtime", "r"]), 0)
+            self.assertEqual(acquire.call_args.kwargs["timeout"], 6900)
+        for bad in ("soon", "0", "-5", "nan", "inf"):
+            with self.subTest(value=bad), patch.dict(os.environ, {T.POOL_WAIT_ENV: bad}):
+                with self.assertRaisesRegex(ValueError, T.POOL_WAIT_ENV):
+                    T.pool_wait_seconds()
+        # Positive control: a second holder really does make a short wait give up, so the
+        # longer wait is what separates a queued suite from a failed one.
+        other = T.acquire_ios("iPhone", "runtime", os.getpid())
+        waiter = subprocess.Popen(["sleep", "30"])
+        try:
+            with self.assertRaisesRegex(TimeoutError, "leased by another run"):
+                T.acquire_ios("iPad", "runtime", waiter.pid, timeout=1)
+        finally:
+            waiter.kill()
+            waiter.wait()
+            T.release_ios(other, os.getpid())
+
     def test_T52_the_lease_report_shows_age_inactivity_and_activity_without_changing_anything(self):
         udid = self.device("rios-ui-report")
         rec = T.register("ios-simulator", udid, os.getpid())
@@ -997,6 +1025,50 @@ class Collector(Base):
         self.assertEqual(open(T._record_path("ios-simulator", udid)).read(), before)
         [late] = T.lease_report(now=rec["lease"]["created"] + T.LEASE_IDLE_SECONDS)
         self.assertTrue(late["expired"])
+
+    def test_T62_the_pool_hands_out_one_lease_unless_a_build_names_a_whole_number(self):
+        # Unset is 1 -- every land and every engineer's suite keeps one simulator at a time.
+        with patch.dict(os.environ, {T.POOL_LEASES_ENV: ""}):
+            self.assertEqual(T.pool_leases(), 1)
+        with patch.dict(os.environ, {T.POOL_LEASES_ENV: "2"}):
+            self.assertEqual(T.pool_leases(), 2)
+        for bad in ("two", "0", "-1", "1.5", "all"):
+            with self.subTest(value=bad), patch.dict(os.environ, {T.POOL_LEASES_ENV: bad}):
+                with self.assertRaisesRegex(ValueError, T.POOL_LEASES_ENV):
+                    T.pool_leases()
+        # And at the default a second run on ANOTHER device type still waits: one at a time.
+        os.environ.pop(T.POOL_LEASES_ENV, None)
+        first = T.acquire_ios("iPhone", "runtime", os.getpid())
+        other = subprocess.Popen(["sleep", "30"])
+        try:
+            with self.assertRaisesRegex(TimeoutError, "leased by another run"):
+                T.acquire_ios("iPad", "runtime", other.pid, timeout=0)
+        finally:
+            other.kill(); other.wait()
+            T.release_ios(first, os.getpid())
+
+    def test_T63_a_raised_lease_count_runs_other_types_side_by_side_and_never_shares_one(self):
+        with patch.dict(os.environ, {T.POOL_LEASES_ENV: "2"}):
+            others = [subprocess.Popen(["sleep", "30"]) for _ in range(3)]
+            try:
+                first = T.acquire_ios("iPhone", "runtime", os.getpid())
+                # Another run, another type: admitted at once, on its own device.
+                second = T.acquire_ios("iPad", "runtime", others[0].pid, timeout=0)
+                self.assertNotEqual(first, second)
+                self.assertEqual(len(T.records()), 2)
+                # Both leases taken: a third type waits.
+                with self.assertRaisesRegex(TimeoutError, "leased by another run"):
+                    T.acquire_ios("iPhone-mini", "runtime", others[1].pid, timeout=0)
+                T.release_ios(second, others[0].pid)
+                # Room for one more, but the iPhone's one prepared simulator is the first run's:
+                # a second run on the SAME type waits rather than sharing it.
+                with self.assertRaisesRegex(TimeoutError, "leased by another run"):
+                    T.acquire_ios("iPhone", "runtime", others[2].pid, timeout=0)
+                self.assertEqual(sum(x.startswith("create ") for x in self.calls()), 2)
+            finally:
+                for p in others:
+                    p.kill(); p.wait()
+            T.release_ios(first, os.getpid())
 
     def hold_registry_lock(self):
         os.makedirs(T.registry_dir(), exist_ok=True)

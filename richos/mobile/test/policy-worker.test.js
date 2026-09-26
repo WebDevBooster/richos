@@ -11,6 +11,9 @@ const { join, resolve } = require('node:path');
 const { createScratch } = require('./storage.cjs');
 const mobile = resolve(__dirname, '..');
 const TOKEN = 'operator-token-sentinel-0123456789';
+// The installed app is the shipped version and build; the notice offers the next minor version.
+const release = require('../release-config.json');
+const later = release.version.replace(/^(\d+)\.(\d+).*$/, (_, major, minor) => `${major}.${Number(minor) + 1}.0`);
 const profile = { accountId: 'a'.repeat(32), databaseId: '11111111-2222-3333-4444-555555555555', hostname: 'updates.example.com' };
 
 async function modules() {
@@ -55,8 +58,8 @@ function policy(revision, extra = {}) {
 }
 function notice(revision) {
   const verifiedAt = new Date(Date.now() - 60000).toISOString();
-  return policy(revision, { severity: 'banner', title: 'Update available', message: 'RichOS 0.2.0 is ready in the App Store.',
-    latest: { version: '0.2.0', build: '3', minimumOS: '16.0', appId: '1234567890', storefronts: ['USA'], verifiedAt } });
+  return policy(revision, { severity: 'banner', title: 'Update available', message: `RichOS ${later} is ready in the App Store.`,
+    latest: { version: later, build: '3', minimumOS: '16.0', appId: '1234567890', storefronts: ['USA'], verifiedAt } });
 }
 const receipt = value => ({ downloadVerified: true, ...value.latest, evidence: 'Downloaded on a supported test iPhone in USA' });
 
@@ -285,7 +288,7 @@ test('the unchanged client controller shows a newly published notice from the ho
   const step = async () => { while (!pending.length) await new Promise(resolve => { notify = resolve; }); const { ms, resolve } = pending.shift(); time += ms; resolve(); };
   const readers = [];
   const controller = await Updates.createController({
-    client: { appId: '1234567890', storefront: 'USA', version: '0.1.0', build: '2', osVersion: '17.0' },
+    client: { appId: '1234567890', storefront: 'USA', version: release.version, build: release.build, osVersion: '17.0' },
     authority: 'https://updates.example.com/v1/policy', load: async () => null, save: async () => {},
     setTimeout: () => 0, clearTimeout: () => {}, // the 60 s fallback never fires here; only the hint stream can deliver
     // Mirrors UpdateService.swift: 200 + application/json for policy, and any stream bytes are a refetch hint.

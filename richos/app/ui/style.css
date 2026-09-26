@@ -6658,3 +6658,125 @@ body.home-open {
   color: var(--ink);
   overflow-wrap: anywhere;
 }
+/* Round 14 quota settings: scoped to the desktop technical surface. */
+#quota-sheet { padding: 16px; align-items: center; justify-content: center; }
+.quota-panel { width: min(1140px, 94vw); max-width: none; max-height: calc(100vh - 32px); padding: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); }
+.quota-panel p, .quota-panel h3, .quota-panel h4 { margin: 0; }
+.quota-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 24px 30px 0; }
+.quota-eyebrow { font-size: .875rem; text-transform: uppercase; letter-spacing: .16em; color: var(--trim-text); font-weight: 600; }
+#quota-title { margin: 6px 0; font: 400 2rem/1.1 var(--font-serif); color: var(--ink); }
+.quota-lede { font-size: 1rem; color: var(--ink-soft); }
+#quota-close { flex: none; width: 36px; height: 36px; border: 1px solid var(--line-control); border-radius: 9px; font-size: 1.5rem; color: var(--ink-soft); background: transparent; }
+.quota-body { display: grid; grid-template-columns: minmax(0, 1fr) 404px; padding: 16px 30px 24px; overflow-y: auto; min-height: 0; }
+.quota-windows-col { padding-right: 34px; border-right: 1px solid var(--line-soft); min-width: 0; }
+.quota-policy { padding-left: 34px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.quota-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; font-size: 1rem; color: var(--ink-soft); }
+.quota-btn { background: transparent; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line-control); border-radius: 9px; padding: 7px 12px; font: inherit; font-size: 1rem; color: var(--ink); white-space: nowrap; }
+.quota-btn:hover, #quota-close:hover { border-color: var(--gold); background: var(--gold-soft); }
+.quota-btn-primary { background: var(--gold); border-color: var(--gold); color: var(--on-gold); font-weight: 600; }
+.quota-btn:disabled { cursor: default; color: var(--ink-soft); }
+.quota-panel :is(button, input):focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.quota-panel .quota-message { margin-top: 12px; padding: 11px 14px; border: 1px solid var(--gold); border-radius: 10px; background: var(--gold-soft); font-size: 1rem; line-height: 1.5; }
+.quota-hero { margin-top: 16px; }
+.quota-window-label { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; font-size: 1rem; font-weight: 600; color: var(--ink); }
+.quota-muted { color: var(--ink-soft); font-weight: 400; }
+.quota-used { display: flex; align-items: baseline; flex-wrap: wrap; font: 400 5.5rem/1 var(--font-serif); letter-spacing: -.025em; color: var(--ink); margin-top: 4px; }
+.quota-percent { font-size: 3rem; margin-left: 2px; }
+.quota-unit { margin-left: 14px; color: var(--ink-soft); font: 400 1.25rem var(--font); letter-spacing: normal; }
+.quota-tag { margin-left: 8px; border: 1px solid var(--gold); border-radius: 999px; padding: 2px 10px; color: var(--gold-text); font: 500 1rem/1.4 var(--font); letter-spacing: normal; }
+.quota-reset { margin-top: 8px; font-size: 1.125rem; color: var(--ink-soft); }
+.quota-chart { position: relative; height: 64px; margin-top: 34px; }
+.quota-bar { position: relative; height: 34px; }
+.quota-track { position: absolute; top: 20px; left: 0; right: 0; height: 1px; background: var(--ink-soft); }
+.quota-track::before, .quota-track::after { content: ''; position: absolute; top: -4px; width: 1px; height: 9px; background: var(--ink-soft); }
+.quota-track::before { left: 0; } .quota-track::after { right: 0; }
+.quota-fill { position: absolute; top: 12px; left: 0; height: 17px; border-radius: 3px; background: var(--gold); }
+.quota-window--stale .quota-fill, .quota-mini.is-stale i { background: repeating-linear-gradient(135deg, var(--gold) 0 2px, transparent 2px 6px); outline: 1px solid var(--gold); outline-offset: -1px; }
+.quota-marker { position: absolute; top: 8px; width: 0; }
+.quota-marker i { position: absolute; left: -1px; width: 2px; height: 25px; background: var(--ink); box-shadow: 0 0 0 1.5px var(--surface); }
+.quota-marker span { position: absolute; top: 29px; left: 50%; transform: translateX(-50%); font-size: 1rem; font-weight: 600; color: var(--ink); }
+.quota-pause-line { position: absolute; top: -2px; width: 0; }
+.quota-pause-line i { position: absolute; left: -1px; width: 2px; height: 36px; background: var(--gold-text); box-shadow: 0 0 0 1.5px var(--surface); }
+.quota-pause-line span { position: absolute; right: 6px; top: -24px; white-space: nowrap; font-size: 1rem; font-weight: 600; color: var(--gold-text); }
+.quota-pause-line.is-left span { left: 6px; right: auto; }
+.quota-pause-line.is-off i { background: repeating-linear-gradient(180deg, var(--ink-soft) 0 3px, transparent 3px 6px); box-shadow: none; }
+.quota-pause-line.is-off span { color: var(--ink-soft); font-weight: 400; }
+.quota-ends { display: flex; justify-content: space-between; margin-top: 3px; font-size: 1rem; color: var(--ink-soft); }
+.quota-weekly { padding: 16px 0 12px; border-top: 1px solid var(--line-soft); }
+.quota-weekly .quota-window-summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; }
+.quota-weekly .quota-used { font-size: 1.75rem; margin: 0; }
+.quota-weekly .quota-percent { font-size: 1.25rem; }
+.quota-weekly .quota-unit { font-size: 1rem; margin-left: 6px; }
+.quota-weekly .quota-reset { margin: 0 0 0 auto; font-size: 1rem; }
+.quota-chart-small { margin-top: 10px; height: 48px; }
+.quota-chart-small .quota-fill { top: 14px; height: 11px; }
+.quota-chart-small .quota-marker i { height: 20px; top: 2px; }
+/* Weekly axis stamps and "now" are the designer's skippable 14px labels.
+   Usage and reset countdowns immediately above stay at least 16px. */
+.quota-chart-small .quota-ends, .quota-chart-small .quota-marker span { font-size: .875rem; }
+.quota-panel .quota-absent { font-size: 1rem; padding: 16px 0; color: var(--ink-soft); border-top: 1px solid var(--line-soft); }
+.quota-panel .quota-legend { font-size: 1rem; line-height: 1.5; margin-top: 16px; color: var(--ink-soft); }
+.quota-legend b { color: var(--ink); }
+#quota-empty { padding: 26px 0; }
+#quota-empty h3 { font: 400 2.5rem/1.1 var(--font-serif); color: var(--ink-soft); margin-bottom: 12px; }
+#quota-empty p { font-size: 1.125rem; line-height: 1.55; }
+.quota-policy > h3 { font-size: 1.125rem; font-weight: 600; }
+.quota-switch-row { display: flex; gap: 14px; align-items: flex-start; }
+.quota-switch { position: relative; width: 46px; height: 26px; flex: none; border: 1px solid var(--line-control); border-radius: 999px; background: var(--gold-soft); margin-top: 2px; }
+.quota-switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--ink-soft); }
+.quota-switch[aria-checked=true] { background: var(--gold); border-color: var(--gold); }
+.quota-switch[aria-checked=true]::after { transform: translateX(20px); background: var(--on-gold); }
+.quota-switch-label { font-size: 1.0625rem; line-height: 1.5; }
+.quota-threshold { display: inline; white-space: nowrap; }
+.quota-threshold input { width: 4ch; text-align: right; padding: 0 5px; border: 1px solid var(--line-control); border-bottom: 2px solid var(--gold); border-radius: 6px 6px 2px 2px; font: inherit; font-weight: 600; color: var(--ink); background: var(--card); }
+.quota-threshold input:disabled { color: var(--ink-soft); border-bottom-color: var(--line-control); }
+.quota-threshold input[aria-invalid=true] { border-color: var(--gold-text); background: var(--gold-soft); }
+#quota-draft-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+#quota-validation, #quota-save-status { font-size: 1rem; line-height: 1.5; color: var(--gold-text); }
+.quota-status-card { border: 1px solid var(--line-control); border-radius: 12px; padding: 12px 16px; background: var(--card); }
+.quota-status-card.is-holding { border-color: var(--gold); }
+#quota-hold-status { font-size: 1.0625rem; line-height: 1.4; font-weight: 600; }
+.quota-panel #quota-hold-detail { margin-top: 6px; font-size: 1rem; line-height: 1.5; color: var(--ink-soft); }
+#quota-held { padding: 0; margin: 10px 0 0; list-style: none; max-height: 190px; overflow-y: auto; }
+#quota-held li { display: flex; gap: 10px; align-items: baseline; justify-content: space-between; border-top: 1px solid var(--line-soft); padding: 6px 0; font-size: 1rem; }
+.quota-held-description { min-width: 0; }
+.quota-held-description > * { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quota-held-time { color: var(--ink-soft); white-space: nowrap; }
+.quota-status-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.quota-status-actions:has(button:not([hidden])) { margin-top: 12px; }
+.quota-boundary { border-top: 1px solid var(--line-soft); padding-top: 10px; font-size: 1rem; line-height: 1.5; color: var(--ink-soft); }
+.quota-boundary b { color: var(--ink); }
+.quota-boundary p + p { margin-top: 6px; }
+#quota-sheet [hidden], #quota-draft-actions[hidden], .quota-mini[hidden] { display: none !important; }
+#quota-work-status { color: var(--ink-soft); font-size: 1rem; margin-bottom: 8px; }
+#set-quota-open .set-row-text { min-width: 0; }
+#set-quota-state { font-size: 1rem; }
+.quota-mini { position: relative; width: 36px; height: 6px; flex: none; border-radius: 3px; background: var(--line-control); overflow: hidden; margin-left: auto; }
+.quota-mini i { position: absolute; inset: 0 auto 0 0; background: var(--gold); border-radius: 3px; }
+@media (max-width: 1100px) {
+  .quota-body { grid-template-columns: minmax(0, 1fr) 350px; padding: 16px 24px 24px; }
+  .quota-windows-col { padding-right: 22px; } .quota-policy { padding-left: 22px; }
+  .quota-heading { padding: 24px 24px 0; }
+}
+@media (max-width: 850px) {
+  .quota-body { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .quota-windows-col { border-right: 0; padding-right: 0; }
+  .quota-policy { border-top: 1px solid var(--line-soft); padding: 24px 0 0; }
+}
+@media (prefers-reduced-motion: reduce) { #quota-sheet, #quota-sheet * { animation: none !important; transition: none !important; } }
+
+/* Weekly reset approval is separate from the five-hour pause policy. */
+.quota-reset-offers { border-top: 1px solid var(--line-soft); margin-top: 24px; padding-top: 20px; }
+.quota-reset-offers h3 { font-size: 1.125rem; margin: 0 0 8px; }
+.quota-reset-offers h4 { font-size: 1rem; margin: 0 0 8px; }
+.quota-reset-offers p { font-size: 1rem; line-height: 1.5; margin: 8px 0; overflow-wrap: anywhere; }
+.quota-reset-offer { margin: 16px 0; }
+.quota-reset-offers button { white-space: normal; margin: 4px 8px 4px 0; }
+.quota-reset-confirm { border: 1px solid var(--line-soft); border-radius: 8px; padding: 12px; margin-top: 12px; }
+.quota-reset-armed { font-weight: 600; }
+#quota-reset-feedback { font-size: 1rem; line-height: 1.5; }
+
+.quota-reset-offers.is-empty { margin-top: 12px; padding-top: 8px; }
+
+.quota-toolbar { flex-wrap: wrap; gap: 8px; }
+.quota-toolbar-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }

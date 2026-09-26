@@ -1915,12 +1915,53 @@
     return Promise.resolve(view);
   }
 
+  let quotaPolicy = { enabled: false, pausePercent: 93 };
+  try { quotaPolicy = JSON.parse(localStorage.getItem("richos-mock-quota-policy")) || quotaPolicy; } catch (_) {}
+  let resetOffers = structuredClone(preset.quota?.resets || { state: "unknown", offers: [], approval: null, lastAttempt: null, weeklyThreshold: 99, message: "Reset availability is unknown in this preview." });
+  window.__richosResetCalls = [];
+  function quotaView() {
+    const fixture = preset.quota || { state: "unavailable", windows: [], checkedAt: null, retryAt: null, message: "Quota is unavailable in this browser preview." };
+    const window = fixture.windows.find(w => w.id === "five_hour");
+    const remaining = (window?.resetsAt || 0) - Date.now();
+    const high = window?.usedPercent >= quotaPolicy.pausePercent;
+    const weekly = fixture.windows.find(w => w.id === "seven_day" && w.usedPercent >= 99);
+    const admission = !quotaPolicy.enabled ? { state: "disabled" } : weekly ? (weekly.resetsAt > Date.now() ? { state: "held", resetsAt: weekly.resetsAt } : { state: "unknown" }) : !window || remaining <= 0 ? { state: "unknown" }
+      : high && remaining < 20 * 60000 ? { state: "ready" } : high ? { state: "held", resetsAt: window.resetsAt }
+      : fixture.state === "fresh" ? { state: "ready" } : { state: "unknown" };
+    return { ...fixture, resets: structuredClone(resetOffers), refreshIntervalMs: 5 * 60000, policy: { ...quotaPolicy }, admission };
+  }
   window.RichBridge = {
     isMock: true,
 
     async invoke(cmd, args, options) {
       args = args || {};
       switch (cmd) {
+        case "claude_quota": return quotaView();
+        case "approve_claude_reset": {
+          window.__richosResetCalls.push({ cmd, offer: args.offer });
+          if (preset.resetApprovalFails) throw "A reset check is in progress. Try again shortly.";
+          if (resetOffers.state !== "fresh" || !resetOffers.offers.some(o => o.id === args.offer.id && o.clears.includes("seven_day"))) throw "Refresh offers first.";
+          resetOffers.approval = { offer: structuredClone(args.offer), approvedAt: Date.now(), weeklyThreshold: 99 };
+          return structuredClone(resetOffers);
+        }
+        case "revoke_claude_reset": {
+          window.__richosResetCalls.push({ cmd }); resetOffers.approval = null;
+          return structuredClone(resetOffers);
+        }
+        case "claude_quota_activity": {
+          const activity = preset.quotaActivity || { held: [], released: [] };
+          const scoped = rows => (rows || []).filter(r => !args.threadId || r.threadId === args.threadId);
+          const admission = quotaView().admission;
+          const held = scoped(activity.held);
+          if (["disabled", "ready"].includes(admission.state) && held.length) {
+            return { held: [], released: held.map(r => ({ ...r, releasedAt: Date.now() })), resumesAt: null };
+          }
+          return { ...activity, held, released: scoped(activity.released), resumesAt: admission.state === "held" ? admission.resetsAt - (quotaView().windows.some(w => w.id === "seven_day" && w.usedPercent >= 99 && w.resetsAt === admission.resetsAt) ? 0 : 20 * 60000 - 1) : null };
+        }
+        case "set_claude_quota_policy": {
+          if (!Number.isInteger(args.policy.pausePercent) || args.policy.pausePercent < 1 || args.policy.pausePercent > 99) throw new Error("Invalid pause threshold.");
+          quotaPolicy = { ...args.policy }; localStorage.setItem("richos-mock-quota-policy", JSON.stringify(quotaPolicy)); return quotaView();
+        }
         // ---- screenshots and files on the Mac composer (CEO §86) -------------------------
         case "attach_pasted_file": {
           const h = (options && options.headers) || {};

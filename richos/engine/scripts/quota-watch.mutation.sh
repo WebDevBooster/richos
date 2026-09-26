@@ -84,8 +84,8 @@ mutant poll-not-five-minutes "W09" "$L" \
 #    records the agent's own end of run as FINISHED, and the wake at the reset
 #    is refused: 2026-09-18, exactly.
 mutant pause-message-without-pause-until "E02" "$L" \
-    '        pause_until_line(r["resets_at"]),{NL}    ])' \
-    '    ])' \
+    'return pause_protocol.render("quota", hhmm(r["resets_at"]))' \
+    'return pause_protocol.render("quota", hhmm(r["resets_at"])).split("\npause-until:", 1)[0]' \
     "The pause message would read correctly and record nothing, and every paused agent would be finished at its first SubagentStop."
 
 mutant resume-message-re-pauses "E09" "$L" \
@@ -190,8 +190,8 @@ mutant get-usage-no-fallback "G03" "$L" \
     "A failed get_usage would leave the watcher blind although the status-line file is fresh."
 
 mutant watch-reads-file-only "R04" "$L" \
-    '        r = read_source(a, now){NL}        if r.get("fallback_why"):' \
-    '        r = read_reading(a.payload, now){NL}        if r.get("fallback_why"):' \
+    '        r = read_source(a, now){NL}        w = workers(a.engine_root)' \
+    '        r = read_reading(a.payload, now){NL}        w = workers(a.engine_root)' \
     "Every poll after the first would read the status-line file: the 07:57Z/08:07Z miss again."
 
 # 9. THE FALLBACK IS REFRESHED BEFORE IT TURNS ONE POLL OLD (the pause fired at

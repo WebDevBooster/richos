@@ -15,7 +15,13 @@ he had also given: "Well, I've changed my mind. Let's drop the 30-minute check
 nonsense. Keep it consistent at 5 minutes." So polling is 300 s at every
 usage level, and the stale bound stays one 300 s poll.
 
-So this file does three things and no fourth: it READS the five-hour window,
+The five-hour policy below is retained. Weekly support is in quota_weekly.py:
+all reported windows are printed; at 99% overall weekly use, the shared reset
+service consumes a prior user approval or the lead receives the standard pause
+message. Weekly holds release only after fresh weekly allowance and an allowing
+five-hour verdict. The twenty-minute exception applies only to five-hour quota.
+
+The original five-hour watcher READS the five-hour window,
 it POLLS every 300 seconds, and it WAKES THE LEAD at the threshold, at the
 hold's release (the reset less than 20 minutes away) and at the reset, with
 the exact messages to send. The lead does the pausing and the resuming; this
@@ -28,15 +34,12 @@ its threshold_and_twenty_minute_boundaries test): the exception applies when
 resets_at does not move inside one window. A window that has ended is
 UNKNOWN, as before, never "inside the exception".
 
-What "pause" means is his too, confirmed on 2026-09-10 (session d0eef867,
-09:28Z): commit what you have, then hold — end your turn, do nothing further,
-wait to be messaged. The same agent keeps its context and its workspace, and
-the lead's message at the reset wakes it. The workspace registry
-(mega-lander/workspaces.py, point 11) already records exactly that state, and
-the trigger is a `pause-until:` line in the lead's message. On 2026-09-18 the
-three hold messages carried no such line, so each SubagentStop recorded a
-FINISHED agent, and the wake at 15:09Z was refused. The pause message printed
-below carries the line, and quota-watch.test.sh proves it end to end.
+PAUSE MESSAGES ARE NOT WRITTEN BY THE LEAD. scripts/lib/pause_protocol.py renders
+the one standard message used here and by manual pauses. The terminal and desktop
+SendMessage gates validate its complete text before delivery. The lead may not
+append termination, cancellation, hand-in or restart instructions. The pause-until
+line retains the existing registry binding; delivery is a request, not evidence
+that execution is already held. No subagent implementation is changed here.
 
 THE READING, FIRST: CLAUDE CODE'S OWN `get_usage` (2026-09-25). Each poll starts
 `claude` as a CONTROL-ONLY connection and asks it for the account's usage,
@@ -131,6 +134,10 @@ import signal
 import subprocess
 import sys
 import time
+
+# Shared with the terminal and desktop SendMessage delivery guards.
+import pause_protocol
+import quota_weekly
 
 HIS_WORDS = ('"quota polling: every 5 minutes from now. And once it crosses the 93% '
              'threshold: PAUSE subagents. Then resume after quota rest."')
@@ -267,6 +274,7 @@ def read_reading(path, now):
     if isinstance(data, dict):
         rl = data.get("rate_limits")
         if isinstance(rl, dict):
+            r["windows"] = quota_weekly.windows(rl, _parse_reset, fallback=True)
             fh5 = rl.get("five_hour")
     if not isinstance(fh5, dict):
         r["state"], r["why"] = "malformed", "%s carries no rate_limits.five_hour" % path
@@ -382,6 +390,7 @@ def read_get_usage(now, deadline_s=None):
     if body.get("rate_limits_available") is False:
         r["state"], r["why"] = "failed", "Claude Code did not report subscription limits for this account"
         return r
+    r["windows"] = quota_weekly.windows(body.get("rate_limits", {}), _parse_reset)
     five = (body.get("rate_limits") or {}).get("five_hour") if isinstance(body.get("rate_limits"), dict) else None
     used = five.get("utilization") if isinstance(five, dict) else None
     resets = _parse_reset(five.get("resets_at")) if isinstance(five, dict) else None
@@ -402,6 +411,8 @@ def read_source(a, now):
     f = read_reading(a.payload, now)
     f["source"] = "the status line"
     f["fallback_why"] = g["why"]
+    if g.get("windows"):
+        f["windows"] = g["windows"]
     return f
 
 
@@ -446,7 +457,8 @@ def describe(r, threshold, now):
         bits.append("window ended at %s" % hhmm(r["resets_at"]))
     else:
         bits.append("resets %s (in %s)" % (hhmm(r["resets_at"]), span(r["resets_at"] - now)))
-    return ", ".join(bits)
+    extra = quota_weekly.describe(r, now)
+    return ", ".join(bits) + ("; " + extra if extra else "")
 
 
 # ---------------------------------------------------------------------------
@@ -473,7 +485,7 @@ def workers(engine_root):
     Read-only: finished_state() over the recorded facts. A record the platform
     ended without a hook (a stopped agent) may still read as working here; the
     registry's own pending() reconciles that, and this watcher never writes."""
-    out = {"known": False, "why": "", "session": "", "working": [], "quota_paused": [], "other_paused": []}
+    out = {"known": False, "why": "", "session": "", "working": [], "quota_paused": [], "weekly_paused": [], "other_paused": []}
     ws, why = _load_registry(engine_root)
     if ws is None:
         out["why"] = why
@@ -493,13 +505,14 @@ def workers(engine_root):
             name = rec.get("name") or rec.get("key") or "?"
             if paused:
                 until = ((rec.get("pause") or {}).get("until") or "")
-                (out["quota_paused"] if until.startswith(PAUSE_UNTIL_PREFIX) else out["other_paused"]).append(name)
+                (out["quota_paused"] if until.startswith(PAUSE_UNTIL_PREFIX) else
+                 out["weekly_paused"] if until.startswith("the weekly quota reset") else out["other_paused"]).append(name)
             else:
                 out["working"].append(name)
         out["known"] = True
     except Exception as e:  # noqa: BLE001
         out["why"] = "the workspace registry could not be read (%s)" % e.__class__.__name__
-    for k in ("working", "quota_paused", "other_paused"):
+    for k in ("working", "quota_paused", "weekly_paused", "other_paused"):
         out[k] = sorted(set(out[k]))
     return out
 
@@ -520,20 +533,8 @@ def worker_line(w):
 # the two messages the lead sends
 # ---------------------------------------------------------------------------
 
-def pause_until_line(resets_at):
-    return "pause-until: %s at %s" % (PAUSE_UNTIL_PREFIX, hhmm(resets_at))
-
-
 def pause_message(r, threshold):
-    return "\n".join([
-        "PAUSE: the CEO's quota rule (%s), in his words: %s" % (RULING, HIS_WORDS),
-        "The five-hour window is at %s%% (threshold %s%%) and resets at %s."
-        % (fmt_pct(r["used"]), fmt_pct(threshold), hhmm(r["resets_at"])),
-        "Commit what you have, then hold: end your turn, do nothing further, and wait to be messaged.",
-        "Do not hand off and do not mark your task complete: a hand-in finishes you, and a finished "
-        "agent cannot be woken. Your context and your workspace stay exactly as they are.",
-        pause_until_line(r["resets_at"]),
-    ])
+    return pause_protocol.render("quota", hhmm(r["resets_at"]))
 
 
 def resume_message(reset_at):
@@ -565,6 +566,8 @@ def mode_once(a, now):
         print("quota: UNKNOWN: %s is %s in %s" % (CONFIG_KEY, a.threshold_problem, a.config or "(no config)"))
         return 2
     verdict, why = rule_verdict(r, a.threshold, a.stale, now)
+    if quota_weekly.held(r, now):
+        verdict, why = "at-or-above", "overall weekly usage reached 99%"
     line = describe(r, a.threshold, now)
     if verdict == "unknown" and r["state"] == "ok":
         line += "  [UNKNOWN: %s]" % why
@@ -603,11 +606,14 @@ def mode_status(a, now):
         else:
             print("  resets    : %s, in %s" % (hhmm(r["resets_at"]), span(r["resets_at"] - now)))
     w = workers(a.engine_root)
+    print("  windows   : " + quota_weekly.describe(r, now))
     print("  %s" % worker_line(w))
     if a.threshold is None:
         print("  verdict   : UNKNOWN")
         return 2
     verdict, why = rule_verdict(r, a.threshold, a.stale, now)
+    if quota_weekly.held(r, now):
+        verdict, why = "at-or-above", "overall weekly usage reached 99%"
     print("  verdict   : %s%s" % ({"below": "below the threshold", "at-or-above": "AT OR ABOVE the threshold",
                                     "near-reset": "AT OR ABOVE the threshold, NO PAUSE",
                                     "unknown": "UNKNOWN"}[verdict], (": " + why) if why and r["state"] == "ok" else ""))
@@ -633,8 +639,8 @@ def _emit_threshold(a, r, now, w):
     for ln in pause_message(r, a.threshold).splitlines():
         print("  " + ln)
     print("  ---- message ends ----")
-    print("  The last line is what records the PAUSE (mega-lander point 11): without it the agent's end of")
-    print("  run is recorded as FINISHED and the wake at the reset is refused (2026-09-18).")
+    print("  Use summary: " + pause_protocol.SUMMARY)
+    print("  Delivery is only a request. Check the actual hold before reporting anyone paused.")
     print("  Then start the watcher again; with nothing working it waits, and wakes you with the resume message")
     print("  when the reset is less than 20 minutes away (the hold releases there, %s):" % RULING)
     print("    %s --watch" % a.command)
@@ -717,9 +723,9 @@ def mode_watch(a):
         window_end = r["resets_at"]
     elif a.until_reset and r["state"] == "ok" and r["ended"]:
         # The reset this run was asked to wait for has already happened.
-        _emit_reset(a, r["resets_at"], workers(a.engine_root))
-        return 0
-    elif a.until_reset:
+        # Check weekly holds before releasing an already-ended five-hour window.
+        window_end = r["resets_at"]
+    elif a.until_reset and not quota_weekly.held(r, now):
         print("QUOTA-UNKNOWN: cannot wait for the reset: %s" % r["why"])
         return 2
     blind_since = None
@@ -728,6 +734,17 @@ def mode_watch(a):
         a.poll, fmt_pct(a.threshold), "; waking only at the reset" if a.until_reset else ""), flush=True)
     while True:
         now = int(time.time())
+        reset_status = quota_weekly.reset_tick(a.engine_root)
+        r = read_source(a, now)
+        w = workers(a.engine_root)
+        weekly_blocked, weekly_event = quota_weekly.handle(a, r, now, w, reset_status,
+            lambda: rule_verdict(r, a.threshold, a.stale, now)[0])
+        if weekly_event:
+            return 0
+        if weekly_blocked:
+            print(quota_weekly.describe(r, now), flush=True)
+            time.sleep(a.poll)
+            continue
         if window_end is not None and now >= window_end:
             _emit_reset(a, window_end, workers(a.engine_root))
             return 0
@@ -739,7 +756,6 @@ def mode_watch(a):
             if not w["known"] or w["quota_paused"]:
                 _emit_release(a, window_end, now, w)
                 return 0
-        r = read_source(a, now)
         if r.get("fallback_why"):
             print("  source: the status-line file, because %s" % r["fallback_why"], flush=True)
         if window_end is None and r["state"] == "ok" and not r["ended"]:
@@ -844,11 +860,14 @@ def mode_notice(a, now):
         elif verdict == "near-reset":
             now_line += " [AT OR ABOVE THE THRESHOLD, NO PAUSE: %s]" % why
         lines.append("  Now: %s" % now_line)
-        lines.append("  Start the watcher as a background command (Bash with run_in_background: true):")
+        lines.append("  Weekly: at 99% overall use, consume one eligible user-approved free reset or send the standard pause.")
+        lines.append("  There is no weekly 20-minute exception. Resume only after fresh weekly allowance and the five-hour rule both permit work.")
+        lines.append("  Only the user can approve through scripts/quota-reset.sh approve <offer-id>; you may read status or revoke, never approve.")
+        lines.append("  Start the watcher now as a background command (Bash with run_in_background: true):")
         lines.append("    %s --watch" % a.command)
-        lines.append("  Every 5 minutes it reads Claude Code's own get_usage (the status-line file only as a fallback;")
+        lines.append("  Immediately, then every 5 minutes it reads Claude Code's own get_usage (the status-line file only as a fallback;")
         lines.append("  the reading above is that file, read without waiting on a process at session start).")
-        lines.append("  It wakes you at the threshold with the pause message and the")
+        lines.append("  For the five-hour rule it wakes you at the threshold with the pause message and the")
         lines.append("  names to send it to (never inside the last 20 minutes before the reset), when the reset is")
         lines.append("  less than 20 minutes away with the resume message and the paused names, and at the reset.")
     print("\n".join(lines))

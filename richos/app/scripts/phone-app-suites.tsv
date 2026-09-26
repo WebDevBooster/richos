@@ -1,0 +1,40 @@
+# phone-app-suites.tsv — the suites in this directory that test ONLY a phone app.
+#
+# The CEO, 2026-09-26: "the native mobile apps are 2 COMPLETELY INDEPENDENT DIFFERENT APPS ...
+# So, WHY THE FUCK ARE THEY PART OF THE SAME FUCKING BUILD???"
+#
+# `run-tests.sh --for desktop` (the desktop nightly's script-suites gate) leaves every suite named
+# here out. `run-tests.sh --for ios`, `--for android` and `--for phone` run only them, and the
+# phone app's own release steps call those (richos/mobile/native-ios/Release/README.md,
+# richos/mobile/native-android/README.md). Every suite here still runs at land whenever one of
+# its own `# run-tests: inputs` changes, because proof-for.sh selects by inputs and never reads
+# this file.
+#
+# One row per suite: <suite><TAB><ios | android | ios,android><TAB><why it tests only that app>.
+# run-tests.sh refuses the whole list, before anything runs, if a row names no suite, has no
+# reason, names another app, or names a suite whose covers row claims a file the Mac app ships
+# (richos/app/src-tauri, richos/app/crates, richos/app/ui, richos/web/web-app, richos/engine).
+#
+# NOT here, on purpose, though they read richos/mobile/ (the Mac side of the phone connection):
+#   mobile-mac.test.sh          the phone server compiled into the Mac app's own crate
+#                               (app/src-tauri/src/main.rs, mobile_mac_server), under cargo test
+#   native-conformance.test.sh  the Mac's production request verifier (app/src-tauri/src/phone)
+#                               against the corpus both phone apps must pass
+#   mobile-pwa.test.sh          the phone web app the Mac executable embeds and serves
+#                               (app/src-tauri/build.rs, embed_phone), in Chromium and WebKit
+#   mobile-headless.test.sh     covers web/web-app/lib/voice.js and lib/connection.js, which the
+#                               Mac embeds, as well as the shared mobile core
+# A suite nobody lists runs in the desktop build.
+native-ios-app.test.sh	ios	the native iPhone app built and driven on an iPhone simulator (A1-A8); nothing it builds ships in the Mac app
+native-ios-core.test.sh	ios	the native iPhone app's Swift core package and its rios command line
+native-ios-share.test.sh	ios	the native iPhone app's Share and notification extensions, its release check and its TestFlight tool
+native-ios-ui.test.sh	ios	the native iPhone app's XCUITest screens on the smallest and largest iPhone simulators
+native-ios-physical-tool.test.sh	ios	the launcher for checks on a physical iPhone (rios device)
+mobile-ios.test.sh	ios	the earlier iPhone app in richos/mobile/ios, on an iPhone simulator
+native-android-app.test.sh	android	the native Android app: Robolectric app tests, its release check and its icon
+native-android-core.test.sh	android	the native Android app's Kotlin core and its randroid command line
+native-android-ui.test.sh	android	the native Android app's Compose screens, rendered by Robolectric
+native-android-pair-lab.test.sh	android	the Android emulator pairing helpers
+native-release-policy.test.sh	ios,android	the release security policy both phone apps' store builds must pass
+mobile-perf.test.sh	ios,android	the phone apps' speed and battery measurement tool
+review-mock.test.sh	ios,android	the hosted mock backend App Store and Google Play reviewers pair the phone apps' store builds with

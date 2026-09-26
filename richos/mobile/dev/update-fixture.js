@@ -3,12 +3,16 @@
   const value = factory(); if (typeof module === 'object') module.exports = value;
   root.RichOSUpdateFixture = value;
 })(globalThis, function () {
-  const client = { version: '0.1.0', build: '2', osVersion: '16.7.16', appId: '1234567890', storefront: 'GBR' };
+  // Stands in for the running app while a synthetic policy is installed, so it mirrors the shipped
+  // version and build in release-config.json (this file also runs in the page, where that file
+  // cannot be read synchronously). client-part2.test.js holds the two together; the offered
+  // release is the next minor version.
+  const client = { version: '1.0.0', build: '2', osVersion: '16.7.16', appId: '1234567890', storefront: 'GBR' };
   function policy(mode, revision = 1) {
     const now = Date.now();
     return { schema: 1, revision, issuedAt: new Date(now).toISOString(), expiresAt: new Date(now + 3600000).toISOString(),
       severity: mode, title: mode === 'blocking' ? 'Update required' : 'A new RichOS version is ready', message: 'Update to continue with the latest RichOS improvements.', allowDismiss: true, remindAfterSeconds: 60,
-      minimum: { version: '0.2.0', build: '3' }, latest: { version: '0.2.0', build: '3', minimumOS: '16.7', appId: client.appId, storefronts: ['GBR'], verifiedAt: new Date(now).toISOString() } };
+      minimum: { version: '1.1.0', build: '3' }, latest: { version: '1.1.0', build: '3', minimumOS: '16.7', appId: client.appId, storefronts: ['GBR'], verifiedAt: new Date(now).toISOString() } };
   }
   async function wrap(ports) {
     const original = ports.updates ? await ports.updates() : { client: { ...client, appId: null } };

@@ -105,6 +105,7 @@
     // 5.78:1 dark and 6.38:1 light against a 4.5:1 floor. No new element, no new color, so the
     // floor is already cleared by those measurements rather than by a fresh claim.
     "waiting-for-screen": "Waiting for the screen to unlock — I'll carry on the moment it's back.",
+    "waiting-for-quota": "Waiting for the allowance to refresh. I'll continue automatically when it's available.",
     // **The bare word, with the OUTCOME appended after it by the backend** (§52). The row
     // reads "Finished. It landed on cc/echo-1 in project. An independent review passed it
     // first." — and it still reads honestly on its own when an assignment closed with
@@ -143,6 +144,7 @@
     // screen falls through to "Its state could not be read." — the same gap §56's own slice
     // closed for work, arriving one commit later for questions.
     "waiting-for-screen": "Waiting for the screen to unlock — Rich will carry on the moment it's back.",
+    "waiting-for-quota": "Waiting for the allowance to refresh. Rich will continue automatically when it's available.",
     // NOT "Finished." — the answer itself is on the conversation, which is where he reads it.
     settled: "Answered — it's in your conversation.",
     failed: "Rich couldn't get you an answer. Ask him again and he'll try it a different way.",

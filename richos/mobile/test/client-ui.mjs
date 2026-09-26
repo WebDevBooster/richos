@@ -22,13 +22,14 @@ export async function clientUI({engine='chromium'}={}) {
     const h=harness(), seed=await createClient(h.ports);
     await seed.dispatch({type:'pair',link:'https://mac.example/#pair=code'});
     await seed.dispatch({type:'confirm-pair',matched:true}); seed.close();
-    await context.addInitScript(initial => {
+    const release = require('../release-config.json');
+    await context.addInitScript(({ disk: initial, release }) => {
       let data=initial, files=[{id:'retained',seconds:9,threadId:'general',origin:'https://mac.example'}], recording=false, serial=0;
       window.__voiceCalls=[];window.__streamCount=0;window.RichOSClientInspect=app=>{window.__client=app;};
       window.webkit = { messageHandlers: { richos: { async postMessage({ method, args }) {
         if (method === 'load') return data;
         if (method === 'save') { await new Promise(resolve => setTimeout(resolve, 25)); data = args.value; return true; }
-        if (method === 'updateInfo') return { version: '0.1.0', build: '2', osVersion: '16.7.16', configured: false, appId: null, storefront: null };
+        if (method === 'updateInfo') return { version: release.version, build: release.build, osVersion: '16.7.16', configured: false, appId: null, storefront: null };
         if (method === 'recordings') return files;
         if (method === 'recordStart') {recording=true;window.__voiceCalls.push(method);return true;}
         if (method === 'recordStop') {if(recording)files.push({id:'audio-'+(++serial),seconds:3});recording=false;window.__voiceCalls.push(method);return true;}
@@ -41,7 +42,7 @@ export async function clientUI({engine='chromium'}={}) {
         if (method === 'incomingLink' || method === 'pushIncoming') return null;
         throw Error(method);
       } } } };
-    },h.disk());
+    },{ disk: h.disk(), release: { version: release.version, build: release.build } });
     const page = await context.newPage(), errors = []; page.on('pageerror', error => errors.push(error.message));
     page.setDefaultTimeout(15000);
     await page.goto(pathToFileURL(join(assets, 'client.html')).href);

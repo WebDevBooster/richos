@@ -108,18 +108,67 @@ if "$RIOS" sim check-release >"$SCRATCH/release.json" 2>"$SCRATCH/err"; then
 else bad "A7 check-release" "$(tail -c 600 "$SCRATCH/err")"; fi
 
 # A8 — visible-control UI tests and app unit tests, once the screens stream has written them, on
-# the MIDDLE screen size (iPhone 16 Pro). ONLY BEFORE NIGHTLIES (CEO, 2026-09-23, "Only before
-# nightlies", esc-20260923T113632Z-746305fb): native-ios-ui.test.sh runs the same 42 tests on the
-# smallest and largest sizes on every land, and this third size costs about ten minutes, so it
-# runs when the nightly build's script-suites gate sets RICHOS_NATIVE_IOS_APP_A8=1
-# (nightly-local.py, `gates`), where a failure stops that nightly. Anywhere else it says NOT RUN
-# and why; set the variable to run it by hand.
+# the MIDDLE screen size (iPhone 16 Pro). Off every land, by the CEO's decision of 2026-09-23
+# (esc-20260923T113632Z-746305fb): native-ios-ui.test.sh runs the same tests on the smallest and
+# largest sizes on every land, and this third size is the slow one (1238 s measured below). That
+# decision put it before every nightly. Since 2026-09-26 the desktop nightly runs no phone-app
+# suite at all (CEO: "the native mobile apps are 2 COMPLETELY INDEPENDENT DIFFERENT APPS"), so A8
+# runs in the iPhone app's release check: `RICHOS_NATIVE_IOS_APP_A8=1 run-tests.sh --for ios`
+# (richos/mobile/native-ios/Release/README.md, "Upload"). Anywhere else it says NOT RUN and why;
+# set the variable to run it by hand.
+#
+# THE UI RUN HOLDS ITS OWN LEASE, THE WAY native-ios-ui.test.sh's DOES. `rios sim ui-test` is one
+# xcodebuild call that took 1238 s on 2026-09-25 (18:13:27Z-18:34:05Z, 77 passed, 8 skipped), and
+# nothing inside it touches the device lease. Run bare, it outlived the default lease (300 s
+# inactivity, 900 s lifetime, both counted from A1): the lease record was gone about five minutes
+# into A8, so Z's `rios sim stop` found nothing to release, returned success without shutting
+# anything down, and left a booted simulator that no record owned (Z FAILED; nightly run
+# 20260925T173516Z-218870fc hit its gate cap with this suite still running). So A1's default lease
+# is released first, a fresh lease is taken under the engine's declared `ui-suite` purpose (the
+# same whole-selection-on-one-device run native-ios-ui makes, esc-20260924T220236Z-52fae3ec), and
+# the run goes through `testdevices.py run-active`, which renews the inactivity clock while it runs
+# and ends it as NOT RUN (exit 75) if the lease is lost. A8b then proves the lease was still this
+# run's when the tests ended, which is what Z's shutdown depends on.
 if [ "${RICHOS_NATIVE_IOS_APP_A8:-}" != 1 ]; then
-  echo "  NOT RUN  A8 UI tests on the middle iPhone size: they run before each nightly (CEO 2026-09-23, \"Only before nightlies\"); RICHOS_NATIVE_IOS_APP_A8=1 runs them here"
+  echo "  NOT RUN  A8: the middle-size iPhone UI and unit tests are off every land (decision of 2026-09-23, esc-20260923T113632Z-746305fb) and run in the iPhone app's release check (native-ios/Release/README.md); RICHOS_NATIVE_IOS_APP_A8=1 runs them here"
 elif find "$NATIVE/UITests" "$NATIVE/UnitTests" -name '*.swift' 2>/dev/null | grep -q .; then
-  if "$RIOS" sim ui-test >"$SCRATCH/ui.json" 2>"$SCRATCH/err"; then
-    ok "A8 UI tests: $(json 'd["result"]["tests"]' < "$SCRATCH/ui.json")"
-  else bad "A8 UI tests" "$(tail -c 600 "$SCRATCH/err")"; fi
+  TESTDEVICES="$ROOT/richos/engine/scripts/lib/testdevices.py"
+  A8_TYPE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["type"])' "$RICHOS_NATIVE_IOS_CACHE/simulator.json" 2>/dev/null)"
+  A8_RUNTIME="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["runtime"])' "$RICHOS_NATIVE_IOS_CACHE/simulator.json" 2>/dev/null)"
+  if [ -z "$A8_TYPE" ] || [ -z "$A8_RUNTIME" ]; then
+    bad "A8 UI tests" "A1 recorded no simulator type and runtime in $RICHOS_NATIVE_IOS_CACHE/simulator.json"
+  elif ! "$RIOS" sim stop >"$SCRATCH/a8-stop.json" 2>"$SCRATCH/err"; then
+    bad "A8 UI tests: releasing A1's default lease" "$(tail -c 600 "$SCRATCH/err")"
+  elif ! A8_UDID="$(python3 "$TESTDEVICES" acquire-ios --type "$A8_TYPE" --runtime "$A8_RUNTIME" \
+         --owner-pid $$ --purpose ui-suite 2>"$SCRATCH/err")"; then
+    bad "A8 UI tests: a ui-suite lease" "$(tail -c 600 "$SCRATCH/err")"
+  elif [ "$A8_UDID" != "$UDID" ]; then
+    bad "A8 UI tests" "the ui-suite lease is $A8_UDID, not the prepared simulator $UDID A1 used"
+  else
+    if python3 "$TESTDEVICES" run-active --kind ios-simulator --id "$A8_UDID" --owner-pid $$ \
+         --lost-file "$SCRATCH/a8.lost" -- "$RIOS" sim ui-test >"$SCRATCH/ui.json" 2>"$SCRATCH/err"; then
+      A8_RC=0
+    else
+      A8_RC=$?
+    fi
+    if [ "$A8_RC" -eq 0 ]; then
+      ok "A8 UI tests: $(json 'd["result"]["tests"]' < "$SCRATCH/ui.json")"
+    elif [ "$A8_RC" -eq 75 ]; then
+      bad "A8 UI tests NOT RUN: the simulator lease ended mid-run" "$(cat "$SCRATCH/a8.lost" 2>/dev/null)"
+    else bad "A8 UI tests" "$(tail -c 600 "$SCRATCH/err")"; fi
+    # A8b: the lease Z releases is still this run's, under the declared purpose, after the run.
+    if python3 - "$ROOT" "$A8_UDID" "$$" <<'PY_A8B'
+import sys, time
+sys.path.insert(0, sys.argv[1] + '/richos/engine/scripts/lib')
+import testdevices as d
+r = d._read_json(d._record_path('ios-simulator', sys.argv[2])) or {}
+assert r.get('prepared') and r['owner']['pid'] == int(sys.argv[3]), 'no lease record owned by this run'
+assert r['lease'].get('purpose') == 'ui-suite', 'the lease is not the declared ui-suite lease'
+assert not d.lease_expired(r, time.time()), 'the lease expired'
+PY_A8B
+    then ok "A8b the simulator's ui-suite lease was still this run's when the UI tests ended"
+    else bad "A8b the simulator's lease survived the UI tests"; fi
+  fi
 else
   echo "  NOT RUN  A8 UI tests: UITests/ and UnitTests/ have no test files yet (stream I2 writes them)"
 fi

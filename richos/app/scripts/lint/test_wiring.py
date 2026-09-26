@@ -1,8 +1,8 @@
-from contextlib import nullcontext
+import contextlib
 import importlib.util
+import io
 from pathlib import Path
 import tempfile
-from types import SimpleNamespace
 import unittest
 
 
@@ -12,17 +12,22 @@ class Wiring(unittest.TestCase):
         spec = importlib.util.spec_from_file_location('lint_nightly_fixture', scripts / 'nightly-local.py')
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        with tempfile.TemporaryDirectory(prefix='lint-wiring-') as tmp:
-            calls = []
-            runner = SimpleNamespace(state=Path(tmp), source=scripts.parents[2],
-                announce=lambda *a: None, phase=lambda *a: nullcontext(),
-                command=lambda *a, **kw: calls.append((a, kw)),
-                ui_suite=lambda *a: None)
-            module.Runner.gates(runner)
-            checks = [args for args, _ in calls if '--all' in args]
-            self.assertEqual(len(checks), 1)
-            self.assertNotIn('--state-dir', checks[0])
-            self.assertEqual(checks[0][checks[0].index('--suite-results') + 1], Path(tmp) / module.SUITE_RESULTS)
+        # One after another and side by side: the lint reads the SAME receipt either way.
+        for at_once in (1, 'all'):
+            with self.subTest(gates_at_once=at_once), \
+                    tempfile.TemporaryDirectory(prefix='lint-wiring-') as tmp, \
+                    contextlib.redirect_stdout(io.StringIO()):
+                calls = []
+                runner = module.Runner(Path(tmp), Path(tmp), {}, io.StringIO(), gates_at_once=at_once)
+                runner.source = scripts.parents[2]
+                runner.command = lambda *a, **kw: calls.append((a, kw))
+                runner.ui_suite = lambda *a: None
+                runner.gates()
+                checks = [args for args, _ in calls if '--all' in args]
+                self.assertEqual(len(checks), 1)
+                self.assertNotIn('--state-dir', checks[0])
+                self.assertEqual(checks[0][checks[0].index('--suite-results') + 1],
+                                 Path(tmp) / module.SUITE_RESULTS)
 
     def test_land_suite_counts_the_ceiling_the_nightly_gate_refuses_on(self):
         # The land runs lint.test.sh; the nightly refuses on `lint.sh --all`. If the suite ran

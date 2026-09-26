@@ -37,6 +37,7 @@ window.RichSettings = (function () {
   var company = null; // { read(), write(id) } — which company this copy of Rich works for
   var repositories = null; // { open() }
   var account = null; // { open() }
+  var quota = null; // { open() }, desktop technical settings only
   var memory = null; // { open() } — where his memory is kept (audit-7 row 13)
   var phonePairing = null; // { open() } — "Use Rich from your phone" (plan §4.1)
   var home = null; // { open() } — the home screen's company buttons: their labels and which show
@@ -405,7 +406,9 @@ window.RichSettings = (function () {
     var b = elem("button", "bugbtn bugbtn--disclosure", { type: "button", role: "menuitem", id: id });
     if (stateId) {
       var col = elem("span", "set-row-text");
-      col.appendChild(document.createTextNode(label));
+      var name = elem("span", "set-name");
+      name.textContent = label;
+      col.appendChild(name);
       col.appendChild(elem("span", "set-row-state", { id: stateId }));
       b.appendChild(col);
     } else {
@@ -465,6 +468,7 @@ window.RichSettings = (function () {
     if (!T.forcedDark()) menu.appendChild(buildThemeRow());
     menu.appendChild(buildFontRow()); // ...then Text size directly under it (§15)
     if (techy) menu.appendChild(buildTechyRow()); // ...and directly under that, Techy Mode
+    if (quota) menu.appendChild(buildDisclosureRow("set-quota-open", "Claude Code quota", function () { quota.open(); }, "set-quota-state"));
     if (splash) menu.appendChild(buildSplashRow()); // ...then the opening screen's off switch
     if (company) menu.appendChild(buildCompanyRow()); // ...then which company this copy is for
     if (home) menu.appendChild(buildHomeRow()); // ...and directly under it, the home screen's buttons
@@ -562,6 +566,8 @@ window.RichSettings = (function () {
     if (up) up.disabled = T.scale() >= steps[steps.length - 1];
     var sw = menuEl.querySelector("#set-techy");
     if (sw && techy) sw.checked = !!techy.read();
+    var quotaRow = menuEl.querySelector("#set-quota-open");
+    if (quotaRow) { quotaRow.hidden = !(techy && techy.read()); if (quota.paint) quota.paint(); }
     var sp = menuEl.querySelector("#set-splash");
     if (sp && splash) sp.checked = !!splash.read();
     // The updates row is painted by its owner, because this file does not know what is in
@@ -867,6 +873,7 @@ window.RichSettings = (function () {
      *  a page with no home screen behind it carries no door to a panel that is not there. */
     registerRepositories: function (host) { repositories = host || null; rebuild(); },
     registerAccount: function (host) { account = host || null; rebuild(); },
+    registerQuota: function (host) { quota = host || null; rebuild(); },
     /** WHERE HIS MEMORY IS KEPT. `host.open()` opens the same sheet the first-launch question
      *  uses, in whatever state `memory_status` reports at the press — which is why the row
      *  exists at all: "Not now" is remembered since audit-7 row 13, so an offer he put off has

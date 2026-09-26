@@ -29,7 +29,7 @@ android {
         versionCode = providers.gradleProperty("richos.versionCode").orNull?.toInt() ?: 1
         // The version a person reads in Google Play and in Settings > Apps. Raised by hand for a
         // release; the debug build type adds "-dev".
-        versionName = "0.1.0"
+        versionName = "1.0.0"
 
         // Firebase, initialized in code with no google-services plugin (build plan §3.3). The four
         // public identifiers come from Gradle properties (richos.firebase.projectId, .appId,
