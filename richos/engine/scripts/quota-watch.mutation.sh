@@ -216,4 +216,10 @@ mutant refresh-with-nothing-working "W13" "$L" \
     '                    if False:{NL}                        print("  the reading is about to turn' \
     "A quiet session would be woken every 5 minutes to refresh a number that nothing is spending."
 
+# A DEAD LOGIN SEEN BY THE WATCHER REACHES THE CEO (2026-09-26).
+mutant login-refusal-unreported "G09" "$L" \
+    '    if g.get("auth_failed"):{NL}        told = ' \
+    '    if False:{NL}        told = ' \
+    "get_usage answering 'Login expired' would fall back quietly and nobody would be told to run /login."
+
 mutation_end
