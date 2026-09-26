@@ -45,14 +45,9 @@ def needs_slot(count):
 
 
 def _ps_rows():
-    out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,lstart="], capture_output=True, text=True,
-                         env={**os.environ, "LC_ALL": "C", "TZ": "UTC0"}, timeout=10)
-    rows = {}
-    for line in out.stdout.splitlines():
-        f = line.split(None, 2)
-        if len(f) == 3 and f[0].isdigit() and f[1].isdigit():
-            rows[int(f[0])] = (int(f[1]), f[2].strip())
-    return rows
+    from proc_tree import process_rows
+    return {pid: (parent, generation) for pid, (parent, _group, generation) in process_rows().items()
+            if generation is not None}
 
 
 def birth(pid, rows=None):

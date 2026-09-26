@@ -21,6 +21,7 @@ import signal
 import subprocess
 import sys
 import time
+import operator_fences
 
 
 def snapshot():
@@ -86,7 +87,11 @@ def _alive(pids):
         except PermissionError:
             pass
         # A zombie is dead: it only waits for its parent to read its status.
-        state = subprocess.run(["ps", "-o", "stat=", "-p", str(p)], capture_output=True, text=True).stdout.strip()
+        result = subprocess.run(["ps", "-o", "stat=", "-p", str(p)],
+                                capture_output=True, text=True, timeout=10)
+        state = result.stdout.strip()
+        if result.returncode not in (0, 1) or (result.returncode == 0 and not state):
+            raise RuntimeError("cannot read process state: %s" % p)
         if state and not state.startswith("Z"):
             left.append(p)
     return left
@@ -119,8 +124,35 @@ def command(argv, owner=None):
 
 
 def identity(pid):
-    result = subprocess.run(["ps", "-p", str(pid), "-o", "lstart="], capture_output=True, text=True)
-    return result.stdout.strip() or None
+    row = operator_fences.proc(pid, precise=True)
+    return row["start"] if row and not row["zombie"] else None
+
+
+def process_rows():
+    """Topology plus native birth generations, without a subprocess per identity.
+
+    Keep unreadable rows in the topology so an owned process with an unknown
+    generation causes a visible failure instead of disappearing from cleanup.
+    """
+    result = subprocess.run(["ps", "-ax", "-o", "pid=,ppid=,pgid="],
+                            capture_output=True, text=True, timeout=10, check=True)
+    table = {}
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) != 3 or not all(field.isdigit() for field in fields):
+            continue
+        pid, parent, group = map(int, fields)
+        row = operator_fences.proc(pid, precise=True)
+        if row and row["zombie"]:
+            continue
+        if row is None:
+            # libproc can return ESRCH for an unreaped zombie while kill(pid, 0)
+            # still succeeds. Check state only on this exceptional path.
+            if not _alive([pid]):
+                continue
+        table[pid] = ((row["ppid"], row["pgid"], row["start"]) if row
+                      else (parent, group, None))
+    return table
 
 
 def scoped_members(scope):
@@ -149,25 +181,28 @@ class TrackedTree:
     """
     def __init__(self, root, scope):
         self.root, self.scope, self.known = root, scope, {}
+        self.root_birth = identity(root)
+        if self.root_birth is None:
+            raise RuntimeError("cannot establish owned root generation: %s" % root)
         self.groups = {}
+        self.empty_groups = set()
         self.refresh()
 
     def refresh(self, tags=False):
-        result = subprocess.run(["ps", "-ax", "-o", "pid=,ppid=,pgid=,lstart="],
-                                capture_output=True, text=True, timeout=10, check=True)
-        table = {}
-        for line in result.stdout.splitlines():
-            fields = line.split(None, 3)
-            if len(fields) == 4:
-                table[int(fields[0])] = (int(fields[1]), int(fields[2]), fields[3])
+        table = process_rows()
+        for pid in self.known:
+            if pid in table and table[pid][2] is None:
+                raise RuntimeError("owned process generation is unreadable: %s" % pid)
         owned = {pid for pid, birth in self.known.items() if pid in table and table[pid][2] == birth}
-        if not self.known and self.root in table:
+        if self.root in table and table[self.root][2] == self.root_birth:
             owned.add(self.root)
         # A short-lived shell may exit between samples while its background child
         # retains the original group. Keep that group until empty, rejecting a reused leader PID.
+        empty = {g for g in self.groups if not any(row[1] == g for row in table.values())}
         self.groups = {g: birth for g, birth in self.groups.items()
                        if (g not in table or table[g][2] == birth)
-                       and any(row[1] == g for row in table.values())}
+                       and not (g in empty and g in self.empty_groups)}
+        self.empty_groups = empty
         owned |= {p for p, row in table.items() if row[1] in self.groups}
         if tags:
             owned |= scoped_members(self.scope)
@@ -179,6 +214,8 @@ class TrackedTree:
             owned |= more
         for pid in owned:
             if pid in table:
+                if table[pid][2] is None:
+                    raise RuntimeError("owned process generation is unreadable: %s" % pid)
                 group = table[pid][1]
                 if group in table and group not in (os.getpgrp(), 0, 1):
                     self.groups[group] = table[group][2]
@@ -191,18 +228,28 @@ def finish_scope(child, tracker, grace=8.0):
     deadline = time.monotonic() + grace
     killed_at = deadline + 3.0
     initial = True
+    empty = False
     while True:
         child.poll()
         alive = set(_alive(tracker.refresh(tags=True)))
         if not alive:
-            return []
+            # Topology and native identities are two observations. A parent can
+            # fork and exit between them. Confirm absence in a subsequent sample
+            # before releasing the permits that cover its background child.
+            if empty:
+                return []
+            empty = True
+            time.sleep(0.05)
+            continue
+        empty = False
         hard = time.monotonic() >= deadline
         # Signal the original tree once. A shell's EXIT trap may start cleanup
         # commands during the grace period; terminating those immediately defeats
         # cooperative cleanup. Track them and kill any survivors at the deadline.
         for pid in alive if hard or initial else ():
             try:
-                os.kill(pid, signal.SIGKILL if hard else signal.SIGTERM)
+                if identity(pid) == tracker.known.get(pid):
+                    os.kill(pid, signal.SIGKILL if hard else signal.SIGTERM)
             except ProcessLookupError:
                 pass
         initial = False
