@@ -221,12 +221,60 @@
 #     inert is caught by `run-tests.test.sh` case S3, which scans the REAL inventory. A
 #     new suite that opens a window without saying so turns that case red on the day it
 #     lands, rather than turning up on the operator's screen.
+#
+# =======================================================================================
+# `--for desktop|ios|android|phone`: WHICH APP'S BUILD THIS RUN IS
+# =======================================================================================
+#
+# The CEO, 2026-09-26: *"the native mobile apps are 2 COMPLETELY INDEPENDENT DIFFERENT
+# APPS ... So, WHY THE FUCK ARE THEY PART OF THE SAME FUCKING BUILD???"* The phone apps
+# live in `richos/mobile/`, but their suites sit here beside the desktop app's, so the
+# desktop nightly ran them all: in run 20260926T004003Z-f09b045a the whole script-suites
+# gate was 1412 s, and all 1412 s were `native-ios-app.test.sh` on an iPhone simulator.
+#
+# `phone-app-suites.tsv`, beside this file, names every suite that tests ONLY a phone app,
+# which app, and why. `--for desktop` leaves those suites out; `--for ios`, `--for android`
+# and `--for phone` run only them. Without `--for`, every suite runs, exactly as before,
+# which is what `--only` and a land's proof selection still get.
+#
+# A SUITE LEFT OUT IS NEVER SILENT. Every one is printed with the app it belongs to and its
+# reason, and written into `--results-out` under `not_in_this_build`, from where it
+# travels into the candidate's `build-info.json`. A desktop candidate says which phone
+# suites it did not run instead of looking like a build that ran everything.
+#
+# THE LIST IS RECONCILED BEFORE ANYTHING RUNS, the way RUN_TESTS_DECLARED_GAPS is:
+#
+#   * a row naming no suite in this directory is REFUSED — a stale row would otherwise
+#     sit there ready to drop the next suite that happens to take the name;
+#   * a row with no reason is refused, and so is an app other than ios or android;
+#   * a row whose suite CLAIMS a file the Mac app ships (its `# run-tests: covers` row names
+#     a path under richos/app/src-tauri, richos/app/crates, richos/app/ui, richos/web/web-app
+#     or richos/engine) is REFUSED. A suite that proves bytes the desktop app ships is a
+#     desktop suite whatever else it tests, and it cannot be moved out of the desktop build
+#     by a row in a list. That is why `mobile-pwa.test.sh` stays: the phone web app is
+#     compiled into the Mac executable (app/src-tauri/build.rs, `embed_phone`);
+#   * `--for` with a missing list is refused rather than read as "no phone suites".
+#
+# A NEW SUITE NOBODY LISTED RUNS IN THE DESKTOP BUILD. That is the direction to fail in:
+# it costs time, and it cannot quietly stop a suite from running anywhere.
+#
+# WHY A LIST BESIDE THE SUITES AND NOT A LINE INSIDE EACH ONE, when this header argues for
+# the second: a suite's own file is one of its declared inputs, so a line added to thirteen
+# phone suites would have made the land that introduced this run all thirteen, simulators
+# included, to prove a comment. The list is reconciled against the inventory in both
+# directions above, which is what keeps it from drifting.
+#
+# `--list` prints the suites this run would start, one per line, and starts none. It takes
+# no worker token, so it answers at once even on a busy machine.
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Standalone fixture copies have no engine; a complete checkout uses its shared budget.
 WORKER_TOOL="$DIR/../../engine/scripts/lib/worker_tokens.py"
-if [ -z "${RICHOS_WORKER_TOKENS:-}" ] && [ -f "$WORKER_TOOL" ]; then
+# `--list` starts nothing, so it must not wait for a machine worker token to say so.
+LISTING=""
+for _arg in "$@"; do [ "$_arg" = "--list" ] && LISTING=1; done
+if [ -z "$LISTING" ] && [ -z "${RICHOS_WORKER_TOKENS:-}" ] && [ -f "$WORKER_TOOL" ]; then
   exec python3 "$WORKER_TOOL" machine -- bash "${BASH_SOURCE[0]}" "$@"
 fi
 
@@ -234,21 +282,34 @@ JOBS=""
 ONLY=""
 PROOF_OUT=""
 RESULTS_OUT=""
+FOR_BUILD=""
 NO_HOST_SCREEN="${RUN_TESTS_NO_HOST_SCREEN:-}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --jobs)            JOBS="${2:-}"; shift 2 ;;
     --only)            ONLY="$ONLY ${2:-}"; shift 2 ;;
+    --for)             FOR_BUILD="${2:-}"; shift 2 ;;
+    --list)            shift ;;
     --no-host-screen)  NO_HOST_SCREEN=1; shift ;;
     --proof-out)       PROOF_OUT="${2:-}"; shift 2 ;;
     --results-out)     RESULTS_OUT="${2:-}"; shift 2 ;;
     *)
       echo "run-tests.sh: unknown argument '$1'." >&2
-      echo "              [--jobs N] [--only <suite>]... [--no-host-screen]" >&2
-      echo "              [--proof-out <path>] [--results-out <path>]" >&2
+      echo "              [--jobs N] [--only <suite>]... [--for desktop|ios|android|phone]" >&2
+      echo "              [--list] [--no-host-screen] [--proof-out <path>] [--results-out <path>]" >&2
       exit 2 ;;
   esac
 done
+case "$FOR_BUILD" in
+  ''|desktop|ios|android|phone) ;;
+  *) echo "run-tests.sh: --for takes desktop, ios, android or phone, not '$FOR_BUILD'." >&2; exit 2 ;;
+esac
+if [ -n "$FOR_BUILD" ] && [ -n "$ONLY" ]; then
+  # Two selections at once can disagree, and the only honest answers to "run this suite,
+  # but only if it belongs to that build" are a refusal or a surprise. This is the refusal.
+  echo "run-tests.sh: --only and --for both choose the suites; give one of them." >&2
+  exit 2
+fi
 
 if [ "$(uname -s)" != "Darwin" ]; then
   echo "run-tests.sh: these suites exercise codesign, the keychain and TCC — macOS only." >&2
@@ -283,6 +344,105 @@ if [ -n "$ONLY" ]; then
   done
 else
   SUITES=("${ALL[@]}")
+fi
+
+# ---------------------------------------------------------------------------------------
+# `--for`: which app's build this is. See the header. Reconciled before anything runs.
+# ---------------------------------------------------------------------------------------
+# Beside this file and nowhere else: no environment variable can point a build at another list.
+PHONE_LIST="$DIR/phone-app-suites.tsv"
+OTHER_NAME=(); OTHER_APP=(); OTHER_WHY=()
+if [ -n "$FOR_BUILD" ]; then
+  if [ ! -f "$PHONE_LIST" ]; then
+    echo "run-tests.sh: --for $FOR_BUILD needs $PHONE_LIST, which says which suites test only a" >&2
+    echo "              phone app, and it is missing. Read as 'no phone suites' it would put every" >&2
+    echo "              phone suite back into the desktop build without a word, so this refuses." >&2
+    exit 2
+  fi
+  L_SUITE=(); L_APP=(); L_WHY=()
+  _tab="$(printf '\t')"
+  _lineno=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    _lineno=$((_lineno + 1))
+    case "$line" in ''|'#'*) continue ;; esac
+    l_suite="${line%%"$_tab"*}"
+    rest="${line#*"$_tab"}"
+    l_app="${rest%%"$_tab"*}"
+    l_why="${rest#*"$_tab"}"
+    if [ "$l_suite" = "$line" ] || [ "$l_app" = "$rest" ] || [ -z "$l_why" ]; then
+      echo "run-tests.sh: $PHONE_LIST line $_lineno is not '<suite><TAB><apps><TAB><reason>'." >&2
+      echo "              A row with no reason declares nothing." >&2
+      exit 2
+    fi
+    case "$l_app" in
+      ios|android|ios,android) ;;
+      *) echo "run-tests.sh: $PHONE_LIST line $_lineno names the app '$l_app'; it is ios, android or ios,android." >&2
+         exit 2 ;;
+    esac
+    found=""
+    for a in "${ALL[@]}"; do [ "$(basename "$a")" = "$l_suite" ] && found="$a" && break; done
+    if [ -z "$found" ]; then
+      echo "run-tests.sh: $PHONE_LIST line $_lineno names $l_suite, and there is no such suite under $DIR." >&2
+      echo "              A stale row is waiting to drop whichever suite takes that name next. Remove it." >&2
+      exit 2
+    fi
+    for d in ${L_SUITE[@]+"${L_SUITE[@]}"}; do
+      if [ "$d" = "$l_suite" ]; then
+        echo "run-tests.sh: $PHONE_LIST names $l_suite twice." >&2; exit 2
+      fi
+    done
+    # The one structural fact the list cannot override: a suite that claims a file the Mac
+    # app ships is a desktop suite. `covers` is the claim (proof-for.sh reads the same row).
+    shipped="$(sed -n 's/^# run-tests: covers[[:space:]]*//p' "$found" | head -1 | tr ' ' '\n' \
+               | grep -E '^richos/(app/(src-tauri|crates|ui)|web/web-app|engine)/' | head -3 | tr '\n' ' ')"
+    if [ -n "$shipped" ]; then
+      echo "run-tests.sh: $PHONE_LIST lists $l_suite as a phone-app suite, and its covers row claims" >&2
+      echo "              files the Mac app ships: ${shipped% }." >&2
+      echo "              A suite that proves the desktop app's bytes belongs to the desktop build." >&2
+      exit 2
+    fi
+    L_SUITE+=("$l_suite"); L_APP+=("$l_app"); L_WHY+=("$l_why")
+  done < "$PHONE_LIST"
+
+  # Where a suite belongs: "desktop", or the app(s) its row names.
+  home_of() {
+    local k=0
+    while [ "$k" -lt "${#L_SUITE[@]}" ]; do
+      if [ "${L_SUITE[$k]}" = "$1" ]; then printf '%s\t%s\n' "${L_APP[$k]}" "${L_WHY[$k]}"; return; fi
+      k=$((k + 1))
+    done
+    printf 'desktop\t%s\n' "not listed in $(basename "$PHONE_LIST"), so it is the desktop app's"
+  }
+  in_build() {  # $1 = home ("desktop", "ios", "android", "ios,android")
+    case "$FOR_BUILD:$1" in
+      desktop:desktop) return 0 ;;
+      desktop:*)       return 1 ;;
+      *:desktop)       return 1 ;;
+      phone:*)         return 0 ;;
+    esac
+    case ",$1," in *",$FOR_BUILD,"*) return 0 ;; esac
+    return 1
+  }
+  KEPT=()
+  for t in "${SUITES[@]}"; do
+    h="$(home_of "$(basename "$t")")"
+    app="${h%%"$_tab"*}"; why="${h#*"$_tab"}"
+    if in_build "$app"; then
+      KEPT+=("$t")
+    else
+      OTHER_NAME+=("$(basename "$t")"); OTHER_APP+=("$app"); OTHER_WHY+=("$why")
+    fi
+  done
+  if [ "${#KEPT[@]}" -eq 0 ]; then
+    echo "run-tests.sh: --for $FOR_BUILD selects NO suite under $DIR — refusing to report green over nothing." >&2
+    exit 2
+  fi
+  SUITES=("${KEPT[@]}")
+fi
+
+if [ -n "$LISTING" ]; then
+  for t in "${SUITES[@]}"; do basename "$t"; done
+  exit 0
 fi
 
 # The declarations, read once, before anything runs — a malformed one should stop the run
@@ -416,8 +576,9 @@ suite_inputs() {  # $1 = full path to a suite; prints repo-relative paths, or ex
 
 suite_input_digest() {  # $1 = full path to a suite; prints a sha256, or exits 1
   local paths dirty
-  # A land omits A8. The nightly must execute it even if the same source passed a land
-  # or an earlier nightly; a source-only receipt cannot prove that gate ran this time.
+  # A land omits A8. The run that asks for it (the iPhone app's release check, see
+  # native-ios-app.test.sh) must execute it even if the same source passed a land or an
+  # earlier run; a source-only receipt cannot prove that A8 ran this time.
   case "$(basename "$1"):${RICHOS_NATIVE_IOS_APP_A8:-0}" in
     native-ios-app.test.sh:1) return 1 ;;
   esac
@@ -505,8 +666,16 @@ while [ "$i" -lt "$N" ]; do
 done
 
 echo "${#ALL[@]} suite(s) discovered under $DIR"
-[ "$N" -eq "${#ALL[@]}" ] || echo "  --only: running $N of them"
+[ -z "$ONLY" ] || [ "$N" -eq "${#ALL[@]}" ] || echo "  --only: running $N of them"
 echo "  pool: $JOBS concurrent (override with --jobs N or RUN_TESTS_JOBS)"
+if [ -n "$FOR_BUILD" ]; then
+  echo "  build: $FOR_BUILD — $N suite(s) belong to it; ${#OTHER_NAME[@]} belong to another app's build and are not run here"
+  i=0
+  while [ "$i" -lt "${#OTHER_NAME[@]}" ]; do
+    echo "  NOT IN THIS BUILD: ${OTHER_NAME[$i]} — ${OTHER_APP[$i]}: ${OTHER_WHY[$i]}"
+    i=$((i + 1))
+  done
+fi
 if [ "${#DECLARED_SUITE[@]}" -gt 0 ]; then
   for i in "${!DECLARED_SUITE[@]}"; do
     echo "  declared host gap: ${DECLARED_SUITE[$i]} — ${DECLARED_WHY[$i]}"
@@ -694,6 +863,17 @@ if [ -n "$RESULTS_OUT" ]; then
     printf '  "seconds": %s,\n' "$RUN_ELAPSED"
     printf '  "run_id": "%s",\n' "$(json_escape "$RUN_ID")"
     printf '  "commit": "%s",\n' "$(json_escape "$HEAD_SHA")"
+    printf '  "build": "%s",\n' "$(json_escape "${FOR_BUILD:-all}")"
+    printf '  "not_in_this_build": ['
+    i=0
+    while [ "$i" -lt "${#OTHER_NAME[@]}" ]; do
+      [ "$i" -gt 0 ] && printf ','
+      printf '\n    {"name": "%s", "belongs_to": "%s", "reason": "%s"}' \
+        "$(json_escape "${OTHER_NAME[$i]}")" "$(json_escape "${OTHER_APP[$i]}")" "$(json_escape "${OTHER_WHY[$i]}")"
+      i=$((i + 1))
+    done
+    [ "${#OTHER_NAME[@]}" -gt 0 ] && printf '\n  '
+    printf '],\n'
     printf '  "suites": [\n'
     i=0
     while [ "$i" -lt "$N" ]; do
@@ -716,6 +896,12 @@ if [ -n "$RESULTS_OUT" ]; then
     done
     printf '  ]\n}\n'
   } > "$RESULTS_OUT"
+fi
+
+# The suites another app's build owns, named once more beside the verdict, so the line a
+# reader stops at cannot be mistaken for "every suite in this directory".
+if [ "${#OTHER_NAME[@]}" -gt 0 ]; then
+  echo "    not in this build ($FOR_BUILD): ${OTHER_NAME[*]}"
 fi
 
 # A real failure outranks everything: report it and stop, so a gap can never be the

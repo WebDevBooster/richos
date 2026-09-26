@@ -1050,9 +1050,10 @@ while True: time.sleep(.02)
         env = [c.kwargs["env_extra"] for c in r.command.call_args_list
                if "env_extra" in c.kwargs][0]
         self.assertEqual(env["RUN_TESTS_SKIP_UNCHANGED"], "1")
-        # The middle iPhone size runs before every nightly (CEO, 2026-09-23, "Only before
-        # nightlies"): stated at this call site, where a failure stops the nightly.
-        self.assertEqual(env["RICHOS_NATIVE_IOS_APP_A8"], "1")
+        # The phone apps are not this build (CEO, 2026-09-26), so the middle iPhone size is no
+        # longer asked for here: it belongs to the iPhone app's release check.
+        self.assertNotIn("RICHOS_NATIVE_IOS_APP_A8", env)
+        self.assertIn("--for desktop", runner_calls[0])
         # The simulator suites queue for the one prepared-simulator lease for as long as this
         # gate may run, never the CLI's 300 s default that failed them side by side.
         self.assertEqual(env["RICHOS_IOS_POOL_WAIT"], str(m.GATE_BUDGETS["gates/script-suites"]))
@@ -1183,6 +1184,25 @@ class GatesAtOnceTests(unittest.TestCase):
                                       "gates/updater-tests", "gates/script-suites",
                                       "gates/lint-tauri", m.WORKSPACE_MUTANTS_GATE,
                                       m.UI_SUITE_GATE, "gates/privacy-sweep"])
+
+    def test_the_desktop_build_runs_only_the_desktop_apps_suites(self):
+        """CEO, 2026-09-26: "the native mobile apps are 2 COMPLETELY INDEPENDENT DIFFERENT
+        APPS ... So, WHY THE FUCK ARE THEY PART OF THE SAME FUCKING BUILD???"
+
+        The script-suites gate asks run-tests.sh for the desktop build and nothing wider, and
+        asks for no phone-only case. Which suites that is, is run-tests.sh's to decide from
+        phone-app-suites.tsv; run-tests.test.sh case B7 holds the real list to it.
+        """
+        r = self.runner("all")
+        events = self.run_gates_recording(r)
+        suites = [(argv, env) for e, p, argv, env in events
+                  if e == "start" and any(a.endswith("run-tests.sh") for a in argv)]
+        self.assertEqual(len(suites), 1)
+        argv, env = suites[0]
+        self.assertIn("--for", argv)
+        self.assertEqual(argv[argv.index("--for") + 1], "desktop")
+        self.assertNotIn("--only", argv)
+        self.assertNotIn("RICHOS_NATIVE_IOS_APP_A8", env or {})
 
     def test_the_simulated_phone_count_reaches_the_suites_and_nothing_else_sets_it(self):
         for phones in (1, 2, 3):

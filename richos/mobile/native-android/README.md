@@ -102,6 +102,18 @@ bundle.
 
 ## Release: the signed bundle for Google Play
 
+**First, the Android app's own suites.** They are not part of the desktop app's nightly build
+(CEO, 2026-09-26: the phone apps are independent apps), so a release is where they all run
+together. From the repository root:
+
+```sh
+richos/app/scripts/run-tests.sh --for android
+```
+
+That is every suite `richos/app/scripts/phone-app-suites.tsv` names for Android, including the
+ones both phone apps share. Each of them also runs at a land whenever its own inputs change.
+Nothing yet refuses a bundle made without this run; it is a step, not a gate.
+
 One command, run from the repository root, makes the bundle Google Play takes. The two private
 wrappers (richos-hq, never this repository) supply the Firebase client values and the upload key
 through the process environment; nothing secret is on a command line, in Gradle's configuration
