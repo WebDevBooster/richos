@@ -344,6 +344,15 @@ impl OperatorDesk {
         sentence
     }
 
+    /// **The §88 seam, through the desk** (r4 §3): PRD S6's question store calls this with the
+    /// resolved answer to a question his team asked, from any channel; `delivery_id` is S6's
+    /// durable identity, and the same one twice relays once (the host's rule).
+    pub fn deliver_answer(&self, key: &ConversationKey, handle: Option<&str>, delivery_id: &str, answer: &str)
+                          -> Result<bool, String> {
+        let title = self.origins.title(&key.thread_id).unwrap_or_default();
+        self.host.deliver_answer(key, &title, handle, delivery_id, answer)
+    }
+
     /// (o): this conversation's read, or every conversation's.
     pub fn read(&self, key: &ConversationKey, every: bool) -> Vec<ConversationRead> {
         self.host.read(key, every)
@@ -814,6 +823,49 @@ mod tests {
         assert_eq!(d.engine.stop_words.lock().unwrap()[0].1, STOP_CONTROL_WORDS);
     }
 
+    /// A stop that reaches only some of the assignment's agents says what it measured and
+    /// leaves the assignment open: one of its names (reported on the handle) is no agent any
+    /// lead holds, so not every one is NOT-ALIVE.
+    #[test]
+    fn a_stop_that_reached_only_some_of_its_agents_leaves_the_assignment_open() {
+        let d = desk();
+        let a = assignment(&d, "t-1", "land it", Source::Text, Some("desk"));
+        d.desk.take(a.clone());
+        assert!(d.desk.wait_quiet(Duration::from_secs(10)));
+        let lead = d.launcher.leads.lock().unwrap()[0].2.clone();
+        d.desk.host.handle(&key_of(&a), crate::operator_lead::LeadEvent::Took("u-1".into()));
+        agent(&lead, "tool-a", "mark-sonnet-a", "task-a");
+        d.desk.host.handle(&key_of(&a), crate::operator_lead::LeadEvent::Agent(crate::operator_lead::AgentTask {
+            name: "mark-sonnet-a".into(), task_id: "task-a".into(), tool_use_id: "tool-a".into(),
+            status: crate::operator_lead::TaskStatus::Running }));
+        // His team's report on this handle names an agent no lead holds.
+        let outbox = ConversationPaths::under(&d.root.join("operator"), &key_of(&a)).outbox;
+        std::fs::write(&outbox, serde_json::json!({"version":1,"at_ms":1,"lead":"claim-1","entity_id":"femcboost",
+            "thread_id":"t-1","handle":a.id,"kind":"update","text":"two on it","attachment":null,"lands":[],"files":[],
+            "agents":["ghost-sonnet-b"]}).to_string() + "\n").unwrap();
+        d.desk.host.handle(&key_of(&a), crate::operator_lead::LeadEvent::Reported);
+        d.engine.not_alive.lock().unwrap().insert("task-a".into());
+        lead.feed(serde_json::json!({"type":"system","subtype":"task_notification","task_id":"task-a","status":"stopped"}));
+        assert_eq!(d.desk.stop_assignment("femcboost", "t-1", &a.id), Ok(()));
+        let (state, detail) = state_of(&d, &a);
+        assert_eq!(state, AssignmentState::Running, "not every agent was stopped, so it is not marked stopped");
+        assert_eq!(detail, HANDED_OVER);
+    }
+
+    /// The §88 seam reaches the lead through the desk, once per delivery identity.
+    #[test]
+    fn an_answer_reaches_the_lead_through_the_desk_once_per_delivery() {
+        let d = desk();
+        let a = assignment(&d, "t-1", "ask me something", Source::Text, Some("desk"));
+        d.desk.take(a.clone());
+        assert!(d.desk.wait_quiet(Duration::from_secs(10)));
+        assert_eq!(d.desk.deliver_answer(&key_of(&a), Some(&a.id), "delivery-1", "Green."), Ok(true));
+        assert_eq!(d.desk.deliver_answer(&key_of(&a), Some(&a.id), "delivery-1", "Green."), Ok(false), "once");
+        let sent = sent(&d);
+        assert_eq!(sent.len(), 2, "the assignment, then the answer: {sent:?}");
+        assert!(sent[1].contains(&format!("His answer to your question on {}:", a.id)), "{}", sent[1]);
+    }
+
     // ---- rule 6 ------------------------------------------------------------------------------
 
     #[test]
@@ -841,9 +893,10 @@ mod tests {
     #[test]
     fn the_idle_timer_retires_a_lead_with_nothing_running_and_spends_nothing_with_no_lead() {
         let d = desk();
-        // No lead: the timer asks his engine nothing.
+        // No lead: the timer asks his engine nothing, not even the lease status.
         assert!(d.desk.retire_idle_now(Duration::ZERO).is_empty());
         assert!(d.engine.asked.lock().unwrap().is_empty());
+        assert_eq!(*d.engine.lease_reads.lock().unwrap(), 0, "no script runs while no lead runs");
         let a = assignment(&d, "t-1", "go", Source::Text, Some("desk"));
         d.desk.take(a.clone());
         assert!(d.desk.wait_quiet(Duration::from_secs(10)));

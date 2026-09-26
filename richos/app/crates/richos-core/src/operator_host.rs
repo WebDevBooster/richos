@@ -1284,6 +1284,7 @@ pub(crate) mod tests {
         pub(crate) not_alive: Mutex<BTreeSet<String>>,
         pub(crate) asked: Mutex<Vec<String>>,
         pub(crate) leases: Mutex<Vec<String>>,
+        pub(crate) lease_reads: Mutex<usize>,
     }
     impl OperatorEngine for FakeEngine {
         fn stop_words(&self, names: &[String], words: &str) -> Result<String, String> {
@@ -1298,7 +1299,10 @@ pub(crate) mod tests {
             self.registry.lock().unwrap().push((session.into(), name.into(), words.into()));
             Ok("stopped".into())
         }
-        fn held_leases(&self) -> Vec<String> { self.leases.lock().unwrap().clone() }
+        fn held_leases(&self) -> Vec<String> {
+            *self.lease_reads.lock().unwrap() += 1;
+            self.leases.lock().unwrap().clone()
+        }
     }
 
     #[derive(Default)]
