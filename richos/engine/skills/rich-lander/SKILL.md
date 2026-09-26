@@ -218,7 +218,11 @@ that it is held, and on whose word.
 git push origin main
 ```
 
-Then release the land lease:
+Then release the land lease, **unless this repository deploys from its main checkout
+in step 7 (femcboost does): then release it at the end of step 7, once the deploy has
+finished, in the same turn.** Its deploy reads `main` in the shared main checkout, so a
+lease released at the push lets a second lead move `main` under a deploy still running
+(Frank's F2 on the operator contract, 2026-09-26).
 
 ```bash
 <engine>/scripts/land-lease.sh release --repo <repo root>
