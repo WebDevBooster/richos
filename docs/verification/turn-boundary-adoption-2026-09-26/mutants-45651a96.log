@@ -1,0 +1,16 @@
+admission: user CPU 25.6%, system 9.6%, idle 64.8%; memory pressure normal, free 73%, swap used 6469 MB, swap-out 0.0 MB/s; waited 1s over 1 sample(s); load 6.97 is informational
+admitted without a lock (CEO ruling §77)
+sources: HEAD 45651a963706fab6fec6c90363f73f853ebf1525, exported to /Volumes/E1TB/tmp/codex/echo-opus-adopt1/mutant-copy
+UNMUTATED core: exit 0, 8 passed, 0 failed
+UNMUTATED shell: exit 0, 5 passed, 0 failed
+M1 the spine forgets which turns ended: KILLED by a_typed_turn_is_reported_once_and_the_list_is_then_empty, a_spoken_turn_is_reported_exactly_as_a_typed_one, a_phone_turn_is_reported_on_its_own_thread_and_not_on_the_active_one (exit 101, 8 red)
+M2 taking the list does not empty it: KILLED by a_typed_turn_is_reported_once_and_the_list_is_then_empty (exit 101, 1 red)
+M3 the door adopts nothing: KILLED by turn_boundary_tests::work_he_gives_aloud_starts_without_a_typed_message, turn_boundary_tests::work_he_gives_from_the_phone_starts_without_a_typed_message, turn_boundary_tests::without_the_boundary_the_task_stays_registered_and_the_door_starts_it (exit 101, 3 red)
+M4 spoken: the pre-fix shape, no adoption after a spoken turn: KILLED by turn_boundary_tests::work_he_gives_aloud_starts_without_a_typed_message (exit 101, 2 red)
+M5 phone: the pre-fix shape, no adoption after the drain: KILLED by turn_boundary_tests::work_he_gives_from_the_phone_starts_without_a_typed_message (exit 101, 2 red)
+M6 spoken: the callback runs the turn itself and skips its door: KILLED by turn_boundary_tests::every_entrance_that_runs_his_turns_adopts_at_its_boundary, turn_boundary_tests::the_voice_callback_and_the_phone_drain_go_through_their_doors (exit 101, 2 red)
+M7 phone: the drain runs the turn itself and skips its door: KILLED by turn_boundary_tests::every_entrance_that_runs_his_turns_adopts_at_its_boundary, turn_boundary_tests::the_voice_callback_and_the_phone_drain_go_through_their_doors (exit 101, 2 red)
+M8 typed: send_message skips its door: KILLED by turn_boundary_tests::every_entrance_that_runs_his_turns_adopts_at_its_boundary (exit 101, 1 red)
+M9 priming: ready_the_front_desk skips its door: KILLED by turn_boundary_tests::every_entrance_that_runs_his_turns_adopts_at_its_boundary (exit 101, 1 red)
+M10 boot: reconcile_intake skips its door: KILLED by turn_boundary_tests::every_entrance_that_runs_his_turns_adopts_at_its_boundary (exit 101, 1 red)
+10/10 mutants killed
