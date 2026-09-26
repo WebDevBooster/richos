@@ -92,6 +92,18 @@ test('Release carries the hosted update-policy address; development keeps its lo
   assert.equal(configuration(file, false, 'Release').policyURL, 'https://policy-lab.example.net/v1/policy');
 });
 
+test('the iPhone and Android apps ship one version, the one in release-config.json', () => {
+  const { readFileSync } = require('node:fs'), { join } = require('node:path'), { compare } = require('../core/updates.js');
+  const { version, build } = require('../release-config.json');
+  const setting = (file, pattern) => { const found = pattern.exec(readFileSync(join(__dirname, '..', file), 'utf8')); assert(found, `${file} sets no version`); return found[1]; };
+  assert.equal(setting('native-ios/project.yml', /^\s*MARKETING_VERSION:\s*"([^"]+)"/m), version, 'native iPhone MARKETING_VERSION');
+  assert.equal(setting('native-android/app/build.gradle.kts', /^\s*versionName\s*=\s*"([^"]+)"/m), version, 'native Android versionName');
+  // The development update fixture stands in for the running app, so it reports the shipped identity
+  // and offers a newer release.
+  assert.deepEqual({ version: fixture.client.version, build: fixture.client.build }, { version, build }, 'dev/update-fixture.js client');
+  assert.equal(compare(fixture.policy('banner').latest.version, version), 1, 'the fixture offers a newer version');
+});
+
 test('a failed durable enqueue cannot leave a ghost message for a later session write to resurrect', async t => {
   const h = harness(), save = h.ports.save; let failed = false, next = 0;
   h.ports.nextId = () => `message-${++next}`;
