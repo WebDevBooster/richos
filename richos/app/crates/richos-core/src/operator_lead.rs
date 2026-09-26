@@ -389,6 +389,10 @@ pub enum LeadEvent {
     Reported,
     /// A frame this client could not read. Reported; the lead is kept (r3 (q) item 1).
     Protocol(String),
+    /// A `can_use_tool` permission request arrived, for this tool, and the route answered it.
+    /// P14 measured none in bypass mode, so each one is a sign the CLI changed (F17 / Frank
+    /// Q3 (a)); the host logs it as a warning.
+    PermissionAsked(String),
     /// The lead's stdout ended: a positive signal, never an inference. [`OperatorLead::exited`]
     /// then confirms with `waitid`.
     Ended,
@@ -407,6 +411,13 @@ pub trait ControlRoute: Send + Sync {
     fn answer(&self, request: &Value) -> Result<Value, String>;
 }
 
+/// What a refused permission request tells the lead (F17 / Frank Q3 (a)). It never invites a
+/// question: his answer could not approve a call already refused, so asking would unlock
+/// nothing. It says what the lead can do instead.
+pub const PERMISSION_REFUSED: &str =
+    "Refused: nobody approves tool calls here, and no later answer can approve this one. Find another way to do it, \
+or report `failed` on the assignment's handle.";
+
 /// The route with nobody behind it: a permission question is denied with a sentence the lead
 /// can act on, and anything else is refused as not supported (native.rs answers the same way).
 pub struct NoPermissionDesk;
@@ -414,8 +425,7 @@ pub struct NoPermissionDesk;
 impl ControlRoute for NoPermissionDesk {
     fn answer(&self, request: &Value) -> Result<Value, String> {
         match request.get("subtype").and_then(Value::as_str) {
-            Some("can_use_tool") => Ok(json!({"behavior": "deny",
-                "message": "Nobody is at the Mac to approve this. Use richos_operator.report with kind question to ask him."})),
+            Some("can_use_tool") => Ok(json!({"behavior": "deny", "message": PERMISSION_REFUSED})),
             other => Err(format!("RichOS does not answer {} requests on this lead.", other.unwrap_or("unnamed"))),
         }
     }
@@ -777,6 +787,10 @@ fn read_frames(stdout: std::process::ChildStdout, pending: Pending, book: Arc<Mu
                 if let Err(e) = write_frame(&writer, &reply) {
                     sink.event(LeadEvent::Protocol(format!("a control request could not be answered ({e})")));
                 }
+                if request.get("subtype").and_then(Value::as_str) == Some("can_use_tool") {
+                    let tool = request.get("tool_name").and_then(Value::as_str).unwrap_or("an unnamed tool");
+                    sink.event(LeadEvent::PermissionAsked(tool.to_string()));
+                }
                 continue;
             }
             _ => {}
@@ -1113,7 +1127,8 @@ done
     fn a_permission_question_from_the_lead_is_answered_on_the_route() {
         let f = fixture();
         let ask = r#"printf '{"type":"control_request","request_id":"perm-1","request":{"subtype":"can_use_tool","tool_name":"Write","input":{}}}\n'"#;
-        let lead = OperatorLead::spawn(fake(&f.root, ask), "s-7", Collect::new(), Arc::new(NoPermissionDesk)).unwrap();
+        let sink = Collect::new();
+        let lead = OperatorLead::spawn(fake(&f.root, ask), "s-7", sink.clone(), Arc::new(NoPermissionDesk)).unwrap();
         lead.initialize(Duration::from_secs(10)).unwrap();
         let deadline = Instant::now() + Duration::from_secs(10);
         let mut answer = None;
@@ -1123,6 +1138,23 @@ done
         }
         let answer = answer.expect("the permission question was answered");
         assert_eq!(answer["response"]["response"]["behavior"], "deny");
+        // F17 / Frank Q3 (a): the host is told a permission request arrived, with the tool, so
+        // it can log it as the CLI having changed (P14 measured none in bypass mode).
+        let asked = sink.wait_for(|e| matches!(e, LeadEvent::PermissionAsked(_)), Duration::from_secs(10));
+        assert!(matches!(asked, Some(LeadEvent::PermissionAsked(ref tool)) if tool == "Write"), "{asked:?}");
+    }
+
+    /// **F17 / Frank Q3 (a).** The refusal never invites a question: his answer cannot approve a
+    /// call that was already refused. It says nobody approves tool calls here, and what the
+    /// lead can do instead.
+    #[test]
+    fn the_permission_refusal_says_nobody_approves_here_and_never_to_ask_him() {
+        let reply = NoPermissionDesk.answer(&json!({"subtype": "can_use_tool", "tool_name": "Write", "input": {}})).unwrap();
+        assert_eq!(reply["behavior"], "deny");
+        let message = reply["message"].as_str().unwrap();
+        assert_eq!(message, PERMISSION_REFUSED);
+        assert!(message.contains("nobody approves tool calls here") && message.contains("report `failed`"), "{message}");
+        assert!(!message.contains("ask him") && !message.contains("question"), "{message}");
     }
 
     #[test]

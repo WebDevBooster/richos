@@ -421,6 +421,8 @@ struct Conversation {
     quitting: bool,
     started_digest: String,
     told_protocol: bool,
+    /// A permission request was said to him once in this conversation (F17).
+    told_permission: bool,
     first_after_resume: bool,
     /// Questions his team asked and nothing has answered yet, by handle ((o), until S6).
     questions: Vec<(Option<String>, String)>,
@@ -570,7 +572,7 @@ impl OperatorHost {
             key: key.clone(), title: title.to_string(), paths, lead: None, record, sent: HashMap::new(),
             awaiting: BTreeSet::new(), in_turn: false, last_relay: None, last_activity: Instant::now(),
             texts: VecDeque::new(), turn_report: None, handle_agents: HashMap::new(), turn_handle: None, banner: None,
-            pending_init: None, fences: Ok(()), checked: false, quitting: false, started_digest: String::new(), told_protocol: false,
+            pending_init: None, fences: Ok(()), checked: false, quitting: false, started_digest: String::new(), told_protocol: false, told_permission: false,
             first_after_resume, questions: Vec::new(),
         }));
         all.insert(key.clone(), conversation.clone());
@@ -742,6 +744,20 @@ impl OperatorHost {
                     drop(c);
                     self.delivery.say(key, &Lane::Conversation, Say::Team,
                         "Your team's connection in this conversation sent something RichOS could not read. Your team is still running.");
+                }
+            }
+            // F17 / Frank Q3 (a): the route refused it; P14 measured none in bypass mode, so
+            // every arrival is logged as the CLI having changed, and he hears it once here.
+            LeadEvent::PermissionAsked(tool) => {
+                self.log(&format!("WARNING: permission request for {tool} from {}/{}, refused; P14 measured none in \
+                                   bypass mode, so the CLI changed", key.entity_id, key.thread_id));
+                let mut c = conversation.lock().unwrap();
+                if !c.told_permission {
+                    c.told_permission = true;
+                    drop(c);
+                    self.delivery.say(key, &Lane::Conversation, Say::Team, &format!(
+                        "Your team asked for approval to use {tool}, which RichOS never expected here. RichOS refused it. \
+                         Your team is still running."));
                 }
             }
             LeadEvent::Ended => self.ended(&conversation),
@@ -1943,6 +1959,26 @@ pub(crate) mod tests {
         let (_, start, second) = r.launcher.leads.lock().unwrap().last().cloned().unwrap();
         assert_eq!(start, LeadStart::Resume(first.session.clone()));
         assert!(second.sent.lock().unwrap()[0].starts_with("Open when you last ended: h-1."), "{:?}", second.sent);
+    }
+
+    /// **F17 / Frank Q3 (a).** A permission request is refused by the route (`operator_lead.rs`
+    /// `NoPermissionDesk`); here, every arrival is logged as a warning that the CLI changed,
+    /// since P14 measured none in bypass mode, and he hears it once per conversation. The lead
+    /// is kept.
+    #[test]
+    fn a_permission_request_is_logged_as_a_warning_every_time_and_said_once() {
+        let r = rig();
+        r.host.relay(&key("a"), "A", None, "go", Origin::DeskTyped).unwrap();
+        for tool in ["Write", "Bash"] {
+            r.host.handle(&key("a"), LeadEvent::PermissionAsked(tool.into()));
+        }
+        let log = std::fs::read_to_string(r.host.log_path()).unwrap();
+        assert_eq!(log.matches("WARNING: permission request").count(), 2, "{log}");
+        assert!(log.contains("for Write") && log.contains("for Bash") && log.contains("the CLI changed"), "{log}");
+        let team: Vec<_> = r.said.all().into_iter().filter(|x| x.2 == Say::Team).collect();
+        assert_eq!(team.len(), 1, "{team:?}");
+        assert!(team[0].3.contains("RichOS refused it") && team[0].3.contains("Your team is still running."), "{}", team[0].3);
+        assert_eq!(*lead_of(&r, "a").quits.lock().unwrap(), 0);
     }
 
     #[test]
