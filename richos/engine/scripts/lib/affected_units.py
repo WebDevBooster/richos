@@ -11,7 +11,8 @@ import re
 import subprocess
 import sys
 
-from verification_inputs import Dependencies, Snapshot, Unsupported, config, config_change, revisions
+from verification_inputs import (Dependencies, Snapshot, Unsupported, config, config_change,
+                                 hook_command_path, hook_reader, hooks_change, revisions)
 
 SECTIONED = "scripts/hooks/contract-integrity.test.sh"
 GLOBAL_CONFIG = "scripts/verification-config.test.sh"
@@ -102,6 +103,56 @@ class Selection:
                 raise Unsupported("global config validation unit is missing from the target inventory")
             self.add(GLOBAL_CONFIG, "orchestration.config: global syntax and unknown-key validation")
 
+    def hooks(self, before, after, unknown=False):
+        change = hooks_change(before, after)
+        if unknown:
+            change.update(content=True, fallback='path-only request has no before/after hook identity')
+        if not change['content']:
+            return
+        paths = set()
+        if not change['fallback']:
+            try:
+                paths = {path for command in change['commands']
+                         if (path := hook_command_path(command)) is not None}
+            except Unsupported as exc:
+                change['fallback'] = str(exc)
+        if change['fallback']:
+            for unit in self.units:
+                self.add(unit, 'hooks/hooks.json: syntax/command fallback: ' + change['fallback'])
+            return
+        # A removed command still selects its behavior consumers. Registration
+        # and ordering checks below are additional obligations, not substitutes.
+        for path in sorted(paths):
+            self.ordinary(path)
+        contracts = self.declaration.get('hook_readers', {})
+        for suite, text in self.suites.items():
+            row = contracts.get(suite)
+            if row is None:
+                if 'hooks.json' in text:
+                    self.suite(suite, 'hooks/hooks.json', 'unqualified manifest reader (conservative)')
+                continue
+            try:
+                row = hook_reader(row, self.read)
+                if suite not in row['sources']:
+                    raise Unsupported('hook reader omits its own source: ' + suite)
+            except Unsupported as exc:
+                self.suite(suite, 'hooks/hooks.json', str(exc))
+                continue
+            affected = paths & set(row['commands'])
+            events = set(change['events']) & set(row.get('events', []))
+            # Existing grep-based registration assertions also inspect raw
+            # text. Preserve their behavior on duplicate lines, formatting and
+            # description edits, even when parsed hook semantics are unchanged.
+            needles = row.get('text_needles', [])
+            changed_text = any([line for line in before.splitlines() if needle in line] !=
+                               [line for line in after.splitlines() if needle in line]
+                               for needle in needles)
+            if affected or events or changed_text:
+                why = ('changed registration/ordering for ' + ', '.join(sorted(affected))
+                       if affected else 'changed event ordering/inventory for ' + ', '.join(sorted(events))
+                       if events else 'changed text consumed by registration assertions')
+                self.suite(suite, 'hooks/hooks.json', why)
+
 
 def git(root, *argv):
     result = subprocess.run(["git", "-C", str(root), *argv], capture_output=True, text=True)
@@ -169,6 +220,9 @@ def main(argv=None):
             if relative == "orchestration.config":
                 before = Snapshot(root, old).read(path) if old else None
                 selection.configuration(before, read(relative), unknown=old is None)
+            elif relative == 'hooks/hooks.json':
+                before = Snapshot(root, old).read(path) if old else None
+                selection.hooks(before, read(relative), unknown=old is None)
             else:
                 selection.ordinary(relative)
         for unit, reasons in sorted(selection.selected.items()):

@@ -135,6 +135,9 @@
       "edges": [
         {
           "to": "scripts/lib/ceo-asks.sh"
+        },
+        {
+          "to": "scripts/lib/ceo-ruled.py"
         }
       ],
       "indirect": {
@@ -606,7 +609,7 @@
     },
     "scripts/lib/verification_inputs.py#config": {
       "source": "scripts/lib/verification_inputs.py",
-      "sha256": "32574b4f964986f0743e27e6d357e9134e81b258c31dc51e5647e79e10a4e2df",
+      "sha256": "f6d2bf3fdce2242e8e77fb96de9974ea69ea0befb8a457e92c6817d8cae86d58",
       "evidence": "The config parser accepts assignment text as data, preserving key references and rejecting unsupported executable syntax. No selected hook or suite is invoked.",
       "keys": [],
       "edges": [],
@@ -617,7 +620,7 @@
     },
     "scripts/lib/affected_units.py#validate-config": {
       "source": "scripts/lib/affected_units.py",
-      "sha256": "5d0b1f450f101b1254065a99eeb11bf8e9f57e0da639950f5e2c9c6432e17268",
+      "sha256": "67d4c6bff62f88e32261fc0e087c3c0742e8720728b69b0d3a771a366647c678",
       "evidence": "validate_config reads the real config and its declared key registry, rejecting unsupported syntax and unknown keys.",
       "keys": [],
       "edges": [
@@ -641,6 +644,397 @@
           "to": "scripts/lib/affected_units.py#validate-config"
         }
       ]
+    },
+    "scripts/lib/model-tiers.sh": {
+      "source": "scripts/lib/model-tiers.sh",
+      "sha256": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
+      "evidence": "Pure functions over caller arguments. The two eval operations address the local rest variable passed by its own finite callers; no configuration is sourced or dynamically addressed.",
+      "keys": [],
+      "edges": [],
+      "nonconfig_eval": true
+    },
+    "scripts/lib/resolve-roots.sh": {
+      "source": "scripts/lib/resolve-roots.sh",
+      "sha256": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+      "evidence": "Root/adoption resolution followed by finite agent lookup. Namespace roots come from AGENT_NAMESPACE_ROOTS; plugin.json and agent frontmatter are data, never executed.",
+      "keys": [
+        "AGENT_NAMESPACE_ROOTS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-main-checkout.sh"
+        }
+      ],
+      "presence": "Checks candidate orchestration.config existence."
+    },
+    "scripts/lib/resolve-model.sh": {
+      "source": "scripts/lib/resolve-model.sh",
+      "sha256": "80d6df68468d7484a4385eb8b1b9ffdf1ea9575776a5e7141bb3fca58ca7ec11",
+      "evidence": "Normalizes ALLOWED_MODELS and calls resolve_agent_def. Reads resolved frontmatter as data through embedded Python, with no arbitrary execution.",
+      "keys": [
+        "ALLOWED_MODELS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-model-ceiling.sh": {
+      "source": "scripts/hooks/guard-model-ceiling.sh",
+      "sha256": "5837b9e9d2156487b00f280456da78f88e0bc66d6a4bbc32c6a1a9eeda8c60e3",
+      "evidence": "Sources the resolved entity config, reads the allowed model set, tier order and ceiling, then resolves a definition and ranks the result. Private entity provenance is supplied by its test callers.",
+      "keys": [
+        "ALLOWED_MODELS",
+        "MODEL_CEILING",
+        "MODEL_TIERS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh"
+        },
+        {
+          "to": "scripts/lib/resolve-model.sh"
+        },
+        {
+          "to": "scripts/lib/model-tiers.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ]
+    },
+    "scripts/lib/scratch.sh": {
+      "source": "scripts/lib/scratch.sh",
+      "sha256": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
+      "evidence": "Scratch allocation and ledger writes use environment/caller values. This helper never sources orchestration.config; callers that source settings before invoking it supply the TTL value.",
+      "keys": [
+        "SCRATCH_DEFAULT_TTL_MINUTES"
+      ],
+      "edges": []
+    },
+    "scripts/lib/stop-at-line.py": {
+      "source": "scripts/lib/stop-at-line.py",
+      "sha256": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
+      "evidence": "Runs the finite caller-supplied command and stops its owned process tree at a named output line. No config reads of its own; the caller declares the nested suite.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/proc_tree.py"
+        }
+      ]
+    },
+    "scripts/lib/mutation-harness.sh": {
+      "source": "scripts/lib/mutation-harness.sh",
+      "sha256": "9dd839120e0a3b2ae4ef91054e076a8e9ea31c4592dbe0ea3eb80f3f018c88b0",
+      "evidence": "Copies configuration as a transport, mutates finite supplied source operands and executes the supplied suite. Each driver declares that nested suite. Scratch allocation runs in the harness shell, which never sources the transported config; the nested suite decides whether to read its values.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh#copy"
+        },
+        {
+          "to": "scripts/lib/scratch.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stopwatch.sh"
+        },
+        {
+          "to": "scripts/lib/mutation-pool.sh"
+        },
+        {
+          "to": "scripts/lib/stop-at-line.py"
+        }
+      ]
+    },
+    "scripts/hooks/guard-model-ceiling.mutation.sh": {
+      "source": "scripts/hooks/guard-model-ceiling.mutation.sh",
+      "sha256": "69d91e1aba82225d62ecad9e1eec14d96092d385fe926b91af9ae1f231861880",
+      "evidence": "Seventeen finite source/fixture mutations preserve the private entity root used by the nested test. The generic harness transports the real config but its downstream suite recreates a separate private config. Literal replacement operands do not read real setting values.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-model-ceiling.test.sh"
+        }
+      ],
+      "literal_keys": {
+        "MODEL_CEILING": "Single-quoted old/new source operands in the ceiling-hardcoded mutant; actual evaluation occurs only in the declared nested fixture hook."
+      }
+    },
+    "scripts/hooks/guard-model-ceiling.test.sh": {
+      "source": "scripts/hooks/guard-model-ceiling.test.sh",
+      "sha256": "bd8a4b00e124d820fbe709ecd6cdab24a54919cd93590455703e80d22f61ca4c",
+      "evidence": "write_config creates constant entity settings and model frontmatter. Every hook and complete/broken mini-engine runs with that entity root; the never-adopted case uses a separate neutral cwd. It never sources the real config. Nested mutation helpers copy the real config only as a transport, then rerun this same private-entity test.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-model-ceiling.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-model-ceiling.mutation.sh"
+        }
+      ]
+    },
+    "scripts/lib/declaration-path.sh": {
+      "source": "scripts/lib/declaration-path.sh",
+      "sha256": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
+      "evidence": "Resolves only named .richos/root declaration files by existence. No orchestration.config values or executed declaration content.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/publication-boundary.sh#undeclared": {
+      "source": "scripts/lib/publication-boundary.sh",
+      "sha256": "46366c80e498f6269889d21109cbfe5de696c273aa9229277ecc85d8285fac85",
+      "evidence": "For fixture repositories with no publication declaration, only module initialization, physical/repository resolution and the early decl_find return execute. The content parser and corpus scanner are not reached.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/declaration-path.sh"
+        }
+      ],
+      "region": [
+        "if [ -n \"${_PUBLICATION_BOUNDARY_SH_SOURCED:-}\" ]; then",
+        "f=\"$DECL_PATH\""
+      ]
+    },
+    "scripts/hooks/guard-publication-writes.sh#undeclared": {
+      "source": "scripts/hooks/guard-publication-writes.sh",
+      "sha256": "c69db813e7aab086ff3f6257d3429eca9e7091c9fc985d17f91829ce943a580b",
+      "evidence": "The ingress fixtures have no publication declaration. This hook resolves the private fixture target, calls pb_load_declaration and returns on its undeclared status; it never builds a scan job or reads an external corpus.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#undeclared"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "if pb_allowlisted \"$PB_REPO\" \"$FILE_PATH\"; then"
+      ]
+    },
+    "scripts/hooks/scan-secrets.sh": {
+      "source": "scripts/hooks/scan-secrets.sh",
+      "sha256": "d23d1d44376e0557597f8a0add40a0226049d801769af48d81095002477e0c73",
+      "evidence": "Sources the seated or file-governing config and explicitly exports four thresholds to its embedded Python scanner. The Python body is generated from literal source and imports only the standard library. Its input text is supplied by the caller.",
+      "keys": [
+        "SECRET_SCAN_MIN_LENGTH",
+        "SECRET_SCAN_MIN_ENTROPY",
+        "SECRET_SCAN_ALLOWLIST",
+        "SECRET_SCAN_CODE_AWARE"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ]
+    },
+    "scripts/hooks/commit-ceo-inputs.py#unfenced-fixtures": {
+      "source": "scripts/hooks/commit-ceo-inputs.py",
+      "sha256": "53a222d02892523e81e3f3dc355a010e1b140d0ac628b3649b16be36ce87a500",
+      "evidence": "The ingress suite supplies only paths in its freshly initialized private repositories, with no installed reference-transaction launcher. Git/file classification and commits execute the secret/publication write gates. fence_on returns false, so land-lease commands are not invoked in this context.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/scan-secrets.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-publication-writes.sh#undeclared"
+        }
+      ]
+    },
+    "scripts/hooks/commit-ceo-inputs.sh#fixtures": {
+      "source": "scripts/hooks/commit-ceo-inputs.sh",
+      "sha256": "9e4a0af9cd1ea89110261baacdae395dc40543061a4f17740467c5a492598962",
+      "evidence": "Normal UserPromptSubmit fixture invocation, never --self-test. Sources the resolved private entity settings, gates on CHECK_CEO_INPUTS and executes its analyzer against the private seat and file repositories.",
+      "keys": [
+        "CHECK_CEO_INPUTS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/hooks/commit-ceo-inputs.py#unfenced-fixtures"
+        }
+      ]
+    },
+    "scripts/hooks/notice-ceo-inputs-unheld.sh#fixtures": {
+      "source": "scripts/hooks/notice-ceo-inputs-unheld.sh",
+      "sha256": "22df89c10271652f710eb04caba653cdc138eda6bc4eeb1971f9b0e83adf2fc7",
+      "evidence": "Reads CHECK_CEO_INPUTS_UNHELD from its resolved private entity, the private ingress ledger and Git status. Its embedded Python imports the analyzer only for is_handover_file; no arbitrary analyzer main/lease command executes on import.",
+      "keys": [
+        "CHECK_CEO_INPUTS_UNHELD"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/hooks/commit-ceo-inputs.py#unfenced-fixtures"
+        }
+      ]
+    },
+    "scripts/hooks/ceo-inputs.test.sh": {
+      "source": "scripts/hooks/ceo-inputs.test.sh",
+      "sha256": "bc1e0b23e806cb16505108f56c55fdb80125317b43170b7df25f1e074c20e4a3",
+      "evidence": "Every new_repo config is created from literal PROTECTED_PATHS and explicit opt-out settings. All normal/broken-wrapper and Stop calls pin RICHOS_ENTITY_ROOT to those private repositories. Even the outside-seat and unadopted target files are created inside this suite sandbox; it never copies the real config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/commit-ceo-inputs.sh#fixtures",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/notice-ceo-inputs-unheld.sh#fixtures",
+          "fixture": true
+        }
+      ]
+    },
+    "scripts/lib/ceo-ruled.py": {
+      "source": "scripts/lib/ceo-ruled.py",
+      "sha256": "e92586fdd79f1c648c2f764613f47a56bc7f2d843061c70053611d7f2e23ce30",
+      "evidence": "Reads the supplied job and ruling source paths; imports the finite ceo-asks tokenizer. It does not discover or source orchestration settings.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/ceo-asks.py"
+        }
+      ]
+    },
+    "scripts/lib/premise-ask.py": {
+      "source": "scripts/lib/premise-ask.py",
+      "sha256": "2a6a079fbc0fab7937f90967c29c19e7ab2747a7286ec9923ec1dd685aa63e0a",
+      "evidence": "Pure supplied-JSON predicate, standard-library JSON and regular expressions only.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/premise-ask.sh": {
+      "source": "scripts/lib/premise-ask.sh",
+      "sha256": "54ed7bab6c1f1632458c6dbabc05f13dcec91f6ab262bfe3c5c2ae20b4b91080",
+      "evidence": "pa_governed delegates to ca_resolve; the remaining methods inspect supplied questions and entity-local state.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/ceo-asks.sh"
+        },
+        {
+          "to": "scripts/lib/premise-ask.py"
+        }
+      ]
+    },
+    "scripts/hooks/guard-ceo-ruled-ask.sh": {
+      "source": "scripts/hooks/guard-ceo-ruled-ask.sh",
+      "sha256": "33a726eed8e0502107d5987e89cfbe4a287861c952c0026e855cd15c0712710a",
+      "evidence": "Resolves the governed entity then calls the premise and ruling helpers; all setting reads are in those helpers.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/premise-ask.sh"
+        },
+        {
+          "to": "scripts/lib/ceo-ruled.sh"
+        }
+      ]
+    },
+    "scripts/hooks/notice-ceo-ruled-prose.sh": {
+      "source": "scripts/hooks/notice-ceo-ruled-prose.sh",
+      "sha256": "b6aa4600524c27077232a5a83feab3cfe603436ae8dcaaaa0bcc9ed725c0c1b5",
+      "evidence": "Resolves the governed entity, initializes Stop notices and uses the ruling helper. Optional unevaluated notices do not execute another check.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/ceo-ruled.sh"
+        }
+      ]
+    },
+    "scripts/ceo-ruled-exempt.sh": {
+      "source": "scripts/ceo-ruled-exempt.sh",
+      "sha256": "d763157b150db58cf30e87a25c6215e869e29eada3760b8b44295553657cab09",
+      "evidence": "Uses root resolution and the ruling helper constants to append the exemption to entity-local state.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/ceo-ruled.sh"
+        }
+      ]
+    },
+    "scripts/hooks/ceo-ruled.mutation.sh": {
+      "source": "scripts/hooks/ceo-ruled.mutation.sh",
+      "sha256": "e588e55b697a3823af50eb46ea9b76a0e30f9f12a5e5fb787a9424fa24c8a109",
+      "evidence": "Six finite mutants change refusal, matching or citation rendering. Each rebuilt engine runs the same private-config suite. Drift runs change only supplied ruling files; export-register executes the suite fixture constructor. No orchestration file is copied.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/stopwatch.sh"
+        },
+        {
+          "to": "scripts/lib/mutation-pool.sh"
+        },
+        {
+          "to": "scripts/hooks/ceo-ruled.test.sh"
+        }
+      ]
+    },
+    "scripts/hooks/ceo-ruled.test.sh": {
+      "source": "scripts/hooks/ceo-ruled.test.sh",
+      "sha256": "e135b5b7c3ad3cf859acaa38ced4c58e973e5df651315f1147fd4483f1e30c0d",
+      "evidence": "Every gate, prose and exemption invocation uses a SANDBOX seat with newly written CEO_RULINGS_PATHS or a bare sandbox directory. The optional external register is prose, never the real orchestration file. hooks.json, installer, contract suite, demo and ask-first bootstrap are source-data assertions, not executed checks. The finite nested mutants rebuild the same private settings.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-ceo-ruled-ask.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/notice-ceo-ruled-prose.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/ceo-ruled-exempt.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/ceo-ruled.mutation.sh"
+        }
+      ]
     }
   },
   "units": {
@@ -648,6 +1042,91 @@
     "scripts/hooks/guard-bash-main-writes.test.sh": "scripts/hooks/guard-bash-main-writes.test.sh",
     "scripts/check-census.test.sh": "scripts/check-census.test.sh",
     "scripts/hooks/ceo-asks.test.sh": "scripts/hooks/ceo-asks.test.sh",
-    "scripts/verification-config.test.sh": "scripts/verification-config.test.sh"
+    "scripts/verification-config.test.sh": "scripts/verification-config.test.sh",
+    "scripts/hooks/guard-model-ceiling.test.sh": "scripts/hooks/guard-model-ceiling.test.sh",
+    "scripts/hooks/ceo-inputs.test.sh": "scripts/hooks/ceo-inputs.test.sh",
+    "scripts/hooks/ceo-ruled.test.sh": "scripts/hooks/ceo-ruled.test.sh"
+  },
+  "hook_readers": {
+    "scripts/hooks/ceo-asks.test.sh": {
+      "commands": [
+        "scripts/hooks/notice-ceo-asks.sh",
+        "scripts/hooks/guard-ceo-ask-first.sh",
+        "scripts/hooks/notice-ceo-unasked.sh",
+        "scripts/hooks/session-start-ceo-ask.sh"
+      ],
+      "text_needles": [
+        "notice-ceo-asks.sh",
+        "guard-ceo-ask-first.sh",
+        "notice-ceo-unasked.sh",
+        "session-start-ceo-ask.sh"
+      ],
+      "sources": {
+        "scripts/hooks/ceo-asks.test.sh": "935e2e04320b79a9ed7e1054aaad40b8f207330f5aa4b9749aec0916a811a87b",
+        "scripts/hooks/notice-ceo-asks.sh": "709e0a75bbb4538c3e1a7a7b36fc2c8e8005cd3a590b173fc44972d66ae909c9",
+        "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "scripts/lib/ceo-asks.sh": "c0d084aef038efba8bae75eea3073bafa01c60132702282743449541abab0021",
+        "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
+        "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
+        "scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
+        "scripts/hooks/guard-ceo-ask-first.sh": "4dc92ca5c60ff39ed949fc88a8a4955264ece2d17bc689f9c2a2eb8b1bae0728",
+        "scripts/hooks/notice-ceo-unasked.sh": "3eac14e8c4bb2fd3f73651e11cc703f5a121a2c6e9b7e752a11d66cb50d98daa",
+        "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
+        "scripts/hooks/session-start-ceo-ask.sh": "3b0b8396d0e50a6145401df798bde92e7bc59ffd55a7260f160f7b1b8d72ec69",
+        "scripts/ceo-asks-status.sh": "ee087fd11e7a3a9507845240dd367c3528935f31d85c1ba7bb9eca004de2f7cf",
+        "scripts/hooks/ceo-asks.mutation.sh": "4eaca1732fe8d951516e63b2531a7a96831cb9953f3c678eb878ca74a76104d0",
+        "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
+        "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
+        "scripts/lib/worker_tokens.py": "3415b0824a9d2acd13be390200f98b3dee4a6f7cfc26d8ee2f7eee2bee6418d7",
+        "scripts/lib/proc_tree.py": "77306786ba99adb3cf57da8d121de9a92ece755f1f51772ff3fb5cdc4a727843",
+        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/cpu_guard.py": "f1b3b11a9f89a62635a8c6e52cbe2eccb1b5f2c49bfcb7bb78871da53830f164",
+        "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
+        "scripts/lib/engine_pass.py": "ec43e17edc9d741bfa6e6d1a435550658f6b8b813c773cf6214aac45a15c9625"
+      },
+      "evidence": "G1 counts each of the four literal registrations. Other wiring assertions read probe/installer source data. The finite nested mutants execute this same registration block; they do not run the full hook inventory."
+    },
+    "scripts/hooks/ceo-ruled.test.sh": {
+      "commands": [
+        "scripts/hooks/guard-ceo-ruled-ask.sh",
+        "scripts/hooks/notice-ceo-ruled-prose.sh"
+      ],
+      "text_needles": [
+        "guard-ceo-ruled-ask.sh",
+        "notice-ceo-ruled-prose.sh"
+      ],
+      "sources": {
+        "scripts/hooks/ceo-ruled.test.sh": "e135b5b7c3ad3cf859acaa38ced4c58e973e5df651315f1147fd4483f1e30c0d",
+        "scripts/hooks/guard-ceo-ruled-ask.sh": "33a726eed8e0502107d5987e89cfbe4a287861c952c0026e855cd15c0712710a",
+        "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "scripts/lib/premise-ask.sh": "54ed7bab6c1f1632458c6dbabc05f13dcec91f6ab262bfe3c5c2ae20b4b91080",
+        "scripts/lib/ceo-asks.sh": "c0d084aef038efba8bae75eea3073bafa01c60132702282743449541abab0021",
+        "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
+        "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
+        "scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
+        "scripts/lib/premise-ask.py": "2a6a079fbc0fab7937f90967c29c19e7ab2747a7286ec9923ec1dd685aa63e0a",
+        "scripts/lib/ceo-ruled.sh": "737879339e074a0c41011974a8dcdc74bbbbf7118ffda2904e2f8da7a0b10e91",
+        "scripts/lib/ceo-ruled.py": "e92586fdd79f1c648c2f764613f47a56bc7f2d843061c70053611d7f2e23ce30",
+        "scripts/hooks/notice-ceo-ruled-prose.sh": "b6aa4600524c27077232a5a83feab3cfe603436ae8dcaaaa0bcc9ed725c0c1b5",
+        "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
+        "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "scripts/ceo-ruled-exempt.sh": "d763157b150db58cf30e87a25c6215e869e29eada3760b8b44295553657cab09",
+        "scripts/hooks/ceo-ruled.mutation.sh": "e588e55b697a3823af50eb46ea9b76a0e30f9f12a5e5fb787a9424fa24c8a109",
+        "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
+        "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
+        "scripts/lib/worker_tokens.py": "3415b0824a9d2acd13be390200f98b3dee4a6f7cfc26d8ee2f7eee2bee6418d7",
+        "scripts/lib/proc_tree.py": "77306786ba99adb3cf57da8d121de9a92ece755f1f51772ff3fb5cdc4a727843",
+        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/cpu_guard.py": "f1b3b11a9f89a62635a8c6e52cbe2eccb1b5f2c49bfcb7bb78871da53830f164",
+        "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
+        "scripts/lib/engine_pass.py": "ec43e17edc9d741bfa6e6d1a435550658f6b8b813c773cf6214aac45a15c9625"
+      },
+      "evidence": "9a checks guard-ceo-ruled-ask in the first AskUserQuestion group, 9b checks notice-ceo-ruled-prose presence. Six nested predicate mutants and drift runs use this same block. Group-index changes affecting the registered commands are retained by semantic entry diff. The first matching group assertion observes all PreToolUse matcher/group ordering, not only the guard command.",
+      "events": [
+        "PreToolUse"
+      ]
+    }
   }
 }

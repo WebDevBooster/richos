@@ -96,6 +96,8 @@ class Inputs(unittest.TestCase):
     def test_real_hooks_file_and_metadata_only_change(self):
         original = (HERE.parent / "hooks/hooks.json").read_text()
         self.assertIsNone(inputs.hooks_change(original, original)["fallback"])
+        for row in inputs.hook_entries(original).values():
+            inputs.hook_command_path(row['command'])
         changed = json.loads(original)
         first_event = next(iter(changed["hooks"]))
         first = changed["hooks"][first_event][0]
@@ -103,6 +105,7 @@ class Inputs(unittest.TestCase):
         difference = inputs.hooks_change(original, json.dumps(changed))
         self.assertTrue(difference["metadata"])
         self.assertIn(first["hooks"][0]["command"], difference["commands"])
+        self.assertEqual(difference['events'], [first_event])
 
     def test_hook_removed_added_order_timeout_and_empty_group_changes(self):
         def document(names):
@@ -266,6 +269,43 @@ class Closure(unittest.TestCase):
         # fixture replacement cannot erase uncertainty about executed code.
         document["nodes"]["scripts/lib/ceo-todos.py#items"]["sha256"] = "unreviewed"
         self.assertIn(unit, graph.config_units(inputs.config_change("A=1", "A=2"), [unit]))
+
+    def test_model_ceiling_mutants_transport_config_without_consuming_its_values(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/guard-model-ceiling.test.sh'
+        closure = graph.closure(unit)
+        self.assertFalse(closure['keys'] or closure['whole'] or closure['fallback'], closure)
+        self.assertTrue(closure['presence'])
+        for key in ('MODEL_CEILING', 'MODEL_TIERS', 'PROTECTED_PATHS', 'SCRATCH_DEFAULT_TTL_MINUTES'):
+            self.assertFalse(graph.config_units(inputs.config_change(key+'=one', key+'=two'), [unit]), key)
+        self.assertIn(unit, graph.config_units(inputs.config_change(None, 'MODEL_CEILING=one'), [unit]))
+        document['nodes']['scripts/lib/resolve-model.sh']['sha256'] = 'changed'
+        self.assertIn(unit, graph.config_units(inputs.config_change('MODEL_CEILING=one', 'MODEL_CEILING=two'), [unit]))
+
+    def test_ingress_gates_use_only_private_entity_settings(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/ceo-inputs.test.sh'
+        self.assertEqual(graph.closure(unit), {'keys': {}, 'whole': [], 'presence': [], 'fallback': []})
+        document['nodes']['scripts/hooks/scan-secrets.sh']['sha256'] = 'changed'
+        self.assertIn(unit, graph.config_units(inputs.config_change('SECRET_SCAN_ALLOWLIST=a', 'SECRET_SCAN_ALLOWLIST=b'), [unit]))
+
+    def test_literal_mutation_operands_are_content_bound_and_need_an_explanation(self):
+        row = self.node('mutation.sh', "printf '%s' '$A'\n", literal_keys={'A':'single-quoted source replacement operand'})
+        self.assertFalse(self.selected('A=old', 'A=new', ['mutation.sh']))
+        row['literal_keys'] = {'A': ''}
+        selected = self.selected('A=old', 'A=new', ['mutation.sh'])
+        self.assertIn('require evidence', ' '.join(selected['mutation.sh']))
+
+    def test_ruling_gate_and_drift_mutants_use_private_config_values(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/ceo-ruled.test.sh'
+        self.assertEqual(graph.closure(unit), {'keys': {}, 'whole': [], 'presence': [], 'fallback': []})
+        self.assertFalse(graph.config_units(inputs.config_change('CEO_RULINGS_PATHS=a', 'CEO_RULINGS_PATHS=b'), [unit]))
+        document['nodes']['scripts/lib/premise-ask.sh']['sha256'] = 'changed'
+        self.assertIn(unit, graph.config_units(inputs.config_change('CEO_TODOS_REPOS=a', 'CEO_TODOS_REPOS=b'), [unit]))
 
     def test_global_validator_is_a_qualified_whole_config_obligation(self):
         document = json.loads((HERE / "lib/verification-dependencies.json").read_text())

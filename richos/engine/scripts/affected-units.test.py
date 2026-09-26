@@ -89,6 +89,82 @@ class Planner(unittest.TestCase):
             validate_config(self.root)
         self.assertFalse(marker.exists())
 
+    def hook_fixture(self):
+        self.node('alpha.test.sh', 'bash alpha.sh\n')
+        self.node('beta.test.sh', 'bash beta.sh\n')
+        self.node('registration.test.sh', 'read hooks.json for alpha\n')
+        self.node('inventory.test.sh', 'read every command in hooks.json\n')
+        self.node('unrelated.test.sh', 'read hooks.json for gamma\n')
+        self.node('helper.sh', 'read supplied manifest\n')
+        self.map['hook_readers'] = {}
+        for suite, command in (('registration.test.sh', 'alpha.sh'), ('unrelated.test.sh', 'gamma.sh')):
+            self.map['hook_readers'][suite] = {
+                'commands': [command], 'text_needles': [command], 'evidence': 'fixed registration fixture',
+                'sources': {p: self.map['nodes'][p]['sha256'] for p in (suite, 'helper.sh')}}
+
+    @staticmethod
+    def hooks_document(commands, matcher='Write', event='PreToolUse'):
+        return json.dumps({'hooks': {event: [{'matcher': matcher, 'hooks': [
+            {'type': 'command', 'command': 'bash ${CLAUDE_PLUGIN_ROOT}/' + command}
+            for command in commands]}]}}, indent=2)
+
+    def test_hook_replacement_selects_both_behaviors_and_relevant_registration(self):
+        self.hook_fixture()
+        plan = self.selection()
+        plan.hooks(self.hooks_document(['alpha.sh']), self.hooks_document(['beta.sh']))
+        self.assertEqual(set(plan.selected), {'alpha.test.sh', 'beta.test.sh',
+                                             'registration.test.sh', 'inventory.test.sh'})
+
+    def test_matcher_and_first_group_order_remain_obligations(self):
+        self.hook_fixture()
+        old = self.hooks_document(['alpha.sh'])
+        plan = self.selection()
+        plan.hooks(old, self.hooks_document(['alpha.sh'], matcher='Edit'))
+        self.assertEqual(set(plan.selected), {'alpha.test.sh', 'registration.test.sh', 'inventory.test.sh'})
+        self.map['hook_readers']['registration.test.sh']['events'] = ['PreToolUse']
+        plan = self.selection()
+        plan.hooks(self.hooks_document(['beta.sh']), self.hooks_document(['beta.sh'], matcher='AskUserQuestion'))
+        self.assertIn('registration.test.sh', plan.selected)
+        self.assertNotIn('unrelated.test.sh', plan.selected)
+
+    def test_registration_text_and_helper_changes_cannot_be_hidden(self):
+        self.hook_fixture()
+        old = self.hooks_document(['beta.sh'])
+        changed = json.loads(old)
+        changed['description'] = 'alpha.sh is named here, which a grep also reads'
+        plan = self.selection()
+        plan.hooks(old, json.dumps(changed, indent=2))
+        self.assertEqual(set(plan.selected), {'registration.test.sh', 'inventory.test.sh'})
+        self.sources['helper.sh'] += 'changed behavior\n'
+        plan = self.selection()
+        plan.hooks(old, self.hooks_document(['beta.sh'], matcher='Edit'))
+        self.assertIn('unrelated.test.sh', plan.selected)
+        self.assertIn('changed hook reader', ' '.join(plan.selected['unrelated.test.sh']))
+
+    def test_unknown_hook_command_or_structure_is_explicit_and_never_executes(self):
+        self.hook_fixture()
+        old = self.hooks_document(['alpha.sh'])
+        marker = self.root / 'not-executed'
+        for changed in ('{"hooks":[]}', self.hooks_document(['alpha.sh; touch ' + str(marker)])):
+            plan = self.selection()
+            plan.hooks(old, changed)
+            self.assertEqual(set(plan.selected), set(plan.units))
+            self.assertTrue(all('fallback' in ' '.join(reasons) for reasons in plan.selected.values()))
+        self.assertFalse(marker.exists())
+
+    def test_real_fixed_readers_exclude_unrelated_hook_without_losing_inventory(self):
+        root = HERE.parent
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        suites = sorted(document['hook_readers']) + ['scripts/check-census.test.sh']
+        old = (root / 'hooks/hooks.json').read_text()
+        changed = json.loads(old)
+        group = changed['hooks']['Stop'][-1]
+        group['hooks'].append({'type': 'command', 'command': 'bash ${CLAUDE_PLUGIN_ROOT}/new-fixture-hook.sh'})
+        plan = Selection(root, suites, lambda p: (root / p).read_text() if (root / p).is_file() else None, document)
+        plan.hooks(old, json.dumps(changed, indent=2))
+        # JSON escapes in the description remain outside these registration needles.
+        self.assertEqual(set(plan.selected), {'scripts/check-census.test.sh'})
+
 
 class SnapshotCLI(unittest.TestCase):
     def test_real_cli_distinguishes_commit_index_and_worktree_without_execution(self):
@@ -132,6 +208,24 @@ class SnapshotCLI(unittest.TestCase):
                     self.assertEqual(set(result.stdout.splitlines()), expected | {GLOBAL_CONFIG})
                     self.assertIn("changed key", result.stderr)
             self.assertFalse((root / "executed").exists())
+            hooks = engine / 'hooks/hooks.json'
+            hooks.parent.mkdir()
+            hooks.write_text(Planner.hooks_document(['scripts/a.sh']))
+            git('add', '.'); git('commit', '-qm', 'hook base')
+            hooks.write_text(Planner.hooks_document(['scripts/b.sh']))
+            git('add', '.'); git('commit', '-qm', 'hook replacement')
+            hooks.write_text(Planner.hooks_document(['scripts/a.sh']))
+            git('add', '.')
+            hooks.write_text(Planner.hooks_document(['scripts/b.sh'], matcher='Edit'))
+            for args, expected in ((['--range', 'HEAD^..HEAD'], {'scripts/a.test.sh', 'scripts/b.test.sh'}),
+                                   (['--staged'], {'scripts/a.test.sh', 'scripts/b.test.sh'}),
+                                   (['--working', '--base', 'HEAD'], {'scripts/b.test.sh'})):
+                with self.subTest(hooks=args):
+                    result = subprocess.run(['bash', str(engine / 'scripts/ci-affected-units.sh'), *args],
+                                            env=env, capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(set(result.stdout.splitlines()), expected)
+            self.assertFalse((root / 'executed').exists())
 
 
 if __name__ == "__main__":

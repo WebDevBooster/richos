@@ -9,6 +9,7 @@ import hashlib
 from pathlib import Path
 import re
 import subprocess
+import shlex
 
 ENVIRONMENT = {"HOME", "TMPDIR", "CLAUDE_CONFIG_DIR"}
 NAME = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
@@ -240,7 +241,7 @@ def hook_entries(text):
 
 
 def hooks_change(before, after):
-    result = {"content": before != after, "commands": [], "metadata": False, "fallback": None}
+    result = {"content": before != after, "commands": [], "events": [], "metadata": False, "fallback": None}
     try:
         old, new = hook_entries(before), hook_entries(after)
     except Unsupported as exc:
@@ -250,7 +251,46 @@ def hooks_change(before, after):
     result["commands"] = sorted({version[key]["command"] for key in changed
                                   for version in (old, new) if key in version})
     result["metadata"] = json.loads(before)["hooks"] != json.loads(after)["hooks"]
+    old_events, new_events = json.loads(before)["hooks"], json.loads(after)["hooks"]
+    result["events"] = sorted(event for event in old_events.keys() | new_events.keys()
+                              if old_events.get(event) != new_events.get(event))
     return result
+
+
+def hook_command_path(command):
+    """Resolve the shipped literal command grammar without executing the shell.
+
+    Inline echo hooks have no script consumer. Shell pipelines, substitutions
+    and dynamic arguments retain a named conservative fallback.
+    """
+    if re.fullmatch(r"echo\s+'[^']*'", command):
+        return None
+    try:
+        words = shlex.split(command)
+    except ValueError as exc:
+        raise Unsupported('unparseable hook command: ' + str(exc)) from None
+    if (len(words) < 2 or words[0] not in ('bash', 'python3')
+            or not re.fullmatch(r'\$\{CLAUDE_PLUGIN_ROOT\}/[A-Za-z0-9_./+-]+', words[1])
+            or any(not re.fullmatch(r'[A-Za-z0-9_./+-]+', arg) for arg in words[2:])):
+        raise Unsupported('unsupported hook command: ' + command)
+    path = words[1].removeprefix('${CLAUDE_PLUGIN_ROOT}/')
+    if '..' in Path(path).parts:
+        raise Unsupported('hook command escapes the engine: ' + command)
+    return path
+
+
+def hook_reader(row, read):
+    """Validate a reviewed manifest-reader contract against all its helpers."""
+    if (not isinstance(row, dict) or not row.get('evidence') or not row.get('sources')
+            or not isinstance(row.get('commands'), list)):
+        raise Unsupported('hook reader has no qualified command/input contract')
+    for path, digest in row['sources'].items():
+        if Path(path).is_absolute() or '..' in Path(path).parts:
+            raise Unsupported('non-relative hook reader: ' + path)
+        content = read(path)
+        if content is None or hashlib.sha256(content.encode(errors='surrogateescape')).hexdigest() != digest:
+            raise Unsupported('changed hook reader requires qualification: ' + path)
+    return row
 
 
 class Dependencies:
@@ -300,7 +340,10 @@ class Dependencies:
         known = set(self.declaration["config_keys"])
         direct = set(re.findall(r"\$\{?([A-Za-z_][A-Za-z_0-9]*)", text)) & known
         declared = set(row.get("keys", []))
-        if not row.get("whole") and not direct <= declared:
+        literals = row.get('literal_keys', {})
+        if not isinstance(literals, dict) or any(not reason for reason in literals.values()):
+            raise Unsupported('literal config-key references require evidence: ' + name)
+        if not row.get("whole") and not direct <= declared | set(literals):
             raise Unsupported("omitted known key reads in " + str(source) + ": " + ", ".join(sorted(direct - declared)))
         # A narrow independently derived floor catches concrete shell calls
         # whose repository path is literal. Other aliases/call shapes still

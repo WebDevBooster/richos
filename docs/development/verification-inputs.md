@@ -38,3 +38,18 @@ catch known omissions but do not replace review of indirect calls and fixture
 provenance. In the reviewed CEO-ask suite, generated configs remain independent
 through its nested mutation harness; an invalid helper declaration still prevents
 that exclusion.
+
+Hook selection also reads actual before/after snapshots. It selects behavior
+consumers of removed and added commands, then retains manifest inventory and
+ordering obligations. Reviewed `hook_readers` bind the suite and its helpers to
+the command or event scope they inspect. Raw-text registration assertions also
+retain their matching lines, so a description or formatting change cannot hide
+an input to a grep-based assertion. Unknown readers stay conservative. Unsupported
+command syntax selects the full inventory with its reason and is never executed
+by the planner.
+
+The additional config closures cover model-ceiling, CEO-input and ruling checks.
+Their private fixture settings remain independent of the real config through
+their nested helpers and mutations. Literal source-replacement operands require
+an explained `literal_keys` declaration tied to the full helper digest. This is
+reviewed metadata, not an exemption inferred from a string search.
