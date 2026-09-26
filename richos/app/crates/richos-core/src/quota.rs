@@ -302,7 +302,6 @@ impl Snapshot {
 pub struct Service {
     pub resets: resets::Service,
     last_reset_marker: Mutex<Option<String>>,
-    last_reset_check: Mutex<u64>,
     source: Mutex<Box<dyn Source>>,
     snapshot: Mutex<Snapshot>,
     policy: Mutex<Policy>,
@@ -315,6 +314,18 @@ pub struct Service {
     refresh_wake: std::sync::Condvar,
 }
 impl Service {
+    /// Production desktop entrypoint. Tests and simulations keep `open` isolated.
+    pub fn open_account_wide(data_dir: &Path) -> io::Result<Self> {
+        let reset_dir = terminal::data_dir().map_err(io::Error::other)?;
+        Self::open_with_reset_dir(data_dir, &reset_dir)
+    }
+    fn open_with_reset_dir(data_dir: &Path, reset_dir: &Path) -> io::Result<Self> {
+        let mut service = Self::open(data_dir)?;
+        service.resets = resets::Service::new(reset_dir);
+        service.resets.import_legacy(data_dir).map_err(io::Error::other)?;
+        service.publish()?;
+        Ok(service)
+    }
     pub fn open(data_dir: &Path) -> io::Result<Self> {
         let policy_path = data_dir.join("claude-quota-policy.json");
         let policy = match fs::read(&policy_path) {
@@ -330,7 +341,6 @@ impl Service {
         let service = Self {
             resets: resets::Service::new(data_dir),
             last_reset_marker: Mutex::new(None),
-            last_reset_check: Mutex::new(0),
             source: Mutex::new(Box::new(probe::ClaudeSource::controlled(control.clone()))),
             snapshot: Mutex::new(Snapshot::default()),
             policy: Mutex::new(policy),
@@ -387,7 +397,7 @@ impl Service {
     }
     pub fn refresh(&self, bin: &Path, force: bool) -> View {
         if self.is_shutdown() || self.connecting.load(std::sync::atomic::Ordering::SeqCst) { return self.view(); }
-        let marker = fs::read_to_string(self.cwd.join("claude-reset-refresh.json")).ok();
+        let marker = self.resets.marker();
         let changed = {
             let mut last = self.last_reset_marker.lock().unwrap();
             if marker != *last { *last = marker; true } else { false }
@@ -403,21 +413,11 @@ impl Service {
     /// Run the user's prepared weekly action without depending on another model turn.
     /// Only the desktop monitor calls this; settings reads and approval never redeem.
     pub fn run_approved_weekly_reset(&self, bin: &Path) {
-        let now = crate::util::now_millis();
-        if self.is_shutdown() || self.connecting.load(std::sync::atomic::Ordering::SeqCst)
-            || !self.resets.prepared_action_due(now) { return; }
-        {
-            let mut last = self.last_reset_check.lock().unwrap();
-            if now.saturating_sub(*last) < REFRESH_INTERVAL_MS { return; }
-            *last = now;
-        }
+        if self.is_shutdown() || self.connecting.load(std::sync::atomic::Ordering::SeqCst) { return; }
         #[cfg(not(test))]
-        if let Ok(mut transport) = reset_transport::System::connect(bin) {
-            let _best_effort = self.resets.use_approved(&mut transport, || !self.is_shutdown()
-                && !self.connecting.load(std::sync::atomic::Ordering::SeqCst));
-            self.request_refresh();
-        }
-        #[cfg(test)] let _best_effort = bin;
+        self.resets.tick(bin, || !self.is_shutdown()
+            && !self.connecting.load(std::sync::atomic::Ordering::SeqCst));
+        #[cfg(test)] let _unused = bin;
     }
     fn refresh_windows(&self, bin: &Path, force: bool) -> View {
         if self.is_shutdown() {
@@ -521,6 +521,23 @@ fn atomic_write(path: &Path, value: &impl Serialize) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn desktop_boot_keeps_app_data_isolated_but_reads_the_shared_reset_store() {
+        let root = Scratch::new();
+        let shared = root.path().join("account");
+        let nightly = root.path().join("nightly");
+        fs::create_dir_all(&shared).unwrap();
+        atomic_write(&shared.join("claude-reset-offers.json"), &serde_json::json!({
+            "account":"fixture", "view":resets::View::default(), "attempts":[]
+        })).unwrap();
+        atomic_write(&shared.join("claude-reset-refresh.json"), &"shared-marker").unwrap();
+        let app = Service::open_with_reset_dir(&nightly, &shared).unwrap();
+        assert_eq!(app.resets.marker(), resets::Service::new(&shared).marker());
+        assert!(nightly.join("engine-state/claude-quota.json").exists());
+        assert!(!shared.join("engine-state").exists());
+        assert!(!nightly.join("claude-reset-offers.json").exists());
+    }
+
     use serde_json::json;
     pub(super) struct Scratch(pub PathBuf);
     impl Scratch {
