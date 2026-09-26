@@ -27,6 +27,7 @@ and never prints a number it did not measure.
 
 | Tool | The job |
 |---|---|
+| `episode-counter.py` | Read-only Claude/Codex episode accounting: request usage, tool-time unions, non-tool gaps and unresolved verification candidates. Emits numeric aggregates and source locators only. |
 | `contrast.py` | WCAG ratio of two colors, or of a region of a frame. One estimator, stated in the file, printed with every answer. |
 | `frame.py` | Read the frame: `px`, `crop`, `extent`, `inset`, `box`, `edges`, `motion`. `inset` is the four-sided gap measurement behind the 18/18 settings-button check. |
 | `ocr-gate.sh` | The privacy gate: no frame enters the record carrying an address, a home path or a listed person's name. Refuses to report clean until a positive control proves the reader works. |
@@ -95,3 +96,39 @@ One job per file. `--help` that says what it does. A non-zero exit with a
 sentence when it cannot answer. A case in `scripts/qa.test.sh` that proves both
 the answer and the refusal. Add the row to the table above, and add the path to
 this suite's `# run-tests: inputs` line if it lands outside `scripts/qa`.
+
+## Read-only execution episode accounting
+
+`episode-counter.py` accepts explicit local transcript roots and inclusive/exclusive
+UTC bounds. Redirect its JSON output to a private report, never a public fixture:
+
+```sh
+python3 -B scripts/qa/episode-counter.py --claude-root "$CLAUDE_CONFIG_DIR/projects" \
+  --codex-root "$CODEX_HOME/sessions" --since 2026-09-20 --until 2026-09-27 \
+  > "$PRIVATE_REPORT"
+```
+
+The tool reads a fixed byte extent of each selected file, deduplicates streamed
+Claude usage by response ID and supports Codex response-ID usage records. Older
+Codex usage without response IDs remains unknown. Input-token semantics differ:
+Claude uncached input and Codex total input must not be added as equivalent values.
+A background tool result measures handoff latency, not its process lifetime.
+Non-tool gaps include scheduling and user pauses, not just inference.
+
+UI candidates require three consecutive tool calls that execute screen/OCR tools.
+An intervening image-read call ends that strict sequence. Verification candidates
+require two recognized runner calls in a task with no more than 30 minutes between
+calls; source equality is unknown until full source receipts are reviewed.
+Observation candidates require three consecutive polling calls with the same
+command/arguments and byte-identical text output. Different output is not assumed
+unchanged. Shell matching is conservative and lexical, not a complete shell parser;
+Codex JavaScript wrappers require literal double-quoted command arguments.
+
+Per-episode timing includes intervening tools in the selected span. Different
+families can overlap; never sum them as disjoint total session cost. Canary
+mentions and claims that only the canary failed are separate unresolved evidence,
+not passing verification and not established agent waste. The reference interval
+option `--reference FILE FIRST LAST` reproduces a manually selected episode.
+No state is written, no commands are executed and no transcript text is printed.
+Default per-file pacing targets light CPU use; run at low scheduling priority on
+an already busy host. This counter does not bypass test resource admission.
