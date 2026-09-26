@@ -843,7 +843,19 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # refuses a name a live agent of another session holds. All behind
 # OPERATOR_FENCES: with the entity's launcher off they never start their checks
 # and never refuse. Suite: operator-leads.test.sh; harness: operator-leads.mutation.sh.
+# failure-type-lookup.sh and guard-failure-type-answer.sh, ADDED 2026-09-26 —
+# the operator's own rule for his words "type" and "failure" close together.
+# failure-type-lookup.sh (UserPromptSubmit, refuses nothing) hands the lead the
+# failure register's live `Type N: heading` list and the rule;
+# guard-failure-type-answer.sh (Stop, BLOCKING, does not stand down on the
+# re-fire, carries an unpaid answer into the next turn) refuses the turn end
+# until the register was read, a type from it was named with its heading, and
+# the record was committed. The register is declared per entity
+# (FAILURE_TYPE_REGISTER). Suite: failure-type.test.sh; harness:
+# failure-type.mutation.sh.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
+failure-type-lookup.sh
+guard-failure-type-answer.sh
 guard-foreign-app-data.sh
 operator-claim.sh
 guard-operator-claim.sh

@@ -145,6 +145,11 @@
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/left-off-report.sh --event UserPromptSubmit",
             "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/failure-type-lookup.sh",
+            "timeout": 15
           }
         ]
       }
@@ -568,6 +573,11 @@
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-stated-actions.sh",
             "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-failure-type-answer.sh",
+            "timeout": 30
           },
           {
             "type": "command",

@@ -1278,6 +1278,8 @@ guard-idle-land.sh|Stop
 guard-stated-actions.sh|Stop
 commit-ceo-inputs.sh|UserPromptSubmit
 left-off-report.sh|UserPromptSubmit
+failure-type-lookup.sh|UserPromptSubmit
+guard-failure-type-answer.sh|Stop
 notice-ceo-inputs-unheld.sh|Stop
 release-land-leases.sh|Stop
 operator-claim.sh|SessionStart

@@ -118,6 +118,11 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/left-off-report.sh --event UserPromptSubmit",
             "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/failure-type-lookup.sh",
+            "timeout": 15
           }
         ]
       }
@@ -541,6 +546,11 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-stated-actions.sh",
             "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-failure-type-answer.sh",
+            "timeout": 30
           },
           {
             "type": "command",
