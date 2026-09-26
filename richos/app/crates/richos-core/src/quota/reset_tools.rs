@@ -147,7 +147,9 @@ pub fn serve(
     Ok(())
 }
 pub fn run_stdio(scope: &Path, root: &Path, bin: &Path) -> io::Result<()> {
-    serve(scope, root, bin, io::stdin().lock(), io::stdout().lock())
+    let shared = super::terminal::data_dir().map_err(io::Error::other)?;
+    Service::new(&shared).import_legacy(root).map_err(io::Error::other)?;
+    serve(scope, &shared, bin, io::stdin().lock(), io::stdout().lock())
 }
 #[cfg(test)]
 mod tests {

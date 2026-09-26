@@ -22,11 +22,10 @@ with tempfile.TemporaryDirectory(prefix='terminal-quota-cli-') as d:
     assert not list(root.iterdir()),'refused approvals wrote state'
     r=call('status');assert r.returncode==2 and 'overrides' in r.stderr,r
     assert not list(root.iterdir()),'refused connection wrote state'
-    r=call('revoke');assert r.returncode==0,r
-    assert json.loads(r.stdout)['protocol']=='--richos-quota-v1'
+    # HOME no longer redirects the account-wide ledger. Never run revoke here:
+    # the Rust isolated-store tests cover revocation and the separate-process
+    # account-path test proves that a nightly HOME resolves to the same store.
     assert b'--richos-quota-v1' in pathlib.Path(exe['richos-quota']).read_bytes()
-    record=root/'Library/Application Support/com.richos.app/claude-reset-offers.json' if os.uname().sysname=='Darwin' else root/'.local/share/com.richos.app/claude-reset-offers.json'
-    assert json.loads(record.read_text())['view']['approval'] is None
     r=subprocess.run([exe['terminal_quota_proof']],env=env,capture_output=True,text=True,timeout=10)
     assert r.returncode!=0 and 'Requires --live-no-redemption' in r.stderr
     fakebin=root/'bin';fakebin.mkdir()
@@ -45,5 +44,5 @@ with tempfile.TemporaryDirectory(prefix='terminal-quota-cli-') as d:
     app.write_text('#!/bin/sh\n# --richos-quota-v1\nprintf "%s\\n" "$@"\n')
     r=subprocess.run([str(installed/'quota-reset.sh'),'tick'],env=env,capture_output=True,text=True,timeout=10)
     assert r.returncode==0 and r.stdout.splitlines()==['--richos-quota-v1','tick'],r
-print('  PASS  noninteractive approval refusal, no yes flag, no credential read on refusal, shared desktop state path, revoke, live-proof opt-in and headless wrapper')
+print('  PASS  noninteractive approval refusal, no yes flag, no credential read on refusal, live-proof opt-in and headless wrapper')
 PY
