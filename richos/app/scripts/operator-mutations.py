@@ -7,7 +7,9 @@ its named test red (operator back-end spec r3 §6 verification 2, r4 §5's added
 Each mutant replaces ONE exact snippet in one file of richos-core (the snippet must occur
 exactly once, or the harness refuses: a mutant that does not apply proves nothing), runs
 `cargo test -p richos-core --lib -- <its tests>`, and restores the file byte for byte however
-the run ends. A mutant is PROVEN when cargo fails, SURVIVED when the tests still pass (the rule
+the run ends. A test named `test:<file>::<function>` is an integration test in
+`crates/richos-core/tests/<file>.rs`, run as `cargo test -p richos-core --test <file> --
+<function>` (the spine's rule is held by one). A mutant is PROVEN when cargo fails, SURVIVED when the tests still pass (the rule
 is not held by any test), and BROKEN when the build itself failed to start. First the same
 tests run on the unmutated tree: if they fail there, nothing below it can be read.
 
@@ -141,14 +143,148 @@ MUTANTS = [
      '',
      ['operator_profile::tests::the_environment_is_exactly_the_allowlist_plus_the_four_the_app_supplies'],
      'r4 §2.3: CLAUDE_CODE_ARTIFACT=1 once P17 passed'),
+    # ---- the shell wiring (echo-opus-opshell1, the record's §7 items 1-3) ----
+    ('spine-keeps-mouth', 'spine.rs',
+     '        if self.keep_intake_channel {',
+     '        if false && self.keep_intake_channel {',
+     ['test:phone_intake_tests::a_keeping_spine_records_every_prompt_s_mouth_and_a_product_spine_records_none'],
+     'item 3: an operator install keeps the mouth on the prompt record'),
+    ('origin-unrecorded', 'operator_host.rs',
+     '            (Source::Internal | Source::Proactive, _) | (_, None) => Origin::NoOrigin,',
+     '            (Source::Internal | Source::Proactive, _) => Origin::NoOrigin,\n            (Source::Text | Source::Jam, None) => Origin::DeskTyped,',
+     ['operator_host::tests::a_turn_s_origin_is_its_recorded_mouth_and_an_unrecorded_one_is_no_origin',
+      'operator_desk::tests::an_assignment_whose_mouth_was_never_recorded_is_not_handed_over'],
+     'item 3: an unrecorded mouth is no origin, never the desk'),
+    ('origin-phone', 'operator_host.rs',
+     '            (_, Some("phone")) => Origin::Phone,',
+     '            (_, Some("phone")) => Origin::DeskTyped,',
+     ['operator_host::tests::a_turn_s_origin_is_its_recorded_mouth_and_an_unrecorded_one_is_no_origin',
+      'operator_desk::tests::a_phone_assignment_is_closed_with_the_sentence_and_its_obligation_withdrawn'],
+     '(s) rule 1: phone words are the phone, and never become work'),
+    ('lead-taking', 'operator_lead.rs',
+     '(self.sent.contains(uuid) && !self.taken.iter().any(|u| u == uuid)).then(|| uuid.to_string())',
+     '(false && self.sent.contains(uuid) && !self.taken.iter().any(|u| u == uuid)).then(|| uuid.to_string())',
+     ['operator_lead::tests::the_moment_the_cli_takes_a_message_is_seen_before_the_turn_ends_and_only_once'],
+     '(d) item 5: the moment the CLI takes a message is seen while the turn runs'),
+    ('host-took-handle', 'operator_host.rs',
+     '                    c.turn_handle = c.sent.get(&uuid).cloned().flatten();',
+     '                    c.turn_handle = None;',
+     ['operator_host::tests::an_agent_started_in_a_turn_the_cli_took_on_a_handle_is_that_assignment_s',
+      'operator_desk::tests::the_assignment_stop_stops_its_agents_says_so_and_marks_it_stopped_only_when_all_are_gone'],
+     '(d) item 5: an agent started on a handle\'s turn is that assignment\'s'),
+    ('host-working', 'operator_host.rs',
+     '            if busy && !lead.exited() {',
+     '            if false && busy && !lead.exited() {',
+     ['operator_host::tests::a_lead_in_its_turn_counts_as_working_until_the_turn_ends'],
+     '(m) gap: a lead in its turn is his team working'),
+    ('host-stream-no-script', 'operator_host.rs',
+     '        self.team_reading(|agent| if agent.status.is_running() { AgentLiveness::Alive } else { AgentLiveness::NotAlive })',
+     '        self.team_reading(|agent| self.engine.liveness(&agent.task_id))',
+     ['operator_host::tests::the_stream_reading_asks_no_script_and_counts_what_the_stream_has_not_seen_end'],
+     '§2.5a: the exit callback runs no script'),
+    ('gate-working', 'work_gate.rs',
+     '    if !team.working.is_empty() {',
+     '    if false && !team.working.is_empty() {',
+     ['work_gate::tests::a_lead_in_its_turn_blocks_with_no_agent_and_no_command_running'],
+     '(m) gap: a lead in its turn blocks the update and keeps the app'),
+    ('settle-seat', 'operator_runtime.rs',
+     '            let body = crate::ecs::seated_request(seat.as_deref(),',
+     '            let body = crate::ecs::seated_request(None,',
+     ['operator_runtime::tests::the_settlement_names_the_conversation_s_seat_and_closes_at_its_live_binding'],
+     'contract §2.5: the close is on the conversation\'s own seat'),
+    ('settle-retry-once', 'operator_runtime.rs',
+     '                Err(why) if attempt == 0 && why.contains("stale app binding") => continue,\n',
+     '',
+     ['operator_runtime::tests::a_rebind_between_the_read_and_the_close_is_retried_once_at_the_new_binding'],
+     'a rebind between the read and the close is retried once'),
+    ('desk-attested', 'operator_desk.rs',
+     'self.origins.turn(&record.instruction_ledger_ref).filter(|f| attested(record, f)) else {',
+     'self.origins.turn(&record.instruction_ledger_ref) else {',
+     ['operator_desk::tests::words_the_register_did_not_attest_or_a_turn_the_ledger_lacks_are_never_relayed'],
+     'item 1: words the register did not attest never reach his team'),
+    ('desk-gate-per-assignment', 'operator_desk.rs',
+     '        if let Some(sentence) = self.gate_refusal() {',
+     '        if let Some(sentence) = None::<String> {',
+     ['operator_desk::tests::a_gate_that_changed_broke_or_went_away_since_launch_refuses_and_never_falls_back'],
+     '(f), B8: the gate is read per assignment and never falls back'),
+    ('desk-withdraws', 'operator_desk.rs',
+     '        if let Err(why) = self.settle.complete(&key_of(record), &record.obligation_id, &format!("operator-refused:{}", record.id),\n                                               ECS_WITHDRAWN, &evidence, sentence) {',
+     '        if let Err(why) = Err::<(), String>(format!("{:?}", (&evidence, ECS_WITHDRAWN))) {',
+     ['operator_desk::tests::a_phone_assignment_is_closed_with_the_sentence_and_its_obligation_withdrawn'],
+     'item 1: an assignment not handed over has its obligation withdrawn'),
+    ('desk-stop-all-gone', 'operator_desk.rs',
+     'if results.iter().all(|r| matches!(r, StopResult::Stopped { .. })) {',
+     'if true {',
+     ['operator_desk::tests::a_stop_that_reached_only_some_of_its_agents_leaves_the_assignment_open'],
+     '(d) item 5: marked stopped only when every agent is NOT-ALIVE'),
+    ('desk-timer-silent', 'operator_desk.rs',
+     '        if self.host.running_leads() == 0 {\n            return Vec::new();\n        }\n',
+     '',
+     ['operator_desk::tests::the_idle_timer_retires_a_lead_with_nothing_running_and_spends_nothing_with_no_lead'],
+     '(q) item 4: the idle timer runs no script while no lead runs'),
+    ('tools-token', 'operator_desk_tools.rs',
+     '    if !same_token(request["token"].as_str().unwrap_or(""), token) {',
+     '    if false && !same_token(request["token"].as_str().unwrap_or(""), token) {',
+     ['operator_desk_tools::tests::a_request_without_the_launch_s_token_or_without_names_and_words_changes_nothing'],
+     'item 2: the socket answers only the app\'s own scope'),
+    ('front-desk-operator-only', 'native.rs',
+     '        if profile.and_then(|p| p.operator_desk.as_ref()).is_some() {',
+     '        if true {',
+     ['native::native_driver_tests::the_front_desk_holds_the_register_and_the_read_and_nothing_that_does_the_work'],
+     'N1: no operator tools on a front desk without the desk\'s access'),
+    ('work-host-intake', 'work_host.rs',
+     '            operator.take(record);\n            return true;',
+     '            let _ = operator;',
+     ['work_host::tests::an_operator_install_hands_every_assignment_to_his_team_and_opens_no_work_lease'],
+     'item 1: an operator assignment never reaches a work lease'),
+    ('register-answers-unlisted', 'assignment_tools.rs',
+     '        if !origin.declared().is_some_and(|mouth| listed.iter().any(|l| l == mouth)) {',
+     '        if false && !origin.declared().is_some_and(|mouth| listed.iter().any(|l| l == mouth)) {',
+     ['assignment_tools::tests::on_an_operator_install_the_register_answers_phone_or_unrecorded_work_and_writes_nothing'],
+     '(s) rule 1: the front desk answers phone work in his turn, nothing written'),
+    ('work-host-register-silent', 'work_host.rs',
+     '        if self.operator.lock().unwrap().is_some() {',
+     '        if false && self.operator.lock().unwrap().is_some() {',
+     ['work_host::tests::an_operator_install_hands_every_assignment_to_his_team_and_opens_no_work_lease'],
+     '(m): on an operator install the register does not speak for his team'),
 ]
 
 
 def cargo(tests):
-    command = ['cargo', 'test', '-p', 'richos-core', '--lib', '--'] + tests
+    """Run the library tests named, then each integration file's; the first failure decides."""
+    lib = [t for t in tests if not t.startswith('test:')]
+    files = {}
+    for t in tests:
+        if t.startswith('test:'):
+            file, _, function = t[len('test:'):].partition('::')
+            files.setdefault(file, []).append(function)
+    commands = []
+    if lib:
+        commands.append(['cargo', 'test', '-p', 'richos-core', '--lib', '--'] + lib)
+    for file, functions in sorted(files.items()):
+        commands.append(['cargo', 'test', '-p', 'richos-core', '--test', file, '--'] + functions)
     began = time.monotonic()
-    done = subprocess.run(command, cwd=str(APP), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    return done.returncode, done.stdout, time.monotonic() - began
+    code, out = 0, ''
+    for command in commands:
+        done = subprocess.run(command, cwd=str(APP), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        out += done.stdout
+        if done.returncode != 0:
+            code = done.returncode
+            break
+    return code, out, time.monotonic() - began
+
+
+def test_exists(test):
+    """Does the named test function exist where the name says it is?"""
+    if test.startswith('test:'):
+        file, _, function = test[len('test:'):].partition('::')
+        path = SRC.parent / 'tests' / (file + '.rs')
+    else:
+        # `<file>::<test module>::<function>`: the first segment names the source file and the
+        # last the function, whatever the test module is called (`tests`, `native_driver_tests`).
+        parts = test.split('::')
+        path, function = SRC / (parts[0] + '.rs'), parts[-1]
+    return path.is_file() and ('fn %s(' % function) in path.read_text()
 
 
 def summary(out):
@@ -175,8 +311,7 @@ def main():
             print('DOES NOT APPLY %s: the snippet occurs %d times in %s' % (mid, count, name))
             return 2
         for test in tests:
-            module, _, function = test.rpartition('::tests::')
-            if 'fn %s(' % function not in (SRC / (module + '.rs')).read_text():
+            if not test_exists(test):
                 print('NAMES A MISSING TEST %s: %s' % (mid, test))
                 return 2
     if a.check:
