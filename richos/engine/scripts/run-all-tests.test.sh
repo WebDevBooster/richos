@@ -226,12 +226,12 @@ esac
 #    row to the ownership ledger under the config directory — the exact shape
 #    session-start-stdin.test.sh 9b produced through the shipped reaper. The
 #    runner must fail it, name it, and print the row. Beside it, a suite that
-#    appends only a `finished` row runs before the contaminating suite and stays
-#    green, because that is the one exclusion the library states.
+#    leaves the record untouched runs before the contaminating suite and stays
+#    green. No event label grants an exemption to a writing suite.
 # ===========================================================================
 fi
 E5="$SANDBOX/e5"
-# The exclusion concerns appended row content, not creation of a missing ledger.
+# Start with an existing ledger to exercise row mutation, not only creation.
 touch "$CLAUDE_CONFIG_DIR/state/worktree-ledger.jsonl"
 build_engine "$E5"
 clean_suite "$E5/engine/scripts/hooks/alpha.test.sh"
@@ -244,7 +244,6 @@ exit 0
 EOF
 cat > "$E5/engine/scripts/hooks/platform-turn.test.sh" <<EOF
 #!/usr/bin/env bash
-printf '{"event": "finished", "agent_id": "a1", "signal": "SubagentStop", "source": "worker-ended-handoff.sh", "ts": "t"}\n' >> "$CLAUDE_CONFIG_DIR/state/worktree-ledger.jsonl"
 echo "  PASS  every assertion passed"
 exit 0
 EOF
@@ -270,9 +269,9 @@ case "$OUT5" in
 esac
 TURN_LINE="$(printf '%s\n' "$OUT5" | sed $'s/\033\\[[0-9;]*m//g' | grep 'platform-turn\.test\.sh')"
 case "$TURN_LINE" in
-    *PASS*) ok "5d  and the suite beside it that appended only a 'finished' row is NOT blamed — the platform's own per-turn row is the stated exclusion, so a live-machine run does not cry wolf" ;;
-    "")     bad "5d  the finished-only suite is not blamed" "turn.test.sh has no line in the output" ;;
-    *)      bad "5d  the finished-only suite is not blamed" "got: $TURN_LINE" ;;
+    *PASS*) ok "5d  the preceding suite with unchanged records remains green" ;;
+    "")     bad "5d  the unchanged-record suite has no result" "turn.test.sh has no line in the output" ;;
+    *)      bad "5d  the unchanged-record suite is not blamed" "got: $TURN_LINE" ;;
 esac
 case "$OUT5" in
     *"record canary: watching"*) ok "5e  and the runner announces the record canary and what it watches, so a reader can tell this run from one where it was absent" ;;

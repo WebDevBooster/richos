@@ -40,31 +40,19 @@
 # gives: a suite that moves HOME halfway through would otherwise be compared
 # against its own sandbox and always pass.
 #
-#   <config>/state/worktree-ledger.jsonl   THE OWNERSHIP LEDGER. Witness: every
-#        row EXCEPT `event: finished`, by content hash. The exclusion is
-#        deliberate and it is the one thing this canary cannot see: the
-#        platform's own worker-ended-handoff.sh appends a `finished` row at
-#        every helper turn of every live agent on the machine (68 rows during
-#        Sage's round-four pass, 48 during Frank's), so a witness that counted
-#        them would be red on nearly every suite of a live-machine run, and a
-#        canary that cries wolf gets muted — the escalations suite's own reason
-#        for counting fixture rows rather than total rows. A `finished` row is
-#        advisory and never decisive (worktree-ledger.judge: "advisory, never
-#        decisive"), so a leaked one is residue, not a false witness. Every
-#        other event — registered, prepared, terminated, retracted — is
-#        witnessed, and those are the rows that decide whether a workspace
-#        may be destroyed.
+#   <config>/state/worktree-ledger.jsonl   THE OWNERSHIP LEDGER. Every row is
+#        witnessed. A row's event or agent label cannot establish who wrote it.
 #   <config>/worker-events.jsonl           THE FALLBACK EVENT LOG. Witness:
 #        every line, by content hash. Only a session with NO team directory
 #        writes here (worker-*-handoff.sh resolve_team_dir), so on a machine
 #        where the running session has one it is stable across a run (250
 #        lines before and after both round-four passes).
 #   <config>/teams/                        THE TEAM DIRECTORIES. Witness: the
-#        names of the `session-*` entries and of their immediate children —
-#        never contents, which the live session's own logs churn.
+#        entry names plus recursive file identity, metadata and content.
 #   <config>/state/workspaces/             THE WORKSPACE REGISTRY
 #        (mega-lander/workspaces.py). Witness: the names of its session and
-#        agent records and every events.jsonl line, by content hash. A suite
+#        agent records and every events.jsonl line, by content hash. Recursive
+#        file witnesses also catch edits, removals and restored content. A suite
 #        that registers, lands or discards against it is writing the record
 #        the Stop gate and the lock-out decide from (added 2026-09-11, the day
 #        two suites wrote 55 test registrations into it before they were
@@ -78,6 +66,12 @@
 # the row or entry it saw, so a reader recognizes the machine's own activity
 # at once — the same trade the leak canary made for an engineer's own save.
 # In CI none of the three paths exists, so there the witness is exact.
+#
+# This snapshot does not attribute shared-record writers. A change in a mutable
+# shared record remains unresolved. An isolated execution boundary must prevent
+# unrelated activity from changing the observed records; event-name exemptions
+# cannot supply that boundary. Kernel change times catch ordinary write/restore
+# operations but are not a privileged audit of arbitrary filesystem activity.
 #
 # A PATH IT CANNOT READ IS A FAILURE, NEVER A QUIET PASS. RC_HEALTHY carries
 # it, exactly as LC_HEALTHY does for the leak canary.
@@ -104,12 +98,60 @@ rc_paths() { printf '%s\n%s\n%s/\n%s/\n' "$RC_LEDGER" "$RC_FALLBACK" "$RC_TEAMS"
 # path could not be read.
 rc_snapshot() {
     python3 - "$RC_LEDGER" "$RC_FALLBACK" "$RC_TEAMS" "$RC_WORKSPACES" <<'PY'
-import hashlib, json, os, sys
+import hashlib, json, os, stat, sys
 ledger, fallback, teams, workspaces = sys.argv[1:5]
 out, unreadable = [], False
 
 def h(raw):
     return hashlib.sha256(raw).hexdigest()[:16]
+
+def witness(path, recursive=True):
+    """Keep removals and write/restore visible even when final bytes match."""
+    global unreadable
+    try:
+        before = os.lstat(path)
+        if stat.S_ISLNK(before.st_mode):
+            # A link can redirect observation outside this execution's record
+            # boundary. Do not silently claim coverage of its target.
+            raise OSError("record path is a symbolic link: " + path)
+        identity = lambda s: (s.st_dev, s.st_ino, s.st_mode, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
+        digest = hashlib.sha256()
+        if stat.S_ISREG(before.st_mode):
+            with open(path, "rb") as stream:
+                if identity(os.fstat(stream.fileno())) != identity(before):
+                    raise OSError("record replaced before observation: " + path)
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+                if identity(os.fstat(stream.fileno())) != identity(before):
+                    raise OSError("record changed during observation: " + path)
+        elif not stat.S_ISDIR(before.st_mode):
+            raise OSError("unsupported record entry: " + path)
+        if identity(os.lstat(path)) != identity(before):
+            raise OSError("record replaced during observation: " + path)
+        out.append("witness\t%s\t%s\t%s" % (path, identity(before), digest.hexdigest()))
+        if recursive and stat.S_ISDIR(before.st_mode):
+            for child in sorted(os.listdir(path)):
+                witness(os.path.join(path, child))
+            if identity(os.lstat(path)) != identity(before):
+                raise OSError("record directory changed during observation: " + path)
+    except OSError as error:
+        out.append("UNREADABLE\t%s\t%s" % (path, error)); unreadable = True
+
+parents = set()
+for path in (ledger, fallback, teams, workspaces):
+    parent = os.path.dirname(path)
+    while not os.path.lexists(parent):
+        parent = os.path.dirname(parent)
+    parents.add(parent)
+    if os.path.lexists(path):
+        witness(path)
+for parent in sorted(parents):
+    # Creating then deleting an initially absent record changes its containing
+    # directory. Observe only that directory, never recursively scan HOME.
+    witness(parent, recursive=False)
+if unreadable:
+    print("\n".join(sorted(out)))
+    sys.exit(1)
 
 if os.path.lexists(ledger):
     try:
@@ -125,8 +167,6 @@ if os.path.lexists(ledger):
                 if not isinstance(d, dict):
                     out.append("ledger\tnot-an-object\t%s" % h(raw))
                     continue
-                if d.get("event") == "finished":
-                    continue          # the platform's per-turn row; see the header
                 out.append("ledger\t%s\tevent=%s witness=%s source=%s teammate=%s agent=%s ts=%s"
                            % (h(raw), d.get("event"), d.get("witness") or "-", d.get("source") or "-",
                               d.get("teammate") or "-", d.get("agent_id") or "-", d.get("ts") or "-"))
@@ -215,7 +255,7 @@ rc_baseline() {
 # as UNREADABLE, never as unchanged.
 rc_escaped() {
     local after
-    after="$(mktemp)" || return 0
+    after="$(mktemp)" || { printf 'UNREADABLE\tcannot allocate record observation\n'; return 0; }
     if ! rc_snapshot > "$after" 2>/dev/null; then
         grep '^UNREADABLE' "$after" || printf 'UNREADABLE\n'
         rm -f "$after"
@@ -223,8 +263,13 @@ rc_escaped() {
     fi
     python3 - "$1" "$after" <<'PY'
 import sys
-before = set(l.rstrip("\n") for l in open(sys.argv[1], encoding="utf-8", errors="replace") if l.strip())
-after = [l.rstrip("\n") for l in open(sys.argv[2], encoding="utf-8", errors="replace") if l.strip()]
+try:
+    before = set(l.rstrip("\n") for l in open(sys.argv[1], encoding="utf-8", errors="replace") if l.strip())
+    after = [l.rstrip("\n") for l in open(sys.argv[2], encoding="utf-8", errors="replace") if l.strip()]
+except OSError as error:
+    print("UNREADABLE\t" + str(error))
+    sys.exit(0)
+after_paths = {row.split("\t", 2)[1] for row in after if row.startswith("witness\t")}
 seen = set()
 for line in after:
     if line in before or line in seen:
@@ -241,8 +286,14 @@ for line in after:
         print("team directory entry APPEARED: %s" % rest)
     elif kind == "workspaces":
         print("workspace registry entry APPEARED: %s" % rest)
+    elif kind == "witness":
+        print("record file CHANGED: %s" % rest.split("\t", 1)[0])
     else:
         print(line)
+for line in sorted(before - set(after)):
+    kind, _sep, rest = line.partition("\t")
+    if kind == "witness" and rest.split("\t", 1)[0] not in after_paths:
+        print("record file REMOVED: %s" % rest.split("\t", 1)[0])
 # a path that was present and is now absent, or vice versa, is a change too
 for kind in ("ledger", "fallback", "teams", "workspaces"):
     was = any(l.startswith(kind + "\t") for l in before)
