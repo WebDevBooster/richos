@@ -369,6 +369,16 @@ mutant generator-detail-unvalidated "2o." scripts/inflight-notify.sh \
     'if false; then' \
     "A pasted paragraph would go straight into the body."
 
+# 26. A NOTICE'S AGE IS UTC. The mktime-minus-standard-offset reading made every
+#     notice an hour old in daylight saving (measured 2026-09-26, BST), so the
+#     30-minute ack timeout called every fresh notice OVERDUE.
+mutant age-read-as-local-time "13." scripts/lib/inflight.py \
+    '        sent = calendar.timegm(time.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S"))
+        return int(time.time() - sent)' \
+    '        sent = time.mktime(time.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S"))
+        return int(time.time() - (sent - time.timezone))' \
+    "Every fresh notice would read an hour old in summer, and overdue at once."
+
 # --- the verdict ------------------------------------------------------------
 # Drained rather than accumulated: PASS/FAIL below come from the workers' exit
 # codes, and a worker that left no exit code is counted as a FAILURE. The tally

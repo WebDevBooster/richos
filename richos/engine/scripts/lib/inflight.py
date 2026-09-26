@@ -106,6 +106,7 @@ computed and REPORTED, because it separates "will hit a merge conflict" from
 sentence rather than a diff. It is never used to excuse a notice.
 """
 
+import calendar
 import json
 import os
 import re
@@ -817,11 +818,19 @@ def _ledger_row_is_own(row, wt):
 
 
 def _age_of_iso(ts):
+    """Seconds since a UTC ISO stamp, or None.
+
+    READ AS UTC WITH calendar.timegm, NEVER time.mktime(...) - time.timezone. mktime assumes
+    LOCAL time and time.timezone is the STANDARD offset, so under daylight saving every stamp
+    read an hour old: measured 2026-09-26 in BST, a notice sent seconds earlier read "60 min
+    since the notice (OVERDUE)", against a 30-minute ack timeout. containers.py fixed the same
+    defect on 2026-09-13 (containers.test.py C10); this file kept the old reading at both of
+    its age sites, which now share this one."""
     if not ts:
         return None
     try:
-        sent = time.mktime(time.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S"))
-        return int(time.time() - (sent - time.timezone))
+        sent = calendar.timegm(time.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S"))
+        return int(time.time() - sent)
     except Exception:
         return None
 
@@ -988,14 +997,11 @@ def ack_status(wt, tip, notices_ts, worker_updates, timeout_min, ledger_rows=())
             return out
 
     if notices_ts:
-        try:
-            sent = time.mktime(time.strptime(notices_ts[:19], "%Y-%m-%dT%H:%M:%S"))
-            # The ledger writes UTC; compare in UTC.
-            age = int(time.time() - (sent - time.timezone))
+        # The ledger writes UTC; compare in UTC (see _age_of_iso).
+        age = _age_of_iso(notices_ts)
+        if age is not None:
             out["age_sec"] = age
             out["overdue"] = age > timeout_min * 60
-        except Exception:
-            pass
     return out
 
 
