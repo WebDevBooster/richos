@@ -145,6 +145,7 @@ elif find "$NATIVE/UITests" "$NATIVE/UnitTests" -name '*.swift' 2>/dev/null | gr
   elif [ "$A8_UDID" != "$UDID" ]; then
     bad "A8 UI tests" "the ui-suite lease is $A8_UDID, not the prepared simulator $UDID A1 used"
   else
+    touch "$SCRATCH/a8.start"; A8_SINCE=$(( $(date +%s) - 1 ))
     if python3 "$TESTDEVICES" run-active --kind ios-simulator --id "$A8_UDID" --owner-pid $$ \
          --lost-file "$SCRATCH/a8.lost" -- "$RIOS" sim ui-test >"$SCRATCH/ui.json" 2>"$SCRATCH/err"; then
       A8_RC=0
@@ -156,6 +157,18 @@ elif find "$NATIVE/UITests" "$NATIVE/UnitTests" -name '*.swift' 2>/dev/null | gr
     elif [ "$A8_RC" -eq 75 ]; then
       bad "A8 UI tests NOT RUN: the simulator lease ended mid-run" "$(cat "$SCRATCH/a8.lost" 2>/dev/null)"
     else bad "A8 UI tests" "$(tail -c 600 "$SCRATCH/err")"; fi
+    if [ "$A8_RC" -ne 0 ]; then
+      # Every failing test by name, and this run's result bundle and log moved to the run's
+      # results (lib/test_results.py), a lost lease included: what ran before it ended is still
+      # evidence. The bundle is this run's alone (`ui-<time>.xcresult`, newer than A8's start);
+      # the log is logs/ui-test.log, which the next A8 run of this cache replaces.
+      KEEP=(--collect "ui-test.log=$RICHOS_NATIVE_IOS_CACHE/logs/ui-test.log")
+      for b in "$RICHOS_NATIVE_IOS_CACHE"/results/ui-*.xcresult; do
+        [ -d "$b" ] && [ "$b" -nt "$SCRATCH/a8.start" ] && KEEP+=(--move "$(basename "$b")=$b")
+      done
+      python3 "$DIR/lib/test_results.py" report --label "native-ios-app A8" --since "$A8_SINCE" \
+        ${RICHOS_TEST_RESULTS_DIR:+--into "$RICHOS_TEST_RESULTS_DIR"} "${KEEP[@]}"
+    fi
     # A8b: the lease Z releases is still this run's, under the declared purpose, after the run.
     if python3 - "$ROOT" "$A8_UDID" "$$" <<'PY_A8B'
 import sys, time
