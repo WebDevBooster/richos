@@ -295,11 +295,11 @@ fi
 
 # --- 3c. the claude login -----------------------------------------------------
 # AFTER the keychain exists and is unlocked, BEFORE the app launches. The guest
-# is signed in as this Mac is, from this Mac's own keychain item, at every run —
-# so the CEO's second question of 2026-09-20 ("what happens when the Claude
-# login expires in the VM?") has a structural answer: the guest never holds a
-# login longer than one run. The value travels on stdin and exists in no file,
-# no log and no command line; see claude-login.sh's header.
+# receives an unexpired access snapshot from this Mac at every run. Its refresh
+# token stays on the host, so the guest cannot rotate the host login. The
+# snapshot can expire during a long run; authenticated checks must then stop
+# or provision a fresh snapshot. The value travels on stdin, never in argv
+# or logs. See claude-login.sh.
 #
 # NOT fatal, for the same reason the keychain step is not: everything that needs
 # no model turn still renders, still screenshots and still proves what it was
