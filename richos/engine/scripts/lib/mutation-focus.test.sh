@@ -28,7 +28,7 @@ ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 PASS=0
 FAIL=0
-SANDBOX="$(cd "$(mktemp -d -t mutation-focus-test.XXXXXX)" && pwd -P)"
+SANDBOX="$(cd "$(mktemp -d "${TMPDIR:?}/mutation-focus-test.XXXXXX")" && pwd -P)"
 trap 'rm -rf "$SANDBOX"' EXIT
 # Scratch and the scratch ledger inside the sandbox: test data never touches live data,
 # and a fixture engine under the real $TMPDIR would be refused as a copy source.
