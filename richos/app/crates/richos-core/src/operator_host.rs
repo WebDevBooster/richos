@@ -60,6 +60,14 @@ pub const LAST_TEXTS: usize = 3;
 /// `operator-complete` contract §2.5). It is the store's protocol value, spelled as the store
 /// spells it.
 const ECS_WITHDRAWN: &str = "cancelled"; // dialect-exempt: the ECS store's own protocol literal, engine-rest-2026-09-25.md §2.5
+/// Said after an `outcome` whose land Git could not confirm (Frank's Q3 (c)).
+pub const UNCONFIRMED_STAYS_OPEN: &str =
+    "Your team reported this done, but a land it named could not be confirmed, so it stays open.";
+/// Said after a report on an assignment a report already closed (Frank's F5).
+pub const ALREADY_CLOSED: &str = "Your team reported this again, but it was already closed, so nothing changed.";
+/// The engine's refusal of an obligation that is not open (`engine/ecs/adapters/app.py`
+/// `operator_complete`: "only an open assignment can be closed; <id> is <status>").
+const ENGINE_NOT_OPEN: &str = "only an open assignment can be closed";
 
 // =============================================================================================
 // identities and channels
@@ -863,9 +871,33 @@ impl OperatorHost {
                 return;
             }
         };
+        // F5: an assignment a report already closed stays closed. He is told so, and never
+        // "It stays open", which is what the engine's refusal used to turn into.
+        if matches!(item.state, AssignmentState::Settled | AssignmentState::Failed) {
+            self.log(&format!("{}/{}: a {} report on {handle}, which is already {}; nothing changed",
+                              key.entity_id, key.thread_id, record.kind, item.state.as_str()));
+            self.delivery.say(key, &lane, Say::Team, &format!("{text}\n\n{ALREADY_CLOSED}"));
+            return;
+        }
         let failed = record.kind == "failed";
-        let mut evidence: Vec<String> = record.lands.iter().filter(|l| l.landed)
-            .map(|l| format!("git:{}:{}:{}", l.repository.display(), l.into, l.commit)).collect();
+        // Q3 (c) of Frank's review: CLAUDE.md "Report the ARTIFACT" and r3 (c) "Lands are
+        // verified in Git before any notice says 'landed'". An `outcome` that names a land Git
+        // could not confirm is not done, even beside a land that was confirmed, so it closes
+        // nothing: the engine is not asked, the register and the open handle are kept, and he
+        // hears the land sentence and that it stays open. The lead reports again once the land
+        // is real (the tool's answer tells it so), or reports `failed`.
+        if !failed && record.lands.iter().any(|l| !l.landed) {
+            self.log(&format!("{}/{}: an outcome on {handle} names a land that could not be confirmed; it stays open",
+                              key.entity_id, key.thread_id));
+            self.delivery.say(key, &lane, Say::Team, &format!("{text}\n\n{UNCONFIRMED_STAYS_OPEN}"));
+            return;
+        }
+        // A failure closes on its answer alone: the engine refuses a `git:` item on a withdrawn
+        // close ("a land cannot close a failed assignment", `app.py` `operator_complete`). Any
+        // land it names is still said to him, in `text`.
+        let mut evidence: Vec<String> = if failed { Vec::new() } else {
+            record.lands.iter().map(|l| format!("git:{}:{}:{}", l.repository.display(), l.into, l.commit)).collect()
+        };
         use sha2::Digest;
         evidence.push(format!("answer:{:x}", sha2::Sha256::digest(record.text.as_bytes())));
         evidence.truncate(20);
@@ -895,8 +927,14 @@ impl OperatorHost {
             }
             Err(why) => {
                 self.log(&format!("{}/{}: operator-complete refused {handle}: {why}", key.entity_id, key.thread_id));
-                self.delivery.say(key, &lane, Say::Team,
-                    &format!("{text}\n\nYour team reported this, but RichOS could not record it as closed ({why}). It stays open."));
+                // The engine's own words for an obligation that is no longer open (`app.py`
+                // `operator_complete`): closed already, with a register that did not say so.
+                let said = if why.contains(ENGINE_NOT_OPEN) {
+                    format!("{text}\n\n{ALREADY_CLOSED}")
+                } else {
+                    format!("{text}\n\nYour team reported this, but RichOS could not record it as closed ({why}). It stays open.")
+                };
+                self.delivery.say(key, &lane, Say::Team, &said);
             }
         }
     }
@@ -1514,26 +1552,94 @@ pub(crate) mod tests {
         r.host.handle(&key("a"), turn(&["u-1"], Some("Working on it.")));
         let item = assignment::read(&r.state, "femcboost", "a", &handle).unwrap();
         assert_eq!(item.state, AssignmentState::Registered, "a turn ending never settles");
-        let mut rec = report(Some(&handle), "outcome", "Landed and pushed.");
-        rec["lands"] = json!([{"repository":"/r","commit":"a".repeat(40),"branch":"x","into":"main","landed":true,
-                              "pushed":true,"why":null,"says":"Landed and pushed x in r."},
-                             {"repository":"/r","commit":"b".repeat(40),"branch":"y","into":"main","landed":false,
-                              "pushed":null,"why":"commit bbbb is not on main","says":"y in r could not be confirmed as landed."}]);
-        outbox(&r, "a", &[rec]);
+        assert!(open_handles(&r, "a").contains(&handle));
+        outbox(&r, "a", &[with_lands(report(Some(&handle), "outcome", "Landed and pushed."), &[confirmed_land()])]);
         r.host.handle(&key("a"), turn(&[], None));
         let calls = r.settle.calls.lock().unwrap().clone();
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].1, "completed");
-        assert_eq!(calls[0].2.len(), 2, "the confirmed land and the answer, never the unconfirmed land: {:?}", calls[0].2);
+        assert_eq!(calls[0].2.len(), 2, "the confirmed land and the answer: {:?}", calls[0].2);
         assert_eq!(calls[0].2[0], format!("git:/r:main:{}", "a".repeat(40)));
         assert!(calls[0].2[1].starts_with("answer:"));
         let item = assignment::read(&r.state, "femcboost", "a", &handle).unwrap();
         assert_eq!(item.state, AssignmentState::Settled);
-        let outcome = r.said.all().into_iter().find(|x| x.2 == Say::Outcome).unwrap();
-        assert!(outcome.3.contains("could not be confirmed as landed"), "{}", outcome.3);
+        assert!(r.said.all().iter().any(|x| x.2 == Say::Outcome && x.3.contains("Landed and pushed x in r.")));
         // A second read of the same outbox settles nothing twice.
         r.host.handle(&key("a"), turn(&[], None));
         assert_eq!(r.settle.calls.lock().unwrap().len(), 1);
+    }
+
+    fn confirmed_land() -> Value {
+        json!({"repository":"/r","commit":"a".repeat(40),"branch":"x","into":"main","landed":true,
+               "pushed":true,"why":null,"says":"Landed and pushed x in r."})
+    }
+
+    fn unconfirmed_land() -> Value {
+        json!({"repository":"/r","commit":"b".repeat(40),"branch":"y","into":"main","landed":false,
+               "pushed":null,"why":"commit bbbb is not on main","says":"y in r could not be confirmed as landed."})
+    }
+
+    fn with_lands(mut record: Value, lands: &[Value]) -> Value {
+        record["lands"] = Value::Array(lands.to_vec());
+        record
+    }
+
+    fn open_handles(r: &Rig, thread: &str) -> BTreeSet<String> {
+        r.host.conversations.lock().unwrap().get(&key(thread)).unwrap().lock().unwrap().record.open_handles.clone()
+    }
+
+    /// **Q3 (c) of Frank's review (richos-hq `bd685c14`), CLAUDE.md "Report the ARTIFACT" and
+    /// r3 (c) "Lands are verified in Git before any notice says 'landed'".** An `outcome` that
+    /// names a land Git could not confirm does not close the obligation, even beside a land
+    /// that was confirmed: the engine is never asked, the register stays where it was, the
+    /// handle stays open, and he hears it stays open. The lead's corrected report then closes
+    /// it, which is what makes "check what you named and report again" true (F5).
+    #[test]
+    fn an_outcome_naming_an_unconfirmed_land_closes_nothing_and_the_corrected_report_closes_it() {
+        let r = rig();
+        let handle = register(&r, "a", AssignmentKind::Task);
+        r.host.relay(&key("a"), "A", Some(&handle), "Land it.", Origin::DeskTyped).unwrap();
+        outbox(&r, "a", &[with_lands(report(Some(&handle), "outcome", "Landed both."), &[confirmed_land(), unconfirmed_land()])]);
+        r.host.handle(&key("a"), turn(&[], None));
+        assert!(r.settle.calls.lock().unwrap().is_empty(), "the engine is not asked to close it");
+        assert_eq!(assignment::read(&r.state, "femcboost", "a", &handle).unwrap().state, AssignmentState::Registered);
+        assert!(open_handles(&r, "a").contains(&handle), "the handle stays open");
+        let said = r.said.all();
+        assert!(!said.iter().any(|x| x.2 == Say::Outcome), "never said as done: {said:?}");
+        let open = said.iter().find(|x| x.2 == Say::Team).expect("he is told");
+        assert_eq!(open.1, Lane::Handle(handle.clone()));
+        assert!(open.3.contains("could not be confirmed as landed") && open.3.ends_with("so it stays open."), "{}", open.3);
+        // The lead checks, finds the land, and reports again: that closes it.
+        outbox(&r, "a", &[with_lands(report(Some(&handle), "outcome", "Both landed."), &[confirmed_land()])]);
+        r.host.handle(&key("a"), turn(&[], None));
+        assert_eq!(r.settle.calls.lock().unwrap().len(), 1);
+        assert_eq!(assignment::read(&r.state, "femcboost", "a", &handle).unwrap().state, AssignmentState::Settled);
+        assert!(!open_handles(&r, "a").contains(&handle));
+    }
+
+    /// **F5.** A second report on an assignment that is already closed is never answered with
+    /// "It stays open": the register says it is closed, so that is what he hears, and the
+    /// engine is not asked again. The engine's own refusal of an already-closed obligation
+    /// (`engine/ecs/adapters/app.py` `operator_complete`, "only an open assignment can be
+    /// closed") says the same, for a register that could not be written when it closed.
+    #[test]
+    fn a_report_on_an_assignment_already_closed_says_so_and_never_that_it_stays_open() {
+        let r = rig();
+        let handle = register(&r, "a", AssignmentKind::Task);
+        r.host.relay(&key("a"), "A", Some(&handle), "Land it.", Origin::DeskTyped).unwrap();
+        outbox(&r, "a", &[report(Some(&handle), "outcome", "Done."), report(Some(&handle), "outcome", "Done, again.")]);
+        r.host.handle(&key("a"), turn(&[], None));
+        assert_eq!(r.settle.calls.lock().unwrap().len(), 1, "the engine is asked once");
+        let second = r.said.all().into_iter().filter(|x| x.2 == Say::Team).collect::<Vec<_>>();
+        assert_eq!(second.len(), 1, "{second:?}");
+        assert!(second[0].3.contains("already closed") && !second[0].3.contains("stays open"), "{}", second[0].3);
+        // The engine's refusal of a closed obligation, with a register that still says open.
+        let other = register(&r, "a", AssignmentKind::Task);
+        *r.settle.refuse.lock().unwrap() = Some("only an open assignment can be closed; ob-x is completed".into());
+        outbox(&r, "a", &[report(Some(&other), "outcome", "Done.")]);
+        r.host.handle(&key("a"), turn(&[], None));
+        let last = r.said.all().pop().unwrap();
+        assert!(last.3.contains("already closed") && !last.3.contains("stays open"), "{}", last.3);
     }
 
     #[test]
@@ -1551,6 +1657,26 @@ pub(crate) mod tests {
         let answered = assignment::read(&r.state, "femcboost", "a", &ask).unwrap();
         assert_eq!(answered.state, AssignmentState::Settled);
         assert_eq!(answered.notices.last().unwrap().kind, NoticeKind::Answer, "§58: an answer is never 'done'");
+    }
+
+    /// A `failed` report that also names a land (part of it landed, the rest cannot be done)
+    /// closes as withdrawn on its answer alone. The engine refuses any `git:` item on a
+    /// withdrawn close ("a land cannot close a failed assignment", `app.py`
+    /// `operator_complete`), so sending the land would leave the failure open for good. The
+    /// land is still said to him, in the text.
+    #[test]
+    fn a_failed_report_that_names_a_land_closes_as_withdrawn_on_its_answer_alone() {
+        let r = rig();
+        let handle = register(&r, "a", AssignmentKind::Task);
+        r.host.relay(&key("a"), "A", Some(&handle), "Try it.", Origin::DeskTyped).unwrap();
+        outbox(&r, "a", &[with_lands(report(Some(&handle), "failed", "Half landed; the rest cannot be done."), &[confirmed_land()])]);
+        r.host.handle(&key("a"), turn(&[], None));
+        let calls = r.settle.calls.lock().unwrap().clone();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].1, ECS_WITHDRAWN);
+        assert!(calls[0].2.iter().all(|e| e.starts_with("answer:")), "{:?}", calls[0].2);
+        let said = r.said.all().into_iter().find(|x| x.2 == Say::Failed).unwrap();
+        assert!(said.3.contains("Landed and pushed x in r."), "{}", said.3);
     }
 
     #[test]
