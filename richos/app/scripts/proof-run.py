@@ -108,6 +108,7 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.dirname(HERE)
@@ -135,6 +136,7 @@ sys.path.insert(0, os.path.join(ROOT, "richos", "engine", "scripts", "lib"))
 import proc_tree  # noqa: E402
 import worker_tokens  # noqa: E402
 import engine_pass  # noqa: E402
+import cpu_guard  # noqa: E402
 sys.path.insert(0, os.path.join(HERE, "lib"))
 import test_results  # noqa: E402  (what names a failing test; one reader for every caller)
 import proof_evidence  # noqa: E402
@@ -162,6 +164,8 @@ class Item:
         self.wait_times = {}
         self.wait_reason = "ready"
         self.queued_at = None
+        self.attempts = []
+        self.reservation = None
 
     def finish_queue(self):
         if self.queued_at is not None and self.started is None:
@@ -396,6 +400,73 @@ def input_identity(item, args, logdir):
     return result
 
 
+def reserve_item(item, n, args, logdir):
+    if not getattr(args, 'managed_verification', False):
+        return
+    evidence = getattr(item, 'evidence', None)
+    identity = evidence.identities[item.label] if evidence else {'fresh': 'unqualified direct command'}
+    inputs = {key: value for key, value in identity.items() if key != 'settings'}
+    if inputs.get('fresh'):
+        inputs['source'] = evidence.source if evidence else source_identity()
+    key = proof_evidence.digest({'check': item.label, 'inputs': inputs,
+        'command': proof_evidence.command_identity(item, ROOT, logdir)})
+    directory = os.path.join(logdir, 'attempts', '%02d-%s' % (n, slug(item.label)))
+    os.makedirs(directory, exist_ok=True)
+    native = proc_tree.identity(os.getpid())
+    context = {'protocol': cpu_guard.VERIFICATION_PROTOCOL, 'input_key': key,
+        'label': item.label, 'priority': 'integration' if engine_pass.is_main_checkout(ROOT) else 'background',
+        'result': os.path.join(directory, 'supervision.json'),
+        'seed': {'pid': os.getpid(), 'generation': native}}
+    lease = cpu_guard.reserve_verification(context, os.getpid(), native)
+    item.reservation = lease
+    context['reservation'] = {'fd': lease[0], 'id': Path(lease[2]).stem}
+    item.verification_context = os.path.join(directory, 'context.json')
+    item.verification_result = context['result']
+    proof_evidence.atomic(item.verification_context, context)
+
+
+def finish_attempt(item):
+    """A controller intervention cannot become a behavioral failure or a pass."""
+    path = getattr(item, 'verification_result', None)
+    if not path:
+        return False
+    record = cpu_guard.read_json(path)
+    if not record:
+        item.state, item.rc = 'infrastructure-failed', 125
+        item.notes.append('managed verification result is missing')
+        return False
+    if record.get('cleanup') != 'complete':
+        item.state, item.rc = 'cleanup-failed', 125
+        item.notes.append('owned cleanup remains unresolved: ' + path)
+        return False
+    status = record.get('status')
+    if status in ('contained', 'resource-envelope-exceeded'):
+        item.state, item.rc = status, 125
+    elif status != 'completed':
+        if item.state != 'timed-out':
+            item.state = 'not-admitted' if item.rc == 75 else 'infrastructure-failed'
+            item.rc = 75 if item.rc == 75 else 125
+        return False
+    attempt = {'state': item.state, 'exit': item.rc, 'seconds': item.seconds,
+               'log': item.log, 'supervision': path}
+    item.attempts.append(attempt)
+    if status != 'contained':
+        return False
+    # Preserve the interrupted receipt before its one-unit retry writes a new one.
+    receipt = proof_evidence.receipt_path(item)
+    if receipt and receipt.exists():
+        target = Path(path).parent / 'interrupted-receipt.jsonl'
+        shutil.move(receipt, target)
+        attempt['receipt'] = str(target)
+    recovery = cpu_guard.verification_recovery(record['input_key'])
+    if recovery['blocked']:
+        item.state = 'scheduler-starvation'
+        item.notes.append(recovery['blocked'] + '; evidence: ' + path)
+        return False
+    item.notes.append('pressure-contained attempt preserved; retry after controller recovery: ' + path)
+    return True
+
+
 def launch(item, n, logdir, tokens_dir, reserved):
     item.log = os.path.join(logdir, "%02d-%s.log" % (n, slug(item.label)))
     # Its own per-test results folder, in this run's evidence: run-tests.sh gives each suite a
@@ -426,13 +497,14 @@ def launch(item, n, logdir, tokens_dir, reserved):
     if evidence:
         evidence.save(item, evidence.current_source())
     try:
-        command = proc_tree.command(item.argv)
+        command = proc_tree.command(item.argv, verification=getattr(item, 'verification_context', None))
         if hasattr(item, "private_environment"):
             command[0] = "python3"  # The recipe's fingerprinted -s -S wrapper also covers supervision.
         item.proc = subprocess.Popen(command, cwd=item.cwd, stdout=fh, stderr=subprocess.STDOUT,
                                      stdin=subprocess.DEVNULL, start_new_session=True, env=env,
                                      pass_fds=tuple(item.token.fds) + tuple(getattr(item, "slot_fds", ()))
                                      + ((evidence.lease.fd,) if evidence else ())
+                                     + ((item.reservation[0],) if item.reservation else ())
                                      + ((item.input_owner_fd,) if hasattr(item, "input_owner_fd") else ()))
     except OSError as exc:
         # A check that cannot even start is a FAILED check, named, never a crash of the run
@@ -440,6 +512,13 @@ def launch(item, n, logdir, tokens_dir, reserved):
         fh.write(("proof-run: could not start: %s\n" % exc).encode())
         item.proc = None
         item.notes.append("could not start: %s" % exc)
+        if item.reservation:
+            cpu_guard.write_json(item.verification_result, {'root_generation': proc_tree.identity(os.getpid()),
+                'cleanup': 'complete', 'status': 'incomplete', 'exit': 127}, durable=True)
+    finally:
+        if item.reservation:
+            os.close(item.reservation[0])  # The supervisor inherited the same kernel lease.
+            item.reservation = None
     fh.close()
 
 
@@ -526,6 +605,7 @@ def deadline_for(item, args):
 
 
 def run(items, args, logdir, sampler=None):
+    args.managed_verification = cpu_guard.verification_enabled()
     remaining = list(items)
     resolved = set()
     while remaining:
@@ -661,16 +741,27 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                     it.notes.append("could not start; see command log")
                 if it.state != "timed-out":
                     it.state = "passed" if rc == 0 else "failed"
+                retry_contained = finish_attempt(it)
                 running.remove(it)
                 it.token.release()
                 checkpoint(items, logdir)
                 if getattr(args, "pool", None):
                     args.pool.finish(it)
-                print("[%s] %-6s %-40s %6.0f s%s" % (stamp(), {"passed": "PASS", "failed": "FAIL"}.get(it.state, "KILLED"),
+                print("[%s] %-9s %-40s %6.0f s%s" % (stamp(), {"passed": "PASS", "failed": "FAIL", "contained": "CONTAINED",
+                      "resource-envelope-exceeded": "RESOURCE", "not-admitted": "REFUSED",
+                      "infrastructure-failed": "INFRA", "timed-out": "TIMEOUT"}.get(it.state, "KILLED"),
                                                      it.label, it.seconds, "" if rc == 0 else "  (exit %d)" % rc), flush=True)
                 name_failures(it)
                 for name in it.failing[:SHOWN_FAILURES]:
                     print("         failed: %s" % name, flush=True)
+                if retry_contained:
+                    it.state, it.rc = 'waiting', None
+                    it.started = it.ended = it.first_wait = None
+                    it.queued_at = time.monotonic()
+                    it.wait_reason = 'controller-recovery'
+                    it.retry_first = True
+                    order.remove(it)
+                    order.insert(0, it)
         contamination = os.path.join(logdir, "contamination")
         record = getattr(args, "evidence", None)
         if record and record.source_invalidated:
@@ -795,6 +886,23 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 if not ok:
                     token.release()
             if ok:
+                admitted_item = None
+                for candidate in eligible:
+                    try:
+                        reserve_item(candidate, n + 1, args, logdir)
+                    except BlockingIOError as exc:
+                        candidate.wait_reason = 'resource-envelope'
+                        candidate.resource_refusal = str(exc)
+                        continue
+                    admitted_item = candidate
+                    break
+                if admitted_item is None:
+                    token.release()
+                    ok = False
+                    s = None
+                else:
+                    it = admitted_item
+            if ok:
                 it.finish_queue()
                 it.token = token
                 n += 1
@@ -818,9 +926,11 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 if waited >= args.admission_wait:
                     it.finish_queue()
                     it.state = "not-admitted"
-                    it.notes.append("not admitted after %.0f s: %s" % (waited, (reserve.describe(s) if s is not None else "worker budget is full")))
+                    reason = (reserve.describe(s) if s is not None else getattr(it, 'resource_refusal', None)
+                              or getattr(budget.shared or budget, 'refusal', None) or "worker budget is full")
+                    it.notes.append("not admitted after %.0f s: %s" % (waited, reason))
                     print("[%s] REFUSED %-39s not admitted after %.0f s (%s)" % (stamp(), it.label, waited,
-                                                                                 (reserve.describe(s) if s is not None else "worker budget is full")), flush=True)
+                                                                                 reason), flush=True)
                 else:
                     next_sample = now + (reserve.MIN_RETRY_SECONDS if s is not None else 0.2)
                     backoff_reason = "host" if s is not None else "worker"
@@ -951,6 +1061,8 @@ def summarize(items, wall, logdir, budget_seconds=600, monitor_lines=()):
                      "wait_seconds_by_reason": {k: round(v, 3) for k, v in it.wait_times.items()},
                      "exit": it.rc, "log": it.log,
                      "reused_from": getattr(it, "reused_from", None),
+                     "attempts": it.attempts,
+                     "repeated_seconds": sum(a['seconds'] for a in it.attempts[:-1]),
                      "failing_tests": list(it.failing), "results": kept,
                      "command": "cd %s && %s" % (os.path.relpath(it.cwd, ROOT), " ".join(shlex.quote(a) for a in it.argv))})
     with open(os.path.join(logdir, "summary.json"), "w") as fh:

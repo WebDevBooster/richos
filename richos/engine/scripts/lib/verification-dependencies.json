@@ -444,7 +444,7 @@
     },
     "scripts/lib/cpu_policy.py": {
       "source": "scripts/lib/cpu_policy.py",
-      "sha256": "ca04ecbd2b7640dd6443ccc5089759bdd47e51653a54cfbfc632c026ace88cce",
+      "sha256": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
       "evidence": "Pure CPU percentage and admission predicates; no configuration or file reads.",
       "keys": [],
       "edges": []
@@ -462,18 +462,28 @@
     },
     "scripts/lib/cpu_guard.py": {
       "source": "scripts/lib/cpu_guard.py",
-      "sha256": "9dba71e5355da1c714928faec5952d27cda97fa7e32a4b677693c59f833e45ab",
-      "evidence": "Verification controller reads its own registration/pressure records and process samples. It never reads orchestration.config. Registered commands are separate caller edges.",
+      "sha256": "f1b3b11a9f89a62635a8c6e52cbe2eccb1b5f2c49bfcb7bb78871da53830f164",
+      "evidence": "Token and supervisor callers use registration, health, admission and verification-client APIs before HostMemory. These read native process data and their private controller records, never orchestration.config. They do not invoke the watch/install CLI or its HostMemory provider. Caller commands remain separate declared edges.",
       "keys": [],
       "edges": [
         {
           "to": "scripts/lib/cpu_policy.py"
+        },
+        {
+          "to": "scripts/lib/operator_fences.py#proc"
+        },
+        {
+          "to": "scripts/lib/proc_tree.py"
         }
+      ],
+      "region": [
+        "STATE = Path(",
+        "class HostMemory:"
       ]
     },
     "scripts/lib/proc_tree.py": {
       "source": "scripts/lib/proc_tree.py",
-      "sha256": "0c66bb28b8be3c6f44bd262918466ca3deb4a2226e30cbf0819e0c3a5d11db8f",
+      "sha256": "77306786ba99adb3cf57da8d121de9a92ece755f1f51772ff3fb5cdc4a727843",
       "evidence": "Supervises the caller\u2019s command and samples owned processes. Its own inputs are environment, process identity and controller state, never orchestration settings.",
       "keys": [],
       "edges": [
@@ -498,7 +508,7 @@
     },
     "scripts/lib/worker_tokens.py": {
       "source": "scripts/lib/worker_tokens.py",
-      "sha256": "7db2fc746add705a6f373ee76fade0c3f308d0c4bb4d58f2d383c73bf80df10f",
+      "sha256": "3415b0824a9d2acd13be390200f98b3dee4a6f7cfc26d8ee2f7eee2bee6418d7",
       "evidence": "Worker leases read their budget files and invoke the caller\u2019s separately declared command, through process supervision and admission policy.",
       "keys": [],
       "edges": [
@@ -507,6 +517,9 @@
         },
         {
           "to": "scripts/lib/engine_pass.py"
+        },
+        {
+          "to": "scripts/lib/cpu_guard.py"
         }
       ]
     },

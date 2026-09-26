@@ -9,7 +9,9 @@ import argparse
 import contextlib
 import ctypes
 import fcntl
+import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import plistlib
@@ -21,10 +23,13 @@ import signal
 import subprocess
 import sys
 import time
-from cpu_policy import DEFAULT_MAX_CPU, admission_open
+import uuid
+import operator_fences
+from cpu_policy import DEFAULT_MAX_CPU, admission_open, VerificationPressure
 
 STATE = Path(os.environ.get('RICHOS_CPU_GUARD_STATE', '/Volumes/E1TB/state/richos/cpu-guard'))
 INTERVAL = 2.0
+VERIFICATION_PROTOCOL = 1
 WINDOW = 10.0
 JOB_CORES = 3.0
 LABEL = 'com.richos.cpu-guard'
@@ -32,13 +37,23 @@ IOS_FIRST_BOOT_SECONDS = 180
 IOS_WARM_BOOT_SECONDS = 120
 
 
-def write_json(path, value):
+def write_json(path, value, durable=False):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + '.%s.new' % os.getpid())
-    tmp.write_text(json.dumps(value))
+    with tmp.open('w') as stream:
+        json.dump(value, stream)
+        if durable:
+            stream.flush()
+            os.fsync(stream.fileno())
     os.chmod(tmp, 0o600)
     os.replace(tmp, path)
+    if durable:
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
 
 
 def read_json(path, default=None):
@@ -58,26 +73,303 @@ def seconds(value):
 
 
 def processes():
-    result = subprocess.run(['ps', '-ax', '-o', 'uid=,pid=,ppid=,time=,lstart=,comm='],
+    result = subprocess.run(['ps', '-ax', '-o', 'uid=,pid=,ppid=,time=,rss=,lstart=,comm='],
                             capture_output=True, text=True, check=True, timeout=5,
                             env={**os.environ, 'LC_ALL': 'C', 'TZ': 'UTC0'})
     rows = {}
     for line in result.stdout.splitlines():
-        f = line.split(None, 9)
-        if len(f) != 10 or int(f[0]) != os.getuid():
+        f = line.split(None, 10)
+        if len(f) != 11 or int(f[0]) != os.getuid():
+            continue
+        native = operator_fences.proc(int(f[1]), precise=True)
+        if native and native['zombie']:
             continue
         rows[int(f[1])] = dict(parent=int(f[2]), cpu=seconds(f[3]),
-                              birth=' '.join(f[4:9]), name=f[9])
+                              rss_mb=int(f[4]) / 1024, birth=' '.join(f[5:10]), name=f[10],
+                              generation=native['start'] if native else None)
     return rows
 
 
-def register(pid, label, role='session'):
+def register(pid, label, role='session', verification=None):
     rows = processes()
     if pid not in rows:
         raise ValueError('owner process is not alive or not owned by this user')
-    record = dict(pid=pid, birth=rows[pid]['birth'], label=label, role=role)
+    generation = rows[pid].get('generation')
+    if not generation:
+        raise ValueError('owner process generation is unavailable')
+    record = dict(pid=pid, birth=rows[pid]['birth'], generation=generation, label=label, role=role)
+    if role == 'verification':
+        if not verification or not re.fullmatch('[0-9a-f]{64}', verification.get('input_key', '')):
+            raise ValueError('verification registration requires its input identity')
+        if verification.get('priority') not in ('integration', 'background'):
+            raise ValueError('verification registration requires a qualified local priority')
+        result = Path(verification.get('result', ''))
+        if not result.is_absolute() or not result.parent.is_dir():
+            raise ValueError('verification registration requires its existing result directory')
+        reason = verification_recovery(verification['input_key'])['blocked']
+        if reason:
+            raise RuntimeError(reason)
+        record['verification'] = verification
     write_json(STATE / 'roots' / ('%s.json' % pid), record)
     return record
+
+
+def verification_recovery(input_key, charge=None, details=None):
+    """Pressure and resource faults never spend the assertion-failure budget.
+
+    The per-input lock serializes registration and controller updates across
+    runner restarts. A renamed run or changed plan cannot reset this record.
+    Resource recalibration/recovery is explicit; there is no automatic reset.
+    """
+    if not re.fullmatch('[0-9a-f]{64}', input_key):
+        raise ValueError('invalid verification input identity')
+    directory = STATE / 'verification-recovery'
+    directory.mkdir(parents=True, exist_ok=True)
+    with (directory / (input_key + '.lock')).open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        path = directory / (input_key + '.json')
+        record = read_json(path, {'schema': 1, 'containment': [], 'resource': []})
+        if (not isinstance(record, dict) or record.get('schema') != 1 or
+                any(not isinstance(record.get(kind), list) for kind in ('containment', 'resource'))):
+            raise ValueError('corrupt verification recovery record: ' + input_key)
+        blocked = ('scheduler-starvation: three pressure containments for unchanged inputs'
+                   if len(record['containment']) >= 3 else
+                   'resource-envelope-exceeded: measured recalibration required' if record['resource'] else None)
+        if charge:
+            if charge not in ('containment', 'resource'):
+                raise ValueError('unknown recovery budget')
+            if blocked:
+                raise RuntimeError(blocked)
+            record[charge].append({'at': time.time(), **(details or {})})
+            write_json(path, record, durable=True)
+        return {**record, 'blocked': blocked}
+
+
+def verification_enabled():
+    expected = read_json(STATE / 'verification-enabled.json')
+    if expected is not None:
+        if expected.get('protocol') != VERIFICATION_PROTOCOL:
+            raise RuntimeError('installed verification protocol requires a current launcher')
+        return True
+    return read_json(STATE / 'verification-pressure.json', {}).get('protocol') == VERIFICATION_PROTOCOL
+
+
+def verification_admission():
+    """Machine pressure gates expansion; borrowing an already held slot is separate.
+
+    An absent managed-policy record is the legacy boundary during migration.
+    Once present, missing/stale monitoring refuses admission rather than silently
+    returning to token-only execution. Mandatory enrollment is enforced by the
+    production launcher, not inferred from a private HOME path here.
+    """
+    record = read_json(STATE / 'verification-pressure.json')
+    if record is None:
+        return 'verification controller is unavailable' if verification_enabled() else None
+    if not healthy() or time.time() - record.get('at', 0) >= 12:
+        return 'verification controller is unhealthy or stale'
+    if not record.get('admission_open'):
+        return 'verification pressure: ' + record.get('stage', 'unknown')
+    return None
+
+
+class VerificationClient:
+    """Supervisor enrollment and typed completion for one verification attempt.
+
+    The launcher supplies a durable input key and a private attempt directory.
+    Nested supervisors inherit the owner but do not register duplicate demand.
+    The child remains behind its exec pipe until its native identity is recorded.
+    """
+    def __init__(self, context):
+        self.context = read_json(context)
+        if not isinstance(self.context, dict) or self.context.get('protocol') != VERIFICATION_PROTOCOL:
+            raise ValueError('unsupported verification controller protocol')
+        self.pid = os.getpid()
+        native = operator_fences.proc(self.pid, precise=True)
+        if not native or native['zombie']:
+            raise RuntimeError('verification supervisor generation unavailable')
+        self.generation = native['start']
+        self.started = time.monotonic()
+        self.last_health = 0
+        self.lease = None
+        inherited = self.context.get('reservation')
+        if inherited:
+            fd = inherited['fd']
+            path = STATE / 'verification-reservations' / (inherited['id'] + '.json')
+            actual, expected = os.fstat(fd), path.with_suffix('.lock').stat()
+            record = read_json(path)
+            if ((actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino)
+                    or record['input_key'] != self.context['input_key']):
+                raise ValueError('inherited verification reservation does not match this input')
+            self.lease = (fd, record['envelope'], str(path))
+            record.update(root_pid=self.pid, root_generation=self.generation,
+                          seed={'pid': self.pid, 'generation': self.generation})
+            write_json(path, record, durable=True)
+        self.check_health(force=True)
+
+    def check_health(self, force=False):
+        now = time.monotonic()
+        if force or now - self.last_health >= 1:
+            record = read_json(STATE / 'verification-pressure.json', {})
+            if (not healthy() or record.get('protocol') != VERIFICATION_PROTOCOL
+                    or not 0 <= time.time() - record.get('at', 0) < 12):
+                raise RuntimeError('verification controller unavailable; stopping owned work')
+            self.last_health = now
+
+    def start(self, child):
+        self.check_health(force=True)
+        reason = verification_admission()
+        if reason:
+            raise RuntimeError(reason)
+        native = operator_fences.proc(child, precise=True)
+        if not native or native['zombie']:
+            raise RuntimeError('verification child generation unavailable before exec')
+        context = {**self.context, 'seed': {'pid': child, 'generation': native['start']}}
+        reason = verification_recovery(context['input_key'])['blocked']
+        if reason:
+            raise BlockingIOError(reason)
+        if self.lease is None:
+            self.lease = reserve_verification(context, self.pid, self.generation)
+        else:
+            record = read_json(self.lease[2])
+            record.update(root_pid=self.pid, root_generation=self.generation, seed=context['seed'])
+            write_json(self.lease[2], record, durable=True)
+        context['reservation'] = self.lease[1]
+        register(self.pid, context['label'], 'verification', context)
+
+    def finish(self, rc, survivors, cpu_seconds):
+        path = self.context['result']
+        record = read_json(path, {})
+        if record and (record.get('input_key') != self.context['input_key']
+                       or record.get('root_generation') != self.generation):
+            raise RuntimeError('verification result belongs to another execution')
+        record.update(input_key=self.context['input_key'], root_pid=self.pid,
+                      root_generation=self.generation, exit=rc,
+                      cleanup='failed' if survivors else 'complete', survivors=survivors,
+                      reaped_cpu_seconds=cpu_seconds, elapsed_seconds=time.monotonic() - self.started,
+                      finished_at=time.time())
+        record.setdefault('status', 'completed' if rc not in (75, 124, 125, 127, 130, 143) else 'incomplete')
+        write_json(path, record, durable=True)
+        if self.lease:
+            try:
+                measurement = read_json(STATE / 'verification-measurements' / (str(self.pid) + '.json'), {})
+                if measurement.get('root_generation') == self.generation:
+                    record['measurement'] = measurement
+                    write_json(path, record, durable=True)
+                    if record['status'] == 'completed' and rc == 0 and not survivors:
+                        qualify_demand(self.context['input_key'], measurement, record)
+            finally:
+                os.close(self.lease[0])
+                self.lease = None
+        return record
+
+
+def demand_capacity(heartbeat):
+    """Leave explicit host/service headroom, independently of worker counts."""
+    sample = heartbeat.get('verification_resources', {})
+    cores = heartbeat.get('cpu_count', 0)
+    busy = heartbeat.get('host_busy', float('nan'))
+    free, total = sample.get('memory_free_mb', 0), sample.get('memory_total_mb', 0)
+    owned_memory = heartbeat.get('verification_rss_mb', 0)
+    unknown = heartbeat.get('unattributed_cores', float('nan'))
+    if not all(math.isfinite(v) and v >= 0 for v in (cores, busy, free, total, unknown, owned_memory)) or not cores or not total:
+        raise BlockingIOError('CPU/memory demand measurement unavailable')
+    # At least 20% for unowned host/system work, another 20% below saturation.
+    # Observed unowned demand above that reserve reduces capacity immediately.
+    return {'cores': max(0, .8 * cores - max(.2 * cores, unknown + .1 * cores)),
+            'rss_mb': max(0, min(total, free + owned_memory) - .25 * total)}
+
+
+def reserve_verification(context, pid, generation):
+    """Atomically reserve a measured envelope; one unknown calibrates at a time.
+
+    The existing supervisor holds the lease through cleanup. A crashed owner
+    with native surviving members still occupies its reservation. No lock file
+    is resized and nested children share the tree's reservation.
+    """
+    directory = STATE / 'verification-reservations'
+    directory.mkdir(parents=True, exist_ok=True)
+    with (directory / 'admission.lock').open('a') as admission:
+        fcntl.flock(admission, fcntl.LOCK_EX)
+        capacity = demand_capacity(read_json(STATE / 'heartbeat.json', {}))
+        profile = read_json(STATE / 'verification-demand' / (context['input_key'] + '.json'))
+        if profile and profile.get('protocol') != VERIFICATION_PROTOCOL:
+            raise BlockingIOError('stale verification demand envelope requires calibration')
+        envelope = (profile['envelope'] if profile else {**capacity, 'calibration': True})
+        if any(not math.isfinite(envelope.get(k, 0)) or envelope.get(k, 0) <= 0 for k in ('cores', 'rss_mb')):
+            raise BlockingIOError('no measured CPU/memory capacity for verification')
+        active = []
+        for path in directory.glob('*.json'):
+            record = read_json(path)
+            fd = os.open(path.with_suffix('.lock'), os.O_CREAT | os.O_RDWR, 0o600)
+            try:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    active.append(record)
+                    continue
+                result = read_json(record['result'], {})
+                if (result.get('root_generation') == record['root_generation']
+                        and result.get('cleanup') == 'complete'):
+                    path.unlink()
+                    path.with_suffix('.lock').unlink()
+                    continue
+                measurement = read_json(STATE / 'verification-measurements' / (str(record['root_pid']) + '.json'), {})
+                members = {str(record['root_pid']): record['root_generation'],
+                           str(record['seed']['pid']): record['seed']['generation']}
+                if measurement.get('root_generation') == record['root_generation']:
+                    members.update(measurement['members'])
+                for raw, birth in members.items():
+                    native = operator_fences.proc(int(raw), precise=True)
+                    if native and not native['zombie'] and native['start'] == birth:
+                        active.append(record)
+                        break
+                    if not native:
+                        # Native-unreadable live work cannot free capacity.
+                        import proc_tree
+                        if proc_tree._alive([int(raw)]):
+                            raise BlockingIOError('orphan reservation generation unavailable')
+                else:
+                    path.unlink()
+                    path.with_suffix('.lock').unlink()
+            finally:
+                os.close(fd)
+        if envelope.get('calibration') and active:
+            raise BlockingIOError('unknown demand waits for exclusive bounded calibration')
+        if any(r['input_key'] == context['input_key'] for r in active):
+            raise BlockingIOError('identical verification inputs already own a reservation')
+        if any(r['envelope'].get('calibration') for r in active):
+            raise BlockingIOError('a verification demand calibration is active')
+        for key in ('cores', 'rss_mb'):
+            if sum(r['envelope'][key] for r in active) + envelope[key] > capacity[key] + .001:
+                raise BlockingIOError('measured verification capacity is full: ' + key)
+        path = directory / (uuid.uuid4().hex + '.json')
+        fd = os.open(path.with_suffix('.lock'), os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            record = {**context, 'root_pid': pid, 'root_generation': generation, 'envelope': envelope}
+            write_json(path, record, durable=True)
+            return fd, envelope, str(path)
+        except BaseException:
+            os.close(fd)
+            raise
+
+
+def qualify_demand(key, measurement, completion):
+    # Short checks have no representative concurrent samples. Keep them in
+    # bounded calibration until an explicit fixture baseline qualifies demand.
+    if measurement.get('samples', 0) < 3 or measurement.get('sample_seconds', 0) < 4:
+        return
+    elapsed = completion['elapsed_seconds']
+    sampled_cpu = measurement['cpu_seconds']
+    reaped_cpu = completion['reaped_cpu_seconds']
+    # Count short-lived work missed by the sampler in addition to its peak.
+    unseen = max(0, reaped_cpu - sampled_cpu) / max(.001, elapsed)
+    peak = max(measurement['peak_cores'], reaped_cpu / max(.001, elapsed)) + unseen
+    envelope = {'cores': max(1.0, 1.25 * peak + .25),
+                'rss_mb': max(256.0, 1.25 * measurement['peak_rss_mb'] + 64), 'calibration': False}
+    write_json(STATE / 'verification-demand' / (key + '.json'),
+        {'protocol': VERIFICATION_PROTOCOL, 'envelope': envelope, 'measurement': measurement,
+         'completion': completion, 'at': time.time()}, durable=True)
 
 
 def note(message, **details):
@@ -259,6 +551,37 @@ def host_ticks():
     return list(ticks)
 
 
+class HostMemory:
+    """Use the existing reserve adapter without its blocking admission interval."""
+    def __init__(self, engine):
+        provider = Path(__file__).with_name('reserve.py')
+        if not provider.exists():
+            provider = Path(engine).resolve().parent / 'app/scripts/testvm/reserve.py'
+        spec = importlib.util.spec_from_file_location('verification_host_resources', provider)
+        self.adapter = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.adapter)
+        self.previous = None
+
+    def sample(self, now):
+        api = self.adapter
+        _, swapouts = api._counters()
+        page = api._sysctl('hw.pagesize', ctypes.c_int()).value
+        level = api._sysctl('kern.memorystatus_vm_pressure_level', ctypes.c_int()).value
+        free = api._sysctl('kern.memorystatus_level', ctypes.c_int()).value
+        total = api._sysctl('hw.memsize', ctypes.c_uint64()).value / 1048576
+        rate = 0.0
+        if self.previous:
+            before, at = self.previous
+            if now <= at or swapouts < before:
+                raise RuntimeError('memory sample counters did not advance monotonically')
+            rate = (swapouts - before) * page / 1048576 / (now - at)
+        self.previous = swapouts, now
+        if level not in api.PRESSURE_NAMES or not 0 <= free <= 100 or total <= 0:
+            raise RuntimeError('invalid memory pressure or capacity sample')
+        return {'memory_pressure': api.PRESSURE_NAMES[level], 'swapout_mb_per_s': rate,
+                'memory_free_mb': total * free / 100, 'memory_total_mb': total}
+
+
 class Watch:
     def __init__(self):
         self.owned = read_json(STATE / 'owned.json', {})
@@ -269,25 +592,62 @@ class Watch:
         self.host_since = None
         self.reported_at = 0
         self.unowned_rates = {}
+        self.verification_pressure = VerificationPressure()
+        self.verification_measurements = {}
+        self.verification = {}
+        self.containment = None
+        self.resource_over = {}
+
+    @staticmethod
+    def same_process(record, row):
+        if not row or row.get('birth') != record.get('birth'):
+            return False
+        if record.get('generation') is not None or record.get('role') == 'verification':
+            return record.get('generation') is not None and row.get('generation') == record['generation']
+        return True  # Existing session/device records retain their legacy format.
 
     def sample(self, rows, now, host_busy=0):
         roots = {}
         for path in (STATE / 'roots').glob('*.json'):
             rec = read_json(path)
-            if rec and rows.get(rec['pid'], {}).get('birth') == rec['birth']:
+            seed = (rec.get('verification') or {}).get('seed') if rec else None
+            seed_row = rows.get(seed['pid']) if seed else None
+            if (rec and rec.get('role') == 'verification' and rec['pid'] in rows
+                    and not rows[rec['pid']].get('generation')):
+                raise RuntimeError('registered verification generation unavailable: %s' % rec['pid'])
+            if seed_row and not seed_row.get('generation'):
+                raise RuntimeError('verification seed generation unavailable')
+            if rec and (self.same_process(rec, rows.get(rec['pid'])) or
+                        seed_row and seed_row['generation'] == seed['generation']):
                 roots[rec['pid']] = rec
             elif rec:
                 path.unlink(missing_ok=True)
-        owned = {int(p): rec for p, rec in self.owned.items()
-                 if rows.get(int(p), {}).get('birth') == rec['birth']}
+        for p, rec in self.owned.items():
+            if rec.get('role') == 'verification' and int(p) in rows and not rows[int(p)].get('generation'):
+                raise RuntimeError('owned verification generation unavailable: ' + p)
+        owned = {int(p): rec for p, rec in self.owned.items() if self.same_process(rec, rows.get(int(p)))}
         for pid, rec in roots.items():
-            owned[pid] = dict(birth=rec['birth'], owner=rec['label'], root=pid)
+            owned[pid] = dict(birth=rec['birth'], generation=rec.get('generation'),
+                              role=rec['role'], owner=rec['label'], root=pid,
+                              root_generation=rec.get('generation'),
+                              verification=rec.get('verification'))
+            seed = (rec.get('verification') or {}).get('seed')
+            if seed and seed['pid'] in rows:
+                row = rows[seed['pid']]
+                if not row.get('generation'):
+                    raise RuntimeError('verification seed generation unavailable')
+                if row['generation'] == seed['generation']:
+                    owned[seed['pid']] = {**owned[pid], 'birth': row['birth'], 'generation': row['generation']}
         changed = True
         while changed:
             changed = False
             for pid, row in rows.items():
-                if pid not in owned and row['parent'] in owned:
-                    owned[pid] = {**owned[row['parent']], 'birth': row['birth']}
+                if (pid not in roots and row['parent'] in owned and
+                        (pid not in owned or owned[pid]['root'] != owned[row['parent']]['root'])):
+                    parent = owned[row['parent']]
+                    if parent.get('role') == 'verification' and not row.get('generation'):
+                        raise RuntimeError('verification descendant generation unavailable: %s' % pid)
+                    owned[pid] = {**parent, 'birth': row['birth'], 'generation': row.get('generation')}
                     changed = True
         # Emulator launchers detach between samples. Their registry supplies the
         # exact generation; registry names or executable names alone do not.
@@ -303,15 +663,16 @@ class Watch:
         rates = {}
         for pid, rec in owned.items():
             old = self.previous.get(pid)
-            if old and old['birth'] == rec['birth'] and elapsed > 0:
+            if old and self.same_process(rec, old) and elapsed > 0:
                 rates[pid] = max(0, rows[pid]['cpu'] - old['cpu']) / elapsed
         self.unowned_rates = {pid: max(0, row['cpu'] - self.previous[pid]['cpu']) / elapsed
                               for pid, row in rows.items() if pid not in owned and elapsed > 0
                               and pid in self.previous and self.previous[pid]['birth'] == row['birth']}
         self.previous, self.last = rows, now
+        self.verification = self.verification_groups(rows, rates, elapsed)
         # Sessions stay alive. A registered workload root may itself be stopped.
         protected = {p for p, r in roots.items() if r['role'] == 'session'} | {os.getpid()}
-        allowed = set(owned) - protected - set(self.pending)
+        allowed = {pid for pid, rec in owned.items() if rec.get('role') != 'verification'} - protected - set(self.pending)
         # Host pressure closes admission, not already admitted work. Killing
         # the largest process here repeatedly killed sub-core land checks and
         # capped Gradle builds while unrelated work saturated the host.
@@ -327,6 +688,139 @@ class Watch:
                 candidates.append(pid)
         self.over = {k: v for k, v in self.over.items() if k[0] in allowed and rows[k[0]]['birth'] == k[1]}
         return sorted(set(candidates), key=lambda p: rates.get(p, 0), reverse=True), rates, protected
+
+    def verification_groups(self, rows, rates, elapsed):
+        """Aggregate disjoint observed trees, including retained detached members.
+
+        CPU is sampled live-process demand, not a claim to capture every process
+        that exits between observations. Final reaped CPU and unobserved demand
+        need separate accounting when qualifying a workload envelope.
+        """
+        groups = {}
+        for raw, record in self.owned.items():
+            pid = int(raw)
+            if record.get('role') != 'verification' or pid not in rows:
+                continue
+            root = str(record['root']) + ':' + record['root_generation']
+            group = groups.setdefault(root, {**record['verification'], 'owner': record['owner'],
+                                            'root_pid': record['root'], 'root_generation': record['root_generation'],
+                                            'members': {}, 'cores': 0.0, 'rss_mb': 0.0})
+            group['members'][raw] = record['generation']
+            group['cores'] += rates.get(pid, 0.0)
+            group['rss_mb'] += rows[pid].get('rss_mb', 0.0)
+        for root, group in groups.items():
+            measurement_key = (root, group['input_key'])
+            measurement = self.verification_measurements.setdefault(measurement_key,
+                {'cpu_seconds': 0.0, 'peak_cores': 0.0, 'peak_rss_mb': 0.0, 'samples': 0, 'sample_seconds': 0.0})
+            measurement['cpu_seconds'] += group['cores'] * max(0, elapsed)
+            measurement['sample_seconds'] += max(0, elapsed)
+            measurement['peak_cores'] = max(measurement['peak_cores'], group['cores'])
+            measurement['peak_rss_mb'] = max(measurement['peak_rss_mb'], group['rss_mb'])
+            measurement['samples'] += 1
+            group.update(measurement)
+            write_json(STATE / 'verification-measurements' / (str(group['root_pid']) + '.json'), group)
+        self.verification_measurements = {key: value for key, value in self.verification_measurements.items()
+                                          if key[0] in groups}
+        return groups
+
+    def verification_cycle(self, rows, now, busy, memory_pressure='normal', swapout_mb_per_s=0):
+        if self.containment is None:
+            # Recover an already charged intervention after a controller restart.
+            for key, owner in self.verification.items():
+                saved = read_json(owner['result'], {})
+                if (saved.get('status') in ('contained', 'resource-envelope-exceeded')
+                        and saved.get('root_generation') == owner['root_generation']):
+                    self.containment = key, saved
+                    self.verification_pressure.pending = key
+                    self.verification_pressure.pending_since = now - max(0, time.time() - saved['at'])
+                    self.verification_pressure.closed = True
+                    break
+        decision = self.verification_pressure.observe(now, busy, self.verification,
+                                                       memory_pressure, swapout_mb_per_s)
+        breached = []
+        for key, owner in self.verification.items():
+            envelope = owner.get('reservation')
+            exceeds = envelope and not envelope.get('calibration') and any(
+                owner[metric] > envelope[metric] for metric in ('cores', 'rss_mb'))
+            if exceeds:
+                self.resource_over.setdefault(key, now)
+                if now - self.resource_over[key] >= 4:
+                    breached.append(key)
+            else:
+                self.resource_over.pop(key, None)
+        cause = 'host-pressure'
+        if breached and self.containment is None:
+            key = VerificationPressure.contributor({key: self.verification[key] for key in breached}) or breached[0]
+            decision = {'admission_open': False, 'stage': 'contain', 'target': key}
+            self.verification_pressure.pending, self.verification_pressure.pending_since = key, now
+            self.verification_pressure.closed = True
+            cause = 'resource-envelope-exceeded'
+        if self.containment:
+            key, record = self.containment
+            latest = read_json(record['result'], {})
+            for field in ('exit', 'survivors', 'reaped_cpu_seconds', 'elapsed_seconds', 'finished_at'):
+                if field in latest:
+                    record[field] = latest[field]
+            if key not in self.verification:
+                record.update(cleanup='complete', cleanup_completed_at=time.time())
+                write_json(record['result'], record)
+                note('Verification containment cleanup complete', input_key=record['input_key'],
+                     owner=record['owner'])
+                self.containment = None
+            elif now - self.verification_pressure.pending_since >= 15:
+                # The supervisor normally completes its own bounded cleanup.
+                # If it is wedged or gone, stop only the retained native
+                # generations, including newly observed owned descendants.
+                escalated = record.setdefault('escalated', {})
+                for raw, generation in self.verification[key]['members'].items():
+                    if escalated.get(raw) == generation:
+                        continue
+                    current = operator_fences.proc(int(raw), precise=True)
+                    if current and current['start'] == generation and not current['zombie']:
+                        try:
+                            os.kill(int(raw), signal.SIGKILL)
+                            escalated[raw] = generation
+                        except ProcessLookupError:
+                            pass
+                write_json(record['result'], record)
+            if key in self.verification and decision['stage'] == 'containment-failed' and record['cleanup'] != 'failed':
+                record.update(cleanup='failed', survivors=self.verification[key]['members'])
+                write_json(record['result'], record)
+                event('Verification containment exceeded 30 seconds', input_key=record['input_key'],
+                      owner=record['owner'], survivors=record['survivors'])
+        if decision['stage'] == 'contain':
+            owner = self.verification[decision['target']]
+            # Charge before signalling. The supervisor's ordinary SIGTERM path
+            # retains worker leases until its owned descendants have been cleaned.
+            kind = 'resource' if cause == 'resource-envelope-exceeded' else 'containment'
+            budget = verification_recovery(owner['input_key'], kind,
+                {'owner': owner['owner'], 'sampled_cpu_seconds': owner['cpu_seconds'],
+                 'cores': owner['cores'], 'rss_mb': owner['rss_mb'], 'host_busy': busy})
+            record = {**owner, 'status': cause if kind == 'resource' else 'contained', 'cause': cause,
+                      'at': time.time(), 'cleanup': 'pending', 'budget_used': len(budget[kind])}
+            write_json(owner['result'], record, durable=True)
+            self.containment = decision['target'], record
+            root = owner['root_pid']
+            members = {root: owner['root_generation']} if root in rows else {
+                int(pid): generation for pid, generation in owner['members'].items()}
+            signalled = []
+            for pid, generation in members.items():
+                current = operator_fences.proc(pid, precise=True)
+                if current and current['start'] == generation and not current['zombie']:
+                    try:
+                        os.kill(pid, signal.SIGTERM)
+                        signalled.append(pid)
+                    except ProcessLookupError:
+                        pass
+            note('Verification contained after sustained host pressure', owner=owner['owner'],
+                 input_key=owner['input_key'], signalled=signalled, budget_used=record['budget_used'])
+        write_json(STATE / 'verification-pressure.json', {**decision, 'at': time.time(),
+            'protocol': VERIFICATION_PROTOCOL,
+            'host_busy': busy, 'memory_pressure': memory_pressure,
+            'owners': [{key: owner[key] for key in ('owner', 'input_key', 'priority', 'cores',
+                       'rss_mb', 'cpu_seconds', 'peak_cores', 'peak_rss_mb', 'samples')}
+                       for owner in self.verification.values()]})
+        return decision
 
     def policy_targets(self, rows, protected):
         targets = set()
@@ -369,12 +863,13 @@ class Watch:
         fresh = processes()
         signalled = {}
         for p in targets:
-            if fresh.get(p, {}).get('birth') != rows[p]['birth']:
+            if (not rows[p].get('generation') or
+                    fresh.get(p, {}).get('generation') != rows[p]['generation']):
                 continue
             try:
                 os.kill(p, signal.SIGTERM)
                 signalled[p] = rows[p]['birth']
-                self.pending[p] = (rows[p]['birth'], time.monotonic() + 3)
+                self.pending[p] = (rows[p]['generation'], time.monotonic() + 3)
             except ProcessLookupError:
                 pass
         if not signalled:
@@ -387,18 +882,24 @@ class Watch:
 
     def reap(self, rows, now):
         for pid, row in rows.items():
-            if pid not in self.pending and row['parent'] in self.pending:
-                self.pending[pid] = (row['birth'], self.pending[row['parent']][1])
+            if (pid not in self.pending and row['parent'] in self.pending
+                    and rows.get(row['parent'], {}).get('generation') == self.pending[row['parent']][0]
+                    and row.get('generation')):
+                self.pending[pid] = (row['generation'], self.pending[row['parent']][1])
                 try:
-                    os.kill(pid, signal.SIGTERM)
+                    current = operator_fences.proc(pid, precise=True)
+                    if current and current['start'] == row['generation']:
+                        os.kill(pid, signal.SIGTERM)
                 except ProcessLookupError:
                     pass
         for pid, (birth, deadline) in list(self.pending.items()):
-            if rows.get(pid, {}).get('birth') != birth:
+            if rows.get(pid, {}).get('generation') != birth:
                 del self.pending[pid]
             elif now >= deadline:
                 try:
-                    os.kill(pid, signal.SIGKILL)
+                    current = operator_fences.proc(pid, precise=True)
+                    if current and current['start'] == birth:
+                        os.kill(pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
                 del self.pending[pid]
@@ -409,6 +910,7 @@ def watch(engine):
     with (STATE / 'watch.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         watcher = Watch()
+        memory = HostMemory(engine) if sys.platform == 'darwin' else None
         ticks_before = host_ticks()
         while True:
             try:
@@ -422,6 +924,8 @@ def watch(engine):
                 ticks_before = ticks
                 candidates, rates, protected = watcher.sample(rows, now, busy)
                 watcher.reap(rows, now)
+                resources = memory.sample(now) if memory else {'memory_pressure': 'normal', 'swapout_mb_per_s': 0}
+                watcher.verification_cycle(rows, now, busy, resources['memory_pressure'], resources['swapout_mb_per_s'])
                 for pid in watcher.policy_targets(rows, protected):
                     watcher.stop(pid, rows, protected, rates, 'local simulator incident containment')
                 if candidates:
@@ -440,7 +944,12 @@ def watch(engine):
                 write_json(STATE / 'owned.json', watcher.owned)
                 write_json(STATE / 'heartbeat.json', dict(at=time.time(), ok=True,
                            pid=os.getpid(), owned=len(watcher.owned), host_busy=round(busy, 1),
-                           admission_open=admission_open(busy), admission_limit=DEFAULT_MAX_CPU))
+                           admission_open=admission_open(busy), admission_limit=DEFAULT_MAX_CPU,
+                           cpu_count=os.cpu_count(),
+                           verification_rss_mb=sum(g['rss_mb'] for g in watcher.verification.values()),
+                           unattributed_cores=max(sum(watcher.unowned_rates.values()),
+                               busy / 100 * os.cpu_count() - sum(g['cores'] for g in watcher.verification.values())),
+                           verification_resources=resources))
             except Exception as exc:
                 event('CPU watchdog sampling failed', error=str(exc))
                 write_json(STATE / 'heartbeat.json', dict(at=time.time(), ok=False, error=str(exc)))
@@ -453,6 +962,8 @@ def install(engine):
     runtime = STATE / 'runtime'
     runtime.mkdir(parents=True, exist_ok=True)
     shutil.copy2(Path(__file__).with_name('cpu_policy.py'), runtime / 'cpu_policy.py')
+    shutil.copy2(Path(__file__).with_name('operator_fences.py'), runtime / 'operator_fences.py')
+    shutil.copy2(Path(engine).resolve().parent / 'app/scripts/testvm/reserve.py', runtime / 'reserve.py')
     target = runtime / 'cpu_guard.py'
     shutil.copy2(__file__, target)
     domain = 'gui/%s' % os.getuid()
@@ -481,6 +992,7 @@ def install(engine):
         time.sleep(.25)
     else:
         raise RuntimeError('watchdog installed but did not produce a healthy heartbeat; inspect launchctl print')
+    write_json(STATE / 'verification-enabled.json', {'protocol': VERIFICATION_PROTOCOL, 'installed_at': time.time()}, durable=True)
     # A standalone user hook also covers cached/older engine plugins. The
     # canonical engine dispatcher is deliberately not a second registration.
     settings = Path.home() / '.claude/settings.json'

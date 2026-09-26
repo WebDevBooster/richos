@@ -16,6 +16,7 @@ can escape discovery. Deliberate destruction of the supervisor itself also requi
 an external OS boundary. Do not claim isolation against arbitrary untrusted programs.
 """
 import os
+import resource
 import uuid
 import signal
 import subprocess
@@ -124,9 +125,10 @@ def python_command():
     return [sys.executable, *flags]
 
 
-def command(argv, owner=None):
+def command(argv, owner=None, verification=None):
     """A separate supervisor survives the caller's SIGKILL and owns normal-exit cleanup too."""
-    return [*python_command(), os.path.abspath(__file__), "run", str(owner or os.getpid()), "--", *map(str, argv)]
+    options = ["--verification", str(verification)] if verification else []
+    return [*python_command(), os.path.abspath(__file__), "run", str(owner or os.getpid()), *options, "--", *map(str, argv)]
 
 
 def identity(pid):
@@ -266,11 +268,15 @@ def finish_scope(child, tracker, grace=8.0):
         time.sleep(0.05)
 
 
-def supervise(owner, argv, deadline=None, timeout_marker=None):
+def supervise(owner, argv, deadline=None, timeout_marker=None, verification=None):
     # Enroll managed workloads even when invoked by Codex or a nightly without
     # Claude hooks. Fixtures copying just this helper keep working unchanged.
     guard_path = os.path.join(os.path.dirname(__file__), "cpu_guard.py")
-    if os.path.isfile(guard_path):
+    client = None
+    if verification:
+        import cpu_guard
+        client = cpu_guard.VerificationClient(verification)
+    elif os.path.isfile(guard_path) and not os.environ.get('RICHOS_VERIFICATION_OWNER'):
         import cpu_guard
         import pwd
         if (os.path.realpath(os.path.expanduser("~")) == pwd.getpwuid(os.getuid()).pw_dir
@@ -282,6 +288,8 @@ def supervise(owner, argv, deadline=None, timeout_marker=None):
     scope = uuid.uuid4().hex
     inherited = os.environ.get(SCOPE_ENV, "")
     env = {**os.environ, SCOPE_ENV: (inherited + ":" if inherited else "") + scope}
+    if client:
+        env['RICHOS_VERIFICATION_OWNER'] = '%s:%s' % (client.pid, client.generation)
     interrupted = []
     def stop(signum, _frame):
         interrupted.append(signum)
@@ -302,14 +310,21 @@ def supervise(owner, argv, deadline=None, timeout_marker=None):
         print("could not start: %s" % exc, file=sys.stderr)
         return 127
     os.close(read_fd)
-    tracker = TrackedTree(child.pid, scope)
-    os.write(write_fd, b"1")
-    os.close(write_fd)
+    tracker = None
     rc = 125
     started = time.monotonic()
+    before = resource.getrusage(resource.RUSAGE_CHILDREN)
     try:
+        tracker = TrackedTree(child.pid, scope)
+        if client:
+            client.start(child.pid)
+        os.write(write_fd, b"1")
+        os.close(write_fd)
+        write_fd = None
         while child.poll() is None:
             tracker.refresh()
+            if client:
+                client.check_health()
             if interrupted or identity(owner) != owner_id:
                 rc = 128 + interrupted[0] if interrupted else 125
                 break
@@ -322,8 +337,16 @@ def supervise(owner, argv, deadline=None, timeout_marker=None):
             time.sleep(0.2)
         else:
             rc = child.returncode
+    except BlockingIOError as exc:
+        print('verification admission refused: %s' % exc, file=sys.stderr)
+        rc = 75
+    except (RuntimeError, ValueError, OSError) as exc:
+        print('verification supervision failed: %s' % exc, file=sys.stderr)
+        rc = 125
     finally:
-        left = finish_scope(child, tracker)
+        if write_fd is not None:
+            os.close(write_fd)  # A child not yet enrolled exits without executing.
+        left = finish_scope(child, tracker) if tracker else []
         if left:
             print("process cleanup failed; owned survivors: %s" % left, file=sys.stderr)
             rc = 125
@@ -331,6 +354,10 @@ def supervise(owner, argv, deadline=None, timeout_marker=None):
             child.wait(timeout=1)
         except subprocess.TimeoutExpired:
             rc = 125
+        if client:
+            after = resource.getrusage(resource.RUSAGE_CHILDREN)
+            client.finish(rc if rc >= 0 else 128 - rc, left,
+                          after.ru_utime + after.ru_stime - before.ru_utime - before.ru_stime)
     return rc if rc >= 0 else 128 - rc
 
 
@@ -342,11 +369,16 @@ def main(argv):
         parser.add_argument("owner", type=int)
         parser.add_argument("--deadline", type=float)
         parser.add_argument("--timeout-marker")
+        parser.add_argument("--verification")
         split = argv.index("--")
         args = parser.parse_args(argv[1:split])
         if args.deadline is not None and (not math.isfinite(args.deadline) or args.deadline <= 0):
             parser.error("deadline must be finite and positive")
-        return supervise(args.owner, argv[split + 1:], args.deadline, args.timeout_marker)
+        try:
+            return supervise(args.owner, argv[split + 1:], args.deadline, args.timeout_marker, args.verification)
+        except (RuntimeError, ValueError, OSError) as exc:
+            print('process supervision unavailable: %s' % exc, file=sys.stderr)
+            return 125
     if len(argv) >= 2 and argv[0] in ("kill", "members") and argv[1].isdigit():
         root = int(argv[1])
         if argv[0] == "members":

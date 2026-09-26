@@ -96,6 +96,12 @@ class Budget:
         # local and shared budget must not deadlock against our own guard.
         if self.shared:
             return self._try_acquire()
+        self.refusal = None
+        if os.path.isfile(os.path.join(os.path.dirname(__file__), 'cpu_guard.py')):
+            import cpu_guard
+            self.refusal = cpu_guard.verification_admission()
+            if self.refusal:
+                return None
         import engine_pass
         if not hasattr(self, "admission"):
             self.admission = engine_pass.Admission(

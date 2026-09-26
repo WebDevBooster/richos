@@ -1,0 +1,449 @@
+#!/usr/bin/env python3
+"""Controlled-clock policy tests. No host load, signals or sleeping."""
+import unittest
+import subprocess
+import sys
+import time
+import signal
+import proc_tree
+import os
+from pathlib import Path
+import tempfile
+from unittest.mock import patch
+import cpu_guard as guard
+import worker_tokens as workers
+from cpu_policy import VerificationPressure
+
+
+def owner(cores=1, cpu=1, priority="background", rss=100, **kwargs):
+    return dict(cores=cores, cpu_seconds=cpu, priority=priority, rss_mb=rss, **kwargs)
+
+
+class PressureTests(unittest.TestCase):
+    def test_spikes_do_not_cancel_and_sustained_pressure_closes_then_contains(self):
+        policy = VerificationPressure()
+        owners = {"unit": owner()}
+        self.assertEqual(policy.observe(0, 90, owners)["stage"], "normal")
+        self.assertIsNone(policy.observe(9, 90, owners)["target"])
+        self.assertTrue(policy.observe(9.5, 20, owners)["admission_open"])
+        policy.observe(10, 90, owners)
+        self.assertEqual(policy.observe(20, 90, owners)["stage"], "admission-closed")
+        self.assertIsNone(policy.observe(29, 90, owners)["target"])
+        self.assertEqual(policy.observe(30, 90, owners),
+                         {"admission_open": False, "stage": "contain", "target": "unit"})
+
+    def test_priority_contribution_and_lost_work_select_one_owned_tree(self):
+        owners = {"land": owner(8, 1, "integration"), "older": owner(4, 80),
+                  "less-lost": owner(3, 4), "tiny": owner(.1, .01)}
+        self.assertEqual(VerificationPressure.contributor(owners), "less-lost")
+        owners["less-lost"]["unblocks_integration"] = True
+        self.assertEqual(VerificationPressure.contributor(owners), "older")
+        self.assertEqual(VerificationPressure.contributor({"land": owners["land"]}), "land")
+        self.assertIsNone(VerificationPressure.contributor({"idle": owner(0)}))
+
+    def test_cleanup_failure_is_visible_and_never_cancels_another_tree(self):
+        policy = VerificationPressure()
+        owners = {"a": owner(), "b": owner(cpu=2)}
+        policy.observe(0, 95, owners)
+        self.assertEqual(policy.observe(20, 95, owners)["target"], "a")
+        self.assertEqual(policy.observe(49, 95, owners)["stage"], "cleanup")
+        result = policy.observe(50, 95, owners)
+        self.assertEqual((result["stage"], result["target"]), ("containment-failed", "a"))
+        self.assertFalse(result["admission_open"])
+        self.assertEqual(policy.observe(51, 95, {"b": owners["b"]})["stage"], "admission-closed")
+        self.assertEqual(policy.observe(61, 95, {"b": owners["b"]})["target"], "b")
+
+    def test_recovery_requires_ten_healthy_seconds_and_completed_cleanup(self):
+        policy = VerificationPressure()
+        owners = {"a": owner()}
+        policy.observe(0, 95, owners)
+        policy.observe(20, 95, owners)
+        self.assertFalse(policy.observe(21, 20, owners)["admission_open"])
+        self.assertFalse(policy.observe(31, 20, owners)["admission_open"])
+        self.assertFalse(policy.observe(32, 20, {})["admission_open"])
+        self.assertTrue(policy.observe(33, 20, {})["admission_open"])
+        policy.observe(34, 95, {})
+        self.assertEqual(policy.observe(54, 95, {})["stage"], "unattributed-pressure")
+        self.assertFalse(policy.observe(55, 20, {})["admission_open"])
+        policy.observe(60, 95, {})
+        policy.observe(61, 20, {})
+        self.assertFalse(policy.observe(70, 20, {})["admission_open"])
+        self.assertTrue(policy.observe(71, 20, {})["admission_open"])
+
+    def test_memory_and_unknown_samples_never_use_a_cpu_only_success(self):
+        policy = VerificationPressure()
+        owners = {"cpu": owner(4, 1, rss=10), "memory": owner(.1, 2, rss=900)}
+        policy.observe(0, 10, owners, memory_pressure="critical")
+        result = policy.observe(20, 10, owners, memory_pressure="critical")
+        self.assertEqual(result["target"], "memory")
+        policy = VerificationPressure()
+        for now in (0, 10, 20, 100):
+            result = policy.observe(now, float("nan"), owners)
+            self.assertFalse(result["admission_open"])
+            self.assertIsNone(result["target"])
+
+
+class OwnedTreeTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="pressure-ownership.")
+        self.addCleanup(temporary.cleanup)
+        state = patch.object(guard, "STATE", Path(temporary.name))
+        state.start(); self.addCleanup(state.stop)
+        env = patch.dict(os.environ, {"RICHOS_TEST_DEVICES_DIR": str(Path(temporary.name) / "devices")})
+        env.start(); self.addCleanup(env.stop)
+
+    @staticmethod
+    def row(parent=0, cpu=0, generation="native-one", rss=10):
+        return {"parent": parent, "cpu": cpu, "birth": "same displayed second", "name": "fixture",
+                "generation": generation, "rss_mb": rss}
+
+    def register(self, pid, priority="background", generation="native-one"):
+        with patch.object(guard, "processes", return_value={pid: self.row(generation=generation)}):
+            guard.register(pid, "test unit", "verification", {"input_key": "a" * 64, "priority": priority, "result": str(guard.STATE / (str(pid) + ".result.json"))})
+
+    def test_pressure_closes_new_permits_but_retains_parent_borrow_progress(self):
+        directory = guard.STATE / "budget"
+        workers.init(directory, 2)
+        budget = workers.Budget(directory, shared=False)
+        self.addCleanup(budget.close)
+        held = budget.try_acquire()
+        self.assertIsNotNone(held)
+        self.addCleanup(held.release)
+        guard.write_json(guard.STATE / "verification-pressure.json",
+                         {"at": __import__("time").time(), "admission_open": False, "stage": "admission-closed"})
+        with patch.object(guard, "healthy", return_value=True):
+            self.assertIsNone(budget.try_acquire())
+            self.assertIn("admission-closed", budget.refusal)
+            borrowed = budget.acquire(free=held.path + ".child", timeout=0)
+            self.assertIsNotNone(borrowed)
+            borrowed.release()
+        with patch.object(guard, "healthy", return_value=False):
+            self.assertIn("unhealthy", guard.verification_admission())
+        guard.write_json(guard.STATE / "verification-pressure.json",
+                         {"at": 0, "admission_open": True, "stage": "normal"})
+        with patch.object(guard, "healthy", return_value=True):
+            self.assertIsNone(budget.try_acquire())
+            self.assertIn("stale", budget.refusal)
+
+    def test_installed_policy_cannot_disappear_with_its_telemetry(self):
+        guard.write_json(guard.STATE / 'verification-enabled.json', {'protocol': 1})
+        self.assertTrue(guard.verification_enabled())
+        self.assertIn('unavailable', guard.verification_admission())
+        guard.write_json(guard.STATE / 'verification-enabled.json', {'protocol': 999})
+        with self.assertRaisesRegex(RuntimeError, 'current launcher'):
+            guard.verification_enabled()
+
+    def test_controller_persists_typed_containment_and_waits_for_native_cleanup(self):
+        self.register(10)
+        watch = guard.Watch()
+        rows = {10: self.row(), 20: self.row(10)}
+        watch.sample(rows, 0, 95)
+        watch.verification_cycle(rows, 0, 95)
+        rows = {10: self.row(cpu=1), 20: self.row(10, 40)}
+        watch.sample(rows, 20, 95)
+        with patch.object(guard.operator_fences, "proc", return_value={"start": "native-one", "zombie": False}), patch.object(os, "kill") as kill:
+            result = watch.verification_cycle(rows, 20, 95)
+            kill.assert_called_once_with(10, __import__("signal").SIGTERM)
+        self.assertEqual(result["stage"], "contain")
+        marker = guard.read_json(guard.STATE / "10.result.json")
+        self.assertEqual((marker["status"], marker["cleanup"], marker["budget_used"]), ("contained", "pending", 1))
+        watch.sample({}, 22, 30)
+        watch.verification_cycle({}, 22, 30)
+        self.assertEqual(guard.read_json(guard.STATE / "10.result.json")["cleanup"], "complete")
+        self.assertEqual(len(guard.verification_recovery("a" * 64)["containment"]), 1)
+
+    def test_wedged_supervisor_escalates_only_native_owned_generations(self):
+        self.register(10)
+        watch = guard.Watch()
+        rows = {10: self.row(), 20: self.row(10)}
+        watch.sample(rows, 0, 95); watch.verification_cycle(rows, 0, 95)
+        rows = {10: self.row(cpu=1), 20: self.row(10, 40)}
+        watch.sample(rows, 20, 95)
+        with patch.object(guard.operator_fences, "proc", return_value={"start": "native-one", "zombie": False}), patch.object(os, "kill"):
+            watch.verification_cycle(rows, 20, 95)
+        with patch.object(guard.operator_fences, "proc", side_effect=lambda pid, precise: {"start": "native-two" if pid == 10 else "native-one", "zombie": False}), patch.object(os, "kill") as kill:
+            watch.verification_cycle(rows, 35, 95)
+            kill.assert_called_once_with(20, __import__("signal").SIGKILL)
+            watch.verification_cycle(rows, 50, 95)
+            self.assertEqual(kill.call_count, 1)
+        self.assertEqual(guard.read_json(guard.STATE / "10.result.json")["cleanup"], "failed")
+
+    def test_recovery_budget_survives_new_owners_and_keeps_resource_fault_separate(self):
+        for attempt in range(3):
+            guard.verification_recovery("b" * 64, "containment", {"owner": "new-run-%d" % attempt})
+        self.assertIn("scheduler-starvation", guard.verification_recovery("b" * 64)["blocked"])
+        with self.assertRaisesRegex(RuntimeError, "scheduler-starvation"):
+            guard.verification_recovery("b" * 64, "containment", {"owner": "renamed-again"})
+        guard.verification_recovery("c" * 64, "resource", {"cores": 9})
+        record = guard.verification_recovery("c" * 64)
+        self.assertEqual(record["containment"], [])
+        self.assertIn("recalibration", record["blocked"])
+        self.assertIsNone(guard.verification_recovery("d" * 64)["blocked"])
+
+    def test_seed_survives_supervisor_death_before_the_first_controller_sample(self):
+        self.register(10)
+        path = guard.STATE / 'roots/10.json'
+        record = guard.read_json(path)
+        record['verification']['seed'] = {'pid': 20, 'generation': 'native-one'}
+        guard.write_json(path, record)
+        watch = guard.Watch()
+        watch.sample({20: self.row(parent=1), 21: self.row(parent=20)}, 0)
+        self.assertEqual(set(watch.verification['10:native-one']['members']), {'20', '21'})
+        watch.sample({20: self.row(parent=1, generation='native-two')}, 2)
+        self.assertEqual(watch.verification, {})
+
+    def test_own_envelope_breach_uses_resource_budget_even_on_a_quiet_host(self):
+        self.register(10)
+        path = guard.STATE / 'roots/10.json'
+        record = guard.read_json(path)
+        record['verification']['reservation'] = {'cores': 1, 'rss_mb': 1000, 'calibration': False}
+        guard.write_json(path, record)
+        watch = guard.Watch()
+        watch.sample({10: self.row()}, 0)
+        watch.verification_cycle({}, 0, 20)
+        for now in (2, 4):
+            rows = {10: self.row(cpu=2 * now)}
+            watch.sample(rows, now); watch.verification_cycle(rows, now, 20)
+        rows = {10: self.row(cpu=12)}
+        watch.sample(rows, 6)
+        with patch.object(guard.operator_fences, 'proc', return_value={'start':'native-one','zombie':False}), patch.object(os, 'kill'):
+            watch.verification_cycle(rows, 6, 20)
+        result = guard.read_json(guard.STATE / '10.result.json')
+        self.assertEqual(result['status'], 'resource-envelope-exceeded')
+        history = guard.verification_recovery('a' * 64)
+        self.assertEqual((len(history['resource']), len(history['containment'])), (1, 0))
+        self.assertIn('recalibration', history['blocked'])
+
+    def test_controller_restart_recovers_pending_cleanup_without_charging_twice(self):
+        self.register(10)
+        watch = guard.Watch()
+        rows = {10: self.row()}
+        watch.sample(rows, 0); watch.verification_cycle(rows, 0, 95)
+        rows = {10: self.row(cpu=20)}
+        watch.sample(rows, 20)
+        with patch.object(guard.operator_fences, 'proc', return_value={'start':'native-one','zombie':False}), patch.object(os, 'kill'):
+            watch.verification_cycle(rows, 20, 95)
+        restarted = guard.Watch()
+        restarted.sample(rows, 22)
+        with patch.object(os, 'kill') as kill:
+            result = restarted.verification_cycle(rows, 22, 95)
+            kill.assert_not_called()
+        self.assertEqual(result['stage'], 'cleanup')
+        self.assertEqual(len(guard.verification_recovery('a' * 64)['containment']), 1)
+
+    def test_tree_rates_sum_small_workers_and_retain_detached_generations(self):
+        self.register(10)
+        watch = guard.Watch()
+        watch.sample({10: self.row(), 20: self.row(10), 21: self.row(10)}, 0)
+        candidates, _, _ = watch.sample({10: self.row(cpu=.1), 20: self.row(1, 4), 21: self.row(10, 5)}, 2, 95)
+        self.assertEqual(candidates, [])  # Managed trees use the ordered policy.
+        group = watch.verification["10:native-one"]
+        self.assertAlmostEqual(group["cores"], 4.55)
+        self.assertAlmostEqual(group["cpu_seconds"], 9.1)
+        self.assertEqual(group["rss_mb"], 30)
+        self.assertEqual(set(group["members"]), {"10", "20", "21"})
+        watch.sample({10: self.row(cpu=.2), 20: self.row(1, 0, generation="native-two")}, 4)
+        self.assertEqual(set(watch.verification["10:native-one"]["members"]), {"10"})
+
+    def test_nested_registered_units_have_disjoint_ownership(self):
+        self.register(10)
+        watch = guard.Watch()
+        watch.sample({10: self.row(), 20: self.row(10), 21: self.row(20)}, 0)
+        self.register(20, priority="integration")
+        watch.sample({10: self.row(cpu=1), 20: self.row(10, 2), 21: self.row(20, 4)}, 2)
+        self.assertEqual(set(watch.verification["10:native-one"]["members"]), {"10"})
+        self.assertEqual(set(watch.verification["20:native-one"]["members"]), {"20", "21"})
+        self.assertEqual(watch.verification["20:native-one"]["priority"], "integration")
+
+    def test_unknown_or_recycled_root_generation_never_becomes_a_managed_tree(self):
+        self.register(10)
+        watch = guard.Watch()
+        watch.sample({10: self.row(generation="native-two"), 20: self.row(10)}, 0)
+        self.assertEqual(watch.verification, {})
+        with patch.object(guard, "processes", return_value={10: self.row(generation=None)}):
+            with self.assertRaisesRegex(ValueError, "generation"):
+                guard.register(10, "unknown", "verification", {"input_key": "a" * 64, "priority": "background"})
+        self.register(10)
+        watch.sample({10: self.row(), 20: self.row(10)}, 1)
+        with self.assertRaisesRegex(RuntimeError, "generation unavailable"):
+            watch.sample({10: self.row(), 20: self.row(10, generation=None)}, 2)
+
+    def test_signal_revalidation_rejects_reuse_within_same_displayed_second(self):
+        watch = guard.Watch()
+        rows = {20: self.row(cpu=50)}
+        watch.owned = {"20": {"owner": "fixture"}}
+        with patch.object(guard, "processes", return_value={20: self.row(generation="native-two")}), patch.object(os, "kill") as kill:
+            watch.stop(20, rows, set(), {20: 5})
+            kill.assert_not_called()
+        watch.pending = {20: ("native-one", 1)}
+        with patch.object(os, "kill") as kill:
+            watch.reap({20: self.row(generation="native-two")}, 2)
+            kill.assert_not_called()
+        self.assertEqual(watch.pending, {})
+
+
+class ReservationTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(prefix='verification-reservations.')
+        self.addCleanup(temp.cleanup)
+        state = patch.object(guard, 'STATE', Path(temp.name))
+        state.start(); self.addCleanup(state.stop)
+        guard.write_json(guard.STATE / 'heartbeat.json', {'cpu_count': 10, 'host_busy': 10,
+            'unattributed_cores': 1, 'verification_resources': {'memory_free_mb': 16000, 'memory_total_mb': 24000}})
+        self.context = {'input_key': 'a' * 64, 'seed': {'pid': 999991, 'generation': 'fixture'},
+                        'result': str(guard.STATE / 'result.json')}
+
+    def acquire(self, key='a', pid=999990):
+        result = guard.reserve_verification({**self.context, 'input_key': key * 64}, pid, 'fixture')
+        self.addCleanup(os.close, result[0])
+        return result[1]
+
+    def profile(self, key, cores=2, memory=1000):
+        guard.write_json(guard.STATE / 'verification-demand' / (key * 64 + '.json'),
+            {'protocol': 1, 'envelope': {'cores': cores, 'rss_mb': memory, 'calibration': False}})
+
+    def test_unknown_calibration_is_exclusive_and_bounded_by_host_headroom(self):
+        self.assertEqual(self.acquire(), {'cores': 6., 'rss_mb': 10000., 'calibration': True})
+        self.profile('b')
+        with self.assertRaisesRegex(BlockingIOError, 'calibration'):
+            self.acquire('b', 999992)
+
+    def test_measured_cpu_and_memory_reserve_atomically_without_token_arithmetic(self):
+        for key in 'abc': self.profile(key, cores=2, memory=4500)
+        self.acquire('a'); self.acquire('b', 999992)
+        with self.assertRaisesRegex(BlockingIOError, 'rss_mb'):
+            self.acquire('c', 999993)
+        self.profile('c', cores=3, memory=100)
+        with self.assertRaisesRegex(BlockingIOError, 'cores'):
+            self.acquire('c', 999993)
+        with self.assertRaisesRegex(BlockingIOError, 'identical'):
+            self.acquire('a', 999994)
+
+    def test_reaped_short_lived_cpu_increases_the_measured_envelope(self):
+        sample = {'samples': 3, 'sample_seconds': 4, 'cpu_seconds': 1, 'peak_cores': .25, 'peak_rss_mb': 100}
+        guard.qualify_demand('a' * 64, sample, {'elapsed_seconds': 4, 'reaped_cpu_seconds': 8})
+        profile = guard.read_json(guard.STATE / 'verification-demand' / ('a' * 64 + '.json'))
+        self.assertGreater(profile['envelope']['cores'], 4)
+        guard.qualify_demand('b' * 64, {**sample, 'samples': 1}, {'elapsed_seconds': .1, 'reaped_cpu_seconds': .1})
+        self.assertFalse((guard.STATE / 'verification-demand' / ('b' * 64 + '.json')).exists())
+
+    def test_missing_and_nonfinite_host_measurements_refuse_calibration(self):
+        with self.assertRaises(BlockingIOError): guard.demand_capacity({})
+        sample = guard.read_json(guard.STATE / 'heartbeat.json')
+        with self.assertRaises(BlockingIOError): guard.demand_capacity({**sample, 'unattributed_cores': float('nan')})
+
+
+class SupervisorTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='verification-client.')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.env = {**os.environ, 'RICHOS_CPU_GUARD_STATE': str(self.root)}
+        self.context = self.root / 'context.json'
+        guard.write_json(self.context, {'protocol': 1, 'input_key': 'a' * 64,
+            'label': 'fixture', 'priority': 'background', 'result': str(self.root / 'result.json')})
+        for name in ('heartbeat', 'devices-heartbeat'):
+            guard.write_json(self.root / (name + '.json'), {'at': time.time(), 'ok': True, 'cpu_count': 10, 'host_busy': 10, 'unattributed_cores': 1, 'verification_resources': {'memory_free_mb': 16000, 'memory_total_mb': 24000}})
+        guard.write_json(self.root / 'verification-pressure.json',
+            {'protocol': 1, 'at': time.time(), 'admission_open': True})
+
+    def start(self, code, *args):
+        child = subprocess.Popen(proc_tree.command([sys.executable, '-B', '-c', code, *map(str, args)],
+            verification=self.context), env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        def cleanup():
+            if child.poll() is None:
+                child.terminate()
+            child.communicate(timeout=15)
+        self.addCleanup(cleanup)
+        return child
+
+    def wait_record(self, path):
+        until = time.monotonic() + 5
+        while time.monotonic() < until:
+            if path.exists():
+                return path.read_text()
+            time.sleep(.02)
+        self.fail('child did not reach its execution barrier')
+
+    def test_real_supervisor_enrolls_before_exec_and_records_completed_cleanup(self):
+        code = "import json,os,pathlib; p=pathlib.Path(os.environ['RICHOS_CPU_GUARD_STATE']); r=json.loads(next((p/'roots').glob('*.json')).read_text()); assert r['verification']['seed']['pid']==os.getpid(); assert os.environ['RICHOS_VERIFICATION_OWNER']"
+        child = self.start(code)
+        out, err = child.communicate(timeout=10)
+        self.assertEqual(child.returncode, 0, err)
+        record = guard.read_json(self.root / 'result.json')
+        self.assertEqual((record['status'], record['cleanup'], record['exit']), ('completed', 'complete', 0))
+        self.assertGreater(record['reaped_cpu_seconds'], 0)
+
+    def test_controller_failure_stops_an_already_running_child(self):
+        ready = self.root / 'ready'
+        child = self.start("import os,sys,time;open(sys.argv[1],'w').write(str(os.getpid()));time.sleep(60)", ready)
+        pid = int(self.wait_record(ready))
+        guard.write_json(self.root / 'heartbeat.json', {'at': time.time(), 'ok': False})
+        out, err = child.communicate(timeout=10)
+        self.assertEqual(child.returncode, 125, err)
+        self.assertEqual(proc_tree._alive([pid]), [])
+        record = guard.read_json(self.root / 'result.json')
+        self.assertEqual((record['status'], record['cleanup']), ('incomplete', 'complete'))
+
+    def test_closed_admission_cannot_execute_then_claim_a_test_failure(self):
+        guard.write_json(self.root / 'verification-pressure.json',
+            {'protocol': 1, 'at': time.time(), 'admission_open': False, 'stage': 'admission-closed'})
+        executed = self.root / 'executed'
+        child = self.start("import pathlib,sys;pathlib.Path(sys.argv[1]).touch()", executed)
+        out, err = child.communicate(timeout=10)
+        self.assertEqual(child.returncode, 125, err)
+        self.assertFalse(executed.exists())
+        self.assertEqual(guard.read_json(self.root / 'result.json')['status'], 'incomplete')
+
+    def test_pressure_cancel_preserves_typed_result_and_reaped_cost(self):
+        ready = self.root / 'ready'
+        child = self.start("import os,sys,time;open(sys.argv[1],'w').write(str(os.getpid()));time.sleep(60)", ready)
+        self.wait_record(ready)
+        root = guard.read_json(self.root / 'roots' / (str(child.pid) + '.json'))
+        guard.write_json(self.root / 'result.json', {'input_key': 'a' * 64,
+            'root_generation': root['generation'], 'status': 'contained', 'cause': 'host-pressure', 'cleanup': 'pending', 'budget_used': 1})
+        child.terminate()
+        out, err = child.communicate(timeout=10)
+        self.assertEqual(child.returncode, 143, err)
+        result = guard.read_json(self.root / 'result.json')
+        self.assertEqual((result['status'], result['cause'], result['cleanup']), ('contained', 'host-pressure', 'complete'))
+        self.assertGreater(result['elapsed_seconds'], 0)
+
+
+class RunnerPressureTests(unittest.TestCase):
+    setUp = SupervisorTests.setUp
+    def test_runner_preserves_contained_attempt_then_retries_ahead_of_new_work(self):
+        import importlib.util
+        from types import SimpleNamespace
+        spec = importlib.util.spec_from_file_location('managed_runner_fixture',
+            Path(__file__).resolve().parents[3] / 'app/scripts/proof-run.py')
+        runner = importlib.util.module_from_spec(spec); spec.loader.exec_module(runner)
+        marker = self.root / 'executions'
+        script = self.root / 'unit.py'
+        script.write_text("import json,os,pathlib,signal,time\n"
+            + "root=pathlib.Path(os.environ['RICHOS_CPU_GUARD_STATE'])\n"
+            + "marker=root/'executions'\n"
+            + "if not marker.exists():\n"
+            + " marker.write_text('first')\n"
+            + " row=json.loads(next((root/'roots').glob('*.json')).read_text())\n"
+            + " result={'input_key':row['verification']['input_key'],'root_generation':row['generation'],'status':'contained','cause':'host-pressure','cleanup':'pending','budget_used':1,'at':time.time()}\n"
+            + " pathlib.Path(row['verification']['result']).write_text(json.dumps(result))\n"
+            + " os.kill(row['pid'],signal.SIGTERM);time.sleep(60)\n"
+            + "else: marker.write_text('retried')\n")
+        item = runner.Item('controlled pressure', runner.ROOT, [sys.executable, '-B', str(script)], 'fixture', 1)
+        other = runner.Item('independent', runner.ROOT, [sys.executable, '-B', '-c', 'print(123)'], 'fixture', 1)
+        args = SimpleNamespace(capacity=2,engine_shards=2,admission_wait=5,max_cpu=80,budget=10,deadline=10,sample_every=.5,slot_wait=None)
+        idle = lambda: {'cpu_user_percent': 5, 'cpu_system_percent': 2,'cpu_idle_percent':93,
+            'swapout_mb_per_s':0,'memory_pressure':'normal','memory_free_percent':80,'swap_used_mb':0}
+        env = {**self.env, 'RICHOS_MACHINE_WORKERS': str(self.root / 'machine')}
+        with patch.object(guard, 'STATE', self.root), patch.dict(os.environ, env), patch.object(runner, 'SETTLE_SECONDS', 0):
+            runner.run([item, other], args, str(self.root / 'run'), sampler=idle)
+        self.assertEqual((item.state, other.state), ('passed', 'passed'), item.notes)
+        self.assertEqual(marker.read_text(), 'retried')
+        self.assertEqual([attempt['state'] for attempt in item.attempts], ['contained', 'passed'])
+        self.assertTrue(all(Path(attempt['log']).is_file() for attempt in item.attempts))
+        self.assertLess(item.ended, other.started)
+
+
+if __name__ == "__main__":
+    unittest.main()

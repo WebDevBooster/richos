@@ -73,7 +73,7 @@ def python_runtime(executable):
     """The private profile disables site startup; bind its remaining import roots."""
     program = ('import json,sys,sysconfig; print(json.dumps({"version":sys.version,'
                '"paths":[p for p in sys.path if p],"prefix":sys.base_prefix}))')
-    result = subprocess.run([executable, "-I", "-S", "-c", program],
+    result = subprocess.run([executable, "-B", "-I", "-S", "-c", program],
                             capture_output=True, text=True, timeout=15, check=True)
     runtime = json.loads(result.stdout)
     # -S excludes site-packages and .pth execution. Source imports ignore bytecode
@@ -266,6 +266,7 @@ class Record:
         if source != self.source:
             self.source_invalidated = True
         result = {"state": item.state, "exit": item.rc, "source": source,
+                  "attempts": getattr(item, 'attempts', []),
                   "input": self.identities[item.label], "log": item.log,
                   "receipt": None, "seconds": item.seconds, "reused_from": getattr(item, "reused_from", None)}
         if item.state == "passed":
