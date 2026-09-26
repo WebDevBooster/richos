@@ -465,7 +465,7 @@
     },
     "scripts/lib/cpu_guard.py": {
       "source": "scripts/lib/cpu_guard.py",
-      "sha256": "f1b3b11a9f89a62635a8c6e52cbe2eccb1b5f2c49bfcb7bb78871da53830f164",
+      "sha256": "3a0743513f7433c982afd35634534b9f5754b1c621440b19e676cfe98620a1e8",
       "evidence": "Token and supervisor callers use registration, health, admission and verification-client APIs before HostMemory. These read native process data and their private controller records, never orchestration.config. They do not invoke the watch/install CLI or its HostMemory provider. Caller commands remain separate declared edges.",
       "keys": [],
       "edges": [
@@ -1081,7 +1081,7 @@
         "scripts/lib/worker_tokens.py": "3415b0824a9d2acd13be390200f98b3dee4a6f7cfc26d8ee2f7eee2bee6418d7",
         "scripts/lib/proc_tree.py": "77306786ba99adb3cf57da8d121de9a92ece755f1f51772ff3fb5cdc4a727843",
         "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
-        "scripts/lib/cpu_guard.py": "f1b3b11a9f89a62635a8c6e52cbe2eccb1b5f2c49bfcb7bb78871da53830f164",
+        "scripts/lib/cpu_guard.py": "3a0743513f7433c982afd35634534b9f5754b1c621440b19e676cfe98620a1e8",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "ec43e17edc9d741bfa6e6d1a435550658f6b8b813c773cf6214aac45a15c9625"
       },
@@ -1119,7 +1119,7 @@
         "scripts/lib/worker_tokens.py": "3415b0824a9d2acd13be390200f98b3dee4a6f7cfc26d8ee2f7eee2bee6418d7",
         "scripts/lib/proc_tree.py": "77306786ba99adb3cf57da8d121de9a92ece755f1f51772ff3fb5cdc4a727843",
         "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
-        "scripts/lib/cpu_guard.py": "f1b3b11a9f89a62635a8c6e52cbe2eccb1b5f2c49bfcb7bb78871da53830f164",
+        "scripts/lib/cpu_guard.py": "3a0743513f7433c982afd35634534b9f5754b1c621440b19e676cfe98620a1e8",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "ec43e17edc9d741bfa6e6d1a435550658f6b8b813c773cf6214aac45a15c9625"
       },

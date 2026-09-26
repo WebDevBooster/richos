@@ -165,7 +165,9 @@ def verification_admission():
     record = read_json(STATE / 'verification-pressure.json')
     if record is None:
         return 'verification controller is unavailable' if verification_enabled() else None
-    if not healthy() or time.time() - record.get('at', 0) >= 12:
+    if record.get('protocol') != VERIFICATION_PROTOCOL:
+        return 'verification controller protocol requires a current launcher'
+    if not healthy() or not 0 <= time.time() - record.get('at', 0) < 12:
         return 'verification controller is unhealthy or stale'
     if not record.get('admission_open'):
         return 'verification pressure: ' + record.get('stage', 'unknown')

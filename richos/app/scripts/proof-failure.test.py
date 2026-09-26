@@ -3,6 +3,7 @@
 import contextlib
 import importlib.util
 import io
+import json
 import os
 from pathlib import Path
 import sys
@@ -157,6 +158,69 @@ class FailurePolicy(unittest.TestCase):
                     contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(pr.main([*flags, "--log-dir", str(self.root / (str(expected) + str(flags)))]), 0)
             self.assertEqual(seen, [expected])
+
+    def test_retry_reports_all_execution_cpu_and_queue_time_once(self):
+        item = self.item('retry costs', 'pass')
+        item.queued_at = 2
+        with patch.object(pr.time, 'monotonic', return_value=5):
+            item.finish_queue()
+            item.finish_queue()  # Repeated checkpoint/finalization is idempotent.
+        for index, (start, end, state, cpu) in enumerate(((10, 15, 'contained', 2), (30, 41, 'completed', 3))):
+            item.started, item.ended, item.state, item.rc = start, end, 'passed', 0
+            item.verification_result = str(self.root / ('attempt-%s.json' % index))
+            Path(item.verification_result).write_text(json.dumps({
+                'status': state, 'cleanup': 'complete', 'reaped_cpu_seconds': cpu, 'input_key': 'a' * 64}))
+            with patch.object(pr.cpu_guard, 'verification_recovery', return_value={'blocked': None}):
+                retry = pr.finish_attempt(item)
+            self.assertEqual(retry, index == 0)
+            if retry:
+                item.started = item.ended = None
+                item.queued_at = 20
+                self.assertEqual(item.total_seconds, 5)
+                with patch.object(pr.time, 'monotonic', return_value=27):
+                    item.finish_queue()
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(pr.summarize([item], 41, str(self.root)), 0)
+        summary = json.loads((self.root / 'summary.json').read_text())
+        row = summary['checks'][0]
+        self.assertEqual(summary['serial_seconds'], 16)
+        self.assertEqual((row['seconds'], row['last_attempt_seconds'], row['repeated_seconds']), (16, 11, 5))
+        self.assertEqual((row['cpu_seconds'], row['repeated_cpu_seconds'], row['total_queue_seconds']), (5, 2, 10))
+        self.assertEqual([a['queue_seconds'] for a in row['attempts']], [3, 7])
+
+    def test_resource_refusal_keeps_its_wait_reason_and_queue_cost(self):
+        self.args.admission_wait = .4
+        item = self.item('no measured capacity', "raise AssertionError('must not execute')")
+        with patch.object(pr, 'reserve_item', side_effect=BlockingIOError('measured CPU capacity is full')):
+            self.run_items([item])
+        self.assertEqual((item.state, item.rc), ('not-admitted', 75))
+        self.assertGreaterEqual(item.admission_wait, .4)
+        self.assertGreater(item.wait_times.get('resource-envelope', 0), 0)
+        self.assertEqual(item.wait_times.get('worker', 0), 0)
+        self.assertIsNone(item.started)
+
+    def test_missing_or_failed_cleanup_preserves_attempt_cost_without_green(self):
+        for index, record in enumerate((None, {'status': 'completed', 'cleanup': 'failed'})):
+            item = self.item('incomplete ' + str(index), 'pass')
+            item.started, item.ended, item.state, item.rc = 2, 7, 'passed', 0
+            item.verification_result = str(self.root / ('bad-%s.json' % index))
+            if record:
+                Path(item.verification_result).write_text(json.dumps(record))
+            self.assertFalse(pr.finish_attempt(item))
+            self.assertEqual(item.rc, 125)
+            self.assertEqual(item.total_seconds, 5)
+            self.assertEqual(len(item.attempts), 1)
+            self.assertIsNone(pr.attempt_cpu(item.attempts))
+            self.assertNotEqual(item.state, 'passed')
+
+    def test_ordinary_cancellation_stays_distinct_from_pressure_and_infrastructure(self):
+        item = self.item('cancelled', 'pass')
+        item.started, item.ended, item.state, item.rc = 2, 7, 'cancelled', 130
+        item.verification_result = str(self.root / 'cancelled.json')
+        Path(item.verification_result).write_text(json.dumps({'status': 'incomplete', 'cleanup': 'complete',
+                                                             'reaped_cpu_seconds': 1}))
+        self.assertFalse(pr.finish_attempt(item))
+        self.assertEqual((item.state, item.rc, item.total_seconds), ('cancelled', 130, 5))
 
 
 if __name__ == "__main__":

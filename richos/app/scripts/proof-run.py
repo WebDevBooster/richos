@@ -169,7 +169,8 @@ class Item:
 
     def finish_queue(self):
         if self.queued_at is not None and self.started is None:
-            self.admission_wait = time.monotonic() - self.queued_at
+            self.admission_wait += time.monotonic() - self.queued_at
+            self.queued_at = None
 
     @property
     def engine_unit(self):
@@ -178,6 +179,15 @@ class Item:
     @property
     def seconds(self):
         return (self.ended - self.started) if (self.started and self.ended) else 0.0
+
+    @property
+    def previous_attempts(self):
+        current = getattr(self, 'verification_result', None) if self.started is not None else None
+        return [attempt for attempt in self.attempts if attempt['supervision'] != current]
+
+    @property
+    def total_seconds(self):
+        return self.seconds + sum(attempt['seconds'] for attempt in self.previous_attempts)
 
 
 # ---------------------------------------------------------------------------------------
@@ -434,20 +444,22 @@ def finish_attempt(item):
     if not record:
         item.state, item.rc = 'infrastructure-failed', 125
         item.notes.append('managed verification result is missing')
-        return False
-    if record.get('cleanup') != 'complete':
+        record = {}
+    elif record.get('cleanup') != 'complete':
         item.state, item.rc = 'cleanup-failed', 125
         item.notes.append('owned cleanup remains unresolved: ' + path)
-        return False
     status = record.get('status')
-    if status in ('contained', 'resource-envelope-exceeded'):
+    if item.state in ('infrastructure-failed', 'cleanup-failed'):
+        status = None
+    elif status in ('contained', 'resource-envelope-exceeded'):
         item.state, item.rc = status, 125
     elif status != 'completed':
-        if item.state != 'timed-out':
+        if item.state not in ('timed-out', 'cancelled'):
             item.state = 'not-admitted' if item.rc == 75 else 'infrastructure-failed'
             item.rc = 75 if item.rc == 75 else 125
-        return False
     attempt = {'state': item.state, 'exit': item.rc, 'seconds': item.seconds,
+               'queue_seconds': max(0, item.admission_wait - sum(a['queue_seconds'] for a in item.attempts)),
+               'cpu_seconds': record.get('reaped_cpu_seconds'),
                'log': item.log, 'supervision': path}
     item.attempts.append(attempt)
     if status != 'contained':
@@ -485,6 +497,8 @@ def launch(item, n, logdir, tokens_dir, reserved):
            "RICHOS_WORKER_TOKENS_RESERVED": str(reserved),
            "RICHOS_MACHINE_WORKERS": item.machine_tokens, "RICHOS_WORKER_SLOT_HELD": "1",
            "RICHOS_WORKER_BORROW_LOCK": item.token.path + ".child"}
+    if getattr(item, 'verification_context', None):
+        env['RICHOS_CPU_GUARD_STATE'] = str(cpu_guard.STATE)
     if os.environ.get(proc_tree.SCOPE_ENV):
         env[proc_tree.SCOPE_ENV] = os.environ[proc_tree.SCOPE_ENV]
     if item.engine_unit:
@@ -654,8 +668,11 @@ def run(items, args, logdir, sampler=None):
         left = stop_running()
         for it in items:
             if it.state in ("waiting", "running"):
+                was_running = it.state == 'running'
                 it.finish_queue()
                 it.state, it.rc, it.ended = "cancelled", 130, time.monotonic()
+                if was_running:
+                    finish_attempt(it)
         checkpoint(items, logdir)
         if getattr(args, "pool", None):
             args.pool.close(items)
@@ -780,6 +797,7 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
             for it in running:
                 stop_item(it)
                 it.state, it.rc, it.ended = "cancelled", 125, time.monotonic()
+                finish_attempt(it)
                 it.notes.append("execution domain contaminated" if unsafe else "explicit fail-fast")
                 it.token.release()
             running.clear()
@@ -919,13 +937,17 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                                                 "(queued %.0f s before launch)" % it.admission_wait if it.admission_wait >= 1 else ""),
                       flush=True)
             else:
+                resource_blocked = token is not None and s is None and any(
+                    queued.wait_reason == 'resource-envelope' for queued in eligible)
+                refusal_kind = ('resource-envelope' if resource_blocked else
+                                'host' if s is not None else 'worker')
                 for queued in eligible:
-                    queued.wait_reason = "host" if s is not None else "worker"
+                    queued.wait_reason = refusal_kind
                 # Refused by the CPU line or the memory rule (not merely waiting for a token).
                 waited = now - it.first_wait
                 if waited >= args.admission_wait:
                     it.finish_queue()
-                    it.state = "not-admitted"
+                    it.state, it.rc = "not-admitted", 75
                     reason = (reserve.describe(s) if s is not None else getattr(it, 'resource_refusal', None)
                               or getattr(budget.shared or budget, 'refusal', None) or "worker budget is full")
                     it.notes.append("not admitted after %.0f s: %s" % (waited, reason))
@@ -933,7 +955,7 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                                                                                  reason), flush=True)
                 else:
                     next_sample = now + (reserve.MIN_RETRY_SECONDS if s is not None else 0.2)
-                    backoff_reason = "host" if s is not None else "worker"
+                    backoff_reason = refusal_kind
                     if not running and s is not None:
                         print("[%s] wait   %-40s admission: %s" % (stamp(), it.label, reserve.describe(s)), flush=True)
         time.sleep(0.2)
@@ -1031,19 +1053,19 @@ def notes_from_logs(items):
 
 
 def summarize(items, wall, logdir, budget_seconds=600, monitor_lines=()):
-    serial = sum(it.seconds for it in items)
+    serial = sum(it.total_seconds for it in items)
     print("")
-    print("proof-run: %d check(s), wall %.0f s (%.1f min); the same checks one after another: %.0f s" %
+    print("proof-run: %d check(s), wall %.0f s (%.1f min); sum of check execution times: %.0f s" %
           (len(items), wall, wall / 60, serial))
     for line in monitor_lines:
         print("  " + line)
     print("  %-40s %-12s %8s %10s  %s" % ("check", "result", "seconds", "queue", "log"))
     rows = []
-    for it in sorted(items, key=lambda i: -(i.seconds)):
-        print("  %-40s %-12s %8.0f %9.0fs  %s" % (it.label, it.state.upper(), it.seconds, it.admission_wait,
+    for it in sorted(items, key=lambda i: -(i.total_seconds)):
+        print("  %-40s %-12s %8.0f %9.0fs  %s" % (it.label, it.state.upper(), it.total_seconds, it.admission_wait,
                                                  os.path.basename(it.log or "-")))
-        if it.seconds > budget_seconds:
-            print("      OVER BUDGET: %.0f s is past the %.0f s budget one check may take" % (it.seconds, budget_seconds))
+        if it.total_seconds > budget_seconds:
+            print("      OVER BUDGET: %.0f s is past the %.0f s budget one check may take" % (it.total_seconds, budget_seconds))
         for note in it.notes[:6]:
             print("      %s" % note)
         # Beside the check, what failed in it, by name, and where its result files are kept.
@@ -1054,7 +1076,8 @@ def summarize(items, wall, logdir, budget_seconds=600, monitor_lines=()):
         kept = it.results if it.results and os.path.isdir(it.results) and os.listdir(it.results) else None
         if kept and it.state != "passed":
             print("      per-test results: %s" % kept)
-        rows.append({"check": it.label, "result": it.state, "seconds": round(it.seconds, 1),
+        rows.append({"check": it.label, "result": it.state, "seconds": round(it.total_seconds, 1),
+                     "last_attempt_seconds": round(it.seconds, 1),
                      "admission_wait": round(it.admission_wait, 1),  # legacy field: total queue
                      "total_queue_seconds": round(it.admission_wait, 1),
                      "engine_slot_wait": round(it.slot_wait, 1),
@@ -1062,7 +1085,9 @@ def summarize(items, wall, logdir, budget_seconds=600, monitor_lines=()):
                      "exit": it.rc, "log": it.log,
                      "reused_from": getattr(it, "reused_from", None),
                      "attempts": it.attempts,
-                     "repeated_seconds": sum(a['seconds'] for a in it.attempts[:-1]),
+                     "repeated_seconds": sum(a['seconds'] for a in it.previous_attempts),
+                     "cpu_seconds": attempt_cpu(it.attempts),
+                     "repeated_cpu_seconds": attempt_cpu(it.previous_attempts),
                      "failing_tests": list(it.failing), "results": kept,
                      "command": "cd %s && %s" % (os.path.relpath(it.cwd, ROOT), " ".join(shlex.quote(a) for a in it.argv))})
     with open(os.path.join(logdir, "summary.json"), "w") as fh:
@@ -1084,6 +1109,11 @@ def summarize(items, wall, logdir, budget_seconds=600, monitor_lines=()):
         len(items), wall, "; reconciled with %d reused result(s)" % reused if reused else ""))
     print("    logs: %s" % logdir)
     return 0
+
+
+def attempt_cpu(attempts):
+    values = [attempt.get('cpu_seconds') for attempt in attempts]
+    return sum(values) if values and all(value is not None for value in values) else None
 
 
 def default_logdir():

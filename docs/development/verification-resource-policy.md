@@ -31,6 +31,10 @@ The enabled marker survives loss of controller telemetry, so deleting a heartbea
 cannot return an installed runner to legacy admission. Completed receipts retain their
 original identities. Per-attempt logs, interrupted receipts and supervision records
 remain in the run directory; summaries disclose repeated work.
+Execution totals include earlier attempts, queue totals accumulate across retries
+and available reaped CPU is reported separately from elapsed time. Missing CPU
+measurement stays unknown. A resource-capacity refusal retains its own queue
+reason instead of being reported as a shortage of worker permits.
 
 Current qualification boundary: proof-run and its nested supervised work use this
 protocol when advertised by the controller. Direct/nightly/older launcher routing,

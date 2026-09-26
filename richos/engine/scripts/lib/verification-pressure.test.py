@@ -110,7 +110,7 @@ class OwnedTreeTests(unittest.TestCase):
         self.assertIsNotNone(held)
         self.addCleanup(held.release)
         guard.write_json(guard.STATE / "verification-pressure.json",
-                         {"at": __import__("time").time(), "admission_open": False, "stage": "admission-closed"})
+                         {"protocol": 1, "at": __import__("time").time(), "admission_open": False, "stage": "admission-closed"})
         with patch.object(guard, "healthy", return_value=True):
             self.assertIsNone(budget.try_acquire())
             self.assertIn("admission-closed", budget.refusal)
@@ -120,7 +120,7 @@ class OwnedTreeTests(unittest.TestCase):
         with patch.object(guard, "healthy", return_value=False):
             self.assertIn("unhealthy", guard.verification_admission())
         guard.write_json(guard.STATE / "verification-pressure.json",
-                         {"at": 0, "admission_open": True, "stage": "normal"})
+                         {"protocol": 1, "at": 0, "admission_open": True, "stage": "normal"})
         with patch.object(guard, "healthy", return_value=True):
             self.assertIsNone(budget.try_acquire())
             self.assertIn("stale", budget.refusal)
@@ -132,6 +132,16 @@ class OwnedTreeTests(unittest.TestCase):
         guard.write_json(guard.STATE / 'verification-enabled.json', {'protocol': 999})
         with self.assertRaisesRegex(RuntimeError, 'current launcher'):
             guard.verification_enabled()
+
+    def test_admission_rejects_wrong_protocol_and_future_measurement(self):
+        path = guard.STATE / 'verification-pressure.json'
+        now = __import__('time').time()
+        with patch.object(guard, 'healthy', return_value=True):
+            for protocol in (None, 999):
+                guard.write_json(path, {'protocol': protocol, 'at': now, 'admission_open': True})
+                self.assertIn('protocol', guard.verification_admission())
+            guard.write_json(path, {'protocol': 1, 'at': now + 60, 'admission_open': True})
+            self.assertIn('stale', guard.verification_admission())
 
     def test_controller_persists_typed_containment_and_waits_for_native_cleanup(self):
         self.register(10)
