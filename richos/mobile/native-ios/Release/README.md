@@ -73,8 +73,8 @@ The suite `richos/app/scripts/native-ios-share.test.sh` runs all five.
    ```
 
 3. `node Release/testflight.ts upload --archive <path>/RichOSNative.xcarchive --export-options Release/ExportOptions.plist`
-4. `node Release/testflight.ts status --version 0.1.0 --build <n>` until processing is `VALID`.
-5. `node Release/testflight.ts publish --version 0.1.0 --build <n> --notes-file <notes>` puts it
+4. `node Release/testflight.ts status --version 1.0.0 --build <n>` until processing is `VALID`.
+5. `node Release/testflight.ts publish --version 1.0.0 --build <n> --notes-file <notes>` puts it
    in the internal group. A rerun writes nothing twice.
 
 A simulator release check does not prove signing or TestFlight upload. Verify the account record,
