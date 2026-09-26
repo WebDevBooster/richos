@@ -690,8 +690,8 @@ async function main() {
   const args = parseTestFlightArgs(process.argv.slice(2));
   if (args.command === "help") {
     process.stdout.write(`Usage:
-  node Release/testflight.ts status --build 1 --version 0.1.0
-  node Release/testflight.ts publish --build 1 --version 0.1.0 --notes-file /path/to/notes.txt
+  node Release/testflight.ts status --build 1 --version 1.0.0
+  node Release/testflight.ts publish --build 1 --version 1.0.0 --notes-file /path/to/notes.txt
   node Release/testflight.ts upload --archive /path/to/RichOSNative.xcarchive --export-options Release/ExportOptions.plist
 
 Optional: --env-file /path/to/file or RICHOS_IOS_TESTFLIGHT_ENV_FILE.

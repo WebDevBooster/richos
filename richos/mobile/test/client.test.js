@@ -128,9 +128,10 @@ test('pairing accepts the production Mac colon-separated SHA-256 fingerprint', a
 
 test('native update subscriptions cannot close or receive data from the Mac event stream', async () => {
   const { createPorts } = require('../platform/native.js'); const calls = [], listeners = new Set();
+  const release = require('../release-config.json');
   const ports = createPorts(async (method, args) => {
     calls.push({ method, args });
-    if (method === 'updateInfo') return { version: '0.1.0', build: '2', osVersion: '16.7.16', configured: true };
+    if (method === 'updateInfo') return { version: release.version, build: release.build, osVersion: '16.7.16', configured: true };
     return true;
   }, listener => { listeners.add(listener); return () => listeners.delete(listener); });
   const mac = new ports.EventSource('https://mac.example/api/events');
