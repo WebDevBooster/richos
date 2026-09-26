@@ -652,6 +652,10 @@ def run(items, args, logdir, sampler=None):
     worker_tokens.init(tokens_dir, args.capacity)
     budget = worker_tokens.Budget(tokens_dir, runner=True, shared=machine)
     budget.shared.admission = engine_pass.Admission(machine, ROOT)
+    # A worker permit is only the first admission step. Retain integration
+    # intent while eligible checks wait for measured capacity as well.
+    args.integration_intent = (engine_pass.Admission(machine, ROOT)
+                               if budget.shared.admission.main else None)
     reserved = reserved_tokens(args.capacity)
     order = sorted(items, key=lambda it: (not getattr(it, "retry_first", False), -it.weight))
     running = []
@@ -715,6 +719,8 @@ def run(items, args, logdir, sampler=None):
             if it.token:
                 it.token.release()
         budget.close()
+        if args.integration_intent:
+            args.integration_intent.close()
         if args.engine_gate:
             args.engine_gate.close()
         # The simulator daemon outlives command processes. Finalize only this run's
@@ -880,6 +886,12 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                         it.slot_wait += interval
                         it.wait_reason = "engine-slot"
                     ready = [it for it in ready if not it.engine_unit]
+        intent = getattr(args, 'integration_intent', None)
+        if intent:
+            if ready:
+                intent.begin()
+            else:
+                intent.close()
         for it in ready:
             if it.first_wait is None:
                 it.first_wait = now

@@ -5,6 +5,9 @@ runner reserves CPU and memory before launching each check. The process supervis
 inherits the kernel lease, records the child generation before exec and holds the
 reservation through descendant cleanup. Nested work belongs to that owned tree;
 worker permits still govern its expansion and borrowing.
+Main-checkout priority remains held while an eligible check waits for measured
+capacity after obtaining a worker permit. Obtaining that permit alone does not
+give competing work a gap in integration priority.
 
 Reservations use measured tree demand with a safety margin. They leave explicit
 headroom for unowned host and system-service demand. Unknown inputs calibrate

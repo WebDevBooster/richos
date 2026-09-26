@@ -247,6 +247,27 @@ class FailurePolicy(unittest.TestCase):
         self.assertEqual((item.state, item.rc), ('infrastructure-failed', 125))
         self.assertIn('no matching durable budget event', item.notes[-1])
 
+    def test_integration_priority_survives_worker_permit_until_resource_admission(self):
+        machine = str(self.root / 'machine')
+        with patch.object(pr.engine_pass, 'is_main_checkout', return_value=False):
+            background = pr.engine_pass.Admission(machine, str(self.root))
+        self.addCleanup(background.close)
+        observed = []
+        def reserve(candidate, *args):
+            admitted = background.begin()
+            observed.append(admitted)
+            if admitted:
+                background.attempted(False)
+            if len(observed) < 3:
+                raise BlockingIOError('controlled demand wait after worker admission')
+        item = self.item('integration waiting for demand', 'pass')
+        with patch.object(pr.engine_pass, 'is_main_checkout', return_value=True), \
+                patch.object(pr, 'reserve_item', side_effect=reserve):
+            self.run_items([item])
+        self.assertEqual(item.state, 'passed')
+        self.assertEqual(observed, [False, False, False])
+        self.assertTrue(background.begin())
+
 
 if __name__ == "__main__":
     unittest.main()
