@@ -2448,7 +2448,15 @@ def spawn_via_walk(ctx, walk, thread, title, name, agent_type, seconds, timeout=
         'Step 2: its standard output is one JSON object of Agent tool parameters. Call the Agent tool ONCE with exactly '
         'those parameters, adding run_in_background set to true. Step 3: reply with the single word started.' % command))
     walk.wait_say(lambda s: s['thread'] == thread and s['kind'] == 'update', timeout, start)
+    # The lead now reports on its handle right after its Agent call, before a background
+    # teammate's worktree exists (r5b: w2-sonnet-b's Agent call returned ok at 285.6 s and the
+    # single snapshot found no worktree). So the new worktree is waited for, up to 90 s, never
+    # read once.
+    deadline = time.time() + 90
     after = [r for r in ctx.worktrees() if r['worktree'] not in before]
+    while len(after) != 1 and time.time() < deadline:
+        time.sleep(3)
+        after = [r for r in ctx.worktrees() if r['worktree'] not in before]
     ctx.spawn_handles[name] = given.get('handle')
     return after[0]['worktree'] if len(after) == 1 else None
 
