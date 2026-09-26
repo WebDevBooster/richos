@@ -218,31 +218,13 @@ run_with_deadline() { # <seconds> <logfile> <argv...>
         "$@" >"$_log" 2>&1 </dev/null
         return $?
     fi
-    set -m
-    python3 "$SCRIPT_DIR/lib/proc_tree.py" run $$ -- "$@" >"$_log" 2>&1 </dev/null &
-    local _pid=$! _waited=0 _rc=0
-    set +m
-    while kill -0 "$_pid" 2>/dev/null; do
-        if [ "$_waited" -ge "$_limit" ]; then
-            # A suite that ignores TERM still has to go; three seconds is
-            # enough for a bash trap to run its own cleanup first, which is
-            # what leaves the sandbox removable.
-            kill -TERM "$_pid" 2>/dev/null || true
-            local _cleanup=0
-            while kill -0 "$_pid" 2>/dev/null && [ "$_cleanup" -lt 12 ]; do sleep 1; _cleanup=$((_cleanup + 1)); done
-            if kill -0 "$_pid" 2>/dev/null && ! python3 "$SCRIPT_DIR/lib/proc_tree.py" kill "$_pid" --grace 3 2>>"$_log"; then
-                printf '        a process of this unit survived SIGKILL; see the end of its log\n' >>"$_log"
-            fi
-            # In braces so the shell's own "Terminated: 15" job report for the killed unit
-            # goes nowhere; the verdict line below says what happened.
-            { wait "$_pid"; } 2>/dev/null
-            return 124
-        fi
-        sleep 1
-        _waited=$((_waited + 1))
-    done
-    wait "$_pid"; _rc=$?
-    return "$_rc"
+    # The existing process supervisor already polls and owns tree cleanup.
+    # Giving it the deadline avoids a second shell watcher rounding every
+    # short unit up to a one-second sleep.
+    python3 "$SCRIPT_DIR/lib/proc_tree.py" run "$$" --deadline "$_limit" \
+        --timeout-marker "$_log.deadline" -- "$@" >"$_log" 2>&1 </dev/null
+    return $?
+
 }
 
 # ---------------------------------------------------------------------------
@@ -574,6 +556,7 @@ while IFS= read -r id; do
     export -f run_with_deadline
     export SCRIPT_DIR
     TIMING="$LOG_DIR/$i.timing.json"
+    export RICHOS_UNIT_DEADLINE_MARKER="$LOG.deadline"
     ${PASS_ARGS[@]+"${PASS_ARGS[@]}"} python3 "$SCRIPT_DIR/lib/worker_tokens.py" machine --timing "$TIMING" -- \
         bash -c 'run_with_deadline "$@"' bash "$DEADLINE" "$LOG" "${ARGV[@]}"
     RC=$?
@@ -724,6 +707,10 @@ PY
         UNIT_SECS="$SECS" UNIT_ADMISSION="${QUEUED:-}" UNIT_EXECUTION="$EXECUTION" \
         UNIT_SHARD="${SHARD:-0}" UNIT_SHARDS="$SHARDS" UNIT_SHA="$SHA" \
         python3 "$SCRIPT_DIR/lib/ci-receipts.py" emit >> "$RECEIPT"
+    fi
+    if [ "$SLOT_REFUSED" -eq 1 ]; then
+        printf 'ci-shard: slot admission refused; %s remaining unit(s) were not admitted and remain unrun.\n' "$((N_SEL - i))"
+        break
     fi
     # Contamination is independent of the assertion verdict (including a timeout).
     # Stop this domain even in keep-going mode and notify concurrent sibling shards.

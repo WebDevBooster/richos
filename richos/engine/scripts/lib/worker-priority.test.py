@@ -32,6 +32,9 @@ class Priority(unittest.TestCase):
                         str(self.linked)], check=True, capture_output=True)
         self.machine = str(self.root / "machine")
         worker_tokens.init(self.machine, 1)
+        environment = patch.dict(os.environ, {"RICHOS_MACHINE_WORKERS": self.machine})
+        environment.start()
+        self.addCleanup(environment.stop)
         self.budgets = []
         self.tokens = []
         self.addCleanup(self.release)

@@ -53,6 +53,7 @@ class FailurePolicy(unittest.TestCase):
         items = [self.item("failure", "raise SystemExit(1)"), self.item("queued", "pass")]
         self.run_items(items)
         self.assertEqual([i.state for i in items], ["failed", "cancelled"])
+        self.assertGreater(items[1].admission_wait, 0)
 
     def test_success_dependency_blocks_but_diagnostic_runs(self):
         items = [self.item("failure", "raise SystemExit(1)"),
@@ -61,6 +62,7 @@ class FailurePolicy(unittest.TestCase):
         self.run_items(items)
         self.assertEqual([i.state for i in items], ["failed", "blocked", "passed"])
         self.assertIsNone(items[1].started)
+        self.assertGreater(items[1].admission_wait, 0)
 
     def test_contamination_stops_domain_even_if_emitter_exits_zero(self):
         code = ("import os; from pathlib import Path; "
@@ -80,7 +82,7 @@ class FailurePolicy(unittest.TestCase):
             self.assertIsNone(item.started)
 
     def test_large_engine_slot_refusal_preserves_independent_check(self):
-        self.args.slot_wait = 0
+        self.args.slot_wait = .5
         slot_root = self.root / "engine-slot"
         code = ("import sys; sys.path.insert(0,sys.argv[1]); import engine_pass; "
                 "s=engine_pass.acquire(20,'fixture',sys.argv[2],wait=0); "
@@ -101,6 +103,7 @@ class FailurePolicy(unittest.TestCase):
                 self.assertEqual(independent.state, "passed")
                 self.assertTrue(all(i.state == "not-admitted" for i in items[:-1]))
                 self.assertTrue(all(i.started is None for i in items[:-1]))
+                self.assertTrue(all(i.admission_wait >= .5 for i in items[:-1]))
             finally:
                 holder.communicate("\n", timeout=5)
 
@@ -116,6 +119,32 @@ class FailurePolicy(unittest.TestCase):
         self.assertTrue(all(i.state == "passed" for i in items))
         self.assertGreaterEqual(items[1].started - items[0].started, pr.SETTLE_SECONDS)
         self.assertLess(items[2].started - items[1].started, pr.SETTLE_SECONDS)
+
+    def test_shared_host_sample_keeps_pressure_and_never_reuses_stale_or_failed_data(self):
+        values = iter([
+            {"cpu_user_percent": 5, "cpu_system_percent": 2, "memory_pressure": "critical",
+             "swapout_mb_per_s": 0},
+            {"cpu_user_percent": 95, "cpu_system_percent": 2, "memory_pressure": "normal",
+             "swapout_mb_per_s": 0},
+        ])
+        calls = []
+        def sample():
+            calls.append(1)
+            return next(values)
+        with patch.object(pr.time, "monotonic", return_value=10) as clock:
+            shared = pr.HostSamples(sample, 10)
+            self.assertFalse(pr.admitted(self.args, shared)[0])
+            self.assertFalse(pr.admitted(self.args, shared)[0])
+            self.assertEqual(len(calls), 1)
+            clock.return_value = 11.1
+            self.assertFalse(pr.admitted(self.args, shared)[0])
+            self.assertEqual(len(calls), 2)
+            clock.return_value = 12.2
+            with self.assertRaises(StopIteration):
+                shared()
+            with self.assertRaises(StopIteration):
+                shared()
+            self.assertEqual(len(calls), 4)
 
     def test_cli_defaults_and_compatibility(self):
         for flags, expected in (([], False), (["--keep-going"], False), (["--fail-fast"], True)):

@@ -211,7 +211,7 @@ def finish_scope(child, tracker, grace=8.0):
         time.sleep(0.05)
 
 
-def supervise(owner, argv):
+def supervise(owner, argv, deadline=None, timeout_marker=None):
     # Enroll managed workloads even when invoked by Codex or a nightly without
     # Claude hooks. Fixtures copying just this helper keep working unchanged.
     guard_path = os.path.join(os.path.dirname(__file__), "cpu_guard.py")
@@ -251,11 +251,18 @@ def supervise(owner, argv):
     os.write(write_fd, b"1")
     os.close(write_fd)
     rc = 125
+    started = time.monotonic()
     try:
         while child.poll() is None:
             tracker.refresh()
             if interrupted or identity(owner) != owner_id:
                 rc = 128 + interrupted[0] if interrupted else 125
+                break
+            if deadline is not None and time.monotonic() - started >= deadline:
+                if timeout_marker:
+                    with open(timeout_marker, "x"):
+                        pass
+                rc = 124
                 break
             time.sleep(0.2)
         else:
@@ -273,8 +280,18 @@ def supervise(owner, argv):
 
 
 def main(argv):
-    if len(argv) >= 4 and argv[0] == "run" and argv[2] == "--":
-        return supervise(int(argv[1]), argv[3:])
+    if len(argv) >= 4 and argv[0] == "run" and "--" in argv:
+        import argparse
+        import math
+        parser = argparse.ArgumentParser(prog="proc_tree.py run")
+        parser.add_argument("owner", type=int)
+        parser.add_argument("--deadline", type=float)
+        parser.add_argument("--timeout-marker")
+        split = argv.index("--")
+        args = parser.parse_args(argv[1:split])
+        if args.deadline is not None and (not math.isfinite(args.deadline) or args.deadline <= 0):
+            parser.error("deadline must be finite and positive")
+        return supervise(args.owner, argv[split + 1:], args.deadline, args.timeout_marker)
     if len(argv) >= 2 and argv[0] in ("kill", "members") and argv[1].isdigit():
         root = int(argv[1])
         if argv[0] == "members":

@@ -46,7 +46,7 @@ say() { [ "$VERBOSE" -eq 1 ] && printf '\n----- %s -----\n%s\n' "$1" "$2"; retur
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit 1; }
 [ -f "$CANON" ] || { echo "FATAL: canonical text missing at $CANON" >&2; exit 1; }
 
-SANDBOX="$(cd "$(mktemp -d -t install-escalation.XXXXXX)" && pwd -P)"
+SANDBOX="$(cd "$(mktemp -d "${TMPDIR:?}/install-escalation.XXXXXX")" && pwd -P)"
 trap 'rm -rf "$SANDBOX"' EXIT
 REPO="$SANDBOX/repo"
 mkdir -p "$REPO/.claude/agents"

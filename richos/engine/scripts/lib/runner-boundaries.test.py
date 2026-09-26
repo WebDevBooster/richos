@@ -106,6 +106,69 @@ os.execv({sys.executable!r}, [{sys.executable!r}, *sys.argv[1:]])
         row["verdict"] = "KNOWN-RED"
         self.assertNotEqual(self.verify(row).returncode, 0, "verifier must check execution too")
 
+    def test_bad_pool_is_infrastructure_not_admission_timeout(self):
+        uid = self.known_unit()
+        self.inject("    def reject(*a, **kw): raise ValueError('fixture: broken pool')\n"
+                    "    worker_tokens.Budget.acquire = reject")
+        result, row = self.shard(uid)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertEqual((row["execution_status"], row["rc"]), ("infrastructure-error", 125))
+        self.assertFalse((self.root / "executed").exists())
+
+    def test_suite_exit_124_is_an_executed_failure_without_deadline_expiry(self):
+        uid = self.known_unit(124)
+        (self.engine / "scripts/lib/ci-known-red.tsv").unlink()
+        result, row = self.shard(uid)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertEqual((row["execution_status"], row["verdict"]), ("completed", "FAIL"))
+
+    def test_supervisor_deadline_is_a_real_timeout(self):
+        uid = self.known_unit()
+        (self.engine / uid).write_text("sleep 60\n")
+        self.env["CI_SHARD_UNIT_TIMEOUT"] = "1"
+        result, row = self.shard(uid)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertEqual((row["execution_status"], row["verdict"]), ("timed-out", "TIMED-OUT"))
+        self.assertEqual(row["rc"], 124)
+
+    def test_serial_reports_admission_and_infrastructure_status(self):
+        self.known_unit()
+        self.snapshot()
+        for exception, verdict in (("TimeoutError", "NOT-ADMITTED"),
+                                   ("ValueError", "INFRASTRUCTURE-ERROR")):
+            with self.subTest(exception=exception):
+                self.inject("    def reject(*a, **kw): raise " + exception + "('fixture')\n"
+                            "    worker_tokens.Budget.acquire = reject")
+                result = self.invoke("bash", "scripts/run-all-tests.sh")
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn(verdict, result.stdout)
+                self.assertFalse((self.root / "executed").exists())
+
+    def test_direct_runners_do_not_restart_slot_wait_after_refusal(self):
+        for n in range(20):
+            (self.engine / ("scripts/lib/%02d.test.sh" % n)).write_text(
+                "touch " + shlex.quote(str(self.root / "executed")) + "\n")
+        self.snapshot()
+        wrapper = self.root / "bin/python3"
+        attempts = self.root / "attempts"
+        wrapper.write_text(f"""#!{sys.executable}
+import os, sys
+if len(sys.argv) > 2 and sys.argv[1].endswith('/lib/engine_pass.py') and sys.argv[2] == 'hold':
+    with open({str(attempts)!r}, 'a') as out: out.write('attempt\\n')
+    sys.exit(75)
+os.execv({sys.executable!r}, [{sys.executable!r}, *sys.argv[1:]])
+""")
+        wrapper.chmod(0o755)
+        self.env["PATH"] = str(wrapper.parent) + os.pathsep + self.env["PATH"]
+        for runner in ("ci-shard.sh", "run-all-tests.sh"):
+            with self.subTest(runner=runner):
+                attempts.unlink(missing_ok=True)
+                result = self.invoke("bash", "scripts/" + runner)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertEqual(attempts.read_text().splitlines(), ["attempt"])
+                self.assertIn("19 remaining", result.stdout)
+                self.assertFalse((self.root / "executed").exists())
+
     def test_infrastructure_exit_is_not_a_known_assertion_failure(self):
         result, row = self.shard(self.known_unit(125))
         self.assertNotEqual(result.returncode, 0, result.stdout)

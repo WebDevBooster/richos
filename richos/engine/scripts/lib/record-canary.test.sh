@@ -25,7 +25,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PASS=0
 FAIL=0
-SANDBOX="$(cd "$(mktemp -d -t record-canary-test.XXXXXX)" && pwd -P)"
+SANDBOX="$(cd "$(mktemp -d "${TMPDIR:?}/record-canary-test.XXXXXX")" && pwd -P)"
 trap 'rm -rf "$SANDBOX"' EXIT
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n' "$1"; [ -n "${2:-}" ] && printf '          %s\n' "$2"; FAIL=$((FAIL + 1)); }

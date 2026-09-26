@@ -390,16 +390,40 @@ for t in "${SUITES[@]}"; do
     # Execution includes owned supervision/cleanup but excludes admission and
     # the canary baseline/diff. Queueing must not inflate execution weights.
     TIMING="$LOG_DIR/$i.timing.json"
+    # This serial wrapper imposes no suite execution deadline.
+    export RICHOS_UNIT_DEADLINE_MARKER=""
     ${PASS_ARGS[@]+"${PASS_ARGS[@]}"} python3 "$WORKER_TOOL" machine --timing "$TIMING" -- bash "$t" >"$LOG" 2>&1
     RC=$?
-    SUITE_MS="$(python3 -c 'import json,sys; print(round(json.load(open(sys.argv[1]))["execution_seconds"] * 1000))' "$TIMING")" || RC=125
-    QUEUED="$(python3 -c 'import json,sys; print(round(json.load(open(sys.argv[1]))["admission_seconds"], 1))' "$TIMING")" || RC=125
+    SLOT_REFUSED=0
+    [ "$RC" -ne 75 ] || [ -f "$TIMING" ] || SLOT_REFUSED=1
+    read -r EXECUTION SUITE_MS QUEUED < <(python3 - "$TIMING" "$RC" <<'STATUS'
+import json, math, sys
+try:
+    row = json.load(open(sys.argv[1]))
+    elapsed, queue = row["execution_seconds"], row["admission_seconds"]
+    assert all(type(v) in (int, float) and math.isfinite(v) and v >= 0 for v in (elapsed, queue))
+    assert type(row["admitted"]) is bool and row["exit"] == int(sys.argv[2])
+    outcome = row["outcome"]
+    assert outcome in ("completed", "not-admitted", "infrastructure-error", "timed-out")
+    assert row["admitted"] or outcome in ("not-admitted", "infrastructure-error")
+    print(outcome, round(elapsed * 1000), round(queue, 1))
+except (OSError, ValueError, KeyError, TypeError, AssertionError):
+    print("infrastructure-error 0 unknown")
+STATUS
+)
+    if [ "$SLOT_REFUSED" -eq 1 ]; then EXECUTION="not-admitted"; fi
     [ -n "$SUITE_MS" ] || SUITE_MS=0
     printf '(admission %ss) ' "${QUEUED:-unknown}"
     TIMES_MS+=("$SUITE_MS")
     ESCAPED="$(lc_escaped "$CANARY_DIR" "$LOG_DIR")"
     TOUCHED="$(rc_escaped "$CANARY_DIR/record.txt")"
-    if [ "$RC" -ne 0 ]; then
+    if [ "$EXECUTION" != "completed" ]; then
+        VERDICT="$(printf '%s' "${EXECUTION:-infrastructure-error}" | tr '[:lower:]' '[:upper:]')"
+        printf '%s%s%s (rc=%s) %s\n' "$C_RED" "$VERDICT" "$C_RESET" "$RC" "$(sw_fmt "$SUITE_MS")"
+        FAILED_NAMES+=("$REL ($VERDICT, rc=$RC)")
+        TIMES_VERDICT+=("$VERDICT")
+        sed 's/^/        /' "$LOG"
+    elif [ "$RC" -ne 0 ]; then
         printf '%sFAIL%s (rc=%s) %s\n' "$C_RED" "$C_RESET" "$RC" "$(sw_fmt "$SUITE_MS")"
         FAILED_NAMES+=("$REL (rc=$RC)")
         TIMES_VERDICT+=("FAIL")
@@ -434,6 +458,10 @@ for t in "${SUITES[@]}"; do
     fi
     if [ -n "$TIMING_TSV" ]; then
         printf '%s\t%s\t%s\t%s\n' "$REL" "$SUITE_MS" "${TIMES_VERDICT[$((i - 1))]}" "python-monotonic" >>"$TIMING_TSV"
+    fi
+    if [ "$SLOT_REFUSED" -eq 1 ]; then
+        printf '  Slot admission refused; %s remaining suite(s) were not admitted and remain unrun.\n' "$((TOTAL - i))"
+        break
     fi
     # Do not reset the baseline and earn later passes on contaminated inputs.
     if [ "$CANARY_BASE_HEALTHY" -ne 1 ] || [ "$RECORD_BASE_HEALTHY" -ne 1 ] \

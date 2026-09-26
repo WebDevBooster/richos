@@ -161,6 +161,10 @@ class Item:
         self.wait_reason = "ready"
         self.queued_at = None
 
+    def finish_queue(self):
+        if self.queued_at is not None and self.started is None:
+            self.admission_wait = time.monotonic() - self.queued_at
+
     @property
     def engine_unit(self):
         return self.argv[:2] == ["bash", "scripts/ci-shard.sh"] and "--only-units" in self.argv
@@ -425,6 +429,29 @@ def admitted(args, sampler):
     return not reserve._refusal(s, args.max_cpu, 16, cpu_rule=True), s
 
 
+class HostSamples:
+    """Share a complete host measurement for at most one measurement interval.
+
+    Monitor and admission use the same serialized reader. Memory and swap data
+    remain part of every admission decision. A failed refresh invalidates the
+    previous value; neither errors nor old samples permit execution.
+    """
+    def __init__(self, sampler, max_age):
+        self.sampler, self.max_age = sampler, min(1.0, max_age)
+        self.lock = threading.Lock()
+        self.value = None
+        self.measured = 0.0
+
+    def __call__(self):
+        with self.lock:
+            if self.value is None or time.monotonic() - self.measured >= self.max_age:
+                self.value = None
+                value = self.sampler()
+                self.measured = time.monotonic()
+                self.value = value
+            return dict(self.value)
+
+
 class Monitor(threading.Thread):
     """The machine while the run is going: total CPU and the worker tokens held, every few
     seconds. Reports contention during admitted work as well as worker use."""
@@ -481,7 +508,7 @@ def run(items, args, logdir, sampler=None):
             raise ValueError("unknown or cyclic check prerequisites: " + ", ".join(it.label for it in remaining))
         resolved.update(it.label for it in ready)
         remaining = [it for it in remaining if it not in ready]
-    sampler = sampler or (lambda: reserve.host_sample())
+    sampler = HostSamples(sampler or (lambda: reserve.host_sample()), args.sample_every)
     os.makedirs(logdir, exist_ok=True)
     tokens_dir = tempfile.mkdtemp(prefix="worker-tokens-", dir=logdir)
     machine = worker_tokens.machine_directory()
@@ -521,6 +548,7 @@ def run(items, args, logdir, sampler=None):
         left = stop_running()
         for it in items:
             if it.state in ("waiting", "running"):
+                it.finish_queue()
                 it.state, it.rc, it.ended = "cancelled", 130, time.monotonic()
         checkpoint(items, logdir)
         running.clear()
@@ -631,6 +659,7 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
             running.clear()
             for it in items:
                 if it.state == "waiting":
+                    it.finish_queue()
                     it.state, it.rc = "cancelled", 125
                     it.notes.append("execution domain contaminated" if unsafe else "explicit fail-fast")
             print("proof-run: %s; unfinished checks are CANCELLED" % (
@@ -651,6 +680,7 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
         passed = {it.label for it in items if it.state == "passed"}
         for it in waiting:
             if it.requires <= done and not it.requires <= passed:
+                it.finish_queue()
                 it.state = "blocked"
                 it.notes.append("unsuccessful prerequisites: " + ", ".join(sorted(it.requires - passed)))
         waiting = [it for it in waiting if it.state == "waiting"]
@@ -671,6 +701,7 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                     allowed = False
                     for it in waiting:
                         if it.engine_unit:
+                            it.finish_queue()
                             it.state, it.rc = "not-admitted", engine_pass.REFUSED
                             it.notes.append(exc.message())
                 if not allowed:
@@ -687,8 +718,6 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
         # Keep gradual ramp-up into additional lanes. A replacement in an
         # already admitted lane does not increase the established concurrency;
         # it still needs a fresh host sample and a real worker permit.
-        if not running:
-            admitted_lanes.clear()
         eligible = [it for it in ready if not running or
                     (it.lane is not None and it.lane in admitted_lanes) or
                     now - last_launch >= SETTLE_SECONDS]
@@ -713,7 +742,8 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 if not ok:
                     token.release()
             if ok:
-                it.admission_wait, it.token = now - it.queued_at, token
+                it.finish_queue()
+                it.token = token
                 n += 1
                 running.append(it)
                 if gate and it.engine_unit and gate.slot:
@@ -733,7 +763,8 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 # Refused by the CPU line or the memory rule (not merely waiting for a token).
                 waited = now - it.first_wait
                 if waited >= args.admission_wait:
-                    it.state, it.admission_wait = "not-admitted", now - it.queued_at
+                    it.finish_queue()
+                    it.state = "not-admitted"
                     it.notes.append("not admitted after %.0f s: %s" % (waited, (reserve.describe(s) if s is not None else "worker budget is full")))
                     print("[%s] REFUSED %-39s not admitted after %.0f s (%s)" % (stamp(), it.label, waited,
                                                                                  (reserve.describe(s) if s is not None else "worker budget is full")), flush=True)
