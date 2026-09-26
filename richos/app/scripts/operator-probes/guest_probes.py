@@ -473,6 +473,8 @@ class Context(object):
         code, out, _ = run(['/bin/zsh', '-lc', 'command -v node'], timeout=30)
         self.node = out.strip() or 'node'
         self.spawned = []
+        # W2: the assignment handle each teammate was started under (the per-assignment Stop).
+        self.spawn_handles = {}
 
     def clean_up_teammates(self):
         """Discard every teammate this probe started, through his engine's own registry, so the
@@ -2295,7 +2297,9 @@ class Walk(object):
                'ANTHROPIC_API_KEY': 'planted-by-the-walk-and-never-passed',
                # The guest's ssh session is outside the GUI launchd domain (harness finding 8):
                # the walk hands the launcher a launchctl that prints the GUI session's socket.
-               'RICHOS_WALK_LAUNCHCTL': str(ctx.p.work / 'launchctl-walk')}
+               'RICHOS_WALK_LAUNCHCTL': str(ctx.p.work / 'launchctl-walk'),
+               # The engine's ECS store, so the walk opens and settles obligations for real.
+               'RICHOS_WALK_PYTHON': ctx.python}
         self.stderr_path = ctx.p.results / ('W2-walk-%s.stderr.txt' % tag)
         self.proc = subprocess.Popen([ctx.walk_binary, 'host', str(data), str(state), str(root)], stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, stderr=open(str(self.stderr_path), 'w'), env=env,
@@ -2439,12 +2443,13 @@ def spawn_via_walk(ctx, walk, thread, title, name, agent_type, seconds, timeout=
     command = "%s %s --repo %s --type %s --brief %s --model sonnet --description 'Walk teammate %s'" % (
         ctx.p.engine / 'scripts' / 'spawn.sh', name, ctx.p.entity, agent_type, brief(ctx, name, seconds), name)
     start = walk.count()
-    walk.call('relay', thread=thread, title=title, origin='desk-typed', text=FIXTURE_NOTE + (
+    given = walk.call('assign', thread=thread, title=title, origin='desk-typed', timeout=480, text=FIXTURE_NOTE + (
         'Start one teammate. Step 1: run exactly this Bash command and read its standard output:\n%s\n'
         'Step 2: its standard output is one JSON object of Agent tool parameters. Call the Agent tool ONCE with exactly '
         'those parameters, adding run_in_background set to true. Step 3: reply with the single word started.' % command))
     walk.wait_say(lambda s: s['thread'] == thread and s['kind'] == 'update', timeout, start)
     after = [r for r in ctx.worktrees() if r['worktree'] not in before]
+    ctx.spawn_handles[name] = given.get('handle')
     return after[0]['worktree'] if len(after) == 1 else None
 
 
@@ -2503,19 +2508,19 @@ def w2(ctx, r):
         ipid, ifd, record, screen = interactive_session(ctx, r)
         try:
             s6['terminal_record'] = record
-            s6['with_terminal'] = walk.call('relay', thread=A[0], title=A[1], origin='desk-typed',
+            s6['with_terminal'] = walk.call('assign', thread=A[0], title=A[1], origin='desk-typed',
                                             text='Reply with exactly: W2-CLAIM-1')
         finally:
             end_interactive(ipid, ifd)
         time.sleep(2)
-        s6['after_terminal_ended'] = walk.call('relay', thread=A[0], title=A[1], origin='desk-typed',
+        s6['after_terminal_ended'] = walk.call('assign', thread=A[0], title=A[1], origin='desk-typed',
                                                text='Reply with exactly: W2-CLAIM-2')
         opened = walk.wait_say(lambda s: s['thread'] == A[0] and 'W2-CLAIM-2' in s['text'], 240)
         s6['claim_while_running'] = json.loads(claim_file.read_text()) if claim_file.exists() else None
         # A corrupted claim: a new lead refuses and names the way through; restored after.
         good = claim_file.read_text() if claim_file.exists() else ''
         claim_file.write_text('{ corrupted by the walk')
-        s6['with_corrupt_claim'] = walk.call('relay', thread='w2-d', title='Walk D: corrupt claim', origin='desk-typed',
+        s6['with_corrupt_claim'] = walk.call('assign', thread='w2-d', title='Walk D: corrupt claim', origin='desk-typed',
                                              text='Reply with exactly: W2-D')
         claim_file.write_text(good)
         s6['pass'] = ('running in the terminal' in (s6['with_terminal'].get('error') or '')
@@ -2528,17 +2533,18 @@ def w2(ctx, r):
         # ---- step 1: a land, pushed, confirmed in Git; step 2: B picked up while A lands ----
         s1 = steps.setdefault('1', {})
         start = walk.count()
-        s1['relay'] = walk.call('relay', thread=A[0], title=A[1], origin='desk-typed', text=FIXTURE_NOTE + (
+        s1['relay'] = walk.call('assign', thread=A[0], title=A[1], origin='desk-typed', text=FIXTURE_NOTE + (
             'In the repository %s (its main checkout), create a branch named w2-land, add a file w2-land.txt holding the '
             'line walk, commit it on that branch, merge the branch into main with git merge --no-ff, and push main to '
             'origin. If a command or a hook tells you to take the land lease first, do exactly what it says, and release '
             'the lease after the push. Then call the tool mcp__richos_operator__report (find it with ToolSearch if it is '
-            'deferred) with kind outcome, text "W2 land done", and lands: one entry with repository %s, commit set to the '
-            'FULL hash of the merge commit now on main, and branch w2-land.' % (p.entity, p.entity)), timeout=240)
+            'deferred) with kind outcome, handle set to this assignment\'s handle (given at the top of this message), '
+            'text "W2 land done", and lands: one entry with repository %s, commit set to the FULL hash of the merge '
+            'commit now on main, and branch w2-land.' % (p.entity, p.entity)), timeout=480)
         s2 = steps.setdefault('2', {})
         b_sent = time.time()
-        s2['relay'] = walk.call('relay', thread=B[0], title=B[1], origin='desk-typed',
-                                text='Reply with exactly: W2-B-PICKUP', timeout=240)
+        s2['relay'] = walk.call('assign', thread=B[0], title=B[1], origin='desk-typed',
+                                text='Reply with exactly: W2-B-PICKUP', timeout=480)
         got = walk.wait_say(lambda s: s['thread'] == B[0] and 'W2-B-PICKUP' in s['text'], 240)
         s2['b_pickup_seconds'] = round(time.time() - b_sent, 2) if got else None
         s2['a_still_in_its_turn'] = not any(s['thread'] == A[0] for s in walk.says[start:] if s['kind'] in ('outcome', 'update'))
@@ -2547,22 +2553,24 @@ def w2(ctx, r):
         s1['said'] = [s for s in walk.says[start:] if s['thread'] == A[0]][-6:]
         code, out, _ = run(['git', '-C', str(p.remote), 'log', '--oneline', '-3', 'main'], timeout=60)
         s1['remote_main'] = out.strip()
-        s1['pass'] = bool(landed) and 'Landed and pushed w2-land' in (landed or {}).get('text', '')
         s1['settle_calls'] = (root / 'settle-calls.jsonl').read_text() if (root / 'settle-calls.jsonl').exists() else ''
-        left.append('step 1: the assignment is not settled in ECS: operator-complete needs the conversation\'s ECS '
-                    'binding, which only the spine mints (shell wiring)')
+        s1['settled'] = walk.call('settled', thread=A[0], handle=s1['relay'].get('handle'))
+        s1['obligation_opened'] = s1['relay'].get('obligation')
+        s1['pass'] = bool(landed) and 'Landed and pushed w2-land' in (landed or {}).get('text', '') \
+            and s1['relay'].get('relayed') is True and s1['settled'].get('state') == 'settled' \
+            and s1['obligation_opened'] == 'opened' and 'Settled' in str(s1['settled'].get('ecs'))
         left.append('steps 2 (land wait on a lease), 3, 3a, 3b, 3c: the engine side\'s fence and lease cases, walked by '
                     'its own fence suite; not repeated here')
 
         # ---- step 4: a question round trip on one handle ----------------------------------
         s4 = steps.setdefault('4', {})
-        s4['register'] = walk.call('register', thread=A[0], title='W2 question')
-        handle = s4['register'].get('handle') or 'no-handle-registered'
         start = walk.count()
-        walk.call('relay', thread=A[0], title=A[1], handle=handle, origin='desk-typed', text=FIXTURE_NOTE + (
-            'Call mcp__richos_operator__report with kind question, handle %s, and text "W2 question: blue or green?". '
-            'When his answer arrives, call the same tool with kind answer, handle %s, and text "W2 got: " followed by his '
-            'answer word. Until then reply with the single word waiting.' % (handle, handle)))
+        s4['register'] = walk.call('assign', thread=A[0], title=A[1], origin='desk-typed', timeout=480, text=FIXTURE_NOTE + (
+            'Call mcp__richos_operator__report with kind question, handle set to this assignment\'s handle (given at the '
+            'top of this message), and text "W2 question: blue or green?". When his answer arrives, call the same tool '
+            'with kind answer, the same handle, and text "W2 got: " followed by his answer word. Until then reply with '
+            'the single word waiting.'))
+        handle = s4['register'].get('handle') or 'no-handle-registered'
         q = walk.wait_say(lambda s: s['kind'] == 'question' and s.get('handle') == handle, 300, start)
         s4['question_said'] = bool(q)
         s4['answer_first'] = walk.call('answer', thread=A[0], title=A[1], handle=handle, delivery='w2-delivery-1', text='Green.')
@@ -2581,18 +2589,22 @@ def w2(ctx, r):
         s5['worktrees'] = [a_wt, b_wt]
         if a_wt and b_wt:
             start = walk.count()
-            walk.call('relay', thread=B[0], title=B[1], origin='desk-typed', text=lead_long_task(ctx, 60, 'slept'))
+            walk.call('assign', thread=B[0], title=B[1], origin='desk-typed', text=lead_long_task(ctx, 60, 'slept'))
             time.sleep(8)
             s5['before'] = {'a': ctx.liveness(a_wt)[0], 'b': ctx.liveness(b_wt)[0]}
             t0 = time.time()
-            s5['stop'] = walk.call('stop', names=['w2-sonnet-a'], words='stop w2-sonnet-a', origin='phone', timeout=120)
+            s5['stop'] = walk.call('stop', thread=B[0], title=B[1], names=['w2-sonnet-a'], words='stop w2-sonnet-a',
+                                   origin='phone', timeout=240)
             s5['stop_seconds'] = round(time.time() - t0, 2)
             s5['after'] = {'a': registry_of(ctx.liveness(a_wt)), 'b': registry_of(ctx.liveness(b_wt))}
             done = walk.wait_say(lambda s: s['thread'] == B[0] and 'slept' in s['text'].lower(), 240, start)
             s5['lead_command_finished'] = bool(done)
-            res = (s5['stop'].get('results') or [{}])[0]
-            s5['pass'] = res.get('state') == 'stopped' and res.get('detail', {}).get('registry') == 'told' \
-                and s5['after']['a'][0] == 'NOT-ALIVE' and s5['after']['b'][0] == 'ALIVE' and bool(done)
+            reply = s5['stop'].get('reply') or {}
+            log_text = (data / 'operator' / 'operator.log').read_text() if (data / 'operator' / 'operator.log').exists() else ''
+            s5['operator_log_origin'] = [l for l in log_text.splitlines() if 'stop of w2-sonnet-a' in l][-1:]
+            s5['pass'] = 'w2-sonnet-a' in (reply.get('stopped') or []) and s5['after']['a'][0] == 'NOT-ALIVE' \
+                and bool(s5['after']['a'][1]) and s5['after']['b'][0] == 'ALIVE' and bool(done) \
+                and any('Phone' in l for l in s5['operator_log_origin'])
             # His Esc: the lead's turn ends, and b stays alive.
             # The r4d run sent the second message 0 s after the first and pressed Esc 12 s
             # later, and the interrupt answered 0 still queued: nothing recorded whether the
@@ -2601,20 +2613,27 @@ def w2(ctx, r):
             # what the queued message did afterwards is recorded.
             s5b = steps.setdefault('5b', {})  # his Esc, graded on its own
             esc_start = walk.count()
-            s5b['esc_relay_long'] = walk.call('relay', thread=B[0], title=B[1], origin='desk-typed',
+            s5b['esc_relay_long'] = walk.call('assign', thread=B[0], title=B[1], origin='desk-typed',
                                              text=lead_long_task(ctx, 93, 'slept again'))
             s5b['esc_long_task_pid'] = wait_long_task(walk.proc.pid, 93, 180)
-            s5b['esc_relay_queued'] = walk.call('relay', thread=B[0], title=B[1], origin='desk-typed',
+            s5b['esc_relay_queued'] = walk.call('assign', thread=B[0], title=B[1], origin='desk-typed',
                                                text='Reply with exactly: W2-QUEUED')
             time.sleep(3)
             s5b['esc_queued_said_before_esc'] = any('W2-QUEUED' in s['text'] for s in walk.says[esc_start:])
-            s5b['esc'] = walk.call('interrupt', thread=B[0], title=B[1])
+            s5b['esc'] = walk.call('interrupt', thread=B[0], title=B[1], timeout=240)
             s5b['esc_long_task_alive_5s_after'] = bool(s5b['esc_long_task_pid']) and (time.sleep(5) or alive(s5b['esc_long_task_pid']))
             s5b['b_after_esc'] = ctx.liveness(b_wt)[0]
             ran = walk.wait_say(lambda s: s['thread'] == B[0] and 'W2-QUEUED' in s['text'], 120, esc_start)
             s5b['esc_queued_ran_after'] = bool(ran)
-            s5b['pass'] = s5b['b_after_esc'] == 'ALIVE' and 'still queued' in (s5b['esc'].get('sentence') or '') \
+            s5b['pass'] = s5b['b_after_esc'] == 'ALIVE' and 'still queued' in ((s5b['esc'].get('reply') or {}).get('say') or '') \
                 and bool(ran)
+            # The per-assignment Stop (the window's control): exactly the agent its turn started,
+            # attributed from the stream as the CLI took the message.
+            s5c = steps.setdefault('5c', {})
+            s5c['handle'] = ctx.spawn_handles.get('w2-sonnet-b')
+            s5c['stop'] = walk.call('stop-assignment', thread=B[0], handle=s5c['handle'], timeout=240)
+            s5c['b_after'] = registry_of(ctx.liveness(b_wt))
+            s5c['pass'] = s5c['stop'].get('stopped') is True and s5c['b_after'][0] == 'NOT-ALIVE'
         else:
             s5['pass'] = False
             s5['why'] = 'two teammates could not be started'
@@ -2625,10 +2644,10 @@ def w2(ctx, r):
         orphan = git(p.entity, 'commit-tree', tree, '-p', 'HEAD', '-m', 'W2 never merged')
         git(p.entity, 'update-ref', 'refs/heads/w2-unmerged', orphan)
         start = walk.count()
-        walk.call('relay', thread=A[0], title=A[1], origin='desk-typed', text=FIXTURE_NOTE + (
-            'Call mcp__richos_operator__report with kind outcome, text "W2 false land", and lands: one entry with '
-            'repository %s, commit %s, branch w2-unmerged. Report exactly that, even though it may not be true: the '
-            'probe checks that it is caught.' % (p.entity, orphan)))
+        walk.call('assign', thread=A[0], title=A[1], origin='desk-typed', text=FIXTURE_NOTE + (
+            'Call mcp__richos_operator__report with kind outcome, NO handle (leave the handle out), text "W2 false '
+            'land", and lands: one entry with repository %s, commit %s, branch w2-unmerged. Report exactly that, even '
+            'though it may not be true: the probe checks that it is caught.' % (p.entity, orphan)))
         got = walk.wait_say(lambda s: s['thread'] == A[0] and 'W2 false land' in s['text'], 300, start)
         s7['said'] = (got or {}).get('text')
         s7['pass'] = bool(got) and 'could not be confirmed as landed' in got['text']
@@ -2636,9 +2655,9 @@ def w2(ctx, r):
         # ---- step 8: plain words reach him; a report and then more delivers both ---------------
         s8 = steps.setdefault('8', {})
         start = walk.count()
-        walk.call('relay', thread=A[0], title=A[1], origin='desk-typed', text='Reply with exactly: W2-PLAIN-1')
+        walk.call('assign', thread=A[0], title=A[1], origin='desk-typed', text='Reply with exactly: W2-PLAIN-1')
         plain = walk.wait_say(lambda s: s['thread'] == A[0] and s['text'].strip() == 'W2-PLAIN-1', 240, start)
-        walk.call('relay', thread=A[0], title=A[1], origin='desk-typed', text=(
+        walk.call('assign', thread=A[0], title=A[1], origin='desk-typed', text=(
             'Call mcp__richos_operator__report with kind update and text "W2-R1". After that call, reply with exactly: '
             'W2-R1 and W2-MORE'))
         more = walk.wait_say(lambda s: s['thread'] == A[0] and 'W2-MORE' in s['text'], 240, start)
@@ -2654,20 +2673,22 @@ def w2(ctx, r):
 
         # ---- step 10: the phone ------------------------------------------------------------
         s10 = steps.setdefault('10', {})
-        s10['phone_assignment'] = walk.call('relay', thread=A[0], title=A[1], handle=handle, origin='phone',
+        s10['phone_assignment'] = walk.call('assign', thread=A[0], title=A[1], origin='phone',
                                             text='Land something from my phone.')
-        s10['no_origin'] = walk.call('relay', thread=A[0], title=A[1], origin='none', text='A proactive thought.')
-        s10['phone_stop'] = 'step 5\'s stop was said on the phone'
-        s10['pass'] = s10['phone_assignment'].get('relayed') is False and bool(s10['phone_assignment'].get('sentence')) \
-            and s10['no_origin'].get('relayed') is False and not s10['no_origin'].get('sentence')
-        left.append('step 10: the spine does not yet carry the intake channel to the host (r3 (s): a new optional field '
-                    'on the prompt record); the walk hands the origin in directly')
+        s10['phone_settled'] = walk.call('settled', thread=A[0], handle=s10['phone_assignment'].get('handle'))
+        s10['no_origin'] = walk.call('assign', thread=A[0], title=A[1], origin='unrecorded', text='An unrecorded thought.')
+        s10['phone_stop'] = 'step 5\'s stop was said on the phone; the operator log names its origin'
+        s10['pass'] = s10['phone_assignment'].get('relayed') is False \
+            and 'only takes work from the Mac' in (s10['phone_assignment'].get('sentence') or '') \
+            and s10['phone_settled'].get('state') == 'failed' \
+            and s10['no_origin'].get('relayed') is False \
+            and "can't tell where this was asked from" in (s10['no_origin'].get('sentence') or '')
 
         # ---- step 11: the app's death takes the whole tree with it ----------------------------
         s11 = steps.setdefault('11', {})
         hb = p.work / 'w2-heartbeat-a.txt'
         start = walk.count()
-        walk.call('relay', thread=A[0], title=A[1], origin='desk-typed', text=FIXTURE_NOTE + (
+        walk.call('assign', thread=A[0], title=A[1], origin='desk-typed', text=FIXTURE_NOTE + (
             'Start this Bash command with run_in_background set to true, then reply started: %s' % heartbeat_command(hb)))
         walk.wait_say(lambda s: s['thread'] == A[0] and 'started' in s['text'].lower(), 240, start)
         deadline = time.time() + 60
@@ -2682,8 +2703,8 @@ def w2(ctx, r):
         log = root / 'operator.log'
         s11['operator_log_tail'] = log.read_text()[-2500:] if log.exists() else ''
         walk = Walk(ctx, data, state, root, 'relaunched')
-        s11['leads_before_a_message'] = walk.call('read', thread=A[0], every=True).get('read')
-        walk.call('relay', thread=A[0], title=A[1], origin='desk-typed', text='Reply with exactly: W2-RESUMED')
+        s11['leads_before_a_message'] = (walk.call('read', thread=A[0], every=True).get('reply') or {}).get('conversations')
+        walk.call('assign', thread=A[0], title=A[1], origin='desk-typed', text='Reply with exactly: W2-RESUMED')
         got = walk.wait_say(lambda s: s['thread'] == A[0] and 'W2-RESUMED' in s['text'], 240)
         s11['resumed_answer'] = bool(got)
         s11['resumed_in_log'] = 'resumed' in (log.read_text() if log.exists() else '')
@@ -2695,15 +2716,15 @@ def w2(ctx, r):
         E, F = ('w2-e', 'Walk E: idle'), ('w2-f', 'Walk F: busy')
         hb_f = p.work / 'w2-heartbeat-f.txt'
         start = walk.count()
-        walk.call('relay', thread=E[0], title=E[1], origin='desk-typed', text='Reply with exactly: W2-IDLE-1')
-        walk.call('relay', thread=F[0], title=F[1], origin='desk-typed', text=FIXTURE_NOTE + (
+        walk.call('assign', thread=E[0], title=E[1], origin='desk-typed', text='Reply with exactly: W2-IDLE-1')
+        walk.call('assign', thread=F[0], title=F[1], origin='desk-typed', text=FIXTURE_NOTE + (
             'Start this Bash command with run_in_background set to true, then reply started: %s' % heartbeat_command(hb_f)))
         walk.wait_say(lambda s: s['thread'] == E[0] and 'W2-IDLE-1' in s['text'], 240, start)
         walk.wait_say(lambda s: s['thread'] == F[0] and 'started' in s['text'].lower(), 240, start)
         time.sleep(8)
         s13['retired'] = walk.call('retire', idle_seconds=5).get('retired')
         start = walk.count()
-        walk.call('relay', thread=E[0], title=E[1], origin='desk-typed',
+        walk.call('assign', thread=E[0], title=E[1], origin='desk-typed',
                   text='What is the fixture watchword? Reply with the watchword only.')
         got = walk.wait_say(lambda s: s['thread'] == E[0] and 'PERIWINKLE-4417' in s['text'], 240, start)
         s13['resumed_answer'] = (got or {}).get('text')
@@ -2713,11 +2734,13 @@ def w2(ctx, r):
         # ---- step 12: quit with an agent running names it, then stops everything -----------
         s12 = steps.setdefault('12', {})
         s12['team_before_quit'] = walk.call('team')
+        s12['work_leases'] = walk.call('lease-spawns')
         s12['quit'] = walk.quit()
         s12['heartbeat_f_stopped'] = heartbeat_stopped(hb_f, 6)
-        s12['pass'] = s12['heartbeat_f_stopped']
-        left.append('step 12: the quit sheet that names running agents is the shell\'s; the walk reads the team '
-                    'reading it would name them from')
+        s12['pass'] = s12['heartbeat_f_stopped'] and bool(s12['team_before_quit'].get('quit_sheet')) \
+            and s12['work_leases'].get('work_leases_opened') == 0
+        left.append('step 12: the quit sheet\'s rendering is the window\'s; the walk shows the sentence it would say, '
+                    'from the reading the shell takes inside its exit callback')
     finally:
         if walk.proc.poll() is None:
             walk.quit()

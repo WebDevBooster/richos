@@ -65,6 +65,20 @@ case "$reply" in
   *) bad "W4 got: $reply" ;;
 esac
 
+# W6: the front desk's operator tools are the app's own server too: it speaks MCP, carries
+# Sage's front-desk addendum as its instructions, and refuses without a scope.
+reply="$(printf '%s\n%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read","arguments":{}}}' \
+  | "$WALK" --operator-desk-mcp "$SCRATCH/no-desk-scope.json")"
+if printf '%s' "$reply" | grep -q '"serverInfo":{"name":"richos_operator"' \
+  && printf '%s' "$reply" | grep -q 'Operator mode: the other one is his own team' \
+  && printf '%s' "$reply" | grep -q 'RichOS has not opened your team to this conversation yet'; then
+  ok "W6 the front desk's operator tools answer, carry the addendum, and refuse with no scope"
+else
+  bad "W6 got: $reply"
+fi
+
 # W5: every mutant of the mutation harness still applies, and names a test that exists.
 if out="$(python3 "$APP/scripts/operator-mutations.py" --check 2>&1)"; then
   ok "W5 $out"
