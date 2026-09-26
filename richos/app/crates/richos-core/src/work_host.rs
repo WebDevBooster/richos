@@ -101,6 +101,23 @@ pub trait WorkNotifier: Send + Sync {
     fn nothing_left_to_do(&self) {}
 }
 
+/// **His team, on an operator install** — the operator back end's app side (richos-hq
+/// `docs/verification/2026-09-25-operator-client/README.md` §7 item 1: *"an operator
+/// assignment is relayed (with its handle) rather than put on a work lease"*).
+///
+/// Installed by the shell only when `operator.json` passed the gate at launch
+/// ([`WorkHost::set_operator`]); with none installed this host is the product's, unchanged.
+/// With one installed, **every adopted assignment goes to it and none ever reaches a work
+/// lease**: the operator desk relays it to that conversation's lead, or closes it with the
+/// sentence that says why not. The per-assignment Stop goes to it too.
+pub trait OperatorIntake: Send + Sync {
+    /// Take one adopted assignment. Returns at once: the hand-over runs on the intake's own
+    /// thread, because a lead's first start is seconds and must never sit inside his send.
+    fn take(&self, record: Assignment);
+    /// The per-assignment Stop (r3 (d) item 5). `Err` is the sentence he is shown.
+    fn stop(&self, entity: &str, thread: &str, id: &str) -> Result<(), String>;
+}
+
 /// The default: say nothing to anybody. Used by tests that are asserting on the durable
 /// record, which is the half that has to be right.
 pub struct SilentNotifier;
@@ -282,6 +299,9 @@ pub struct WorkHost {
     /// slept two seconds per sample is a test nobody runs.
     screen_poll: Mutex<std::time::Duration>,
     quota: Mutex<Option<Arc<crate::quota::Service>>>,
+    /// **His team, when this is an operator install** ([`OperatorIntake`]). `None` on every
+    /// product install, which is what keeps this host byte for byte what it was.
+    operator: Mutex<Option<Arc<dyn OperatorIntake>>>,
 }
 
 /// The context window this build assumes while a back end has reported nothing, and the
@@ -412,7 +432,14 @@ impl WorkHost {
             screen: Mutex::new(Arc::new(crate::screen::UnknownScreen)),
             screen_poll: Mutex::new(crate::screen::SCREEN_POLL),
             quota: Mutex::new(None),
+            operator: Mutex::new(None),
         })
+    }
+
+    /// **Hand every assignment from here on to his team** (operator mode, decided once at
+    /// launch by the shell). See [`OperatorIntake`].
+    pub fn set_operator(&self, intake: Arc<dyn OperatorIntake>) {
+        *self.operator.lock().unwrap() = Some(intake);
     }
 
     pub fn set_quota(&self, quota: Arc<crate::quota::Service>) {
@@ -582,6 +609,13 @@ impl WorkHost {
     /// Put one assignment on the queue exactly once. `false` means the host is closing.
     fn enqueue(self: &Arc<Self>, binding: &ThreadBinding, record: Assignment) -> bool {
         if !self.seen.lock().unwrap().insert(record.id.clone()) {
+            return true;
+        }
+        // **On an operator install the assignment is his team's, and never a lease's.** The
+        // intake closes it itself if it cannot hand it over, so it is never left registered.
+        let operator = self.operator.lock().unwrap().clone();
+        if let Some(operator) = operator {
+            operator.take(record);
             return true;
         }
         self.schedule(binding, record, false)
@@ -1926,6 +1960,11 @@ impl WorkHost {
     /// §5.4: *"Stopping one assignment revokes one grant and one seat and leaves every
     /// other assignment's pair alone."*
     pub fn stop_assignment(&self, entity: &str, thread: &str, id: &str) -> Result<(), String> {
+        // His team's assignment is stopped by stopping its agents, on his team's desk.
+        let operator = self.operator.lock().unwrap().clone();
+        if let Some(operator) = operator {
+            return operator.stop(entity, thread, id);
+        }
         let record = assignment::read(&self.state, entity, thread, id).map_err(|e| e.to_string())?;
         if !record.state.is_open() {
             return Err("That assignment has already stopped.".into());
@@ -2006,6 +2045,17 @@ impl WorkHost {
     /// because §6.5 insists they are different sentences and only one of them is about him.
     /// A register that cannot be read is `readable: false` — never a zero.
     pub fn background_work(&self) -> crate::work_gate::BackgroundWork {
+        // **On an operator install the register is not what says whether his team is
+        // running** (r3 (m)): an assignment stays open until his lead reports on it, which may
+        // be never, and counting it would hold every update and keep a windowless app alive
+        // for nothing. The shell reads `work_gate::operator_team` for that. An unreadable
+        // register is still never read as zero.
+        if self.operator.lock().unwrap().is_some() {
+            return match self.open_assignments() {
+                Ok(_) => crate::work_gate::BackgroundWork::nothing(),
+                Err(_) => crate::work_gate::BackgroundWork { running: 0, awaiting_you: 0, readable: false },
+            };
+        }
         match self.open_assignments() {
             Ok(open) => {
                 let awaiting_you = open.iter().filter(|row| self.pending_decision(row).is_some()).count();
@@ -2808,6 +2858,54 @@ mod tests {
             repositories: vec!["/fictional/project".into()],
             needs_screen: false,
         }
+    }
+
+    /// An operator intake that records what it was handed.
+    #[derive(Default)]
+    struct TakenBy {
+        taken: Mutex<Vec<String>>,
+        stopped: Mutex<Vec<String>>,
+    }
+    impl OperatorIntake for TakenBy {
+        fn take(&self, record: Assignment) {
+            self.taken.lock().unwrap().push(record.id);
+        }
+        fn stop(&self, _entity: &str, _thread: &str, id: &str) -> Result<(), String> {
+            self.stopped.lock().unwrap().push(id.to_string());
+            Ok(())
+        }
+    }
+
+    /// **On an operator install every assignment is his team's and none opens a work lease**
+    /// (the operator-client record's §7 item 1). The adopted assignment goes to the intake
+    /// once, however often the boundary sweeps; its Stop goes there too; the register no
+    /// longer speaks for his team in the update gate. The same host with no intake is the
+    /// product's: the positive control, in the same test, where the lease IS opened.
+    #[test]
+    fn an_operator_install_hands_every_assignment_to_his_team_and_opens_no_work_lease() {
+        let h = harness(0);
+        let intake = Arc::new(TakenBy::default());
+        h.host.set_operator(intake.clone());
+        let receipt = assignment::register_kind(&h.state, &registration(&h), assignment::AssignmentKind::Task).unwrap();
+        assert_eq!(h.host.adopt_registered(&h.binding), 1);
+        assert_eq!(h.host.adopt_registered(&h.binding), 0, "adopted once");
+        assert_eq!(*intake.taken.lock().unwrap(), std::slice::from_ref(&receipt.id));
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 0, "no work lease was opened for his team's assignment");
+        assert_eq!(h.host.background_work(), crate::work_gate::BackgroundWork::nothing(),
+                   "the register does not speak for his team");
+        assert_eq!(h.host.stop_assignment("depot", "thread-one", &receipt.id), Ok(()));
+        assert_eq!(*intake.stopped.lock().unwrap(), std::slice::from_ref(&receipt.id));
+
+        // The positive control: the same registration on a product host reaches a lease.
+        let product = harness(0);
+        assignment::register_kind(&product.state, &registration(&product), assignment::AssignmentKind::Task).unwrap();
+        assert_eq!(product.host.adopt_registered(&product.binding), 1);
+        let began = std::time::Instant::now();
+        while product.spawns.load(Ordering::SeqCst) == 0 && began.elapsed() < std::time::Duration::from_secs(10) {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(product.spawns.load(Ordering::SeqCst), 1, "the product host opens its lease");
     }
 
     #[test]

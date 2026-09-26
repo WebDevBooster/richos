@@ -650,7 +650,7 @@ guest is one too, and the native updater writes `installMethod:"native"` with
 ignored. A config pin would have **looked set and done nothing**, which is the worst shape
 a pin can have.
 
-#### The login: copied per run, so it cannot go stale
+#### The login: an access snapshot with no refresh capability
 
 `claude-login.sh push`, called by `run.sh` after `keychain.sh prepare` and before the app
 launches:
@@ -659,12 +659,20 @@ launches:
 claude login: guest logged in
 ```
 
-**What "expires" means in here.** The guest never holds a login longer than one run. The
-fixture home is a fresh copy each run and the clone is destroyed at `stop.sh`, so an
-expired token in the guest is impossible *across* runs; within a run, the guest holds
-exactly what this Mac holds, because it was copied from it minutes earlier. If **this
-Mac** is not signed in, `run.sh` stops before booting anything:
-*"host claude is not logged in — /login on the host first"*.
+`claude-login.sh` now sends only `accessToken`, `expiresAt`, `scopes`,
+`subscriptionType` and `rateLimitTier` from the selected host credential. It never
+sends `refreshToken`, its expiry or other credential-store entries. Both guest
+file stores and both keychain entries receive this same restricted snapshot.
+Malformed or expired source credentials are refused before any guest write.
+
+The snapshot **can expire during a run**. This prevents a disposable VM from
+rotating the host login; it does not promise unattended authentication forever.
+For long model runs, provision a fresh snapshot from the host or use a separately
+managed automation credential. Do not restore refresh-token copying. A stored
+item's presence or byte count proves storage only, not successful authentication.
+
+The following measurements describe the old full-copy implementation, not live
+verification of the restricted snapshot:
 
 **Measured, 2026-09-20** (`docs/verification/2026-09-20-claude-binary-and-login-in-the-test-vm.md`):
 the credential file lands at **524 bytes in the guest, matching this Mac's credential byte for
@@ -706,11 +714,10 @@ for, and being wrong, costs a whole walk. The account written is the **guest's**
 never the host's — an item filed under `alex` would never be found by an app running as
 `admin`.
 
-**The one open question, and it is not answered yet.** Whether a token *refresh* performed
-inside the guest rotates the credential and invalidates the copy this Mac holds — i.e.
-whether a long walk in the VM can log the host out — is **unverified**. Nothing here has
-been observed doing it, and no run so far has been long enough to force a refresh. It is
-the first thing to check the next time a walk in the guest outlives an access token.
+The old implementation left cross-machine refresh rotation as an open question.
+The current boundary removes that capability regardless of whether it caused a
+particular outage. Do not deliberately rotate the production login to test it;
+the harness tests inspect every guest payload using synthetic credentials.
 
 ### Graphics
 

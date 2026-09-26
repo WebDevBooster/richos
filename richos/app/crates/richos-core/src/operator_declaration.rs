@@ -224,6 +224,12 @@ impl Refusal {
 /// The sentence for a valid declaration on a build that does not carry the operator back end
 /// yet. **Not the product path**: B8's reason holds for a valid file exactly as for a broken
 /// one, so the customer worker never runs on an install that has the file.
+/// **A declaration that appeared after this launch.** Operator mode is decided once, when the
+/// app starts (the shell builds his team's desk only then), so a file written later is refused
+/// by the work lease's gate rather than half-honored, and never becomes the product path.
+pub const SWITCHED_ON_AFTER_LAUNCH: &str =
+    "Your team was switched on after RichOS started, so no background work will start. Quit RichOS and open it again.";
+
 pub const NOT_IN_THIS_BUILD: &str =
     "Your team is switched on for this Mac, but this build of RichOS can't run it yet, so no background work will start.";
 

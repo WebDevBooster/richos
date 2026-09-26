@@ -741,6 +741,27 @@ Three rules for whoever renders it:
 is attempted, and the surface reads the durable store when the conversation opens and again at
 every turn boundary.
 
+## His team, on an operator install: `rich://operator-notice`
+
+Added 2026-09-26 with the shell wiring of the operator back end (the operator-client record of
+2026-09-25, §7 item 1, in the private richos-hq repository). Source of truth:
+`richos/app/src-tauri/src/main.rs` — the constant `EVENT_OPERATOR_NOTICE` and
+`operator_desk_at_boot`; the notices themselves are `richos-core`'s
+`operator_runtime::OperatorNotice`, written by `operator_host.rs`.
+
+| Event name | When | Payload |
+|---|---|---|
+| `rich://operator-notice` | His team (one lead per conversation) said something: an update or its turn's own final words, a question, an answer, an outcome or failure on an assignment, one of his engine's alarms, or something about the team itself (it ended, a stop's result, his Esc). Only on an install whose `operator.json` passed the gate at launch; never on any other. | `{ threadId, notice: { at_ms, handle, kind, text, delivered_at_ms } }` |
+
+`kind` is one of `update`, `question`, `answer`, `outcome`, `failed`, `alarm`, `team`.
+`handle` is the assignment the notice is about, or `null` for the conversation.
+
+**The same two halves as `rich://work-notice`, for the same reason.** The notice is appended to
+`<app data>/operator/<entity>/<thread>/notices.jsonl` before this is emitted, and
+`take_operator_notices` reads AND marks the durable copy. The surface that renders these (the
+record's item 4) is not built yet; until it is, the durable copy keeps every notice and this
+event reaches nobody, which loses nothing.
+
 ## Quitting while work runs: `rich://quit-question`
 
 The ninth family, added 2026-09-17 with the window-closed process model (the background-work

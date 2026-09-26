@@ -390,6 +390,21 @@ pub enum Event {
         /// utterance end), so this field is only ever written where the answer is known.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         rich_audible: Option<bool>,
+        /// **WHICH MOUTH HIS WORDS CAME THROUGH** — `"desk"` for the Mac's own composer and
+        /// microphone, `"phone"` for a paired phone (`steering::IntakeRecord::Channel`'s own
+        /// value), written only on an install whose spine was told to keep it (operator
+        /// back-end spec r3 (s): *"On an operator install the spine keeps the intake's
+        /// `channel` on the prompt record, a new optional field the product path does not
+        /// read"*).
+        ///
+        /// **`None` is "not recorded", never "the desk"**, the same three-state discipline as
+        /// `rich_audible` above: every product turn, every turn written before this field
+        /// existed, and every internal or proactive turn reads back as `None`, and a reader
+        /// that must decide who may give work (`operator_host::Origin::of_turn`) treats it as
+        /// no origin at all. That is what keeps a phone sentence recorded before the keeping
+        /// began from being read as one typed at the desk.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        channel: Option<String>,
     },
     TurnStarted { turn_id: String, session_id: String, at: u64 },
     /// A streamed partial reply chunk — persisted incrementally so a half-written
@@ -622,6 +637,10 @@ pub struct Turn {
     /// meaning; the short version is that **`None` is "not recorded" and never "no"**.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rich_audible: Option<bool>,
+    /// Which mouth his words came through, when this install keeps it. See
+    /// `Event::PromptReceived::channel`: **`None` is "not recorded"**, never "the desk".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
 }
 
 impl Turn {
@@ -1031,6 +1050,7 @@ impl Ledger {
                 binding_revision,
                 intake_id,
                 rich_audible,
+                channel,
             } => {
                 self.observe_revision(binding_revision);
                 self.turns.push(Turn {
@@ -1056,6 +1076,7 @@ impl Ledger {
                     upstream_failure: None,
                     interruption: None,
                     rich_audible,
+                    channel,
                 });
             }
             Event::TurnStarted { turn_id, session_id, at } => {
@@ -1173,6 +1194,7 @@ impl Ledger {
                     // only one: `Some(false)` here would assert a measurement of a microphone
                     // that was never opened.
                     rich_audible: None,
+                    channel: None,
                 });
             }
             Event::HandoffSummaryUpdated { thread_id, summary, .. } => {
@@ -1657,7 +1679,7 @@ impl Ledger {
         text: &str,
         source: Source,
     ) -> Result<String, LedgerError> {
-        self.record_prompt_received_with(binding, text, source, None, None)
+        self.record_prompt_received_with(binding, text, source, None, None, None)
     }
 
     /// As above for a SPOKEN turn, stamping what the capture path knew about Rich's own
@@ -1674,7 +1696,7 @@ impl Ledger {
         source: Source,
         rich_audible: bool,
     ) -> Result<String, LedgerError> {
-        self.record_prompt_received_with(binding, text, source, None, Some(rich_audible))
+        self.record_prompt_received_with(binding, text, source, None, Some(rich_audible), None)
     }
 
     /// As above, stamping the `steering::IntakeLog` record this turn was drained from
@@ -1687,7 +1709,25 @@ impl Ledger {
         source: Source,
         intake_id: u64,
     ) -> Result<String, LedgerError> {
-        self.record_prompt_received_with(binding, text, source, Some(intake_id), None)
+        self.record_prompt_received_with(binding, text, source, Some(intake_id), None, None)
+    }
+
+    /// **The same record, with the mouth his words came through** (operator back-end spec r3
+    /// (s)). Called only by a spine told to keep it
+    /// ([`crate::spine::Spine::keep_intake_channel`]), so every product install keeps writing
+    /// exactly the lines the three calls above write. It carries the other two stamps too,
+    /// because a kept channel must not cost a spoken turn its audibility or an intake turn its
+    /// de-duplication key.
+    pub fn record_prompt_received_via(
+        &mut self,
+        binding: &ThreadBinding,
+        text: &str,
+        source: Source,
+        intake_id: Option<u64>,
+        rich_audible: Option<bool>,
+        channel: &str,
+    ) -> Result<String, LedgerError> {
+        self.record_prompt_received_with(binding, text, source, intake_id, rich_audible, Some(channel))
     }
 
     fn record_prompt_received_with(
@@ -1697,6 +1737,7 @@ impl Ledger {
         source: Source,
         intake_id: Option<u64>,
         rich_audible: Option<bool>,
+        channel: Option<&str>,
     ) -> Result<String, LedgerError> {
         self.verify_binding(binding)?;
         let turn_id = new_id("turn");
@@ -1711,6 +1752,7 @@ impl Ledger {
                 binding_revision: binding.binding_revision(),
                 intake_id,
                 rich_audible,
+                channel: channel.map(str::to_string),
             },
             true, // fsync — never lose the CEO's input
         )?;
@@ -2171,6 +2213,38 @@ mod tests {
         std::fs::remove_file(path).unwrap();
     }
 
+    /// **THE MOUTH HIS WORDS CAME THROUGH, KEPT ON THE PROMPT RECORD** (operator back-end spec
+    /// r3 (s): *"the spine keeps the intake's `channel` on the prompt record, a new optional
+    /// field the product path does not read"*). A turn recorded with a channel keeps it across
+    /// a restart, with its intake id beside it; every turn recorded without one writes no
+    /// `channel` key at all, so the lines a product install writes are what they were.
+    #[test]
+    fn a_turn_keeps_the_channel_it_was_recorded_with_and_one_without_writes_no_channel_key() {
+        let path = std::env::temp_dir().join(crate::util::new_id("ledger-channel"));
+        let entity = EntityId::parse("acme").unwrap();
+        let mut ledger = Ledger::open(&path).unwrap();
+        let thread = ledger.create_thread("Pricing", &entity).unwrap();
+        let binding = ledger.thread_binding(&thread).unwrap();
+        let phone = ledger.record_prompt_received_via(&binding, "from the couch", Source::Text, Some(7), None, "phone").unwrap();
+        let spoken = ledger.record_prompt_received_via(&binding, "at the desk, aloud", Source::Jam, None, Some(false), "desk").unwrap();
+        let typed = ledger.record_prompt_received(&binding, "at the desk", Source::Text).unwrap();
+        let drained = ledger.record_prompt_received_from_intake(&binding, "no mouth kept", Source::Text, 8).unwrap();
+        drop(ledger);
+        let ledger = Ledger::open(&path).unwrap();
+        let turn = |id: &str| ledger.turn(id).unwrap().clone();
+        assert_eq!(turn(&phone).channel.as_deref(), Some("phone"));
+        assert_eq!(turn(&phone).intake_id, Some(7), "the de-duplication key rides beside the channel");
+        assert_eq!(turn(&spoken).channel.as_deref(), Some("desk"));
+        assert_eq!(turn(&spoken).rich_audible, Some(false), "a spoken turn keeps its audibility too");
+        assert_eq!(turn(&typed).channel, None, "not recorded is None, never a guessed mouth");
+        assert_eq!(turn(&drained).channel, None);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let prompts: Vec<&str> = text.lines().filter(|l| l.contains("\"PromptReceived\"")).collect();
+        assert_eq!(prompts.len(), 4);
+        assert_eq!(prompts.iter().filter(|l| l.contains("\"channel\"")).count(), 2, "{text}");
+        std::fs::remove_file(path).unwrap();
+    }
+
     #[test]
     fn accepted_prompt_survives_restart_after_a_torn_tail() {
         let path = std::env::temp_dir().join(crate::util::new_id("ledger-tail"));
@@ -2285,6 +2359,7 @@ mod tests {
             upstream_failure: None,
             interruption: None,
             rich_audible: None,
+            channel: None,
         };
         // IN FLIGHT: unknown, never `now() - started_at` (UX §6.3's twelve-hour trap).
         assert_eq!(turn.active_ms(), None);

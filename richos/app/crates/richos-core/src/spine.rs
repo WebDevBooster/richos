@@ -220,6 +220,11 @@ impl ContextSource {
 /// phrase somebody typed twice.
 pub const STOPPED_BY_CEO: &str = "stopped_by_ceo";
 
+/// The mouth every sentence typed or spoken at the Mac is recorded under, on an install that
+/// keeps it (operator back-end spec r3 (s); `ledger::Event::PromptReceived::channel`). A
+/// phone's is the intake record's own value, `"phone"`.
+pub const DESK_CHANNEL: &str = "desk";
+
 /// How far back the correction trigger looks for the wrong form it is being asked to fix.
 ///
 /// Eight messages is four exchanges. It is a WINDOW rather than the whole thread for the
@@ -588,6 +593,11 @@ pub struct Spine {
     /// If set while a turn is in flight, honored at the NEXT turn boundary instead of
     /// firing mid-turn.
     pending_rotation_reason: Option<String>,
+    /// **Keep the mouth his words came through on each prompt record** (operator back-end
+    /// spec r3 (s)). Off unless the shell turns it on, which it does only on an install whose
+    /// `operator.json` passed the gate at launch, so every product install writes exactly the
+    /// ledger lines it wrote before. See `ledger::Event::PromptReceived::channel`.
+    keep_intake_channel: bool,
     /// Proactive-message UI events deferred because a turn was in flight when raised.
     pending_proactive_emits: VecDeque<QueuedProactiveEmit>,
     rotation_count: u64,
@@ -790,6 +800,7 @@ impl Spine {
             context_window_tokens: DEFAULT_CONTEXT_WINDOW_TOKENS,
             watermark_ratio: DEFAULT_WATERMARK_RATIO,
             pending_rotation_reason: None,
+            keep_intake_channel: false,
             pending_proactive_emits: VecDeque::new(),
             rotation_count: 0,
             last_rotation_reason: None,
@@ -2242,6 +2253,14 @@ impl Spine {
         self.submit_prompt(text, source)
     }
 
+    /// **Keep the mouth each prompt came through on its ledger record** (operator back-end
+    /// spec r3 (s); the operator-client record's §7 item 3). Turned on by the shell only on an
+    /// operator install, before the first turn, so the host can tell a phone assignment from
+    /// one given at the desk without the walk handing it in. Never turned on anywhere else.
+    pub fn keep_intake_channel(&mut self, keep: bool) {
+        self.keep_intake_channel = keep;
+    }
+
     pub fn submit_prompt(&mut self, text: &str, source: Source) -> Result<String, SpineError> {
         self.submit_prompt_inner(text, source, None)
     }
@@ -2273,7 +2292,7 @@ impl Spine {
         rich_audible: Option<bool>,
     ) -> Result<String, SpineError> {
         let binding = self.ensure_active_thread()?;
-        let turn_id = self.accept_prompt(&binding, text, source, rich_audible, None)?;
+        let turn_id = self.accept_prompt(&binding, text, source, rich_audible, None, DESK_CHANNEL)?;
 
         // (2) if a turn is already running, queue it (never interrupt / never kill workers).
         //     The BINDING rides along, so a context switch while it waits cannot re-scope it.
@@ -2294,6 +2313,46 @@ impl Spine {
         boundary?;
         queued?;
         Ok(turn_id)
+    }
+
+    /// **The one durable write of a sentence of his**, with the mouth it came through when
+    /// this install keeps it (operator back-end spec r3 (s); [`Self::keep_intake_channel`]).
+    /// With keeping off, this is exactly the write each road made before, byte for byte: the
+    /// channel is never written on a product install.
+    fn record_prompt(
+        &mut self,
+        binding: &ThreadBinding,
+        text: &str,
+        source: Source,
+        rich_audible: Option<bool>,
+        intake_id: Option<u64>,
+        channel: &str,
+    ) -> Result<String, SpineError> {
+        if self.keep_intake_channel {
+            return Ok(self.ledger.record_prompt_received_via(binding, text, source, intake_id, rich_audible, channel)?);
+        }
+        Ok(match (rich_audible, intake_id) {
+            (Some(audible), None) => {
+                self.ledger.record_prompt_received_spoken(binding, text, source, audible)?
+            }
+            (None, Some(id)) => {
+                self.ledger.record_prompt_received_from_intake(binding, text, source, id)?
+            }
+            (None, None) => self.ledger.record_prompt_received(binding, text, source)?,
+            // A SPOKEN prompt off the intake log. Nothing constructs one today — the intake
+            // log's three utterance records are all typed — and rather than invent a ledger
+            // call for a combination no caller has, the durable write keeps the intake id,
+            // because that is the half a crash can duplicate. Named here so the day it has a
+            // caller it is a decision and not a discovery.
+            (Some(audible), Some(id)) => {
+                let turn = self.ledger.record_prompt_received_from_intake(binding, text, source, id)?;
+                eprintln!(
+                    "[richos] a spoken prompt arrived off the intake log (turn {turn}, audible \
+                     {audible}); its audibility is not recorded — no caller builds this today"
+                );
+                turn
+            }
+        })
     }
 
     /// **ACCEPTING one CEO utterance: everything that happens between his sentence arriving
@@ -2326,31 +2385,11 @@ impl Spine {
         source: Source,
         rich_audible: Option<bool>,
         intake_id: Option<u64>,
+        channel: &str,
     ) -> Result<String, SpineError> {
         // (1) persist-before-send, under a verified scope — the message is durable before
         //     any risk, and it is never durable without an entity.
-        let turn_id = match (rich_audible, intake_id) {
-            (Some(audible), None) => {
-                self.ledger.record_prompt_received_spoken(binding, text, source, audible)?
-            }
-            (None, Some(id)) => {
-                self.ledger.record_prompt_received_from_intake(binding, text, source, id)?
-            }
-            (None, None) => self.ledger.record_prompt_received(binding, text, source)?,
-            // A SPOKEN prompt off the intake log. Nothing constructs one today — the intake
-            // log's three utterance records are all typed — and rather than invent a ledger
-            // call for a combination no caller has, the durable write keeps the intake id,
-            // because that is the half a crash can duplicate. Named here so the day it has a
-            // caller it is a decision and not a discovery.
-            (Some(audible), Some(id)) => {
-                let turn = self.ledger.record_prompt_received_from_intake(binding, text, source, id)?;
-                eprintln!(
-                    "[richos] a spoken prompt arrived off the intake log (turn {turn}, audible \
-                     {audible}); its audibility is not recorded — no caller builds this today"
-                );
-                turn
-            }
-        };
+        let turn_id = self.record_prompt(binding, text, source, rich_audible, intake_id, channel)?;
 
         // ADDITIVE (§13): the turn is durably `received`, so its first authoritative state
         // transition is emittable — §11's `queued`, the state whose timeline treatment is
@@ -3285,8 +3324,7 @@ impl Spine {
                         continue;
                     }
                     let binding = self.fence_binding(&thread_id)?;
-                    let turn_id =
-                        self.ledger.record_prompt_received_from_intake(&binding, &text, Source::Text, id)?;
+                    let turn_id = self.record_prompt(&binding, &text, Source::Text, None, Some(id), DESK_CHANNEL)?;
                     self.emit_live(self.turn_status_event(&binding, &turn_id, TurnStatus::Queued, None));
                     // AND WHAT HE ACTUALLY SAID — the same line `accept_prompt` carries, for the
                     // same reason. See the `Channel` arm below, where its absence was a defect a
@@ -3296,7 +3334,7 @@ impl Spine {
                     self.queue.push_back(Queued { turn_id, binding, text, intake_id: Some(id) });
                     self.control.mark_drained(id).map_err(|e| SpineError::Steering(e.to_string()))?;
                 }
-                IntakeRecord::Channel { id, thread_id, text, .. } => {
+                IntakeRecord::Channel { id, thread_id, text, channel, .. } => {
                     // IDENTICAL TO THE `Steer` ARM ABOVE, AND THAT IS THE POINT. From here
                     // on the spine does not know or care which mouth the CEO used
                     // (phone-client plan §4.2 iv) — the same de-duplication check, the same
@@ -3332,8 +3370,9 @@ impl Spine {
                         continue;
                     }
                     let binding = self.fence_binding(&thread_id)?;
-                    let turn_id =
-                        self.ledger.record_prompt_received_from_intake(&binding, &text, Source::Text, id)?;
+                    // **The one line where the mouth survives** (operator back-end spec r3 (s)).
+                    // Kept only when this install keeps it; see `record_prompt`.
+                    let turn_id = self.record_prompt(&binding, &text, Source::Text, None, Some(id), &channel)?;
                     self.emit_live(self.turn_status_event(&binding, &turn_id, TurnStatus::Queued, None));
                     self.emit_live(self.ceo_message_event(&binding, &turn_id));
                     self.emit_live(self.thread_summary_event(&binding, &turn_id, ThreadStatus::Queued));
@@ -3352,7 +3391,7 @@ impl Spine {
                         continue;
                     }
                     let binding = self.fence_binding(&thread_id)?;
-                    let turn_id = self.accept_prompt(&binding, &text, Source::Text, None, Some(id))?;
+                    let turn_id = self.accept_prompt(&binding, &text, Source::Text, None, Some(id), DESK_CHANNEL)?;
                     self.queue.push_back(Queued { turn_id, binding, text, intake_id: Some(id) });
                     self.control.mark_drained(id).map_err(|e| SpineError::Steering(e.to_string()))?;
                 }
@@ -3796,7 +3835,14 @@ impl Spine {
             ActionVisibility::Internal, ActionStatus::Claimed,
         )?;
         let from_session = self.lease_session_id().unwrap_or("crashed").to_string();
-        let replay_turn_id = self.ledger.record_prompt_received(binding, original_text, Source::Text)?;
+        // A replay re-issues HIS words, so on an install that keeps the mouth it keeps the
+        // original's; one that was never recorded stays unrecorded rather than becoming the
+        // desk's (operator back-end spec r3 (s)).
+        let original_channel = self.ledger.turn(failed_turn_id).and_then(|t| t.channel.clone());
+        let replay_turn_id = match original_channel.filter(|_| self.keep_intake_channel) {
+            Some(channel) => self.record_prompt(binding, original_text, Source::Text, None, None, &channel)?,
+            None => self.ledger.record_prompt_received(binding, original_text, Source::Text)?,
+        };
         self.ledger.mark_turn_superseded(failed_turn_id, &replay_turn_id)?;
         self.emit_live(self.turn_status_event(
             binding, &replay_turn_id, TurnStatus::Queued, Some(failed_turn_id.to_string()),

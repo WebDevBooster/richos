@@ -2288,6 +2288,7 @@ mod tests {
             upstream_failure: None,
             interruption: None,
             rich_audible: None,
+            channel: None,
         }
     }
 

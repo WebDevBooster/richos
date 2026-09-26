@@ -94,6 +94,8 @@ def main():
     p.add_argument('--wait', type=float, default=0, help='CPU admission wait, seconds (reserve.py rules)')
     p.add_argument('--survey', action='store_true', help='record the guest toolset only, run no probe')
     p.add_argument('--probe-timeout', type=int, default=900, help='seconds per probe inside the guest')
+    p.add_argument('--walk-binary', type=Path, default=None,
+                   help='the operator_walk example binary (cargo build --example operator_walk), for the W2 walk')
     p.add_argument('--quota-ceiling', type=float, default=85.0,
                    help='stop the run when his five-hour quota reading reaches this percent (default 85), so a '
                         'probe never carries the account to ruling §87\'s 93%% pause for every other session')
@@ -125,6 +127,9 @@ def main():
                 with tarfile.open(bundle, 'w') as t:
                     t.add(str(HERE / 'guest_probes.py'), arcname='probes/guest_probes.py')
                     t.add(str(engine_tar), arcname='probes/engine.tar')
+                    if a.walk_binary:
+                        t.add(str(a.walk_binary.resolve()), arcname='probes/operator_walk')
+                        report['walk_binary_sha256'] = __import__('hashlib').sha256(a.walk_binary.read_bytes()).hexdigest()
                 boot = subprocess.Popen([str(TESTVM / 'run.sh'), '--no-app', '--no-tailnet', '--vm', vm, '--home', str(home)],
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
                 try:
@@ -147,6 +152,8 @@ def main():
                     args += ['--only', a.only]
                 if a.survey:
                     args += ['--survey']
+                if a.walk_binary:
+                    args += ['--walk-binary', f'{payload}/probes/operator_walk']
                 command = ' '.join(shlex.quote(x) for x in args)
                 began = time.monotonic()
                 report['quota_at_start'] = five_hour_used()
