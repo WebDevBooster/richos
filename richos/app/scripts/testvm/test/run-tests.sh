@@ -934,12 +934,14 @@ cred_at() {  # <file> <token> <seconds-from-now>
     "$2" "$(( ( $(date +%s) + $3 ) * 1000 ))" > "$1"
 }
 KEEP_HOME="/Users/admin/testvm/richos-test-a/home"
+# The same words login_env prints, as an array: nothing to word-split.
+LOGIN_ENV=("TESTVM_HOST_SECURITY=$TMP/host-security.sh" "TESTVM_HOST_CLAUDE_RENEW=$TMP/host-renew.sh")
 
 t "claude login: a token inside the renewal window is renewed by THIS Mac first, and the fresh one crosses"
   cred_at "$TMP/cred-short.json" "short-lived-token-0123456789" 120
   cred_at "$TMP/cred-renewed.json" "renewed-access-token-0123456789" 28800
   : > "$TMP/renew.log"
-  out="$(env $(login_env) HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-short.json" HOST_RENEW_TO="$TMP/cred-renewed.json" \
+  out="$(env "${LOGIN_ENV[@]}" HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-short.json" HOST_RENEW_TO="$TMP/cred-renewed.json" \
          HOST_RENEW_LOG="$TMP/renew.log" STUB_LOG=/dev/null STUB_SECURITY_STDIN=/dev/null STUB_CLAUDE_LOGIN=absent \
          "$TESTVM_DIR/claude-login.sh" push richos-test-a "$KEEP_HOME" 2>/dev/null)"
   ok $? "a renewed token is a login"
@@ -954,7 +956,7 @@ t "claude login: an expired host token is renewed by THIS Mac rather than refuse
   cred_at "$TMP/cred-expired.json" "expired-token-0123456789" -60
   cred_at "$TMP/cred-renewed.json" "renewed-access-token-0123456789" 28800
   : > "$TMP/renew.log"
-  out="$(env $(login_env) HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-expired.json" HOST_RENEW_TO="$TMP/cred-renewed.json" \
+  out="$(env "${LOGIN_ENV[@]}" HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-expired.json" HOST_RENEW_TO="$TMP/cred-renewed.json" \
          HOST_RENEW_LOG="$TMP/renew.log" STUB_LOG=/dev/null STUB_SECURITY_STDIN=/dev/null STUB_CLAUDE_LOGIN=absent \
          "$TESTVM_DIR/claude-login.sh" push richos-test-a "$KEEP_HOME" 2>/dev/null)"
   ok $? "renewed, not refused"
@@ -965,7 +967,7 @@ t_done
 t "claude login: a token with hours left is handed over as it is, without asking this Mac to renew"
   cred_at "$TMP/cred-long.json" "long-lived-token-0123456789" 7200
   : > "$TMP/renew.log"
-  out="$(env $(login_env) HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-long.json" HOST_RENEW_LOG="$TMP/renew.log" \
+  out="$(env "${LOGIN_ENV[@]}" HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-long.json" HOST_RENEW_LOG="$TMP/renew.log" \
          STUB_LOG=/dev/null STUB_SECURITY_STDIN=/dev/null STUB_CLAUDE_LOGIN=absent \
          "$TESTVM_DIR/claude-login.sh" push richos-test-a "$KEEP_HOME" 2>/dev/null)"
   ok $? "a long-lived token is a login"
@@ -977,7 +979,7 @@ t "claude login: push records WHEN the guest's copy runs out and WHICH host writ
   mkdir -p "$TESTVM_ROOT/run/richos-test-a"
   printf '20260926110315\n' > "$TMP/host-mdat"
   cred_at "$TMP/cred-long.json" "long-lived-token-0123456789" 7200
-  out="$(env $(login_env) HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-long.json" HOST_SECURITY_MDAT_FILE="$TMP/host-mdat" \
+  out="$(env "${LOGIN_ENV[@]}" HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-long.json" HOST_SECURITY_MDAT_FILE="$TMP/host-mdat" \
          STUB_LOG=/dev/null STUB_SECURITY_STDIN=/dev/null STUB_CLAUDE_LOGIN=absent \
          "$TESTVM_DIR/claude-login.sh" push richos-test-a "$KEEP_HOME" 2>/dev/null)"
   ok $? "push"
@@ -991,10 +993,10 @@ t "claude login: keep hands the guest each token THIS Mac renews, and ends when 
   mkdir -p "$TESTVM_ROOT/run/richos-test-a"
   printf '20260926110315\n' > "$TMP/host-mdat"
   cred_at "$TMP/cred-keep.json" "first-token-0123456789" 7200
-  env $(login_env) HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-keep.json" HOST_SECURITY_MDAT_FILE="$TMP/host-mdat" \
+  env "${LOGIN_ENV[@]}" HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-keep.json" HOST_SECURITY_MDAT_FILE="$TMP/host-mdat" \
       STUB_LOG=/dev/null STUB_SECURITY_STDIN=/dev/null STUB_CLAUDE_LOGIN=absent \
       "$TESTVM_DIR/claude-login.sh" push richos-test-a "$KEEP_HOME" >/dev/null 2>&1
-  env $(login_env) HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-keep.json" HOST_SECURITY_MDAT_FILE="$TMP/host-mdat" \
+  env "${LOGIN_ENV[@]}" HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-keep.json" HOST_SECURITY_MDAT_FILE="$TMP/host-mdat" \
       STUB_LOG=/dev/null STUB_SECURITY_STDIN=/dev/null STUB_CLAUDE_LOGIN=absent TESTVM_CLAUDE_KEEP_SECONDS=1 \
       "$TESTVM_DIR/claude-login.sh" keep richos-test-a "$KEEP_HOME" >"$TMP/keep.out" 2>&1 &
   KEEP_PID=$!
@@ -1022,7 +1024,7 @@ t "claude login: keep asks THIS Mac to renew once when the guest's copy enters t
   printf '20260926110315\n' > "$TESTVM_ROOT/run/richos-test-a/claude-login.host-written"
   printf '%s\n' "$(( ( $(date +%s) + 100 ) * 1000 ))" > "$TESTVM_ROOT/run/richos-test-a/claude-login.expires"
   : > "$TMP/renew.log"
-  env $(login_env) HOST_SECURITY_MDAT_FILE="$TMP/host-mdat" HOST_RENEW_LOG="$TMP/renew.log" \
+  env "${LOGIN_ENV[@]}" HOST_SECURITY_MDAT_FILE="$TMP/host-mdat" HOST_RENEW_LOG="$TMP/renew.log" \
       TESTVM_CLAUDE_KEEP_SECONDS=1 \
       "$TESTVM_DIR/claude-login.sh" keep richos-test-a "$KEEP_HOME" >"$TMP/keep2.out" 2>&1 &
   KEEP_PID=$!
@@ -1036,16 +1038,19 @@ t_done
 
 t "claude login: run.sh starts ONE keeper after a successful push and records its pid; stop.sh ends that pid"
   src="$(cat "$TESTVM_DIR/run.sh")"
+  # shellcheck disable=SC2016  # the $ names are literal source text
   has "$src" 'claude-login.sh" keep "$VM" "$GUEST_HOME"'
+  # shellcheck disable=SC2016  # the $ names are literal source text
   has "$src" '"$STATE/claude-keep.pid"'
   lg="$(printf '%s\n' "$src" | grep -n 'claude-login.sh" push' | head -1 | cut -d: -f1)"
   kp="$(printf '%s\n' "$src" | grep -n 'claude-login.sh" keep' | head -1 | cut -d: -f1)"
-  [ -n "$lg" ] && [ -n "$kp" ] && [ "$lg" -lt "$kp" ]; ok $? "the keeper starts after the push"
+  if [ -n "$lg" ] && [ -n "$kp" ] && [ "$lg" -lt "$kp" ]; then ok 0; else ok 1 "the keeper starts after the push"; fi
   stop="$(cat "$TESTVM_DIR/stop.sh")"
   has "$stop" 'claude-keep.pid'
   kk="$(printf '%s\n' "$stop" | grep -n 'claude-keep.pid' | head -1 | cut -d: -f1)"
+  # shellcheck disable=SC2016  # the $ names are literal source text
   rs="$(printf '%s\n' "$stop" | grep -n 'rm -rf "$STATE"' | head -1 | cut -d: -f1)"
-  [ -n "$kk" ] && [ -n "$rs" ] && [ "$kk" -lt "$rs" ]; ok $? "the keeper is ended before the state goes"
+  if [ -n "$kk" ] && [ -n "$rs" ] && [ "$kk" -lt "$rs" ]; then ok 0; else ok 1 "the keeper is ended before the state goes"; fi
 t_done
 
 t "claude login: run.sh copies the login in after the keychain exists, and prints the line"
