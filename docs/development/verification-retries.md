@@ -88,7 +88,15 @@ rejects missing, duplicate, unplanned, non-green and mixed-commit receipts. Also
 check the source fingerprint and relevant environment independently; the receipt
 verifier is not a general environment-equivalence checker. For non-engine checks,
 preserve their full-run summary and logs and verify their actual scope and status.
-Do not invent a general proof-run resume/cache feature that does not exist.
+For a run with `plan.json` and `outcomes.json`, use
+`python3 richos/app/scripts/proof-run.py --resume <saved-run-directory>` to
+restore its exact plan. It creates a separate attempt, prioritizes unresolved
+checks and copies validated logs and receipts without rewriting their SHAs.
+Reuse currently requires the original checkout, identical source and a committed
+per-check input qualification. Missing qualification, changed inputs or damaged
+evidence requires execution with the reason recorded. Live known-red declarations
+are evaluated again. Older runs without the saved plan still need the explicit
+receipt reconciliation described above. This is not cross-commit result reuse.
 
 If a required gate explicitly demands a fresh single invocation, preserve that
 requirement and run it after resolving the blocker. A request for full coverage
@@ -121,7 +129,7 @@ reconciled verification. Preserve useful evidence before deleting owned scratch.
 
 These are mandatory agent instructions. The existing coverage verifier and
 resource guards provide mechanical checks for their specific invariants. This
-change does not add a universal command interceptor, a general result cache or
-automatic failed-first scheduling. Do not claim that instructions alone make
+runner adds durable exact-plan retry and unresolved-first scheduling. It does
+not add a universal command interceptor or a general result cache. Do not claim that instructions alone make
 recurrence technically impossible. A future mechanical change must preserve
 source/input identity checks, truthful failures and required coverage.

@@ -3,6 +3,7 @@
 
     proof-run.py [proof-for arguments]          e.g.  origin/main..main   |  --working  |  <sha>
     proof-run.py --commands <file>              a saved `proof-for.sh --quiet` output
+    proof-run.py --resume <run-directory>       retry a frozen plan, preserving valid results
     options:
       --fail-fast          cancel independent unfinished work after a failure (opt-in)
       --keep-going         compatibility alias for default continuation
@@ -136,6 +137,7 @@ import worker_tokens  # noqa: E402
 import engine_pass  # noqa: E402
 sys.path.insert(0, os.path.join(HERE, "lib"))
 import test_results  # noqa: E402  (what names a failing test; one reader for every caller)
+import proof_evidence  # noqa: E402
 
 
 class Item:
@@ -252,8 +254,7 @@ def cargo_key(argv):
 
 
 def supply_runtime(items):
-    """Several suites need RICHOS_RUNTIME_DIR (make-engine-asset.test.sh, and proof-for.test.sh's
-    I1 runs the generated engine command for real). Unset, the runner supplies the one the
+    """Packaging suites need RICHOS_RUNTIME_DIR. Unset, the runner supplies the one the
     nightly uses (<state>/runtime, nightly-local.py `runtime()`) to every check, only after
     verify-runtime.py accepts it against the tracked recipe, exactly as the nightly does. Returns
     the line that says which, printed with the plan."""
@@ -374,6 +375,16 @@ def slug(label):
     return re.sub(r"[^A-Za-z0-9._-]+", "-", label).strip("-")[:60]
 
 
+def execution_environment(item):
+    env = {**os.environ, **item.env}
+    path = env.get("PATH", "").split(os.pathsep)
+    for extra in (os.path.join(os.path.expanduser("~"), ".cargo", "bin"), "/opt/homebrew/bin", "/usr/local/bin"):
+        if extra not in path:
+            path.append(extra)
+    env["PATH"] = os.pathsep.join(p for p in path if p)
+    return env
+
+
 def launch(item, n, logdir, tokens_dir, reserved):
     item.log = os.path.join(logdir, "%02d-%s.log" % (n, slug(item.label)))
     # Its own per-test results folder, in this run's evidence: run-tests.sh gives each suite a
@@ -386,7 +397,7 @@ def launch(item, n, logdir, tokens_dir, reserved):
     fh.flush()
     # Its own session, so nothing it does can signal this runner; how it is stopped is
     # proc_tree.kill_tree (its whole tree), never a group or a name.
-    env = {**os.environ, **item.env, "RICHOS_WORKER_TOKENS": tokens_dir,
+    env = {**execution_environment(item), "RICHOS_WORKER_TOKENS": tokens_dir,
            "RICHOS_VERIFICATION_CHECKOUT": ROOT,
            "RICHOS_WORKER_TOKENS_TOOL": os.path.abspath(worker_tokens.__file__),
            "RICHOS_WORKER_TOKENS_RESERVED": str(reserved),
@@ -395,19 +406,15 @@ def launch(item, n, logdir, tokens_dir, reserved):
     if item.engine_unit:
         env["RICHOS_VERIFICATION_UNIT"] = item.argv[item.argv.index("--only-units") + 1]
         env["RICHOS_VERIFICATION_RUNNER_WAIT"] = json.dumps(item.wait_times)
-    # The toolchains a check calls by name (cargo, the Homebrew tools), found the way the nightly
-    # finds them (nightly-local.py `local_environment`), appended so the caller's own come first.
-    # The third full run died on `cargo` not being on the caller's PATH.
-    path = env.get("PATH", "").split(os.pathsep)
-    for extra in (os.path.join(os.path.expanduser("~"), ".cargo", "bin"), "/opt/homebrew/bin", "/usr/local/bin"):
-        if extra not in path:
-            path.append(extra)
-    env["PATH"] = os.pathsep.join(p for p in path if p)
     item.state, item.started = "running", time.monotonic()
+    evidence = getattr(item, "evidence", None)
+    if evidence:
+        evidence.save(item, evidence.current_source())
     try:
         item.proc = subprocess.Popen(proc_tree.command(item.argv), cwd=item.cwd, stdout=fh, stderr=subprocess.STDOUT,
                                      stdin=subprocess.DEVNULL, start_new_session=True, env=env,
-                                     pass_fds=tuple(item.token.fds) + tuple(getattr(item, "slot_fds", ())))
+                                     pass_fds=tuple(item.token.fds) + tuple(getattr(item, "slot_fds", ()))
+                                     + ((evidence.lease.fd,) if evidence else ()))
     except OSError as exc:
         # A check that cannot even start is a FAILED check, named, never a crash of the run
         # that leaves every other check running with nobody to stop it.
@@ -521,7 +528,7 @@ def run(items, args, logdir, sampler=None):
     budget = worker_tokens.Budget(tokens_dir, runner=True, shared=machine)
     budget.shared.admission = engine_pass.Admission(machine, ROOT)
     reserved = reserved_tokens(args.capacity)
-    order = sorted(items, key=lambda it: -it.weight)
+    order = sorted(items, key=lambda it: (not getattr(it, "retry_first", False), -it.weight))
     running = []
     units = {it.argv[it.argv.index("--only-units") + 1] for it in items if it.engine_unit}
     args.engine_gate = (engine_pass.PlanGate(len(units), "proof-run", ROOT, sorted(units),
@@ -635,13 +642,18 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                     it.state = "passed" if rc == 0 else "failed"
                 running.remove(it)
                 it.token.release()
+                checkpoint(items, logdir)
                 print("[%s] %-6s %-40s %6.0f s%s" % (stamp(), {"passed": "PASS", "failed": "FAIL"}.get(it.state, "KILLED"),
                                                      it.label, it.seconds, "" if rc == 0 else "  (exit %d)" % rc), flush=True)
                 name_failures(it)
-                checkpoint(items, logdir)
                 for name in it.failing[:SHOWN_FAILURES]:
                     print("         failed: %s" % name, flush=True)
         contamination = os.path.join(logdir, "contamination")
+        record = getattr(args, "evidence", None)
+        if record and record.source_invalidated:
+            os.makedirs(contamination, exist_ok=True)
+            proof_evidence.atomic(os.path.join(contamination, "source.json"),
+                                  {"reason": "source changed during verification"})
         unsafe = os.path.isdir(contamination) and bool(os.listdir(contamination))
         fail_fast = getattr(args, "fail_fast", False) and any(
             it.state in ("failed", "timed-out", "not-admitted") for it in items)
@@ -728,6 +740,9 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
             for it in eligible:
                 it.wait_reason = backoff_reason
         if eligible and now >= next_sample:
+            if record and record.current_source() != record.source:
+                record.source_invalidated = True
+                continue
             it = eligible[0]
             if it.first_wait is None:
                 it.first_wait = now
@@ -825,6 +840,9 @@ def stop_item(it):
 
 
 def checkpoint(items, logdir):
+    records = {getattr(item, "evidence", None) for item in items} - {None}
+    for record in records:
+        record.checkpoint(items)
     path = os.path.join(logdir, "progress.json")
     with open(path + ".new", "w") as out:
         json.dump([{"check": i.label, "state": i.state, "exit": i.rc, "log": i.log,
@@ -855,7 +873,8 @@ def notes_from_logs(items):
         if not it.log:
             continue
         try:
-            text = open(it.log, errors="replace").read()
+            with open(it.log, errors="replace") as source:
+                text = source.read()
         except OSError:
             continue
         for line in text.splitlines():
@@ -893,6 +912,7 @@ def summarize(items, wall, logdir, budget_seconds=600, monitor_lines=()):
                      "engine_slot_wait": round(it.slot_wait, 1),
                      "wait_seconds_by_reason": {k: round(v, 3) for k, v in it.wait_times.items()},
                      "exit": it.rc, "log": it.log,
+                     "reused_from": getattr(it, "reused_from", None),
                      "failing_tests": list(it.failing), "results": kept,
                      "command": "cd %s && %s" % (os.path.relpath(it.cwd, ROOT), " ".join(shlex.quote(a) for a in it.argv))})
     with open(os.path.join(logdir, "summary.json"), "w") as fh:
@@ -909,7 +929,9 @@ def summarize(items, wall, logdir, budget_seconds=600, monitor_lines=()):
                                                                         ", ".join("%s (%s)" % (b.label, b.state) for b in bad)))
         print("    logs: %s" % logdir)
         return 1
-    print("=== proof-run: all %d check(s) passed in %.0f s ===" % (len(items), wall))
+    reused = sum(bool(getattr(it, "reused_from", None)) for it in items)
+    print("=== proof-run: all %d check(s) passed in %.0f s%s ===" % (
+        len(items), wall, "; reconciled with %d reused result(s)" % reused if reused else ""))
     print("    logs: %s" % logdir)
     return 0
 
@@ -941,13 +963,24 @@ def rotate(parent):
         except (OSError, ValueError, KeyError, TypeError):
             continue
     for d in successful[:-KEEP_RUNS]:
-        shutil.rmtree(os.path.join(parent, d), ignore_errors=True)
+        path = os.path.join(parent, d)
+        if os.path.exists(os.path.join(path, "retain")):
+            continue
+        try:
+            lease = proof_evidence.Lease(path)
+        except (OSError, ValueError):
+            continue
+        try:
+            shutil.rmtree(path, ignore_errors=True)
+        finally:
+            lease.close()
 
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
                                 usage="proof-run.py [options] [proof-for arguments]")
     p.add_argument("--commands")
+    p.add_argument("--resume", help="retry the exact saved plan and validate reusable evidence")
     failure_mode = p.add_mutually_exclusive_group()
     failure_mode.add_argument("--keep-going", action="store_true", help="continue independent checks (the default)")
     failure_mode.add_argument("--fail-fast", action="store_true", help="cancel unfinished checks after an ordinary failure")
@@ -964,6 +997,8 @@ def main(argv=None):
     p.add_argument("--log-dir")
     args, rest = p.parse_known_args(argv)
     args.proof_for_args = rest
+    if args.resume and (args.commands or rest or args.as_printed):
+        p.error("--resume takes its frozen plan from the saved run; no new selection is allowed")
     if args.capacity < 1 or args.engine_shards < 1:
         p.error("--capacity and --engine-shards must be at least 1")
     for name in ("admission_wait", "max_cpu", "budget", "deadline", "sample_every"):
@@ -985,8 +1020,20 @@ def main(argv=None):
         os.makedirs(parent, exist_ok=True)
         logdir = tempfile.mkdtemp(prefix=run_id + "-", dir=parent)
     hist_dir = default_logdir()
-    lines = selection(args)
-    items = as_printed(lines) if args.as_printed else plan(lines, args, logdir, history_weights(hist_dir))
+    if args.resume:
+        saved = proof_evidence.read_plan(args.resume)
+        if saved["root"] != ROOT:
+            p.error("--resume requires the original checkout")
+        items = [proof_evidence.decode_item(row, Item, ROOT, logdir) for row in saved["items"]]
+        units = [item.argv[item.argv.index("--only-units") + 1] for item in items if item.engine_unit]
+        if units:
+            os.makedirs(os.path.join(logdir, "engine-receipts"), exist_ok=True)
+            with open(os.path.join(logdir, "engine-units.txt"), "w") as stream:
+                stream.write("\n".join(units) + "\n")
+        lines = saved["items"]
+    else:
+        lines = selection(args)
+        items = as_printed(lines) if args.as_printed else plan(lines, args, logdir, history_weights(hist_dir))
     if not items:
         print("proof-run: the selection is empty — nothing to run. (For a documentation-only change that is"
               " the right answer; proof-for.sh says so without --quiet.)")
@@ -1004,8 +1051,27 @@ def main(argv=None):
     before = source_identity()
     with open(os.path.join(logdir, "source.json"), "w") as out:
         json.dump(before, out, indent=2)
+    def identity(item):
+        result = proof_evidence.recipe_identity(ROOT, proof_evidence.contract_for(ROOT, item.label),
+                                                execution_environment(item))
+        result["command"] = proof_evidence.encode_item(item, ROOT, logdir)
+        result["settings"] = {key: getattr(args, key) for key in (
+            "capacity", "engine_shards", "max_cpu", "budget", "deadline", "fail_fast", "admission_wait", "slot_wait")}
+        return result
+
+    args.evidence = proof_evidence.Record(ROOT, logdir, items, before,
+        {item.label: identity(item) for item in items}, args.resume, source_identity, identity)
     started = time.monotonic()
-    run(items, args, logdir)
+    try:
+        if args.resume:
+            lease = proof_evidence.Lease(args.resume)
+            try:
+                proof_evidence.reuse(args.resume, items, args.evidence)
+            finally:
+                lease.close()
+        run(items, args, logdir)
+    finally:
+        args.evidence.close()
     wall = time.monotonic() - started
     if source_identity() != before:
         changed = Item("source changed during verification", ROOT, [])
@@ -1040,7 +1106,7 @@ def record_weights(state, items):
     os.makedirs(state, exist_ok=True)
     w = history_weights(state)
     for it in items:
-        if it.state == "passed" and not it.label.startswith("engine "):
+        if it.state == "passed" and not it.label.startswith("engine ") and not getattr(it, "reused_from", None):
             w[it.label] = round(it.seconds, 1)
     with open(os.path.join(state, "weights.tsv"), "w") as fh:
         for k in sorted(w):
