@@ -160,8 +160,18 @@ def process_rows():
             unknown.add(pid)
         table[pid] = ((row["ppid"], row["pgid"], row["start"]) if row
                       else (parent, group, None))
-    for pid in unknown - set(_alive(unknown)):
+    live_unknown = set(_alive(unknown))
+    for pid in unknown - live_unknown:
         del table[pid]
+    # Native identity and ps status are separate observations. A process can
+    # cross exec while the first native read is unavailable. Use the later
+    # native generation when available; never infer it from PID or status.
+    for pid in live_unknown:
+        row = operator_fences.proc(pid, precise=True)
+        if row and row["zombie"]:
+            del table[pid]
+        elif row:
+            table[pid] = (row["ppid"], row["pgid"], row["start"])
     return table
 
 

@@ -142,6 +142,16 @@ class Reliability(unittest.TestCase):
             self.assertEqual(run.call_count, 2)
             self.assertEqual(run.call_args.args[0][-1], '100,101,102')
 
+    def test_native_generation_is_rechecked_after_a_live_status_observation(self):
+        for zombie in (False, True):
+            row = {'pid': 100, 'ppid': 2, 'pgid': 90, 'start': 'native-new', 'zombie': zombie}
+            with self.subTest(zombie=zombie), \
+                    patch.object(proc_tree.operator_fences, 'proc', side_effect=[None, row]), \
+                    patch.object(proc_tree.subprocess, 'run', side_effect=[
+                        SimpleNamespace(stdout='100 1 100\n', returncode=0),
+                        SimpleNamespace(stdout='100 S\n', returncode=0)]):
+                self.assertEqual(proc_tree.process_rows(), {} if zombie else {100: (2, 90, 'native-new')})
+
     def test_unreadable_state_errors_do_not_become_successful_cleanup(self):
         for result in (SimpleNamespace(stdout='', returncode=2),
                        SimpleNamespace(stdout='', returncode=0),
