@@ -2696,7 +2696,7 @@ fn main() {
             // if Claude wasn't signed in at launch, wiring the factory means a later sign-in
             // + retry (or a crash recovery attempt) has a real respawn path rather than none.
             let permissions = Arc::new(richos_core::permissions::PermissionDesk::default());
-            let quota = Arc::new(richos_core::quota::Service::open(&data_dir)?);
+            let quota = Arc::new(richos_core::quota::Service::open_account_wide(&data_dir)?);
             // Read immediately at startup, regardless of the pause switch. Session
             // starts and account changes wake this same reader. Otherwise its cache
             // enforces five-minute polling, with reset deadlines and error backoff.
@@ -2709,8 +2709,8 @@ fn main() {
                     let force = quota.wait_for_refresh(wait);
                     if quota.is_shutdown() { break; }
                     let bin = quota_bin.lock().unwrap().clone();
-                    quota.refresh(&bin, force);
                     quota.run_approved_weekly_reset(&bin);
+                    quota.refresh(&bin, force);
                     wait = std::time::Duration::from_secs(1);
                 }
             });

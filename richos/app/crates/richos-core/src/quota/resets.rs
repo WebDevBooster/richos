@@ -106,6 +106,14 @@ struct Record {
     view: View,
     #[serde(default)]
     attempts: Vec<Attempt>,
+    // A legacy nightly is fenced before its approval enters the shared ledger.
+    // Older readers deny unknown fields, so they cannot redeem that approval too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    migration: Option<(String, PathBuf)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    imports: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    poll_after: Option<u64>,
 }
 struct Reading {
     offers: Vec<Offer>,
@@ -259,7 +267,60 @@ impl Service {
     pub fn new(root: &Path) -> Self {
         Self { root: root.into() }
     }
+    pub fn marker(&self) -> Option<String> {
+        fs::read_to_string(self.root.join("claude-reset-refresh.json")).ok()
+    }
+    /// Transfer an old isolated approval without ever leaving two redeemable copies.
+    /// The import receipt makes recovery idempotent after a crash or a later revoke.
+    pub fn import_legacy(&self, root: &Path) -> Result<(), String> {
+        if root == self.root || !root.join(FILE).exists() { return Ok(()); }
+        let legacy = Self::new(root);
+        let _old_lock = legacy.lock()?;
+        let _shared_lock = self.lock()?;
+        let mut old = legacy.read_record()?;
+        let mut shared = self.read()?;
+        if old.migration.as_ref().is_some_and(|(_, target)| target != &self.root) {
+            return Err("The old reset record names a different shared store.".into());
+        }
+        let (id, _) = old.migration.get_or_insert_with(||
+            (uuid::Uuid::new_v4().to_string(), self.root.clone())).clone();
+        legacy.save(&old)?; // Old executables now fail closed, before any copy is armed.
+        if !shared.imports.contains(&id) {
+            for attempt in &old.attempts {
+                if !shared.attempts.iter().any(|a| a.request_id == attempt.request_id) {
+                    shared.attempts.push(attempt.clone());
+                }
+            }
+            if shared.account.is_empty() || shared.account == old.account {
+                if shared.view.approval.is_none() {
+                    shared.account = old.account.clone();
+                    shared.view = old.view.clone();
+                    shared.view.checked_at = None;
+                    shared.view.state = "unknown".into();
+                    shared.view.retry_at = None;
+                    shared.view.message = Some("Shared reset approval needs a fresh eligibility check.".into());
+                }
+                if shared.view.approval.as_ref().is_some_and(|a|
+                    Self::attempt_blocks(&shared, &a.offer.id)) {
+                    shared.view.approval = None;
+                }
+            } else if old.view.approval.is_some() {
+                return Err("The isolated reset approval belongs to a different Claude account. Reconnect before using it.".into());
+            }
+            shared.imports.push(id);
+            self.save(&shared)?;
+        }
+        old.view.approval = None;
+        legacy.save(&old)
+    }
     fn read(&self) -> Result<Record, String> {
+        let record = self.read_record()?;
+        if record.migration.is_some() {
+            return Err("Reset approval moved to the shared account store. Update this client before using it.".into());
+        }
+        Ok(record)
+    }
+    fn read_record(&self) -> Result<Record, String> {
         match super::gate::read_json(&self.root.join(FILE)) {
             Ok(v) => Ok(v),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Record::default()),
@@ -290,6 +351,62 @@ impl Service {
         #[cfg(not(unix))]
         {
             Err("Reset approval is not supported on this platform yet.".into())
+        }
+    }
+    /// One five-minute reservation shared by every desktop and terminal poller.
+    /// An approved poll reads eligibility once and uses that same fresh preflight.
+    pub fn tick(&self, bin: &Path, authorized: impl Fn() -> bool) -> View {
+        self.tick_using(crate::util::now_millis(), |approved| {
+            let mut transport = super::reset_transport::System::connect(bin)?;
+            self.poll_transport(approved, &mut transport, authorized)
+        })
+    }
+    /// Injection seam for the real-reader/fake-redemption proof. Production tick
+    /// constructs System only after winning the shared poll reservation.
+    pub fn tick_with_transport(&self, transport: &mut dyn Transport, authorized: impl Fn() -> bool) -> View {
+        self.tick_using(crate::util::now_millis(), |approved|
+            self.poll_transport(approved, transport, authorized))
+    }
+    fn poll_transport(&self, approved: bool, transport: &mut dyn Transport, authorized: impl Fn() -> bool) -> Result<View, String> {
+        if approved {
+            match self.use_approved(transport, authorized) {
+                // A successful read can find usage below 99% or an unusable offer.
+                Err(error) if error.starts_with("Reset not used:") => Ok(self.view()),
+                other => other,
+            }
+        } else { self.refresh_transport(transport) }
+    }
+    fn tick_using(&self, now: u64, read: impl FnOnce(bool) -> Result<View, String>) -> View {
+        let approved = {
+            let Ok(_lock) = self.lock() else { return self.view(); };
+            let Ok(mut record) = self.read() else { return self.view(); };
+            let v = &record.view;
+            if record.poll_after.is_some_and(|t| t > now)
+                || v.retry_at.is_some_and(|t| t > now)
+                || (v.state == "fresh" && !self.prepared_action_due(now) && v.checked_at.is_some_and(|t|
+                    t <= now && now - t < super::REFRESH_INTERVAL_MS)) {
+                return Self::visible(record.view, now);
+            }
+            record.poll_after = Some(now + super::REFRESH_INTERVAL_MS);
+            if self.save(&record).is_err() { return self.view(); }
+            record.view.approval.is_some()
+        };
+        match read(approved) {
+            Ok(view) => view,
+            Err(error) => {
+                self.record_failure(error);
+                self.view()
+            }
+        }
+    }
+    fn record_failure(&self, error: String) {
+        if let Ok(_lock) = self.lock() {
+            if let Ok(mut record) = self.read() {
+                record.view.state = "unknown".into();
+                record.view.message = Some(error);
+                record.view.retry_at = Some(crate::util::now_millis() + super::REFRESH_INTERVAL_MS);
+                let _saved = self.save(&record);
+            }
         }
     }
     pub fn prepared_action_due(&self, now: u64) -> bool {
@@ -369,7 +486,8 @@ impl Service {
             return self.view();
         };
         let v = &record.view;
-        if v.retry_at.is_some_and(|t| t > now)
+        if record.poll_after.is_some_and(|t| t > now)
+            || v.retry_at.is_some_and(|t| t > now)
             || v.checked_at.is_some_and(|t| {
                 t <= now
                     && now - t
@@ -398,7 +516,7 @@ impl Service {
             Err(e) => {
                 record.view.state = "unknown".into();
                 record.view.message = Some(e);
-                record.view.retry_at = Some(now + super::BACKOFF_MS);
+                record.view.retry_at = Some(now + super::REFRESH_INTERVAL_MS);
             }
         }
         let _best_effort = self.save(&record);
@@ -480,12 +598,17 @@ impl Service {
             .approval
             .clone()
             .ok_or("The user has not approved a weekly reset in Technical Settings or the terminal.")?;
+        if record.view.retry_at.is_some_and(|t| t > crate::util::now_millis()) {
+            return Err("The eligibility check is waiting for its next five-minute retry.".into());
+        }
         let approval_account = record.account.clone();
         drop(lock); // A user can revoke approval while read-only preflight is in flight.
         if !still_authorized() {
             return Err("This work session is no longer authorized.".into());
         }
-        let (account, reading) = Self::read_transport(t)?;
+        let (account, reading) = Self::read_transport(t).inspect_err(|error| {
+            self.record_failure(error.clone());
+        })?;
         let _lock = self.lock()?;
         let mut record = self.read()?;
         if record.account != approval_account
@@ -623,6 +746,132 @@ mod tests {
     fn approve(s: &Service) {
         s.approve(&s.view().offers[0]).unwrap();
     }
+    #[test]
+    fn nightly_approval_moves_once_and_a_restart_cannot_undo_terminal_revocation() {
+        let nightly = Scratch::new();
+        let common = Scratch::new();
+        let mut t = Fake::new(99.);
+        let old = seeded(nightly.path(), &mut t);
+        approve(&old);
+        let approval = old.view().approval.unwrap().id;
+        let app = Service::new(common.path());
+        app.import_legacy(nightly.path()).unwrap();
+        let terminal = Service::new(common.path());
+        assert_eq!(terminal.view().approval.unwrap().id, approval);
+        assert!(old.use_approved(&mut t, || true).is_err());
+        assert_eq!(t.posts, 0);
+        // Simulate a crash after the import committed but before source cleanup.
+        let mut source = old.read_record().unwrap();
+        source.view.approval = app.view().approval;
+        old.save(&source).unwrap();
+        terminal.revoke().unwrap();
+        app.import_legacy(nightly.path()).unwrap();
+        assert!(app.view().approval.is_none());
+        assert!(app.use_approved(&mut t, || true).is_err());
+        assert_eq!(t.posts, 0);
+    }
+
+    #[test]
+    fn migration_preserves_uncertain_attempt_fence_across_clients() {
+        let nightly = Scratch::new();
+        let common = Scratch::new();
+        let mut t = Fake::new(99.);
+        let old = seeded(nightly.path(), &mut t);
+        approve(&old);
+        t.reply = Err("lost reply".into());
+        old.use_approved(&mut t, || true).unwrap();
+        let shared = seeded(common.path(), &mut t);
+        approve(&shared);
+        shared.import_legacy(nightly.path()).unwrap();
+        assert!(shared.view().approval.is_none());
+        assert!(shared.use_approved(&mut t, || true).is_err());
+        shared.refresh_transport(&mut t).unwrap();
+        assert!(shared.approve(&shared.view().offers[0]).is_err());
+        assert_eq!(t.posts, 1);
+    }
+
+    #[test]
+    fn shared_poller_recovers_at_five_minutes_without_duplicate_preflight_or_redemption() {
+        let root = Scratch::new();
+        let mut t = Fake::new(99.);
+        let app = seeded(root.path(), &mut t);
+        approve(&app);
+        let terminal = Service::new(root.path());
+        let now = crate::util::now_millis();
+        let failed = app.tick_using(now, |approved| {
+            assert!(approved);
+            Err("Claude reset eligibility check: HTTP 429".into())
+        });
+        assert_eq!(failed.state, "unknown");
+        assert!(failed.message.unwrap().contains("429"));
+        assert!(failed.approval.is_some());
+        terminal.tick_using(now + 1000, |_| panic!("peer must honor shared retry"));
+        app.tick_using(now + super::super::REFRESH_INTERVAL_MS - 1,
+            |_| panic!("must not flood Anthropic"));
+        assert!(failed.retry_at.unwrap() <= now + super::super::REFRESH_INTERVAL_MS + 1000);
+        // Advance the persisted deadlines instead of sleeping for five minutes.
+        let due = crate::util::now_millis();
+        let mut record = app.read().unwrap();
+        record.poll_after = Some(due - 1);
+        record.view.retry_at = Some(due - 1);
+        app.save(&record).unwrap();
+        let completed = terminal.tick_using(due, |approved| {
+            assert!(approved);
+            terminal.use_approved(&mut t, || true)
+        });
+        assert_eq!(completed.last_attempt.unwrap().outcome, "used");
+        assert_eq!(t.posts, 1);
+        app.tick_using(due + 1, |_| panic!("app must not repeat terminal's check"));
+        assert!(app.view().approval.is_none());
+        assert!(app.use_approved(&mut t, || true).is_err());
+        assert_eq!(t.posts, 1);
+    }
+
+    #[test]
+    fn failed_action_preflight_is_visible_and_never_records_a_redemption() {
+        struct Unavailable;
+        impl Transport for Unavailable {
+            fn account(&mut self) -> Result<Account, String> { Err("HTTP 429".into()) }
+            fn usage(&mut self) -> Result<Value, String> { panic!("account failed") }
+            fn redeem(&mut self, _: &str, _: &str) -> Result<Value, String> { panic!("no preflight") }
+        }
+        let root = Scratch::new();
+        let mut t = Fake::new(99.);
+        let service = seeded(root.path(), &mut t);
+        approve(&service);
+        assert!(service.use_approved(&mut Unavailable, || true).is_err());
+        let v = service.view();
+        assert_eq!(v.state, "unknown");
+        assert!(v.message.unwrap().contains("429"));
+        assert!(v.approval.is_some());
+        assert!(v.last_attempt.is_none());
+        assert_eq!(service.read().unwrap().attempts.len(), 0);
+    }
+
+    #[test]
+    fn failed_offer_read_rechecks_within_five_minutes_and_preserves_approval() {
+        let root = Scratch::new();
+        let mut transport = Fake::new(99.);
+        let service = seeded(root.path(), &mut transport);
+        approve(&service);
+        let mut record = service.read().unwrap();
+        record.view.checked_at = None;
+        service.save(&record).unwrap();
+        let before = crate::util::now_millis();
+        let failed = service.refresh(Path::new("/nonexistent/claude"), false);
+        assert_eq!(failed.state, "unknown");
+        assert!(failed.approval.is_some());
+        assert!(failed.retry_at.unwrap() <= before + super::super::REFRESH_INTERVAL_MS + 1000);
+        assert!(!service.prepared_action_due(before));
+        assert_eq!(transport.posts, 0);
+        service.refresh_transport(&mut transport).unwrap();
+        assert!(service.prepared_action_due(crate::util::now_millis()));
+        service.use_approved(&mut transport, || true).unwrap();
+        assert_eq!(transport.posts, 1);
+        assert!(service.use_approved(&mut transport, || true).is_err());
+        assert_eq!(transport.posts, 1);
+    }
+
     #[test]
     fn approval_can_be_given_early_and_armed_action_survives_restart() {
         let root = Scratch::new();

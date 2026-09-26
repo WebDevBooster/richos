@@ -22,7 +22,7 @@ fn main() -> Result<(), String> {
     let result = (|| {
         let real = System::connect(Path::new(&args[1])).map_err(|e| format!("connect: {e}"))?;
         let mut transport = NoRedemption { real, calls: 0 };
-        let service = Service::new(&root);
+        let service = Service::new(&root.join("nightly"));
         let view = service.refresh_transport(&mut transport).map_err(|e| format!("read: {e}"))?;
         println!("{}", json!({"step":"read","result":"pass","weeklyUsed":view.weekly_used,
             "offers":view.offers.iter().map(|o| json!({"label":o.label,"remaining":o.remaining,"usableNow":o.usable_now,"clears":o.clears})).collect::<Vec<_>>() }));
@@ -30,13 +30,21 @@ fn main() -> Result<(), String> {
             .ok_or("No free weekly offer was returned; approval and trigger proof cannot proceed.")?;
         service.approve(offer)?;
         println!("{}",json!({"step":"approve","result":"pass","scope":"isolated proof record; explicitly requested by user"}));
-        let peer = Service::new(&root);
+        let peer = Service::new(&root.join("account"));
+        peer.import_legacy(&root.join("nightly"))?;
         assert!(peer.view().approval.is_some());
+        println!("{}",json!({"step":"share-nightly-approval","result":"pass"}));
         println!("{}",json!({"step":"arm","result":"pass","sharedApproval":true}));
-        let result = peer.use_approved(&mut transport, || true);
-        println!("{}",json!({"step":"trigger","result":if result.is_ok(){"pass"}else{"blocked"},"reason":result.err(),"fakeRedemptions":transport.calls,"realRedemptions":0}));
-        service.revoke()?;
-        assert!(peer.view().approval.is_none());
+        let result = peer.tick_with_transport(&mut transport, || true);
+        let passed = result.last_attempt.as_ref().is_some_and(|a| a.outcome == "used") && transport.calls == 1;
+        println!("{}",json!({"step":"trigger","result":if passed {"pass"} else {"blocked"},"reason":result.message,"fakeRedemptions":transport.calls,"realRedemptions":0}));
+        if !passed { return Err("Background trigger did not complete; proof is not a pass.".into()); }
+        let desktop = Service::new(&root.join("account"));
+        desktop.tick_with_transport(&mut transport, || true);
+        assert_eq!(transport.calls, 1);
+        println!("{}",json!({"step":"second-client-blocked","result":"pass","fakeRedemptions":transport.calls}));
+        peer.revoke()?;
+        assert!(desktop.view().approval.is_none());
         println!("{}",json!({"step":"revoke","result":"pass"}));
         Ok(())
     })();
