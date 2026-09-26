@@ -703,8 +703,9 @@ fi
 
 # FT53 — no prompt_id: the turn cannot be scoped, and that is said, not guessed.
 stop_run "$T" "" "x" false "c0530000-0000-4000-8000-000000000000"
-if [ "$SRC" = "0" ] && printf '%s' "$(sys_of "$SOUT")" | grep -q "NOT CHECKED"; then
-    ok "FT53 a payload with no prompt_id is announced as NOT CHECKED rather than judged on the whole session"
+if [ "$SRC" = "0" ] && printf '%s' "$(sys_of "$SOUT")" | grep -q "NOT CHECKED" \
+   && printf '%s' "$(sys_of "$SOUT")" | grep -q "no prompt_id"; then
+    ok "FT53 a payload with no prompt_id is announced as NOT CHECKED, for that reason, rather than judged on the whole session"
 else
     bad "FT53 unscopable turn" "rc $SRC out: $SOUT"
 fi
