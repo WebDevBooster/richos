@@ -9,6 +9,8 @@ const require = createRequire(import.meta.url);
 const { createScratch } = require('./storage.cjs');
 const { createClient } = require('../core/client.js');
 const { createPorts } = require('../platform/native.js');
+// The native bridge reports the shipped version and build, from their one source.
+const release = require('../release-config.json');
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 test('actual mobile client pairs, signs, receives and resumes against the production Rust stack', { timeout: 360000 }, async t => {
@@ -41,7 +43,7 @@ test('actual mobile client pairs, signs, receives and resumes against the produc
       case 'recordings': return voiceFile ? [{id:'voice-proof',seconds:10,codec:'wav16k',sampleRate:16000}] : [];
       case 'recordHash': assert.equal(args.id,'voice-proof'); return createHash('sha256').update(readFileSync(voiceFile)).digest('hex');
       case 'replyPlay': assert.equal(args.id,'reply-proof'); assert(replyAudio.length>44); played=true; return true;
-      case 'updateInfo': return { version: '0.1.0', build: '2', osVersion: '16.7.16', appId: null, storefront: null, configured: false };
+      case 'updateInfo': return { version: release.version, build: release.build, osVersion: '16.7.16', appId: null, storefront: null, configured: false };
       case 'hash': return createHash('sha256').update(args.value).digest('hex');
       case 'publicKey': return publicKey.export({ format: 'jwk' });
       case 'sign': return sign('sha256', Buffer.from(args.input), { key: privateKey, dsaEncoding: 'ieee-p1363' }).toString('base64url');

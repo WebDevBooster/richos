@@ -10,6 +10,7 @@
 import * as NodeAssert from "node:assert/strict";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
+import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -40,7 +41,12 @@ RICHOS_IOS_ASC_INTERNAL_GROUP_ID=internal
 `;
 const internalOnlySource = envSource.replace("RICHOS_IOS_ASC_PUBLIC_GROUP_ID=public\n", "");
 const { config } = parseTestFlightEnv(envSource);
-const selection = { build: "46", version: "0.1.0" };
+// The version under test is the one the app ships: MARKETING_VERSION in project.yml.
+const VERSION = /^\s*MARKETING_VERSION:\s*"([^"]+)"/mu.exec(
+  NodeFS.readFileSync(new URL("../project.yml", import.meta.url), "utf8"),
+)?.[1];
+if (!VERSION) throw new Error("project.yml sets no MARKETING_VERSION");
+const selection = { build: "46", version: VERSION };
 const notes = "Fix attachment imports and keep the keyboard open during dictation.";
 const linkage = (type: string, id: string) => ({ data: { type, id } });
 
@@ -115,7 +121,7 @@ function mockServer(
       if (path === "/v1/builds") {
         NodeAssert.equal(url.searchParams.get("filter[app]"), config.appId);
         NodeAssert.equal(url.searchParams.get("filter[version]"), "46");
-        NodeAssert.equal(url.searchParams.get("filter[preReleaseVersion.version]"), "0.1.0");
+        NodeAssert.equal(url.searchParams.get("filter[preReleaseVersion.version]"), VERSION);
         const build = {
           type: "builds",
           id: "build-46",
@@ -141,7 +147,7 @@ function mockServer(
         return Response.json({
           data: options.buildExists === false ? [] : [build],
           included: [
-            { type: "preReleaseVersions", id: "version-1", attributes: { version: "0.1.0", platform: "IOS" } },
+            { type: "preReleaseVersions", id: "version-1", attributes: { version: VERSION, platform: "IOS" } },
             ...(options.sparseBetaRelations ? [] : [detail, ...reviews]),
           ],
         });
@@ -438,7 +444,7 @@ describe("internal testing only (RichOS's first target, no public group configur
 });
 
 describe("release command input", () => {
-  const info = { CFBundleIdentifier: BUNDLE, DTPlatformName: "iphoneos", CFBundleVersion: "46", CFBundleShortVersionString: "0.1.0" };
+  const info = { CFBundleIdentifier: BUNDLE, DTPlatformName: "iphoneos", CFBundleVersion: "46", CFBundleShortVersionString: VERSION };
   const exportOptions = { method: "app-store-connect", destination: "upload", manageAppVersionAndBuildNumber: false };
 
   it("reads an exact Release build from archive metadata", () => {
@@ -468,8 +474,8 @@ describe("release command input", () => {
   });
 
   it("requires explicit release notes for publication", () => {
-    NodeAssert.throws(() => parseTestFlightArgs(["publish", "--build", "46", "--version", "0.1.0"]), /--notes-file/u);
-    const parsed = parseTestFlightArgs(["status", "--build", "46", "--version", "0.1.0", "--env-file", "/tmp/testflight.env"]);
+    NodeAssert.throws(() => parseTestFlightArgs(["publish", "--build", "46", "--version", VERSION]), /--notes-file/u);
+    const parsed = parseTestFlightArgs(["status", "--build", "46", "--version", VERSION, "--env-file", "/tmp/testflight.env"]);
     NodeAssert.equal(parsed.command, "status");
     NodeAssert.equal((parsed as { envFile: string }).envFile, "/tmp/testflight.env");
   });
@@ -484,6 +490,6 @@ describe("release command input", () => {
   });
 
   it("never takes credentials from the command line", () => {
-    NodeAssert.throws(() => parseTestFlightArgs(["status", "--build", "46", "--version", "0.1.0", "--key", "x"]));
+    NodeAssert.throws(() => parseTestFlightArgs(["status", "--build", "46", "--version", VERSION, "--key", "x"]));
   });
 });
