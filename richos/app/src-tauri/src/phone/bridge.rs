@@ -137,12 +137,20 @@ impl Bridge for PhoneBridge {
             .name("richos-phone-drain".to_string())
             .spawn(move || {
                 let state = app.state::<AppState>();
-                let outcome = {
+                let (outcome, binding) = {
                     let mut spine = state.spine.lock().unwrap();
-                    spine.poll_intake()
+                    let outcome = spine.poll_intake();
+                    // On an operator install, work written down on this turn goes to his team's
+                    // desk, which refuses a phone assignment with its sentence (r3 (s) rule 1).
+                    let binding = state.operator.is_some()
+                        .then(|| spine.ledger().thread_binding(&reply_thread).ok()).flatten();
+                    (outcome, binding)
                 };
                 if let Err(e) = outcome {
                     eprintln!("[richos] the phone's message could not be drained: {e}");
+                }
+                if let Some(binding) = binding {
+                    state.work.adopt_registered(&binding);
                 }
                 // The lock is free again here, so this is the cheapest correct moment both to
                 // make the cached view current and to push the reply that just finished. Neither

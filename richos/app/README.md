@@ -624,7 +624,7 @@ richos/app/
     examples/noaudio_live.rs live mute/unmute check on the real device (PASS 2026-08-24)
     tests/watermark_cadence_tests.rs 8 tests that recompute the rotation cadence from the
                               RAW 2026-08-28 capture on every run, both directions
-    tests/phone_intake_tests.rs 13 tests of THE PHONE'S ROAD IN — the `IntakeRecord::Channel`
+    tests/phone_intake_tests.rs 14 tests of THE PHONE'S ROAD IN — the `IntakeRecord::Channel`
                               record and `Spine::poll_intake`, the idle drain the phone-client
                               plan calls "not a half-day nicety any more; it is the feature".
                               Every negative test carries its positive control in the SAME
@@ -1098,7 +1098,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1451 tests + 5 doc-tests (1447 direct, 4 ignored)
+cargo test -p richos-core                       # 1556 tests + 5 doc-tests (1552 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
