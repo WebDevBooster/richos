@@ -460,6 +460,12 @@ pub struct ConversationRead {
 /// (m): what his team is doing, for the update gate, the keep-alive and the quit sheet.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TeamReading {
+    /// Conversations whose lead is in a turn, or has his messages still queued: his team is
+    /// working even with no agent and no command running. **Not in r3 (m)'s wording, and
+    /// needed:** without it a lead mid-turn with nothing but its own thinking reads as idle,
+    /// and closing the window would quit the app and end that turn (found wiring the
+    /// keep-alive; recorded in the operator-client record).
+    pub working: Vec<String>,
     pub alive: Vec<String>,
     pub unknown: Vec<String>,
     /// Descendants outside the leads' own groups (tool shells, background commands).
@@ -514,7 +520,7 @@ impl OperatorHost {
     }
 
     /// The operator log is where every other failure goes, so its own failure goes to stderr.
-    fn log(&self, line: &str) {
+    pub(crate) fn log(&self, line: &str) {
         let stamp = crate::operator_claim::iso_utc(
             SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0));
         let written = std::fs::create_dir_all(&self.root)
@@ -697,6 +703,16 @@ impl OperatorHost {
         match event {
             LeadEvent::Alarm(alarm) => self.alarm(&conversation, alarm),
             LeadEvent::Init(init) => self.init(&conversation, &init),
+            // The turn belongs to the handle of the first message it took that had one (r3 (d)
+            // item 5): every agent it starts from here is that assignment's.
+            LeadEvent::Took(uuid) => {
+                let mut c = conversation.lock().unwrap();
+                c.last_activity = Instant::now();
+                c.in_turn = true;
+                if c.turn_handle.is_none() {
+                    c.turn_handle = c.sent.get(&uuid).cloned().flatten();
+                }
+            }
             LeadEvent::Agent(task) => {
                 let mut c = conversation.lock().unwrap();
                 c.last_activity = Instant::now();
@@ -1084,16 +1100,34 @@ impl OperatorHost {
     /// (m): his team counts as running while any agent of any lead is ALIVE, or any lead's
     /// supervisor records a live descendant outside the lead's own group.
     pub fn team(&self) -> TeamReading {
+        self.team_reading(|agent| self.engine.liveness(&agent.task_id))
+    }
+
+    /// **(m) without a subprocess**, for a caller that must answer at once: the app's exit
+    /// decision runs inside the runtime's own callback, whose answer is read the instant it
+    /// returns (background-work spec §2.5a), so it cannot wait on `agent-liveness.sh`. An agent
+    /// counts as running while its own stream says so (`task_started` without a later end, the
+    /// platform's positive signals, r4 §1.1): an agent the stream has not seen end is never
+    /// read as gone. The update gate, which is not in a callback, keeps [`Self::team`].
+    pub fn team_from_stream(&self) -> TeamReading {
+        self.team_reading(|agent| if agent.status.is_running() { AgentLiveness::Alive } else { AgentLiveness::NotAlive })
+    }
+
+    fn team_reading(&self, liveness: impl Fn(&crate::operator_lead::AgentTask) -> AgentLiveness) -> TeamReading {
         let mut reading = TeamReading::default();
         let all: Vec<Arc<Mutex<Conversation>>> = self.conversations.lock().unwrap().values().cloned().collect();
         for conversation in all {
-            let (lead, state) = {
+            let (lead, state, busy, name) = {
                 let c = conversation.lock().unwrap();
-                (c.lead.clone(), c.paths.reap_state.clone())
+                let name = if c.title.is_empty() { c.key.thread_id.clone() } else { c.title.clone() };
+                (c.lead.clone(), c.paths.reap_state.clone(), c.in_turn || !c.awaiting.is_empty(), name)
             };
             let Some(lead) = lead else { continue };
+            if busy && !lead.exited() {
+                reading.working.push(name);
+            }
             for agent in lead.tasks().agents() {
-                match self.engine.liveness(&agent.task_id) {
+                match liveness(&agent) {
                     AgentLiveness::Alive => reading.alive.push(agent.name),
                     AgentLiveness::Indeterminate(_) => reading.unknown.push(agent.name),
                     AgentLiveness::NotAlive => {}
@@ -1109,6 +1143,13 @@ impl OperatorHost {
     }
 
     // ---- (q): retirement and quit -----------------------------------------------------------
+
+    /// How many conversations have a lead running right now. The idle timer asks this first,
+    /// so an app with no lead running spends nothing on his engine's scripts every minute.
+    pub fn running_leads(&self) -> usize {
+        let all: Vec<Arc<Mutex<Conversation>>> = self.conversations.lock().unwrap().values().cloned().collect();
+        all.iter().filter(|c| c.lock().unwrap().lead.as_ref().is_some_and(|l| !l.exited())).count()
+    }
 
     /// (q) item 4: retire every lead with nothing running that has been idle `idle_after`, or
     /// at once when its start-time snapshot is stale. Returns the conversations retired. The
@@ -1168,7 +1209,7 @@ impl OperatorHost {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::assignment::{AssignmentKind, Registration};
     use crate::operator_declaration::ClaimPaths;
@@ -1179,18 +1220,18 @@ mod tests {
     // ---- fakes -----------------------------------------------------------------------------
 
     #[derive(Default)]
-    struct FakeLead {
-        session: String,
-        sent: Mutex<Vec<String>>,
-        stops: Mutex<Vec<String>>,
-        book: Mutex<TaskBook>,
-        exited: Mutex<bool>,
-        quits: Mutex<usize>,
-        fail_send: Mutex<bool>,
-        queued: usize,
+    pub(crate) struct FakeLead {
+        pub(crate) session: String,
+        pub(crate) sent: Mutex<Vec<String>>,
+        pub(crate) stops: Mutex<Vec<String>>,
+        pub(crate) book: Mutex<TaskBook>,
+        pub(crate) exited: Mutex<bool>,
+        pub(crate) quits: Mutex<usize>,
+        pub(crate) fail_send: Mutex<bool>,
+        pub(crate) queued: usize,
     }
     impl FakeLead {
-        fn feed(&self, frame: Value) {
+        pub(crate) fn feed(&self, frame: Value) {
             self.book.lock().unwrap().observe(&frame);
         }
     }
@@ -1220,9 +1261,9 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct FakeLauncher {
-        leads: Mutex<Vec<(ConversationKey, LeadStart, Arc<FakeLead>)>>,
-        queued: usize,
+    pub(crate) struct FakeLauncher {
+        pub(crate) leads: Mutex<Vec<(ConversationKey, LeadStart, Arc<FakeLead>)>>,
+        pub(crate) queued: usize,
     }
     impl LeadLauncher for FakeLauncher {
         fn launch(&self, key: &ConversationKey, _title: &str, start: &LeadStart, _paths: &ConversationPaths,
@@ -1237,12 +1278,12 @@ mod tests {
 
     /// `not_alive` holds AGENT IDS (task ids), as the real resolver is asked.
     #[derive(Default)]
-    struct FakeEngine {
-        stop_words: Mutex<Vec<(Vec<String>, String)>>,
-        registry: Mutex<Vec<(String, String, String)>>,
-        not_alive: Mutex<BTreeSet<String>>,
-        asked: Mutex<Vec<String>>,
-        leases: Mutex<Vec<String>>,
+    pub(crate) struct FakeEngine {
+        pub(crate) stop_words: Mutex<Vec<(Vec<String>, String)>>,
+        pub(crate) registry: Mutex<Vec<(String, String, String)>>,
+        pub(crate) not_alive: Mutex<BTreeSet<String>>,
+        pub(crate) asked: Mutex<Vec<String>>,
+        pub(crate) leases: Mutex<Vec<String>>,
     }
     impl OperatorEngine for FakeEngine {
         fn stop_words(&self, names: &[String], words: &str) -> Result<String, String> {
@@ -1261,9 +1302,9 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct FakeSettle {
-        calls: Mutex<Vec<(String, String, Vec<String>)>>,
-        refuse: Mutex<Option<String>>,
+    pub(crate) struct FakeSettle {
+        pub(crate) calls: Mutex<Vec<(String, String, Vec<String>)>>,
+        pub(crate) refuse: Mutex<Option<String>>,
     }
     impl Settle for FakeSettle {
         fn complete(&self, _key: &ConversationKey, obligation: &str, _source: &str, status: &str, evidence: &[String],
@@ -1277,14 +1318,14 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct Said(Mutex<Vec<(ConversationKey, Lane, Say, String)>>);
+    pub(crate) struct Said(pub(crate) Mutex<Vec<(ConversationKey, Lane, Say, String)>>);
     impl OperatorDelivery for Said {
         fn say(&self, key: &ConversationKey, lane: &Lane, kind: Say, text: &str) {
             self.0.lock().unwrap().push((key.clone(), lane.clone(), kind, text.to_string()));
         }
     }
     impl Said {
-        fn all(&self) -> Vec<(ConversationKey, Lane, Say, String)> { self.0.lock().unwrap().clone() }
+        pub(crate) fn all(&self) -> Vec<(ConversationKey, Lane, Say, String)> { self.0.lock().unwrap().clone() }
     }
 
     struct Rig {
@@ -1303,7 +1344,7 @@ mod tests {
         }
     }
 
-    fn declaration(root: &Path, origins: &[&str]) -> Declaration {
+    pub(crate) fn declaration(root: &Path, origins: &[&str]) -> Declaration {
         let home = root.join("home");
         let entity = home.join("ab/femcboost");
         std::fs::create_dir_all(&entity).unwrap();
@@ -1374,7 +1415,7 @@ mod tests {
                                        text: text.map(str::to_string), is_error: false, subtype: "success".into() })
     }
 
-    fn agent(lead: &FakeLead, tool: &str, name: &str, task: &str) {
+    pub(crate) fn agent(lead: &FakeLead, tool: &str, name: &str, task: &str) {
         lead.feed(json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":tool,"name":"Agent","input":{"name":name}}]}}));
         lead.feed(json!({"type":"system","subtype":"task_started","task_id":task,"tool_use_id":tool}));
     }
@@ -1619,6 +1660,33 @@ mod tests {
         assert!(lead_of(&r, "a").stops.lock().unwrap().is_empty());
     }
 
+    /// (d) item 5 through the stream alone: the CLI taking a message on a handle makes the
+    /// agents its turn starts that handle's, and a turn on no handle (or the next one, on
+    /// another) claims nothing for it.
+    #[test]
+    fn an_agent_started_in_a_turn_the_cli_took_on_a_handle_is_that_assignment_s() {
+        let r = rig();
+        let uuid = match r.host.relay(&key("a"), "A", Some("h-1"), "go", Origin::DeskTyped).unwrap() {
+            Relayed::Sent { uuid } => uuid,
+            other => panic!("{other:?}"),
+        };
+        let lead = lead_of(&r, "a");
+        r.host.handle(&key("a"), LeadEvent::Took(uuid.clone()));
+        agent(&lead, "t-a", "started-on-h1", "task-a");
+        r.host.handle(&key("a"), LeadEvent::Agent(AgentTask { name: "started-on-h1".into(), task_id: "task-a".into(),
+                                                             tool_use_id: "t-a".into(), status: TaskStatus::Running }));
+        r.host.handle(&key("a"), turn(&[uuid.as_str()], None));
+        // The next turn is the platform's own: what it starts is nobody's assignment.
+        agent(&lead, "t-o", "after-the-turn", "task-o");
+        r.host.handle(&key("a"), LeadEvent::Agent(AgentTask { name: "after-the-turn".into(), task_id: "task-o".into(),
+                                                             tool_use_id: "t-o".into(), status: TaskStatus::Running }));
+        r.engine.not_alive.lock().unwrap().insert("task-a".into());
+        let results = r.host.stop_assignment(&key("a"), "h-1", "stop that job", Origin::DeskTyped);
+        assert_eq!(r.engine.stop_words.lock().unwrap()[0].0, ["started-on-h1"]);
+        assert_eq!(*lead.stops.lock().unwrap(), ["task-a"], "only that assignment's agent");
+        assert_eq!(results.len(), 1);
+    }
+
     #[test]
     fn the_assignment_stop_stops_the_names_its_turns_started_and_its_reports_named() {
         let r = rig();
@@ -1759,6 +1827,37 @@ mod tests {
     }
 
     // ---- (m), (o), (q) item 4 ----------------------------------------------------------------
+
+    /// A lead in its turn is his team working, agent or no agent; its turn's end is when it
+    /// stops counting.
+    #[test]
+    fn a_lead_in_its_turn_counts_as_working_until_the_turn_ends() {
+        let r = rig();
+        let uuid = match r.host.relay(&key("a"), "Pricing", None, "think about it", Origin::DeskTyped).unwrap() {
+            Relayed::Sent { uuid } => uuid,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(r.host.team().working, ["Pricing"], "his message is queued with the lead");
+        r.host.handle(&key("a"), LeadEvent::Took(uuid.clone()));
+        assert_eq!(r.host.team().working, ["Pricing"], "the lead is in the turn");
+        r.host.handle(&key("a"), turn(&[uuid.as_str()], Some("Done thinking.")));
+        assert!(r.host.team().working.is_empty(), "{:?}", r.host.team());
+    }
+
+    /// The reading the exit decision takes never runs a script, and never reads an agent the
+    /// stream has not seen end as gone.
+    #[test]
+    fn the_stream_reading_asks_no_script_and_counts_what_the_stream_has_not_seen_end() {
+        let r = rig();
+        r.host.relay(&key("a"), "A", None, "go", Origin::DeskTyped).unwrap();
+        let lead = lead_of(&r, "a");
+        agent(&lead, "t-a", "still-going", "task-a");
+        agent(&lead, "t-b", "finished", "task-b");
+        lead.feed(json!({"type":"system","subtype":"task_notification","task_id":"task-b","status":"completed"}));
+        let reading = r.host.team_from_stream();
+        assert_eq!(reading.alive, ["still-going"]);
+        assert!(r.engine.asked.lock().unwrap().is_empty(), "no agent-liveness.sh inside the exit callback");
+    }
 
     #[test]
     fn the_team_reading_counts_alive_agents_and_live_descendants() {

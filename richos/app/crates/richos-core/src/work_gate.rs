@@ -353,6 +353,9 @@ pub fn operator_team(team: &crate::operator_host::TeamReading) -> (Liveness, Opt
         let noun = if n == 1 { "agent of your team is" } else { "agents of your team are" };
         return (Liveness::Busy, Some(format!("{n} {noun} still running.")));
     }
+    if !team.working.is_empty() {
+        return (Liveness::Busy, Some("Your team is still working on something you asked for.".into()));
+    }
     if team.descendants > 0 {
         return (Liveness::Busy, Some("Your team still has commands running.".into()));
     }
@@ -360,6 +363,33 @@ pub fn operator_team(team: &crate::operator_host::TeamReading) -> (Liveness, Opt
         return (Liveness::Unknown, Some("RichOS could not tell whether your team had finished.".into()));
     }
     (Liveness::Clear, None)
+}
+
+/// **Two readings of one source, as one**: busy before unknown before clear, each with its own
+/// sentence. The update gate reads the product's background work and his team through it, so
+/// neither can hide the other.
+pub fn worst(a: (Liveness, Option<String>), b: (Liveness, Option<String>)) -> (Liveness, Option<String>) {
+    let rank = |l: Liveness| match l { Liveness::Busy => 2, Liveness::Unknown => 1, Liveness::Clear => 0 };
+    if rank(b.0) > rank(a.0) { b } else { a }
+}
+
+/// **What the quit sheet says about his team**, naming the agents it would stop (r3 §6 W2 step
+/// 12: *"Quit with an agent running names it before stopping it"*). `None` when the team reads
+/// clear. Up to five names are said; more are counted.
+pub fn operator_quit_sentence(team: &crate::operator_host::TeamReading) -> Option<String> {
+    let names = &team.alive;
+    if !names.is_empty() {
+        let said = match names.len() {
+            1 => format!("{} of your team is still running.", names[0]),
+            2..=5 => format!("{} and {} of your team are still running.", names[..names.len() - 1].join(", "), names[names.len() - 1]),
+            n => format!("{n} agents of your team are still running."),
+        };
+        return Some(said);
+    }
+    match operator_team(team) {
+        (Liveness::Clear, _) => None,
+        (_, said) => said,
+    }
 }
 
 /// The whole decision, and the only place it is made.
@@ -806,6 +836,7 @@ mod tests {
 
     fn team(alive: &[&str], unknown: &[&str], descendants: usize, descendants_unknown: usize) -> crate::operator_host::TeamReading {
         crate::operator_host::TeamReading {
+            working: Vec::new(),
             alive: alive.iter().map(|s| s.to_string()).collect(),
             unknown: unknown.iter().map(|s| s.to_string()).collect(),
             descendants,
@@ -819,6 +850,39 @@ mod tests {
                    (Liveness::Busy, Some("1 agent of your team is still running.".into())));
         assert_eq!(operator_team(&team(&["a", "b"], &[], 3, 0)).1.unwrap(), "2 agents of your team are still running.");
         assert_eq!(operator_team(&team(&[], &[], 1, 0)).0, Liveness::Busy, "a background command outside the lead's group");
+    }
+
+    #[test]
+    fn the_worse_of_two_readings_speaks_and_a_clear_one_never_hides_the_other() {
+        let busy = (Liveness::Busy, Some("busy".to_string()));
+        let unknown = (Liveness::Unknown, Some("unknown".to_string()));
+        let clear = (Liveness::Clear, None);
+        assert_eq!(worst(clear.clone(), busy.clone()), busy);
+        assert_eq!(worst(busy.clone(), unknown.clone()), busy);
+        assert_eq!(worst(unknown.clone(), busy.clone()), busy);
+        assert_eq!(worst(clear.clone(), unknown.clone()), unknown);
+        assert_eq!(worst(clear.clone(), clear.clone()), clear);
+    }
+
+    #[test]
+    fn the_quit_sheet_names_the_agents_it_would_stop_and_says_nothing_of_a_clear_team() {
+        assert_eq!(operator_quit_sentence(&team(&["mark-sonnet-a"], &[], 0, 0)).as_deref(),
+                   Some("mark-sonnet-a of your team is still running."));
+        assert_eq!(operator_quit_sentence(&team(&["a", "b", "c"], &[], 0, 0)).as_deref(),
+                   Some("a, b and c of your team are still running."));
+        assert_eq!(operator_quit_sentence(&team(&["a", "b", "c", "d", "e", "f"], &[], 0, 0)).as_deref(),
+                   Some("6 agents of your team are still running."));
+        assert_eq!(operator_quit_sentence(&team(&[], &[], 2, 0)).as_deref(), Some("Your team still has commands running."));
+        assert_eq!(operator_quit_sentence(&team(&[], &[], 0, 1)).as_deref(),
+                   Some("RichOS could not tell whether your team had finished."), "what cannot be read is said, never clear");
+        assert_eq!(operator_quit_sentence(&team(&[], &[], 0, 0)), None);
+    }
+
+    #[test]
+    fn a_lead_in_its_turn_blocks_with_no_agent_and_no_command_running() {
+        let working = crate::operator_host::TeamReading { working: vec!["Pricing".into()], ..team(&[], &[], 0, 0) };
+        assert_eq!(operator_team(&working),
+                   (Liveness::Busy, Some("Your team is still working on something you asked for.".into())));
     }
 
     #[test]

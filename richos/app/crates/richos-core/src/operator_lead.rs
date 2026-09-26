@@ -299,6 +299,19 @@ impl TurnTracker {
         self.sent.insert(uuid.to_string());
     }
 
+    /// **The moment the CLI takes one of this client's messages** (its `--replay-user-messages`
+    /// echo), before the frame is observed. The host needs it WHILE the turn runs, not only at
+    /// its end: an agent started in that turn belongs to the handle the message was about (r3
+    /// (d) item 5, "the names the app saw start on that assignment's turns"), and a turn's end
+    /// comes after its agents have started.
+    pub fn taking(&self, frame: &Value) -> Option<String> {
+        if frame.get("type").and_then(Value::as_str) != Some("user") {
+            return None;
+        }
+        let uuid = frame.get("uuid").and_then(Value::as_str)?;
+        (self.sent.contains(uuid) && !self.taken.iter().any(|u| u == uuid)).then(|| uuid.to_string())
+    }
+
     pub fn observe(&mut self, frame: &Value) -> Option<TurnEnd> {
         match frame.get("type").and_then(Value::as_str) {
             Some("user") => {
@@ -365,6 +378,9 @@ pub enum LeadEvent {
     Init(Value),
     /// One message his engine addressed to him ((r)); deduplicated by the host, not here.
     Alarm(Alarm),
+    /// The CLI took one of this client's messages into the running turn: its uuid, from the
+    /// `--replay-user-messages` echo. Delivered before anything that turn starts.
+    Took(String),
     /// A named agent started, or its status changed (r4 §1.1).
     Agent(AgentTask),
     /// A turn ended ((c)).
@@ -772,6 +788,10 @@ fn read_frames(stdout: std::process::ChildStdout, pending: Pending, book: Arc<Mu
         for alarm in alarms_in(&frame) {
             sink.event(LeadEvent::Alarm(alarm));
         }
+        let took = turns.lock().unwrap().taking(&frame);
+        if let Some(uuid) = took {
+            sink.event(LeadEvent::Took(uuid));
+        }
         let changed = book.lock().unwrap().observe(&frame);
         for task in changed {
             sink.event(LeadEvent::Agent(task));
@@ -906,6 +926,18 @@ mod tests {
         assert_eq!(end.text.as_deref(), Some("Done."));
         let platform = turns.observe(&json!({"type":"result","subtype":"success","result":"The teammate finished."})).unwrap();
         assert!(platform.started_by.is_empty(), "P5: a turn the platform started itself");
+    }
+
+    #[test]
+    fn the_moment_the_cli_takes_a_message_is_seen_before_the_turn_ends_and_only_once() {
+        let mut turns = TurnTracker::default();
+        turns.mark_sent("u-1");
+        let echo = json!({"type":"user","uuid":"u-1","isReplay":true,"message":{}});
+        assert_eq!(turns.taking(&echo).as_deref(), Some("u-1"));
+        assert!(turns.observe(&echo).is_none());
+        assert_eq!(turns.taking(&echo), None, "the same echo again is not a second taking");
+        assert_eq!(turns.taking(&json!({"type":"user","uuid":"tool-result-x","message":{}})), None, "not this client's");
+        assert_eq!(turns.taking(&json!({"type":"assistant","uuid":"u-1"})), None);
     }
 
     #[test]
