@@ -82,7 +82,11 @@ else
 fi
 
 # C6: the built CLI refuses overlapping owners and recovers after a hard kill.
-if python3 "$DIR/native-ios-lock.test.py" "$RICHOS_NATIVE_IOS_CACHE/spm/debug/rios-cli" >"$SCRATCH/lock.log" 2>&1; then
+# Its throwaway cache comes from Python's tempfile, so TMPDIR is pinned to this suite's own
+# scratch on the SSD: rios refuses a cache off /Volumes/E1TB (C5), and under the nightly gate,
+# which passes the operator's TMPDIR through, C6 failed on exactly that refusal
+# (run 20260925T190759Z-2b4b0a7e, "the cache must be on /Volumes/E1TB, not /var/folders/...").
+if TMPDIR="$SCRATCH" python3 "$DIR/native-ios-lock.test.py" "$RICHOS_NATIVE_IOS_CACHE/spm/debug/rios-cli" >"$SCRATCH/lock.log" 2>&1; then
   ok "C6 $(tail -1 "$SCRATCH/lock.log")"
 else
   bad "C6 command-lock crash recovery" "$(tail -15 "$SCRATCH/lock.log")"

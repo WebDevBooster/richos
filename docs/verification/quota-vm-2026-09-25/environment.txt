@@ -1,0 +1,10 @@
+Fri Sep 25 16:40:39 UTC 2026
+ProductName:		macOS
+ProductVersion:		15.7.7
+BuildVersion:		24G720
+arm64
+742c7f090f0ae8d6ee7284fe549fc0f52a0ee8be
+cargo 1.98.1 (797e8a9bc 2026-08-05) (Homebrew)
+rustc 1.98.1 (48a229cea 2026-09-01) (Homebrew)
+/opt/homebrew/bin/cliclick
+7df281b92d03f65c1f23a7111c248c2b5f08f6e80d428beffa8424fd59d2dbeb  /Users/admin/quota-proof/cache/debug/richos-tauri

@@ -48,7 +48,8 @@ test('operator CLI can publish while its independent service command is running'
   input.previewDigest = JSON.parse(preview.stdout).result.digest; writeFileSync(file, JSON.stringify(input));
   const publish = spawnSync(process.execPath, [cli, 'update', 'publish', file], { env, encoding: 'utf8' }); assert.equal(publish.status, 0, publish.stderr);
   assert.equal((await (await fetch(ready.policyService + '/v1/policy')).json()).revision, 1);
-  const metric = { event: 'policy-visible', version: '0.1.0', build: '2', revision: 1 };
+  const { version, build } = require('../release-config.json');
+  const metric = { event: 'policy-visible', version, build, revision: 1 };
   assert.equal((await fetch(ready.policyService + '/v1/metrics', { method: 'POST', body: JSON.stringify(metric) })).status, 204);
   assert.equal((await fetch(ready.policyService + '/v1/metrics', { method: 'POST', body: JSON.stringify({ ...metric, conversation: 'must not be accepted' }) })).status, 400);
   child.kill('SIGTERM'); assert.equal((await stopped)[0], 0);

@@ -1,0 +1,22 @@
+== The front door, through AppKit (audit-9 row 2) ==
+        1 display(s) awake — the boot can be held to a placement backed by one of them
+        the session is unlocked (waited 0s)
+        keys from /opt/homebrew/bin/cliclick
+        scratch HOME passes the app's own rule: /Users/admin/quota-proof/tmp/richos-front-door-Dk6KtX/home
+        bundle 1.2.0, built from 742c7f090f0ae8d6ee7284fe549fc0f52a0ee8be
+  PASS  C0  the bundle boots and puts exactly one window on screen  (pid 25476)
+        C5  this build's tree does not carry the quit dialog at rest; the closed-sheet box could
+            not be calibrated on this run, so on_screen falls back to rejecting only a zero box.
+        C5b the door was not on screen before the key, so Return was never put to it. Nothing
+            about audit-10 row 2 was measured on this run.
+        the first-run queue is drained after 2 Escape(s); the desk is clear
+  PASS  C1  positive control — a native keystroke reaches the web content
+  PASS  C2  positive control — Cmd-K reached main.js's document keydown listener  (the Search
+            overlay measures 1400x836 and the desk chrome is gone behind it)
+  PASS  C3  positive control — Escape closed the search overlay and the desk is back
+  PASS  C4  Escape closed the settings menu  (Technical view 115x20 -> absent)
+  PASS  Z   pid 25476 is gone; nothing this run started is still running
+
+  evidence: /Users/admin/quota-proof/tmp/richos-front-door-Dk6KtX  (removed on exit; copy it out of here if a check went red)
+  6 passed, 0 failed
+  evidence copied to /Users/admin/quota-proof/logs/front-door-evidence

@@ -98,22 +98,34 @@ class Reliability(unittest.TestCase):
         self.assertEqual(done.read_text().strip(), 'cleaned')
 
     def test_sigkill_owner_still_cleans_command_and_releases_lease(self):
+        # Both leases are private. Inside a nightly this suite inherits the REAL per-user machine
+        # budget (worker_tokens.py `machine --` exports it), whose eight tokens the nightly's own
+        # concurrent suites can hold in full; the wrapper then waited for a ninth and its child
+        # never started ("child did not start", nightly runs 20260925T233119Z and 20260926T051037Z).
         budget = self.path / 'budget'
+        machine = self.path / 'machine'
         worker_tokens.init(budget, 1)
+        worker_tokens.init(machine, 1)
+        env = {**os.environ, 'RICHOS_MACHINE_WORKERS': str(machine)}
+        for key in ('RICHOS_WORKER_TOKENS', 'RICHOS_WORKER_SLOT_HELD', 'RICHOS_WORKER_BORROW_LOCK',
+                    'RICHOS_WORKER_TOKENS_RESERVED'):
+            env.pop(key, None)
         record = self.path / 'child'
         script = 'import os,sys,time;open(sys.argv[1],"w").write(str(os.getpid()));time.sleep(60)'
         wrapper = subprocess.Popen([sys.executable, worker_tokens.__file__, 'run', str(budget), '--',
-                                    sys.executable, '-c', script, str(record)], start_new_session=True)
+                                    sys.executable, '-c', script, str(record)], env=env,
+                                   start_new_session=True)
         self.children.append(wrapper)
         child = self.wait_file(record)
-        self.assertEqual(worker_tokens.Budget(budget).held(), 1)
+        leases = [worker_tokens.Budget(d, shared=False) for d in (budget, machine)]
+        self.assertEqual([lease.held() for lease in leases], [1, 1])
         wrapper.kill()
         wrapper.wait(timeout=5)
         self.wait_gone(child)
         until = time.monotonic() + 5
-        while worker_tokens.Budget(budget).held() and time.monotonic() < until:
+        while any(lease.held() for lease in leases) and time.monotonic() < until:
             time.sleep(.05)
-        self.assertEqual(worker_tokens.Budget(budget).held(), 0)
+        self.assertEqual([lease.held() for lease in leases], [0, 0])
 
     def test_separate_runs_share_capacity_and_cannot_resize_live_locks(self):
         machine = self.path / 'machine'
@@ -337,11 +349,13 @@ class Reliability(unittest.TestCase):
     def test_borrow_files_do_not_create_extra_capacity(self):
         budget = self.path / 'budget'
         worker_tokens.init(budget, 1)
-        parent = worker_tokens.Budget(budget).try_acquire()
+        # shared=False: this is about the local budget's files only. With the inherited machine
+        # budget, a full one made the first acquire None, and made the refusal below prove nothing.
+        parent = worker_tokens.Budget(budget, shared=False).try_acquire()
         try:
             borrow = worker_tokens.Budget._try_free(parent.path + '.child')
-            self.assertEqual(len(worker_tokens.Budget(budget).files), 1)
-            self.assertIsNone(worker_tokens.Budget(budget).try_acquire())
+            self.assertEqual(len(worker_tokens.Budget(budget, shared=False).files), 1)
+            self.assertIsNone(worker_tokens.Budget(budget, shared=False).try_acquire())
             borrow.release()
         finally:
             parent.release()

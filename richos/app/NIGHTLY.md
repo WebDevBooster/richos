@@ -16,8 +16,23 @@ When you actively want to release a nightly in one motion, with no QA pause
 between the candidate being built and it becoming installable:
 
 ```sh
-python3 richos/app/scripts/nightly-local.py release
+python3 richos/app/scripts/nightly-local.py release --gates-at-once all --simulated-phones 2
 ```
+
+`build`, `release` and `stable` refuse to start unless both of these are on the
+command line, because nobody should wait an hour on a free Mac for a default nobody
+chose (CEO, 2026-09-25). The run log's first lines record both values and who chose them.
+
+- `--gates-at-once N|all` -- how many gates run at the same time. `1` is the old
+  order, one after another; `all` starts every gate whose inputs are ready (the lint
+  waits for the script suites' receipt, the privacy sweep for the UI suite to put
+  the tree back). One failing gate refuses the build and stops the others.
+- `--simulated-phones N` -- how many simulated iPhones the suites may use at once,
+  one per device type. The machine still boots at most two simulators at a time.
+
+Choose both from what else is running: `all` and `2` on a free Mac, fewer when
+engineers are busy. The worker-token, simulator and CPU/memory admission checks
+still refuse what the Mac cannot carry.
 
 The command builds the current remote `main`, not uncommitted work or the current
 local branch. It uses a dedicated detached worktree at `~/.richos-nightly/source`.
@@ -28,7 +43,7 @@ If that source commit already has a successful nightly, it does nothing. To
 explicitly rebuild the same source with a fresh version:
 
 ```sh
-python3 richos/app/scripts/nightly-local.py release --force
+python3 richos/app/scripts/nightly-local.py release --force --gates-at-once all --simulated-phones 2
 ```
 
 The command runs in the foreground. Logs and release artifacts are under
@@ -46,7 +61,7 @@ path and is unchanged by this: it is `build` immediately followed by
 `publish`, byte-for-byte. For everything else, split the two halves:
 
 ```sh
-python3 richos/app/scripts/nightly-local.py build
+python3 richos/app/scripts/nightly-local.py build --gates-at-once all --simulated-phones 2
 ```
 
 Builds the signed, notarized app against a verified engine pin, then stops for QA.
@@ -91,7 +106,7 @@ unable to do anything here or WHAT???"* — `gui-boot.test.sh` boots the real ap
 on the real screen for ~162 s of every build.
 
 ```sh
-python3 richos/app/scripts/nightly-local.py build --no-host-screen
+python3 richos/app/scripts/nightly-local.py build --no-host-screen --gates-at-once all --simulated-phones 2
 ```
 
 holds back every suite that boots the shipped binary, so the candidate is
@@ -155,7 +170,7 @@ so stable only ever ships a build that nightly users have already run."*
 
 ```sh
 python3 richos/app/scripts/nightly-local.py stable --from-nightly v1.2.0-nightly.20260920.1 --dry-run
-python3 richos/app/scripts/nightly-local.py stable --from-nightly v1.2.0-nightly.20260920.1
+python3 richos/app/scripts/nightly-local.py stable --from-nightly v1.2.0-nightly.20260920.1 --gates-at-once all --simulated-phones 2
 ```
 
 `--dry-run` prints exactly what would be built and published — the source commit, the

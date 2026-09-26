@@ -3287,7 +3287,8 @@ if [ "$M_OK" -eq 1 ] && [ -x "$CANARY_GUARD" ] && command -v mktemp >/dev/null 2
         # refuses to start without it, so the canary sandbox has to be a
         # complete-enough engine, and has to DECLARE itself as the governed root
         # (below) rather than letting the guard inherit the probe's own repo.
-        cp "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" "$CANARY_DIR/scripts/lib/" 2>/dev/null || true
+        cp "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" \
+            "$ENGINE_ROOT/scripts/lib/pause_protocol.py" "$CANARY_DIR/scripts/lib/" 2>/dev/null || true
         printf 'SESSION_TEAMS_DIR=""\n' >"$CANARY_DIR/orchestration.config" 2>/dev/null || true
         chmod +x "$CANARY_DIR/scripts/hooks/guard-resume-isolation.sh" 2>/dev/null || true
         CANARY_PAYLOAD='{"tool_name":"SendMessage","tool_input":{"to":"canary-done","message":"resume-ack: single-fire probe canary — no writes"}}'

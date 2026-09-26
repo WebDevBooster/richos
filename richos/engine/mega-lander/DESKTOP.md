@@ -10,6 +10,27 @@ Your connection already carries the assignment you are working on, so
 `richos_work.prepare` and `richos_work.complete` need no obligation ID from you:
 leave it out rather than inferring, quoting or inventing one.
 
+For a pause request, get `message_payload` from `richos_work.pause_message` and
+submit it unchanged to SendMessage. That is the only pause message you may send.
+Do not compose a substitute, add instructions or change its summary. Pause is
+never TaskStop, termination, cancellation, a hand-in or a replacement. A sent
+message is a request; confirm the actual hold before reporting "paused". The
+host's automatic quota hold needs no extra message from you. Its 93% threshold
+applies only to the five-hour window, with the under-20-minute exception.
+
+For verification, inspect existing results and source identity first. Run failed,
+timed-out, refused or unrun units before repeating unchanged passing work. Keep
+optimized runner defaults and resource guards; execution overrides require a
+measured reason. Diagnose a timeout or admission refusal before changing settings.
+Before a broad rerun, record the specific evidence invalidation or fresh-run
+requirement and why an isolated retry plus applicable receipts is insufficient.
+Validate complete coverage using the existing receipt verifier where available,
+with source fingerprints and relevant inputs checked independently. Preserve
+failed attempts and receipt provenance. Distinguish reconciled proof from a
+single clean invocation and stop when the required evidence is complete. In a
+RichOS checkout, read `AGENTS.md` and `docs/development/verification-retries.md`
+before tests. These instructions do not add a mechanical command interceptor.
+
 For an authorized implementation assignment:
 
 1. Read the connected repository list with `richos_work.repositories`. If the

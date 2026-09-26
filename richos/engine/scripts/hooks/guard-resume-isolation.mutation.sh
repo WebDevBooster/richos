@@ -77,6 +77,7 @@ _mutant_body() {
     cp "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" \
        "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" \
        "$ENGINE_ROOT/scripts/lib/agent-liveness.py" \
+       "$ENGINE_ROOT/scripts/lib/pause_protocol.py" \
        "$ENGINE_ROOT/scripts/lib/teammate-identity.py" "$dir/scripts/lib/"
     printf 'SESSION_TEAMS_DIR=""\n' >"$dir/orchestration.config"
     chmod +x "$dir/scripts/hooks/"*.sh
@@ -112,6 +113,13 @@ mutant() {
 }
 
 echo "=== resume isolation: every property, proven load-bearing by removing it ==="
+
+# An active recipient never exempts an edited pause message.
+mutant pause-validation-removed "edited manual pause to a live recipient -> block" \
+    scripts/hooks/guard-resume-isolation.sh \
+    'python3 "$ENGINE_ROOT/scripts/lib/pause_protocol.py" --check' \
+    'true' \
+    "The live-recipient fast path would deliver altered pause instructions."
 
 # 1. THE AUTHORITATIVE CONSULT ITSELF. This is the 2026-09-02 defect restored:
 #    the roster refuses on its own, and a live background agent — which the

@@ -48,6 +48,20 @@ The suite `richos/app/scripts/native-ios-share.test.sh` runs all five.
 
 ## Upload, once those exist
 
+**First, the iPhone app's own suites, including the middle iPhone size.** They are not part of the
+desktop app's nightly build (CEO, 2026-09-26: the phone apps are independent apps), so a release is
+where they all run together, and where `native-ios-app.test.sh` case A8 runs: the UI and unit tests
+on the middle screen size, which the CEO ruled off every land on 2026-09-23 and which took 1238 s on
+its own on 2026-09-25. From the repository root:
+
+```sh
+RICHOS_NATIVE_IOS_APP_A8=1 richos/app/scripts/run-tests.sh --for ios
+```
+
+That is every suite `richos/app/scripts/phone-app-suites.tsv` names for iOS, including the ones both
+phone apps share. Each of them also runs at a land whenever its own inputs change (A8 excepted).
+Nothing yet refuses an upload made without this run; it is a step, not a gate.
+
 1. Put the API key in a private file outside every checkout (the tool refuses one inside a git
    working tree, or with any mode but 600):
 
@@ -73,8 +87,8 @@ The suite `richos/app/scripts/native-ios-share.test.sh` runs all five.
    ```
 
 3. `node Release/testflight.ts upload --archive <path>/RichOSNative.xcarchive --export-options Release/ExportOptions.plist`
-4. `node Release/testflight.ts status --version 0.1.0 --build <n>` until processing is `VALID`.
-5. `node Release/testflight.ts publish --version 0.1.0 --build <n> --notes-file <notes>` puts it
+4. `node Release/testflight.ts status --version 1.0.0 --build <n>` until processing is `VALID`.
+5. `node Release/testflight.ts publish --version 1.0.0 --build <n> --notes-file <notes>` puts it
    in the internal group. A rerun writes nothing twice.
 
 A simulator release check does not prove signing or TestFlight upload. Verify the account record,

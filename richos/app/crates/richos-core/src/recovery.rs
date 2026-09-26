@@ -289,6 +289,7 @@ fn detail_for(record: &Assignment) -> String {
             "It was waiting for the screen to unlock and had not started"
         }
         AssignmentState::Preparing => "It was opening its work connection",
+        AssignmentState::WaitingForQuota => "It was waiting for its allowance to refresh",
         _ => "It was running",
     };
     format!("{was} when RichOS closed. Nothing has looked since, so nothing is being called finished.")

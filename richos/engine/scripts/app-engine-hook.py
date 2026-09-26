@@ -83,6 +83,9 @@ def handle(payload):
     if not root.is_absolute() or not coordination.is_absolute():
         raise ValueError("desktop roots must be explicit and absolute")
     event = payload.get("hook_event_name")
+    if event == "PreToolUse" and payload.get("tool_name") == "SendMessage":
+        pause_protocol = load("richos_pause_protocol", ENGINE / "scripts/lib/pause_protocol.py")
+        pause_protocol.validate_payload(payload)
     if event == "PreToolUse":
         active = scope()
         if active.get("actions_allowed") is not True \

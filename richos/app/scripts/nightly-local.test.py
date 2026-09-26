@@ -11,6 +11,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import uuid
@@ -321,9 +322,10 @@ Path(sys.argv[1]).write_text(str(p.pid))
         self.assert_pid_gone(int(pid_file.read_text()))
 
     def test_every_gate_has_a_named_deadline(self):
-        for phase, budget in m.GATE_BUDGETS.items():
-            with self.subTest(phase=phase):
-                r = m.Runner(self.root, self.root, {}, io.StringIO())
+        for (phase, budget), at_once in [(item, n) for item in m.GATE_BUDGETS.items()
+                                         for n in (1, "all")]:
+            with self.subTest(phase=phase, gates_at_once=at_once):
+                r = m.Runner(self.root, self.root, {}, io.StringIO(), gates_at_once=at_once)
                 r.restore_source_tree = Mock()
                 def run(args, **kwargs):
                     if r.active_phase == phase:
@@ -335,9 +337,9 @@ Path(sys.argv[1]).write_text(str(p.pid))
                         self.assertRaisesRegex(RuntimeError, f"{phase} timed out after {budget}s"):
                     r.gates()
 
-    def assert_executed_gate_deadlines(self, checks_done_at_land=None):
+    def assert_executed_gate_deadlines(self, checks_done_at_land=None, gates_at_once=1):
         """Discover phases by executing gates(), independently of the budget table."""
-        r = m.Runner(self.root, self.root, {}, io.StringIO())
+        r = m.Runner(self.root, self.root, {}, io.StringIO(), gates_at_once=gates_at_once)
         r.restore_source_tree = Mock()
         original_phase = r.phase
         phases, commands = set(), set()
@@ -366,8 +368,10 @@ Path(sys.argv[1]).write_text(str(p.pid))
         self.assertEqual(commands, phases)
 
     def test_executed_gates_have_registered_and_wired_deadlines(self):
-        self.assert_executed_gate_deadlines()
-        self.assert_executed_gate_deadlines("land-proof-fixture")
+        for at_once in (1, "all"):
+            with self.subTest(gates_at_once=at_once):
+                self.assert_executed_gate_deadlines(gates_at_once=at_once)
+                self.assert_executed_gate_deadlines("land-proof-fixture", gates_at_once=at_once)
 
     def test_gate_coverage_detects_a_missing_budget_entry(self):
         budgets = dict(m.GATE_BUDGETS)
@@ -639,7 +643,7 @@ while True: time.sleep(.02)
         self.assertEqual([name for name, _, _ in r.timings],
                          ["gates/release-smoke", "gates/core-tests", "gates/updater-tests",
                           "gates/script-suites", "gates/lint-tauri", m.WORKSPACE_MUTANTS_GATE,
-                          m.UI_SUITE_GATE, "gates/privacy-sweep"])
+                          m.UI_SUITE_GATE, "gates/privacy-sweep", "gates-wall-clock"])
         # The workspace-spec mutation pass runs HERE, before every nightly, and on no land
         # (CEO, 2026-09-23, "Only before nightlies"): the unit through ci-shard.sh, with the
         # opt-in stated at this call site.
@@ -1046,9 +1050,13 @@ while True: time.sleep(.02)
         env = [c.kwargs["env_extra"] for c in r.command.call_args_list
                if "env_extra" in c.kwargs][0]
         self.assertEqual(env["RUN_TESTS_SKIP_UNCHANGED"], "1")
-        # The middle iPhone size runs before every nightly (CEO, 2026-09-23, "Only before
-        # nightlies"): stated at this call site, where a failure stops the nightly.
-        self.assertEqual(env["RICHOS_NATIVE_IOS_APP_A8"], "1")
+        # The phone apps are not this build (CEO, 2026-09-26), so the middle iPhone size is no
+        # longer asked for here: it belongs to the iPhone app's release check.
+        self.assertNotIn("RICHOS_NATIVE_IOS_APP_A8", env)
+        self.assertIn("--for desktop", runner_calls[0])
+        # The simulator suites queue for the one prepared-simulator lease for as long as this
+        # gate may run, never the CLI's 300 s default that failed them side by side.
+        self.assertEqual(env["RICHOS_IOS_POOL_WAIT"], str(m.GATE_BUDGETS["gates/script-suites"]))
         # ...and so does the workspace-spec mutation pass, at its own gate.
         mut = [c for c in r.command.call_args_list
                if "workspace-spec-fourteen.test.sh" in " ".join(str(a) for a in c.args)]
@@ -1071,6 +1079,276 @@ while True: time.sleep(.02)
         with contextlib.redirect_stdout(io.StringIO()):
             r.perform("release")
         self.assertIs(r.gates.call_args.kwargs["skip_unchanged"], False)
+
+
+class GatesAtOnceTests(unittest.TestCase):
+    """The gates run side by side when the operator says so, and only as far as is true.
+
+    THE CEO, 2026-09-25: "why the fuck do I fucking have to wait for ONE FUCKING HOUR WHEN THE
+    WHOLE FUCKING MAC IS FREE???" -- then "how do I know that you won't fuck this up next
+    time?". So: independent gates overlap, a gate that reads another's output waits for it,
+    one failure refuses the build and stops the rest, the phone count reaches the suites,
+    and a build that does not name both numbers does not start. Each is proven red by
+    nightly-local.mutation.py.
+    """
+
+    # Every gate that reads nothing another gate writes. GATE_AFTER holds the other two.
+    INDEPENDENT = ("gates/release-smoke", "gates/core-tests", "gates/updater-tests",
+                   "gates/script-suites", "gates/workspace-mutants", "gates/ui-suite")
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+
+    def runner(self, gates_at_once, simulated_phones=1, log=None):
+        return m.Runner(self.root, self.root / "state",
+                        {"PATH": "/usr/bin", "RICHOS_NAMED_PERSONS_FILE": "/fixture/list"},
+                        log if log is not None else io.StringIO(),
+                        gates_at_once=gates_at_once, simulated_phones=simulated_phones)
+
+    def run_gates_recording(self, r, delay=0.0, barrier=None):
+        """gates() with every command stood in for; returns the (event, phase, argv, env) list."""
+        events, lock, firsts = [], threading.Lock(), set()
+
+        def run(args, **kwargs):
+            phase = r.active_phase
+            with lock:
+                events.append(("start", phase, [str(a) for a in args], kwargs.get("env")))
+                first = phase not in firsts
+                firsts.add(phase)
+            if barrier is not None and first and phase in self.INDEPENDENT:
+                barrier.wait()   # Raises BrokenBarrierError unless all six are running at once.
+            time.sleep(delay)
+            with lock:
+                events.append(("end", phase, [str(a) for a in args], kwargs.get("env")))
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        with patch.object(m, "owned_run", side_effect=run), \
+                contextlib.redirect_stdout(io.StringIO()):
+            r.gates()
+        return events
+
+    def test_independent_gates_run_at_the_same_time(self):
+        # Six commands wait for each other at one barrier: only six gates running at once
+        # can pass it. One at a time, the first waits alone and the barrier breaks.
+        r = self.runner("all")
+        events = self.run_gates_recording(r, barrier=threading.Barrier(len(self.INDEPENDENT),
+                                                                       timeout=10))
+        self.assertEqual({p for e, p, _, _ in events if e == "start"},
+                         set(self.INDEPENDENT) | {"gates/lint-tauri", "gates/privacy-sweep"})
+        # Each gate still gets its own timing row, and the whole set one more.
+        names = [name for name, _, _ in r.timings]
+        self.assertEqual(sorted(names[:-1]), sorted(m.GATE_BUDGETS))
+        self.assertEqual(names[-1], "gates-wall-clock")
+
+    def test_a_gate_waits_only_for_the_gate_whose_output_it_reads(self):
+        r = self.runner("all")
+        events = self.run_gates_recording(r, delay=0.2)
+        order = [(e, p) for e, p, _, _ in events]
+
+        def last(event, phase):
+            return max(i for i, row in enumerate(order) if row == (event, phase))
+
+        def first(event, phase):
+            return min(i for i, row in enumerate(order) if row == (event, phase))
+
+        for gate, needs in m.GATE_AFTER.items():
+            for need in needs:
+                with self.subTest(gate=gate, needs=need):
+                    self.assertGreater(first("start", gate), last("end", need), order)
+        # And nothing ELSE waited: every independent gate started before the first one ended.
+        first_end = min(i for i, (e, _) in enumerate(order) if e == "end")
+        started_early = {p for i, (e, p) in enumerate(order) if e == "start" and i < first_end}
+        self.assertEqual(started_early, set(self.INDEPENDENT), order)
+
+    def test_the_number_of_gates_at_once_is_honored(self):
+        for at_once in (1, 2, 3):
+            with self.subTest(gates_at_once=at_once):
+                r = self.runner(at_once)
+                events = self.run_gates_recording(r, delay=0.05)
+                live = peak = 0
+                gates_live = {}
+                for e, p, _, _ in events:
+                    if e == "start":
+                        gates_live[p] = gates_live.get(p, 0) + 1
+                    else:
+                        gates_live[p] -= 1
+                    live = sum(1 for v in gates_live.values() if v)
+                    peak = max(peak, live)
+                self.assertEqual(peak, at_once, events)
+                if at_once == 1:
+                    # One at a time is the old order, exactly.
+                    self.assertEqual([n for n, _, _ in r.timings][:-1],
+                                     ["gates/release-smoke", "gates/core-tests",
+                                      "gates/updater-tests", "gates/script-suites",
+                                      "gates/lint-tauri", m.WORKSPACE_MUTANTS_GATE,
+                                      m.UI_SUITE_GATE, "gates/privacy-sweep"])
+
+    def test_the_desktop_build_runs_only_the_desktop_apps_suites(self):
+        """CEO, 2026-09-26: "the native mobile apps are 2 COMPLETELY INDEPENDENT DIFFERENT
+        APPS ... So, WHY THE FUCK ARE THEY PART OF THE SAME FUCKING BUILD???"
+
+        The script-suites gate asks run-tests.sh for the desktop build and nothing wider, and
+        asks for no phone-only case. Which suites that is, is run-tests.sh's to decide from
+        phone-app-suites.tsv; run-tests.test.sh case B7 holds the real list to it.
+        """
+        r = self.runner("all")
+        events = self.run_gates_recording(r)
+        suites = [(argv, env) for e, p, argv, env in events
+                  if e == "start" and any(a.endswith("run-tests.sh") for a in argv)]
+        self.assertEqual(len(suites), 1)
+        argv, env = suites[0]
+        self.assertIn("--for", argv)
+        self.assertEqual(argv[argv.index("--for") + 1], "desktop")
+        self.assertNotIn("--only", argv)
+        self.assertNotIn("RICHOS_NATIVE_IOS_APP_A8", env or {})
+
+    def test_the_simulated_phone_count_reaches_the_suites_and_nothing_else_sets_it(self):
+        for phones in (1, 2, 3):
+            with self.subTest(simulated_phones=phones):
+                r = self.runner("all", simulated_phones=phones)
+                events = self.run_gates_recording(r)
+                suites = [env for e, p, argv, env in events
+                          if e == "start" and any(a.endswith("run-tests.sh") for a in argv)]
+                self.assertEqual(len(suites), 1)
+                self.assertEqual(suites[0][m.SIMULATED_PHONES_ENV], str(phones))
+                # Stated at that one call site only: no other gate is handed it.
+                others = [p for e, p, argv, env in events if e == "start" and env
+                          and m.SIMULATED_PHONES_ENV in env
+                          and not any(a.endswith("run-tests.sh") for a in argv)]
+                self.assertEqual(others, [])
+        # A Runner nobody configured keeps the old single simulator.
+        r = m.Runner(self.root, self.root / "state", {"PATH": "/usr/bin"}, io.StringIO())
+        self.assertEqual(r.simulated_phones, 1)
+
+    def test_one_failing_gate_refuses_the_build_and_stops_the_rest(self):
+        """Real processes, real owned groups: the slow gate is stopped, not waited out."""
+        workers = self.root / "workers"
+        env = dict(os.environ, RICHOS_MACHINE_WORKERS=str(workers))
+        pid_file = self.root / "slow.pid"
+        slow = ("import os, sys, time; open(sys.argv[1], 'w').write(str(os.getpid())); "
+                "time.sleep(30)")
+        with m.TimestampedLog(self.root / "run.log") as log:
+            r = m.Runner(self.root, self.root / "state", env, log, gates_at_once="all")
+
+            def slow_gate():
+                with r.phase("gates/slow"):
+                    r.command(sys.executable, "-c", slow, pid_file, cwd=self.root, timeout=120)
+
+            def failing_gate():
+                with r.phase("gates/fails"):
+                    r.command(sys.executable, "-c",
+                              "import time; print('the failing gate says this'); "
+                              "time.sleep(1); raise SystemExit(3)",
+                              cwd=self.root, timeout=120)
+
+            def never():
+                raise AssertionError("a gate after a failed one must never start")
+
+            start = time.monotonic()
+            with patch.dict(m.GATE_AFTER, {"gates/after-fails": ("gates/fails",)}), \
+                    contextlib.redirect_stdout(io.StringIO()), \
+                    self.assertRaisesRegex(RuntimeError, r"failed \(exit 3\)"):
+                r.run_gates([("gates/slow", slow_gate), ("gates/fails", failing_gate),
+                             ("gates/after-fails", never)])
+            took = time.monotonic() - start
+        # Bounded by the stop and the owned cleanup, never by the slow gate's own 30 s.
+        self.assertLess(took, 25)
+        pid = int(pid_file.read_text())
+        with self.assertRaises(ProcessLookupError):
+            os.kill(pid, 0)
+        text = (self.root / "run.log").read_text()
+        self.assertIn("FAILED gates/fails", text)
+        self.assertIn("STOPPED gates/slow", text)
+        self.assertIn("never started: gates/after-fails", text)
+        # Each gate's own log is ONE section of the run log, in its own time stamps.
+        lines = text.splitlines()
+        begin = next(i for i, l in enumerate(lines) if "=== phase gates/fails begins ===" in l)
+        end = next(i for i, l in enumerate(lines) if "=== phase gates/fails ends" in l)
+        self.assertTrue(any("the failing gate says this" in l for l in lines[begin:end]), lines)
+        self.assertFalse(any("gates/slow" in l for l in lines[begin:end]), lines)
+        # And the per-gate files it copied are gone.
+        self.assertEqual(list(self.root.glob("run.log.gates*")), [])
+
+    def test_one_at_a_time_a_failure_still_stops_before_the_next_gate(self):
+        r = self.runner(1)
+        seen = []
+
+        def run(args, **kwargs):
+            seen.append(r.active_phase)
+            if r.active_phase == "gates/updater-tests":
+                return subprocess.CompletedProcess(args, 1, "", "")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        with patch.object(m, "owned_run", side_effect=run), \
+                contextlib.redirect_stdout(io.StringIO()), \
+                self.assertRaisesRegex(RuntimeError, "cargo failed"):
+            r.gates()
+        self.assertEqual(seen, ["gates/release-smoke", "gates/core-tests", "gates/updater-tests"])
+
+    def main_refusal(self, *argv):
+        """Run main() in this process (so a mutation of it is what runs); (exit code, stderr).
+
+        Anything past the argument checks is replaced by a tripwire, so a main() that failed
+        to refuse can never go on to fetch, sign or run a gate from inside a test.
+        """
+        err = io.StringIO()
+        tripwire = AssertionError("main() went past its argument checks")
+        with patch.object(sys, "argv", ["nightly-local.py", *argv,
+                                        "--state-dir", str(self.root / "state")]), \
+                patch.object(m, "local_environment", side_effect=tripwire), \
+                patch.object(m, "exclusive", side_effect=tripwire), \
+                patch.object(m, "Runner", side_effect=tripwire), \
+                contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()), \
+                self.assertRaises(SystemExit) as stop:
+            m.main()
+        return stop.exception.code, err.getvalue()
+
+    def test_a_build_that_does_not_name_both_numbers_does_not_start(self):
+        stable = ["--from-nightly", "v1.2.0-nightly.20260916.1"]
+        for command, extra in (("build", []), ("release", []), ("stable", stable)):
+            for given, missing in (([], ("--gates-at-once", "--simulated-phones")),
+                                   (["--gates-at-once", "all"], ("--simulated-phones",)),
+                                   (["--simulated-phones", "2"], ("--gates-at-once",))):
+                with self.subTest(command=command, given=given):
+                    code, err = self.main_refusal(command, *extra, *given)
+                    self.assertEqual(code, 2)
+                    # The refusal names BOTH flags, and says which one this line lacks.
+                    self.assertIn("refuses to start without --gates-at-once and "
+                                  "--simulated-phones", err)
+                    self.assertIn("missing " + " and ".join(missing), err)
+                    # Refused before anything: no state, no lock, no log.
+                    self.assertFalse((self.root / "state").exists())
+        # A number that is not one is refused, never read as a default.
+        for flag, bad in (("--gates-at-once", "0"), ("--gates-at-once", "every"),
+                          ("--simulated-phones", "0"), ("--simulated-phones", "all")):
+            with self.subTest(flag=flag, value=bad):
+                other = "--simulated-phones" if flag == "--gates-at-once" else "--gates-at-once"
+                code, err = self.main_refusal("build", flag, bad, other, "1")
+                self.assertEqual(code, 2)
+                self.assertIn(flag, err)
+        # And a command that runs no gate is not handed them.
+        code, err = self.main_refusal("check", "--gates-at-once", "all")
+        self.assertEqual(code, 2)
+        self.assertIn("mean nothing to check", err)
+
+    def test_the_chosen_numbers_and_who_chose_them_are_the_logs_first_lines(self):
+        log = io.StringIO()
+        r = m.Runner(self.root, self.root / "state", {}, log, gates_at_once="all",
+                     simulated_phones=2, chosen_by="fixture-user on the command line")
+        r.checkout = Mock(return_value="source-sha")
+        r.plan = Mock(return_value=(self.root / "plan.json",
+                                    {"build": False, "reason": "already published"}))
+        with contextlib.redirect_stdout(io.StringIO()):
+            r.perform("release")
+        first, second = log.getvalue().splitlines()[:2]
+        self.assertEqual(first, "Gates at once: all (--gates-at-once all, chosen by "
+                                "fixture-user on the command line)")
+        self.assertEqual(second, "Simulated phones at once: 2 (--simulated-phones 2, chosen by "
+                                 "fixture-user on the command line)")
+        # main() names the account and the command line, not a placeholder.
+        self.assertIn(" on the command line", m.chosen_by())
 
 
 class WalkRecipeTests(unittest.TestCase):

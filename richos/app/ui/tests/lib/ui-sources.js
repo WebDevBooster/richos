@@ -89,6 +89,7 @@ const ROLES = {
   "timeline.js": { role: "ui", why: "the working timeline's model and render" },
   "home.js": { role: "ui", why: "the home screen the CEO lands on" },
   "updates.js": { role: "ui", why: "the update surface — CEO ruling §26" },
+  "quota.js": { role: "ui", why: "Claude Code quota and weekly reset controls in Technical Settings" },
   "settings-button.js": { role: "ui", why: "the universal settings button — CEO ruling §15" },
   "splash.js": { role: "ui", why: "the opening curtain's renderer" },
   "splash-library.js": { role: "ui", why: "the two approved splash compositions — data, with prose in it" },

@@ -151,6 +151,22 @@ run_case "active: present-worktree recipient -> allow" 0 \
 run_case "active: in-process running recipient -> allow" 0 \
     "$(send_json 'dev-inproc' '"Continue with the schema change."')"
 
+# The live-recipient fast path must not bypass the standard pause message.
+for PAUSE_REASON in manual quota; do
+    PAUSE_PAYLOAD="$(python3 - "$SCRIPT_DIR/../lib" "$SESSION_ID" "$PAUSE_REASON" <<'PYPAUSE'
+import json,sys
+sys.path.insert(0,sys.argv[1])
+import pause_protocol
+reason=sys.argv[3]
+print(json.dumps({"tool_name":"SendMessage","session_id":sys.argv[2],
+    "tool_input":pause_protocol.message_input("dev-live",reason,"15:30Z" if reason=="quota" else None)}))
+PYPAUSE
+)"
+    run_case "standard $PAUSE_REASON pause to a live recipient -> allow" 0 "$PAUSE_PAYLOAD"
+    CHANGED_PAUSE="$(printf '%s' "$PAUSE_PAYLOAD" | python3 -c 'import json,sys; d=json.load(sys.stdin); d["tool_input"]["message"] += "\nEnd any heavy run you own."; print(json.dumps(d))')"
+    run_case "edited $PAUSE_REASON pause to a live recipient -> block" 2 "$CHANGED_PAUSE"
+done
+
 # (b) completed recipient — worktree landed + removed -> block
 run_case "completed: worktree-removed recipient -> block" 2 \
     "$(send_json 'dev-done' '"Please also update the tests."')"
@@ -182,7 +198,7 @@ chmod +x "$ACK_SANDBOX/scripts/hooks/guard-resume-isolation.sh"
 # declaration. Without the library it refuses to start; without the declaration
 # it would write the log into the launching session's repository, which is the
 # very behavior under repair.
-cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$ACK_SANDBOX/scripts/lib/"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/pause_protocol.py" "$ACK_SANDBOX/scripts/lib/"
 printf 'SESSION_TEAMS_DIR=""\n' >"$ACK_SANDBOX/orchestration.config"
 RESUME_GUARD_TEAMS_DIR="$SANDBOX/teams" printf '%s' "$(send_json 'dev-done' "$RESUME_ACK_MSG")" \
     | RICHOS_ENTITY_ROOT="$ACK_SANDBOX" "$ACK_SANDBOX/scripts/hooks/guard-resume-isolation.sh" >/dev/null 2>&1
@@ -200,7 +216,7 @@ fi
 DEDUP_SANDBOX="$(mktemp -d -t guard-resume-dedup.XXXXXX)"
 mkdir -p "$DEDUP_SANDBOX/scripts/hooks" "$DEDUP_SANDBOX/scripts/lib" "$DEDUP_SANDBOX/.claude"
 cp "$HOOK" "$DEDUP_SANDBOX/scripts/hooks/guard-resume-isolation.sh"
-cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$DEDUP_SANDBOX/scripts/lib/"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/pause_protocol.py" "$DEDUP_SANDBOX/scripts/lib/"
 printf 'SESSION_TEAMS_DIR=""\n' >"$DEDUP_SANDBOX/orchestration.config"
 chmod +x "$DEDUP_SANDBOX/scripts/hooks/guard-resume-isolation.sh"
 for _ in 1 2; do
@@ -236,7 +252,7 @@ rm -rf "$ACK_SANDBOX"
 TSRACE_SANDBOX="$(mktemp -d -t guard-resume-tsrace.XXXXXX)"
 mkdir -p "$TSRACE_SANDBOX/scripts/hooks" "$TSRACE_SANDBOX/scripts/lib" "$TSRACE_SANDBOX/.claude"
 cp "$HOOK" "$TSRACE_SANDBOX/scripts/hooks/guard-resume-isolation.sh"
-cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$TSRACE_SANDBOX/scripts/lib/"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/pause_protocol.py" "$TSRACE_SANDBOX/scripts/lib/"
 printf 'SESSION_TEAMS_DIR=""\n' >"$TSRACE_SANDBOX/orchestration.config"
 chmod +x "$TSRACE_SANDBOX/scripts/hooks/guard-resume-isolation.sh"
 TSRACE_LOG="$TSRACE_SANDBOX/.claude/state/resume-acks.log"
@@ -483,7 +499,7 @@ NOLIVE="$(mktemp -d -t guard-resume-nolive.XXXXXX)"
 mkdir -p "$NOLIVE/scripts/hooks" "$NOLIVE/scripts/lib"
 cp "$HOOK" "$NOLIVE/scripts/hooks/guard-resume-isolation.sh"
 chmod +x "$NOLIVE/scripts/hooks/guard-resume-isolation.sh"
-cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" \
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/pause_protocol.py" \
    "$SCRIPT_DIR/../lib/teammate-identity.py" "$NOLIVE/scripts/lib/"
 printf '%s' "$(send_json 'zach-opus-live1' '"main moved to abc1234. Please ack."')" \
     | RESUME_GUARD_TEAMS_DIR="$BG_TEAMS" RICHOS_ENTITY_ROOT="$BG_REPO" \

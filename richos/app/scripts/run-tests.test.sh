@@ -32,6 +32,7 @@
 #   H7  an empty inventory is still exit 2, never "all 0 suites passed"
 #   H8  a DECLARED gap whose suite failed a case is a FAILURE   <- the concealment case
 #   H9  ...and a declared gap that failed nothing is still green — H8 has not eaten H2
+#   B1-B8  `--for`: the desktop build leaves out the phone apps' suites and keeps the Mac side
 #
 # THIS SUITE OPENS NO WINDOW, and it has to say so like every other file here — case S6
 # below scans this directory for anything that could put one on the operator's Mac, and it
@@ -45,7 +46,7 @@
 # scanner exempt from its own rule is a rule with a hole exactly where somebody clever would
 # put something.
 # run-tests: no-host-screen: its matches are its own S6 search pattern and the fake suites S1 writes under mktemp
-# run-tests: inputs richos/app/scripts/run-tests.test.sh richos/app/scripts/run-tests.sh richos/app/scripts/lib/worktree-resource.sh richos/app/scripts/lib/test_results.py richos/app/scripts/lib/gui-launch.sh richos/app/scripts/testvm
+# run-tests: inputs richos/app/scripts/run-tests.test.sh richos/app/scripts/run-tests.sh richos/app/scripts/lib/worktree-resource.sh richos/app/scripts/lib/test_results.py richos/app/scripts/lib/gui-launch.sh richos/app/scripts/testvm richos/app/scripts/phone-app-suites.tsv
 # run-tests: covers richos/app/scripts/run-tests.sh richos/app/scripts/lib/worktree-resource.sh richos/app/scripts/lib/gui-launch.sh
 set -uo pipefail
 
@@ -498,7 +499,8 @@ else
   ok "K5 a suite that failed leaves no proof, so the next run still runs it and still fails"
 fi
 
-# A land receipt cannot suppress A8 before a nightly, even at identical source.
+# A land receipt cannot suppress A8 in the run that asks for it (the iPhone app's release
+# check), even at identical source.
 cp "$KREPO/scripts/light.test.sh" "$KREPO/scripts/native-ios-app.test.sh"
 printf '# run-tests: inputs inputs\n' >> "$KREPO/scripts/native-ios-app.test.sh"
 kcommit nightly-mode
@@ -506,9 +508,9 @@ for mode in 0 1 1; do
   harness RUN_TESTS_DECLARED_GAPS= RUN_TESTS_SKIP_UNCHANGED=1 "RUN_TESTS_STATE=$KSTATE" \
     "RICHOS_NATIVE_IOS_APP_A8=$mode" RICHOS_RUNTIME_DIR= -- "$KREPO/scripts/run-tests.sh" --only native-ios-app.test.sh
   if [ "$CODE" = 0 ] && ! says "SKIPPED: native-ios-app.test.sh"; then
-    ok "K6 native-ios-app executes with A8=$mode, including consecutive nightlies"
+    ok "K6 native-ios-app executes with A8=$mode, including consecutive runs that ask for A8"
   else
-    bad "K6 native-ios-app is never skipped before a nightly" "$OUT"
+    bad "K6 native-ios-app is never skipped when A8 is asked for" "$OUT"
   fi
 done
 
@@ -661,6 +663,211 @@ else
 fi
 
 # =========================================================================================
+# B. `--for`: WHICH APP'S BUILD A RUN IS
+# =========================================================================================
+#
+# The CEO, 2026-09-26: *"the native mobile apps are 2 COMPLETELY INDEPENDENT DIFFERENT APPS
+# ... So, WHY THE FUCK ARE THEY PART OF THE SAME FUCKING BUILD???"* `--for desktop` leaves
+# out every suite `phone-app-suites.tsv` names. The two ways that goes wrong are opposite and
+# both silent: a phone suite stays in the desktop build (his complaint, back again), or a
+# suite that proves the Mac side of the phone connection leaves it (the desktop app ships
+# untested bytes). B1-B6 hold the mechanism on a fixture; B7 holds the REAL inventory to
+# both directions; B8 watches B7's checker go red for each.
+echo ""
+echo "=== B. --for: which app's build a run is ==="
+BBOX="$TMP/builds"; mkdir -p "$BBOX"
+install_harness "$BBOX"
+for b in desk ios1 droid both; do
+  printf '%s\n' "echo \"=== $b tests: all 1 passed ===\"" 'exit 0' > "$BBOX/$b.test.sh"
+done
+TAB="$(printf '\t')"
+write_list() {  # write_list <row>...   rows use | for the tab, to keep them readable here
+  : > "$BBOX/phone-app-suites.tsv"
+  printf '# a comment, and the blank line after it, are not rows\n\n' >> "$BBOX/phone-app-suites.tsv"
+  local r
+  for r in "$@"; do printf '%s\n' "$r" | tr '|' "$TAB" >> "$BBOX/phone-app-suites.tsv"; done
+}
+GOOD_ROWS=("ios1.test.sh|ios|the fixture's iPhone app" "droid.test.sh|android|the fixture's Android app" \
+           "both.test.sh|ios,android|both fixture apps")
+write_list "${GOOD_ROWS[@]}"
+brun() { harness RUN_TESTS_DECLARED_GAPS= -- "$BBOX/run-tests.sh" "$@"; }
+blist() { brun "$@" --list; LISTED="$(tr '\n' ' ' <<<"$OUT")"; }
+
+BRES="$TMP/builds-results.json"
+brun --for desktop --results-out "$BRES"
+if [ "$CODE" != 0 ]; then
+  bad "B1 --for desktop runs the desktop suites and names the rest" "exit $CODE: $(tail -3 <<<"$OUT" | tr '\n' ' ')"
+elif ! says "all 1 suites passed" || says "--- ios1.test.sh" || says "--- droid.test.sh"; then
+  bad "B1 --for desktop runs the desktop suites and names the rest" \
+      "a phone-app suite ran, or the desktop one did not: $(tail -2 <<<"$OUT" | tr '\n' ' ')"
+elif ! says "NOT IN THIS BUILD: ios1.test.sh — ios: the fixture's iPhone app" \
+     || ! says "NOT IN THIS BUILD: both.test.sh — ios,android: both fixture apps"; then
+  bad "B1 --for desktop runs the desktop suites and names the rest" \
+      "a suite left out was not named with its app and its reason"
+elif ! /usr/bin/python3 -c '
+import json, sys
+r = json.load(open(sys.argv[1]))
+assert r["build"] == "desktop", r["build"]
+assert [s["name"] for s in r["suites"]] == ["desk.test.sh"], r["suites"]
+out = {s["name"]: s["belongs_to"] for s in r["not_in_this_build"]}
+assert out == {"ios1.test.sh": "ios", "droid.test.sh": "android", "both.test.sh": "ios,android"}, out
+assert all(s["reason"] for s in r["not_in_this_build"])
+' "$BRES" 2>"$TMP/b1.err"; then
+  bad "B1 --for desktop runs the desktop suites and names the rest" \
+      "the results file does not record what was left out: $(tr '\n' ' ' < "$TMP/b1.err" | cut -c1-240)"
+else
+  ok "B1 --for desktop runs only the desktop suite, and prints and records each phone suite with its app and reason"
+fi
+
+B2_WHY=""
+blist --for ios;     [ "$LISTED" = "both.test.sh ios1.test.sh " ]  || B2_WHY="$B2_WHY; ios gave [$LISTED]"
+blist --for android; [ "$LISTED" = "both.test.sh droid.test.sh " ] || B2_WHY="$B2_WHY; android gave [$LISTED]"
+blist --for phone;   [ "$LISTED" = "both.test.sh droid.test.sh ios1.test.sh " ] || B2_WHY="$B2_WHY; phone gave [$LISTED]"
+blist --for desktop; [ "$LISTED" = "desk.test.sh " ] || B2_WHY="$B2_WHY; desktop gave [$LISTED]"
+if [ -n "$B2_WHY" ]; then
+  bad "B2 each app's build lists exactly its own suites" "${B2_WHY#; }"
+else
+  ok "B2 ios, android, phone and desktop each list exactly their own suites; a both-apps suite is in each app's"
+fi
+
+brun
+if [ "$CODE" = 0 ] && says "all 4 suites passed" && ! says "NOT IN THIS BUILD"; then
+  ok "B3 without --for every suite runs, exactly as before"
+else
+  bad "B3 without --for every suite runs, exactly as before" "exit $CODE: $(tail -2 <<<"$OUT" | tr '\n' ' ')"
+fi
+
+B4_WHY=""
+b4() {  # b4 <label> <needle> <row>...
+  local label="$1" needle="$2"; shift 2
+  write_list "$@"
+  brun --for desktop --list
+  if [ "$CODE" != 2 ] || ! says "$needle"; then
+    B4_WHY="$B4_WHY; $label: exit $CODE, $(tail -1 <<<"$OUT")"
+  fi
+}
+b4 "a row with no reason"    "A row with no reason declares nothing" "ios1.test.sh|ios|"
+b4 "a row with no app"       "is not '<suite><TAB><apps><TAB><reason>'" "ios1.test.sh"
+b4 "an app that is not one"  "names the app 'watch'" "ios1.test.sh|watch|a watch app"
+b4 "a stale row"             "there is no such suite" "gone.test.sh|ios|a suite that was removed"
+b4 "a suite named twice"     "names ios1.test.sh twice" "ios1.test.sh|ios|once" "ios1.test.sh|ios|twice"
+rm -f "$BBOX/phone-app-suites.tsv"
+brun --for desktop --list
+if [ "$CODE" != 2 ] || ! says "is missing"; then B4_WHY="$B4_WHY; a missing list: exit $CODE"; fi
+write_list "${GOOD_ROWS[@]}"
+if [ -n "$B4_WHY" ]; then
+  bad "B4 a list that does not reconcile is refused before anything runs" "${B4_WHY#; }"
+else
+  ok "B4 a row with no reason, no app, an unknown app, a stale name or a duplicate, and a missing list, are each refused"
+fi
+
+# B5 — the one structural fact a row cannot override. The phone web app is compiled into the
+# Mac executable, so a suite that claims one of its files is the desktop app's.
+printf '%s\n' '# run-tests: covers richos/web/web-app/app.js' \
+  'echo "=== ios1 tests: all 1 passed ==="' 'exit 0' > "$BBOX/ios1.test.sh"
+brun --for desktop --list
+if [ "$CODE" = 2 ] && says "files the Mac app ships: richos/web/web-app/app.js"; then
+  ok "B5 a listed suite whose covers row claims a file the Mac app ships is refused"
+else
+  bad "B5 a listed suite whose covers row claims a file the Mac app ships is refused" \
+      "exit $CODE — it would have left the desktop build: $(tail -1 <<<"$OUT")"
+fi
+printf '%s\n' 'echo "=== ios1 tests: all 1 passed ==="' 'exit 0' > "$BBOX/ios1.test.sh"
+
+B6_WHY=""
+brun --for desktop --only desk.test.sh
+{ [ "$CODE" = 2 ] && says "give one of them"; } || B6_WHY="$B6_WHY; --for with --only: exit $CODE"
+brun --for tablet --list
+{ [ "$CODE" = 2 ] && says "--for takes desktop, ios, android or phone"; } || B6_WHY="$B6_WHY; --for tablet: exit $CODE"
+write_list "ios1.test.sh|ios|x"
+brun --for android --list
+{ [ "$CODE" = 2 ] && says "selects NO suite"; } || B6_WHY="$B6_WHY; an empty selection: exit $CODE"
+write_list "${GOOD_ROWS[@]}"
+if [ -n "$B6_WHY" ]; then
+  bad "B6 an ambiguous or empty selection is refused" "${B6_WHY#; }"
+else
+  ok "B6 --for with --only, an unknown build, and a build that selects nothing are refused"
+fi
+
+# B7 — THE REAL INVENTORY. The two sets are written out here on purpose: they are what this
+# case checks the list AGAINST, so they cannot be derived from the list.
+#
+#   PHONE_ONLY  test only a phone app, and must not run in the desktop build.
+#   MAC_SIDE    read richos/mobile/ but test the Mac side of the phone connection, which the
+#               desktop app ships: the phone server compiled into its crate (mobile-mac), the
+#               Mac's request verifier (native-conformance), the phone web app the Mac embeds
+#               (mobile-pwa), and two of that web app's library files (mobile-headless).
+PHONE_ONLY="native-ios-app.test.sh native-ios-core.test.sh native-ios-share.test.sh \
+native-ios-ui.test.sh native-ios-physical-tool.test.sh mobile-ios.test.sh \
+native-android-app.test.sh native-android-core.test.sh native-android-ui.test.sh \
+native-android-pair-lab.test.sh native-release-policy.test.sh mobile-perf.test.sh review-mock.test.sh"
+MAC_SIDE="mobile-mac.test.sh native-conformance.test.sh mobile-pwa.test.sh mobile-headless.test.sh"
+build_check() {  # build_check <directory holding run-tests.sh>  -> sets BC_WHY ("" = right)
+  local d="$1" desk phone all s
+  BC_WHY=""
+  harness RUN_TESTS_DECLARED_GAPS= -- "$d/run-tests.sh" --for desktop --list
+  [ "$CODE" = 0 ] || { BC_WHY="--for desktop --list exited $CODE: $(tail -1 <<<"$OUT")"; return; }
+  desk=" $(tr '\n' ' ' <<<"$OUT")"
+  harness RUN_TESTS_DECLARED_GAPS= -- "$d/run-tests.sh" --for phone --list
+  [ "$CODE" = 0 ] || { BC_WHY="--for phone --list exited $CODE: $(tail -1 <<<"$OUT")"; return; }
+  phone=" $(tr '\n' ' ' <<<"$OUT")"
+  harness RUN_TESTS_DECLARED_GAPS= -- "$d/run-tests.sh" --list
+  all="$(tr '\n' ' ' <<<"$OUT")"
+  for s in $PHONE_ONLY; do
+    case "$desk" in *" $s "*) BC_WHY="$BC_WHY; $s (phone only) is in the desktop build" ;; esac
+    case "$phone" in *" $s "*) ;; *) BC_WHY="$BC_WHY; $s (phone only) is in no phone build" ;; esac
+  done
+  for s in $MAC_SIDE; do
+    case "$desk" in *" $s "*) ;; *) BC_WHY="$BC_WHY; $s (the Mac side) is NOT in the desktop build" ;; esac
+  done
+  # Every suite runs in exactly one of the two, so nothing can fall between them.
+  for s in $all; do
+    case "$desk$phone" in
+      *" $s "*" $s "*) BC_WHY="$BC_WHY; $s is in both the desktop and a phone build" ;;
+      *" $s "*) ;;
+      *) BC_WHY="$BC_WHY; $s runs in no build at all" ;;
+    esac
+  done
+  BC_WHY="${BC_WHY#; }"
+}
+build_check "$DIR"
+if [ -n "$BC_WHY" ]; then
+  bad "B7 the real desktop build leaves out every phone-only suite and keeps every Mac-side one" "$BC_WHY"
+else
+  ok "B7 the real desktop build leaves out the $(wc -w <<<"$PHONE_ONLY" | tr -d ' ') phone-only suites, keeps the \
+$(wc -w <<<"$MAC_SIDE" | tr -d ' ') Mac-side ones, and every suite is in exactly one build"
+fi
+
+# B8 — B7's checker watched going red, once per direction, on a copy of the real inventory
+# (suites are only listed, never run). A checker nobody has seen fail proves nothing.
+MBOX="$TMP/builds-mutant"; mkdir -p "$MBOX"
+install_harness "$MBOX"
+cp "$DIR"/*.test.sh "$MBOX/"
+B8_WHY=""
+# Direction 1: a phone-only suite drops off the list and is back in the desktop build.
+grep -v "^native-ios-app\.test\.sh${TAB}" "$DIR/phone-app-suites.tsv" > "$MBOX/phone-app-suites.tsv"
+build_check "$MBOX"
+case "$BC_WHY" in *"native-ios-app.test.sh (phone only) is in the desktop build"*) ;;
+  *) B8_WHY="$B8_WHY; dropping native-ios-app's row was not caught (checker said: ${BC_WHY:-nothing})" ;; esac
+# Direction 2: a Mac-side suite is listed as a phone suite and leaves the desktop build.
+cp "$DIR/phone-app-suites.tsv" "$MBOX/phone-app-suites.tsv"
+printf 'mobile-mac.test.sh\tios\ta mistaken row\n' >> "$MBOX/phone-app-suites.tsv"
+build_check "$MBOX"
+case "$BC_WHY" in *"mobile-mac.test.sh (the Mac side) is NOT in the desktop build"*) ;;
+  *) B8_WHY="$B8_WHY; listing mobile-mac was not caught (checker said: ${BC_WHY:-nothing})" ;; esac
+# ...and for a suite that proves the Mac's embedded web app, run-tests.sh itself refuses.
+cp "$DIR/phone-app-suites.tsv" "$MBOX/phone-app-suites.tsv"
+printf 'mobile-pwa.test.sh\tios\ta mistaken row\n' >> "$MBOX/phone-app-suites.tsv"
+build_check "$MBOX"
+case "$BC_WHY" in *"belongs to the desktop build"*) ;;
+  *) B8_WHY="$B8_WHY; listing mobile-pwa was not refused (checker said: ${BC_WHY:-nothing})" ;; esac
+if [ -n "$B8_WHY" ]; then
+  bad "B8 B7's checker goes red in each direction" "${B8_WHY#; }"
+else
+  ok "B8 B7's checker goes red when a phone suite returns to the desktop build and when a Mac-side suite leaves it"
+fi
+
+# =========================================================================================
 # E. THIS FILE'S OWN FOOTING — the verdict must not depend on who started the run
 # =========================================================================================
 #
@@ -719,6 +926,8 @@ else
       RUN_TESTS_SKIP_UNCHANGED) E1ENV+=("RUN_TESTS_SKIP_UNCHANGED=1") ;;
       RUN_TESTS_DECLARED_GAPS) E1ENV+=("RUN_TESTS_DECLARED_GAPS=front-door.test.sh: whatever the build declares") ;;
       RICHOS_NATIVE_IOS_APP_A8) E1ENV+=("RICHOS_NATIVE_IOS_APP_A8=1") ;;
+      RICHOS_IOS_POOL_WAIT) E1ENV+=("RICHOS_IOS_POOL_WAIT=6900") ;;
+      RICHOS_IOS_POOL_LEASES) E1ENV+=("RICHOS_IOS_POOL_LEASES=2") ;;
       RICHOS_FOURTEEN_MUTANTS) E1ENV+=("RICHOS_FOURTEEN_MUTANTS=1") ;;
       *) E1MISSING="$E1MISSING $E1N" ;;
     esac
