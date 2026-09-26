@@ -67,13 +67,15 @@ trap 'rm -rf "$SANDBOX"' EXIT
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); }
 
-for f in ci-shard.sh ci-units.sh lib/ci-receipts.py lib/leak-canary.sh lib/record-canary.sh lib/tree-witness.sh lib/proc_tree.py lib/worker_tokens.py; do
+for f in ci-shard.sh ci-units.sh lib/ci-receipts.py lib/leak-canary.sh lib/record-canary.sh lib/tree-witness.sh lib/proc_tree.py lib/worker_tokens.py lib/engine_pass.py; do
     [ -f "$ENGINE_ROOT/scripts/$f" ] || { echo "FATAL: missing scripts/$f" >&2; exit 1; }
 done
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit 1; }
 # The shard runner's RECORD canary (round 15) watches ${CLAUDE_CONFIG_DIR:-$HOME/.claude};
 # every invocation below points it at a throwaway config directory.
 export CLAUDE_CONFIG_DIR="$SANDBOX/cfg"
+export RICHOS_MACHINE_WORKERS="$SANDBOX/machine" RICHOS_ENGINE_PASS_DIR="$SANDBOX/slot"
+unset RICHOS_WORKER_TOKENS RICHOS_WORKER_SLOT_HELD RICHOS_WORKER_BORROW_LOCK
 mkdir -p "$CLAUDE_CONFIG_DIR/state"
 
 echo "=== ci-shard tests ==="
@@ -88,7 +90,7 @@ mk_engine() { # <root>
     for f in ci-shard.sh ci-units.sh; do
         cp "$ENGINE_ROOT/scripts/$f" "$r/scripts/$f"; chmod +x "$r/scripts/$f"
     done
-    for f in ci-receipts.py leak-canary.sh record-canary.sh tree-witness.sh proc_tree.py worker_tokens.py; do
+    for f in ci-receipts.py leak-canary.sh record-canary.sh tree-witness.sh proc_tree.py worker_tokens.py engine_pass.py; do
         cp "$ENGINE_ROOT/scripts/lib/$f" "$r/scripts/lib/$f"
     done
     # The sectioned suite, with two real `if _section` markers, so the section

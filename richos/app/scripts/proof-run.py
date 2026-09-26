@@ -31,9 +31,9 @@ surviving timeouts and failures that were discovered only after long waits. This
 owns scheduling, admission, logs and cancellation so callers do not reconstruct that protocol.
 
 WHAT IT DOES WITH EACH FAMILY OF COMMAND, and why nothing is dropped:
-  * engine `ci-shard.sh --only-units <u>` lines (one per unit) become ONE units file,
-    packed into shards by the engine's own weight-based planner (`ci-shard.sh --units-file
-    F --shard i/N`, the path the CI affected-gate uses), each shard leaving a receipt; a
+  * engine `ci-shard.sh --only-units <u>` lines retain ONE full units file and the
+    engine planner's shard assignment. Each shard lane admits one exact unit at a time,
+    releasing its worker permit between units. Each unit leaves its own receipt; a
     final `ci-shard.sh --verify-receipts` proves the union of units run equals the set
     selected. A unit that silently did not run fails the land, as it does in CI.
   * `run-tests.sh --only a --only b ...` becomes one `run-tests.sh --only <suite>` per
@@ -133,6 +133,7 @@ ROOT = git_root()
 sys.path.insert(0, os.path.join(ROOT, "richos", "engine", "scripts", "lib"))
 import proc_tree  # noqa: E402
 import worker_tokens  # noqa: E402
+import engine_pass  # noqa: E402
 sys.path.insert(0, os.path.join(HERE, "lib"))
 import test_results  # noqa: E402  (what names a failing test; one reader for every caller)
 
@@ -334,14 +335,16 @@ def plan(lines, args, logdir, hist):
         os.makedirs(receipts, exist_ok=True)
         shard_labels = []
         for i in sorted(per, key=int):
-            label = "engine %s/%d" % (i, k)
-            shard_labels.append(label)
-            items.append(Item(label, engine,
-                              ["bash", "scripts/ci-shard.sh", "--units-file", ufile, "--shard", "%s/%d" % (i, k),
-                               "--receipt", os.path.join(receipts, "shard-%s.jsonl" % i)] +
-                              (["--fail-fast"] if getattr(args, "fail_fast", False) else []),
-                              None, sum(weight.get(u, 60.0) for u in per[i])))
-            items[-1].notes.append("%d unit(s): %s" % (len(per[i]), ", ".join(per[i])))
+            for unit in per[i]:
+                label = "engine " + unit
+                shard_labels.append(label)
+                receipt_name = hashlib.sha256(unit.encode()).hexdigest() + ".jsonl"
+                items.append(Item(label, engine,
+                                  ["bash", "scripts/ci-shard.sh", "--only-units", unit,
+                                   "--receipt", os.path.join(receipts, receipt_name)] +
+                                  (["--fail-fast"] if getattr(args, "fail_fast", False) else []),
+                                  "engine-shard-" + i, weight.get(unit, 60.0)))
+                items[-1].notes.append("shard %s/%d; exact unit admission" % (i, k))
         items.append(Item("engine receipts", engine,
                           ["bash", "scripts/ci-shard.sh", "--verify-receipts", receipts, "--units-file", ufile],
                           None, 1.0, after=shard_labels))
@@ -372,6 +375,7 @@ def launch(item, n, logdir, tokens_dir, reserved):
     # Its own session, so nothing it does can signal this runner; how it is stopped is
     # proc_tree.kill_tree (its whole tree), never a group or a name.
     env = {**os.environ, **item.env, "RICHOS_WORKER_TOKENS": tokens_dir,
+           "RICHOS_VERIFICATION_CHECKOUT": ROOT,
            "RICHOS_WORKER_TOKENS_TOOL": os.path.abspath(worker_tokens.__file__),
            "RICHOS_WORKER_TOKENS_RESERVED": str(reserved),
            "RICHOS_MACHINE_WORKERS": item.machine_tokens, "RICHOS_WORKER_SLOT_HELD": "1",
@@ -388,7 +392,7 @@ def launch(item, n, logdir, tokens_dir, reserved):
     try:
         item.proc = subprocess.Popen(proc_tree.command(item.argv), cwd=item.cwd, stdout=fh, stderr=subprocess.STDOUT,
                                      stdin=subprocess.DEVNULL, start_new_session=True, env=env,
-                                     pass_fds=tuple(item.token.fds))
+                                     pass_fds=tuple(item.token.fds) + tuple(getattr(item, "slot_fds", ())))
     except OSError as exc:
         # A check that cannot even start is a FAILED check, named, never a crash of the run
         # that leaves every other check running with nobody to stop it.
@@ -452,7 +456,7 @@ def deadline_for(item, args):
     shard: a shard is a list of units run one after another, and ci-shard.sh already stops EACH
     unit at its own deadline, with its whole tree. A deadline on the list as well killed two
     healthy shards in the third full run, at 3 x the shard's stale planned weight."""
-    if item.label.startswith("engine ") and "--shard" in item.argv:
+    if item.label.startswith("engine ") and any(flag in item.argv for flag in ("--shard", "--only-units")):
         return None
     return min(3600.0, max(args.deadline, 3 * item.weight))
 
@@ -477,6 +481,7 @@ def run(items, args, logdir, sampler=None):
         item.env["RICHOS_VERIFICATION_CONTAMINATION"] = os.path.join(logdir, "contamination")
     worker_tokens.init(tokens_dir, args.capacity)
     budget = worker_tokens.Budget(tokens_dir, runner=True, shared=machine)
+    budget.shared.admission = engine_pass.Admission(machine, ROOT)
     reserved = reserved_tokens(args.capacity)
     order = sorted(items, key=lambda it: -it.weight)
     running = []
@@ -526,6 +531,7 @@ def run(items, args, logdir, sampler=None):
         for it in items:
             if it.token:
                 it.token.release()
+        budget.close()
         # The simulator daemon outlives command processes. Finalize only this run's
         # registered devices, after process cleanup and outside the killed trees.
         import testdevices
@@ -577,6 +583,7 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 print("[%s] %-6s %-40s %6.0f s%s" % (stamp(), {"passed": "PASS", "failed": "FAIL"}.get(it.state, "KILLED"),
                                                      it.label, it.seconds, "" if rc == 0 else "  (exit %d)" % rc), flush=True)
                 name_failures(it)
+                checkpoint(items, logdir)
                 for name in it.failing[:SHOWN_FAILURES]:
                     print("         failed: %s" % name, flush=True)
         contamination = os.path.join(logdir, "contamination")
@@ -621,6 +628,9 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 it.notes.append("unsuccessful prerequisites: " + ", ".join(sorted(it.requires - passed)))
         waiting = [it for it in waiting if it.state == "waiting"]
         ready = [it for it in waiting if (not it.lane or it.lane not in busy_lanes) and it.after <= done]
+        for it in ready:
+            if it.first_wait is None:
+                it.first_wait = now
         # Ordering-only dependencies still run diagnostics after failure. Explicit success
         # prerequisites block dependent execution. Nested workers never take the
         # reserved tokens (worker_tokens.py), so a check not yet started always gets one.
@@ -838,6 +848,7 @@ def main(argv=None):
     p.add_argument("--as-printed", action="store_true")
     p.add_argument("--capacity", type=int, default=max(2, int((os.cpu_count() or 4) * 0.8)))
     p.add_argument("--engine-shards", type=int, default=max(1, (os.cpu_count() or 4) // 2))
+    p.add_argument("--slot-wait", type=float, help="bounded wait for the existing large-plan slot")
     p.add_argument("--admission-wait", type=float, default=1800)
     p.add_argument("--max-cpu", type=float, default=reserve.DEFAULT_MAX_CPU)
     p.add_argument("--budget", type=float, default=BUDGET_SECONDS)
@@ -854,6 +865,8 @@ def main(argv=None):
             p.error("--" + name.replace("_", "-") + " must be finite and positive")
     if args.max_cpu > 100:
         p.error("--max-cpu must be at most 100")
+    if args.slot_wait is not None and (not math.isfinite(args.slot_wait) or args.slot_wait < 0):
+        p.error("--slot-wait must be finite and nonnegative")
     parent = args.log_dir or default_logdir()
     run_id = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     logdir = os.path.join(parent, run_id if not args.log_dir else "")
@@ -884,7 +897,26 @@ def main(argv=None):
     before = source_identity()
     with open(os.path.join(logdir, "source.json"), "w") as out:
         json.dump(before, out, indent=2)
-    wall = run(items, args, logdir)
+    units = {it.argv[it.argv.index("--only-units") + 1] for it in items
+             if it.argv[:2] == ["bash", "scripts/ci-shard.sh"] and "--only-units" in it.argv}
+    slot = None
+    started = time.monotonic()
+    try:
+        if engine_pass.needs_slot(len(units)) and not engine_pass.held_by_ancestor():
+            slot = engine_pass.acquire(len(units), "proof-run", ROOT, sorted(units), args.slot_wait)
+            for it in items:
+                it.slot_fds = (slot.fd,)
+        run(items, args, logdir)
+        wall = time.monotonic() - started
+    except engine_pass.Refused as exc:
+        for it in items:
+            it.state, it.rc = "not-admitted", engine_pass.REFUSED
+            it.notes.append(exc.message())
+        checkpoint(items, logdir)
+        wall = time.monotonic() - started
+    finally:
+        if slot:
+            slot.release()
     if source_identity() != before:
         changed = Item("source changed during verification", ROOT, [])
         changed.state, changed.rc = "failed", 1

@@ -70,7 +70,7 @@ class EngineCommands(unittest.TestCase):
         (engine / "scripts/hooks").mkdir()
         for name in ("ci-shard.sh", "ci-units.sh", "lib/ci-receipts.py",
                      "lib/leak-canary.sh", "lib/record-canary.sh", "lib/tree-witness.sh",
-                     "lib/proc_tree.py", "lib/worker_tokens.py"):
+                     "lib/proc_tree.py", "lib/worker_tokens.py", "lib/engine_pass.py"):
             shutil.copyfile(ENGINE / "scripts" / name, engine / "scripts" / name)
         index = next(i for i, unit in enumerate(units)
                      if unit.startswith("scripts/hooks/contract-integrity.test.sh:"))

@@ -29,7 +29,7 @@ ENGINE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 PASS=0
 FAIL=0
-SANDBOX="$(cd "$(mktemp -d -t run-all-tests-test.XXXXXX)" && pwd -P)"
+SANDBOX="$(cd "$(mktemp -d "${TMPDIR:?}/run-all-tests-test.XXXXXX")" && pwd -P)"
 trap 'rm -rf "$SANDBOX"' EXIT
 
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
@@ -41,6 +41,8 @@ echo "=== run-all-tests: the leak canary is wired, and it decides the verdict ==
 # Every runner invocation below points it at a throwaway config directory, so
 # this suite neither depends on the operator's real record nor touches it.
 export CLAUDE_CONFIG_DIR="$SANDBOX/cfg"
+export RICHOS_MACHINE_WORKERS="$SANDBOX/machine" RICHOS_ENGINE_PASS_DIR="$SANDBOX/slot"
+unset RICHOS_WORKER_TOKENS RICHOS_WORKER_SLOT_HELD RICHOS_WORKER_BORROW_LOCK
 mkdir -p "$CLAUDE_CONFIG_DIR/state"
 
 NO_HOOKS="$SANDBOX/empty-hooks"; mkdir -p "$NO_HOOKS"
@@ -62,6 +64,9 @@ build_engine() {
     cp "$ENGINE_ROOT/scripts/lib/tree-witness.sh" \
        "$ENGINE_ROOT/scripts/lib/leak-canary.sh" \
        "$ENGINE_ROOT/scripts/lib/record-canary.sh" \
+       "$ENGINE_ROOT/scripts/lib/worker_tokens.py" \
+       "$ENGINE_ROOT/scripts/lib/proc_tree.py" \
+       "$ENGINE_ROOT/scripts/lib/engine_pass.py" \
        "$ENGINE_ROOT/scripts/lib/stopwatch.sh" "$d/engine/scripts/lib/"
     chmod +x "$d/engine/scripts/run-all-tests.sh"
     printf 'PROTECTED_PATHS="app"\n' > "$d/engine/orchestration.config"

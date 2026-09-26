@@ -224,9 +224,11 @@
 #      report a green fraction over an inventory of nothing
 
 set -uo pipefail
+export PYTHONDONTWRITEBYTECODE=1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ORIG_ARGS=("$@")
 
 VERBOSE=0
 LIST_ONLY=0
@@ -276,6 +278,20 @@ if [ "$LIST_ONLY" -eq 1 ]; then
     printf '%s suite(s) discovered under %s\n' "$TOTAL" "$ENGINE_ROOT" >&2
     exit 0
 fi
+
+WORKER_TOOL="$ENGINE_ROOT/scripts/lib/worker_tokens.py"
+PASS_TOOL="$ENGINE_ROOT/scripts/lib/engine_pass.py"
+for tool in "$WORKER_TOOL" "$PASS_TOOL"; do
+    [ -f "$tool" ] || { echo "ERROR: missing verification admission helper: $tool" >&2; exit 2; }
+done
+export RICHOS_VERIFICATION_CHECKOUT="${RICHOS_VERIFICATION_CHECKOUT:-$ENGINE_ROOT}"
+python3 "$PASS_TOOL" needed "$TOTAL"; PASS_RC=$?
+case "$PASS_RC" in
+    0) ;;
+    10) exec python3 "$PASS_TOOL" hold --count "$TOTAL" --label "run-all-tests.sh" \
+            --checkout "$ENGINE_ROOT" -- bash "${BASH_SOURCE[0]}" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"} ;;
+    *) echo "ERROR: could not establish large-plan admission" >&2; exit 2 ;;
+esac
 
 C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_BOLD=$'\033[1m'; C_RESET=$'\033[0m'
 
@@ -371,7 +387,7 @@ for t in "${SUITES[@]}"; do
     # `git status` calls would attribute ~0.3s of runner overhead to every suite
     # and make the 40 fast suites look twice their real cost.
     SUITE_T0="$(sw_now_ms)"
-    bash "$t" >"$LOG" 2>&1
+    python3 "$WORKER_TOOL" machine -- bash "$t" >"$LOG" 2>&1
     RC=$?
     SUITE_MS=$(( $(sw_now_ms) - SUITE_T0 ))
     TIMES_MS+=("$SUITE_MS")

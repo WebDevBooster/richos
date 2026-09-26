@@ -92,6 +92,30 @@ class Budget:
             self.usable = self.files[:len(self.files) - reserved]
 
     def try_acquire(self):
+        # Only the final machine budget gates priority; recursively acquiring a
+        # local and shared budget must not deadlock against our own guard.
+        if self.shared:
+            return self._try_acquire()
+        import engine_pass
+        if not hasattr(self, "admission"):
+            self.admission = engine_pass.Admission(
+                self.dir, os.environ.get("RICHOS_VERIFICATION_CHECKOUT", os.getcwd()))
+        if not self.admission.begin():
+            return None
+        token = None
+        try:
+            token = self._try_acquire()
+            return token
+        finally:
+            self.admission.attempted(token is not None)
+
+    def close(self):
+        if self.shared:
+            self.shared.close()
+        if hasattr(self, "admission"):
+            self.admission.close()
+
+    def _try_acquire(self):
         for path in self.usable:
             fd = os.open(path, os.O_RDWR)
             try:
@@ -132,6 +156,7 @@ class Budget:
                     raise TimeoutError("worker admission timed out after %gs: %s" % (timeout, self.dir))
                 time.sleep(POLL_SECONDS)
         finally:
+            self.close()
             try:
                 os.remove(marker)
             except OSError:
@@ -214,6 +239,7 @@ def run_command(cmd, token, env=None, worker=True):
     # reuse that slot until the supervisor has stopped the command's descendants.
     import proc_tree
     env = dict(env if env is not None else os.environ)
+    env.setdefault("RICHOS_VERIFICATION_CHECKOUT", os.getcwd())
     if worker:
         env.update(RICHOS_WORKER_SLOT_HELD="1", RICHOS_WORKER_BORROW_LOCK=token.path + ".child")
     try:
