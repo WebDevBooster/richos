@@ -3510,6 +3510,9 @@ impl Cognition for NativeCognition {
                 thread_id: binding.thread_id().to_string(),
                 instruction_ledger_ref: format!("ledger:{}:{turn}", binding.thread_id()),
                 instruction_sha256: format!("{:x}", sha2::Sha256::digest(text.as_bytes())),
+                // His team's listed mouths, on an operator install only: the register answers
+                // work from any other mouth itself, in this turn (r3 (s) rule 1).
+                operator_origins: self.engine_profile.as_ref().and_then(|p| p.operator_desk.as_ref()).map(|d| d.origins.clone()),
                 // **The register opens the obligation itself, so it carries the desk to open it
                 // on** (`assignment_tools.rs`'s module doc). These are the three values written
                 // one call above — the same bridge, the same binding, the same seat — so the
@@ -4002,7 +4005,7 @@ mod native_driver_tests {
         let bridge = fixture_bridge(&root);
         let mut profile = fixture_profile(&root);
         profile.operator_desk = Some(crate::operator_desk_tools::DeskAccess {
-            socket: root.join("desk.sock"), token: "t".repeat(32) });
+            socket: root.join("desk.sock"), token: "t".repeat(32), origins: vec!["desk-typed".into()] });
         let (scope, continuity, executable) = (root.join("scope.json"), root.join("continuity.json"), root.join("RichOS"));
         let continuity_tools = root.join("continuity-tools.json");
         let (assignments, status) = (root.join("abc-assignments.json"), root.join("abc-status.json"));

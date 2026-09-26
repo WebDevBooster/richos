@@ -267,6 +267,7 @@ fn operator_desk_at_boot(
     });
     // (h): the lead's `can_use_tool` has nowhere to go but a refusal until the permission desk
     // route is built; in the declared bypass mode P14 measured nothing reaching it at all.
+    let listed = declaration.origins.clone();
     let desk = richos_core::operator_desk::OperatorDesk::for_app(declaration, data_dir, &executable, settle, origins, Some(push),
                                                                  Arc::new(richos_core::operator_lead::NoPermissionDesk));
     desk.start_default_retirement();
@@ -275,7 +276,8 @@ fn operator_desk_at_boot(
     eprintln!("[richos] his team: operator install; each conversation's lead starts on its next assignment (log {})",
               desk.log_path().display());
     match richos_core::operator_desk_tools::DeskSocket::serve(desk.clone(), &path, &token) {
-        Ok(socket) => (Some(desk), Some(socket), Some(richos_core::operator_desk_tools::DeskAccess { socket: path, token })),
+        Ok(socket) => (Some(desk), Some(socket),
+                       Some(richos_core::operator_desk_tools::DeskAccess { socket: path, token, origins: listed })),
         Err(e) => {
             eprintln!("[richos] his team: the front desk's stop and read could not be offered ({e}) at {}", path.display());
             (Some(desk), None, None)

@@ -83,6 +83,9 @@ pub struct DeskToolScope {
 pub struct DeskAccess {
     pub socket: PathBuf,
     pub token: String,
+    /// The declaration's `origins`: the mouths that may give his team work. The front desk's
+    /// register answers work from any other mouth itself (`assignment_tools.rs`).
+    pub origins: Vec<String>,
 }
 
 /// The per-lease scope file for these tools: beside the register's, from the same per-lease
