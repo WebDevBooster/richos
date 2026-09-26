@@ -11,11 +11,12 @@ scenario. Keep those measurements in a private handoff with the raw evidence.
 From `richos/app/scripts/testvm`:
 
 ```sh
-./ax.sh VM find --title Settings --first
-./ax.sh VM focus --role AXTextArea --in composer --first
-./ax.sh VM type 'fixture text' --role AXTextArea --in composer --first --replace
-./ax.sh VM type 'fixture text' --app Safari --role AXTextArea --first --replace
+./ax.sh VM find --title Settings
+./ax.sh VM focus --role AXTextArea --in composer
+./ax.sh VM type 'fixture text' --role AXTextArea --in composer --replace
+./ax.sh VM type 'fixture text' --app Safari --role AXTextArea --replace
 ./ax.sh VM click --title Close --in dialog
+./ax.sh VM click --id route-choice --in dialog --expect value=1 --json
 ./ax.sh VM find --role AXButton --in window 'RichOS' --nth 1 --json
 ```
 
@@ -33,9 +34,39 @@ value update without resending text. The text may
 contain newlines; no Send/Return is issued automatically. A coordinate click uses
 AppleScript and requires the intended process to be frontmost.
 
+`--id` matches the exact `AXDOMIdentifier`; confirm exposure on the target app.
+When an explicit role excludes a title/ID match, failure includes up to three
+`near_matches` from the same bounded traversal. These are hints, never clicked.
+A role-less exact selector still requires uniqueness. Do not silently resolve a
+collision by adding `--contains --first`.
+
+`click --expect value=1` resolves, presses and observes the postcondition in one
+guest invocation. Repeated `--expect` options may check `value`, `enabled`,
+`selected`, `current`, `title` or `description`. A state already satisfied returns
+`already_satisfied` without pressing again. Otherwise the tool presses once and
+observes for up to one second within the existing total deadline. An unobserved
+postcondition or an exception after dispatch returns `effect_unknown`; it never
+retries the press. Bare `click` remains a dispatch receipt, not outcome proof.
+These local attributes do not prove a backend transaction completed: scenario
+acceptance must also check its resulting route or other domain state.
+
+All input still targets the owned test guest. No host UI path is added.
+The delta scenario uses exact names by default and offers `--tailnet-route-choice`
+only for a fixture with the managed route selector visible. It selects the route
+by ID and verifies its local value before pairing. Pin Connect's initial managed
+and enabled state when exercising that option.
+
 The default 20-second deadline includes host preflight, SSH, guest execution and
 rendering. The guest gets a shorter allowance for diagnostics and cleanup. Timeouts
-return 124 with partial output preserved; the owned command group is killed.
+return 124 with a structured classification before partial output. Phases distinguish
+`preflight_deadline`, `transport_deadline`, `guest_deadline` and `render_deadline`.
+A guest-start marker establishes whether remote execution began; missing transport
+evidence never licenses a claim that the app hung. A deadline conservatively leaves
+the effect unknown. Stderr includes `ax_timing` with host phase durations and guest
+execution duration where measured. `transport_overhead_seconds` is the residual
+including remote startup and shell overhead, not a pure SSH measurement. These
+phase records are ephemeral under the configured temporary root and cleaned by
+the supervisor. Partial output is preserved; the owned command group is killed.
 `SecurityAgent` windows and a modal hiding the requested control produce `blocked`,
 distinct from `notfound`. Process errors
 retain their exit status. `TESTVM_AX_TIMEOUT` can select a different total bound for

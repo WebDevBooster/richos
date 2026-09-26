@@ -1625,6 +1625,7 @@ t_done
 
 t "AX search avoids history before first hit and keeps explicit matching semantics"
   node "$HERE/ax-search.test.js" >"$TMP/search.log" 2>&1; ok $? "$(cat "$TMP/search.log")"
+  python3 -B "$HERE/ax-contract.test.py" >"$TMP/ax-contract.log" 2>&1; ok $? "$(cat "$TMP/ax-contract.log")"
 t_done
 
 t "hand-file: a drag of an updated file never hands over the older Desktop copy of the same name"
