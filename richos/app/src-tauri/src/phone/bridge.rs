@@ -137,10 +137,9 @@ impl Bridge for PhoneBridge {
             .name("richos-phone-drain".to_string())
             .spawn(move || {
                 let state = app.state::<AppState>();
-                let outcome = {
-                    let mut spine = state.spine.lock().unwrap();
-                    spine.poll_intake()
-                };
+                // The turn, and then its boundary: work he gave from the phone starts the way
+                // typed work does (`crate::adopt_at_the_turn_boundary`, CEO ruling §88).
+                let outcome = crate::drain_the_phone(&state.spine, &state.work);
                 if let Err(e) = outcome {
                     eprintln!("[richos] the phone's message could not be drained: {e}");
                 }

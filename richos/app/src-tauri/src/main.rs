@@ -938,7 +938,11 @@ fn ready_the_front_desk(app: &AppHandle, thread_id: &str) {
     let thread_id = thread_id.to_string();
     std::thread::spawn(move || {
         let Some(state) = app.try_state::<AppState>() else { return };
-        let verdict = take_the_spine(&state.spine).prime_front_desk(&thread_id);
+        let mut spine = take_the_spine(&state.spine);
+        let verdict = spine.prime_front_desk(&thread_id);
+        // Priming drains what he sent while it ran (`prime_front_desk`'s `poll_intake`), and
+        // those are real turns: their boundary is here (`adopt_at_the_turn_boundary`).
+        adopt_at_the_turn_boundary(spine, &state.work);
         match verdict {
             richos_core::spine::FrontDeskReady::Ready { millis, spawned } => eprintln!(
                 "[richos] the front desk is ready before he types: {millis} ms{} — that is what his \
@@ -1411,12 +1415,80 @@ fn send_message(
     // **It is a directory read at a boundary, not a timer.** Adoption happens once per
     // assignment, at the end of the turn that created it. Nothing here retries and nothing
     // restarts work by itself (spec §6.3).
-    let binding = spine.ledger().thread_binding(&thread).ok();
-    drop(spine);
-    if let Some(binding) = binding {
-        state.work.adopt_registered(&binding);
-    }
+    //
+    // **Every conversation whose turn ended in this call, not the one active afterwards** —
+    // the same door the spoken turn, the phone and the boot use (`adopt_at_the_turn_boundary`).
+    adopt_at_the_turn_boundary(spine, &state.work);
     Ok(messages)
+}
+
+// =====================================================================================
+// THE TURN BOUNDARY'S ADOPTION — ONE DOOR, EVERY ENTRANCE THAT RUNS HIS TURNS
+// =====================================================================================
+//
+// CEO ruling §88: *"The user should be able to answer on their phone just as well as they
+// can answer on the desktop app."* Until this door existed only the typed send adopted the
+// work Rich wrote down during a turn; a task given aloud or from the phone sat `Registered`
+// until he next typed in that conversation (esc-20260926T083231Z-23865924). Each entrance
+// below runs his turns and then hands the spine to this function, which asks the spine
+// which conversations' turns ended (`Spine::take_ended_turns`) and adopts for each.
+//
+// The entrances, all of them (a new one that runs a turn must call this too, and
+// `turn_boundary_tests::every_entrance_that_runs_his_turns_adopts_at_its_boundary` names each):
+//   * typed      — `send_message`
+//   * spoken     — the voice submit callback, through `run_the_spoken_turn`
+//   * phone      — `phone::bridge`'s drain, through `drain_the_phone`
+//   * priming    — `ready_the_front_desk` (`prime_front_desk` drains what was sent during it)
+//   * boot       — `reconcile_intake`, which runs what outlived the last process
+
+/// **Release the spine, then start the work his ended turns wrote down.** Returns how many
+/// assignments were adopted; zero is the ordinary answer.
+///
+/// **It takes the hold BY VALUE, and that is the enforcement of §0 row 3**: the work host is
+/// never reached while the spine is held, and a caller cannot keep a guard it has given
+/// away. `&mut Spine` also satisfies the bound, for the boot, where the spine is not behind
+/// its mutex yet.
+fn adopt_at_the_turn_boundary<G>(mut spine: G, work: &Arc<richos_core::work_host::WorkHost>) -> usize
+where
+    G: std::ops::DerefMut<Target = Spine>,
+{
+    let ended = spine.take_ended_turns();
+    drop(spine);
+    ended.iter().map(|binding| work.adopt_registered(binding)).sum()
+}
+
+/// **His spoken sentence, as a turn, and then its boundary** — the tail of the voice submit
+/// callback, a function so the adoption it ends with is tested rather than assumed.
+fn run_the_spoken_turn<G>(
+    mut spine: G,
+    work: &Arc<richos_core::work_host::WorkHost>,
+    text: &str,
+    rich_audible: bool,
+) where
+    G: std::ops::DerefMut<Target = Spine>,
+{
+    // Source::Jam — voice and text are ONE thread and ONE ledger.
+    //
+    // `submit_prompt_spoken` rather than `submit_prompt`: the latter writes
+    // `rich_audible: None`, which means "not recorded", and would throw away the one fact
+    // about this audio that nothing downstream can reconstruct.
+    if let Err(e) = spine.submit_prompt_spoken(text, Source::Jam, rich_audible) {
+        eprintln!("[richos] voice turn failed: {e}");
+    }
+    // A failed turn still reaches here: what it wrote down before failing is a receipt.
+    adopt_at_the_turn_boundary(spine, work);
+}
+
+/// **The phone's drain: take his words off the intake log, run them, then the boundary.**
+/// Called from `phone::bridge` on its own thread, because the drain runs the turn.
+fn drain_the_phone(
+    spine: &std::sync::Mutex<Spine>,
+    work: &Arc<richos_core::work_host::WorkHost>,
+) -> Result<(), richos_core::spine::SpineError> {
+    let mut spine = spine.lock().unwrap();
+    let outcome = spine.poll_intake();
+    adopt_at_the_turn_boundary(spine, work);
+    outcome
 }
 
 /// **A TYPED MESSAGE THAT NEVER BECAME A TURN, ON THE OPERATOR'S LOG** — the nightly's D4.
@@ -2928,6 +3000,11 @@ fn main() {
             if let Err(e) = spine.reconcile_intake() {
                 eprintln!("[richos] intake reconciliation at boot: {e}");
             }
+            // What it ran — a phone message that outlived the last process — ended here, so
+            // the work those turns wrote down starts here (`adopt_at_the_turn_boundary`). The
+            // recovery above has already settled every assignment the LAST process left, so
+            // only what these turns registered can be adopted (spec §6.3: nothing restarts).
+            adopt_at_the_turn_boundary(&mut spine, &work);
 
             // THE CORRECTION DESK (open-items 3.5). Its log sits beside the ledger and the
             // intake log, same durability posture, and deliberately NOT in the ledger: a
@@ -3925,7 +4002,7 @@ fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serd
     let submit: Arc<dyn Fn(String, bool) + Send + Sync> =
         Arc::new(move |text: String, rich_audible: bool| {
             let state = submit_app.state::<AppState>();
-            let Some(mut spine) = take_the_spine_or_give_up(&state.spine) else { return };
+            let Some(spine) = take_the_spine_or_give_up(&state.spine) else { return };
             // ===========================================================================
             // A FACTORY IS NOT AN ENGINE — the spoken half of the same arm
             // ===========================================================================
@@ -3980,14 +4057,9 @@ fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serd
                 );
                 return;
             }
-            // Source::Jam — voice and text are ONE thread and ONE ledger.
-            //
-            // `submit_prompt_spoken` rather than `submit_prompt`: the latter writes
-            // `rich_audible: None`, which means "not recorded", and would throw away the one fact
-            // about this audio that nothing downstream can reconstruct.
-            if let Err(e) = spine.submit_prompt_spoken(&text, Source::Jam, rich_audible) {
-                eprintln!("[richos] voice turn failed: {e}");
-            }
+            // The turn, and then its boundary: work he gave aloud starts the way typed work
+            // does (`adopt_at_the_turn_boundary`, CEO ruling §88).
+            run_the_spoken_turn(spine, &state.work, &text, rich_audible);
         });
 
     let scratch_dir = app
@@ -8677,3 +8749,6 @@ mod ipc_responsiveness_tests {
 
 #[cfg(test)]
 mod window_read_tests;
+
+#[cfg(test)]
+mod turn_boundary_tests;
