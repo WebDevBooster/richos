@@ -306,6 +306,18 @@ fi
 # asked to. It says so here rather than at the first model turn.
 CLAUDE_LOGIN_LINE="$("$HERE/claude-login.sh" push "$VM" "$GUEST_HOME")" || true
 printf '%s\n' "$CLAUDE_LOGIN_LINE" >&2
+# The keeper: for the run's lifetime, each access token THIS Mac renews is
+# handed to the guest, so a run longer than one token's remaining life keeps
+# working without the guest ever holding a refresh token (claude-login.sh, "A
+# LONG RUN OUTLIVES ONE ACCESS TOKEN"). Its pid is recorded here and stop.sh
+# ends exactly that pid; it also ends by itself once this run's state is gone.
+# Nothing it prints reaches this script's output (a caller reading run.sh's
+# pipe must not wait on it).
+if [ "$CLAUDE_LOGIN_LINE" = "claude login: guest logged in" ]; then
+  nohup "$HERE/claude-login.sh" keep "$VM" "$GUEST_HOME" \
+    >>"$STATE/claude-keep.log" 2>&1 </dev/null &
+  echo $! > "$STATE/claude-keep.pid"
+fi
 
 if [ -n "$ENGINE" ] && [ -e "$ENGINE" ]; then
   log "copying the engine payload in..."
