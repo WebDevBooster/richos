@@ -2,4 +2,5 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PYTHONDONTWRITEBYTECODE=1
+source "$(dirname "${BASH_SOURCE[0]}")/verification-fixture.sh"
 python3 "$HERE/runner-boundaries.test.py" "$@"
