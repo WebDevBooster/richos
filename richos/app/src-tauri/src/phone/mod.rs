@@ -1603,14 +1603,14 @@ impl PhoneRuntime {
         let Ok(mut desk)=notifications::Desk::open(&self.data_dir) else{return;};
         if !desk.needs_reconcile(device.as_ref()){return;}
         let Ok(identity)=connect::client::Identity::open(&secrets::Keychain::for_app_data(&self.data_dir)) else{return;};
-        let _=desk.reconcile(&connect::client::Client::new(identity),device.as_ref());
+        drop(desk.reconcile(&connect::client::Client::new(identity),device.as_ref()));
     }
     pub fn question_changed(&self,item:&serde_json::Value) {
         if let Some(mut row)=rows::row_from_item(item) {
             let cursor=self.hub.next_cursor();
             let position=self.running.lock().unwrap().as_ref().and_then(|r|routes::Bridge::snapshot(r.bridge.as_ref(),item["threadId"].as_str()).ok()).and_then(|payload|rows::rows_from_payload(&payload).into_iter().find(|r|r["id"]==row["id"])).map(|r|r["cursor"].clone()).unwrap_or(serde_json::json!(cursor));
             row["cursor"]=position;
-            let _=self.hub.publish("message",cursor,row.to_string());
+            drop(self.hub.publish("message",cursor,row.to_string()));
         }
     }
     pub fn bridge_refresh(&self) {

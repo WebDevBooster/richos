@@ -1614,7 +1614,7 @@ impl WorkHost {
             if let Some(latest)=records.iter().find(|r|r.id==record.id) {
                 if matches!(latest.state,AssignmentState::Settled|AssignmentState::Failed|AssignmentState::Interrupted) {
                     if let Err(error)=crate::questions::Store::new(&self.state).close(&record.entity_id,&record.thread_id,Some(&record.obligation_id),"This assignment has ended",false) {eprintln!("[richos] could not close assignment questions: {error}");}
-                    let _=crate::question_work::take(&self.state,&record.entity_id,&record.thread_id,&record.obligation_id);
+                    drop(crate::question_work::take(&self.state,&record.entity_id,&record.thread_id,&record.obligation_id));
                 }
             }
         }
@@ -2462,7 +2462,7 @@ impl WorkHost {
         // he can answer into nothing.
         self.forget_at_the_desk(&record);
         crate::questions::Store::new(&self.state).close(entity,thread,Some(&record.obligation_id),"The assignment was stopped",false)?;
-        let _=crate::question_work::take(&self.state,entity,thread,&record.obligation_id);
+        drop(crate::question_work::take(&self.state,entity,thread,&record.obligation_id));
         // Only this conversation's back end. A stop on one thread never reaches another's —
         // the CEO's page puts a whole back-end Rich behind each thread, and two threads are
         // two pieces of work he thinks of separately.

@@ -677,11 +677,11 @@ mod tests {
         assert!(outbox(&f).is_empty(),"question was duplicated as an ordinary report");
         let questions=crate::questions::Store::new(&f.scope.state_root).all().unwrap();
         assert_eq!(questions.len(),1);assert_eq!(questions[0].asker,"operator:conversation");assert_eq!(questions[0].session_id,"original-lead-session");
-        let withdraw=json!({"kind":"withdraw_question","question_id":questions[0].id,"text":"The release was cancelled"});
+        let withdraw=json!({"kind":"withdraw_question","question_id":questions[0].id,"text":"The release was canceled"});
         assert_eq!(report(&f,withdraw).unwrap()["withdrawn"],true);
         let saved=crate::questions::Store::new(&f.scope.state_root).all().unwrap();
         assert_eq!(saved[0].state,crate::questions::State::Withdrawn);
-        assert_eq!(saved[0].withdrawal_reason.as_deref(),Some("The release was cancelled"));
+        assert_eq!(saved[0].withdrawal_reason.as_deref(),Some("The release was canceled"));
         assert!(report(&f,json!({"kind":"withdraw_question","question_id":"someone-elses-question","text":"Done"})).is_err());
         f.scope.question_context.as_mut().unwrap().thread_id="other-thread".into();
         write_scope(&f.scope_path,&f.scope).unwrap();

@@ -147,7 +147,7 @@ pub fn start(app: AppHandle) {
                 {
                     if delivery.asker.starts_with("operator:") { continue; }
                     if let Ok(binding) = view.ledger().thread_binding(&delivery.thread_id) {
-                        let _ = state.work.queue_question_answer(&binding, &delivery);
+                        drop(state.work.queue_question_answer(&binding, &delivery));
                     }
                 }
                 for (entity, thread, asker) in store.pending_threads().unwrap_or_default() {
@@ -209,7 +209,8 @@ pub fn start(app: AppHandle) {
             }
         })
         .expect("start question delivery");
-    let _ = changed.try_send(());
+    // Wakeups coalesce when the slot is full; a disconnected worker accepts no further work.
+    changed.try_send(()).unwrap_or(());
     std::thread::Builder::new()
         .name("richos-questions".into())
         .spawn(move || {
@@ -221,7 +222,7 @@ pub fn start(app: AppHandle) {
                                 .iter()
                                 .any(|p| p.file_name().is_some_and(|n| n == "store.json"))
                     }) {
-                        let _ = changed.try_send(());
+                        changed.try_send(()).unwrap_or(());
                     }
                 })
                 .expect("watch question history");
@@ -260,18 +261,18 @@ pub fn start(app: AppHandle) {
                         if seen.get(&q.id) != Some(&signature) {
                             seen.insert(q.id.clone(), signature);
                             let item = q.item(revision);
-                            let _ = app.emit("rich://question-upserted", &item);
+                            drop(app.emit("rich://question-upserted", &item));
                             app.state::<std::sync::Arc<crate::phone::PhoneRuntime>>()
                                 .question_changed(&item);
                         }
                     }
                     if witness_pending {
-                        let _ = witness_ready.try_send(());
+                        witness_ready.try_send(()).unwrap_or(());
                     }
                 }
-                let _ = deliver.try_send(());
-                let _ = work_ready.try_send(());
-                let _ = notify_ready.try_send(());
+                deliver.try_send(()).unwrap_or(());
+                work_ready.try_send(()).unwrap_or(());
+                notify_ready.try_send(()).unwrap_or(());
             }
         })
         .expect("start question observer");

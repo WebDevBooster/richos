@@ -227,7 +227,7 @@ impl Store {
                 Ok(())
             })();
             if saved.is_err() {
-                let _ = std::fs::remove_file(&temp);
+                drop(std::fs::remove_file(&temp));
             }
             saved?;
         }

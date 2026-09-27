@@ -38,7 +38,7 @@ fn invoke(scope: &AskScope, hook: &str, input: Value, budget: Duration) -> Resul
     let read = |pipe: Box<dyn Read + Send>| {
         std::thread::spawn(move || {
             let mut text = String::new();
-            let _ = pipe.take(65536).read_to_string(&mut text);
+            drop(pipe.take(65536).read_to_string(&mut text));
             text
         })
     };
@@ -54,15 +54,15 @@ fn invoke(scope: &AskScope, hook: &str, input: Value, budget: Duration) -> Resul
             break Some(status);
         }
         if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
+            drop(child.kill());
+            drop(child.wait());
             break None;
         }
         std::thread::sleep(Duration::from_millis(5));
     };
     let out = out.join().unwrap_or_default();
     let err = err.join().unwrap_or_default();
-    let _ = write.join();
+    drop(write.join());
     match status {
         Some(s) if s.success() => Ok(out),
         Some(_) => Err(if err.trim().is_empty() { out } else { err }),

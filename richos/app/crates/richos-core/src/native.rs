@@ -3507,7 +3507,7 @@ impl NativeCognition {
 
 impl Drop for NativeCognition {
     fn drop(&mut self) {
-        if let Some(path)=self.client.reader_state.lock().unwrap().question_scope.as_ref(){let _=std::fs::remove_file(path);}
+        if let Some(path)=self.client.reader_state.lock().unwrap().question_scope.as_ref(){drop(std::fs::remove_file(path));}
         let _ = self.client.child.kill();
         let _ = self.client.child.wait();
         if let Some(profile) = &self.engine_profile { let _ = std::fs::remove_dir_all(&profile.plugin); }
@@ -3999,8 +3999,8 @@ impl Cognition for NativeCognition {
         let _operation = self.client.operation_cancel.lock().unwrap();
         for grant in &self.client.action_grants {
             if matches!(grant,ActionGrant::Questions(_)) && grant.set(false).is_err() {
-                let _=std::fs::remove_file(grant.path());
-                let _=self.client.child.kill();let _=self.client.child.wait();
+                drop(std::fs::remove_file(grant.path()));
+                drop(self.client.child.kill());drop(self.client.child.wait());
                 return Err(CognitionError::Io("The question scope could not be closed.".into()));
             }
         }

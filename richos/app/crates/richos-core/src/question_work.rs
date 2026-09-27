@@ -35,7 +35,7 @@ fn write(path: &Path, value: &Input) -> Result<(), String> {
             .map_err(|e| e.to_string())
     })();
     if result.is_err() {
-        let _ = std::fs::remove_file(temp);
+        drop(std::fs::remove_file(temp));
     }
     result
 }

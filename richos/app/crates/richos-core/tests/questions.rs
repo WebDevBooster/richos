@@ -76,7 +76,7 @@ impl Fixture {
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.root);
+        drop(std::fs::remove_dir_all(&self.root));
     }
 }
 

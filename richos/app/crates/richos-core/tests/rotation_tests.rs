@@ -1088,8 +1088,8 @@ fn phone_answer_provenance_survives_a_lease_crash_without_changing_product_reten
             spine.submit_prompt("Next request from this Mac",Source::Text).unwrap();
             assert_eq!(channels.lock().unwrap().last().cloned(),Some(keep.then(|| "desk".to_string())));
             drop(spine);
-            let _=std::fs::remove_file(path);
-            let _=std::fs::remove_file(intake);
+            drop(std::fs::remove_file(path));
+            drop(std::fs::remove_file(intake));
         }
     }
 }
