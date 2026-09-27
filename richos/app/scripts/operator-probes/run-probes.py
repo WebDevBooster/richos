@@ -3,12 +3,13 @@
 
 Operator back-end spec r3 §5 (richos-hq docs/plans/2026-09-24-operator-back-end-spec-r3.md):
 fifteen probes, each one short `claude` session with its control in the same run, run in
-the test VM (CEO ruling §65, §68 point 5). This file is the host half: it takes the test
-VM's guest lock and the CPU admission (CEO ruling §77, the same `reserve.reservation` the
-walk runner uses), boots ONE fresh clone with `testvm/run.sh --no-app` (the host's claude
-synced in, the host's login pushed, no app launched), copies in this harness and a
-`git archive` of the engine at a named commit, runs `guest_probes.py` inside the guest in
-the foreground, pulls the results back, and deletes the clone however the run ends (§54).
+the test VM (CEO ruling §65, §68 point 5). This file is the host half: it takes one of
+the test VM's two guest slots and the CPU admission (CEO ruling §77, the same
+`slots.guest_slot` the walk runner uses, held for this run only and released when it
+ends), boots ONE fresh clone with `testvm/run.sh --no-app` (the host's claude synced in,
+the host's login pushed, no app launched), copies in this harness and a `git archive` of
+the engine at a named commit, runs `guest_probes.py` inside the guest in the foreground,
+pulls the results back, and deletes the clone however the run ends (§54).
 
   run-probes.py --out DIR [--only P1,P2,...] [--engine-rev REV] [--wait SECONDS] [--survey]
                 [--walk-binary PATH] [--w3-cells W3,...]
@@ -21,6 +22,7 @@ Results are private evidence: they go to the caller's --out, and from there to r
 with account data removed and environment NAMES only, never values.
 """
 import argparse
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -37,7 +39,7 @@ HERE = Path(__file__).resolve().parent
 TESTVM = HERE.parent / 'testvm'
 REPO = HERE.parents[3]
 sys.path.insert(0, str(TESTVM))
-from reserve import reservation  # noqa: E402
+from slots import guest_slot  # noqa: E402
 
 
 def sh(args, timeout=None, **kw):
@@ -92,7 +94,8 @@ def main():
     p.add_argument('--out', type=Path, required=True, help='host folder the results are pulled into')
     p.add_argument('--only', default='', help='comma-separated probe ids (default: all)')
     p.add_argument('--engine-rev', default='HEAD', help='the engine commit the guest runs (default HEAD)')
-    p.add_argument('--wait', type=float, default=0, help='CPU admission wait, seconds (reserve.py rules)')
+    p.add_argument('--wait', type=float, default=0,
+                   help='wait for a free guest slot and CPU admission for at most this many seconds (slots.py)')
     p.add_argument('--survey', action='store_true', help='record the guest toolset only, run no probe')
     p.add_argument('--probe-timeout', type=int, default=900, help='seconds per probe inside the guest')
     p.add_argument('--walk-binary', type=Path, default=None,
@@ -116,11 +119,22 @@ def main():
     for sig in (signal.SIGTERM, signal.SIGHUP):
         signal.signal(sig, interrupted)
 
+    def clean():
+        # Idempotent: inside the slot when the run ends, again from the outer finally
+        # for a failure before the slot was ever held. The slot is released only after
+        # its guest is gone (slots.py: a guest never outlives its slot).
+        if (root / 'run' / vm).exists():
+            stopped = sh([str(TESTVM / 'stop.sh'), vm], timeout=300)
+            report['cleanup'] = {'exit': stopped.returncode, 'said': (stopped.stdout + stopped.stderr)[-2000:]}
+            try:
+                report['clone_left'] = vm in running_clones()
+            except Exception as error:  # noqa: BLE001
+                report['clone_left'] = 'unknown: ' + repr(error)
+
     try:
-        with reservation(lock=root / 'guest.lock', wait_seconds=a.wait):
-            busy = running_clones()
-            if busy:
-                raise BlockingIOError('another clone is running (' + ', '.join(busy) + '); guest admission refused')
+        with guest_slot(root=root, wait_seconds=a.wait, purpose='run-probes ' + vm), \
+                contextlib.ExitStack() as in_slot:
+            in_slot.callback(clean)
             with tempfile.TemporaryDirectory(prefix='operator-probes-', dir=os.environ.get('TMPDIR')) as scratch:
                 scratch = Path(scratch)
                 home = scratch / 'home'
@@ -201,13 +215,7 @@ def main():
         print('probe run failed: ' + repr(failure), file=sys.stderr)
         return 2
     finally:
-        if (root / 'run' / vm).exists():
-            stopped = sh([str(TESTVM / 'stop.sh'), vm], timeout=300)
-            report['cleanup'] = {'exit': stopped.returncode, 'said': (stopped.stdout + stopped.stderr)[-2000:]}
-            try:
-                report['clone_left'] = vm in running_clones()
-            except Exception as error:  # noqa: BLE001
-                report['clone_left'] = 'unknown: ' + repr(error)
+        clean()
         report['ended'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
         (out / 'run-report.json').write_text(json.dumps(report, indent=2) + '\n')
         print(json.dumps(report, indent=2))

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """spelling-walk.py — a reply the model writes in British spelling reaches him American (CEO §93).
 
-Run by run-walk.py, which boots the guest, holds <TESTVM_ROOT>/guest.lock and removes the clone:
+Run by run-walk.py, which holds one guest slot for this run only, boots the guest and removes the clone:
 
   run-walk.py --bundle ZIP --home EMPTY_DIR --engine ENGINE --report REPORT -- \\
       spelling-walk.py --out DIR --expect-sha SHA --expect american|as-written

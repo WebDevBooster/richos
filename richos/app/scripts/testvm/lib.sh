@@ -65,12 +65,22 @@ TESTVM_BASE_VM="${TESTVM_BASE_VM:-richos-base}"
 TESTVM_DISPLAY="${TESTVM_DISPLAY:-1680x1050}"
 
 # Per-VM resources. Host has 10 cores / 24 GB. TWO guests must run at once
-# (that is the point), so a guest gets 4 cores and 7 GB: 2x7=14 GB leaves 10 GB
-# for the host, its own apps and the CEO's work. macOS guests below ~6 GB swap
-# hard and boot slowly, so 7 GB is the floor that keeps boots honest, not a
-# luxury. tart's defaults (whatever the image baked) are not trusted.
+# (that is the point), so a guest gets 4 cores and 5 GB.
+#
+# 5 GB IS MEASURED, NOT GUESSED (2026-09-27, mem-walk.py inside the guest). The
+# old 7 GB rested on "below ~6 GB a macOS guest swaps and boots slowly", which
+# was never measured, and two 7 GB guests did not fit beside this Mac's usual
+# load: at 18:56Z two of them took it from 71% available to 32% and 120 MB/s
+# swap-out. A real walk (spelling-walk: first run, then a real model turn) at
+# 5120 MB peaked at 3218 MB Memory Used (app 102 MB, claude 698 MB in all),
+# with ZERO guest swap-outs and a 70 s boot (68 s at 7 GB). 5120 is that peak
+# plus 1.9 GB: room for a second claude worker (about 260 MB each, measured)
+# and the rest. At 7 GB the same guest used 3.4-4.1 GB only because macOS
+# spreads out when it has room. Two 5 GB guests need 58% of this Mac available
+# (slots.py's memory admission adds a 4 GB floor), which it usually is.
+# tart's defaults (whatever the image baked) are not trusted.
 TESTVM_CPU="${TESTVM_CPU:-4}"
-TESTVM_RAM_MB="${TESTVM_RAM_MB:-7168}"
+TESTVM_RAM_MB="${TESTVM_RAM_MB:-5120}"
 
 # The guest account the app runs as. It must be the console (auto-login) user:
 # a window only exists inside the GUI session, and screencapture over ssh can
