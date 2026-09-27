@@ -1057,7 +1057,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "72b58811b8c9fc7722a1d0ca0efcdc33fe890f14a2c777bb8961d1320d693654",
+      "sha256": "2ca9e8548f59ad9116b4a5e68d80c7c74bc0b4858e8bf04f73cf10139123ceb6",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed.",
       "keys": [],
       "edges": [
@@ -1730,6 +1730,95 @@
           "fixture": true
         }
       ]
+    },
+    "scripts/hooks/guard-definition-drift.sh": {
+      "source": "scripts/hooks/guard-definition-drift.sh",
+      "sha256": "6abe090d1a5eae1c726799e7c6e9bdaad2da332635fec5737ce9ce31f4f05007",
+      "evidence": "Resolves the overridden entity, then compares definition/snapshot hashes and payload acknowledgements. It never sources orchestration.config; namespaced lookups use the shared resolver.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh"
+        }
+      ]
+    },
+    "scripts/hooks/snapshot-agent-definitions.sh": {
+      "source": "scripts/hooks/snapshot-agent-definitions.sh",
+      "sha256": "51f92567f9daaa9bacd37082d0cd30beba284b3149714c8a45f945738d6ebaff",
+      "evidence": "Resolves the overridden entity and hashes its definition files. Retention and logging read the private state directory, not config values. It uses only root functions, never namespace lookup.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        }
+      ]
+    },
+    "scripts/hooks/guard-definition-drift.test.sh": {
+      "source": "scripts/hooks/guard-definition-drift.test.sh",
+      "sha256": "ae3616c638a5835284feff2a91a3129e67ca176b71ddd58900405d447c781690",
+      "evidence": "Every guard/snapshot invocation supplies DEFINITION_DRIFT_ROOT before entity resolution. All definitions, snapshots, logs and adoption config are generated in those roots; payload agent types are bare. No real config is sourced or copied.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-definition-drift.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/snapshot-agent-definitions.sh",
+          "fixture": true
+        }
+      ]
+    },
+    "scripts/lib/seat-jurisdiction.test.sh": {
+      "source": "scripts/lib/seat-jurisdiction.test.sh",
+      "sha256": "5fc4f2fd5045d06a783867d3d8e22756bf66c69e05d9faff6d08dc70cbb36e76",
+      "evidence": "Structural cases parse registered hook source as data. Executed behavior is the main-checkout guard against private adopted/stranger/non-Git roots, plus the jurisdiction helper. The broken copy omits its jurisdiction helper and fails before any settings are consumed. The copied mutant is classified, never executed.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/registered-hooks.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-main-checkout-writes.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh",
+          "fixture": true
+        }
+      ]
+    },
+    "scripts/lib/hook-dependencies.py": {
+      "source": "scripts/lib/hook-dependencies.py",
+      "sha256": "897b42d0130b3b6139bb1da820a8dd9757f5f39764065e419f2f50e2acb3bd51",
+      "evidence": "Standard-library source scanner. It reads registration JSON, dispatcher manifest and recursively resolved source paths as data. It never executes discovered files. The supported token suffixes exclude .config; inventories do not consume config values.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/hook-dependencies.sh": {
+      "source": "scripts/lib/hook-dependencies.sh",
+      "sha256": "a4634dd1f95fe9c518055fd324d4b56a07186aafb8828e387c890c3cbd0e4621",
+      "evidence": "Calls only the adjacent Python source scanner with the supplied engine directory.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/hook-dependencies.py"
+        }
+      ]
+    },
+    "scripts/lib/hook-dependencies.test.sh": {
+      "source": "scripts/lib/hook-dependencies.test.sh",
+      "sha256": "e7ec14f5035469c0d9f10ce237210e553bbcae64564a1fdf1aada0bd683feb0e",
+      "evidence": "Runs the real source scanner and shell wrapper on the live engine and private generated engines. The copied root resolver and generated shell/Python fixture bodies are parsed as data, never executed. Demo source is only searched for its invocation text.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/hook-dependencies.py"
+        },
+        {
+          "to": "scripts/lib/hook-dependencies.sh"
+        }
+      ]
     }
   },
   "units": {
@@ -1756,7 +1845,10 @@
     "scripts/hooks/guard-no-home-network-phone.test.sh": "scripts/hooks/guard-no-home-network-phone.test.sh",
     "scripts/hooks/guard-interactive-prompt.test.sh": "scripts/hooks/guard-interactive-prompt.test.sh",
     "scripts/hooks/install-retire-reconciler.test.sh": "scripts/hooks/install-retire-reconciler.test.sh",
-    "scripts/hooks/session-start-quota.test.sh": "scripts/hooks/session-start-quota.test.sh"
+    "scripts/hooks/session-start-quota.test.sh": "scripts/hooks/session-start-quota.test.sh",
+    "scripts/hooks/guard-definition-drift.test.sh": "scripts/hooks/guard-definition-drift.test.sh",
+    "scripts/lib/seat-jurisdiction.test.sh": "scripts/lib/seat-jurisdiction.test.sh",
+    "scripts/lib/hook-dependencies.test.sh": "scripts/lib/hook-dependencies.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {

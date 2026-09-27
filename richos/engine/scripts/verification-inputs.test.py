@@ -158,6 +158,38 @@ class Closure(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.map = {"schema": 1, "config_keys": ["A", "B", "PLANTED"], "nodes": {}, "units": {}}
 
+    def test_definition_and_seat_fixtures_do_not_read_real_config_values(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        units = ['scripts/hooks/guard-definition-drift.test.sh', 'scripts/lib/seat-jurisdiction.test.sh']
+        for unit in units:
+            closure = graph.closure(unit)
+            self.assertEqual(closure['fallback'], [], unit)
+            self.assertEqual(closure['keys'], {}, unit)
+            self.assertEqual(closure['whole'], [], unit)
+        before = (HERE.parent / 'orchestration.config').read_text()
+        change = inputs.config_change(before, before + '\nPLANTED_UNUSED_SETTING=1\n')
+        self.assertEqual(graph.config_units(change, units), {})
+        source = 'scripts/hooks/snapshot-agent-definitions.sh'
+        def changed(path):
+            value = (HERE.parent / path).read_text()
+            return value + '\n: "$NEW_READ"\n' if path == source else value
+        stale = inputs.Dependencies(HERE.parent, document, read=changed)
+        self.assertEqual(set(stale.config_units(change, units)), {units[0]})
+
+    def test_hook_dependency_scanner_parses_source_without_consuming_config_values(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/lib/hook-dependencies.test.sh'
+        closure = graph.closure(unit)
+        self.assertEqual(closure['fallback'], [])
+        self.assertEqual(closure['keys'], {})
+        self.assertEqual(closure['whole'], [])
+        before = (HERE.parent / 'orchestration.config').read_text()
+        self.assertEqual(graph.config_units(inputs.config_change(before, before + '\nPLANTED_UNUSED_SETTING=1'), [unit]), {})
+        document['nodes'].pop('scripts/lib/hook-dependencies.py')
+        self.assertTrue(inputs.Dependencies(HERE.parent, document).closure(unit)['fallback'])
+
     def node(self, name, content, **contract):
         path = self.root / name
         path.parent.mkdir(parents=True, exist_ok=True)
