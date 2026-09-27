@@ -3461,6 +3461,18 @@ mod tests {
         start_in_turn: Arc<Mutex<VecDeque<Vec<crate::cognition::BackgroundCommand>>>>,
         /// What each work turn says, one per turn, in order; `answer_reply` once they run out.
         replies: Arc<Mutex<VecDeque<String>>>,
+        /// **A turn that streams NOTHING** (design C11). Every real turn streams at least one
+        /// item, so by default a turn with no words still streams one neutral item; set this
+        /// to script the degraded "the host did not get this turn" case.
+        silent: Arc<AtomicBool>,
+        /// Holds a work turn's first item until the test releases it (design §4.1): the window
+        /// between sending his answer and the back end taking it.
+        first_item_gate: Arc<StartGate>,
+        /// The next work turns end `Ok` with this reason and stream nothing, one per turn:
+        /// `refused_before_it_ran` / `discarded_before_it_ran` (`native.rs`'s lifecycle).
+        unrun: Arc<Mutex<VecDeque<String>>>,
+        /// The next work turns fail before streaming, one per turn (a dead lease, `Closed`).
+        fail_next: Arc<Mutex<VecDeque<String>>>,
     }
 
     impl Drop for WorkLease {
@@ -3498,9 +3510,21 @@ mod tests {
             if let Some(why) = self.turn_error.lock().unwrap().clone() {
                 return Err(CognitionError::Protocol(why));
             }
+            if let Some(why) = self.fail_next.lock().unwrap().pop_front() {
+                return Err(CognitionError::Io(why));
+            }
+            if let Some(reason) = self.unrun.lock().unwrap().pop_front() {
+                return Ok(reason);
+            }
             let reply = self.replies.lock().unwrap().pop_front().unwrap_or_else(|| self.answer_reply.clone());
+            if !self.silent.load(Ordering::SeqCst) {
+                self.first_item_gate.wait_until_open();
+            }
             if !reply.is_empty() {
                 _on(TurnItem::Text { seq: 0, text: &reply });
+            } else if !self.silent.load(Ordering::SeqCst) {
+                // The neutral item every real turn streams (C11): no words, nothing counted.
+                _on(TurnItem::Text { seq: 0, text: "" });
             }
             if let Some(started) = self.start_in_turn.lock().unwrap().pop_front() {
                 // A command already known is this turn REPORTING ITS ENDING (the provider folding
@@ -3652,6 +3676,10 @@ mod tests {
         background: Arc<Mutex<Option<Vec<crate::cognition::BackgroundCommand>>>>,
         start_in_turn: Arc<Mutex<VecDeque<Vec<crate::cognition::BackgroundCommand>>>>,
         replies: Arc<Mutex<VecDeque<String>>>,
+        silent: Arc<AtomicBool>,
+        first_item_gate: Arc<StartGate>,
+        unrun: Arc<Mutex<VecDeque<String>>>,
+        fail_next: Arc<Mutex<VecDeque<String>>>,
     }
 
     impl LeaseFactory for WorkFactory {
@@ -3690,6 +3718,10 @@ mod tests {
                 background: self.background.clone(),
                 start_in_turn: self.start_in_turn.clone(),
                 replies: self.replies.clone(),
+                silent: self.silent.clone(),
+                first_item_gate: self.first_item_gate.clone(),
+                unrun: self.unrun.clone(),
+                fail_next: self.fail_next.clone(),
             }))
         }
     }
@@ -3729,6 +3761,10 @@ mod tests {
         background: Arc<Mutex<Option<Vec<crate::cognition::BackgroundCommand>>>>,
         start_in_turn: Arc<Mutex<VecDeque<Vec<crate::cognition::BackgroundCommand>>>>,
         replies: Arc<Mutex<VecDeque<String>>>,
+        silent: Arc<AtomicBool>,
+        first_item_gate: Arc<StartGate>,
+        unrun: Arc<Mutex<VecDeque<String>>>,
+        fail_next: Arc<Mutex<VecDeque<String>>>,
     }
 
     fn harness(step_ms: u64) -> Harness {
@@ -3764,7 +3800,15 @@ mod tests {
         let background = Arc::new(Mutex::new(None));
         let start_in_turn = Arc::new(Mutex::new(VecDeque::new()));
         let replies = Arc::new(Mutex::new(VecDeque::new()));
+        let silent = Arc::new(AtomicBool::new(false));
+        let first_item_gate = StartGate::open_now();
+        let unrun = Arc::new(Mutex::new(VecDeque::new()));
+        let fail_next = Arc::new(Mutex::new(VecDeque::new()));
         let factory = WorkFactory {
+            silent: silent.clone(),
+            first_item_gate: first_item_gate.clone(),
+            unrun: unrun.clone(),
+            fail_next: fail_next.clone(),
             background: background.clone(),
             start_in_turn: start_in_turn.clone(),
             replies: replies.clone(),
@@ -3792,7 +3836,42 @@ mod tests {
         let host = WorkHost::new(&state, Box::new(factory), notices.clone(), Arc::clone(&desk));
         Harness { root, state, host, bound, revoked, fence, notices, binding, obligation, desk, spawns,
             usage, reprimes, handoffs, handoff_reply, answer_reply, refuse_next, readiness, turn_error,
-            work_prompts, start_gate, commands, drop_probe, drops, background, start_in_turn, replies }
+            work_prompts, start_gate, commands, drop_probe, drops, background, start_in_turn, replies,
+            silent, first_item_gate, unrun, fail_next }
+    }
+
+    /// **A second lease factory over the SAME scripted state as `h`'s** — every knob and every
+    /// record shared. A test builds a second host with it: a relaunch over the same engine state
+    /// (design §4.1 tests 2 and 3), or a host with a different notifier.
+    fn factory_over(h: &Harness, step_ms: u64) -> WorkFactory {
+        WorkFactory {
+            start_gate: h.start_gate.clone(),
+            bound: h.bound.clone(),
+            revoked: h.revoked.clone(),
+            fence: h.fence.clone(),
+            step: std::time::Duration::from_millis(step_ms),
+            obligation: h.obligation.clone(),
+            spawns: h.spawns.clone(),
+            usage: h.usage.clone(),
+            reprimes: h.reprimes.clone(),
+            handoffs: h.handoffs.clone(),
+            handoff_reply: h.handoff_reply.clone(),
+            answer_reply: h.answer_reply.clone(),
+            refuse_next: h.refuse_next.clone(),
+            readiness: h.readiness.clone(),
+            turn_error: h.turn_error.clone(),
+            work_prompts: h.work_prompts.clone(),
+            commands: h.commands.clone(),
+            drop_probe: h.drop_probe.clone(),
+            drops: h.drops.clone(),
+            background: h.background.clone(),
+            start_in_turn: h.start_in_turn.clone(),
+            replies: h.replies.clone(),
+            silent: h.silent.clone(),
+            first_item_gate: h.first_item_gate.clone(),
+            unrun: h.unrun.clone(),
+            fail_next: h.fail_next.clone(),
+        }
     }
 
     fn registration(harness: &Harness) -> Registration {
@@ -4836,6 +4915,9 @@ mod tests {
             .unwrap();
             if answers {
                 *h.answer_reply.lock().unwrap() = "carrying on".to_string();
+            } else {
+                // The degraded case under test: a turn that streams nothing at all (C11).
+                h.silent.store(true, Ordering::SeqCst);
             }
             let _runner = h.host.start();
             let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
@@ -6709,31 +6791,8 @@ mod tests {
         // A second host over the same state, with a notifier that counts.
         let host = WorkHost::new(
             &h.state,
-            Box::new(WorkFactory {
-                // The same gate as the harness's, which is open and stays open here.
-                start_gate: h.start_gate.clone(),
-                bound: h.bound.clone(),
-                revoked: h.revoked.clone(),
-                fence: h.fence.clone(),
-                step: std::time::Duration::from_millis(5),
-                obligation: h.obligation.clone(),
-                spawns: h.spawns.clone(),
-                usage: h.usage.clone(),
-                reprimes: h.reprimes.clone(),
-                handoffs: h.handoffs.clone(),
-                handoff_reply: h.handoff_reply.clone(),
-                answer_reply: h.answer_reply.clone(),
-                refuse_next: h.refuse_next.clone(),
-                readiness: h.readiness.clone(),
-                turn_error: h.turn_error.clone(),
-                work_prompts: h.work_prompts.clone(),
-                commands: h.commands.clone(),
-                drop_probe: h.drop_probe.clone(),
-                drops: h.drops.clone(),
-                background: h.background.clone(),
-                start_in_turn: h.start_in_turn.clone(),
-                replies: h.replies.clone(),
-            }),
+            // The same gate as the harness's, which is open and stays open here.
+            Box::new(factory_over(&h, 5)),
             counter.clone(),
             Arc::clone(&h.desk),
         );
