@@ -24,9 +24,11 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
   watch         reap-guest.py's death watcher started: every recorded heartbeat's end, guest ms
   unrelated     `sleep` started in the guest by the harness: must survive every step
   normal        a short heartbeat assignment ends BY ITSELF (.done written) and is never reaped
-  stop          a background and a foreground heartbeat; Stop pressed; both end within the bound
-  quit          both again; the app's Quit; the question names the command; "Quit and stop the
-                work"; both end within the quit bound; app.log and the reap log say so
+  stop          a background and a foreground heartbeat; Stop pressed; both end within the bound,
+                timed from the press itself (ax.js); the assignment reads as stopped, not failed
+  quit          both again; the app's Quit (a menu bar item); the question names the commands;
+                "Quit and stop the work"; both end within the quit bound; app.log and the reap
+                log say so; the assignment reads as stopped
   crash         relaunched; both again; the app SIGKILLed by the pid it launched with
   claude-crash  relaunched; both again; the lease's `claude` SIGKILLed by the pid read from its
                 own state file (G9 in the VM, design C9)
@@ -97,6 +99,21 @@ def pressed_at(records):
     if not clicked or not isinstance(clicked[-1].get('pressed_at_ms'), int):
         raise StepFailed('REFUSED: the press carried no guest-clock time: ' + json.dumps(records))
     return {k: clicked[-1][k] for k in ('pressed_at_ms', 'returned_at_ms')}
+
+
+def told_stopped(record):
+    """None when the assignment he stopped (or quit) reads as stopped, else why not. A stop he
+    made is `interrupted` with the "was stopped" notice; guest walk-0ddfdbf8ff00 read "failed ...
+    Claude channel closed (child exited?)." for both Stops and the Quit."""
+    if record.get('state') in OPEN:
+        return 'the stopped assignment is still running: ' + json.dumps(record)[:400]
+    notices = record.get('notices') or []
+    if not notices:
+        return 'the stopped assignment raised no notice: ' + json.dumps(record)[:400]
+    last = notices[-1]
+    if record.get('state') != 'interrupted' or last.get('kind') != 'interrupted':
+        return 'the stop was told as %s, not as a stop: %r' % (record.get('state'), last.get('text', ''))
+    return None
 
 
 def names_commands(question):
@@ -229,6 +246,22 @@ class Walk(adopt.Walk):
                   'print(json.dumps(sorted(rows,key=lambda r:r.get("registered_at_ms") or 0)))\n')
         return json.loads(guest(self.vm, 'python3 -c %s %s %d' % (shlex.quote(script), shlex.quote(self.data), sent_ms), 60))
 
+    def closed_record(self, assignment_id, within=20):
+        """The assignment's own record once it has closed and raised a notice (or as it is
+        after `within` seconds): the state he is shown after a stop."""
+        script = ('import json,glob,sys\n'
+                  'for p in glob.glob(sys.argv[1]+"/engine-state/assignments/*/"+sys.argv[2]+".json"):\n'
+                  '    print(open(p).read())\n')
+        end, record = time.monotonic() + within, {}
+        while time.monotonic() < end:
+            text = guest(self.vm, 'python3 -c %s %s %s' % (shlex.quote(script), shlex.quote(self.data),
+                                                            shlex.quote(assignment_id)), 60)
+            record = json.loads(text) if text.strip() else {}
+            if record.get('state') not in OPEN and record.get('notices'):
+                break
+            time.sleep(1)
+        return record
+
     def approve_pending(self):
         """Open the work summary when something waits for him, and approve every request there."""
         if not self.present('waiting for you'):
@@ -341,12 +374,20 @@ class Walk(adopt.Walk):
         # The row's Stop is labeled "Stop <its title>" (work-summary.js); name this one.
         label = 'Stop ' + (target.get('title') or '')[:60]
         press = pressed_at(self.press(label))
-        return dict(self.verdict(names, press['pressed_at_ms'], BOUND_MS), press=press, started=started,
-                    stopped=target['id'])
+        evidence = self.verdict(names, press['pressed_at_ms'], BOUND_MS)
+        record = self.closed_record(target['id'])
+        told = told_stopped(record)
+        if told:
+            raise StepFailed(told)
+        return dict(evidence, press=press, started=started, stopped=target['id'],
+                    told=record['notices'][-1]['text'])
 
     def quit(self):
         started = self.start('quit')
         names = started['names']
+        target, why = stoppable(self.assignments_since(started['sent_ms']))
+        if why:
+            raise StepFailed(why)
         # The app's own Quit item (main.rs, MENU_QUIT) is in the menu bar, which is in no window.
         self.ax('click', '--title', 'Quit RichOS', '--role', 'AXMenuItem', '--in', 'menubar', '--first')
         self.wait_for('Quit and stop the work', seconds=20)
@@ -361,7 +402,12 @@ class Walk(adopt.Walk):
         groups = {c['pgid'] for c in evidence['commands'].values()}
         if not app_log or not any('killed group %d' % g in reap_log for g in groups):
             raise StepFailed('the quit left no reap lines: app log %r, reap log %r' % (app_log, reap_log[-400:]))
-        return dict(evidence, app_log=app_log, question=question[-800:], started=started)
+        record = self.closed_record(target['id'])
+        told = told_stopped(record)
+        if told:
+            raise StepFailed(told)
+        return dict(evidence, app_log=app_log, question=question[-800:], started=started, stopped=target['id'],
+                    told=record['notices'][-1]['text'])
 
     def crash(self):
         self.facts['app'] = self.relaunched()

@@ -187,6 +187,18 @@ class Grade(unittest.TestCase):
         with self.assertRaises(walk.StepFailed):
             walk.pressed_at([{'meta': True}, {'clicked': True}])
 
+    def test_a_stop_he_made_reads_as_a_stop_never_as_a_failure(self):
+        # Guest walk-0ddfdbf8ff00: both Stops and the Quit left "failed ... Claude channel closed
+        # (child exited?)." on his timeline (fixed in work_host.rs; the walk now guards it).
+        stopped = {'id': 'a1', 'state': 'interrupted', 'notices': [
+            {'kind': 'interrupted', 'text': 'Run two heartbeat.py test commands... It was stopped. Everything it had done is kept.'}]}
+        self.assertIsNone(walk.told_stopped(stopped))
+        failed = {'id': 'a1', 'state': 'failed', 'detail': 'Claude channel closed (child exited?).', 'notices': [
+            {'kind': 'failed', 'text': 'Run two... It stopped before it finished. Claude channel closed (child exited?).'}]}
+        self.assertIn('failed', walk.told_stopped(failed))
+        self.assertIn('still running', walk.told_stopped(dict(stopped, state='running')))
+        self.assertIn('no notice', walk.told_stopped(dict(stopped, notices=[])))
+
     def test_ps_time_is_read_past_an_hour(self):
         self.assertAlmostEqual(walk.cpu_seconds('0:01.46'), 1.46)
         self.assertAlmostEqual(walk.cpu_seconds(' 1:02:03.50\n'), 3723.5)
