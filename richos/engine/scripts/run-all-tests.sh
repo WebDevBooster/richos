@@ -164,6 +164,12 @@
 # suite. scripts/lib/record-canary.sh says exactly what it witnesses and the
 # one thing it cannot (the platform's own per-turn `finished` rows).
 #
+# AMENDED 2026-09-27: each suite now runs in a throwaway home (HOME,
+# CLAUDE_CONFIG_DIR, RICHOS_WORKSPACES_DIR) and the canary watches the record
+# there, because a diff of the LIVE record charged every spawn and land
+# elsewhere on the machine to whichever suite was running. The library's
+# "AMENDED 2026-09-27" section says what that changes and what it cannot see.
+#
 # ITS FALSE-POSITIVE VECTOR, MEASURED RATHER THAN GUESSED. 2026-09-05, 49
 # minutes of 10-second sampling with 68 agents live on the machine:
 #
@@ -331,7 +337,7 @@ fi
 printf '  leak canary: watching %s root(s); witness is contents%s\n' \
     "$CANARY_ROOTS_N" \
     "$(tw_mtime_available && printf ' and a proven sub-second mtime' || printf ' ALONE (no sub-second mtime format proved itself here)')"
-printf '  record canary: watching the operator'"'"'s record under %s (ledger rows except `finished`, the fallback event log, the team directory entries)\n' "$RC_CFG"
+printf '  record canary: watching the record inside each suite'"'"'s own throwaway home (HOME, CLAUDE_CONFIG_DIR and RICHOS_WORKSPACES_DIR moved there; ledger rows except `finished`, the fallback event log, the team directory entries); the operator'"'"'s own is %s\n' "$RC_LIVE_CFG"
 printf '  timing: per suite, clock=%s%s\n' \
     "$SW_METHOD" \
     "$([ -n "$TIMING_TSV" ] && printf ', TSV -> %s' "$TIMING_TSV")"
@@ -360,8 +366,18 @@ for t in "${SUITES[@]}"; do
     LC_HEALTHY=1
     lc_baseline "$CANARY_DIR"
     CANARY_BASE_HEALTHY="$LC_HEALTHY"
-    rc_baseline "$CANARY_DIR/record.txt"
-    RECORD_BASE_HEALTHY="$RC_HEALTHY"
+    # A record of the suite's own (lib/record-canary.sh, "AMENDED 2026-09-27"):
+    # the suite runs with HOME, CLAUDE_CONFIG_DIR and RICHOS_WORKSPACES_DIR in
+    # a throwaway home and the canary watches the record there, so activity
+    # elsewhere on the machine is never charged to the suite, and a suite that
+    # would have written the operator's record is still red.
+    SUITE_HOME="$LOG_DIR/home.$i"
+    if rc_sandbox "$SUITE_HOME"; then
+        rc_baseline "$CANARY_DIR/record.txt"
+        RECORD_BASE_HEALTHY="$RC_HEALTHY"
+    else
+        RECORD_BASE_HEALTHY=0
+    fi
     # Each suite is self-contained and sandboxes its own state; none of them
     # takes arguments. Output is captured so a green run stays readable and a
     # red one can print EVERYTHING the failing suite said — a truncated failure
@@ -371,12 +387,21 @@ for t in "${SUITES[@]}"; do
     # `git status` calls would attribute ~0.3s of runner overhead to every suite
     # and make the 40 fast suites look twice their real cost.
     SUITE_T0="$(sw_now_ms)"
-    bash "$t" >"$LOG" 2>&1
-    RC=$?
+    if [ "$RECORD_BASE_HEALTHY" -eq 1 ]; then
+        env "${RC_SANDBOX_ENV[@]}" bash "$t" >"$LOG" 2>&1
+        RC=$?
+    else
+        # Never run a suite with the road to the operator's record still open;
+        # the canary-blind branch below reports it.
+        printf 'run-all-tests.sh: NOT RUN — the throwaway home %s could not be built.\n' "$SUITE_HOME" >"$LOG"
+        RC=0
+    fi
     SUITE_MS=$(( $(sw_now_ms) - SUITE_T0 ))
     TIMES_MS+=("$SUITE_MS")
     ESCAPED="$(lc_escaped "$CANARY_DIR" "$LOG_DIR")"
-    TOUCHED="$(rc_escaped "$CANARY_DIR/record.txt")"
+    TOUCHED=""
+    [ "$RECORD_BASE_HEALTHY" -eq 1 ] && TOUCHED="$(rc_escaped "$CANARY_DIR/record.txt")"
+    rm -rf "$SUITE_HOME" 2>/dev/null || true
     if [ "$RC" -ne 0 ]; then
         printf '%sFAIL%s (rc=%s) %s\n' "$C_RED" "$C_RESET" "$RC" "$(sw_fmt "$SUITE_MS")"
         FAILED_NAMES+=("$REL (rc=$RC)")
@@ -387,10 +412,10 @@ for t in "${SUITES[@]}"; do
         LEAKED_NAMES+=("$REL — a canary could not witness one of its roots (leak: $CANARY_BASE_HEALTHY, record: $RECORD_BASE_HEALTHY), so it is NOT reporting a pass")
         TIMES_VERDICT+=("CANARY-BLIND")
     elif [ -n "$TOUCHED" ]; then
-        printf '%sFAIL%s (touched the operator'"'"'s record) %s\n' "$C_RED" "$C_RESET" "$(sw_fmt "$SUITE_MS")"
-        LEAKED_NAMES+=("$REL — touched the operator's record under $RC_CFG")
+        printf '%sFAIL%s (touched the operator'"'"'s record: wrote the one in its own home) %s\n' "$C_RED" "$C_RESET" "$(sw_fmt "$SUITE_MS")"
+        LEAKED_NAMES+=("$REL — RECORD-TOUCHED: wrote to its HOME/CLAUDE_CONFIG_DIR record (run by hand, that is $RC_LIVE_CFG)")
         TIMES_VERDICT+=("RECORD-TOUCHED")
-        printf '        TOUCHED THE OPERATOR'"'"'S RECORD — the class that wrote a false termination for a running agent on 2026-09-11:\n'
+        printf '        WROTE TO THE RECORD UNDER ITS OWN HOME — run by hand it would have written the operator'"'"'s, the class that wrote a false termination for a running agent on 2026-09-11:\n'
         printf '%s\n' "$TOUCHED" | sed 's/^/          /'
     elif [ -n "$ESCAPED" ]; then
         printf '%sFAIL%s (wrote outside its sandbox) %s\n' "$C_RED" "$C_RESET" "$(sw_fmt "$SUITE_MS")"
