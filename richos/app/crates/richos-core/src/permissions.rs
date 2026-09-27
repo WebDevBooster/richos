@@ -153,7 +153,18 @@ pub enum Answered {
 /// do not try again — it is his and he still has it.
 const NOT_APPROVED_YET: &str =
     "This is waiting for the CEO to approve it and has not been approved. Do not retry it \
-     and do not work around it: the request is in his queue and he will answer it.";
+     and do not work around it: the request is in his queue and he will answer it. End your \
+     turn now and say what is waiting on him; the app gives you another turn when he answers.";
+
+/// What a background call is told when an EARLIER step of the same assignment is already
+/// waiting on him with no call left to take his answer. Written for the model, like the one
+/// above: nothing ran, nothing was put in front of him, and the one useful move is to end
+/// the turn so his answer can be carried out.
+const STEP_ALREADY_WAITING: &str =
+    "Not run. An earlier step of this assignment is waiting for the CEO to approve it, and \
+     nothing else of this assignment runs until he answers. End your turn now and say what \
+     is waiting on him; the app gives you another turn when he answers, and you can ask for \
+     this then if it is still needed.";
 
 /// What a background call is told when its assignment stopped underneath it.
 const ASSIGNMENT_GONE: &str =
@@ -393,6 +404,19 @@ impl ScopedPermissions {
         if let Some(allowed)=PermissionDesk::take_standing(&mut desk,&binding,tool,&input) {
             return if allowed {allow()} else {deny("The CEO declined this step. Do not retry it and do not work around it.")};
         }
+        // **ONE STEP OF AN ASSIGNMENT WAITS ON HIM AT A TIME, AND WHILE IT WAITS THE TURN
+        // ENDS** (esc-20260927T093052Z-85f3303f). His answer to a step whose call has already
+        // returned goes to the ASSIGNMENT, and the work host can only put the assignment back
+        // on the lease once this turn is over. A second request here would hold the turn for
+        // a whole deadline of its own — measured in the test VM: he approved the first
+        // command and nothing ran for 135.6 s, because the back end had gone on to ask for a
+        // different one. So it is refused at once and never put in front of him; the resumed
+        // run asks again if it still needs it. Another assignment's requests are untouched.
+        let key=assignment_key(&binding);
+        if is_background(&binding) && desk.queue.iter().any(|q| q.call_returned && q.decision.is_none()
+            && is_background(&q.request.binding) && assignment_key(&q.request.binding)==key) {
+            return deny(STEP_ALREADY_WAITING);
+        }
         desk.queue.push(Queued{request:PermissionRequest{id:id.clone(),binding:binding.clone(),tool:tool.into(),
             input:input.clone(),description:request["description"].as_str().unwrap_or("").into(),reason:permission_reason(request),
             raised_at_ms:now_ms()},
@@ -592,6 +616,55 @@ impl ScopedPermissions {
         // And it is still HIS: the different action is waiting for him, not thrown away.
         assert_eq!(desk.background_queue().len(),1);
         std::fs::remove_file(p).unwrap();
+    }
+
+    /// **A step that is already waiting on him ends the turn; it does not start a second
+    /// wait** (esc-20260927T093052Z-85f3303f, measured in the test VM on 2026-09-27).
+    ///
+    /// The back end asked for one command, its call ended at the deadline, and instead of
+    /// ending its turn it asked for a DIFFERENT command. That second request held the turn for
+    /// another full deadline, and the work host cannot put the assignment back on the lease
+    /// until the turn ends: he approved the first command and nothing ran for 135.6 s. So once
+    /// a step of this assignment is waiting on him with no call left to take his answer, a
+    /// further request on the SAME assignment is refused at once, is not put in front of him,
+    /// and tells the back end to end its turn.
+    ///
+    /// Controls in the same test: the waiting request is untouched and his later answer still
+    /// reaches the assignment; another assignment's request still waits for him as before.
+    #[test] fn a_step_already_waiting_on_him_ends_the_turn_instead_of_opening_a_second_wait(){
+        let desk=Arc::new(PermissionDesk::default());
+        let (p,work_lease)=joined(&desk,WORK_AUDIENCE,"obligation-7");
+        let first=work_lease.wait(&json!({"tool_name":"Bash","input":{"command":"sleep 95"}}),Duration::from_millis(30));
+        assert_eq!(first.behavior(),"deny");
+        assert_eq!(desk.background_queue().len(),1);
+        // A different command, on the same assignment, with a deadline long enough that a
+        // desk which queued it would visibly wait for it.
+        let started=Instant::now();
+        let second=work_lease.wait(&json!({"tool_name":"Bash","input":{"command":"cat /tmp/out.txt"}}),Duration::from_secs(3));
+        assert!(started.elapsed()<Duration::from_secs(1),
+            "the second request held the turn for {:?} while an earlier step was waiting on him", started.elapsed());
+        match &second {
+            PermissionDecision::Deny{message}=>assert!(message.contains("End your turn now"),"{message}"),
+            _=>panic!("a second step ran while the first was waiting on him"),
+        }
+        assert_eq!(desk.background_queue().len(),1,"the second request was put in front of him as well");
+        assert_eq!(desk.background_queue()[0].input["command"],"sleep 95");
+        // His answer to the first still reaches the assignment, and the resumed run takes it.
+        let answered=desk.resolve(&desk.background_queue()[0].id,true).unwrap();
+        assert!(matches!(answered,Answered::ToAssignment{allow:true,..}));
+        assert_eq!(work_lease.wait(&json!({"tool_name":"Bash","input":{"command":"sleep 95"}}),Duration::from_millis(30)).behavior(),"allow");
+        // CONTROL: another assignment is not held up by this one's waiting step. This one is
+        // put back into exactly that state first: a step waiting on him with no call left.
+        let (p2,other)=joined(&desk,WORK_AUDIENCE,"obligation-8");
+        assert_eq!(work_lease.wait(&json!({"tool_name":"Bash","input":{"command":"third"}}),Duration::from_millis(30)).behavior(),"deny");
+        assert_eq!(desk.background_queue().len(),1);
+        let call=ask(&other,"Bash",Duration::from_secs(3));
+        assert!(wait_for(||desk.background_queue().iter().any(|r|r.binding.turn_id=="obligation-8")),
+            "another assignment's request was refused because of this one");
+        let theirs=desk.background_queue().into_iter().find(|r|r.binding.turn_id=="obligation-8").unwrap();
+        desk.resolve(&theirs.id,true).unwrap();
+        assert_eq!(call.join().unwrap().behavior(),"allow");
+        std::fs::remove_file(p).unwrap();std::fs::remove_file(p2).unwrap();
     }
 
     /// His DECLINE, given after the call ended, is carried to the assignment the same way —
