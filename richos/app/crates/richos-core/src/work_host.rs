@@ -509,6 +509,11 @@ const WORKER_WAIT_BUDGET: std::time::Duration = std::time::Duration::from_secs(2
 /// gets its next turn, not for cost.
 const WORKER_WAIT_POLL: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// **The one line before the brief of work he picked back up after RichOS closed on it** (the
+/// work-path design's D6 note, on C6's option B path).
+pub const PICKED_UP_NOTE: &str =
+    "RichOS closed while this was running. Check what it already did before redoing anything.";
+
 /// **The quota hold's detail once the back end has taken a turn of this run** ([`WorkHost::quota_gate`]'s
 /// `started`): held, and no current reading. Recovery reads a `WaitingForQuota` row carrying
 /// either one as a started job, never re-run by itself (the work-path design D6).
@@ -1289,6 +1294,11 @@ impl WorkHost {
                     record.title,
                     command_ended_continuation(&ended.iter().collect::<Vec<_>>())
                 )
+            }
+            // **Picked back up after RichOS closed on it** (C6, option B): it is registered again
+            // and it had reached a back end before, so some of it may already be done.
+            None if record.state == AssignmentState::Registered && record.work_session.is_some() && !resumed => {
+                format!("{PICKED_UP_NOTE}\n\n{}", brief_for(record, resumed, &instruction))
             }
             None => brief_for(record, resumed, &instruction),
         };
@@ -2460,6 +2470,13 @@ impl WorkHost {
             return Err("The asking assignment has stopped".into());
         }
         crate::question_work::enqueue(&self.state, delivery)?;
+        // **A job RichOS closed on while it ran is not re-run by his answer** (the work-path
+        // design's C6, option B; spec §6.3). Its answer is saved here, and it goes to that job
+        // when he says to pick it back up (`assignment::pick_up`): the run that follows carries
+        // every answer he gave it. The notice already told him nothing is running.
+        if record.state == AssignmentState::Unknown {
+            return Ok(format!("work-input:{}", delivery.id));
+        }
         // A restart may land between durable enqueue and waking the backend. An
         // existing unconsumed input still needs a scheduled turn on this process.
         if crate::question_work::pending(&self.state)?
@@ -6201,6 +6218,57 @@ mod tests {
         after.shutdown();
         h.host.shutdown();
         assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)), "the host that died never let go");
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// **A job RichOS closed on while it ran is never re-run by his answer, and his word picks
+    /// it back up WITH every answer he gave it** (the work-path design's C6, option B; Rich's
+    /// call). He answered a second question while its turn ran; RichOS closed. After the
+    /// relaunch the answer is saved and nothing runs. When he says to pick it back up, the same
+    /// assignment runs once: the note first, the answer the dead back end had as an earlier one,
+    /// and the answer it never saw as new. He is never asked twice.
+    #[test]
+    fn a_started_job_waits_for_his_word_and_the_pick_up_carries_every_answer_he_gave() {
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        witnessed(&h.state, "work-session-one");
+        let record = waiting_job(&h);
+        open_question(&h, &record);
+        h.host.start();
+        his_answer(&h, &record, "answer-1", "Which branch? You answered: integration");
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        // Its next run is going when he answers again and RichOS closes: the crash, on disk.
+        assignment::advance(&h.state, "depot", "thread-one", &record.id, AssignmentState::Running, "The back end has started on it.").unwrap();
+        let second = crate::questions::Delivery {
+            id: "answer-2".into(), entity_id: "depot".into(), thread_id: "thread-one".into(),
+            asker: record.obligation_id.clone(), set_id: None, text: "Who reviews? You answered: Dana".into(), receipt: None,
+        };
+        crate::question_work::enqueue(&h.state, &second).unwrap();
+        // A crash, not a quit: nothing of the first host runs again, and it is not shut down (a
+        // quit would mark the job Interrupted, which is a witnessed stop).
+        let report = crate::recovery::reconcile(&h.state, &crate::recovery::UnreadableRepositories);
+        assert_eq!(report.unknown.len(), 1, "{report:?}");
+
+        let after = relaunch(&h);
+        after.queue_question_answer(&h.binding, &second).unwrap(); // the launch wake
+        assert!(!after.wait_for_completed(1, std::time::Duration::from_millis(400)), "a started job re-ran by itself");
+        assert_eq!(h.work_prompts.lock().unwrap().len(), 1);
+        assert_eq!(crate::question_work::pending(&h.state).unwrap().len(), 1, "his answer was not kept");
+
+        // His word.
+        assignment::pick_up(&h.state, "depot", "thread-one", &record.title).unwrap();
+        assert_eq!(after.adopt_registered(&h.binding), 1);
+        assert!(after.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let prompts = h.work_prompts.lock().unwrap().clone();
+        assert_eq!(prompts.len(), 2, "{prompts:?}");
+        let picked = &prompts[1];
+        assert!(picked.starts_with(PICKED_UP_NOTE), "{picked}");
+        assert!(picked.contains("Answers he gave earlier on this assignment") && picked.contains("You answered: integration"), "{picked}");
+        assert!(picked.contains("You answered: Dana"), "{picked}");
+        assert!(crate::question_work::pending(&h.state).unwrap().is_empty(), "the pick-up's back end took it");
+        after.shutdown();
+        h.host.shutdown();
         std::fs::remove_dir_all(&h.root).unwrap();
     }
 

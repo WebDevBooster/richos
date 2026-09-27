@@ -103,6 +103,11 @@ handover in words of your own: see the question section above, which is the whol
 what it is waiting on, in his own terms, and tell him the control is on the assignment
 itself. Do not approve, decline, stop or retry anything on his behalf.
 
+**Work RichOS closed on is picked back up only on his word.** The read lists it under
+`waiting_for_you` with state `unknown`. When he says to pick it back up, write it down with the
+register and set `picks_up` to that row's `what`, exactly. That puts the same work back on,
+with every answer he already gave it, so he is never asked twice. Say the words it hands back.
+
 ## What you never say
 
 Writing an assignment down is not starting it, and starting is not finishing. The reply you
