@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """reap-guest.py — the guest-side half of reap-walk.py. Pushed into the guest; never run on the host.
 
-  reap-guest.py beat NAME DIR [--seconds N]
-      A tool command for Rich to run. It records ITSELF in DIR/NAME.id, as JSON on one line:
-      {"name", "pid", "pgid", "sid", "start"} (start = its start time from `ps -o lstart=`, an
-      identity rather than a clock), then writes the guest's time to DIR/NAME.beat every 0.2 s
-      until --seconds pass (default: forever), and on a natural end writes DIR/NAME.done.
-      Nothing is inferred about it: the harness grades only commands that recorded themselves.
+The tool command Rich is asked to run is NOT here: it is reap-heartbeat.py, seeded into the
+repository as heartbeat.py. It records ITSELF in DIR/NAME.id, as JSON on one line: {"name", "pid",
+"pgid", "sid", "start"} (start = its start time from `ps -o lstart=`, an identity rather than a
+clock), and nothing is inferred about it: the walk grades only commands that recorded themselves.
+It is a separate file because the back end reads a script before it runs it, and this one's
+watcher and recorder are not what it is told the script does (guest walk-1a978b4e081b,
+2026-09-27: it declined to run it).
 
   reap-guest.py watch DIR OUT [--seconds N]
       The death watcher. Every 50 ms it reads DIR/*.id and, for each recorded process, notes on
@@ -32,22 +33,6 @@ import time
 def start_of(pid):
     r = subprocess.run(['/bin/ps', '-o', 'lstart=', '-p', str(pid)], capture_output=True, text=True)
     return r.stdout.strip() if r.returncode == 0 else ''
-
-
-def beat(name, directory, seconds):
-    d = Path(directory)
-    d.mkdir(parents=True, exist_ok=True)
-    me = {'name': name, 'pid': os.getpid(), 'pgid': os.getpgrp(), 'sid': os.getsid(0), 'start': start_of(os.getpid())}
-    tmp = d / (name + '.id.tmp')
-    tmp.write_text(json.dumps(me) + '\n')
-    os.replace(tmp, d / (name + '.id'))
-    print('%s is running as pid %d in process group %d' % (name, me['pid'], me['pgid']), flush=True)
-    end = time.monotonic() + seconds if seconds else None
-    while end is None or time.monotonic() < end:
-        (d / (name + '.beat')).write_text('%d\n' % int(time.time() * 1000))
-        time.sleep(0.2)
-    (d / (name + '.done')).write_text('%d\n' % int(time.time() * 1000))
-    print('%s finished' % name, flush=True)
 
 
 def alive(pid, start):
@@ -112,8 +97,6 @@ def main(argv):
         i = argv.index('--seconds')
         seconds = float(argv[i + 1])
         argv = argv[:i] + argv[i + 2:]
-    if argv[:1] == ['beat'] and len(argv) == 3:
-        return beat(argv[1], argv[2], seconds)
     if argv[:1] == ['watch'] and len(argv) == 3:
         return watch(argv[1], argv[2], seconds or 3600)
     if argv[:1] == ['group'] and len(argv) == 2:
