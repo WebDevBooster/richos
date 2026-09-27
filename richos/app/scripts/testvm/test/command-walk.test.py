@@ -53,5 +53,70 @@ class Verdict(unittest.TestCase):
         self.assertTrue(walk.verdict(record(), '', '', RAN))
 
 
+SENT = [1_000_000.0, 1_000_900.0]
+BACKGROUND = [{'command': 'cd "/Users/admin/testvm/walk-x/home/Acme" && sleep 45 && git log --oneline',
+               'background': True, 'stdout': ''}]
+WAITING = {'guest_ms': 1_010_000, 'notices': [{'kind': 'answer', 'text': "I've started it."}]}
+
+
+def finished(**over):
+    value = {'kind': 'task', 'state': 'settled', 'detail': 'Answered.', 'notices': [
+        {'kind': 'answer', 'text': "I've started it; I'll tell you when it finishes.", 'raised_at_ms': 1_008_000},
+        {'kind': 'answer', 'text': f'It finished and printed {SHORT} {SUBJECT}.', 'raised_at_ms': 1_047_000}]}
+    value.update(over)
+    return value
+
+
+class BackgroundVerdict(unittest.TestCase):
+    def test_a_finish_reported_after_the_command_could_end_passes(self):
+        self.assertEqual(walk.background_verdict(finished(), SHORT, SUBJECT, BACKGROUND, SENT, 45, WAITING), [])
+
+    def test_the_2026_09_27_shape_fails_the_started_words_as_the_only_report(self):
+        # The VM's record: one notice, "it has started", and the assignment closed on it.
+        started_only = finished(notices=[{'kind': 'answer', 'text': "I've started your test command.",
+                                          'raised_at_ms': 1_008_000}])
+        failures = walk.background_verdict(started_only, SHORT, SUBJECT, BACKGROUND, SENT, 45, None)
+        self.assertTrue(any('not reported after the start' in f for f in failures), failures)
+        self.assertTrue(any('never seen waiting' in f for f in failures), failures)
+
+    def test_a_report_raised_before_the_command_could_end_fails(self):
+        early = finished()
+        early['notices'][-1]['raised_at_ms'] = 1_030_000
+        failures = walk.background_verdict(early, SHORT, SUBJECT, BACKGROUND, SENT, 45, WAITING)
+        self.assertTrue(any('before a 45 s command could have ended' in f for f in failures), failures)
+
+    def test_a_command_run_in_the_foreground_is_not_this_path(self):
+        foreground = [dict(BACKGROUND[0], background=False)]
+        failures = walk.background_verdict(finished(), SHORT, SUBJECT, foreground, SENT, 45, WAITING)
+        self.assertTrue(any('not run the command in the background' in f for f in failures), failures)
+
+    def test_a_last_notice_without_the_head_fails(self):
+        vague = finished()
+        vague['notices'][-1]['text'] = 'It finished.'
+        self.assertTrue(walk.background_verdict(vague, SHORT, SUBJECT, BACKGROUND, SENT, 45, WAITING))
+
+
+class LateApproval(unittest.TestCase):
+    BLOCKED = {'guest_ms': 1_030_000, 'detail': 'The work has run and stopped at a step that is yours to decide.'}
+
+    def evidence(self, epoch, state='settled'):
+        return walk.late_evidence(SENT, self.BLOCKED, 1_100_000.0, 1_101_000.0, epoch, 1, {'state': state, 'detail': ''})
+
+    def test_the_press_to_start_bounds_are_the_clock_reads_and_the_whole_second(self):
+        # The command wrote 1105 (seconds): it started in [1_105_000, 1_106_000) ms, the press
+        # was between 1_100_000 and 1_101_000 ms, so the delay is in (4.0, 6.0] s.
+        self.assertEqual(self.evidence(1105)['started_after_press_s'], [4.0, 6.0])
+        self.assertEqual(walk.late_verdict(self.evidence(1105), 30), [])
+
+    def test_the_diagnosis_measurement_fails(self):
+        # (133.479, 137.542] s, the build before 76e977dc: the upper bound is over any sane bound.
+        failures = walk.late_verdict(self.evidence(1100 + 136), 30)
+        self.assertTrue(any('started up to' in f for f in failures), failures)
+
+    def test_a_command_that_never_ran_or_a_job_that_failed_fails(self):
+        self.assertTrue(any('never ran' in f for f in walk.late_verdict(self.evidence(None), 30)))
+        self.assertTrue(any('ended failed' in f for f in walk.late_verdict(self.evidence(1105, 'failed'), 30)))
+
+
 if __name__ == '__main__':
     unittest.main()
