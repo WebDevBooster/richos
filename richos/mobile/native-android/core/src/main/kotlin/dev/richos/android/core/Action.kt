@@ -29,6 +29,9 @@ sealed interface Action {
     @Serializable @SerialName("send")
     data object Send : Action
 
+    @Serializable @SerialName("answer-question")
+    data class AnswerQuestion(val id: String, val options: List<String> = emptyList(), val text: String = "", val revision: Long? = null) : Action
+
     @Serializable @SerialName("send-voice")
     data class SendVoice(val recording: Recording, val clientId: String? = null, val threadId: String? = null) : Action
 

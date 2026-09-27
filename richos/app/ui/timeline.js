@@ -1625,7 +1625,7 @@
   /// was wired in the same branch (`Spine::set_worker_events`) — before that, the app could
   /// not emit this kind at all and a delegation reached the CEO as one nameless activity
   /// row reading "Worked".
-  const RENDERED_STREAM_KINDS = ["rich_message", "local_notice", "activity", "worker_activity"];
+  const RENDERED_STREAM_KINDS = ["question", "rich_message", "local_notice", "activity", "worker_activity"];
 
   // -------------------------------------------------------------------------------------
   // THE RENDER
@@ -2700,7 +2700,8 @@
     if (!turn.record) {
       const lane = elem("div", "tl-lane");
       for (const item of turn.stream) {
-        if (isLocalNotice(item) && item.text) lane.appendChild(renderLocalNotice(item));
+        if (item.kind === "question") lane.appendChild(window.RichQuestions.render(item, opts));
+        else if (isLocalNotice(item) && item.text) lane.appendChild(renderLocalNotice(item));
         else if (isProse(item) && item.text) lane.appendChild(renderRichMessage(item, opts));
       }
       if (lane.childNodes.length) section.appendChild(lane);
@@ -2737,7 +2738,8 @@
           continue;
         }
         flush();
-        if (isLocalNotice(item) && item.text) lane.appendChild(renderLocalNotice(item));
+        if (item.kind === "question") lane.appendChild(window.RichQuestions.render(item, opts));
+        else if (isLocalNotice(item) && item.text) lane.appendChild(renderLocalNotice(item));
         else if (isProse(item) && item.text) lane.appendChild(renderRichMessage(item, opts));
       }
       flush();

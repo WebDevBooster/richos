@@ -1765,6 +1765,18 @@ impl Ledger {
     /// crash between the two must re-present the CEO's words rather than lose them. That
     /// makes the drain at-least-once, and this is how the second attempt recognizes the
     /// first one's work instead of filing the same sentence twice.
+    /// A question answer is a durable input with its own replay identity. It is
+    /// rendered in its card, so the derived turn id also identifies hidden user bubbles.
+    pub fn record_question_answer(&mut self,binding:&ThreadBinding,delivery:&crate::questions::Delivery)->Result<String,LedgerError> {
+        self.verify_binding(binding)?;
+        let turn_id=format!("{}:{}",if delivery.set_id.is_some(){"question-answer"}else{"question-followup"},delivery.id);
+        if self.turn(&turn_id).is_some(){return Ok(turn_id);}
+        self.append(Event::PromptReceived {turn_id:turn_id.clone(),thread_id:binding.thread_id().into(),
+            text:delivery.text.clone(),source:Source::Text,at:now_millis(),entity_id:Some(binding.entity_id().clone()),
+            binding_revision:binding.binding_revision(),intake_id:None,rich_audible:None,channel:None},true)?;
+        Ok(turn_id)
+    }
+
     pub fn turn_for_intake(&self, intake_id: u64) -> Option<&Turn> {
         self.turns.iter().find(|t| t.intake_id == Some(intake_id))
     }

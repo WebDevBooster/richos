@@ -15,6 +15,30 @@ import kotlin.test.assertTrue
 
 /** The durable outbox: the `queue.js` rules, and the three `runtime.js` scenarios. */
 class OutboxTest {
+    @Test fun questionTrafficStopsAtBackgroundWithoutReservingCompletion() = runTest {
+        val box = Outbox(Store(), Clock { testScheduler.currentTime })
+        box.enqueue(item("answer").copy(kind = "answer"))
+        box.enqueue(item("seen").copy(kind = "question_seen"))
+        val started = CompletableDeferred<Unit>()
+        var requests = 0
+        var reservations = 0
+        val batch = async {
+            box.flush(lease = { reservations++; Outbox.CompletionLease(true) }) {
+                requests++
+                started.complete(Unit)
+                kotlinx.coroutines.awaitCancellation()
+            }
+        }
+        started.await()
+        box.backgrounded()
+        batch.await()
+        assertEquals(0, reservations)
+        assertEquals(1, requests)
+        assertEquals(0, testScheduler.currentTime)
+        assertEquals(2, box.all().size)
+        assertTrue(box.all().all { it.state == OutboxState.WAITING })
+    }
+
     @Test fun messagesSubmittedDuringAnActiveRequestShareItsBoundedCompletionOpportunity() = runTest {
         val box = Outbox(Store(), Clock { testScheduler.currentTime })
         box.enqueue(item("a"))

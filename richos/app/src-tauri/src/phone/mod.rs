@@ -1589,6 +1589,30 @@ impl PhoneRuntime {
     }
 
     /// Make the cached view of the conversation current. Called after a turn the channel started.
+    pub fn enqueue_question(&self,q:&richos_core::questions::Question)->Result<bool,String> {
+        let _action=self.connect_actions.lock().unwrap();
+        let device={let running=self.running.lock().unwrap();running.as_ref().and_then(|r|r.channel.devices.paired()).filter(|d|d.trusted())};
+        let Some(device)=device else{return Ok(false);};
+        let mut desk=notifications::Desk::open(&self.data_dir)?;
+        desk.enqueue(&device,&q.thread_id,&q.id)?;
+        Ok(true)
+    }
+    pub fn send_question_notifications(&self) {
+        let _action=self.connect_actions.lock().unwrap();
+        let device={let running=self.running.lock().unwrap();running.as_ref().and_then(|r|r.channel.devices.paired()).filter(|d|d.trusted())};
+        let Ok(mut desk)=notifications::Desk::open(&self.data_dir) else{return;};
+        if !desk.needs_reconcile(device.as_ref()){return;}
+        let Ok(identity)=connect::client::Identity::open(&secrets::Keychain::for_app_data(&self.data_dir)) else{return;};
+        let _=desk.reconcile(&connect::client::Client::new(identity),device.as_ref());
+    }
+    pub fn question_changed(&self,item:&serde_json::Value) {
+        if let Some(mut row)=rows::row_from_item(item) {
+            let cursor=self.hub.next_cursor();
+            let position=self.running.lock().unwrap().as_ref().and_then(|r|routes::Bridge::snapshot(r.bridge.as_ref(),item["threadId"].as_str()).ok()).and_then(|payload|rows::rows_from_payload(&payload).into_iter().find(|r|r["id"]==row["id"])).map(|r|r["cursor"].clone()).unwrap_or(serde_json::json!(cursor));
+            row["cursor"]=position;
+            let _=self.hub.publish("message",cursor,row.to_string());
+        }
+    }
     pub fn bridge_refresh(&self) {
         if let Some(running) = self.running.lock().unwrap().as_ref() {
             running.bridge.refresh();
@@ -1635,7 +1659,7 @@ impl PhoneRuntime {
 
         let Ok(payload) = bridge.snapshot(Some(&thread_id)) else { return };
         let rows = rows::rows_from_payload(&payload);
-        let Some(last) = rows.iter().rev().find(|r| r["role"] == "rich") else { return };
+        let Some(last) = rows.iter().rev().find(|r| r["role"] == "rich" && r["kind"] != "question") else { return };
         if delivered_cursor >= last["cursor"].as_u64() || !push::should_notify(&devices, &device_id, thread_id, last["id"].as_str().unwrap_or("")) {
             // He has already seen it. A push here would be the second time he was told.
             return;

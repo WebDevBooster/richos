@@ -338,6 +338,7 @@ public enum Pairing: String, Codable, Sendable {
 }
 
 public struct MacLink: Codable, Equatable, Sendable {
+    public var questionAnswers: Bool?
     /// The API base, fixed by the pairing link (contract §1.2).
     public var origin: String
     public var route: PairLink.Route
@@ -438,6 +439,7 @@ public struct Message: Codable, Equatable, Identifiable, Sendable {
     /// Signed voice receipt: match the transcript before its projected row carries voice metadata.
     public var transcriptSHA256: String?
     /// Photos and files sent with this message (the text is then its caption). `nil` for none.
+    public var question: QuestionCard?
     public var attachments: [AttachmentRef]?
 
     public init(id: String, author: Author, kind: Kind = .text, text: String, sentAt: Int64,
@@ -478,6 +480,8 @@ public struct OutboxItem: Codable, Equatable, Sendable {
     /// Why it is blocked or was last refused, in the Mac's words when it gave any.
     public var lastReason: String?
     /// Photos and files: each is uploaded before `body` (then the commit's exact bytes) is sent.
+    public var questionID: String?
+    public var questionAnswerText: String?
     public var files: [OutboxFile]?
 
     public init(clientID: String, kind: Message.Kind, body: String?, recordingID: String? = nil, target: String? = nil, queuedAt: Int64,

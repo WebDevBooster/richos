@@ -117,6 +117,7 @@ public actor NetworkEffects: EffectHandler {
                                                                          offersPairWait: paired.answer.offersPairWait))]
                     if let capabilities = paired.answer.capabilities, !capabilities.isEmpty {
                         actions.append(.macCapabilities(text: capabilities.contains("text"), voice: capabilities.contains("voice")))
+                actions.append(.macQuestionCapability(capabilities.contains("questions")))
                         actions.append(.macAttachmentLimits(capabilities.contains("attachments") ? paired.answer.attachmentLimits : nil))
                     }
                     return actions

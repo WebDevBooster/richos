@@ -70,6 +70,7 @@ public enum ConnectionReducer {
             if cameUp, s.pairing == .paired, !s.linkOpen, s.connectionNotice != .phoneOffline, s.connectionNotice != .incompatible {
                 effects.append(.connect)
             }
+        case .macQuestionCapability(let available): s.mac?.questionAnswers = available
         case .macCapabilities(let text, let voice):
             s.connectionNotice = text ? (s.connectionNotice == .incompatible ? nil : s.connectionNotice) : .incompatible
             if voice {

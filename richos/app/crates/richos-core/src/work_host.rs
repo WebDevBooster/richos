@@ -1013,7 +1013,15 @@ impl WorkHost {
         // only place it can be consumed. They are accumulated locally and written to the
         // back end once, after the turn — a lock per streamed item would be the one cost
         // this file has spent a module doc avoiding.
-        let prompt = brief_for(record, resumed, &instruction);
+        let mut prompt = brief_for(record, resumed, &instruction);
+        match crate::question_work::take(&self.state,&record.entity_id,&record.thread_id,&record.obligation_id) {
+            Ok(inputs) if !inputs.is_empty()=>{
+                prompt.push_str("\nThe user answered your questions. These complete sets include every answer and withdrawal. Continue this assignment with these decisions:\n");
+                for input in inputs {prompt.push_str(&input.text);prompt.push_str("\n\n");}
+            },
+            Ok(_)=>{},
+            Err(error)=>{advance(AssignmentState::Failed,&format!("The saved answer could not be read: {error}"));return;}
+        }
         // The SAME measure the spine takes, deliberately: the prompt sent plus the reply
         // that came back, in bytes (`spine.rs:2114-2118`). It is an undercount — by 2.3× to
         // 40.6×, measured (`spine.rs:138-143`) — which is exactly why it is the FALLBACK
@@ -1404,6 +1412,9 @@ impl WorkHost {
                 self.forget_at_the_desk(record);
                 self.raise(record, NoticeKind::Interrupted, &assignment::says::interrupted(&record.title));
             }
+            Ok(_) if crate::questions::Store::new(&self.state).list(&record.entity_id,&record.thread_id).is_ok_and(|qs|qs.iter().any(|q|q.asker==record.obligation_id && !q.delivered && q.state!=crate::questions::State::Withdrawn)) || crate::question_work::pending(&self.state).is_ok_and(|ds|ds.iter().any(|d|d.entity_id==record.entity_id && d.thread_id==record.thread_id && d.asker==record.obligation_id)) => {
+                advance(AssignmentState::Blocked,"Waiting for your answer. Independent work can continue.");
+            }
             // ===========================================================================
             // HIS ANSWER — the CEO's ruling §58, 2026-09-18
             // ===========================================================================
@@ -1598,6 +1609,14 @@ impl WorkHost {
                     self.raise(record, NoticeKind::Failed, &tell(&record.title, spoken));
                 }
             },
+        }
+        if let Ok(records)=assignment::read_all(&self.state,&record.entity_id,&record.thread_id) {
+            if let Some(latest)=records.iter().find(|r|r.id==record.id) {
+                if matches!(latest.state,AssignmentState::Settled|AssignmentState::Failed|AssignmentState::Interrupted) {
+                    if let Err(error)=crate::questions::Store::new(&self.state).close(&record.entity_id,&record.thread_id,Some(&record.obligation_id),"This assignment has ended",false) {eprintln!("[richos] could not close assignment questions: {error}");}
+                    let _=crate::question_work::take(&self.state,&record.entity_id,&record.thread_id,&record.obligation_id);
+                }
+            }
         }
     }
 
@@ -1893,6 +1912,52 @@ impl WorkHost {
             crate::permissions::assignment_key(&request.binding)
                 == (record.entity_id.clone(), record.thread_id.clone(), record.obligation_id.clone())
         })
+    }
+
+    /// Both surfaces enter the same durable receiving inbox, without a permission hold.
+    pub fn queue_question_answer(
+        self: &Arc<Self>,
+        binding: &ThreadBinding,
+        delivery: &crate::questions::Delivery,
+    ) -> Result<String, String> {
+        if binding.entity_id().as_str() != delivery.entity_id
+            || binding.thread_id() != delivery.thread_id
+        {
+            return Err("Question scope mismatch".into());
+        }
+        let record = assignment::read_all(&self.state, &delivery.entity_id, &delivery.thread_id)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .find(|r| r.obligation_id == delivery.asker)
+            .ok_or("The asking assignment is unavailable")?;
+        if !record.state.is_open() && record.state != AssignmentState::Unknown {
+            return Err("The asking assignment has stopped".into());
+        }
+        crate::question_work::enqueue(&self.state, delivery)?;
+        // A restart may land between durable enqueue and waking the backend. An
+        // existing unconsumed input still needs a scheduled turn on this process.
+        if crate::question_work::pending(&self.state)?
+            .iter()
+            .any(|d| d.id == delivery.id)
+        {
+            let backend = self
+                .backend_for(&delivery.thread_id)
+                .ok_or("RichOS is closing")?;
+            let mut inner = backend.inner.lock().unwrap();
+            if inner.closing || inner.stopped.contains(&record.id) {
+                return Err("The asking assignment has stopped".into());
+            }
+            inner.binding = Some(binding.clone());
+            if !inner.queue.iter().any(|s| s.record.id == record.id) {
+                inner.queue.push_back(Scheduled {
+                    binding: binding.clone(),
+                    record,
+                    resumed: false,
+                });
+                backend.wake.notify_all();
+            }
+        }
+        Ok(format!("work-input:{}", delivery.id))
     }
 
     /// **His answer, applied to the assignment it belongs to** — spec §5.7's *"when he
@@ -2396,6 +2461,8 @@ impl WorkHost {
         // else's). A request left waiting for an assignment that has stopped is a question
         // he can answer into nothing.
         self.forget_at_the_desk(&record);
+        crate::questions::Store::new(&self.state).close(entity,thread,Some(&record.obligation_id),"The assignment was stopped",false)?;
+        let _=crate::question_work::take(&self.state,entity,thread,&record.obligation_id);
         // Only this conversation's back end. A stop on one thread never reaches another's —
         // the CEO's page puts a whole back-end Rich behind each thread, and two threads are
         // two pieces of work he thinks of separately.
@@ -3428,6 +3495,24 @@ mod tests {
         drop(prompts);
         h.host.shutdown();
         std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    #[test]
+    fn question_answer_recovers_before_wake_and_reaches_only_its_backend() {
+        let h=harness(1);
+        let receipt=assignment::register(&h.state,&registration(&h)).unwrap();
+        let record=assignment::read(&h.state,"depot","thread-one",&receipt.id).unwrap();
+        let d=crate::questions::Delivery{id:"saved-before-crash".into(),entity_id:"depot".into(),thread_id:"thread-one".into(),asker:record.obligation_id.clone(),set_id:Some("release-set".into()),text:"When should the release ship? You answered: Ship tomorrow (phone_tap on phone)".into(),receipt:None};
+        crate::question_work::enqueue(&h.state,&d).unwrap();
+        // Both durable inputs exist, with no process-local schedule after the crash.
+        h.host.queue_question_answer(&h.binding,&d).unwrap();
+        h.host.start();
+        assert!(h.host.wait_for_completed(1,std::time::Duration::from_secs(10)));
+        let prompts=h.work_prompts.lock().unwrap();
+        assert_eq!(prompts.iter().filter(|p|p.contains(&d.text)).count(),1);
+        drop(prompts);
+        assert!(crate::question_work::pending(&h.state).unwrap().is_empty());
+        h.host.shutdown();std::fs::remove_dir_all(h.root).unwrap();
     }
 
     #[test]

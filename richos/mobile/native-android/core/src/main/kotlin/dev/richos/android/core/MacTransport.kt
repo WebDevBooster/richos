@@ -63,6 +63,12 @@ object Wire {
         put("sent_at", sentAt)
     }.toString()
 
+    fun answer(clientId: String, q: QuestionCard, options: List<String>, text: String, revision: Long?): String = buildJsonObject {
+        put("kind", "answer"); put("client_id", clientId); put("thread_id", q.threadId); put("question_id", q.id)
+        put("option_ids", buildJsonArray { options.forEach { add(it) } }); put("text", text)
+        revision?.let { put("expected_revision", it) }
+    }.toString()
+
     /** `POST /api/messages?…kind=voice…` signed path with query (contract §5.3; signing vector 6). */
     fun voicePath(clientId: String, threadId: String, seconds: Double, sentAt: String): String {
         val enc = Signing::encodeURIComponent

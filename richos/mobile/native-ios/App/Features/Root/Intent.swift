@@ -7,6 +7,7 @@ import RichOSCore
 enum Intent: Equatable, Sendable {
     // Composer
     case compose(String)
+    case answerQuestion(id: String, options: [String], text: String, revision: Int?)
     case sendText
     case setComposerFocus(Bool)
     // Voice: the finger and the frame clock, reported; the core's gesture decides (build plan §3.2).
@@ -87,6 +88,7 @@ enum Intent: Equatable, Sendable {
     func action(now: Int64 = VoiceClock.nowMs()) -> Action? {
         switch self {
         case .compose(let text): return .compose(text: text)
+        case .answerQuestion(let id, let options, let text, let revision): return .answerQuestion(id: id, options: options, text: text, revision: revision, clientID: UUID().uuidString.lowercased(), at: now)
         case .sendText: return .sendDraftNow()
         case .voicePress(let width, let at): return .voicePress(id: Self.recordingID(), width: width, at: at)
         case .voiceRecordHandsFree(let width, let at): return .voiceStartLocked(id: Self.recordingID(), width: width, at: at)

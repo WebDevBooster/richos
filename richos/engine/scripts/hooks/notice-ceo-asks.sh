@@ -138,6 +138,7 @@ fi
 ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
 INPUT="$(cat)"
+APP_QUESTION_ID="$(python3 3<<< "$INPUT" -c 'import json,os; print(json.load(os.fdopen(3)).get("app_question_id", ""))')"
 
 resolve_entity_root "$INPUT" || exit 0
 ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
@@ -153,7 +154,12 @@ ca_require || exit 0
 # Silent — the guard and the Stop notice own the announcements; a witness that
 # also narrated would put a line under every question in every repository on the
 # machine.
-ca_resolve "$ENTITY_ROOT" || exit 0
+if ! ca_resolve "$ENTITY_ROOT"; then
+    if [ -n "$APP_QUESTION_ID" ] && [ "$CA_STATUS" = "not-declared" ]; then
+        CA_APP_QUESTION_ID="$APP_QUESTION_ID" python3 -c 'import json,os; print(json.dumps({"app_question_id":os.environ["CA_APP_QUESTION_ID"],"witness":"not_applicable"}))'
+    fi
+    exit 0
+fi
 
 ITEMS="$(mktemp -t ceo-asks-items.XXXXXX.json)" || exit 0
 if ! ca_items_json "$ITEMS"; then
@@ -241,6 +247,7 @@ except Exception:
     print("")
 ' 2>/dev/null || true)"
 
+# App display receipts retain the original session and question identity across retries.
 LEDGER="$(ca_ledger_path "$ENTITY_ROOT")"
 mkdir -p "$(dirname "$LEDGER")" 2>/dev/null || true
 
@@ -256,7 +263,7 @@ while IFS=$'\t' read -r QIDX QTEXT; do
     [ -n "$LINE" ] || LINE="$(printf 'UNMATCHED\t\t\t0.00\t0\t0\tpredicate-failed')"
 
     CA_LINE="$LINE" CA_QIDX="$QIDX" CA_SID="$SESSION_ID" CA_AID="$AGENT_ID" \
-    CA_QFILE="$QFILE" CA_LEDGER="$LEDGER" python3 -c '
+    CA_QFILE="$QFILE" CA_LEDGER="$LEDGER" CA_APP_QUESTION_ID="$APP_QUESTION_ID" python3 -c '
 import json, os
 from datetime import datetime, timezone
 
@@ -293,12 +300,34 @@ record = {
     # decision to him. Recorded, and explicitly worth nothing.
     "discharges": bool(verdict == "MATCH" and not agent_id),
 }
+receipt = os.environ.get("CA_APP_QUESTION_ID") or ""
+if receipt:
+    record["app_question_id"] = receipt
 try:
-    with open(os.environ["CA_LEDGER"], "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(record) + "\n")
+    import fcntl
+    with open(os.environ["CA_LEDGER"], "a+", encoding="utf-8") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        duplicate = False
+        if receipt:
+            fh.seek(0)
+            for line in fh:
+                try:
+                    old = json.loads(line)
+                except ValueError:
+                    continue
+                if old.get("app_question_id") == receipt and old.get("session_id") == record["session_id"]:
+                    duplicate = True
+                    break
+        if not duplicate:
+            fh.write(json.dumps(record) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+    if receipt:
+        print(json.dumps({"app_question_id":receipt,"witness":"written"}))
 except Exception:
-    pass
-' 2>/dev/null || true
+    if receipt:
+        raise
+' 2>/dev/null || { if [ -n "$APP_QUESTION_ID" ]; then rm -f "$ITEMS" "$QFILE"; exit 1; fi; }
 done <<EOF
 $QLIST
 EOF

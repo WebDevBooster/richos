@@ -45,7 +45,7 @@ use std::path::{Path, PathBuf};
 pub const SERVER_NAME: &str = crate::operator_profile::REPORT_SERVER;
 pub const REPORT_TOOL_NAME: &str = "report";
 pub const QUALIFIED_REPORT_TOOL: &str = crate::operator_profile::REPORT_TOOL;
-pub const KINDS: [&str; 5] = ["update", "question", "answer", "outcome", "failed"];
+pub const KINDS: [&str; 6] = ["update", "question", "withdraw_question", "answer", "outcome", "failed"];
 /// The notice bound the register already uses (`assignment::sanitize_answer`).
 pub const NOTICE_CHARS: usize = 8000;
 pub const ATTACHED_SUFFIX: &str = "The full text is attached.";
@@ -73,6 +73,9 @@ pub struct ReportScope {
     pub thread_id: String,
     /// Which lead this is, as the claim names it.
     pub lead: String,
+    /// Supplied by the runtime only after binding the original asking session.
+    #[serde(default)]
+    pub question_context: Option<crate::questions::AskScope>,
 }
 
 fn scope_usable(scope: &ReportScope) -> bool {
@@ -93,7 +96,7 @@ pub fn write_scope(path: &Path, scope: &ReportScope) -> Result<(), String> {
     crate::doctrine::write_verified(path, &text).map_err(|e| e.to_string())
 }
 
-fn read_scope(path: &Path) -> Result<ReportScope, String> {
+pub(crate) fn read_scope(path: &Path) -> Result<ReportScope, String> {
     use std::io::Read;
     let file = std::fs::File::open(path)
         .map_err(|_| "RichOS has not opened a report scope for this lead. Nothing was recorded.".to_string())?;
@@ -126,6 +129,10 @@ struct ReportArgs {
     files: Vec<PathBuf>,
     #[serde(default)]
     agents: Vec<String>,
+    #[serde(default)]
+    questions: Vec<crate::questions::QuestionInput>,
+    #[serde(default)]
+    question_id: Option<String>,
 }
 
 /// `path`, canonical, if it exists and sits under one of `roots`.
@@ -326,11 +333,14 @@ pub struct ReportRecord {
 }
 
 pub fn tools() -> Value {
+    let questions=crate::question_tools::tools()["tools"][0]["inputSchema"]["properties"]["questions"].clone();
     json!({"tools":[
         {"name": REPORT_TOOL_NAME,
-         "description": "Tell the CEO something. Everything you say at the end of a turn also reaches him; use this tool for a land, a file, a question, or a report on an assignment's handle. `kind`: `update` (progress), `question` (you need his answer; he is not at a terminal, so ask here and carry on with anything that does not depend on it), `answer` (a reply to a question of his that came without a handle; it closes nothing), `outcome` (the assignment on the handle is done; a question of his that came with a handle is closed with `outcome`, and he sees it as the answer), `failed` (it cannot be done). Only `outcome` or `failed` on a handle closes it. An `outcome` that names a land Git cannot confirm closes nothing: make the land real and report `outcome` again, or report `failed`. `handle`: the assignment this is about, exactly as the app gave it to you; leave it out for the conversation itself. `lands`: each land you are reporting, with the repository's absolute path, the FULL commit hash that is on the integration branch, the branch you merged, and `into` if the integration branch is not `main`. Every land is checked in Git before he is told it landed; one that cannot be confirmed is told to him as not confirmed. `files`: absolute paths of files he should see. `agents`: the names of the agents working on this handle.",
+         "description": "Tell the CEO something. Everything you say at the end of a turn also reaches him; use this tool for a land, a file, a question, or a report on an assignment's handle. `kind`: `update` (progress), `question` (you need his answer; he is not at a terminal, so ask here and carry on with anything that does not depend on it), `withdraw_question` (close your own question by question_id, using text as the visible reason and the original handle if any), `answer` (a reply to a question of his that came without a handle; it closes nothing), `outcome` (the assignment on the handle is done; a question of his that came with a handle is closed with `outcome`, and he sees it as the answer), `failed` (it cannot be done). Only `outcome` or `failed` on a handle closes it. An `outcome` that names a land Git cannot confirm closes nothing: make the land real and report `outcome` again, or report `failed`. `handle`: the assignment this is about, exactly as the app gave it to you; leave it out for the conversation itself. `lands`: each land you are reporting, with the repository's absolute path, the FULL commit hash that is on the integration branch, the branch you merged, and `into` if the integration branch is not `main`. Every land is checked in Git before he is told it landed; one that cannot be confirmed is told to him as not confirmed. `files`: absolute paths of files he should see. `agents`: the names of the agents working on this handle.",
          "inputSchema": {"type": "object", "additionalProperties": false, "required": ["kind", "text"],
             "properties": {
+                "questions": questions,
+                "question_id": {"type":"string"},
                 "handle": {"type": "string"},
                 "kind": {"type": "string", "enum": KINDS},
                 "text": {"type": "string"},
@@ -369,6 +379,9 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
     if let Some(handle) = &args.handle {
         let register = crate::assignment::read_all(&scope.state_root, &scope.entity_id, &scope.thread_id)
             .map_err(|e| format!("The assignment register could not be read ({e}). Nothing was recorded."))?;
+        if args.kind == "question" && register.iter().any(|item| &item.id == handle && !item.state.is_open()) {
+            return Err("The asking assignment has stopped. No question was recorded.".into());
+        }
         if !register.iter().any(|item| &item.id == handle) {
             return Err(format!("{handle:?} is not an assignment of this conversation. Nothing was recorded."));
         }
@@ -385,6 +398,24 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
     // report and a wrong one is recorded as not confirmed.
     let lands = args.lands.iter().map(|claim| verify_land(claim, &scope.file_roots))
         .collect::<Result<Vec<_>, _>>()?;
+    if args.kind=="question" || args.kind=="withdraw_question" {
+        if !args.lands.is_empty() || !args.files.is_empty() {return Err("Report lands and files separately from a question set.".into());}
+        let mut context=scope.question_context.clone().ok_or("The operator runtime has not bound its question delivery scope.")?;
+        if context.root!=scope.state_root || context.entity_id!=scope.entity_id || context.thread_id!=scope.thread_id {return Err("The operator question scope does not match this conversation.".into());}
+        context.asker=args.handle.as_ref().map_or_else(|| "operator:conversation".into(), |h| format!("operator:handle:{h}"));
+        let store = crate::questions::Store::new(&scope.state_root);
+        if args.kind == "withdraw_question" {
+            if !args.questions.is_empty() { return Err("A withdrawal cannot also ask questions.".into()); }
+            store.withdraw(&context.entity_id, &context.thread_id, &context.asker,
+                args.question_id.as_deref().ok_or("Supply the question_id to withdraw.")?, &args.text)?;
+            return Ok(json!({"withdrawn":true}));
+        }
+        if args.question_id.is_some() { return Err("question_id is only for a withdrawal.".into()); }
+        let questions=store.ask(&context,args.questions)?;
+        return Ok(json!({"recorded":true,"questions":questions.iter().map(crate::questions::Question::public_value).collect::<Vec<_>>(),"says":"The questions are recorded for display. Continue work that does not depend on the answer."}));
+    }
+    if args.question_id.is_some() { return Err("question_id is only for a withdrawal.".into()); }
+    if !args.questions.is_empty(){return Err("Prepared questions require kind question.".into());}
     let (text, attachment) = if args.text.chars().count() > NOTICE_CHARS {
         let attached = attach(&scope.attachments, &args.text)?;
         (format!("{}\n\n{ATTACHED_SUFFIX}", crate::assignment::sanitize_answer(&args.text)), Some(attached))
@@ -597,6 +628,7 @@ mod tests {
         git(&repo, &["init", "-q"]);
         commit(&repo, "first");
         let scope = ReportScope {
+            question_context: None,
             version: 1,
             outbox: root.join("lead/outbox.jsonl"),
             attachments: root.join("lead/attachments"),
@@ -633,6 +665,29 @@ mod tests {
         read_outbox(&f.scope.outbox).unwrap()
     }
 
+    #[test]
+    fn prepared_question_requires_runtime_scope_and_uses_shared_store() {
+        let mut f=fixture();
+        let args=json!({"kind":"question","text":"Release timing", "questions":[{"text":"When should the release ship?","options":[{"label":"Ship today","description":"Earlier fixes"},{"label":"Ship tomorrow","description":"More testing"}]}]});
+        assert!(report(&f,args.clone()).unwrap_err().contains("runtime"));
+        f.scope.question_context=Some(crate::questions::AskScope{root:f.scope.state_root.clone(),entity_id:f.scope.entity_id.clone(),thread_id:f.scope.thread_id.clone(),turn_id:"operator-turn".into(),asker:"unused".into(),session_id:"original-lead-session".into(),engine:None,entity_root:None});
+        write_scope(&f.scope_path,&f.scope).unwrap();
+        let receipt=report(&f,args.clone()).unwrap();
+        assert_eq!(receipt["recorded"],true);
+        assert!(outbox(&f).is_empty(),"question was duplicated as an ordinary report");
+        let questions=crate::questions::Store::new(&f.scope.state_root).all().unwrap();
+        assert_eq!(questions.len(),1);assert_eq!(questions[0].asker,"operator:conversation");assert_eq!(questions[0].session_id,"original-lead-session");
+        let withdraw=json!({"kind":"withdraw_question","question_id":questions[0].id,"text":"The release was cancelled"});
+        assert_eq!(report(&f,withdraw).unwrap()["withdrawn"],true);
+        let saved=crate::questions::Store::new(&f.scope.state_root).all().unwrap();
+        assert_eq!(saved[0].state,crate::questions::State::Withdrawn);
+        assert_eq!(saved[0].withdrawal_reason.as_deref(),Some("The release was cancelled"));
+        assert!(report(&f,json!({"kind":"withdraw_question","question_id":"someone-elses-question","text":"Done"})).is_err());
+        f.scope.question_context.as_mut().unwrap().thread_id="other-thread".into();
+        write_scope(&f.scope_path,&f.scope).unwrap();
+        assert!(report(&f,args).unwrap_err().contains("scope"));
+    }
+
     // ---- the tool, as the lead sees it ---------------------------------------------------
 
     #[test]
@@ -652,7 +707,7 @@ mod tests {
     fn a_plain_report_is_appended_verbatim_to_this_lead_s_outbox() {
         let f = fixture();
         report(&f, json!({"kind": "update", "text": "The build is green."})).unwrap();
-        report(&f, json!({"kind": "question", "text": "Ship it tonight?", "agents": ["mark-opus-x1"]})).unwrap();
+        report(&f, json!({"kind": "update", "text": "Preparing the release", "agents": ["mark-opus-x1"]})).unwrap();
         let records = outbox(&f);
         assert_eq!(records.len(), 2);
         assert_eq!(records[0].kind, "update");

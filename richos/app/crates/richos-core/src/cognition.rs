@@ -229,6 +229,7 @@ pub trait Cognition: Send {
 
     /// Host-issued visible-turn scope. Hidden preparation records are retained as
     /// internal machinery and never receive a mutation grant.
+    fn set_input_channel(&mut self, _channel: Option<&str>) -> Result<(), CognitionError> { Ok(()) }
     fn prepare_work_turn(&mut self, _binding: &crate::entity::ThreadBinding, _turn: &str,
         _source: crate::ledger::Source, _text: &str, _on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> { Ok(()) }
 

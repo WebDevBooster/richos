@@ -128,7 +128,7 @@ impl Origin {
         use crate::ledger::Source;
         match (source, channel) {
             (Source::Internal | Source::Proactive, _) | (_, None) => Origin::NoOrigin,
-            (_, Some("phone")) => Origin::Phone,
+            (_, Some("phone" | "phone_typed" | "phone_voice")) => Origin::Phone,
             (Source::Text, Some(crate::spine::DESK_CHANNEL)) => Origin::DeskTyped,
             (Source::Jam, Some(crate::spine::DESK_CHANNEL)) => Origin::DeskVoice,
             (_, Some(_)) => Origin::Undeclared,
@@ -988,6 +988,10 @@ impl OperatorHost {
                 c.questions.retain(|(q, _)| q.as_deref() != Some(handle));
                 self.save(&c.paths.record, &c.record);
                 drop(c);
+                if let Err(error) = crate::questions::Store::new(&self.state).close(
+                    &key.entity_id, &key.thread_id, Some(&format!("operator:handle:{handle}")), detail, false) {
+                    self.log(&format!("could not close {handle}'s questions: {error}"));
+                }
                 self.delivery.say(key, &lane, if failed { Say::Failed } else { Say::Outcome }, text);
             }
             Err(why) => {
@@ -1610,6 +1614,8 @@ pub(crate) mod tests {
         assert_eq!(Origin::of_turn(Text, Some("desk")), Origin::DeskTyped);
         assert_eq!(Origin::of_turn(Jam, Some("desk")), Origin::DeskVoice);
         assert_eq!(Origin::of_turn(Text, Some("phone")), Origin::Phone);
+        assert_eq!(Origin::of_turn(Text, Some("phone_typed")), Origin::Phone);
+        assert_eq!(Origin::of_turn(Text, Some("phone_voice")), Origin::Phone);
         assert_eq!(Origin::of_turn(Jam, Some("phone")), Origin::Phone, "a voice note from the phone is the phone");
         assert_eq!(Origin::of_turn(Text, Some("watch")), Origin::Undeclared);
         assert_eq!(Origin::of_turn(Text, None), Origin::NoOrigin, "not recorded is never the desk");

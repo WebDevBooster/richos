@@ -80,9 +80,11 @@ impl LeaseFactory for AlwaysFailingLeaseFactory {
     }
 }
 
-// ============================================================================
+// =====================================================================}
+
 // Rotation — invisible continuity (continuity design §3, done-criterion (a))
-// ============================================================================
+// =====================================================================}
+
 
 #[test]
 fn explicit_rotation_swaps_the_lease_and_the_conversation_survives_it() {
@@ -641,9 +643,11 @@ fn clean_rotation_asks_the_outgoing_lease_for_a_self_authored_handoff_summary() 
     let _ = std::fs::remove_file(&path);
 }
 
-// ============================================================================
+// =====================================================================}
+
 // Mid-turn-crash recovery (continuity §5, done-criterion (c))
-// ============================================================================
+// =====================================================================}
+
 
 #[test]
 fn mid_turn_crash_recovers_and_replays_without_duplicating_the_message() {
@@ -871,9 +875,11 @@ fn a_crashed_lease_is_still_replayed_exactly_once() {
     let _ = std::fs::remove_file(&path);
 }
 
-// ============================================================================
+// =====================================================================}
+
 // The proactive-attention seam (persistence + UI event; judgment is a LATER leg)
-// ============================================================================
+// =====================================================================}
+
 
 #[test]
 fn proactive_tier1_and_tier2_render_as_rich_only_messages_no_preceding_ceo_prompt() {
@@ -1034,4 +1040,56 @@ fn an_explicit_rotation_is_not_held_by_a_running_command() {
     spine.submit_prompt("two", Source::Text).unwrap();
     assert_eq!(spine.rotation_count(), 1);
     std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn phone_answer_provenance_survives_a_lease_crash_without_changing_product_retention() {
+    struct Capture {
+        inner: Box<dyn Cognition>,
+        channels: Arc<Mutex<Vec<Option<String>>>>,
+    }
+    impl Cognition for Capture {
+        fn session_id(&self) -> &str { self.inner.session_id() }
+        fn reprime(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
+            self.inner.reprime(text,on_item)
+        }
+        fn prompt(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String,CognitionError> {
+            self.inner.prompt(text,on_item)
+        }
+        fn set_input_channel(&mut self, channel: Option<&str>) -> Result<(),CognitionError> {
+            self.channels.lock().unwrap().push(channel.map(str::to_string)); Ok(())
+        }
+    }
+    struct Factory(Arc<Mutex<Vec<Option<String>>>>);
+    impl LeaseFactory for Factory {
+        fn spawn(&self) -> Result<Box<dyn Cognition>,CognitionError> {
+            Ok(Box::new(Capture { inner:Box::new(MockCognition::new("recovered",vec!["Got it", "Next reply"])),channels:self.0.clone() }))
+        }
+    }
+    for keep in [false,true] {
+        for channel in ["phone_typed","phone_voice"] {
+            let (path, ledger)=tmp_ledger(&format!("phone-replay-{keep}-{channel}"));
+            let mut spine=support::spine(ledger);
+            let thread=spine.create_thread("General",&femcboost()).unwrap();
+            spine.keep_intake_channel(keep);
+            let channels=Arc::new(Mutex::new(Vec::new()));
+            spine.attach_lease(Box::new(Capture {inner:Box::new(FailingCognition {session_id:"doomed".into()}),channels:channels.clone()}));
+            spine.set_lease_factory(Box::new(Factory(channels.clone())));
+            let intake=path.with_extension("intake");
+            let control=richos_core::steering::TurnControl::open(&intake).unwrap();
+            spine.set_turn_control(control.clone());
+            control.submit_from_channel(&thread,Some(femcboost()),"Choose tomorrow",channel).unwrap();
+            spine.poll_intake().unwrap();
+            assert_eq!(*channels.lock().unwrap(),vec![Some(channel.into()),Some(channel.into())]);
+            let binding=spine.ledger().thread_binding(&thread).unwrap();
+            for turn in spine.ledger().thread_turns_scoped(&binding).unwrap().into_iter().filter(|t|t.source==Source::Text) {
+                assert_eq!(turn.channel.as_deref(),keep.then_some(channel));
+            }
+            spine.submit_prompt("Next request from this Mac",Source::Text).unwrap();
+            assert_eq!(channels.lock().unwrap().last().cloned(),Some(keep.then(|| "desk".to_string())));
+            drop(spine);
+            let _=std::fs::remove_file(path);
+            let _=std::fs::remove_file(intake);
+        }
+    }
 }

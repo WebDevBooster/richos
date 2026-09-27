@@ -231,6 +231,8 @@ pub fn call(
     let (finished_rows, finished_omitted) = section(&finished);
     Ok(json!({
         "as_of_ms": assignment::now_ms(),
+        "open_questions": crate::questions::Store::new(&scope.state_root).list(&scope.entity_id,&scope.thread_id)?
+            .into_iter().filter(|q|q.state==crate::questions::State::Open).collect::<Vec<_>>(),
         "starting": starting_rows,
         "running": running_rows,
         "waiting_for_you": waiting_rows,

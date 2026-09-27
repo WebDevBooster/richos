@@ -1,0 +1,317 @@
+//! Question operations use the published view and the question store, never the turn mutex.
+use crate::AppState;
+use richos_core::{
+    questions::{AnswerRequest, AnswerResult, State, Store},
+    read_view::SpineView,
+};
+use serde_json::{json, Value};
+use tauri::{AppHandle, Emitter, Manager};
+
+pub fn store(state: &AppState) -> Store {
+    Store::new(state.data_dir.join("engine-state"))
+}
+pub fn payload(state: &AppState, thread: &str) -> Result<Value, String> {
+    let view = state.reader.snapshot();
+    let binding = view
+        .ledger()
+        .thread_binding(thread)
+        .map_err(|e| e.to_string())?;
+    let mut payload = crate::timeline_view::timeline_payload(&*view, thread)?;
+    if let Some(items) = payload["items"].as_array_mut() {
+        items.retain(|i| {
+            !(i["kind"] == "user_message"
+                && i["turnId"]
+                    .as_str()
+                    .is_some_and(|s| s.starts_with("question-answer:")))
+        });
+        let revision = view
+            .active_binding()
+            .filter(|b| b.thread_id() == thread)
+            .map_or(binding.binding_revision(), |b| b.binding_revision());
+        for q in store(state).list(binding.entity_id().as_str(), thread)? {
+            items.push(q.item(revision));
+        }
+        items.sort_by_key(|i| i["createdAt"].as_u64().unwrap_or(0));
+    }
+    Ok(payload)
+}
+pub fn answer(
+    state: &AppState,
+    thread: &str,
+    request: AnswerRequest,
+    method: &str,
+    surface: &str,
+) -> Result<AnswerResult, String> {
+    let view = state.reader.snapshot();
+    let store = store(state);
+    let binding = match view.ledger().thread_binding(thread) {
+        Ok(binding) => binding,
+        Err(error) => {
+            // An offline sender can outlive the destination. Use only the existing
+            // question's attribution to close it; never create a conversation here.
+            if let Some(q) = store
+                .all()?
+                .into_iter()
+                .find(|q| q.id == request.question_id && q.thread_id == thread)
+            {
+                store.close(
+                    &q.entity_id,
+                    thread,
+                    None,
+                    "This conversation was deleted",
+                    true,
+                )?;
+                return store.answer(&q.entity_id, thread, request, method, surface);
+            }
+            return Err(error.to_string());
+        }
+    };
+    let mut result = store.answer(
+        binding.entity_id().as_str(),
+        thread,
+        request,
+        method,
+        surface,
+    )?;
+    if let Some(q) = &result.question {
+        result.question = store.waiting_for_turn(
+            binding.entity_id().as_str(),
+            thread,
+            &q.id,
+            state
+                .control
+                .active_turn()
+                .is_some_and(|t| t.thread_id == thread),
+        )?;
+    }
+    Ok(result)
+}
+pub fn shown(state: &AppState, thread: &str, question: &str, surface: &str) -> Result<(), String> {
+    let view = state.reader.snapshot();
+    let binding = view
+        .ledger()
+        .thread_binding(thread)
+        .map_err(|e| e.to_string())?;
+    store(state).acknowledge(binding.entity_id().as_str(), thread, question, surface)
+}
+/// Desktop-only observer. The phone receives changes through its existing foreground
+/// stream. File metadata is checked outside all turn locks; idle cards cause no UI work.
+pub fn start(app: AppHandle) {
+    use notify::Watcher;
+    let directory = app
+        .state::<AppState>()
+        .data_dir
+        .join("engine-state/questions");
+    std::fs::create_dir_all(&directory).expect("create question history directory");
+    let (changed, events) = std::sync::mpsc::sync_channel::<()>(1);
+    let (deliver, deliveries) = std::sync::mpsc::sync_channel::<()>(1);
+    let (work_ready, work_events) = std::sync::mpsc::sync_channel::<()>(1);
+    let (notify_ready, notify_events) = std::sync::mpsc::sync_channel::<()>(1);
+    let (witness_ready, witness_events) = std::sync::mpsc::sync_channel::<()>(1);
+    let receiver = app.clone();
+    std::thread::Builder::new()
+        .name("richos-question-witness".into())
+        .spawn(move || {
+            for () in witness_events {
+                if let Err(error) = store(&receiver.state::<AppState>()).flush_witnesses() {
+                    eprintln!("[richos] question witness remains pending: {error}");
+                }
+            }
+        })
+        .expect("start question witness");
+    let receiver = app.clone();
+    std::thread::Builder::new()
+        .name("richos-question-notifications".into())
+        .spawn(move || {
+            for () in notify_events {
+                let state = receiver.state::<AppState>();
+                let phone = receiver.state::<std::sync::Arc<crate::phone::PhoneRuntime>>();
+                if let Err(error) = store(&state).notify_sets(|q| phone.enqueue_question(q)) {
+                    eprintln!("[richos] question notification remains pending: {error}");
+                }
+                phone.send_question_notifications();
+            }
+        })
+        .expect("start question notifications");
+    let receiver = app.clone();
+    std::thread::Builder::new()
+        .name("richos-question-work".into())
+        .spawn(move || {
+            for () in work_events {
+                let state = receiver.state::<AppState>();
+                let store = store(&state);
+                let view = state.reader.snapshot();
+                for delivery in
+                    richos_core::question_work::pending(&state.data_dir.join("engine-state"))
+                        .unwrap_or_default()
+                {
+                    if delivery.asker.starts_with("operator:") { continue; }
+                    if let Ok(binding) = view.ledger().thread_binding(&delivery.thread_id) {
+                        let _ = state.work.queue_question_answer(&binding, &delivery);
+                    }
+                }
+                for (entity, thread, asker) in store.pending_threads().unwrap_or_default() {
+                    if asker == "front_desk" {
+                        continue;
+                    }
+                    let Ok(binding) = view.ledger().thread_binding(&thread) else {
+                        continue;
+                    };
+                    if let Err(error) = store.deliver(&entity, &thread, &asker, |d| {
+                        if d.asker.starts_with("operator:") {
+                            state.operator.as_ref().ok_or("Your team is unavailable")?.queue_question_answer(d)
+                        } else {
+                            state.work.queue_question_answer(&binding, d)
+                        }
+                    }) {
+                        eprintln!("[richos] team answer remains saved: {error}");
+                    }
+                }
+                if let Some(desk) = &state.operator {
+                    if let Err(error) = desk.flush_question_answers() {
+                        eprintln!("[richos] operator answer remains saved: {error}");
+                    }
+                }
+            }
+        })
+        .expect("start question work delivery");
+    let receiver = app.clone();
+    std::thread::Builder::new()
+        .name("richos-question-delivery".into())
+        .spawn(move || {
+            for () in deliveries {
+                let state = receiver.state::<AppState>();
+                let store = store(&state);
+                if !store
+                    .pending_threads()
+                    .is_ok_and(|p| p.iter().any(|(_, _, asker)| asker == "front_desk"))
+                {
+                    continue;
+                }
+                // Only this worker waits on a front-desk turn. Team answers, display
+                // updates and phone awareness continue on their own event channels.
+                let Ok(mut spine) = state.spine.lock() else {
+                    continue;
+                };
+                for (entity, thread, asker) in store.pending_threads().unwrap_or_default() {
+                    if asker != "front_desk" {
+                        continue;
+                    }
+                    if let Err(error) = store.deliver(&entity, &thread, &asker, |d| {
+                        spine.queue_question_answer(d).map_err(|e| e.to_string())
+                    }) {
+                        eprintln!("[richos] question answer remains saved: {error}");
+                    }
+                }
+                if let Err(error) = spine.poll_intake() {
+                    eprintln!("[richos] question continuation failed: {error}");
+                }
+            }
+        })
+        .expect("start question delivery");
+    let _ = changed.try_send(());
+    std::thread::Builder::new()
+        .name("richos-questions".into())
+        .spawn(move || {
+            let mut watcher =
+                notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+                    if event.is_ok_and(|e| {
+                        !e.kind.is_access()
+                            && e.paths
+                                .iter()
+                                .any(|p| p.file_name().is_some_and(|n| n == "store.json"))
+                    }) {
+                        let _ = changed.try_send(());
+                    }
+                })
+                .expect("watch question history");
+            watcher
+                .watch(&directory, notify::RecursiveMode::NonRecursive)
+                .expect("watch question directory");
+            let mut seen = std::collections::HashMap::<String, String>::new();
+            for () in events {
+                let state = app.state::<AppState>();
+                let store = store(&state);
+                if let Ok(questions) = store.all() {
+                    let view = state.reader.snapshot();
+                    let mut witness_pending = false;
+                    for q in questions {
+                        witness_pending |= q.shown.as_ref().is_some_and(|s| !s.witness_written);
+                        let Ok(binding) = view.ledger().thread_binding(&q.thread_id) else {
+                            continue;
+                        };
+                        if binding.entity_id().as_str() != q.entity_id {
+                            continue;
+                        }
+                        let revision = view
+                            .active_binding()
+                            .filter(|b| b.thread_id() == q.thread_id)
+                            .map_or(binding.binding_revision(), |b| b.binding_revision());
+                        let signature = json!([
+                            q.state,
+                            q.revision,
+                            q.delivered,
+                            q.handoff_started,
+                            q.waiting_for_turn,
+                            q.remaining,
+                            q.withdrawal_reason
+                        ])
+                        .to_string();
+                        if seen.get(&q.id) != Some(&signature) {
+                            seen.insert(q.id.clone(), signature);
+                            let item = q.item(revision);
+                            let _ = app.emit("rich://question-upserted", &item);
+                            app.state::<std::sync::Arc<crate::phone::PhoneRuntime>>()
+                                .question_changed(&item);
+                        }
+                    }
+                    if witness_pending {
+                        let _ = witness_ready.try_send(());
+                    }
+                }
+                let _ = deliver.try_send(());
+                let _ = work_ready.try_send(());
+                let _ = notify_ready.try_send(());
+            }
+        })
+        .expect("start question observer");
+}
+#[tauri::command(async)]
+pub fn answer_question(
+    state: tauri::State<AppState>,
+    thread_id: String,
+    answer: AnswerRequest,
+    method: String,
+) -> Result<Value, String> {
+    if !["click", "keyboard", "typed"].contains(&method.as_str()) {
+        return Err("Unknown desktop answer method.".into());
+    }
+    self::answer(&state, &thread_id, answer, &method, "mac").map(|v| v.public_value())
+}
+#[tauri::command(async)]
+pub fn question_shown(
+    state: tauri::State<AppState>,
+    thread_id: String,
+    question_id: String,
+) -> Result<(), String> {
+    shown(&state, &thread_id, &question_id, "mac")
+}
+#[tauri::command(async)]
+pub fn open_question_counts(state: tauri::State<AppState>) -> Result<Value, String> {
+    let view = state.reader.snapshot();
+    let mut counts = serde_json::Map::new();
+    for thread in view.threads() {
+        let Some(entity) = thread.entity_id else {
+            continue;
+        };
+        counts.insert(
+            thread.id.clone(),
+            json!(store(&state)
+                .list(&entity, &thread.id)?
+                .iter()
+                .filter(|q| q.state == State::Open)
+                .count()),
+        );
+    }
+    Ok(Value::Object(counts))
+}

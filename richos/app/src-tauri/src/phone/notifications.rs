@@ -187,7 +187,7 @@ fn device_body(revision:u64,generation:u64,target:Option<&Target>)->Value {
 
 pub fn queue_reply(desk:&mut Desk,device:&Device,thread:&str,payload:&Value)->Result<(),String> {
     let rows=super::rows::rows_from_payload(payload);
-    let Some(row)=rows.iter().rev().find(|r|r["role"]=="rich" && r["complete"]!=false) else {return Ok(())};
+    let Some(row)=rows.iter().rev().find(|r|r["role"]=="rich" && r["kind"]!="question" && r["complete"]!=false) else {return Ok(())};
     if device.delivered_cursor>=row["cursor"].as_u64() {return Ok(())}
     let Some(event)=row["id"].as_str() else {return Ok(())};
     desk.enqueue(device,thread,event)?;

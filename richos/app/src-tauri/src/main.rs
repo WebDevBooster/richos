@@ -6,6 +6,7 @@
 // this file is just the window + the Tauri command bridge to the web UI in ../ui.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod question_host;
 mod activation;
 mod lifecycle;
 mod events;
@@ -77,7 +78,6 @@ mod updates;
 /// The `get_timeline` command body, in its own file so `examples/timeline_payload.rs`
 /// can include the SAME source and print the exact JSON the webview receives.
 mod timeline_view;
-use timeline_view::timeline_payload;
 
 /// The `get_machinery` command body — techy mode's read path. Its own file for the same
 /// reason `timeline_view` is: an example includes the SAME source and prints the exact
@@ -991,7 +991,7 @@ fn get_messages(state: State<AppState>, thread_id: String) -> Result<Vec<Message
 /// Fails closed on an unbound thread, exactly like `get_messages`.
 #[tauri::command(async)]
 fn get_timeline(app: AppHandle, state: State<AppState>, thread_id: String) -> Result<serde_json::Value, String> {
-    let payload = timeline_payload(&*state.reader.snapshot(), &thread_id);
+    let payload = question_host::payload(&state, &thread_id);
     // **HIS FRONT DESK IS MADE READY HERE, AFTER THE SNAPSHOT AND NEVER BEFORE IT** — the CEO's
     // §55. See [`ready_the_front_desk`] for why this command is the hook.
     ready_the_front_desk(&app, &thread_id);
@@ -2058,6 +2058,12 @@ fn main() {
     // spec §1.1), and a failure here is stderr its parent captures plus the startup log —
     // never an alert, because `activation.rs`'s parent-pid condition is false by
     // construction in a child.
+    if first.as_deref() == Some(std::ffi::OsStr::new("--questions-mcp")) {
+        let result=args.next().ok_or_else(||"Missing question scope".to_string())
+            .and_then(|scope|richos_core::question_tools::run_stdio(Path::new(&scope)).map_err(|e|e.to_string()));
+        if let Err(error)=result {eprintln!("Question tool server: {error}");std::process::exit(1);}
+        return;
+    }
     if first.as_deref() == Some(std::ffi::OsStr::new("--assignments-mcp")) {
         let result = args.next().ok_or_else(|| "Missing assignment scope".to_string())
             .and_then(|scope| richos_core::assignment_tools::run_stdio(Path::new(&scope))
@@ -3367,6 +3373,7 @@ fn main() {
             // A persisted pairing resumes without opening a new pairing window.
             phone_runtime.resume_if_paired(app.handle().clone());
             app.manage(phone_runtime);
+            question_host::start(app.handle().clone());
             // The composer's attachments, in the SAME app-data directory the phone's
             // attachment desk writes to (`phone/attachments.rs`). No I/O until a file arrives.
             let attachments_home = app.state::<AppState>().data_dir.clone();
@@ -3456,6 +3463,7 @@ fn main() {
         })
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            question_host::answer_question, question_host::question_shown, question_host::open_question_counts,
             claude_quota,
             claude_quota_activity,
             set_claude_quota_policy,
@@ -5343,7 +5351,8 @@ fn ready_the_front_desk_after_a_repair(app: &AppHandle, thread_id: &str) {
 
 #[tauri::command(async)]
 fn pending_permission(state: State<AppState>) -> Option<richos_core::permissions::PermissionRequest> {
-    state.permissions.current()
+    let view=state.reader.snapshot();
+    state.permissions.current().filter(|request|view.active_binding().is_some_and(|b|b.thread_id()==request.binding.thread_id && b.entity_id().as_str()==request.binding.entity_id))
 }
 /// **His answer to one exact action — and the second half is the background-work spec's
 /// §5.7.**

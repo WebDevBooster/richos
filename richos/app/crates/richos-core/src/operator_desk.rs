@@ -330,6 +330,9 @@ impl OperatorDesk {
                 self.host.log(&format!("{id} was stopped; its record could not say so ({e})"));
             }
         }
+        if results.iter().all(|r| matches!(r, StopResult::Stopped { .. })) {
+            crate::questions::Store::new(&self.state_root).close(entity, thread, Some(&format!("operator:handle:{id}")), "Your team stopped this work", false)?;
+        }
         Ok(())
     }
 
@@ -356,6 +359,48 @@ impl OperatorDesk {
                           -> Result<bool, String> {
         let title = self.origins.title(&key.thread_id).unwrap_or_default();
         self.host.deliver_answer(key, &title, handle, delivery_id, answer)
+    }
+
+    /// Accept a question set into the existing durable receiving inbox. The UI store
+    /// calls only this bounded disk operation; starting/resuming the lead happens later.
+    pub fn queue_question_answer(&self, delivery: &crate::questions::Delivery) -> Result<String, String> {
+        self.question_target(delivery)?;
+        crate::question_work::enqueue(&self.state_root, delivery)?;
+        Ok(format!("operator-question:{}", delivery.id))
+    }
+
+    fn question_target(&self, delivery: &crate::questions::Delivery) -> Result<Option<String>, String> {
+        if delivery.asker == "operator:conversation" { return Ok(None); }
+        let handle = delivery.asker.strip_prefix("operator:handle:").ok_or("Unknown operator question target")?;
+        let record = assignment::read(&self.state_root, &delivery.entity_id, &delivery.thread_id, handle)
+            .map_err(|e| e.to_string())?;
+        if !record.state.is_open() { return Err("The asking assignment has stopped".into()); }
+        Ok(Some(handle.to_string()))
+    }
+
+    /// Runs outside the question store lock. As on the product work path, freeze the
+    /// receiving input before invoking a lease. A started input is never blindly
+    /// replayed after a crash; its durable bytes remain available for recovery.
+    pub fn flush_question_answers(&self) -> Result<(), String> {
+        for delivery in crate::question_work::pending(&self.state_root)? {
+            if !delivery.asker.starts_with("operator:") { continue; }
+            let key = ConversationKey { entity_id: delivery.entity_id.clone(), thread_id: delivery.thread_id.clone() };
+            match self.question_target(&delivery) {
+                Ok(handle) => {
+                    crate::question_work::acknowledge(&self.state_root, &delivery.id)?;
+                    if let Err(error) = self.deliver_answer(&key, handle.as_deref(), &delivery.id, &delivery.text) {
+                        self.delivery.say(&key, &Lane::Conversation, Say::Failed,
+                            &format!("Your answer is saved, but your team could not receive it: {error}"));
+                        return Err(error);
+                    }
+                }
+                Err(reason) => {
+                    crate::questions::Store::new(&self.state_root).close(&key.entity_id, &key.thread_id, Some(&delivery.asker), &reason, false)?;
+                }
+            }
+            crate::question_work::acknowledge(&self.state_root, &delivery.id)?;
+        }
+        Ok(())
     }
 
     /// (o): this conversation's read, or every conversation's.
@@ -856,6 +901,37 @@ mod tests {
         let (state, detail) = state_of(&d, &a);
         assert_eq!(state, AssignmentState::Running, "not every agent was stopped, so it is not marked stopped");
         assert_eq!(detail, HANDED_OVER);
+    }
+
+    #[test]
+    fn phone_question_set_uses_the_durable_operator_inbox_without_a_desktop_hold() {
+        use crate::questions::{AskScope, AnswerRequest, Store};
+        let d = desk();
+        let a = assignment(&d, "t-1", "prepare release", Source::Text, Some("desk"));
+        d.desk.take(a.clone());
+        assert!(d.desk.wait_quiet(Duration::from_secs(10)));
+        let store = Store::new(&d.state);
+        let scope = AskScope { root: d.state.clone(), entity_id: a.entity_id.clone(), thread_id: a.thread_id.clone(),
+            turn_id: "lead-turn".into(), asker: format!("operator:handle:{}", a.id), session_id: "original-lead".into(), engine: None, entity_root: None };
+        let inputs = serde_json::from_value(serde_json::json!([{"text":"When should the release ship?", "options":[
+            {"label":"Ship today","description":"Earlier fixes"},{"label":"Ship tomorrow","description":"More testing"}]}])).unwrap();
+        let q = store.ask(&scope, inputs).unwrap().remove(0);
+        store.answer(&a.entity_id, &a.thread_id, AnswerRequest { question_id:q.id.clone(), client_id:"phone-tap".into(),
+            option_ids:vec![q.options[1].id.clone()], text:String::new(), expected_revision:None }, "phone_tap", "phone").unwrap();
+        store.deliver(&a.entity_id, &a.thread_id, &scope.asker, |input| d.desk.queue_question_answer(input)).unwrap();
+        let saved = crate::question_work::pending(&d.state).unwrap();
+        assert_eq!(saved.len(), 1);
+        assert_eq!(sent(&d).len(), 1, "saving an answer never waits on or invokes the lead");
+        // Reconcile the saved identity twice, including a fresh store reader.
+        Store::new(&d.state).deliver(&a.entity_id, &a.thread_id, &scope.asker, |input| d.desk.queue_question_answer(input)).unwrap();
+        d.desk.flush_question_answers().unwrap();
+        d.desk.flush_question_answers().unwrap();
+        assert_eq!(sent(&d).len(), 2);
+        assert!(sent(&d)[1].contains("Ship tomorrow"));
+        assert!(sent(&d)[1].contains("phone_tap"));
+        assert!(crate::question_work::pending(&d.state).unwrap().is_empty());
+        assignment::advance(&d.state, &a.entity_id, &a.thread_id, &a.id, AssignmentState::Settled, "Done").unwrap();
+        assert!(d.desk.queue_question_answer(&saved[0]).is_err(), "a closed handle cannot be reopened by an answer");
     }
 
     /// The §88 seam reaches the lead through the desk, once per delivery identity.

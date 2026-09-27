@@ -539,7 +539,36 @@ async function openHomePrefs(browser, setup) {
   return page;
 }
 
+async function questionState(browser, mode) {
+  const page = await openApp(browser);
+  await page.evaluate(mode => {
+    const q = {id:"affordance-question", thread_id:"general", text:"When should the release ship?",
+      options:[{id:"today",label:"Ship today",description:"Earlier fixes"},{id:"tomorrow",label:"Ship tomorrow",description:"More testing"}],
+      multiple:false, free_answer:true, state:"open", revision:0, delivered:false};
+    const saved = {answer:{question_id:q.id,client_id:"saved-answer",option_ids:["today"],text:""},
+      method:"click",threadId:"general",display:"Ship today",deleted:mode==="deleted"};
+    if (mode==="saved" || mode==="deleted") localStorage.setItem("richos-question-answer:"+q.id,JSON.stringify(saved));
+    if (mode==="edit") {q.state="answered";q.revision=1;q.answer={option_ids:["today"],text:"",method:"click",surface:"mac"};}
+    if (mode==="retry") window.__overrides.answer_question={reject:true,value:"Lost receipt"};
+    if (mode==="storage") {
+      const write=Storage.prototype.setItem;
+      Storage.prototype.setItem=function(key,value) {if(key.startsWith("richos-question-answer:"))throw new Error("Storage full");return write.call(this,key,value);};
+    }
+    document.getElementById("messages").appendChild(RichQuestions.render({threadId:"general",question:q}));
+    document.dispatchEvent(new Event("richos-questions-changed"));
+  }, mode);
+  await page.locator(".question-card.ask").scrollIntoViewIfNeeded();
+  if(mode==="edit") await page.getByRole("button",{name:"Change answer",exact:true}).click();
+  if(mode==="retry" || mode==="storage") await page.locator(".question-option").first().click();
+  return page;
+}
+
 const FIXTURES = {
+  "question-edit": browser => questionState(browser,"edit"),
+  "question-saved": browser => questionState(browser,"saved"),
+  "question-retry": browser => questionState(browser,"retry"),
+  "question-deleted": browser => questionState(browser,"deleted"),
+  "question-storage": browser => questionState(browser,"storage"),
   async "connect-setup"(browser) {
     const page = await openApp(browser, undefined, {phoneConnect:{enabled:false,phase:"not-configured"}});
     await page.click("#set-btn"); await page.click("#set-phone-open");
@@ -1425,6 +1454,7 @@ const FIXTURES = {
 /// names is present and usable on the screen the sentence appears on. Said here rather than
 /// left as an unexplained asymmetry.
 const TEXT_RENDERING_FIXTURES = new Set([
+  "question-edit", "question-saved", "question-retry", "question-deleted", "question-storage",
   "connect-setup", "connect-admission", "connect-setup-unreadable", "connect-helper-missing", "connect-history-full",
   "connect-history-unreadable", "connect-unavailable", "connect-address-invalid", "connect-credential-invalid",
   "repository-empty", "permission-pending", "provider-start-error", "provider-poll-error", "provider-cancel-error",

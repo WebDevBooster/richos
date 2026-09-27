@@ -109,6 +109,19 @@ class AppStoreIdleTest {
     }
 
     @Test
+    fun `an offline question answer owns no retry timer`() {
+        val (store, seen) = store()
+        store.dispatch(Action.Network(false))
+        val q = """{"id":"q","thread_id":"general","text":"When?","options":[{"id":"a","label":"Today","description":"Earlier fixes"},{"id":"b","label":"Tomorrow","description":"More testing"}],"multiple":false,"free_answer":true,"state":"open","revision":0,"delivered":false}"""
+        store.dispatch(Action.Receive("event: hello\ndata: {\"thread_id\":\"general\",\"capabilities\":[\"questions\"],\"messages\":[{\"id\":\"q\",\"thread_id\":\"general\",\"cursor\":1,\"role\":\"rich\",\"kind\":\"question\",\"question\":$q}]}\n\n"))
+        idleFor(0)
+        store.dispatch(Action.AnswerQuestion("q", listOf("a")))
+        idleFor(0)
+        assertTrue(seen.last().outbox.any { it.kind == "answer" })
+        assertEquals(0, publishedOver(seen, 60_000))
+    }
+
+    @Test
     fun `a running recording ticks - the timer is on screen`() {
         val (store, seen) = store()
         store.dispatch(Action.VoicePress("rec-1", 386.0, SystemClock.uptimeMillis()))
