@@ -853,8 +853,17 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # the record was committed. The register is declared per entity
 # (FAILURE_TYPE_REGISTER). Suite: failure-type.test.sh; harness:
 # failure-type.mutation.sh.
+# guard-resource-waits.sh, ADDED 2026-09-27 — the CEO's "A free Mac is used
+# whole; nothing waits in a line", after three 90-minute VM waits were each
+# answered "keep waiting". Stop, BLOCKING, does not stand down on the re-fire:
+# the lead's turn does not end while any job has waited more than
+# RESOURCE_WAIT_MINUTES (10) on a shared resource (the test VM, CPU admission,
+# or a wait an escalation reports). No acknowledgement clears it; only the
+# wait ending does. Suite: resource-waits.test.sh; harness:
+# resource-waits.mutation.sh.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
 failure-type-lookup.sh
+guard-resource-waits.sh
 guard-failure-type-answer.sh
 guard-foreign-app-data.sh
 operator-claim.sh

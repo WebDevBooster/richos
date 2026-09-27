@@ -554,6 +554,11 @@
           },
           {
             "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-resource-waits.sh",
+            "timeout": 20
+          },
+          {
+            "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/notice-ceo-inputs-unheld.sh",
             "timeout": 25
           },
