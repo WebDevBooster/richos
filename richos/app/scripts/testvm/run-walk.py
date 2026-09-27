@@ -28,7 +28,7 @@ import time
 import subprocess
 import sys
 import uuid
-from slots import guest_slot
+from slots import guest_ram_mb, guest_slot
 from relaunch import guest
 
 HERE=Path(__file__).resolve().parent
@@ -64,7 +64,7 @@ def main():
     for sig in (signal.SIGTERM,signal.SIGHUP):signal.signal(sig,interrupted)
     with guest_slot(root=root,wait_seconds=a.wait,purpose='run-walk '+vm+' '+Path(command[0]).name) as slot:
         if state.exists():raise RuntimeError('owned VM name already exists')
-        child=None;began=time.monotonic();result={'vm':vm,'load':os.getloadavg()[0],'outcome':'harness failure','reservation':str(slot.resolve()),'resources':{k:os.environ.get(k,v) for k,v in [('TESTVM_CPU','4'),('TESTVM_RAM_MB','7168'),('TESTVM_DISPLAY','1680x1050')]}}
+        child=None;began=time.monotonic();result={'vm':vm,'load':os.getloadavg()[0],'outcome':'harness failure','reservation':str(slot.resolve()),'resources':{'TESTVM_CPU':os.environ.get('TESTVM_CPU','4'),'TESTVM_RAM_MB':str(guest_ram_mb()),'TESTVM_DISPLAY':os.environ.get('TESTVM_DISPLAY','1680x1050')}}
         try:
             # Give each subprocess a group so interruption cannot strand the SSH
             # command. stop.sh subsequently reaps the captured VM process.

@@ -9,6 +9,7 @@ import fcntl
 import io
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -142,6 +143,13 @@ class Slots(unittest.TestCase):
         settled = slots.memory_refusal({'memory_free_percent': 55}, ['walk-a'], resident=[7000], total_mb=total,
                                        ram_mb=ram)
         self.assertEqual(settled, '', 'a settled guest already counted in the available memory owes little')
+
+    def test_the_guest_size_is_lib_sh_s_one_declared_default_unless_overridden(self):
+        declared = re.search(r'^TESTVM_RAM_MB="\$\{TESTVM_RAM_MB:-(\d+)\}"', (HERE / 'lib.sh').read_text(), re.M)
+        os.environ.pop('TESTVM_RAM_MB', None)
+        self.assertEqual(slots.guest_ram_mb(), int(declared.group(1)))
+        with patch.dict(os.environ, {'TESTVM_RAM_MB': '4096'}):
+            self.assertEqual(slots.guest_ram_mb(), 4096)
 
     def test_a_memory_refusal_releases_the_slot_and_waits_like_a_cpu_refusal(self):
         seen, answers = [], iter(['a guest needs 7168 MB: ...', ''])

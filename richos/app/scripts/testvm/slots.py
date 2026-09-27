@@ -53,6 +53,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import subprocess
 import sys
@@ -83,7 +84,14 @@ def _say(message):
 
 
 def guest_ram_mb():
-    return int(os.environ.get('TESTVM_RAM_MB', '7168'))
+    """TESTVM_RAM_MB, else lib.sh's own default: one number, declared once, that run.sh gives the
+    guest and this file admits it by."""
+    if os.environ.get('TESTVM_RAM_MB'):
+        return int(os.environ['TESTVM_RAM_MB'])
+    found = re.search(r'^TESTVM_RAM_MB="\$\{TESTVM_RAM_MB:-(\d+)\}"', (HERE / 'lib.sh').read_text(), re.M)
+    if not found:
+        raise ValueError('lib.sh no longer declares TESTVM_RAM_MB\'s default where slots.py reads it')
+    return int(found.group(1))
 
 
 def vm_resident_mb():

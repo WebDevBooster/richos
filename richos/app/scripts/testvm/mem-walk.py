@@ -9,7 +9,7 @@ Run by run-walk.py, which holds one guest slot for this run only, boots the gues
 run-walk.py passes the owned VM name as the first argument; mem-walk.py hands it on as the inner
 walk's first argument, runs that walk in the foreground and returns its exit code.
 
-WHY. A guest is given TESTVM_RAM_MB (7168 MB, lib.sh) and the host must keep that much free for
+WHY. A guest is given TESTVM_RAM_MB (lib.sh) and the host must keep that much free for
 it (slots.py's memory admission). On this 24 GB Mac two such guests do not fit beside the usual
 load (measured 2026-09-27 18:56Z: 120 MB/s swap-out). What a guest NEEDS is a measurement, not
 the allocation: this samples, every --every seconds while the walk runs, inside the guest:
@@ -37,7 +37,7 @@ import time
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from relaunch import guest  # noqa: E402
-from slots import vm_resident_mb  # noqa: E402
+from slots import guest_ram_mb, vm_resident_mb  # noqa: E402
 
 PROBE = ('vm_stat; echo "hw.memsize: $(sysctl -n hw.memsize)"; '
          'echo "memorystatus_level: $(sysctl -n kern.memorystatus_level)"; '
@@ -104,7 +104,7 @@ def main():
                                    default=0),
                  'claude_rss_mb_total': max((sum(t['rss_mb'] for t in s['top'] if t['name'] == 'claude')
                                              for s in good), default=0)}
-    record = {'vm': a.vm, 'ram_mb': int(os.environ.get('TESTVM_RAM_MB', '7168')), 'inner': inner,
+    record = {'vm': a.vm, 'ram_mb': guest_ram_mb(), 'inner': inner,
               'inner_exit': rc, 'seconds': round(time.monotonic() - began), 'samples': samples,
               'sample_errors': len(samples) - len(good), 'peaks': peaks}
     (a.out / 'mem.json').write_text(json.dumps(record, indent=2) + '\n')
