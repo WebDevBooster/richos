@@ -3150,6 +3150,16 @@ Bridge.listen("rich://turn-status", ({ payload }) => {
     announce("Rich started working");
   }
   if (payload.status === "completed" || payload.status === "failed" || payload.status === "stopped") {
+    // THE BOUNDARY, AS THE MODEL SEES IT. A notice held mid-turn (background-work spec §3.5)
+    // was only ever flushed from `rich://turn-completed`, and the spine emits that BEFORE this
+    // terminal status (`spine.rs`: `TurnCompleted`, then `emit_live(TurnStatus)`), so the turn
+    // still read as live there, the flush declined, and the notice waited for the NEXT
+    // boundary: his next answer, or voice going quiet. Measured in the browser harness on
+    // 2026-09-27: at `turn-completed` `anyLiveTurn()` was true with one notice held; at this
+    // status it was false, and nothing flushed. A stopped or failed turn never flushed at all.
+    // Flushed here, where the turn is over by the model's own account; `flushWorkNotices`
+    // re-checks the calm itself, so another live turn still holds it.
+    flushWorkNotices();
     // §6.4: "Collapse the working transcript after a short settling transition."
     // 180ms — inside §17.4's allowed 150–220ms band — and skipped entirely under reduced
     // motion, where the collapse is immediate rather than transitioned.
