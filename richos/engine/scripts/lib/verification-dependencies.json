@@ -2671,6 +2671,47 @@
           "to": "scripts/hooks/guard-public-record-repo.test.sh"
         }
       ]
+    },
+    "scripts/hooks/engine-status.sh": {
+      "source": "scripts/hooks/engine-status.sh",
+      "sha256": "c1ea99017ada713a0a68a56fe7f23dfab11b027ed53ea3a7846d4e51b8e467b0",
+      "evidence": "Executes only root resolution, registration parsing, native Git/version reads and JSON rendering. The final case statement renders fixed instructions; paths to spawn/prepare tools in those messages are not executed. The bounded prefix includes every executed library call; full source bytes bind the reviewed suffix too.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/registered-hooks.sh"
+        }
+      ],
+      "region": [
+        "set -o pipefail",
+        "case \"$RICHOS_ROOT_STATUS\" in"
+      ]
+    },
+    "scripts/hooks/engine-status.test.sh": {
+      "source": "scripts/hooks/engine-status.test.sh",
+      "sha256": "7811a52a41f2c3d17f3145eadd8aa2dd2fb84c5bdeda89aea18c543077a2c56d",
+      "evidence": "Copied engine settings are transport only: engine-status consumes adoption presence, not values. The entity has a literal config. Inline mutations edit registration/inventory or the rendered instruction. A missing-Python path enumerates command links but executes only the banner and its fixed libraries.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/engine-status.sh"
+        }
+      ]
+    },
+    "scripts/lib/resolve-roots.test.sh": {
+      "source": "scripts/lib/resolve-roots.test.sh",
+      "sha256": "d5d4f7b6dc49da7d8dbc216bd244cd41028297b4141b18586323c8f4bb5a02c8",
+      "evidence": "Builds generated Git repositories, plugin markers, configs and agent definitions. Invokes root/namespace/asset helpers directly; no real config is sourced. Namespace mapping in the positive override case is a literal fixture value.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh",
+          "fixture": true
+        }
+      ]
     }
   },
   "units": {
@@ -2720,7 +2761,9 @@
     "scripts/hooks/agent-state-claims.test.sh": "scripts/hooks/agent-state-claims.test.sh",
     "scripts/hooks/premise-ask.test.sh": "scripts/hooks/premise-ask.test.sh",
     "scripts/hooks/hook-staleness.test.sh": "scripts/hooks/hook-staleness.test.sh",
-    "scripts/hooks/guard-public-record-repo.test.sh": "scripts/hooks/guard-public-record-repo.test.sh"
+    "scripts/hooks/guard-public-record-repo.test.sh": "scripts/hooks/guard-public-record-repo.test.sh",
+    "scripts/hooks/engine-status.test.sh": "scripts/hooks/engine-status.test.sh",
+    "scripts/lib/resolve-roots.test.sh": "scripts/lib/resolve-roots.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {

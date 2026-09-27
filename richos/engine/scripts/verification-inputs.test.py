@@ -152,6 +152,21 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_root_and_banner_fixtures_do_not_read_shipped_setting_values(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        units = ['scripts/hooks/engine-status.test.sh', 'scripts/lib/resolve-roots.test.sh']
+        for unit in units:
+            closure = graph.closure(unit)
+            self.assertEqual(closure['keys'], {}, closure)
+            self.assertEqual(closure['whole'], [], closure)
+            self.assertEqual(closure['fallback'], [], closure)
+        for key in ('PROTECTED_PATHS', 'AGENT_NAMESPACE_ROOTS', 'BAN_WORKFLOW_TOOL'):
+            self.assertEqual(graph.config_units(inputs.config_change(key+'=old', key+'=new'), units), {})
+        document['nodes'].pop('scripts/lib/registered-hooks.sh')
+        change = inputs.config_change('PROTECTED_PATHS=before', 'PROTECTED_PATHS=after')
+        self.assertEqual(set(graph.config_units(change, units)), {units[0]})
+
     def test_staleness_and_record_guards_keep_copies_distinct_from_real_readers(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)
