@@ -1525,6 +1525,10 @@ t "run-walk --wait reaches the guest-lock admission; the default still refuses a
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/run-walk-wait.test.py" >"$TMP/run-walk-wait.log" 2>&1; ok $? "$(cat "$TMP/run-walk-wait.log")"
 t_done
 
+t "slots: two runs at once, a third waits; a slot is held only for its run and a guest never outlives it"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/slots.test.py" >"$TMP/slots.log" 2>&1; ok $? "$(cat "$TMP/slots.log")"
+t_done
+
 t "files-since: every class, the baseline window, and a control that must be found and flagged"
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/files-since.test.py" >"$TMP/files-since.log" 2>&1; ok $? "$(cat "$TMP/files-since.log")"
 t_done

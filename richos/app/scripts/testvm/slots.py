@@ -1,0 +1,345 @@
+#!/usr/bin/env python3
+"""The test VM's two guest slots: each is held ONLY while one run executes in a guest.
+
+  slots.py status                           who holds which slot, right now
+  slots.py run [--wait SECONDS] -- COMMAND  hold one slot for exactly COMMAND's run
+  slots.py check                            (run.sh) exit 0 only inside a held slot
+
+THE RULE (the CEO, 2026-09-27): *"do I want the work to be BLOCKED AND PISSED AWAY like this
+because the current worker might need the VM for a 5-second-long fart? Do I want HOURS OF
+DEVELOPMENT TIME TO BE PISSED AWAY FOR EVERY 5-SECOND FART???"*
+
+  * A slot is held only while a run executes in the guest: boot, the run's steps, cleanup.
+    It is released the instant that run ends.
+  * No reservations. Nothing keeps a slot "for later", across a job, a build or a debugging
+    session. Anything that needs a guest again takes a free slot again.
+  * A walk that truly needs one guest across several steps (a 30-minute observation) is one
+    run, and holds a slot for that run's length only.
+  * A caller waits only while every slot is executing somebody's run.
+
+WHY TWO. Until 2026-09-27 there was one guest lock, and a job that needed the guest for a few
+minutes of a multi-hour task queued everybody else behind it (3 h 58 min for one agent that
+day). This Mac has 10 cores and 24 GB; a guest takes 4 cores and 7 GB (lib.sh), and Apple's
+Virtualization framework runs at most two macOS guests at once on one host. Two is therefore
+both what fits and the ceiling: TESTVM_SLOTS may lower it to 1, never raise it.
+
+SLOT 1 KEEPS THE OLD NAME, `<TESTVM_ROOT>/guest.lock`, on purpose: a run-walk.py from a
+checkout older than this file still takes that lock, so it still counts as one slot, and the
+new code can never put a third guest beside it. Slot 2 is `guest-2.lock`.
+
+ADMISSION, in order, every attempt: a free slot (a nonblocking flock, no sample spent); fewer
+guests running than there are slots (tart's own list, so a guest booted by an old checkout
+is counted); then reserve.py's CPU and memory rule (CEO ruling §77). A refused CPU or memory
+sample RELEASES the slot before waiting, so nobody queues behind a caller that is itself
+waiting. `--wait SECONDS` bounds the whole admission; 0, the default, refuses at once.
+
+A GUEST NEVER OUTLIVES ITS SLOT. run.sh records the slot it booted under in its run state,
+and refuses to boot at all unless a slot is held by one of its own ancestors (`check`). When a
+slot is released, any guest still recorded against it is stopped with stop.sh first: a caller
+that forgot its cleanup cannot turn a run into a hold.
+"""
+import argparse
+from contextlib import contextmanager
+import fcntl
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import time
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import reserve  # noqa: E402
+
+SLOT_FILES = ('guest.lock', 'guest-2.lock')
+MAX_SLOTS = len(SLOT_FILES)
+SLOT_POLL_SECONDS = 2      # a flock attempt is a syscall; checking often costs nothing
+CLONE_POLL_SECONDS = 10    # a running-guest count is one `tart list`
+ENV = 'TESTVM_SLOT'
+
+
+def root_dir(root=None):
+    return Path(root or os.environ.get('TESTVM_ROOT', str(Path.home() / '.richos-testvm')))
+
+
+def slot_count():
+    raw = os.environ.get('TESTVM_SLOTS', str(MAX_SLOTS))
+    try:
+        n = int(raw)
+    except ValueError:
+        raise ValueError(f'TESTVM_SLOTS must be a whole number from 1 to {MAX_SLOTS}, not {raw!r}') from None
+    if not 1 <= n <= MAX_SLOTS:
+        raise ValueError(f'TESTVM_SLOTS must be from 1 to {MAX_SLOTS} (Apple runs at most two macOS guests '
+                         f'per host), not {n}')
+    return n
+
+
+def slot_paths(root=None, count=None):
+    root = root_dir(root)
+    return [root / name for name in SLOT_FILES[:count or slot_count()]]
+
+
+def running_guests():
+    """Names of the running local clones (never the base image), from tart's own list."""
+    base = os.environ.get('TESTVM_BASE_VM', 'richos-base')
+    listing = subprocess.run(['bash', '-c', '. "$1/lib.sh"; preflight_tart >/dev/null; tart list --format json',
+                              'slots', str(HERE)], capture_output=True, text=True, timeout=30)
+    if listing.returncode:
+        raise BlockingIOError('tart could not say which guests are running; admission refused: '
+                              + listing.stderr.strip()[-300:])
+    return [r.get('Name') for r in json.loads(listing.stdout)
+            if r.get('Source') == 'local' and r.get('Running') and r.get('Name') != base]
+
+
+def _owned_dir(path):
+    parent = path.parent
+    parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if parent.is_symlink() or parent.stat().st_uid != os.getuid():
+        raise ValueError('slot directory must be owned by the current user and not a symlink: ' + str(parent))
+
+
+def _try(path):
+    """The open, flocked file for `path`, or None when somebody else holds it."""
+    _owned_dir(path)
+    handle = path.open('a+')
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        return None
+    return handle
+
+
+def holder(path):
+    """What a slot's holder wrote about itself, or {} (a free slot, or an older checkout's
+    run-walk.py, which holds guest.lock without writing anything)."""
+    try:
+        return json.loads(path.read_text() or '{}')
+    except (OSError, ValueError):
+        return {}
+
+
+def is_held(path):
+    """True when some process holds the flock on `path`. The probe lock is dropped at once."""
+    if not path.exists():
+        return False
+    with path.open('a') as probe:
+        try:
+            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(probe, fcntl.LOCK_UN)
+        return False
+
+
+def describe_holders(paths):
+    rows = []
+    for p in paths:
+        if not is_held(p):
+            continue
+        h = holder(p)
+        if h.get('pid'):
+            since = time.time() - h.get('since', time.time())
+            rows.append(f"{p.name}: pid {h['pid']} for {since / 60:.0f} min ({h.get('purpose') or 'a run'})")
+        else:
+            rows.append(f'{p.name}: held by an older checkout (no holder record)')
+    return '; '.join(rows) or 'none'
+
+
+def _stop_leftovers(path, root):
+    """Stop every guest whose run state says it booted under `path`: the slot's run is over."""
+    run = root / 'run'
+    stopped = []
+    if not run.is_dir():
+        return stopped
+    for state in sorted(run.iterdir()):
+        try:
+            recorded = (state / 'slot').read_text().strip()
+        except OSError:
+            continue
+        if recorded != str(path):
+            continue
+        print(f'slot {path.name} released with guest {state.name} still recorded against it; '
+              f'stopping it (a guest never outlives its slot)', file=sys.stderr, flush=True)
+        subprocess.run([str(HERE / 'stop.sh'), state.name], timeout=300, check=False)
+        stopped.append(state.name)
+    return stopped
+
+
+@contextmanager
+def guest_slot(root=None, wait_seconds=0, purpose='', max_cpu=reserve.DEFAULT_MAX_CPU,
+               guests=None, admit=None, clock=time.monotonic, sleep=time.sleep):
+    """Hold one guest slot for exactly the body of the `with`. Yields the slot's path.
+
+    `guests` and `admit` are replaceable so the suite can drive every refusal offline."""
+    guests = guests or running_guests
+    if admit is None:
+        def admit():
+            return reserve.cpu_admission(max_cpu, 0)
+    if not 0 <= wait_seconds <= reserve.MAX_WAIT_SECONDS:
+        raise ValueError(f'admission wait must be between 0 and {reserve.MAX_WAIT_SECONDS} seconds')
+    root = root_dir(root)
+    count = slot_count()
+    paths = slot_paths(root, count)
+    started = clock()
+    last_reason = None
+    while True:
+        handle = path = None
+        for candidate in paths:
+            handle = _try(candidate)
+            if handle:
+                path = candidate
+                break
+        pause = SLOT_POLL_SECONDS
+        if handle is None:
+            reason = f'every slot is executing a run ({describe_holders(paths)})'
+        else:
+            try:
+                busy = guests()
+                if len(busy) >= count:
+                    reason = f'{len(busy)} guest(s) already running ({", ".join(busy)})'
+                    pause = CLONE_POLL_SECONDS
+                else:
+                    sample = admit()
+                    break
+            except BlockingIOError as refused:
+                reason = str(refused)
+                pause = reserve.MIN_RETRY_SECONDS
+            fcntl.flock(handle, fcntl.LOCK_UN)
+            handle.close()
+        elapsed = clock() - started
+        remaining = wait_seconds - elapsed
+        if remaining <= 0:
+            raise BlockingIOError(f'guest slot refused after {elapsed:.0f}s: {reason}')
+        if reason != last_reason:
+            print(f'slot waiting: {reason}; up to {remaining:.0f}s more', file=sys.stderr, flush=True)
+            last_reason = reason
+        sleep(min(pause, remaining))
+    waited = clock() - started
+    record = {'pid': os.getpid(), 'since': time.time(), 'purpose': purpose, 'slot': path.name}
+    handle.seek(0)
+    handle.truncate()
+    handle.write(json.dumps(record) + '\n')
+    handle.flush()
+    previous = os.environ.get(ENV)
+    os.environ[ENV] = str(path)
+    print(f'slot held: {path} (waited {waited:.0f}s; '
+          f"{reserve.describe(sample) if isinstance(sample, dict) and 'swap_used_mb' in sample else 'admitted'})",
+          file=sys.stderr, flush=True)
+    try:
+        yield path
+    finally:
+        try:
+            _stop_leftovers(path, root)
+        finally:
+            if previous is None:
+                os.environ.pop(ENV, None)
+            else:
+                os.environ[ENV] = previous
+            handle.seek(0)
+            handle.truncate()
+            handle.flush()
+            fcntl.flock(handle, fcntl.LOCK_UN)
+            handle.close()
+            print(f'slot released: {path.name} after {clock() - started - waited:.0f}s', file=sys.stderr,
+                  flush=True)
+
+
+def _ancestors():
+    table = subprocess.run(['ps', '-A', '-o', 'pid=,ppid='], capture_output=True, text=True, timeout=10).stdout
+    parent = {}
+    for line in table.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            parent[int(parts[0])] = int(parts[1])
+    chain, pid = [], os.getppid()
+    while pid > 1 and pid not in chain:
+        chain.append(pid)
+        pid = parent.get(pid, 0)
+    return chain
+
+
+def check(root=None):
+    """'' when the caller runs inside a slot held by one of its ancestors, else why not."""
+    named = os.environ.get(ENV, '')
+    paths = slot_paths(root)
+    if not named:
+        return 'no guest slot is held for this run'
+    path = Path(named)
+    if path not in paths:
+        return f'{ENV}={named} is not one of this root\'s slots ({", ".join(str(p) for p in paths)})'
+    if not is_held(path):
+        return f'slot {path.name} is not held'
+    pid = holder(path).get('pid')
+    if not pid or pid not in _ancestors():
+        return f'slot {path.name} is held by another run (pid {pid}), not by this one'
+    return ''
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest='verb', required=True)
+    sub.add_parser('status', help='each slot: free, or who holds it and for how long')
+    sub.add_parser('check', help='exit 0 only when an ancestor of the caller holds the slot named in $' + ENV)
+    r = sub.add_parser('run', help='hold one slot for exactly one command')
+    r.add_argument('--wait', type=float, default=0, metavar='SECONDS',
+                   help=f'wait for a free slot and for admission for at most SECONDS (0-{reserve.MAX_WAIT_SECONDS}; '
+                        'default 0: refuse at once)')
+    r.add_argument('--purpose', default='', help='one line for `status` to show')
+    r.add_argument('command', nargs=argparse.REMAINDER)
+    a = p.parse_args()
+    if a.verb == 'status':
+        paths = slot_paths()
+        for path in paths:
+            h = holder(path) if is_held(path) else None
+            if h is None:
+                print(f'{path.name}: free')
+            elif h.get('pid'):
+                print(f"{path.name}: held by pid {h['pid']} for {(time.time() - h.get('since', time.time())) / 60:.1f} min"
+                      f" ({h.get('purpose') or 'a run'})")
+            else:
+                print(f'{path.name}: held by an older checkout (no holder record)')
+        return 0
+    if a.verb == 'check':
+        why = check()
+        if why:
+            print(why, file=sys.stderr)
+            return 1
+        return 0
+    command = a.command[1:] if a.command[:1] == ['--'] else a.command
+    if not command:
+        p.error('a command is required after --')
+    with guest_slot(wait_seconds=a.wait, purpose=a.purpose or ' '.join(command)[:120]):
+        child = subprocess.Popen(command, start_new_session=True)
+
+        def stop(signum, frame):
+            try:
+                os.killpg(child.pid, signal.SIGTERM)
+                child.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                os.killpg(child.pid, signal.SIGKILL)
+                child.wait()
+            except ProcessLookupError:
+                pass
+            raise SystemExit(128 + signum)
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            signal.signal(sig, stop)
+        try:
+            return child.wait()
+        finally:
+            if child.poll() is None:
+                os.killpg(child.pid, signal.SIGKILL)
+                child.wait()
+
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except BlockingIOError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(75)
+    except ValueError as exc:
+        print('slots.py: ' + str(exc), file=sys.stderr)
+        sys.exit(2)
