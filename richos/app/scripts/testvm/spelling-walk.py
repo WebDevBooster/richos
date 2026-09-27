@@ -75,8 +75,10 @@ _spec.loader.exec_module(command_walk)
 StepFailed = command_walk.StepFailed
 
 STEPS = ['identity', 'first-run', 'reply', 'connect', 'document']
-DOCUMENT = ('Please add a file named {name} to the Acme repository containing only this sentence, copied '
-            'letter for letter with its spelling exactly as written, and land it: {sentence}')
+# Deliberately NOT "letter for letter" (VM run 3, walk-0af67e88bf5d): told to copy the spelling
+# exactly, the worker read the file back after its Write, found it changed, and rewrote it with
+# printf in the shell to put the British back. A person asking for a note does not ask that.
+DOCUMENT = 'Please add a file named {name} to the Acme repository containing this sentence, and land it: {sentence}'
 # --document-tool write: the same request, naming the file-writing tool, so the one path the
 # document fix covers (a Write/Edit/MultiEdit) is exercised on purpose (plan check C18).
 WITH_WRITE_TOOL = ' Create the file with your Write tool, not with a shell command.'
@@ -231,8 +233,10 @@ class SpellingWalk(command_walk.CommandWalk):
         return hits[-1] if hits else None
 
     def calls_naming(self, name):
-        """Every tool call whose input names the file, as the hooks saw it: which tool, whether a
-        worker made it, and the first 300 characters of its input. Says HOW the file was made."""
+        """Every tool call whose input names the file, as the hooks saw it, in order: the event
+        (PreToolUse carries the input the model made; PostToolUse the provider's response, which
+        for a Write reports what was written), which tool, whether a worker made it, and the first
+        300 characters of each. Says HOW the file was made and what each step left."""
         script = ('import glob,json,sys\n'
                   'out=[]\n'
                   'for p in glob.glob(sys.argv[1]+"/engine-state/evidence/*/callbacks.jsonl"):\n'
@@ -240,8 +244,10 @@ class SpellingWalk(command_walk.CommandWalk):
                   '        try: c=json.loads(line).get("callback",{})\n'
                   '        except Exception: continue\n'
                   '        i=json.dumps(c.get("tool_input") or {})\n'
-                  '        if c.get("hook_event_name")=="PreToolUse" and sys.argv[2] in i:\n'
-                  '            out.append({"tool":c.get("tool_name"),"worker":bool(c.get("agent_id")),"input":i[:300]})\n'
+                  '        if c.get("hook_event_name") in ("PreToolUse","PostToolUse") and sys.argv[2] in i:\n'
+                  '            out.append({"event":c.get("hook_event_name"),"tool":c.get("tool_name"),\n'
+                  '                        "worker":bool(c.get("agent_id")),"input":i[:300],\n'
+                  '                        "response":json.dumps(c.get("tool_response"))[:300] if "tool_response" in c else None})\n'
                   'print(json.dumps(out))\n')
         return json.loads(guest(self.vm, 'python3 -c ' + shlex.quote(script) + ' ' + shlex.quote(self.data) + ' '
                                 + shlex.quote(name), 60))
