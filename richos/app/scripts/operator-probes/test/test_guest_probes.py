@@ -430,6 +430,18 @@ class GradeP18(unittest.TestCase):
             r[case][field] = value
             self.assertEqual(gp.grade_p18(r)[0], 'PREMISE-FALSE', (case, field, value))
 
+    def test_a_dropped_duplicate_s_session_is_read_off_its_echo(self):
+        """Run 2026-09-27, case B: the drop started no turn, so no system/init came; the echo
+        carried the session."""
+        r = self.passing()
+        r['B']['resumed_session_id'] = None
+        r['B']['frames_30s_after_echo'] = [{'t': 0.0, 'type': 'user', 'isReplay': True, 'session_id': 's-b'},
+                                          {'t': 0.0, 'type': 'command_lifecycle', 'session_id': 's-b'}]
+        self.assertEqual(gp.grade_p18(r)[0], 'PASS')
+        r['B']['frames_30s_after_echo'][0]['session_id'] = 's-forked'
+        r['B']['frames_30s_after_echo'][1]['session_id'] = 's-forked'
+        self.assertEqual(gp.grade_p18(r)[0], 'FAIL', 'a resume that did not keep its session fails')
+
     def test_p18_runs_in_a_default_run(self):
         self.assertIn('P18', [pid for pid, _ in gp.PROBES])
         self.assertNotIn('P18', gp.EXPLICIT)

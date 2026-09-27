@@ -2385,12 +2385,16 @@ def resend(ctx, lead, uid, text, rec, echo_timeout=90):
     rec['echo'] = bool(got)
     rec['echo_is_replay'] = bool(got) and got[2].get('isReplay') is True
     rec['echo_seconds'] = round(got[1] - lead.started, 3) if got else None
+    # The echo carries the session it was taken in: the one reading of the resumed session a
+    # dropped duplicate gives, because a drop starts no turn and so sends no system/init (run
+    # 2026-09-27, case B).
+    rec['echo_session_id'] = got[2].get('session_id') if got else None
     return start, got
 
 
 def resumed_identity(lead, rec):
     init = lead.init_frame() or {}
-    rec['resumed_session_id'] = init.get('session_id')
+    rec['resumed_session_id'] = init.get('session_id') or rec.get('echo_session_id')
     rec['claude_code_version'] = init.get('claude_code_version') or init.get('version')
 
 
@@ -2530,8 +2534,23 @@ def p18_live_repeat(ctx, r):
         lead.close()
 
 
+def resumed_session(rec):
+    """The session a resumed lead ran in: its system/init when a turn ran, else the session
+    its echo carried (a dropped duplicate starts no turn, so it sends no init)."""
+    if rec.get('resumed_session_id'):
+        return rec['resumed_session_id']
+    for row in rec.get('frames_30s_after_echo') or []:
+        if row.get('session_id'):
+            return row['session_id']
+    return None
+
+
 def grade_p18(r):
     """PASS when A, C, D and E pass and every resume kept its session (§1.4). B is recorded."""
+    r = dict(r)
+    for key in ('A', 'B', 'C'):
+        if r.get(key):
+            r[key] = dict(r[key], resumed_session_id=resumed_session(r[key]))
     a, b, c, d, e = (r.get(k) or {} for k in ('A', 'B', 'C', 'D', 'E'))
     premises = []
     if not a.get('first_answered'):
@@ -2546,7 +2565,7 @@ def grade_p18(r):
         if rec.get('claude_alive_after_grace_plus_one'):
             premises.append('%s: the lead outlived the app stand-in by more than the grace' % key)
         if rec and rec.get('resumed_session_id') is None:
-            premises.append('%s: the resumed lead sent no system/init, so its session was not read' % key)
+            premises.append('%s: neither a system/init nor an echo named the resumed session' % key)
     if premises:
         return 'PREMISE-FALSE', '; '.join(premises)
     fails = []
@@ -3362,6 +3381,13 @@ def regrade_p17(artifact_frames, control_frames):
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == '--grade-p18':
+        if len(sys.argv) != 3:
+            print('usage: guest_probes.py --grade-p18 <P18.json>', file=sys.stderr)
+            return 2
+        verdict, why = grade_p18(json.loads(Path(sys.argv[2]).read_text()))
+        print(json.dumps({'probe': 'P18', 'graded_from': sys.argv[2], 'verdict': verdict, 'why': why}, indent=1))
+        return 0 if verdict == 'PASS' else 1
     if len(sys.argv) > 1 and sys.argv[1] == '--grade-p17':
         if len(sys.argv) != 4:
             print('usage: guest_probes.py --grade-p17 <P17-artifact.jsonl> <P17-control.jsonl>', file=sys.stderr)
