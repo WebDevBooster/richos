@@ -33,7 +33,7 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
              started"; the back end's own hook evidence has a Bash PostToolUse running git.
              Evidence is written to --out.
 
-THREE MORE STEPS, run with --steps (esc-20260927T093052Z-85f3303f's leftovers):
+FIVE MORE STEPS, run with --steps (esc-20260927T093052Z-85f3303f's leftovers):
   background     "start `sleep N && git log --oneline` in the background and tell me when it has
                  finished": PASS needs the back end's own hook record to show the command run with
                  run_in_background; the assignment seen `running` with "A command it started is
@@ -52,6 +52,19 @@ THREE MORE STEPS, run with --steps (esc-20260927T093052Z-85f3303f's leftovers):
                  seconds of the press, and the assignment closed `settled`. The 2026-09-27
                  diagnosis measured (133.479, 137.542] s on the build before 76e977dc. Evidence:
                  late-approval-observed.json.
+  next-job       a background command (sleep --yield-seconds, then echo a marker unique to the run),
+                 and while it runs a second job (--task). PASS needs the second job closed without the
+                 marker in what he was told; the first job still open, waiting on its command, when the
+                 second closed; then the first `settled` as answered with a later notice carrying the
+                 marker; its obligation closed on that answer; nothing about reviews, merges or closing.
+                 Evidence: yield-observed.json. (background also checks the obligation and the words.)
+  relaunch       relaunch.py after a first run (bgdone2 item 3), observed: one relaunch, then every
+                 5 s up to --relaunch-within seconds the recorded pid, every process of the app's
+                 executable with its parent, the recorded pid's windows, and whether the composer is
+                 back. A launch after the first run lands on the HOME SCREEN by design (ui/home.js),
+                 so its door ("Talk to Rich") is pressed once and the thread opened, and the moment
+                 is recorded. PASS when the composer is back. Evidence: relaunch-observed.json, relaunch-app.log, and on a
+                 miss relaunch-tree.txt and relaunch.png.
 
 Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
 """
@@ -74,14 +87,22 @@ _spec = importlib.util.spec_from_file_location('adopt_walk', HERE / 'adopt-walk.
 adopt_walk = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(adopt_walk)
 StepFailed = adopt_walk.StepFailed
+command = adopt_walk.command
 
 STEPS = ['identity', 'first-run', 'connect', 'watch', 'task', 'observe']
-MORE_STEPS = ['background', 'deadline', 'late-approval']
+MORE_STEPS = ['background', 'next-job', 'deadline', 'late-approval', 'relaunch']
 # The pane's words while an assignment waits on its command (work_host.rs COMMAND_STILL_RUNNING_DETAIL).
 STILL_RUNNING = 'A command it started is still running.'
 BACKGROUND_TASK = ('Please start this harmless test command in the background for me with your shell tool, in '
                    'my Acme folder, and tell me when it has finished and what it printed: sleep {seconds} && '
                    'git log --oneline')
+# A command whose output is unique to this run, so another job's answer can be checked for it.
+YIELD_TASK = ('Please start this harmless test command in the background for me with your shell tool, in '
+              'my Acme folder, and tell me when it has finished and what it printed: sleep {seconds} && '
+              'echo {marker}')
+# Words about the app's own bookkeeping that a report on a job that changed nothing must not carry
+# (vm-run-2 of 2026-09-27: "nothing to review or merge", "formally closing an assignment ... still open").
+BOOKKEEPING = ('merge', 'reviewer', 'formally clos', 'still open there', 'closing an assignment')
 LATE_FILE = '/tmp/richos-late-approval.txt'
 LATE_TASK = ('Please run this harmless test command for me yourself with your shell tool, in my Acme folder, '
              'and tell me when it has finished: date +%s > ' + LATE_FILE)
@@ -225,6 +246,8 @@ class CommandWalk(adopt_walk.Walk):
             if record and pressed < self.a.approvals and self.approve_if_asked(record.get('title', '')):
                 pressed += 1
             time.sleep(2)
+        if record and record.get('state') not in OPEN:
+            record = self.settled_read(record)
         commands = self.evidence_commands()
         evidence = {'sent_between_guest_ms': [round(v) for v in sent], 'command_seconds': self.a.command_seconds,
                     'repository_head': {'short': short, 'subject': subject}, 'approvals_pressed': pressed,
@@ -232,13 +255,124 @@ class CommandWalk(adopt_walk.Walk):
         (self.out / 'background-observed.json').write_text(json.dumps(evidence, indent=2) + '\n')
         if not record:
             raise StepFailed('no assignment was registered after the task was sent')
-        failures = background_verdict(record, short, subject, commands, sent, self.a.command_seconds, waiting)
+        obligation = self.obligation_closed(record['obligation_id'])
+        evidence['obligation'] = obligation
+        (self.out / 'background-observed.json').write_text(json.dumps(evidence, indent=2) + '\n')
+        failures = background_verdict(record, short, subject, commands, sent, self.a.command_seconds, waiting,
+                                      obligation)
         if failures:
             raise StepFailed('; '.join(failures))
         notices = record['notices']
         return {'state': record['state'], 'first_words': notices[0]['text'], 'report': notices[-1]['text'],
                 'report_after_send_s': round((notices[-1]['raised_at_ms'] - sent[0]) / 1000, 3),
-                'waiting_seen_at_guest_ms': waiting['guest_ms'], 'approvals_pressed': pressed}
+                'waiting_seen_at_guest_ms': waiting['guest_ms'], 'approvals_pressed': pressed,
+                'obligation': obligation}
+
+    def keep_logs(self):
+        """The guest's app log and the back end's own hook records, copied out before the guest is
+        deleted: without them a failure in the guest can only be guessed at (bgdone2 run 1)."""
+        kept = {}
+        # The first launch logs to app.log; each relaunch.py launch to its own relaunch-<ns>.log.
+        names = ['app.log'] + guest(self.vm, 'cd ' + shlex.quote(self.payload)
+                                    + ' && ls relaunch-*.log 2>/dev/null || true').split()
+        for name in names:
+            text = guest(self.vm, 'tail -c 400000 ' + shlex.quote(self.payload + '/' + name) + ' 2>/dev/null || true', 60)
+            (self.out / name).write_text(text + '\n')
+            kept[name] = len(text)
+        script = ('import glob,os,sys\n'
+                  'for p in sorted(glob.glob(sys.argv[1]+"/engine-state/evidence/*/callbacks.jsonl")):\n'
+                  '    print("=== "+os.path.basename(os.path.dirname(p)))\n'
+                  '    print(open(p).read()[-400000:])\n')
+        text = guest(self.vm, 'python3 -c ' + shlex.quote(script) + ' ' + shlex.quote(self.data), 60)
+        (self.out / 'callbacks.txt').write_text(text + '\n')
+        kept['callbacks.txt'] = len(text)
+        return kept
+
+    def settled_read(self, record):
+        """The same row read again a few seconds after it was first seen closed: the state and his
+        notice are two writes, so a single read can land between them."""
+        if not record:
+            return record
+        time.sleep(4)
+        return self.by_id(record.get('id')) or record
+
+    def obligation_closed(self, obligation_id, seconds=60):
+        """The obligation's record once it has closed, or its last reading after `seconds`: the
+        app closes it after his report is raised, which is engine subprocess calls later."""
+        end = time.monotonic() + seconds
+        reading = self.obligation(obligation_id)
+        while (not reading or reading.get('status') != 'completed') and time.monotonic() < end:
+            time.sleep(3)
+            reading = self.obligation(obligation_id)
+        return reading
+
+    def obligation(self, obligation_id):
+        """The engine's record of an assignment's obligation, read-only: its status and evidence."""
+        script = ('import json,sqlite3,sys\n'
+                  'c=sqlite3.connect("file:"+sys.argv[1]+"/ecs/ecs.sqlite3?mode=ro",uri=True)\n'
+                  'r=c.execute("SELECT status,evidence_ref FROM ecs_continuity_items WHERE item_id=?",(sys.argv[2],)).fetchone()\n'
+                  'print(json.dumps({"status":r[0],"evidence_ref":r[1]} if r else None))\n')
+        return json.loads(guest(self.vm, 'python3 -c ' + shlex.quote(script) + ' ' + shlex.quote(self.data)
+                                + ' ' + shlex.quote(obligation_id), 60))
+
+    def by_id(self, assignment_id):
+        return next((r for r in self.records() if assignment_id and r.get('id') == assignment_id), None)
+
+    def until_closed(self, pick, seconds, pressed):
+        """The assignment `pick()` reads, polled until it closes or `seconds` pass; Approve pressed as asked."""
+        end, record = time.monotonic() + seconds, None
+        while time.monotonic() < end:
+            record = pick()
+            if record and record.get('state') not in OPEN:
+                break
+            if record and pressed[0] < self.a.approvals and self.approve_if_asked(record.get('title', '')):
+                pressed[0] += 1
+            time.sleep(2)
+        return record
+
+    def next_job(self):
+        """His next job arrives while a background command runs (bgdone2 item 2): the first job must
+        stay open and report its own finish later, and the second job's answer must not carry it."""
+        if not self.facts.get('thread'):
+            raise StepFailed('first-run must have run (no thread on record)')
+        marker = 'yield-marker-' + os.urandom(4).hex()
+        pressed = [0]
+        first_sent = self.send(YIELD_TASK.format(seconds=self.a.yield_seconds, marker=marker))
+        waiting = {}
+
+        def seen_waiting(record):
+            if not waiting and record.get('state') == 'running' and record.get('detail') == STILL_RUNNING:
+                waiting.update(guest_ms=round(self.clock()), notices=record.get('notices'))
+        end = time.monotonic() + self.a.within
+        while not waiting and time.monotonic() < end:
+            record = self.ours(first_sent)
+            if record:
+                seen_waiting(record)
+                if record.get('state') not in OPEN:
+                    break
+                if pressed[0] < self.a.approvals and self.approve_if_asked(record.get('title', '')):
+                    pressed[0] += 1
+            time.sleep(2)
+        # Followed by its id from here: once the second job exists, "the newest since the first send"
+        # would be the second job.
+        first_id = (self.ours(first_sent) or {}).get('id')
+        second_sent = self.send(self.a.task)
+        second = self.settled_read(self.until_closed(lambda: self.ours(second_sent), self.a.within, pressed))
+        first_meanwhile = self.by_id(first_id)
+        first = self.settled_read(self.until_closed(lambda: self.by_id(first_id), self.a.within + self.a.yield_seconds, pressed))
+        evidence = {'marker': marker, 'command_seconds': self.a.yield_seconds, 'first_sent_ms': first_sent,
+                    'second_sent_ms': second_sent, 'first_seen_waiting': waiting or None,
+                    'first_when_second_closed': first_meanwhile, 'first': first, 'second': second,
+                    'first_obligation': self.obligation_closed(first['obligation_id']) if first else None,
+                    'approvals_pressed': pressed[0], 'back_end_bash': self.evidence_commands()}
+        (self.out / 'yield-observed.json').write_text(json.dumps(evidence, indent=2) + '\n')
+        failures = yield_verdict(first, second, first_meanwhile, marker, first_sent, self.a.yield_seconds,
+                                 evidence['first_obligation'])
+        if failures:
+            raise StepFailed('; '.join(failures))
+        return {'first_report': first['notices'][-1]['text'], 'second_answer': second['notices'][-1]['text'],
+                'first_state_when_second_closed': first_meanwhile.get('state'),
+                'first_obligation': evidence['first_obligation'], 'approvals_pressed': pressed[0]}
 
     def deadline(self):
         # Read off the running app's own environment rather than trusted from the command
@@ -256,6 +390,76 @@ class CommandWalk(adopt_walk.Walk):
         self.facts['deadline_ms'] = self.a.deadline_ms
         self.save()
         return {'app_pid': int(pid), 'deadline_ms': self.a.deadline_ms}
+
+    def app_rows(self):
+        """Every process in the guest running this payload's app executable: pid, parent, path."""
+        rows = []
+        for line in guest(self.vm, 'ps -axo pid=,ppid=,comm=').splitlines():
+            parts = line.split(None, 2)
+            if len(parts) == 3 and self.payload in parts[2] and parts[2].endswith('/richos-tauri'):
+                rows.append({'pid': int(parts[0]), 'ppid': int(parts[1]), 'exe': parts[2][len(self.payload):]})
+        return rows
+
+    def windows_of(self, pid):
+        script = f'tell application "System Events" to count windows of (first process whose unix id is {pid})'
+        text = guest(self.vm, 'osascript -e ' + shlex.quote(script) + ' 2>&1 || true')
+        return int(text) if text.strip().isdigit() else text.strip()[:200]
+
+    def relaunch(self):
+        """relaunch.py after a first run, observed rather than assumed (bgdone2 item 3: in vm-run-2
+        of 2026-09-27 the composer did not come back within 90 s, and that guest was deleted).
+
+        One relaunch, then a sample every 5 s for up to --relaunch-within seconds of: the pid the
+        harness recorded, every process of this payload's executable with its parent, the recorded
+        pid's window count, whether the composer is on screen, and the relaunch log's tail. PASS
+        when the composer is back. Either way the samples are relaunch-observed.json, and a miss
+        adds relaunch-tree.txt and relaunch.png."""
+        from relaunch import relaunch
+        state = Path(os.environ.get('TESTVM_ROOT', str(Path.home() / '.richos-testvm'))) / 'run' / self.vm
+        observed = {'before': {'recorded_pid': (state / 'app.pid').read_text().strip(), 'rows': self.app_rows()}}
+        began = time.monotonic()
+        launched = relaunch(self.vm)
+        observed['relaunched'] = launched
+        observed['samples'] = []
+        back, door = None, None
+        end = time.monotonic() + self.a.relaunch_within
+        while time.monotonic() < end:
+            pid = (state / 'app.pid').read_text().strip()
+            sample = {'t': round(time.monotonic() - began, 1), 'recorded_pid': pid, 'rows': self.app_rows(),
+                      'windows': self.windows_of(pid) if pid.isdigit() else None,
+                      'composer': self.present('Message to Rich', role='AXTextArea')}
+            # THE HOME SCREEN IS WHERE A LAUNCH AFTER THE FIRST RUN LANDS, by his ruling of
+            # 2026-09-01 (`ui/home.js`: "must be shown in the app after the splash screen", with a
+            # way into the app UI). The first launch goes straight to first-run setup, so a
+            # walk that waited only for the composer never saw this door; reap-walk.py's
+            # `enter` walks through it the same way. Through the door once, then the thread.
+            if not sample['composer'] and door is None and self.present('Talk to Rich'):
+                door = sample['t']
+                sample['home_screen'] = True
+                self.press('Talk to Rich')
+                time.sleep(2)
+                self.press(self.facts.get('thread_title') or 'Running')
+            observed['samples'].append(sample)
+            observed['home_screen_door_pressed_at_s'] = door
+            (self.out / 'relaunch-observed.json').write_text(json.dumps(observed, indent=2) + '\n')
+            if sample['composer']:
+                back = sample['t']
+                break
+            time.sleep(5)
+        log = guest(self.vm, 'tail -c 20000 ' + shlex.quote(launched['log']) + ' 2>/dev/null || true', 60)
+        (self.out / 'relaunch-app.log').write_text(log + '\n')
+        if back is None:
+            try:
+                (self.out / 'relaunch-tree.txt').write_text(
+                    command([HERE / 'ax.sh', self.vm, 'tree', '--depth', '6'], 60))
+            except StepFailed as exc:
+                (self.out / 'relaunch-tree.txt').write_text('tree could not be read: ' + str(exc) + '\n')
+            self.shot('relaunch.png')
+            raise StepFailed(f'the composer was not back within {self.a.relaunch_within:.0f} s of the relaunch; '
+                             'see relaunch-observed.json, relaunch-app.log, relaunch-tree.txt, relaunch.png')
+        return {'composer_back_after_s': back, 'home_screen_door_pressed_at_s': door,
+                'recorded_pid': observed['samples'][-1]['recorded_pid'],
+                'windows': observed['samples'][-1]['windows'], 'log': launched['log']}
 
     def file_epoch(self):
         text = guest(self.vm, 'cat ' + shlex.quote(LATE_FILE) + ' 2>/dev/null || true').strip()
@@ -335,7 +539,7 @@ def late_verdict(evidence, bound):
     return failures
 
 
-def background_verdict(record, short, subject, commands, sent, seconds, waiting):
+def background_verdict(record, short, subject, commands, sent, seconds, waiting, obligation):
     """Why this closed assignment does NOT show a background command's finish reported ([] = it does).
 
     Separate from the guest so the rules can be tested on records (test/command-walk.test.py)."""
@@ -363,6 +567,46 @@ def background_verdict(record, short, subject, commands, sent, seconds, waiting)
                             f'send, before a {seconds} s command could have ended')
     if any('No work was started' in n.get('text', '') for n in notices):
         failures.append('he was told "No work was started"')
+    failures += self_handled_failures(notices, obligation)
+    return failures
+
+
+def self_handled_failures(notices, obligation):
+    """A job the back end handled itself (bgdone2 item 1): its obligation is closed on the answer he
+    was given, and nothing he was told is about the app's own bookkeeping."""
+    failures = []
+    evidence = str((obligation or {}).get('evidence_ref') or '')
+    if not obligation or obligation.get('status') != 'completed' or not evidence.startswith('answer:'):
+        failures.append(f'its obligation was not closed on his answer: {obligation}')
+    for notice in notices:
+        said = notice.get('text', '').lower()
+        found = [w for w in BOOKKEEPING if w in said]
+        if found:
+            failures.append(f'he was told about the bookkeeping ({", ".join(found)}): {notice.get("text")!r}')
+    return failures
+
+
+def yield_verdict(first, second, first_meanwhile, marker, sent, seconds, obligation):
+    """Why his next job did NOT leave the first job's finish to be reported on its own ([] = it did)."""
+    if not first or not second:
+        return [f'an assignment is missing (first {bool(first)}, second {bool(second)})']
+    failures = []
+    if second.get('state') in OPEN:
+        failures.append(f"the second job never closed: {second.get('state')}")
+    if any(marker in n.get('text', '') for n in second.get('notices') or []):
+        failures.append("the first job's finish was folded into the second job's answer")
+    meanwhile = first_meanwhile or {}
+    if meanwhile.get('state') != 'running' or meanwhile.get('detail') != STILL_RUNNING:
+        failures.append('when the second job closed, the first was not open and waiting on its command: '
+                        + json.dumps({k: meanwhile.get(k) for k in ('state', 'detail')}))
+    if first.get('state') != 'settled' or first.get('detail') != 'Answered.':
+        failures.append(f"the first job ended {first.get('state')}: {first.get('detail')}")
+    notices = first.get('notices') or []
+    if len(notices) < 2 or marker not in notices[-1].get('text', ''):
+        failures.append(f"the first job's last notice does not carry its command's output ({marker})")
+    elif notices[-1].get('raised_at_ms', 0) < sent[0] + seconds * 1000:
+        failures.append('the first job reported before its command could have ended')
+    failures += self_handled_failures(notices, obligation)
     return failures
 
 
@@ -397,6 +641,8 @@ def main():
     p.add_argument('--command-seconds', type=int, default=45, help='how long the background command sleeps')
     p.add_argument('--deadline-ms', type=int, default=20000, help='the shortened permission deadline (1000-300000)')
     p.add_argument('--late-bound', type=float, default=30, help='seconds from the late Approve to the command')
+    p.add_argument('--relaunch-within', type=float, default=120, help='seconds for the composer to come back')
+    p.add_argument('--yield-seconds', type=int, default=90, help="how long next-job's background command sleeps")
     p.add_argument('--steps', default=','.join(STEPS))
     a = p.parse_args()
     steps = a.steps.split(',')
@@ -422,6 +668,11 @@ def main():
         print(f"{step}: {row['outcome']}" + (f" — {row.get('detail')}" if row['outcome'] != 'PASS' else ''), flush=True)
         if not ok:
             break
+    try:
+        report['logs_kept'] = walk.keep_logs()
+    except (StepFailed, RuntimeError, subprocess.TimeoutExpired, OSError) as exc:
+        report['logs_kept'] = 'the guest logs could not be copied: ' + str(exc)
+    (a.out / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
     return 0 if ok else 1
 
 

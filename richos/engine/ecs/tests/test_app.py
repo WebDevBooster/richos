@@ -790,5 +790,88 @@ class OperatorCompleteTests(unittest.TestCase):
             tool_call(str(scope), "operator-complete", {"obligation_id": "ship-it", "evidence": []})
 
 
+class AnswerCompleteTests(unittest.TestCase):
+    """`answer-complete`: how the app closes the obligation of an assignment its own
+    back end handled ITSELF -- it ran a command he asked for, or told him why it could
+    not begin -- with no helper ever prepared (richos-hq
+    docs/verification/2026-09-27-background-command-finish, "Not done").
+
+    `complete` needs at least one worker (mega-lander/app.py `complete`), so such an
+    assignment could never close and the back end told him so. This verb is the
+    host's, never a model tool, closes on the digest of the answer he was given, and
+    refuses any assignment a helper was ever recorded on: a code change still closes
+    only through `complete`, with its workers."""
+
+    call = WorkSeatTests.call
+    bind = WorkSeatTests.bind
+    rows = WorkSeatTests.rows
+    observe = WorkSeatTests.observe
+
+    ANSWER = "It ran and finished. It printed one line: 82208dc init."
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="ecs answer ")
+        self.root = Path(self.temp.name)
+        self.state = self.root / "state"
+        self.ceo = self.bind("depot", "thread-a", "session-conv", "turn-1", None)
+        self.assertTrue(self.call("checkpoint", request_id="open-1", binding=self.ceo, checkpoint={
+            "statements": [{"verb": "commitment", "fields": {"id": "work-ran-it", "title": "Run it"}},
+                           {"verb": "commitment", "fields": {"id": "work-coded-it", "title": "Code it"}}]})["accepted"])
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def close(self, ok=True, obligation="work-ran-it", **fields):
+        fields.setdefault("source_ref", "ledger:thread-a:turn-1")
+        fields.setdefault("answer_text", self.ANSWER)
+        return self.call("answer-complete", ok=ok, binding=self.ceo, obligation_id=obligation, **fields)
+
+    def item(self, item):
+        return self.rows("SELECT status, evidence_ref FROM ecs_continuity_items WHERE item_id=?", item)[0]
+
+    def test_A1_an_assignment_no_helper_touched_closes_on_its_answer_and_a_replay_is_a_duplicate(self):
+        digest = hashlib.sha256(self.ANSWER.encode("utf-8")).hexdigest()
+        first = self.close()
+        self.assertEqual((first["obligation_closed"], first["status"], first["duplicate"]),
+                         (True, "completed", False))
+        self.assertEqual(self.item("work-ran-it"), {"status": "completed", "evidence_ref": "answer:" + digest})
+        closed = self.rows("SELECT actor_id FROM ecs_events WHERE event_type='continuity.item_closed'")
+        self.assertEqual(closed, [{"actor_id": "richos-app-v1"}])
+        self.assertTrue(self.close()["duplicate"])
+        self.assertEqual(len(self.rows("SELECT sequence FROM ecs_events WHERE event_type='continuity.item_closed'")), 1)
+
+    def test_A2_an_assignment_a_helper_was_recorded_on_never_closes_on_an_answer(self):
+        seat = "work-seat:work-coded-it"
+        work = self.bind("depot", "thread-a", "session-w", "work-coded-it", None, seat=seat, audience="worker")
+        self.observe(work, seat, "prep-1", "receipt-1")
+        self.assertIn("helper", self.close(ok=False, obligation="work-coded-it"))
+        self.assertEqual(self.item("work-coded-it")["status"], "active")
+        # Another assignment's helper is not this one's.
+        self.assertEqual(self.close()["status"], "completed")
+
+    def test_A3_a_work_seat_cannot_close_an_assignment_this_way(self):
+        seat = "work-seat:work-ran-it"
+        work = self.bind("depot", "thread-a", "session-w", "work-ran-it", None, seat=seat, audience="worker")
+        message = self.call("answer-complete", ok=False, seat=seat, binding=work, obligation_id="work-ran-it",
+                            source_ref="x", answer_text=self.ANSWER)
+        self.assertIn("conversation's own seat", message)
+        self.assertEqual(self.item("work-ran-it")["status"], "active")
+
+    def test_A4_it_needs_the_answer_and_an_open_assignment(self):
+        for bad in ("", "   ", None, 7, "x" * (262144 + 1)):
+            self.close(ok=False, answer_text=bad)
+        self.assertEqual(self.item("work-ran-it")["status"], "active")
+        self.close()
+        self.assertIn("open", self.close(ok=False, answer_text="a different answer"))
+
+    def test_A5_the_host_verb_is_announced_and_never_a_model_tool(self):
+        self.assertIn("answer-complete", self.call("hello")["commands"])
+        scope = self.root / "scope.json"
+        scope.write_text(json.dumps({"version": 1, "actions_allowed": True, "binding": self.ceo,
+                                     "state_root": str(self.state)}))
+        with self.assertRaises(ValueError):
+            tool_call(str(scope), "answer-complete", {"obligation_id": "work-ran-it", "answer_text": "x"})
+
+
 if __name__ == "__main__":
     unittest.main()
