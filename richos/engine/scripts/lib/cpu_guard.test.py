@@ -40,6 +40,33 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(G.seconds('01:02.50'), 62.5)
         self.assertEqual(G.seconds('1-02:03:04'), 93784)
 
+    def test_inherited_verification_requires_live_registered_ancestor_generation(self):
+        import proc_tree
+        record = {'pid': 10, 'generation': 'native:birth', 'role': 'verification',
+                  'verification': {'protocol': G.VERIFICATION_PROTOCOL}}
+        G.write_json(G.STATE / 'roots/10.json', record)
+        rows = {10: (1, 10, 'native:birth'), 20: (10, 20, 'child'), 30: (1, 30, 'foreign')}
+        with patch.object(proc_tree, 'process_rows', return_value=rows), \
+                patch.object(proc_tree, 'identity', return_value='native:birth') as native:
+            self.assertEqual(G.inherited_verification_owner('10:native:birth', 20), record)
+            for claim, pid in [('10:native:birth', 30), ('10:old', 20), ('20:child', 20),
+                               ('not-an-owner', 20), ('0:native:birth', 20), ('', 20)]:
+                self.assertIsNone(G.inherited_verification_owner(claim, pid))
+            native.return_value = 'reused'
+            self.assertIsNone(G.inherited_verification_owner('10:native:birth', 20))
+            native.return_value = 'native:birth'
+            record['role'] = 'session'
+            G.write_json(G.STATE / 'roots/10.json', record)
+            self.assertIsNone(G.inherited_verification_owner('10:native:birth', 20))
+
+    def test_managed_supervisor_refuses_direct_or_forged_owner_before_exec(self):
+        import proc_tree
+        G.write_json(G.STATE / 'verification-enabled.json', {'protocol': G.VERIFICATION_PROTOCOL})
+        with patch.dict(os.environ, {'RICHOS_VERIFICATION_OWNER': '1:forged'}), \
+                patch.object(proc_tree.subprocess, 'Popen') as launch:
+            self.assertEqual(proc_tree.supervise(os.getpid(), [sys.executable, '-c', 'pass']), 75)
+            launch.assert_not_called()
+
     def test_staged_runtime_can_observe_orphans_without_the_source_checkout(self):
         engine = Path(__file__).resolve().parents[2]
         target = G.stage_runtime(engine, G.STATE / 'runtime')

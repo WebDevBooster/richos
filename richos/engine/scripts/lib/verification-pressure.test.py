@@ -464,6 +464,20 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual((record['status'], record['cleanup'], record['exit']), ('completed', 'complete', 0))
         self.assertGreater(record['reaped_cpu_seconds'], 0)
 
+    def test_nested_supervisor_validates_owner_without_duplicate_registration(self):
+        marker = self.root / 'nested-executed'
+        code = ("import sys,subprocess; sys.path.insert(0,sys.argv[1]); import proc_tree; "
+                "r=subprocess.run(proc_tree.command([sys.executable,'-c',"
+                "'from pathlib import Path; Path(__import__(\"sys\").argv[1]).touch()',sys.argv[2]])); "
+                "raise SystemExit(r.returncode)")
+        child = self.start(code, Path(proc_tree.__file__).parent, marker)
+        out, err = child.communicate(timeout=10)
+        self.assertEqual(child.returncode, 0, err)
+        self.assertTrue(marker.is_file())
+        self.assertEqual(len(list((self.root / 'roots').glob('*.json'))), 1)
+        result = guard.read_json(self.root / 'result.json')
+        self.assertEqual((result['status'], result['cleanup']), ('completed', 'complete'))
+
     def test_controller_failure_stops_an_already_running_child(self):
         ready = self.root / 'ready'
         child = self.start("import os,sys,time;open(sys.argv[1],'w').write(str(os.getpid()));time.sleep(60)", ready)

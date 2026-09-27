@@ -286,10 +286,17 @@ def supervise(owner, argv, deadline=None, timeout_marker=None, verification=None
     if verification:
         import cpu_guard
         client = cpu_guard.VerificationClient(verification)
-    elif os.path.isfile(guard_path) and not os.environ.get('RICHOS_VERIFICATION_OWNER'):
+    elif os.path.isfile(guard_path):
         import cpu_guard
         import pwd
-        if (os.path.realpath(os.path.expanduser("~")) == pwd.getpwuid(os.getuid()).pw_dir
+        managed = cpu_guard.verification_enabled()
+        inherited_owner = cpu_guard.inherited_verification_owner(os.environ.get('RICHOS_VERIFICATION_OWNER'))
+        if managed and inherited_owner is None:
+            print("proc_tree: REFUSED: managed verification requires a current proof-run plan "
+                  "or its live registered ancestor; an owner environment hint is not admission.", file=sys.stderr)
+            return 75
+        if (not managed and inherited_owner is None
+                and os.path.realpath(os.path.expanduser("~")) == pwd.getpwuid(os.getuid()).pw_dir
                 and not os.environ.get("CLAUDE_CONFIG_DIR") and cpu_guard.healthy()):
             cpu_guard.register(os.getpid(), "managed " + os.path.basename(argv[0]), "session")
     owner_id = identity(owner)

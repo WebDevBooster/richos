@@ -223,6 +223,41 @@ def verification_enabled():
     return read_json(STATE / 'verification-pressure.json', {}).get('protocol') == VERIFICATION_PROTOCOL
 
 
+def inherited_verification_owner(claim, pid=None):
+    """An environment hint is valid only for a live, registered ancestor.
+
+    A PID alone, an old process generation or a different live verification
+    session must never suppress registration/admission of another workload.
+    """
+    if not claim:
+        return None
+    try:
+        number, generation = claim.split(':', 1)
+        owner = int(number)
+    except (ValueError, AttributeError):
+        return None
+    if owner <= 0 or not generation:
+        return None
+    record = read_json(STATE / 'roots' / ('%s.json' % owner), {})
+    if (record.get('pid') != owner or record.get('generation') != generation
+            or record.get('role') != 'verification'
+            or record.get('verification', {}).get('protocol') != VERIFICATION_PROTOCOL):
+        return None
+    import proc_tree
+    rows = proc_tree.process_rows()
+    if owner not in rows or rows[owner][2] != generation:
+        return None
+    current = os.getpid() if pid is None else pid
+    seen = set()
+    while current in rows and current not in seen:
+        if current == owner:
+            # Re-read at the authorization point, after ancestry observation.
+            return record if proc_tree.identity(owner) == generation else None
+        seen.add(current)
+        current = rows[current][0]
+    return None
+
+
 def verification_admission():
     """Machine pressure gates expansion; borrowing an already held slot is separate.
 
