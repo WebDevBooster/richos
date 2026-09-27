@@ -2255,7 +2255,7 @@
     "scripts/agent-liveness.sh": {
       "source": "scripts/agent-liveness.sh",
       "sha256": "f63bf7819202ffa961667b116d90aad58d3cab20d9a9e5190a4ba26fbf3ce372",
-      "evidence": "Parses explicit entity/target arguments and invokes the Python resolver. The fallback root resolver checks adoption presence; no configuration values are read.",
+      "evidence": "Root resolver is used only for entity selection; the fixed agent-liveness.py consumes registry/transcript/lock data. The inline renderer reads only the supplied result file.",
       "keys": [],
       "edges": [
         {
@@ -2414,6 +2414,134 @@
           "to": "scripts/hooks/unasked-deferral.test.sh"
         }
       ]
+    },
+    "mega-lander/workspaces.py#session-recovery": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+      "evidence": "The stop recovery predicate calls load_session and forbidden_now. Their finite local closure reads private registry/platform session JSON, native ancestry and git rev-parse, and may heal that same session under Lock/write_json/event. Helpers include session_pid, _ps_parent_and_comm, _platform_sessions_dir, worktree_session_reason, realpath, git/_git_env and registry path/time helpers. None reads orchestration.config or imports a dynamic engine module.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/stop-session-recovery.py": {
+      "source": "scripts/lib/stop-session-recovery.py",
+      "sha256": "7f73be10acfee2d62a9f05115a20d8c64bfd63764a4fffb084675ca14a4d7ed2",
+      "evidence": "Fixed import of the workspace module calls only load_session and forbidden_now; payload and registry records remain data.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#session-recovery"
+        }
+      ]
+    },
+    "mega-lander/workspaces.py#claims-fixture": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+      "evidence": "The claims test calls load_agent, new_record, now and save_agent. Their finite local closure creates the literal record, resolves private agent/done paths and writes the private record/id index via write_json/_write_id. No config read or dynamic engine import.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/hooks/guard-agent-state-claims.py": {
+      "source": "scripts/hooks/guard-agent-state-claims.py",
+      "sha256": "341d0223962f9ccfa6298b3d6982dc55b5f3ea19ec5ea4ba1deb162380811ab5",
+      "evidence": "Standard-library claim predicate imports the fixed agent-liveness resolver. It reads supplied transcript/entity data and writes an entity-local observation ledger, with no configuration read.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/agent-liveness.py"
+        }
+      ]
+    },
+    "scripts/hooks/guard-agent-state-claims.sh": {
+      "source": "scripts/hooks/guard-agent-state-claims.sh",
+      "sha256": "b7a14acc4ff57cdec91821f6fd74b3c745deb18a0bd256ac7d60a3e7dd35dd7e",
+      "evidence": "Normal invocation reads CHECK_AGENT_STATE_CLAIMS from the resolved entity and uses the finite recovery/root/notice/analyzer closure. Self-test dispatch is not invoked by this suite.",
+      "keys": [
+        "CHECK_AGENT_STATE_CLAIMS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/stop-session-recovery.py"
+        },
+        {
+          "to": "scripts/hooks/guard-agent-state-claims.py"
+        }
+      ]
+    },
+    "scripts/hooks/agent-state-claims.test.sh": {
+      "source": "scripts/hooks/agent-state-claims.test.sh",
+      "sha256": "caee6e4bf0d49f75a88161379ae14100037e94ed18202fc986fa14b5f02efe20",
+      "evidence": "Each hook call targets a private Git entity with a literal empty config. The suite builds its own transcripts/worktrees/registry. Mirror mutations execute only the fixed liveness resolver and claim extractor. Copied hook/library files are not a declaration that all of them execute.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-agent-state-claims.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/agent-liveness.py"
+        },
+        {
+          "to": "scripts/lib/agent-liveness.sh"
+        },
+        {
+          "to": "scripts/agent-liveness.sh"
+        },
+        {
+          "to": "mega-lander/workspaces.py#claims-fixture"
+        }
+      ]
+    },
+    "scripts/hooks/premise-ask.test.sh": {
+      "source": "scripts/hooks/premise-ask.test.sh",
+      "sha256": "144b1582a26e61b661e109ce58fa7cbf824ef1ee2527aed6491c655bbefc490d",
+      "evidence": "Every gate call uses a generated CEO declaration or empty adopted config. The optional archive reads supplied transcript JSON and invokes only the premise predicate. The mutation callback reconstructs these same literal settings.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/premise-ask.py"
+        },
+        {
+          "to": "scripts/hooks/guard-ceo-ruled-ask.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/premise-ask.mutation.sh"
+        }
+      ]
+    },
+    "scripts/hooks/premise-ask.mutation.sh": {
+      "source": "scripts/hooks/premise-ask.mutation.sh",
+      "sha256": "ada62df6019fdc418229da6fbc36736b28f39ff0d159d877fa6bfb958f819e9d",
+      "evidence": "Eight literal source-needle mutations use the shared harness and rerun the same premise fixture builder. Transported config is replaced by that fixture before the gate reads settings.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/hooks/premise-ask.test.sh"
+        }
+      ]
+    },
+    "scripts/lib/agent-liveness.sh": {
+      "source": "scripts/lib/agent-liveness.sh",
+      "sha256": "c52aceb9a1eb2abe7f39048d287eb7518679a7826d74611cf0adc1ad17e3a42d",
+      "evidence": "Shell face of the fixed Python liveness resolver, with an explicit missing-path fixture override. It forwards entity/owner and renders the returned triple; it reads no orchestration setting.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/agent-liveness.py"
+        }
+      ]
     }
   },
   "units": {
@@ -2459,7 +2587,9 @@
     "scripts/hooks/unevaluated-notice.test.sh": "scripts/hooks/unevaluated-notice.test.sh",
     "scripts/hooks/session-start-ci-surface.test.sh": "scripts/hooks/session-start-ci-surface.test.sh",
     "scripts/hooks/scan-secrets.test.sh": "scripts/hooks/scan-secrets.test.sh",
-    "scripts/hooks/unasked-deferral.test.sh": "scripts/hooks/unasked-deferral.test.sh"
+    "scripts/hooks/unasked-deferral.test.sh": "scripts/hooks/unasked-deferral.test.sh",
+    "scripts/hooks/agent-state-claims.test.sh": "scripts/hooks/agent-state-claims.test.sh",
+    "scripts/hooks/premise-ask.test.sh": "scripts/hooks/premise-ask.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {

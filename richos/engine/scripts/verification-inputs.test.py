@@ -152,6 +152,23 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_claims_and_premise_fixtures_replace_real_settings_through_helpers(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        units = ['scripts/hooks/agent-state-claims.test.sh', 'scripts/hooks/premise-ask.test.sh']
+        for unit in units:
+            closure = graph.closure(unit)
+            self.assertEqual(closure['keys'], {}, closure)
+            self.assertEqual(closure['whole'], [], closure)
+            self.assertEqual(closure['fallback'], [], closure)
+        self.assertEqual(set(graph.closure('scripts/hooks/guard-agent-state-claims.sh')['keys']),
+                         {'CHECK_AGENT_STATE_CLAIMS'})
+        for key in ('CHECK_AGENT_STATE_CLAIMS', 'CEO_RULINGS_PATHS', 'PROTECTED_PATHS'):
+            change = inputs.config_change(key+'=before', key+'=after')
+            self.assertEqual(graph.config_units(change, units), {})
+        document['nodes'].pop('scripts/lib/stop-session-recovery.py')
+        self.assertEqual(set(graph.config_units(change, units)), {units[0]})
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="dependency-closure.")
         self.addCleanup(self.tmp.cleanup)
