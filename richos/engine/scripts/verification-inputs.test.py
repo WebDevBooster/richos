@@ -152,6 +152,19 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_unlanded_fixture_copy_and_mutants_preserve_entity_config_origin(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/unlanded-branches.test.sh'
+        closure = graph.closure(unit)
+        self.assertEqual(closure['keys'], {}, closure)
+        self.assertEqual(closure['whole'], [], closure)
+        self.assertEqual(closure['fallback'], [], closure)
+        change = inputs.config_change('CHECK_UNLANDED_BRANCHES=1', 'CHECK_UNLANDED_BRANCHES=0')
+        self.assertEqual(graph.config_units(change, [unit]), {})
+        document['nodes'].pop('scripts/lib/unlanded-branches.py')
+        self.assertEqual(set(graph.config_units(change, [unit])), {unit})
+
     def test_claim_and_ci_gates_reach_only_fixture_settings(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

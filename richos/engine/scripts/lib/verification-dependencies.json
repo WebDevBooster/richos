@@ -1063,7 +1063,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "fa6af7fa3385c91f77a264820740200d85ce0352b800a944a2204b5fc78f3854",
+      "sha256": "2fc2486c006f2a8f93a29c9454c2b40c907fc615ff1eef1582e044969d64e5c1",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed.",
       "keys": [],
       "edges": [
@@ -3024,6 +3024,85 @@
           "to": "scripts/hooks/guard-ci-turn-gate.py"
         }
       ]
+    },
+    "scripts/hooks/notice-unlanded-branches.sh": {
+      "source": "scripts/hooks/notice-unlanded-branches.sh",
+      "sha256": "3a1222731913dc06aecd5a9703403ae27b7d61a6f28c7fad00223c4ac6c5a90d",
+      "evidence": "Normal invocation sources the entity switch and extra repositories, then calls the fixed unlanded sweep and notice/root helpers. Self-test dispatch is not used by this suite.",
+      "keys": [
+        "CHECK_UNLANDED_BRANCHES",
+        "UNLANDED_BRANCHES_EXTRA_REPOS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/unlanded-branches.py"
+        }
+      ]
+    },
+    "scripts/unlanded-branches-lint.sh": {
+      "source": "scripts/unlanded-branches-lint.sh",
+      "sha256": "c65f6be6da126b18127b28f36860c213c9649e843831ae4c0ee1f393cc52971f",
+      "evidence": "Fixed CLI forwarding to the unlanded sweep. The extra-repository environment value may be supplied by a sourcing caller; no direct config read.",
+      "keys": [
+        "UNLANDED_BRANCHES_EXTRA_REPOS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/unlanded-branches.py"
+        }
+      ]
+    },
+    "scripts/hooks/unlanded-branches.test.sh": {
+      "source": "scripts/hooks/unlanded-branches.test.sh",
+      "sha256": "fc3bf2cb39747ba2d947d59d5c30799304f4b6d77e83c15a35f150c1becd236d",
+      "evidence": "All adopted roots are private with empty/literal switched config, including the nested mutation suite. The lint does not source settings and uses only its fixture/environment arguments. The missing-sweep case copies the finite claim/recovery/integration helpers into its private engine, proves the positive control there then removes only the copied sweep. No assertion consumes transported real config values. The mutation allocator ledger uses a suite-private CLAUDE_CONFIG_DIR.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/notice-unlanded-branches.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-unresolved-claims.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/unlanded-branches-lint.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/unlanded-branches.py"
+        },
+        {
+          "to": "mega-lander/workspaces.sh#integration"
+        },
+        {
+          "to": "scripts/hooks/unlanded-branches.mutation.sh"
+        }
+      ]
+    },
+    "scripts/hooks/unlanded-branches.mutation.sh": {
+      "source": "scripts/hooks/unlanded-branches.mutation.sh",
+      "sha256": "f9473b6d44b6fc26ccc8725a017c889ebeb6400cf98b1c69fdddb2b26d031d44",
+      "evidence": "Twelve literal source substitutions use the shared harness and the same unlanded fixture constructor. Copied real settings are transport; all executed hooks resolve generated adopted entities.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/hooks/unlanded-branches.test.sh"
+        }
+      ]
     }
   },
   "units": {
@@ -3080,7 +3159,8 @@
     "scripts/lib/mutation-harness-guards.test.sh": "scripts/lib/mutation-harness-guards.test.sh",
     "scripts/scratch-reaper.test.sh": "scripts/scratch-reaper.test.sh",
     "scripts/hooks/guard-unresolved-claims.test.sh": "scripts/hooks/guard-unresolved-claims.test.sh",
-    "scripts/hooks/guard-ci-turn-gate.test.sh": "scripts/hooks/guard-ci-turn-gate.test.sh"
+    "scripts/hooks/guard-ci-turn-gate.test.sh": "scripts/hooks/guard-ci-turn-gate.test.sh",
+    "scripts/hooks/unlanded-branches.test.sh": "scripts/hooks/unlanded-branches.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
