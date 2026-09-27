@@ -465,13 +465,22 @@ impl OperatorDesk {
                 return readings;
             }
         };
+        // C10: the store marks a question delivered when the inbox accepts its answer, and the
+        // inbox now keeps the answer until his team has it. So "delivered, still in the inbox"
+        // is "saved, not yet with your team", and only then does it leave his read.
+        let not_yet_taken: HashSet<String> = crate::question_work::pending(&self.state_root)
+            .map(|all| all.into_iter().filter(|d| d.asker.starts_with("operator:")).map(|d| d.id).collect())
+            .unwrap_or_default();
         for question in questions {
             let target = ConversationKey { entity_id: question.entity_id, thread_id: question.thread_id };
+            let waiting = question.delivered && not_yet_taken.contains(&format!("question-set:{}", question.set_id));
             if (!every && &target != key) || !question.asker.starts_with("operator:")
-                || question.delivered || question.state == crate::questions::State::Withdrawn { continue; }
+                || (question.delivered && !waiting) || question.state == crate::questions::State::Withdrawn { continue; }
             let prefix = question.asker.strip_prefix("operator:handle:")
                 .map_or(String::new(), |handle| format!("on {handle}: "));
-            let status = if question.state == crate::questions::State::Answered {
+            let status = if waiting {
+                "answer saved, not yet with your team"
+            } else if question.state == crate::questions::State::Answered {
                 if question.remaining > 0 { "answer saved, waiting for the complete set" }
                 else { "answer saved, awaiting delivery" }
             } else { "asked, no answer relayed yet" };
@@ -1024,9 +1033,10 @@ mod tests {
         assert_eq!(sent(&d).len(), 2);
         assert!(sent(&d)[1].contains("Ship tomorrow"));
         assert!(sent(&d)[1].contains("phone_tap"));
-        // Written to the lead is not his team having it (C1): the inbox keeps it until the CLI
-        // echoes it.
+        // Written to the lead is not his team having it (C1): the inbox keeps it, and his read
+        // says so (C10), until the CLI echoes it.
         assert_eq!(crate::question_work::pending(&d.state).unwrap().len(), 1, "kept until taken");
+        assert!(d.desk.read(&key_of(&a), false)[0].open_questions[0].contains("answer saved, not yet with your team"));
         d.desk.host.handle(&key_of(&a), crate::operator_lead::LeadEvent::Took(last_uuid(&d)));
         assert!(crate::question_work::pending(&d.state).unwrap().is_empty());
         assert!(d.desk.read(&key_of(&a), false)[0].open_questions.is_empty());
