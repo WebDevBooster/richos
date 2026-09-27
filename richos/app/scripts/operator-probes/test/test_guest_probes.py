@@ -459,10 +459,41 @@ class CrashMatrix(unittest.TestCase):
         for change in ({'reports': 0}, {'reports': 2}):
             self.assertFalse(gp.grade_w3_cell(self.cell(**change)), change)
         for key, value in (('inbox_waiting', 1), ('transcript_uuid_counts', {'U': 2}), ('transcript_uuid_counts', {}),
-                           ('relays', []), ('relays', [{'uuid': 'U', 'session': 'S', 'taken': False}])):
+                           ('relays', []), ('relays', [{'uuid': 'U', 'session': 'S', 'taken': False}]),
+                           ('relays', [{'uuid': 'U', 'session': 'S', 'taken': True, 'turn_open': True}]),
+                           ('continuation_uuid_counts', {'C': 2}), ('continuation_uuid_counts', {'C': 0})):
             rec = self.cell()
             rec['ledger'][key] = value
             self.assertFalse(gp.grade_w3_cell(rec), (key, value))
+
+    def test_a_cell_that_needed_his_words_does_not_pass(self):
+        """Run 2026-09-27, cell W3: the lead reported once, but only after the harness gave his
+        next words. That is the gap the continuation closes, so it is no longer a pass."""
+        self.assertFalse(gp.grade_w3_cell(self.cell(nudged=True)))
+        continued = self.cell()
+        continued['ledger']['continuation_uuid_counts'] = {'C': 1}
+        self.assertTrue(gp.grade_w3_cell(continued), 'continued by the app, once: a pass')
+
+    def test_one_cell_can_be_run_alone_and_an_unknown_one_is_refused(self):
+        self.assertEqual(gp.w3_wanted(''), gp.W3_CELLS)
+        self.assertEqual(gp.w3_wanted('W3'), ('W3',))
+        self.assertEqual(gp.w3_wanted('W4, baseline'), ('baseline', 'W4'), 'the matrix order')
+        with self.assertRaises(ValueError):
+            gp.w3_wanted('W5')
+        self.assertEqual(gp.w3_verdict({'W3': dict(self.cell(), **{'pass': True})}, ('W3',))[0], 'PASS',
+                         'a one-cell run is graded on that cell alone')
+        self.assertEqual(gp.w3_verdict({}, ('W3',))[0], 'FAIL', 'a cell that did not run is not a pass')
+
+    def test_the_old_w3_record_regrades_as_a_fail_now(self):
+        """The 2026-09-27 record's W3 cell (nudged) no longer passes, from the record alone."""
+        cells = {c: dict(self.cell(), says=[{'thread': 'w3-%s' % c.lower(), 'text': 'W3-%s-GOT: x' % c.upper()}])
+                 for c in gp.W3_CELLS}
+        cells['W3']['nudged'] = True
+        verdict, why, facts = gp.regrade_w3({'cells': cells})
+        self.assertEqual(verdict, 'FAIL', why)
+        self.assertIn("not passed: ['W3']", why)
+        self.assertEqual(gp.regrade_w3({'cells': {'W3': dict(cells['W3'], nudged=False)}, 'cells_run': ['W3']})[0],
+                         'PASS', 'a one-cell record regrades on its one cell')
 
     def test_the_report_is_the_notice_that_begins_with_the_marker(self):
         """Run 2026-09-27, cell W1b: one report, then the lead's closing words quoting it."""
