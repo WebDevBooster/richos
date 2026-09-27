@@ -1513,6 +1513,10 @@ t "adopt-walk: phone-only, left Registered at the boundary, each way to fail nam
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/adopt-walk.test.py" >"$TMP/adopt-walk.log" 2>&1; ok $? "$(cat "$TMP/adopt-walk.log")"
 t_done
 
+t "reap-walk: unrecorded pids are refused, late or surviving commands fail, a finished command is never cut short"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/reap-walk.test.py" >"$TMP/reap-walk.log" 2>&1; ok $? "$(cat "$TMP/reap-walk.log")"
+t_done
+
 # ===========================================================================
 # hand-file.sh — a FILE handed to the app, pasted or dragged, the way a person does
 # ===========================================================================
