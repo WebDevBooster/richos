@@ -365,6 +365,29 @@ pub fn operator_team(team: &crate::operator_host::TeamReading) -> (Liveness, Opt
     (Liveness::Clear, None)
 }
 
+/// **The commands Rich started, on every product lease** (the product reap gap design C5,
+/// richos-hq `docs/plans/2026-09-27-product-reap-gap-design.md`). Every lease's supervisor now
+/// ends its tool commands with the lease, so an update's relaunch would end a background command
+/// the gate did not see: a server he asked for, a long install. His words rank it: *"The update
+/// is not important enough to get in the way of finishing work."* So a running command blocks
+/// exactly as background work does, read from each live lease's supervisor state file
+/// (`lease_commands.rs`), the product's mirror of [`operator_team`]'s descendant count.
+///
+/// **Fail toward waiting:** a live lease whose state file cannot be read is
+/// [`Liveness::Unknown`], never a zero. A command that never ends (`tail -f`) holds the gate
+/// at "wait"; he can still choose to install, as the gate already allows.
+pub fn commands(reading: &crate::lease_commands::CommandsReading) -> (Liveness, Option<String>) {
+    match reading.running {
+        0 => {}
+        1 => return (Liveness::Busy, Some("A command Rich started is still running.".into())),
+        n => return (Liveness::Busy, Some(format!("{n} commands Rich started are still running."))),
+    }
+    if reading.unreadable > 0 {
+        return (Liveness::Unknown, Some("RichOS could not tell whether a command Rich started had finished.".into()));
+    }
+    (Liveness::Clear, None)
+}
+
 /// **Two readings of one source, as one**: busy before unknown before clear, each with its own
 /// sentence. The update gate reads the product's background work and his team through it, so
 /// neither can hide the other.
@@ -896,5 +919,33 @@ mod tests {
         let verdict = decide(&sources);
         assert!(verdict.busy);
         assert_eq!(verdict.reason.as_deref(), Some("1 agent of your team is still running."));
+    }
+
+    // ---- the product's running commands (reap gap C5) ------------------------------------
+
+    fn reading(running: usize, unreadable: usize) -> crate::lease_commands::CommandsReading {
+        crate::lease_commands::CommandsReading { running, unreadable }
+    }
+
+    /// **A command Rich started is work the update must not cut short.** With the reap, a
+    /// relaunch ends every lease's tool commands, so the gate has to see them: busy, with a
+    /// sentence, when one runs; unknown when a live lease's state cannot be read; clear only
+    /// from a reading that says so.
+    #[test]
+    fn a_running_command_is_busy_an_unreadable_lease_waits_and_only_a_read_zero_is_clear() {
+        assert_eq!(commands(&reading(1, 0)), (Liveness::Busy, Some("A command Rich started is still running.".into())));
+        assert_eq!(commands(&reading(3, 1)), (Liveness::Busy, Some("3 commands Rich started are still running.".into())),
+                   "running speaks before unknown");
+        assert_eq!(commands(&reading(0, 1)),
+                   (Liveness::Unknown, Some("RichOS could not tell whether a command Rich started had finished.".into())));
+        assert_eq!(commands(&reading(0, 0)), (Liveness::Clear, None));
+        // Through the one decision, beside background work: neither hides the other.
+        let (busy, said) = worst(background(&BackgroundWork::nothing(), &[]), commands(&reading(1, 0)));
+        let verdict = decide(&WorkSources { background: busy, background_gap: said, ..WorkSources::all_clear() });
+        assert!(verdict.busy);
+        assert_eq!(verdict.reason.as_deref(), Some("A command Rich started is still running."));
+        let (quiet, said) = worst(background(&BackgroundWork::nothing(), &[]), commands(&reading(0, 0)));
+        assert!(!decide(&WorkSources { background: quiet, background_gap: said, ..WorkSources::all_clear() }).busy,
+                "an idle app with no command running must still update at once");
     }
 }

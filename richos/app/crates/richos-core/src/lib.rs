@@ -171,6 +171,7 @@ pub use worker_events::{HostLiveness, ObservedWorkerState, OpenRun, SessionScope
 pub use worker_status::WorkerStatusView;
 
 pub mod owned_process;
+pub mod lease_commands;
 pub mod provider_auth;
 pub mod engine_profile;
 

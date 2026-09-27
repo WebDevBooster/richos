@@ -596,6 +596,9 @@ pub struct Spine {
     /// If set while a turn is in flight, honored at the NEXT turn boundary instead of
     /// firing mid-turn.
     pending_rotation_reason: Option<String>,
+    /// Since when a due watermark renewal has waited for a command the lease started (the
+    /// product reap gap design C6, the same rule as `work_host.rs`'s back end).
+    rotation_deferred_since: Option<std::time::Instant>,
     /// **Keep the mouth his words came through on each prompt record** (operator back-end
     /// spec r3 (s)). Off unless the shell turns it on, which it does only on an install whose
     /// `operator.json` passed the gate at launch, so every product install writes exactly the
@@ -804,6 +807,7 @@ impl Spine {
             context_window_tokens: DEFAULT_CONTEXT_WINDOW_TOKENS,
             watermark_ratio: DEFAULT_WATERMARK_RATIO,
             pending_rotation_reason: None,
+            rotation_deferred_since: None,
             keep_intake_channel: false,
             pending_proactive_emits: VecDeque::new(),
             rotation_count: 0,
@@ -4153,7 +4157,21 @@ impl Spine {
             self.resume_front_desk(binding.thread_id());
         }
         if let Some(reason) = self.pending_rotation_reason.take() {
-            if self.lease.is_some() {
+            // **A WATERMARK RENEWAL WAITS FOR A COMMAND THE LEASE STARTED** (reap gap C6).
+            // Retiring the lease ends its tool commands, and a renewal is invisible, so one due
+            // only to the watermark is held while the lease's supervisor shows a command
+            // running (or cannot say), up to `work_host::ROTATION_WAITS_FOR_COMMANDS`. An
+            // explicit or context-critical rotation is not held.
+            use crate::lease_commands::CommandReading;
+            let commands = self.lease.as_ref().and_then(|lease| lease.running_commands());
+            let holding = reason == "context-watermark"
+                && matches!(commands, Some(CommandReading::Running(_) | CommandReading::Unreadable));
+            let waited = holding.then(|| self.rotation_deferred_since.get_or_insert_with(std::time::Instant::now).elapsed());
+            if waited.is_some_and(|waited| waited < crate::work_host::ROTATION_WAITS_FOR_COMMANDS) {
+                eprintln!("[richos] front desk: renewal deferred while a command it started is running ({commands:?})");
+                self.pending_rotation_reason = Some(reason);
+            } else if self.lease.is_some() {
+                self.rotation_deferred_since = None;
                 self.rotate_lease(binding, &reason)?;
                 spawned = true;
             }

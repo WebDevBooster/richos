@@ -1,0 +1,361 @@
+#!/usr/bin/env python3
+"""reap-walk.py — a dead lease never leaves its tool commands running (the product reap).
+
+Run by run-walk.py, which boots the guest, holds <TESTVM_ROOT>/guest.lock and removes the clone:
+
+  TESTVM_APP_MODEL=sonnet run-walk.py --bundle ZIP --home EMPTY_DIR --engine ENGINE --report REPORT -- \\
+      reap-walk.py --out DIR --expect-sha SHA
+
+run-walk.py passes the owned VM name as the first argument. `--steps a,b,c` runs a subset against
+a guest someone is already holding (hold-walk.py). The bundle AND the engine must both carry the
+reap: the supervisor that reaps is the engine's (`scripts/provider-supervisor.py`), and a dev
+bundle takes the engine it is given (run.sh --engine sets RICHOS_ENGINE_DIR).
+
+THE QUESTION. richos-hq docs/plans/2026-09-27-product-reap-gap-design.md §3.2: every teardown of a
+product lease ends the tool commands its `claude` started (a tool shell is its own session and
+process group, out of reach of the old group kill), and nothing that was not ended is taken.
+
+WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
+  identity      the running app says it was built from --expect-sha
+  first-run     adopt-walk.py's first run: memory setup declined, company Acme with a Git folder
+  connect       Settings -> Connected repositories -> Acme's folder, so an assignment has a real
+                repository (without it the front desk has been seen to invent one)
+  seed          reap-guest.py copied into the repository as heartbeat.py, and into the payload
+  watch         reap-guest.py's death watcher started: every recorded heartbeat's end, guest ms
+  unrelated     `sleep` started in the guest by the harness: must survive every step
+  normal        a short heartbeat assignment ends BY ITSELF (.done written) and is never reaped
+  stop          a background and a foreground heartbeat; Stop pressed; both end within the bound
+  quit          both again; the app's Quit; the question names the command; "Quit and stop the
+                work"; both end within the quit bound; app.log and the reap log say so
+  crash         relaunched; both again; the app SIGKILLed by the pid it launched with
+  claude-crash  relaunched; both again; the lease's `claude` SIGKILLed by the pid read from its
+                own state file (G9 in the VM, design C9)
+  idle-cpu      one supervisor's CPU time over an idle minute
+  unrelated-alive  the harness's `sleep` is still alive, then ended by its recorded pid
+
+THE GRADE REFUSES a case whose pids were not recorded by the commands themselves (the reason P15's
+reap-lead-crash half regraded to PREMISE-FALSE): a heartbeat records its own pid, group and start
+before it beats, and a case with none is REFUSED, never passed. Exit 0 when every step passes.
+Every app instance is quit by run-walk.py's stop.sh (CEO §54).
+"""
+import argparse
+import importlib.util
+import json
+from pathlib import Path
+import shlex
+import subprocess
+import sys
+import time
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from relaunch import guest, relaunch  # noqa: E402
+
+_spec = importlib.util.spec_from_file_location('adopt_walk', HERE / 'adopt-walk.py')
+adopt = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(adopt)
+StepFailed, command = adopt.StepFailed, adopt.command
+
+STEPS = ['identity', 'first-run', 'connect', 'seed', 'watch', 'unrelated', 'normal', 'stop', 'quit',
+         'crash', 'claude-crash', 'idle-cpu', 'unrelated-alive']
+BEATS = '/tmp/reap-walk'
+# Design §3.2: "within 1 s plus margin". The watcher polls every 50 ms and the SSH round trip that
+# reads the trigger's guest time is in the margin too.
+BOUND_MS = 2000
+# Quit shares the Exit arm's 2 s bound (reap gap 1.3(c)), plus the same margin.
+QUIT_BOUND_MS = 3000
+
+
+# --- the grade, pure, so test/reap-walk.test.py can hold it to its rules without a guest ---------
+
+def grade_ended(rows, names, trigger_ms, bound_ms, left=None):
+    """(evidence, None) or (evidence, why): every named heartbeat was recorded, was still running at
+    the trigger, ended within bound_ms of it, and left no member of its group behind."""
+    seen = {r['name']: r for r in rows if r.get('kind') == 'seen' and r.get('name') in names}
+    evidence = {'trigger_ms': trigger_ms, 'bound_ms': bound_ms, 'commands': {}}
+    missing = [n for n in names if n not in seen]
+    if missing:
+        return evidence, 'REFUSED: no recorded pid for %s; a case whose pids were not recorded never passes' % ', '.join(missing)
+    for name in names:
+        me = seen[name]
+        gone = [r['t_ms'] for r in rows if r.get('kind') == 'gone' and r.get('name') == name and r.get('pid') == me['pid']]
+        row = {'pid': me['pid'], 'pgid': me['pgid'], 'seen_ms': me['t_ms'], 'gone_ms': gone[0] if gone else None}
+        evidence['commands'][name] = row
+        if not gone:
+            return evidence, '%s (pid %d) was still running after the trigger' % (name, me['pid'])
+        if gone[0] < trigger_ms:
+            return evidence, 'REFUSED: %s had already ended %d ms before the trigger' % (name, trigger_ms - gone[0])
+        row['ended_after_ms'] = gone[0] - trigger_ms
+        if gone[0] - trigger_ms > bound_ms:
+            return evidence, '%s ended %d ms after the trigger, past the %d ms bound' % (name, gone[0] - trigger_ms, bound_ms)
+        if left and left.get(name):
+            return evidence, 'members of %s\'s group %d survived: %s' % (name, me['pgid'], left[name])
+    return evidence, None
+
+
+def grade_normal(rows, name, done_ms):
+    """A command that finishes by itself is never cut short: it was recorded, it wrote .done, and it
+    ended no earlier than that."""
+    seen = [r for r in rows if r.get('kind') == 'seen' and r.get('name') == name]
+    evidence = {'name': name, 'done_ms': done_ms}
+    if not seen:
+        return evidence, 'REFUSED: %s never recorded its pid' % name
+    gone = [r['t_ms'] for r in rows if r.get('kind') == 'gone' and r.get('name') == name]
+    evidence['gone_ms'] = gone[0] if gone else None
+    if done_ms is None:
+        return evidence, '%s never finished by itself (no .done): it was ended, or never ran to the end' % name
+    if gone and gone[0] + 100 < done_ms:
+        return evidence, '%s was gone %d ms before it finished' % (name, done_ms - gone[0])
+    return evidence, None
+
+
+def cpu_seconds(text):
+    """`ps -o time=` as seconds: `m:ss.xx`, or `h:mm:ss.xx` past an hour."""
+    parts = text.strip().split(':')
+    seconds = float(parts[-1])
+    for i, part in enumerate(reversed(parts[:-1])):
+        seconds += int(part) * 60 ** (i + 1)
+    return seconds
+
+
+class Walk(adopt.Walk):
+    def __init__(self, a):
+        super().__init__(a)
+        self.helper = self.payload + '/reap-guest.py'
+        self.engine_state = self.data + '/engine-state'
+        self.watch_out = self.payload + '/reap-watch.jsonl'
+
+    # --- guest helpers ----------------------------------------------------------------------
+    def now(self):
+        return int(self.clock())
+
+    def rows(self):
+        text = guest(self.vm, 'cat ' + shlex.quote(self.watch_out) + ' 2>/dev/null || true', 60)
+        return [json.loads(r) for r in text.splitlines() if r.startswith('{')]
+
+    def file_ms(self, path):
+        text = guest(self.vm, 'cat ' + shlex.quote(path) + ' 2>/dev/null || true').strip()
+        return int(text) if text.isdigit() else None
+
+    def left_in_groups(self, names):
+        rows = {r['name']: r for r in self.rows() if r.get('kind') == 'seen' and r['name'] in names}
+        return {name: guest(self.vm, 'python3 %s group %d' % (shlex.quote(self.helper), r['pgid'])).split()
+                for name, r in rows.items()}
+
+    def approve_pending(self):
+        """Open the work summary when something waits for him, and approve every request there."""
+        if not self.present('waiting for you'):
+            return 0
+        self.press('waiting for you')
+        time.sleep(1)
+        approved = 0
+        while self.present('Approve '):
+            self.press('Approve ')
+            approved += 1
+            time.sleep(1)
+        if self.present('back to Rich'):
+            self.press('back to Rich')
+        return approved
+
+    def ask(self, text):
+        self.type_into(text, '--role', 'AXTextArea', '--title', 'Message to Rich')
+        self.press('Send')
+
+    def start(self, tag, background=True, seconds=900, within=300):
+        """Ask for the heartbeats and approve their requests until each has recorded itself."""
+        names = [tag + '-fg'] + ([tag + '-bg'] if background else [])
+        fg = 'python3 heartbeat.py beat %s-fg %s --seconds %d' % (tag, BEATS, seconds)
+        if background:
+            text = ('New task: in the Acme repository, run exactly these two shell commands and nothing else. '
+                    'First, in the background (run_in_background: true): python3 heartbeat.py beat %s-bg %s   '
+                    'Then in the foreground, waiting for it: %s   heartbeat.py is my own test script at the top '
+                    'of the repository; it only writes small files under %s.' % (tag, BEATS, fg, BEATS))
+        else:
+            text = ('New task: in the Acme repository, run exactly this one shell command and nothing else, in the '
+                    'foreground, and wait for it: %s   heartbeat.py is my own test script; it only writes small '
+                    'files under %s.' % (fg, BEATS))
+        self.ask(text)
+        end = time.monotonic() + within
+        approved = 0
+        while time.monotonic() < end:
+            seen = {r['name'] for r in self.rows() if r.get('kind') == 'seen'}
+            if all(n in seen for n in names):
+                return {'names': names, 'approved': approved}
+            approved += self.approve_pending()
+            time.sleep(3)
+        raise StepFailed('prerequisite unavailable: %s never recorded itself within %d s (approved %d request(s))'
+                         % (', '.join(names), within, approved))
+
+    def verdict(self, names, trigger_ms, bound_ms):
+        time.sleep(bound_ms / 1000 + 1)
+        evidence, failure = grade_ended(self.rows(), names, trigger_ms, bound_ms, self.left_in_groups(names))
+        if failure:
+            raise StepFailed(failure)
+        return evidence
+
+    def relaunched(self):
+        model = self.a.model
+        return relaunch(self.vm, environment={'ANTHROPIC_MODEL': model} if model else None)
+
+    def enter(self):
+        if self.present('Talk to Rich'):
+            self.press('Talk to Rich')
+        time.sleep(2)
+        self.press(self.facts.get('thread_title') or 'Running')
+
+    # --- steps --------------------------------------------------------------------------------
+    def connect(self):
+        self.press('Settings', role='AXPopUpButton')
+        self.press('Connected repositories', role='AXMenuItem')
+        self.ax('click', '--title', 'Company', '--role', 'AXPopUpButton', '--in', 'dialog', '--first')
+        self.press('Acme', role='AXMenuItem', contains=False)
+        self.type_into(self.company, '--role', 'AXTextField', '--title', 'Repository folder')
+        self.ax('click', '--title', 'Connect repository', '--role', 'AXButton', '--in', 'dialog', '--first')
+        time.sleep(2)
+        entities = guest(self.vm, 'cat ' + shlex.quote(self.data + '/entities.json'))
+        self.ax('click', '--title', 'Close', '--role', 'AXButton', '--in', 'dialog', '--first')
+        if self.company not in json.dumps(json.loads(entities).get('entities', [{}])[0].get('connected_repositories', [])):
+            raise StepFailed('the repository was not connected: ' + entities[:400])
+        # Leases started before the connection carry the old --add-dir list; start fresh ones.
+        self.facts['app'] = self.relaunched()
+        self.save()
+        self.enter()
+        return {'connected': self.company}
+
+    def seed(self):
+        command([HERE / 'guest.sh', self.vm, '--push', HERE / 'reap-guest.py', self.helper], 60)
+        command([HERE / 'guest.sh', self.vm, '--push', HERE / 'reap-guest.py', self.company + '/heartbeat.py'], 60)
+        guest(self.vm, 'cd {c} && git add heartbeat.py && git -c user.name=QA -c user.email=qa@example.invalid '
+                       'commit -q -m "heartbeat test helper" && rm -rf {b}'.format(c=shlex.quote(self.company), b=BEATS))
+        return {'helper': self.company + '/heartbeat.py'}
+
+    def watch(self):
+        guest(self.vm, 'nohup python3 {h} watch {b} {o} --seconds 5400 >/dev/null 2>&1 &'.format(
+            h=shlex.quote(self.helper), b=BEATS, o=shlex.quote(self.watch_out)))
+        time.sleep(2)
+        if not any(r.get('kind') == 'watch-start' for r in self.rows()):
+            raise StepFailed('the death watcher did not start in the guest')
+        return {'watching': BEATS}
+
+    def unrelated(self):
+        pid = guest(self.vm, 'nohup /bin/sleep 5400 >/dev/null 2>&1 & echo $!').strip()
+        self.facts['unrelated'] = int(pid)
+        self.save()
+        return {'pid': int(pid)}
+
+    def normal(self):
+        started = self.start('normal', background=False, seconds=8)
+        end = time.monotonic() + 120
+        while time.monotonic() < end and self.file_ms(BEATS + '/normal-fg.done') is None:
+            self.approve_pending()
+            time.sleep(3)
+        evidence, failure = grade_normal(self.rows(), 'normal-fg', self.file_ms(BEATS + '/normal-fg.done'))
+        if failure:
+            raise StepFailed(failure)
+        return dict(evidence, approved=started['approved'])
+
+    def stop(self):
+        names = self.start('stop')['names']
+        self.press('waiting for you') if self.present('waiting for you') else self.press('assignment running')
+        trigger = self.now()
+        self.press('Stop ')
+        return self.verdict(names, trigger, BOUND_MS)
+
+    def quit(self):
+        names = self.start('quit')['names']
+        self.ax('click', '--title', 'Quit RichOS', '--role', 'AXMenuItem', '--first')
+        self.wait_for('Quit and stop the work', seconds=20)
+        question = command([HERE / 'ax.sh', self.vm, 'tree', '--in', 'dialog', '--max', '80'], 60)
+        if 'command Rich started' not in question:
+            raise StepFailed('the quit question did not name the running command')
+        trigger = self.now()
+        self.press('Quit and stop the work')
+        evidence = self.verdict(names, trigger, QUIT_BOUND_MS)
+        app_log = guest(self.vm, 'cat ' + shlex.quote(self.payload) + '/app.log ' + shlex.quote(self.payload)
+                        + '/relaunch-*.log 2>/dev/null | grep "\\[richos\\] quit:" | tail -1 || true')
+        reap_log = guest(self.vm, 'cat ' + shlex.quote(self.engine_state + '/provider-reap.log') + ' 2>/dev/null || true')
+        groups = {c['pgid'] for c in evidence['commands'].values()}
+        if not app_log or not any('killed group %d' % g in reap_log for g in groups):
+            raise StepFailed('the quit left no reap lines: app log %r, reap log %r' % (app_log, reap_log[-400:]))
+        return dict(evidence, app_log=app_log)
+
+    def crash(self):
+        self.facts['app'] = self.relaunched()
+        self.save()
+        self.enter()
+        names = self.start('crash')['names']
+        pid = self.facts['app']['pid']
+        trigger = int(guest(self.vm, 'python3 -c "import os,time; t=time.time(); os.kill(%d, 9); print(int(t*1000))"' % pid))
+        return self.verdict(names, trigger, BOUND_MS)
+
+    def claude_crash(self):
+        self.facts['app'] = self.relaunched()
+        self.save()
+        self.enter()
+        names = self.start('claude')['names']
+        pgid = next(r['pgid'] for r in self.rows() if r.get('kind') == 'seen' and r['name'] == names[0])
+        states = guest(self.vm, 'python3 -c "import glob,json,sys; print(json.dumps([json.load(open(f)) for f in '
+                                'glob.glob(sys.argv[1] + \'/provider-leases/*.json\')]))" ' + shlex.quote(self.engine_state))
+        owners = [s for s in json.loads(states) if pgid in s.get('outside_provider_groups', [])]
+        if len(owners) != 1:
+            raise StepFailed('REFUSED: no single lease state file names group %d: %s' % (pgid, states[:400]))
+        provider = owners[0]['provider']
+        trigger = int(guest(self.vm, 'python3 -c "import os,time; t=time.time(); os.kill(%d, 9); print(int(t*1000))"' % provider))
+        return dict(self.verdict(names, trigger, BOUND_MS), provider=provider)
+
+    def idle_cpu(self):
+        rows = guest(self.vm, 'ps -axo pid=,time=,command= | grep "provider-supervisor.py --reap" | grep -v grep')
+        pid = int(rows.split()[0])
+        def cpu():
+            return cpu_seconds(guest(self.vm, 'ps -p %d -o time=' % pid))
+        before = cpu()
+        time.sleep(60)
+        return {'supervisor': pid, 'cpu_seconds_per_idle_minute': round(cpu() - before, 3)}
+
+    def unrelated_alive(self):
+        pid = self.facts.get('unrelated')
+        if not pid:
+            raise StepFailed('the unrelated step did not run')
+        alive = guest(self.vm, 'kill -0 %d 2>/dev/null && echo alive || true' % pid).strip() == 'alive'
+        guest(self.vm, 'kill %d 2>/dev/null || true' % pid)
+        if not alive:
+            raise StepFailed('the unrelated process (pid %d) did not survive the walk' % pid)
+        return {'pid': pid, 'alive': True}
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument('vm')
+    p.add_argument('--out', type=Path, required=True)
+    p.add_argument('--expect-sha', required=True, help='the commit the bundle under test was built from')
+    p.add_argument('--model', default='sonnet', help='ANTHROPIC_MODEL for a relaunched app (default sonnet)')
+    p.add_argument('--steps', default=','.join(STEPS))
+    a = p.parse_args()
+    steps = a.steps.split(',')
+    unknown = [s for s in steps if s not in STEPS]
+    if unknown:
+        p.error('unknown step(s): ' + ', '.join(unknown))
+    walk = Walk(a)
+    report = {'vm': a.vm, 'expect_sha': a.expect_sha, 'steps': []}
+    ok = True
+    for step in steps:
+        began = time.monotonic()
+        row = {'step': step}
+        try:
+            row['evidence'] = getattr(walk, step.replace('-', '_'))()
+            row['outcome'] = 'PASS'
+        except (StepFailed, RuntimeError, ValueError, StopIteration, subprocess.TimeoutExpired) as exc:
+            row['outcome'] = 'REFUSED' if str(exc).startswith('REFUSED') else 'FAIL'
+            row['detail'] = str(exc)
+            ok = False
+        row['seconds'] = round(time.monotonic() - began, 1)
+        report['steps'].append(row)
+        (a.out / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
+        print(f"{step}: {row['outcome']}" + (f" — {row.get('detail')}" if row['outcome'] != 'PASS' else ''), flush=True)
+        if not ok:
+            break
+    return 0 if ok else 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

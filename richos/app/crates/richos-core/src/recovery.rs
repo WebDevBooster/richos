@@ -349,7 +349,8 @@ fn what_was_checked(state: &Path, record: &Assignment, repositories: &dyn Reposi
 /// and is rewritten to `false` when the assignment ends (`native.rs`'s
 /// `revoke_work_assignment`). A crash skips that write, so the file is left on disk with the
 /// grant open. Nothing can be holding it — every work lease died with the process, and its
-/// child group with it (`richos/engine/scripts/provider-supervisor.py:28-37`) — so at boot,
+/// child group and its tool commands with it (`operator_main` in
+/// `richos/engine/scripts/provider-supervisor.py`, the owner-death reap) — so at boot,
 /// before any new lease exists, every one of them is closed.
 ///
 /// **Only `*-work.json`.** The conversation's own `*-continuity.json` is not this sweep's

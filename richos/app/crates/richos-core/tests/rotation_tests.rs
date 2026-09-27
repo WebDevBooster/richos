@@ -964,3 +964,74 @@ fn proactive_message_defaults_to_active_thread_when_none_given() {
     assert_eq!(spine.messages(&thread).unwrap().len(), 1);
     let _ = std::fs::remove_file(&path);
 }
+
+/// A lease whose supervisor reports tool commands running outside its provider's group, as a
+/// product lease's state file does (`lease_commands.rs`).
+struct LeaseWithCommands {
+    inner: MockCognition,
+    commands: Arc<Mutex<Option<richos_core::lease_commands::CommandReading>>>,
+}
+impl Cognition for LeaseWithCommands {
+    fn session_id(&self) -> &str {
+        self.inner.session_id()
+    }
+    fn reprime(&mut self, priming_text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
+        self.inner.reprime(priming_text, on_item)
+    }
+    fn prompt(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
+        self.inner.prompt(text, on_item)
+    }
+    fn running_commands(&self) -> Option<richos_core::lease_commands::CommandReading> {
+        *self.commands.lock().unwrap()
+    }
+}
+
+/// **The product reap gap design C6, on the conversation.** Retiring a lease now ends its tool
+/// commands, and a renewal is invisible by his standing order, so a watermark renewal waits
+/// while the front desk has a command running (or its state cannot be read), and happens at
+/// the first request after it ends. An explicit rotation is not held.
+#[test]
+fn a_watermark_renewal_waits_for_a_command_the_front_desk_started() {
+    use richos_core::lease_commands::CommandReading;
+    let (path, ledger) = tmp_ledger("renewal-waits-for-commands");
+    let mut spine = support::spine(ledger);
+    spine.create_thread("General", &femcboost()).unwrap();
+    let commands = Arc::new(Mutex::new(Some(CommandReading::Running(1))));
+    spine.attach_lease(Box::new(LeaseWithCommands {
+        inner: MockCognition::new("sess-with-a-server", vec!["started it", "still here", "still here"]),
+        commands: commands.clone(),
+    }));
+    spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["on the successor", "on the successor"])));
+
+    spine.submit_prompt("start the dev server", Source::Text).unwrap();
+    spine.request_rotation("context-watermark").unwrap();
+    spine.submit_prompt("is it up?", Source::Text).unwrap();
+    assert_eq!(spine.rotation_count(), 0, "a renewal ended a command the front desk had started");
+    *commands.lock().unwrap() = Some(CommandReading::Unreadable);
+    spine.submit_prompt("and now?", Source::Text).unwrap();
+    assert_eq!(spine.rotation_count(), 0, "an unreadable state was read as nothing running");
+
+    *commands.lock().unwrap() = Some(CommandReading::Clear);
+    spine.submit_prompt("it is done", Source::Text).unwrap();
+    assert_eq!(spine.rotation_count(), 1, "the renewal never happened once the command ended");
+    assert_eq!(spine.last_rotation_reason(), Some("context-watermark"));
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn an_explicit_rotation_is_not_held_by_a_running_command() {
+    use richos_core::lease_commands::CommandReading;
+    let (path, ledger) = tmp_ledger("explicit-rotation-not-held");
+    let mut spine = support::spine(ledger);
+    spine.create_thread("General", &femcboost()).unwrap();
+    spine.attach_lease(Box::new(LeaseWithCommands {
+        inner: MockCognition::new("sess-busy", vec!["first"]),
+        commands: Arc::new(Mutex::new(Some(CommandReading::Running(2)))),
+    }));
+    spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["second"])));
+    spine.submit_prompt("one", Source::Text).unwrap();
+    spine.request_rotation("test-forced").unwrap();
+    spine.submit_prompt("two", Source::Text).unwrap();
+    assert_eq!(spine.rotation_count(), 1);
+    std::fs::remove_file(&path).ok();
+}

@@ -17,6 +17,13 @@ import tempfile
 import urllib.request
 
 
+# What the delivered Python must be able to import, run inside every fresh runtime build.
+# ctypes and libproc: provider-supervisor.py reads the process table through them to reap a
+# lease's tool commands, and a runtime without them would silently stop reaping (reap gap C8).
+CLOSURE_CHECK = ("import sqlite3, fcntl, ssl, ctypes; ctypes.CDLL('/usr/lib/libproc.dylib'); "
+                 "print('Python dependency closure OK')")
+
+
 def sha(path):
     with path.open("rb") as handle:
         return hashlib.file_digest(handle, "sha256").hexdigest()
@@ -110,7 +117,7 @@ def build(destination):
         versions = {}
         for name in ("python3", "node", "git", "jq"):
             versions[name] = subprocess.check_output([str(runtime / "bin" / name), "--version"], text=True, env=env).strip()
-        subprocess.run([str(runtime / "bin/python3"), "-c", "import sqlite3, fcntl, ssl; print('Python dependency closure OK')"], env=env, check=True)
+        subprocess.run([str(runtime / "bin/python3"), "-c", CLOSURE_CHECK], env=env, check=True)
         # Reject any dynamic dependency on Homebrew or the developer's home.
         for path in runtime.rglob("*"):
             if path.is_file() and not path.is_symlink():

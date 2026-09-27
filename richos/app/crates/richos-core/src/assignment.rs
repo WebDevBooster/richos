@@ -117,7 +117,8 @@ pub enum AssignmentState {
     ///
     /// **It is deliberately NOT [`Self::is_open`].** Nothing is running on it: the work
     /// lease and its worker group are gone with the process that held them
-    /// (`richos/engine/scripts/provider-supervisor.py:28-37`). Counting it as open would
+    /// (`operator_main` in `richos/engine/scripts/provider-supervisor.py`, whose owner-death
+    /// reap ends the lease's tool commands too). Counting it as open would
     /// mean the update gate reads `busy` forever over work that stopped days ago, which is
     /// §6.5's named trap — *"an app with near-permanent background work is an app that may
     /// never install an update"*. It is unresolved instead, which is a thing he can act on
