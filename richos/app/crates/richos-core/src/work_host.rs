@@ -1725,12 +1725,14 @@ impl WorkHost {
                 // answered, and the pane reads the kind to say so in his words.
                 advance(AssignmentState::Settled, assignment::ANSWERED_DETAIL);
                 self.forget_at_the_desk(record);
-                self.close_answered(record, &said);
                 // Never the same words twice: he was told these while a command of this
                 // assignment was still running (step 3c), and nothing newer came after.
                 if told_while_running.as_deref() != Some(said.as_str()) {
                     self.raise(record, NoticeKind::Answer, &assignment::says::answered(&record.title, &said));
                 }
+                // The engine's bookkeeping LAST: it is subprocess calls, and his answer must
+                // never wait on it (VM runs 1 and 5, 2026-09-27).
+                self.close_answered(record, &said);
             }
             // **A LEASE THAT TOLD US, ONE TURN LATE, THAT IT WAS NEVER EQUIPPED.** Step 3a's
             // reading, and it sits AFTER the stop arm on purpose: a stop is his own action and
@@ -1772,12 +1774,14 @@ impl WorkHost {
                 let said = assignment::sanitize_answer(&answer);
                 advance(AssignmentState::Settled, assignment::ANSWERED_DETAIL);
                 self.forget_at_the_desk(record);
-                // Its obligation too, on these words: `complete` needs a worker and this
-                // assignment has none ([`AnsweredClose`]).
-                self.close_answered(record, &said);
                 if told_while_running.as_deref() != Some(said.as_str()) {
                     self.raise(record, NoticeKind::Answer, &assignment::says::answered(&record.title, &said));
                 }
+                // Its obligation too, on these words: `complete` needs a worker and this
+                // assignment has none ([`AnsweredClose`]). LAST, after his report is his: the
+                // close is subprocess calls, and on VM runs 1 and 5 (2026-09-27) the report
+                // waited behind it long enough that the app was quit before it was raised.
+                self.close_answered(record, &said);
             }
             // ===========================================================================
             // WHAT HE HEARS IS THE OUTCOME — the CEO's ruling §52, 2026-09-18
@@ -5353,6 +5357,55 @@ mod tests {
                 None => Ok(()),
             }
         }
+    }
+
+    /// A closer that does not return until the test lets it: the engine's close is three
+    /// subprocess calls, and on first use the runtime is verified too (VM run 5, 2026-09-27).
+    struct SlowClose {
+        open: Mutex<bool>,
+        released: std::sync::Condvar,
+        asked: AtomicUsize,
+    }
+
+    impl AnsweredClose for SlowClose {
+        fn close_answered(&self, _record: &Assignment, _answer: &str) -> Result<(), String> {
+            self.asked.fetch_add(1, Ordering::SeqCst);
+            let open = self.open.lock().unwrap();
+            let _ = self.released.wait_timeout_while(open, std::time::Duration::from_secs(10), |open| !*open).unwrap();
+            Ok(())
+        }
+    }
+
+    /// **His report reaches him before the bookkeeping, never after it** (VM runs 1 and 5,
+    /// 2026-09-27, bundle 1.2.0-dev.0d3dadf8): the back end's report turn had happened, and the
+    /// walk read the row `settled` with one notice and the obligation open, because the arm
+    /// closed the obligation between writing `Settled` and raising his notice. A quit in that
+    /// window loses the report outright.
+    #[test]
+    fn his_report_is_raised_before_the_obligation_is_closed() {
+        use crate::cognition::ObligationState;
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        const REPORT: &str = "It ran and printed one line: 4b578fe init.";
+        *h.answer_reply.lock().unwrap() = REPORT.into();
+        let close = Arc::new(SlowClose { open: Mutex::new(false), released: std::sync::Condvar::new(), asked: AtomicUsize::new(0) });
+        h.host.set_answered_close(close.clone());
+        h.host.start();
+        h.host.register(&h.binding, &registration(&h)).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while close.asked.load(Ordering::SeqCst) == 0 {
+            assert!(std::time::Instant::now() < deadline, "the close was never asked for");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        // The close is still running: his report must already be his.
+        let told: Vec<String> = h.notices.0.lock().unwrap().iter().map(|(_, n)| n.text.clone()).collect();
+        *close.open.lock().unwrap() = true;
+        close.released.notify_all();
+        assert_eq!(told, [REPORT], "his report waited on the engine's bookkeeping");
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
     }
 
     /// **An assignment the back end handled itself closes its engine obligation, on the words
