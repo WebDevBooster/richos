@@ -35,6 +35,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "resources": {
+      "../../../docs/legal/THIRD-PARTY-NOTICES.md": "THIRD-PARTY-NOTICES.md"
+    },
     "category": "Productivity",
     "shortDescription": "Talk to Rich.",
     "longDescription": "RichOS — the executive operating interface. One conversation with Rich.",
