@@ -434,10 +434,11 @@ try:
     t_b = time.time()
     b = start_run("p16-two-b", "touch %s/t.b" % mark)
     started = until(lambda: exists(os.path.join(mark, "t.b")), 10)
+    to_start = time.time() - t_b
     b_rc = b.wait(timeout=30)
     a_rc = a.wait(timeout=30)
     check(started and b_rc == 0 and a_rc == 0 and "waiting for a proof-run slot" not in output("p16-two-b"),
-          "P16g under a limit of 2, the second run starts at once beside the first (%.1f s)" % (time.time() - t_b),
+          "P16g under a limit of 2, the second run's check starts beside the first (%.1f s after launch)" % to_start,
           output("p16-two-b")[-400:])
 
     # P16h — a proof run started BY a check of a proof run (a suite that runs the real runner)
