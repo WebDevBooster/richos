@@ -12,8 +12,8 @@ WHAT IT ANSWERS. The smallest real-app question a guest can be asked: did run.sh
 app process running in this guest (its recorded pid, read back by name in the guest), and how
 many windows does it have. With --observe it then stays for that many seconds, still one run,
 sampling the host every 10 s (reserve.host_sample: CPU split, memory pressure, free memory,
-swap-out) and the running guests (tart's own list), so two runs side by side record what two
-guests cost this Mac. It quits nothing itself: run-walk.py quits the app by its pid, stops the
+swap-out), the running guests (tart's own list) and each VM process's resident memory, so two
+runs side by side record what two guests cost this Mac. It quits nothing itself: run-walk.py quits the app by its pid, stops the
 guest and deletes the clone (CEO §54).
 
 Writes <out>/smoke.json. Exit 0 when the app is alive with at least one window, else 1.
@@ -29,7 +29,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import reserve  # noqa: E402
 from relaunch import guest  # noqa: E402
-from slots import running_guests  # noqa: E402
+from slots import running_guests, vm_resident_mb  # noqa: E402
 
 
 def utc():
@@ -60,6 +60,7 @@ def main():
     while True:
         s = reserve.host_sample()
         samples.append({'at': utc(), 'running_guests': running_guests(),
+                        'vm_resident_mb': [round(r) for r in vm_resident_mb()],
                         'cpu_busy_percent': round(s['cpu_user_percent'] + s['cpu_system_percent'], 1),
                         'memory_pressure': s['memory_pressure'], 'memory_free_percent': s['memory_free_percent'],
                         'swapout_mb_per_s': round(s['swapout_mb_per_s'], 1), 'swap_used_mb': round(s['swap_used_mb'])})
