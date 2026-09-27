@@ -482,7 +482,8 @@ const COMMAND_ENDED_HEAD: &str =
 const COMMAND_ENDED_TAIL: &str =
     "Its output is in the file named when it started. Give him your report on this \
      assignment now, in plain words: what ran, how it ended, and what it printed that matters \
-     to him. This is the report he will read, so make it complete. Nothing about the \
+     to him. This is the report he will read, so make it complete, and leave out reviews, \
+     lands and closing the assignment: the app closes it from this report. Nothing about the \
      assignment has changed and your seat is the same one.";
 
 fn command_ended_continuation(ended: &[&crate::cognition::BackgroundCommand]) -> String {
@@ -2797,7 +2798,12 @@ fn brief_for(record: &Assignment, resumed: bool, instruction: &str) -> String {
          read its receipt for an outcome, and do not try to wait for it — end your turn \
          instead. This app is watching the run and will give you another turn the moment the \
          helper has actually ended, and you carry on from there. The same goes for the \
-         reviewer.\n\nReport \
+         reviewer.\n\nIf the job changes no repository (running a command he asked for, \
+         finding something out, or a job you cannot begin), do it yourself, with no helper, \
+         and report in his terms what you did and what it showed, or what is needed and from \
+         whom. The app closes an assignment like that from your report: do not call \
+         `complete` for it, and say nothing to him about reviews, lands, branches or closing \
+         the assignment, because none of that is his.\n\nWhen you changed a repository, report \
          what you actually landed: the branch, the repository and the reviewer's verdict. If \
          the land did not go through, say so and say why, and never describe unlanded work \
          as landed or an open assignment as finished.",
@@ -4744,6 +4750,43 @@ mod tests {
         assert_eq!(row.state, AssignmentState::Failed);
         assert_eq!(row.detail, "No work was started, so nothing was landed.");
         h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **A job that changes no repository is reported in his terms, with none of the machinery**
+    /// (vm-run-2: *"there won't be anything to review or merge"*, *"My system's step for formally
+    /// closing an assignment only takes finished code changes ... It's still open there"*).
+    ///
+    /// The task brief told every job to report "the branch, the repository and the reviewer's
+    /// verdict" and never to call an open assignment finished, and `DESKTOP.md` step 7 and the
+    /// `complete` tool said only a code assignment closes; a back end that ran a command for
+    /// him obeyed all three by explaining the bookkeeping to him. All three now say the app
+    /// closes such a job from its report, and the land report stays for a job that changed a
+    /// repository.
+    #[test]
+    fn a_job_that_changes_no_repository_is_reported_without_the_machinery() {
+        let h = harness(5);
+        let receipt = assignment::register_kind(&h.state, &registration(&h), assignment::AssignmentKind::Task).unwrap();
+        let record = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        let brief = brief_for(&record, false, &record.title);
+        for said in [
+            "If the job changes no repository",
+            "do it yourself, with no helper",
+            "The app closes an assignment like that from your report",
+            "do not call `complete` for it",
+            "say nothing to him about reviews, lands, branches or closing the assignment",
+            "When you changed a repository, report what you actually landed",
+        ] {
+            assert!(brief.contains(said), "the task brief does not say: {said}\n{brief}");
+        }
+        let engine = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(3).unwrap().join("engine/mega-lander");
+        let desktop = std::fs::read_to_string(engine.join("DESKTOP.md")).unwrap().split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(desktop.contains("A job that changes no repository needs no worker and no `complete`: \
+                                 do it yourself and report it in his terms; the app closes it from your report."),
+                "DESKTOP.md step 7 still says only a code assignment closes");
+        let tools = std::fs::read_to_string(engine.join("app.py")).unwrap();
+        assert!(tools.contains("An assignment you handled yourself, with no worker, is closed by the app from your report: do not call this for it."),
+                "the complete tool does not say who closes a job with no worker");
         std::fs::remove_dir_all(h.root).unwrap();
     }
 

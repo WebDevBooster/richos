@@ -74,7 +74,10 @@ For an authorized implementation assignment:
    `richos_work.complete` with every final worker receipt.
    It refuses unresolved execution, omitted workers or missing review/integration
    evidence. Do not use it for unrelated business outcomes. Report partial results
-   and unresolved conditions plainly.
+   and unresolved conditions plainly. A job that changes no repository needs no
+   worker and no `complete`: do it yourself and report it in his terms; the app
+   closes it from your report. Do not tell him about reviews, lands or closing
+   for such a job.
 
 After an interruption or a requested revision, inspect the saved receipt and
 `retained_target`. Preserve unfinished files. If dirty work needs a checkpoint
