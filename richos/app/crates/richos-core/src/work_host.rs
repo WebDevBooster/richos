@@ -199,6 +199,9 @@ struct Inner {
     /// from a session id changing.
     rotations: u64,
     last_rotation_reason: Option<String>,
+    /// Since when a due renewal has been waiting for a command this back end started (reap
+    /// gap C6). `None` when nothing is waiting.
+    rotation_deferred_since: Option<std::time::Instant>,
 }
 
 /// **ONE BACK-END RICH, AND THERE IS ONE PER CONVERSATION THREAD.**
@@ -241,6 +244,7 @@ impl Backend {
                 context_usage: None,
                 rotations: 0,
                 last_rotation_reason: None,
+                rotation_deferred_since: None,
             }),
             wake: Condvar::new(),
         })
@@ -280,6 +284,8 @@ pub struct WorkHost {
     /// finding — `context_chars|usage_update|watermark|rotate` against this file — still
     /// returned **no matches**, so the gap was real and unchanged.
     budget: Mutex<(usize, f64)>,
+    /// How long a due renewal waits for a command the back end started (reap gap C6).
+    rotation_command_wait: Mutex<std::time::Duration>,
     /// Where his repositories stand, for the pin taken when an assignment starts
     /// (spec §6.1's Git half). Injected so this crate keeps no opinion about how a
     /// repository is read, and so a build with no verified runtime says it could not look
@@ -315,6 +321,15 @@ pub struct WorkHost {
 /// the same question, and the one that drifted would be the one nobody was watching.
 pub const DEFAULT_WORK_CONTEXT_WINDOW_TOKENS: usize = crate::spine::DEFAULT_CONTEXT_WINDOW_TOKENS;
 pub const DEFAULT_WORK_WATERMARK_RATIO: f64 = crate::spine::DEFAULT_WATERMARK_RATIO;
+
+/// **How long a due renewal waits for a command the back end started** (the product reap gap
+/// design C6). Retiring a lease now ends its tool commands (the supervisor's reap), and a
+/// renewal is invisible by his standing order, so it must not visibly end a background command
+/// he asked for. It is not allowed to wait forever either: a renewal exists because the context
+/// window is filling, and a command that never ends (`tail -f`) would hold it at the watermark
+/// indefinitely. Ten minutes covers an ordinary build, test run or install; past it the renewal
+/// goes ahead and says so in the log. `estimate:` the design names the bound, not its length.
+pub const ROTATION_WAITS_FOR_COMMANDS: std::time::Duration = std::time::Duration::from_secs(600);
 
 /// What the outgoing back end is asked for at a rotation — **the compaction half**.
 ///
@@ -423,6 +438,7 @@ impl WorkHost {
             desk,
             seen: Mutex::new(std::collections::HashSet::new()),
             budget: Mutex::new((DEFAULT_WORK_CONTEXT_WINDOW_TOKENS, DEFAULT_WORK_WATERMARK_RATIO)),
+            rotation_command_wait: Mutex::new(ROTATION_WAITS_FOR_COMMANDS),
             // Nothing can be read until the shell says what to read with. Honest by
             // construction: with no reader, an assignment is pinned with `head: None` and
             // recovery says it could not look (`recovery.rs`).
@@ -507,6 +523,18 @@ impl WorkHost {
     /// Used by tests to make a rotation happen without a million tokens of traffic.
     pub fn set_context_budget(&self, window_tokens: usize, watermark_ratio: f64) {
         *self.budget.lock().unwrap() = (window_tokens.max(1), watermark_ratio.clamp(0.0, 1.0));
+    }
+
+    /// How long a due renewal waits for a running command ([`ROTATION_WAITS_FOR_COMMANDS`]).
+    pub fn set_rotation_command_wait(&self, wait: std::time::Duration) {
+        *self.rotation_command_wait.lock().unwrap() = wait;
+    }
+
+    /// Whether `thread`'s back-end lease lock is held right now: the probe a fake lease's
+    /// `Drop` uses to prove a retired lease ends with no lock held (reap gap C6).
+    #[cfg(test)]
+    fn lease_locked(&self, thread: &str) -> bool {
+        self.backends.lock().unwrap().get(thread).is_some_and(|backend| backend.lease.try_lock().is_err())
     }
 
     /// How his repositories are read for the start-of-assignment pin (spec §6.1).
@@ -1705,6 +1733,28 @@ impl WorkHost {
                 None => "context-watermark-estimated",
             }
         };
+        // **A COMMAND IT STARTED WOULD END WITH IT** (reap gap C6). Deferred while its
+        // supervisor's state file shows one, or cannot be read (never read as a zero), up to
+        // the bound; the next boundary asks again.
+        let commands = backend.lease.lock().unwrap().as_ref().and_then(|lease| lease.running_commands());
+        {
+            use crate::lease_commands::CommandReading;
+            let mut inner = backend.inner.lock().unwrap();
+            if matches!(commands, Some(CommandReading::Running(_) | CommandReading::Unreadable)) {
+                let wait = *self.rotation_command_wait.lock().unwrap();
+                let since = *inner.rotation_deferred_since.get_or_insert_with(std::time::Instant::now);
+                let what = match commands {
+                    Some(CommandReading::Running(n)) => format!("{n} command(s) it started are still running"),
+                    _ => "it could not be read whether a command it started is still running".to_string(),
+                };
+                if since.elapsed() < wait {
+                    eprintln!("[richos] back end: renewal deferred: {what}; it renews when they end, or after {} s", wait.as_secs());
+                    return;
+                }
+                eprintln!("[richos] back end: renewing after waiting {} s although {what}", since.elapsed().as_secs());
+            }
+            inner.rotation_deferred_since = None;
+        }
         if let Err(why) = self.rotate(backend, binding, reason) {
             // Never fatal, and never silent. The incumbent is still in the chair and still
             // works; the next boundary tries again.
@@ -1759,13 +1809,19 @@ impl WorkHost {
         // first assignment (`spine.rs:249-256` makes the same point about a parked desk).
         let session = fresh.session_id().to_string();
         let mut lease = backend.lease.lock().unwrap();
-        *lease = Some(fresh);
+        let retired = lease.replace(fresh);
         let mut inner = backend.inner.lock().unwrap();
         inner.lease_session = Some(session);
         inner.context_chars = 0;
         inner.context_usage = None;
         inner.rotations += 1;
         inner.last_rotation_reason = Some(reason.to_string());
+        // **The incumbent ends with NO lock held** (reap gap C6): its teardown is now a SIGTERM
+        // and its supervisor's reap, bounded at `owned_process::SUPERVISED_BOUND`, and nothing
+        // else on this back end should wait behind it.
+        drop(inner);
+        drop(lease);
+        drop(retired);
         Ok(())
     }
 
@@ -2582,11 +2638,29 @@ mod tests {
         /// asks; this keeps the ones that carry the job, so a test can read what the back
         /// end was actually told at each step rather than assume the constant.
         work_prompts: Arc<Mutex<Vec<String>>>,
+        /// What its supervisor's state file would say about its tool commands (reap gap C6).
+        commands: Arc<Mutex<Option<crate::lease_commands::CommandReading>>>,
+        /// Set by the one test that asks whether a lease is dropped with its back end's lease
+        /// lock held; every drop is then recorded as (session, lock held).
+        drop_probe: Arc<Mutex<Option<std::sync::Weak<WorkHost>>>>,
+        drops: Arc<Mutex<Vec<(String, bool)>>>,
+    }
+
+    impl Drop for WorkLease {
+        fn drop(&mut self) {
+            if let Some(host) = self.drop_probe.lock().unwrap().as_ref().and_then(std::sync::Weak::upgrade) {
+                let held = host.lease_locked("thread-one");
+                self.drops.lock().unwrap().push((self.session.clone(), held));
+            }
+        }
     }
 
     impl Cognition for WorkLease {
         fn session_id(&self) -> &str {
             &self.session
+        }
+        fn running_commands(&self) -> Option<crate::lease_commands::CommandReading> {
+            *self.commands.lock().unwrap()
         }
         fn reprime(&mut self, priming: &str, _o: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
             self.reprimes.lock().unwrap().push(priming.to_string());
@@ -2734,6 +2808,9 @@ mod tests {
         spawns: Arc<AtomicUsize>,
         /// Open everywhere but in the one test that shuts it. See `StartGate`.
         start_gate: Arc<StartGate>,
+        commands: Arc<Mutex<Option<crate::lease_commands::CommandReading>>>,
+        drop_probe: Arc<Mutex<Option<std::sync::Weak<WorkHost>>>>,
+        drops: Arc<Mutex<Vec<(String, bool)>>>,
     }
 
     impl LeaseFactory for WorkFactory {
@@ -2766,6 +2843,9 @@ mod tests {
                 readiness: self.readiness.clone(),
                 turn_error: self.turn_error.clone(),
                 work_prompts: self.work_prompts.clone(),
+                commands: self.commands.clone(),
+                drop_probe: self.drop_probe.clone(),
+                drops: self.drops.clone(),
             }))
         }
     }
@@ -2799,6 +2879,9 @@ mod tests {
         turn_error: Arc<Mutex<Option<String>>>,
         work_prompts: Arc<Mutex<Vec<String>>>,
         start_gate: Arc<StartGate>,
+        commands: Arc<Mutex<Option<crate::lease_commands::CommandReading>>>,
+        drop_probe: Arc<Mutex<Option<std::sync::Weak<WorkHost>>>>,
+        drops: Arc<Mutex<Vec<(String, bool)>>>,
     }
 
     fn harness(step_ms: u64) -> Harness {
@@ -2828,7 +2911,13 @@ mod tests {
         let turn_error = Arc::new(Mutex::new(None));
         let work_prompts = Arc::new(Mutex::new(Vec::new()));
         let start_gate = StartGate::open_now();
+        let commands = Arc::new(Mutex::new(None));
+        let drop_probe = Arc::new(Mutex::new(None));
+        let drops = Arc::new(Mutex::new(Vec::new()));
         let factory = WorkFactory {
+            commands: commands.clone(),
+            drop_probe: drop_probe.clone(),
+            drops: drops.clone(),
             start_gate: start_gate.clone(),
             bound: bound.clone(),
             revoked: revoked.clone(),
@@ -2850,7 +2939,7 @@ mod tests {
         let host = WorkHost::new(&state, Box::new(factory), notices.clone(), Arc::clone(&desk));
         Harness { root, state, host, bound, revoked, fence, notices, binding, obligation, desk, spawns,
             usage, reprimes, handoffs, handoff_reply, answer_reply, refuse_next, readiness, turn_error,
-            work_prompts, start_gate }
+            work_prompts, start_gate, commands, drop_probe, drops }
     }
 
     fn registration(harness: &Harness) -> Registration {
@@ -4899,6 +4988,64 @@ mod tests {
         std::fs::remove_dir_all(h.root).unwrap();
     }
 
+    /// **Reap gap C6: a renewal is invisible, so it waits for a command the back end started,
+    /// and the incumbent ends with no lock held.** Retiring a lease now ends its tool commands
+    /// (the supervisor's reap), so a due renewal is deferred while the lease's state file
+    /// shows one running, or cannot be read, and goes ahead once it clears or the bound
+    /// passes. The retired lease is dropped after the back end's lease lock is released.
+    #[test]
+    fn a_renewal_waits_for_a_running_command_and_retires_the_incumbent_with_no_lock_held() {
+        use crate::lease_commands::CommandReading;
+        let h = harness(5);
+        *h.drop_probe.lock().unwrap() = Some(Arc::downgrade(&h.host));
+        h.host.start();
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Settled);
+        h.host.set_context_budget(1, 0.0);                 // every boundary is due a renewal
+        let run = |n: u64| {
+            h.host
+                .register(&h.binding, &Registration { obligation_id: format!("obligation-c6-{n}"), ..registration(&h) })
+                .unwrap();
+            assert!(h.host.wait_for_completed(n, std::time::Duration::from_secs(10)));
+        };
+
+        // A background command is running: two boundaries pass with no renewal. The second
+        // assignment's completion proves the first boundary is behind it (one runner).
+        *h.commands.lock().unwrap() = Some(CommandReading::Running(1));
+        run(1);
+        run(2);
+        // Unreadable is never read as "nothing running".
+        *h.commands.lock().unwrap() = Some(CommandReading::Unreadable);
+        run(3);
+        assert_eq!(h.host.rotations("thread-one").0, 0, "a renewal ended a command it had started");
+        assert_eq!(h.host.lease_sessions(), vec!["work-session-one".to_string()]);
+
+        // The command ends: the next boundary renews.
+        *h.commands.lock().unwrap() = Some(CommandReading::Clear);
+        run(4);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while h.host.rotations("thread-one").0 == 0 && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert_eq!(h.host.rotations("thread-one").0, 1, "the renewal never happened once the command ended");
+        let drops = h.drops.lock().unwrap().clone();
+        assert_eq!(drops, vec![("work-session-one".to_string(), false)],
+                   "the incumbent was not dropped exactly once, with no lock held: {drops:?}");
+
+        // The bound: a command that never ends does not hold the renewal forever.
+        *h.commands.lock().unwrap() = Some(CommandReading::Running(1));
+        h.host.set_rotation_command_wait(std::time::Duration::ZERO);
+        run(5);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while h.host.rotations("thread-one").0 < 2 && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert_eq!(h.host.rotations("thread-one").0, 2, "a command held the renewal past its bound");
+
+        *h.drop_probe.lock().unwrap() = None;
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
     /// **§2.4a's trigger, and the distinction §7.8 spends a paragraph on.**
     ///
     /// The host reports "nothing is registered any more" when an assignment ends and the
@@ -4939,6 +5086,9 @@ mod tests {
                 readiness: h.readiness.clone(),
                 turn_error: h.turn_error.clone(),
                 work_prompts: h.work_prompts.clone(),
+                commands: h.commands.clone(),
+                drop_probe: h.drop_probe.clone(),
+                drops: h.drops.clone(),
             }),
             counter.clone(),
             Arc::clone(&h.desk),
