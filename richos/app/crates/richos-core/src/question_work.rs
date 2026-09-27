@@ -7,7 +7,19 @@ use std::path::{Path, PathBuf};
 #[derive(Serialize, Deserialize)]
 struct Input {
     delivery: Delivery,
+    /// Let go: taken by a back end, acknowledged by his team, or discarded with its ended job.
     handed: bool,
+    /// **Which back-end session took it** (the work-path design, richos-hq
+    /// `docs/plans/2026-09-27-work-path-answer-delivery-design.md` D1). Written on the child's
+    /// first item of the turn that carried it, never before the send. A fresh session has never
+    /// seen it, so it is told again there (D5). `None` on a file written before this field, or
+    /// on an answer his team acknowledged: an unknown, dead session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    taken_in: Option<String>,
+    /// **Let go with its assignment, which ended**, whether or not a back end ever took it. It is
+    /// never told to anyone again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    discarded: bool,
 }
 fn directory(root: &Path) -> PathBuf {
     root.join("questions/work-inputs")
@@ -58,11 +70,13 @@ pub fn enqueue(root: &Path, delivery: &Delivery) -> Result<bool, String> {
         &Input {
             delivery: delivery.clone(),
             handed: false,
+            taken_in: None,
+            discarded: false,
         },
     )?;
     Ok(true)
 }
-pub fn pending(root: &Path) -> Result<Vec<Delivery>, String> {
+fn all(root: &Path) -> Result<Vec<Input>, String> {
     let mut values = Vec::new();
     let files = match std::fs::read_dir(directory(root)) {
         Ok(v) => v,
@@ -72,32 +86,100 @@ pub fn pending(root: &Path) -> Result<Vec<Delivery>, String> {
     for file in files {
         let path = file.map_err(|e| e.to_string())?.path();
         if path.extension().is_some_and(|s| s == "json") {
-            let input = read(&path)?;
-            if !input.handed {
-                values.push(input.delivery);
-            }
+            values.push(read(&path)?);
         }
     }
-    values.sort_by(|a, b| a.id.cmp(&b.id));
+    values.sort_by(|a, b| a.delivery.id.cmp(&b.delivery.id));
     Ok(values)
 }
-/// Freeze the receiving turn's input before invoking a lease. A started turn follows
-/// the existing work recovery policy; it is never silently invoked a second time.
-pub fn take(root: &Path, entity: &str, thread: &str, asker: &str) -> Result<Vec<Delivery>, String> {
-    let values: Vec<_> = pending(root)?
-        .into_iter()
-        .filter(|d| d.entity_id == entity && d.thread_id == thread && d.asker == asker)
-        .collect();
-    for delivery in &values {
-        write(
-            &path(root, &delivery.id),
-            &Input {
-                delivery: delivery.clone(),
-                handed: true,
-            },
-        )?;
+pub fn pending(root: &Path) -> Result<Vec<Delivery>, String> {
+    Ok(all(root)?.into_iter().filter(|input| !input.handed).map(|input| input.delivery).collect())
+}
+
+/// **What one run of an assignment carries to its back end** (design D1, D5).
+#[derive(Debug, Default)]
+pub struct Carried {
+    /// His answers no back end has taken yet. They stay pending until [`taken`].
+    pub new: Vec<Delivery>,
+    /// Answers a back end took in a session that is not `session`: that session is gone
+    /// (relaunch, renewal, a retired lease), and the one running now has never seen them.
+    pub earlier: Vec<Delivery>,
+}
+impl Carried {
+    pub fn is_empty(&self) -> bool {
+        self.new.is_empty() && self.earlier.is_empty()
     }
-    Ok(values)
+    pub fn ids(&self) -> Vec<String> {
+        self.new.iter().chain(&self.earlier).map(|d| d.id.clone()).collect()
+    }
+}
+
+/// **Read, and change nothing** (design D1). The answers for this asker that `session` has not
+/// taken. Nothing is let go here: an answer is let go only when the back end's first item of
+/// the turn carrying it arrives ([`taken`]), so a crash or a failed send before that leaves it
+/// pending. `session` is the lease the prompt goes to.
+pub fn peek(root: &Path, entity: &str, thread: &str, asker: &str, session: &str) -> Result<Carried, String> {
+    let mut carried = Carried::default();
+    for input in all(root)? {
+        let d = &input.delivery;
+        if d.entity_id != entity || d.thread_id != thread || d.asker != asker || input.discarded {
+            continue;
+        }
+        if !input.handed {
+            carried.new.push(input.delivery);
+        } else if input.taken_in.as_deref() != Some(session) {
+            carried.earlier.push(input.delivery);
+        }
+    }
+    Ok(carried)
+}
+
+/// **The back end has it** (design D1): its first item of the turn that carried these answers
+/// arrived. Synced, like every write here. An answer already let go with its ended job stays
+/// discarded.
+pub fn taken(root: &Path, ids: &[String], session: &str) -> Result<(), String> {
+    let mut sets = Vec::new();
+    for id in ids {
+        let path = path(root, id);
+        let mut input = read(&path)?;
+        if input.discarded || (input.handed && input.taken_in.as_deref() == Some(session)) {
+            continue;
+        }
+        input.handed = true;
+        input.taken_in = Some(session.to_string());
+        write(&path, &input)?;
+        sets.extend(input.delivery.set_id.clone());
+    }
+    // His card may now say Rich has it (D7). Never called under the store lock or `inner`.
+    crate::questions::Store::new(root).taker_has(&sets)
+}
+
+/// **Let go of this asker's answers because its assignment ended** — the cleanup, and his
+/// Stop. It is not "taken", and nothing is told to a back end after it.
+pub fn discard(root: &Path, entity: &str, thread: &str, asker: &str) -> Result<(), String> {
+    for mut input in all(root)? {
+        let d = &input.delivery;
+        if d.entity_id != entity || d.thread_id != thread || d.asker != asker || input.discarded {
+            continue;
+        }
+        let path = path(root, &d.id);
+        input.handed = true;
+        input.discarded = true;
+        write(&path, &input)?;
+    }
+    Ok(())
+}
+
+/// Is this answer sitting in the inbox, not yet taken? The question store asks, inside the
+/// transaction that writes its receipt, so "Rich has your answer" waits for the taker (D7).
+pub fn waiting(root: &Path, id: &str) -> bool {
+    let path = path(root, id);
+    path.exists() && read(&path).is_ok_and(|input| !input.handed)
+}
+
+/// Is one of his answers for this asker saved and not yet taken? Recovery reads this (D6).
+pub fn untaken(root: &Path, entity: &str, thread: &str, asker: &str) -> Result<bool, String> {
+    Ok(pending(root)?.iter().any(|d| d.entity_id == entity && d.thread_id == thread && d.asker == asker))
 }
 
 /// The complete MCP result is the receiving input for a words answer. Keep it
@@ -119,6 +201,8 @@ pub fn tool_result(root: &Path, turn: &str, delivery: &Delivery) -> Result<Strin
             &Input {
                 delivery: delivery.clone(),
                 handed: true,
+                taken_in: None,
+                discarded: false,
             },
         )?;
     }
@@ -140,7 +224,8 @@ pub fn acknowledge(root: &Path, id: &str) -> Result<(), String> {
     let path = path(root, id);
     let mut input = read(&path)?;
     if !input.handed { input.handed = true; write(&path, &input)?; }
-    Ok(())
+    // His card may now say his team has it (D7). Never called under the store lock.
+    crate::questions::Store::new(root).taker_has(&input.delivery.set_id.into_iter().collect::<Vec<_>>())
 }
 
 /// [`acknowledge`] for an answer that may never have entered this inbox (the operator host is

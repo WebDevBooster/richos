@@ -849,6 +849,30 @@ pub fn read_all(state: &Path, entity: &str, thread: &str) -> Result<Vec<Assignme
     Ok(rows)
 }
 
+/// The row's detail when he has said to pick back up work RichOS closed on.
+pub const PICKED_UP_DETAIL: &str = "You asked for it to be picked back up. It is starting again.";
+
+/// **His word to pick back up work RichOS closed on** — [`AssignmentState::Unknown`] is
+/// "whether to pick it back up at all", and *"resuming is a decision, and the decision is his"*
+/// (spec §6.3). The richos-hq work-path design's C6, option B, Rich's call: a started job is
+/// never re-run by itself after a crash, and when he says the word it is THE SAME assignment
+/// that goes back on the register (same obligation, same seat, same asker), so every answer he
+/// already gave it is carried to the run, and he never answers twice.
+///
+/// `title` is the row's own `what`, the only name the front desk is ever given for it. The
+/// newest `unknown` row of that name on this conversation is the one picked up; nothing else
+/// is ever moved by this.
+pub fn pick_up(state: &Path, entity: &str, thread: &str, title: &str) -> Result<Receipt, AssignmentError> {
+    let title = sanitize_title(title)?;
+    let found = read_all(state, entity, thread)?
+        .into_iter()
+        .filter(|row| row.state == AssignmentState::Unknown && row.title == title)
+        .max_by_key(|row| (row.updated_at_ms, row.registered_at_ms))
+        .ok_or_else(|| AssignmentError("nothing by that name is waiting to be picked back up in this conversation".into()))?;
+    advance(state, entity, thread, &found.id, AssignmentState::Registered, PICKED_UP_DETAIL)?;
+    Ok(Receipt { id: found.id, title: found.title, kind: found.kind })
+}
+
 pub fn read(state: &Path, entity: &str, thread: &str, id: &str) -> Result<Assignment, AssignmentError> {
     if !usable_identity(id) {
         return Err(AssignmentError("that assignment cannot be identified".into()));

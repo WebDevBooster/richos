@@ -529,6 +529,67 @@ class CrashMatrix(unittest.TestCase):
             self.assertIn('crash_point("%s")' % point, rust)
 
 
+class WorkCrashMatrix(unittest.TestCase):
+    """W4, the work path's matrix (richos-hq docs/plans/2026-09-27-work-path-answer-delivery-design.md §4.2):
+    its grading, graded without a guest."""
+
+    def cell(self, cell, **change):
+        rec = {'cell': cell, 'register': {'assignment': 'J'}, 'reports': 1, 'walks_gone': [True, True],
+               'row': {'state': 'settled', 'notices': [{'kind': 'Answer'}]}, 'spawns_last_walk': 1,
+               'inbox': {'inputs': [{'id': 'question-set:x', 'handed': True, 'taken_in': 'S'}]},
+               'recovery': {'unknown': [], 'answers_waiting': ['J']}, 'blocked_before_crash': True}
+        rec.update(change)
+        return rec
+
+    def test_each_cell_passes_on_its_own_terms_only(self):
+        for cell in ('baseline', 'P4-carry', 'P4-sent', 'P7'):
+            self.assertTrue(gp.grade_w4_cell(self.cell(cell))[0], cell)
+            self.assertFalse(gp.grade_w4_cell(self.cell(cell, reports=2))[0], '%s: doubled' % cell)
+            self.assertFalse(gp.grade_w4_cell(self.cell(cell, reports=0))[0], '%s: lost' % cell)
+            untaken = {'inputs': [{'id': 'question-set:x', 'handed': False, 'taken_in': None}]}
+            self.assertFalse(gp.grade_w4_cell(self.cell(cell, inbox=untaken))[0], '%s: never taken' % cell)
+            self.assertFalse(gp.grade_w4_cell(self.cell(cell, walks_gone=[True, False]))[0], '%s: a walk left running' % cell)
+        for cell in ('P4-carry', 'P4-sent'):
+            told = self.cell(cell, row={'state': 'settled', 'notices': [{'kind': 'Unknown'}, {'kind': 'Answer'}]})
+            self.assertFalse(gp.grade_w4_cell(told)[0], '%s: told a job that never started was running' % cell)
+            self.assertFalse(gp.grade_w4_cell(self.cell(cell, recovery={'unknown': ['J'], 'answers_waiting': []}))[0])
+        self.assertTrue(gp.grade_w4_cell(self.cell('P4e', spawns_last_walk=2))[0])
+        self.assertFalse(gp.grade_w4_cell(self.cell('P4e', spawns_last_walk=1))[0], 'no fresh back end')
+        self.assertFalse(gp.grade_w4_cell(self.cell('P4e', spawns_last_walk=2,
+                                                    row={'state': 'failed', 'notices': [{'kind': 'Failed'}]}))[0])
+        p5 = dict(recovery={'unknown': ['J'], 'answers_waiting': []}, row={'state': 'unknown', 'notices': [{'kind': 'Unknown'}]},
+                  spawns_last_walk=0, reports=0)
+        self.assertTrue(gp.grade_w4_cell(self.cell('P5', **p5))[0])
+        self.assertFalse(gp.grade_w4_cell(self.cell('P5', **dict(p5, spawns_last_walk=1)))[0], 'a started job re-ran')
+        self.assertFalse(gp.grade_w4_cell(self.cell('P5', **dict(p5, reports=2)))[0])
+
+    def test_the_matrix_runs_only_when_named_and_needs_its_binary_and_runtime(self):
+        self.assertIn('W4', gp.EXPLICIT, 'a default probe run must never start the work crash matrix')
+        self.assertEqual(gp.W4_CELLS, ('baseline', 'P4-carry', 'P4-sent', 'P5', 'P4e', 'P7'))
+        ctx = gp.Context.__new__(gp.Context)
+        ctx.work_walk_binary = ''
+        self.assertEqual(gp.w4(ctx, {})[0], 'NOT-RUN')
+
+    def test_one_cell_can_be_retried_alone_and_an_unknown_name_is_refused(self):
+        self.assertEqual(gp.w4_wanted(''), gp.W4_CELLS)
+        self.assertEqual(gp.w4_wanted('P5'), ('P5',))
+        self.assertEqual(gp.w4_wanted('P7, baseline'), ('baseline', 'P7'), 'in the matrix\'s own order')
+        with self.assertRaises(ValueError):
+            gp.w4_wanted('P6')
+
+    def test_a_walk_has_long_enough_to_verify_its_runtime(self):
+        """Run 1's P5: the relaunch verified 322 MB of runtime for over 120 s, and its recovery
+        line was read before it arrived. 64.3 s measured on the host; the bound is 600 s."""
+        self.assertGreaterEqual(gp.W4_READY_SECONDS, 600)
+
+    def test_every_work_crash_point_the_harness_names_is_in_the_rust(self):
+        rust = (HERE.parents[2] / 'crates' / 'richos-core' / 'src' / 'work_host.rs').read_text()
+        for point in ('WORK-CARRY', 'WORK-FIRST-ITEM', 'WORK-TAKEN'):
+            self.assertIn('crash_point("%s")' % point, rust)
+        self.assertIn('work_fault("WORK-DEAD-LEASE")', rust)
+        self.assertEqual(set(gp.W4_POINT.values()), {'WORK-CARRY', 'WORK-FIRST-ITEM', 'WORK-TAKEN', 'WORK-DEAD-LEASE'})
+
+
 class Arguments(unittest.TestCase):
     def test_the_lead_arguments_mirror_the_operator_profile(self):
         """operator_profile::child_args, flag for flag. If the profile changes, this list must."""
