@@ -207,6 +207,19 @@ PRIVATE_SOURCES="docs/reference/local ../richos-hq"
 MIN_SPEECH_LINES=8
 MIN_QUOTE_WORDS=10
 
+# The corpus bounds are raised, not the sources narrowed: narrowing would stop
+# scanning part of the private record, and nothing shows that part holds no
+# recordings. Measured on 2026-09-27 with the engine's own publication-boundary.py
+# over the private record: 4156 candidate text files, 47.3 MB, corpus built in
+# 1.9 s (three runs: 1.97, 1.92, 1.87 s). The engine defaults (4000 files, 64 MB)
+# had been passed or were close; the record grew by 1188 candidate files and
+# 7.0 MB on 2026-09-26 alone. Both caps are about four times the measured size,
+# roughly ten days of that growth. The build time scales with the corpus, so
+# expect about 7 s per commit near the caps. When one trips again, re-measure
+# and restate these numbers.
+CORPUS_MAX_FILES=16000
+CORPUS_MAX_BYTES=201326592
+
 ALLOWLIST=""
 
 # 0 = an empty corpus is BROKEN. This repository has a private record, so an
