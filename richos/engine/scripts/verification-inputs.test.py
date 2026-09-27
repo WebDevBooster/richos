@@ -152,6 +152,41 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_claim_and_ci_gates_reach_only_fixture_settings(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        units = ['scripts/hooks/guard-unresolved-claims.test.sh',
+                 'scripts/hooks/guard-ci-turn-gate.test.sh']
+        for unit in units:
+            closure = graph.closure(unit)
+            self.assertEqual(closure['keys'], {}, closure)
+            self.assertEqual(closure['whole'], [], closure)
+            self.assertEqual(closure['fallback'], [], closure)
+        for key in ('CHECK_UNRESOLVED_CLAIMS', 'UNLANDED_BRANCHES_EXTRA_REPOS', 'PROTECTED_PATHS'):
+            change = inputs.config_change(key+'=old', key+'=new')
+            self.assertEqual(graph.config_units(change, units), {})
+        document['nodes'].pop('mega-lander/workspaces.py#integration')
+        self.assertEqual(set(graph.config_units(change, units)), {units[0]})
+
+    def test_scratch_fixture_config_reaches_imported_readers_and_mutations(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        units = ['scripts/hooks/session-start-scratch.test.sh',
+                 'scripts/lib/mutation-harness-guards.test.sh', 'scripts/scratch-reaper.test.sh']
+        for unit in units:
+            closure = graph.closure(unit)
+            self.assertEqual(closure['keys'], {}, closure)
+            self.assertEqual(closure['whole'], [], closure)
+            self.assertEqual(closure['fallback'], [], closure)
+        reaper = graph.closure('scripts/scratch-reaper.sh')
+        for key in ('SCRATCH_REAPER_ENABLE', 'SCRATCH_SYSTEM_FLAGS',
+                    'APP_TEST_INSTANCE_PROCESS_NAMES', 'SCRATCH_ROOT_NAME'):
+            self.assertIn(key, reaper['keys'])
+            self.assertEqual(graph.config_units(inputs.config_change(key+'=old', key+'=new'), units), {})
+        document['nodes'].pop('scripts/lib/appinstances.py')
+        change = inputs.config_change('BAN_WORKFLOW_TOOL=1', 'BAN_WORKFLOW_TOOL=0')
+        self.assertEqual(set(graph.config_units(change, units)), set(units))
+
     def test_root_and_banner_fixtures_do_not_read_shipped_setting_values(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

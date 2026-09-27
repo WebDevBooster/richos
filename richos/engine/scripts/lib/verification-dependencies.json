@@ -1063,7 +1063,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "517a033746efe13e8c413be797a7f2cdf019b8718f7b443820601dc4b42d7472",
+      "sha256": "fa6af7fa3385c91f77a264820740200d85ce0352b800a944a2204b5fc78f3854",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed.",
       "keys": [],
       "edges": [
@@ -2712,6 +2712,318 @@
           "fixture": true
         }
       ]
+    },
+    "scripts/lib/appinstances.py": {
+      "source": "scripts/lib/appinstances.py",
+      "sha256": "e30b7e3522111d099a20bc2d5af49bff1d5b9a4245d5c2147306ef065596efca",
+      "evidence": "The complete module uses only standard-library imports and fixed ps/lsof/osascript process commands. declared() has nine finite literal key callers for roots, identity and grace periods; the failure-state path is the tenth environment read. _config_file honors SCRATCH_REAPER_CONFIG before the source engine fallback. Reading lines builds a lookup, not a whole-content assertion.",
+      "keys": [
+        "APP_INSTANCE_FAILURES_STATE",
+        "APP_TEST_INSTANCE_BUNDLE_ID",
+        "APP_TEST_INSTANCE_KILL_GRACE_SECONDS",
+        "APP_TEST_INSTANCE_PROCESS_NAMES",
+        "APP_TEST_INSTANCE_QUIT_GRACE_SECONDS",
+        "APP_TEST_INSTANCE_REAL_HOME_PATHS",
+        "SCRATCH_CLAUDE_ROOTS",
+        "SCRATCH_LEGACY_TMP_PATTERNS",
+        "SCRATCH_ROOT_NAME",
+        "SCRATCH_TMP_PATTERNS"
+      ],
+      "edges": []
+    },
+    "scripts/lib/scratch-reaper.py": {
+      "source": "scripts/lib/scratch-reaper.py",
+      "sha256": "f5c852252ad28b38893f13794a05d126312fe91249505070a228ade3fb90ba19",
+      "evidence": "config_from_env uses finite literal need/number/opt/opt_number callers; process names, system flags and state paths are the other environment reads. The shell exports these values from its selected config. Reviewed local scan/apply closure imports only fixed workspace liveness, appinstances and testdevices/alert modules. Docker/ps/lsof are external executables, not engine readers. All imported settings readers honor the same SCRATCH_REAPER_CONFIG fixture path.",
+      "keys": [
+        "SCRATCH_AGE_FLOOR_MINUTES",
+        "SCRATCH_APP_REGISTRY_RELPATH",
+        "SCRATCH_CAMPAIGN_PARENT",
+        "SCRATCH_CAMPAIGN_RETENTION_DAYS",
+        "SCRATCH_CAMPAIGN_ROOTS",
+        "SCRATCH_CLAUDE_ROOTS",
+        "SCRATCH_DEFAULT_TTL_MINUTES",
+        "SCRATCH_DOCKER_CONTAINER_ALERT_DAYS",
+        "SCRATCH_DOCKER_KEEP_STORAGE",
+        "SCRATCH_DOCKER_PRUNE",
+        "SCRATCH_DOCKER_THROWAWAY_IMAGES",
+        "SCRATCH_DOCKER_UNTIL",
+        "SCRATCH_FAILURES_STATE",
+        "SCRATCH_FOREIGN_PATTERNS",
+        "SCRATCH_LEGACY_AGE_HOURS",
+        "SCRATCH_LEGACY_GIT_IS_FIXTURE",
+        "SCRATCH_LEGACY_TMP_PATTERNS",
+        "SCRATCH_MIN_OWNER_PID",
+        "SCRATCH_NIGHTLY_DIR",
+        "SCRATCH_NIGHTLY_KEEP",
+        "SCRATCH_NOTICE_BYTES",
+        "SCRATCH_REAPER_STATE",
+        "SCRATCH_ROOT_NAME",
+        "SCRATCH_SESSION_PROCESS_NAMES",
+        "SCRATCH_SHARED_TMP_ROOTS",
+        "SCRATCH_SKIPPED_NOTICE_BYTES",
+        "SCRATCH_SYSTEM_FLAGS",
+        "SCRATCH_TMP_DENY_BY_DEFAULT",
+        "SCRATCH_TMP_PATTERNS",
+        "SCRATCH_UNDECIDABLE_NOTICE_BYTES",
+        "SCRATCH_UNKNOWN_AGE_HOURS",
+        "SCRATCH_UNKNOWN_GIT_IS_FIXTURE"
+      ],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#liveness-readers"
+        },
+        {
+          "to": "scripts/lib/appinstances.py"
+        },
+        {
+          "to": "scripts/lib/testdevices.py#workspace-collection"
+        },
+        {
+          "to": "scripts/lib/testdevice_alerts.py"
+        }
+      ]
+    },
+    "scripts/scratch-reaper.sh": {
+      "source": "scripts/scratch-reaper.sh",
+      "sha256": "1cdefb018a15be05c60b6dd257678573d2135230ceb58cfaef0fcd9c835975b1",
+      "evidence": "Sources exactly SCRATCH_REAPER_CONFIG or the engine default, checks enable/schedule keys and exports the finite SCRATCH/APP families to the fixed Python reaper. Plist generation contains literal commands; it does not execute another engine entrypoint.",
+      "keys": [
+        "SCRATCH_REAPER_ENABLE",
+        "SCRATCH_REAPER_HOURS",
+        "SCRATCH_REAPER_MINUTE"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/scratch-reaper.py"
+        }
+      ]
+    },
+    "scripts/hooks/session-start-scratch.sh": {
+      "source": "scripts/hooks/session-start-scratch.sh",
+      "sha256": "f78039d4b89732e00fdfec13abd6622f4c9c8f4badb9bca26c4b0a758068d485",
+      "evidence": "Reads enable from the selected SCRATCH_REAPER_CONFIG, then invokes the same reaper in notice mode. Other reads are private plist/state paths and timestamps, not additional config content.",
+      "keys": [
+        "SCRATCH_REAPER_ENABLE",
+        "SCRATCH_REAPER_STATE"
+      ],
+      "edges": [
+        {
+          "to": "scripts/scratch-reaper.sh"
+        }
+      ]
+    },
+    "scripts/hooks/session-start-scratch.test.sh": {
+      "source": "scripts/hooks/session-start-scratch.test.sh",
+      "sha256": "96caa426b5a5afd1dcccf8256dfc4c9abda9e43c43aa4d4751e9779d167be6ef",
+      "evidence": "Every hook invocation supplies the literal CFG created by write_config. The broken-engine case transports the shipped config but still supplies CFG; its reaper is a generated exit-only stub. No assertion reads the transported bytes.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/session-start-scratch.sh",
+          "fixture": true
+        }
+      ]
+    },
+    "scripts/lib/mutation-harness-guards.test.sh": {
+      "source": "scripts/lib/mutation-harness-guards.test.sh",
+      "sha256": "7fa76d3946adb0aaf5d3ee48cbb8f9d5f2870c3ec9498892cca4018bd1e8c05f",
+      "evidence": "Sources fixed mutation and scratch helpers. The real-engine copy is only asserted to contain a config file and hook directory; no copied reader executes. The generated victim sources scratch.sh only. Both actual reaper invocations explicitly select the complete literal sweep.config, including downstream appinstances fallback. Direct scratch allocator calls use the caller environment/default TTL; this test does not source shipped settings. Environment identity is an R3 input, not a real-config value edge.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/lib/scratch.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/scratch-reaper.sh",
+          "fixture": true
+        }
+      ]
+    },
+    "scripts/scratch-reaper.test.sh": {
+      "source": "scripts/scratch-reaper.test.sh",
+      "sha256": "3987ec7472048506ed539f672f067a601308085aa0ce4e45da2ef44c714fb16a",
+      "evidence": "world creates literal configuration and every run supplies W_CFG through SCRATCH_REAPER_CONFIG, including the appinstances fallback. Inline mutations change only that fixture. Device/Docker/process adapters and test app binaries are generated locally. The final mutation harness copies the engine then re-enters this same literal-config test.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/scratch-reaper.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/scratch-reaper.mutation.sh"
+        }
+      ]
+    },
+    "scripts/scratch-reaper.mutation.sh": {
+      "source": "scripts/scratch-reaper.mutation.sh",
+      "sha256": "149890cea01df08dc0be116c8b3e06f897a3d27d6935f83f4c9728c9347e2643",
+      "evidence": "All 51 mutants use the shared literal source replacement API against scratch-reaper.py, then execute scratch-reaper.test.sh, whose world/run functions select their own config. Copied shipped settings remain transport only, including nested helper reads.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/scratch-reaper.test.sh"
+        }
+      ]
+    },
+    "mega-lander/workspaces.py#integration": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+      "evidence": "integration_for/integration_target and record_integration use a finite local closure: integration record/file/path/work lookup, branch_tip/main_checkout/git, _write_integration/Lock/write_json/event and path/time helpers. Only registry JSON and git metadata are consumed; no config read or engine import.",
+      "keys": [],
+      "edges": []
+    },
+    "mega-lander/workspaces.sh#integration": {
+      "source": "mega-lander/workspaces.sh",
+      "sha256": "93b86b885516641e69a7cd84105260ee94d52300f0099362c7ed9b475855764e",
+      "evidence": "Fixed Python wrapper called with integration only; its target uses the declared integration local closure.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#integration"
+        }
+      ]
+    },
+    "scripts/lib/unlanded-branches.py": {
+      "source": "scripts/lib/unlanded-branches.py",
+      "sha256": "930bdf49ce982471c4cd4628ac6794c21a0d62af96852027ddd7216d7d753028",
+      "evidence": "Standard-library ledger and Git-ref sweep. The one dynamic import is fixed workspaces.py, calling integration_for only. Commands are fixed read-only git queries; payload commands and printed workspaces instructions are data.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#integration"
+        }
+      ]
+    },
+    "scripts/hooks/guard-unresolved-claims.py": {
+      "source": "scripts/hooks/guard-unresolved-claims.py",
+      "sha256": "793b6ea10ac7db990e7c3062af9ce21d7fbcf984804d69d92452ab336737d053",
+      "evidence": "Standard-library transcript/claim predicate invokes only Git queries plus two fixed imports: workspaces.integration_for and unlanded-branches.sweep. The latter extra-repository setting is an environment value inherited from the sourcing wrapper.",
+      "keys": [
+        "UNLANDED_BRANCHES_EXTRA_REPOS"
+      ],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#integration"
+        },
+        {
+          "to": "scripts/lib/unlanded-branches.py"
+        }
+      ]
+    },
+    "scripts/hooks/guard-unresolved-claims.sh": {
+      "source": "scripts/hooks/guard-unresolved-claims.sh",
+      "sha256": "88db28246b8e79d1d623d26e366fcc3c8bf1811e3bb464fc04d484761ead14d2",
+      "evidence": "Normal invocation resolves the entity, sources its claims switch and extra repositories then invokes fixed recovery, notice and analyzer helpers. No self-test dispatch occurs in this suite.",
+      "keys": [
+        "CHECK_UNRESOLVED_CLAIMS",
+        "CLAIM_CHECK_EXTRA_REPOS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/stop-session-recovery.py"
+        },
+        {
+          "to": "scripts/hooks/guard-unresolved-claims.py"
+        }
+      ]
+    },
+    "scripts/hooks/guard-unresolved-claims.test.sh": {
+      "source": "scripts/hooks/guard-unresolved-claims.test.sh",
+      "sha256": "3ae1f1c337d152990d8a5b0c2847115763fd569316b84d5bc81e227ae199c31e",
+      "evidence": "Every normal hook call pins the generated entity with empty/literal switched config. Private Git graph, transcript, roster and registry fixtures supply all semantic data. workspaces.sh is called only for integration; copied broken hook exits before config because roots are absent. Four fixed polarity mutants re-enter the same fixture builder.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-unresolved-claims.sh",
+          "fixture": true
+        },
+        {
+          "to": "mega-lander/workspaces.sh#integration"
+        },
+        {
+          "to": "scripts/hooks/guard-unresolved-claims.mutation.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-unresolved-claims.mutation.sh": {
+      "source": "scripts/hooks/guard-unresolved-claims.mutation.sh",
+      "sha256": "47cabc1161cf1781224d1c8c2867e171421cab75c957710d09ec76879cc48607",
+      "evidence": "Four literal predicate substitutions use the shared mutation harness and rerun the claims test, whose generated entity replaces shipped settings; no callback discovers new readers.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-unresolved-claims.test.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-ci-turn-gate.py": {
+      "source": "scripts/hooks/guard-ci-turn-gate.py",
+      "sha256": "b92f4e9c6c358c5941bda39405fd5ae52a07405aa5a838ea41943c595d3fa948",
+      "evidence": "Standard-library transcript/CI-state predicate imports fixed ci_pause.pause_for only. It parses shell text as data; actual subprocesses are fixed Git queries and gh api. No orchestration config values are sourced or read.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/ci_pause.py"
+        }
+      ]
+    },
+    "scripts/hooks/guard-ci-turn-gate.sh": {
+      "source": "scripts/hooks/guard-ci-turn-gate.sh",
+      "sha256": "d5982f5f16da84d753d275669128b20c453782674189d9b8b2b7ac0dae39c324",
+      "evidence": "Root/adoption, recovery and notice wrappers call the fixed CI analyzer. This hook does not source config values.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/stop-session-recovery.py"
+        },
+        {
+          "to": "scripts/hooks/guard-ci-turn-gate.py"
+        }
+      ]
+    },
+    "scripts/hooks/guard-ci-turn-gate.test.sh": {
+      "source": "scripts/hooks/guard-ci-turn-gate.test.sh",
+      "sha256": "14e83b6a7d3983fa47ca8d8b0a4b0ef146973b3205712195c382477a059124a4",
+      "evidence": "Uses generated adopted repositories, transcript/state fixtures and a private gh adapter. Every hook call supplies the fixture root; direct analyzer import exercises parse_pushes only. No nested suite or mutation driver is invoked.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-ci-turn-gate.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-ci-turn-gate.py"
+        }
+      ]
     }
   },
   "units": {
@@ -2763,7 +3075,12 @@
     "scripts/hooks/hook-staleness.test.sh": "scripts/hooks/hook-staleness.test.sh",
     "scripts/hooks/guard-public-record-repo.test.sh": "scripts/hooks/guard-public-record-repo.test.sh",
     "scripts/hooks/engine-status.test.sh": "scripts/hooks/engine-status.test.sh",
-    "scripts/lib/resolve-roots.test.sh": "scripts/lib/resolve-roots.test.sh"
+    "scripts/lib/resolve-roots.test.sh": "scripts/lib/resolve-roots.test.sh",
+    "scripts/hooks/session-start-scratch.test.sh": "scripts/hooks/session-start-scratch.test.sh",
+    "scripts/lib/mutation-harness-guards.test.sh": "scripts/lib/mutation-harness-guards.test.sh",
+    "scripts/scratch-reaper.test.sh": "scripts/scratch-reaper.test.sh",
+    "scripts/hooks/guard-unresolved-claims.test.sh": "scripts/hooks/guard-unresolved-claims.test.sh",
+    "scripts/hooks/guard-ci-turn-gate.test.sh": "scripts/hooks/guard-ci-turn-gate.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
