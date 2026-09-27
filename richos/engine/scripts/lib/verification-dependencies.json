@@ -1063,7 +1063,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "79b4b9c18ca4e98e38bde4e5a1c2f400f5d6951e8903d79276db7bf05b645717",
+      "sha256": "517a033746efe13e8c413be797a7f2cdf019b8718f7b443820601dc4b42d7472",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed.",
       "keys": [],
       "edges": [
@@ -2345,6 +2345,75 @@
           "to": "scripts/hooks/session-start-ci-surface.sh"
         }
       ]
+    },
+    "scripts/hooks/scan-secrets.test.sh": {
+      "source": "scripts/hooks/scan-secrets.test.sh",
+      "sha256": "56015541168f3826c63ada93dfefd7b5595fad4263e4f404b50e116a11ac9269",
+      "evidence": "Copies shipped settings as transport into the private subject entity and runs the real scanner. Those cases retain all four scanner key dependencies; allowlist/code-aware cases supply their own literal configs. Generated payload paths are private and are never executed.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/scan-secrets.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-unasked-deferral.py": {
+      "source": "scripts/hooks/guard-unasked-deferral.py",
+      "sha256": "710a23aed3c07760de60b9f88ec23d25aa299d0a0cf996906d9a4302533398e8",
+      "evidence": "Standard-library predicate reads the supplied JSON payload and transcript. It parses quoted constructions and tool-use records as data, with no config or subprocess helper.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/hooks/notice-unasked-deferral.sh": {
+      "source": "scripts/hooks/notice-unasked-deferral.sh",
+      "sha256": "01c58a8e0c3f279efe85cadb579c6e01f24c002c8d2b8789520285456af5fcc9",
+      "evidence": "Reads CHECK_UNASKED_DEFERRAL from the resolved entity config, then runs the fixed sibling analyzer and notice-state library. Other paths in its diagnostic are printed only.",
+      "keys": [
+        "CHECK_UNASKED_DEFERRAL"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-unasked-deferral.py"
+        }
+      ]
+    },
+    "scripts/hooks/unasked-deferral.test.sh": {
+      "source": "scripts/hooks/unasked-deferral.test.sh",
+      "sha256": "b97f47aeb146bf796ae52823af73a1d0e080ec5c59b4ad9f26ff52240775a9f4",
+      "evidence": "Every hook invocation targets a generated entity config and transcript; the missing-root case terminates before reading settings. Nested mutations rerun this same fixture constructor, replacing all configuration rather than inheriting production values.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/notice-unasked-deferral.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/unasked-deferral.mutation.sh"
+        }
+      ]
+    },
+    "scripts/hooks/unasked-deferral.mutation.sh": {
+      "source": "scripts/hooks/unasked-deferral.mutation.sh",
+      "sha256": "659758394173049429d8393aea93ce09ee2c163953ad0a862744d5b16707e0cd",
+      "evidence": "Copies only the fixed hook, analyzer, test and four named root/notice helpers. Its generated mutator replaces literal source needles. The copied test constructs its own entity config before execution; the callback has no additional engine dependency.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/stopwatch.sh"
+        },
+        {
+          "to": "scripts/lib/mutation-pool.sh"
+        },
+        {
+          "to": "scripts/hooks/unasked-deferral.test.sh"
+        }
+      ]
     }
   },
   "units": {
@@ -2388,7 +2457,9 @@
     "scripts/lib/ci-surface.test.sh": "scripts/lib/ci-surface.test.sh",
     "scripts/hooks/guard-stop-live-work.test.sh": "scripts/hooks/guard-stop-live-work.test.sh",
     "scripts/hooks/unevaluated-notice.test.sh": "scripts/hooks/unevaluated-notice.test.sh",
-    "scripts/hooks/session-start-ci-surface.test.sh": "scripts/hooks/session-start-ci-surface.test.sh"
+    "scripts/hooks/session-start-ci-surface.test.sh": "scripts/hooks/session-start-ci-surface.test.sh",
+    "scripts/hooks/scan-secrets.test.sh": "scripts/hooks/scan-secrets.test.sh",
+    "scripts/hooks/unasked-deferral.test.sh": "scripts/hooks/unasked-deferral.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {

@@ -158,6 +158,25 @@ class Closure(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.map = {"schema": 1, "config_keys": ["A", "B", "PLANTED"], "nodes": {}, "units": {}}
 
+    def test_scanner_transport_retains_keys_and_deferral_fixture_replaces_them(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        scan, deferral = 'scripts/hooks/scan-secrets.test.sh', 'scripts/hooks/unasked-deferral.test.sh'
+        keys = {'SECRET_SCAN_MIN_LENGTH', 'SECRET_SCAN_MIN_ENTROPY',
+                'SECRET_SCAN_ALLOWLIST', 'SECRET_SCAN_CODE_AWARE'}
+        self.assertEqual(set(graph.closure(scan)['keys']), keys)
+        self.assertEqual(graph.closure(deferral)['keys'], {})
+        for unit in (scan, deferral):
+            self.assertEqual(graph.closure(unit)['whole'], [])
+            self.assertEqual(graph.closure(unit)['fallback'], [])
+        for key in keys:
+            change = inputs.config_change(key+'=before', key+'=after')
+            self.assertEqual(set(graph.config_units(change, [scan, deferral])), {scan})
+        change = inputs.config_change('PROTECTED_PATHS=app', 'PROTECTED_PATHS=engine')
+        self.assertEqual(graph.config_units(change, [scan, deferral]), {})
+        document['nodes'].pop('scripts/hooks/guard-unasked-deferral.py')
+        self.assertEqual(set(graph.config_units(change, [scan, deferral])), {deferral})
+
     def test_notice_and_stop_predicate_closures_are_independent_of_config_values(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)
