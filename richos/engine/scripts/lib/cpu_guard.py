@@ -117,18 +117,20 @@ def seconds(value):
 
 
 def processes():
+    import proc_tree
     result = subprocess.run(['ps', '-ax', '-o', 'uid=,pid=,ppid=,time=,rss=,lstart=,comm='],
                             capture_output=True, text=True, check=True, timeout=5,
                             env={**os.environ, 'LC_ALL': 'C', 'TZ': 'UTC0'})
-    rows = {}
+    parsed = {}
     for line in result.stdout.splitlines():
         f = line.split(None, 10)
         if len(f) != 11 or int(f[0]) != os.getuid():
             continue
-        native = operator_fences.proc(int(f[1]), precise=True)
-        if native and native['zombie']:
-            continue
-        rows[int(f[1])] = dict(parent=int(f[2]), cpu=seconds(f[3]),
+        parsed[int(f[1])] = f
+    rows = {}
+    for pid, native in proc_tree.native_processes(parsed).items():
+        f = parsed[pid]
+        rows[pid] = dict(parent=native['ppid'] if native else int(f[2]), cpu=seconds(f[3]),
                               rss_mb=int(f[4]) / 1024, birth=' '.join(f[5:10]), name=f[10],
                               generation=native['start'] if native else None)
     return rows
@@ -901,7 +903,7 @@ class Watch:
         rates = {}
         for pid, rec in owned.items():
             old = self.previous.get(pid)
-            if old and self.same_process(rec, old) and elapsed > 0:
+            if pid in rows and old and self.same_process(rec, old) and elapsed > 0:
                 rates[pid] = max(0, rows[pid]['cpu'] - old['cpu']) / elapsed
         self.unowned_rates = {pid: max(0, row['cpu'] - self.previous[pid]['cpu']) / elapsed
                               for pid, row in rows.items() if pid not in owned and elapsed > 0

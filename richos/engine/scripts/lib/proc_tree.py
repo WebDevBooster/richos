@@ -136,21 +136,15 @@ def identity(pid):
     return row["start"] if row and not row["zombie"] else None
 
 
-def process_rows():
-    """Topology plus native birth generations, without a subprocess per identity.
+def native_processes(pids):
+    """Reconcile native lookup with process exit; retain live unknown identities.
 
-    Keep unreadable rows in the topology so an owned process with an unknown
-    generation causes a visible failure instead of disappearing from cleanup.
+    Both the supervisor and controller use this boundary. A stale ps row is not
+    a live unreadable process, and a status result is never a birth identity.
     """
-    result = subprocess.run(["ps", "-ax", "-o", "pid=,ppid=,pgid="],
-                            capture_output=True, text=True, timeout=10, check=True)
     table = {}
     unknown = set()
-    for line in result.stdout.splitlines():
-        fields = line.split()
-        if len(fields) != 3 or not all(field.isdigit() for field in fields):
-            continue
-        pid, parent, group = map(int, fields)
+    for pid in pids:
         row = operator_fences.proc(pid, precise=True)
         if row and row["zombie"]:
             continue
@@ -158,8 +152,7 @@ def process_rows():
             # libproc can return ESRCH for an unreaped zombie while kill(pid, 0)
             # still succeeds. Batch the status check for all unreadable rows.
             unknown.add(pid)
-        table[pid] = ((row["ppid"], row["pgid"], row["start"]) if row
-                      else (parent, group, None))
+        table[pid] = row
     live_unknown = set(_alive(unknown))
     for pid in unknown - live_unknown:
         del table[pid]
@@ -172,7 +165,7 @@ def process_rows():
         if row and row["zombie"]:
             del table[pid]
         elif row:
-            table[pid] = (row["ppid"], row["pgid"], row["start"])
+            table[pid] = row
         else:
             unresolved.add(pid)
     # A short-lived process may exit after the status sample but before the
@@ -181,6 +174,20 @@ def process_rows():
     for pid in unresolved - set(_alive(unresolved)):
         del table[pid]
     return table
+
+
+def process_rows():
+    """Topology plus native birth generations, without a subprocess per identity."""
+    result = subprocess.run(["ps", "-ax", "-o", "pid=,ppid=,pgid="],
+                            capture_output=True, text=True, timeout=10, check=True)
+    topology = {}
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) == 3 and all(field.isdigit() for field in fields):
+            pid, parent, group = map(int, fields)
+            topology[pid] = (parent, group, None)
+    return {pid: (row['ppid'], row['pgid'], row['start']) if row else topology[pid]
+            for pid, row in native_processes(topology).items()}
 
 
 def scoped_members(scope):

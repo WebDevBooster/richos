@@ -146,6 +146,52 @@ class OwnedTreeTests(unittest.TestCase):
                 patch.object(proc_tree, '_alive', side_effect=lambda pids: list(pids)):
             self.assertEqual(proc_tree.process_rows(), {991001: (2, 3, 'new-native-generation')})
 
+    def test_controller_sampling_reconciles_exited_rows_and_retains_live_unknown(self):
+        topology = subprocess.CompletedProcess([], 0,
+            f'{os.getuid()} 991001 1 0:01.00 1024 Sun Sep 27 00:00:00 2026 fixture\n', '')
+        for final_alive in ([], [991001]):
+            with self.subTest(final_alive=final_alive), \
+                    patch.object(guard.subprocess, 'run', return_value=topology), \
+                    patch.object(guard.operator_fences, 'proc', return_value=None), \
+                    patch.object(proc_tree, '_alive', side_effect=[[991001], final_alive]):
+                rows = guard.processes()
+            self.assertEqual(set(rows), set(final_alive))
+            if final_alive:
+                self.assertIsNone(rows[991001]['generation'])
+                self.register(10)
+                rows[10] = self.row()
+                rows[991001]['parent'] = 10
+                with self.assertRaisesRegex(RuntimeError, 'descendant generation unavailable'):
+                    guard.Watch().sample(rows, 0)
+
+    def test_controller_uses_native_parent_and_generation_after_reconciliation(self):
+        topology = subprocess.CompletedProcess([], 0,
+            f'{os.getuid()} 991001 10 0:01.00 1024 Sun Sep 27 00:00:00 2026 fixture\n', '')
+        native = {'ppid': 1, 'pgid': 3, 'start': 'replacement', 'zombie': False}
+        with patch.object(guard.subprocess, 'run', return_value=topology), \
+                patch.object(guard.operator_fences, 'proc', side_effect=[None, native]), \
+                patch.object(proc_tree, '_alive', side_effect=lambda pids: list(pids)):
+            rows = guard.processes()
+        self.assertEqual((rows[991001]['parent'], rows[991001]['generation']), (1, 'replacement'))
+        self.register(10)
+        rows[10] = self.row()
+        watch = guard.Watch()
+        watch.sample(rows, 0)
+        self.assertNotIn('991001', watch.owned)
+
+    def test_controller_retains_live_seed_after_registered_supervisor_exits(self):
+        self.register(10)
+        path = guard.STATE / 'roots/10.json'
+        record = guard.read_json(path)
+        record['verification']['seed'] = {'pid': 20, 'generation': 'child-generation'}
+        guard.write_json(path, record)
+        watch = guard.Watch()
+        watch.sample({10: self.row(), 20: self.row(10, generation='child-generation')}, 0)
+        watch.sample({20: self.row(1, cpu=2, generation='child-generation')}, 2)
+        group = watch.verification['10:native-one']
+        self.assertEqual(group['members'], {'20': 'child-generation'})
+        self.assertEqual(group['cores'], 1)
+
     def test_pressure_closes_new_permits_but_retains_parent_borrow_progress(self):
         directory = guard.STATE / "budget"
         workers.init(directory, 2)
