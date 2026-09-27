@@ -268,8 +268,11 @@ class CommandWalk(adopt_walk.Walk):
         """The guest's app log and the back end's own hook records, copied out before the guest is
         deleted: without them a failure in the guest can only be guessed at (bgdone2 run 1)."""
         kept = {}
-        for name, path in (('app.log', self.payload + '/app.log'),):
-            text = guest(self.vm, 'tail -c 400000 ' + shlex.quote(path) + ' 2>/dev/null || true', 60)
+        # The first launch logs to app.log; each relaunch.py launch to its own relaunch-<ns>.log.
+        names = ['app.log'] + guest(self.vm, 'cd ' + shlex.quote(self.payload)
+                                    + ' && ls relaunch-*.log 2>/dev/null || true').split()
+        for name in names:
+            text = guest(self.vm, 'tail -c 400000 ' + shlex.quote(self.payload + '/' + name) + ' 2>/dev/null || true', 60)
             (self.out / name).write_text(text + '\n')
             kept[name] = len(text)
         script = ('import glob,os,sys\n'
