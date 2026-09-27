@@ -5,6 +5,9 @@
 #   testvm/claude-login.sh host-check                 is THIS Mac signed in?
 #   testvm/claude-login.sh push  <vm> <guest-home>    copy the login in, verify
 #   testvm/claude-login.sh check <vm> <guest-home>    verify only, copy nothing
+#   testvm/claude-login.sh keep  <vm> <guest-home>    for the run's lifetime: hand
+#                                                     the guest each access token
+#                                                     this Mac renews (run.sh starts it)
 #
 # Prints ONE line on stdout:
 #
@@ -130,6 +133,151 @@ host_logged_in() {
     >/dev/null 2>&1
 }
 
+# ===========================================================================
+# A LONG RUN OUTLIVES ONE ACCESS TOKEN (2026-09-26)
+# ===========================================================================
+# The guest holds an access token and never a refresh token, so it cannot renew
+# anything. An access token lives 8 hours (the host's current one: written
+# 11:03:15Z, expiring 19:03:15Z), Claude Code renews it once it is inside five
+# minutes of expiry (`now + 300000 >= expiresAt` in 2.1.283), and walks here run
+# up to 105 minutes (ray10). So a run that starts late in a token's life would
+# see its model turns fail halfway with "Login expired" in the guest.
+#
+# The answer keeps the one rule (only THIS Mac ever renews this Mac's login, with
+# its own lock and its own store) and adds two things:
+#   1. push: when the token about to be handed over is inside that five-minute
+#      window, or already past it, THIS Mac's own `claude` is asked to renew its
+#      own login first (host_renew), and the fresh token is what crosses.
+#   2. keep: for the run's lifetime, the host item's MODIFICATION TIME is read
+#      every TESTVM_CLAUDE_KEEP_SECONDS (attributes only, never the value); when
+#      this Mac has renewed, the new access snapshot is pushed. When the guest's
+#      copy enters the window and this Mac has not renewed (an idle Mac makes no
+#      model calls), the host is asked once, the same way.
+# The guest's `claude` rereads its store at least every 30 s (its credential
+# cache), so a pushed token is in use before the old one runs out.
+TESTVM_CLAUDE_RENEW_BELOW_SECONDS="${TESTVM_CLAUDE_RENEW_BELOW_SECONDS:-300}"
+TESTVM_CLAUDE_KEEP_SECONDS="${TESTVM_CLAUDE_KEEP_SECONDS:-60}"
+TESTVM_CLAUDE_KEEP_MAX_SECONDS="${TESTVM_CLAUDE_KEEP_MAX_SECONDS:-43200}"
+# The host renewal, behind ONE override so the suites never start the CEO's
+# real `claude`. Empty means this Mac's own `claude` (host_claude_path).
+TESTVM_HOST_CLAUDE_RENEW="${TESTVM_HOST_CLAUDE_RENEW:-}"
+
+# When THIS Mac's credential item was last written: its ATTRIBUTES, never -w.
+# Every /login and every renewal rewrites it, so a change means a new token.
+host_written_at() {
+  perl -e 'alarm shift; exec @ARGV' "$TESTVM_CLAUDE_LOGIN_SECONDS" \
+    "$TESTVM_HOST_SECURITY" find-generic-password \
+      -s "$TESTVM_CLAUDE_KC_SERVICE" -a "$TESTVM_HOST_CLAUDE_ACCOUNT" 2>/dev/null \
+    | sed -n 's/.*"mdat"<timedate>=[^"]*"\([0-9]\{14\}\)Z.*/\1/p' | head -1
+}
+
+# Ask THIS Mac's own `claude` to renew its own login: a control-only process
+# (no prompt, no tools, no settings, no MCP, no session) asks for get_usage,
+# which goes through Claude Code's normal authenticated path, and Claude Code
+# renews under its own lock, into its own store, when the token is inside its
+# window. The process is this call's own group and is ended on every path. It
+# costs no model turn. Returns 0 when it answered.
+host_renew() {
+  if [ -n "$TESTVM_HOST_CLAUDE_RENEW" ]; then
+    "$TESTVM_HOST_CLAUDE_RENEW"
+    return $?
+  fi
+  local bin
+  bin="$(host_claude_path)"
+  [ -n "$bin" ] && [ -x "$bin" ] || return 1
+  python3 - "$bin" <<'PY'
+import json, os, selectors, signal, subprocess, sys, time
+args = ["--print", "--input-format=stream-json", "--output-format=stream-json", "--verbose",
+        "--setting-sources", "", "--no-session-persistence", "--tools", "",
+        "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
+env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+p = subprocess.Popen([sys.argv[1]] + args, cwd="/", env=env, stdin=subprocess.PIPE,
+                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
+ok = False
+try:
+    sel = selectors.DefaultSelector(); sel.register(p.stdout, selectors.EVENT_READ)
+    buf = b""
+    for n, sub in ((1, "initialize"), (2, "get_usage")):
+        p.stdin.write((json.dumps({"type": "control_request", "request_id": "renew-%d" % n,
+                                   "request": {"subtype": sub, "hooks": {}}}) + "\n").encode())
+        p.stdin.flush()
+        until = time.time() + 30
+        answered = False
+        while not answered and time.time() < until:
+            if not sel.select(timeout=max(0.1, until - time.time())):
+                continue
+            chunk = os.read(p.stdout.fileno(), 65536)
+            if not chunk:
+                break
+            buf += chunk
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                try:
+                    v = json.loads(line)
+                except ValueError:
+                    continue
+                r = v.get("response") if isinstance(v, dict) else None
+                if isinstance(r, dict) and r.get("request_id") == "renew-%d" % n:
+                    answered = True
+        if not answered:
+            break
+        ok = n == 2
+finally:
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(p.pid, sig)
+        except (ProcessLookupError, PermissionError):
+            break
+        try:
+            p.wait(timeout=5)
+            break
+        except subprocess.TimeoutExpired:
+            continue
+sys.exit(0 if ok else 1)
+PY
+}
+
+# THE ONLY PLACE THE VALUE EXISTS: read from the host keychain straight into
+# this process's memory, written to no file on this Mac, printed nowhere, and
+# reduced to an access snapshot before anything else sees it. `-w` prints the
+# value, so this pipeline is the one place in the harness that must never gain a
+# `tee`, a log, or a debug echo. Sets SECRET (the snapshot) and EXPIRES_MS.
+# Returns 0 for a usable snapshot, 1 when the credential cannot be read, 2 when
+# it is invalid or expired.
+take_snapshot() {
+  SECRET=""; EXPIRES_MS=""
+  local raw
+  raw="$(perl -e 'alarm shift; exec @ARGV' "$TESTVM_CLAUDE_LOGIN_SECONDS" \
+          "$TESTVM_HOST_SECURITY" find-generic-password \
+            -s "$TESTVM_CLAUDE_KC_SERVICE" -a "$TESTVM_HOST_CLAUDE_ACCOUNT" -w 2>/dev/null \
+         | perl -0777 -pe 's/\n\z//')"
+  [ -n "$raw" ] || return 1
+  # Drop refresh capability BEFORE either guest store is written. Use an explicit
+  # field allowlist so future host credentials cannot accidentally cross as well.
+  # Invalid/expired snapshots refuse provisioning; no token or parser input is logged.
+  SECRET="$(printf '%s' "$raw" | python3 -c '
+import json, math, sys, time
+try:
+    data = json.load(sys.stdin)["claudeAiOauth"]
+    token = data["accessToken"]
+    expiry = data["expiresAt"]
+    if not isinstance(token, str) or not token:
+        raise ValueError()
+    if isinstance(expiry, bool) or not isinstance(expiry, (int, float)):
+        raise ValueError()
+    if not math.isfinite(expiry) or expiry <= time.time() * 1000:
+        raise ValueError()
+    fields = ("accessToken", "expiresAt", "scopes", "subscriptionType", "rateLimitTier")
+    snapshot = {k: data[k] for k in fields if k in data}
+    sys.stdout.write(json.dumps({"claudeAiOauth": snapshot}, separators=(",", ":")))
+except (KeyError, TypeError, ValueError, OverflowError):
+    sys.exit(1)
+' 2>/dev/null)" || { SECRET=""; raw=""; return 2; }
+  raw=""
+  EXPIRES_MS="$(printf '%s' "$SECRET" | python3 -c 'import json,sys; print(int(json.load(sys.stdin)["claudeAiOauth"]["expiresAt"]))' 2>/dev/null)"
+  return 0
+}
+
 guest_logged_in() {  # <service>
   local out
   out="$(cg "env HOME='$GUEST_HOME' perl -e 'alarm shift; exec @ARGV' $TESTVM_CLAUDE_LOGIN_SECONDS \
@@ -150,8 +298,8 @@ case "$CMD" in
     printf '[testvm] host claude is not logged in — /login on the host first\n' >&2
     exit 1
     ;;
-  push|check) ;;
-  *) die "usage: claude-login.sh host-check | push <vm> <guest-home> | check <vm> <guest-home>" ;;
+  push|check|keep) ;;
+  *) die "usage: claude-login.sh host-check | push <vm> <guest-home> | check <vm> <guest-home> | keep <vm> <guest-home>" ;;
 esac
 
 VM="${1:-}"; GUEST_HOME="${2:-}"
@@ -191,6 +339,48 @@ if [ "$CMD" = "check" ]; then
   report "NOT logged in"; exit 1
 fi
 
+# --- keep ---------------------------------------------------------------------
+# One process per run, started by run.sh after a successful push, pid recorded
+# in the run state and ended by stop.sh by that pid. It also ends by itself when
+# the run state is gone (stop.sh removes it) and after
+# TESTVM_CLAUDE_KEEP_MAX_SECONDS, so a run that died without stop.sh cannot leave
+# it behind for longer than that.
+if [ "$CMD" = "keep" ]; then
+  STATE="$TESTVM_RUN/$VM"
+  [ -d "$STATE" ] || die "no run state at $STATE: keep runs only beside a run"
+  BEGAN="$(date +%s)"
+  LAST_WRITTEN="$(cat "$STATE/claude-login.host-written" 2>/dev/null)"
+  ASKED_FOR=""
+  log "keeping $VM's access token current (every ${TESTVM_CLAUDE_KEEP_SECONDS}s, until the run ends)"
+  while :; do
+    sleep "$TESTVM_CLAUDE_KEEP_SECONDS"
+    if [ ! -d "$STATE" ]; then
+      log "the run state is gone: the keeper for $VM ends"
+      exit 0
+    fi
+    if [ $(( $(date +%s) - BEGAN )) -ge "$TESTVM_CLAUDE_KEEP_MAX_SECONDS" ]; then
+      log "the keeper for $VM ends after ${TESTVM_CLAUDE_KEEP_MAX_SECONDS}s"
+      exit 0
+    fi
+    W="$(host_written_at)"
+    if [ -n "$W" ] && [ "$W" != "$LAST_WRITTEN" ]; then
+      log "this Mac's login was renewed: handing $VM the new access token"
+      if "$0" push "$VM" "$GUEST_HOME" >/dev/null; then
+        LAST_WRITTEN="$W"
+      fi
+      continue
+    fi
+    EXP="$(cat "$STATE/claude-login.expires" 2>/dev/null)"
+    case "$EXP" in *[!0-9]*|"") continue ;; esac
+    LEFT=$(( EXP / 1000 - $(date +%s) ))
+    if [ "$LEFT" -lt "$TESTVM_CLAUDE_RENEW_BELOW_SECONDS" ] && [ "$ASKED_FOR" != "$EXP" ]; then
+      ASKED_FOR="$EXP"
+      log "$VM's access token has ${LEFT}s left and this Mac has not renewed: asking this Mac's own claude to renew"
+      host_renew || log "this Mac's claude did not answer the renewal request"
+    fi
+  done
+fi
+
 # --- push ---------------------------------------------------------------------
 if ! host_logged_in; then
   report "NOT logged in"
@@ -198,46 +388,28 @@ if ! host_logged_in; then
   exit 2
 fi
 
-# THE ONLY PLACE THE VALUE EXISTS: read from the host keychain straight into
-# this process's memory, written to no file on this Mac, printed nowhere, and
-# handed to the guest on stdin below. `-w` prints the value, so this pipeline is
-# the one place in the harness that must never gain a `tee`, a log, or a debug
-# echo.
-SECRET="$(perl -e 'alarm shift; exec @ARGV' "$TESTVM_CLAUDE_LOGIN_SECONDS" \
-        "$TESTVM_HOST_SECURITY" find-generic-password \
-          -s "$TESTVM_CLAUDE_KC_SERVICE" -a "$TESTVM_HOST_CLAUDE_ACCOUNT" -w 2>/dev/null \
-       | perl -0777 -pe 's/\n\z//')"
-if [ -z "$SECRET" ]; then
+take_snapshot; SNAP_RC=$?
+if [ "$SNAP_RC" -eq 1 ]; then
   report "NOT logged in"
   printf '[testvm] the host credential could not be read (locked keychain, or a dialog was waiting)\n' >&2
   exit 3
 fi
-# Drop refresh capability BEFORE either guest store is written. Use an explicit
-# field allowlist so future host credentials cannot accidentally cross as well.
-# Invalid/expired snapshots refuse provisioning; no token or parser input is logged.
-SECRET="$(printf '%s' "$SECRET" | python3 -c '
-import json, math, sys, time
-try:
-    data = json.load(sys.stdin)["claudeAiOauth"]
-    token = data["accessToken"]
-    expiry = data["expiresAt"]
-    if not isinstance(token, str) or not token:
-        raise ValueError()
-    if isinstance(expiry, bool) or not isinstance(expiry, (int, float)):
-        raise ValueError()
-    if not math.isfinite(expiry) or expiry <= time.time() * 1000:
-        raise ValueError()
-    fields = ("accessToken", "expiresAt", "scopes", "subscriptionType", "rateLimitTier")
-    snapshot = {k: data[k] for k in fields if k in data}
-    sys.stdout.write(json.dumps({"claudeAiOauth": snapshot}, separators=(",", ":")))
-except (KeyError, TypeError, ValueError, OverflowError):
-    sys.exit(1)
-' 2>/dev/null)" || {
+# Inside Claude Code's renewal window, or past it: THIS Mac renews its own
+# login first, so the guest starts with a full-length token (see "A LONG RUN
+# OUTLIVES ONE ACCESS TOKEN" above).
+LEFT=-1
+[ "$SNAP_RC" -eq 0 ] && [ -n "$EXPIRES_MS" ] && LEFT=$(( EXPIRES_MS / 1000 - $(date +%s) ))
+if [ "$SNAP_RC" -ne 0 ] || [ "$LEFT" -lt "$TESTVM_CLAUDE_RENEW_BELOW_SECONDS" ]; then
+  log "this Mac's access token is $([ "$SNAP_RC" -eq 0 ] && echo "${LEFT}s from expiry" || echo "expired or unusable"): asking this Mac's own claude to renew its own login first"
+  host_renew || log "this Mac's claude did not answer the renewal request"
+  take_snapshot; SNAP_RC=$?
+fi
+if [ "$SNAP_RC" -ne 0 ]; then
   SECRET=""
   report "NOT logged in"
   printf '[testvm] REFUSED: no unexpired Claude access credential; refresh the host login before retrying. No host refresh token was sent to the guest.\n' >&2
   exit 3
-}
+fi
 SECRET_BYTES="${#SECRET}"
 HEX="$(printf '%s' "$SECRET" | xxd -p | tr -d '\n')"
 
@@ -321,6 +493,13 @@ guest_logged_in "$SVC_SCOPED" && KC_OK=1
 
 if [ "$FILE_OK" -eq 1 ] || [ "$KC_OK" -eq 1 ]; then
   log "login stored: credential file $([ "$FILE_OK" -eq 1 ] && echo "yes ($SECRET_BYTES bytes, matching the access snapshot)" || echo no), keychain item $([ "$KC_OK" -eq 1 ] && echo yes || echo no)"
+  # For `keep`: WHEN the guest's copy runs out and WHICH host write it came from.
+  # Two timestamps, no token.
+  if [ -d "$TESTVM_RUN/$VM" ]; then
+    printf '%s\n' "$EXPIRES_MS" > "$TESTVM_RUN/$VM/claude-login.expires"
+    host_written_at > "$TESTVM_RUN/$VM/claude-login.host-written"
+  fi
+  [ -n "$EXPIRES_MS" ] && log "the guest's access token expires $(date -u -r $(( EXPIRES_MS / 1000 )) +%H:%MZ 2>/dev/null) (no refresh token; keep renews it from this Mac)"
   report "logged in"
   exit 0
 fi

@@ -665,11 +665,28 @@ sends `refreshToken`, its expiry or other credential-store entries. Both guest
 file stores and both keychain entries receive this same restricted snapshot.
 Malformed or expired source credentials are refused before any guest write.
 
-The snapshot **can expire during a run**. This prevents a disposable VM from
-rotating the host login; it does not promise unattended authentication forever.
-For long model runs, provision a fresh snapshot from the host or use a separately
-managed automation credential. Do not restore refresh-token copying. A stored
-item's presence or byte count proves storage only, not successful authentication.
+A single snapshot **can expire during a run**, so two things keep it current, and
+in both only this Mac ever renews this Mac's login (its own lock, its own store):
+
+* **At push:** when the host's access token is within five minutes of expiry (Claude
+  Code's own renewal window) or past it, `claude-login.sh` first asks this Mac's own
+  `claude` to renew (a control-only `get_usage` request, no model turn), then hands over
+  the fresh token. A host that cannot renew is refused as before.
+* **During the run:** `run.sh` starts `claude-login.sh keep <vm> <guest-home>` after a
+  successful push and records its pid in the run state (`claude-keep.pid`, log in
+  `claude-keep.log`). Every 60 s it reads the host credential item's **modification
+  time** (an attribute, never the value); when this Mac has renewed, it pushes the new
+  access snapshot. When the guest's copy enters the renewal window and this Mac has not
+  renewed (an idle Mac makes no model calls), it asks this Mac once. `stop.sh` ends the
+  recorded pid; the keeper also ends by itself once the run state is gone, and after
+  12 hours.
+
+This prevents a disposable VM from rotating the host login; it does not promise
+unattended authentication forever (a login the provider revokes stays revoked). Do not
+restore refresh-token copying. A stored item's presence or byte count proves storage
+only, not successful authentication. The keeper and the renewal are proved against a
+fake credential and a stub guest (`test/run-tests.sh "claude login"`, and
+`test/claude-login.mutation.py`), not against a live guest.
 
 The following measurements describe the old full-copy implementation, not live
 verification of the restricted snapshot:

@@ -765,12 +765,30 @@ if [ "\$WANT_W" -eq 1 ]; then
   else
     printf '%s\n' '$FAKE_CRED'
   fi
+elif [ -n "\${HOST_SECURITY_MDAT_FILE:-}" ] && [ -f "\$HOST_SECURITY_MDAT_FILE" ]; then
+  # ATTRIBUTES, the way the real one prints them without -w: no value here.
+  printf '    "mdat"<timedate>=0x00  "%sZ\\\\000"\n' "\$(cat "\$HOST_SECURITY_MDAT_FILE")"
 fi
 exit 0
 PLACEHOLDER
 chmod 755 "$TMP/host-security.sh"
+# THE HOST RENEWAL, stubbed for the WHOLE suite: no case may start the CEO's
+# real `claude`. It records each request; with HOST_RENEW_TO set it plays this
+# Mac renewing its login (the credential file and the item's write time change).
+cat > "$TMP/host-renew.sh" <<'RENEW'
+#!/usr/bin/env bash
+printf 'renew\n' >> "${HOST_RENEW_LOG:-/dev/null}"
+if [ -n "${HOST_RENEW_TO:-}" ] && [ -n "${HOST_SECURITY_CREDENTIAL_FILE:-}" ]; then
+  cp "$HOST_RENEW_TO" "$HOST_SECURITY_CREDENTIAL_FILE"
+  [ -n "${HOST_SECURITY_MDAT_FILE:-}" ] && date -u +%Y%m%d%H%M%S > "$HOST_SECURITY_MDAT_FILE"
+fi
+exit 0
+RENEW
+chmod 755 "$TMP/host-renew.sh"
+export TESTVM_HOST_CLAUDE_RENEW="$TMP/host-renew.sh"
 login_env() {
   printf '%s\n' "TESTVM_HOST_SECURITY=$TMP/host-security.sh"
+  printf '%s\n' "TESTVM_HOST_CLAUDE_RENEW=$TMP/host-renew.sh"
 }
 
 t "engine payload: untarred with --strip-components 1, and CHECKED afterwards"
@@ -908,6 +926,131 @@ t_done
 t "claude login: a home that is not the guest's is refused before anything is read"
   err="$(env $(login_env) "$TESTVM_DIR/claude-login.sh" push richos-test-a "$HOME" 2>&1)"; no $?
   has "$err" "not under the guest user's home"
+t_done
+
+# --- a long run outlives one access token (2026-09-26) -----------------------
+cred_at() {  # <file> <token> <seconds-from-now>
+  printf '{"claudeAiOauth":{"accessToken":"%s","refreshToken":"also-not-real-9876543210","expiresAt":%s}}' \
+    "$2" "$(( ( $(date +%s) + $3 ) * 1000 ))" > "$1"
+}
+KEEP_HOME="/Users/admin/testvm/richos-test-a/home"
+# The same words login_env prints, as an array: nothing to word-split.
+LOGIN_ENV=("TESTVM_HOST_SECURITY=$TMP/host-security.sh" "TESTVM_HOST_CLAUDE_RENEW=$TMP/host-renew.sh")
+
+t "claude login: a token inside the renewal window is renewed by THIS Mac first, and the fresh one crosses"
+  cred_at "$TMP/cred-short.json" "short-lived-token-0123456789" 120
+  cred_at "$TMP/cred-renewed.json" "renewed-access-token-0123456789" 28800
+  : > "$TMP/renew.log"
+  out="$(env "${LOGIN_ENV[@]}" HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-short.json" HOST_RENEW_TO="$TMP/cred-renewed.json" \
+         HOST_RENEW_LOG="$TMP/renew.log" STUB_LOG=/dev/null STUB_SECURITY_STDIN=/dev/null STUB_CLAUDE_LOGIN=absent \
+         "$TESTVM_DIR/claude-login.sh" push richos-test-a "$KEEP_HOME" 2>/dev/null)"
+  ok $? "a renewed token is a login"
+  eq "$out" "claude login: guest logged in"
+  eq "$(wc -l < "$TMP/renew.log" | tr -d ' ')" "1" "this Mac is asked exactly once"
+  has   "$(cat "$STUB_GUEST_FS/credentials.json")" "renewed-access-token-0123456789"
+  hasnt "$(cat "$STUB_GUEST_FS/credentials.json")" "short-lived-token"
+  hasnt "$(cat "$STUB_GUEST_FS/credentials.json")" "refreshToken"
+t_done
+
+t "claude login: an expired host token is renewed by THIS Mac rather than refused"
+  cred_at "$TMP/cred-expired.json" "expired-token-0123456789" -60
+  cred_at "$TMP/cred-renewed.json" "renewed-access-token-0123456789" 28800
+  : > "$TMP/renew.log"
+  out="$(env "${LOGIN_ENV[@]}" HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-expired.json" HOST_RENEW_TO="$TMP/cred-renewed.json" \
+         HOST_RENEW_LOG="$TMP/renew.log" STUB_LOG=/dev/null STUB_SECURITY_STDIN=/dev/null STUB_CLAUDE_LOGIN=absent \
+         "$TESTVM_DIR/claude-login.sh" push richos-test-a "$KEEP_HOME" 2>/dev/null)"
+  ok $? "renewed, not refused"
+  eq "$out" "claude login: guest logged in"
+  has "$(cat "$STUB_GUEST_FS/credentials.json")" "renewed-access-token-0123456789"
+t_done
+
+t "claude login: a token with hours left is handed over as it is, without asking this Mac to renew"
+  cred_at "$TMP/cred-long.json" "long-lived-token-0123456789" 7200
+  : > "$TMP/renew.log"
+  out="$(env "${LOGIN_ENV[@]}" HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-long.json" HOST_RENEW_LOG="$TMP/renew.log" \
+         STUB_LOG=/dev/null STUB_SECURITY_STDIN=/dev/null STUB_CLAUDE_LOGIN=absent \
+         "$TESTVM_DIR/claude-login.sh" push richos-test-a "$KEEP_HOME" 2>/dev/null)"
+  ok $? "a long-lived token is a login"
+  eq "$(wc -c < "$TMP/renew.log" | tr -d ' ')" "0" "no renewal was needed"
+  has "$(cat "$STUB_GUEST_FS/credentials.json")" "long-lived-token-0123456789"
+t_done
+
+t "claude login: push records WHEN the guest's copy runs out and WHICH host write it came from, and no token"
+  mkdir -p "$TESTVM_ROOT/run/richos-test-a"
+  printf '20260926110315\n' > "$TMP/host-mdat"
+  cred_at "$TMP/cred-long.json" "long-lived-token-0123456789" 7200
+  out="$(env "${LOGIN_ENV[@]}" HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-long.json" HOST_SECURITY_MDAT_FILE="$TMP/host-mdat" \
+         STUB_LOG=/dev/null STUB_SECURITY_STDIN=/dev/null STUB_CLAUDE_LOGIN=absent \
+         "$TESTVM_DIR/claude-login.sh" push richos-test-a "$KEEP_HOME" 2>/dev/null)"
+  ok $? "push"
+  exp="$(cat "$TESTVM_ROOT/run/richos-test-a/claude-login.expires" 2>/dev/null)"
+  case "$exp" in ''|*[!0-9]*) no 0 "expires must be a number, got [$exp]" ;; esac
+  eq "$(cat "$TESTVM_ROOT/run/richos-test-a/claude-login.host-written" 2>/dev/null)" "20260926110315"
+  hasnt "$(cat "$TESTVM_ROOT/run/richos-test-a/"claude-login.* 2>/dev/null)" "token"
+t_done
+
+t "claude login: keep hands the guest each token THIS Mac renews, and ends when the run state goes"
+  mkdir -p "$TESTVM_ROOT/run/richos-test-a"
+  printf '20260926110315\n' > "$TMP/host-mdat"
+  cred_at "$TMP/cred-keep.json" "first-token-0123456789" 7200
+  env "${LOGIN_ENV[@]}" HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-keep.json" HOST_SECURITY_MDAT_FILE="$TMP/host-mdat" \
+      STUB_LOG=/dev/null STUB_SECURITY_STDIN=/dev/null STUB_CLAUDE_LOGIN=absent \
+      "$TESTVM_DIR/claude-login.sh" push richos-test-a "$KEEP_HOME" >/dev/null 2>&1
+  env "${LOGIN_ENV[@]}" HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-keep.json" HOST_SECURITY_MDAT_FILE="$TMP/host-mdat" \
+      STUB_LOG=/dev/null STUB_SECURITY_STDIN=/dev/null STUB_CLAUDE_LOGIN=absent TESTVM_CLAUDE_KEEP_SECONDS=1 \
+      "$TESTVM_DIR/claude-login.sh" keep richos-test-a "$KEEP_HOME" >"$TMP/keep.out" 2>&1 &
+  KEEP_PID=$!
+  sleep 2
+  cred_at "$TMP/cred-keep.json" "second-token-0123456789" 28800   # THIS Mac renews
+  printf '20260926190000\n' > "$TMP/host-mdat"
+  for _ in 1 2 3 4 5 6 7 8; do
+    grep -q second-token "$STUB_GUEST_FS/credentials.json" 2>/dev/null && break
+    sleep 1
+  done
+  has   "$(cat "$STUB_GUEST_FS/credentials.json")" "second-token-0123456789"
+  hasnt "$(cat "$STUB_GUEST_FS/credentials.json")" "refreshToken"
+  rm -rf "$TESTVM_ROOT/run/richos-test-a"                         # stop.sh's last act
+  for _ in 1 2 3 4 5 6; do kill -0 "$KEEP_PID" 2>/dev/null || break; sleep 1; done
+  if kill -0 "$KEEP_PID" 2>/dev/null; then
+    no 0 "the keeper outlived its run"; kill "$KEEP_PID" 2>/dev/null
+  fi
+  wait "$KEEP_PID" 2>/dev/null
+  has "$(cat "$TMP/keep.out")" "the run state is gone"
+t_done
+
+t "claude login: keep asks THIS Mac to renew once when the guest's copy enters the window unrenewed"
+  mkdir -p "$TESTVM_ROOT/run/richos-test-a"
+  printf '20260926110315\n' > "$TMP/host-mdat"
+  printf '20260926110315\n' > "$TESTVM_ROOT/run/richos-test-a/claude-login.host-written"
+  printf '%s\n' "$(( ( $(date +%s) + 100 ) * 1000 ))" > "$TESTVM_ROOT/run/richos-test-a/claude-login.expires"
+  : > "$TMP/renew.log"
+  env "${LOGIN_ENV[@]}" HOST_SECURITY_MDAT_FILE="$TMP/host-mdat" HOST_RENEW_LOG="$TMP/renew.log" \
+      TESTVM_CLAUDE_KEEP_SECONDS=1 \
+      "$TESTVM_DIR/claude-login.sh" keep richos-test-a "$KEEP_HOME" >"$TMP/keep2.out" 2>&1 &
+  KEEP_PID=$!
+  sleep 4
+  rm -rf "$TESTVM_ROOT/run/richos-test-a"
+  for _ in 1 2 3 4 5 6; do kill -0 "$KEEP_PID" 2>/dev/null || break; sleep 1; done
+  kill -0 "$KEEP_PID" 2>/dev/null && { no 0 "the keeper outlived its run"; kill "$KEEP_PID" 2>/dev/null; }
+  wait "$KEEP_PID" 2>/dev/null
+  eq "$(wc -l < "$TMP/renew.log" | tr -d ' ')" "1" "asked once per token, never in a loop"
+t_done
+
+t "claude login: run.sh starts ONE keeper after a successful push and records its pid; stop.sh ends that pid"
+  src="$(cat "$TESTVM_DIR/run.sh")"
+  # shellcheck disable=SC2016  # the $ names are literal source text
+  has "$src" 'claude-login.sh" keep "$VM" "$GUEST_HOME"'
+  # shellcheck disable=SC2016  # the $ names are literal source text
+  has "$src" '"$STATE/claude-keep.pid"'
+  lg="$(printf '%s\n' "$src" | grep -n 'claude-login.sh" push' | head -1 | cut -d: -f1)"
+  kp="$(printf '%s\n' "$src" | grep -n 'claude-login.sh" keep' | head -1 | cut -d: -f1)"
+  if [ -n "$lg" ] && [ -n "$kp" ] && [ "$lg" -lt "$kp" ]; then ok 0; else ok 1 "the keeper starts after the push"; fi
+  stop="$(cat "$TESTVM_DIR/stop.sh")"
+  has "$stop" 'claude-keep.pid'
+  kk="$(printf '%s\n' "$stop" | grep -n 'claude-keep.pid' | head -1 | cut -d: -f1)"
+  # shellcheck disable=SC2016  # the $ names are literal source text
+  rs="$(printf '%s\n' "$stop" | grep -n 'rm -rf "$STATE"' | head -1 | cut -d: -f1)"
+  if [ -n "$kk" ] && [ -n "$rs" ] && [ "$kk" -lt "$rs" ]; then ok 0; else ok 1 "the keeper is ended before the state goes"; fi
 t_done
 
 t "claude login: run.sh copies the login in after the keychain exists, and prints the line"

@@ -385,6 +385,12 @@ def read_get_usage(now, deadline_s=None):
                 pass
     if usage.get("subtype") != "success":
         r["state"], r["why"] = "failed", "get_usage was refused"
+        err = usage.get("error")
+        if isinstance(err, str) and any(t in err for t in DEAD_LOGIN):
+            # The saved login is dead (2026-09-26): the CEO must run /login.
+            # Only Claude Code's own first line is kept, never anything else.
+            r["auth_failed"] = err.strip().splitlines()[0][:160]
+            r["why"] = "get_usage was refused: %s" % r["auth_failed"]
         return r
     body = usage.get("response") if isinstance(usage.get("response"), dict) else {}
     if body.get("rate_limits_available") is False:
@@ -403,11 +409,33 @@ def read_get_usage(now, deadline_s=None):
     return r
 
 
+# Texts that mean the saved Claude login is dead, the same three login_alarm.py
+# acts on (Claude Code 2.1.283's own strings).
+DEAD_LOGIN = ("Login expired", "OAuth token revoked", "OAuth session expired")
+
+
+def report_login_failure(engine_root, text):
+    """Hand a dead-login refusal to login-alarm.sh, which tells the CEO once per
+    expiry. Best effort and bounded: the quota reading goes on either way."""
+    script = os.path.join(engine_root or "", "scripts", "login-alarm.sh")
+    if not os.path.isfile(script):
+        return False
+    try:
+        r = subprocess.run(["bash", script, "--report", "--source", "quota-watch",
+                            "--detail", text], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return r.returncode == 0
+
+
 def read_source(a, now):
     """get_usage first; the status-line file when it fails, saying why."""
     g = read_get_usage(now)
     if g["state"] == "ok":
         return g
+    if g.get("auth_failed"):
+        told = report_login_failure(getattr(a, "engine_root", ""), g["auth_failed"])
+        g["why"] += " (login alarm %s)" % ("raised" if told else "NOT raised")
     f = read_reading(a.payload, now)
     f["source"] = "the status line"
     f["fallback_why"] = g["why"]
