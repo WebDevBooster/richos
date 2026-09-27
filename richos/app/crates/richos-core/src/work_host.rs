@@ -1807,9 +1807,15 @@ impl WorkHost {
             payload.push_str(handoff.trim());
             payload.push('\n');
         }
+        // **THE CEO'S RULING §52 (2026-09-18) holds across a renewal too.** This line used to
+        // read "Stop at any step that would change his repository and wait for him to approve
+        // it" (operator spec r1 §8, r3 §8), which held the successor at a land the assignment's
+        // own brief tells it to make: *"So, yes, always land on its own."* The successor now
+        // takes its orders from that brief (`brief_for`), which says to land the reviewed
+        // result and never to claim a land it did not make.
         payload.push_str(
-            "\nWait for the assignment you are given. Stop at any step that would change his \
-             repository and wait for him to approve it.\n",
+            "\nWait for the assignment you are given, and carry it out as the brief it comes \
+             with says.\n",
         );
         payload
     }
@@ -4798,6 +4804,16 @@ mod tests {
         assert!(priming.contains("about to ask him about the second one"), "{priming}");
         assert!(!priming.contains(&receipt.id), "an identifier reached the back end: {priming}");
         assert!(!priming.contains("work-seat:"), "a seat reached the back end: {priming}");
+        // **THE CEO'S RULING §52 REACHES THE SUCCESSOR TOO** (operator spec r1 §8, r3 §8: the
+        // renewal handover still said "Stop at any step that would change his repository and
+        // wait for him to approve it"). A job lands on its own — *"So, yes, always land on its
+        // own"* — so the successor must not be told to hold at a land; it takes its orders
+        // from the assignment's own brief, which says to land the reviewed result. The old
+        // sentence must be GONE, not merely joined, or the successor is left to pick.
+        assert!(!priming.contains("wait for him to approve"), "the handover still holds work at his approval: {priming}");
+        assert!(!priming.contains("Stop at any step"), "the handover still tells it to stop before a land: {priming}");
+        assert!(priming.contains("Wait for the assignment you are given"), "{priming}");
+        assert!(priming.contains("the brief it comes with"), "{priming}");
         assert_eq!(h.handoffs.lock().unwrap().len(), 1, "the outgoing back end was not asked for a handoff");
 
         // HIS APPROVAL, AFTER THE ROTATION. The same assignment goes back on the NEW back
