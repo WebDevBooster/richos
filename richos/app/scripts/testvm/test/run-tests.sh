@@ -38,8 +38,17 @@ FILTER="${1:-}"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/testvm-tests.XXXXXX")"
 # §54: this scratch directory goes however this script ends — pass, fail, or
 # an interrupt from a keyboard.
+#
+# A signal ENDS the run. A trap that only cleaned up let bash carry on after a
+# TERM, against the directory it had just deleted: on 2026-09-27 the proof
+# runner's supervisor sent TERM 0.6 s in, and every later case "failed" on a
+# missing file — the claude-login cases among them — which read as a login
+# regression when nothing about the login had changed. 130/143 are the codes
+# the shell itself would have exited with.
 cleanup() { rm -rf "$TMP"; }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'cleanup; trap - EXIT; exit 130' INT
+trap 'cleanup; trap - EXIT; exit 143' TERM
 
 PASS=0; FAIL=0; FAILED_NAMES=()
 
