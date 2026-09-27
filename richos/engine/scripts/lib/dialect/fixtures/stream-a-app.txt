@@ -82,4 +82,12 @@ code FENCE-ANCHOR here
 ```
 
 He said "QUOTE-ANCHOR today" and left.
+=== drain-prompt
+Please check the colour of the organisation's logo, and whilst you are there, the behaviour of the menu.
+=== drain-deltas-1
+The col|our of the organis|ation is fine. The behaviour
+=== drain-deltas-2
+Favour|ite: the tyre is |grey
+=== drain-deltas-3
+He hono|ured the cheque
 === end

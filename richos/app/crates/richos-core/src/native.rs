@@ -2957,10 +2957,31 @@ impl NativeClient {
         // assistant output" — but stops waiting forever for a `result` that a non-compliant
         // agent may never send.
         let mut cancel_deadline: Option<std::time::Instant> = None;
+        // **AMERICAN SPELLING, FIXED HERE AND NOWHERE ELSE** (CEO §93; plan check 1(a), C9).
+        // This is the one place every piece of reply text passes — streamed deltas, the app-said
+        // receipt and the degraded whole message alike — and the one place `seq` is assigned,
+        // so a held-back word goes out under the counter that already exists. Everything
+        // downstream of the ledger inherits the fixed text: the Mac's screen, speech, crash
+        // recovery, the phones and both kinds of push preview. His own words never come
+        // through here (`record_prompt_received*`); `american_spelling.rs` has the rules.
+        //
+        // **The held word is released before anything else is delivered and on every way out
+        // of this loop** — the next tool row, a permission, a usage reading, `content_block_stop`,
+        // `Done`, the cancel timeout (before the sink is detached), the child vanishing, and a
+        // question ending the turn — so §9.3 step 4's partial output is never lost to it.
+        let mut spelling = crate::american_spelling::Speller::new();
+        fn release(seq: &mut u64, on_item: &mut dyn FnMut(TurnItem), spelling: &mut crate::american_spelling::Speller) {
+            let held = spelling.finish();
+            if !held.is_empty() {
+                on_item(TurnItem::Text { seq: *seq, text: &held });
+                *seq += 1;
+            }
+        }
         loop {
             // Persisted questions terminate only the front desk's asking turn. A
             // non-cooperative provider cannot retain its conversation mutex indefinitely.
             if question_scope.as_deref().is_some_and(crate::question_tools::has_asked) {
+                release(&mut seq, on_item, &mut spelling);
                 self.cancel_handle().shutdown();
                 *self.current_prompt.lock().unwrap()=None;
                 return Ok("question_asked".into());
@@ -2975,16 +2996,28 @@ impl NativeClient {
             };
             match received {
                 Ok(ChunkMsg::Text(t)) => {
-                    on_item(TurnItem::Text { seq, text: &t });
-                    seq += 1;
+                    let decided = spelling.push(&t);
+                    // Never an empty item: a delta that is all held-back word delivers nothing
+                    // now and consumes no position.
+                    if !decided.is_empty() {
+                        on_item(TurnItem::Text { seq, text: &decided });
+                        seq += 1;
+                    }
                 }
                 Ok(ChunkMsg::Frame(frame)) => {
+                    // A keep-alive `ping` can arrive mid-word and says nothing about the text,
+                    // so it releases nothing; every other frame ends the run of text in front
+                    // of it (`content_block_stop` right after a block's last delta, above all).
+                    if !is_ping(&frame) {
+                        release(&mut seq, on_item, &mut spelling);
+                    }
                     for record in MachineryRecord::from_native_event(&frame, &self.session_id, seq) {
                         seq += 1;
                         on_item(TurnItem::Machinery(record));
                     }
                 }
                 Ok(ChunkMsg::Permission { request, chosen }) => {
+                    release(&mut seq, on_item, &mut spelling);
                     on_item(TurnItem::Machinery(MachineryRecord::from_permission_request(
                         &request,
                         &chosen,
@@ -2994,6 +3027,7 @@ impl NativeClient {
                     seq += 1;
                 }
                 Ok(ChunkMsg::Usage { used, size, usage }) => {
+                    release(&mut seq, on_item, &mut spelling);
                     on_item(TurnItem::Machinery(MachineryRecord::from_context_usage(
                         used,
                         size,
@@ -3010,6 +3044,7 @@ impl NativeClient {
                     cancel_deadline.get_or_insert_with(|| std::time::Instant::now() + cancel_grace());
                 }
                 Ok(ChunkMsg::Done(result)) => {
+                    release(&mut seq, on_item, &mut spelling);
                     let reason = stop_reason_of(&result);
                     if reason == "child_exited" { return Err(NativeError::Closed); }
                     if result.get("is_error").and_then(Value::as_bool) == Some(true)
@@ -3026,14 +3061,25 @@ impl NativeClient {
                     // The agent was told to interrupt and did not answer within the grace
                     // window. Stop rendering this turn — and DETACH the sink first, so
                     // anything the agent says afterwards cannot be routed into whatever turn
-                    // runs next.
+                    // runs next. What was already said is released first: it is this turn's.
+                    release(&mut seq, on_item, &mut spelling);
                     *self.current_prompt.lock().unwrap() = None;
                     return Ok(STOP_REASON_CANCEL_UNACKNOWLEDGED.to_string());
                 }
-                Err(RecvTimeoutError::Disconnected) => return Err(NativeError::Closed),
+                Err(RecvTimeoutError::Disconnected) => {
+                    release(&mut seq, on_item, &mut spelling);
+                    return Err(NativeError::Closed);
+                }
             }
         }
     }
+}
+
+/// A streamed keep-alive: it says nothing about the text, so it must not end a run of it (the
+/// drain's American spelling hold-back releases on every other frame).
+fn is_ping(frame: &Value) -> bool {
+    frame.get("type").and_then(Value::as_str) == Some("stream_event")
+        && frame.get("event").and_then(|e| e.get("type")).and_then(Value::as_str) == Some("ping")
 }
 
 /// `used`, summed from a vendor `usage` object, or `None` if it carries no input side.
@@ -6668,5 +6714,111 @@ read -r keep_alive
 "#);
         let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
         assert_eq!(client.prompt("carry on", &mut |_| {}).unwrap(), "refused_before_it_ran");
+    }
+
+    // ---- AMERICAN SPELLING AT THE DRAIN (CEO §93) --------------------------------------------
+
+    /// One scripted turn whose text is `blocks` (each a list of deltas, streamed in its own text
+    /// block, with a tool call between the blocks), then `ending`: `"result"` for a normal end,
+    /// `"exit"` for a child that dies with no `result`. Returns every item in delivery order,
+    /// the turn's result and the prompt line the child received.
+    fn a_british_turn(
+        tag: &str,
+        prompt: &str,
+        blocks: &[Vec<String>],
+        ending: &str,
+    ) -> (Vec<(u64, Option<String>)>, Result<String, NativeError>, String) {
+        let dir = fixture_root().join(format!("american-{tag}-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ev = |event: Value| json!({"type": "stream_event", "event": event}).to_string();
+        let mut frames = vec![ev(json!({"type": "message_start"}))];
+        for (i, deltas) in blocks.iter().enumerate() {
+            if i > 0 {
+                frames.push(ev(json!({"type": "content_block_start",
+                    "content_block": {"type": "tool_use", "id": format!("toolu_{i}"), "name": "Read", "input": {}}})));
+                frames.push(ev(json!({"type": "content_block_stop"})));
+            }
+            frames.push(ev(json!({"type": "content_block_start", "content_block": {"type": "text", "text": ""}})));
+            for delta in deltas {
+                frames.push(ev(json!({"type": "content_block_delta", "delta": {"type": "text_delta", "text": delta}})));
+            }
+            // A child that dies does so mid-block: nothing after its last delta.
+            if !(ending == "exit" && i + 1 == blocks.len()) {
+                frames.push(ev(json!({"type": "content_block_stop"})));
+            }
+        }
+        if ending == "result" {
+            frames.push(json!({"type": "result", "stop_reason": "end_turn"}).to_string());
+        }
+        let frames_path = dir.join("frames.jsonl");
+        std::fs::write(&frames_path, frames.join("\n") + "\n").unwrap();
+        let received = dir.join("received");
+        let script = write_script(tag, &format!(r#"
+read -r init
+printf '%s\n' '{{"type":"control_response","response":{{"subtype":"success","request_id":"req_init","response":{{}}}}}}'
+read -r prompt
+printf '%s\n' "$prompt" > '{received}'
+cat '{frames}'
+"#, received = received.display(), frames = frames_path.display()));
+        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        let mut items = Vec::new();
+        let result = client.prompt(prompt, &mut |item| match item {
+            TurnItem::Text { seq, text } => items.push((seq, Some(text.to_string()))),
+            TurnItem::Machinery(record) => items.push((record.seq, None)),
+        });
+        let line = std::fs::read_to_string(&received).unwrap_or_default();
+        (items, result, line)
+    }
+
+    /// A fixture section of `|`-separated deltas (British on purpose, in the exempt location).
+    fn british_deltas(section: &str) -> Vec<String> {
+        crate::american_spelling::tests::section(section)
+            .trim_end_matches('\n')
+            .split('|')
+            .map(str::to_string)
+            .collect()
+    }
+
+    fn said_in(items: &[(u64, Option<String>)]) -> String {
+        items.iter().filter_map(|(_, t)| t.clone()).collect()
+    }
+
+    #[test]
+    fn a_british_reply_reaches_him_american_and_his_own_words_reach_the_model_as_he_said_them() {
+        let prompt = crate::american_spelling::tests::section("drain-prompt").trim_end().to_string();
+        let first = british_deltas("drain-deltas-1");
+        let second = british_deltas("drain-deltas-2");
+        let (items, result, received) = a_british_turn("reply", &prompt, &[first.clone(), second.clone()], "result");
+        assert_eq!(result.unwrap(), "end_turn");
+
+        // HIS WORDS: the child received exactly what he wrote, British spelling and all.
+        let sent: Value = serde_json::from_str(received.trim()).expect("the child saw the prompt line");
+        assert_eq!(sent["message"]["content"][0]["text"].as_str(), Some(prompt.as_str()), "his words were rewritten");
+        assert_ne!(crate::american_spelling::fix(&prompt), prompt, "the prompt fixture must carry table words");
+
+        // THE REPLY: each block is exactly the fixer's answer for that block, so what is
+        // stored delta by delta is what `message-completed` reads back.
+        let tool_at = items.iter().position(|(_, t)| t.is_none()).expect("the tool call is delivered");
+        let before = said_in(&items[..tool_at]);
+        let after = said_in(&items[tool_at..]);
+        assert_eq!(before, crate::american_spelling::fix(&first.concat()));
+        assert_eq!(after, crate::american_spelling::fix(&second.concat()));
+        assert_ne!(before, first.concat(), "the first block must have changed");
+        assert_ne!(after, second.concat(), "the second block must have changed");
+
+        // ORDER: one counter, strictly increasing, the held tail delivered before the tool
+        // call, and no empty text item.
+        let seqs: Vec<u64> = items.iter().map(|(s, _)| *s).collect();
+        assert!(seqs.windows(2).all(|w| w[0] < w[1]), "seq must strictly increase: {seqs:?}");
+        assert!(items.iter().all(|(_, t)| t.as_deref() != Some("")), "an empty text item was delivered");
+    }
+
+    #[test]
+    fn a_child_that_dies_mid_reply_still_delivers_its_held_word_fixed() {
+        let third = british_deltas("drain-deltas-3");
+        let (items, result, _) = a_british_turn("crash", "go on", &[third.clone()], "exit");
+        assert!(matches!(result, Err(NativeError::Closed)), "a vanished child is Closed: {result:?}");
+        assert_eq!(said_in(&items), crate::american_spelling::fix(&third.concat()), "the partial reply must be kept, fixed");
+        assert_ne!(said_in(&items), third.concat());
     }
 }

@@ -276,9 +276,14 @@ impl Speller {
     /// shown): release everything held, deciding it as the end of the text.
     pub fn finish(&mut self) -> String {
         let out = self.run(true);
-        if let Some(open) = self.open.take() {
-            self.close_token(open);
-        }
+        // What follows is a new text (the next block after a tool call): it starts where a
+        // text starts, with no fence, span or quotation carried into it.
+        *self = Speller {
+            consumed: self.consumed,
+            line: self.line,
+            changes: self.changes.take(),
+            ..Speller::new()
+        };
         out
     }
 
@@ -779,7 +784,7 @@ fn fix_fragment_at(file: &str, old: &str, new: &str, every: bool) -> Option<(Str
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// The keyed British sample: `{british|american}` must change, `{word|=}` must stay. It lives
