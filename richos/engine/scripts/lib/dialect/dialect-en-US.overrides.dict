@@ -1,0 +1,59 @@
+# dialect-en-US.overrides.dict — ADDITIONS to the generated American spelling
+# table that VarCon's verified data does not supply.
+#
+# Read only by dialect-table.py. Same format as ../dialect-en-US.dict:
+#
+#     <non-target form><TAB><target form>[<TAB>ext-exempt=css,...]
+#
+# WHY A SECOND HAND-KEPT FILE AND NOT MORE LINES IN ../dialect-en-US.dict.
+# That file is read by guard-dialect.sh today, so every line added there also
+# changes what today's guard refuses, and the code-check ratchet counts it.
+# Step 0 of the auto-fix changes data, not enforcement. When stream B moves the
+# guard onto the generated table, the two hand-kept files can be merged.
+#
+# WHAT BELONGS HERE. A British form that was measured in our own text or in the
+# keyed British sample, that the generated table misses, and whose American
+# form is not in doubt. Every line was found by measurement
+# (richos-hq docs/research/2026-09-27-american-spelling-autofix.md, "Overrides").
+#
+# THE GENERATOR REFUSES A LINE HERE THAT
+#   * VarCon's verified table already carries (then it is not an override),
+#   * ../dialect-en-US.dict already carries (one hand-kept source per word),
+#   * VarCon marks as a preferred American spelling in some sense (ambiguous),
+#   * VarCon maps to a DIFFERENT American form than the one written here.
+# VarCon's unverified clusters do carry most of these words, with the same
+# American form; the generator checks that agreement rather than trusting it.
+
+# --- unverified in VarCon, measured in the keyed sample -------------------
+kerb	curb
+kerbs	curbs
+kerbside	curbside
+skilful	skillful
+skilfully	skillfully
+skilfulness	skillfulness
+
+# --- measured in our own record ------------------------------------------
+onwards	onward
+
+# --- -ise families of words this record and its code produce -------------
+anonymise	anonymize
+anonymises	anonymizes
+anonymised	anonymized
+anonymising	anonymizing
+anonymisation	anonymization
+monetise	monetize
+monetises	monetizes
+monetised	monetized
+monetising	monetizing
+tokenise	tokenize
+tokenises	tokenizes
+tokenised	tokenized
+tokenising	tokenizing
+tokenisation	tokenization
+tokeniser	tokenizer
+tokenisers	tokenizers
+canonicalise	canonicalize
+canonicalises	canonicalizes
+canonicalised	canonicalized
+canonicalising	canonicalizing
+canonicalisation	canonicalization

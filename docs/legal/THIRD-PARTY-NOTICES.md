@@ -229,9 +229,22 @@ names and are not redistributed as a separate font product.
 | Work | Upstream | Revision / version | License | Copyright | Full terms | Verified |
 |---|---|---|---|---|---|---|
 | `richos/engine/scripts/lib/dialect/third_party/varcon/` (`varcon.txt`, `README`) | VarCon, part of SCOWL (<http://wordlist.aspell.net/>), as vendored by crate-ci/typos at `crates/varcon/assets` | VarCon 2020.12.07; typos commit `dd3e1018f8a825a98be71048c21a9b0495aff703`; `varcon.txt` sha256 `c1e234817b526a809fa745d742fec84db88b65c429e22faf8a556b3d5a224085` | notice-only permissive terms (three notices, below) | 2000-2020 Kevin Atkinson; 2016 Benjamin Titze; 1993 Geoff Kuenning | `richos/engine/scripts/lib/dialect/third_party/varcon/README`, section "Copyright" | byte-identical (both files, 2026-09-27) |
-**What ships, and where.** The engine asset carries both files, because it
-ships every tracked engine file. Nothing else from VarCon is used, and no
-VarCon script is bundled. `varcon.txt` itself is unmodified.
+| `richos/engine/scripts/lib/dialect/dialect-en-US.generated.dict` | generated from the row above by `richos/engine/scripts/lib/dialect/dialect-table.py` | same input, pinned by sha256 inside the generator | same three notices | same holders | this section | **modified version** — see below |
+
+**What ships, and where.** The engine asset carries all three files, because it
+ships every tracked engine file. The generated table is also meant to be
+compiled into the RichOS application, so the application's binary
+redistribution carries this page with it. Nothing else from VarCon is used, and
+no VarCon script is bundled. `varcon.txt` itself is unmodified.
+
+**The generated table is a modified version of VarCon, marked as such**, as the
+Ispell notice's third condition requires of source and of binaries built from
+modified source. It is a subset: only VarCon's verified clusters at SCOWL level
+70 or below, only British forms with exactly one preferred American form and
+no preferred-American use in any sense, reformatted to one pair per line, with
+RichOS additions and removals merged in (`dialect-en-US.overrides.dict` and
+`dialect-en-US.leave.tsv` beside it, and `richos/engine/scripts/lib/dialect-en-US.dict`).
+The table's own header says so in every copy and carries the three notices.
 
 **No endorsement.** The names of Kevin Atkinson, Benjamin Titze and Geoff
 Kuenning appear here only to give the attribution their notices require. None

@@ -1,0 +1,33 @@
+# dialect-en-US.leave.tsv — forms VarCon's verified data WOULD change, that the
+# generated American spelling table deliberately leaves alone.
+#
+# Read only by dialect-table.py. TAB-separated, two fields:
+#
+#     <form><TAB><why it stays>
+#
+# The generator REFUSES a line whose form the table would not otherwise carry:
+# a leave entry that removes nothing is stale, and a stale list is how a real
+# exemption hides among dead ones. It also refuses a form that is also an
+# override, because one word cannot be both.
+#
+# The one-time Harper cross-check (captured in fixtures/harper-review-list.tsv)
+# found 25 verified forms an independent American dictionary accepts. 18 are
+# fixed anyway under the "always the preferred American form" rule; the 7 below
+# marked review-list are the ones that stay.
+
+# --- review list: correct American where they stand ----------------------
+oversized	review-list: a correct American adjective; VarCon maps it to oversize
+queueing	review-list: standard in American technical writing
+hah	review-list: a common American interjection
+hurray	review-list: a common American interjection
+hurrayed	review-list: a common American interjection
+hurraying	review-list: a common American interjection
+hurrays	review-list: a common American interjection
+
+# --- names that must never change -----------------------------------------
+macintosh	name: Apple's computer and the Macintosh HD volume; VarCon's entry is the raincoat
+
+# --- editorial calls, sense rather than dialect ---------------------------
+canceller	editorial: echo canceller is the standard term in audio work (plan check C20)
+cancellers	editorial: echo canceller is the standard term in audio work (plan check C20)
+whisky	editorial: American usage keeps whisky for Scotch, Canadian and Japanese whisky; whiskey is a different product label, not a spelling fix
