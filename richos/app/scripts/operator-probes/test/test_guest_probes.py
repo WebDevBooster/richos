@@ -363,6 +363,78 @@ class ArtifactScrub(unittest.TestCase):
         self.assertIn('private artifact title', json.dumps(frame), 'the live frame is not changed, only the saved copy')
 
 
+class P18Transcript(unittest.TestCase):
+    """The saved transcript is read the way the provider's own check reads it: the message is a
+    non-sidechain `user` entry carrying the uuid (design §1.2, `persisted`)."""
+    ROWS = [
+        {'type': 'queue-operation', 'operation': 'enqueue', 'content': 'Reply with exactly: MARK-C'},
+        {'type': 'user', 'uuid': 'U', 'isSidechain': False, 'message': {'role': 'user', 'content': 'secret words'}},
+        {'type': 'user', 'uuid': 'U', 'isSidechain': True, 'message': {'role': 'user'}},
+        {'type': 'assistant', 'uuid': 'a-1', 'message': {'role': 'assistant', 'content': 'MARK-A'}},
+        {'type': 'user', 'uuid': 'x-1', 'interruptedByShutdown': True, 'message': {'role': 'user'}},
+    ]
+
+    def test_only_the_non_sidechain_user_entry_counts(self):
+        self.assertEqual(len(gp.uuid_entries(self.ROWS, 'U')), 1)
+        self.assertEqual(gp.uuid_entries(self.ROWS, 'absent'), [])
+        self.assertEqual(gp.uuid_entries(self.ROWS, 'a-1'), [], 'an assistant entry is not the message')
+
+    def test_what_follows_the_message_is_read_as_shapes_and_the_shutdown_marker_is_seen(self):
+        after = gp.after_entry(self.ROWS, 'U')
+        self.assertTrue(after['found'])
+        self.assertTrue(after['interrupted_by_shutdown'])
+        self.assertEqual(after['after'][1], ('assistant', 'assistant'))
+        self.assertFalse(gp.after_entry(self.ROWS, 'nothing')['found'])
+
+    def test_the_summary_never_carries_text(self):
+        out = json.dumps(gp.transcript_summary(self.ROWS))
+        self.assertNotIn('secret words', out)
+        self.assertNotIn('MARK-C', out, 'a queued message\'s content stays out of the record')
+        self.assertIn('queue-operation', out)
+
+
+class GradeP18(unittest.TestCase):
+    def passing(self):
+        return {
+            'A': {'session': 's-a', 'resumed_session_id': 's-a', 'first_answered': True, 'echo': True,
+                  'again_answered': False, 'transcript_u_after': 1, 'claude_alive_after_grace_plus_one': False},
+            'B': {'session': 's-b', 'resumed_session_id': 's-b', 'echo': True, 'ran': {}, 'transcript_u_after': 1},
+            'C': {'session': 's-c', 'resumed_session_id': 's-c', 'in_shell': True, 'echo_before_kill': False,
+                  'u_in_transcript_before_kill': 0, 'again_results': 1, 'transcript_u_after': 1},
+            'D': {'answered': True},
+            'E': {'first_answered': True, 'echo': True, 'again_answered': False},
+        }
+
+    def test_the_design_s_pass_line(self):
+        self.assertEqual(gp.grade_p18(self.passing())[0], 'PASS')
+
+    def test_b_is_recorded_and_never_graded(self):
+        r = self.passing()
+        r['B'].update(echo=False, transcript_u_after=2, ran={'MARK-B-AGAIN': True})
+        self.assertEqual(gp.grade_p18(r)[0], 'PASS')
+
+    def test_each_failed_pass_condition_fails(self):
+        for case, field, value in (('A', 'again_answered', True), ('A', 'echo', False), ('A', 'transcript_u_after', 2),
+                                   ('C', 'again_results', 2), ('C', 'again_results', 0),
+                                   ('C', 'u_in_transcript_before_kill', 1), ('C', 'transcript_u_after', 2),
+                                   ('E', 'again_answered', True), ('B', 'resumed_session_id', 's-other')):
+            r = self.passing()
+            r[case][field] = value
+            self.assertEqual(gp.grade_p18(r)[0], 'FAIL', (case, field, value))
+
+    def test_a_control_that_did_not_behave_concludes_nothing(self):
+        for case, field, value in (('D', 'answered', False), ('A', 'first_answered', False), ('C', 'in_shell', False),
+                                   ('C', 'echo_before_kill', True), ('E', 'first_answered', False),
+                                   ('A', 'claude_alive_after_grace_plus_one', True), ('C', 'resumed_session_id', None)):
+            r = self.passing()
+            r[case][field] = value
+            self.assertEqual(gp.grade_p18(r)[0], 'PREMISE-FALSE', (case, field, value))
+
+    def test_p18_runs_in_a_default_run(self):
+        self.assertIn('P18', [pid for pid, _ in gp.PROBES])
+        self.assertNotIn('P18', gp.EXPLICIT)
+
+
 class Arguments(unittest.TestCase):
     def test_the_lead_arguments_mirror_the_operator_profile(self):
         """operator_profile::child_args, flag for flag. If the profile changes, this list must."""

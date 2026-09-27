@@ -38,6 +38,8 @@ import threading
 import time
 import traceback
 import uuid
+# `Lead.user` takes a parameter named `uuid` (the id to send), which shadows the module there.
+uuid_module = uuid
 
 GUEST_CLAUDE = '/Users/admin/.local/bin/claude'
 # The spec's allowlist (r3 (i)), captured by `enable.sh` from his terminal.
@@ -659,8 +661,9 @@ class Lead(object):
         self.proc.stdin.write(json.dumps(obj) + '\n')
         self.proc.stdin.flush()
 
-    def user(self, text, priority=None):
-        mid = str(uuid.uuid4())
+    def user(self, text, priority=None, uuid=None):
+        # P18 resends one message under the uuid it was first sent with, as the app's retry does.
+        mid = uuid or str(uuid_module.uuid4())
         msg = {'type': 'user', 'uuid': mid, 'message': {'role': 'user', 'content': [{'type': 'text', 'text': text}]}}
         if priority:
             msg['priority'] = priority
@@ -2276,6 +2279,313 @@ def p17(ctx, r):
     if ok:
         return 'PASS', 'with CLAUDE_CODE_ARTIFACT=1 Artifact is listed and list_types and list both succeed; without it, absent'
     return 'FAIL', 'Artifact is listed, but the read-only calls did not both succeed: %s' % main.get('calls')
+
+
+# =============================================================================================
+# P18: does the provider drop a resent uuid across a restart? (richos-hq
+# docs/plans/2026-09-27-answer-delivery-crash-dedup-design.md §1.4). The 2.1.281-2.1.283 code
+# drops a stream-json user message whose uuid the resumed session's saved transcript already
+# holds with an answered turn, and echoes it; that property is undocumented. The app's retry of
+# an answer relies on it, so it is measured here, on the version the host has at run time.
+# =============================================================================================
+
+OPERATOR_REAP_GRACE = 5  # provider-supervisor.py's default grace (r3 (q) item 2), as in P15
+
+
+def transcript_rows(ctx, session_id):
+    """The session's saved transcript, one dict per line; a torn line is skipped."""
+    path = ctx.p.claude_dir / 'projects' / slug(ctx.p.entity) / ('%s.jsonl' % session_id)
+    rows = []
+    if path.exists():
+        for line in path.read_text().splitlines():
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                continue
+    return rows
+
+
+def uuid_entries(rows, uid):
+    """The non-sidechain `user` entries that carry `uid`: the message, as the provider saved it."""
+    return [e for e in rows if isinstance(e, dict) and e.get('type') == 'user' and e.get('uuid') == uid
+            and not e.get('isSidechain')]
+
+
+def after_entry(rows, uid):
+    """What the transcript holds after the first entry carrying `uid`, as types (no text), and
+    whether an `interruptedByShutdown` marker is among them (the provider's re-execute case)."""
+    index = next((i for i, e in enumerate(rows) if isinstance(e, dict) and e.get('uuid') == uid), None)
+    if index is None:
+        return {'found': False, 'after': [], 'interrupted_by_shutdown': False}
+    later = rows[index + 1:]
+    return {'found': True,
+            'after': [(e.get('type'), (e.get('message') or {}).get('role') if isinstance(e.get('message'), dict) else None)
+                      for e in later if isinstance(e, dict)][:40],
+            'interrupted_by_shutdown': any(isinstance(e, dict) and e.get('interruptedByShutdown') is True for e in later)}
+
+
+def transcript_summary(rows):
+    """Every entry's shape, never its text: what the provider wrote, for the record."""
+    return [{k: e.get(k) for k in ('type', 'subtype', 'uuid', 'parentUuid', 'isSidechain', 'interruptedByShutdown',
+                                    'operation') if k in e} for e in rows if isinstance(e, dict)]
+
+
+def frames_between(lead, t0, seconds):
+    """Every frame in [t0, t0 + seconds], as its shape (C5: what tells the host that a dropped
+    duplicate started no turn)."""
+    with lead.cond:
+        rows = list(lead.frames)
+    out = []
+    for t, f in rows:
+        if t0 <= t <= t0 + seconds:
+            row = {'t': round(t - t0, 3), 'type': f.get('type'), 'subtype': f.get('subtype')}
+            for k in ('uuid', 'isReplay', 'session_id', 'is_error'):
+                if k in f:
+                    row[k] = f.get(k)
+            if f.get('type') == 'stream_event':
+                row['event'] = (f.get('event') or {}).get('type')
+            out.append(row)
+    return out
+
+
+def results_with(lead, start, marker):
+    """How many `result` frames since `start` carry `marker` in their final text."""
+    return sum(1 for f in lead.all_frames()[start:] if f.get('type') == 'result' and marker in (f.get('result') or ''))
+
+
+def die_like_the_app(ctx, lead, rec):
+    """The app's death, the P15 way: SIGKILL to the owner stand-in this harness started; the
+    supervisor then ends the lead within its grace. Waits OPERATOR_REAP_GRACE + 1 s. What this
+    lead started is recorded first, by the process tree under its own pid, and anything of it
+    still alive after the grace is ended by that recorded pid (owned, never a name)."""
+    supervisor = lead.supervisor_pid()
+    claude = lead.claude_pid()
+    recorded = [row['pid'] for row in below(process_rows(), claude)] if claude else []
+    rec['claude_pid'] = claude
+    os.kill(lead.proc.pid, signal.SIGKILL)  # owned: the app stand-in this harness started
+    time.sleep(OPERATOR_REAP_GRACE + 1)
+    rec['claude_alive_after_grace_plus_one'] = bool(claude) and alive(claude)
+    rec['descendants_alive_after_grace_plus_one'] = [pid for pid in recorded if alive(pid)]
+    rec['supervisor_alive_after_grace_plus_one'] = bool(supervisor) and alive(supervisor)
+    for pid in [x for x in (supervisor, claude) if x] + recorded:
+        if alive(pid):
+            try:
+                os.kill(pid, signal.SIGKILL)  # owned: recorded under this harness's own lead above
+            except ProcessLookupError:
+                pass
+    lead.close(grace=5)
+
+
+def resend(ctx, lead, uid, text, rec, echo_timeout=90):
+    """Send `text` under `uid` again, and record the echo, if any, and every frame for 30 s
+    after it."""
+    start = lead.count()
+    lead.user(text, uuid=uid)
+    got = lead.wait(lambda f: f.get('type') == 'user' and f.get('uuid') == uid, echo_timeout, start)
+    rec['echo'] = bool(got)
+    rec['echo_is_replay'] = bool(got) and got[2].get('isReplay') is True
+    rec['echo_seconds'] = round(got[1] - lead.started, 3) if got else None
+    return start, got
+
+
+def resumed_identity(lead, rec):
+    init = lead.init_frame() or {}
+    rec['resumed_session_id'] = init.get('session_id')
+    rec['claude_code_version'] = init.get('claude_code_version') or init.get('version')
+
+
+def p18_answered(ctx, r):
+    """Case A (and D on the same resumed lead): the answered turn's uuid, resent after a restart."""
+    rec = r.setdefault('A', {})
+    ctl = r.setdefault('D', {})
+    rec['session'] = session = str(uuid_module.uuid4())
+    uid = str(uuid_module.uuid4())
+    first = Lead(ctx, 'P18', 'A-first', ctx.lead_args(session_id=session), reap=True, owner=True)
+    try:
+        first.initialize()
+        start = first.count()
+        first.user('Reply with exactly: MARK-A', uuid=uid)
+        rec['first_answered'] = bool(first.result_after(start, 180)) and results_with(first, start, 'MARK-A') >= 1
+        die_like_the_app(ctx, first, rec)
+    finally:
+        first.close(grace=5)
+    rec['transcript_u_before_resend'] = len(uuid_entries(transcript_rows(ctx, session), uid))
+    resumed = Lead(ctx, 'P18', 'A-resumed', ctx.lead_args(resume=session), reap=True, owner=True)
+    try:
+        resumed.initialize()
+        sent_at = time.time()
+        start, got = resend(ctx, resumed, uid, 'Reply with exactly: MARK-A-AGAIN', rec)
+        time.sleep(max(0, sent_at + 90 - time.time()))  # the 90 s window for any MARK-A-AGAIN
+        rec['frames_30s_after_echo'] = frames_between(resumed, got[1], 30) if got else []
+        rec['again_answered'] = 'MARK-A-AGAIN' in resumed.text(start) or results_with(resumed, start, 'MARK-A-AGAIN') > 0
+        # D, the control: a FRESH uuid on the same resumed lead is answered, so the drop above
+        # is keyed on the uuid and not on the lead refusing everything.
+        d_start = resumed.count()
+        ctl['uuid'] = resumed.user('Reply with exactly: MARK-D')
+        ctl['answered'] = bool(resumed.result_after(d_start, 180)) and results_with(resumed, d_start, 'MARK-D') >= 1
+        resumed_identity(resumed, rec)
+        ctl['resumed_session_id'] = rec['resumed_session_id']
+    finally:
+        resumed.close()
+    rows = transcript_rows(ctx, session)
+    rec['transcript_u_after'] = len(uuid_entries(rows, uid))
+    rec['transcript'] = transcript_summary(rows)
+
+
+def p18_mid_turn(ctx, r):
+    """Case B, recorded and not graded (C7): the app dies while U's own turn runs a command."""
+    rec = r.setdefault('B', {})
+    rec['session'] = session = str(uuid_module.uuid4())
+    uid = str(uuid_module.uuid4())
+    first = Lead(ctx, 'P18', 'B-first', ctx.lead_args(session_id=session), reap=True, owner=True)
+    try:
+        first.initialize()
+        start = first.count()
+        first.user(lead_long_task(ctx, 120, 'with exactly: MARK-B'), uuid=uid)
+        rec['in_shell'] = bool(in_lead_shell(ctx, first, start))
+        die_like_the_app(ctx, first, rec)
+    finally:
+        first.close(grace=5)
+    rows = transcript_rows(ctx, session)
+    rec['transcript_u_before_resend'] = len(uuid_entries(rows, uid))
+    rec['after_u_before_resend'] = after_entry(rows, uid)
+    resumed = Lead(ctx, 'P18', 'B-resumed', ctx.lead_args(resume=session), reap=True, owner=True)
+    try:
+        resumed.initialize()
+        start, got = resend(ctx, resumed, uid, 'Reply with exactly: MARK-B-AGAIN', rec)
+        # A re-executed turn may be the killed one (a 120 s command) or the resent text.
+        resumed.result_after(start, 300)
+        time.sleep(10)
+        rec['frames_30s_after_echo'] = frames_between(resumed, got[1], 30) if got else []
+        rec['turn_after_resend'] = results_with(resumed, start, '') > 0
+        text = resumed.text(start)
+        rec['ran'] = {'MARK-B-AGAIN': 'MARK-B-AGAIN' in text,
+                      'MARK-B (the killed text)': bool(re.search(r'MARK-B(?!-AGAIN)', text)),
+                      'long task again': any('long-task.py' in json.dumps(b.get('input'))
+                                             for b in tool_uses(resumed, start, 'Bash'))}
+        resumed_identity(resumed, rec)
+    finally:
+        resumed.close()
+    rows = transcript_rows(ctx, session)
+    rec['transcript_u_after'] = len(uuid_entries(rows, uid))
+    rec['after_u_after'] = after_entry(rows, uid)
+    rec['transcript'] = transcript_summary(rows)
+
+
+def p18_queued(ctx, r):
+    """Case C (window W4): U waits in the CLI's queue behind a running turn when the app dies."""
+    rec = r.setdefault('C', {})
+    rec['session'] = session = str(uuid_module.uuid4())
+    uid = str(uuid_module.uuid4())
+    first = Lead(ctx, 'P18', 'C-first', ctx.lead_args(session_id=session), reap=True, owner=True)
+    try:
+        first.initialize()
+        start = first.count()
+        rec['v_uuid'] = first.user(lead_long_task(ctx, 180, 'with exactly: MARK-V'))
+        rec['in_shell'] = bool(in_lead_shell(ctx, first, start))
+        queued_at = first.count()
+        first.user('Reply with exactly: MARK-C', uuid=uid)
+        time.sleep(5)
+        rec['echo_before_kill'] = bool(first.wait(lambda f: f.get('type') == 'user' and f.get('uuid') == uid, 0.1,
+                                                  queued_at))
+        rows = transcript_rows(ctx, session)
+        rec['u_in_transcript_before_kill'] = len(uuid_entries(rows, uid))
+        rec['queue_operations_before_kill'] = sum(1 for e in rows if isinstance(e, dict)
+                                                  and e.get('type') == 'queue-operation')
+        die_like_the_app(ctx, first, rec)
+    finally:
+        first.close(grace=5)
+    rec['transcript_u_before_resend'] = len(uuid_entries(transcript_rows(ctx, session), uid))
+    resumed = Lead(ctx, 'P18', 'C-resumed', ctx.lead_args(resume=session), reap=True, owner=True)
+    try:
+        resumed.initialize()
+        start, got = resend(ctx, resumed, uid, 'Reply with exactly: MARK-C-AGAIN', rec)
+        resumed.wait(lambda f: f.get('type') == 'result' and 'MARK-C-AGAIN' in (f.get('result') or ''), 240, start)
+        time.sleep(20)  # a second answer, if one comes, comes in this window
+        rec['frames_30s_after_echo'] = frames_between(resumed, got[1], 30) if got else []
+        rec['again_results'] = results_with(resumed, start, 'MARK-C-AGAIN')
+        resumed_identity(resumed, rec)
+    finally:
+        resumed.close()
+    rows = transcript_rows(ctx, session)
+    rec['transcript_u_after'] = len(uuid_entries(rows, uid))
+    rec['transcript'] = transcript_summary(rows)
+
+
+def p18_live_repeat(ctx, r):
+    """Case E: the same uuid twice to one live lead, no restart (the in-memory check)."""
+    rec = r.setdefault('E', {})
+    uid = str(uuid_module.uuid4())
+    lead = Lead(ctx, 'P18', 'E-live', ctx.lead_args(), reap=True)
+    try:
+        lead.initialize()
+        start = lead.count()
+        lead.user('Reply with exactly: MARK-E', uuid=uid)
+        rec['first_answered'] = bool(lead.result_after(start, 180)) and results_with(lead, start, 'MARK-E') >= 1
+        start, got = resend(ctx, lead, uid, 'Reply with exactly: MARK-E-AGAIN', rec, echo_timeout=60)
+        time.sleep(60)
+        rec['frames_30s_after_echo'] = frames_between(lead, got[1], 30) if got else []
+        rec['again_answered'] = 'MARK-E-AGAIN' in lead.text(start) or results_with(lead, start, 'MARK-E-AGAIN') > 0
+    finally:
+        lead.close()
+
+
+def grade_p18(r):
+    """PASS when A, C, D and E pass and every resume kept its session (§1.4). B is recorded."""
+    a, b, c, d, e = (r.get(k) or {} for k in ('A', 'B', 'C', 'D', 'E'))
+    premises = []
+    if not a.get('first_answered'):
+        premises.append('A: the first MARK-A turn was not answered, so nothing was saved to drop against')
+    if not d.get('answered'):
+        premises.append('D: the resumed lead did not answer a fresh uuid, so a silence proves nothing')
+    if not c.get('in_shell') or c.get('echo_before_kill'):
+        premises.append('C: U was not waiting behind a running command at the kill')
+    if not e.get('first_answered'):
+        premises.append('E: the first MARK-E turn was not answered')
+    for key, rec in (('A', a), ('B', b), ('C', c)):
+        if rec.get('claude_alive_after_grace_plus_one'):
+            premises.append('%s: the lead outlived the app stand-in by more than the grace' % key)
+        if rec and rec.get('resumed_session_id') is None:
+            premises.append('%s: the resumed lead sent no system/init, so its session was not read' % key)
+    if premises:
+        return 'PREMISE-FALSE', '; '.join(premises)
+    fails = []
+    for key, rec in (('A', a), ('B', b), ('C', c)):
+        if rec.get('resumed_session_id') != rec.get('session'):
+            fails.append('%s: --resume did not keep the session (%s, not %s), so the saved-transcript check reads '
+                         'another file' % (key, rec.get('resumed_session_id'), rec.get('session')))
+    if not (a.get('echo') and not a.get('again_answered') and a.get('transcript_u_after') == 1):
+        fails.append('A: echo %s, MARK-A-AGAIN answered %s, transcript entries for U %s (want echo, no answer, 1)'
+                     % (a.get('echo'), a.get('again_answered'), a.get('transcript_u_after')))
+    if not (c.get('u_in_transcript_before_kill') == 0 and c.get('again_results') == 1
+            and c.get('transcript_u_after') == 1):
+        fails.append('C: U saved before the kill %s, MARK-C-AGAIN answers %s, transcript entries for U %s '
+                     '(want 0, 1, 1)' % (c.get('u_in_transcript_before_kill'), c.get('again_results'),
+                                         c.get('transcript_u_after')))
+    if not (e.get('echo') and not e.get('again_answered')):
+        fails.append('E: echo %s, MARK-E-AGAIN answered %s (want echo, no answer)'
+                     % (e.get('echo'), e.get('again_answered')))
+    if fails:
+        return 'FAIL', '; '.join(fails)
+    return 'PASS', ('a resent uuid already answered in the resumed session was dropped with its echo (A), a fresh '
+                    'uuid was answered (D), a queued message lost with the app was answered once on resend (C), a '
+                    'live repeat was dropped (E), and every resume kept its session; B recorded: %s'
+                    % {k: b.get(k) for k in ('echo', 'ran', 'transcript_u_after')})
+
+
+@probe('P18')
+def p18(ctx, r):
+    r['cases'] = []
+    for case in (p18_answered, p18_mid_turn, p18_queued, p18_live_repeat):
+        try:
+            case(ctx, r)
+            r['cases'].append({'case': case.__name__, 'ok': True})
+        except Exception:  # noqa: BLE001 - one case's harness failure is recorded; the others still run
+            r['cases'].append({'case': case.__name__, 'error': traceback.format_exc()[-2000:]})
+    errors = [c for c in r['cases'] if 'error' in c]
+    if errors:
+        return 'ERROR', 'harness failure in %s: %s' % ([c['case'] for c in errors], errors[0]['error'][-600:])
+    return grade_p18(r)
 
 
 # =============================================================================================
