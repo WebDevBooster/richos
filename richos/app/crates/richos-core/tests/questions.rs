@@ -399,6 +399,37 @@ fn work_receiving_inbox_deduplicates_an_uncertain_handoff() {
         .unwrap()
         .is_empty());
 }
+/// **"Rich has your answer" only once the taker has it** (the work-path design D7). A front-desk
+/// set is taken by its own sink and reads delivered at once. A set whose sink keeps it in a
+/// receiving inbox reads NOT delivered until a back end takes it, with no surface change: the
+/// card already says "On its way to Rich" for that.
+#[test]
+fn the_card_says_delivered_only_once_an_inbox_answer_is_taken() {
+    let mut f = Fixture::new();
+    let front = f.ask(1).remove(0);
+    f.answer(&front, "front", 0, None);
+    f.store.deliver("entity", "thread", "front_desk", |_| Ok("turn-receipt".into())).unwrap();
+    let card = |f: &Fixture, id: &str| f.store.list("entity", "thread").unwrap().into_iter().find(|q| q.id == id).unwrap();
+    assert_eq!(card(&f, &front.id).public_value()["delivered"], true, "a front-desk set is unchanged");
+
+    f.scope.asker = "work-1".into();
+    let team = f.ask(1).remove(0);
+    f.answer(&team, "team", 1, None);
+    f.store
+        .deliver("entity", "thread", "work-1", |d| {
+            richos_core::question_work::enqueue(&f.root, d)?;
+            Ok(format!("work-input:{}", d.id))
+        })
+        .unwrap();
+    let saved = card(&f, &team.id);
+    assert!(saved.delivered && saved.awaiting_taker, "the store's own delivery fact is unchanged");
+    assert_eq!(saved.public_value()["delivered"], false, "the card said Rich has it before any back end did");
+    let carried = richos_core::question_work::peek(&f.root, "entity", "thread", "work-1", "session-1").unwrap();
+    richos_core::question_work::taken(&f.root, &carried.ids(), "session-1").unwrap();
+    let taken = card(&f, &team.id);
+    assert!(!taken.awaiting_taker);
+    assert_eq!(taken.public_value()["delivered"], true);
+}
 #[test]
 fn notifications_are_once_per_set_even_after_answer_changes() {
     let f = Fixture::new();

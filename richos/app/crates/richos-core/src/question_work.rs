@@ -138,6 +138,7 @@ pub fn peek(root: &Path, entity: &str, thread: &str, asker: &str, session: &str)
 /// arrived. Synced, like every write here. An answer already let go with its ended job stays
 /// discarded.
 pub fn taken(root: &Path, ids: &[String], session: &str) -> Result<(), String> {
+    let mut sets = Vec::new();
     for id in ids {
         let path = path(root, id);
         let mut input = read(&path)?;
@@ -147,8 +148,10 @@ pub fn taken(root: &Path, ids: &[String], session: &str) -> Result<(), String> {
         input.handed = true;
         input.taken_in = Some(session.to_string());
         write(&path, &input)?;
+        sets.extend(input.delivery.set_id.clone());
     }
-    Ok(())
+    // His card may now say Rich has it (D7). Never called under the store lock or `inner`.
+    crate::questions::Store::new(root).taker_has(&sets)
 }
 
 /// **Let go of this asker's answers because its assignment ended** — the cleanup, and his
@@ -165,6 +168,13 @@ pub fn discard(root: &Path, entity: &str, thread: &str, asker: &str) -> Result<(
         write(&path, &input)?;
     }
     Ok(())
+}
+
+/// Is this answer sitting in the inbox, not yet taken? The question store asks, inside the
+/// transaction that writes its receipt, so "Rich has your answer" waits for the taker (D7).
+pub fn waiting(root: &Path, id: &str) -> bool {
+    let path = path(root, id);
+    path.exists() && read(&path).is_ok_and(|input| !input.handed)
 }
 
 /// Is one of his answers for this asker saved and not yet taken? Recovery reads this (D6).
@@ -214,7 +224,8 @@ pub fn acknowledge(root: &Path, id: &str) -> Result<(), String> {
     let path = path(root, id);
     let mut input = read(&path)?;
     if !input.handed { input.handed = true; write(&path, &input)?; }
-    Ok(())
+    // His card may now say his team has it (D7). Never called under the store lock.
+    crate::questions::Store::new(root).taker_has(&input.delivery.set_id.into_iter().collect::<Vec<_>>())
 }
 
 /// [`acknowledge`] for an answer that may never have entered this inbox (the operator host is

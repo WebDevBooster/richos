@@ -79,6 +79,14 @@ pub struct Question {
     pub answer: Option<Answer>,
     pub revision: u64,
     pub delivered: bool,
+    /// **Delivered into a back end's inbox, and not yet taken by it** (the work-path design D7,
+    /// richos-hq `docs/plans/2026-09-27-work-path-answer-delivery-design.md`). Set with the
+    /// receipt when the sink kept the answer in the inbox (his team's, or a work job's), cleared
+    /// when the back end or his team takes it. `delivered` keeps its meaning for this store; the
+    /// card is told `delivered` only once this is clear, so "Rich has your answer" is true when
+    /// it is said.
+    #[serde(default)]
+    pub awaiting_taker: bool,
     #[serde(default)]
     pub handoff_started: bool,
     #[serde(default)]
@@ -306,6 +314,7 @@ impl Store {
                         answer: None,
                         revision: 0,
                         delivered: false,
+                        awaiting_taker: false,
                         handoff_started: false,
                         waiting_for_turn: false,
                         remaining,
@@ -704,9 +713,15 @@ impl Store {
                     if let Some(saved) = d.deliveries.iter_mut().find(|v| v.id == delivery.id) {
                         saved.receipt = Some(receipt);
                     }
+                    // Still in a receiving inbox, not yet taken (D7). Read here, under this lock:
+                    // a taker clears it only through this store's lock, so it cannot be cleared
+                    // before it is set.
+                    let awaiting = self.directory.parent()
+                        .is_some_and(|root| crate::question_work::waiting(root, &delivery.id));
                     if let Some(set) = &delivery.set_id {
                         for q in d.questions.iter_mut().filter(|q| &q.set_id == set) {
                             q.delivered = true;
+                            q.awaiting_taker = awaiting;
                             q.updated_at = now();
                         }
                     }
@@ -714,6 +729,21 @@ impl Store {
                 })?;
             }
             Ok(count)
+        })
+    }
+    /// **The back end (or his team) took these sets' answers** (design D7): the card may now say
+    /// so. Never called while holding a work back end's `inner` lock: `queue_question_answer`
+    /// takes that lock under this store's lock.
+    pub fn taker_has(&self, sets: &[String]) -> Result<()> {
+        if sets.is_empty() {
+            return Ok(());
+        }
+        self.transaction(true, |d| {
+            for q in d.questions.iter_mut().filter(|q| q.awaiting_taker && sets.contains(&q.set_id)) {
+                q.awaiting_taker = false;
+                q.updated_at = now();
+            }
+            Ok(())
         })
     }
     /// Enqueue one awareness notification per new set. The sink persists its own
@@ -897,7 +927,7 @@ impl Question {
         }
     }
     pub fn public_value(&self) -> Value {
-        json!({"id":self.id,"set_id":self.set_id,"thread_id":self.thread_id,"text":self.text,"options":self.options,"multiple":self.multiple,"free_answer":self.free_answer,"recommended":self.recommended,"state":self.state,"answer":self.answer,"revision":self.revision,"delivered":self.delivered,"handoff_started":self.handoff_started,"waiting_for_turn":self.waiting_for_turn,"remaining":self.remaining,"set_index":self.set_index,"set_count":self.set_count,"asker":if self.asker=="front_desk"{"Rich"}else{"Your team"},"withdrawal_reason":self.withdrawal_reason})
+        json!({"id":self.id,"set_id":self.set_id,"thread_id":self.thread_id,"text":self.text,"options":self.options,"multiple":self.multiple,"free_answer":self.free_answer,"recommended":self.recommended,"state":self.state,"answer":self.answer,"revision":self.revision,"delivered":self.delivered && !self.awaiting_taker,"handoff_started":self.handoff_started,"waiting_for_turn":self.waiting_for_turn,"remaining":self.remaining,"set_index":self.set_index,"set_count":self.set_count,"asker":if self.asker=="front_desk"{"Rich"}else{"Your team"},"withdrawal_reason":self.withdrawal_reason})
     }
     pub fn item(&self, revision: u64) -> Value {
         json!({"kind":"question","id":self.id,"entityId":self.entity_id,"threadId":self.thread_id,"turnId":self.turn_id,"bindingRevision":revision,

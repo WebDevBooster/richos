@@ -6272,6 +6272,61 @@ mod tests {
         std::fs::remove_dir_all(&h.root).unwrap();
     }
 
+    /// §4.1 test 12 (D7) and §3's lock order. His answer goes through the real store: while
+    /// the back end has not taken it, his card does not say "Rich has your answer"; once it
+    /// has, it does. And the back end taking it (which writes the store) never waits on the
+    /// host's `inner` while a delivery holds the store lock and asks for `inner` (the sink,
+    /// `queue_question_answer`): a second answer is delivered at exactly that moment, and both
+    /// finish.
+    #[test]
+    fn his_card_says_rich_has_it_only_once_taken_and_the_store_lock_never_waits_on_inner() {
+        use crate::questions::{AnswerRequest, Store};
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        let record = waiting_job(&h);
+        let store = Store::new(&h.state);
+        let answer = |set: usize, key: &str| {
+            let q = store.list("depot", "thread-one").unwrap().into_iter()
+                .filter(|q| q.state == crate::questions::State::Open).nth(set).unwrap();
+            store.answer("depot", "thread-one", AnswerRequest { question_id: q.id.clone(), client_id: key.into(),
+                option_ids: vec![q.options[1].id.clone()], text: String::new(), expected_revision: None }, "click", "mac").unwrap();
+            q.id
+        };
+        open_question(&h, &record);
+        open_question(&h, &record);
+        let first = answer(0, "first");
+        h.first_item_gate.shut();
+        h.host.start();
+        store.deliver("depot", "thread-one", &record.obligation_id, |d| h.host.queue_question_answer(&h.binding, d)).unwrap();
+        until_prompts(&h, 1);
+        let card = |id: &str| store.list("depot", "thread-one").unwrap().into_iter().find(|q| q.id == id).unwrap().public_value();
+        assert_eq!(card(&first)["delivered"], false, "\"Rich has your answer\" before the back end had it");
+
+        // The second answer is delivered while the first one's taking waits for the store lock.
+        let second = answer(0, "second");
+        let (done, finished) = std::sync::mpsc::channel();
+        let (host, binding, gate, state, asker) =
+            (h.host.clone(), h.binding.clone(), h.first_item_gate.clone(), h.state.clone(), record.obligation_id.clone());
+        std::thread::spawn(move || {
+            let result = Store::new(&state).deliver("depot", "thread-one", &asker, |d| {
+                gate.release();
+                // The runner reaches the store's lock (the card write) and waits on it here.
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                host.queue_question_answer(&binding, d)
+            });
+            drop(done.send(result.map_err(|e| e.to_string())));
+        });
+        let delivered = finished.recv_timeout(std::time::Duration::from_secs(20));
+        assert!(matches!(delivered, Ok(Ok(1))), "deadlock or failure: {delivered:?}");
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(20)));
+        assert_eq!(card(&first)["delivered"], true);
+        assert_eq!(card(&second)["delivered"], true);
+        assert!(crate::question_work::pending(&h.state).unwrap().is_empty());
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
     /// §4.1 test 6 (D3). The run that carried his answer starts a command that outlives its
     /// wait: the job is WATCHED, and never left blocked on the answer it already took.
     #[test]

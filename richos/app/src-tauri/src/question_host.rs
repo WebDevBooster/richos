@@ -252,6 +252,7 @@ pub fn start(app: AppHandle) {
                             q.state,
                             q.revision,
                             q.delivered,
+                            q.awaiting_taker,
                             q.handoff_started,
                             q.waiting_for_turn,
                             q.remaining,
