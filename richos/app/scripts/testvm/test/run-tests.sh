@@ -655,6 +655,20 @@ sync_env() {  # the fixed half of every claude-sync invocation
 }
 reset_guest_claude() { rm -f "$STUB_GUEST_FS/claude-state.sha" "$STUB_GUEST_FS/claude-state.version"; }
 
+t "app env: TESTVM_APP_ENV becomes --env pairs for the app's own RICHOS_ knobs, and nothing else passes"
+  eq "$(app_env_args "")" ""
+  eq "$(app_env_args "RICHOS_PERMISSION_DEADLINE_MS=20000")" "--env RICHOS_PERMISSION_DEADLINE_MS=20000"
+  eq "$(app_env_args "RICHOS_A=1 RICHOS_B_C=x.y-z")" "--env RICHOS_A=1 --env RICHOS_B_C=x.y-z"
+  for refused in "PATH=/tmp" "RICHOS_X=a;b" "RICHOS_X=\$(id)" "RICHOS_X='a'" "richos_x=1" "RICHOS_X="; do
+    app_env_args "$refused" >/dev/null 2>&1; no $? "$refused passed"
+  done
+  src="$(cat "$TESTVM_DIR/run.sh")"
+  # shellcheck disable=SC2016  # the $ names are literal source text
+  has "$src" 'APP_EXTRA_ENV="$(app_env_args "${TESTVM_APP_ENV:-}")" || die'
+  # shellcheck disable=SC2016  # the $ names are literal source text: only the open line uses it
+  has "$src" '$APP_EXTRA_ENV'
+t_done
+
 t "claude verdict: identical bytes and equal versions is the only in-sync there is"
   eq "$(claude_sync_verdict abc abc 2.1.277 2.1.277)" "in-sync"
 t_done

@@ -312,7 +312,7 @@ pub fn tools() -> Value {
          "description":"Write down a piece of work the CEO has asked for — OR a question of his you cannot answer yourself — so it can run in the background, and END YOUR TURN with what this returns, which is a few words. CALL THIS FIRST, BEFORE ANY OTHER TOOL: he is waiting, and every search, lookup or check you do before it is time he spends looking at nothing. Do not look up status first, do not read anything first, do not plan first, and do not open or save any operational record first — this opens the record for this work itself, so there is nothing whatsoever to do ahead of it. If the request is clear, this is your first call and its answer is your whole reply; if it genuinely is not clear, ask him the question instead and call this once he has answered, with after_questions set. It records the assignment and returns the exact words to say; it does not do the work and does not wait for it. The work, and all the looking, then runs on a separate connection and he is told when there is something for him to look at. Say only what this returns: no restating his task or his question back to him, no claim that the work is running, started, prepared or finished. A question you ALREADY KNOW the answer to is answered on the spot and never written down here.",
          "inputSchema":{"type":"object","properties":{
              "assignment":{"type":"string","minLength":1,"maxLength":4096,"description":"What he asked for, in HIS OWN TERMS, as one plain sentence you would be happy to read back to him. For a question, his question in his own terms. No identifiers, no internal names."},
-             "repositories":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":4096},"description":"Absolute paths of the repositories this assignment touches, if he named any. Omit when he did not."},
+             "repositories":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":4096},"description":"Absolute paths of the repositories this assignment touches, if he named any. Omit when he did not. Only a repository connected to this company is kept; any other path is left out of the record."},
              "after_questions":{"type":"boolean","description":"True only if you asked him a clarifying question about this work and he has now answered it. It changes which short reply you are handed and nothing else. Omit it otherwise."},
              "needs_screen":{"type":"boolean","description":"True if this work needs the Mac's screen to be unlocked — it drives the app's own window, takes screenshots, walks a build on screen, or otherwise cannot be done while the screen is locked. If the screen is locked when this comes up, the app waits for the unlock and carries on by itself; nobody is asked anything. Omit it for ordinary work, which is almost all work."},
              "kind":{"type":"string","enum":["task","check","investigate"],"description":"What this is. `task` — work he asked for; omit it and you get this. `check` — a QUESTION of his whose answer you expect quickly, because it is on file somewhere and only has to be looked up. `investigate` — a QUESTION of his that needs real digging: repositories, logs, the web, several places. A rough estimate of the kind of work is all that is wanted here; nobody is timing it, and the app says the right thing either way if it takes longer than you thought."}
@@ -419,6 +419,7 @@ pub fn call_with(
     opener
         .open(&desk, &obligation_id, &title, kind)
         .map_err(|why| assignment::failed_registration_sentence(&format!("{why}.")))?;
+    let repositories = connected_only(&scope.state_root, &scope.entity_id, &args.repositories);
     let receipt = assignment::register_kind(
         &scope.state_root,
         &Registration {
@@ -428,7 +429,7 @@ pub fn call_with(
             instruction_ledger_ref: scope.instruction_ledger_ref,
             instruction_sha256: scope.instruction_sha256,
             title,
-            repositories: args.repositories,
+            repositories,
             needs_screen: args.needs_screen,
         },
         kind,
@@ -450,6 +451,52 @@ pub fn call_with(
         // may have summarized: §55's reply is the whole turn.
         "say_nothing_else": true,
     }))
+}
+
+/// **Only a repository he connected to this conversation's company is recorded** — the
+/// leftover of esc-20260927T093052Z-85f3303f.
+///
+/// `repositories` is the one piece of model text this register puts into the record, and the
+/// record feeds the back end's brief ("Repositories:", `work_host.rs`'s `brief_for`) and the
+/// recovery pin. It grants nothing (the back end's `repositories` tool reads the registry
+/// itself), so a made-up path could only ever mislead: in the 2026-09-27 VM run the front desk
+/// named the company's central folder, which did not exist.
+///
+/// So each named path is read against the app's own company registry — the file the app, the
+/// Connected repositories sheet and the back end's `repositories` tool all read
+/// (`<data_dir>/entities.json`, the state root's parent) — and kept only as the connected
+/// repository it is, or is inside. Anything else is left out, never replaced by a guess; a
+/// relative path, a `..`, a missing or unreadable registry and an unknown company all leave
+/// it out too. Leaving a path out refuses nothing: the assignment is still recorded, and the
+/// back end still finds the connected repositories for itself.
+fn connected_only(state_root: &Path, entity_id: &str, named: &[String]) -> Vec<String> {
+    let connected: Vec<PathBuf> = match (state_root.parent(), crate::entity::EntityId::parse(entity_id)) {
+        (Some(data_dir), Ok(id)) => crate::entity::EntityRegistry::load(&crate::entity::entity_registry_path(data_dir))
+            .registry
+            .get(&id)
+            .map(|entity| entity.connected_repositories.clone())
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    let mut kept: Vec<String> = Vec::new();
+    let mut left_out = 0usize;
+    for name in named {
+        let path = Path::new(name);
+        let usable = path.is_absolute() && !path.components().any(|c| c == std::path::Component::ParentDir);
+        match connected.iter().find(|root| usable && path.starts_with(root)) {
+            Some(root) => {
+                let root = root.to_string_lossy().into_owned();
+                if !kept.contains(&root) {
+                    kept.push(root);
+                }
+            }
+            None => left_out += 1,
+        }
+    }
+    if left_out > 0 {
+        eprintln!("[richos] register: left out {left_out} named repository path(s) not connected to this company");
+    }
+    kept
 }
 
 fn error(id: Value, code: i64, message: &str) -> Value {
@@ -732,11 +779,65 @@ mod tests {
         }
     }
 
+    /// The company registry beside the fixture's state root (`<data_dir>/entities.json`, the
+    /// file the app and the back end's `repositories` tool read), with `connected` connected
+    /// to the scope's company.
+    fn connect(fixture: &Fixture, connected: &[&str]) {
+        let id = crate::entity::EntityId::parse("depot").unwrap();
+        let mut registry = crate::entity::EntityRegistry::empty();
+        registry.register(crate::entity::Entity::new("depot", "Depot", &[]).unwrap()).unwrap();
+        for path in connected {
+            registry.connect_repository(&id, PathBuf::from(path)).unwrap();
+        }
+        registry.save(&crate::entity::entity_registry_path(&fixture.root)).unwrap();
+    }
+
+    /// **A REPOSITORY THE FRONT DESK NAMES IS RECORDED ONLY IF HE CONNECTED IT** — the
+    /// leftover of esc-20260927T093052Z-85f3303f.
+    ///
+    /// `repositories` is model text ("Absolute paths of the repositories this assignment
+    /// touches"), and `register_kind` checks only emptiness, length and newlines, so a path the
+    /// model made up — the company's central folder, which did not exist — was recorded, and
+    /// put a false "Repositories:" line into the back end's brief (`work_host.rs`'s
+    /// `brief_for`) and an unreadable recovery pin. Now each named path is checked against the
+    /// repositories connected to THIS conversation's company, read from the app's own
+    /// registry: a connected repository, or a path inside one, is recorded as that repository;
+    /// anything else is left out. Nothing is invented and the registration still succeeds.
+    ///
+    /// RED at `bfb20a48`: the made-up, relative and other-company paths were all recorded.
+    #[test]
+    fn a_repository_the_front_desk_names_is_recorded_only_if_he_connected_it() {
+        let fixture = fixture();
+        connect(&fixture, &["/fictional/acme"]);
+        let opened = Opened::default();
+        let named = json!(["/fictional/acme", "/fictional/acme/src/", "/fictional/central/Acme",
+                           "fictional/acme", "/fictional/acme-other"]);
+        let result = call_with(&fixture.scope, RECORD_TOOL_NAME,
+            json!({"assignment":"count the commits in Acme","repositories":named}), &opened).unwrap();
+        assert_eq!(result["recorded"], true, "a made-up path refused the whole registration: {result}");
+        assert_eq!(fixture.rows()[0].repositories, vec!["/fictional/acme".to_string()]);
+
+        // No registry at all (nothing connected yet): nothing is recorded, nothing refused.
+        let bare = fixture_with_desk(Some(desk()));
+        let result = call_with(&bare.scope, RECORD_TOOL_NAME,
+            json!({"assignment":"count the commits in Acme","repositories":["/fictional/acme"]}), &opened).unwrap();
+        assert_eq!(result["recorded"], true);
+        assert!(bare.rows()[0].repositories.is_empty(), "{:?}", bare.rows()[0].repositories);
+
+        // A registry that cannot be read is not a list of connected repositories either.
+        let broken = fixture_with_desk(Some(desk()));
+        std::fs::write(crate::entity::entity_registry_path(&broken.root), "{").unwrap();
+        call_with(&broken.scope, RECORD_TOOL_NAME,
+            json!({"assignment":"count the commits in Acme","repositories":["/fictional/acme"]}), &opened).unwrap();
+        assert!(broken.rows()[0].repositories.is_empty(), "{:?}", broken.rows()[0].repositories);
+    }
+
     /// Spec §1.1/§1.2: one call, a durable record, and a sentence to end the turn with — and
     /// since 2026-09-18, the OBLIGATION opened by the same call.
     #[test]
     fn recording_opens_the_obligation_and_returns_the_sentence_to_say() {
         let fixture = fixture();
+        connect(&fixture, &["/fictional/project"]);
         let desk = Opened::default();
         let result = call_with(&fixture.scope, RECORD_TOOL_NAME,
             json!({"assignment":"landing the three branches","repositories":["/fictional/project"]}), &desk)

@@ -166,6 +166,33 @@ const STEP_ALREADY_WAITING: &str =
      is waiting on him; the app gives you another turn when he answers, and you can ask for \
      this then if it is still needed.";
 
+/// **How long one permission call waits for him: 300 s.** A background call then ends in
+/// *not approved* and the request stays on his screen (§5.7).
+///
+/// `RICHOS_PERMISSION_DEADLINE_MS` can SHORTEN it, to between 1 s and 300 s, and nothing can
+/// lengthen it. It exists for one caller: the test VM's walk of the late-approval path
+/// (`76e977dc`), which otherwise has to wait out the whole 300 s before his Approve can
+/// arrive late. The same shape as `RICHOS_CANCEL_GRACE_MS` (`native.rs`). The app's launcher
+/// sets no such variable, so an install behaves exactly as before; an override in effect is
+/// said on stderr at every call, so a log shows it.
+pub const PERMISSION_DEADLINE: Duration = Duration::from_secs(300);
+
+pub fn permission_deadline() -> Duration {
+    let value = std::env::var("RICHOS_PERMISSION_DEADLINE_MS").ok();
+    let deadline = permission_deadline_from(value.as_deref());
+    if deadline != PERMISSION_DEADLINE {
+        eprintln!("[richos] permission calls wait {} ms (RICHOS_PERMISSION_DEADLINE_MS)", deadline.as_millis());
+    }
+    deadline
+}
+
+fn permission_deadline_from(value: Option<&str>) -> Duration {
+    match value.and_then(|v| v.trim().parse::<u64>().ok()) {
+        Some(ms) if (1_000..=300_000).contains(&ms) => Duration::from_millis(ms),
+        _ => PERMISSION_DEADLINE,
+    }
+}
+
 /// What a background call is told when its assignment stopped underneath it.
 const ASSIGNMENT_GONE: &str =
     "That assignment was stopped, so this action was not approved.";
@@ -287,11 +314,12 @@ impl PermissionDesk {
     }
 }
 impl ScopedPermissions {
-    pub fn decide(&self, request: &Value) -> PermissionDecision { self.wait(request,Duration::from_secs(300)) }
+    pub fn decide(&self, request: &Value) -> PermissionDecision { self.wait(request,permission_deadline()) }
     /// The same decision with a caller-supplied deadline. **Test scaffolding**, and it is
     /// here rather than in a test module because `work_host`'s tests need to raise a real
     /// request against the real desk — a second implementation of this path would be a test
-    /// asserting about itself. The shipping caller is [`Self::decide`], at 300 s.
+    /// asserting about itself. The shipping caller is [`Self::decide`], at 300 s
+    /// ([`permission_deadline`]).
     #[doc(hidden)]
     pub fn decide_within(&self, request: &Value, limit: Duration) -> PermissionDecision { self.wait(request,limit) }
     fn wait(&self, request: &Value, limit: Duration) -> PermissionDecision {
@@ -570,6 +598,20 @@ impl ScopedPermissions {
     }
 
     // ---- §5.7: the deadline stops the CALL, not the REQUEST -------------------------------
+
+    /// **The deadline is 300 s unless the test VM asks for less, and never more.**
+    /// `RICHOS_PERMISSION_DEADLINE_MS` exists so a walk can drive the late-approval path
+    /// (`76e977dc`) in the guest without waiting out 300 s; the same shape as
+    /// `RICHOS_CANCEL_GRACE_MS` (`native.rs`). It can shorten the wait and cannot lengthen it:
+    /// anything outside 1 s to 300 s, or not a number, is the shipping 300 s.
+    #[test] fn the_deadline_is_three_hundred_seconds_unless_a_walk_asks_for_less(){
+        assert_eq!(permission_deadline_from(None),Duration::from_secs(300));
+        assert_eq!(permission_deadline_from(Some("20000")),Duration::from_secs(20));
+        assert_eq!(permission_deadline_from(Some("1000")),Duration::from_secs(1));
+        for refused in ["999","0","-5","300001","3600000","twenty",""] {
+            assert_eq!(permission_deadline_from(Some(refused)),Duration::from_secs(300),"{refused:?} changed the deadline");
+        }
+    }
 
     /// **§5.7, and it is the test the acceptance step 7.6 rests on.** The call ends at its
     /// deadline in *not approved* — never in approval — and the request is still there

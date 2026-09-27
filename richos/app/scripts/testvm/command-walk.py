@@ -33,11 +33,33 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
              started"; the back end's own hook evidence has a Bash PostToolUse running git.
              Evidence is written to --out.
 
+THREE MORE STEPS, run with --steps (esc-20260927T093052Z-85f3303f's leftovers):
+  background     "start `sleep N && git log --oneline` in the background and tell me when it has
+                 finished": PASS needs the back end's own hook record to show the command run with
+                 run_in_background; the assignment seen `running` with "A command it started is
+                 still running." while he already had its first words; then `settled` as
+                 answered, with a LATER notice carrying the head's short sha and subject, raised
+                 no earlier than N seconds after the send (the finish cannot be reported before
+                 the command could end). Evidence: background-observed.json.
+  deadline       checks the running app was launched with RICHOS_PERMISSION_DEADLINE_MS=--deadline-ms
+                 (permissions.rs: it can only shorten the shipping 300 s), so a late approval takes
+                 seconds to reach. Launch it so: TESTVM_APP_ENV=RICHOS_PERMISSION_DEADLINE_MS=20000
+                 in run-walk.py's environment (run.sh, lib.sh app_env_args).
+  late-approval  a command that needs his approval (`date +%s > /tmp/richos-late-approval.txt`);
+                 NOTHING is pressed until the assignment is `blocked` -- the call has returned at
+                 its deadline and the turn has ended -- then Approve is pressed once. PASS needs the
+                 command's own output (its start, in whole guest seconds) within --late-bound
+                 seconds of the press, and the assignment closed `settled`. The 2026-09-27
+                 diagnosis measured (133.479, 137.542] s on the build before 76e977dc. Evidence:
+                 late-approval-observed.json.
+
 Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
 """
 import argparse
 import importlib.util
 import json
+import os
+import re
 from pathlib import Path
 import shlex
 import subprocess
@@ -54,6 +76,15 @@ _spec.loader.exec_module(adopt_walk)
 StepFailed = adopt_walk.StepFailed
 
 STEPS = ['identity', 'first-run', 'connect', 'watch', 'task', 'observe']
+MORE_STEPS = ['background', 'deadline', 'late-approval']
+# The pane's words while an assignment waits on its command (work_host.rs COMMAND_STILL_RUNNING_DETAIL).
+STILL_RUNNING = 'A command it started is still running.'
+BACKGROUND_TASK = ('Please start this harmless test command in the background for me with your shell tool, in '
+                   'my Acme folder, and tell me when it has finished and what it printed: sleep {seconds} && '
+                   'git log --oneline')
+LATE_FILE = '/tmp/richos-late-approval.txt'
+LATE_TASK = ('Please run this harmless test command for me yourself with your shell tool, in my Acme folder, '
+             'and tell me when it has finished: date +%s > ' + LATE_FILE)
 # Worded as a job to be done, the way the escalation's walk and the 2026-09-27 diagnosis worded
 # theirs (both registered as a `task`). "Tell me exactly what it prints" alone was registered
 # as a `check` on the first proof run (the question path, which already reported answers) and
@@ -125,6 +156,7 @@ class CommandWalk(adopt_walk.Walk):
                   '        if c.get("hook_event_name")=="PostToolUse" and c.get("tool_name")=="Bash" and not c.get("agent_id"):\n'
                   '            r=c.get("tool_response") or {}\n'
                   '            out.append({"command":c.get("tool_input",{}).get("command",""),\n'
+                  '                        "background":bool(c.get("tool_input",{}).get("run_in_background")),\n'
                   '                        "stdout":(r.get("stdout","") if isinstance(r,dict) else str(r))[:2000]})\n'
                   'print(json.dumps(out))\n')
         return json.loads(guest(self.vm, 'python3 -c ' + shlex.quote(script) + ' ' + shlex.quote(self.data), 60))
@@ -161,6 +193,179 @@ class CommandWalk(adopt_walk.Walk):
                 'command': next(c['command'] for c in commands if 'git' in c['command'])}
 
 
+    def ours(self, sent):
+        thread = self.facts.get('thread')
+        rows = [r for r in self.records() if r.get('thread_id') == thread and r.get('registered_at_ms', 0) >= sent[0]]
+        return max(rows, key=lambda r: r.get('registered_at_ms', 0)) if rows else None
+
+    def send(self, text):
+        before = self.clock()
+        self.type_into(text, '--role', 'AXTextArea', '--title', 'Message to Rich')
+        self.press('Send')
+        return [before, self.clock()]
+
+    def head(self):
+        head = guest(self.vm, 'git -C ' + shlex.quote(self.company) + ' log -1 --format=%h%x09%s').split('\t')
+        return head[0].strip(), head[1].strip()
+
+    def background(self):
+        if not self.facts.get('thread'):
+            raise StepFailed('first-run must have run (no thread on record)')
+        short, subject = self.head()
+        sent = self.send(BACKGROUND_TASK.format(seconds=self.a.command_seconds))
+        end = time.monotonic() + self.a.within + self.a.command_seconds
+        pressed, record, waiting = 0, None, None
+        while time.monotonic() < end:
+            record = self.ours(sent)
+            if record and record.get('state') not in OPEN:
+                break
+            if (waiting is None and record and record.get('state') == 'running'
+                    and record.get('detail') == STILL_RUNNING and record.get('notices')):
+                waiting = {'guest_ms': round(self.clock()), 'notices': record['notices']}
+            if record and pressed < self.a.approvals and self.approve_if_asked(record.get('title', '')):
+                pressed += 1
+            time.sleep(2)
+        commands = self.evidence_commands()
+        evidence = {'sent_between_guest_ms': [round(v) for v in sent], 'command_seconds': self.a.command_seconds,
+                    'repository_head': {'short': short, 'subject': subject}, 'approvals_pressed': pressed,
+                    'seen_waiting_on_its_command': waiting, 'assignment': record, 'back_end_bash': commands}
+        (self.out / 'background-observed.json').write_text(json.dumps(evidence, indent=2) + '\n')
+        if not record:
+            raise StepFailed('no assignment was registered after the task was sent')
+        failures = background_verdict(record, short, subject, commands, sent, self.a.command_seconds, waiting)
+        if failures:
+            raise StepFailed('; '.join(failures))
+        notices = record['notices']
+        return {'state': record['state'], 'first_words': notices[0]['text'], 'report': notices[-1]['text'],
+                'report_after_send_s': round((notices[-1]['raised_at_ms'] - sent[0]) / 1000, 3),
+                'waiting_seen_at_guest_ms': waiting['guest_ms'], 'approvals_pressed': pressed}
+
+    def deadline(self):
+        # Read off the running app's own environment rather than trusted from the command
+        # line: the walk is only a late-approval proof if the app under test has the knob.
+        # (A relaunch with it was tried first, on 2026-09-27; the composer never came back
+        # within 90 s, undiagnosed, so the knob is set at the first launch instead.)
+        state = Path(os.environ.get('TESTVM_ROOT', str(Path.home() / '.richos-testvm'))) / 'run' / self.vm
+        pid = (state / 'app.pid').read_text().strip()
+        if not pid.isdigit():
+            raise StepFailed('the recorded app pid is not a number')
+        environment = guest(self.vm, 'ps -E -ww -p ' + pid + ' -o command=')
+        want = f'RICHOS_PERMISSION_DEADLINE_MS={self.a.deadline_ms}'
+        if want not in environment.split():
+            raise StepFailed(f'the app (pid {pid}) was not launched with {want}: run it with TESTVM_APP_ENV={want}')
+        self.facts['deadline_ms'] = self.a.deadline_ms
+        self.save()
+        return {'app_pid': int(pid), 'deadline_ms': self.a.deadline_ms}
+
+    def file_epoch(self):
+        text = guest(self.vm, 'cat ' + shlex.quote(LATE_FILE) + ' 2>/dev/null || true').strip()
+        return int(text) if text.isdigit() else None
+
+    def late_approval(self):
+        if not self.facts.get('deadline_ms'):
+            raise StepFailed('the deadline step must have run: a late approval needs the call to end first')
+        guest(self.vm, 'rm -f ' + shlex.quote(LATE_FILE))
+        sent = self.send(LATE_TASK)
+        record, blocked = None, None
+        end = time.monotonic() + self.a.within
+        while time.monotonic() < end:
+            record = self.ours(sent)
+            if self.file_epoch() is not None:
+                raise StepFailed('the command ran before anything was approved: the late path was not exercised')
+            if record and record.get('state') == 'blocked':
+                blocked = {'guest_ms': round(self.clock()), 'detail': record.get('detail')}
+                break
+            if record and record.get('state') not in OPEN:
+                break
+            time.sleep(2)
+        if not blocked:
+            (self.out / 'late-approval-observed.json').write_text(json.dumps({'assignment': record}, indent=2) + '\n')
+            raise StepFailed('the assignment never reached `blocked` (its call returned and its turn ended): '
+                             + json.dumps(record and {k: record.get(k) for k in ('state', 'detail')}))
+        press_before = self.clock()
+        if not self.approve_if_asked(record.get('title', '')):
+            raise StepFailed('the assignment was blocked and no Approve was offered for it')
+        press_after = self.clock()
+        pressed, epoch = 1, None
+        end = time.monotonic() + self.a.within
+        while time.monotonic() < end:
+            epoch = epoch or self.file_epoch()
+            record = self.ours(sent)
+            if epoch is not None and record and record.get('state') not in OPEN:
+                break
+            if (record and record.get('state') == 'blocked' and pressed < self.a.approvals
+                    and self.approve_if_asked(record.get('title', ''))):
+                pressed += 1
+            time.sleep(1)
+        evidence = late_evidence(sent, blocked, press_before, press_after, epoch, pressed, record)
+        (self.out / 'late-approval-observed.json').write_text(json.dumps(evidence, indent=2) + '\n')
+        failures = late_verdict(evidence, self.a.late_bound)
+        if failures:
+            raise StepFailed('; '.join(failures))
+        return {k: evidence[k] for k in ('blocked_after_send_s', 'started_after_press_s', 'approvals_pressed', 'final_state')}
+
+
+def late_evidence(sent, blocked, press_before, press_after, epoch, pressed, record):
+    """What the late-approval step saw, with the press-to-start bounds worked out.
+
+    The press is known only between two guest-clock reads either side of the click, and the
+    command's start only to the whole second `date +%s` wrote, so the delay lies in
+    (epoch*1000 - press_after, (epoch+1)*1000 - press_before]."""
+    started = None
+    if epoch is not None:
+        started = [round((epoch * 1000 - press_after) / 1000, 3), round(((epoch + 1) * 1000 - press_before) / 1000, 3)]
+    return {'sent_between_guest_ms': [round(v) for v in sent], 'blocked': blocked,
+            'blocked_after_send_s': round((blocked['guest_ms'] - sent[0]) / 1000, 3),
+            'press_between_guest_ms': [round(press_before), round(press_after)], 'command_epoch_s': epoch,
+            'started_after_press_s': started, 'approvals_pressed': pressed,
+            'final_state': record and record.get('state'), 'final_detail': record and record.get('detail'),
+            'assignment': record}
+
+
+def late_verdict(evidence, bound):
+    """Why this late approval did NOT reach its command promptly ([] = it did)."""
+    failures = []
+    started = evidence.get('started_after_press_s')
+    if started is None:
+        failures.append('the approved command never ran')
+    elif started[1] > bound:
+        failures.append(f'the approved command started up to {started[1]} s after the press (bound {bound} s)')
+    if evidence.get('final_state') != 'settled':
+        failures.append(f"the assignment ended {evidence.get('final_state')}: {evidence.get('final_detail')}")
+    return failures
+
+
+def background_verdict(record, short, subject, commands, sent, seconds, waiting):
+    """Why this closed assignment does NOT show a background command's finish reported ([] = it does).
+
+    Separate from the guest so the rules can be tested on records (test/command-walk.test.py)."""
+    notices = record.get('notices') or []
+    failures = []
+    # `git -C "<folder>" log` is the same command (measured on the first proof run, 2026-09-27).
+    if not any(c.get('background') and re.search(r'\bgit\b.*\blog\b', c.get('command', '')) for c in commands):
+        failures.append('the back end did not run the command in the background, so this was not exercised: '
+                        + json.dumps(commands))
+    if record.get('kind') != 'task':
+        failures.append(f"registered as a {record.get('kind')}, not a task")
+    if record.get('state') != 'settled' or record.get('detail') != 'Answered.':
+        failures.append(f"ended {record.get('state')}: {record.get('detail')}")
+    if not waiting:
+        failures.append('never seen waiting on its command with its first words already said')
+    if len(notices) < 2:
+        failures.append(f'{len(notices)} notice(s): the finish was not reported after the start')
+    else:
+        last = notices[-1]
+        said = last.get('text', '')
+        if not short or not subject or short not in said or subject not in said:
+            failures.append(f"the last notice does not carry the command's result ({short} {subject}): {said!r}")
+        if last.get('raised_at_ms', 0) < sent[0] + seconds * 1000:
+            failures.append(f"the report was raised {(last.get('raised_at_ms', 0) - sent[0]) / 1000:.3f} s after the "
+                            f'send, before a {seconds} s command could have ended')
+    if any('No work was started' in n.get('text', '') for n in notices):
+        failures.append('he was told "No work was started"')
+    return failures
+
+
 def verdict(record, short, subject, commands):
     """Why this closed assignment does NOT show a command run and its result reported ([] = it does).
 
@@ -189,10 +394,13 @@ def main():
     p.add_argument('--task', default=TASK)
     p.add_argument('--within', type=float, default=240, help='seconds for the assignment to close')
     p.add_argument('--approvals', type=int, default=3, help='most Approve presses on this assignment')
+    p.add_argument('--command-seconds', type=int, default=45, help='how long the background command sleeps')
+    p.add_argument('--deadline-ms', type=int, default=20000, help='the shortened permission deadline (1000-300000)')
+    p.add_argument('--late-bound', type=float, default=30, help='seconds from the late Approve to the command')
     p.add_argument('--steps', default=','.join(STEPS))
     a = p.parse_args()
     steps = a.steps.split(',')
-    unknown = [s for s in steps if s not in STEPS]
+    unknown = [s for s in steps if s not in STEPS + MORE_STEPS]
     if unknown:
         p.error('unknown step(s): ' + ', '.join(unknown))
     walk = CommandWalk(a)

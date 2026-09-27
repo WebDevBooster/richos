@@ -502,6 +502,26 @@ claude_version_of() {  # <path-on-this-machine>
 
 # The line every run prints. Written in one place so the summary and the
 # refusal cannot disagree about what was measured.
+# TESTVM_APP_ENV: extra `KEY=VALUE` pairs, space-separated, for the app's FIRST launch, as the
+# `--env` arguments `open` takes — for a walk that must start the app with one of its own test
+# knobs (command-walk.py's late-approval step: RICHOS_PERMISSION_DEADLINE_MS, which can only
+# shorten the 300 s permission deadline). Pure, so it is tested without a virtual machine.
+#
+# Deliberately narrow: a KEY must be `RICHOS_` and capitals, a VALUE letters, digits and
+# `._-`, because the pairs go into a command line built for the guest's shell. Anything else
+# is refused by name, never passed on quoted.
+app_env_args() {  # <space-separated KEY=VALUE pairs>
+  local pair out=""
+  for pair in ${1:-}; do
+    if ! printf '%s' "$pair" | grep -Eq '^RICHOS_[A-Z_]+=[A-Za-z0-9._-]+$'; then
+      printf 'TESTVM_APP_ENV entry refused (RICHOS_[A-Z_]+=[A-Za-z0-9._-]+ only): %s\n' "$pair" >&2
+      return 1
+    fi
+    out="$out --env $pair"
+  done
+  printf '%s\n' "${out# }"
+}
+
 claude_version_line() {  # <host-version> <guest-version>
   printf 'claude: host %s guest %s\n' "${1:-unknown}" "${2:-unknown}"
 }

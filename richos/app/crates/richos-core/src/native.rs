@@ -915,10 +915,13 @@ enum TurnPhase {
 ///
 /// **A parked prompt is answered by the `result` of the turn that consumed the message it
 /// sent, never by the next `result` to arrive.** A `result` reaches it only when the child
-/// has said our message drained into a turn, or has said nothing of ours is waiting behind it
-/// (`queued_turn_count == 0`). A `result` the child reports with a user send still queued
-/// belongs to a turn that was already in flight: it is RETAINED on the between-turn lane
-/// (§1.4 G5 — traffic is never dropped), and the prompt keeps waiting.
+/// has said our message drained into a turn, or — when the child has said nothing about our
+/// message at all — has said nothing of ours is waiting behind it (`queued_turn_count == 0`).
+/// A `result` that arrives while the child's last word on our message was `queued`, or that
+/// the child reports with a user send still queued, belongs to a turn that was already in
+/// flight: it is RETAINED on the between-turn lane (§1.4 G5 — traffic is never dropped), and
+/// the prompt keeps waiting. (The lifecycle outranks the count: 2.1.283 was measured
+/// reporting `0` on the platform's own turn while ours was still queued.)
 ///
 /// Frames arriving while our message is known to be still queued are retained the same way
 /// rather than streamed into this turn, because they belong to the other turn. Attributing
@@ -951,15 +954,27 @@ impl PendingTurn {
         if self.phase == TurnPhase::Running {
             return false;
         }
+        // **The child has said, by name, that our message is still in its queue.** That is
+        // positive evidence about OUR message, and it outranks the count, which is a number
+        // about the queue at the moment the result was produced. Measured on 2.1.283
+        // (2026-09-27): the platform's own `<task-notification>` turn ended with
+        // `queued_turn_count: 0` while the lifecycle for our message had said only `queued`,
+        // and `started` for it came 1 ms after that result. Reading the count first handed the
+        // platform's result to this prompt. On the fold path the child says `completed`
+        // BEFORE the result (schema, quoted on [`PendingTurn`]), so `Queued` here never means
+        // our message was folded into this turn.
+        if self.phase == TurnPhase::Queued {
+            return true;
+        }
         match result.get("queued_turn_count").and_then(Value::as_u64) {
             // The child's own count of user-initiated sends still waiting. Ours is the only
             // one there can be, so a positive count is the child saying "your turn has not
             // run yet".
             Some(waiting) => waiting >= 1,
-            // No count on this frame. Then the lifecycle is the only positive evidence: if
-            // the child said ours is still QUEUED, this result is another turn's. If it has
-            // said nothing at all, nothing is inferred and the result is delivered.
-            None => self.phase == TurnPhase::Queued,
+            // No count on this frame, and the child has said nothing about our message (a
+            // `Queued` one was answered above). Nothing is inferred and the result is
+            // delivered.
+            None => false,
         }
     }
 }
@@ -1369,9 +1384,76 @@ struct ReaderState {
     /// The same argument as `tool_search_offered` and `skills_verdict` above: the fact is on
     /// the wire, so it is READ rather than assumed. Machinery — it never reaches the CEO.
     turns_named_by_the_child: bool,
+    /// The commands this session's provider has put in the background, in the order it
+    /// reported them ([`crate::cognition::BackgroundCommand`]). Bounded by
+    /// [`BACKGROUND_COMMANDS_KEPT`]; an ended one is the first to go.
+    background: Vec<crate::cognition::BackgroundCommand>,
 }
 
+/// How many background commands one session remembers. A back end that has started this many
+/// is a loop, not a job; past it the oldest ENDED entry is forgotten first, so a running
+/// command is never dropped while an ended one is kept.
+const BACKGROUND_COMMANDS_KEPT: usize = 64;
+
 impl ReaderState {
+    /// Read one of the three task frames (see [`crate::cognition::BackgroundCommand`]).
+    /// `ours_running`: a turn this client sent was running when the frame arrived.
+    fn note_background(&mut self, frame: &Value, ours_running: bool) {
+        let field = |value: &Value, name: &str| value.get(name).and_then(Value::as_str).unwrap_or("").to_string();
+        match frame.get("subtype").and_then(Value::as_str).unwrap_or("") {
+            "task_started"
+                if frame.get("task_type").and_then(Value::as_str) == Some("local_bash")
+                    && frame.get("is_backgrounded").and_then(Value::as_bool) == Some(true) =>
+            {
+                self.note_running(field(frame, "task_id"), field(frame, "description"));
+            }
+            "background_tasks_changed" => {
+                for task in frame.get("tasks").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]) {
+                    if task.get("task_type").and_then(Value::as_str) == Some("local_bash") {
+                        self.note_running(field(task, "task_id"), field(task, "description"));
+                    }
+                }
+            }
+            "task_notification" => {
+                let id = field(frame, "task_id");
+                // Only a command this reader saw go to the background. A foreground command
+                // gets a notification too (`cap-fold.jsonl`, 15.200 s) and is not one.
+                if let Some(command) = self.background.iter_mut().find(|c| c.task_id == id && c.ended.is_none()) {
+                    command.ended = Some(crate::cognition::CommandEnded {
+                        status: field(frame, "status"),
+                        summary: field(frame, "summary"),
+                        during_a_turn_of_ours: ours_running,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn note_running(&mut self, id: String, description: String) {
+        if id.is_empty() || self.background.iter().any(|c| c.task_id == id) {
+            return;
+        }
+        if self.background.len() >= BACKGROUND_COMMANDS_KEPT {
+            match self.background.iter().position(|c| c.ended.is_some()) {
+                Some(oldest_ended) => {
+                    self.background.remove(oldest_ended);
+                }
+                // Every remembered command is still running: keep them and do not add
+                // another, and say so, because a reading that silently stopped growing
+                // would look like fewer commands than there are.
+                None => {
+                    eprintln!(
+                        "[richos] this back end has {BACKGROUND_COMMANDS_KEPT} background commands \
+                         running; a further one ({id}) is not being tracked"
+                    );
+                    return;
+                }
+            }
+        }
+        self.background.push(crate::cognition::BackgroundCommand { task_id: id, description, ended: None });
+    }
+
     /// **HE HAS NOW HEARD SOMETHING — and that is what opens the front desk's bookkeeping**
     /// (the CEO's §55, `doctrine/front-desk.md`'s "The record": *"Write it after you have
     /// answered him, never before"*).
@@ -1472,6 +1554,7 @@ impl Default for ReaderState {
             checkpoint_after_his_words: false,
             withheld_after_checkpoint: String::new(),
             turns_named_by_the_child: false,
+            background: Vec::new(),
         }
     }
 }
@@ -2261,6 +2344,24 @@ impl NativeClient {
             return;
         }
 
+        // ---- the commands this lease has running in the background ------------------------
+        //
+        // Read here, on the reader thread, whatever turn (or none) the frame arrives in: the
+        // ending of a background command almost always arrives when NO prompt is parked, so a
+        // reading taken off a turn's stream would never see it. Routed on afterwards like any
+        // other traffic. See [`crate::cognition::BackgroundCommand`] for the measured shapes.
+        if ty == "system" {
+            let subtype = msg.get("subtype").and_then(Value::as_str).unwrap_or("");
+            if matches!(subtype, "task_started" | "background_tasks_changed" | "task_notification") {
+                let ours_running = current
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .is_some_and(|pending| pending.phase != TurnPhase::Queued);
+                state.lock().unwrap().note_background(&msg, ours_running);
+            }
+        }
+
         // ---- session identity ----------------------------------------------------------
         if ty == "system" && msg.get("subtype").and_then(|v| v.as_str()) == Some("init") {
             let mut st = state.lock().unwrap();
@@ -2717,6 +2818,12 @@ impl NativeClient {
     ///
     /// Takes `&self` so a caller holding the lease immutably can pump the lane; the buffer is
     /// behind its own `Mutex` and is never held across a turn.
+    /// The commands this session's provider has put in the background and how each ended
+    /// ([`crate::cognition::BackgroundCommand`]). A reading, never held across a turn.
+    pub fn background_commands(&self) -> Vec<crate::cognition::BackgroundCommand> {
+        self.reader_state.lock().map(|s| s.background.clone()).unwrap_or_default()
+    }
+
     pub fn drain_between_turn(&self, session_id: &str) -> Vec<MachineryRecord> {
         self.between.lock().unwrap().drain(session_id)
     }
@@ -3372,6 +3479,9 @@ impl Cognition for NativeCognition {
         self.engine_profile.as_ref().map(|p| crate::app_workers::status(&p.state, Some(&self.session_id)))
     }
     fn running_commands(&self) -> Option<crate::lease_commands::CommandReading> { self.client.running_commands() }
+    fn background_commands(&self) -> Option<Vec<crate::cognition::BackgroundCommand>> {
+        Some(self.client.background_commands())
+    }
     fn prepare_work_turn(&mut self, binding: &crate::entity::ThreadBinding, turn: &str,
         source: crate::ledger::Source, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
         // **SEAM 2 OF THE SPEC'S §5.8a-ii, and it is the one that fires first** — because it
@@ -6242,6 +6352,109 @@ read -r keep_alive
             retained.iter().any(|record| record.turn_id.is_none()),
             "the injected turn's frames reached neither this turn nor the thread",
         );
+    }
+
+    /// **THE PLATFORM'S OWN TURN CAN REPORT ZERO QUEUED WHILE OURS IS STILL IN ITS QUEUE.**
+    ///
+    /// Measured on `claude` 2.1.283, 2026-09-27 (richos-hq
+    /// `docs/verification/2026-09-27-background-command-finish/`, `cap-continue.jsonl`): a
+    /// background command ended, the child started its own `<task-notification>` turn, and the
+    /// host's message written 0 ms after the notification was answered `queued` at 15.141 s.
+    /// The platform's turn then ended at 17.374 s with `"queued_turn_count": 0`, and the child
+    /// said `started` for our message only at 17.375 s. The count is not a statement about our
+    /// message at that instant; the lifecycle is, and it says ours had not run.
+    ///
+    /// **RED at `238557bb`**: the count was read first, so the platform's result answered this
+    /// prompt with none of its own items, and the host's real turn streamed into nothing.
+    #[test]
+    fn a_platform_turn_that_counts_nothing_queued_still_never_answers_a_prompt_the_child_said_is_queued() {
+        let script = write_script("injected-turn-count-zero", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+ours=$(printf '%s' "$prompt" | sed -n 's/.*"uuid":"\([0-9a-fA-F-]*\)".*/\1/p')
+test -n "$ours" || exit 9
+printf '%s\n' "{\"type\":\"command_lifecycle\",\"command_uuid\":\"$ours\",\"state\":\"queued\"}"
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Background command completed (exit code 0)."}}}'
+printf '%s\n' '{"type":"result","subtype":"success","stop_reason":"end_turn","queued_turn_count":0}'
+printf '%s\n' "{\"type\":\"command_lifecycle\",\"command_uuid\":\"$ours\",\"state\":\"started\"}"
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"It printed bg-marker-done."}}}'
+printf '%s\n' '{"type":"result","subtype":"success","stop_reason":"end_turn","queued_turn_count":0}'
+printf '%s\n' "{\"type\":\"command_lifecycle\",\"command_uuid\":\"$ours\",\"state\":\"completed\"}"
+read -r keep_alive
+"#);
+        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        let mut said = String::new();
+        client
+            .prompt("The command you started has ended", &mut |item| {
+                if let TurnItem::Text { text, .. } = item {
+                    said.push_str(text);
+                }
+            })
+            .unwrap();
+        assert_eq!(said, "It printed bg-marker-done.", "the platform's own turn answered this prompt");
+    }
+
+    /// **A background command is read off the provider's own frames, whichever turn they
+    /// arrive in** — and its ending says whether the model had it before it answered.
+    ///
+    /// The frames are the ones 2.1.283 sent on 2026-09-27 (`cap-plain.jsonl`, `cap-fold.jsonl`
+    /// in richos-hq `docs/verification/2026-09-27-background-command-finish/`), trimmed to the
+    /// fields read. Three facts in one script:
+    ///
+    /// 1. a command that ends after its turn is recorded as ended OUTSIDE a turn of ours —
+    ///    the case whose report reached nobody before this;
+    /// 2. a command that ends while a turn of ours runs is recorded as inside it;
+    /// 3. a FOREGROUND command, which gets the same two frames with `is_backgrounded: false`,
+    ///    is not a background command at all.
+    #[test]
+    fn a_background_command_is_read_off_the_providers_frames_and_its_ending_says_whose_turn_had_it() {
+        let script = write_script("background-commands", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"bk1c0clka","task_type":"local_bash","description":"sleep 12; echo bg-marker-done"}]}'
+printf '%s\n' '{"type":"system","subtype":"task_started","task_id":"bk1c0clka","task_type":"local_bash","is_backgrounded":true,"description":"sleep 12; echo bg-marker-done"}'
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Started."}}}'
+printf '%s\n' '{"type":"result","subtype":"success","stop_reason":"end_turn","queued_turn_count":0}'
+printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[]}'
+printf '%s\n' '{"type":"system","subtype":"task_notification","task_id":"bk1c0clka","status":"completed","summary":"Background command \"sleep 12; echo bg-marker-done\" completed (exit code 0)"}'
+printf '%s\n' '{"type":"result","subtype":"success","stop_reason":"end_turn","queued_turn_count":0}'
+read -r second
+printf '%s\n' '{"type":"system","subtype":"task_started","task_id":"b50y3od71","task_type":"local_bash","is_backgrounded":true,"description":"sleep 4"}'
+printf '%s\n' '{"type":"system","subtype":"task_started","task_id":"bil7jpdo5","task_type":"local_bash","is_backgrounded":false,"description":"sleep 12"}'
+printf '%s\n' '{"type":"system","subtype":"task_notification","task_id":"b50y3od71","status":"completed","summary":"sleep 4 completed (exit code 0)"}'
+printf '%s\n' '{"type":"system","subtype":"task_notification","task_id":"bil7jpdo5","status":"completed","summary":"sleep 12"}'
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Both done."}}}'
+printf '%s\n' '{"type":"result","subtype":"success","stop_reason":"end_turn","queued_turn_count":0}'
+read -r keep_alive
+"#);
+        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        assert!(client.background_commands().is_empty(), "a fresh session reported a command");
+        client.prompt("start it in the background", &mut |_| {}).unwrap();
+        // The notification arrives after the turn: wait for the reader, on the reading itself.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while client.background_commands().first().is_none_or(|c| c.ended.is_none()) {
+            assert!(std::time::Instant::now() < deadline, "the ending was never read");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let first = client.background_commands();
+        assert_eq!(first.len(), 1, "one command, reported by two frames, is one command: {first:?}");
+        assert_eq!(first[0].task_id, "bk1c0clka");
+        assert_eq!(first[0].description, "sleep 12; echo bg-marker-done");
+        let ended = first[0].ended.clone().unwrap();
+        assert_eq!(ended.status, "completed");
+        assert!(ended.summary.contains("exit code 0"), "{}", ended.summary);
+        assert!(!ended.during_a_turn_of_ours, "an ending after the turn was counted as inside it");
+
+        client.prompt("start another and run one in the foreground", &mut |_| {}).unwrap();
+        let all = client.background_commands();
+        assert_eq!(
+            all.iter().map(|c| c.task_id.as_str()).collect::<Vec<_>>(),
+            ["bk1c0clka", "b50y3od71"],
+            "a foreground command was taken for a background one",
+        );
+        assert!(all[1].ended.as_ref().is_some_and(|e| e.during_a_turn_of_ours), "{:?}", all[1]);
     }
 
     /// **The fallback, alone.** A child that names no command (an older binary, or a command it
