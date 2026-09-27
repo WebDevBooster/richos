@@ -181,7 +181,9 @@ if [ -f "$_UE_LIB" ]; then
     . "$_UE_LIB"
     if _UE_REASON="$(richos_payload_unreadable "$INPUT")"; then
         # ONE LINE for the call itself: stop-hook-visibility.test.sh case 3a.
-        _UE_MSG="$(unevaluated_sentence "guard-resource-waits.sh" "whether any job has waited more than ${RESOURCE_WAIT_MINUTES} minutes on a shared resource" "$_UE_REASON" turn)"
+        _UE_MSG="$(unevaluated_sentence "guard-resource-waits.sh" \
+            "whether any job has waited past the resource-wait threshold on a shared resource" \
+            "$_UE_REASON" turn)"
         stop_notice_abnormal "payload-unreadable:$_UE_REASON" "$_UE_MSG"
         exit 0
     fi
