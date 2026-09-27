@@ -528,6 +528,9 @@ struct Conversation {
     /// Leads started to retry an answer since this conversation's last completed turn (or his
     /// last words to it). Bounded by [`RETRY_STARTS`].
     retry_starts: u32,
+    /// The uuid whose echo set `in_turn` from idle. If the CLI then says it dropped that uuid
+    /// (C5), no turn ran, and the conversation is idle again.
+    opened_by: Option<String>,
 }
 
 /// One named stop's result (r3 (d) item 3, r4 §2.1).
@@ -675,7 +678,7 @@ impl OperatorHost {
             awaiting: BTreeSet::new(), in_turn: false, last_relay: None, last_activity: Instant::now(),
             texts: VecDeque::new(), turn_report: None, handle_agents: HashMap::new(), turn_handle: None, banner: None,
             pending_init: None, fences: Ok(()), checked: false, quitting: false, started_digest: String::new(), told_protocol: false, told_permission: false,
-            first_after_resume, questions: Vec::new(), retry_starts: 0,
+            first_after_resume, questions: Vec::new(), retry_starts: 0, opened_by: None,
         }));
         all.insert(key.clone(), conversation.clone());
         conversation
@@ -912,6 +915,9 @@ impl OperatorHost {
             LeadEvent::Took(uuid) => {
                 let mut c = conversation.lock().unwrap();
                 c.last_activity = Instant::now();
+                if !c.in_turn {
+                    c.opened_by = Some(uuid.clone());
+                }
                 c.in_turn = true;
                 if c.turn_handle.is_none() {
                     c.turn_handle = c.sent.get(&uuid).cloned().flatten();
@@ -928,9 +934,23 @@ impl OperatorHost {
                     }
                 }
             }
+            // C5 (P18's frames): the CLI took this uuid and ran nothing for it, because the
+            // session already held it as answered. Nothing awaits it, and if its echo was what
+            // made the conversation read as in a turn, no turn is running. It stays taken.
+            LeadEvent::Dropped(uuid) => {
+                let mut c = conversation.lock().unwrap();
+                c.awaiting.remove(&uuid);
+                if c.opened_by.as_deref() == Some(uuid.as_str()) {
+                    c.opened_by = None;
+                    c.in_turn = false;
+                    c.turn_handle = None;
+                }
+                self.log(&format!("{}/{}: the lead already had {uuid}; nothing ran for it", key.entity_id, key.thread_id));
+            }
             LeadEvent::Agent(task) => {
                 let mut c = conversation.lock().unwrap();
                 c.last_activity = Instant::now();
+                c.opened_by = None; // an agent's frame proves a turn is running
                 c.in_turn = true;
                 if task.status == TaskStatus::Running {
                     if let Some(h) = c.turn_handle.clone() {
@@ -1189,6 +1209,7 @@ impl OperatorHost {
         let last_report = c.turn_report.take();
         c.turn_handle = None;
         c.in_turn = false;
+        c.opened_by = None;
         c.retry_starts = 0; // the lead works: an answer's retries may start it again
         c.last_activity = Instant::now();
         let key = c.key.clone();
@@ -1216,6 +1237,7 @@ impl OperatorHost {
             c.awaiting.clear();
             c.in_turn = false;
             c.turn_handle = None;
+            c.opened_by = None;
             (c.key.clone(), c.lead.take(), c.quitting)
         };
         let Some(lead) = lead else { return };
@@ -2201,6 +2223,31 @@ pub(crate) mod tests {
         r.host.handle(&key("a"), turn(&["u-1"], None));
         crash(&r);
         assert_eq!(r.host.deliver_answer(&key("a"), "A", None, "d-1", "Green.").unwrap(), AnswerOutcome::InFlight);
+    }
+
+    /// **Test 11, C5, the shape from P18's frames.** A resent answer the lead already had is
+    /// dropped: its echo (Took), then the lifecycle's drop (Dropped), and no turn. The answer is
+    /// taken, the conversation does not read as working, and its lead can be retired idle.
+    #[test]
+    fn a_dropped_duplicate_leaves_the_conversation_idle_and_taken() {
+        let r = rig();
+        r.host.deliver_answer(&key("a"), "A", Some("h-1"), "d-1", "Green.").unwrap();
+        let uuid = answer_uuid(&lead_of(&r, "a"));
+        r.host.handle(&key("a"), LeadEvent::Took(uuid.clone()));
+        assert_eq!(r.host.team_from_stream().working.len(), 1, "the echo reads as a turn starting");
+        r.host.handle(&key("a"), LeadEvent::Dropped(uuid.clone()));
+        assert!(r.host.team_from_stream().working.is_empty(), "no turn ran: not working");
+        assert!(record_of(&r, "a").answers.iter().any(|a| a.delivery_id == "d-1" && a.taken), "the lead has it");
+        let paths = ConversationPaths::under(&r.root.join("operator"), &key("a"));
+        std::fs::write(&paths.reap_state, r#"{"outside_provider_group": []}"#).unwrap();
+        r.engine.not_alive.lock().unwrap().clear();
+        assert_eq!(r.host.retire_idle(Duration::ZERO), [key("a")], "retired idle, never held by the drop");
+        // A drop inside a turn that was already running leaves that turn running.
+        r.host.relay(&key("a"), "A", Some("h-2"), "go", Origin::DeskTyped).unwrap();
+        r.host.handle(&key("a"), LeadEvent::Took("u-1".into()));
+        r.host.handle(&key("a"), LeadEvent::Took("other".into()));
+        r.host.handle(&key("a"), LeadEvent::Dropped("other".into()));
+        assert_eq!(r.host.team_from_stream().working.len(), 1, "his running turn is still his team working");
     }
 
     /// Test 9: a relay written by the old code (no `session`, no `taken`) is read as taken,

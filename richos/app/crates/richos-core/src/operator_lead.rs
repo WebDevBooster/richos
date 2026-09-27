@@ -37,6 +37,7 @@
 //! | `system/task_notification` `{task_id, status}` | the agent's last status (r4 §1.1) |
 //! | `system/task_updated` `{task_id, patch: {status}}` | `killed`, which arrives beside `stopped` (P12) |
 //! | `user` echoed with a uuid this client sent (`--replay-user-messages`) | which message started a turn (P13) |
+//! | `command_lifecycle` `{command_uuid, state}` `completed` with no `started` | a resent message the CLI dropped (P18) |
 //! | `result` `{result}` | the turn's end and its final text ((c)) |
 //! | `system/hook_response`, `system/informational` | his engine's alarms ([`crate::operator_frames`]) |
 use crate::operator_frames::{alarms_in, Alarm};
@@ -292,11 +293,39 @@ pub struct TurnEnd {
 pub struct TurnTracker {
     sent: HashSet<String>,
     taken: Vec<String>,
+    /// This client's messages the CLI said it `started` (`command_lifecycle`).
+    started: HashSet<String>,
 }
 
 impl TurnTracker {
     pub fn mark_sent(&mut self, uuid: &str) {
         self.sent.insert(uuid.to_string());
+    }
+
+    /// **A duplicate the CLI dropped** (design C5, measured by P18 on 2.1.283): its echo came,
+    /// then `command_lifecycle` `completed` for it with no `started` before, so no turn ran for
+    /// it. A message the CLI runs is `started` before its echo in every recorded run. Returns
+    /// the dropped uuid, and takes it out of the turn attribution. A CLI that sends no
+    /// lifecycle frames reports no drop, which is today's reading.
+    pub fn lifecycle(&mut self, frame: &Value) -> Option<String> {
+        if frame.get("type").and_then(Value::as_str) != Some("command_lifecycle") {
+            return None;
+        }
+        let uuid = frame.get("command_uuid").and_then(Value::as_str)?;
+        if !self.sent.contains(uuid) {
+            return None;
+        }
+        match frame.get("state").and_then(Value::as_str) {
+            Some("started") => {
+                self.started.insert(uuid.to_string());
+                None
+            }
+            Some("completed") if !self.started.contains(uuid) && self.taken.iter().any(|u| u == uuid) => {
+                self.taken.retain(|u| u != uuid);
+                Some(uuid.to_string())
+            }
+            _ => None,
+        }
     }
 
     /// **The moment the CLI takes one of this client's messages** (its `--replay-user-messages`
@@ -381,6 +410,10 @@ pub enum LeadEvent {
     /// The CLI took one of this client's messages into the running turn: its uuid, from the
     /// `--replay-user-messages` echo. Delivered before anything that turn starts.
     Took(String),
+    /// The CLI took this message and ran nothing for it: a resent uuid the session already
+    /// holds as answered (its echo, then `command_lifecycle` `completed` with no `started`;
+    /// P18). Follows its [`LeadEvent::Took`]; no turn follows it.
+    Dropped(String),
     /// A named agent started, or its status changed (r4 §1.1).
     Agent(AgentTask),
     /// A turn ended ((c)).
@@ -815,6 +848,10 @@ fn read_frames(stdout: std::process::ChildStdout, pending: Pending, book: Arc<Mu
         if let Some(uuid) = took {
             sink.event(LeadEvent::Took(uuid));
         }
+        let dropped = turns.lock().unwrap().lifecycle(&frame);
+        if let Some(uuid) = dropped {
+            sink.event(LeadEvent::Dropped(uuid));
+        }
         let changed = book.lock().unwrap().observe(&frame);
         for task in changed {
             sink.event(LeadEvent::Agent(task));
@@ -961,6 +998,40 @@ mod tests {
         assert_eq!(turns.taking(&echo), None, "the same echo again is not a second taking");
         assert_eq!(turns.taking(&json!({"type":"user","uuid":"tool-result-x","message":{}})), None, "not this client's");
         assert_eq!(turns.taking(&json!({"type":"assistant","uuid":"u-1"})), None);
+    }
+
+    fn lifecycle(uuid: &str, state: &str) -> Value {
+        json!({"type":"command_lifecycle","command_uuid":uuid,"state":state,"uuid":"frame-x","session_id":"s"})
+    }
+
+    /// **C5, from P18's recorded frames** (richos-hq `docs/verification/2026-09-27-operator-probe-p18/`,
+    /// `P18-A-resumed.jsonl` t=3.146, `P18-C-resumed.jsonl` t=2.247-15.246): a message the CLI runs
+    /// goes queued, started, echo, completed; a duplicate it drops goes echo, then completed, with
+    /// no started. Only the second is a drop, and the dropped uuid is not the next turn's.
+    #[test]
+    fn a_duplicate_the_cli_drops_is_told_apart_from_a_message_it_runs() {
+        let mut turns = TurnTracker::default();
+        turns.mark_sent("dropped");
+        turns.mark_sent("ran");
+        // The drop: its echo, then completed, with no started.
+        let echo = json!({"type":"user","uuid":"dropped","isReplay":true,"message":{}});
+        assert_eq!(turns.lifecycle(&echo), None);
+        assert_eq!(turns.taking(&echo).as_deref(), Some("dropped"));
+        turns.observe(&echo);
+        assert_eq!(turns.lifecycle(&lifecycle("dropped", "completed")).as_deref(), Some("dropped"));
+        // The run: queued, started, echo, and its completed is no drop.
+        for frame in [lifecycle("ran", "queued"), lifecycle("ran", "started")] {
+            assert_eq!(turns.lifecycle(&frame), None);
+        }
+        let echo = json!({"type":"user","uuid":"ran","isReplay":true,"message":{}});
+        turns.observe(&echo);
+        assert_eq!(turns.lifecycle(&lifecycle("ran", "completed")), None);
+        let end = turns.observe(&json!({"type":"result","subtype":"success","result":"MARK-D"})).unwrap();
+        assert_eq!(end.started_by, ["ran"], "the dropped uuid is not attributed to the next turn");
+        // Not this client's, or a completed never echoed: never a drop.
+        assert_eq!(turns.lifecycle(&lifecycle("someone-else", "completed")), None);
+        turns.mark_sent("never-echoed");
+        assert_eq!(turns.lifecycle(&lifecycle("never-echoed", "completed")), None);
     }
 
     #[test]
