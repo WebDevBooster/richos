@@ -158,6 +158,38 @@ class Closure(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.map = {"schema": 1, "config_keys": ["A", "B", "PLANTED"], "nodes": {}, "units": {}}
 
+    def test_dialect_copy_preserves_readers_and_ledger_copy_uses_fixture_values(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        dialect = 'scripts/hooks/guard-dialect.test.sh'
+        ledger = 'scripts/hooks/guard-reference-ledger.test.sh'
+        expected = {'DIALECT_TARGET', 'DIALECT_SCAN_ALLOWLIST', 'DIALECT_EXEMPT_PATHS',
+                    'VENDORING_DECLARATION'}
+        self.assertEqual(set(graph.closure(dialect)['keys']), expected)
+        self.assertEqual(graph.closure(ledger)['keys'], {})
+        for unit in (dialect, ledger):
+            self.assertEqual(graph.closure(unit)['fallback'], [])
+            self.assertEqual(graph.closure(unit)['whole'], [])
+        for key in expected:
+            change = inputs.config_change(key+'=before', key+'=after')
+            self.assertEqual(set(graph.config_units(change, [dialect, ledger])), {dialect})
+        change = inputs.config_change('BAN_WORKFLOW_TOOL=1', 'BAN_WORKFLOW_TOOL=0')
+        self.assertEqual(graph.config_units(change, [dialect, ledger]), {})
+        document['nodes'].pop('scripts/lib/vendored-material.sh')
+        self.assertEqual(set(graph.config_units(change, [dialect, ledger])), {dialect})
+
+    def test_source_linters_keep_generated_config_and_scanned_commands_as_data(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        units = ['scripts/scratch-allocation-lint.test.sh', 'scripts/entrypoint-currency-lint.test.sh']
+        for unit in units:
+            self.assertEqual(graph.closure(unit), {'keys': {}, 'whole': [], 'presence': [], 'fallback': []})
+        for key in ('ENTRYPOINTS', 'INSTRUCTION_SURFACES', 'BAN_WORKFLOW_TOOL'):
+            self.assertEqual(graph.config_units(inputs.config_change(key+'=old', key+'=new'), units), {})
+        document['nodes'].pop('scripts/hooks/contract-integrity-layer-ep.sh')
+        selected = graph.config_units(inputs.config_change('ENTRYPOINTS=old', 'ENTRYPOINTS=new'), units)
+        self.assertEqual(set(selected), {units[1]})
+
     def test_definition_and_seat_fixtures_do_not_read_real_config_values(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

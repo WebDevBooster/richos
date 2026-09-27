@@ -1060,7 +1060,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "3c33e8234acf65b052a08fb734386176a4fdae0d122d97833285643ced7eb493",
+      "sha256": "6e23813a01bbc79df633080c5153c42f2371b2b2dc3bcc09bca96206450858f8",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed.",
       "keys": [],
       "edges": [
@@ -1845,6 +1845,202 @@
           "fixture": true
         }
       ]
+    },
+    "scripts/lib/vendored-material.sh": {
+      "source": "scripts/lib/vendored-material.sh",
+      "sha256": "630fc9746255b5e2c6cf24be71ba0b9780a5d673f98559db3099b44f47fa3c92",
+      "evidence": "Reads the named vendoring registry through declaration-path.sh. It consumes VENDORING_DECLARATION from the caller configuration; registry rows and REDISTRIBUTABLE_PATHS are separate data, never sourced as orchestration settings.",
+      "keys": [
+        "VENDORING_DECLARATION"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/declaration-path.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-dialect.sh": {
+      "source": "scripts/hooks/guard-dialect.sh",
+      "sha256": "831d0c118d6004aa300b5ded0b3f9aec1bddd1dd22cdc9118104123df1a3e5ca",
+      "evidence": "Payload-only scanner consumes the three dialect keys. Governing-root overrides use the same finite keys. Vendoring ownership comes through its declared helper. Root resolution does not invoke agent/namespace lookup. Dictionary and generated scanner are data/local code; supplied payload commands never execute.",
+      "keys": [
+        "DIALECT_TARGET",
+        "DIALECT_SCAN_ALLOWLIST",
+        "DIALECT_EXEMPT_PATHS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/vendored-material.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-dialect.test.sh": {
+      "source": "scripts/hooks/guard-dialect.test.sh",
+      "sha256": "ef7035026622f25ad41f27e3463d4bd16e54e5254abc11472ade16bd1212c6ab",
+      "evidence": "The default seat is the real engine, so its four downstream config reads remain dependencies. Later entity fixtures override dialect values without removing the default-seat coverage. Registration, installer and vocabulary inventory assertions read source/data. V8-V12 use the parent vendoring registry as data. The finite mutation driver executes the same suite in a copied engine.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/registered-hooks.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-dialect.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-dialect.mutation.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-dialect.mutation.sh": {
+      "source": "scripts/hooks/guard-dialect.mutation.sh",
+      "sha256": "5c52c3a606fa605829d8ad923ba77f196518814004fbcb877eed8dab7982c2c5",
+      "evidence": "The direct config copy supplies the nested suite, which consumes only its declared guard/helper keys. Twenty-one literal replacements alter verdicts, pattern predicates or dictionary entries, not config reads. The nested flag skips only shipped-parent ownership assertions and prevents recursive mutants.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/stopwatch.sh"
+        },
+        {
+          "to": "scripts/lib/mutation-pool.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-dialect.test.sh"
+        }
+      ],
+      "presence": "Copies orchestration.config into the finite mutant engine; nested readers carry value dependencies."
+    },
+    "scripts/hooks/guard-reference-ledger.sh": {
+      "source": "scripts/hooks/guard-reference-ledger.sh",
+      "sha256": "d80ab9294a7ff64b244285f5467ecf728b692701b6a5d526152909335b750874",
+      "evidence": "Consumes the enable flag and ruling label from its entity config. The ledger and surfaces are plain data read by inline standard-library Python, grep and sed; no commands or helpers are loaded from them. Root discovery does not call namespace lookup.",
+      "keys": [
+        "REFERENCE_LEDGER_GUARD",
+        "REFERENCE_LEDGER_RULING"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-reference-ledger.test.sh": {
+      "source": "scripts/hooks/guard-reference-ledger.test.sh",
+      "sha256": "1e5cdc0e981fc5f8b1b05c45fe75f327fb8b00d4d2fa25a48520c3d9113dc249",
+      "evidence": "Every guard invocation supplies a generated entity config or an intentionally unadopted directory. The missing-helper fixture fails before sourcing. Ledger text and payloads are data. The nested mutation suite rebuilds these private entity settings even though its engine contains a transported real config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-reference-ledger.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/reference-ledger.mutation.sh"
+        }
+      ]
+    },
+    "scripts/hooks/reference-ledger.mutation.sh": {
+      "source": "scripts/hooks/reference-ledger.mutation.sh",
+      "sha256": "0c6b079eb39d2929a03d4e7b9b54453decf01f379e7fc4cebd4ae52cd15785c6",
+      "evidence": "Thirteen literal replacements change the scanner, citation predicates or verdict. The copied orchestration file is an engine transport; the nested suite supplies freshly generated entity settings on every guard call. Copied library files not reached by that suite are not executed.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/stopwatch.sh"
+        },
+        {
+          "to": "scripts/lib/mutation-pool.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-reference-ledger.test.sh"
+        }
+      ],
+      "presence": "Copies orchestration.config to the mutant engine; private entity readers do not consume its values."
+    },
+    "scripts/scratch-allocation-lint.sh": {
+      "source": "scripts/scratch-allocation-lint.sh",
+      "sha256": "e00eba5b8b24decea1335f5942fc948649526063a58a89899a7bc6c8b42cc2b0",
+      "evidence": "Scans shell source text and directory inventory for allocation patterns. No scanned program executes. SCRATCH_LINT_BASELINE is a command environment input with a literal default, never read from orchestration.config.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/scratch-allocation-lint.test.sh": {
+      "source": "scripts/scratch-allocation-lint.test.sh",
+      "sha256": "583aeac27df70697ae409fe5f2988c8a624976626723345ab5bb6eabf1c74824",
+      "evidence": "Generated shell sources are scanner data. The final lint also scans the actual scripts tree, which excludes orchestration.config and does not execute discovered scripts.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/scratch-allocation-lint.sh"
+        }
+      ]
+    },
+    "scripts/lib/entrypoints.sh": {
+      "source": "scripts/lib/entrypoints.sh",
+      "sha256": "ca4d90b9bc460ead00bc7e4cd85c523abad1b0d6077408dbc7c27393f1df8659",
+      "evidence": "Pure parser of the supplied entrypoint string using shell and text tools. No config file or discovered command executes.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/entrypoint-currency-lint.sh": {
+      "source": "scripts/entrypoint-currency-lint.sh",
+      "sha256": "09d95bf0ae992caa52ab7eeaec9613a0cb6ca23933a4f8450c52aba36d8f7486",
+      "evidence": "The finite _ep_read_key call sites read ENTRYPOINTS and INSTRUCTION_SURFACES from explicit root/engine config files. Instruction files and command names are searched as text, never executed.",
+      "keys": [
+        "ENTRYPOINTS",
+        "INSTRUCTION_SURFACES"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/entrypoints.sh"
+        }
+      ]
+    },
+    "scripts/hooks/contract-integrity-layer-ep.sh": {
+      "source": "scripts/hooks/contract-integrity-layer-ep.sh",
+      "sha256": "d94c802f86a8862bfe166f522d6e0a309a54b850cfdc8818d3e7057e7b6ac976",
+      "evidence": "Reads ENTRYPOINTS from the supplied variable or named engine config key. Calls the currency lint for entity and engine roots then two generated canaries; no full contract probe or listed entrypoint executes.",
+      "keys": [
+        "ENTRYPOINTS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/entrypoints.sh"
+        },
+        {
+          "to": "scripts/entrypoint-currency-lint.sh"
+        }
+      ]
+    },
+    "scripts/entrypoint-currency-lint.test.sh": {
+      "source": "scripts/entrypoint-currency-lint.test.sh",
+      "sha256": "2f2aa078c15e45ee201d9840df2488ee683f6b2c92e93d8458c8c7e73e3c5355",
+      "evidence": "All direct and EP-layer calls supply generated root and engine configs. The generated hook text and superseded executables are data, never run. The parser receives literal specifications.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/entrypoints.sh"
+        },
+        {
+          "to": "scripts/entrypoint-currency-lint.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/contract-integrity-layer-ep.sh",
+          "fixture": true
+        }
+      ]
     }
   },
   "units": {
@@ -1875,7 +2071,11 @@
     "scripts/hooks/guard-definition-drift.test.sh": "scripts/hooks/guard-definition-drift.test.sh",
     "scripts/lib/seat-jurisdiction.test.sh": "scripts/lib/seat-jurisdiction.test.sh",
     "scripts/lib/hook-dependencies.test.sh": "scripts/lib/hook-dependencies.test.sh",
-    "scripts/lib/global-state-witness.test.sh": "scripts/lib/global-state-witness.test.sh"
+    "scripts/lib/global-state-witness.test.sh": "scripts/lib/global-state-witness.test.sh",
+    "scripts/hooks/guard-dialect.test.sh": "scripts/hooks/guard-dialect.test.sh",
+    "scripts/hooks/guard-reference-ledger.test.sh": "scripts/hooks/guard-reference-ledger.test.sh",
+    "scripts/scratch-allocation-lint.test.sh": "scripts/scratch-allocation-lint.test.sh",
+    "scripts/entrypoint-currency-lint.test.sh": "scripts/entrypoint-currency-lint.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
