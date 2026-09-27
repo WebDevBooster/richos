@@ -289,7 +289,7 @@ def execute(state_root, request):
         return {"protocol": PROTOCOL_VERSION, "event_schema": 1,
                 "migration_digest": identity.hexdigest(), "state_root": str(root),
                 "ceo_thread_seats": True, "ceo_seat_prefix": CEO_SEAT_PREFIX,
-                "commands": ["current", "bind", "checkpoint", "receipt", "brief", "inspect", "observe", "verified-work", "observation-receipt", "import-preview", "import-apply", "sync-loro-receipts", "complete-obligation", "operator-complete", "answer-complete", "seats", "release-seat"]}
+                "commands": ["current", "bind", "checkpoint", "receipt", "brief", "inspect", "observe", "verified-work", "observation-receipt", "import-preview", "import-apply", "sync-loro-receipts", "complete-obligation", "operator-complete", "seats", "release-seat", "answer-complete"]}
     if command == "import-preview":
         from import_records import preview
         return preview(root, request.get("envelope"), request.get("target"))
