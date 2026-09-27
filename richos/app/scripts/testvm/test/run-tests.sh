@@ -1529,6 +1529,10 @@ t "slots: two runs at once, a third waits; a slot is held only for its run and a
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/slots.test.py" >"$TMP/slots.log" 2>&1; ok $? "$(cat "$TMP/slots.log")"
 t_done
 
+t "mem-walk: a guest probe reads as used, need, swap-outs and the app's and claude's memory"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/mem-walk.test.py" >"$TMP/mem-walk.log" 2>&1; ok $? "$(cat "$TMP/mem-walk.log")"
+t_done
+
 t "slots: run.sh boots no guest outside a slot, and names the one command that does"
   : > "$TMP/slot-bundle.zip"; mkdir -p "$TMP/slot-home"
   out="$(env -u TESTVM_SLOT "$TESTVM_DIR/run.sh" --bundle "$TMP/slot-bundle.zip" --home "$TMP/slot-home" --vm richos-test-slot 2>&1)"; no $?
