@@ -158,6 +158,22 @@ class Closure(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.map = {"schema": 1, "config_keys": ["A", "B", "PLANTED"], "nodes": {}, "units": {}}
 
+    def test_serial_runner_fixtures_and_ci_discovery_do_not_read_config_values(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        units = ['scripts/run-all-tests.test.sh', 'scripts/ci-surface-watch.test.sh',
+                 'scripts/lib/ci-surface.test.sh']
+        for unit in units:
+            closure = graph.closure(unit)
+            self.assertEqual(closure['keys'], {}, closure)
+            self.assertEqual(closure['whole'], [], closure)
+            self.assertEqual(closure['fallback'], [], closure)
+        for key in ('PROTECTED_PATHS', 'BAN_WORKFLOW_TOOL', 'SESSION_TEAMS_DIR'):
+            self.assertEqual(graph.config_units(inputs.config_change(key+'=before', key+'=after'), units), {})
+        document['nodes'].pop('scripts/lib/ci_pause.py')
+        change = inputs.config_change('BAN_WORKFLOW_TOOL=1', 'BAN_WORKFLOW_TOOL=0')
+        self.assertEqual(set(graph.config_units(change, units)), set(units[1:]))
+
     def test_dialect_copy_preserves_readers_and_ledger_copy_uses_fixture_values(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

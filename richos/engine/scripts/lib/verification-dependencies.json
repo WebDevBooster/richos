@@ -1063,7 +1063,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "24ec274aa07f47639bd2d036154bc1a458383f082304a479e55f73580530a747",
+      "sha256": "89b422965e40236d0ed4b45aeee85c3fe44b24f894d1fd0fe2aae169296c0623",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed.",
       "keys": [],
       "edges": [
@@ -2117,6 +2117,122 @@
           "fixture": true
         }
       ]
+    },
+    "scripts/lib/leak-canary.sh": {
+      "source": "scripts/lib/leak-canary.sh",
+      "sha256": "6b27b4530bb6d5330c32d0181ea3201f9fbf438430b0391ecbfe94138bb48767",
+      "evidence": "Witnesses caller-supplied Git roots and changed/untracked files. It does not locate, source or interpret orchestration config. The caller supplies any config-to-witness relationship.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/tree-witness.sh"
+        }
+      ]
+    },
+    "scripts/lib/record-canary.sh": {
+      "source": "scripts/lib/record-canary.sh",
+      "sha256": "702d0b4a21b5ede39f15bd390b81a649956914f303da2f4f74eeeedd601b716e",
+      "evidence": "Reads only fixed ledger, team and workspace paths beneath the supplied config directory. Inline Python reads JSON/text and file metadata; it never executes record content or sources orchestration settings.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/run-all-tests.sh#generated-inventory": {
+      "source": "scripts/run-all-tests.sh",
+      "sha256": "77e28d2cb3d0357067360e80c08f5ec99ffcb8f21dfc390e76dd24542823728a",
+      "evidence": "The runner discovers suites in its own engine and executes the caller-supplied inventory. This fixture copies it into an engine containing only generated marker/leak suites. Shared witness, timing, slot and worker helpers remain real; none sources the generated config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/tree-witness.sh"
+        },
+        {
+          "to": "scripts/lib/leak-canary.sh"
+        },
+        {
+          "to": "scripts/lib/record-canary.sh"
+        },
+        {
+          "to": "scripts/lib/stopwatch.sh"
+        },
+        {
+          "to": "scripts/lib/worker_tokens.py"
+        },
+        {
+          "to": "scripts/lib/engine_pass.py"
+        }
+      ]
+    },
+    "scripts/run-all-tests.test.sh": {
+      "source": "scripts/run-all-tests.test.sh",
+      "sha256": "b10a543469a3a85f19ddeb51f7758814721a6c78e68049908146a55feddcb849",
+      "evidence": "Copies the real serial runner and finite helpers into generated Git repositories containing literal config and tiny generated clean/leaking suites. Every runner invocation changes cwd to that fixture engine. The real config is never copied or compared.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/run-all-tests.sh#generated-inventory",
+          "fixture": true
+        }
+      ]
+    },
+    "scripts/lib/ci-surface.py": {
+      "source": "scripts/lib/ci-surface.py",
+      "sha256": "ac333b6cab58f196cce2da51918724f0457199840d04fc250f66eb2a727e7e53",
+      "evidence": "The adoption marker is used only by os.path.isfile in repository discovery. Values come from workflow source, API/cache data and the separate CI pause registry. Subprocesses are gh api and git history queries; no workflow program or orchestration setting is executed.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/ci_pause.py"
+        }
+      ],
+      "presence": "Repository discovery tests orchestration.config existence only."
+    },
+    "scripts/ci-status.sh": {
+      "source": "scripts/ci-status.sh",
+      "sha256": "f218d5216073ece57a9193c9d9c0ebdf5fa45edbeed615c831b3a3290e5c6dcf",
+      "evidence": "Invokes the CI surface reader with the supplied explicit repositories or derived neighborhood. Rendering reads the returned JSON; no orchestration values are read.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/ci-surface.py"
+        }
+      ]
+    },
+    "scripts/ci-surface-watch.sh#fixture-services": {
+      "source": "scripts/ci-surface-watch.sh",
+      "sha256": "816592ecd53656926085e66664a3878a64cec8370a41f82822e54b0dabaece8b",
+      "evidence": "Test calls omit install/uninstall. The first fixture replaces all services with inline stubs. The later fixture copies the real surface reader and pause library, but leaves status and red services stubbed. Every discovery root and HOME in that case is private.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/ci-surface.py"
+        }
+      ]
+    },
+    "scripts/ci-surface-watch.test.sh": {
+      "source": "scripts/ci-surface-watch.test.sh",
+      "sha256": "b9d0c3e9b0e759daff5155c96892bfc0b47ddcb3ba498c9557fd8395b6433b17",
+      "evidence": "Exercises copied watch commands, generated status/red/surface services and a copied real surface reader under a private discovery neighborhood. Generated gh commands answer or time out locally. No real orchestration values are read.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/ci-surface-watch.sh#fixture-services",
+          "fixture": true
+        }
+      ]
+    },
+    "scripts/lib/ci-surface.test.sh": {
+      "source": "scripts/lib/ci-surface.test.sh",
+      "sha256": "8f827460510e3c5bc2bf1a0bfa2a33aa40e1117e6bab73f67bf00121eaeddd74",
+      "evidence": "Exercises the real classifier, discovery reader and status formatter against generated workflows and repositories. API calls are offline or answered by generated gh. Real config has at most a presence dependency through discovery; its assignments are not read.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/ci-surface.py"
+        },
+        {
+          "to": "scripts/ci-status.sh"
+        }
+      ]
     }
   },
   "units": {
@@ -2154,7 +2270,10 @@
     "scripts/entrypoint-currency-lint.test.sh": "scripts/entrypoint-currency-lint.test.sh",
     "scripts/lib/mutation-focus.test.sh": "scripts/lib/mutation-focus.test.sh",
     "scripts/lib/mutation-harness.test.sh": "scripts/lib/mutation-harness.test.sh",
-    "scripts/locate-engine.test.sh": "scripts/locate-engine.test.sh"
+    "scripts/locate-engine.test.sh": "scripts/locate-engine.test.sh",
+    "scripts/run-all-tests.test.sh": "scripts/run-all-tests.test.sh",
+    "scripts/ci-surface-watch.test.sh": "scripts/ci-surface-watch.test.sh",
+    "scripts/lib/ci-surface.test.sh": "scripts/lib/ci-surface.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
