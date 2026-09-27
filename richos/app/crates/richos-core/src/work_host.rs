@@ -948,8 +948,17 @@ impl WorkHost {
                     binding
                 }
                 Next::Report(watched, ended) => {
-                    let report = Report { ended, told: watched.told.clone() };
-                    self.run_one(&backend, &watched.binding, &watched.record, false, Some(report));
+                    // Only a job that is still open is asked about: anything that closed it
+                    // meanwhile (a quit's sweep, a path that forgot the watch) already spoke.
+                    let open = assignment::read(&self.state, &watched.record.entity_id, &watched.record.thread_id,
+                                                &watched.record.id)
+                        .is_ok_and(|row| row.state.is_open());
+                    if open {
+                        let report = Report { ended, told: watched.told.clone() };
+                        self.run_one(&backend, &watched.binding, &watched.record, false, Some(report));
+                    } else {
+                        eprintln!("[richos] work: a watched assignment had already closed when its command ended; nothing was asked");
+                    }
                     let mut inner = backend.inner.lock().unwrap();
                     inner.completed += 1;
                     inner.live = None;
@@ -1217,7 +1226,15 @@ impl WorkHost {
         // provider folds a command's ending into whatever turn is running when it comes
         // (`cap-fold.jsonl`), so this turn is told to leave such an ending out of its own
         // answer. That job's report is asked for on its own seat when this one is done.
-        let others: Vec<Watched> = backend.inner.lock().unwrap().watching.clone();
+        //
+        // **A watched job that is run again** (his answer to its question,
+        // `queue_question_answer`) takes itself off the watch: its commands are its own again,
+        // so the waits below treat them as this run's, and it keeps what he was already told.
+        let (others, rewatched): (Vec<Watched>, Option<Watched>) = {
+            let mut inner = backend.inner.lock().unwrap();
+            let own = inner.watching.iter().position(|w| w.record.id == record.id).map(|at| inner.watching.remove(at));
+            (inner.watching.clone(), own)
+        };
         let mut prompt = match &report {
             Some(report) => {
                 let ended: Vec<crate::cognition::BackgroundCommand> = self
@@ -1345,7 +1362,9 @@ impl WorkHost {
             let mut lease = backend.lease.lock().unwrap();
             match lease.as_mut() {
                 Some(lease) => {
-                    commands_seen.extend(lease.background_commands().unwrap_or_default().into_iter().map(|c| c.task_id));
+                    let own: Vec<&str> = rewatched.iter().flat_map(|w| w.commands.iter().map(|(id, _)| id.as_str())).collect();
+                    commands_seen.extend(lease.background_commands().unwrap_or_default().into_iter()
+                        .map(|c| c.task_id).filter(|id| !own.contains(&id.as_str())));
                     say(lease, &prompt, &mut items, &mut said)
                 }
                 None => Err(CognitionError::Protocol("The work connection closed.".into())),
@@ -1354,7 +1373,8 @@ impl WorkHost {
         keep_words(&mut answer, &said);
         // The words he was told while a command of this assignment was still running, if any
         // (step 3c). The settle arms below do not tell him the same words twice.
-        let mut told_while_running: Option<String> = report.as_ref().and_then(|report| report.told.clone());
+        let mut told_while_running: Option<String> = report.as_ref().and_then(|report| report.told.clone())
+            .or_else(|| rewatched.as_ref().and_then(|w| w.told.clone()));
         // Set when this job's commands outlive the wait below: it is handed to the watch
         // ([`Watched`]) instead of being settled.
         let mut handed: Option<Vec<String>> = None;
@@ -5687,6 +5707,56 @@ mod tests {
         assert!(told[1].contains("could not be read"), "{}", told[1]);
         h.host.shutdown();
         std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// **A watched job that comes back for his answer keeps its command** (bgdone2, after the
+    /// questions branch landed). `queue_question_answer` puts the asking assignment back on the
+    /// queue, and it may be on the watch at that moment. The re-run must treat the command as
+    /// its own — wait for it, hand it to the watch again — rather than count it as already
+    /// seen, settle without it, and leave the watch to report on a closed job.
+    #[test]
+    fn a_watched_job_rerun_for_his_answer_still_reports_its_command_once() {
+        use crate::cognition::ObligationState;
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        *h.background.lock().unwrap() = Some(Vec::new());
+        h.host.set_command_wait_budget(std::time::Duration::from_millis(100));
+        const STARTED: &str = "Started the import.";
+        const NOTED: &str = "Noted: ship tomorrow. The import is still running.";
+        const DONE: &str = "The import finished: 12 rows.";
+        h.replies.lock().unwrap().extend([STARTED, NOTED, DONE].map(String::from));
+        h.start_in_turn.lock().unwrap().push_back(vec![background_command("bimport", "import.sh")]);
+        h.host.start();
+        let job = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let record = assignment::read(&h.state, "depot", "thread-one", &job.id).unwrap();
+        assert_eq!(record.detail, COMMAND_STILL_RUNNING_DETAIL);
+
+        let answer = crate::questions::Delivery {
+            id: "answer-1".into(), entity_id: "depot".into(), thread_id: "thread-one".into(),
+            asker: record.obligation_id.clone(), set_id: None,
+            text: "When should it ship? You answered: tomorrow".into(), receipt: None,
+        };
+        crate::question_work::enqueue(&h.state, &answer).unwrap();
+        h.host.queue_question_answer(&h.binding, &answer).unwrap();
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &job.id).unwrap();
+        assert_eq!((row.state, row.detail.as_str()), (AssignmentState::Running, COMMAND_STILL_RUNNING_DETAIL),
+                   "the re-run settled without its own command");
+
+        background_command_ends(&h, "bimport", false);
+        assert!(h.host.wait_for_completed(3, std::time::Duration::from_secs(10)));
+        let prompts = h.work_prompts.lock().unwrap().clone();
+        assert_eq!(prompts.len(), 3, "{prompts:?}");
+        assert!(prompts[1].contains("You answered: tomorrow"), "{}", prompts[1]);
+        assert!(!prompts[1].contains("\"import.sh\" (for"), "its own command was listed as another job's");
+        assert!(prompts[2].contains(COMMAND_ENDED_HEAD), "{}", prompts[2]);
+        let told: Vec<String> = h.notices.0.lock().unwrap().iter().map(|(_, n)| n.text.clone()).collect();
+        assert_eq!(told, [STARTED, NOTED, DONE], "{told:?}");
+        assert!(assignment::read(&h.state, "depot", "thread-one", &job.id).unwrap().was_answered());
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
     }
 
     /// **A QUESTION THE BACK END NEVER ANSWERED is told to him as that, not as a job that
