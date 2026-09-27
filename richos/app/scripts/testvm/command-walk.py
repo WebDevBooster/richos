@@ -41,8 +41,10 @@ THREE MORE STEPS, run with --steps (esc-20260927T093052Z-85f3303f's leftovers):
                  answered, with a LATER notice carrying the head's short sha and subject, raised
                  no earlier than N seconds after the send (the finish cannot be reported before
                  the command could end). Evidence: background-observed.json.
-  deadline       relaunches the app with RICHOS_PERMISSION_DEADLINE_MS=--deadline-ms (permissions.rs:
-                 it can only shorten the shipping 300 s), so a late approval takes seconds to reach.
+  deadline       checks the running app was launched with RICHOS_PERMISSION_DEADLINE_MS=--deadline-ms
+                 (permissions.rs: it can only shorten the shipping 300 s), so a late approval takes
+                 seconds to reach. Launch it so: TESTVM_APP_ENV=RICHOS_PERMISSION_DEADLINE_MS=20000
+                 in run-walk.py's environment (run.sh, lib.sh app_env_args).
   late-approval  a command that needs his approval (`date +%s > /tmp/richos-late-approval.txt`);
                  NOTHING is pressed until the assignment is `blocked` -- the call has returned at
                  its deadline and the turn has ended -- then Approve is pressed once. PASS needs the
@@ -56,6 +58,7 @@ Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.
 import argparse
 import importlib.util
 import json
+import os
 import re
 from pathlib import Path
 import shlex
@@ -238,12 +241,21 @@ class CommandWalk(adopt_walk.Walk):
                 'waiting_seen_at_guest_ms': waiting['guest_ms'], 'approvals_pressed': pressed}
 
     def deadline(self):
-        from relaunch import relaunch
-        launched = relaunch(self.vm, environment={'RICHOS_PERMISSION_DEADLINE_MS': str(self.a.deadline_ms)})
-        self.wait_for('Message to Rich', role='AXTextArea', seconds=90)
+        # Read off the running app's own environment rather than trusted from the command
+        # line: the walk is only a late-approval proof if the app under test has the knob.
+        # (A relaunch with it was tried first, on 2026-09-27; the composer never came back
+        # within 90 s, undiagnosed, so the knob is set at the first launch instead.)
+        state = Path(os.environ.get('TESTVM_ROOT', str(Path.home() / '.richos-testvm'))) / 'run' / self.vm
+        pid = (state / 'app.pid').read_text().strip()
+        if not pid.isdigit():
+            raise StepFailed('the recorded app pid is not a number')
+        environment = guest(self.vm, 'ps -E -ww -p ' + pid + ' -o command=')
+        want = f'RICHOS_PERMISSION_DEADLINE_MS={self.a.deadline_ms}'
+        if want not in environment.split():
+            raise StepFailed(f'the app (pid {pid}) was not launched with {want}: run it with TESTVM_APP_ENV={want}')
         self.facts['deadline_ms'] = self.a.deadline_ms
         self.save()
-        return {'relaunched': launched, 'deadline_ms': self.a.deadline_ms}
+        return {'app_pid': int(pid), 'deadline_ms': self.a.deadline_ms}
 
     def file_epoch(self):
         text = guest(self.vm, 'cat ' + shlex.quote(LATE_FILE) + ' 2>/dev/null || true').strip()

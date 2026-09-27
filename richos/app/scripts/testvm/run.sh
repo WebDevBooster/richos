@@ -405,6 +405,9 @@ APP_MODEL_ENV=""
 if [ -n "${TESTVM_APP_MODEL:-}" ]; then
   APP_MODEL_ENV="--env ANTHROPIC_MODEL='$TESTVM_APP_MODEL'"
 fi
+# TESTVM_APP_ENV, when set, adds the app's own test knobs to this launch (lib.sh app_env_args,
+# which refuses anything but RICHOS_ names and plain values). Unset, nothing changes.
+APP_EXTRA_ENV="$(app_env_args "${TESTVM_APP_ENV:-}")" || die "TESTVM_APP_ENV was refused; nothing was launched"
 log "launching the app in the guest's GUI session..."
 guest_ssh "$VM" "rm -f '$LOGFILE'; \
   open -n -a '$APP' \
@@ -415,6 +418,7 @@ guest_ssh "$VM" "rm -f '$LOGFILE'; \
     --env $TESTVM_CLAUDE_PIN_VAR=$TESTVM_CLAUDE_PIN_VALUE \
     ${ENGINE:+--env RICHOS_ENGINE_DIR='$PAYLOAD/engine'} \
     $APP_MODEL_ENV \
+    $APP_EXTRA_ENV \
     --stdout '$LOGFILE' --stderr '$LOGFILE'"
 
 # Wait for the process, then for a WINDOW. A pid is not a proof: the app can be
