@@ -319,7 +319,7 @@ mod tests {
     fn canonical(dir: &Path, stdout: &str, code: i32) -> (std::path::PathBuf, std::path::PathBuf) {
         let seen = dir.join("seen.json");
         let script = dir.join("canonical.sh");
-        fs::write(&dir.join("stdout.txt"), stdout).unwrap();
+        fs::write(dir.join("stdout.txt"), stdout).unwrap();
         fs::write(
             &script,
             format!("#!/bin/sh\ncat > '{}'\ncat '{}'\nexit {code}\n", seen.display(), dir.join("stdout.txt").display()),

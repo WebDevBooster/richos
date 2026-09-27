@@ -6793,16 +6793,18 @@ read -r keep_alive
 
     // ---- AMERICAN SPELLING AT THE DRAIN (CEO §93) --------------------------------------------
 
+    /// What one scripted turn delivered: every item in delivery order (`None` text for a
+    /// machinery record), the turn's result, and the prompt line the child received.
+    struct BritishTurn {
+        items: Vec<(u64, Option<String>)>,
+        result: Result<String, NativeError>,
+        received: String,
+    }
+
     /// One scripted turn whose text is `blocks` (each a list of deltas, streamed in its own text
     /// block, with a tool call between the blocks), then `ending`: `"result"` for a normal end,
-    /// `"exit"` for a child that dies with no `result`. Returns every item in delivery order,
-    /// the turn's result and the prompt line the child received.
-    fn a_british_turn(
-        tag: &str,
-        prompt: &str,
-        blocks: &[Vec<String>],
-        ending: &str,
-    ) -> (Vec<(u64, Option<String>)>, Result<String, NativeError>, String) {
+    /// `"exit"` for a child that dies with no `result`.
+    fn a_british_turn(tag: &str, prompt: &str, blocks: &[Vec<String>], ending: &str) -> BritishTurn {
         let dir = fixture_root().join(format!("american-{tag}-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).unwrap();
         let ev = |event: Value| json!({"type": "stream_event", "event": event}).to_string();
@@ -6841,8 +6843,7 @@ cat '{frames}'
             TurnItem::Text { seq, text } => items.push((seq, Some(text.to_string()))),
             TurnItem::Machinery(record) => items.push((record.seq, None)),
         });
-        let line = std::fs::read_to_string(&received).unwrap_or_default();
-        (items, result, line)
+        BritishTurn { items, result, received: std::fs::read_to_string(&received).unwrap_or_default() }
     }
 
     /// A fixture section of `|`-separated deltas (British on purpose, in the exempt location).
@@ -6863,7 +6864,7 @@ cat '{frames}'
         let prompt = crate::american_spelling::tests::section("drain-prompt").trim_end().to_string();
         let first = british_deltas("drain-deltas-1");
         let second = british_deltas("drain-deltas-2");
-        let (items, result, received) = a_british_turn("reply", &prompt, &[first.clone(), second.clone()], "result");
+        let BritishTurn { items, result, received } = a_british_turn("reply", &prompt, &[first.clone(), second.clone()], "result");
         assert_eq!(result.unwrap(), "end_turn");
 
         // HIS WORDS: the child received exactly what he wrote, British spelling and all.
@@ -6891,7 +6892,7 @@ cat '{frames}'
     #[test]
     fn a_child_that_dies_mid_reply_still_delivers_its_held_word_fixed() {
         let third = british_deltas("drain-deltas-3");
-        let (items, result, _) = a_british_turn("crash", "go on", &[third.clone()], "exit");
+        let BritishTurn { items, result, .. } = a_british_turn("crash", "go on", std::slice::from_ref(&third), "exit");
         assert!(matches!(result, Err(NativeError::Closed)), "a vanished child is Closed: {result:?}");
         assert_eq!(said_in(&items), crate::american_spelling::fix(&third.concat()), "the partial reply must be kept, fixed");
         assert_ne!(said_in(&items), third.concat());

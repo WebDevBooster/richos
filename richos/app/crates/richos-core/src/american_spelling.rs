@@ -1107,7 +1107,7 @@ pub(crate) mod tests {
         let clean = serde_json::json!({"file_path": md.to_str().unwrap(), "content": "Plain words only."});
         assert!(fix_tool_input("Write", &clean).is_none(), "nothing to change is no output at all");
         assert!(fix_tool_input("Bash", &serde_json::json!({"command": "echo"})).is_none());
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(std::fs::remove_dir_all(&dir));
     }
 
     #[test]
@@ -1151,6 +1151,6 @@ pub(crate) mod tests {
         assert!(fix_tool_input("NotebookEdit", &md_cell).is_some());
         let code_cell = serde_json::json!({"notebook_path": nb, "cell_type": "code", "new_source": format!("# {word}")});
         assert!(fix_tool_input("NotebookEdit", &code_cell).is_none());
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(std::fs::remove_dir_all(&dir));
     }
 }
