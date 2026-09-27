@@ -90,4 +90,10 @@ The col|our of the organis|ation is fine. The behaviour
 Favour|ite: the tyre is |grey
 === drain-deltas-3
 He hono|ured the cheque
+=== vm-sentence
+The colour of the organisation's catalogue is grey, and we honoured the cheque.
+=== vm-british-words
+colour organisation catalogue grey honoured cheque
+=== vm-american-words
+color organization catalog gray honored check
 === end

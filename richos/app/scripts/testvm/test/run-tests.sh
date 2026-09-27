@@ -1539,6 +1539,10 @@ t "command-walk: a settled task carrying the command's result passes; the 2026-0
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/command-walk.test.py" >"$TMP/command-walk.log" 2>&1; ok $? "$(cat "$TMP/command-walk.log")"
 t_done
 
+t "spelling-walk: a British model reply stored and shown American passes; British left on a surface, his words rewritten, or a model that wrote American itself fail"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/spelling-walk.test.py" >"$TMP/spelling-walk.log" 2>&1; ok $? "$(cat "$TMP/spelling-walk.log")"
+t_done
+
 # ===========================================================================
 # hand-file.sh — a FILE handed to the app, pasted or dragged, the way a person does
 # ===========================================================================
