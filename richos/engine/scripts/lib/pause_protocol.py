@@ -20,6 +20,18 @@ BODY = "\n".join([
 ])
 SUMMARY = "PAUSE: preserve work and context"
 MARKER = "richos-pause-control: "
+# The RESUME that ends a pause. It mentions the pause, so the check below would
+# refuse it as a changed pause; it carries its own control line instead and is
+# accepted only unchanged. It never carries `pause-until:`, which is what makes
+# the registry record a resume (and agent_hold.py continue the held work).
+RESUME_BODY = "\n".join([
+    "RESUME: continue this same task exactly where it was held, with the same context and workspaces.",
+    "Commands that were running when the pause arrived were suspended, and they are running again now. Do not restart them.",
+    "A command you started while paused waited without running, and it is running now too.",
+    "Elapsed times and timeouts inside that work include the pause, so a timeout it reports may be the pause, not a defect.",
+])
+RESUME_SUMMARY = "RESUME: continue the held work"
+RESUME_MARKER = "richos-resume-control: "
 RECIPIENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 CLOCK = re.compile(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]Z\Z")
 # A routing check for declared control messages, not a classifier of user intent.
@@ -55,10 +67,44 @@ def render(reason, reset=None):
     return BODY + "\n" + MARKER + metadata + "\npause-until: " + until
 
 
-def message_input(to, reason="manual", reset=None):
+def render_resume(reason="manual"):
+    if reason not in ("manual", "quota", "weekly-quota"):
+        raise ValueError("reason must be manual, quota or weekly-quota")
+    metadata = json.dumps({"version": 1, "reason": reason}, separators=(",", ":"))
+    return RESUME_BODY + "\n" + RESUME_MARKER + metadata
+
+
+def message_input(to, reason="manual", reset=None, resume=False):
     if not isinstance(to, str) or not RECIPIENT.fullmatch(to):
         raise ValueError("the exact recipient is required")
+    if resume:
+        if reset is not None:
+            raise ValueError("a resume has no reset time")
+        return {"to": to, "summary": RESUME_SUMMARY, "message": render_resume(reason)}
     return {"to": to, "summary": SUMMARY, "message": render(reason, reset)}
+
+
+def validate_resume_text(text):
+    if not isinstance(text, str) or len(text) > 8192:
+        raise ValueError("invalid resume control message")
+    rows = text.splitlines()
+    metadata = [row[len(RESUME_MARKER):] for row in rows if row.startswith(RESUME_MARKER)]
+    if len(metadata) != 1 or any(row.startswith(MARKER) for row in rows):
+        raise ValueError("resume messages must come from pause_protocol.py --resume, unchanged")
+    try:
+        value = json.loads(metadata[0])
+        if set(value) != {"version", "reason"} or value["version"] != 1:
+            raise ValueError("invalid resume control fields")
+        expected = render_resume(value["reason"])
+    except (TypeError, KeyError, json.JSONDecodeError) as error:
+        raise ValueError("invalid resume control fields") from error
+    if text not in (expected, expected + "\n"):
+        raise ValueError("resume instructions were changed; send the generated message unchanged")
+    return value
+
+
+def is_resume(text):
+    return isinstance(text, str) and any(row.startswith(RESUME_MARKER) for row in text.splitlines())
 
 
 def declared(text):
@@ -130,9 +176,14 @@ def validate_payload(payload):
         raise ValueError("a pause requires the exact recipient")
     if set(ti) - {"to", "recipient", "message", "content", "summary", "type", "messageType"}:
         raise ValueError("pause payload has unexpected fields")
-    validate_text(text)
-    if summary not in (None, "", SUMMARY):
-        raise ValueError("pause summary was changed; use the generated summary unchanged")
+    if is_resume(text):
+        validate_resume_text(text)
+        if summary not in (None, "", RESUME_SUMMARY):
+            raise ValueError("resume summary was changed; use the generated summary unchanged")
+    else:
+        validate_text(text)
+        if summary not in (None, "", SUMMARY):
+            raise ValueError("pause summary was changed; use the generated summary unchanged")
     # An alias must not carry a second, contradictory instruction. The harness's
     # own preview of the message is not one.
     if "content" in ti and not is_preview(ti["content"], text):
@@ -147,6 +198,7 @@ def main():
     parser.add_argument("--to")
     parser.add_argument("--reason", choices=("manual", "quota", "weekly-quota"), default="manual")
     parser.add_argument("--reset")
+    parser.add_argument("--resume", action="store_true", help="render the RESUME that ends a pause")
     args = parser.parse_args()
     try:
         if args.check:
@@ -158,9 +210,10 @@ def main():
                 raise ValueError("invalid hook payload")
             validate_payload(value)
         else:
-            print(json.dumps(message_input(args.to, args.reason, args.reset)))
+            print(json.dumps(message_input(args.to, args.reason, args.reset, resume=args.resume)))
     except (ValueError, TypeError) as error:
-        print("REFUSED: " + str(error) + ". Generate the pause with scripts/lib/pause_protocol.py --to <agent>.", file=sys.stderr)
+        print("REFUSED: " + str(error) + ". Generate the pause with scripts/lib/pause_protocol.py --to <agent>, "
+              "and the resume with --resume --to <agent>.", file=sys.stderr)
         return 2
     return 0
 
