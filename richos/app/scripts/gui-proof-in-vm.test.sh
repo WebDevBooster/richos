@@ -61,7 +61,7 @@ for _ in $(seq 1 100); do [ -e "$TMP/held" ] && break; sleep 0.1; done
 out="$("$HERE/gui-proof-in-vm.sh" --bundle "$TMP/bundle.zip" --commit abc123 --out "$TMP/proof" --wait 0 2>&1)"; rc=$?
 [ "$rc" -eq 75 ] && has "$out" "every slot is executing a run" "a walk guest.lock" "a walk guest-2.lock"; ok=$?
 check "both slots executing runs: refused with exit 75, naming both holders" "$ok" "rc=$rc $out"
-[ ! -e "$TMP/proof" ] && [ ! -e "$TESTVM_ROOT/run" ]; ok=$?
+if [ ! -e "$TMP/proof" ] && [ ! -e "$TESTVM_ROOT/run" ]; then ok=0; else ok=1; fi
 check "...before a guest, run state or proof file exists" "$ok"
 
 began=$(date +%s)
@@ -71,4 +71,5 @@ waited=$(( $(date +%s) - began ))
 check "--wait 3 waits for a slot, says so, and is refused only when the wait is spent" "$ok" "rc=$rc waited=${waited}s $out"
 
 if [ "$fail" -eq 0 ]; then echo "gui-proof-in-vm.test.sh: all passed"; else echo "gui-proof-in-vm.test.sh: FAILED"; fi
+cleanup; HOLDER=""; trap - EXIT
 exit "$fail"
