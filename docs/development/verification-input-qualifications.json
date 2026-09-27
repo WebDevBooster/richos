@@ -40,7 +40,9 @@
       "env",
       "rmdir",
       "tee",
-      "seq"
+      "seq",
+      "ln",
+      "basename"
     ],
     "environment": [],
     "external": []

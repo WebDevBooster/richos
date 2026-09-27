@@ -54,13 +54,13 @@ class Evidence(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "engine/helper.sh"):
             evidence.qualify_recipe(self.root, {**recipe, "paths": ["engine-other", "LICENSE"]})
 
-    def test_production_recipes_reject_the_three_discovered_tool_omissions(self):
+    def test_production_recipes_reject_known_shared_and_fixture_tool_omissions(self):
         root = HERE.parents[2]
         checks = json.loads((HERE / "proof-inputs.json").read_text())["checks"]
         for label, recipe in checks.items():
             with self.subTest(label=label):
                 evidence.qualify_recipe(root, recipe)
-                for tool in ("seq", "tee", "rmdir"):
+                for tool in ("seq", "tee", "rmdir", "ln", "basename"):
                     broken = {**recipe, "tools": [name for name in recipe["tools"] if name != tool]}
                     with self.assertRaisesRegex(ValueError, "qualification omits tools: " + tool):
                         evidence.recipe_identity(root, broken, {})
