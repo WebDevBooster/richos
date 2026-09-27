@@ -449,7 +449,7 @@ fn host(data: &Path, _driver_state: &Path, root: &Path) -> Result<(), String> {
             "answer" => match &thread_id {
                 Some(tid) => match app.desk.deliver_answer(&app.key(tid), v["handle"].as_str(), v["delivery"].as_str().unwrap_or(""),
                                                            v["text"].as_str().unwrap_or("")) {
-                    Ok(now) => json!({"delivered_now": now}),
+                    Ok(outcome) => json!({"outcome": format!("{outcome:?}")}),
                     Err(e) => json!({"error": e}),
                 },
                 None => json!({"error": "no such conversation"}),

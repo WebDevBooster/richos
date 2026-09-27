@@ -178,6 +178,8 @@ pub enum Say {
 pub trait LeadHandle: Send + Sync {
     fn session_id(&self) -> String;
     fn send(&self, text: &str) -> Result<String, LeadError>;
+    /// Send under a uuid the host chose: an answer's retry reuses its first uuid (design §2.2).
+    fn send_with_uuid(&self, uuid: &str, text: &str) -> Result<(), LeadError>;
     fn stop_task(&self, task_id: &str) -> Result<(), LeadError>;
     fn interrupt(&self) -> Result<InterruptReply, LeadError>;
     fn tasks(&self) -> TaskBook;
@@ -394,24 +396,65 @@ fn held_line(handles: &BTreeSet<String>) -> String {
 /// One answer relayed to the lead. `answer_to` is the handle whose question it answers (r1
 /// (c)'s `answer_to`, kept on the relay rather than in the product register: `Assignment` is
 /// `deny_unknown_fields`, so a new field there would make every older build refuse the record).
+///
+/// **The delivery ledger** (richos-hq `docs/plans/2026-09-27-answer-delivery-crash-dedup-design.md`
+/// §2.2). A relay is written, and synced, BEFORE its message is sent (the intent), so a retry
+/// after a crash reuses `uuid` into the same `session`; it is `taken` only when the CLI echoes
+/// that uuid. A pipe write is not the lead having it (C1: a message queued behind a running turn
+/// dies with the app).
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct AnswerRelay {
     delivery_id: String,
     answer_to: Option<String>,
     uuid: String,
+    /// The lead session `uuid` was sent into. Empty on a relay written before this field.
+    #[serde(default)]
+    session: String,
+    /// The CLI echoed `uuid`: the lead has the answer. A relay written before this field was
+    /// saved after its send by the old code, so it reads as taken: the at-most-once promise
+    /// that code made for it is kept, and it is never resent.
+    #[serde(default = "relay_written_before_taken_existed")]
+    taken: bool,
 }
+
+fn relay_written_before_taken_existed() -> bool {
+    true
+}
+
+/// What [`OperatorHost::deliver_answer`] did with an answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AnswerOutcome {
+    /// The lead has it: its CLI echoed the answer's uuid. Only now may the inbox let it go.
+    Taken,
+    /// Written to the lead, now or earlier in this process, and not echoed yet. It stays in
+    /// the inbox; a later flush asks again, and nothing is sent while its uuid is awaited.
+    InFlight,
+}
+
+/// Said to the lead before an answer it may already have (design §2.2, "the resend note"). A
+/// retry exists only after the lead's process ended (the app's death takes it; its own crash
+/// ends it), so "this session restarted" is true of every retry. **Wording changed from the
+/// design's "RichOS restarted":** after the lead's own crash (W5) RichOS did not restart.
+pub const RESEND_NOTE: &str = "This session restarted before RichOS could confirm you received this answer. If it is \
+                               already in your conversation, it is the same answer: do not act on it twice.";
 
 fn read_record(path: &Path) -> LeadRecord {
     std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
 }
 
+/// Written whole, synced, then renamed over the old one, and the folder synced (C4, copying
+/// `question_work.rs`): the answer's intent must be on disk before its message is sent, or a
+/// retry cannot reuse its uuid.
 fn write_record(path: &Path, record: &LeadRecord) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
+    use std::io::Write;
+    let parent = path.parent().ok_or("the lead record has no folder")?;
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec_pretty(record).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+    let bytes = serde_json::to_vec_pretty(record).map_err(|e| e.to_string())?;
+    let mut file = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+    file.write_all(&bytes).and_then(|_| file.sync_all()).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())?;
+    std::fs::File::open(parent).and_then(|d| d.sync_all()).map_err(|e| e.to_string())
 }
 
 // =============================================================================================
@@ -664,16 +707,20 @@ impl OperatorHost {
             self.log(&format!("not relayed: origin {declared} is not declared ({}/{})", key.entity_id, key.thread_id));
             return Ok(Relayed::Not { sentence: Some(PHONE_ASSIGNMENT.into()) });
         }
-        self.write(key, title, handle, text, None)
-    }
-
-    /// Write one message to the lead, prefixed as e4 and (l) say. Shared by [`Self::relay`] and
-    /// [`Self::deliver_answer`], which is the only other way words reach a lead.
-    fn write(self: &Arc<Self>, key: &ConversationKey, title: &str, handle: Option<&str>, text: &str,
-             answer: Option<(&str, Option<&str>)>) -> Result<Relayed, String> {
         let conversation = self.conversation(key, title);
         let mut c = conversation.lock().unwrap();
         let lead = self.ensure_lead(&mut c)?;
+        let uuid = self.write(&mut c, &lead, key, handle, text, None)?;
+        self.save(&c.paths.record, &c.record);
+        Ok(Relayed::Sent { uuid })
+    }
+
+    /// Write one message to the lead, prefixed as e4 and (l) say, under the conversation's lock
+    /// the caller holds. Shared by [`Self::relay`] and [`Self::deliver_answer`], which is the
+    /// only other way words reach a lead. `uuid` is the one to send under (an answer's), or
+    /// `None` for the lead's own. Returns the uuid sent. The caller saves the record.
+    fn write(&self, c: &mut Conversation, lead: &Arc<dyn LeadHandle>, key: &ConversationKey, handle: Option<&str>,
+             text: &str, uuid: Option<&str>) -> Result<String, String> {
         // F8: his words on a held handle are his next words about it; it is no longer held.
         if let Some(h) = handle {
             c.record.held.remove(h);
@@ -702,7 +749,12 @@ impl OperatorHost {
             lines.push(format!("Assignment handle: {handle}. Report on it with richos_operator.report and this handle."));
         }
         lines.push(text.to_string());
-        let uuid = lead.send(&lines.join("\n\n")).map_err(|e| {
+        let body = lines.join("\n\n");
+        let sent = match uuid {
+            Some(chosen) => lead.send_with_uuid(chosen, &body).map(|_| chosen.to_string()),
+            None => lead.send(&body),
+        };
+        let uuid = sent.map_err(|e| {
             // Kept on error (r3 (q) item 1): the lead is not touched; he is told the relay failed.
             self.log(&format!("relay failed for {}/{}: {e}", key.entity_id, key.thread_id));
             format!("Your message did not reach your team ({e}). Your team is still running.")
@@ -716,39 +768,95 @@ impl OperatorHost {
         if let Some(h) = handle {
             c.record.open_handles.insert(h.to_string());
         }
-        if let Some((delivery_id, answer_to)) = answer {
-            c.record.answers.push(AnswerRelay { delivery_id: delivery_id.to_string(),
-                                                answer_to: answer_to.map(str::to_string), uuid: uuid.clone() });
-            if let Some(h) = answer_to {
-                c.questions.retain(|(q, _)| q.as_deref() != Some(h));
-            }
-        }
-        self.save(&c.paths.record, &c.record);
-        Ok(Relayed::Sent { uuid })
+        Ok(uuid)
     }
 
     /// **The §88 seam, inward half.** PRD S6 calls this with a resolved answer set for a
     /// question his team asked on `handle` (or on the conversation). It reaches the lead from ANY
     /// channel, with no hold and no confirmation (r4 §3). `delivery_id` is S6's durable delivery
-    /// identity: the same one twice relays once. Returns whether it was relayed now.
+    /// identity.
     ///
     /// The app question worker queues resolved sets durably, then flushes them through
     /// [`crate::operator_desk::OperatorDesk::deliver_answer`] outside the question store lock.
     /// Phone and desktop answers use this same path without a desktop confirmation hold.
+    ///
+    /// **Crash-safe, once** (richos-hq `docs/plans/2026-09-27-answer-delivery-crash-dedup-design.md`
+    /// §2.2). Under ONE hold of the conversation's lock (C9): an answer already `taken` is
+    /// [`AnswerOutcome::Taken`] and nothing is sent; one whose uuid this process still awaits is
+    /// [`AnswerOutcome::InFlight`] and nothing is sent; otherwise its intent (uuid, session) is
+    /// saved and synced, THEN it is sent. A retry reuses the uuid when the lead is in the same
+    /// session, so a lead that already has it drops the repeat (the provider's check, §1.2), and
+    /// it carries [`RESEND_NOTE`] for a lead that does not drop it. A lost record means a new
+    /// session, whose context never saw the answer, so a new uuid delivers it once there.
     pub fn deliver_answer(self: &Arc<Self>, key: &ConversationKey, title: &str, handle: Option<&str>,
-                          delivery_id: &str, answer: &str) -> Result<bool, String> {
-        {
-            let conversation = self.conversation(key, title);
-            let c = conversation.lock().unwrap();
-            if c.record.answers.iter().any(|a| a.delivery_id == delivery_id) {
-                return Ok(false);
+                          delivery_id: &str, answer: &str) -> Result<AnswerOutcome, String> {
+        let conversation = self.conversation(key, title);
+        let mut c = conversation.lock().unwrap();
+        let prior = c.record.answers.iter().find(|a| a.delivery_id == delivery_id).cloned();
+        if let Some(relay) = &prior {
+            if relay.taken {
+                return Ok(AnswerOutcome::Taken);
+            }
+            if c.awaiting.contains(&relay.uuid) {
+                return Ok(AnswerOutcome::InFlight);
             }
         }
-        let text = match handle {
+        let lead = self.ensure_lead(&mut c)?;
+        let session = lead.session_id();
+        let uuid = match &prior {
+            Some(relay) if relay.session == session => relay.uuid.clone(),
+            _ => uuid::Uuid::new_v4().to_string(),
+        };
+        let answer_text = match handle {
             Some(h) => format!("His answer to your question on {h}:\n\n{answer}"),
             None => format!("His answer to your question:\n\n{answer}"),
         };
-        self.write(key, title, handle, &text, Some((delivery_id, handle))).map(|_| true)
+        let text = if prior.is_some() { format!("{RESEND_NOTE}\n\n{answer_text}") } else { answer_text };
+        // The intent, before any byte is sent (C4: synced, and a failure to save it sends nothing).
+        let before = c.record.answers.clone();
+        c.record.answers.retain(|a| a.delivery_id != delivery_id);
+        c.record.answers.push(AnswerRelay { delivery_id: delivery_id.to_string(), answer_to: handle.map(str::to_string),
+                                            uuid: uuid.clone(), session, taken: false });
+        if let Err(e) = write_record(&c.paths.record, &c.record) {
+            c.record.answers = before;
+            self.log(&format!("answer {delivery_id} for {}/{} not sent: its intent could not be saved ({e})",
+                              key.entity_id, key.thread_id));
+            return Err(format!("RichOS could not save it for your team ({e})."));
+        }
+        if let Err(sentence) = self.write(&mut c, &lead, key, handle, &text, Some(&uuid)) {
+            // A failed write is no send (a partial line is no frame), so this attempt's intent
+            // goes: the next try is a first send, without the note. An earlier send's stays.
+            c.record.answers = before;
+            self.save(&c.paths.record, &c.record);
+            return Err(sentence);
+        }
+        if let Some(h) = handle {
+            c.questions.retain(|(q, _)| q.as_deref() != Some(h));
+        }
+        self.save(&c.paths.record, &c.record);
+        if let Some(earlier) = &prior {
+            self.log(&format!("answer {delivery_id} resent to {}/{} with the note, under {} uuid", key.entity_id,
+                              key.thread_id, if earlier.uuid == uuid { "the same" } else { "a new" }));
+        }
+        Ok(AnswerOutcome::InFlight)
+    }
+
+    /// **The CLI took this uuid** (its `--replay-user-messages` echo, the only positive signal
+    /// that the lead has a message; design §2.2, C1). An answer relay carrying it becomes
+    /// `taken`, synced, and its delivery id is returned for the inbox to let go of. `None` for
+    /// any other uuid, or when the save failed: the inbox then keeps the answer, the next flush
+    /// reads `taken` from memory, and after a crash the same uuid is resent and dropped (§1.2).
+    fn answer_taken(&self, c: &mut Conversation, uuid: &str) -> Option<String> {
+        let relay = c.record.answers.iter_mut().find(|a| a.uuid == uuid && !a.taken)?;
+        relay.taken = true;
+        let id = relay.delivery_id.clone();
+        match write_record(&c.paths.record, &c.record) {
+            Ok(()) => Some(id),
+            Err(e) => {
+                self.log(&format!("answer {id} was taken by the lead; that could not be saved ({e})"));
+                None
+            }
+        }
     }
 
     // ---- events ----------------------------------------------------------------------------
@@ -767,6 +875,16 @@ impl OperatorHost {
                 c.in_turn = true;
                 if c.turn_handle.is_none() {
                     c.turn_handle = c.sent.get(&uuid).cloned().flatten();
+                }
+                let taken = self.answer_taken(&mut c, &uuid);
+                drop(c);
+                // The inbox lets the answer go only now (design §2.2). An answer that never
+                // entered the inbox (a direct call) has nothing to let go of.
+                if let Some(id) = taken {
+                    if let Err(e) = crate::question_work::acknowledge_if_present(&self.state, &id) {
+                        self.log(&format!("answer {id} was taken; the inbox could not record it ({e}), so the next \
+                                           flush does"));
+                    }
                 }
             }
             LeadEvent::Agent(task) => {
@@ -1050,6 +1168,12 @@ impl OperatorHost {
     fn ended(&self, conversation: &Arc<Mutex<Conversation>>) {
         let (key, lead, quitting) = {
             let mut c = conversation.lock().unwrap();
+            // C6: an ended lead holds nothing. Its queued messages died with it, so nothing is
+            // awaited any more and no turn runs: an answer not yet taken is resent by the next
+            // flush (the desk's timer), into the resumed session, under the same uuid.
+            c.awaiting.clear();
+            c.in_turn = false;
+            c.turn_handle = None;
             (c.key.clone(), c.lead.take(), c.quitting)
         };
         let Some(lead) = lead else { return };
@@ -1384,6 +1508,12 @@ pub(crate) mod tests {
         pub(crate) quits: Mutex<usize>,
         pub(crate) fail_send: Mutex<bool>,
         pub(crate) queued: usize,
+        /// The uuid of every message, in order ("u-N" for the lead's own, the host's for answers).
+        pub(crate) uuids: Mutex<Vec<String>>,
+        /// When set, each chosen-uuid send first reads this file (the lead record) and notes
+        /// whether the uuid was already on disk: the intent-before-send check (design §4.1 test 5).
+        pub(crate) record_probe: Mutex<Option<PathBuf>>,
+        pub(crate) on_disk_at_send: Mutex<Vec<bool>>,
     }
     impl FakeLead {
         pub(crate) fn feed(&self, frame: Value) {
@@ -1397,7 +1527,21 @@ pub(crate) mod tests {
                 return Err(LeadError::Io("Broken pipe".into()));
             }
             self.sent.lock().unwrap().push(text.to_string());
-            Ok(format!("u-{}", self.sent.lock().unwrap().len()))
+            let uuid = format!("u-{}", self.sent.lock().unwrap().len());
+            self.uuids.lock().unwrap().push(uuid.clone());
+            Ok(uuid)
+        }
+        fn send_with_uuid(&self, uuid: &str, text: &str) -> Result<(), LeadError> {
+            if *self.fail_send.lock().unwrap() {
+                return Err(LeadError::Io("Broken pipe".into()));
+            }
+            if let Some(path) = self.record_probe.lock().unwrap().clone() {
+                let on_disk = std::fs::read_to_string(path).unwrap_or_default().contains(uuid);
+                self.on_disk_at_send.lock().unwrap().push(on_disk);
+            }
+            self.sent.lock().unwrap().push(text.to_string());
+            self.uuids.lock().unwrap().push(uuid.to_string());
+            Ok(())
         }
         fn stop_task(&self, task_id: &str) -> Result<(), LeadError> {
             self.stops.lock().unwrap().push(task_id.to_string());
@@ -1860,11 +2004,188 @@ pub(crate) mod tests {
         assert!(r.said.all().iter().any(|(_, l, k, t)| *k == Say::Question && *l == Lane::Handle("h-1".into())
                                         && t == "Ship tonight or tomorrow?"));
         assert_eq!(r.host.read(&key("a"), false)[0].open_questions.len(), 1);
-        assert!(r.host.deliver_answer(&key("a"), "A", Some("h-1"), "delivery-1", "Tomorrow.").unwrap());
-        assert!(!r.host.deliver_answer(&key("a"), "A", Some("h-1"), "delivery-1", "Tomorrow.").unwrap(), "deduplicated");
+        assert_eq!(r.host.deliver_answer(&key("a"), "A", Some("h-1"), "delivery-1", "Tomorrow.").unwrap(),
+                   AnswerOutcome::InFlight);
+        assert_eq!(r.host.deliver_answer(&key("a"), "A", Some("h-1"), "delivery-1", "Tomorrow.").unwrap(),
+                   AnswerOutcome::InFlight, "awaited, so not sent again");
         let sent = lead_of(&r, "a").sent.lock().unwrap().clone();
         assert_eq!(sent.iter().filter(|s| s.contains("His answer to your question on h-1")).count(), 1);
         assert!(r.host.read(&key("a"), false)[0].open_questions.is_empty());
+    }
+
+    // ---- crash-safe answer delivery (richos-hq docs/plans/2026-09-27-answer-delivery-crash-dedup-design.md) --
+
+    fn record_of(r: &Rig, thread: &str) -> LeadRecord {
+        read_record(&ConversationPaths::under(&r.root.join("operator"), &key(thread)).record)
+    }
+
+    /// A second host over the same folders: the app after a crash (the first host's memory gone).
+    fn relaunched(r: &Rig) -> Arc<OperatorHost> {
+        OperatorHost::new(r.declaration.clone(), &r.state, &r.root.join("operator"), r.launcher.clone(), r.engine.clone(),
+                          r.settle.clone(), r.said.clone(), Arc::new(SayQuestions(r.said.clone())))
+    }
+
+    fn answer_uuid(lead: &FakeLead) -> String {
+        answer_uuid_of(lead, "His answer to your question")
+    }
+
+    fn answer_uuid_of(lead: &FakeLead, needle: &str) -> String {
+        let sent = lead.sent.lock().unwrap().clone();
+        let at = sent.iter().position(|s| s.contains(needle)).expect("an answer was sent");
+        lead.uuids.lock().unwrap()[at].clone()
+    }
+
+    /// C1: a pipe write is not the lead having it. `taken` comes only from the CLI's echo, and
+    /// only then does the answer read as taken (test 1 and W3, at the host).
+    #[test]
+    fn an_answer_is_taken_only_when_the_cli_echoes_its_uuid() {
+        let r = rig();
+        r.host.relay(&key("a"), "A", Some("h-1"), "Do it.", Origin::DeskTyped).unwrap();
+        assert_eq!(r.host.deliver_answer(&key("a"), "A", Some("h-1"), "d-1", "Green.").unwrap(), AnswerOutcome::InFlight);
+        let uuid = answer_uuid(&lead_of(&r, "a"));
+        let relay = record_of(&r, "a").answers.into_iter().find(|a| a.delivery_id == "d-1").unwrap();
+        assert_eq!((relay.uuid.as_str(), relay.taken, relay.session.as_str()), (uuid.as_str(), false,
+                   lead_of(&r, "a").session.as_str()));
+        r.host.handle(&key("a"), LeadEvent::Took(uuid.clone()));
+        assert!(record_of(&r, "a").answers.iter().any(|a| a.delivery_id == "d-1" && a.taken), "saved as taken");
+        assert_eq!(r.host.deliver_answer(&key("a"), "A", Some("h-1"), "d-1", "Green.").unwrap(), AnswerOutcome::Taken);
+        // W3 after a crash: taken on disk, so a relaunched host sends nothing either.
+        let again = relaunched(&r);
+        assert_eq!(again.deliver_answer(&key("a"), "A", Some("h-1"), "d-1", "Green.").unwrap(), AnswerOutcome::Taken);
+        assert_eq!(r.launcher.leads.lock().unwrap().len(), 1, "no lead was started for a taken answer");
+        assert_eq!(lead_of(&r, "a").sent.lock().unwrap().len(), 2, "the assignment and the answer, once");
+    }
+
+    /// W2 and W4 (tests 3 and 5): the intent is on disk before the send; the app dies with no
+    /// echo; the relaunched host resends into the resumed session under the SAME uuid, with the
+    /// note, so a lead that already has it drops it.
+    #[test]
+    fn after_a_crash_before_the_echo_the_answer_is_resent_under_its_first_uuid_with_the_note() {
+        let r = rig();
+        r.host.relay(&key("a"), "A", Some("h-1"), "Do it.", Origin::DeskTyped).unwrap();
+        let first = lead_of(&r, "a");
+        *first.record_probe.lock().unwrap() = Some(ConversationPaths::under(&r.root.join("operator"), &key("a")).record);
+        r.host.deliver_answer(&key("a"), "A", Some("h-1"), "d-1", "Green.").unwrap();
+        assert_eq!(*first.on_disk_at_send.lock().unwrap(), [true], "the intent was on disk before the send");
+        let uuid = answer_uuid(&first);
+        assert!(!first.sent.lock().unwrap()[1].contains(RESEND_NOTE), "a first send carries no note");
+        // The app dies here: no echo, and its memory is gone.
+        let again = relaunched(&r);
+        assert_eq!(again.deliver_answer(&key("a"), "A", Some("h-1"), "d-1", "Green.").unwrap(), AnswerOutcome::InFlight);
+        let (_, start, second) = r.launcher.leads.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(start, LeadStart::Resume(first.session.clone()), "the same session");
+        assert_eq!(second.uuids.lock().unwrap().last().unwrap(), &uuid, "the same uuid");
+        let text = second.sent.lock().unwrap().last().unwrap().clone();
+        assert!(text.contains(&format!("{RESEND_NOTE}\n\nHis answer to your question on h-1:\n\nGreen.")), "{text}");
+        let log = std::fs::read_to_string(again.log_path()).unwrap();
+        assert!(log.contains("answer d-1 resent to femcboost/a with the note, under the same uuid"), "{log}");
+    }
+
+    /// Test 6: while its uuid is awaited, a second flush sends nothing.
+    #[test]
+    fn an_answer_in_flight_is_never_sent_twice_by_one_process() {
+        let r = rig();
+        for _ in 0..3 {
+            assert_eq!(r.host.deliver_answer(&key("a"), "A", None, "d-1", "Green.").unwrap(), AnswerOutcome::InFlight);
+        }
+        assert_eq!(lead_of(&r, "a").sent.lock().unwrap().len(), 1);
+    }
+
+    /// W5 and C6 (test 7, at the host): the lead's own crash releases what it held, so the next
+    /// delivery resends into the resumed session under the same uuid, and the conversation no
+    /// longer reads as working.
+    #[test]
+    fn the_lead_s_own_crash_releases_its_queue_and_the_answer_is_resent_once() {
+        let r = rig();
+        r.host.deliver_answer(&key("a"), "A", None, "d-1", "Green.").unwrap();
+        let first = lead_of(&r, "a");
+        let uuid = answer_uuid(&first);
+        assert_eq!(r.host.team_from_stream().working.len(), 1, "queued: working");
+        r.host.handle(&key("a"), LeadEvent::Took(uuid.clone()));
+        *first.exited.lock().unwrap() = true;
+        // The answer was TAKEN into a turn that the crash then ended; it is not resent (the
+        // provider has it and re-executes or drops it, §1.2). A second, untaken answer is.
+        r.host.handle(&key("a"), LeadEvent::Ended);
+        {
+            let conversation = r.host.conversations.lock().unwrap().get(&key("a")).cloned().unwrap();
+            let c = conversation.lock().unwrap();
+            assert!(c.awaiting.is_empty() && !c.in_turn, "C6: an ended lead holds nothing");
+        }
+        assert_eq!(r.host.deliver_answer(&key("a"), "A", None, "d-1", "Green.").unwrap(), AnswerOutcome::Taken);
+        assert_eq!(r.launcher.leads.lock().unwrap().len(), 1, "nothing started for a taken answer");
+        // Now the W5 case proper: an answer written and not taken when the lead crashes.
+        r.host.relay(&key("a"), "A", None, "wake up", Origin::DeskTyped).unwrap();
+        let first = lead_of(&r, "a");
+        r.host.deliver_answer(&key("a"), "A", None, "d-2", "Blue.").unwrap();
+        let uuid = answer_uuid_of(&first, "Blue.");
+        *first.exited.lock().unwrap() = true;
+        r.host.handle(&key("a"), LeadEvent::Ended);
+        assert_eq!(r.host.deliver_answer(&key("a"), "A", None, "d-2", "Blue.").unwrap(), AnswerOutcome::InFlight);
+        let second = lead_of(&r, "a");
+        assert!(!Arc::ptr_eq(&first, &second));
+        assert_eq!(*second.uuids.lock().unwrap(), [uuid], "resent once, same uuid");
+        assert_eq!(r.host.deliver_answer(&key("a"), "A", None, "d-2", "Blue.").unwrap(), AnswerOutcome::InFlight);
+        assert_eq!(second.uuids.lock().unwrap().len(), 1, "and not again while awaited");
+    }
+
+    /// Test 9: a relay written by the old code (no `session`, no `taken`) is read as taken,
+    /// which is the at-most-once promise that code made; it is never resent.
+    #[test]
+    fn a_relay_written_before_the_ledger_fields_existed_reads_as_taken() {
+        let old: AnswerRelay = serde_json::from_str(r#"{"delivery_id":"d-1","answer_to":"h-1","uuid":"u-9"}"#).unwrap();
+        assert!(old.taken);
+        assert_eq!(old.session, "");
+        let r = rig();
+        let paths = ConversationPaths::under(&r.root.join("operator"), &key("a"));
+        std::fs::create_dir_all(&paths.dir).unwrap();
+        std::fs::write(&paths.record, r#"{"last_session":"s-old","outbox_read":0,"open_handles":[],
+            "answers":[{"delivery_id":"d-1","answer_to":null,"uuid":"u-9"}]}"#).unwrap();
+        assert_eq!(r.host.deliver_answer(&key("a"), "A", None, "d-1", "Green.").unwrap(), AnswerOutcome::Taken);
+        assert!(r.launcher.leads.lock().unwrap().is_empty());
+    }
+
+    /// Test 10: a lost record means a new session, whose context never saw the answer, so it
+    /// is delivered there once under a new uuid.
+    #[test]
+    fn a_lost_record_means_a_new_session_and_a_new_uuid() {
+        let r = rig();
+        r.host.deliver_answer(&key("a"), "A", None, "d-1", "Green.").unwrap();
+        let first = answer_uuid(&lead_of(&r, "a"));
+        std::fs::remove_file(ConversationPaths::under(&r.root.join("operator"), &key("a")).record).unwrap();
+        let again = relaunched(&r);
+        again.deliver_answer(&key("a"), "A", None, "d-1", "Green.").unwrap();
+        let (_, start, second) = r.launcher.leads.lock().unwrap().last().cloned().unwrap();
+        assert!(matches!(start, LeadStart::New(_)), "{start:?}");
+        assert_ne!(second.uuids.lock().unwrap()[0], first);
+        assert!(!second.sent.lock().unwrap()[0].contains(RESEND_NOTE), "nothing to say: that context never had it");
+    }
+
+    /// C4: the intent could not be saved, so nothing is sent and the caller hears why.
+    #[test]
+    fn an_intent_that_could_not_be_saved_sends_nothing() {
+        let r = rig();
+        r.host.relay(&key("a"), "A", None, "go", Origin::DeskTyped).unwrap();
+        let paths = ConversationPaths::under(&r.root.join("operator"), &key("a"));
+        std::fs::remove_file(&paths.record).unwrap();
+        std::fs::create_dir_all(&paths.record).unwrap(); // a folder where the file goes: every save fails
+        let err = r.host.deliver_answer(&key("a"), "A", None, "d-1", "Green.").unwrap_err();
+        assert!(err.starts_with("RichOS could not save it for your team"), "{err}");
+        assert_eq!(lead_of(&r, "a").sent.lock().unwrap().len(), 1, "only the assignment");
+    }
+
+    /// A failed write is no send: the attempt's intent goes, so the next try is a first send
+    /// with no note (the transient-error half of C2, at the host).
+    #[test]
+    fn a_failed_write_leaves_no_intent_and_the_next_try_is_a_first_send() {
+        let r = rig();
+        r.host.relay(&key("a"), "A", None, "go", Origin::DeskTyped).unwrap();
+        let lead = lead_of(&r, "a");
+        *lead.fail_send.lock().unwrap() = true;
+        assert!(r.host.deliver_answer(&key("a"), "A", None, "d-1", "Green.").is_err());
+        assert!(record_of(&r, "a").answers.is_empty(), "no intent kept for a send that never happened");
+        *lead.fail_send.lock().unwrap() = false;
+        assert_eq!(r.host.deliver_answer(&key("a"), "A", None, "d-1", "Green.").unwrap(), AnswerOutcome::InFlight);
+        assert!(!lead.sent.lock().unwrap()[1].contains(RESEND_NOTE));
     }
 
     // ---- (d) stops ---------------------------------------------------------------------------
