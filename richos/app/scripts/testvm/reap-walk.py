@@ -66,6 +66,24 @@ BOUND_MS = 2000
 QUIT_BOUND_MS = 3000
 
 
+def ask_text(tag, background=True, seconds=900):
+    """What he types to have the heartbeats run: worded as a job to be done, the way
+    command-walk.py's fixed wording is, so the front desk registers a `task` and the back end's
+    lease runs them. "Tell me what it prints" alone was registered as a `check` there (the
+    2026-09-27 command diagnosis, proof-run-1)."""
+    fg = 'python3 heartbeat.py beat %s-fg %s --seconds %d' % (tag, BEATS, seconds)
+    tail = ('heartbeat.py is my own harmless test script at the top of that folder; it only writes '
+            'small files under %s.' % BEATS)
+    if background:
+        return ('Please run these two harmless test commands for me yourself with your shell tool, in my '
+                'Acme folder, and tell me when they have finished and what they printed. First start this '
+                'one in the background (run_in_background: true): python3 heartbeat.py beat %s-bg %s   '
+                'Then run this one in the foreground and wait for it: %s   %s' % (tag, BEATS, fg, tail))
+    return ('Please run this harmless test command for me yourself with your shell tool, in my Acme '
+            'folder, in the foreground, and tell me when it has finished and what it printed: %s   %s'
+            % (fg, tail))
+
+
 # --- the grade, pure, so test/reap-walk.test.py can hold it to its rules without a guest ---------
 
 def grade_ended(rows, names, trigger_ms, bound_ms, left=None):
@@ -142,6 +160,19 @@ class Walk(adopt.Walk):
         return {name: guest(self.vm, 'python3 %s group %d' % (shlex.quote(self.helper), r['pgid'])).split()
                 for name, r in rows.items()}
 
+    def assignments_since(self, sent_ms):
+        """Every assignment registered since sent_ms: id, kind and state, so the evidence says
+        which lease ran the commands (a `task` is the back end's work lease)."""
+        script = ('import json,glob,sys\n'
+                  'rows=[]\n'
+                  'for p in glob.glob(sys.argv[1]+"/engine-state/assignments/*/*.json"):\n'
+                  '    try: r=json.load(open(p))\n'
+                  '    except Exception: continue\n'
+                  '    if r.get("registered_at_ms",0)>=int(sys.argv[2]):\n'
+                  '        rows.append({k:r.get(k) for k in ("id","kind","state","title","registered_at_ms")})\n'
+                  'print(json.dumps(sorted(rows,key=lambda r:r.get("registered_at_ms") or 0)))\n')
+        return json.loads(guest(self.vm, 'python3 -c %s %s %d' % (shlex.quote(script), shlex.quote(self.data), sent_ms), 60))
+
     def approve_pending(self):
         """Open the work summary when something waits for him, and approve every request there."""
         if not self.present('waiting for you'):
@@ -164,23 +195,14 @@ class Walk(adopt.Walk):
     def start(self, tag, background=True, seconds=900, within=300):
         """Ask for the heartbeats and approve their requests until each has recorded itself."""
         names = [tag + '-fg'] + ([tag + '-bg'] if background else [])
-        fg = 'python3 heartbeat.py beat %s-fg %s --seconds %d' % (tag, BEATS, seconds)
-        if background:
-            text = ('New task: in the Acme repository, run exactly these two shell commands and nothing else. '
-                    'First, in the background (run_in_background: true): python3 heartbeat.py beat %s-bg %s   '
-                    'Then in the foreground, waiting for it: %s   heartbeat.py is my own test script at the top '
-                    'of the repository; it only writes small files under %s.' % (tag, BEATS, fg, BEATS))
-        else:
-            text = ('New task: in the Acme repository, run exactly this one shell command and nothing else, in the '
-                    'foreground, and wait for it: %s   heartbeat.py is my own test script; it only writes small '
-                    'files under %s.' % (fg, BEATS))
-        self.ask(text)
+        sent = self.now()
+        self.ask(ask_text(tag, background, seconds))
         end = time.monotonic() + within
         approved = 0
         while time.monotonic() < end:
             seen = {r['name'] for r in self.rows() if r.get('kind') == 'seen'}
             if all(n in seen for n in names):
-                return {'names': names, 'approved': approved}
+                return {'names': names, 'approved': approved, 'assignments': self.assignments_since(sent)}
             approved += self.approve_pending()
             time.sleep(3)
         raise StepFailed('prerequisite unavailable: %s never recorded itself within %d s (approved %d request(s))'
@@ -255,14 +277,16 @@ class Walk(adopt.Walk):
         return dict(evidence, approved=started['approved'])
 
     def stop(self):
-        names = self.start('stop')['names']
+        started = self.start('stop')
+        names = started['names']
         self.press('waiting for you') if self.present('waiting for you') else self.press('assignment running')
         trigger = self.now()
         self.press('Stop ')
-        return self.verdict(names, trigger, BOUND_MS)
+        return dict(self.verdict(names, trigger, BOUND_MS), started=started)
 
     def quit(self):
-        names = self.start('quit')['names']
+        started = self.start('quit')
+        names = started['names']
         # The app's own Quit item (main.rs, MENU_QUIT) is in the menu bar, which is in no window.
         self.ax('click', '--title', 'Quit RichOS', '--role', 'AXMenuItem', '--in', 'menubar', '--first')
         self.wait_for('Quit and stop the work', seconds=20)
@@ -278,22 +302,24 @@ class Walk(adopt.Walk):
         groups = {c['pgid'] for c in evidence['commands'].values()}
         if not app_log or not any('killed group %d' % g in reap_log for g in groups):
             raise StepFailed('the quit left no reap lines: app log %r, reap log %r' % (app_log, reap_log[-400:]))
-        return dict(evidence, app_log=app_log)
+        return dict(evidence, app_log=app_log, started=started)
 
     def crash(self):
         self.facts['app'] = self.relaunched()
         self.save()
         self.enter()
-        names = self.start('crash')['names']
+        started = self.start('crash')
+        names = started['names']
         pid = self.facts['app']['pid']
         trigger = int(guest(self.vm, 'python3 -c "import os,time; t=time.time(); os.kill(%d, 9); print(int(t*1000))"' % pid))
-        return self.verdict(names, trigger, BOUND_MS)
+        return dict(self.verdict(names, trigger, BOUND_MS), app_pid=pid, started=started)
 
     def claude_crash(self):
         self.facts['app'] = self.relaunched()
         self.save()
         self.enter()
-        names = self.start('claude')['names']
+        started = self.start('claude')
+        names = started['names']
         pgid = next(r['pgid'] for r in self.rows() if r.get('kind') == 'seen' and r['name'] == names[0])
         states = guest(self.vm, 'python3 -c "import glob,json,sys; print(json.dumps([json.load(open(f)) for f in '
                                 'glob.glob(sys.argv[1] + \'/provider-leases/*.json\')]))" ' + shlex.quote(self.engine_state))
@@ -302,7 +328,7 @@ class Walk(adopt.Walk):
             raise StepFailed('REFUSED: no single lease state file names group %d: %s' % (pgid, states[:400]))
         provider = owners[0]['provider']
         trigger = int(guest(self.vm, 'python3 -c "import os,time; t=time.time(); os.kill(%d, 9); print(int(t*1000))"' % provider))
-        return dict(self.verdict(names, trigger, BOUND_MS), provider=provider)
+        return dict(self.verdict(names, trigger, BOUND_MS), provider=provider, started=started)
 
     def idle_cpu(self):
         rows = guest(self.vm, 'ps -axo pid=,time=,command= | grep "provider-supervisor.py --reap" | grep -v grep')

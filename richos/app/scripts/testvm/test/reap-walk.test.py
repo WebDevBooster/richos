@@ -66,6 +66,27 @@ class Grade(unittest.TestCase):
         self.assertIn('never finished', walk.grade_normal(rows + [gone('normal-fg', 800, T + 3000)], 'normal-fg', None)[1])
         self.assertTrue(walk.grade_normal([], 'normal-fg', T)[1].startswith('REFUSED'))
 
+    def test_the_ask_is_worded_as_a_job_the_way_command_walk_words_its_task(self):
+        # command-walk.py's fixed wording registers a `task`; "tell me exactly what it prints"
+        # alone registered a `check` (the 2026-09-27 command diagnosis, proof-run-1).
+        spec_ = importlib.util.spec_from_file_location('command_walk', HERE / 'command-walk.py')
+        command_walk = importlib.util.module_from_spec(spec_)
+        spec_.loader.exec_module(command_walk)
+        for phrase in ('harmless test command', 'for me yourself with your shell tool', 'in my Acme folder',
+                       'tell me when it has finished and what it printed'):
+            self.assertIn(phrase, command_walk.TASK)
+        both, one = walk.ask_text('stop'), walk.ask_text('normal', background=False, seconds=8)
+        for text in (both, one):
+            self.assertIn('for me yourself with your shell tool', text)
+            self.assertIn('in my Acme folder', text)
+            self.assertNotIn('New task', text)
+        self.assertIn('run_in_background: true): python3 heartbeat.py beat stop-bg /tmp/reap-walk ', both)
+        self.assertIn('python3 heartbeat.py beat stop-fg /tmp/reap-walk --seconds 900 ', both)
+        self.assertIn('tell me when they have finished and what they printed', both)
+        self.assertIn('python3 heartbeat.py beat normal-fg /tmp/reap-walk --seconds 8 ', one)
+        self.assertNotIn('normal-bg', one)
+        self.assertIn('tell me when it has finished and what it printed', one)
+
     def test_ps_time_is_read_past_an_hour(self):
         self.assertAlmostEqual(walk.cpu_seconds('0:01.46'), 1.46)
         self.assertAlmostEqual(walk.cpu_seconds(' 1:02:03.50\n'), 3723.5)
