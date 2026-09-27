@@ -663,8 +663,10 @@ t "app env: TESTVM_APP_ENV becomes --env pairs for the app's own RICHOS_ knobs, 
     app_env_args "$refused" >/dev/null 2>&1; no $? "$refused passed"
   done
   src="$(cat "$TESTVM_DIR/run.sh")"
+  # shellcheck disable=SC2016  # the $ names are literal source text
   has "$src" 'APP_EXTRA_ENV="$(app_env_args "${TESTVM_APP_ENV:-}")" || die'
-  has "$src" '$APP_EXTRA_ENV \'
+  # shellcheck disable=SC2016  # the $ names are literal source text: only the open line uses it
+  has "$src" '$APP_EXTRA_ENV'
 t_done
 
 t "claude verdict: identical bytes and equal versions is the only in-sync there is"

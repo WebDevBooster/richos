@@ -1401,12 +1401,11 @@ impl ReaderState {
     fn note_background(&mut self, frame: &Value, ours_running: bool) {
         let field = |value: &Value, name: &str| value.get(name).and_then(Value::as_str).unwrap_or("").to_string();
         match frame.get("subtype").and_then(Value::as_str).unwrap_or("") {
-            "task_started" => {
+            "task_started"
                 if frame.get("task_type").and_then(Value::as_str) == Some("local_bash")
-                    && frame.get("is_backgrounded").and_then(Value::as_bool) == Some(true)
-                {
-                    self.note_running(field(frame, "task_id"), field(frame, "description"));
-                }
+                    && frame.get("is_backgrounded").and_then(Value::as_bool) == Some(true) =>
+            {
+                self.note_running(field(frame, "task_id"), field(frame, "description"));
             }
             "background_tasks_changed" => {
                 for task in frame.get("tasks").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]) {

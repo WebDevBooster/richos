@@ -1695,7 +1695,7 @@ impl WorkHost {
             deadline += before.elapsed();
             {
                 let inner = backend.inner.lock().unwrap();
-                if inner.closing || inner.stopped.iter().any(|id| *id == record.id) {
+                if inner.closing || inner.stopped.contains(&record.id) {
                     return false;
                 }
                 if !inner.queue.is_empty() {
