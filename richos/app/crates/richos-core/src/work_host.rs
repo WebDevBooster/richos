@@ -1346,6 +1346,23 @@ impl WorkHost {
         // added later cannot forget the rule.
         let tell = |title: &str, why: &str| assignment::says::failure(record.kind, title, why, took_the_turn);
         match outcome {
+            // **His Stop, or a quit, ended the back end, and he is told he stopped it.** On the
+            // real work lease a stop kills the child inside `cancel()` (`native.rs`,
+            // `settle_workers_on_stop`), so the turn comes back as the reader's `Closed`, never
+            // as the `cancelled` result the arm below expects. Written as `failed`, his own Stop
+            // read "It stopped before it finished. Claude channel closed (child exited?)." (the
+            // reap walk, guest walk-0ddfdbf8ff00, 2026-09-27). The child is gone either way, so
+            // the lease is retired exactly as for any other `Err`.
+            Err(_) if stopped => {
+                advance(AssignmentState::Interrupted, "Stopped. The workspace and the receipts are kept.");
+                self.forget_at_the_desk(record);
+                self.raise(record, NoticeKind::Interrupted, &assignment::says::interrupted(&record.title));
+                *backend.lease.lock().unwrap() = None;
+                let mut inner = backend.inner.lock().unwrap();
+                inner.lease_session = None;
+                inner.context_chars = 0;
+                inner.context_usage = None;
+            }
             Err(why) => {
                 let sentence = honest(&why.to_string());
                 advance(AssignmentState::Failed, &sentence);
@@ -2929,6 +2946,11 @@ mod tests {
     struct Fence {
         stop_seen: AtomicBool,
         shutdowns: AtomicUsize,
+        /// **A stop that ends the child, the way the real work lease's does**: `native.rs`'s
+        /// `NativeCancelHandle::cancel` kills the process fence when `settle_workers_on_stop`
+        /// (every lease with an engine profile), so the turn comes back as the reader's
+        /// `NativeError::Closed`, never as the `cancelled` result the default fake returns.
+        stop_ends_child: AtomicBool,
     }
     impl TurnCancel for Fence {
         fn cancel(&self) -> bool {
@@ -3050,6 +3072,11 @@ mod tests {
             let deadline = std::time::Instant::now() + self.step;
             while std::time::Instant::now() < deadline {
                 if self.cancel.stop_seen.load(Ordering::SeqCst) {
+                    if self.cancel.stop_ends_child.load(Ordering::SeqCst) {
+                        // What `NativeError::Closed` becomes on its way here (`native.rs`,
+                        // `impl From<NativeError> for CognitionError`).
+                        return Err(CognitionError::Io("claude channel closed (child exited?)".into()));
+                    }
                     return Ok(crate::native::STOP_REASON_CANCELLED.to_string());
                 }
                 std::thread::sleep(std::time::Duration::from_millis(2));
@@ -3456,6 +3483,65 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
         assert!(host.live_on("thread-one").is_some(), "the assignment never reached its back end");
+    }
+
+    /// **HIS STOP ENDS THE BACK END, AND HE IS TOLD HE STOPPED IT** — the reap walk, guest
+    /// walk-0ddfdbf8ff00, 2026-09-27. On the real work lease, Stop kills the child inside
+    /// `cancel()` (`native.rs`, `settle_workers_on_stop`), so the turn returns `Err(Closed)`
+    /// and the `Err` arm wrote `failed` with "It stopped before it finished. Claude channel
+    /// closed (child exited?)." on his timeline, twice for two Stops he pressed. The sentence
+    /// for a stop already exists (`says::interrupted`); it was reachable only by `Ok`.
+    #[test]
+    fn his_stop_that_ends_the_back_end_is_told_as_a_stop_never_as_a_closed_channel() {
+        let h = harness(5_000);
+        h.fence.stop_ends_child.store(true, Ordering::SeqCst);
+        let _runner = h.host.start();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        until_live(&h.host);
+        h.host.stop_assignment("depot", "thread-one", &receipt.id).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let row = loop {
+            let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+            if !row.state.is_open() || std::time::Instant::now() > deadline {
+                break row;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        assert_eq!(row.state, AssignmentState::Interrupted, "{:?}: {}", row.state, row.detail);
+        // The state is written before the notice is raised, so wait for the notice itself.
+        while h.notices.0.lock().unwrap().is_empty() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let told: Vec<_> = h.notices.0.lock().unwrap().iter().map(|(_, n)| (n.kind, n.text.clone())).collect();
+        assert_eq!(told, vec![(NoticeKind::Interrupted, assignment::says::interrupted(&receipt.title))]);
+        // The child is gone, so the lease is still retired: the next assignment opens a fresh one.
+        let next = h.host.register(&h.binding, &Registration { obligation_id: "obligation-8".into(), ..registration(&h) }).unwrap();
+        until_live(&h.host);
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 2, "the stopped back end was handed the next assignment");
+        h.host.stop_assignment("depot", "thread-one", &next.id).unwrap();
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// The same for a quit that ends a turn in flight (`closing`): the sweep writes
+    /// `interrupted`, and the runner's own `Err` must not write `failed` over it. Observed on
+    /// the same guest: the assignment Quit ended read "failed ... Claude channel closed".
+    #[test]
+    fn a_quit_that_ends_the_back_end_mid_turn_leaves_the_assignment_stopped_not_failed() {
+        let h = harness(5_000);
+        h.fence.stop_ends_child.store(true, Ordering::SeqCst);
+        let _runner = h.host.start();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        until_live(&h.host);
+        h.host.shutdown();
+        let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Interrupted, "{:?}: {}", row.state, row.detail);
+        assert!(
+            h.notices.0.lock().unwrap().iter().all(|(_, n)| n.kind != NoticeKind::Failed),
+            "a quit was told as a failure: {:?}",
+            h.notices.0.lock().unwrap()
+        );
+        std::fs::remove_dir_all(h.root).unwrap();
     }
 
     /// **Spec §0 row 2 and §7.1. Registration returns while the work is still to come.**
