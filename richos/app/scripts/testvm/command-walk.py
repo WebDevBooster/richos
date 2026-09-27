@@ -33,7 +33,7 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
              started"; the back end's own hook evidence has a Bash PostToolUse running git.
              Evidence is written to --out.
 
-THREE MORE STEPS, run with --steps (esc-20260927T093052Z-85f3303f's leftovers):
+FOUR MORE STEPS, run with --steps (esc-20260927T093052Z-85f3303f's leftovers):
   background     "start `sleep N && git log --oneline` in the background and tell me when it has
                  finished": PASS needs the back end's own hook record to show the command run with
                  run_in_background; the assignment seen `running` with "A command it started is
@@ -52,6 +52,11 @@ THREE MORE STEPS, run with --steps (esc-20260927T093052Z-85f3303f's leftovers):
                  seconds of the press, and the assignment closed `settled`. The 2026-09-27
                  diagnosis measured (133.479, 137.542] s on the build before 76e977dc. Evidence:
                  late-approval-observed.json.
+  relaunch       relaunch.py after a first run (bgdone2 item 3), observed: one relaunch, then every
+                 5 s up to --relaunch-within seconds the recorded pid, every process of the app's
+                 executable with its parent, the recorded pid's windows, and whether the composer is
+                 back. PASS when it is. Evidence: relaunch-observed.json, relaunch-app.log, and on a
+                 miss relaunch-tree.txt and relaunch.png.
 
 Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
 """
@@ -74,9 +79,10 @@ _spec = importlib.util.spec_from_file_location('adopt_walk', HERE / 'adopt-walk.
 adopt_walk = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(adopt_walk)
 StepFailed = adopt_walk.StepFailed
+command = adopt_walk.command
 
 STEPS = ['identity', 'first-run', 'connect', 'watch', 'task', 'observe']
-MORE_STEPS = ['background', 'deadline', 'late-approval']
+MORE_STEPS = ['background', 'deadline', 'late-approval', 'relaunch']
 # The pane's words while an assignment waits on its command (work_host.rs COMMAND_STILL_RUNNING_DETAIL).
 STILL_RUNNING = 'A command it started is still running.'
 BACKGROUND_TASK = ('Please start this harmless test command in the background for me with your shell tool, in '
@@ -257,6 +263,63 @@ class CommandWalk(adopt_walk.Walk):
         self.save()
         return {'app_pid': int(pid), 'deadline_ms': self.a.deadline_ms}
 
+    def app_rows(self):
+        """Every process in the guest running this payload's app executable: pid, parent, path."""
+        rows = []
+        for line in guest(self.vm, 'ps -axo pid=,ppid=,comm=').splitlines():
+            parts = line.split(None, 2)
+            if len(parts) == 3 and self.payload in parts[2] and parts[2].endswith('/richos-tauri'):
+                rows.append({'pid': int(parts[0]), 'ppid': int(parts[1]), 'exe': parts[2][len(self.payload):]})
+        return rows
+
+    def windows_of(self, pid):
+        script = f'tell application "System Events" to count windows of (first process whose unix id is {pid})'
+        text = guest(self.vm, 'osascript -e ' + shlex.quote(script) + ' 2>&1 || true')
+        return int(text) if text.strip().isdigit() else text.strip()[:200]
+
+    def relaunch(self):
+        """relaunch.py after a first run, observed rather than assumed (bgdone2 item 3: in vm-run-2
+        of 2026-09-27 the composer did not come back within 90 s, and that guest was deleted).
+
+        One relaunch, then a sample every 5 s for up to --relaunch-within seconds of: the pid the
+        harness recorded, every process of this payload's executable with its parent, the recorded
+        pid's window count, whether the composer is on screen, and the relaunch log's tail. PASS
+        when the composer is back. Either way the samples are relaunch-observed.json, and a miss
+        adds relaunch-tree.txt and relaunch.png."""
+        from relaunch import relaunch
+        state = Path(os.environ.get('TESTVM_ROOT', str(Path.home() / '.richos-testvm'))) / 'run' / self.vm
+        observed = {'before': {'recorded_pid': (state / 'app.pid').read_text().strip(), 'rows': self.app_rows()}}
+        began = time.monotonic()
+        launched = relaunch(self.vm)
+        observed['relaunched'] = launched
+        observed['samples'] = []
+        back = None
+        end = time.monotonic() + self.a.relaunch_within
+        while time.monotonic() < end:
+            pid = (state / 'app.pid').read_text().strip()
+            sample = {'t': round(time.monotonic() - began, 1), 'recorded_pid': pid, 'rows': self.app_rows(),
+                      'windows': self.windows_of(pid) if pid.isdigit() else None,
+                      'composer': self.present('Message to Rich', role='AXTextArea')}
+            observed['samples'].append(sample)
+            (self.out / 'relaunch-observed.json').write_text(json.dumps(observed, indent=2) + '\n')
+            if sample['composer']:
+                back = sample['t']
+                break
+            time.sleep(5)
+        log = guest(self.vm, 'tail -c 20000 ' + shlex.quote(launched['log']) + ' 2>/dev/null || true', 60)
+        (self.out / 'relaunch-app.log').write_text(log + '\n')
+        if back is None:
+            try:
+                (self.out / 'relaunch-tree.txt').write_text(
+                    command([HERE / 'ax.sh', self.vm, 'tree', '--depth', '6'], 60))
+            except StepFailed as exc:
+                (self.out / 'relaunch-tree.txt').write_text('tree could not be read: ' + str(exc) + '\n')
+            self.shot('relaunch.png')
+            raise StepFailed(f'the composer was not back within {self.a.relaunch_within:.0f} s of the relaunch; '
+                             'see relaunch-observed.json, relaunch-app.log, relaunch-tree.txt, relaunch.png')
+        return {'composer_back_after_s': back, 'recorded_pid': observed['samples'][-1]['recorded_pid'],
+                'windows': observed['samples'][-1]['windows'], 'log': launched['log']}
+
     def file_epoch(self):
         text = guest(self.vm, 'cat ' + shlex.quote(LATE_FILE) + ' 2>/dev/null || true').strip()
         return int(text) if text.isdigit() else None
@@ -397,6 +460,7 @@ def main():
     p.add_argument('--command-seconds', type=int, default=45, help='how long the background command sleeps')
     p.add_argument('--deadline-ms', type=int, default=20000, help='the shortened permission deadline (1000-300000)')
     p.add_argument('--late-bound', type=float, default=30, help='seconds from the late Approve to the command')
+    p.add_argument('--relaunch-within', type=float, default=120, help='seconds for the composer to come back')
     p.add_argument('--steps', default=','.join(STEPS))
     a = p.parse_args()
     steps = a.steps.split(',')

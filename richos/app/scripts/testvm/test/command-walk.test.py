@@ -53,6 +53,30 @@ class Verdict(unittest.TestCase):
         self.assertTrue(walk.verdict(record(), '', '', RAN))
 
 
+
+class RelaunchRows(unittest.TestCase):
+    """The relaunch step's process listing: this payload's app executable only, with parents."""
+
+    def test_only_this_payloads_app_executable_is_listed(self):
+        payload = '/Users/admin/testvm/walk-x'
+        table = ('  101     1 /Users/admin/testvm/walk-x/RichOS.app/Contents/MacOS/richos-tauri\n'
+                 '  102   101 /Users/admin/testvm/walk-x/RichOS.app/Contents/MacOS/richos-tauri\n'
+                 '  103     1 /Users/admin/testvm/walk-y/RichOS.app/Contents/MacOS/richos-tauri\n'
+                 '  104     1 /Users/admin/testvm/walk-x/engine/runtime/python3\n')
+        probe = walk.CommandWalk.__new__(walk.CommandWalk)
+        probe.vm, probe.payload = 'vm', payload
+        original = walk.guest
+        walk.guest = lambda vm, cmd, *rest: table
+        try:
+            rows = probe.app_rows()
+        finally:
+            walk.guest = original
+        self.assertEqual(rows, [{'pid': 101, 'ppid': 1, 'exe': '/RichOS.app/Contents/MacOS/richos-tauri'},
+                                {'pid': 102, 'ppid': 101, 'exe': '/RichOS.app/Contents/MacOS/richos-tauri'}])
+
+    def test_the_step_is_offered(self):
+        self.assertIn('relaunch', walk.MORE_STEPS)
+
 SENT = [1_000_000.0, 1_000_900.0]
 BACKGROUND = [{'command': 'cd "/Users/admin/testvm/walk-x/home/Acme" && sleep 45 && git log --oneline',
                'background': True, 'stdout': ''}]
