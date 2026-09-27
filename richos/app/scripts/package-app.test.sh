@@ -93,7 +93,7 @@
 # No application window is opened. Signed bundles contain a native fixture
 # that prints a source stamp. The isolation test runs a headless file reader.
 # run-tests: no-host-screen: bundles contain a native fixture; the isolated probe runs only that fixture and the headless compiler
-# run-tests: inputs richos/app/scripts/package-app.test.sh richos/app/scripts/package-app.sh richos/app/scripts/lib/bundle_invariants.py richos/app/scripts/lib/no_host_paths.py richos/app/scripts/lib/probe_packaged.py richos/app/scripts/lib/probe_packaged.test.py richos/engine/scripts/lib/named-persons.py richos/app/scripts/install-signing-cert.sh richos/app/scripts/nightly-local.py richos/app/src-tauri/Cargo.toml richos/app/src-tauri/Info.plist richos/app/src-tauri/Entitlements.plist
+# run-tests: inputs richos/app/scripts/package-app.test.sh richos/app/scripts/package-app.sh richos/app/scripts/lib/bundle_invariants.py richos/app/scripts/lib/no_host_paths.py richos/app/scripts/lib/probe_packaged.py richos/app/scripts/lib/probe_packaged.test.py richos/engine/scripts/lib/named-persons.py richos/app/scripts/install-signing-cert.sh richos/app/scripts/nightly-local.py richos/app/src-tauri/Cargo.toml richos/app/src-tauri/Info.plist richos/app/src-tauri/Entitlements.plist richos/app/src-tauri/tauri.conf.json
 # run-tests: covers richos/app/scripts/package-app.sh richos/app/scripts/lib/bundle_invariants.py richos/app/scripts/lib/no_host_paths.py richos/app/scripts/lib/probe_packaged.py
 set -uo pipefail
 
@@ -279,6 +279,8 @@ make_bundle() {   # make_bundle <dir>
   rm -rf "$b"; mkdir -p "$b/Contents/MacOS" "$b/Contents/Resources"
   cp "$TMP/fixture" "$b/Contents/MacOS/RichOS"
   cp "$SB/src-tauri/icons/icon.icns" "$b/Contents/Resources/icon.icns"
+  printf '# Third-party notices\n\n## Bundled data compiled into the application\n' \
+    > "$b/Contents/Resources/THIRD-PARTY-NOTICES.md"
   cat > "$b/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -328,6 +330,16 @@ expect "D3 a bundle with no shipped icon fails" 1 "Contents/Resources/icon.icns 
 make_bundle "$BUNDLE"; head -c 4096 /dev/urandom > "$BUNDLE/Contents/Resources/icon.icns"
 run bash "$SBS" --verify-only "$BUNDLE"
 expect "D4 a shipped icon this repository did not generate fails" 1 "carrying an icon this repository did not generate"
+
+make_bundle "$BUNDLE"; rm -f "$BUNDLE/Contents/Resources/THIRD-PARTY-NOTICES.md"
+codesign --force --sign - --timestamp=none "$BUNDLE" >/dev/null 2>&1
+run bash "$SBS" --verify-only "$BUNDLE"
+expect "D4b a bundle with no third-party notices fails" 1 "Contents/Resources/THIRD-PARTY-NOTICES.md is missing"
+
+make_bundle "$BUNDLE"; printf '# Third-party notices\n' > "$BUNDLE/Contents/Resources/THIRD-PARTY-NOTICES.md"
+codesign --force --sign - --timestamp=none "$BUNDLE" >/dev/null 2>&1
+run bash "$SBS" --verify-only "$BUNDLE"
+expect "D4c notices without the compiled-in data section fail" 1 "no \"Bundled data compiled into the application\" section"
 
 make_bundle "$BUNDLE"
 /usr/libexec/PlistBuddy -c 'Delete :NSMicrophoneUsageDescription' "$BUNDLE/Contents/Info.plist" >/dev/null 2>&1

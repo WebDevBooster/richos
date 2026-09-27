@@ -232,10 +232,15 @@ names and are not redistributed as a separate font product.
 | `richos/engine/scripts/lib/dialect/dialect-en-US.generated.dict` | generated from the row above by `richos/engine/scripts/lib/dialect/dialect-table.py` | same input, pinned by sha256 inside the generator | same three notices | same holders | this section | **modified version** — see below |
 
 **What ships, and where.** The engine asset carries all three files, because it
-ships every tracked engine file. The generated table is also meant to be
-compiled into the RichOS application, so the application's binary
-redistribution carries this page with it. Nothing else from VarCon is used, and
-no VarCon script is bundled. `varcon.txt` itself is unmodified.
+ships every tracked engine file. The generated table is also compiled into the
+RichOS application's executable (`richos/app/crates/richos-core/src/american_spelling.rs`,
+by `include_str!`), so the application bundle carries this page with it:
+`richos/app/src-tauri/tauri.conf.json`'s `bundle.resources` copies it to
+`RichOS.app/Contents/Resources/THIRD-PARTY-NOTICES.md`, and
+`richos/app/scripts/package-app.sh` refuses a bundle that lacks it or whose copy
+lacks this section. The updater archive and the first-install zip are archives
+of that bundle, so they carry it too. Nothing else from VarCon is used, and no
+VarCon script is bundled. `varcon.txt` itself is unmodified.
 
 **The generated table is a modified version of VarCon, marked as such**, as the
 Ispell notice's third condition requires of source and of binaries built from
@@ -385,9 +390,13 @@ to the release work rather than to this file:
   `cargo tauri build` without it, so a release build would use the committed
   lockfile but would not be *refused* if it had to deviate from it. CI already
   passes `--locked` on both of its cargo steps.
-- **Carry these notices inside the artifact.** The engine asset already does
-  this and has a packaging test that opens the archive and refuses it when
-  license material is missing. The application bundle needs the same.
+- **Carry these notices inside the artifact.** The engine asset does this and
+  has a packaging test that opens the archive and refuses it when license
+  material is missing. Since 2026-09-27 the application bundle carries this
+  page at `Contents/Resources/THIRD-PARTY-NOTICES.md`, and `package-app.sh`
+  refuses a bundle without it (see "Bundled data compiled into the
+  application" above). The per-package Rust inventory
+  (`docs/legal/THIRD-PARTY-RUST-DEPENDENCIES.md`) is not yet copied in beside it.
 
 Nothing above blocks publishing the **source**. The AGPL obligations attach to
 what this repository contains, and every bundled work in it is named here with
