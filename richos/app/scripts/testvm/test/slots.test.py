@@ -201,8 +201,9 @@ class Slots(unittest.TestCase):
         rc, _, err = self.finish(self.child('check'))
         self.assertEqual(rc, 1)
         self.assertIn('no guest slot is held', err)
-        rc, _, err = self.finish(self.child('run', '--', sys.executable, '-c', DRIVER, 'check'))
+        rc, out, err = self.finish(self.child('run', '--', sys.executable, '-c', DRIVER, 'check'))
         self.assertEqual(rc, 0, err)
+        self.assertEqual(out.strip(), str(self.root / 'guest.lock'), 'check prints the slot run.sh records')
 
     def test_check_refuses_a_slot_somebody_else_holds(self):
         gate = Path(self.tmp.name) / 'end'

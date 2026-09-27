@@ -3,7 +3,7 @@
 
   slots.py status                           who holds which slot, right now
   slots.py run [--wait SECONDS] -- COMMAND  hold one slot for exactly COMMAND's run
-  slots.py check                            (run.sh) exit 0 only inside a held slot
+  slots.py check                            (run.sh) print the slot, exit 0, only inside a held slot
 
 THE RULE (the CEO, 2026-09-27): *"do I want the work to be BLOCKED AND PISSED AWAY like this
 because the current worker might need the VM for a 5-second-long fart? Do I want HOURS OF
@@ -282,7 +282,8 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest='verb', required=True)
     sub.add_parser('status', help='each slot: free, or who holds it and for how long')
-    sub.add_parser('check', help='exit 0 only when an ancestor of the caller holds the slot named in $' + ENV)
+    sub.add_parser('check', help='exit 0 and print the slot only when an ancestor of the caller holds the slot '
+                                 'named in $' + ENV)
     r = sub.add_parser('run', help='hold one slot for exactly one command')
     r.add_argument('--wait', type=float, default=0, metavar='SECONDS',
                    help=f'wait for a free slot and for admission for at most SECONDS (0-{reserve.MAX_WAIT_SECONDS}; '
@@ -307,6 +308,7 @@ def main():
         if why:
             print(why, file=sys.stderr)
             return 1
+        print(os.environ[ENV])
         return 0
     command = a.command[1:] if a.command[:1] == ['--'] else a.command
     if not command:

@@ -60,7 +60,7 @@ fi
 # (slots.py): run-walk.py, run-probes.py, gui-proof-in-vm.sh, or `slots.py run -- ...`.
 # The slot is recorded in the run state below, and a slot released with its guest still
 # up stops that guest (a guest never outlives its slot).
-SLOT_WHY="$(python3 "$HERE/slots.py" check 2>&1)" || die "no guest is booted outside a guest slot: $SLOT_WHY.
+SLOT="$(python3 "$HERE/slots.py" check 2>&1)" || die "no guest is booted outside a guest slot: $SLOT.
   Put the steps in a script that takes the VM name as its first argument and run it once:
     $HERE/run-walk.py --bundle <zip> --home <home> --engine <engine> --report <json> -- <script>
   The slot is held for that run only and is free again the moment it ends."
@@ -82,7 +82,7 @@ vm_exists "$TESTVM_BASE_VM" || die "base VM missing — run testvm/setup.sh firs
 
 STATE="$TESTVM_RUN/$VM"
 mkdir -p "$STATE"
-printf '%s\n' "$TESTVM_SLOT" > "$STATE/slot"
+printf '%s\n' "$SLOT" > "$STATE/slot"
 
 # --- 1. an ephemeral clone ----------------------------------------------------
 # Cloning is copy-on-write on APFS: a new guest costs seconds and almost no
