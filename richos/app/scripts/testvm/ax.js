@@ -96,7 +96,8 @@ function axSearch(roots, P, api) {
   var queue = roots.map(function(e) { return {el:e, d:0, parent:null}; });
   var head = 0, count = 0, hits = [], shallow = [], truncated = false, stoppedEarly = false;
   var limit = P.first ? 1 : (P.nth !== null && P.nth !== undefined ? P.nth + 1 : null);
-  var scoped = !P.scope || P.scope === "window";
+  // "window" and "menubar" choose the ROOTS (run() below); nothing inside them needs finding.
+  var scoped = !P.scope || P.scope === "window" || P.scope === "menubar";
   while (head < queue.length) {
     if (count >= P.max) { truncated = true; break; }
     var q = queue[head++]; count++;
@@ -157,6 +158,12 @@ function run() {
   var roots = wins;
   if (P.window) roots = wins.length >= P.window ? [wins[P.window-1]] : [];
   if (P.windowTitle) roots = roots.filter(function(w) { return get(w,"name","") === P.windowTitle; });
+  // The app's menus (its own Quit among them) hang off the menu bar, which is not a window.
+  // An AXPress on a menu item works with its menu closed, like any other press.
+  if (P.scope === "menubar") {
+    roots = get(proc,"menuBars",[]);
+    if (!roots.length) return error("nowindow", "target="+name+" pid="+P.pid+" has no menu bar");
+  }
   if (!roots.length) return error("nowindow", "target="+name+" pid="+P.pid+" windows="+wins.length);
 
   function front() { try { return se.processes.whose({frontmost:true})[0].unixId() === P.pid; } catch(e) { return false; } }

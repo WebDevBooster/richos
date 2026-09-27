@@ -64,3 +64,29 @@ assert.equal(exercise('type',{dropInput:true}).clipboard,'original clipboard');
 assert.equal(exercise('find',{toxicValue:true}).records.at(-1).value,'');
 assert.equal(exercise('find',{toxicValue:true,value:'expected'}).records.at(-1).error,'notfound');
 console.log('AX scalar read refuses object coercion; literal paste preserves text and restores clipboard');
+
+// The app's own Quit is a MENU BAR item (main.rs builds "Quit {name}" under MENU_QUIT), and the
+// menu bar is not one of proc.windows(). A search of the windows can never find it: reap-walk
+// asked for it that way, and that step had never run. `--in menubar` searches proc.menuBars().
+function menuExercise(extra) {
+  let pressed = 0;
+  const el = (role, title, kids = []) => ({role:()=>role, title:()=>title, description:()=> '', value:()=> '',
+    enabled:()=>true, uiElements:()=>kids, position:()=>[0,0], size:()=>[10,10]});
+  const quit = el('AXMenuItem', 'Quit RichOS');
+  const actions = ()=>[{name:()=> 'AXPress'}]; actions.byName = ()=>({perform:()=>pressed++}); quit.actions = actions;
+  const bar = el('AXMenuBar', '', [el('AXMenuBarItem', 'RichOS', [el('AXMenu', '', [el('AXMenuItem', 'About RichOS'), quit])])]);
+  const window = el('AXWindow', 'RichOS', [el('AXButton', 'Send')]);
+  const proc = {unixId:()=>71, name:()=> 'richos-tauri', windows:()=>[window], menuBars:()=>[bar]};
+  const se = {processes:{byName:n=>n==='SecurityAgent'?{exists:()=>false,windows:()=>[]}:proc, whose:()=>[proc]}};
+  const app = ()=>se; app.currentApplication = ()=>({});
+  const context = {Application:app, delay:()=>{}, AX_PARAMS:{mode:'click', pid:71, text:'Quit RichOS', role:'AXMenuItem',
+    value:null, first:true, nth:null, max:100, depth:16, ...extra}};
+  vm.createContext(context); vm.runInContext(fs.readFileSync(require.resolve('../ax.js'), 'utf8'), context);
+  return {records: JSON.parse('[' + vm.runInContext('run()', context).split('\n').join(',') + ']'), pressed};
+}
+const inWindows = menuExercise({});
+assert.equal(inWindows.pressed, 0); assert.equal(inWindows.records.at(-1).error, 'notfound');
+const inMenuBar = menuExercise({scope:'menubar'});
+assert.equal(inMenuBar.pressed, 1, JSON.stringify(inMenuBar.records));
+assert.equal(inMenuBar.records.at(-1).node.title, 'Quit RichOS');
+console.log('AX menu bar: a menu item is in no window, and --in menubar finds and presses it');

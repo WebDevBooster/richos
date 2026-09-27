@@ -263,7 +263,8 @@ class Walk(adopt.Walk):
 
     def quit(self):
         names = self.start('quit')['names']
-        self.ax('click', '--title', 'Quit RichOS', '--role', 'AXMenuItem', '--first')
+        # The app's own Quit item (main.rs, MENU_QUIT) is in the menu bar, which is in no window.
+        self.ax('click', '--title', 'Quit RichOS', '--role', 'AXMenuItem', '--in', 'menubar', '--first')
         self.wait_for('Quit and stop the work', seconds=20)
         question = command([HERE / 'ax.sh', self.vm, 'tree', '--in', 'dialog', '--max', '80'], 60)
         if 'command Rich started' not in question:
