@@ -49,6 +49,46 @@ class FailurePolicy(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(pr.summarize(items, 1, str(self.root / "run")), 1)
 
+    def test_integration_episode_stops_owned_work_preserves_pass_and_releases_priority(self):
+        marker = self.root / "must-not-run"
+        items = [self.item("finished", "pass", weight=4),
+                 self.item("running", "import time; time.sleep(60)", weight=3),
+                 self.item("unrun", "from pathlib import Path; Path(%r).touch()" % str(marker),
+                           after=["running"])]
+        with patch.object(pr.engine_pass, "is_main_checkout", return_value=True), \
+                patch.object(pr.engine_pass, "INTEGRATION_PLAN_SECONDS", 1.4):
+            self.run_items(items)
+        self.assertEqual([it.state for it in items],
+                         ["passed", "cancelled", "not-admitted", "scheduler-starvation"])
+        self.assertIsNotNone(items[1].proc.poll())
+        self.assertFalse(marker.exists())
+        self.assertGreater(items[2].admission_wait, 1)
+        report = json.loads((self.root / "run" / "priority-episode.json").read_text())
+        self.assertEqual(report["status"], "over-budget")
+        self.assertEqual(len(report["plan"]), 3)
+        admission = pr.engine_pass.Admission(str(self.root / "machine"), str(self.root))
+        try:
+            self.assertTrue(admission.begin())
+        finally:
+            admission.close()
+
+    def test_waiting_integration_plan_cannot_publish_unit_priority_or_execute(self):
+        machine = str(self.root / "machine")
+        owner = pr.engine_pass.IntegrationPlan(machine, ["other fixed plan"], str(self.root))
+        self.assertTrue(owner.enter())
+        item = self.item("waiting", "raise AssertionError('not admitted')")
+        try:
+            with patch.object(pr.engine_pass, "is_main_checkout", return_value=True), \
+                    patch.object(pr.engine_pass, "INTEGRATION_PLAN_SECONDS", .4):
+                self.run_items([item])
+            self.assertEqual(item.state, "not-admitted")
+            self.assertIsNone(item.started)
+            self.assertGreater(item.wait_times.get("integration-episode", 0), .2)
+            self.assertEqual(json.loads(Path(owner.path).read_text())["status"], "active")
+            self.assertFalse(pr.engine_pass._locked(str(Path(machine) / "admission" / "priority.lock")))
+        finally:
+            owner.close()
+
     def test_explicit_fail_fast_cancels_unfinished_checks(self):
         self.args.fail_fast = True
         items = [self.item("failure", "raise SystemExit(1)"), self.item("queued", "pass")]

@@ -109,6 +109,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.dirname(HERE)
@@ -656,6 +657,11 @@ def run(items, args, logdir, sampler=None):
     # intent while eligible checks wait for measured capacity as well.
     args.integration_intent = (engine_pass.Admission(machine, ROOT)
                                if budget.shared.admission.main else None)
+    args.integration_episode = (engine_pass.IntegrationPlan(machine,
+        [{"check": it.label, "command": proof_evidence.command_identity(it, ROOT, logdir),
+          "after": sorted(it.after), "requires": sorted(it.requires)} for it in items],
+        os.path.abspath(logdir), limit=engine_pass.INTEGRATION_PLAN_SECONDS)
+        if args.integration_intent else None)
     reserved = reserved_tokens(args.capacity)
     order = sorted(items, key=lambda it: (not getattr(it, "retry_first", False), -it.weight))
     running = []
@@ -734,6 +740,12 @@ def run(items, args, logdir, sampler=None):
             failed.notes.extend(errors)
             items.append(failed)
             print("proof-run: simulator cleanup FAILED: " + "; ".join(errors), flush=True)
+        if args.integration_episode:
+            args.integration_episode.close("over-budget" if args.integration_episode.expired() else "finished")
+            proof_evidence.atomic(os.path.join(logdir, "priority-episode.json"),
+                args.integration_episode.record or {"identity": args.integration_episode.identity,
+                    "status": "not-admitted", "requested": args.integration_episode.requested,
+                    "deadline": args.integration_episode.deadline})
         checkpoint(items, logdir)
     monitor.join(timeout=5)
     args.monitor_lines = monitor.report(args.max_cpu)
@@ -837,6 +849,41 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
         waiting = [it for it in order if it.state == "waiting"]
         if not waiting and not running:
             break
+        episode = getattr(args, "integration_episode", None)
+        if episode and episode.expired():
+            # Stop all owned domains concurrently so the cleanup allowance is
+            # shared by the plan, rather than multiplied by its worker count.
+            args.integration_intent.close()
+            budget.shared.admission.close()
+            with ThreadPoolExecutor(max_workers=max(1, len(running))) as cleanup:
+                survivors = list(cleanup.map(stop_item, running))
+            for it, left in zip(running, survivors):
+                it.state, it.rc, it.ended = "cancelled", 125, time.monotonic()
+                finish_attempt(it)
+                if left:
+                    it.state = "cleanup-failed"
+                it.notes.append("fixed integration priority episode expired; owned cleanup " +
+                                ("incomplete: %s" % left if left else "complete"))
+                it.token.release()
+            running.clear()
+            for it in waiting:
+                it.finish_queue()
+                it.state, it.rc = "not-admitted", 75
+                it.notes.append("fixed integration episode expired before admission")
+            finding = Item("integration priority exhausted", ROOT, [])
+            finding.state, finding.rc = "scheduler-starvation", 75
+            finding.notes.append("600-second fixed plan bound; completed evidence retained; "
+                                 "owned work stopped and capacity released. Evidence: " + logdir)
+            items.append(finding)
+            checkpoint(items, logdir)
+            print("proof-run: integration episode exhausted; retained completed evidence, stopped owned "
+                  "work and released priority. Unfinished obligations remain unresolved.", flush=True)
+            break
+        if episode and not episode.enter():
+            for it in waiting:
+                it.wait_reason = "integration-episode"
+            time.sleep(0.2)
+            continue
         busy_lanes = {it.lane for it in running if it.lane}
         done = {it.label for it in items if it.state not in ("waiting", "running")}
         passed = {it.label for it in items if it.state == "passed"}
@@ -963,6 +1010,8 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 running.append(it)
                 if gate and it.engine_unit and gate.slot:
                     it.slot_fds = (gate.slot.fd,)
+                if episode and episode.fd is not None:
+                    it.slot_fds = tuple(getattr(it, "slot_fds", ())) + (episode.fd,)
                 launch(it, n, logdir, tokens_dir, reserved)
                 checkpoint(items, logdir)
                 if it.lane is None or it.lane not in admitted_lanes:

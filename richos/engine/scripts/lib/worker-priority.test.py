@@ -82,6 +82,63 @@ class Priority(unittest.TestCase):
         token.release()
         self.assertIsNotNone(self.take(background))
 
+    def episode(self, name):
+        episode = engine_pass.IntegrationPlan(self.machine, [name], str(self.root / name))
+        self.addCleanup(episode.close)
+        return episode
+
+    def test_integration_episode_freezes_plan_and_later_requests_cannot_join(self):
+        plan = ["first"]
+        first = engine_pass.IntegrationPlan(self.machine, plan, str(self.root))
+        self.addCleanup(first.close)
+        plan.append("appended")
+        self.assertTrue(first.enter())
+        second = self.episode("second")
+        self.assertFalse(second.enter())
+        self.assertEqual(first.record["plan"], ["first"])
+        self.assertEqual(first.record["deadline"] - first.requested, 600)
+        original = first.record.copy()
+        self.assertFalse(second.enter())
+        self.assertEqual(json.loads(Path(first.path).read_text()), original)
+        first.close()
+        self.assertTrue(second.enter())
+
+    def test_completed_episode_gives_aged_background_a_finite_turn(self):
+        first, second = self.episode("first"), self.episode("second")
+        self.assertTrue(first.enter())
+        old = self.budget(self.linked)
+        old.admission.register()
+        self.age(old)
+        first.close()
+        later = self.budget(self.linked)
+        later.admission.register()
+        self.age(later, 120)
+        self.assertFalse(second.enter())
+        self.take(old).release()
+        # New background arrivals cannot extend the frozen boundary turn.
+        self.assertTrue(second.enter())
+
+    def test_crashed_episode_preserves_aged_background_turn(self):
+        first, second = self.episode("first"), self.episode("second")
+        self.assertTrue(first.enter())
+        old = self.budget(self.linked)
+        old.admission.register()
+        self.age(old)
+        os.close(first.fd)
+        first.fd = None  # Simulate kernel release without graceful publication.
+        self.assertFalse(second.enter())
+        self.assertEqual(json.loads(Path(first.path).read_text())["status"], "owner-lost")
+        self.take(old).release()
+        self.assertTrue(second.enter())
+
+    def test_expired_episode_cannot_claim_or_renew_priority(self):
+        first, second = self.episode("first"), self.episode("second")
+        self.assertTrue(first.enter())
+        with patch.object(engine_pass.time, "monotonic", return_value=second.deadline):
+            self.assertTrue(first.expired())
+            self.assertFalse(first.enter())
+            self.assertFalse(second.enter())
+
     def test_aged_background_reserves_next_opportunity_after_integration(self):
         holder = self.take(self.budget(self.linked))
         old = self.budget(self.linked)

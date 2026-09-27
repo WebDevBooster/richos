@@ -500,7 +500,7 @@
     },
     "scripts/lib/engine_pass.py": {
       "source": "scripts/lib/engine_pass.py",
-      "sha256": "ec43e17edc9d741bfa6e6d1a435550658f6b8b813c773cf6214aac45a15c9625",
+      "sha256": "17c5b55b5f64c3e743d6c4aa1bbe6481fc198217ef441f4a285d7334a14c7e7f",
       "evidence": "Admission/slot policy reads its own records, Git identity and process generations; no orchestration settings.",
       "keys": [],
       "edges": [
@@ -1266,7 +1266,7 @@
     },
     "scripts/lib/worker-priority.test.py": {
       "source": "scripts/lib/worker-priority.test.py",
-      "sha256": "8df5f364bf4b93bffc05743b650c61fda23796797c24f53cfa147531b620f8d0",
+      "sha256": "aa258e39f80da6f76df1c80676ed773734858a2ed753a91d4e24af4a951bd630",
       "evidence": "Generated Git checkouts and private worker/slot records drive actual lease and supervision APIs. The machine-command cleanup case substitutes testdevices; the nested command path returns before device cleanup. No test sources config.",
       "keys": [],
       "edges": [

@@ -15,6 +15,7 @@ import subprocess
 import sys
 import time
 import uuid
+import hashlib
 
 FULL_PASS_UNITS = 20
 MAIN_WAIT = 3600
@@ -24,6 +25,112 @@ REPORT_EVERY = 60
 REFUSED = 75
 NEEDED = 10
 BACKGROUND_PRIORITY_AGE = 120
+INTEGRATION_PLAN_SECONDS = 600
+
+
+class IntegrationPlan:
+    """One immutable integration episode, with a finite turn between plans.
+
+    Only the owner of the kernel lease may advertise per-check priority. A new
+    request cannot join or extend the owner's plan. At its boundary, already-aged
+    background waiters receive one compatible admission before another plan can
+    claim priority. The set is frozen, so later arrivals cannot extend that turn.
+    """
+    def __init__(self, root, plan, evidence, limit=INTEGRATION_PLAN_SECONDS):
+        self.root = os.path.join(root, "admission")
+        os.makedirs(self.root, mode=0o700, exist_ok=True)
+        self.path = os.path.join(self.root, "integration-plan.json")
+        frozen = json.dumps(plan, sort_keys=True)
+        self.plan = json.loads(frozen)
+        self.identity = hashlib.sha256(frozen.encode()).hexdigest()
+        self.evidence = evidence
+        self.requested = time.monotonic()
+        self.deadline = self.requested + limit
+        self.fd = None
+        self.record = None
+
+    def expired(self):
+        return time.monotonic() >= self.deadline
+
+    def _waiters(self):
+        result = {}
+        for name in os.listdir(self.root):
+            if not name.startswith("wait-") or not name.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(self.root, name), "r+") as source:
+                    try:
+                        fcntl.flock(source, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        record = json.load(source)
+                    else:
+                        continue
+                if not record["main"]:
+                    result[name] = record
+            except FileNotFoundError:
+                continue
+        return result
+
+    def _publish(self, record):
+        temporary = self.path + ".%s.new" % os.getpid()
+        with open(temporary, "w") as stream:
+            json.dump(record, stream, sort_keys=True)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, self.path)
+
+    def enter(self):
+        if self.expired():
+            return False
+        if self.fd is not None:
+            return True
+        fd = os.open(os.path.join(self.root, "integration-plan.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(fd)
+            return False
+        try:
+            try:
+                with open(self.path) as stream:
+                    previous = json.load(stream)
+            except FileNotFoundError:
+                previous = None
+            waiting = self._waiters()
+            if previous:
+                if previous.get("schema") != 1 or not isinstance(previous.get("yield_to"), list):
+                    raise ValueError("invalid integration episode record: " + self.path)
+                if previous["status"] == "active":
+                    # The kernel lease is free: the prior owner died. Preserve its
+                    # episode and give its aged background waiters their turn.
+                    previous.update(status="owner-lost", yield_to=[name for name, row in waiting.items()
+                        if time.monotonic() - row["since"] >= BACKGROUND_PRIORITY_AGE])
+                    self._publish(previous)
+                if any(name in waiting for name in previous["yield_to"]):
+                    return False
+            self.record = {"schema": 1, "pid": os.getpid(), "birth": birth(os.getpid()),
+                "identity": self.identity, "plan": self.plan, "evidence": self.evidence,
+                "requested": self.requested, "deadline": self.deadline,
+                "status": "active", "yield_to": []}
+            self._publish(self.record)
+            self.fd, fd = fd, None
+            return True
+        finally:
+            if fd is not None:
+                os.close(fd)
+
+    def close(self, status="finished"):
+        if self.fd is None:
+            return
+        try:
+            waiting = self._waiters()
+            self.record.update(status=status, ended=time.monotonic(),
+                yield_to=[name for name, row in waiting.items()
+                          if time.monotonic() - row["since"] >= BACKGROUND_PRIORITY_AGE])
+            self._publish(self.record)
+        finally:
+            os.close(self.fd)
+            self.fd = None
 
 
 def directory():
