@@ -252,7 +252,7 @@ def _log(line):
         pass
 
 
-def _write_state(record, table, owner):
+def _write_state(record, table, owner, ended=False):
     path = (SETTINGS.state or os.environ.get("RICHOS_OPERATOR_REAP_STATE") or "").strip()
     if not path:
         return
@@ -263,7 +263,7 @@ def _write_state(record, table, owner):
         tmp = "%s.%d.tmp" % (path, os.getpid())
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump({"provider": record.provider, "own_group": record.own_group, "owner": owner, "at": time.time(),
-                       "outside_provider_group": outside, "outside_provider_groups": groups}, fh)
+                       "ended": ended, "outside_provider_group": outside, "outside_provider_groups": groups}, fh)
         os.replace(tmp, path)
     except OSError:
         pass
@@ -385,6 +385,9 @@ def operator_main(parent, argv):
         _log("ending: %s" % cause)
         try:
             reap(record, running)
+            # The last word in the state file is what is left, usually nothing: a host that
+            # still holds this lease must not read its final snapshot's commands as running.
+            _write_state(record, _process_table(), parent, ended=True)
         except Exception as error:   # noqa: BLE001  said, then the group kill below still runs
             _log("reap failed: %s: %s" % (type(error).__name__, error))
     finally:

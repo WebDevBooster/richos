@@ -114,6 +114,7 @@ class ReapDescendants(unittest.TestCase):
                         break
                     time.sleep(0.05)
                 pids = json.loads(receipt.read_text()); sup = int((root/"sup.pid").read_text())
+                pids["desktop"] = desktop.pid
                 shell_group = pids["shell"]
                 time.sleep(1.4)                      # at least one in-process snapshot
                 self.assertTrue(beating(beat), "fixture: the heartbeat never started")
@@ -141,7 +142,9 @@ class ReapDescendants(unittest.TestCase):
                 while time.time() - t0 < 4 and beating(beat):
                     time.sleep(0.1)
                 stopped_after = time.time() - t0
+                final = json.loads(state.read_text()) if state.exists() else {}
                 return {"pids": pids, "beating": beating(beat), "stopped_after": stopped_after, "dead_after": dead_after,
+                        "final": final,
                         "left": group_members(shell_group), "snapshot": snapshot,
                         "unrelated_alive": unrelated.poll() is None,
                         "log": (root/"reap.log").read_text() if (root/"reap.log").exists() else ""}
@@ -236,6 +239,11 @@ class ReapDescendants(unittest.TestCase):
                       "the --reap-state file was not written")
         self.assertIn(result["pids"]["shell"], result["snapshot"].get("outside_provider_groups") or [],
                       "the --reap-state file does not name the command's group")
+        self.assertEqual(result["snapshot"].get("owner"), result["pids"]["desktop"], "the state file names no owner")
+        # After the reap the file says what is left, so a host still holding the lease does
+        # not read the last snapshot's commands as running.
+        self.assertTrue(result["final"].get("ended"), "no final state was written: %s" % result["final"])
+        self.assertEqual(result["final"].get("outside_provider_groups"), [], "the final state still lists commands")
 
     def test_R11_the_provider_s_argv_and_environment_equal_the_flagless_path_s(self):
         seen = {}
