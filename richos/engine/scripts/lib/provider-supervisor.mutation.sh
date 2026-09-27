@@ -36,9 +36,22 @@ mutant provider-exit-not-reaped "R4" "$S" \
     '            if False:{NL}                running = False' \
     "G9: a lead that exits by itself would leave its tool shells, since neither trigger fires."
 mutant recycled-group-adopted "R7" "$S" \
-    '            if any(pg == pgid and pid in table and table[pid][2] == start' \
-    '            if any(pg == pgid and pid in table' \
+    '        members = {pg for pid, (start, pg) in self.procs.items() if pid in table and table[pid][2] == start}' \
+    '        members = {pg for pid, (start, pg) in self.procs.items() if pid in table}' \
     "a group id recycled by an unrelated process would be adopted and SIGKILLed."
+# The product reap (richos-hq docs/plans/2026-09-27-product-reap-gap-design.md, C3, C4, C7).
+mutant grace-ignored "R10" "$S" \
+    '                SETTINGS.grace = max(0.0, float(value))' \
+    '                float(value)' \
+    "C3: the product's zero grace would become the operator's 5 s, past the host's 2 s bound."
+mutant options-not-stripped "R11" "$S" \
+    '        return operator_main(parent, argv)' \
+    '        return operator_main(parent, argv[:1] + sys.argv[1:len(sys.argv) - len(argv)] + argv[1:])' \
+    "C7: the supervisor's own options would reach claude's argv, and N1's clause 1 would be false."
+mutant pruning-removed "R12" "$S" \
+    '        self.prune(table, ours)' \
+    '        pass' \
+    "C4: a long-lived lease's record would grow with every command it ever ran, once a second."
 mutant same-group-counts-as-running "R6" "$S" \
     '                      if pgid != self.own_group and pid != self.provider and pid in table and table[pid][2] == start)' \
     '                      if pid != self.provider and pid in table and table[pid][2] == start)' \

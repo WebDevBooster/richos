@@ -38,11 +38,26 @@ def main():
 
 
 # ---------------------------------------------------------------------------
-# OPERATOR MODE ONLY: `--reap-descendants` (spec r3 (q) item 2, F5; Frank G8, G9)
+# REAPING MODE: `--reap-descendants` (spec r3 (q) item 2, F5; Frank G8, G9; and
+# the product reap, richos-hq docs/plans/2026-09-27-product-reap-gap-design.md)
 # ---------------------------------------------------------------------------
-# main() above is the product path, byte-identical and at the same lines as
-# before this section existed (other files cite its line numbers). Nothing below
-# runs unless the first argument is `--reap-descendants` (spec r3 N1).
+# main() above is the COMPATIBILITY path: byte-identical and at the same lines
+# as before this section existed (other files cite its line numbers), and it is
+# what runs when no option is given. Both callers that ship now run the section
+# below: the operator's leads (`operator_profile.rs`) and, since the product reap
+# gap design, every product lease (`native.rs`, design 1.3(a)).
+#
+# OPTIONS. Every leading argument that starts with `--reap-` is this
+# supervisor's own and is STRIPPED before `execvp`, so the provider's argv and
+# environment are exactly what main() would have given it (design C7, R11):
+#   --reap-descendants      reaping mode (required by the three below)
+#   --reap-grace=SECONDS    how long the provider gets after SIGTERM; 0 = none
+#   --reap-state=PATH       the host's snapshot file (below)
+#   --reap-log=PATH         where kills and failures are written
+# The operator passes only the first and keeps its environment names
+# (OPERATOR_REAP_GRACE, RICHOS_OPERATOR_REAP_STATE, RICHOS_OPERATOR_REAP_LOG),
+# which stay the fallback. The product passes all four on the command line, so
+# nothing of the reap reaches `claude`'s environment or any tool shell's.
 #
 # WHY. A tool shell of a Claude lead runs in its OWN session and process group
 # (measured: shell pid = pgid, tty `??`), so the final `killpg` of this group
@@ -50,23 +65,36 @@ def main():
 # PROCESS once a second (libproc on macOS, /proc on Linux; never by spawning
 # `ps`) and records every descendant of the provider as (pid, start time, pgid),
 # and every process group a descendant belongs to. Those are processes its own
-# child created: owned, never matched by name.
+# child created: owned, never matched by name. An entry is forgotten once its
+# process is gone, and a group once it is no longer proven ours, so the record
+# holds what is alive rather than everything a long lease ever ran (design C4).
 #
 # WHEN THE PROVIDER MUST END (the desktop died, a SIGTERM arrived, or the
-# provider exited by itself, G9): a final snapshot, SIGTERM to the provider, a
-# wait of OPERATOR_REAP_GRACE seconds (default 5), then SIGKILL to every recorded
-# group that still has a recorded member alive or whose leader still has its
-# recorded start time, and to every recorded descendant still alive outside those
-# groups, checked by start time so a recycled id is never signaled. It re-scans
-# and repeats, at most three passes, then ends its own group exactly as main() does.
-# Every kill, and anything found alive after the last pass, goes to the operator
-# log (RICHOS_OPERATOR_REAP_LOG, else stderr).
+# provider exited by itself, G9): a final snapshot, then the provider is ended:
+# with a grace above zero, SIGTERM and a wait of up to that many seconds
+# (operator default 5); with a grace of zero (the product), SIGKILL at once to
+# the provider, which is this process's own unreaped child and so cannot be a
+# recycled id (design C3). Then SIGKILL to every recorded group that still has a
+# recorded member alive or whose leader still has its recorded start time, and
+# to every recorded descendant still alive outside those groups, checked by
+# start time so a recycled id is never signaled. It re-scans and repeats, at
+# most three passes, then ends its own group exactly as main() does. Every kill,
+# anything found alive after the last pass, and a reap that failed goes to the
+# reap log (--reap-log, else RICHOS_OPERATOR_REAP_LOG, else stderr).
 #
-# FOR THE HOST'S IDLE TEST (G8): with RICHOS_OPERATOR_REAP_STATE set, each
-# snapshot writes {"outside_provider_group": [pid, ...]}: descendants alive
-# OUTSIDE the provider's own group. Language servers, MCP servers and caffeinate
-# share the provider's group and do not count; tool shells and background
-# commands have their own groups and do.
+# THE HOST NEVER SIGKILLS THIS GROUP FIRST. A SIGKILL cannot be caught, so a
+# host that killed this group would end the reap before it began and leave the
+# tool shells running (design C1, R9). The product host sends SIGTERM to this
+# process alone and escalates to the group only after a bound
+# (`OwnedChild::supervised`, owned_process.rs).
+#
+# FOR THE HOST'S IDLE TEST (G8) AND THE PRODUCT'S WORK READING (design C5):
+# with a state path, each snapshot writes {"owner": <the desktop's pid>,
+# "outside_provider_group": [pid, ...], "outside_provider_groups": [pgid, ...]}:
+# descendants alive OUTSIDE the provider's own group, and their distinct groups
+# (one per running command). Language servers, MCP servers and caffeinate share
+# the provider's group and do not count; tool shells and background commands
+# have their own groups and do.
 #
 # THE LIMIT, STATED: a process that detaches itself and starts children, all
 # inside the second between two snapshots, can leave those children. A shared
@@ -75,17 +103,40 @@ def main():
 # reaper (Frank §3).
 
 
-def _process_table():
-    """{pid: (ppid, pgid, start_seconds)} for every process we can read."""
-    if sys.platform == "darwin":
-        import ctypes
+class Settings(object):
+    """The reap's parameters: the supervisor's own command line first (the product), then its
+    environment (the operator), then the operator's defaults."""
+    grace = None
+    state = None
+    log = None
 
-        class Info(ctypes.Structure):
-            _fields_ = [("a", ctypes.c_uint32 * 3), ("pid", ctypes.c_uint32), ("ppid", ctypes.c_uint32),
-                        ("b", ctypes.c_uint32 * 7), ("comm", ctypes.c_char * 16), ("name", ctypes.c_char * 32),
-                        ("nfiles", ctypes.c_uint32), ("pgid", ctypes.c_uint32), ("c", ctypes.c_uint32 * 3),
-                        ("nice", ctypes.c_int32), ("start", ctypes.c_uint64), ("ustart", ctypes.c_uint64)]
-        lib = _process_table.lib = getattr(_process_table, "lib", None) or ctypes.CDLL("/usr/lib/libproc.dylib")
+
+SETTINGS = Settings()
+
+
+def _darwin_libproc():
+    """ctypes, libproc and the proc_bsdinfo layout, loaded once. Called before the fork so a
+    runtime that cannot load them says so at the start, never silently at the first snapshot
+    (design C8)."""
+    cached = getattr(_darwin_libproc, "cached", None)
+    if cached:
+        return cached
+    import ctypes
+
+    class Info(ctypes.Structure):
+        _fields_ = [("a", ctypes.c_uint32 * 3), ("pid", ctypes.c_uint32), ("ppid", ctypes.c_uint32),
+                    ("b", ctypes.c_uint32 * 7), ("comm", ctypes.c_char * 16), ("name", ctypes.c_char * 32),
+                    ("nfiles", ctypes.c_uint32), ("pgid", ctypes.c_uint32), ("c", ctypes.c_uint32 * 3),
+                    ("nice", ctypes.c_int32), ("start", ctypes.c_uint64), ("ustart", ctypes.c_uint64)]
+    _darwin_libproc.cached = (ctypes, ctypes.CDLL("/usr/lib/libproc.dylib"), Info)
+    return _darwin_libproc.cached
+
+
+def _process_table():
+    """{pid: (ppid, pgid, start)} for every process we can read. `start` is the process's
+    start time in whole MICROSECONDS (design C10), an identity rather than a clock."""
+    if sys.platform == "darwin":
+        ctypes, lib, Info = _darwin_libproc()
         count = lib.proc_listallpids(None, 0)
         pids = (ctypes.c_int * (count + 256))()
         n = lib.proc_listallpids(pids, ctypes.sizeof(pids))
@@ -95,7 +146,7 @@ def _process_table():
                 continue
             if lib.proc_pidinfo(pid, 3, ctypes.c_uint64(0), ctypes.byref(info), ctypes.sizeof(info)) == 136:
                 if int(info.a[1]) != 5:          # pbi_status SZOMB: a zombie is already dead
-                    table[pid] = (int(info.ppid), int(info.pgid), int(info.start))
+                    table[pid] = (int(info.ppid), int(info.pgid), int(info.start) * 1000000 + int(info.ustart))
         return table
     table = {}
     try:
@@ -112,14 +163,14 @@ def _process_table():
                 raw = fh.read()
             rest = raw[raw.rindex(")") + 2:].split()
             if rest[0] != "Z":
-                table[int(name)] = (int(rest[1]), int(rest[2]), btime + int(rest[19]) // ticks)
+                table[int(name)] = (int(rest[1]), int(rest[2]), btime * 1000000 + int(rest[19]) * 1000000 // ticks)
         except (OSError, ValueError, IndexError):
             continue
     return table
 
 
 class Record(object):
-    """Everything the provider has ever had below it, with birth identities."""
+    """What the provider has below it now, with birth identities."""
 
     def __init__(self, provider, own_group):
         self.provider = provider
@@ -158,16 +209,23 @@ class Record(object):
         for pid, (_ppid, pgid, start) in table.items():
             if pgid in ours and pid not in self.procs:
                 self.procs[pid] = (start, pgid)
+        self.prune(table, ours)
         return table
 
+    def prune(self, table, ours):
+        """Forget what can never be signaled again (design C4): a process that is gone or
+        whose id now belongs to another start, and a group no longer proven ours."""
+        self.procs = {pid: (start, pgid) for pid, (start, pgid) in self.procs.items()
+                      if pid in table and table[pid][2] == start}
+        self.groups = {pgid: start for pgid, start in self.groups.items() if pgid in ours}
+
     def live_groups(self, table):
+        members = {pg for pid, (start, pg) in self.procs.items() if pid in table and table[pid][2] == start}
         ours = set()
         for pgid, leader_start in self.groups.items():
             if leader_start is not None and pgid in table and table[pgid][2] == leader_start:
                 ours.add(pgid)
-                continue
-            if any(pg == pgid and pid in table and table[pid][2] == start
-                   for pid, (start, pg) in self.procs.items()):
+            elif pgid in members:
                 ours.add(pgid)
         return ours
 
@@ -180,7 +238,7 @@ class Record(object):
 
 
 def _log(line):
-    path = (os.environ.get("RICHOS_OPERATOR_REAP_LOG") or "").strip()
+    path = (SETTINGS.log or os.environ.get("RICHOS_OPERATOR_REAP_LOG") or "").strip()
     stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     text = "%s provider-supervisor[%d]: %s\n" % (stamp, os.getpid(), line)
     try:
@@ -194,22 +252,26 @@ def _log(line):
         pass
 
 
-def _write_state(record, table):
-    path = (os.environ.get("RICHOS_OPERATOR_REAP_STATE") or "").strip()
+def _write_state(record, table, owner):
+    path = (SETTINGS.state or os.environ.get("RICHOS_OPERATOR_REAP_STATE") or "").strip()
     if not path:
         return
     try:
         import json
+        outside = record.outside_provider_group(table)
+        groups = sorted({record.procs[pid][1] for pid in outside})
         tmp = "%s.%d.tmp" % (path, os.getpid())
         with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump({"provider": record.provider, "own_group": record.own_group, "at": time.time(),
-                       "outside_provider_group": record.outside_provider_group(table)}, fh)
+            json.dump({"provider": record.provider, "own_group": record.own_group, "owner": owner, "at": time.time(),
+                       "outside_provider_group": outside, "outside_provider_groups": groups}, fh)
         os.replace(tmp, path)
     except OSError:
         pass
 
 
 def _grace():
+    if SETTINGS.grace is not None:
+        return SETTINGS.grace
     try:
         return max(0.0, float(os.environ.get("OPERATOR_REAP_GRACE") or 5))
     except ValueError:
@@ -219,12 +281,20 @@ def _grace():
 def reap(record, provider_running):
     """The sequence of (q) item 2. Returns the pids found alive after the last pass."""
     table = record.snapshot() if provider_running else _process_table()
-    if provider_running:
+    grace = _grace()
+    if provider_running and grace <= 0:
+        # The product (design C3): no grace, so the provider ends as promptly as the host's
+        # old group kill ended it, and the passes below follow within one pass.
+        try:
+            os.kill(record.provider, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    elif provider_running:
         try:
             os.kill(record.provider, signal.SIGTERM)
         except ProcessLookupError:
             pass
-        deadline = time.monotonic() + _grace()
+        deadline = time.monotonic() + grace
         while time.monotonic() < deadline:
             try:
                 ended, _ = os.waitpid(record.provider, os.WNOHANG)
@@ -270,10 +340,23 @@ def reap(record, provider_running):
 
 
 def operator_main(parent, argv):
+    import select
     terminate = []
     signal.signal(signal.SIGTERM, lambda *_a: terminate.append(True))
+    # A SIGTERM wakes the wait below at once instead of at the next 100 ms tick (design C12):
+    # Python restarts an interrupted sleep (PEP 475), but a wakeup descriptor ends a select.
+    # Both ends are non-inheritable (PEP 446), so the provider's exec closes them.
+    wake_read, wake_write = os.pipe()
+    os.set_blocking(wake_write, False)
+    signal.set_wakeup_fd(wake_write)
+    if sys.platform == "darwin":
+        try:
+            _darwin_libproc()
+        except Exception as error:   # noqa: BLE001  the watch still runs; the reap degrades
+            _log("reap unavailable, the process table cannot be read: %s" % error)
     provider = os.fork()
     if provider == 0:
+        signal.set_wakeup_fd(-1)
         signal.signal(signal.SIGTERM, signal.SIG_DFL)
         os.environ["RICHOS_SESSION_PID"] = str(os.getpid())
         try:
@@ -293,21 +376,52 @@ def operator_main(parent, argv):
             if tick % 10 == 0:
                 try:
                     table = record.snapshot()
-                    _write_state(record, table)
+                    _write_state(record, table, parent)
                 except Exception as error:   # noqa: BLE001  never let a read end the watch
                     _log("process table read failed: %s" % error)
             tick += 1
-            time.sleep(0.1)
+            select.select([wake_read], [], [], 0.1)
         cause = "the provider exited" if not running else ("SIGTERM" if terminate else "the owner died")
         _log("ending: %s" % cause)
-        reap(record, running)
+        try:
+            reap(record, running)
+        except Exception as error:   # noqa: BLE001  said, then the group kill below still runs
+            _log("reap failed: %s: %s" % (type(error).__name__, error))
     finally:
         os.killpg(os.getpid(), signal.SIGKILL)
 
 
+def _options(args):
+    """Split the supervisor's own leading `--reap-*` options from the provider's command.
+    Returns (reaping, provider argv). Nothing the provider is given starts before the first
+    argument that is not one of these."""
+    reaping, taken = False, 0
+    for arg in args:
+        if not arg.startswith("--reap-"):
+            break
+        name, _sep, value = arg.partition("=")
+        if arg == "--reap-descendants":
+            reaping = True
+        elif name == "--reap-grace" and _sep:
+            try:
+                SETTINGS.grace = max(0.0, float(value))
+            except ValueError:
+                raise SystemExit("provider supervisor: --reap-grace needs a number of seconds, not %r" % value)
+        elif name == "--reap-state" and value:
+            SETTINGS.state = value
+        elif name == "--reap-log" and value:
+            SETTINGS.log = value
+        else:
+            raise SystemExit("provider supervisor: unknown option %r" % arg)
+        taken += 1
+    if taken and not reaping:
+        raise SystemExit("provider supervisor: reap options need --reap-descendants")
+    return reaping, args[taken:]
+
+
 def _entry():
-    if len(sys.argv) > 1 and sys.argv[1] == "--reap-descendants":
-        argv = sys.argv[2:]
+    reaping, argv = _options(sys.argv[1:])
+    if reaping:
         if not argv or os.getpgrp() != os.getpid():
             raise SystemExit("provider supervisor requires an executable and its own process group")
         parent = os.getppid()
