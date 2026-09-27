@@ -530,6 +530,10 @@ fn work_fault(_name: &str) -> bool {
 pub const PICKED_UP_NOTE: &str =
     "RichOS closed while this was running. Check what it already did before redoing anything.";
 
+/// **Where an answer to his team goes** from the question worker's pass
+/// ([`WorkHost::deliver_team_answers`]): the operator desk's inbox, which returns its receipt.
+pub type LeadSink<'a> = &'a dyn Fn(&crate::questions::Delivery) -> Result<String, String>;
+
 /// **The quota hold's detail once the back end has taken a turn of this run** ([`WorkHost::quota_gate`]'s
 /// `started`): held, and no current reading. Recovery reads a `WaitingForQuota` row carrying
 /// either one as a started job, never re-run by itself (the work-path design D6).
@@ -2126,8 +2130,10 @@ impl WorkHost {
                 return false;
             }
         }
-        let _ = assignment::advance(&self.state, &record.entity_id, &record.thread_id, &record.id,
-                                    AssignmentState::Blocked, ANSWER_RETRY_DETAIL);
+        if let Err(error) = assignment::advance(&self.state, &record.entity_id, &record.thread_id, &record.id,
+                                                AssignmentState::Blocked, ANSWER_RETRY_DETAIL) {
+            eprintln!("[richos] work: the job could not be put back to waiting on his answer: {error}");
+        }
         let latest = assignment::read(&self.state, &record.entity_id, &record.thread_id, &record.id)
             .unwrap_or_else(|_| record.clone());
         self.schedule(binding, latest, resumed)
@@ -2545,7 +2551,7 @@ impl WorkHost {
     pub fn deliver_team_answers(
         self: &Arc<Self>,
         binding_for: &dyn Fn(&str) -> Option<ThreadBinding>,
-        lead: Option<&dyn Fn(&crate::questions::Delivery) -> Result<String, String>>,
+        lead: Option<LeadSink<'_>>,
     ) {
         for delivery in crate::question_work::pending(&self.state).unwrap_or_default() {
             if delivery.asker.starts_with("operator:") {

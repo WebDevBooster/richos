@@ -39,7 +39,9 @@ struct Out(Mutex<std::io::Stdout>);
 impl Out {
     fn line(&self, value: &Value) {
         let mut out = self.0.lock().unwrap();
-        let _ = writeln!(out, "{value}").and_then(|_| out.flush());
+        if let Err(e) = writeln!(out, "{value}").and_then(|_| out.flush()) {
+            eprintln!("work_walk: stdout: {e}: {value}");
+        }
     }
 }
 
@@ -229,7 +231,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = data.join("engine-state");
     let entity = EntityId::parse(ENTITY)?;
     if !data.join("entities.json").exists() {
-        EntityRegistry::from_existing_ids(&[entity.clone()]).save(&data.join("entities.json"))?;
+        EntityRegistry::from_existing_ids(std::slice::from_ref(&entity)).save(&data.join("entities.json"))?;
     }
     let out = Arc::new(Out(Mutex::new(std::io::stdout())));
     let names: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(
@@ -251,7 +253,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         permissions: permissions.clone(), spawns: spawns.clone(),
     }), Arc::new(Says { out: out.clone(), names: names.clone() }), permissions.clone());
     let walk = Walk {
-        ledger: Mutex::new(Ledger::open(&data.join("walk-ledger.jsonl"))?),
+        ledger: Mutex::new(Ledger::open(data.join("walk-ledger.jsonl"))?),
         bridge: EcsBridge::new(&runtime.python, &engine, &data.join("ecs"))?,
         data, state, host, names, spawns, turns: AtomicUsize::new(0),
     };
@@ -268,7 +270,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::thread::spawn(move || loop {
             if let Some(request) = desk.current() {
                 eprintln!("PERMISSION {} {}", request.tool, request.input);
-                let _ = desk.resolve(&request.id, true);
+                if let Err(e) = desk.resolve(&request.id, true) {
+                    eprintln!("work_walk: the permission could not be answered: {e:?}");
+                }
             }
             std::thread::sleep(std::time::Duration::from_millis(25));
         });
