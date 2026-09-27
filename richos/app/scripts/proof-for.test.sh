@@ -353,7 +353,7 @@ result = subprocess.run(["bash", "-c", command], cwd=sys.argv[1], env=missing,
                         capture_output=True, text=True, timeout=15)
 assert result.returncode == 2 and "Prerequisite: set RICHOS_RUNTIME_DIR" in result.stderr
 with tempfile.TemporaryDirectory(prefix="proof-generated-command-") as temporary:
-    root = Path(temporary)
+    root = Path(temporary).resolve()
     scripts = root / "richos/app/scripts"
     scripts.mkdir(parents=True)
     target = scripts / "make-engine-asset.test.sh"
