@@ -163,6 +163,45 @@ pub enum TurnItem<'a> {
     Machinery(MachineryRecord),
 }
 
+/// **One command the provider is running, or ran, in the background** — the thing a back end
+/// starts when he says "start X and tell me when it finishes".
+///
+/// Read off three frames of the provider's own stream, measured on `claude` 2.1.283 on
+/// 2026-09-27 (richos-hq `docs/verification/2026-09-27-background-command-finish/`):
+///
+/// - `system/task_started` `{task_id, task_type: "local_bash", is_backgrounded: true,
+///   description}` when the command goes to the background. A FOREGROUND command gets the
+///   same frame with `is_backgrounded: false`, and is not one of these (`cap-fold.jsonl`).
+/// - `system/background_tasks_changed` `{tasks: [{task_id, task_type, description}]}`, the
+///   provider's whole list, sent whenever it changes.
+/// - `system/task_notification` `{task_id, status, summary}` when it ends, with
+///   `status: "completed"` and a summary such as `... completed (exit code 0)`.
+///
+/// Only `local_bash` is tracked. A helper (`local_agent`) is waited for on its own positive
+/// signal, `SubagentStop` in the app's journal (`work_host.rs` step 3b), and no other task
+/// type has been measured ending on this wire.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BackgroundCommand {
+    pub task_id: String,
+    /// The provider's own description of the command (the model's or the command line).
+    pub description: String,
+    /// `None` while no `task_notification` has named it.
+    pub ended: Option<CommandEnded>,
+}
+
+/// How a background command ended, from its `task_notification`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommandEnded {
+    pub status: String,
+    pub summary: String,
+    /// **The notification arrived while a turn this client sent was running.** The provider
+    /// folds it into that turn, so the model had it before it answered: measured in
+    /// `cap-fold.jsonl`, where the notification at 6.925 s is inside the turn that ended at
+    /// 18.802 s and that turn's answer describes it. When `false` the provider reported it
+    /// in a turn of its own, whose words reach no caller (`native.rs`'s between-turn lane).
+    pub during_a_turn_of_ours: bool,
+}
+
 /// A disposable compute lease. One implementation per backing session.
 /// `Send` so the durable `Spine` can be held behind a `Mutex` as Tauri managed state.
 pub trait Cognition: Send {
@@ -176,6 +215,10 @@ pub trait Cognition: Send {
     /// lease would end (the product reap, `lease_commands.rs`). `None`: nothing supervises
     /// this lease's commands, so there is nothing to read.
     fn running_commands(&self) -> Option<crate::lease_commands::CommandReading> { None }
+    /// **The commands this lease's provider started in the background, and how each ended**,
+    /// read off the provider's own task frames ([`BackgroundCommand`]). `None`: this lease
+    /// cannot say, which is never the same as "none are running".
+    fn background_commands(&self) -> Option<Vec<BackgroundCommand>> { None }
 
     /// Bind app-owned onboarding tools before a priming turn. Adapters without these tools
     /// keep the default no-op; the native chat lease atomically updates its private scope.
