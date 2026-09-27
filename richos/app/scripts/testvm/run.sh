@@ -390,6 +390,11 @@ LOGFILE="$PAYLOAD/app.log"
 # which is where a window can actually exist. --env carries the environment the
 # host QA recipe uses, so the app under test is configured identically.
 #
+# TESTVM_APP_MODEL, when set (for example `sonnet`), is handed to the app as ANTHROPIC_MODEL,
+# which every `claude` it starts inherits: a walk that only needs the app's machinery to run can
+# spend a cheaper model. The app passes `--setting-sources ''`, so a settings file in the
+# fixture home cannot do this. Unset, nothing changes.
+#
 # DISABLE_AUTOUPDATER=1 is on the launch, and it is not decoration: `claude`
 # updates ITSELF, and a `claude` that updated itself mid-walk would silently
 # stop being the version step 2a just measured and printed. The env var is the
@@ -405,6 +410,7 @@ guest_ssh "$VM" "rm -f '$LOGFILE'; \
     --env RICHOS_CLAUDE_BIN='$TESTVM_GUEST_CLAUDE' \
     --env $TESTVM_CLAUDE_PIN_VAR=$TESTVM_CLAUDE_PIN_VALUE \
     ${ENGINE:+--env RICHOS_ENGINE_DIR='$PAYLOAD/engine'} \
+    ${TESTVM_APP_MODEL:+--env ANTHROPIC_MODEL='$TESTVM_APP_MODEL'} \
     --stdout '$LOGFILE' --stderr '$LOGFILE'"
 
 # Wait for the process, then for a WINDOW. A pid is not a proof: the app can be
