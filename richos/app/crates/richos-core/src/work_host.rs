@@ -2507,6 +2507,49 @@ impl WorkHost {
         })
     }
 
+    /// **The work path's question worker, one pass** — what the app's `richos-question-work`
+    /// thread does on every question-store wake and at launch (the work-path design D8: moved
+    /// here from `src-tauri/src/question_host.rs` so the unit tests and the VM crash matrix run
+    /// reader 2 as it ships, not a copy of it).
+    ///
+    /// 1. Every saved answer still waiting in the inbox for a work job goes to
+    ///    [`Self::queue_question_answer`] again: after a relaunch nothing else schedules it.
+    /// 2. Every answered set not yet delivered is delivered: to his team's `lead` sink for an
+    ///    `operator:` asker, to this host's inbox otherwise. The front desk's own answers are
+    ///    the conversation's and are left to its worker.
+    ///
+    /// `binding_for` is the ledger's thread binding, which only the shell's ledger can give.
+    pub fn deliver_team_answers(
+        self: &Arc<Self>,
+        binding_for: &dyn Fn(&str) -> Option<ThreadBinding>,
+        lead: Option<&dyn Fn(&crate::questions::Delivery) -> Result<String, String>>,
+    ) {
+        for delivery in crate::question_work::pending(&self.state).unwrap_or_default() {
+            if delivery.asker.starts_with("operator:") {
+                continue;
+            }
+            if let Some(binding) = binding_for(&delivery.thread_id) {
+                drop(self.queue_question_answer(&binding, &delivery));
+            }
+        }
+        let store = crate::questions::Store::new(&self.state);
+        for (entity, thread, asker) in store.pending_threads().unwrap_or_default() {
+            if asker == "front_desk" {
+                continue;
+            }
+            let Some(binding) = binding_for(&thread) else { continue };
+            if let Err(error) = store.deliver(&entity, &thread, &asker, |d| {
+                if d.asker.starts_with("operator:") {
+                    lead.ok_or("Your team is unavailable")?(d)
+                } else {
+                    self.queue_question_answer(&binding, d)
+                }
+            }) {
+                eprintln!("[richos] team answer remains saved: {error}");
+            }
+        }
+    }
+
     /// Both surfaces enter the same durable receiving inbox, without a permission hold.
     pub fn queue_question_answer(
         self: &Arc<Self>,
@@ -6422,6 +6465,42 @@ mod tests {
             .into_iter().filter(|q| q.state == crate::questions::State::Open).collect();
         assert!(open.is_empty(), "a question left open for a job that ended");
         assert_eq!(h.spawns.load(Ordering::SeqCst), 0, "nothing was asked of a back end");
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// **D8: the question worker's pass, as it ships.** His answer in the durable store reaches
+    /// the job through `deliver_team_answers` alone (the pass the app's worker thread now
+    /// calls), once; a second pass, the launch wake, sends nothing more. An answer to his team
+    /// with no team sink stays saved, never handed to a work job.
+    #[test]
+    fn the_question_workers_pass_delivers_his_answer_once_and_leaves_his_teams_saved() {
+        use crate::questions::{AnswerRequest, Store};
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        let record = waiting_job(&h);
+        open_question(&h, &record);
+        let store = Store::new(&h.state);
+        let q = store.list("depot", "thread-one").unwrap().remove(0);
+        store.answer("depot", "thread-one", AnswerRequest { question_id: q.id.clone(), client_id: "tap".into(),
+            option_ids: vec![q.options[0].id.clone()], text: String::new(), expected_revision: None }, "click", "mac").unwrap();
+        crate::question_work::enqueue(&h.state, &crate::questions::Delivery {
+            id: "operator-answer".into(), entity_id: "depot".into(), thread_id: "thread-one".into(),
+            asker: "operator:conversation".into(), set_id: None, text: "for his team".into(), receipt: None,
+        }).unwrap();
+        h.host.start();
+        let binding = h.binding.clone();
+        let binding_for = move |thread: &str| (thread == "thread-one").then(|| binding.clone());
+        h.host.deliver_team_answers(&binding_for, None);
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        h.host.deliver_team_answers(&binding_for, None); // the launch wake, again
+        assert!(!h.host.wait_for_completed(2, std::time::Duration::from_millis(300)), "sent twice");
+        let prompts = h.work_prompts.lock().unwrap().clone();
+        assert_eq!(prompts.iter().filter(|p| p.contains("Dana reviews")).count(), 1, "{prompts:?}");
+        assert!(prompts.iter().all(|p| !p.contains("for his team")), "his team's answer reached a work job");
+        let pending = crate::question_work::pending(&h.state).unwrap();
+        assert_eq!(pending.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(), ["operator-answer"]);
         h.host.shutdown();
         std::fs::remove_dir_all(&h.root).unwrap();
     }
