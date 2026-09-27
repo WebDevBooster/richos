@@ -80,7 +80,7 @@ guest_addr() {
     # hypervisor. Whatever went wrong there, the refusal below names the VM.
     ip="$( (preflight_tart >/dev/null 2>&1 && vm_ip "$VM" 2>/dev/null) || true )"
   fi
-  [ -n "$ip" ] || die "no address for $VM — nothing has recorded one at $TESTVM_RUN/$VM/ip and tart could not be asked for it. Start it with testvm/run.sh --vm $VM ..., or list the guests with tart list."
+  [ -n "$ip" ] || die "no address for $VM — nothing has recorded one at $TESTVM_RUN/$VM/ip and tart could not be asked for it. A guest exists only inside a run: run the steps under testvm/run-walk.py, or list the guests with tart list."
   printf '%s' "$ip"
 }
 
@@ -152,7 +152,7 @@ if [ "$RC" -eq 255 ]; then
         echo "         $VM IS running. The guest may still be booting — run.sh waits up to"
         echo "         60s for ssh — or the recorded address is stale: $TESTVM_RUN/$VM/ip"
       else
-        echo "         $VM exists but is NOT running. Start it: testvm/run.sh --vm $VM ..."
+        echo "         $VM exists but is NOT running. A guest exists only inside a run: run the steps under testvm/run-walk.py."
       fi
     else
       echo "         There is no VM called $VM. List them with tart list."

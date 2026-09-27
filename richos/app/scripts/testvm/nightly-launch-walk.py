@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Walk scripts/nightly-launch.sh in a test guest: window, pinned engine, and nothing written outside.
 
-Run by run-walk.py, which boots the guest, holds <TESTVM_ROOT>/guest.lock and removes the clone:
+Run by run-walk.py, which holds one guest slot for this run only, boots the guest and removes the clone:
 
   reserve.py -- run-walk.py --bundle ZIP --home FIXTURE --engine ENGINE --report REPORT -- \\
       nightly-launch-walk.py --zip ZIP --pin SHA256 --out DIR

@@ -3,8 +3,11 @@
 # gui-proof-in-vm.sh — watch a candidate's own bundle start, in a guest, and write down
 #                      what was seen, so `nightly-local.py publish` has something to check.
 #
-#   gui-proof-in-vm.sh --run <run-id> [--vm <name>] [--out <path>] [--keep]
-#   gui-proof-in-vm.sh --bundle <RichOS.app.zip> --commit <sha> [--vm <name>] [--out <path>]
+#   gui-proof-in-vm.sh --run <run-id> [--vm <name>] [--out <path>] [--wait <seconds>]
+#   gui-proof-in-vm.sh --bundle <RichOS.app.zip> --commit <sha> [--vm <name>] [--out <path>] [--wait <seconds>]
+#
+# --wait: how long to wait for one of the test VM's two guest slots (testvm/slots.py) and
+# its CPU admission; default 3600, so a build that is walked away from still gets its proof.
 #
 # =========================================================================================
 # WHY THIS EXISTS
@@ -58,7 +61,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TESTVM="$HERE/testvm"
 STATE_DIR="${RICHOS_NIGHTLY_STATE:-$HOME/.richos-nightly}"
 
-RUN_ID=""; BUNDLE=""; COMMIT=""; VM=""; OUT=""; KEEP=0
+ORIG_ARGS=("$@")
+RUN_ID=""; BUNDLE=""; COMMIT=""; VM=""; OUT=""; WAIT=3600
 while [ $# -gt 0 ]; do
   case "$1" in
     --run)    RUN_ID="${2:-}"; shift 2 ;;
@@ -66,8 +70,11 @@ while [ $# -gt 0 ]; do
     --commit) COMMIT="${2:-}"; shift 2 ;;
     --vm)     VM="${2:-}"; shift 2 ;;
     --out)    OUT="${2:-}"; shift 2 ;;
-    --keep)   KEEP=1; shift ;;
-    -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --wait)   WAIT="${2:-}"; shift 2 ;;
+    # A kept guest is a guest held after its run, which the CEO ruled out on 2026-09-27;
+    # the slot it ran in stops it on release anyway. Said here rather than ignored.
+    --keep)   echo "gui-proof-in-vm.sh: --keep is retired: a guest is never kept after its run (testvm/slots.py). Read the proof and run.sh's output instead." >&2; exit 2 ;;
+    -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "gui-proof-in-vm.sh: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -111,6 +118,14 @@ else
   TAG="${TAG:-unversioned}"
 fi
 
+# ONE GUEST SLOT, FOR THIS RUN ONLY (testvm/slots.py; the CEO, 2026-09-27). Everything
+# above only reads; from here on a guest exists, so the rest of this script runs again
+# under a held slot and the slot is released the moment it exits.
+if [ -z "${TESTVM_SLOT:-}" ]; then
+  exec python3 "$TESTVM/slots.py" run --wait "$WAIT" --purpose "gui-proof ${TAG:-$COMMIT}" -- \
+    "$0" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}
+fi
+
 [ -n "$VM" ] || VM="richos-gui-proof-$$"
 [ -n "$OUT" ] || OUT="$STATE_DIR/gui-proofs/${RUN_ID:-$COMMIT}.proof"
 mkdir -p "$(dirname "$OUT")" || die "cannot create $(dirname "$OUT")"
@@ -122,7 +137,7 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/richos-gui-proof.XXXXXX")" || die "cannot cre
 STOPPED=0
 cleanup() {
   local rc=$?
-  if [ "$STOPPED" = 0 ] && [ "$KEEP" = 0 ]; then
+  if [ "$STOPPED" = 0 ]; then
     STOPPED=1
     echo "gui-proof-in-vm.sh: stopping the guest and deleting the clone..."
     if ! "$TESTVM/stop.sh" "$VM" >"$WORK/stop.log" 2>&1; then
@@ -138,9 +153,6 @@ cleanup() {
       sed 's/^/      /' "$WORK/stop.log" >&2 2>/dev/null
       echo "" >&2
     fi
-  elif [ "$KEEP" = 1 ]; then
-    echo "gui-proof-in-vm.sh: --keep, so the guest '$VM' is still running. Stop it with:"
-    echo "    $TESTVM/stop.sh $VM"
   fi
   rm -rf "$WORK"
   return $rc

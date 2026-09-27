@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """adopt-walk.py — a task given from the phone starts without a typed message (CEO ruling §88).
 
-Run by run-walk.py, which boots the guest, holds <TESTVM_ROOT>/guest.lock and removes the clone:
+Run by run-walk.py, which holds one guest slot for this run only, boots the guest and removes the clone:
 
   run-walk.py --bundle ZIP --home EMPTY_DIR --engine ENGINE --report REPORT -- \\
       adopt-walk.py --out DIR --expect-sha SHA [--task TEXT] [--within SECONDS]
 
-run-walk.py passes the owned VM name as the first argument. `--steps a,b,c` runs a subset against
-a guest someone is already holding (hold-walk.py), for finding a step that changed.
+run-walk.py passes the owned VM name as the first argument. `--steps a,b,c` runs a subset, still
+as one run under run-walk.py, for finding a step that changed.
 
 THE QUESTION. CEO ruling §88: "The user should be able to answer on their phone just as well as
 they can answer on the desktop app." Work Rich writes down during a turn (`richos_assignments`
