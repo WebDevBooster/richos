@@ -96,6 +96,16 @@ def names_commands(question):
     return re.search(r'\bcommands? Rich started\b', question) is not None
 
 
+def owner_of(states, pgids):
+    """The one live lease whose supervisor's last snapshot names every group in pgids, or None.
+
+    provider-supervisor.py snapshots once a second and a provider crash is reaped from the last
+    snapshot (G9), so until a state file names a group its crash case has not begun."""
+    owners = [s for s in states if not s.get('ended')
+              and all(g in s.get('outside_provider_groups', []) for g in pgids)]
+    return owners[0] if len(owners) == 1 else None
+
+
 def recorded(rows, names, since_ms):
     """Has every named heartbeat recorded itself at or after since_ms? Rows from an earlier ask
     with the same tag (a retry against a held guest) never count."""
@@ -361,13 +371,19 @@ class Walk(adopt.Walk):
         self.enter()
         started = self.start('claude')
         names = started['names']
-        pgid = next(r['pgid'] for r in self.rows() if r.get('kind') == 'seen' and r['name'] == names[0])
-        states = guest(self.vm, 'python3 -c "import glob,json,sys; print(json.dumps([json.load(open(f)) for f in '
-                                'glob.glob(sys.argv[1] + \'/provider-leases/*.json\')]))" ' + shlex.quote(self.engine_state))
-        owners = [s for s in json.loads(states) if pgid in s.get('outside_provider_groups', [])]
-        if len(owners) != 1:
-            raise StepFailed('REFUSED: no single lease state file names group %d: %s' % (pgid, states[:400]))
-        provider = owners[0]['provider']
+        mine = {r['name']: r['pgid'] for r in self.rows()
+                if r.get('kind') == 'seen' and r['name'] in names and r.get('t_ms', 0) >= started['sent_ms']}
+        pgids = [mine[n] for n in names]
+        end, owner, states = time.monotonic() + 10, None, '[]'
+        while owner is None and time.monotonic() < end:
+            states = guest(self.vm, 'python3 -c "import glob,json,sys; print(json.dumps([json.load(open(f)) for f in '
+                                    'glob.glob(sys.argv[1] + \'/provider-leases/*.json\')]))" ' + shlex.quote(self.engine_state))
+            owner = owner_of(json.loads(states), pgids)
+            if owner is None:
+                time.sleep(0.5)
+        if owner is None:
+            raise StepFailed('REFUSED: no single live lease state file named groups %s within 10 s: %s' % (pgids, states[:400]))
+        provider = owner['provider']
         trigger = int(guest(self.vm, 'python3 -c "import os,time; t=time.time(); os.kill(%d, 9); print(int(t*1000))"' % provider))
         return dict(self.verdict(names, trigger, BOUND_MS), provider=provider, started=started)
 

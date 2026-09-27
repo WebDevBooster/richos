@@ -168,6 +168,17 @@ class Grade(unittest.TestCase):
         self.assertTrue(walk.names_commands('You have a command Rich started that may still be running.'))
         self.assertFalse(walk.names_commands('You have 1 assignment still running in the background.'))
 
+    def test_the_claude_crash_names_the_one_live_lease_whose_last_snapshot_has_every_group(self):
+        # provider-supervisor.py snapshots once a second, and a provider crash is reaped from the
+        # last snapshot (G9): a group not yet in the state file is not the case being measured.
+        live = {'provider': 2364, 'ended': False, 'outside_provider_groups': [3843, 4803]}
+        partial = dict(live, outside_provider_groups=[3843])
+        ended = dict(live, provider=1500, ended=True)
+        self.assertEqual(walk.owner_of([live, {'provider': 1823, 'outside_provider_groups': []}], [3843, 4803]), live)
+        self.assertIsNone(walk.owner_of([partial], [3843, 4803]))
+        self.assertIsNone(walk.owner_of([ended], [3843, 4803]))
+        self.assertIsNone(walk.owner_of([live, dict(live, provider=9)], [3843, 4803]))
+
     def test_ps_time_is_read_past_an_hour(self):
         self.assertAlmostEqual(walk.cpu_seconds('0:01.46'), 1.46)
         self.assertAlmostEqual(walk.cpu_seconds(' 1:02:03.50\n'), 3723.5)
