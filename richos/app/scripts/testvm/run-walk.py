@@ -98,7 +98,11 @@ def main():
             for sig in (signal.SIGINT,signal.SIGTERM,signal.SIGHUP):signal.signal(sig,signal.SIG_IGN)
             try:
                 if state.exists():
-                    subprocess.run([str(HERE/'stop.sh'),vm],check=True,timeout=120)
+                    # restore_signals=False: stop.sh inherits this process's ignored SIGPIPE (and the
+                    # interruptions ignored above), so a caller that died and took this script's
+                    # stderr pipe with it cannot kill the cleanup halfway (2026-09-27: two clones
+                    # were left stopped but undeleted exactly that way).
+                    subprocess.run([str(HERE/'stop.sh'),vm],check=True,timeout=120,restore_signals=False)
                     if state.exists():raise RuntimeError('VM state remains after cleanup: '+str(state))
                 result['cleanup_complete']=True
             except Exception as exc:
