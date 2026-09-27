@@ -37,16 +37,17 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
              the British ones. --expect as-written: the baseline build; only recorded.
 
   connect    command-walk.py's: the Acme folder connected, so work can be handed over
-  document   asks for a file named note-<code>.md in the Acme repository holding only the same
-             sentence, spelling as written, and landed. A document the app's sessions write is
-             fixed in the desktop executable's PreToolUse wrapper (quota/gate.rs run_canonical),
-             which hands the provider an updatedInput. Reads: the write as the model made it
-             (the PreToolUse callback's tool_input in the engine's evidence), which must be
-             British, and the file's bytes on disk (landed in Acme, or in the worker's worktree
-             when it has not landed yet), which must be American. This is plan check C18: the
-             bundled claude honoring updatedInput without permissionDecision is proven only by
-             the bytes. A file written through the shell meets no write hook; that outcome is
-             reported as INCONCLUSIVE, not as a pass.
+  document   asks for a file named note-<code>.md in the Acme repository holding the same
+             sentence, and landed. A document the app's sessions write is fixed in the desktop
+             executable's PreToolUse wrapper (quota/gate.rs run_canonical), which hands the
+             provider an updatedInput. PASS needs the first Write/Edit of the file made British
+             (PreToolUse input in the engine's evidence) and run American (PostToolUse input:
+             what the tool actually ran with). This is plan check C18: the bundled claude
+             honoring updatedInput without permissionDecision, read from the provider's own
+             record rather than assumed. The landed file is recorded beside the verdict with
+             every tool call that named it: a worker told the sentence was his may put his
+             spelling back with the shell, which no write hook sees, and his words are not the
+             fix's to rewrite. No write hook seeing the file at all is INCONCLUSIVE.
 
 Speech is not measured: the guest has no audio worth trusting (docs/testvm.md, CEO §53). What is
 spoken is the `rich://chunk` payload the screen renders (ui/main.js relays it to
@@ -132,8 +133,16 @@ def verdict(evidence, sentence, british, american, expect):
     return failures
 
 
-def document_verdict(written, on_disk, british, american):
-    """The document step's failures, as sentences. Empty means PASS."""
+def document_verdict(written, ran_with, british, american):
+    """The document step's failures, as sentences. Empty means PASS.
+
+    `written` is the text the model's first Write/Edit of the file carried (PreToolUse input);
+    `ran_with` is the text the tool actually ran with (PostToolUse input, which is the
+    updatedInput when the fix applied). The fix is judged on those two. What finally LANDED is
+    reported beside the verdict, not in it: VM runs 3 and 4 showed a worker read the file back,
+    saw the sentence he had dictated had changed, and restored it with Edit and then the shell,
+    which no write hook sees. His own words are not the fix's to rewrite, so a worker keeping
+    them is not a defect of the fix."""
     if written is None:
         return ['INCONCLUSIVE: no Write, Edit or MultiEdit of the file reached the hooks (a shell write '
                 'meets no write hook), so this run says nothing about the document fix']
@@ -141,17 +150,28 @@ def document_verdict(written, on_disk, british, american):
     raw_british = words_in(written, british)
     if not raw_british:
         failures.append('INCONCLUSIVE: the model wrote no British word into the file (%r)' % written[:200])
-    if on_disk is None:
-        failures.append('the file was never found on disk')
+    if ran_with is None:
+        failures.append('no PostToolUse for that write: what the tool ran with is unknown')
         return failures
-    left = words_in(on_disk, british)
+    left = words_in(ran_with, british)
     if left:
-        failures.append(f'the file on disk is still British: {left}')
+        failures.append(f'the write ran British: {left} (the fix did not apply)')
     wanted = [american[british.index(w)] for w in raw_british]
-    missing = [w for w in wanted if not words_in(on_disk, [w])]
+    missing = [w for w in wanted if not words_in(ran_with, [w])]
     if missing:
-        failures.append(f'the file on disk lacks the American forms: {missing}')
+        failures.append(f'the write ran without the American forms: {missing}')
     return failures
+
+
+def body_of(tool_input):
+    """The text a Write, Edit or MultiEdit input introduces."""
+    if not tool_input:
+        return None
+    if tool_input.get('content') is not None:
+        return tool_input['content']
+    if tool_input.get('new_string') is not None:
+        return tool_input['new_string']
+    return ''.join(e.get('new_string', '') for e in tool_input.get('edits', [])) or None
 
 
 class SpellingWalk(command_walk.CommandWalk):
@@ -216,8 +236,9 @@ class SpellingWalk(command_walk.CommandWalk):
         return {k: evidence.get(k) for k in ('token', 'ended', 'deltas', 'first_reply_stored_ms',
                                              'model_words', 'reply_stored', 'reply_shown')}
 
-    def written(self, name):
-        """The newest write of `name` as the model made it: the PreToolUse callback's own input."""
+    def written(self, name, event='PreToolUse'):
+        """The FIRST write of `name` as the hooks saw it: at PreToolUse the input the model made,
+        at PostToolUse the input the tool actually ran with (the updatedInput, when one applied)."""
         script = ('import glob,json,sys\n'
                   'hits=[]\n'
                   'for p in glob.glob(sys.argv[1]+"/engine-state/evidence/*/callbacks.jsonl"):\n'
@@ -225,12 +246,12 @@ class SpellingWalk(command_walk.CommandWalk):
                   '        try: c=json.loads(line).get("callback",{})\n'
                   '        except Exception: continue\n'
                   '        i=c.get("tool_input") or {}\n'
-                  '        if (c.get("hook_event_name")=="PreToolUse" and c.get("tool_name") in sys.argv[3].split(",")\n'
+                  '        if (c.get("hook_event_name")==sys.argv[4] and c.get("tool_name") in sys.argv[3].split(",")\n'
                   '                and str(i.get("file_path","")).endswith("/"+sys.argv[2])): hits.append(i)\n'
                   'print(json.dumps(hits))\n')
         hits = json.loads(guest(self.vm, 'python3 -c ' + shlex.quote(script) + ' ' + shlex.quote(self.data) + ' '
-                                + shlex.quote(name) + ' ' + ','.join(WRITE_TOOLS), 60))
-        return hits[-1] if hits else None
+                                + shlex.quote(name) + ' ' + ','.join(WRITE_TOOLS) + ' ' + event, 60))
+        return hits[0] if hits else None
 
     def calls_naming(self, name):
         """Every tool call whose input names the file, as the hooks saw it, in order: the event
@@ -285,17 +306,16 @@ class SpellingWalk(command_walk.CommandWalk):
             if record and pressed < self.a.approvals and self.approve_if_asked(record.get('title', '')):
                 pressed += 1
             time.sleep(3)
-        body = None
-        if written:
-            body = written.get('content')
-            if body is None:
-                body = written.get('new_string') or ''.join(e.get('new_string', '') for e in written.get('edits', []))
+        body = body_of(written)
+        ran_with = body_of(self.written(name, 'PostToolUse'))
         evidence = {'file': name, 'document_tool': self.a.document_tool,
                     'sent_between_guest_ms': [round(v) for v in sent], 'approvals_pressed': pressed,
-                    'written_by_model': body, 'path_read': path, 'on_disk': text, 'landed': path == landed,
+                    'written_by_model': body, 'write_ran_with': ran_with,
+                    'path_read': path, 'on_disk': text, 'landed': path == landed,
+                    'on_disk_british': words_in(text, british),
                     'calls_naming_the_file': self.calls_naming(name)}
         (self.out / 'document-evidence.json').write_text(json.dumps(evidence, indent=2) + '\n')
-        failures = document_verdict(body, text, british, american)
+        failures = document_verdict(body, ran_with, british, american)
         if failures and written is None:
             tools = sorted({c['tool'] for c in evidence['calls_naming_the_file']})
             failures.append('tool calls that named the file: ' + (', '.join(tools) or 'none'))
