@@ -1060,7 +1060,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "6e23813a01bbc79df633080c5153c42f2371b2b2dc3bcc09bca96206450858f8",
+      "sha256": "24ec274aa07f47639bd2d036154bc1a458383f082304a479e55f73580530a747",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed.",
       "keys": [],
       "edges": [
@@ -1658,7 +1658,7 @@
     "scripts/hooks/install.sh#private-home": {
       "source": "scripts/hooks/install.sh",
       "sha256": "7b80a4c9660fbab047d9e025bade584212504bfd8585e7a91cb38411f1fc88c2",
-      "evidence": "The private-HOME fixture runs settings migration, registration-derived sidecar hashing and retired-plist removal. The only sourced helper is registered-hooks. Config is not loaded; hash targets are data. Private HOME or explicit LaunchAgents redirect leaves LAUNCHD_TOUCHABLE=0, so watchdog/reaper installers cannot execute.",
+      "evidence": "The private-HOME fixture runs settings migration, registration-derived sidecar hashing and retired-plist removal. The only sourced helper is registered-hooks. Config is not loaded; hash targets are data. Private HOME or explicit LaunchAgents redirect leaves LAUNCHD_TOUCHABLE=0, so watchdog/reaper installers cannot execute. The same no-launchd branch applies when every invocation supplies a private CLAUDE_CONFIG_DIR distinct from HOME/.claude, as in locate-engine.test.sh; copied engines omit orchestration.config.",
       "keys": [],
       "edges": [
         {
@@ -2041,6 +2041,79 @@
           "fixture": true
         }
       ]
+    },
+    "scripts/lib/tree-witness.sh": {
+      "source": "scripts/lib/tree-witness.sh",
+      "sha256": "9ffa064b9d59b2d9e4fd1bcbc9aedb5725093f908ddcbc32e104629f9983c98c",
+      "evidence": "Hashes and stats only caller-supplied files. The finite stat command alternatives probe native timestamp capability. No configuration is sourced and no path being witnessed executes.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/mutation-focus.test.sh": {
+      "source": "scripts/lib/mutation-focus.test.sh",
+      "sha256": "511e764d77ac2203b701fed07edc69126616c9fc4d787528a9fbdbb1dfe788d4",
+      "evidence": "Creates a tiny engine with literal PROTECTED_PATHS and feature variables, then executes generated sequential/named/parallel suites under the real mutation helper. Its only eval receives fixed RULE_A/RULE_B assertions. Copied helper directories are transport; discovered production scripts are not run. All worker and supervisor helpers are separately declared.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/worker_tokens.py"
+        },
+        {
+          "to": "scripts/lib/engine_pass.py"
+        },
+        {
+          "to": "scripts/lib/proc_tree.py"
+        },
+        {
+          "to": "scripts/lib/stop-at-line.py"
+        }
+      ],
+      "nonconfig_eval": true
+    },
+    "scripts/lib/mutation-harness.test.sh": {
+      "source": "scripts/lib/mutation-harness.test.sh",
+      "sha256": "ef48c83bf6e94d16773138afa8c13b9251a8f32a16606620d30e185c1baca433",
+      "evidence": "Executes the real sandbox allocator against a generated engine. The fixture config is literal and never sourced. Tree witnesses cover the generated fake guard, not the real config. Real mutation scripts are checked as source text and directory inventory only. The one real config assertion checks presence.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/tree-witness.sh"
+        },
+        {
+          "to": "scripts/lib/mutation-harness.sh",
+          "fixture": true
+        }
+      ],
+      "presence": "The real engine must contain orchestration.config; no real values or bytes are asserted."
+    },
+    "scripts/locate-engine.sh": {
+      "source": "scripts/locate-engine.sh",
+      "sha256": "4e309a6178f0eccae62d4383feff912380c679f6c6e3e3abae5a5cfe80eed057",
+      "evidence": "Resolves explicit fixture engines and JSON plugin registration/pointer data. It checks VERSION and scripts/hooks presence, never orchestration.config. Referenced scripts are not executed by the locator.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/locate-engine.test.sh": {
+      "source": "scripts/locate-engine.test.sh",
+      "sha256": "53ca33d01c1025021d3bbccf8c6f79aa9d0d013b451b33f1466e5c72ff1a3885",
+      "evidence": "Locator calls use generated registration directories. Actual installer copies omit orchestration.config and every call supplies its own config directory. Linked worktree topology is generated Git data. The global-state witness observes pointer/settings data only. Private config prevents launchd/watchdog/reaper execution even with a real HOME.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/locate-engine.sh"
+        },
+        {
+          "to": "scripts/lib/global-state-witness.sh"
+        },
+        {
+          "to": "scripts/hooks/install.sh#private-home",
+          "fixture": true
+        }
+      ]
     }
   },
   "units": {
@@ -2075,7 +2148,10 @@
     "scripts/hooks/guard-dialect.test.sh": "scripts/hooks/guard-dialect.test.sh",
     "scripts/hooks/guard-reference-ledger.test.sh": "scripts/hooks/guard-reference-ledger.test.sh",
     "scripts/scratch-allocation-lint.test.sh": "scripts/scratch-allocation-lint.test.sh",
-    "scripts/entrypoint-currency-lint.test.sh": "scripts/entrypoint-currency-lint.test.sh"
+    "scripts/entrypoint-currency-lint.test.sh": "scripts/entrypoint-currency-lint.test.sh",
+    "scripts/lib/mutation-focus.test.sh": "scripts/lib/mutation-focus.test.sh",
+    "scripts/lib/mutation-harness.test.sh": "scripts/lib/mutation-harness.test.sh",
+    "scripts/locate-engine.test.sh": "scripts/locate-engine.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {

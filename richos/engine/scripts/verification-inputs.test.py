@@ -190,6 +190,22 @@ class Closure(unittest.TestCase):
         selected = graph.config_units(inputs.config_change('ENTRYPOINTS=old', 'ENTRYPOINTS=new'), units)
         self.assertEqual(set(selected), {units[1]})
 
+    def test_harness_controls_and_locator_do_not_consume_copied_config_values(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        units = ['scripts/lib/mutation-focus.test.sh', 'scripts/lib/mutation-harness.test.sh',
+                 'scripts/locate-engine.test.sh']
+        for unit in units:
+            closure = graph.closure(unit)
+            self.assertEqual(closure['keys'], {})
+            self.assertEqual(closure['whole'], [])
+            self.assertEqual(closure['fallback'], [])
+        self.assertTrue(graph.closure(units[1])['presence'])
+        change = inputs.config_change('PROTECTED_PATHS=before', 'PROTECTED_PATHS=after')
+        self.assertEqual(graph.config_units(change, units), {})
+        document['nodes'].pop('scripts/lib/mutation-harness.sh')
+        self.assertEqual(set(graph.config_units(change, units)), set(units[:2]))
+
     def test_definition_and_seat_fixtures_do_not_read_real_config_values(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)
