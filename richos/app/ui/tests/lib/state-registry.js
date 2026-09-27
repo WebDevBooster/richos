@@ -4904,7 +4904,5 @@ module.exports = [
   {"s":"· can resume just after","c":"FRAGMENT","why":"A label or interpolated piece of the quota reading, hold status or affected-limit list. It is not an independent instruction."},
   {"s":"Weekly usage reached 99%. Agents will pause at their next step until allowance is confirmed.","c":"ACTIONABLE","control":"#quota-enabled","fixture":null,"why":"The shared automatic-pause switch is present in this weekly state. quota.js checks the weekly fixture and the switch lifecycle."},
   {"s":"Weekly usage reached 99%. Waiting for a confirmed reset and available allowance.","c":"ACTIONABLE","control":"#quota-release","fixture":null,"why":"The weekly hold offers the same explicit release control as a five-hour hold. quota.js checks that this control releases the weekly hold and disables automatic pause."},
-  {"s":"Missing operator scope","c":"NOT-RENDERED","why":"Internal operator desk MCP invocation validation. The reason goes to startup diagnostics; cannot_start supplies separate user-facing prose."},
-  {"s":"operator desk tool server: {error}","c":"NOT-RENDERED","why":"The diagnostic reason passed to startup_alert::cannot_start is logged. The separate helper-startup sentence is the displayed message."},
   {"s":"Your team is unavailable","c":"NOT-RENDERED","why":"The question delivery worker logs this when the operator desk is absent. The accepted answer remains in the durable question store and its existing card reports delivery state."},
 ];
