@@ -465,7 +465,7 @@
     },
     "scripts/lib/cpu_guard.py": {
       "source": "scripts/lib/cpu_guard.py",
-      "sha256": "f459ebd40b8c2de266b2a1cf5210414ff2802e2711735e6eb66817d955d01fdc",
+      "sha256": "e1597a5aad3d1b2bb9ba88d52ec311c2ac3f0500deb65707c3ae79a9b23eb9ed",
       "evidence": "Token and supervisor callers use registration, health, admission and verification-client APIs before HostMemory. These read native process data and their private controller records, never orchestration.config. They do not invoke the watch/install CLI or its HostMemory provider. Caller commands remain separate declared edges.",
       "keys": [],
       "edges": [

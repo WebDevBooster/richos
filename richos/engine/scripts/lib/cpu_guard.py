@@ -73,6 +73,7 @@ def governed_directory(path, canonical):
 STATE = governed_directory(os.environ.get('RICHOS_CPU_GUARD_STATE', str(CANONICAL_STATE)), CANONICAL_STATE)
 INTERVAL = 2.0
 VERIFICATION_PROTOCOL = 1
+CALIBRATION_SECONDS = 120
 WINDOW = 10.0
 JOB_CORES = 3.0
 LABEL = 'com.richos.cpu-guard'
@@ -384,6 +385,7 @@ class VerificationClient:
             record.update(root_pid=self.pid, root_generation=self.generation, seed=context['seed'])
             write_json(self.lease[2], record, durable=True)
         context['reservation'] = self.lease[1]
+        context['started_monotonic'] = time.monotonic()
         register(self.pid, context['label'], 'verification', context)
 
     def finish(self, rc, survivors, cpu_seconds):
@@ -513,7 +515,8 @@ def reserve_verification(context, pid, generation):
         profile = read_json(STATE / 'verification-demand' / (context['input_key'] + '.json'))
         if profile and profile.get('protocol') != VERIFICATION_PROTOCOL:
             raise BlockingIOError('stale verification demand envelope requires calibration')
-        envelope = dict(profile['envelope']) if profile else {**capacity, 'calibration': True}
+        envelope = dict(profile['envelope']) if profile else {
+            **capacity, 'calibration': True, 'max_seconds': CALIBRATION_SECONDS}
         if context.get('resource_policy') == 'exclusive-calibration-v1':
             envelope['exclusive'] = True
         if any(not math.isfinite(envelope.get(k, 0)) or envelope.get(k, 0) <= 0 for k in ('cores', 'rss_mb')):
@@ -983,6 +986,13 @@ class Watch:
         breached = []
         for key, owner in self.verification.items():
             envelope = owner.get('reservation')
+            if envelope and envelope.get('calibration'):
+                started = owner.get('started_monotonic')
+                if (not isinstance(started, (int, float)) or not math.isfinite(started)
+                        or started > now or now - started >= CALIBRATION_SECONDS):
+                    owner['resource_fault'] = 'unknown-demand calibration exceeded its 120-second window or has no valid start'
+                    breached.append(key)
+                    continue
             exceeds = envelope and not envelope.get('calibration') and any(
                 owner[metric] > envelope[metric] for metric in ('cores', 'rss_mb'))
             if exceeds:
@@ -1039,7 +1049,7 @@ class Watch:
             budget = verification_recovery(owner['input_key'], kind,
                 {'owner': owner['owner'], 'sampled_cpu_seconds': owner['cpu_seconds'],
                  'cores': owner['cores'], 'rss_mb': owner['rss_mb'], 'host_busy': busy,
-                 'result': owner['result']})
+                 'result': owner['result'], 'resource_fault': owner.get('resource_fault')})
             record = {**owner, 'status': cause if kind == 'resource' else 'contained', 'cause': cause,
                       'at': time.time(), 'cleanup': 'pending', 'budget_used': len(budget[kind])}
             write_json(owner['result'], record, durable=True)
@@ -1056,7 +1066,7 @@ class Watch:
                         signalled.append(pid)
                     except ProcessLookupError:
                         pass
-            note('Verification contained after sustained host pressure', owner=owner['owner'],
+            note('Verification contained: ' + cause, owner=owner['owner'],
                  input_key=owner['input_key'], signalled=signalled, budget_used=record['budget_used'])
         write_json(STATE / 'verification-pressure.json', {**decision, 'at': time.time(),
             'protocol': VERIFICATION_PROTOCOL,

@@ -136,7 +136,8 @@ class OwnedTreeTests(unittest.TestCase):
         self.addCleanup(held.release)
         guard.write_json(guard.STATE / "verification-pressure.json",
                          {"protocol": 1, "at": __import__("time").time(), "admission_open": False, "stage": "admission-closed"})
-        with patch.object(guard, "healthy", return_value=True):
+        with patch.object(guard, "healthy", return_value=True), \
+                patch.dict(os.environ, {'RICHOS_MACHINE_WORKERS': str(directory)}):
             self.assertIsNone(budget.try_acquire())
             self.assertIn("admission-closed", budget.refusal)
             borrowed = budget.acquire(free=held.path + ".child", timeout=0)
@@ -249,6 +250,31 @@ class OwnedTreeTests(unittest.TestCase):
         self.assertEqual((len(history['resource']), len(history['containment'])), (1, 0))
         self.assertIn('recalibration', history['blocked'])
 
+    def test_unknown_calibration_cannot_extend_its_window_across_controller_restart(self):
+        self.register(10)
+        path = guard.STATE / 'roots/10.json'
+        record = guard.read_json(path)
+        record['verification'].update(started_monotonic=100,
+            reservation={'cores': 6, 'rss_mb': 10000, 'calibration': True, 'max_seconds': 120})
+        guard.write_json(path, record)
+        rows = {10: self.row()}
+        first = guard.Watch()
+        first.sample(rows, 219)
+        with patch.object(os, 'kill') as kill:
+            first.verification_cycle(rows, 219, 10)
+            kill.assert_not_called()
+        restarted = guard.Watch()
+        restarted.sample(rows, 220)
+        with patch.object(guard.operator_fences, 'proc', return_value={'start':'native-one','zombie':False}), \
+                patch.object(os, 'kill') as kill:
+            restarted.verification_cycle(rows, 220, 10)
+            kill.assert_called_once_with(10, __import__('signal').SIGTERM)
+        result = guard.read_json(guard.STATE / '10.result.json')
+        self.assertEqual(result['status'], 'resource-envelope-exceeded')
+        self.assertIn('120-second', result['resource_fault'])
+        history = guard.verification_recovery('a' * 64)
+        self.assertEqual((len(history['resource']), len(history['containment'])), (1, 0))
+
     def test_controller_restart_recovers_pending_cleanup_without_charging_twice(self):
         self.register(10)
         watch = guard.Watch()
@@ -338,7 +364,7 @@ class ReservationTests(unittest.TestCase):
             {'protocol': 1, 'envelope': {'cores': cores, 'rss_mb': memory, 'calibration': False}})
 
     def test_unknown_calibration_is_exclusive_and_bounded_by_host_headroom(self):
-        self.assertEqual(self.acquire(), {'cores': 6., 'rss_mb': 10000., 'calibration': True})
+        self.assertEqual(self.acquire(), {'cores': 6., 'rss_mb': 10000., 'calibration': True, 'max_seconds': 120})
         self.profile('b')
         with self.assertRaisesRegex(BlockingIOError, 'calibration'):
             self.acquire('b', 999992)
@@ -531,7 +557,7 @@ class SupervisorTests(unittest.TestCase):
         self.fail('child did not reach its execution barrier')
 
     def test_real_supervisor_enrolls_before_exec_and_records_completed_cleanup(self):
-        code = "import json,os,pathlib; p=pathlib.Path(os.environ['RICHOS_CPU_GUARD_STATE']); r=json.loads(next((p/'roots').glob('*.json')).read_text()); assert r['verification']['seed']['pid']==os.getpid(); assert os.environ['RICHOS_VERIFICATION_OWNER']"
+        code = "import json,os,pathlib,time; p=pathlib.Path(os.environ['RICHOS_CPU_GUARD_STATE']); r=json.loads(next((p/'roots').glob('*.json')).read_text()); assert r['verification']['seed']['pid']==os.getpid(); assert os.environ['RICHOS_VERIFICATION_OWNER']; assert 0 <= time.monotonic()-r['verification']['started_monotonic'] < 10; assert r['verification']['reservation']['max_seconds'] == 120"
         child = self.start(code)
         out, err = child.communicate(timeout=10)
         self.assertEqual(child.returncode, 0, err)
