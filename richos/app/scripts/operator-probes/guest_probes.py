@@ -3390,6 +3390,21 @@ W4_CELLS = ('baseline', 'P4-carry', 'P4-sent', 'P5', 'P4e', 'P7')
 W4_POINT = {'P4-carry': 'WORK-CARRY', 'P4-sent': 'WORK-FIRST-ITEM', 'P5': 'WORK-TAKEN', 'P4e': 'WORK-DEAD-LEASE'}
 # The provider supervisor ends a work lease whose owner died (native.rs, owner-death reap).
 W4_REAP_GRACE = 8
+# How long a walk may take to be ready. It verifies the whole delivered runtime (322 MB, SHA-256,
+# a debug build) before recovery runs: measured 64.3 s on the loaded host, 2026-09-27, and over
+# the old 120 s in the guest on run 1's P5 relaunch, whose recovery line was then read before it
+# arrived. A bound on a wait, never a verdict; the time taken is recorded.
+W4_READY_SECONDS = 600
+
+
+def w4_wanted(named):
+    """The cells to run: all of them, or the comma-separated names given (--w4-cells), in the
+    matrix's own order, so one cell can be retried alone. An unknown name is refused."""
+    names = [x.strip() for x in (named or '').split(',') if x.strip()]
+    unknown = [n for n in names if n not in W4_CELLS]
+    if unknown:
+        raise ValueError('not a work crash-matrix cell: %s (cells: %s)' % (unknown, list(W4_CELLS)))
+    return tuple(c for c in W4_CELLS if not names or c in names)
 
 
 class WorkWalk(Walk):
@@ -3411,13 +3426,16 @@ class WorkWalk(Walk):
                                      env=env, cwd=str(ctx.p.work), start_new_session=True, text=True, bufsize=1)
         self.started = time.time()
         threading.Thread(target=self._read, daemon=True).start()
-        self.ready = self.wait_reply('ready', 120)
+        self.ready = self.wait_reply('ready', W4_READY_SECONDS)
+        self.ready_seconds = round(time.time() - self.started, 1) if self.ready else None
 
     def _read(self):
         for line in self.proc.stdout:
             try:
                 v = json.loads(line)
             except ValueError:
+                continue
+            if not isinstance(v, dict):
                 continue
             with self.cond:
                 if v.get('event') == 'say':
@@ -3520,6 +3538,7 @@ def w4_cell(ctx, cell):
     walk = WorkWalk(ctx, data, '%s-first' % cell, crash=point)
     walks = [walk]
     try:
+        rec['ready_seconds'] = [walk.ready_seconds]
         if not walk.ready:
             rec['error'] = 'the walk did not start: %s' % walk.stderr_path.read_text()[-800:]
             return rec
@@ -3547,6 +3566,7 @@ def w4_cell(ctx, cell):
             time.sleep(W4_REAP_GRACE)
             walk = WorkWalk(ctx, data, '%s-relaunched' % cell)
             walks.append(walk)
+            rec['ready_seconds'].append(walk.ready_seconds)
             rec['recovery'] = walk.recovery
             q2 = w4_open_question(walk, thread)
             rec['answer_2'] = w4_answer(walk, thread, q2, second_label, cell + '-2')
@@ -3569,6 +3589,7 @@ def w4_cell(ctx, cell):
             time.sleep(W4_REAP_GRACE)
             walk = WorkWalk(ctx, data, '%s-relaunched' % cell)
             walks.append(walk)
+            rec['ready_seconds'].append(walk.ready_seconds)
             rec['recovery'] = walk.recovery
         if cell == 'P5':
             # Nothing may re-run it: watch for a minute, then read.
@@ -3647,18 +3668,21 @@ def w4(ctx, r):
     settings['model'] = PROBE_MODEL
     settings_path.write_text(json.dumps(settings, indent=1) + '\n')
     cells = r.setdefault('cells', {})
-    for cell in W4_CELLS:
+    wanted = w4_wanted(getattr(ctx, 'w4_cells', ''))
+    r['w4_cells'] = list(wanted)
+    for cell in wanted:
         try:
             cells[cell] = w4_cell(ctx, cell)
         except Exception:  # noqa: BLE001 - one cell's harness failure is recorded; the next still runs
             cells[cell] = {'cell': cell, 'error': traceback.format_exc()[-2000:], 'pass': False}
         print('W4 %s: %s %s' % (cell, cells[cell].get('pass'), cells[cell].get('why') or cells[cell].get('error', '')[-300:]),
               flush=True)
-    passed = [c for c in W4_CELLS if cells[c].get('pass')]
-    failed = [c for c in W4_CELLS if not cells[c].get('pass')]
+    passed = [c for c in wanted if cells[c].get('pass')]
+    failed = [c for c in wanted if not cells[c].get('pass')]
     if failed:
         return 'FAIL', 'cells passed: %s; not passed: %s' % (passed, failed)
-    return 'PASS', 'every cell: his answer reached the job once, taken by the back end, and a started job never re-ran'
+    return 'PASS', ('cells %s: his answer reached the job once, taken by the back end, and a started job never '
+                    're-ran' % list(wanted))
 
 
 # =============================================================================================
@@ -3774,9 +3798,11 @@ def main():
     ap.add_argument('--walk-binary', default='')
     ap.add_argument('--work-walk-binary', default='')
     ap.add_argument('--runtime', default='')
+    ap.add_argument('--w4-cells', default='', help='comma-separated work crash-matrix cells for W4 (default: all)')
     ap.add_argument('--w3-cells', default='', help='comma-separated crash-matrix cells for W3 (default: all)')
     a = ap.parse_args()
     w3_wanted(a.w3_cells)  # an unknown cell is refused before any guest work
+    w4_wanted(a.w4_cells)
     p = Paths(a.payload)
     p.results.mkdir(parents=True, exist_ok=True)
     setup = {'engine_commit': a.engine_commit}
@@ -3793,6 +3819,7 @@ def main():
     ctx.walk_binary = a.walk_binary
     ctx.work_walk_binary = a.work_walk_binary
     ctx.runtime = a.runtime
+    ctx.w4_cells = a.w4_cells
     ctx.w3_cells = a.w3_cells
     setup['ssh_auth_sock_method'] = ctx.ssh_method
     setup['supervisor_python'] = ctx.python

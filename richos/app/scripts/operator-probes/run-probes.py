@@ -12,6 +12,7 @@ the foreground, pulls the results back, and deletes the clone however the run en
 
   run-probes.py --out DIR [--only P1,P2,...] [--engine-rev REV] [--wait SECONDS] [--survey]
                 [--walk-binary PATH] [--w3-cells W3,...] [--work-walk-binary BIN --runtime DIR]
+                [--w4-cells baseline,P5,...]
 
 W4 (the work path's crash matrix, richos-hq docs/plans/2026-09-27-work-path-answer-delivery-design.md
 §4.2) runs a real work lease, which needs the delivered runtime the app ships: --runtime names one
@@ -105,6 +106,9 @@ def main():
                    help='the work_walk example binary (cargo build --features crash-points --example work_walk), for W4')
     p.add_argument('--runtime', type=Path, default=Path.home() / '.richos-nightly' / 'runtime',
                    help='a delivered runtime (delivery.json and its files) for W4\'s work lease; read, never written')
+    p.add_argument('--w4-cells', default='',
+                   help='comma-separated work crash-matrix cells for W4 (baseline,P4-carry,P4-sent,P5,P4e,P7; default '
+                        'all), so one cell can be retried alone')
     p.add_argument('--w3-cells', default='',
                    help='comma-separated crash-matrix cells for W3 (baseline,W1b,W2,W3,W4; default all), so one '
                         'cell can be rerun alone')
@@ -178,6 +182,8 @@ def main():
                     args += ['--walk-binary', f'{payload}/probes/operator_walk']
                 if a.work_walk_binary:
                     args += ['--work-walk-binary', f'{payload}/probes/work_walk', '--runtime', f'{payload}/probes/runtime']
+                if a.w4_cells:
+                    args += ['--w4-cells', a.w4_cells]
                 if a.w3_cells:
                     args += ['--w3-cells', a.w3_cells]
                 command = ' '.join(shlex.quote(x) for x in args)

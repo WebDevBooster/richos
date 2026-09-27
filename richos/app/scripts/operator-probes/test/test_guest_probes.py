@@ -570,6 +570,18 @@ class WorkCrashMatrix(unittest.TestCase):
         ctx.work_walk_binary = ''
         self.assertEqual(gp.w4(ctx, {})[0], 'NOT-RUN')
 
+    def test_one_cell_can_be_retried_alone_and_an_unknown_name_is_refused(self):
+        self.assertEqual(gp.w4_wanted(''), gp.W4_CELLS)
+        self.assertEqual(gp.w4_wanted('P5'), ('P5',))
+        self.assertEqual(gp.w4_wanted('P7, baseline'), ('baseline', 'P7'), 'in the matrix\'s own order')
+        with self.assertRaises(ValueError):
+            gp.w4_wanted('P6')
+
+    def test_a_walk_has_long_enough_to_verify_its_runtime(self):
+        """Run 1's P5: the relaunch verified 322 MB of runtime for over 120 s, and its recovery
+        line was read before it arrived. 64.3 s measured on the host; the bound is 600 s."""
+        self.assertGreaterEqual(gp.W4_READY_SECONDS, 600)
+
     def test_every_work_crash_point_the_harness_names_is_in_the_rust(self):
         rust = (HERE.parents[2] / 'crates' / 'richos-core' / 'src' / 'work_host.rs').read_text()
         for point in ('WORK-CARRY', 'WORK-FIRST-ITEM', 'WORK-TAKEN'):
