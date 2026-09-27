@@ -110,7 +110,9 @@ def build(destination):
         versions = {}
         for name in ("python3", "node", "git", "jq"):
             versions[name] = subprocess.check_output([str(runtime / "bin" / name), "--version"], text=True, env=env).strip()
-        subprocess.run([str(runtime / "bin/python3"), "-c", "import sqlite3, fcntl, ssl; print('Python dependency closure OK')"], env=env, check=True)
+        # ctypes: provider-supervisor.py reads the process table through libproc to reap a
+        # lease's tool commands; a runtime without it would silently stop reaping (reap gap C8).
+        subprocess.run([str(runtime / "bin/python3"), "-c", "import sqlite3, fcntl, ssl, ctypes; ctypes.CDLL('/usr/lib/libproc.dylib'); print('Python dependency closure OK')"], env=env, check=True)
         # Reject any dynamic dependency on Homebrew or the developer's home.
         for path in runtime.rglob("*"):
             if path.is_file() and not path.is_symlink():
