@@ -62,11 +62,10 @@ pub const REAP_STATE_ENV: &str = "RICHOS_OPERATOR_REAP_STATE";
 pub const ARTIFACT_ENV: (&str, &str) = ("CLAUDE_CODE_ARTIFACT", "1");
 /// The only tool taken away from his lead: nobody is at a terminal to answer it (n).
 ///
-/// **Known gap, not built here** (esc-20260925T050529Z-a3d5a077): with this tool withheld, his
-/// engine's two CEO-ask gates (`guard-ceo-ruled-ask.sh`, and the witness `guard-ceo-ask-first.sh`
-/// reads) cannot see a question from the lead. A PRD covers the question path. Until it lands, the
-/// lead passes the ask-first gate only with the logged `ceo-todos-deferred:` line. The operator
-/// probes never hit that gate (20 of 20 `ok`, a fixture with no prepared question).
+/// App-owned questions now run the declared engine guard and write its ask witness
+/// after a durable display acknowledgement. The operator runtime must supply the
+/// original session's `ReportScope.question_context` and connect its inbound delivery
+/// before opening the runtime gate. The existing fixture probes do not prove that path.
 pub const DISALLOWED_TOOL: &str = "AskUserQuestion";
 
 /// The `claude` versions the probe harness has measured this path against (r2 (b), note 7).

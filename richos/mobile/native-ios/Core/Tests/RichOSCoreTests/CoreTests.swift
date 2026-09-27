@@ -95,7 +95,10 @@ let repositoryRoot: URL = {
     }
 
     @Test func everyActionRoundTripsThroughJSON() throws {
+        let question = try #require(Fixture.named("ask-open").state.messages.first?.question)
         let all: [Action] = [
+            .answerQuestion(id: question.id, options: ["today"], text: "", revision: 0, clientID: "answer", at: 1),
+            .questionAnswered(clientID: "answer", question: question, at: 2), .macQuestionCapability(true),
             .compose(text: "x"), .setAppearance(.light), .openScanner, .closeScanner, .scanned(text: "x"),
             .submitPairingLink(text: "x"), .cameraPermission(.denied), .pairingAnswered(Scenario.answer), .pairingAnswered(Scenario.holdingAnswer),
             .pairingRefused, .confirmWords, .rejectWords, .acceptConsent, .dismissPairingProblem, .openSheet(.forget), .closeSheet,
@@ -621,10 +624,11 @@ actor FakePlatform: EffectHandler {
 
     @Test func thereIsOneFixturePerRound12AppScreen() {
         #expect(Self.round12AppScreens.count == 63)
-        let added = Self.pairingV2Screens + Self.acceptanceScreens
+        let added = Self.pairingV2Screens + Self.acceptanceScreens + ["ask-open"]
         #expect(Fixture.all.map(\.name).filter { !added.contains($0) } == Self.round12AppScreens)
         #expect(Fixture.all.map(\.name).filter(Self.pairingV2Screens.contains) == Self.pairingV2Screens)
         #expect(Fixture.all.map(\.name).filter(Self.acceptanceScreens.contains) == Self.acceptanceScreens)
+        #expect(Fixture.all.filter { $0.name == "ask-open" }.count == 1)
     }
 
     @Test func everyFixtureIsOnTheFullScreenSurfaceItsDesignShows() throws {

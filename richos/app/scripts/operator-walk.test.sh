@@ -11,8 +11,8 @@
 # (scripts/operator-mutations.py) must still apply every mutant exactly once and name tests
 # that exist; its full run needs cargo per mutant and is run by hand under reserve.py.
 #
-# run-tests: inputs richos/app/scripts/operator-walk.test.sh richos/app/crates/richos-core richos/app/scripts/operator-mutations.py
-# run-tests: covers richos/app/crates/richos-core/examples/operator_walk.rs richos/app/scripts/operator-mutations.py
+# run-tests: inputs richos/app/scripts/operator-probes/guest_probes.py richos/app/scripts/operator-probes/test/test_guest_probes.py richos/app/scripts/operator-walk.test.sh richos/app/crates/richos-core richos/app/scripts/operator-mutations.py
+# run-tests: covers richos/app/scripts/operator-probes/guest_probes.py richos/app/scripts/operator-probes/test/test_guest_probes.py richos/app/crates/richos-core/examples/operator_walk.rs richos/app/scripts/operator-mutations.py
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP="$(cd "$HERE/.." && pwd)"
@@ -77,6 +77,13 @@ if printf '%s' "$reply" | grep -q '"serverInfo":{"name":"richos_operator"' \
   ok "W6 the front desk's operator tools answer, carry the addendum, and refuse with no scope"
 else
   bad "W6 got: $reply"
+fi
+
+# The S6 walk must reject partial delivery, duplicate input and missing phone provenance.
+if out="$(python3 "$APP/scripts/operator-probes/test/test_guest_probes.py" 2>&1)"; then
+  ok "S6 probe-harness assertions: $out"
+else
+  bad "S6 probe-harness assertions: $out"
 fi
 
 # W5: every mutant of the mutation harness still applies, and names a test that exists.

@@ -13,6 +13,10 @@ import XCTest
 @MainActor
 final class PlatformEffectsTests: XCTestCase {
     func testTheMicrophoneQuestionIsAnsweredWithTheOSState() async {
+        guard MicrophonePermission.current() != .unknown else {
+            XCTFail("the suite must grant microphone permission before launching the tests")
+            return
+        }
         let effects = PlatformEffects()
         let answer = await effects.handle(.requestMicrophone, state: AppState())
         XCTAssertEqual(answer, [.microphonePermission(MicrophonePermission.current())])

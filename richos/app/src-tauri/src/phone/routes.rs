@@ -112,6 +112,9 @@ pub struct Accepted {
 /// module's reach is an enumerable list. There is no path from here to the ledger, to the raw
 /// event stream or to a `Timeline`, because those are not on this trait (plan §4.2 iii).
 pub trait Bridge: Send + Sync {
+    fn questions_available(&self)->bool {false}
+    fn answer_question(&self,_thread:&str,_answer:richos_core::questions::AnswerRequest)->Result<Value,String> {Err("Question answers are unavailable.".into())}
+    fn question_shown(&self,_thread:&str,_question:&str)->Result<(),String> {Err("Question receipts are unavailable.".into())}
     fn native_notifications_available(&self)->bool {false}
     fn register_native_notifications(&self,_device:&str,_registration:Option<super::notifications::Registration>)->Result<Value,String> {Err("Native notifications are unavailable".into())}
     fn voice_available(&self) -> bool { false }
@@ -128,6 +131,7 @@ pub trait Bridge: Send + Sync {
     /// Write the CEO's words to the durable intake log, `fsync`, and hand them to the spine.
     /// Returns as soon as the bytes are on disk — never after the turn.
     fn submit_text(&self, thread_id: Option<&str>, text: &str) -> Result<Accepted, String>;
+    fn submit_voice(&self, thread_id: Option<&str>, text: &str) -> Result<Accepted, String> {self.submit_text(thread_id,text)}
 
     /// The CEO-gated timeline payload for one thread. **Obtained through `view(ViewMode::Ceo)`
     /// and no other way** — `Timeline` does not implement `Serialize`, so this signature cannot
@@ -558,7 +562,7 @@ fn complete_pairing(channel: &Channel, body: &Value, code: &str) -> Outcome {
             // Additive: a freshly paired native app learns what this Mac supports before its
             // first stream. The `hello` repeats all three and is the one clients replace from.
             "protocol_version": PROTOCOL_VERSION,
-            "capabilities": capabilities(channel.bridge.voice_available(), channel.bridge.native_notifications_available()),
+            "capabilities": channel_capabilities(channel),
             // Sage §3.1 step 3: "The answer is unchanged, plus pairing_version: 2" — what this Mac
             // derives. `pair-v2` in `capabilities` is the name a v2 phone requires (§3.5).
             "pairing_version": 2,
@@ -609,6 +613,11 @@ pub const PROTOCOL_VERSION: u64 = 1;
 ///   but this Mac's own disk.
 /// - `native-push-fcm` — the push registration takes `{"platform":"fcm", …}` beside APNs
 ///   ([`super::notifications::Registration`]), whenever native push is offered at all.
+fn channel_capabilities(channel:&Channel)->Vec<&'static str> {
+    let mut caps=capabilities(channel.bridge.voice_available(),channel.bridge.native_notifications_available());
+    if channel.bridge.questions_available(){caps.push("questions");}caps
+}
+
 pub fn capabilities(voice: bool, native_push: bool) -> Vec<&'static str> {
     let mut caps = CAPABILITIES.to_vec();
     if voice {
@@ -673,6 +682,29 @@ fn messages(channel: &Channel, request: &Incoming) -> Outcome {
         return Outcome::NotFound;
     };
     if client_id.is_empty() || client_id.len() > 128 { return Outcome::NotFound; }
+    if matches!(body["kind"].as_str(),Some("answer"|"question_seen")) {
+        let Some(thread)=body["thread_id"].as_str() else {return Outcome::NotFound;};
+        if !channel.bridge.questions_available(){return Outcome::NotFound;}
+        if body["kind"]=="question_seen" {
+            let Some(question)=body["question_id"].as_str() else{return Outcome::NotFound;};
+            return match channel.bridge.question_shown(thread,question) {
+                Ok(())=>Outcome::Json{status:200,body:json!({"acknowledged":true,"message_id":client_id,"duplicate":false,"cursor":channel.hub.cursor_now()}).to_string()},
+                Err(reason)=>Outcome::Json{status:422,body:json!({"retry":false,"reason":reason}).to_string()}
+            };
+        }
+        if body.get("text").is_some_and(|v|!v.is_string()) || body.get("expected_revision").is_some_and(|v|!v.is_null() && v.as_u64().is_none()) {return Outcome::Json{status:422,body:json!({"retry":false,"reason":"Invalid answer fields"}).to_string()};}
+        let Some(device)=channel.devices.paired() else{return Outcome::NotFound;};
+        let request=richos_core::questions::AnswerRequest {
+            question_id:body["question_id"].as_str().unwrap_or("").into(),
+            client_id:super::hex(&super::sha256(format!("{}:{client_id}",device.id).as_bytes())),
+            option_ids:match serde_json::from_value(body.get("option_ids").cloned().unwrap_or_else(||json!([]))){Ok(v)=>v,Err(_)=>return Outcome::NotFound},
+            text:body["text"].as_str().unwrap_or("").into(),expected_revision:body["expected_revision"].as_u64()
+        };
+        return match channel.bridge.answer_question(thread,request) {
+            Ok(mut answer)=>{answer["message_id"]=json!(client_id);answer["thread_id"]=json!(thread);answer["cursor"]=json!(channel.hub.cursor_now());answer["accepted_at"]=json!(super::rows::iso8601(super::now_millis()));Outcome::Json{status:200,body:answer.to_string()}},
+            Err(reason)=>Outcome::Json{status:422,body:json!({"retry":false,"reason":reason}).to_string()}
+        };
+    }
     if body.get("kind").and_then(|v| v.as_str()) == Some("attachments") {
         return attachments_message(channel, request, &body, client_id);
     }
@@ -727,7 +759,7 @@ fn voice_message(channel: &Channel, request: &Incoming) -> Outcome {
     let delivery = channel.devices.deliveries.execute_prepared(&device.id,&client,&receipt_body,|| channel.bridge.transcribe(&request.body),|text| {
         // Revocation while recognition was running must prevent a new command.
         if channel.devices.paired().is_none_or(|d| d.id != device.id) { return Err("revoked".into()); }
-        let accepted = channel.bridge.submit_text(Some(&thread),&text)?;
+        let accepted = channel.bridge.submit_voice(Some(&thread),&text)?;
         // The length is decoration on an accepted message: failing to remember it is logged,
         // never a reason to answer a message the Mac has already taken as anything but taken.
         if let Err(error) = channel.devices.voice_notes.record(&accepted.message_id,&accepted.thread_id,duration_ms) {
@@ -959,7 +991,7 @@ fn hello_frame(channel: &Channel, thread_id: &str) -> Result<Frame, ()> {
         // rather than once at pairing, because the phone outlives the build it paired with: he
         // updates the Mac and the app on his phone is the same app, holding whatever it was last
         // told. The phone replaces its answer from each frame and never merges (`api.js`).
-        "capabilities": capabilities(channel.bridge.voice_available(), channel.bridge.native_notifications_available()),
+        "capabilities": channel_capabilities(channel),
         "protocol_version": PROTOCOL_VERSION,
         "attachment_limits": attachment_limits(),
         "build": BUILD,
@@ -1153,8 +1185,15 @@ mod tests {
         refuse: bool,
         voice: bool,
         rows: usize,
+        questions: Option<richos_core::questions::Store>,
     }
     impl Bridge for FakeBridge {
+        fn questions_available(&self)->bool {self.questions.is_some()}
+        fn answer_question(&self,thread:&str,answer:richos_core::questions::AnswerRequest)->Result<Value,String> {
+            self.questions.as_ref().unwrap().answer("femcboost",thread,answer,"phone_tap","phone").map(|r|r.public_value())
+        }
+        fn question_shown(&self,thread:&str,question:&str)->Result<(),String> {self.questions.as_ref().unwrap().acknowledge("femcboost",thread,question,"phone")}
+
         fn voice_available(&self)->bool {self.voice}
         fn transcribe(&self,bytes:&[u8])->Result<String,String> { super::super::voice::validate(bytes)?;Ok("A spoken request".into()) }
         fn submit_text(&self, thread_id: Option<&str>, text: &str) -> Result<Accepted, String> {
@@ -1248,7 +1287,7 @@ mod tests {
         let challenge = devices.issue_challenge().unwrap();
         let hub = PhoneHub::new();
         hub.set_live(true);
-        let bridge = Arc::new(FakeBridge { submitted: Mutex::new(Vec::new()), refuse, voice:false, rows });
+        let bridge = Arc::new(FakeBridge { submitted: Mutex::new(Vec::new()), refuse, voice:false, rows, questions:None });
         let channel = Channel {
             // No listener behind these tests, so there is nothing to ring. The route's own
             // behavior on a rejection — the device record going — is asserted here; that the
@@ -1494,7 +1533,7 @@ mod tests {
     fn bounded_signed_voice_is_durable_and_bound_to_its_thread() {
         let mut f = fixture("voice-enabled");
         // Install a bridge that actually accepts speech, leaving old-Mac coverage intact.
-        let bridge = Arc::new(FakeBridge {submitted:Mutex::new(Vec::new()),refuse:false,voice:true,rows:3});
+        let bridge = Arc::new(FakeBridge {submitted:Mutex::new(Vec::new()),refuse:false,voice:true,rows:3,questions:None});
         f.channel.bridge = bridge.clone();
         let bytes=richos_voice::wav::encode_pcm16_mono(&vec![0.1;16000],16000);
         let query="client_id=spoken-1&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=1";
@@ -2485,4 +2524,30 @@ mod tests {
     // when §61 removed the path that had a phone install anything — see the note where
     // `dispatch_trust` used to be, and `listen.rs`'s end-to-end walk, which now asserts that the
     // channel binds one socket rather than that the second one behaves.
+    #[test]
+    fn question_answers_use_signed_messages_and_authoritative_revisions() {
+        use richos_core::questions::{Store,AskScope,QuestionInput,OptionInput};
+        let mut f=fixture("question-answers");let store=Store::new(&f.dir.0);
+        let scope=AskScope{root:f.dir.0.clone(),entity_id:"femcboost".into(),thread_id:"thr_5c1e".into(),turn_id:"ask".into(),asker:"front_desk".into(),session_id:"session".into(),engine:None,entity_root:None};
+        let q=store.ask(&scope,vec![QuestionInput{text:"When should the release ship?".into(),options:vec![OptionInput{label:"Today".into(),description:"Earlier fixes".into()},OptionInput{label:"Tomorrow".into(),description:"More tests".into()}],multiple:false,free_answer:true,recommended:None}]).unwrap().remove(0);
+        f.channel.bridge=Arc::new(FakeBridge{submitted:Mutex::new(vec![]),refuse:false,voice:false,rows:0,questions:Some(store.clone())});
+        let body=json!({"kind":"answer","client_id":"phone-answer","thread_id":"thr_5c1e","question_id":q.id,"option_ids":[q.options[0].id]}).to_string();
+        let signed_request=signed(&f,"POST","/api/messages","",&body);
+        let mut unsigned=signed(&f,"POST","/api/messages","",&body);unsigned.authorization=None;
+        assert_ne!(dispatch(&f.channel,&unsigned).status(),200);
+        let (status,result)=json_of(dispatch(&f.channel,&signed_request));assert_eq!(status,200);assert_eq!(result["outcome"],"accepted");assert_eq!(result["question"]["revision"],1);
+        assert!(result["question"].get("session_id").is_none());
+        assert_eq!(json_of(dispatch(&f.channel,&signed_request)).1["question"]["revision"],1);
+        let edit=json!({"kind":"answer","client_id":"edit","thread_id":"thr_5c1e","question_id":q.id,"option_ids":[q.options[1].id],"expected_revision":1}).to_string();
+        assert_eq!(json_of(dispatch(&f.channel,&signed(&f,"POST","/api/messages","",edit))).1["question"]["revision"],2);
+        let wrong=json!({"kind":"answer","client_id":"wrong","thread_id":"another-thread","question_id":q.id,"option_ids":[q.options[0].id]}).to_string();
+        assert_eq!(dispatch(&f.channel,&signed(&f,"POST","/api/messages","",wrong)).status(),422);
+        let shown=json!({"kind":"question_seen","client_id":"seen","thread_id":"thr_5c1e","question_id":q.id}).to_string();
+        assert_eq!(dispatch(&f.channel,&signed(&f,"POST","/api/messages","",shown)).status(),200);
+        assert_eq!(store.all().unwrap()[0].shown.as_ref().unwrap().surface,"phone");
+        store.close("femcboost","thr_5c1e",None,"Deleted",true).unwrap();
+        assert_eq!(json_of(dispatch(&f.channel,&signed_request)).1["outcome"],"conversation_deleted");
+        assert!(store.pending_threads().unwrap().is_empty());
+    }
+
 }

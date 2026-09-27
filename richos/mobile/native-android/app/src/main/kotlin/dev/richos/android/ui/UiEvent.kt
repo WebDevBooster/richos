@@ -13,6 +13,7 @@ import dev.richos.android.core.Sheet
  * [NOT_YET_IN_CORE]; the screens still emit them, so wiring one is a one-line change here.
  */
 sealed interface UiEvent {
+    data class AnswerQuestion(val id: String, val options: List<String>, val text: String, val revision: Long?) : UiEvent
     // --- the composer -------------------------------------------------------------------------
     data class Draft(val text: String) : UiEvent
     data object SendText : UiEvent
@@ -107,6 +108,7 @@ sealed interface UiEvent {
 fun UiEvent.toAction(): Action? = when (this) {
     is UiEvent.Draft -> Action.Compose(text)
     is UiEvent.Reading -> Action.RememberReading(anchor)
+    is UiEvent.AnswerQuestion -> Action.AnswerQuestion(id, options, text, revision)
     UiEvent.SendText -> Action.Send
     UiEvent.TryNow -> Action.Retry
     is UiEvent.Discard -> Action.Discard(clientId)

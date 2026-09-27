@@ -60,13 +60,15 @@ pub fn rows_from_payload(payload: &Value) -> Vec<Value> {
 }
 
 /// One gated timeline item as a phone row, or `None` when it is not a message.
-fn row_from_item(item: &Value) -> Option<Value> {
+pub fn row_from_item(item: &Value) -> Option<Value> {
     let kind = item.get("kind").and_then(|v| v.as_str())?;
     let id = item.get("id").and_then(|v| v.as_str())?.to_string();
     let thread_id = item.get("threadId").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let created_at = item.get("createdAt").and_then(|v| v.as_u64()).unwrap_or(0);
     let text = item.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
     match kind {
+        "question"=>Some(json!({"id":id,"thread_id":thread_id,"cursor":0,"role":"rich","kind":"question","text":text,
+            "question":item["question"],"created_at":iso8601(created_at),"complete":true,"state":"complete","has_audio":false})),
         "user_message" => {
             // `source` is the ledger's own word for how the input arrived. `jam` is a spoken
             // turn, which the phone shows with its microphone marker; anything else is typed.

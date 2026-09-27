@@ -20,6 +20,8 @@ struct TranscriptView: UIViewRepresentable {
     let now: Date
     /// Bumped by the Latest pill; each new value jumps to the newest message and resumes following.
     let jumpToken: Int
+    var questionJumpToken: Int = 0
+    var questionJumpID: String? = nil
     let send: (Intent) -> Void
     let onShowsLatest: (Bool) -> Void
 
@@ -55,6 +57,10 @@ struct TranscriptView: UIViewRepresentable {
         view.setViewportInsets(insets)
         c.apply(TranscriptItem.build(transcript, calendar: calendar, now: now), to: view,
                 wantsFollowing: transcript.following, palette: palette)
+        if questionJumpToken != c.lastQuestionJumpToken {
+            c.lastQuestionJumpToken = questionJumpToken
+            if let id = questionJumpID { c.jump(to: id, in: view) }
+        }
         if jumpToken != c.lastJumpToken {
             c.lastJumpToken = jumpToken
             view.jumpToLatest()
@@ -69,6 +75,11 @@ struct TranscriptView: UIViewRepresentable {
 
         var parent: TranscriptView?
         var lastJumpToken = 0
+        var lastQuestionJumpToken = 0
+        func jump(to id: String, in view: UICollectionView) {
+            guard let index = dataSource?.indexPath(for: id) else { return }
+            view.scrollToItem(at: index, at: .centeredVertically, animated: true)
+        }
         private var dataSource: UICollectionViewDiffableDataSource<Section, String>?
         private var items: [String: TranscriptItem] = [:]
         private var orderedIDs: [String] = []

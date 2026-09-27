@@ -128,7 +128,7 @@ impl Origin {
         use crate::ledger::Source;
         match (source, channel) {
             (Source::Internal | Source::Proactive, _) | (_, None) => Origin::NoOrigin,
-            (_, Some("phone")) => Origin::Phone,
+            (_, Some("phone" | "phone_typed" | "phone_voice")) => Origin::Phone,
             (Source::Text, Some(crate::spine::DESK_CHANNEL)) => Origin::DeskTyped,
             (Source::Jam, Some(crate::spine::DESK_CHANNEL)) => Origin::DeskVoice,
             (_, Some(_)) => Origin::Undeclared,
@@ -732,10 +732,9 @@ impl OperatorHost {
     /// channel, with no hold and no confirmation (r4 §3). `delivery_id` is S6's durable delivery
     /// identity: the same one twice relays once. Returns whether it was relayed now.
     ///
-    /// **No production caller until S6 lands** (Frank's F11): only the walk
-    /// (`examples/operator_walk.rs`) and the tests call it, through [`crate::operator_desk`].
-    /// Until then his answer to a question reaches the lead as an ordinary assignment, with a
-    /// title line and his words, never with "His answer to your question".
+    /// The app question worker queues resolved sets durably, then flushes them through
+    /// [`crate::operator_desk::OperatorDesk::deliver_answer`] outside the question store lock.
+    /// Phone and desktop answers use this same path without a desktop confirmation hold.
     pub fn deliver_answer(self: &Arc<Self>, key: &ConversationKey, title: &str, handle: Option<&str>,
                           delivery_id: &str, answer: &str) -> Result<bool, String> {
         {
@@ -988,6 +987,10 @@ impl OperatorHost {
                 c.questions.retain(|(q, _)| q.as_deref() != Some(handle));
                 self.save(&c.paths.record, &c.record);
                 drop(c);
+                if let Err(error) = crate::questions::Store::new(&self.state).close(
+                    &key.entity_id, &key.thread_id, Some(&format!("operator:handle:{handle}")), detail, false) {
+                    self.log(&format!("could not close {handle}'s questions: {error}"));
+                }
                 self.delivery.say(key, &lane, if failed { Say::Failed } else { Say::Outcome }, text);
             }
             Err(why) => {
@@ -1610,6 +1613,8 @@ pub(crate) mod tests {
         assert_eq!(Origin::of_turn(Text, Some("desk")), Origin::DeskTyped);
         assert_eq!(Origin::of_turn(Jam, Some("desk")), Origin::DeskVoice);
         assert_eq!(Origin::of_turn(Text, Some("phone")), Origin::Phone);
+        assert_eq!(Origin::of_turn(Text, Some("phone_typed")), Origin::Phone);
+        assert_eq!(Origin::of_turn(Text, Some("phone_voice")), Origin::Phone);
         assert_eq!(Origin::of_turn(Jam, Some("phone")), Origin::Phone, "a voice note from the phone is the phone");
         assert_eq!(Origin::of_turn(Text, Some("watch")), Origin::Undeclared);
         assert_eq!(Origin::of_turn(Text, None), Origin::NoOrigin, "not recorded is never the desk");

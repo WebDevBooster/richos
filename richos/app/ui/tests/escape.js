@@ -39,7 +39,7 @@
 //   B2  the gear's preferences popover, by the real path
 //   B3  the settings menu, by the real path
 //   B4  topmost first, measured against the stacking rather than a chosen order
-//   B5  a permission request is DECLINED by Escape from anywhere on screen
+//   B5  an inline permission request leaves Escape and the composer available
 //   B6  the home screen's own dialog, on a copy with no companies
 //   B7  Escape at the home screen cannot answer a surface painted BEHIND it   [derived]
 //   B8  the machinery itself: a named control is not pressed on a popup nobody can see
@@ -124,11 +124,10 @@ async function main() {
     const declared = await page.evaluate(() =>
       [...document.querySelectorAll("[data-dismiss]")].map((n) => n.id).sort()
     );
-    // The floor is the count at the time this was written: ten in `index.html`, the settings
-    // menu, and the two sheets built by their own files. A change that DROPS declarations is
-    // the regression this number catches; adding more is free.
+    // The permission request is now an inline card, so its former popup declaration
+    // is intentionally absent. The other twelve historical surfaces remain popups.
     assert(
-      declared.length >= 13,
+      declared.length >= 12,
       "only " + declared.length + " declared surfaces: " + declared.join(", ")
     );
     // ...and the ones the old eight-line handler never covered are among them, by name,
@@ -138,7 +137,6 @@ async function main() {
       "setup-sheet",
       "memory-setup",
       "set-menu",
-      "permission-sheet",
       "repositories-sheet",
     ]) {
       assert(declared.indexOf(id) >= 0, "#" + id + " is still outside the enumeration");
@@ -315,7 +313,7 @@ async function main() {
     return "z-index " + stack.search + " before " + stack.inspector + ", one surface per press";
   });
 
-  await run.check("B5  a permission request is declined by Escape from anywhere", async () => {
+  await run.check("B5  a permission card leaves Escape and the composer available", async () => {
     const page = await openApp(browser);
     await page.evaluate(() => {
       window.__RICHOS_MOCK_PRESET__ = {
@@ -329,18 +327,18 @@ async function main() {
       };
     });
     await page.waitForSelector("#permission-sheet:not([hidden])");
-    // THE CONDITION THE ELEMENT-BOUND LISTENER FAILED UNDER. `permissions.js` puts the hand on
-    // Decline when it opens; one click on the dimmed area beside the panel takes it off again,
-    // and from there its own keydown handler never fired.
+    // An inline card neither takes composer focus nor treats Escape as a decision.
     await focusTheComposer(page);
     await page.keyboard.press("Escape");
+    assert(await page.isVisible("#permission-sheet"), "Escape dismissed a pending permission card");
+    await page.click("#permission-deny");
     await page.waitForSelector("#permission-sheet", { state: "hidden" });
     // AND IT WAS ANSWERED, not merely hidden. A permission question that vanishes without an
     // answer is the one outcome this sheet may never have.
     assertEqual(
       await page.evaluate(() => window.__RICHOS_MOCK_PRESET__.permissionAnswer),
       false,
-      "Escape hid the request without declining it"
+      "The explicit Decline did not answer the request"
     );
     bump(2);
     await page.close();
@@ -693,9 +691,8 @@ main().catch((e) => {
 //        -> the popover is hidden by the blunt fallback and the gear keeps aria-expanded=true
 // B4   main.js `openPopups`: sort ascending instead of descending
 //        -> one Escape reaches the panel underneath and leaves the overlay on top of it
-// B5   permissions.js: drop the `data-dismiss` attribute
-//        -> the sheet is unreachable from the keyboard unless focus is already inside it,
-//           which is exactly the published behavior
+// B5   permissions.js: restore modal Escape dismissal
+//        -> Escape silently answers a request while the user is composing unrelated words
 // B6   main.js: empty `EXTERNAL_DISMISS`
 //        -> #home-prefs-panel is hidden and its scrim is left over the whole window
 // B8   main.js `dismissTopmostPopup`: drop the `isPainted(top)` guard

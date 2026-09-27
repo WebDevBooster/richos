@@ -74,6 +74,26 @@ private actor CompletionGate: EffectHandler {
         #expect(try CoreJSON.decode([Int64].self, from: budget).count == 1)
     }
 
+    @Test func questionDeliveryStopsOnBackgroundWithoutReservingCompletion() async throws {
+        let storage = CompletionStorage(), gate = CompletionGate()
+        var state = try Fixture.named("conv-empty").state
+        var first = OutboxItem(clientID: "answer-1", kind: .text, body: "{}", queuedAt: 1)
+        first.questionID = "q1"
+        var second = OutboxItem(clientID: "answer-2", kind: .text, body: "{}", queuedAt: 2)
+        second.questionID = "q2"
+        state.outbox = [first, second]
+        let store = AppStore(state: state, runner: EffectRunner(storage: storage, handler: gate))
+        let delivery = store.apply(.foregrounded(at: 100))
+        await gate.started()
+        store.wentToBackground(at: 101)
+        await gate.release()
+        await delivery.value
+        for _ in 0..<100 { await Task.yield(); await store.settle() }
+        #expect(await gate.delivered == ["answer-1"])
+        #expect(store.state.outbox.contains { $0.clientID == "answer-2" && $0.state == .waiting })
+        #expect(await storage.read("completion-budget.json") == nil)
+    }
+
     @Test func simultaneousReservationsCannotOverwriteEachOther() async throws {
         let runner = EffectRunner(storage: CompletionStorage(), clock: FixedClock(ms: 10_000))
         let tokens = await withTaskGroup(of: Int64?.self, returning: [Int64].self) { group in

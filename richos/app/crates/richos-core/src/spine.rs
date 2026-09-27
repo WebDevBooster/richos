@@ -552,6 +552,7 @@ pub struct Spine {
     /// **The conversations whose turns have ENDED since the shell last asked** — one binding
     /// per thread, in the order their first turn ended. See [`Spine::take_ended_turns`].
     ended_turns: Vec<ThreadBinding>,
+    input_channels: std::collections::HashMap<String,String>,
     /// Set true once the current lease has been re-primed (continuity foundation).
     lease_primed: bool,
     lease_primed_thread: Option<String>,
@@ -795,6 +796,7 @@ impl Spine {
             onboarding_primed_block: None,
             queue: VecDeque::new(),
             ended_turns: Vec::new(),
+            input_channels: std::collections::HashMap::new(),
             lease_primed: false,
             lease_primed_thread: None,
             observer: None,
@@ -2704,7 +2706,10 @@ impl Spine {
                     }
                 };
                 self.lease.as_mut().ok_or(SpineError::NoLease)?
-                    .prepare_work_turn(binding, turn_id, self.ledger.turn(turn_id).ok_or_else(|| SpineError::NoLease)?.source, text, &mut on_item).map_err(SpineError::from)
+                    .prepare_work_turn(binding, turn_id, self.ledger.turn(turn_id).ok_or_else(|| SpineError::NoLease)?.source, text, &mut on_item).map_err(SpineError::from)?;
+                let channel = self.input_channels.get(turn_id).cloned()
+                    .or_else(|| self.ledger.turn(turn_id).and_then(|turn| turn.channel.clone()));
+                self.lease.as_mut().ok_or(SpineError::NoLease)?.set_input_channel(channel.as_deref()).map_err(SpineError::from)
             })
         };
         let stopped_before_prompt = self.control.stop_claim_for(turn_id).is_some();
@@ -2965,6 +2970,9 @@ impl Spine {
                 // of a failure, which is what silence looks like.
                 self.upstream_budget.succeeded();
                 self.ledger.complete_turn(turn_id, &stop_reason)?;
+                if stop_reason == "question_asked" {
+                    self.pending_rotation_reason=Some("question_asked".into());
+                }
                 self.emit(StreamEvent::TurnCompleted {
                     thread_id: thread_id.to_string(),
                     turn_id: turn_id.to_string(),
@@ -3381,6 +3389,7 @@ impl Spine {
                     // **The one line where the mouth survives** (operator back-end spec r3 (s)).
                     // Kept only when this install keeps it; see `record_prompt`.
                     let turn_id = self.record_prompt(&binding, &text, Source::Text, None, Some(id), &channel)?;
+                    self.input_channels.insert(turn_id.clone(), channel);
                     self.emit_live(self.turn_status_event(&binding, &turn_id, TurnStatus::Queued, None));
                     self.emit_live(self.ceo_message_event(&binding, &turn_id));
                     self.emit_live(self.thread_summary_event(&binding, &turn_id, ThreadStatus::Queued));
@@ -3466,6 +3475,18 @@ impl Spine {
     ///
     /// Returns what `drain_queue` returns: the turn runs to completion inside this call,
     /// exactly as it does for a desktop prompt.
+    pub fn queue_question_answer(&mut self,delivery:&crate::questions::Delivery)->Result<String,SpineError> {
+        let binding=self.fence_binding(&delivery.thread_id)?;
+        if binding.entity_id().as_str()!=delivery.entity_id {return Err(SpineError::Steering("Question scope mismatch".into()));}
+        let turn_id=self.ledger.record_question_answer(&binding,delivery)?;
+        if self.ledger.turn(&turn_id).is_some_and(|t|t.state==crate::ledger::TurnState::Received)
+            && !self.queue.iter().any(|q|q.turn_id==turn_id) {
+            if delivery.set_id.is_none(){self.emit_live(self.ceo_message_event(&binding,&turn_id));}
+            self.queue.push_back(Queued{turn_id:turn_id.clone(),binding,text:delivery.text.clone(),intake_id:None});
+        }
+        Ok(turn_id)
+    }
+
     pub fn poll_intake(&mut self) -> Result<(), SpineError> {
         if self.turn_in_progress {
             return Ok(());
@@ -3524,6 +3545,12 @@ impl Spine {
                 continue;
             }
             let binding = self.fence_binding(&turn.thread_id)?;
+            if turn.state == crate::ledger::TurnState::Received && (id.starts_with("question-answer:") || id.starts_with("question-followup:")) {
+                if !self.queue.iter().any(|q|q.turn_id==id) {
+                    self.queue.push_back(Queued{turn_id:id.clone(),binding,text:turn.user_text.clone(),intake_id:None});
+                }
+                continue;
+            }
             self.ledger.interrupt_turn_after_restart(&id, "RichOS closed before this request finished. Your message is saved; send it again to retry.")?;
             self.emit_live(self.turn_status_event(&binding, &id, TurnStatus::Failed, None));
             self.emit_live(self.thread_summary_event(&binding, &id, ThreadStatus::Failed));
@@ -3556,6 +3583,10 @@ impl Spine {
         if !self.ended_turns.iter().any(|known| known.thread_id() == binding.thread_id()) {
             self.ended_turns.push(binding.clone());
         }
+        // Keep transient phone provenance through an in-process lease recovery, then
+        // release it at the boundary. Product installs still write no channel to the ledger.
+        self.input_channels.retain(|id, _| self.ledger.turn(id).is_some_and(|turn|
+            matches!(turn.state, crate::ledger::TurnState::Received | crate::ledger::TurnState::InFlight)));
         self.flush_pending_proactive_emits();
         // The CEO's two mid-turn controls settle HERE, at the boundary, and in this order.
         //
@@ -3875,11 +3906,13 @@ impl Spine {
         // A replay re-issues HIS words, so on an install that keeps the mouth it keeps the
         // original's; one that was never recorded stays unrecorded rather than becoming the
         // desk's (operator back-end spec r3 (s)).
-        let original_channel = self.ledger.turn(failed_turn_id).and_then(|t| t.channel.clone());
-        let replay_turn_id = match original_channel.filter(|_| self.keep_intake_channel) {
+        let original_channel = self.input_channels.get(failed_turn_id).cloned()
+            .or_else(|| self.ledger.turn(failed_turn_id).and_then(|t| t.channel.clone()));
+        let replay_turn_id = match original_channel.clone().filter(|_| self.keep_intake_channel) {
             Some(channel) => self.record_prompt(binding, original_text, Source::Text, None, None, &channel)?,
             None => self.ledger.record_prompt_received(binding, original_text, Source::Text)?,
         };
+        if let Some(channel) = original_channel { self.input_channels.insert(replay_turn_id.clone(), channel); }
         self.ledger.mark_turn_superseded(failed_turn_id, &replay_turn_id)?;
         self.emit_live(self.turn_status_event(
             binding, &replay_turn_id, TurnStatus::Queued, Some(failed_turn_id.to_string()),

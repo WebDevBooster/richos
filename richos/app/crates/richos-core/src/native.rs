@@ -790,6 +790,8 @@ pub fn child_args(session_id: &str) -> Vec<String> {
         "--setting-sources",
         "",
         "--no-session-persistence",
+        "--disallowed-tools",
+        "AskUserQuestion",
         "--session-id",
         session_id,
         PERMISSION_PROMPT_TOOL,
@@ -1144,6 +1146,7 @@ enum ActionGrant {
     Continuity(std::path::PathBuf),
     /// The assignment register's grant (`assignment_tools.rs`). Conversation leases only.
     Assignments(std::path::PathBuf),
+    Questions(std::path::PathBuf),
     /// **The `richos_continuity` server's own grant, and the only one that is not opened at
     /// turn start** — the CEO's §55: the front desk's bookkeeping waits until he has been
     /// spoken to. Opened by [`ReaderState::he_has_now_been_spoken_to`], closed with the rest.
@@ -1183,6 +1186,7 @@ impl ActionGrant {
             // A scope that EXISTS and cannot be written is still a hard failure, which is
             // what takes the lease down in the loop above — the same rule the other two
             // grants follow.
+            Self::Questions(path) => crate::question_tools::set_actions_allowed(path, allowed),
             Self::Assignments(path) if !path.exists() => Ok(()),
             Self::Assignments(path) => crate::assignment_tools::set_actions_allowed(path, allowed),
         }
@@ -1192,6 +1196,7 @@ impl ActionGrant {
             Self::Onboarding(path)
             | Self::Continuity(path)
             | Self::Assignments(path)
+            | Self::Questions(path)
             | Self::ContinuityTools(path) => path,
         }
     }
@@ -1239,6 +1244,7 @@ pub struct NativeClient {
 /// starting value is `NotYetReported` and a derived default would be whichever variant happens
 /// to be declared first.
 struct ReaderState {
+    question_scope: Option<std::path::PathBuf>,
     permissions: Option<crate::permissions::ScopedPermissions>,
     /// Did the child list all five `richos_work` tools? [`InitFact`], not `bool` — see its
     /// doc for what the collapse cost.
@@ -1557,6 +1563,7 @@ impl ReaderState {
 impl Default for ReaderState {
     fn default() -> Self {
         ReaderState {
+            question_scope: None,
             permissions: None,
             work_tools_loaded: InitFact::NotYetReported,
             assignment_tool_loaded: false,
@@ -1740,6 +1747,10 @@ fn mcp_config(executable: &Path, onboarding_scope: &Path, assignments_scope: &Pa
     continuity: Option<(&crate::ecs::EcsBridge, &Path)>, continuity_tools_scope: Option<&Path>,
     profile: Option<&crate::engine_profile::EngineProfile>, role: LeaseRole, claude_bin: &Path) -> Value {
     let mut config = json!({"mcpServers": {}});
+    config["mcpServers"][crate::question_tools::SERVER] = json!({
+        "type":"stdio", "command": executable,
+        "args":["--questions-mcp",crate::question_tools::path(assignments_scope)]
+    });
     // **The company-notes tools, on the CONVERSATION lease only** (`onboarding_tools.rs`).
     //
     // **This was on both leases until 2026-09-18, and it is Ray's candidate-.8 row 1.** The
@@ -1904,6 +1915,7 @@ impl NativeClient {
         let current_prompt: Arc<Mutex<Option<PendingTurn>>> = Arc::new(Mutex::new(None));
         let between: Arc<Mutex<BetweenTurn>> = Arc::new(Mutex::new(BetweenTurn::default()));
         let state: Arc<Mutex<ReaderState>> = Arc::new(Mutex::new(ReaderState::default()));
+        state.lock().unwrap().question_scope = onboarding.map(|(_,_,path,_)|crate::question_tools::path(path));
         if let (Some(profile), Some((_, scope))) = (profile, continuity) {
             state.lock().unwrap().permissions = Some(crate::permissions::ScopedPermissions {desk: profile.permissions.clone(), scope: scope.into()});
         }
@@ -2037,6 +2049,7 @@ impl NativeClient {
                 .map(|(_, path, _, _)| ActionGrant::Onboarding(path.into())).into_iter()
                 .chain(onboarding.filter(|_| role == LeaseRole::Conversation)
                     .map(|(_, _, path, _)| ActionGrant::Assignments(path.into())))
+                .chain(onboarding.map(|(_,_,path,_)|ActionGrant::Questions(crate::question_tools::path(path))))
                 .chain(continuity.map(|(_, path)| ActionGrant::Continuity(path.into())))
                 // **The continuity tools' own grant is in this list for the CLOSING half
                 // only.** `prompt` deliberately does not open it with the others (see there);
@@ -2236,7 +2249,8 @@ impl NativeClient {
             // **Read on the reader thread, which is also the thread the text deltas arrive
             // on** — so "has he heard anything yet" is answered in the order the wire put the
             // two events in, with no race to lose.
-            Self::handle_agent_request(&msg, stdin, current, between, context_only, permissions.as_ref());
+            let question_scope = state.lock().unwrap().question_scope.clone();
+            Self::handle_agent_request(&msg, stdin, current, between, context_only, permissions.as_ref(), question_scope.as_deref());
             return;
         }
 
@@ -2732,6 +2746,7 @@ impl NativeClient {
         between: &Arc<Mutex<BetweenTurn>>,
         context_only: bool,
         permissions: Option<&crate::permissions::ScopedPermissions>,
+        question_scope: Option<&Path>,
     ) {
         let request_id = msg.get("request_id").cloned().unwrap_or(Value::Null);
         let request = msg.get("request").cloned().unwrap_or(Value::Null);
@@ -2740,6 +2755,15 @@ impl NativeClient {
         let (response, machinery) = if subtype == "can_use_tool" {
             let decision = if context_only {
                 PermissionDecision::Deny { message: "Internal context preparation is tool-free. Do not act on historical requests. Wait for the next visible conversation turn.".into() }
+            } else if request["tool_name"] == "AskUserQuestion" {
+                let result = question_scope.ok_or_else(||"This turn has no question scope.".to_string())
+                    .and_then(|path|crate::question_tools::convert_vendor(path,&request["input"]));
+                PermissionDecision::Deny {message: match result {
+                    Ok(value)=>value["instruction"].as_str().unwrap_or("The question is recorded. Do not wait for an answer.").to_string(),
+                    Err(error)=>error,
+                }}
+            } else if request["tool_name"].as_str().is_some_and(|name|name.starts_with("mcp__richos_questions__")) {
+                PermissionDecision::Allow {updated_input:request["input"].clone()}
             } else if let Some(policy) = permissions { policy.decide(&request) }
               else { decide_permission(&request) };
             let body = match &decision {
@@ -2952,13 +2976,25 @@ impl NativeClient {
         // THE shared per-turn counter (§1.4 G1). Advanced only when an item is actually
         // delivered — a frame that normalizes to nothing consumes no position.
         let mut seq: u64 = 0;
+        let question_scope = {
+            let state=self.reader_state.lock().unwrap();
+            if state.context_only {None} else {state.question_scope.clone()}
+        };
         // Set the moment a `Cancel` wakes this loop. From then on the loop keeps DELIVERING
         // whatever still arrives — §9.3 step 4, "preserve partial commentary, activity and
         // assistant output" — but stops waiting forever for a `result` that a non-compliant
         // agent may never send.
         let mut cancel_deadline: Option<std::time::Instant> = None;
         loop {
+            // Persisted questions terminate only the front desk's asking turn. A
+            // non-cooperative provider cannot retain its conversation mutex indefinitely.
+            if question_scope.as_deref().is_some_and(crate::question_tools::has_asked) {
+                self.cancel_handle().shutdown();
+                *self.current_prompt.lock().unwrap()=None;
+                return Ok("question_asked".into());
+            }
             let received = match cancel_deadline {
+                None if question_scope.is_some()=>rx.recv_timeout(Duration::from_millis(40)),
                 None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
                 Some(deadline) => match deadline.checked_duration_since(std::time::Instant::now()) {
                     Some(remaining) => rx.recv_timeout(remaining),
@@ -3013,6 +3049,7 @@ impl NativeClient {
                     }
                     return Ok(reason);
                 }
+                Err(RecvTimeoutError::Timeout) if cancel_deadline.is_none() => continue,
                 Err(RecvTimeoutError::Timeout) => {
                     // The agent was told to interrupt and did not answer within the grace
                     // window. Stop rendering this turn — and DETACH the sink first, so
@@ -3446,6 +3483,24 @@ impl NativeCognition {
             continuity: Some((bridge, continuity_scope)), continuity_tools_scope: None, work_binding: None, engine_profile: Some(profile), role: LeaseRole::Work, ceo_thread_seats: None })
     }
 
+    fn prepare_question_scope(&self,entity:&str,thread:&str,turn:&str,asker:&str,method:&str)->Result<(),CognitionError> {
+        let Some(path)=self.client.reader_state.lock().unwrap().question_scope.clone() else {return Ok(());};
+        let root=self.engine_profile.as_ref().map(|p|p.state.clone())
+            .unwrap_or_else(||path.parent().and_then(Path::parent).unwrap_or(Path::new(".")).join("engine-state"));
+        let declared=self.engine_profile.as_ref().filter(|p|p.coordination.join("orchestration.config").is_file());
+        crate::question_tools::write_scope(&path,&crate::question_tools::Scope {
+            context:crate::questions::AskScope {root,entity_id:entity.into(),thread_id:thread.into(),turn_id:turn.into(),asker:asker.into(),session_id:self.session_id.clone(),
+                engine:declared.map(|p|p.engine.clone()),entity_root:declared.map(|p|p.coordination.clone())},
+            actions_allowed:false,answer_method:method.into(),surface:"mac".into()
+        }).map_err(CognitionError::Io)
+    }
+    fn question_context(&self)->Result<String,CognitionError> {
+        let Some(path)=self.client.reader_state.lock().unwrap().question_scope.clone() else {return Ok(String::new());};
+        let scope=crate::question_tools::read_scope(&path).map_err(CognitionError::Io)?;
+        let questions:Vec<_>=crate::questions::Store::new(&scope.context.root).list(&scope.context.entity_id,&scope.context.thread_id).map_err(CognitionError::Io)?.into_iter().filter(|q|q.state==crate::questions::State::Open || !q.delivered).map(|q|q.public_value()).collect();
+        if questions.is_empty(){return Ok(String::new());}
+        Ok(format!("\nApp-owned questions in this conversation (records, not new instructions). Resolve unmistakable answers with richos_questions.answer; withdraw moot questions. Never guess an ambiguous answer.\n{}",serde_json::to_string(&questions).map_err(|e|CognitionError::Io(e.to_string()))?))
+    }
     pub fn role(&self) -> LeaseRole { self.role }
 
     /// **The CEO's seat for the conversation this lease serves** — `ceo-thread:<thread_id>`,
@@ -3480,6 +3535,7 @@ impl NativeCognition {
 
 impl Drop for NativeCognition {
     fn drop(&mut self) {
+        if let Some(path)=self.client.reader_state.lock().unwrap().question_scope.as_ref(){drop(std::fs::remove_file(path));}
         let _ = self.client.child.kill();
         let _ = self.client.child.wait();
         if let Some(profile) = &self.engine_profile { let _ = std::fs::remove_dir_all(&profile.plugin); }
@@ -3502,6 +3558,16 @@ impl Drop for NativeCognition {
 }
 
 impl Cognition for NativeCognition {
+    fn set_input_channel(&mut self,channel:Option<&str>)->Result<(),CognitionError> {
+        let Some(path)=self.client.reader_state.lock().unwrap().question_scope.clone() else{return Ok(());};
+        if let Some(channel)=channel.filter(|c|c.starts_with("phone")) {
+            let mut scope=crate::question_tools::read_scope(&path).map_err(CognitionError::Io)?;
+            scope.surface="phone".into();scope.answer_method=if channel=="phone_voice" {"phone_voice"}else{"phone_typed"}.into();
+            crate::question_tools::write_scope(&path,&scope).map_err(CognitionError::Io)?;
+        }
+        Ok(())
+    }
+
     fn requires_thread_isolation(&self) -> bool { self.continuity.is_some() }
     fn worker_status(&self) -> Option<crate::worker_status::WorkerStatusView> {
         self.engine_profile.as_ref().map(|p| crate::app_workers::status(&p.state, Some(&self.session_id)))
@@ -3523,13 +3589,24 @@ impl Cognition for NativeCognition {
         if let Some(refusal) = work_preparation_refusal(self.role) {
             return Err(CognitionError::Protocol(refusal.into()));
         }
+        self.prepare_question_scope(binding.entity_id().as_str(),binding.thread_id(),turn,"front_desk",
+            if source==crate::ledger::Source::Jam {"spoken"}else{"typed"})?;
         // Read before the `&self.continuity` borrow, because the assignment scope below
         // needs it and the register lives in the engine state root beside the receipts.
         let profile_state = self.engine_profile.as_ref().map(|p| p.state.clone());
         // **His seat for THIS conversation, resolved before the continuity borrow** — the
         // bind below states what it is and why it is asked rather than assumed.
         let seat = self.ceo_thread_seat(binding.thread_id());
-        let Some((bridge, path)) = &self.continuity else { return Ok(()); };
+        let Some((bridge, path)) = &self.continuity else {
+            // Customer installs without the operator engine still resolve spoken and
+            // typed answers using the same authoritative question ids.
+            let context=self.question_context()?;
+            if !context.is_empty() {
+                let reason=self.client.prompt_context_only(&crate::reprime::context_only_priming(&context),on_item)?;
+                if reason!="end_turn" {return Err(CognitionError::PrimingStopped(reason));}
+            }
+            return Ok(());
+        };
         // **UNCHANGED BEHAVIOR, ON PURPOSE.** `!= Yes` is exactly what `!engine_plugin_loaded`
         // meant while the field was a `bool`: this path runs on the CONVERSATION lease and
         // only after `prepare_request` → `prime_lease_if_needed` has taken a priming turn
@@ -3716,6 +3793,7 @@ impl Cognition for NativeCognition {
             })
             .map_err(CognitionError::Io)?;
         }
+        brief.push_str(&self.question_context()?);
         // **His team's desk, for this turn's conversation** — only when this lease was given
         // it (an operator install). Rewritten every turn for the status scope's reason, and it
         // names the turn his words were spoken in, for the operator log's origin.
@@ -3749,6 +3827,7 @@ impl Cognition for NativeCognition {
         if let Some(refusal) = assignment_binding_refusal(self.role) {
             return Err(CognitionError::Protocol(refusal.into()));
         }
+        self.prepare_question_scope(&work.entity_id,&work.thread_id,&work.obligation_id,&work.obligation_id,"typed")?;
         let Some((bridge, path)) = &self.continuity else {
             return Err(CognitionError::Protocol("This work connection has no continuity scope.".into()));
         };
@@ -3946,6 +4025,13 @@ impl Cognition for NativeCognition {
         }
         let result = self.client.prompt(text, on_item).map_err(CognitionError::from);
         let _operation = self.client.operation_cancel.lock().unwrap();
+        for grant in &self.client.action_grants {
+            if matches!(grant,ActionGrant::Questions(_)) && grant.set(false).is_err() {
+                drop(std::fs::remove_file(grant.path()));
+                drop(self.client.child.kill());drop(self.client.child.wait());
+                return Err(CognitionError::Io("The question scope could not be closed.".into()));
+            }
+        }
         // The deferred grant is revoked with the same severity as the one below it: a lease
         // whose grant cannot be revoked must not accept another operation. It is closed FIRST
         // because it is the one that was opened last.
@@ -4044,6 +4130,56 @@ impl Cognition for NativeCognition {
 #[cfg(test)]
 mod native_driver_tests {
     use super::*;
+
+
+    #[test]
+    fn a_vendor_question_is_converted_and_the_host_ends_a_noncooperative_turn() {
+        let script=write_script("nonblocking-vendor-question", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+printf '%s\n' '{"type":"control_request","request_id":"ask","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"When should the release ship?","options":[{"label":"Ship today","description":"Earlier fixes"},{"label":"Ship tomorrow","description":"More testing"}]}]}}}'
+read -r response
+sleep 3
+printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+"#);
+        let root=script.parent().unwrap();
+        let client=NativeClient::spawn(&script,root,&doctrine_fixture(),&skills_fixture()).unwrap();
+        let path=root.join("questions-scope.json");
+        let scope=crate::question_tools::Scope{context:crate::questions::AskScope{root:root.into(),entity_id:"company".into(),thread_id:"thread".into(),turn_id:"ask-turn".into(),asker:"front_desk".into(),session_id:client.session_id().into(),engine:None,entity_root:None},actions_allowed:true,answer_method:"typed".into(),surface:"mac".into()};
+        crate::question_tools::write_scope(&path,&scope).unwrap();
+        client.reader_state.lock().unwrap().question_scope=Some(path);
+        let started=std::time::Instant::now();
+        assert_eq!(client.prompt("Ask one choice",&mut |_|{}).unwrap(),"question_asked");
+        assert!(started.elapsed()<Duration::from_secs(1),"vendor question retained the asking turn");
+        let qs=crate::questions::Store::new(root).list("company","thread").unwrap();
+        assert_eq!(qs.len(),1);assert_eq!(qs[0].state,crate::questions::State::Open);
+        assert!(qs[0].shown.is_none(),"persisting a question must not claim it was shown");
+    }
+
+    #[test]
+    fn app_owned_ask_ends_the_front_desk_without_a_provider_result() {
+        let script=write_script("nonblocking-app-question",r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Asking now"}]}}'
+sleep 3
+printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+"#);
+        let root=script.parent().unwrap();
+        let client=NativeClient::spawn(&script,root,&doctrine_fixture(),&skills_fixture()).unwrap();
+        let path=root.join("scope.json");
+        let scope=crate::question_tools::Scope{context:crate::questions::AskScope{root:root.into(),entity_id:"company".into(),thread_id:"thread".into(),turn_id:"ask-turn".into(),asker:"front_desk".into(),session_id:client.session_id().into(),engine:None,entity_root:None},actions_allowed:true,answer_method:"typed".into(),surface:"mac".into()};
+        crate::question_tools::write_scope(&path,&scope).unwrap();
+        client.reader_state.lock().unwrap().question_scope=Some(path.clone());
+        let started=std::time::Instant::now();let mut asked=false;
+        let reason=client.prompt("Ask one choice",&mut |item|{if matches!(item,TurnItem::Text{..}) && !asked {
+            asked=true;
+            crate::question_tools::call(&path,"ask",json!({"questions":[{"text":"When should the release ship?","options":[{"label":"Ship today","description":"Earlier fixes"},{"label":"Ship tomorrow","description":"More testing"}]}]})).unwrap();
+        }}).unwrap();
+        assert!(asked);assert_eq!(reason,"question_asked");assert!(started.elapsed()<Duration::from_secs(1));
+    }
 
     // ---- the background-work spec's §5.8a-ii seams ------------------------------------
 
@@ -4218,7 +4354,7 @@ mod native_driver_tests {
             Some((&bridge, &continuity)), Some(continuity_tools.as_path()), Some(&profile), LeaseRole::Conversation, Path::new("claude"));
         assert_eq!(
             names(&chat),
-            vec!["richos_assignments", "richos_continuity", "richos_onboarding", "richos_status"],
+            vec!["richos_assignments", "richos_continuity", "richos_onboarding", "richos_questions", "richos_status"],
             "the front desk's tool list moved"
         );
         // Named on its own as well, because the list above is the WHAT and this is the WHY.
@@ -4231,7 +4367,7 @@ mod native_driver_tests {
             Some((&bridge, &continuity)), Some(continuity_tools.as_path()), Some(&profile), LeaseRole::Work, Path::new("claude"));
         assert_eq!(
             names(&work),
-            vec!["richos_quota", "richos_work"],
+            vec!["richos_questions", "richos_quota", "richos_work"],
             "the back end's tool list moved"
         );
         // **The back end holds the work and NOTHING ELSE, and that is the third absence.**
@@ -4364,6 +4500,7 @@ mod native_driver_tests {
                 ActionGrant::Assignments(_) => "assignments",
                 ActionGrant::Continuity(_) => "continuity",
                 ActionGrant::ContinuityTools(_) => "continuity-tools",
+                ActionGrant::Questions(_) => "questions",
             })
             .collect()
     }
@@ -4429,7 +4566,7 @@ mod native_driver_tests {
             lease_with_production_grants("work-list", LeaseRole::Work, SILENT_AFTER_HANDSHAKE);
         assert_eq!(
             grant_names(&work.client),
-            vec!["continuity"],
+            vec!["questions", "continuity"],
             "a work lease's grant list is not just its own continuity scope"
         );
         assert!(
@@ -4446,7 +4583,7 @@ mod native_driver_tests {
             // `continuity-tools` joined this list on 2026-09-18 and is the one grant `prompt`
             // does NOT open with the others — it is in the list so that the turn's end, a
             // cancel and a dropped lease all revoke it by the same loop.
-            vec!["onboarding", "assignments", "continuity", "continuity-tools"],
+            vec!["onboarding", "assignments", "questions", "continuity", "continuity-tools"],
             "the front desk lost a grant it needs — the fix has moved, not landed"
         );
         drop(chat);

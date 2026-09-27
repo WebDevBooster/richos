@@ -41,13 +41,33 @@ python3 "$HERE/../../engine/scripts/lib/testdevices.py" register --kind ios-simu
   --owner-pid $$ --script simulator-tests.sh >/dev/null || { echo "FAIL device ownership registration" >&2; exit 1; }
 
 python3 "$HERE/../../engine/scripts/lib/testdevices.py" boot-ios --id "$UDID" >/dev/null || { echo "FAIL simctl boot $UDID"; exit 1; }
-xcrun simctl privacy "$UDID" grant microphone dev.richos.connect >/dev/null 2>&1 || true
+
+# A prepared simulator may have no app installed. Installing after a privacy grant can
+# discard it, leaving the async permission test waiting on an unattended OS prompt.
+# Build once, install these exact products, then require the grant before running them.
+python3 "$HERE/../../engine/scripts/lib/testdevices.py" run-active \
+  --kind ios-simulator --id "$UDID" --owner-pid $$ -- \
+  python3 "$HERE/../../engine/scripts/lib/native-work.py" -- xcodebuild build-for-testing -project "$PROJECT" -scheme RichOSPlatformTests \
+  -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath "$OUT/DerivedData" \
+  -clonedSourcePackagesDirPath "$OUT/SourcePackages" CODE_SIGN_IDENTITY=- >"$OUT/logs/build.log" 2>&1
+CODE=$?
+if [ "$CODE" -eq 75 ]; then
+  echo "NOT RUN simulator tests: this run's simulator lease ended during the build; full log $OUT/logs/build.log"
+  exit 75
+elif [ "$CODE" -ne 0 ]; then
+  echo "FAIL build-for-testing; full log $OUT/logs/build.log"
+  exit 1
+fi
+xcrun simctl install "$UDID" "$OUT/DerivedData/Build/Products/Debug-iphonesimulator/RichOSNative.app" \
+  || { echo "FAIL installing the simulator test host"; exit 1; }
+xcrun simctl privacy "$UDID" grant microphone dev.richos.connect \
+  || { echo "FAIL granting the simulator test host microphone permission"; exit 1; }
 
 # run-active renews the lease's inactivity clock while this build-and-test run lives; without it a
 # run longer than five minutes lost its simulator to the collector (esc-20260924T220236Z-52fae3ec).
 TEST_RUNNER_RICHOS_SNAPSHOT_DIR="$OUT/snapshots" python3 "$HERE/../../engine/scripts/lib/testdevices.py" run-active \
   --kind ios-simulator --id "$UDID" --owner-pid $$ -- \
-  python3 "$HERE/../../engine/scripts/lib/native-work.py" -- xcodebuild test -project "$PROJECT" -scheme RichOSPlatformTests \
+  python3 "$HERE/../../engine/scripts/lib/native-work.py" -- xcodebuild test-without-building -project "$PROJECT" -scheme RichOSPlatformTests \
   -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath "$OUT/DerivedData" \
   -clonedSourcePackagesDirPath "$OUT/SourcePackages" -resultBundlePath "$OUT/result.xcresult" \
   CODE_SIGN_IDENTITY=- >"$OUT/logs/test.log" 2>&1

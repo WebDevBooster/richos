@@ -176,6 +176,7 @@ data class OutboxItem(
     @EncodeDefault(EncodeDefault.Mode.NEVER) val seconds: Double? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val levels: List<Double>? = null,
     /** The exact request bytes (text, attachment commit) or signed path (voice), built once at enqueue. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val questionId: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val wire: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val attachments: List<Attachment>? = null,
     /**
