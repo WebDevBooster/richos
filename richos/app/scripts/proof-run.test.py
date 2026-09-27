@@ -57,6 +57,9 @@ def items_from(lines, tmp, **kw):
 
 tmp = tempfile.mkdtemp(prefix="proof-run-test.")
 os.environ["RICHOS_MACHINE_WORKERS"] = os.path.join(tmp, "machine")
+# A stalled admission is recorded for the lead's turn-end gate (engine resource_waits.py); a
+# test never writes one where the operator's gate reads.
+os.environ["RICHOS_WAITS_DIR"] = os.path.join(tmp, "waits")
 try:
     print("=== proof-run ===")
 
@@ -282,6 +285,35 @@ try:
     check(len(its) == 3 and {i.lane for i in its} == {"as-printed"}
           and open(order).read().split() == ["1", "2", "3"],
           "P10 --as-printed runs each printed line unsplit, one after another, in printed order")
+
+    # P15 — a run with nothing of its own running, whose next check admission refuses, is a job
+    # waiting on the Mac: it is RECORDED for exactly as long as that lasts (so the lead's turn end
+    # is refused past ten minutes, engine guard-resource-waits.sh) and the record goes when the
+    # check is admitted. The sampler is busy for the first 0.7 s, then idle.
+    waits = os.environ["RICHOS_WAITS_DIR"]
+    seen = []
+    t15 = time.time()
+
+    def stalled():
+        try:
+            names = [f for f in os.listdir(waits) if f.endswith(".json")]
+        except OSError:
+            names = []
+        seen.extend(open(os.path.join(waits, f)).read() for f in names)
+        return busy() if time.time() - t15 < 0.7 else idle()
+
+    saved_retry = pr.reserve.MIN_RETRY_SECONDS
+    pr.reserve.MIN_RETRY_SECONDS = 0.3
+    try:
+        its = items_from(["cd richos/app && bash -c 'exit 0'"], tmp)
+        pr.run(its, Args(admission_wait=60), os.path.join(tmp, "p15log"), sampler=stalled)
+    finally:
+        pr.reserve.MIN_RETRY_SECONDS = saved_retry
+    left = [f for f in os.listdir(waits) if f.endswith(".json")] if os.path.isdir(waits) else []
+    check(its[0].state == "passed" and any('"cpu-admission"' in r and "not admitted" in r for r in seen)
+          and not left,
+          "P15 a stalled run is recorded as a CPU-admission wait while it stalls, and the record is gone "
+          "once the check is admitted", (its[0].state, seen[:1], left))
 
     # P9 — the log directory is bounded: the last three runs of a checkout, nothing more.
     parent = os.path.join(tmp, "rot")
