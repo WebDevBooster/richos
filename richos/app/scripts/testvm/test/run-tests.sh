@@ -660,6 +660,8 @@ t "app env: TESTVM_APP_ENV becomes --env pairs for the app's own RICHOS_ knobs, 
   eq "$(app_env_args "RICHOS_PERMISSION_DEADLINE_MS=20000")" "--env RICHOS_PERMISSION_DEADLINE_MS=20000"
   eq "$(app_env_args "RICHOS_A=1 RICHOS_B_C=x.y-z")" "--env RICHOS_A=1 --env RICHOS_B_C=x.y-z"
   eq "$(app_env_args "RICHOS_VOICE_INPUT_WAV=/Users/admin/testvm/ship-tomorrow.wav")" "--env RICHOS_VOICE_INPUT_WAV=/Users/admin/testvm/ship-tomorrow.wav"
+  # Literal $(...) and backticks are the refusal inputs under test.
+  # shellcheck disable=SC2016
   for refused in 'RICHOS_OTHER=/Users/admin/input.wav' 'RICHOS_VOICE_INPUT_WAV=/a;b' 'RICHOS_VOICE_INPUT_WAV=/a$(id)' 'RICHOS_VOICE_INPUT_WAV=/a`id`' 'RICHOS_VOICE_INPUT_WAV=/a b' 'RICHOS_VOICE_INPUT_WAV=/a*'; do
     app_env_args "$refused" >/dev/null 2>&1; no $? "$refused passed"
   done

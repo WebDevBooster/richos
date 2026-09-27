@@ -92,6 +92,9 @@ impl Registered {
 /// One request to end the process, with everything the decision turns on.
 #[derive(Clone, Debug)]
 pub struct ExitRequest {
+    /// Durable questions keep the phone service available after a window close.
+    /// They are persisted and never add a confirmation gate to an explicit Quit.
+    pub questions_pending: bool,
     /// `true` for `ExitRequested { code: Some(_) }` — this app asked to exit, rather than a
     /// window being closed.
     pub programmatic: bool,
@@ -123,6 +126,9 @@ pub fn decide(request: &ExitRequest) -> ExitDecision {
     //    it must go through, or the two-step prevent becomes a trap he cannot leave.
     if request.confirmed {
         return ExitDecision::Allow;
+    }
+    if !request.programmatic && request.can_come_back && request.questions_pending {
+        return ExitDecision::StayResident;
     }
     // 2. Nothing is registered: quit exactly as this app has always quit, whether this is a
     //    window closing or a quit. No new behavior on the path every user is on.
@@ -244,6 +250,11 @@ pub fn quit_question(registered: &Registered) -> String {
 /// `every_allowed_exit_has_exactly_one_reason_and_no_other_decision_has_any` sweeps the whole
 /// request space and asserts `allow_reason(r).is_some()` exactly when `decide(r)` is `Allow`.
 pub fn allow_reason(request: &ExitRequest) -> Option<&'static str> {
+    if decide(request) != ExitDecision::Allow { return None; }
+    if request.questions_pending && request.programmatic && !request.registered.anything() {
+        return Some("Quit requested: questions and answers are saved for the next launch.");
+    }
+
     if request.confirmed {
         return Some(
             "quit confirmed: he was asked and answered \"quit and stop the work\". RichOS is \
@@ -281,8 +292,24 @@ mod tests {
     use super::*;
 
     fn request(programmatic: bool, registered: Registered) -> ExitRequest {
-        ExitRequest { programmatic, confirmed: false, registered, can_come_back: true }
+        ExitRequest { questions_pending: false, programmatic, confirmed: false, registered, can_come_back: true }
     }
+    #[test]
+    fn pending_questions_keep_a_windowless_service_but_do_not_block_explicit_quit() {
+        let mut r = request(false, Registered::nothing());
+        r.questions_pending = true;
+        assert_eq!(decide(&r), ExitDecision::StayResident);
+        assert_eq!(allow_reason(&r), None);
+        r.programmatic = true;
+        assert_eq!(decide(&r), ExitDecision::Allow);
+        r.programmatic = false;
+        r.can_come_back = false;
+        assert_eq!(decide(&r), ExitDecision::Allow);
+        r.can_come_back = true;
+        r.confirmed = true;
+        assert_eq!(decide(&r), ExitDecision::Allow);
+    }
+
     fn some_work() -> Registered {
         Registered { running: 1, awaiting_you: 0, readable: true, team: None, commands: Default::default() }
     }
@@ -352,7 +379,7 @@ mod tests {
             for programmatic in [false, true] {
                 for confirmed in [false, true] {
                     for can_come_back in [false, true] {
-                        let r = ExitRequest { programmatic, confirmed, registered: registered.clone(), can_come_back };
+                        let r = ExitRequest { questions_pending: false, programmatic, confirmed, registered: registered.clone(), can_come_back };
                         let decision = decide(&r);
                         let reason = allow_reason(&r);
                         if decision == ExitDecision::Allow {
@@ -393,6 +420,7 @@ mod tests {
     #[test]
     fn the_two_red_button_outcomes_say_different_things() {
         let idle = ExitRequest {
+            questions_pending: false,
             programmatic: false,
             confirmed: false,
             registered: Registered::nothing(),
