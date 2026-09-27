@@ -224,6 +224,82 @@ The Noto files are **subsets**. Subsetting is a modification the OFL allows; the
 reserved-font-name clause is not engaged because the subsets keep the original
 names and are not redistributed as a separate font product.
 
+## Bundled data compiled into the application
+
+| Work | Upstream | Revision / version | License | Copyright | Full terms | Verified |
+|---|---|---|---|---|---|---|
+| `richos/engine/scripts/lib/dialect/third_party/varcon/` (`varcon.txt`, `README`) | VarCon, part of SCOWL (<http://wordlist.aspell.net/>), as vendored by crate-ci/typos at `crates/varcon/assets` | VarCon 2020.12.07; typos commit `dd3e1018f8a825a98be71048c21a9b0495aff703`; `varcon.txt` sha256 `c1e234817b526a809fa745d742fec84db88b65c429e22faf8a556b3d5a224085` | notice-only permissive terms (three notices, below) | 2000-2020 Kevin Atkinson; 2016 Benjamin Titze; 1993 Geoff Kuenning | `richos/engine/scripts/lib/dialect/third_party/varcon/README`, section "Copyright" | byte-identical (both files, 2026-09-27) |
+**What ships, and where.** The engine asset carries both files, because it
+ships every tracked engine file. Nothing else from VarCon is used, and no
+VarCon script is bundled. `varcon.txt` itself is unmodified.
+
+**No endorsement.** The names of Kevin Atkinson, Benjamin Titze and Geoff
+Kuenning appear here only to give the attribution their notices require. None
+of them endorses or promotes RichOS, and nothing in RichOS may say or imply
+otherwise.
+
+**The three notices, verbatim from the bundled `README`:**
+
+```text
+Copyright 2000-2019 by Kevin Atkinson
+
+Permission to use, copy, modify, distribute and sell this array, the
+associated software, and its documentation for any purpose is hereby
+granted without fee, provided that the above copyright notice appears
+in all copies and that both that copyright notice and this permission
+notice appear in supporting documentation. Kevin Atkinson makes no
+representations about the suitability of this array for any
+purpose. It is provided "as is" without express or implied warranty.
+
+Copyright 2016 by Benjamin Titze
+
+Permission to use, copy, modify, distribute and sell this array, the
+associated software, and its documentation for any purpose is hereby
+granted without fee, provided that the above copyright notice appears
+in all copies and that both that copyright notice and this permission
+notice appear in supporting documentation. Benjamin Titze makes no
+representations about the suitability of this array for any
+purpose. It is provided "as is" without express or implied warranty.
+
+Since the original words lists come from the Ispell distribution:
+
+Copyright 1993, Geoff Kuenning, Granada Hills, CA
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+3. All modifications to the source code must be clearly marked as
+   such.  Binary redistributions based on modified source code
+   must be clearly marked as modified versions in the documentation
+   and/or other materials provided with the distribution.
+(clause 4 removed with permission from Geoff Kuenning)
+5. The name of Geoff Kuenning may not be used to endorse or promote
+   products derived from this software without specific prior
+   written permission.
+
+THIS SOFTWARE IS PROVIDED BY GEOFF KUENNING AND CONTRIBUTORS ``AS IS'' AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED.  IN NO EVENT SHALL GEOFF KUENNING OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+SUCH DAMAGE.
+```
+
+The README's header also reads "Copyright 2000-2020 by Kevin Atkinson ... and
+Benjamin Titze"; the dates in the notices above are as the README states them.
+
 ## Authoring-time tools — used to build artifacts, not redistributed
 
 These never reach a user. They are recorded because "we do not ship it" is a
