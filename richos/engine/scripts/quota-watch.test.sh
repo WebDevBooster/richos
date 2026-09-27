@@ -424,16 +424,6 @@ fake error; gonce
 check "G03  get_usage refused: it falls back to the status-line file (50%, exit 0) and says why" \
     "$([ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'via the status line' \
        && printf '%s' "$OUT" | grep -q 'source: the status-line file, because get_usage was refused'; echo $?)" "rc=$RC out=$OUT"
-fake autherr; rm -f "$SB/la-notified"; gonce
-check "G09  get_usage refused with 'Login expired': the fallback still reads, and the login alarm is raised once (CEO notified, lead escalation)" \
-    "$([ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'Login expired.*login alarm raised' \
-       && [ "$(wc -l <"$SB/la-notified" 2>/dev/null | tr -d ' ')" = 1 ] \
-       && grep -q 'from quota-watch' "$RICHOS_ESCALATION_LEDGER"; echo $?)" \
-    "rc=$RC out=$OUT notified=$(cat "$SB/la-notified" 2>/dev/null)"
-fake error; rm -f "$SB/la-notified"; gonce
-check "G10  a refusal that is not a dead login raises no login alarm" \
-    "$([ "$RC" -eq 0 ] && [ ! -f "$SB/la-notified" ] && ! printf '%s' "$OUT" | grep -q 'login alarm'; echo $?)" \
-    "rc=$RC out=$OUT"
 fake unavailable; gonce
 check "G04  no subscription limits reported: the status-line fallback, and it says so" \
     "$([ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'did not report subscription limits'; echo $?)" "rc=$RC out=$OUT"
@@ -450,6 +440,24 @@ fake eof; gonce
 check "G06  an unreadable answer and an early close both fall back to the status-line file, each saying why" \
     "$([ "$RCG" -eq 0 ] && printf '%s' "$OUTG" | grep -q 'cannot read' && [ "$RC" -eq 0 ] \
        && printf '%s' "$OUT" | grep -q 'closed its output'; echo $?)" "garbage: rc=$RCG $OUTG // eof: rc=$RC $OUT"
+
+fi
+
+# G09 / G10: a refusal that says the login is dead raises the login alarm (a
+# sandboxed notification and escalation); any other refusal does not. Each has
+# its own fresh status-line reading so it runs alone under its focus.
+if wants "G09" || wants "G10"; then
+write_payload 50 3600 10
+fake autherr; rm -f "$SB/la-notified"; gonce
+check "G09  get_usage refused with 'Login expired': the fallback still reads, and the login alarm is raised once (CEO notified, lead escalation)" \
+    "$([ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'Login expired.*login alarm raised' \
+       && [ "$(wc -l <"$SB/la-notified" 2>/dev/null | tr -d ' ')" = 1 ] \
+       && grep -q 'from quota-watch' "$RICHOS_ESCALATION_LEDGER"; echo $?)" \
+    "rc=$RC out=$OUT notified=$(cat "$SB/la-notified" 2>/dev/null)"
+fake error; rm -f "$SB/la-notified"; gonce
+check "G10  a refusal that is not a dead login raises no login alarm" \
+    "$([ "$RC" -eq 0 ] && [ ! -f "$SB/la-notified" ] && ! printf '%s' "$OUT" | grep -q 'login alarm'; echo $?)" \
+    "rc=$RC out=$OUT"
 
 fi
 
