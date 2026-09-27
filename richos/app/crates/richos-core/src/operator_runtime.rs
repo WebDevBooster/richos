@@ -217,6 +217,9 @@ impl LeadHandle for ClaimedLead {
     fn send(&self, text: &str) -> Result<String, LeadError> {
         self.lead.send(text)
     }
+    fn send_with_uuid(&self, uuid: &str, text: &str) -> Result<(), LeadError> {
+        self.lead.send_with_uuid(uuid, text)
+    }
     fn stop_task(&self, task_id: &str) -> Result<(), LeadError> {
         self.lead.stop_task(task_id, CONTROL_TIMEOUT)
     }

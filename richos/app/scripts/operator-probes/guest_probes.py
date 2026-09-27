@@ -38,6 +38,8 @@ import threading
 import time
 import traceback
 import uuid
+# `Lead.user` takes a parameter named `uuid` (the id to send), which shadows the module there.
+uuid_module = uuid
 
 GUEST_CLAUDE = '/Users/admin/.local/bin/claude'
 # The spec's allowlist (r3 (i)), captured by `enable.sh` from his terminal.
@@ -659,8 +661,9 @@ class Lead(object):
         self.proc.stdin.write(json.dumps(obj) + '\n')
         self.proc.stdin.flush()
 
-    def user(self, text, priority=None):
-        mid = str(uuid.uuid4())
+    def user(self, text, priority=None, uuid=None):
+        # P18 resends one message under the uuid it was first sent with, as the app's retry does.
+        mid = uuid or str(uuid_module.uuid4())
         msg = {'type': 'user', 'uuid': mid, 'message': {'role': 'user', 'content': [{'type': 'text', 'text': text}]}}
         if priority:
             msg['priority'] = priority
@@ -2279,6 +2282,332 @@ def p17(ctx, r):
 
 
 # =============================================================================================
+# P18: does the provider drop a resent uuid across a restart? (richos-hq
+# docs/plans/2026-09-27-answer-delivery-crash-dedup-design.md §1.4). The 2.1.281-2.1.283 code
+# drops a stream-json user message whose uuid the resumed session's saved transcript already
+# holds with an answered turn, and echoes it; that property is undocumented. The app's retry of
+# an answer relies on it, so it is measured here, on the version the host has at run time.
+# =============================================================================================
+
+OPERATOR_REAP_GRACE = 5  # provider-supervisor.py's default grace (r3 (q) item 2), as in P15
+
+
+def transcript_rows(ctx, session_id):
+    """The session's saved transcript, one dict per line; a torn line is skipped."""
+    path = ctx.p.claude_dir / 'projects' / slug(ctx.p.entity) / ('%s.jsonl' % session_id)
+    rows = []
+    if path.exists():
+        for line in path.read_text().splitlines():
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                continue
+    return rows
+
+
+def uuid_entries(rows, uid):
+    """The non-sidechain `user` entries that carry `uid`: the message, as the provider saved it."""
+    return [e for e in rows if isinstance(e, dict) and e.get('type') == 'user' and e.get('uuid') == uid
+            and not e.get('isSidechain')]
+
+
+def after_entry(rows, uid):
+    """What the transcript holds after the first entry carrying `uid`, as types (no text), and
+    whether an `interruptedByShutdown` marker is among them (the provider's re-execute case)."""
+    index = next((i for i, e in enumerate(rows) if isinstance(e, dict) and e.get('uuid') == uid), None)
+    if index is None:
+        return {'found': False, 'after': [], 'interrupted_by_shutdown': False}
+    later = rows[index + 1:]
+    return {'found': True,
+            'after': [(e.get('type'), (e.get('message') or {}).get('role') if isinstance(e.get('message'), dict) else None)
+                      for e in later if isinstance(e, dict)][:40],
+            'interrupted_by_shutdown': any(isinstance(e, dict) and e.get('interruptedByShutdown') is True for e in later)}
+
+
+def transcript_summary(rows):
+    """Every entry's shape, never its text: what the provider wrote, for the record."""
+    return [{k: e.get(k) for k in ('type', 'subtype', 'uuid', 'parentUuid', 'isSidechain', 'interruptedByShutdown',
+                                    'operation') if k in e} for e in rows if isinstance(e, dict)]
+
+
+def frames_between(lead, t0, seconds):
+    """Every frame in [t0, t0 + seconds], as its shape (C5: what tells the host that a dropped
+    duplicate started no turn)."""
+    with lead.cond:
+        rows = list(lead.frames)
+    out = []
+    for t, f in rows:
+        if t0 <= t <= t0 + seconds:
+            row = {'t': round(t - t0, 3), 'type': f.get('type'), 'subtype': f.get('subtype')}
+            for k in ('uuid', 'isReplay', 'session_id', 'is_error'):
+                if k in f:
+                    row[k] = f.get(k)
+            if f.get('type') == 'stream_event':
+                row['event'] = (f.get('event') or {}).get('type')
+            out.append(row)
+    return out
+
+
+def results_with(lead, start, marker):
+    """How many `result` frames since `start` carry `marker` in their final text."""
+    return sum(1 for f in lead.all_frames()[start:] if f.get('type') == 'result' and marker in (f.get('result') or ''))
+
+
+def die_like_the_app(ctx, lead, rec):
+    """The app's death, the P15 way: SIGKILL to the owner stand-in this harness started; the
+    supervisor then ends the lead within its grace. Waits OPERATOR_REAP_GRACE + 1 s. What this
+    lead started is recorded first, by the process tree under its own pid, and anything of it
+    still alive after the grace is ended by that recorded pid (owned, never a name)."""
+    supervisor = lead.supervisor_pid()
+    claude = lead.claude_pid()
+    recorded = [row['pid'] for row in below(process_rows(), claude)] if claude else []
+    rec['claude_pid'] = claude
+    os.kill(lead.proc.pid, signal.SIGKILL)  # owned: the app stand-in this harness started
+    time.sleep(OPERATOR_REAP_GRACE + 1)
+    rec['claude_alive_after_grace_plus_one'] = bool(claude) and alive(claude)
+    rec['descendants_alive_after_grace_plus_one'] = [pid for pid in recorded if alive(pid)]
+    rec['supervisor_alive_after_grace_plus_one'] = bool(supervisor) and alive(supervisor)
+    for pid in [x for x in (supervisor, claude) if x] + recorded:
+        if alive(pid):
+            try:
+                os.kill(pid, signal.SIGKILL)  # owned: recorded under this harness's own lead above
+            except ProcessLookupError:
+                pass
+    lead.close(grace=5)
+
+
+def resend(ctx, lead, uid, text, rec, echo_timeout=90):
+    """Send `text` under `uid` again, and record the echo, if any, and every frame for 30 s
+    after it."""
+    start = lead.count()
+    lead.user(text, uuid=uid)
+    got = lead.wait(lambda f: f.get('type') == 'user' and f.get('uuid') == uid, echo_timeout, start)
+    rec['echo'] = bool(got)
+    rec['echo_is_replay'] = bool(got) and got[2].get('isReplay') is True
+    rec['echo_seconds'] = round(got[1] - lead.started, 3) if got else None
+    # The echo carries the session it was taken in: the one reading of the resumed session a
+    # dropped duplicate gives, because a drop starts no turn and so sends no system/init (run
+    # 2026-09-27, case B).
+    rec['echo_session_id'] = got[2].get('session_id') if got else None
+    return start, got
+
+
+def resumed_identity(lead, rec):
+    init = lead.init_frame() or {}
+    rec['resumed_session_id'] = init.get('session_id') or rec.get('echo_session_id')
+    rec['claude_code_version'] = init.get('claude_code_version') or init.get('version')
+
+
+def p18_answered(ctx, r):
+    """Case A (and D on the same resumed lead): the answered turn's uuid, resent after a restart."""
+    rec = r.setdefault('A', {})
+    ctl = r.setdefault('D', {})
+    rec['session'] = session = str(uuid_module.uuid4())
+    uid = str(uuid_module.uuid4())
+    first = Lead(ctx, 'P18', 'A-first', ctx.lead_args(session_id=session), reap=True, owner=True)
+    try:
+        first.initialize()
+        start = first.count()
+        first.user('Reply with exactly: MARK-A', uuid=uid)
+        rec['first_answered'] = bool(first.result_after(start, 180)) and results_with(first, start, 'MARK-A') >= 1
+        die_like_the_app(ctx, first, rec)
+    finally:
+        first.close(grace=5)
+    rec['transcript_u_before_resend'] = len(uuid_entries(transcript_rows(ctx, session), uid))
+    resumed = Lead(ctx, 'P18', 'A-resumed', ctx.lead_args(resume=session), reap=True, owner=True)
+    try:
+        resumed.initialize()
+        sent_at = time.time()
+        start, got = resend(ctx, resumed, uid, 'Reply with exactly: MARK-A-AGAIN', rec)
+        time.sleep(max(0, sent_at + 90 - time.time()))  # the 90 s window for any MARK-A-AGAIN
+        rec['frames_30s_after_echo'] = frames_between(resumed, got[1], 30) if got else []
+        rec['again_answered'] = 'MARK-A-AGAIN' in resumed.text(start) or results_with(resumed, start, 'MARK-A-AGAIN') > 0
+        # D, the control: a FRESH uuid on the same resumed lead is answered, so the drop above
+        # is keyed on the uuid and not on the lead refusing everything.
+        d_start = resumed.count()
+        ctl['uuid'] = resumed.user('Reply with exactly: MARK-D')
+        ctl['answered'] = bool(resumed.result_after(d_start, 180)) and results_with(resumed, d_start, 'MARK-D') >= 1
+        resumed_identity(resumed, rec)
+        ctl['resumed_session_id'] = rec['resumed_session_id']
+    finally:
+        resumed.close()
+    rows = transcript_rows(ctx, session)
+    rec['transcript_u_after'] = len(uuid_entries(rows, uid))
+    rec['transcript'] = transcript_summary(rows)
+
+
+def p18_mid_turn(ctx, r):
+    """Case B, recorded and not graded (C7): the app dies while U's own turn runs a command."""
+    rec = r.setdefault('B', {})
+    rec['session'] = session = str(uuid_module.uuid4())
+    uid = str(uuid_module.uuid4())
+    first = Lead(ctx, 'P18', 'B-first', ctx.lead_args(session_id=session), reap=True, owner=True)
+    try:
+        first.initialize()
+        start = first.count()
+        first.user(lead_long_task(ctx, 120, 'with exactly: MARK-B'), uuid=uid)
+        rec['in_shell'] = bool(in_lead_shell(ctx, first, start))
+        die_like_the_app(ctx, first, rec)
+    finally:
+        first.close(grace=5)
+    rows = transcript_rows(ctx, session)
+    rec['transcript_u_before_resend'] = len(uuid_entries(rows, uid))
+    rec['after_u_before_resend'] = after_entry(rows, uid)
+    resumed = Lead(ctx, 'P18', 'B-resumed', ctx.lead_args(resume=session), reap=True, owner=True)
+    try:
+        resumed.initialize()
+        start, got = resend(ctx, resumed, uid, 'Reply with exactly: MARK-B-AGAIN', rec)
+        # A re-executed turn may be the killed one (a 120 s command) or the resent text.
+        resumed.result_after(start, 300)
+        time.sleep(10)
+        rec['frames_30s_after_echo'] = frames_between(resumed, got[1], 30) if got else []
+        rec['turn_after_resend'] = results_with(resumed, start, '') > 0
+        text = resumed.text(start)
+        rec['ran'] = {'MARK-B-AGAIN': 'MARK-B-AGAIN' in text,
+                      'MARK-B (the killed text)': bool(re.search(r'MARK-B(?!-AGAIN)', text)),
+                      'long task again': any('long-task.py' in json.dumps(b.get('input'))
+                                             for b in tool_uses(resumed, start, 'Bash'))}
+        resumed_identity(resumed, rec)
+    finally:
+        resumed.close()
+    rows = transcript_rows(ctx, session)
+    rec['transcript_u_after'] = len(uuid_entries(rows, uid))
+    rec['after_u_after'] = after_entry(rows, uid)
+    rec['transcript'] = transcript_summary(rows)
+
+
+def p18_queued(ctx, r):
+    """Case C (window W4): U waits in the CLI's queue behind a running turn when the app dies."""
+    rec = r.setdefault('C', {})
+    rec['session'] = session = str(uuid_module.uuid4())
+    uid = str(uuid_module.uuid4())
+    first = Lead(ctx, 'P18', 'C-first', ctx.lead_args(session_id=session), reap=True, owner=True)
+    try:
+        first.initialize()
+        start = first.count()
+        rec['v_uuid'] = first.user(lead_long_task(ctx, 180, 'with exactly: MARK-V'))
+        rec['in_shell'] = bool(in_lead_shell(ctx, first, start))
+        queued_at = first.count()
+        first.user('Reply with exactly: MARK-C', uuid=uid)
+        time.sleep(5)
+        rec['echo_before_kill'] = bool(first.wait(lambda f: f.get('type') == 'user' and f.get('uuid') == uid, 0.1,
+                                                  queued_at))
+        rows = transcript_rows(ctx, session)
+        rec['u_in_transcript_before_kill'] = len(uuid_entries(rows, uid))
+        rec['queue_operations_before_kill'] = sum(1 for e in rows if isinstance(e, dict)
+                                                  and e.get('type') == 'queue-operation')
+        die_like_the_app(ctx, first, rec)
+    finally:
+        first.close(grace=5)
+    rec['transcript_u_before_resend'] = len(uuid_entries(transcript_rows(ctx, session), uid))
+    resumed = Lead(ctx, 'P18', 'C-resumed', ctx.lead_args(resume=session), reap=True, owner=True)
+    try:
+        resumed.initialize()
+        start, got = resend(ctx, resumed, uid, 'Reply with exactly: MARK-C-AGAIN', rec)
+        resumed.wait(lambda f: f.get('type') == 'result' and 'MARK-C-AGAIN' in (f.get('result') or ''), 240, start)
+        time.sleep(20)  # a second answer, if one comes, comes in this window
+        rec['frames_30s_after_echo'] = frames_between(resumed, got[1], 30) if got else []
+        rec['again_results'] = results_with(resumed, start, 'MARK-C-AGAIN')
+        resumed_identity(resumed, rec)
+    finally:
+        resumed.close()
+    rows = transcript_rows(ctx, session)
+    rec['transcript_u_after'] = len(uuid_entries(rows, uid))
+    rec['transcript'] = transcript_summary(rows)
+
+
+def p18_live_repeat(ctx, r):
+    """Case E: the same uuid twice to one live lead, no restart (the in-memory check)."""
+    rec = r.setdefault('E', {})
+    uid = str(uuid_module.uuid4())
+    lead = Lead(ctx, 'P18', 'E-live', ctx.lead_args(), reap=True)
+    try:
+        lead.initialize()
+        start = lead.count()
+        lead.user('Reply with exactly: MARK-E', uuid=uid)
+        rec['first_answered'] = bool(lead.result_after(start, 180)) and results_with(lead, start, 'MARK-E') >= 1
+        start, got = resend(ctx, lead, uid, 'Reply with exactly: MARK-E-AGAIN', rec, echo_timeout=60)
+        time.sleep(60)
+        rec['frames_30s_after_echo'] = frames_between(lead, got[1], 30) if got else []
+        rec['again_answered'] = 'MARK-E-AGAIN' in lead.text(start) or results_with(lead, start, 'MARK-E-AGAIN') > 0
+    finally:
+        lead.close()
+
+
+def resumed_session(rec):
+    """The session a resumed lead ran in: its system/init when a turn ran, else the session
+    its echo carried (a dropped duplicate starts no turn, so it sends no init)."""
+    if rec.get('resumed_session_id'):
+        return rec['resumed_session_id']
+    for row in rec.get('frames_30s_after_echo') or []:
+        if row.get('session_id'):
+            return row['session_id']
+    return None
+
+
+def grade_p18(r):
+    """PASS when A, C, D and E pass and every resume kept its session (§1.4). B is recorded."""
+    r = dict(r)
+    for key in ('A', 'B', 'C'):
+        if r.get(key):
+            r[key] = dict(r[key], resumed_session_id=resumed_session(r[key]))
+    a, b, c, d, e = (r.get(k) or {} for k in ('A', 'B', 'C', 'D', 'E'))
+    premises = []
+    if not a.get('first_answered'):
+        premises.append('A: the first MARK-A turn was not answered, so nothing was saved to drop against')
+    if not d.get('answered'):
+        premises.append('D: the resumed lead did not answer a fresh uuid, so a silence proves nothing')
+    if not c.get('in_shell') or c.get('echo_before_kill'):
+        premises.append('C: U was not waiting behind a running command at the kill')
+    if not e.get('first_answered'):
+        premises.append('E: the first MARK-E turn was not answered')
+    for key, rec in (('A', a), ('B', b), ('C', c)):
+        if rec.get('claude_alive_after_grace_plus_one'):
+            premises.append('%s: the lead outlived the app stand-in by more than the grace' % key)
+        if rec and rec.get('resumed_session_id') is None:
+            premises.append('%s: neither a system/init nor an echo named the resumed session' % key)
+    if premises:
+        return 'PREMISE-FALSE', '; '.join(premises)
+    fails = []
+    for key, rec in (('A', a), ('B', b), ('C', c)):
+        if rec.get('resumed_session_id') != rec.get('session'):
+            fails.append('%s: --resume did not keep the session (%s, not %s), so the saved-transcript check reads '
+                         'another file' % (key, rec.get('resumed_session_id'), rec.get('session')))
+    if not (a.get('echo') and not a.get('again_answered') and a.get('transcript_u_after') == 1):
+        fails.append('A: echo %s, MARK-A-AGAIN answered %s, transcript entries for U %s (want echo, no answer, 1)'
+                     % (a.get('echo'), a.get('again_answered'), a.get('transcript_u_after')))
+    if not (c.get('u_in_transcript_before_kill') == 0 and c.get('again_results') == 1
+            and c.get('transcript_u_after') == 1):
+        fails.append('C: U saved before the kill %s, MARK-C-AGAIN answers %s, transcript entries for U %s '
+                     '(want 0, 1, 1)' % (c.get('u_in_transcript_before_kill'), c.get('again_results'),
+                                         c.get('transcript_u_after')))
+    if not (e.get('echo') and not e.get('again_answered')):
+        fails.append('E: echo %s, MARK-E-AGAIN answered %s (want echo, no answer)'
+                     % (e.get('echo'), e.get('again_answered')))
+    if fails:
+        return 'FAIL', '; '.join(fails)
+    return 'PASS', ('a resent uuid already answered in the resumed session was dropped with its echo (A), a fresh '
+                    'uuid was answered (D), a queued message lost with the app was answered once on resend (C), a '
+                    'live repeat was dropped (E), and every resume kept its session; B recorded: %s'
+                    % {k: b.get(k) for k in ('echo', 'ran', 'transcript_u_after')})
+
+
+@probe('P18')
+def p18(ctx, r):
+    r['cases'] = []
+    for case in (p18_answered, p18_mid_turn, p18_queued, p18_live_repeat):
+        try:
+            case(ctx, r)
+            r['cases'].append({'case': case.__name__, 'ok': True})
+        except Exception:  # noqa: BLE001 - one case's harness failure is recorded; the others still run
+            r['cases'].append({'case': case.__name__, 'error': traceback.format_exc()[-2000:]})
+    errors = [c for c in r['cases'] if 'error' in c]
+    if errors:
+        return 'ERROR', 'harness failure in %s: %s' % ([c['case'] for c in errors], errors[0]['error'][-600:])
+    return grade_p18(r)
+
+
+# =============================================================================================
 # W2: the operator walk (r3 §6 verification 5, as r4 §5 changes it), against the app side's
 # own back end, the `operator_walk` example: the declaration gate, the operator host, the
 # launcher with the claim, his engine's scripts, the report tool. Run only when asked.
@@ -2288,7 +2617,7 @@ class Walk(object):
     """The walk's back end, driven over JSON lines: one command, one answer; notices arrive as
     {"event": "say"} lines at any time. Its pid is this harness's own child: owned."""
 
-    def __init__(self, ctx, data, state, root, tag):
+    def __init__(self, ctx, data, state, root, tag, crash=None):
         self.ctx, self.says, self.replies = ctx, [], {}
         self.cond = threading.Condition()
         self.next = 0
@@ -2300,6 +2629,11 @@ class Walk(object):
                'RICHOS_WALK_LAUNCHCTL': str(ctx.p.work / 'launchctl-walk'),
                # The engine's ECS store, so the walk opens and settles obligations for real.
                'RICHOS_WALK_PYTHON': ctx.python}
+        if crash:
+            # W3's crash matrix: the named point aborts the walk (compiled in only with the
+            # `crash-points` feature). The launcher builds his lead's environment from empty,
+            # so this never reaches a lead.
+            env['RICHOS_CRASH_POINT'] = crash
         self.stderr_path = ctx.p.results / ('W2-walk-%s.stderr.txt' % tag)
         self.proc = subprocess.Popen([ctx.walk_binary, 'host', str(data), str(state), str(root)], stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, stderr=open(str(self.stderr_path), 'w'), env=env,
@@ -2834,6 +3168,187 @@ def s6(ctx, r):
 
 
 # =============================================================================================
+# W3: the crash matrix of his answers to his team (richos-hq
+# docs/plans/2026-09-27-answer-delivery-crash-dedup-design.md §4.2). One question set per cell,
+# through the real `operator_walk host`, a real lead and the durable stores. The walk binary is
+# built with the `crash-points` feature; RICHOS_CRASH_POINT names where it aborts. After each
+# crash a new walk opens on the same data folder, and flushes at launch as the app does.
+# =============================================================================================
+
+W3_CELLS = ('baseline', 'W1b', 'W2', 'W3', 'W4')
+
+
+def w3_gate_on(ctx, data, decl, home_env):
+    """W2 step 0's last state only: the declaration written, the switch declared on and the
+    fences installed and on, so the gate opens his team."""
+    p = ctx.p
+    (data / 'operator.json').write_text(json.dumps(decl, indent=1))
+    config = p.entity / 'orchestration.config'
+    config.write_text(config.read_text() + 'OPERATOR_FENCES="on"\nOPERATOR_FENCES_REPOS="%s"\n' % p.entity)
+    git(p.entity, 'add', 'orchestration.config')
+    git(p.entity, 'commit', '-q', '-m', 'W3 fixture: the operator switch declared on')
+    git(p.entity, 'push', '-q', 'origin', 'main')
+    fences = p.engine / 'scripts' / 'operator-fences.sh'
+    for verb in ('install', 'on'):
+        run(['/bin/bash', str(fences), verb, '--entity', str(p.entity)], env=home_env, cwd=str(p.entity), timeout=120)
+    return w2_gate(ctx, ctx.walk_binary, data)
+
+
+def w3_ledger(ctx, data, thread_name):
+    """What the durable stores hold for one cell's conversation: the answer relay, the inbox's
+    operator inputs still waiting, and how many transcript entries carry the relay's uuid."""
+    names = json.loads((data / 'walk-threads.json').read_text()) if (data / 'walk-threads.json').exists() else {}
+    tid = names.get(thread_name)
+    out = {'thread_id': tid}
+    record = data / 'operator' / 'femcboost' / (tid or '-') / 'lead.json'
+    relays = json.loads(record.read_text()).get('answers', []) if record.exists() else []
+    out['relays'] = relays
+    waiting = 0
+    for path in (data / 'engine-state' / 'questions' / 'work-inputs').glob('*.json'):
+        try:
+            row = json.loads(path.read_text())
+        except ValueError:
+            continue
+        if not row.get('handed') and (row.get('delivery') or {}).get('thread_id') == tid:
+            waiting += 1
+    out['inbox_waiting'] = waiting
+    out['transcript_uuid_counts'] = {rel['uuid']: len(uuid_entries(transcript_rows(ctx, rel.get('session') or '-'), rel['uuid']))
+                                     for rel in relays if rel.get('session')}
+    return out
+
+
+def w3_reports(says, thread, marker):
+    """How many times the lead made THE report: a notice on the thread whose text BEGINS with
+    the marker ("<marker>: <label>", as instructed). The lead's own closing words may quote
+    the marker ("Reported. His answer was ... I've recorded W3-W1B-GOT ..."); that is not a
+    second report (run 2026-09-27, VM probes-adb41bb1d841, cells W1b, W2 and W3)."""
+    return sum(1 for s in says if s.get('thread') == thread and (s.get('text') or '').startswith(marker))
+
+
+def grade_w3_cell(rec):
+    ledger = rec.get('ledger') or {}
+    relays = ledger.get('relays') or []
+    return (rec.get('reports') == 1 and len(relays) == 1 and relays[0].get('taken') is True
+            and ledger.get('inbox_waiting') == 0
+            and list((ledger.get('transcript_uuid_counts') or {}).values()) == [1])
+
+
+def w3_cell(ctx, data, state, root, cell):
+    rec = {'cell': cell}
+    thread, title = 'w3-%s' % cell.lower(), 'Walk W3 %s' % cell
+    marker = 'W3-%s-GOT' % cell.upper()
+    crash = cell if cell in ('W1b', 'W2', 'W3') else None
+    prepared = [{'text': 'When should release %s ship?' % cell, 'options': [
+        {'label': 'Ship today', 'description': 'Earlier fixes'},
+        {'label': 'Ship tomorrow', 'description': 'More testing'}]}]
+    walk = Walk(ctx, data, state, root, 'w3-%s-first' % cell, crash=crash)
+    walks = [walk]
+    try:
+        if not walk.ready:
+            rec['error'] = 'the walk did not start: %s' % (walk.stderr_path.read_text()[-600:] if walk.stderr_path.exists() else '')
+            return rec
+        rec['register'] = walk.call('assign', thread=thread, title=title, origin='desk-typed', timeout=480,
+            text=FIXTURE_NOTE + ('Call mcp__richos_operator__report once with kind question, handle set to this '
+            'assignment\'s handle, text "W3 question", and questions set to this exact array: %s. Then reply with '
+            'exactly: W3-ASKED. When his answer arrives, call mcp__richos_operator__report once with kind update on '
+            'the same handle and text "%s: " followed by the label he chose. Report it once only, and never ask this '
+            'again.' % (json.dumps(prepared), marker)))
+        handle = rec['register'].get('handle')
+        questions = []
+        deadline = time.time() + 300
+        while handle and time.time() < deadline and len(questions) != 1:
+            questions = walk.call('questions', thread=thread, handle=handle).get('questions', [])
+            time.sleep(2)
+        rec['question_count'] = len(questions)
+        if len(questions) != 1:
+            return rec
+        walk.wait_say(lambda s: s['thread'] == thread and 'W3-ASKED' in s['text'], 240)
+        if cell == 'W4':
+            # Window W4: his answer waits in the CLI's queue behind a running command.
+            walk.call('assign', thread=thread, title=title, origin='desk-typed',
+                      text=lead_long_task(ctx, 180, 'with exactly: W3-LONG-DONE'))
+            rec['long_task_pid'] = wait_long_task(walk.proc.pid, 180, 240)
+        option = next(o['id'] for o in questions[0]['options'] if o['label'] == 'Ship tomorrow')
+        request = {'question_id': questions[0]['id'], 'client_id': 'w3-' + cell, 'option_ids': [option], 'text': '',
+                   'expected_revision': None}
+        rec['answer'] = walk.call('answer-question', thread=thread, method='phone_tap', answer=request,
+                                  timeout=60 if crash in ('W1b', 'W2') else 180)
+        if cell == 'W4':
+            time.sleep(5)
+            rec['long_task_alive_at_kill'] = bool(rec.get('long_task_pid')) and alive(rec['long_task_pid'])
+            walk.kill()
+        elif crash:
+            try:
+                walk.proc.wait(timeout=180)  # the crash point aborts the walk
+            except subprocess.TimeoutExpired:
+                rec['crash_point_not_reached'] = True
+                walk.kill()
+        else:
+            walk.wait_say(lambda s: s['thread'] == thread and marker in s['text'], 300)
+        rec['first_exit'] = walk.proc.poll()
+        if cell != 'baseline':
+            time.sleep(OPERATOR_REAP_GRACE + 1)
+            walk = Walk(ctx, data, state, root, 'w3-%s-relaunched' % cell)
+            walks.append(walk)
+            got = walk.wait_say(lambda s: s['thread'] == thread and marker in s['text'], 180)
+            rec['nudged'] = False
+            if not got:
+                # The crash killed the turn that had taken the answer: W3 by construction, and
+                # W2 when the lead began it first. That answer is not resent (W3, design §2.3),
+                # or its resend is dropped (P18 case B: a killed turn reads as answered), so it
+                # sits in the lead's context once and nothing prompts the lead. His next words
+                # in the conversation do; they are given once, and recorded.
+                rec['nudged'] = True
+                walk.call('assign', thread=thread, title=title, origin='desk-typed',
+                          text='Continue where you left off in this conversation.')
+                walk.wait_say(lambda s: s['thread'] == thread and marker in s['text'], 300)
+        time.sleep(20)  # a second report, if any, comes in this window
+        rec['marker'] = marker
+        rec['reports'] = w3_reports([s for w in walks for s in w.says], thread, marker)
+        # Every notice that names the marker is kept whole for the record, then the last 12 of the rest.
+        rec['marker_says'] = [s for w in walks for s in w.says if s['thread'] == thread and marker in s['text']]
+        rec['says'] = [s for w in walks for s in w.says if s['thread'] == thread][-12:]
+        rec['ledger'] = w3_ledger(ctx, data, thread)
+    finally:
+        for w in walks:
+            if w.proc.poll() is None:
+                rec.setdefault('quit', []).append(w.quit())
+        rec['walks_gone'] = [w.proc.poll() is not None for w in walks]
+    rec['pass'] = grade_w3_cell(rec)
+    return rec
+
+
+@probe('W3', explicit=True)
+def w3(ctx, r):
+    if not getattr(ctx, 'walk_binary', None) or not os.path.exists(ctx.walk_binary):
+        return 'NOT-RUN', 'no operator_walk binary built with --features crash-points was handed to the guest'
+    p = ctx.p
+    decl, home_env = w2_fixture(ctx, r)
+    data = p.work / 'w3-data'
+    data.mkdir(parents=True, exist_ok=True)
+    state, root = p.work / 'w3-engine-state', p.work / 'w3-operator'
+    r['gate'] = w3_gate_on(ctx, data, decl, home_env)
+    if r['gate'].get('gate') != 'operator':
+        return 'PREMISE-FALSE', 'the gate did not open his team: %s' % r['gate']
+    cells = r.setdefault('cells', {})
+    for cell in W3_CELLS:
+        try:
+            cells[cell] = w3_cell(ctx, data, state, root, cell)
+        except Exception:  # noqa: BLE001 - one cell's harness failure is recorded; the next still runs
+            cells[cell] = {'cell': cell, 'error': traceback.format_exc()[-2000:], 'pass': False}
+    claim = p.claude_dir / 'state' / 'operator-lead.json'
+    left = json.loads(claim.read_text()).get('processes', []) if claim.exists() else []
+    r['lead_pids_alive_after'] = {str(x['pid']): alive(x['pid']) for x in left if x.get('role') != 'app'}
+    passed = [c for c in W3_CELLS if cells[c].get('pass')]
+    failed = [c for c in W3_CELLS if not cells[c].get('pass')]
+    nudged = [c for c in W3_CELLS if cells[c].get('nudged')]
+    if failed:
+        return 'FAIL', 'cells passed: %s; not passed: %s; needed his next words: %s' % (passed, failed, nudged)
+    return 'PASS', ('every cell: reported once by the lead, one transcript entry for the uuid, inbox empty, relay '
+                    'taken; needed his next words (the crash killed the turn that took it): %s' % nudged)
+
+
+# =============================================================================================
 # driver
 # =============================================================================================
 
@@ -2882,7 +3397,49 @@ def regrade_p17(artifact_frames, control_frames):
     return 'FAIL', 'the read-only calls did not both succeed: %s' % main['calls'], r
 
 
+def regrade_w3(record):
+    """Grade a saved W3 run with no guest: each cell's reports recounted by w3_reports over the
+    notices it saved. Refuses (ERROR) when the saved notices cannot hold every marker notice the
+    run counted, because a recount over a cut list would prove nothing."""
+    cells = {}
+    for cell, rec in (record.get('cells') or {}).items():
+        rec = dict(rec)
+        thread = 'w3-%s' % cell.lower()
+        marker = rec.get('marker') or 'W3-%s-GOT' % cell.upper()
+        saved = rec.get('marker_says') or [s for s in rec.get('says') or [] if marker in (s.get('text') or '')]
+        naming = sum(1 for s in rec.get('says') or [] if marker in (s.get('text') or ''))
+        if 'marker_says' not in rec and naming < (rec.get('reports') or 0):
+            return 'ERROR', 'cell %s counted %s marker notices but saved only %s' % (cell, rec.get('reports'), naming), {}
+        rec['reports'] = w3_reports(saved, thread, marker)
+        rec['pass'] = grade_w3_cell(rec) if not rec.get('error') else False
+        cells[cell] = rec
+    passed = [c for c in W3_CELLS if (cells.get(c) or {}).get('pass')]
+    failed = [c for c in W3_CELLS if not (cells.get(c) or {}).get('pass')]
+    nudged = [c for c in W3_CELLS if (cells.get(c) or {}).get('nudged')]
+    facts = {c: {'reports': cells[c].get('reports'), 'nudged': cells[c].get('nudged'), 'pass': cells[c].get('pass')}
+             for c in cells}
+    if failed:
+        return 'FAIL', 'cells passed: %s; not passed: %s; needed his next words: %s' % (passed, failed, nudged), facts
+    return 'PASS', ('every cell: reported once by the lead, one transcript entry for the uuid, inbox empty, relay '
+                    'taken; needed his next words (the crash killed the turn that took it): %s' % nudged), facts
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == '--grade-w3':
+        if len(sys.argv) != 3:
+            print('usage: guest_probes.py --grade-w3 <W3.json>', file=sys.stderr)
+            return 2
+        verdict, why, facts = regrade_w3(json.loads(Path(sys.argv[2]).read_text()))
+        print(json.dumps({'probe': 'W3', 'graded_from': sys.argv[2], 'verdict': verdict, 'why': why, 'facts': facts},
+                         indent=1))
+        return 0 if verdict == 'PASS' else 1
+    if len(sys.argv) > 1 and sys.argv[1] == '--grade-p18':
+        if len(sys.argv) != 3:
+            print('usage: guest_probes.py --grade-p18 <P18.json>', file=sys.stderr)
+            return 2
+        verdict, why = grade_p18(json.loads(Path(sys.argv[2]).read_text()))
+        print(json.dumps({'probe': 'P18', 'graded_from': sys.argv[2], 'verdict': verdict, 'why': why}, indent=1))
+        return 0 if verdict == 'PASS' else 1
     if len(sys.argv) > 1 and sys.argv[1] == '--grade-p17':
         if len(sys.argv) != 4:
             print('usage: guest_probes.py --grade-p17 <P17-artifact.jsonl> <P17-control.jsonl>', file=sys.stderr)
