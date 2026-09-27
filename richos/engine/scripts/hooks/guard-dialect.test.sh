@@ -160,6 +160,13 @@ case_exit "B20. vendor LICENSE.md"                             0 Write "/tmp/LIC
 case_exit "B21. vendor NOTICE"                                 0 Write "/tmp/NOTICE" "licence terms, unmodified"
 case_exit "B22. package-lock.json"                             0 Write "/tmp/package-lock.json" "{\"licence\": \"x\"}"
 case_exit "B23. the guard's own dictionary"                    0 Write "$DICT" "colour	color"
+# The generated American spelling table's three vocabulary files (2026-09-27).
+# Named basenames, so a lookalike name beside them is still prose (B23e).
+DIALECT_DATA="$ENGINE_ROOT/scripts/lib/dialect"
+case_exit "B23b. the generated table"                          0 Write "$DIALECT_DATA/dialect-en-US.generated.dict" "colour	color"
+case_exit "B23c. the table's override list"                    0 Write "$DIALECT_DATA/dialect-en-US.overrides.dict" "colour	color"
+case_exit "B23d. the table's leave list"                       0 Write "$DIALECT_DATA/dialect-en-US.leave.tsv" "colour	a reason"
+case_exit "B23e. ...but a lookalike name is still checked"     2 Write "$DIALECT_DATA/notes-dialect-en-US.generated.md" "the colour of it"
 case_exit "B24. legacy '.ceo-queue' file name (identifier)"    0 Write "$MD" "a pre-rename .ceo-queue is still read"
 case_exit "B25. 'ceo_queue' identifier"                        0 Write "/tmp/x.py" "ceo_queue = load()"
 case_exit "B26. rename narration: 'called the CEO queue'"      0 Write "$MD" "It was called the CEO queue; it is now CEO-TODOs."
@@ -274,9 +281,19 @@ grep -q 'dialect-en-US\.dict' "$ENGINE_ROOT/scripts/hooks/install.sh" \
     || bad "E4. the dictionary is sidecar-hashed by install.sh"
 
 # E5 — ONE vocabulary. A second word list anywhere in the engine is the defect
-# scripts/lib/registered-hooks.sh exists to describe, one domain over.
+# scripts/lib/registered-hooks.sh exists to describe, one domain over. The
+# generated table (scripts/lib/dialect/dialect-en-US.generated.dict) is not a
+# second list: it is GENERATED from this dictionary plus pinned VarCon data,
+# and dialect-table.test.py fails the moment it stops containing every line of
+# the dictionary or drifts from a fresh regeneration. It is excluded by its
+# exact path, never by a pattern. So is the one declared location for British
+# TEST INPUTS (scripts/lib/dialect/fixtures/, step 0's promise to the streams
+# that build the fixer): a test input lists British words by design, and no
+# guard ever reads it as vocabulary.
 DUP="$(grep -rlE '^(colour|behaviour|licence)\b' "$ENGINE_ROOT/scripts" 2>/dev/null \
-        | grep -v 'dialect-en-US.dict' | grep -v 'guard-dialect' || true)"
+        | grep -v 'dialect-en-US.dict' | grep -v 'guard-dialect' \
+        | grep -vxF "$ENGINE_ROOT/scripts/lib/dialect/dialect-en-US.generated.dict" \
+        | grep -vF "$ENGINE_ROOT/scripts/lib/dialect/fixtures/" || true)"
 [ -z "$DUP" ] && ok "E5. the vocabulary lives in exactly one file" \
               || bad "E5. the vocabulary lives in exactly one file" "also in: $DUP"
 
