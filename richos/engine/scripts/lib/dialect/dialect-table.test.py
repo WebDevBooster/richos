@@ -215,6 +215,32 @@ class Refusals(Base):
             self.run_with(overrides=[(form, target), (form, target)])
 
 
+class KeyedSample(Base):
+    """fixtures/british-keyed.txt, the research's keyed sample: the table must carry every
+    must-fix item as data, and carry no must-leave word except the declared context traps."""
+    KEY = re.compile(r"\{([^|{}]+)\|([^{}]*)\}")
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        items = cls.KEY.findall((FIXTURES / "british-keyed.txt").read_text(encoding="utf-8"))
+        cls.fix = [(b, a) for b, a in items if a != "="]
+        cls.keep = [b for b, a in items if a == "="]
+        cls.context_traps = {ln.strip() for ln in (FIXTURES / "british-keyed.context-traps.txt")
+                             .read_text(encoding="utf-8").splitlines()
+                             if ln.strip() and not ln.startswith("#")}
+
+    def test_sample_shape(self):
+        self.assertEqual((len(self.fix), len(self.keep)), (106, 30))
+
+    def test_every_must_fix_item_is_in_the_table(self):
+        missed = [(b, a) for b, a in self.fix if self.rows.get(b.lower(), ("",))[0] != a.lower()]
+        self.assertEqual(missed, [])
+
+    def test_only_declared_context_traps_are_in_the_table(self):
+        self.assertEqual({b.lower() for b in self.keep if b.lower() in self.rows}, self.context_traps)
+
+
 class OwnCode(Base):
     def test_own_code_carries_no_vocabulary_word(self):
         # These files need no dialect exemption because they contain no word the table would
