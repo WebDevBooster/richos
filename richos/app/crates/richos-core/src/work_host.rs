@@ -1288,7 +1288,7 @@ impl WorkHost {
             // nothing to say about such a task — `what_happened` would read none and say *"No
             // work was started, so nothing was landed"* — and the obligation can never close,
             // because the engine's `complete` needs at least one worker. That is the sentence
-            // the test VM measured on 2026-09-27, 3.5 s after the command he asked for had
+            // the test VM measured on 2026-09-27, 3.6-4.1 s after the command he asked for had
             // started, with the back end's own report thrown away beside it.
             //
             // **So what he hears is the back end's report, as the report**: the §58 shape, and
@@ -4305,9 +4305,9 @@ mod tests {
     /// **A TASK THE BACK END CARRIED OUT ITSELF IS REPORTED IN ITS OWN WORDS** —
     /// esc-20260927T093052Z-85f3303f, measured in the test VM on 2026-09-27.
     ///
-    /// He asked for a command to be run. The back end ran it (the process started 2.2 s after
+    /// He asked for a command to be run. The back end ran it (the process started within 4.3 s of
     /// his approval, `sleep 90` under the back end's own `claude`), said what it had done, and
-    /// ended its turn 3.5 s later. No helper was ever prepared — there was nothing to land —
+    /// ended its turn 3.6-4.1 s after the command started. No helper was ever prepared — there was nothing to land —
     /// so the engine's `complete` (which needs at least one worker) could never close the
     /// obligation, and the host read the receipts, found none, and told him *"It stopped
     /// before it finished. No work was started, so nothing was landed."* The back end's own

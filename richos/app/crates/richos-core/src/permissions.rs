@@ -409,7 +409,7 @@ impl ScopedPermissions {
         // returned goes to the ASSIGNMENT, and the work host can only put the assignment back
         // on the lease once this turn is over. A second request here would hold the turn for
         // a whole deadline of its own — measured in the test VM: he approved the first
-        // command and nothing ran for 135.6 s, because the back end had gone on to ask for a
+        // command and nothing ran for 133.5-137.5 s, because the back end had gone on to ask for a
         // different one. So it is refused at once and never put in front of him; the resumed
         // run asks again if it still needs it. Another assignment's requests are untouched.
         let key=assignment_key(&binding);
@@ -624,7 +624,7 @@ impl ScopedPermissions {
     /// The back end asked for one command, its call ended at the deadline, and instead of
     /// ending its turn it asked for a DIFFERENT command. That second request held the turn for
     /// another full deadline, and the work host cannot put the assignment back on the lease
-    /// until the turn ends: he approved the first command and nothing ran for 135.6 s. So once
+    /// until the turn ends: he approved the first command and nothing ran for 133.5-137.5 s. So once
     /// a step of this assignment is waiting on him with no call left to take his answer, a
     /// further request on the SAME assignment is refused at once, is not put in front of him,
     /// and tells the back end to end its turn.

@@ -3,7 +3,7 @@
 
 The failing record is the one the test VM wrote on 2026-09-27 (bundle 1.2.0-dev.39da4129,
 esc-20260927T093052Z-85f3303f): the back end ran the command he asked for, said so, and the
-assignment ended `failed` with "No work was started, so nothing was landed." 3.5 s later.
+assignment ended `failed` with "No work was started, so nothing was landed." 3.6-4.1 s after the command started.
 """
 import importlib.util
 from pathlib import Path
