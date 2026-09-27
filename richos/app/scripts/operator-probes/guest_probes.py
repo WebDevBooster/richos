@@ -3217,6 +3217,14 @@ def w3_ledger(ctx, data, thread_name):
     return out
 
 
+def w3_reports(says, thread, marker):
+    """How many times the lead made THE report: a notice on the thread whose text BEGINS with
+    the marker ("<marker>: <label>", as instructed). The lead's own closing words may quote
+    the marker ("Reported. His answer was ... I've recorded W3-W1B-GOT ..."); that is not a
+    second report (run 2026-09-27, VM probes-adb41bb1d841, cells W1b, W2 and W3)."""
+    return sum(1 for s in says if s.get('thread') == thread and (s.get('text') or '').startswith(marker))
+
+
 def grade_w3_cell(rec):
     ledger = rec.get('ledger') or {}
     relays = ledger.get('relays') or []
@@ -3295,7 +3303,10 @@ def w3_cell(ctx, data, state, root, cell):
                           text='Continue where you left off in this conversation.')
                 walk.wait_say(lambda s: s['thread'] == thread and marker in s['text'], 300)
         time.sleep(20)  # a second report, if any, comes in this window
-        rec['reports'] = sum(1 for w in walks for s in w.says if s['thread'] == thread and marker in s['text'])
+        rec['marker'] = marker
+        rec['reports'] = w3_reports([s for w in walks for s in w.says], thread, marker)
+        # Every notice that names the marker is kept whole for the record, then the last 12 of the rest.
+        rec['marker_says'] = [s for w in walks for s in w.says if s['thread'] == thread and marker in s['text']]
         rec['says'] = [s for w in walks for s in w.says if s['thread'] == thread][-12:]
         rec['ledger'] = w3_ledger(ctx, data, thread)
     finally:
@@ -3386,7 +3397,42 @@ def regrade_p17(artifact_frames, control_frames):
     return 'FAIL', 'the read-only calls did not both succeed: %s' % main['calls'], r
 
 
+def regrade_w3(record):
+    """Grade a saved W3 run with no guest: each cell's reports recounted by w3_reports over the
+    notices it saved. Refuses (ERROR) when the saved notices cannot hold every marker notice the
+    run counted, because a recount over a cut list would prove nothing."""
+    cells = {}
+    for cell, rec in (record.get('cells') or {}).items():
+        rec = dict(rec)
+        thread = 'w3-%s' % cell.lower()
+        marker = rec.get('marker') or 'W3-%s-GOT' % cell.upper()
+        saved = rec.get('marker_says') or [s for s in rec.get('says') or [] if marker in (s.get('text') or '')]
+        naming = sum(1 for s in rec.get('says') or [] if marker in (s.get('text') or ''))
+        if 'marker_says' not in rec and naming < (rec.get('reports') or 0):
+            return 'ERROR', 'cell %s counted %s marker notices but saved only %s' % (cell, rec.get('reports'), naming), {}
+        rec['reports'] = w3_reports(saved, thread, marker)
+        rec['pass'] = grade_w3_cell(rec) if not rec.get('error') else False
+        cells[cell] = rec
+    passed = [c for c in W3_CELLS if (cells.get(c) or {}).get('pass')]
+    failed = [c for c in W3_CELLS if not (cells.get(c) or {}).get('pass')]
+    nudged = [c for c in W3_CELLS if (cells.get(c) or {}).get('nudged')]
+    facts = {c: {'reports': cells[c].get('reports'), 'nudged': cells[c].get('nudged'), 'pass': cells[c].get('pass')}
+             for c in cells}
+    if failed:
+        return 'FAIL', 'cells passed: %s; not passed: %s; needed his next words: %s' % (passed, failed, nudged), facts
+    return 'PASS', ('every cell: reported once by the lead, one transcript entry for the uuid, inbox empty, relay '
+                    'taken; needed his next words (the crash killed the turn that took it): %s' % nudged), facts
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == '--grade-w3':
+        if len(sys.argv) != 3:
+            print('usage: guest_probes.py --grade-w3 <W3.json>', file=sys.stderr)
+            return 2
+        verdict, why, facts = regrade_w3(json.loads(Path(sys.argv[2]).read_text()))
+        print(json.dumps({'probe': 'W3', 'graded_from': sys.argv[2], 'verdict': verdict, 'why': why, 'facts': facts},
+                         indent=1))
+        return 0 if verdict == 'PASS' else 1
     if len(sys.argv) > 1 and sys.argv[1] == '--grade-p18':
         if len(sys.argv) != 3:
             print('usage: guest_probes.py --grade-p18 <P18.json>', file=sys.stderr)

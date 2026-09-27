@@ -464,6 +464,26 @@ class CrashMatrix(unittest.TestCase):
             rec['ledger'][key] = value
             self.assertFalse(gp.grade_w3_cell(rec), (key, value))
 
+    def test_the_report_is_the_notice_that_begins_with_the_marker(self):
+        """Run 2026-09-27, cell W1b: one report, then the lead's closing words quoting it."""
+        says = [{'thread': 'w3-w1b', 'kind': 'update', 'text': 'W3-W1B-GOT: Ship tomorrow'},
+                {'thread': 'w3-w1b', 'kind': 'update',
+                 'text': 'Reported. His answer was "Ship tomorrow," and I\'ve recorded W3-W1B-GOT: Ship tomorrow.'},
+                {'thread': 'w3-w2', 'kind': 'update', 'text': 'W3-W1B-GOT: another conversation'}]
+        self.assertEqual(gp.w3_reports(says, 'w3-w1b', 'W3-W1B-GOT'), 1)
+        says.append({'thread': 'w3-w1b', 'kind': 'update', 'text': 'W3-W1B-GOT: Ship tomorrow'})
+        self.assertEqual(gp.w3_reports(says, 'w3-w1b', 'W3-W1B-GOT'), 2, 'a second report is a second report')
+
+    def test_a_saved_run_is_regraded_only_from_a_complete_list(self):
+        cell = self.cell(reports=2, says=[{'thread': 'w3-w1b', 'text': 'W3-W1B-GOT: Ship tomorrow'},
+                                          {'thread': 'w3-w1b', 'text': 'Reported. I recorded W3-W1B-GOT: Ship tomorrow.'}])
+        record = {'cells': {c: dict(self.cell(), says=[{'thread': 'w3-%s' % c.lower(), 'text': 'W3-%s-GOT: x' % c.upper()}])
+                            for c in gp.W3_CELLS}}
+        record['cells']['W1b'] = cell
+        self.assertEqual(gp.regrade_w3(record)[0], 'PASS')
+        record['cells']['W1b'] = dict(cell, reports=3)
+        self.assertEqual(gp.regrade_w3(record)[0], 'ERROR', 'a count the saved notices cannot hold is refused')
+
     def test_the_matrix_runs_only_when_named_and_needs_its_binary(self):
         self.assertIn('W3', gp.EXPLICIT, 'a default probe run must never start the crash matrix')
         self.assertEqual(gp.W3_CELLS, ('baseline', 'W1b', 'W2', 'W3', 'W4'))
