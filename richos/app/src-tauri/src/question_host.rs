@@ -139,34 +139,14 @@ pub fn start(app: AppHandle) {
         .spawn(move || {
             for () in work_events {
                 let state = receiver.state::<AppState>();
-                let store = store(&state);
                 let view = state.reader.snapshot();
-                for delivery in
-                    richos_core::question_work::pending(&state.data_dir.join("engine-state"))
-                        .unwrap_or_default()
-                {
-                    if delivery.asker.starts_with("operator:") { continue; }
-                    if let Ok(binding) = view.ledger().thread_binding(&delivery.thread_id) {
-                        drop(state.work.queue_question_answer(&binding, &delivery));
-                    }
-                }
-                for (entity, thread, asker) in store.pending_threads().unwrap_or_default() {
-                    if asker == "front_desk" {
-                        continue;
-                    }
-                    let Ok(binding) = view.ledger().thread_binding(&thread) else {
-                        continue;
-                    };
-                    if let Err(error) = store.deliver(&entity, &thread, &asker, |d| {
-                        if d.asker.starts_with("operator:") {
-                            state.operator.as_ref().ok_or("Your team is unavailable")?.queue_question_answer(d)
-                        } else {
-                            state.work.queue_question_answer(&binding, d)
-                        }
-                    }) {
-                        eprintln!("[richos] team answer remains saved: {error}");
-                    }
-                }
+                // The pass itself is richos-core's (`WorkHost::deliver_team_answers`, the
+                // work-path design D8), so the tests and the VM crash matrix run it as it ships.
+                let binding_for = |thread: &str| view.ledger().thread_binding(thread).ok();
+                let lead = state.operator.as_ref()
+                    .map(|desk| move |d: &richos_core::questions::Delivery| desk.queue_question_answer(d));
+                state.work.deliver_team_answers(&binding_for,
+                    lead.as_ref().map(|f| f as &dyn Fn(&richos_core::questions::Delivery) -> Result<String, String>));
                 if let Some(desk) = &state.operator {
                     if let Err(error) = desk.flush_question_answers() {
                         eprintln!("[richos] operator answer remains saved: {error}");
@@ -252,6 +232,7 @@ pub fn start(app: AppHandle) {
                             q.state,
                             q.revision,
                             q.delivered,
+                            q.awaiting_taker,
                             q.handoff_started,
                             q.waiting_for_turn,
                             q.remaining,

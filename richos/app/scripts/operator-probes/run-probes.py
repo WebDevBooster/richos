@@ -12,7 +12,12 @@ the engine at a named commit, runs `guest_probes.py` inside the guest in the for
 pulls the results back, and deletes the clone however the run ends (§54).
 
   run-probes.py --out DIR [--only P1,P2,...] [--engine-rev REV] [--wait SECONDS] [--survey]
-                [--walk-binary PATH] [--w3-cells W3,...]
+                [--walk-binary PATH] [--w3-cells W3,...] [--work-walk-binary BIN --runtime DIR]
+                [--w4-cells baseline,P5,...]
+
+W4 (the work path's crash matrix, richos-hq docs/plans/2026-09-27-work-path-answer-delivery-design.md
+§4.2) runs a real work lease, which needs the delivered runtime the app ships: --runtime names one
+(default ~/.richos-nightly/runtime, read only), and it is copied into the guest with the binary.
 
 Exit: the guest driver's exit code (0 when every probe that ran PASSED; 1 when any FAILED
 or its premise was false; 2 for a harness failure), or 75 when admission was refused.
@@ -100,6 +105,13 @@ def main():
     p.add_argument('--probe-timeout', type=int, default=900, help='seconds per probe inside the guest')
     p.add_argument('--walk-binary', type=Path, default=None,
                    help='the operator_walk example binary (cargo build --example operator_walk), for the W2 walk')
+    p.add_argument('--work-walk-binary', type=Path, default=None,
+                   help='the work_walk example binary (cargo build --features crash-points --example work_walk), for W4')
+    p.add_argument('--runtime', type=Path, default=Path.home() / '.richos-nightly' / 'runtime',
+                   help='a delivered runtime (delivery.json and its files) for W4\'s work lease; read, never written')
+    p.add_argument('--w4-cells', default='',
+                   help='comma-separated work crash-matrix cells for W4 (baseline,P4-carry,P4-sent,P5,P4e,P7; default '
+                        'all), so one cell can be retried alone')
     p.add_argument('--w3-cells', default='',
                    help='comma-separated crash-matrix cells for W3 (baseline,W1b,W2,W3,W4; default all), so one '
                         'cell can be rerun alone')
@@ -148,6 +160,16 @@ def main():
                     if a.walk_binary:
                         t.add(str(a.walk_binary.resolve()), arcname='probes/operator_walk')
                         report['walk_binary_sha256'] = __import__('hashlib').sha256(a.walk_binary.read_bytes()).hexdigest()
+                    if a.work_walk_binary:
+                        if not (a.runtime / 'delivery.json').is_file():
+                            raise RuntimeError('W4 needs a delivered runtime; %s has no delivery.json' % a.runtime)
+                        t.add(str(a.work_walk_binary.resolve()), arcname='probes/work_walk')
+                        report['work_walk_binary_sha256'] = __import__('hashlib').sha256(
+                            a.work_walk_binary.read_bytes()).hexdigest()
+                        # Symlinks stay links (delivery.json lists them); the guest checks every hash.
+                        t.add(str(a.runtime.resolve()), arcname='probes/runtime')
+                        report['runtime_delivery_sha256'] = __import__('hashlib').sha256(
+                            (a.runtime / 'delivery.json').read_bytes()).hexdigest()
                 boot = subprocess.Popen([str(TESTVM / 'run.sh'), '--no-app', '--no-tailnet', '--vm', vm, '--home', str(home)],
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
                 try:
@@ -172,6 +194,10 @@ def main():
                     args += ['--survey']
                 if a.walk_binary:
                     args += ['--walk-binary', f'{payload}/probes/operator_walk']
+                if a.work_walk_binary:
+                    args += ['--work-walk-binary', f'{payload}/probes/work_walk', '--runtime', f'{payload}/probes/runtime']
+                if a.w4_cells:
+                    args += ['--w4-cells', a.w4_cells]
                 if a.w3_cells:
                     args += ['--w3-cells', a.w3_cells]
                 command = ' '.join(shlex.quote(x) for x in args)

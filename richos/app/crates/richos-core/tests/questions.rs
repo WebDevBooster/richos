@@ -375,15 +375,60 @@ fn work_receiving_inbox_deduplicates_an_uncertain_handoff() {
         richos_core::question_work::pending(&f.root).unwrap().len(),
         1
     );
-    let input =
-        richos_core::question_work::take(&f.root, "entity", "thread", "front_desk").unwrap();
-    assert_eq!(input.len(), 1);
-    assert!(
-        richos_core::question_work::take(&f.root, "entity", "thread", "front_desk")
-            .unwrap()
-            .is_empty()
-    );
-    assert!(!richos_core::question_work::enqueue(&f.root, &input[0]).unwrap());
+    // Reading what a run carries lets nothing go: a crash before the back end takes it
+    // leaves it pending (the work-path design, D1).
+    let carried =
+        richos_core::question_work::peek(&f.root, "entity", "thread", "front_desk", "session-1").unwrap();
+    assert_eq!(carried.new.len(), 1);
+    assert_eq!(richos_core::question_work::pending(&f.root).unwrap().len(), 1);
+    richos_core::question_work::taken(&f.root, &carried.ids(), "session-1").unwrap();
+    assert!(richos_core::question_work::pending(&f.root).unwrap().is_empty());
+    // Taken in this session: never carried to it again, and a retried handoff is not new.
+    assert!(richos_core::question_work::peek(&f.root, "entity", "thread", "front_desk", "session-1")
+        .unwrap()
+        .is_empty());
+    assert!(!richos_core::question_work::enqueue(&f.root, &carried.new[0]).unwrap());
+    // A fresh session has never seen it, so it is told again, as an earlier answer (D5).
+    let fresh =
+        richos_core::question_work::peek(&f.root, "entity", "thread", "front_desk", "session-2").unwrap();
+    assert!(fresh.new.is_empty());
+    assert_eq!(fresh.earlier.len(), 1);
+    // Let go with its ended assignment: never told to anyone again.
+    richos_core::question_work::discard(&f.root, "entity", "thread", "front_desk").unwrap();
+    assert!(richos_core::question_work::peek(&f.root, "entity", "thread", "front_desk", "session-3")
+        .unwrap()
+        .is_empty());
+}
+/// **"Rich has your answer" only once the taker has it** (the work-path design D7). A front-desk
+/// set is taken by its own sink and reads delivered at once. A set whose sink keeps it in a
+/// receiving inbox reads NOT delivered until a back end takes it, with no surface change: the
+/// card already says "On its way to Rich" for that.
+#[test]
+fn the_card_says_delivered_only_once_an_inbox_answer_is_taken() {
+    let mut f = Fixture::new();
+    let front = f.ask(1).remove(0);
+    f.answer(&front, "front", 0, None);
+    f.store.deliver("entity", "thread", "front_desk", |_| Ok("turn-receipt".into())).unwrap();
+    let card = |f: &Fixture, id: &str| f.store.list("entity", "thread").unwrap().into_iter().find(|q| q.id == id).unwrap();
+    assert_eq!(card(&f, &front.id).public_value()["delivered"], true, "a front-desk set is unchanged");
+
+    f.scope.asker = "work-1".into();
+    let team = f.ask(1).remove(0);
+    f.answer(&team, "team", 1, None);
+    f.store
+        .deliver("entity", "thread", "work-1", |d| {
+            richos_core::question_work::enqueue(&f.root, d)?;
+            Ok(format!("work-input:{}", d.id))
+        })
+        .unwrap();
+    let saved = card(&f, &team.id);
+    assert!(saved.delivered && saved.awaiting_taker, "the store's own delivery fact is unchanged");
+    assert_eq!(saved.public_value()["delivered"], false, "the card said Rich has it before any back end did");
+    let carried = richos_core::question_work::peek(&f.root, "entity", "thread", "work-1", "session-1").unwrap();
+    richos_core::question_work::taken(&f.root, &carried.ids(), "session-1").unwrap();
+    let taken = card(&f, &team.id);
+    assert!(!taken.awaiting_taker);
+    assert_eq!(taken.public_value()["delivered"], true);
 }
 #[test]
 fn notifications_are_once_per_set_even_after_answer_changes() {
