@@ -202,6 +202,11 @@ struct Inner {
     /// Since when a due renewal has been waiting for a command this back end started (reap
     /// gap C6). `None` when nothing is waiting.
     rotation_deferred_since: Option<std::time::Instant>,
+    /// **The repositories this back end was opened with** — his company's connected
+    /// repositories as the registry said when the lease was spawned, which is what
+    /// `EngineProfile::configure` gave it as `--add-dir` roots and as the auto mode's trusted
+    /// list. `None` when there is no lease, or the registry could not be read then.
+    lease_repositories: Option<Vec<PathBuf>>,
 }
 
 /// **ONE BACK-END RICH, AND THERE IS ONE PER CONVERSATION THREAD.**
@@ -245,6 +250,7 @@ impl Backend {
                 rotations: 0,
                 last_rotation_reason: None,
                 rotation_deferred_since: None,
+                lease_repositories: None,
             }),
             wake: Condvar::new(),
         })
@@ -421,6 +427,10 @@ const WORKER_WAIT_BUDGET: std::time::Duration = std::time::Duration::from_secs(2
 /// How often the wait re-reads the journal. One small file; chosen for how soon the back end
 /// gets its next turn, not for cost.
 const WORKER_WAIT_POLL: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The recorded reason for a renewal made because his company's connected repositories
+/// changed after this back end was opened (`run_one`'s step 0b).
+pub const REPOSITORIES_CHANGED: &str = "repositories-connected";
 
 /// What the Under the hood pane says while an assignment waits on a command its back end
 /// started in the background.
@@ -897,6 +907,10 @@ impl WorkHost {
                 return;
             }
         };
+
+        // 0b. A repository he connected since this back end opened (see
+        //     `renew_if_repositories_changed`). Nothing is live yet, so this is a boundary.
+        self.renew_if_repositories_changed(backend, binding);
 
         // 1. The lease. Spawning it is seconds, and this is where those seconds belong —
         //    after the turn, never inside it.
@@ -2072,6 +2086,8 @@ impl WorkHost {
         // that consumed it; a successor that inherited the count would rotate itself on its
         // first assignment (`spine.rs:249-256` makes the same point about a parked desk).
         let session = fresh.session_id().to_string();
+        // Read before either lock is taken: it is a file read.
+        let repositories = self.connected_repositories(binding);
         let mut lease = backend.lease.lock().unwrap();
         let retired = lease.replace(fresh);
         let mut inner = backend.inner.lock().unwrap();
@@ -2080,6 +2096,7 @@ impl WorkHost {
         inner.context_usage = None;
         inner.rotations += 1;
         inner.last_rotation_reason = Some(reason.to_string());
+        inner.lease_repositories = repositories;
         // **The incumbent ends with NO lock held** (reap gap C6): its teardown is now a SIGTERM
         // and its supervisor's reap, bounded at `owned_process::SUPERVISED_BOUND`, and nothing
         // else on this back end should wait behind it.
@@ -2167,9 +2184,71 @@ impl WorkHost {
             .unwrap()
             .spawn_work(binding)
             .map_err(|e| e.to_string())?;
-        backend.inner.lock().unwrap().lease_session = Some(opened.session_id().to_string());
+        {
+            let mut inner = backend.inner.lock().unwrap();
+            inner.lease_session = Some(opened.session_id().to_string());
+            inner.lease_repositories = self.connected_repositories(binding);
+        }
         *lease = Some(opened);
         Ok(())
+    }
+
+    /// **His company's connected repositories, as the registry says now** — the same file
+    /// and the same filter `EngineProfile::configure` reads when it opens a back end, sorted
+    /// so an order change is not a change. `None` when the registry cannot be read: an
+    /// unreadable registry is not a list, and nothing is renewed on the strength of it.
+    fn connected_repositories(&self, binding: &ThreadBinding) -> Option<Vec<PathBuf>> {
+        let data_dir = self.state.parent()?;
+        let load = crate::entity::EntityRegistry::load(&crate::entity::entity_registry_path(data_dir));
+        if load.source == crate::entity::RegistrySource::Unreadable {
+            return None;
+        }
+        let mut repositories = load
+            .registry
+            .get(binding.entity_id())
+            .map(|entity| entity.connected_repositories.clone())
+            .unwrap_or_default();
+        repositories.sort();
+        Some(repositories)
+    }
+
+    /// **A REPOSITORY HE CONNECTED AFTER THIS BACK END OPENED** — `run_one` step 0b.
+    ///
+    /// The back end's sandbox roots (`--add-dir`) and its auto mode's trusted repositories
+    /// are fixed when its provider is spawned (`EngineProfile::configure`), and a running
+    /// provider cannot be given more; `connect_repository` changes the registry, which the
+    /// back end's `repositories` tool reads live. So a connection made since the lease opened
+    /// renews the back end here, before the assignment that would otherwise run outside it —
+    /// a rotation like any other ([`Self::rotate`]): at an assignment boundary with nothing
+    /// live, the successor opened first and primed from the register.
+    ///
+    /// **Deferred, never forced, while the back end has a command running**, for the reason a
+    /// context renewal is (reap gap C6): retiring the lease ends its commands, and a command
+    /// he asked for must not end because he connected a repository. The next boundary asks
+    /// again. A failed renewal leaves the incumbent working, as every renewal does.
+    fn renew_if_repositories_changed(self: &Arc<Self>, backend: &Arc<Backend>, binding: &ThreadBinding) {
+        if backend.lease.lock().unwrap().is_none() {
+            return;
+        }
+        let Some(now) = self.connected_repositories(binding) else { return };
+        let Some(opened_with) = backend.inner.lock().unwrap().lease_repositories.clone() else { return };
+        if opened_with == now {
+            return;
+        }
+        let commands = backend.lease.lock().unwrap().as_ref().and_then(|lease| lease.running_commands());
+        if matches!(
+            commands,
+            Some(crate::lease_commands::CommandReading::Running(_) | crate::lease_commands::CommandReading::Unreadable)
+        ) {
+            eprintln!(
+                "[richos] back end: a repository was connected since it opened; renewal deferred \
+                 while a command it started may still be running"
+            );
+            return;
+        }
+        if let Err(why) = self.rotate(backend, binding, REPOSITORIES_CHANGED) {
+            eprintln!("[richos] back end: not renewed for the newly connected repository ({why})");
+        }
     }
 
     fn raise(self: &Arc<Self>, record: &Assignment, kind: NoticeKind, text: &str) {
@@ -5537,6 +5616,77 @@ mod tests {
     /// (the supervisor's reap), so a due renewal is deferred while the lease's state file
     /// shows one running, or cannot be read, and goes ahead once it clears or the bound
     /// passes. The retired lease is dropped after the back end's lease lock is released.
+    /// The company registry beside the harness's state root, with `connected` connected to
+    /// the thread's company — the file `connect_repository` writes and `EngineProfile::configure`
+    /// reads when it opens a back end.
+    fn connected(h: &Harness, connected: &[&str]) {
+        let id = crate::entity::EntityId::parse("depot").unwrap();
+        let mut registry = crate::entity::EntityRegistry::empty();
+        registry.register(crate::entity::Entity::new("depot", "Depot", &[]).unwrap()).unwrap();
+        for path in connected {
+            registry.connect_repository(&id, PathBuf::from(path)).unwrap();
+        }
+        registry.save(&crate::entity::entity_registry_path(&h.root)).unwrap();
+    }
+
+    /// **A REPOSITORY HE CONNECTS AFTER HIS BACK END OPENED IS ITS REPOSITORY FROM THE NEXT
+    /// ASSIGNMENT ON** — the leftover of esc-20260927T093052Z-85f3303f.
+    ///
+    /// `EngineProfile::configure` fixes the back end's `--add-dir` roots and the auto mode's
+    /// "Trusted local task repositories" list from the registry when the provider is spawned,
+    /// and `connect_repository` (`main.rs`) updates only the registry and the conversation's
+    /// spine. Meanwhile the back end's own `repositories` tool reads the registry live, so it
+    /// was told the repository was his to work in and was held outside it. Connecting IS his
+    /// consent (`entity.rs`: "Exact roots explicitly connected for app execution"), and the
+    /// app applies it without a relaunch everywhere else; so the back end is renewed — at an
+    /// assignment boundary, never inside one, primed from the register like any renewal —
+    /// before the first assignment that would otherwise run without it.
+    ///
+    /// Controls: nothing changed, nothing renewed; and a command the back end is still
+    /// running defers the renewal (it would end with the incumbent), exactly as a context
+    /// renewal is deferred.
+    ///
+    /// RED at `fb4e1545`: no renewal; the second assignment ran on the back end opened with
+    /// one repository.
+    #[test]
+    fn a_repository_connected_after_the_back_end_opened_renews_it_before_the_next_assignment() {
+        use crate::lease_commands::CommandReading;
+        let h = harness(5);
+        h.host.start();
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Settled);
+        let run = |n: u64| {
+            h.host
+                .register(&h.binding, &Registration { obligation_id: format!("obligation-repo-{n}"), ..registration(&h) })
+                .unwrap();
+            assert!(h.host.wait_for_completed(n, std::time::Duration::from_secs(10)));
+        };
+        connected(&h, &["/fictional/acme"]);
+        run(1);
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 1);
+
+        // Nothing changed: the same back end.
+        run(2);
+        assert_eq!(h.host.rotations("thread-one").0, 0, "a back end was renewed with nothing changed");
+
+        // He connects a second repository: the next assignment gets a renewed back end.
+        connected(&h, &["/fictional/acme", "/fictional/billing"]);
+        run(3);
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 2, "the assignment ran on the back end opened before he connected it");
+        assert_eq!(h.host.rotations("thread-one"), (1, Some(REPOSITORIES_CHANGED.to_string())));
+        assert_eq!(h.reprimes.lock().unwrap().len(), 1, "the successor was not primed from the register");
+
+        // A command still running defers it; once it ends, the next boundary renews.
+        connected(&h, &["/fictional/acme", "/fictional/billing", "/fictional/web"]);
+        *h.commands.lock().unwrap() = Some(CommandReading::Running(1));
+        run(4);
+        assert_eq!(h.host.rotations("thread-one").0, 1, "a renewal ended a command the back end was running");
+        *h.commands.lock().unwrap() = Some(CommandReading::Clear);
+        run(5);
+        assert_eq!(h.host.rotations("thread-one").0, 2);
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
     #[test]
     fn a_renewal_waits_for_a_running_command_and_retires_the_incumbent_with_no_lock_held() {
         use crate::lease_commands::CommandReading;
