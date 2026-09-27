@@ -202,7 +202,7 @@ EOF
 
 if [ "$PROV_RC" -eq 0 ]; then
   log "SETUP COMPLETE. Base VM '$TESTVM_BASE_VM' is provisioned and left RUNNING."
-  log "Next: testvm/run.sh --bundle <RichOS.app.zip> --home <fixture-home>"
+  log "Next: testvm/run-walk.py --bundle <RichOS.app.zip> --home <fixture-home> --engine <engine.tar.gz> --report <run.json> -- <script>"
 else
   log "setup finished WITH PROBLEMS (see above)."
 fi

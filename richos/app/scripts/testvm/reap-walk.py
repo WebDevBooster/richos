@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """reap-walk.py — a dead lease never leaves its tool commands running (the product reap).
 
-Run by run-walk.py, which boots the guest, holds <TESTVM_ROOT>/guest.lock and removes the clone:
+Run by run-walk.py, which holds one guest slot for this run only, boots the guest and removes the clone:
 
   TESTVM_APP_MODEL=sonnet run-walk.py --bundle ZIP --home EMPTY_DIR --engine ENGINE --report REPORT -- \\
       reap-walk.py --out DIR --expect-sha SHA
 
-run-walk.py passes the owned VM name as the first argument. `--steps a,b,c` runs a subset against
-a guest someone is already holding (hold-walk.py). The bundle AND the engine must both carry the
+run-walk.py passes the owned VM name as the first argument. `--steps a,b,c` runs a subset, still
+as one run under run-walk.py. The bundle AND the engine must both carry the
 reap: the supervisor that reaps is the engine's (`scripts/provider-supervisor.py`), and a dev
 bundle takes the engine it is given (run.sh --engine sets RICHOS_ENGINE_DIR).
 

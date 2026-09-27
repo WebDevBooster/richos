@@ -74,7 +74,7 @@ const ENGINE_NOT_OPEN: &str = "only an open assignment can be closed";
 // =============================================================================================
 
 /// One conversation, as the ledger bound it.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ConversationKey {
     pub entity_id: String,
     pub thread_id: String,
@@ -382,6 +382,11 @@ struct LeadRecord {
     /// turn he just ended.
     #[serde(default)]
     untold: BTreeSet<String>,
+    /// Whose record this is. A relaunch finds a turn that died with the app by reading the
+    /// saved records, and needs the conversation to start its lead in. `None` on a record
+    /// written before this field, which holds no such turn (`turn_open` is newer still).
+    #[serde(default)]
+    conversation: Option<ConversationKey>,
 }
 
 /// The line that names held handles to the lead (F8). Sent at once when he presses Stop on an
@@ -415,6 +420,26 @@ struct AnswerRelay {
     /// that code made for it is kept, and it is never resent.
     #[serde(default = "relay_written_before_taken_existed")]
     taken: bool,
+    /// **The turn that took it has not been seen to end** (crash matrix cell W3). Set in the
+    /// same synced save as `taken`; cleared when any turn of the lead's completes after it (the
+    /// lead has acted on it), when he ends that turn (his Esc, or a quit he chose while his
+    /// team worked), when the lead itself ends (its notice asks for his words), or when the
+    /// continuation below is taken. Still set at a relaunch, it means the turn died with the
+    /// app: his answer is in the lead's context once and nothing makes the lead act on it.
+    /// A relay written before this field reads `false`: never continued.
+    #[serde(default)]
+    turn_open: bool,
+    /// The one continuation sent for that turn: its uuid and the session it went into, saved
+    /// and synced before the send, so a relaunch before its echo resends it under the same
+    /// uuid and a lead that already has it drops the repeat (design §1.2), as for the answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    continued: Option<Continuation>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct Continuation {
+    uuid: String,
+    session: String,
 }
 
 fn relay_written_before_taken_existed() -> bool {
@@ -459,6 +484,26 @@ pub(crate) fn crash_point(_name: &str) {}
 /// and its end announced, every minute. **Not in the design:** its timer retry (§2.2) did not
 /// say what bounds it; this does, and says so here.
 pub const RETRY_STARTS: u32 = 2;
+
+/// **The continuation** (crash matrix cell W3; not in the design, whose §2.3 left this window
+/// waiting for his next words). Said to the lead, once, when the turn that took his answer
+/// died with the app. It names the answer by its uuid and never carries the answer again: the
+/// answer is already in the lead's context, once. A drop of a resent answer (P18 case B) is
+/// the same window, and is continued the same way.
+pub const CONTINUE_NOTE: &str = "RichOS restarted while you were working on his answer, and that turn ended before it \
+                                 finished.";
+
+/// The whole continuation for these relays: one message for every answer that one dead turn
+/// held.
+fn continuation_text(relays: &[AnswerRelay]) -> String {
+    let named = relays.iter().map(|a| match &a.answer_to {
+        Some(h) => format!("his answer on {h}, message {}", a.uuid),
+        None => format!("his answer, message {}", a.uuid),
+    }).collect::<Vec<_>>().join("; ");
+    format!("{CONTINUE_NOTE} It is already in your conversation above ({named}), and it is not sent again. Carry on \
+             with that work from where it stopped. Check what was already done before you repeat any step, and if \
+             all of it was done, say so in one line.")
+}
 /// Said when that bound is reached. His words to the conversation start his team as always,
 /// and the saved answer follows them.
 pub const RETRIES_SPENT: &str = "Your team ended again before it could take your answer, so I've stopped starting it \
@@ -602,6 +647,8 @@ pub struct OperatorHost {
     questions: Arc<dyn QuestionSink>,
     conversations: Mutex<HashMap<ConversationKey, Arc<Mutex<Conversation>>>>,
     alarms: Mutex<AlarmDeduper>,
+    /// The saved records were read once, this process, for turns to continue.
+    scanned: std::sync::atomic::AtomicBool,
 }
 
 /// The sink a lead's reader writes to: a channel into this conversation's own worker, so a slow
@@ -631,6 +678,7 @@ impl OperatorHost {
             questions,
             conversations: Mutex::new(HashMap::new()),
             alarms: Mutex::new(AlarmDeduper::default()),
+            scanned: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -671,7 +719,8 @@ impl OperatorHost {
             return existing.clone();
         }
         let paths = ConversationPaths::under(&self.root, key);
-        let record = read_record(&paths.record);
+        let mut record = read_record(&paths.record);
+        record.conversation = Some(key.clone());
         let first_after_resume = record.last_session.is_some();
         let conversation = Arc::new(Mutex::new(Conversation {
             key: key.clone(), title: title.to_string(), paths, lead: None, record, sent: HashMap::new(),
@@ -858,7 +907,8 @@ impl OperatorHost {
         let before = c.record.answers.clone();
         c.record.answers.retain(|a| a.delivery_id != delivery_id);
         c.record.answers.push(AnswerRelay { delivery_id: delivery_id.to_string(), answer_to: handle.map(str::to_string),
-                                            uuid: uuid.clone(), session, taken: false });
+                                            uuid: uuid.clone(), session, taken: false, turn_open: false,
+                                            continued: None });
         if let Err(e) = write_record(&c.paths.record, &c.record) {
             c.record.answers = before;
             self.log(&format!("answer {delivery_id} for {}/{} not sent: its intent could not be saved ({e})",
@@ -892,6 +942,7 @@ impl OperatorHost {
     fn answer_taken(&self, c: &mut Conversation, uuid: &str) -> Option<String> {
         let relay = c.record.answers.iter_mut().find(|a| a.uuid == uuid && !a.taken)?;
         relay.taken = true;
+        relay.turn_open = true;
         let id = relay.delivery_id.clone();
         match write_record(&c.paths.record, &c.record) {
             Ok(()) => Some(id),
@@ -899,6 +950,148 @@ impl OperatorHost {
                 self.log(&format!("answer {id} was taken by the lead; that could not be saved ({e})"));
                 None
             }
+        }
+    }
+
+    /// **Continue every turn that took his answer and died with the app** (crash matrix cell
+    /// W3). The desk calls it after each answer flush: at launch, on every question-store
+    /// change and on the idle timer. The first call in a process reads the saved records once
+    /// and opens each conversation that holds such a turn; later calls look only at the open
+    /// conversations, which is where any later one is. `title` names a conversation's lead
+    /// (the claim and the land lease name it by its title).
+    pub fn continue_interrupted_answers(self: &Arc<Self>, title: &dyn Fn(&str) -> String) {
+        if !self.scanned.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            for key in self.saved_turns_to_continue() {
+                self.conversation(&key, &title(&key.thread_id));
+            }
+        }
+        let all: Vec<Arc<Mutex<Conversation>>> = self.conversations.lock().unwrap().values().cloned().collect();
+        for conversation in all {
+            let mut c = conversation.lock().unwrap();
+            if let Err(e) = self.continue_one(&mut c) {
+                self.log(&format!("{}/{}: the turn that took his answer could not be continued yet ({e})",
+                                  c.key.entity_id, c.key.thread_id));
+            }
+        }
+    }
+
+    /// The conversations whose saved record holds a taken answer whose turn was never seen
+    /// to end. Read from `<root>/<entity>/<thread>/lead.json`, each confirmed against the key
+    /// it names, so a record in the wrong folder is never acted on.
+    fn saved_turns_to_continue(&self) -> Vec<ConversationKey> {
+        let mut found = Vec::new();
+        let Ok(entities) = std::fs::read_dir(&self.root) else { return found };
+        for entity in entities.flatten() {
+            let Ok(threads) = std::fs::read_dir(entity.path()) else { continue };
+            for thread in threads.flatten() {
+                let path = thread.path().join("lead.json");
+                if !path.is_file() {
+                    continue;
+                }
+                let record = read_record(&path);
+                let Some(key) = record.conversation.clone() else { continue };
+                if ConversationPaths::under(&self.root, &key).record == path
+                    && record.answers.iter().any(|a| a.taken && a.turn_open) {
+                    found.push(key);
+                }
+            }
+        }
+        found
+    }
+
+    /// One conversation: nothing while a turn runs or a message waits for one (that turn's
+    /// end settles it), and nothing for a turn his Stop held (F8: his next words decide).
+    /// Otherwise its lead is started or resumed, within the retry bound, and continued.
+    fn continue_one(self: &Arc<Self>, c: &mut Conversation) -> Result<(), String> {
+        if c.in_turn || !c.awaiting.is_empty() || !self.release_held_turns(c) {
+            return Ok(());
+        }
+        let starting = c.lead.as_ref().is_none_or(|l| l.exited());
+        if starting && c.retry_starts >= RETRY_STARTS {
+            return Err(RETRIES_SPENT.into());
+        }
+        let lead = self.ensure_lead(c)?;
+        if starting {
+            c.retry_starts += 1;
+        }
+        self.send_continuation(c, &lead)
+    }
+
+    /// Lets go of every open turn whose answer is on a handle he stopped, and says whether any
+    /// open turn is left to continue.
+    fn release_held_turns(&self, c: &mut Conversation) -> bool {
+        let held = c.record.held.clone();
+        let mut released = false;
+        for relay in c.record.answers.iter_mut().filter(|a| a.taken && a.turn_open) {
+            if relay.answer_to.as_ref().is_some_and(|h| held.contains(h)) {
+                relay.turn_open = false;
+                released = true;
+            }
+        }
+        if released {
+            self.save(&c.paths.record, &c.record);
+        }
+        c.record.answers.iter().any(|a| a.taken && a.turn_open)
+    }
+
+    /// Send the one continuation for every open turn in this conversation, to a running lead:
+    /// its intent (uuid, session) saved and synced first, and a retry into the same session
+    /// under the same uuid, as for the answer itself.
+    fn send_continuation(&self, c: &mut Conversation, lead: &Arc<dyn LeadHandle>) -> Result<(), String> {
+        let open: Vec<AnswerRelay> = c.record.answers.iter().filter(|a| a.taken && a.turn_open).cloned().collect();
+        let Some(first) = open.first() else { return Ok(()) };
+        let session = lead.session_id();
+        let uuid = match &first.continued {
+            Some(earlier) if earlier.session == session => earlier.uuid.clone(),
+            _ => uuid::Uuid::new_v4().to_string(),
+        };
+        let before = c.record.answers.clone();
+        for relay in c.record.answers.iter_mut().filter(|a| a.taken && a.turn_open) {
+            relay.continued = Some(Continuation { uuid: uuid.clone(), session: session.clone() });
+        }
+        let intent = write_record(&c.paths.record, &c.record);
+        if let Err(e) = intent {
+            c.record.answers = before;
+            return Err(format!("its intent could not be saved ({e})"));
+        }
+        let key = c.key.clone();
+        if let Err(sentence) = self.write(c, lead, &key, None, &continuation_text(&open), Some(&uuid)) {
+            c.record.answers = before;
+            self.save(&c.paths.record, &c.record);
+            return Err(sentence);
+        }
+        // Its turn belongs to the assignment the answer was on, as the answer's did.
+        c.sent.insert(uuid.clone(), first.answer_to.clone());
+        let ids = open.iter().map(|a| a.delivery_id.as_str()).collect::<Vec<_>>().join(", ");
+        self.log(&format!("continued {ids} in {}/{} under {uuid}", key.entity_id, key.thread_id));
+        Ok(())
+    }
+
+    /// The lead took the continuation: the work carries on in that turn, and no turn of these
+    /// answers is continued again, whatever happens to it.
+    fn continuation_taken(&self, c: &mut Conversation, uuid: &str) {
+        let mut taken = false;
+        for relay in c.record.answers.iter_mut().filter(|a| a.turn_open) {
+            if relay.continued.as_ref().is_some_and(|n| n.uuid == uuid) {
+                relay.turn_open = false;
+                taken = true;
+            }
+        }
+        if taken {
+            self.save(&c.paths.record, &c.record);
+        }
+    }
+
+    /// A turn completed after the answer, or he or the lead's own end ended it: nothing to
+    /// continue.
+    fn close_answer_turns(&self, c: &mut Conversation) {
+        let mut closed = false;
+        for relay in c.record.answers.iter_mut().filter(|a| a.turn_open) {
+            relay.turn_open = false;
+            closed = true;
+        }
+        if closed {
+            self.save(&c.paths.record, &c.record);
         }
     }
 
@@ -923,6 +1116,7 @@ impl OperatorHost {
                     c.turn_handle = c.sent.get(&uuid).cloned().flatten();
                 }
                 let taken = self.answer_taken(&mut c, &uuid);
+                self.continuation_taken(&mut c, &uuid);
                 drop(c);
                 // The inbox lets the answer go only now (design §2.2). An answer that never
                 // entered the inbox (a direct call) has nothing to let go of.
@@ -946,6 +1140,19 @@ impl OperatorHost {
                     c.turn_handle = None;
                 }
                 self.log(&format!("{}/{}: the lead already had {uuid}; nothing ran for it", key.entity_id, key.thread_id));
+                // A dropped ANSWER is P18 case B: the turn that first took it died with the app
+                // (a killed turn reads as answered). Nothing makes the lead act on it, so it is
+                // continued now, on the lead that is running, once.
+                let answer = c.record.answers.iter().any(|a| a.uuid == uuid && a.taken && a.turn_open);
+                let lead = c.lead.clone().filter(|l| !l.exited());
+                if let (true, false, true, Some(lead)) = (answer, c.in_turn, c.awaiting.is_empty(), lead) {
+                    if self.release_held_turns(&mut c) {
+                        if let Err(e) = self.send_continuation(&mut c, &lead) {
+                            self.log(&format!("{}/{}: the turn that took his answer could not be continued ({e})",
+                                              key.entity_id, key.thread_id));
+                        }
+                    }
+                }
             }
             LeadEvent::Agent(task) => {
                 let mut c = conversation.lock().unwrap();
@@ -1211,6 +1418,8 @@ impl OperatorHost {
         c.in_turn = false;
         c.opened_by = None;
         c.retry_starts = 0; // the lead works: an answer's retries may start it again
+        // A turn completed after every answer it had taken: the lead has acted on them.
+        self.close_answer_turns(&mut c);
         c.last_activity = Instant::now();
         let key = c.key.clone();
         let deliver = end.text.filter(|t| last_report.as_deref().map(str::trim) != Some(t.trim()));
@@ -1238,6 +1447,9 @@ impl OperatorHost {
             c.in_turn = false;
             c.turn_handle = None;
             c.opened_by = None;
+            // The lead's own end is told to him with "Speak to me here and I'll start it again",
+            // so a turn it had taken an answer into waits for his words, not a continuation.
+            self.close_answer_turns(&mut c);
             (c.key.clone(), c.lead.take(), c.quitting)
         };
         let Some(lead) = lead else { return };
@@ -1398,6 +1610,13 @@ impl OperatorHost {
         };
         let Some(lead) = lead else { return "Your team isn't doing anything in this conversation.".into() };
         let replied = lead.interrupt();
+        if replied.is_ok() {
+            // He ended that turn: an answer it had taken is not carried on without his words.
+            let conversation = self.conversations.lock().unwrap().get(key).cloned();
+            if let Some(conversation) = conversation {
+                self.close_answer_turns(&mut conversation.lock().unwrap());
+            }
+        }
         if let (Ok(_), Some(handle)) = (&replied, turn_handle) {
             self.hold(key, &handle, None);
         }
@@ -1539,6 +1758,11 @@ impl OperatorHost {
             let lead = {
                 let mut c = conversation.lock().unwrap();
                 c.quitting = true;
+                // He chose to quit while his team worked: that work is stopped (the quit
+                // sheet's "The work is stopped"), and the next launch does not carry it on.
+                if c.in_turn || !c.awaiting.is_empty() {
+                    self.close_answer_turns(&mut c);
+                }
                 c.lead.take().map(|l| (c.key.clone(), l))
             };
             if let Some((key, lead)) = lead {
@@ -2236,7 +2460,12 @@ pub(crate) mod tests {
         r.host.handle(&key("a"), LeadEvent::Took(uuid.clone()));
         assert_eq!(r.host.team_from_stream().working.len(), 1, "the echo reads as a turn starting");
         r.host.handle(&key("a"), LeadEvent::Dropped(uuid.clone()));
-        assert!(r.host.team_from_stream().working.is_empty(), "no turn ran: not working");
+        // A drop means the turn that first took it died with the app (P18 case B), so the
+        // lead is continued once (the test above); that continuation's turn then ends.
+        let nudge = continuations(&r)[0].0.clone();
+        r.host.handle(&key("a"), LeadEvent::Took(nudge.clone()));
+        r.host.handle(&key("a"), turn(&[&nudge], None));
+        assert!(r.host.team_from_stream().working.is_empty(), "no turn runs: not working");
         assert!(record_of(&r, "a").answers.iter().any(|a| a.delivery_id == "d-1" && a.taken), "the lead has it");
         let paths = ConversationPaths::under(&r.root.join("operator"), &key("a"));
         std::fs::write(&paths.reap_state, r#"{"outside_provider_group": []}"#).unwrap();
@@ -2264,6 +2493,180 @@ pub(crate) mod tests {
             "answers":[{"delivery_id":"d-1","answer_to":null,"uuid":"u-9"}]}"#).unwrap();
         assert_eq!(r.host.deliver_answer(&key("a"), "A", None, "d-1", "Green.").unwrap(), AnswerOutcome::Taken);
         assert!(r.launcher.leads.lock().unwrap().is_empty());
+    }
+
+    // ---- the crash that kills the turn which took his answer (crash matrix cell W3) ---------
+
+    fn continue_all(host: &Arc<OperatorHost>) {
+        host.continue_interrupted_answers(&|_| "A".to_string());
+    }
+
+    /// The sends that were continuations, as (uuid, text), from every lead.
+    fn continuations(r: &Rig) -> Vec<(String, String)> {
+        r.launcher.leads.lock().unwrap().iter().flat_map(|(_, _, l)| {
+            let sent = l.sent.lock().unwrap().clone();
+            let uuids = l.uuids.lock().unwrap().clone();
+            uuids.into_iter().zip(sent).filter(|(_, s)| s.contains(CONTINUE_NOTE)).collect::<Vec<_>>()
+        }).collect()
+    }
+
+    fn relay_of(r: &Rig, thread: &str, delivery: &str) -> AnswerRelay {
+        record_of(r, thread).answers.into_iter().find(|a| a.delivery_id == delivery).unwrap()
+    }
+
+    /// **W3: the app dies after the lead took his answer and before that turn ended.** The
+    /// answer is in the lead's context once, so it is never resent; the relaunched host sends
+    /// ONE continuation that names the answer's uuid, into the resumed session, and the lead
+    /// carries on with no words from him. Its echo ends the matter: never a second one.
+    #[test]
+    fn a_turn_killed_after_taking_his_answer_is_continued_once_at_relaunch() {
+        let r = rig();
+        r.host.relay(&key("a"), "A", Some("h-1"), "Do it.", Origin::DeskTyped).unwrap();
+        r.host.deliver_answer(&key("a"), "A", Some("h-1"), "d-1", "Green.").unwrap();
+        let first = lead_of(&r, "a");
+        let answer = answer_uuid(&first);
+        r.host.handle(&key("a"), LeadEvent::Took(answer.clone()));
+        let relay = relay_of(&r, "a", "d-1");
+        assert!(relay.taken && relay.turn_open, "taken into a turn not yet seen to end, in one save: {relay:?}");
+        // While that turn runs in this process, nothing continues it.
+        continue_all(&r.host);
+        assert!(continuations(&r).is_empty());
+        // The app dies here, and its lead with it.
+        let again = relaunched(&r);
+        continue_all(&again);
+        let (_, start, second) = r.launcher.leads.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(start, LeadStart::Resume(first.session.clone()), "into the same session");
+        let sent = continuations(&r);
+        assert_eq!(sent.len(), 1, "{sent:?}");
+        let (nudge, text) = &sent[0];
+        assert_ne!(nudge, &answer, "a continuation is its own message, never a resend of the answer");
+        assert!(text.contains(&answer) && text.contains("h-1"), "it names the answer's uuid and handle: {text}");
+        assert!(!text.contains("Green.") && !text.contains(RESEND_NOTE), "his answer is not sent again: {text}");
+        assert_eq!(second.sent.lock().unwrap().as_slice(), std::slice::from_ref(text),
+                   "the continuation is all this lead was sent");
+        let continued = relay_of(&r, "a", "d-1").continued.expect("its intent is on disk");
+        assert_eq!((continued.uuid.as_str(), continued.session.as_str()), (nudge.as_str(), first.session.as_str()));
+        // In flight: never twice from one process.
+        continue_all(&again);
+        assert_eq!(continuations(&r).len(), 1);
+        // The lead took it: its turn is the work carrying on, and nothing ever continues it again.
+        again.handle(&key("a"), LeadEvent::Took(nudge.clone()));
+        assert!(!relay_of(&r, "a", "d-1").turn_open);
+        let third = relaunched(&r);
+        continue_all(&third);
+        assert_eq!(continuations(&r).len(), 1, "once, across every later launch");
+        assert_eq!(r.launcher.leads.lock().unwrap().len(), 2, "no lead started for nothing to continue");
+        let log = std::fs::read_to_string(again.log_path()).unwrap();
+        assert!(log.contains(&format!("continued d-1 in femcboost/a under {nudge}")), "{log}");
+    }
+
+    /// The continuation keeps the answer's own guarantee: its intent is on disk before the
+    /// send, and a relaunch before its echo resends it under ITS first uuid into the same
+    /// session, so a lead that already has it drops the repeat (§1.2).
+    #[test]
+    fn a_continuation_lost_with_the_app_is_resent_under_its_first_uuid() {
+        let r = rig();
+        r.host.deliver_answer(&key("a"), "A", None, "d-1", "Green.").unwrap();
+        let first = lead_of(&r, "a");
+        r.host.handle(&key("a"), LeadEvent::Took(answer_uuid(&first)));
+        let again = relaunched(&r);
+        continue_all(&again);
+        let second = lead_of(&r, "a");
+        let nudge = continuations(&r)[0].0.clone();
+        // Dies again before the echo.
+        let third = relaunched(&r);
+        continue_all(&third);
+        let sent = continuations(&r);
+        assert_eq!(sent.len(), 2, "{sent:?}");
+        assert_eq!(sent[1].0, nudge, "the same uuid");
+        let (_, start, _) = r.launcher.leads.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(start, LeadStart::Resume(second.session.clone()));
+    }
+
+    /// A turn that ends after it took the answer leaves nothing to continue: a completed turn,
+    /// his Esc, a quit he chose while his team worked, a Stop on that assignment (F8: his next
+    /// words decide), or the lead's own end (its notice already asks for his words). A relay
+    /// written before `turn_open` existed is never continued.
+    #[test]
+    fn a_turn_that_ended_or_that_he_ended_is_never_continued() {
+        fn taken(r: &Rig, thread: &str, handle: Option<&str>) -> Arc<FakeLead> {
+            r.host.relay(&key(thread), "A", handle, "Do it.", Origin::DeskTyped).unwrap();
+            r.host.deliver_answer(&key(thread), "A", handle, "d-1", "Green.").unwrap();
+            let lead = lead_of(r, thread);
+            r.host.handle(&key(thread), LeadEvent::Took(answer_uuid(&lead)));
+            lead
+        }
+        // Each case is its own conversation, and nothing after it (a quit closes every working
+        // conversation, so it gets its own rig and cannot stand in for the others).
+        let r = rig();
+        let lead = taken(&r, "done", None);
+        let answer = answer_uuid(&lead);
+        r.host.handle(&key("done"), turn(&["u-1", answer.as_str()], Some("Done.")));
+        taken(&r, "esc", None);
+        r.host.interrupt(&key("esc"));
+        taken(&r, "stop", Some("h-1"));
+        r.host.hold(&key("stop"), "h-1", Some("Stopped mark-sonnet-a.")); // his Stop on that assignment
+        let lead = taken(&r, "crash", None);
+        *lead.exited.lock().unwrap() = true;
+        r.host.handle(&key("crash"), LeadEvent::Ended);
+        for thread in ["done", "esc", "crash"] {
+            assert!(!relay_of(&r, thread, "d-1").turn_open, "{thread}");
+        }
+        let before = r.launcher.leads.lock().unwrap().len();
+        let again = relaunched(&r);
+        continue_all(&again);
+        assert!(continuations(&r).is_empty(), "{:?}", continuations(&r));
+        assert!(!relay_of(&r, "stop", "d-1").turn_open, "a held handle's turn is let go, not continued");
+        assert_eq!(r.launcher.leads.lock().unwrap().len(), before, "nothing was started");
+        let q = rig();
+        taken(&q, "quit", None);
+        let before = q.launcher.leads.lock().unwrap().len();
+        q.host.quit_all();
+        assert!(!relay_of(&q, "quit", "d-1").turn_open);
+        continue_all(&relaunched(&q));
+        assert!(continuations(&q).is_empty() && q.launcher.leads.lock().unwrap().len() == before);
+        let old: AnswerRelay = serde_json::from_str(r#"{"delivery_id":"d-1","answer_to":null,"uuid":"u-9","session":"s",
+            "taken":true}"#).unwrap();
+        assert!(!old.turn_open && old.continued.is_none(), "a relay from before this field is not continued");
+    }
+
+    /// **A resend the lead drops** (P18 case B: the app died after the send and before its
+    /// echo, and the turn that had taken it was killed, which the provider reads as answered).
+    /// No turn runs for the resend, so the running lead is continued at once, once.
+    #[test]
+    fn a_dropped_resend_of_his_answer_is_continued_at_once() {
+        let r = rig();
+        r.host.deliver_answer(&key("a"), "A", Some("h-1"), "d-1", "Green.").unwrap();
+        let uuid = answer_uuid(&lead_of(&r, "a"));
+        let again = relaunched(&r);
+        again.deliver_answer(&key("a"), "A", Some("h-1"), "d-1", "Green.").unwrap();
+        again.handle(&key("a"), LeadEvent::Took(uuid.clone()));
+        again.handle(&key("a"), LeadEvent::Dropped(uuid.clone()));
+        let sent = continuations(&r);
+        assert_eq!(sent.len(), 1, "{sent:?}");
+        assert!(sent[0].1.contains(&uuid));
+        assert_eq!(again.team_from_stream().working.len(), 1, "the continuation is his team working");
+        continue_all(&again);
+        again.handle(&key("a"), LeadEvent::Dropped(uuid));
+        assert_eq!(continuations(&r).len(), 1, "never twice");
+    }
+
+    /// The retry bound holds for the continuation too: its lead start counts, and past the
+    /// bound nothing is started for it.
+    #[test]
+    fn a_continuation_never_starts_a_lead_past_the_retry_bound() {
+        let r = rig();
+        r.host.deliver_answer(&key("a"), "A", None, "d-1", "Green.").unwrap();
+        r.host.handle(&key("a"), LeadEvent::Took(answer_uuid(&lead_of(&r, "a"))));
+        let again = relaunched(&r);
+        {
+            let conversation = again.conversation(&key("a"), "A");
+            conversation.lock().unwrap().retry_starts = RETRY_STARTS;
+        }
+        let before = r.launcher.leads.lock().unwrap().len();
+        continue_all(&again);
+        assert_eq!(r.launcher.leads.lock().unwrap().len(), before);
+        assert!(relay_of(&r, "a", "d-1").turn_open, "still owed, for his next words or the next launch");
     }
 
     /// Test 10: a lost record means a new session, whose context never saw the answer, so it

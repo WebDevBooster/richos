@@ -1525,15 +1525,33 @@ t "reserve: a CPU-admission wait is recorded for the lead's turn-end gate for ex
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/reserve-waits.test.py" >"$TMP/reserve-waits.log" 2>&1; ok $? "$(cat "$TMP/reserve-waits.log")"
 t_done
 
-t "run-walk --wait reaches the guest-lock admission; the default still refuses at once"
+t "run-walk --wait reaches the guest-slot admission; the default still refuses at once; hold-walk.py is retired"
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/run-walk-wait.test.py" >"$TMP/run-walk-wait.log" 2>&1; ok $? "$(cat "$TMP/run-walk-wait.log")"
+t_done
+
+t "slots: two runs at once, a third waits; a slot is held only for its run and a guest never outlives it"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/slots.test.py" >"$TMP/slots.log" 2>&1; ok $? "$(cat "$TMP/slots.log")"
+t_done
+
+t "mem-walk: a guest probe reads as used, need, swap-outs and the app's and claude's memory"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/mem-walk.test.py" >"$TMP/mem-walk.log" 2>&1; ok $? "$(cat "$TMP/mem-walk.log")"
+t_done
+
+t "slots: run.sh boots no guest outside a slot, and names the one command that does"
+  : > "$TMP/slot-bundle.zip"; mkdir -p "$TMP/slot-home"
+  out="$(env -u TESTVM_SLOT "$TESTVM_DIR/run.sh" --bundle "$TMP/slot-bundle.zip" --home "$TMP/slot-home" --vm richos-test-slot 2>&1)"; no $?
+  has "$out" "no guest is booted outside a guest slot"
+  has "$out" "run-walk.py"
+  if [ -e "$TESTVM_RUN/richos-test-slot" ]; then ok 1 "a refused run.sh must leave no run state"; fi
+  out="$(TESTVM_SLOT="$TESTVM_ROOT/guest.lock" "$TESTVM_DIR/run.sh" --bundle "$TMP/slot-bundle.zip" --home "$TMP/slot-home" --vm richos-test-slot 2>&1)"; no $?
+  has "$out" "is not held"
 t_done
 
 t "files-since: every class, the baseline window, and a control that must be found and flagged"
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/files-since.test.py" >"$TMP/files-since.log" 2>&1; ok $? "$(cat "$TMP/files-since.log")"
 t_done
 
-t "adopt-walk: phone-only, left Registered at the boundary, each way to fail named; hold-walk hands back"
+t "adopt-walk: phone-only, left Registered at the boundary, each way to fail named"
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/adopt-walk.test.py" >"$TMP/adopt-walk.log" 2>&1; ok $? "$(cat "$TMP/adopt-walk.log")"
 t_done
 

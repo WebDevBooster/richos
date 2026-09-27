@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Walk the two scratch-home launches in a test guest: gui_boot and the candidate walk recipe.
 
-Run by run-walk.py, which boots the guest, holds <TESTVM_ROOT>/guest.lock and removes the clone:
+Run by run-walk.py, which holds one guest slot for this run only, boots the guest and removes the clone:
 
   reserve.py -- run-walk.py --bundle ZIP --home FIXTURE --engine ENGINE --report REPORT -- \\
       scratch-home-walk.py --zip ZIP --before-lib OLD_GUI_LAUNCH_SH --out DIR
