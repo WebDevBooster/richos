@@ -286,10 +286,14 @@ grep -q 'dialect-en-US\.dict' "$ENGINE_ROOT/scripts/hooks/install.sh" \
 # second list: it is GENERATED from this dictionary plus pinned VarCon data,
 # and dialect-table.test.py fails the moment it stops containing every line of
 # the dictionary or drifts from a fresh regeneration. It is excluded by its
-# exact path, never by a pattern.
+# exact path, never by a pattern. So is the one declared location for British
+# TEST INPUTS (scripts/lib/dialect/fixtures/, step 0's promise to the streams
+# that build the fixer): a test input lists British words by design, and no
+# guard ever reads it as vocabulary.
 DUP="$(grep -rlE '^(colour|behaviour|licence)\b' "$ENGINE_ROOT/scripts" 2>/dev/null \
         | grep -v 'dialect-en-US.dict' | grep -v 'guard-dialect' \
-        | grep -vxF "$ENGINE_ROOT/scripts/lib/dialect/dialect-en-US.generated.dict" || true)"
+        | grep -vxF "$ENGINE_ROOT/scripts/lib/dialect/dialect-en-US.generated.dict" \
+        | grep -vF "$ENGINE_ROOT/scripts/lib/dialect/fixtures/" || true)"
 [ -z "$DUP" ] && ok "E5. the vocabulary lives in exactly one file" \
               || bad "E5. the vocabulary lives in exactly one file" "also in: $DUP"
 
