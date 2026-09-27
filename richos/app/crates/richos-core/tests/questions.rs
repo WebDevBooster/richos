@@ -430,6 +430,57 @@ fn the_card_says_delivered_only_once_an_inbox_answer_is_taken() {
     assert!(!taken.awaiting_taker);
     assert_eq!(taken.public_value()["delivered"], true);
 }
+/// **A job that ended before any back end took his answer says so** (Rich's ruling on
+/// esc-20260927T220629Z-cbc90040). His Stop is the path taken here, in the order
+/// `WorkHost::stop_assignment` takes it: close the job's questions, then let its inputs go. An
+/// answer the back end had already taken is never marked, and neither card is ever "Rich has
+/// your answer" and "stopped" at once.
+#[test]
+fn a_job_that_ends_before_the_taker_has_the_answer_marks_the_card() {
+    let mut f = Fixture::new();
+    let card = |f: &Fixture, id: &str| f.store.list("entity", "thread").unwrap().into_iter().find(|q| q.id == id).unwrap();
+    let inbox = |f: &Fixture, asker: &str| {
+        f.store
+            .deliver("entity", "thread", asker, |d| {
+                richos_core::question_work::enqueue(&f.root, d)?;
+                Ok(format!("work-input:{}", d.id))
+            })
+            .unwrap();
+    };
+    let end = |f: &Fixture, asker: &str| {
+        f.store.close("entity", "thread", Some(asker), "The assignment was stopped", false).unwrap();
+        richos_core::question_work::discard(&f.root, "entity", "thread", asker).unwrap();
+    };
+
+    // Stopped while his answer sat in the inbox, untaken.
+    f.scope.asker = "work-1".into();
+    let stopped = f.ask(1).remove(0);
+    f.answer(&stopped, "stopped", 0, None);
+    inbox(&f, "work-1");
+    assert_eq!(card(&f, &stopped.id).public_value()["ended_before_taken"], false, "marked before the job ended");
+    end(&f, "work-1");
+    let ended = card(&f, &stopped.id);
+    assert!(ended.ended_before_taken && ended.awaiting_taker);
+    assert_eq!(ended.state, State::Answered, "his answer is kept, not withdrawn");
+    assert_eq!(ended.public_value()["ended_before_taken"], true, "the card still says it is on its way");
+    assert_eq!(ended.public_value()["delivered"], false);
+    // A second ending (the cleanup after the Stop) changes nothing.
+    end(&f, "work-1");
+    assert_eq!(card(&f, &stopped.id).public_value()["ended_before_taken"], true);
+
+    // Taken by a back end, then the job ended: Rich has it, and the card says only that.
+    f.scope.asker = "work-2".into();
+    let taken = f.ask(1).remove(0);
+    f.answer(&taken, "taken", 1, None);
+    inbox(&f, "work-2");
+    let carried = richos_core::question_work::peek(&f.root, "entity", "thread", "work-2", "session-1").unwrap();
+    richos_core::question_work::taken(&f.root, &carried.ids(), "session-1").unwrap();
+    end(&f, "work-2");
+    let finished = card(&f, &taken.id);
+    assert!(!finished.ended_before_taken, "a taken answer was marked as never reaching Rich");
+    assert_eq!(finished.public_value()["ended_before_taken"], false);
+    assert_eq!(finished.public_value()["delivered"], true);
+}
 #[test]
 fn notifications_are_once_per_set_even_after_answer_changes() {
     let f = Fixture::new();
