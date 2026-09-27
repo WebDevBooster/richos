@@ -399,8 +399,24 @@ impl OperatorDesk {
     /// **Scope: his team (the lead) only.** The product path's own inbox (`work_host.rs`,
     /// `question_work::take`) still lets an input go before the work starts, and needs its own
     /// pass (the design's C8): two of its readers treat a pending input as unconsumed.
+    ///
+    /// **Then every turn that took an answer and died with the app is continued** (crash
+    /// matrix cell W3, [`OperatorHost::continue_interrupted_answers`]), whatever the inbox
+    /// held, so the launch's flush carries his team on with no words from him.
     pub fn flush_question_answers(&self) -> Result<(), String> {
         let _one_at_a_time = self.flushing.lock().unwrap();
+        let flushed = self.flush_inbox();
+        self.host.continue_interrupted_answers(&|thread| self.origins.title(thread).unwrap_or_default());
+        flushed
+    }
+
+    /// The continuation step alone, one at a time with the flush (C9).
+    fn continue_interrupted_turns(&self) {
+        let _one_at_a_time = self.flushing.lock().unwrap();
+        self.host.continue_interrupted_answers(&|thread| self.origins.title(thread).unwrap_or_default());
+    }
+
+    fn flush_inbox(&self) -> Result<(), String> {
         let mut first_error = None;
         for delivery in crate::question_work::pending(&self.state_root)? {
             if !delivery.asker.starts_with("operator:") { continue; }
@@ -544,6 +560,10 @@ impl OperatorDesk {
                 if let Err(error) = desk.flush_question_answers() {
                     desk.host.log(&format!("idle timer: an answer is still waiting ({error})"));
                 }
+            } else {
+                // A continuation whose lead could not start yet is tried again, within the
+                // retry bound; with none owed this looks at the open conversations only.
+                desk.continue_interrupted_turns();
             }
         });
         if let Err(e) = spawned {
@@ -1143,8 +1163,15 @@ mod tests {
         std::fs::write(&input, value.to_string()).unwrap();
         let fourth = relaunched(&d);
         fourth.flush_question_answers().unwrap();
+        fourth.flush_question_answers().unwrap();
         assert_eq!(answers_sent(&d).len(), 2, "test 4: nothing sent for a taken answer");
         assert!(crate::question_work::pending(&d.state).unwrap().is_empty(), "and the inbox let it go");
+        // The turn that took it died with the app, so the launch's flush continues it: once,
+        // naming the answer's uuid, with no words from him (crash matrix cell W3).
+        let continued: Vec<String> = self::sent(&d).into_iter()
+            .filter(|s| s.contains(crate::operator_host::CONTINUE_NOTE)).collect();
+        assert_eq!(continued.len(), 1, "{continued:?}");
+        assert!(continued[0].contains(&sent[1].0) && !continued[0].contains("Ship tomorrow."), "{}", continued[0]);
         for desk in [second, third, fourth] {
             desk.quit();
         }
