@@ -2542,7 +2542,8 @@ pub(crate) mod tests {
         assert_ne!(nudge, &answer, "a continuation is its own message, never a resend of the answer");
         assert!(text.contains(&answer) && text.contains("h-1"), "it names the answer's uuid and handle: {text}");
         assert!(!text.contains("Green.") && !text.contains(RESEND_NOTE), "his answer is not sent again: {text}");
-        assert_eq!(*second.sent.lock().unwrap(), [text.clone()], "the continuation is all this lead was sent");
+        assert_eq!(second.sent.lock().unwrap().as_slice(), std::slice::from_ref(text),
+                   "the continuation is all this lead was sent");
         let continued = relay_of(&r, "a", "d-1").continued.expect("its intent is on disk");
         assert_eq!((continued.uuid.as_str(), continued.session.as_str()), (nudge.as_str(), first.session.as_str()));
         // In flight: never twice from one process.
