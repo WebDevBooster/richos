@@ -101,6 +101,31 @@ class OwnedTreeTests(unittest.TestCase):
         with patch.object(guard, "processes", return_value={pid: self.row(generation=generation)}):
             guard.register(pid, "test unit", "verification", {"input_key": "a" * 64, "priority": priority, "result": str(guard.STATE / (str(pid) + ".result.json"))})
 
+    def test_native_lookup_exit_race_is_absent_but_live_unknown_still_refuses(self):
+        topology = subprocess.CompletedProcess([], 0, '991001 1 991001\n', '')
+        for final_alive in ([], [991001]):
+            with self.subTest(final_alive=final_alive), \
+                    patch.object(proc_tree.subprocess, 'run', return_value=topology), \
+                    patch.object(proc_tree.operator_fences, 'proc', return_value=None), \
+                    patch.object(proc_tree, '_alive', side_effect=[[991001], final_alive]) as status:
+                rows = proc_tree.process_rows()
+                self.assertEqual(status.call_count, 2)
+                self.assertEqual(rows, {991001: (1, 991001, None)} if final_alive else {})
+                if final_alive:
+                    tree = object.__new__(proc_tree.TrackedTree)
+                    tree.known = {991001: 'prior-native-generation'}
+                    with patch.object(proc_tree, 'process_rows', return_value=rows), \
+                            self.assertRaisesRegex(RuntimeError, 'generation is unreadable'):
+                        tree.refresh()
+
+    def test_native_lookup_across_exec_uses_native_generation_not_status(self):
+        topology = subprocess.CompletedProcess([], 0, '991001 1 991001\n', '')
+        native = {'ppid': 2, 'pgid': 3, 'start': 'new-native-generation', 'zombie': False}
+        with patch.object(proc_tree.subprocess, 'run', return_value=topology), \
+                patch.object(proc_tree.operator_fences, 'proc', side_effect=[None, native]), \
+                patch.object(proc_tree, '_alive', side_effect=lambda pids: list(pids)):
+            self.assertEqual(proc_tree.process_rows(), {991001: (2, 3, 'new-native-generation')})
+
     def test_pressure_closes_new_permits_but_retains_parent_borrow_progress(self):
         directory = guard.STATE / "budget"
         workers.init(directory, 2)

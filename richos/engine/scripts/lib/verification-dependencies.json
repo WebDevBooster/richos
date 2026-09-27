@@ -486,7 +486,7 @@
     },
     "scripts/lib/proc_tree.py": {
       "source": "scripts/lib/proc_tree.py",
-      "sha256": "d1df7bf7542bbc77de280cd795bb5832e540e989a82a5a8a5d16d10381b1bf99",
+      "sha256": "f1eb81ce30a67696a38e83e73734c9a26932af737c1a9bbf7e6bb44472e33140",
       "evidence": "Supervises the caller\u2019s command and samples owned processes. Its own inputs are environment, process identity and controller state, never orchestration settings.",
       "keys": [],
       "edges": [

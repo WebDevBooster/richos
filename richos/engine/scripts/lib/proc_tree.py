@@ -166,12 +166,20 @@ def process_rows():
     # Native identity and ps status are separate observations. A process can
     # cross exec while the first native read is unavailable. Use the later
     # native generation when available; never infer it from PID or status.
+    unresolved = set()
     for pid in live_unknown:
         row = operator_fences.proc(pid, precise=True)
         if row and row["zombie"]:
             del table[pid]
         elif row:
             table[pid] = (row["ppid"], row["pgid"], row["start"])
+        else:
+            unresolved.add(pid)
+    # A short-lived process may exit after the status sample but before the
+    # second native read. Confirm only these remaining unknowns once more.
+    # A still-live unreadable process remains unknown and cannot pass cleanup.
+    for pid in unresolved - set(_alive(unresolved)):
+        del table[pid]
     return table
 
 
