@@ -915,10 +915,13 @@ enum TurnPhase {
 ///
 /// **A parked prompt is answered by the `result` of the turn that consumed the message it
 /// sent, never by the next `result` to arrive.** A `result` reaches it only when the child
-/// has said our message drained into a turn, or has said nothing of ours is waiting behind it
-/// (`queued_turn_count == 0`). A `result` the child reports with a user send still queued
-/// belongs to a turn that was already in flight: it is RETAINED on the between-turn lane
-/// (§1.4 G5 — traffic is never dropped), and the prompt keeps waiting.
+/// has said our message drained into a turn, or — when the child has said nothing about our
+/// message at all — has said nothing of ours is waiting behind it (`queued_turn_count == 0`).
+/// A `result` that arrives while the child's last word on our message was `queued`, or that
+/// the child reports with a user send still queued, belongs to a turn that was already in
+/// flight: it is RETAINED on the between-turn lane (§1.4 G5 — traffic is never dropped), and
+/// the prompt keeps waiting. (The lifecycle outranks the count: 2.1.283 was measured
+/// reporting `0` on the platform's own turn while ours was still queued.)
 ///
 /// Frames arriving while our message is known to be still queued are retained the same way
 /// rather than streamed into this turn, because they belong to the other turn. Attributing
@@ -951,15 +954,27 @@ impl PendingTurn {
         if self.phase == TurnPhase::Running {
             return false;
         }
+        // **The child has said, by name, that our message is still in its queue.** That is
+        // positive evidence about OUR message, and it outranks the count, which is a number
+        // about the queue at the moment the result was produced. Measured on 2.1.283
+        // (2026-09-27): the platform's own `<task-notification>` turn ended with
+        // `queued_turn_count: 0` while the lifecycle for our message had said only `queued`,
+        // and `started` for it came 1 ms after that result. Reading the count first handed the
+        // platform's result to this prompt. On the fold path the child says `completed`
+        // BEFORE the result (schema, quoted on [`PendingTurn`]), so `Queued` here never means
+        // our message was folded into this turn.
+        if self.phase == TurnPhase::Queued {
+            return true;
+        }
         match result.get("queued_turn_count").and_then(Value::as_u64) {
             // The child's own count of user-initiated sends still waiting. Ours is the only
             // one there can be, so a positive count is the child saying "your turn has not
             // run yet".
             Some(waiting) => waiting >= 1,
-            // No count on this frame. Then the lifecycle is the only positive evidence: if
-            // the child said ours is still QUEUED, this result is another turn's. If it has
-            // said nothing at all, nothing is inferred and the result is delivered.
-            None => self.phase == TurnPhase::Queued,
+            // No count on this frame, and the child has said nothing about our message (a
+            // `Queued` one was answered above). Nothing is inferred and the result is
+            // delivered.
+            None => false,
         }
     }
 }
@@ -6242,6 +6257,47 @@ read -r keep_alive
             retained.iter().any(|record| record.turn_id.is_none()),
             "the injected turn's frames reached neither this turn nor the thread",
         );
+    }
+
+    /// **THE PLATFORM'S OWN TURN CAN REPORT ZERO QUEUED WHILE OURS IS STILL IN ITS QUEUE.**
+    ///
+    /// Measured on `claude` 2.1.283, 2026-09-27 (richos-hq
+    /// `docs/verification/2026-09-27-background-command-finish/`, `cap-continue.jsonl`): a
+    /// background command ended, the child started its own `<task-notification>` turn, and the
+    /// host's message written 0 ms after the notification was answered `queued` at 15.141 s.
+    /// The platform's turn then ended at 17.374 s with `"queued_turn_count": 0`, and the child
+    /// said `started` for our message only at 17.375 s. The count is not a statement about our
+    /// message at that instant; the lifecycle is, and it says ours had not run.
+    ///
+    /// **RED at `238557bb`**: the count was read first, so the platform's result answered this
+    /// prompt with none of its own items, and the host's real turn streamed into nothing.
+    #[test]
+    fn a_platform_turn_that_counts_nothing_queued_still_never_answers_a_prompt_the_child_said_is_queued() {
+        let script = write_script("injected-turn-count-zero", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+ours=$(printf '%s' "$prompt" | sed -n 's/.*"uuid":"\([0-9a-fA-F-]*\)".*/\1/p')
+test -n "$ours" || exit 9
+printf '%s\n' "{\"type\":\"command_lifecycle\",\"command_uuid\":\"$ours\",\"state\":\"queued\"}"
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Background command completed (exit code 0)."}}}'
+printf '%s\n' '{"type":"result","subtype":"success","stop_reason":"end_turn","queued_turn_count":0}'
+printf '%s\n' "{\"type\":\"command_lifecycle\",\"command_uuid\":\"$ours\",\"state\":\"started\"}"
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"It printed bg-marker-done."}}}'
+printf '%s\n' '{"type":"result","subtype":"success","stop_reason":"end_turn","queued_turn_count":0}'
+printf '%s\n' "{\"type\":\"command_lifecycle\",\"command_uuid\":\"$ours\",\"state\":\"completed\"}"
+read -r keep_alive
+"#);
+        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        let mut said = String::new();
+        client
+            .prompt("The command you started has ended", &mut |item| {
+                if let TurnItem::Text { text, .. } = item {
+                    said.push_str(text);
+                }
+            })
+            .unwrap();
+        assert_eq!(said, "It printed bg-marker-done.", "the platform's own turn answered this prompt");
     }
 
     /// **The fallback, alone.** A child that names no command (an older binary, or a command it
