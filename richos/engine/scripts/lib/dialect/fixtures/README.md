@@ -17,6 +17,7 @@ and continues into `engine/scripts/lib/dialect/fixtures/`, the same shape
 | `british-keyed.txt` | 455 words of reply-style prose with an inline answer key: `{british|american}` must be fixed, `{word|=}` must be left. 106 must-fix items, 30 must-leave traps (names, code spans, a path, an identifier, a customer quotation, words that are already American, vocabulary rather than spelling). Written by clark-opus-amspell1 for the 2026-09-27 research, copied byte for byte from the private research kit (sha256 `07b0a0f987c95ff0e900fd90097b0c04144491921f20780e5649118c62859b95`). |
 | `british-keyed.context-traps.txt` | the 7 must-leave words of that sample that the table DOES carry, so only context rules can keep them |
 | `harper-review-list.tsv` | captured result of the one-time Harper cross-check: 25 verified forms, 18 fix and 7 leave |
+| `stream-a-app.txt` | stream A's inputs for the app's fixer (`richos-core` `american_spelling.rs`), in named `=== section` blocks: protected contexts that must stay as written, prose around them with its expected American form, capitals and sentence starts, a word split across two deltas, a document and an edit fragment's file, and the one declared miss on the keyed sample |
 
 To strip the key and get the plain British text, replace every
 `{british|american}` with `british` and every `{word|=}` with `word`

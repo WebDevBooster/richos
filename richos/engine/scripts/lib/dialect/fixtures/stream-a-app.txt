@@ -1,0 +1,85 @@
+=== keyed-contexts
+Note the Labour Party briefing and the Ministry of Defence memo. Grey's Anatomy is not relevant. The Barbican Centre event is off. Keep the CSS value `grey` and the protocol status `cancelled` unchanged.
+The file lives at /docs/colour-tokens.md and the function is normalise_input(). A customer wrote: "We realised the colour was wrong." I have left that quotation as written.
+=== declared-misses
+Colour (want Color)
+=== split-word
+The col
+our is fine.
+The color is fine.
+=== streaming
+## Colour choices
+
+I have organised the `colour` tokens:
+
+```css
+.panel { color: grey; } /* colour */
+```
+
+~~~
+the behaviour stays
+~~~
+
+See https://example.test/colour-guide and "the colour you chose".
+> the behaviour he quoted
+The ``double `colour` span`` ends here, and the behaviour after it is fixed.
+=== contexts-left
+Keep `colour` and ``the `behaviour` span`` as written.
+
+```
+colour behaviour organise
+```
+
+~~~python
+favour = "colour"
+~~~
+
+Paths /a/colour.md, C:\colour\x and ./colour-map stay.
+URLs https://example.test/colour-guide and www.colour.test stay.
+Identifiers colour_value, $colour, colour::Grey, --colour-main, colour.rs, colour2 and 2colour stay.
+He wrote "the colour of the behaviour" and “the favour” stays.
+> the colour he quoted stays
+The Colour Guide and the Barbican Centre are names.
+Grey's Anatomy is a name at the start of a sentence.
+The café's coloursé stays.
+=== contexts-mixed
+The colour is `colour` and the behaviour is "behaviour".
+```
+behaviour
+```
+Then the favour, and https://x.test/colour, and the honour.
+=== contexts-mixed-fixed
+The color is `colour` and the behavior is "behaviour".
+```
+behaviour
+```
+Then the favor, and https://x.test/colour, and the honor.
+=== case
+Colour is here. COLOUR codes are labelled. the colour stays lowercase.
+Whilst you wait, the Behaviour Guide is a name. Honour it!
+1. Organise the list.
+- Favourite items
+**Colour** in bold at the start.
+=== case-fixed
+Color is here. COLOR codes are labeled. the color stays lowercase.
+While you wait, the Behaviour Guide is a name. Honor it!
+1. Organize the list.
+- Favorite items
+**Color** in bold at the start.
+=== report
+The colour scheme is organised.
+Nothing here.
+We analysed the behaviour and the favour.
+=== edit-word
+colour
+=== edit-file
+# Notes
+
+Some text PROSE-ANCHOR end.
+
+```
+code FENCE-ANCHOR here
+```
+
+He said "QUOTE-ANCHOR today" and left.
+=== end
