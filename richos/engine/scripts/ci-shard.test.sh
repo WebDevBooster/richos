@@ -53,6 +53,14 @@
 #        leak canary is not lost by sharding. This is the 2026-09-05
 #        escalations.test.sh finding, which run-all-tests.sh catches per suite;
 #        splitting the pass must not silently drop it.
+#   S15b-S15g  THE RECORD CANARY COUNTS ONLY THE UNIT'S OWN WRITES. Each unit
+#        runs in a throwaway home (HOME, CLAUDE_CONFIG_DIR, RICHOS_WORKSPACES_DIR)
+#        and the canary watches the record inside it. Positive controls: a write
+#        through CLAUDE_CONFIG_DIR, through $HOME alone and through the
+#        workspace registry are each RED and named (S15b-d), and none reaches
+#        the operator's record (S15b'). The 2026-09-27 defect: a clean unit
+#        PASSES while another process writes the live record during it (S15e).
+#        The unit gets no road back (S15f) and keeps a git identity (S15g).
 #
 # Exit 0 = all cases pass; exit 1 = at least one failure.
 
@@ -330,25 +338,191 @@ else
 fi
 rm -f "$E/scripts/lib/leaky.test.sh"
 
-# --- S15b: the RECORD canary survives sharding (round 15) -----------------
-# A unit that appends a `terminated` row to the operator's ledger — the shape
-# session-start-stdin.test.sh 9b produced through the shipped reaper on
-# 2026-09-11 — is caught per unit here exactly as run-all-tests.sh catches it.
-cat > "$E/scripts/lib/toucher.test.sh" <<TOUCHER
+# --- S15b-S15g: the RECORD canary counts only the unit's OWN writes --------
+# Every case below runs the shard under an "operator" of its own: HOME and
+# CLAUDE_CONFIG_DIR point at $OPHOME, which stands for the real ~/.claude. So a
+# case that goes wrong writes into this sandbox, never into the operator's
+# real record.
+#
+# THE DEFECT (2026-09-27): the canary compared the LIVE record before and after
+# each unit, so anything else on the machine that wrote there during the unit
+# (a spawn, a land, a message) failed the unit as RECORD-TOUCHED, and engine
+# proofs could only pass on an idle session. Each unit now runs with HOME,
+# CLAUDE_CONFIG_DIR and RICHOS_WORKSPACES_DIR redirected into a throwaway home,
+# and the canary watches THAT: a unit that would have written the operator's
+# record writes the throwaway one and is still red (S15b-S15d, the positive
+# controls), and a concurrent writer to the live record is no longer charged to
+# the unit (S15e).
+OPHOME="$SANDBOX/ophome"
+OPCFG="$OPHOME/.claude"
+FLAGS="$SANDBOX/flags"
+mkdir -p "$OPCFG/state" "$OPCFG/teams/session-aaaaaaaa" "$FLAGS"
+# the operator's git configuration, with a marker S15g asserts the unit cannot see
+printf '[user]\n\tname = operator\n\temail = operator@example.invalid\n[richos]\n\tmarker = operator-gitconfig\n' > "$OPHOME/.gitconfig"
+op_shard() { # <argv...> — run the shard as that operator; output to $SANDBOX/out, echoes the rc
+    (
+        export HOME="$OPHOME"
+        export CLAUDE_CONFIG_DIR="$OPCFG"
+        unset RICHOS_WORKSPACES_DIR
+        export RICHOS_TEST_DEVICES_DIR="$OPCFG/state/test-devices"
+        cd "$LEAKDIR" && bash "$SH" "$@"
+    ) > "$SANDBOX/out" 2>&1
+    printf '%s' "$?"
+}
+mk_unit() { # <name> — the unit's body on stdin
+    cat > "$E/scripts/lib/$1"; chmod +x "$E/scripts/lib/$1"
+}
+
+# S15b — POSITIVE CONTROL: the 2026-09-11 shape, a `terminated` row appended to
+# the ledger the unit resolves from its own environment, exactly as the shipped
+# reaper resolved it. Red, named, the row printed.
+mk_unit toucher.test.sh <<'TOUCHER'
 #!/usr/bin/env bash
-mkdir -p "$CLAUDE_CONFIG_DIR/state"
-printf '{"event": "terminated", "agent_id": "x", "teammate": "fixture", "witness": "platform-terminal-record", "ts": "t"}\n' >> "$CLAUDE_CONFIG_DIR/state/worktree-ledger.jsonl"
+cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+mkdir -p "$cfg/state"
+printf '{"event": "terminated", "agent_id": "x", "teammate": "fixture", "witness": "platform-terminal-record", "ts": "t"}\n' >> "$cfg/state/worktree-ledger.jsonl"
 exit 0
 TOUCHER
-chmod +x "$E/scripts/lib/toucher.test.sh"
-( cd "$LEAKDIR" && bash "$SH" --only-units scripts/lib/toucher.test.sh > "$SANDBOX/out" 2>&1 )
-RC=$?
-if [ "$RC" = "1" ] && grep -q "touched the operator" "$SANDBOX/out" && grep -q 'event=terminated' "$SANDBOX/out"; then
-    ok "S15b a unit that appends a terminated row to the operator's ledger is caught, named, and the row printed — the record canary is not lost by sharding"
+RC="$(op_shard --only-units scripts/lib/toucher.test.sh)"
+if [ "$RC" = "1" ] && grep -q "RECORD-TOUCHED\|touched the operator" "$SANDBOX/out" && grep -q 'event=terminated' "$SANDBOX/out"; then
+    ok "S15b POSITIVE CONTROL: a unit that appends a terminated row to the ledger under its CLAUDE_CONFIG_DIR is caught, named, and the row printed"
 else
-    bad "S15b rc=$RC — the per-unit record canary did not fire"; sed 's/^/          /' "$SANDBOX/out"
+    bad "S15b rc=$RC — the per-unit record canary did not fire on a ledger write"; sed 's/^/          /' "$SANDBOX/out"
 fi
 rm -f "$E/scripts/lib/toucher.test.sh"
+
+# S15c — POSITIVE CONTROL through $HOME ALONE: worktree-ledger.py resolves the
+# ledger from expanduser("~"), never CLAUDE_CONFIG_DIR. A sandbox that moved only
+# the config directory would let this write through to the operator's ledger.
+mk_unit hometoucher.test.sh <<'HOMETOUCHER'
+#!/usr/bin/env bash
+unset CLAUDE_CONFIG_DIR
+python3 - <<'PYW'
+import os
+p = os.path.join(os.path.expanduser("~"), ".claude", "state", "worktree-ledger.jsonl")
+os.makedirs(os.path.dirname(p), exist_ok=True)
+open(p, "a").write('{"event": "registered", "agent_id": "y", "teammate": "home-route", "ts": "t"}\n')
+PYW
+exit 0
+HOMETOUCHER
+RC="$(op_shard --only-units scripts/lib/hometoucher.test.sh)"
+if [ "$RC" = "1" ] && grep -q 'teammate=home-route' "$SANDBOX/out"; then
+    ok "S15c POSITIVE CONTROL: a ledger row written through expanduser(\"~\") alone is caught and named"
+else
+    bad "S15c rc=$RC — a HOME-route ledger write was not caught"; sed 's/^/          /' "$SANDBOX/out"
+fi
+rm -f "$E/scripts/lib/hometoucher.test.sh"
+
+# S15d — POSITIVE CONTROL through RICHOS_WORKSPACES_DIR: the workspace registry.
+mk_unit registrar.test.sh <<'REGISTRAR'
+#!/usr/bin/env bash
+ws="${RICHOS_WORKSPACES_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/state/workspaces}"
+mkdir -p "$ws/agents"
+printf '{"key": "deadbeef--dev-sonnet-q1"}\n' > "$ws/agents/deadbeef--dev-sonnet-q1.json"
+printf '{"event": "registered-spawn", "key": "deadbeef--dev-sonnet-q1"}\n' >> "$ws/events.jsonl"
+exit 0
+REGISTRAR
+RC="$(op_shard --only-units scripts/lib/registrar.test.sh)"
+if [ "$RC" = "1" ] && grep -q 'deadbeef--dev-sonnet-q1' "$SANDBOX/out"; then
+    ok "S15d POSITIVE CONTROL: a registration written into the workspace registry is caught and named"
+else
+    bad "S15d rc=$RC — a registry write was not caught"; sed 's/^/          /' "$SANDBOX/out"
+fi
+rm -f "$E/scripts/lib/registrar.test.sh"
+# ...and none of the three reached the operator's record itself
+LEAKED_TO_OP=""
+[ -e "$OPCFG/state/worktree-ledger.jsonl" ] && LEAKED_TO_OP="$LEAKED_TO_OP $OPCFG/state/worktree-ledger.jsonl"
+[ -e "$OPCFG/state/workspaces" ] && LEAKED_TO_OP="$LEAKED_TO_OP $OPCFG/state/workspaces"
+if [ -z "$LEAKED_TO_OP" ]; then
+    ok "S15b' and none of those writes reached the operator's record: they landed in the unit's throwaway home"
+else
+    bad "S15b' a unit's write reached the operator's record:$LEAKED_TO_OP"
+    rm -rf "$OPCFG/state/worktree-ledger.jsonl" "$OPCFG/state/workspaces"
+fi
+
+# S15e — THE DEFECT: a CLEAN unit while something else on the machine writes the
+# live record — a spawn's `registered` row, a new team directory, a fallback
+# event. The writer is not the unit's descendant, and it writes WHILE the unit
+# runs (a handshake on flag files, not a sleep). The unit must PASS.
+rm -f "$FLAGS/unit-started" "$FLAGS/writer-done"
+cat > "$E/scripts/lib/quiet.test.sh" <<QUIET
+#!/usr/bin/env bash
+touch "$FLAGS/unit-started"
+n=0
+while [ ! -e "$FLAGS/writer-done" ] && [ "\$n" -lt 300 ]; do sleep 0.1; n=\$((n + 1)); done
+[ -e "$FLAGS/writer-done" ] || { echo "the concurrent writer never wrote; this case proves nothing" >&2; exit 7; }
+exit 0
+QUIET
+chmod +x "$E/scripts/lib/quiet.test.sh"
+(
+    n=0
+    while [ ! -e "$FLAGS/unit-started" ] && [ "$n" -lt 600 ]; do sleep 0.1; n=$((n + 1)); done
+    [ -e "$FLAGS/unit-started" ] || exit 0
+    printf '{"event": "registered", "agent_id": "live1", "teammate": "echo-opus-live1", "source": "detect-nonnative-worktree.sh", "ts": "t"}\n' >> "$OPCFG/state/worktree-ledger.jsonl"
+    mkdir -p "$OPCFG/teams/session-cafebabe"
+    printf '{"event": "WorkerRunEnded", "agent_id": "live1", "session_id": "cafebabe-0000", "timestamp": "t"}\n' >> "$OPCFG/worker-events.jsonl"
+    touch "$FLAGS/writer-done"
+) &
+WRITER=$!
+RC="$(op_shard --only-units scripts/lib/quiet.test.sh)"
+wait "$WRITER" 2>/dev/null
+if [ "$RC" = "0" ] && grep -q 'PASS' "$SANDBOX/out" && [ -e "$FLAGS/writer-done" ] \
+   && grep -q 'echo-opus-live1' "$OPCFG/state/worktree-ledger.jsonl" 2>/dev/null; then
+    ok "S15e a clean unit PASSES while another process writes the live record during it — the canary counts only the unit's own writes"
+else
+    bad "S15e rc=$RC — a concurrent writer to the live record failed a clean unit"; sed 's/^/          /' "$SANDBOX/out"
+fi
+rm -f "$E/scripts/lib/quiet.test.sh"
+rm -rf "$OPCFG/teams/session-cafebabe" "$OPCFG/worker-events.jsonl" "$OPCFG/state/worktree-ledger.jsonl"
+
+# S15f — the unit CANNOT reach the live record: none of the three names the
+# record is reached by points under the operator's home, and a variable the
+# operator exported INTO the record (RICHOS_TEST_DEVICES_DIR here) is not passed.
+cat > "$E/scripts/lib/envprobe.test.sh" <<ENVPROBE
+#!/usr/bin/env bash
+{
+  printf 'HOME=%s\n' "\$HOME"
+  printf 'CLAUDE_CONFIG_DIR=%s\n' "\${CLAUDE_CONFIG_DIR:-}"
+  printf 'RICHOS_WORKSPACES_DIR=%s\n' "\${RICHOS_WORKSPACES_DIR:-}"
+  printf 'RICHOS_TEST_DEVICES_DIR=%s\n' "\${RICHOS_TEST_DEVICES_DIR:-}"
+} > "$FLAGS/env.txt"
+exit 0
+ENVPROBE
+chmod +x "$E/scripts/lib/envprobe.test.sh"
+RC="$(op_shard --only-units scripts/lib/envprobe.test.sh)"
+ENVDUMP="$(cat "$FLAGS/env.txt" 2>/dev/null || true)"
+if [ "$RC" = "0" ] && [ -n "$ENVDUMP" ] \
+   && ! printf '%s\n' "$ENVDUMP" | grep -q "$OPHOME" \
+   && printf '%s\n' "$ENVDUMP" | grep -q '^HOME=/' \
+   && printf '%s\n' "$ENVDUMP" | grep -q '^CLAUDE_CONFIG_DIR=/' \
+   && printf '%s\n' "$ENVDUMP" | grep -q '^RICHOS_WORKSPACES_DIR=/' \
+   && printf '%s\n' "$ENVDUMP" | grep -qx 'RICHOS_TEST_DEVICES_DIR='; then
+    ok "S15f the unit runs with HOME, CLAUDE_CONFIG_DIR and RICHOS_WORKSPACES_DIR outside the operator's home, and a variable pointing into the record is not passed"
+else
+    bad "S15f rc=$RC — the unit could reach the live record:"; printf '%s\n' "$ENVDUMP" | sed 's/^/          /'
+fi
+rm -f "$E/scripts/lib/envprobe.test.sh"
+
+# S15g — the throwaway home is CI's shape, not an empty one: a git identity (the
+# engine-self-verify workflow declares one, and fixtures commit), and NOTHING of
+# the operator's own git configuration.
+mk_unit gitid.test.sh <<'GITID'
+#!/usr/bin/env bash
+set -e
+d="$(mktemp -d "${TMPDIR:-/tmp}/gitid.XXXXXX")"
+trap 'rm -rf "$d"' EXIT
+git -C "$d" init -q
+git -C "$d" commit -q --allow-empty -m fixture
+[ -z "$(git config --global --get richos.marker || true)" ] || { echo "the operator's git config is visible" >&2; exit 5; }
+exit 0
+GITID
+RC="$(op_shard --only-units scripts/lib/gitid.test.sh)"
+if [ "$RC" = "0" ]; then
+    ok "S15g a fixture can commit in the unit's home (a git identity is declared), and the operator's git configuration is not visible"
+else
+    bad "S15g rc=$RC — git in the unit's home"; sed 's/^/          /' "$SANDBOX/out"
+fi
+rm -f "$E/scripts/lib/gitid.test.sh"
 
 # --- S16 / S17: the restricted plan ---------------------------------------
 SUBSET="$SANDBOX/subset.txt"

@@ -151,6 +151,17 @@ the leak canary (the last a false `terminated` witness for a running agent, writ
 shipped reaper from inside `session-start-stdin.test.sh`). A unit that changes them is
 `RECORD-TOUCHED`, red, with the rows printed; case S15b proves it fires.
 
+**Since 2026-09-27 each unit gets a record of its own.** The canary compared the live record
+before and after a unit, so any spawn, land or message elsewhere on the machine during the
+unit failed it as `RECORD-TOUCHED`, and engine proofs could pass only on an idle session. The
+runner now runs every unit with `HOME`, `CLAUDE_CONFIG_DIR` and `RICHOS_WORKSPACES_DIR` inside
+a throwaway home (CI's shape: no record, a git identity), removes any other variable that
+points into the operator's record, and watches the record in that home (`rc_sandbox` in
+`lib/record-canary.sh`). A unit that would have written the operator's record writes that one
+and is still red (S15b-S15d); a concurrent writer to the live record no longer fails a clean
+unit (S15e). What it cannot see is named in the library's header: a path to the operator's
+record fixed before the unit started, or read from the password database.
+
 **`run-all-tests.sh` was not modified.** The sharded reading is a second, independent
 implementation of the same discovery rule, and `ci-units.test.sh` case **U1** asserts by
 execution that its suite set is byte-identical to `run-all-tests.sh --list`. A shared helper
