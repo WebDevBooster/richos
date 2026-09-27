@@ -2377,6 +2377,11 @@ def w2_fixture(ctx, r):
     """The walk's own additions to the probe fixture: his declaration, the fences installed and
     on in the fixture entity, a planted escalation on every Stop, a cheap model."""
     p = ctx.p
+    # Question publication checks this declared record with the real premise guard.
+    # The generic probe's title and identity token alone contain no parseable ruling.
+    rules = p.entity / 'CLAUDE.md'
+    rules.write_text(rules.read_text() + '\n## Fixture boundaries\n\n'
+                     'Work only in this disposable entity. Its conversations and assignments are synthetic.\n')
     home_env = dict(ctx.stored, HOME=str(p.home), **HARNESS_PIN)
     # A cheap model for the walk's leads: the profile passes none, so his settings decide it.
     settings = json.loads((p.claude_dir / 'settings.json').read_text())
