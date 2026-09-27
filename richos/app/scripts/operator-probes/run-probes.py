@@ -11,6 +11,11 @@ synced in, the host's login pushed, no app launched), copies in this harness and
 the foreground, pulls the results back, and deletes the clone however the run ends (§54).
 
   run-probes.py --out DIR [--only P1,P2,...] [--engine-rev REV] [--wait SECONDS] [--survey]
+                [--walk-binary BIN] [--work-walk-binary BIN --runtime DIR]
+
+W4 (the work path's crash matrix, richos-hq docs/plans/2026-09-27-work-path-answer-delivery-design.md
+§4.2) runs a real work lease, which needs the delivered runtime the app ships: --runtime names one
+(default ~/.richos-nightly/runtime, read only), and it is copied into the guest with the binary.
 
 Exit: the guest driver's exit code (0 when every probe that ran PASSED; 1 when any FAILED
 or its premise was false; 2 for a harness failure), or 75 when admission was refused.
@@ -96,6 +101,10 @@ def main():
     p.add_argument('--probe-timeout', type=int, default=900, help='seconds per probe inside the guest')
     p.add_argument('--walk-binary', type=Path, default=None,
                    help='the operator_walk example binary (cargo build --example operator_walk), for the W2 walk')
+    p.add_argument('--work-walk-binary', type=Path, default=None,
+                   help='the work_walk example binary (cargo build --features crash-points --example work_walk), for W4')
+    p.add_argument('--runtime', type=Path, default=Path.home() / '.richos-nightly' / 'runtime',
+                   help='a delivered runtime (delivery.json and its files) for W4\'s work lease; read, never written')
     p.add_argument('--quota-ceiling', type=float, default=85.0,
                    help='stop the run when his five-hour quota reading reaches this percent (default 85), so a '
                         'probe never carries the account to ruling §87\'s 93%% pause for every other session')
@@ -130,6 +139,16 @@ def main():
                     if a.walk_binary:
                         t.add(str(a.walk_binary.resolve()), arcname='probes/operator_walk')
                         report['walk_binary_sha256'] = __import__('hashlib').sha256(a.walk_binary.read_bytes()).hexdigest()
+                    if a.work_walk_binary:
+                        if not (a.runtime / 'delivery.json').is_file():
+                            raise RuntimeError('W4 needs a delivered runtime; %s has no delivery.json' % a.runtime)
+                        t.add(str(a.work_walk_binary.resolve()), arcname='probes/work_walk')
+                        report['work_walk_binary_sha256'] = __import__('hashlib').sha256(
+                            a.work_walk_binary.read_bytes()).hexdigest()
+                        # Symlinks stay links (delivery.json lists them); the guest checks every hash.
+                        t.add(str(a.runtime.resolve()), arcname='probes/runtime')
+                        report['runtime_delivery_sha256'] = __import__('hashlib').sha256(
+                            (a.runtime / 'delivery.json').read_bytes()).hexdigest()
                 boot = subprocess.Popen([str(TESTVM / 'run.sh'), '--no-app', '--no-tailnet', '--vm', vm, '--home', str(home)],
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
                 try:
@@ -154,6 +173,8 @@ def main():
                     args += ['--survey']
                 if a.walk_binary:
                     args += ['--walk-binary', f'{payload}/probes/operator_walk']
+                if a.work_walk_binary:
+                    args += ['--work-walk-binary', f'{payload}/probes/work_walk', '--runtime', f'{payload}/probes/runtime']
                 command = ' '.join(shlex.quote(x) for x in args)
                 began = time.monotonic()
                 report['quota_at_start'] = five_hour_used()

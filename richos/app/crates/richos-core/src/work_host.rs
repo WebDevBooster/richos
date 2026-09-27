@@ -509,6 +509,22 @@ const WORKER_WAIT_BUDGET: std::time::Duration = std::time::Duration::from_secs(2
 /// gets its next turn, not for cost.
 const WORKER_WAIT_POLL: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// **The work path's one injected fault** (the VM crash matrix's P4e cell, design §4.2): with the
+/// `crash-points` feature and `RICHOS_CRASH_POINT` naming it, it is true ONCE per process. Every
+/// product build compiles it to `false`. The aborts are `operator_host::crash_point`'s.
+#[cfg(feature = "crash-points")]
+fn work_fault(name: &str) -> bool {
+    static FIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    std::env::var("RICHOS_CRASH_POINT").is_ok_and(|point| point == name)
+        && !FIRED.swap(true, std::sync::atomic::Ordering::SeqCst)
+}
+
+#[cfg(not(feature = "crash-points"))]
+#[inline(always)]
+fn work_fault(_name: &str) -> bool {
+    false
+}
+
 /// **The one line before the brief of work he picked back up after RichOS closed on it** (the
 /// work-path design's D6 note, on C6's option B path).
 pub const PICKED_UP_NOTE: &str =
@@ -1461,6 +1477,13 @@ impl WorkHost {
         // The background commands this lease already knew about before this assignment's
         // first turn: none of them is this assignment's (step 3c).
         let mut commands_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // P4e's fault: the back end died while the job waited for his answer, so the prompt
+        // carrying it finds no child and fails before anything is written (`native.rs`'s
+        // `Closed`). Dropping the lease ends its child, as a death would.
+        if !carried.new.is_empty() && work_fault("WORK-DEAD-LEASE") {
+            eprintln!("crash point WORK-DEAD-LEASE: the back end is gone before his answer is sent");
+            *backend.lease.lock().unwrap() = None;
+        }
         let mut outcome = {
             let mut lease = backend.lease.lock().unwrap();
             match lease.as_mut() {

@@ -3349,6 +3349,292 @@ def w3(ctx, r):
 
 
 # =============================================================================================
+# W4: the WORK PATH's crash matrix for his answers (richos-hq
+# docs/plans/2026-09-27-work-path-answer-delivery-design.md §4.2). One question set per cell,
+# through the real `work_walk host` (built with the `crash-points` feature): a real work lease
+# on the delivered runtime, the durable question store and inbox, boot recovery, and the
+# question worker's pass exactly as the app ships it (`WorkHost::deliver_team_answers`, D8).
+# The fixture job asks him one question whose options are two markers, and once answered it
+# replies with exactly the marker he chose. RICHOS_CRASH_POINT names where a walk aborts; after
+# it a new walk opens on the same data folder, reconciles and wakes as the app does at launch.
+# =============================================================================================
+
+W4_CELLS = ('baseline', 'P4-carry', 'P4-sent', 'P5', 'P4e', 'P7')
+W4_POINT = {'P4-carry': 'WORK-CARRY', 'P4-sent': 'WORK-FIRST-ITEM', 'P5': 'WORK-TAKEN', 'P4e': 'WORK-DEAD-LEASE'}
+# The provider supervisor ends a work lease whose owner died (native.rs, owner-death reap).
+W4_REAP_GRACE = 8
+
+
+class WorkWalk(Walk):
+    """The work walk, driven over the same JSON lines as `Walk`. Its pid is this harness's own
+    child: owned, and quit or killed by that pid only."""
+
+    def __init__(self, ctx, data, tag, crash=None):
+        self.ctx, self.says, self.replies, self.recovery = ctx, [], {}, None
+        self.cond = threading.Condition()
+        self.next = 0
+        env = {'HOME': str(ctx.p.home), 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'TMPDIR': ctx.tmpdir,
+               'RICHOS_CLAUDE_BIN': GUEST_CLAUDE, 'LANG': 'en_US.UTF-8'}
+        env.update(HARNESS_PIN)
+        if crash:
+            env['RICHOS_CRASH_POINT'] = crash
+        self.stderr_path = ctx.p.results / ('W4-walk-%s.stderr.txt' % tag)
+        self.proc = subprocess.Popen([ctx.work_walk_binary, 'host', str(ctx.p.engine), str(ctx.runtime), str(data)],
+                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=open(str(self.stderr_path), 'w'),
+                                     env=env, cwd=str(ctx.p.work), start_new_session=True, text=True, bufsize=1)
+        self.started = time.time()
+        threading.Thread(target=self._read, daemon=True).start()
+        self.ready = self.wait_reply('ready', 120)
+
+    def _read(self):
+        for line in self.proc.stdout:
+            try:
+                v = json.loads(line)
+            except ValueError:
+                continue
+            with self.cond:
+                if v.get('event') == 'say':
+                    v['t'] = round(time.time() - self.started, 3)
+                    self.says.append(v)
+                elif v.get('event') == 'recovery':
+                    self.recovery = v
+                elif 'ready' in v:
+                    self.replies['ready'] = v
+                else:
+                    self.replies[v.get('id')] = v
+                self.cond.notify_all()
+        with self.cond:
+            self.replies['closed'] = True
+            self.cond.notify_all()
+
+    def ok(self, cmd, timeout=180, **fields):
+        got = self.call(cmd, timeout=timeout, **fields)
+        if 'ok' not in got:
+            raise RuntimeError('%s: %s' % (cmd, got))
+        return got['ok']
+
+
+def w4_brief(cell, two):
+    ask = ('Ask the CEO exactly one question with the richos_questions ask tool: "%s", with two options, labeled '
+           '"%s" (description: "Report the first marker.") and "%s" (description: "Report the second marker."). '
+           'Then end your turn with exactly: %s.')
+    first = ask % ('Which marker should this job report?', 'W4-%s-A' % cell.upper(), 'W4-%s-B' % cell.upper(),
+                   'W4-ASKED')
+    if not two:
+        return ('This is a fixture job in a disposable test. Do not start helpers, run commands or change any file. '
+                + first + ' When his answer arrives, reply with exactly the label he chose and nothing else.')
+    second = ask % ('Which second marker should this job report?', 'W4-%s-C' % cell.upper(),
+                    'W4-%s-D' % cell.upper(), 'W4-ASKED-2')
+    return ('This is a fixture job in a disposable test. Do not start helpers, run commands or change any file. '
+            + first + ' When his answer arrives, do not report it yet: ' + second + ' When that answer arrives, '
+            'reply with exactly the two labels he chose, the first then the second, separated by one space, and '
+            'nothing else.')
+
+
+def w4_wait(walk, pred, timeout, every=2):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        got = pred()
+        if got:
+            return got
+        if walk.proc.poll() is not None:
+            return None
+        time.sleep(every)
+    return None
+
+
+def w4_open_question(walk, thread):
+    qs = walk.ok('questions', thread=thread).get('questions', [])
+    return next((q for q in qs if q.get('state') == 'open'), None)
+
+
+def w4_answer(walk, thread, question, label, tag):
+    option = next(o['id'] for o in question['options'] if o['label'] == label)
+    return walk.call('answer-question', thread=thread, timeout=60,
+                     answer={'question_id': question['id'], 'client_id': 'w4-' + tag, 'option_ids': [option],
+                             'text': '', 'expected_revision': None})
+
+
+def w4_row(walk, thread):
+    rows = walk.ok('rows', thread=thread).get('rows', [])
+    return rows[-1] if rows else {}
+
+
+def w4_marker_says(walks, thread, marker):
+    return [s for w in walks for s in w.says if s.get('thread') == thread and marker in (s.get('text') or '')]
+
+
+def w4_journal_tools(ctx, data, session):
+    """C12's evidence: the tool calls the killed back end's own hook journal recorded."""
+    path = data / 'engine-state' / 'evidence' / (session or '-') / 'callbacks.jsonl'
+    names = []
+    if path.exists():
+        for line in path.read_text().splitlines():
+            try:
+                cb = json.loads(line).get('callback') or {}
+            except ValueError:
+                continue
+            if cb.get('hook_event_name') in ('PreToolUse', 'PostToolUse'):
+                names.append('%s:%s' % (cb.get('hook_event_name'), cb.get('tool_name')))
+    return names
+
+
+def w4_cell(ctx, cell):
+    rec = {'cell': cell}
+    data = ctx.p.work / ('w4-%s' % cell.lower())
+    data.mkdir(parents=True, exist_ok=True)
+    thread = 'w4-%s' % cell.lower()
+    two = cell == 'P7'
+    first_label = 'W4-%s-B' % cell.upper()
+    second_label = 'W4-%s-D' % cell.upper()
+    marker = ('%s %s' % (first_label, second_label)) if two else first_label
+    point = W4_POINT.get(cell)
+    aborts = cell in ('P4-carry', 'P4-sent', 'P5')
+    walk = WorkWalk(ctx, data, '%s-first' % cell, crash=point)
+    walks = [walk]
+    try:
+        if not walk.ready:
+            rec['error'] = 'the walk did not start: %s' % walk.stderr_path.read_text()[-800:]
+            return rec
+        rec['register'] = walk.ok('assign', thread=thread, title='Fixture job %s' % cell, text=w4_brief(cell, two),
+                                  timeout=180)
+        q = w4_wait(walk, lambda: w4_open_question(walk, thread), 360)
+        if not q:
+            rec['error'] = 'the back end never asked'
+            rec['row'] = w4_row(walk, thread)
+            return rec
+        rec['asked'] = q['text']
+        if two:
+            rec['answer_1'] = w4_answer(walk, thread, q, first_label, cell + '-1')
+            q2 = w4_wait(walk, lambda: next((x for x in walk.ok('questions', thread=thread)['questions']
+                                             if x.get('state') == 'open' and x['id'] != q['id']), None), 420)
+            if not q2:
+                rec['error'] = 'the back end never asked the second question'
+                rec['row'] = w4_row(walk, thread)
+                return rec
+            blocked = w4_wait(walk, lambda: w4_row(walk, thread).get('state') == 'blocked', 240)
+            rec['blocked_before_crash'] = bool(blocked)
+            rec['inbox_before_crash'] = walk.ok('inbox')
+            walk.kill()  # a crash while it waits on him: a quit would interrupt it (work_host shutdown)
+            rec['first_exit'] = walk.proc.poll()
+            time.sleep(W4_REAP_GRACE)
+            walk = WorkWalk(ctx, data, '%s-relaunched' % cell)
+            walks.append(walk)
+            rec['recovery'] = walk.recovery
+            q2 = w4_open_question(walk, thread)
+            rec['answer_2'] = w4_answer(walk, thread, q2, second_label, cell + '-2')
+        else:
+            before = w4_open_question(walk, thread)
+            # The card, before the back end has the answer (D7): read right after the answer.
+            rec['answer'] = w4_answer(walk, thread, before, first_label, cell)
+            try:
+                card = [x for x in walk.ok('questions', thread=thread, timeout=20)['questions'] if x['id'] == before['id']]
+                rec['card_right_after_answer'] = card[0] if card else None
+            except (RuntimeError, KeyError):
+                rec['card_right_after_answer'] = 'unreadable (the walk may already have aborted)'
+        if aborts:
+            try:
+                walk.proc.wait(timeout=300)  # the crash point aborts the walk
+            except subprocess.TimeoutExpired:
+                rec['crash_point_not_reached'] = True
+                walk.kill()
+            rec['first_exit'] = walk.proc.poll()
+            time.sleep(W4_REAP_GRACE)
+            walk = WorkWalk(ctx, data, '%s-relaunched' % cell)
+            walks.append(walk)
+            rec['recovery'] = walk.recovery
+        if cell == 'P5':
+            # Nothing may re-run it: watch for a minute, then read.
+            time.sleep(60)
+        else:
+            w4_wait(walk, lambda: w4_marker_says([walk], thread, marker), 420)
+            time.sleep(15)  # a second report, if any, comes in this window
+        rec['marker'] = marker
+        rec['reports'] = len(w4_marker_says(walks, thread, marker))
+        rec['says'] = [s for w in walks for s in w.says if s.get('thread') == thread][-12:]
+        rec['row'] = w4_row(walk, thread)
+        rec['inbox'] = walk.ok('inbox')
+        rec['spawns_last_walk'] = walk.ok('spawns')['spawns']
+        rec['spawns_per_walk'] = []
+        for w in walks:
+            try:
+                rec['spawns_per_walk'].append(w.ok('spawns', timeout=20)['spawns'] if w.proc.poll() is None else None)
+            except RuntimeError:
+                rec['spawns_per_walk'].append(None)
+        rec['cards'] = walk.ok('questions', thread=thread)['questions']
+        if cell == 'P4-sent':
+            rec['c12_killed_back_end_tools'] = w4_journal_tools(ctx, data, (rec.get('row') or {}).get('work_session'))
+    finally:
+        for w in walks:
+            if w.proc.poll() is None:
+                rec.setdefault('quit', []).append(w.quit())
+        rec['walks_gone'] = [w.proc.poll() is not None for w in walks]
+    rec['pass'], rec['why'] = grade_w4_cell(rec)
+    return rec
+
+
+def grade_w4_cell(rec):
+    cell = rec['cell']
+    row = rec.get('row') or {}
+    inputs = (rec.get('inbox') or {}).get('inputs') or []
+    taken = bool(inputs) and all(i.get('handed') and i.get('taken_in') for i in inputs)
+    notices = [n.get('kind') for n in row.get('notices') or []]
+    recovery = rec.get('recovery') or {}
+    job = ((rec.get('register') or {}).get('assignment'))
+    if not all(rec.get('walks_gone') or [False]):
+        return False, 'a walk was left running'
+    if cell == 'P5':
+        ok = (job in (recovery.get('unknown') or []) and row.get('state') == 'unknown' and taken
+              and rec.get('reports', 0) <= 1 and rec.get('spawns_last_walk') == 0)
+        return ok, 'unknown=%s state=%s taken=%s reports=%s spawns_after=%s' % (
+            job in (recovery.get('unknown') or []), row.get('state'), taken, rec.get('reports'), rec.get('spawns_last_walk'))
+    once = rec.get('reports') == 1
+    settled = row.get('state') == 'settled'
+    if cell == 'baseline':
+        return once and taken and settled, 'reports=%s taken=%s state=%s' % (rec.get('reports'), taken, row.get('state'))
+    if cell in ('P4-carry', 'P4-sent'):
+        waiting = job in (recovery.get('answers_waiting') or []) and job not in (recovery.get('unknown') or [])
+        no_unknown = 'Unknown' not in notices
+        ok = waiting and no_unknown and once and taken and not rec.get('crash_point_not_reached')
+        return ok, 'answers_waiting=%s no_unknown_notice=%s reports=%s taken=%s' % (waiting, no_unknown, rec.get('reports'), taken)
+    if cell == 'P4e':
+        spawned = rec.get('spawns_last_walk') == 2
+        never_failed = 'Failed' not in notices and row.get('state') != 'failed'
+        return spawned and once and never_failed and taken, 'spawns=%s reports=%s never_failed=%s taken=%s' % (
+            rec.get('spawns_last_walk'), rec.get('reports'), never_failed, taken)
+    if cell == 'P7':
+        ok = rec.get('blocked_before_crash') and once and taken
+        return ok, 'blocked_before_crash=%s reports_with_both=%s taken=%s' % (rec.get('blocked_before_crash'), rec.get('reports'), taken)
+    return False, 'unknown cell'
+
+
+@probe('W4', explicit=True)
+def w4(ctx, r):
+    if not getattr(ctx, 'work_walk_binary', None) or not os.path.exists(ctx.work_walk_binary):
+        return 'NOT-RUN', 'no work_walk binary built with --features crash-points was handed to the guest'
+    if not getattr(ctx, 'runtime', None) or not (Path(ctx.runtime) / 'delivery.json').exists():
+        return 'NOT-RUN', 'no delivered runtime was handed to the guest'
+    # A cheap model for the fixture's back ends, as W2 does: the lease passes none.
+    settings_path = ctx.p.claude_dir / 'settings.json'
+    settings = json.loads(settings_path.read_text()) if settings_path.exists() else {}
+    settings['model'] = PROBE_MODEL
+    settings_path.write_text(json.dumps(settings, indent=1) + '\n')
+    cells = r.setdefault('cells', {})
+    for cell in W4_CELLS:
+        try:
+            cells[cell] = w4_cell(ctx, cell)
+        except Exception:  # noqa: BLE001 - one cell's harness failure is recorded; the next still runs
+            cells[cell] = {'cell': cell, 'error': traceback.format_exc()[-2000:], 'pass': False}
+        print('W4 %s: %s %s' % (cell, cells[cell].get('pass'), cells[cell].get('why') or cells[cell].get('error', '')[-300:]),
+              flush=True)
+    passed = [c for c in W4_CELLS if cells[c].get('pass')]
+    failed = [c for c in W4_CELLS if not cells[c].get('pass')]
+    if failed:
+        return 'FAIL', 'cells passed: %s; not passed: %s' % (passed, failed)
+    return 'PASS', 'every cell: his answer reached the job once, taken by the back end, and a started job never re-ran'
+
+
+# =============================================================================================
 # driver
 # =============================================================================================
 
@@ -3463,6 +3749,8 @@ def main():
     ap.add_argument('--survey', action='store_true')
     ap.add_argument('--probe-timeout', type=int, default=900)
     ap.add_argument('--walk-binary', default='')
+    ap.add_argument('--work-walk-binary', default='')
+    ap.add_argument('--runtime', default='')
     a = ap.parse_args()
     p = Paths(a.payload)
     p.results.mkdir(parents=True, exist_ok=True)
@@ -3478,6 +3766,8 @@ def main():
     setup['claude_version'] = out.strip()
     ctx = Context(p, a.probe_timeout)
     ctx.walk_binary = a.walk_binary
+    ctx.work_walk_binary = a.work_walk_binary
+    ctx.runtime = a.runtime
     setup['ssh_auth_sock_method'] = ctx.ssh_method
     setup['supervisor_python'] = ctx.python
     setup['stored_names'] = sorted(ctx.stored)
