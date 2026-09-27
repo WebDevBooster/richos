@@ -1,0 +1,18 @@
+# british-keyed.context-traps.txt — the must-leave items of british-keyed.txt
+# whose word IS in the generated table, so only CONTEXT keeps them unchanged.
+#
+# A fixer that reads the table must leave these where british-keyed.txt marks
+# them `{word|=}`: a proper name mid-sentence (Labour Party, Ministry of
+# Defence, Barbican Centre, Grey's Anatomy), a CSS value or protocol status in
+# a code span (grey, cancelled), a file path (colour), a customer quotation
+# (realised, colour). Every OTHER must-leave item is a word the table does not
+# carry at all, and dialect-table.test.py fails the day one of those enters it.
+#
+# One lowercase word per line.
+cancelled
+centre
+colour
+defence
+grey
+labour
+realised

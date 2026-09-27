@@ -1,0 +1,36 @@
+# harper-review-list.tsv — CAPTURED EVIDENCE of a one-time cross-check.
+#
+# Source: richos-hq docs/research/2026-09-27-american-spelling-autofix.md,
+# "How the safe and ambiguous sets are produced", step 6 (clark-opus-amspell1).
+# Harper 2.11.0 in American mode accepted these 25 of the 3,855 verified VarCon
+# forms. Each carries its disposition under the "always the preferred American
+# form" rule. Nothing reads Harper again; dialect-table.test.py holds the
+# generated table to this record: every `fix` form is in the table, every
+# `leave` form is absent from it and listed in ../dialect-en-US.leave.tsv.
+#
+# form<TAB>disposition
+amidst	fix
+amoebae	fix
+amongst	fix
+blowsiest	fix
+cosiest	fix
+draughtiest	fix
+eviller	fix
+evillest	fix
+formulae	fix
+greyest	fix
+grovelled	fix
+grovelling	fix
+learnt	fix
+levellest	fix
+mouldiest	fix
+programmes	fix
+savouriest	fix
+synch	fix
+oversized	leave
+queueing	leave
+hah	leave
+hurray	leave
+hurrayed	leave
+hurraying	leave
+hurrays	leave

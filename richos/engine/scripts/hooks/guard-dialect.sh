@@ -98,12 +98,17 @@
 #       transcript/, fixtures/, fixture/, corpora/, corpus/, snapshots/,
 #       snapshot/, logs/, node_modules/, vendor/, third_party/, third-party/
 #     * run output: *.log, *.jsonl
-#     * THIS GUARD'S OWN THREE FILES — dialect-en-US.dict, guard-dialect.sh,
-#       guard-dialect.test.sh. Stated plainly rather than buried, because it is
-#       self-serving on its face: a dictionary of British spellings is made of
-#       British spellings, and a guard that cannot have its own vocabulary
+#     * THIS GUARD'S OWN SIX FILES — dialect-en-US.dict, guard-dialect.sh,
+#       guard-dialect.test.sh, and the three vocabulary files of the generated
+#       American spelling table in scripts/lib/dialect/ (added 2026-09-27):
+#       dialect-en-US.generated.dict, dialect-en-US.overrides.dict,
+#       dialect-en-US.leave.tsv. Stated plainly rather than buried, because it
+#       is self-serving on its face: a dictionary of British spellings is made
+#       of British spellings, and a guard that cannot have its own vocabulary
 #       edited is a guard nobody can maintain. The mitigation is that the
-#       exemption is three named basenames, not a pattern anyone can slip into.
+#       exemption is six named basenames, not a pattern anyone can slip into.
+#       The table's generator, its test and its README carry no vocabulary
+#       word at all (dialect-table.test.py proves it), so they need no entry.
 #     * anything matching DIALECT_EXEMPT_PATHS in orchestration.config
 #
 #   CONTENT-LEVEL (per match)
@@ -484,9 +489,11 @@ EVIDENCE_SEGMENTS = ("raw", "cold-open", "transcripts", "transcript",
                      "third_party", "third-party", "__pycache__", ".git")
 EVIDENCE_EXTS = (".log", ".jsonl", ".lock", ".min.js", ".min.css", ".patch",
                  ".diff", ".po", ".pot", ".map", ".sha256")
-# This guard's own three files. Self-serving on its face, so it is named in the
+# This guard's own six files. Self-serving on its face, so it is named in the
 # header and enumerated here rather than expressed as a pattern.
-OWN_FILES = ("dialect-en-us.dict", "guard-dialect.sh", "guard-dialect.test.sh")
+OWN_FILES = ("dialect-en-us.dict", "guard-dialect.sh", "guard-dialect.test.sh",
+             "dialect-en-us.generated.dict", "dialect-en-us.overrides.dict",
+             "dialect-en-us.leave.tsv")
 
 def path_exempt():
     if not file_path:

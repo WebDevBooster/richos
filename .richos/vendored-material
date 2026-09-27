@@ -133,7 +133,13 @@
 #   richos/engine/scripts/hooks/fixtures/third_party now contains a licensed
 #                    copywriting regression input. Other richos/engine/scripts,
 #                    richos/engine/reference and docs remain first-party source.
-REDISTRIBUTABLE_PATHS="richos/engine/skills richos/engine/tools richos/app/ui/fonts richos/engine/scripts/hooks/fixtures/third_party"
+#   richos/engine/scripts/lib/dialect/third_party   VarCon 2020.12.07 (Kevin
+#                    Atkinson, Benjamin Titze; SCOWL project), the spelling
+#                    variant data the American spelling table is generated
+#                    from. Added 2026-09-27. Governed because the engine asset
+#                    ships every tracked engine file and the generated table is
+#                    compiled into the application.
+REDISTRIBUTABLE_PATHS="richos/engine/skills richos/engine/tools richos/app/ui/fonts richos/engine/scripts/hooks/fixtures/third_party richos/engine/scripts/lib/dialect/third_party"
 
 # ---------------------------------------------------------------------------
 # THE ENTRIES
@@ -225,3 +231,7 @@ richos/app/ui/fonts/fonts.css	richos	AGPL-3.0-only	RichOS	-	-	2026-09-01 richos 
 
 # --- pinned third-party regression inputs ---------------------------------
 richos/engine/scripts/hooks/fixtures/third_party/copywriting	third-party	MIT	2025 Corey Haines	coreyhaines31/marketingskills, skills/copywriting/references/natural-transitions.md	68f5eaf64e858438db47e436d7a3bef0e9d69721	2026-09-07 regression fixture copied from pre-06f4a8221a61	certain	upstream input verbatim; adjacent README is RichOS provenance	richos/engine/scripts/hooks/fixtures/third_party/copywriting/README.md
+
+# --- spelling variant data (American spelling table) ------------------------
+richos/engine/scripts/lib/dialect/third_party/varcon	third-party	LicenseRef-VarCon	2000-2020 Kevin Atkinson; 2016 Benjamin Titze; 1993 Geoff Kuenning (Ispell)	crate-ci/typos, crates/varcon/assets (VarCon 2020.12.07 from SCOWL, http://wordlist.aspell.net/)	dd3e1018f8a825a98be71048c21a9b0495aff703; varcon.txt sha256 c1e234817b526a809fa745d742fec84db88b65c429e22faf8a556b3d5a224085	2026-09-27 richos cc/zach-opus-amspell3	certain	verbatim — varcon.txt and README byte-identical to the pinned revision (git blob a17201d05017 and af9e19ae1a17); the README carries all three notices	docs/legal/THIRD-PARTY-NOTICES.md
+richos/engine/scripts/lib/dialect/dialect-en-US.generated.dict	third-party	LicenseRef-VarCon	2000-2020 Kevin Atkinson; 2016 Benjamin Titze; 1993 Geoff Kuenning (Ispell)	generated from richos/engine/scripts/lib/dialect/third_party/varcon/varcon.txt by richos/engine/scripts/lib/dialect/dialect-table.py	varcon.txt sha256 c1e234817b526a809fa745d742fec84db88b65c429e22faf8a556b3d5a224085	2026-09-27 richos cc/zach-opus-amspell3	certain	MODIFIED VERSION — a generated subset (verified clusters, SCOWL level 70 or below, British forms with one preferred American form, reformatted to one pair per line) with RichOS additions and removals merged in from dialect-en-US.dict, dialect-en-US.overrides.dict and dialect-en-US.leave.tsv; the file header marks it modified	docs/legal/THIRD-PARTY-NOTICES.md
