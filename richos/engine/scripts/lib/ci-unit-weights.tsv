@@ -236,6 +236,7 @@ scripts/prepare-agent-spawn.test.sh	1.2	linux-run-34945072758
 scripts/provision-claude-md.test.sh	0.7	linux-run-34945072758
 scripts/publication-completeness.test.sh	3.4	linux-run-34945072758
 scripts/run-all-tests.test.sh	1.0	linux-run-34945072758
+scripts/scratch-reaper.test.sh	745.9	darwin-local-2026-09-27-zach-opus-canary2
 scripts/spawn.test.sh	7.5	linux-run-34945072758
 mega-lander/tests/workspace-probes.test.sh	114.0	linux-run-34945072758
 mega-lander/tests/workspace-spec-fourteen.test.sh	2811.7	linux-run-34945072758
