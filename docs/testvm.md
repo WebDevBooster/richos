@@ -84,7 +84,7 @@ current worker might need the VM for a 5-second-long fart? Do I want HOURS OF DE
 TO BE PISSED AWAY FOR EVERY 5-SECOND FART???"*
 
 * There are **two slots** (`slots.py`): `~/.richos-testvm/guest.lock` and `guest-2.lock`.
-  This Mac has 10 cores and 24 GB, a guest takes 4 cores and 7 GB, and Apple's
+  This Mac has 10 cores and 24 GB, a guest takes 4 cores and 5 GB, and Apple's
   Virtualization framework runs at most two macOS guests at once. `TESTVM_SLOTS=1` lowers
   it; nothing raises it.
 * **A slot is held only while one run executes**: boot, the run's steps, cleanup. It is
@@ -100,7 +100,7 @@ TO BE PISSED AWAY FOR EVERY 5-SECOND FART???"*
   waits for a free slot (checked every 2 s) and for the CPU and memory admission (CEO ruling
   §77, one sample at least every 30 s; a refused sample releases the slot before waiting).
   The default, 0, refuses at once with exit 75.
-* **A second guest must fit in memory, not just in a slot.** A guest takes its 7 GB as it
+* **A second guest must fit in memory, not just in a slot.** A guest takes its RAM as it
   boots, so a sample taken at admission cannot see it. Measured 2026-09-27 18:56Z: two guests
   admitted 1.5 s apart both passed the CPU and memory rule at 71% available; 40 s later the Mac
   was at 32% available, memory pressure warn, swapping out 120 MB/s. So a guest is admitted
@@ -892,7 +892,7 @@ pid, verifies that pid is frontmost, and refuses to send otherwise.
 | Install method | release tarball | `brew install cirruslabs/cli/tart` fails — the tap's formula uses a `depends_on` form current Homebrew refuses |
 | Guest image | `macos-sequoia-base`, digest recorded in `IMAGE_DIGEST` | matches the host's major version; `base` has Homebrew **and SIP off**, which the TCC grants require. ghcr publishes only a `latest` tag, so the digest is the only pin with meaning |
 | Display | **1680x1050** | Tart's default is 1024x768; the app derives a 1400x880 window and would be clipped — every screenshot would be a lie |
-| Per VM | **4 cpu / 7168 MB** | two guests must fit beside the host: 2x7 GB of 24 GB leaves 10 GB. Below ~6 GB a macOS guest swaps and boots slowly |
+| Per VM | **4 cpu / 5120 MB** | measured 2026-09-27 with `mem-walk.py`: a real walk (first run and a model turn) peaked at 3218 MB used with zero guest swap-outs and a 70 s boot; two 7 GB guests swapped this Mac at 120 MB/s. Two 5 GB guests need 58% of the Mac available (lib.sh has the numbers) |
 | `TART_HOME` | inside `~/.richos-testvm` | tart defaults to `~/.tart`; one directory means one answer to "where is the disk" and one `rm` to remove it |
 | Key install | `/usr/bin/expect` | `sshpass` is not in Homebrew core and needs a third-party tap |
 | ssh known hosts | `/dev/null` | a clone's host key changes every run; the CEO's `known_hosts` is not polluted |

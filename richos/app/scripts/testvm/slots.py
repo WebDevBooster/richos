@@ -19,7 +19,7 @@ DEVELOPMENT TIME TO BE PISSED AWAY FOR EVERY 5-SECOND FART???"*
 
 WHY TWO. Until 2026-09-27 there was one guest lock, and a job that needed the guest for a few
 minutes of a multi-hour task queued everybody else behind it (3 h 58 min for one agent that
-day). This Mac has 10 cores and 24 GB; a guest takes 4 cores and 7 GB (lib.sh), and Apple's
+day). This Mac has 10 cores and 24 GB; a guest takes 4 cores and 5 GB (lib.sh), and Apple's
 Virtualization framework runs at most two macOS guests at once on one host. Two is therefore
 both what fits and the ceiling: TESTVM_SLOTS may lower it to 1, never raise it.
 
@@ -36,7 +36,8 @@ itself waiting. `--wait SECONDS` bounds the whole admission; 0, the default, ref
 THE GUEST'S OWN MEMORY, measured 2026-09-27 18:56Z: two guests admitted 1.5 s apart both
 passed reserve.py's rule, because a guest takes its memory only as it boots. 40 s later the
 host was at 99% CPU, memory pressure warn, 32% free and swapping out 120 MB/s (it had been
-71% free, 0 MB/s). reserve.py samples what is already used; a guest is 7 GB about to be used.
+71% free, 0 MB/s, guests then 7 GB). reserve.py samples what is already used; a guest is its
+whole RAM about to be used.
 So a guest is admitted only when the kernel's available memory, less what every running guest
 may still take (its RAM less what its VM process already holds) and less this guest's whole
 RAM, leaves GUEST_MEMORY_FLOOR_MB for everything else on the Mac.
