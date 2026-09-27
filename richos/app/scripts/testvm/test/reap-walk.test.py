@@ -5,7 +5,12 @@ The rows are the shape reap-guest.py's watcher writes: {"kind": "seen", name, pi
 t_ms} when a heartbeat has recorded itself, {"kind": "gone", name, pid, pgid, t_ms} when it ends.
 """
 import importlib.util
+import json
 from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import time
 import unittest
 
 HERE = Path(__file__).resolve().parent.parent
@@ -115,6 +120,45 @@ class Grade(unittest.TestCase):
         fresh = old + [seen('stop-bg', 900, 890, T + 10), seen('stop-fg', 910, 905, T + 20)]
         self.assertTrue(walk.recorded(fresh, ['stop-fg', 'stop-bg'], T))
         self.assertFalse(walk.recorded(old + [seen('stop-bg', 900, 890, T + 10)], ['stop-fg', 'stop-bg'], T))
+
+    def test_the_script_in_his_repository_is_the_heartbeat_alone(self):
+        # Guest walk-1a978b4e081b, 2026-09-27: the back end read heartbeat.py before running it,
+        # found the whole guest helper (a process-table recorder, a death watcher, a docstring
+        # about the harness grading it), which is not what it was told the script does, and
+        # declined. What goes into his repository is a separate file that does only `beat`.
+        self.assertEqual(walk.HEARTBEAT.name, 'reap-heartbeat.py')
+        source = walk.HEARTBEAT.read_text()
+        for other in ('def watch', 'def record', 'def group', 'reap-walk'):
+            self.assertNotIn(other, source)
+        refused = subprocess.run([sys.executable, str(walk.HEARTBEAT), 'watch', '/tmp/x', '/tmp/y'],
+                                 capture_output=True, text=True, timeout=10)
+        self.assertEqual(refused.returncode, 2)
+
+    def test_the_watcher_records_the_heartbeat_starting_and_ending(self):
+        with tempfile.TemporaryDirectory() as d:
+            beats, out = Path(d) / 'beats', Path(d) / 'watch.jsonl'
+            watcher = subprocess.Popen([sys.executable, str(HERE / 'reap-guest.py'), 'watch', str(beats), str(out),
+                                        '--seconds', '6'])
+            try:
+                ran = subprocess.run([sys.executable, str(walk.HEARTBEAT), 'beat', 'unit-fg', str(beats), '--seconds', '1'],
+                                     capture_output=True, text=True, timeout=20)
+                self.assertEqual(ran.returncode, 0, ran.stderr)
+                self.assertIn('unit-fg is running as pid', ran.stdout)
+                self.assertTrue((beats / 'unit-fg.done').exists())
+                end = time.monotonic() + 5
+                rows = []
+                while time.monotonic() < end:
+                    rows = [json.loads(r) for r in out.read_text().splitlines()] if out.exists() else []
+                    if any(r['kind'] == 'gone' for r in rows):
+                        break
+                    time.sleep(0.1)
+            finally:
+                watcher.terminate()
+                watcher.wait(10)
+            me = json.loads((beats / 'unit-fg.id').read_text())
+            self.assertEqual(sorted(me), ['name', 'pgid', 'pid', 'sid', 'start'])
+            kinds = [(r['kind'], r.get('pid')) for r in rows if r['kind'] != 'watch-start']
+            self.assertEqual(kinds, [('seen', me['pid']), ('gone', me['pid'])])
 
     def test_ps_time_is_read_past_an_hour(self):
         self.assertAlmostEqual(walk.cpu_seconds('0:01.46'), 1.46)

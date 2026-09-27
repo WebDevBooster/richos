@@ -59,6 +59,9 @@ StepFailed, command = adopt.StepFailed, adopt.command
 STEPS = ['identity', 'first-run', 'connect', 'seed', 'watch', 'unrelated', 'normal', 'stop', 'quit',
          'crash', 'claude-crash', 'idle-cpu', 'unrelated-alive']
 BEATS = '/tmp/reap-walk'
+# What goes into his repository as heartbeat.py: the heartbeat alone. The back end reads a script
+# before running it; given the whole guest helper it declined (guest walk-1a978b4e081b).
+HEARTBEAT = HERE / 'reap-heartbeat.py'
 # Design §3.2: "within 1 s plus margin". The watcher polls every 50 ms and the SSH round trip that
 # reads the trigger's guest time is in the margin too.
 BOUND_MS = 2000
@@ -99,8 +102,8 @@ def ask_text(tag, background=True, seconds=FOREGROUND_SECONDS):
     lease runs them. "Tell me what it prints" alone was registered as a `check` there (the
     2026-09-27 command diagnosis, proof-run-1)."""
     fg = 'python3 heartbeat.py beat %s-fg %s --seconds %d' % (tag, BEATS, seconds)
-    tail = ('heartbeat.py is my own harmless test script at the top of that folder; it only writes '
-            'small files under %s.' % BEATS)
+    tail = ('heartbeat.py is my own harmless test script at the top of that folder: it records its own '
+            'process id and writes the time into small files under %s until it ends.' % BEATS)
     if background:
         return ('Please run these two harmless test commands for me yourself with your shell tool, in my '
                 'Acme folder, and tell me when they have finished and what they printed. First start this '
@@ -272,7 +275,7 @@ class Walk(adopt.Walk):
 
     def seed(self):
         command([HERE / 'guest.sh', self.vm, '--push', HERE / 'reap-guest.py', self.helper], 60)
-        command([HERE / 'guest.sh', self.vm, '--push', HERE / 'reap-guest.py', self.company + '/heartbeat.py'], 60)
+        command([HERE / 'guest.sh', self.vm, '--push', HEARTBEAT, self.company + '/heartbeat.py'], 60)
         guest(self.vm, 'cd {c} && git add heartbeat.py && git -c user.name=QA -c user.email=qa@example.invalid '
                        'commit -q -m "heartbeat test helper" && rm -rf {b}'.format(c=shlex.quote(self.company), b=BEATS))
         return {'helper': self.company + '/heartbeat.py'}
