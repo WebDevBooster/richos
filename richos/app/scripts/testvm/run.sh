@@ -401,6 +401,10 @@ LOGFILE="$PAYLOAD/app.log"
 # only pin that holds for a native install — the `autoUpdates:false` config key
 # is ignored once `autoUpdatesProtectedForNative` is set, which the native
 # updater sets itself. Reasoning and the quoted check: lib.sh, TESTVM_CLAUDE_PIN.
+APP_MODEL_ENV=""
+if [ -n "${TESTVM_APP_MODEL:-}" ]; then
+  APP_MODEL_ENV="--env ANTHROPIC_MODEL='$TESTVM_APP_MODEL'"
+fi
 log "launching the app in the guest's GUI session..."
 guest_ssh "$VM" "rm -f '$LOGFILE'; \
   open -n -a '$APP' \
@@ -410,7 +414,7 @@ guest_ssh "$VM" "rm -f '$LOGFILE'; \
     --env RICHOS_CLAUDE_BIN='$TESTVM_GUEST_CLAUDE' \
     --env $TESTVM_CLAUDE_PIN_VAR=$TESTVM_CLAUDE_PIN_VALUE \
     ${ENGINE:+--env RICHOS_ENGINE_DIR='$PAYLOAD/engine'} \
-    ${TESTVM_APP_MODEL:+--env ANTHROPIC_MODEL='$TESTVM_APP_MODEL'} \
+    $APP_MODEL_ENV \
     --stdout '$LOGFILE' --stderr '$LOGFILE'"
 
 # Wait for the process, then for a WINDOW. A pid is not a proof: the app can be
