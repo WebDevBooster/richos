@@ -320,6 +320,32 @@ impl richos_core::work_host::WorkNotifier for WorkNotice {
         if !self.app.webview_windows().is_empty() {
             return;
         }
+        // **A command Rich started outlives its assignment** (reap gap C5): quitting would end
+        // it, so the app stays until the command ends, then closes itself exactly as below.
+        // Read from each lease's supervisor state (a positive reading, once every 5 s), never
+        // inferred from silence; one waiter at a time.
+        static WAITING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        let commands = || richos_core::lease_commands::LiveLeases::process().reading();
+        let busy = |reading: richos_core::lease_commands::CommandsReading| reading.running > 0 || reading.unreadable > 0;
+        if busy(commands()) {
+            if WAITING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
+            eprintln!("[richos] the last assignment ended with no window open and a command Rich started still running: RichOS stays until it ends.");
+            let app = self.app.clone();
+            std::thread::spawn(move || {
+                while busy(commands()) {
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                }
+                WAITING.store(false, std::sync::atomic::Ordering::SeqCst);
+                let quiet = app.try_state::<AppState>().is_some_and(|state| !registered_work(&state).anything());
+                if app.webview_windows().is_empty() && quiet {
+                    eprintln!("[richos] the last command Rich started has ended with no window open: RichOS is closing itself.");
+                    app.exit(0);
+                }
+            });
+            return;
+        }
         eprintln!("[richos] the last assignment ended with no window open: RichOS is closing itself.");
         self.app.exit(0);
     }
@@ -3676,6 +3702,9 @@ fn main() {
             }
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = handle.try_state::<AppState>() {
+                    // ONE bound for the whole quit, shared by the work lease's runners below and
+                    // every lease's supervisor after them (reap gap 1.3(c)).
+                    let quit_bound = std::time::Instant::now() + std::time::Duration::from_secs(2);
                     state.quota.shutdown();
                     let _ = state.control.request_stop();
                     state.control.shutdown_lease();
@@ -3699,6 +3728,14 @@ fn main() {
                         socket.close();
                     }
                     state.work.shutdown();
+                    // **EVERY LEASE'S TOOL COMMANDS END WITH THE APP, by its supervisor's reap**
+                    // (reap gap C1, 1.3(c)): each supervisor gets SIGTERM, ends its tool shells
+                    // and background commands, and exits; one still running at the bound has its
+                    // group killed as before. Waited for here, because destructors and detached
+                    // threads are not guaranteed on this path.
+                    let settled = richos_core::owned_process::SupervisedSet::process().settle(quit_bound);
+                    eprintln!("[richos] quit: {} lease(s) ended their tool commands; {} stopped at the bound.",
+                              settled.leases, settled.escalated);
                     if let Err(e) = state.launch.lock().unwrap().note_clean_exit() {
                         eprintln!("[richos] launch record: could not mark a clean exit: {e}");
                     }
@@ -8774,6 +8811,8 @@ fn registered_work(state: &AppState) -> lifecycle::Registered {
         // here (`OperatorHost::team_from_stream`). It names the agents the quit would stop.
         team: state.operator.as_ref()
             .and_then(|desk| richos_core::work_gate::operator_quit_sentence(&desk.team_from_stream())),
+        // Commands Rich started, on every live lease (reap gap C5): a few small files, no lock.
+        commands: richos_core::lease_commands::LiveLeases::process().reading(),
     }
 }
 

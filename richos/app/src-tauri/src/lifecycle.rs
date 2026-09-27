@@ -69,17 +69,23 @@ pub struct Registered {
     /// `None` when it reads clear or this is not an operator install. Not `Copy` because of
     /// it: the quit sheet names his agents.
     pub team: Option<String>,
+    /// **Commands Rich started that are still running** (the product reap gap design C5): quit
+    /// now ends every lease's tool commands, so a background command he asked for is work.
+    /// Read from every live lease's supervisor state file (`lease_commands.rs`); a lease whose
+    /// file cannot be read counts, never as a zero.
+    pub commands: richos_core::lease_commands::CommandsReading,
 }
 
 impl Registered {
     pub fn nothing() -> Self {
-        Registered { running: 0, awaiting_you: 0, readable: true, team: None }
+        Registered { running: 0, awaiting_you: 0, readable: true, team: None, commands: Default::default() }
     }
     /// Is there anything this app would be destroying by going away? An unreadable register
     /// answers `true`, which is the standing rule everywhere else in this system: what
     /// cannot be witnessed counts as work, never as zero (`app_workers.rs:33-47`).
     pub fn anything(&self) -> bool {
         !self.readable || self.running > 0 || self.awaiting_you > 0 || self.team.is_some()
+            || self.commands.running > 0 || self.commands.unreadable > 0
     }
 }
 
@@ -178,6 +184,18 @@ pub fn quit_question(registered: &Registered) -> String {
             if waiting == 1 { "it" } else { "them" }
         ));
     }
+    // **Commands Rich started** (reap gap C5): quitting ends them, so he is told first.
+    let commands = registered.commands;
+    if commands.running > 0 || commands.unreadable > 0 {
+        if !what.is_empty() {
+            what.push_str(", and ");
+        }
+        what.push_str(&match commands.running {
+            0 => "a command Rich started that may still be running".to_string(),
+            1 => "a command Rich started still running".to_string(),
+            n => format!("{n} commands Rich started still running"),
+        });
+    }
     // **His team, named** (r3 §6 W2 step 12: *"Quit with an agent running names it before
     // stopping it"*). Quitting ends every lead by its quit path; what was done stays.
     match (&registered.team, what.is_empty()) {
@@ -266,7 +284,7 @@ mod tests {
         ExitRequest { programmatic, confirmed: false, registered, can_come_back: true }
     }
     fn some_work() -> Registered {
-        Registered { running: 1, awaiting_you: 0, readable: true, team: None }
+        Registered { running: 1, awaiting_you: 0, readable: true, team: None, commands: Default::default() }
     }
 
     /// **His team running is work** (operator back-end spec r3 (m)): the window closing keeps
@@ -285,6 +303,26 @@ mod tests {
         assert!(!Registered::nothing().anything(), "a clear team and a clear register are nothing");
     }
 
+    /// **A command Rich started is work** (the product reap gap design C5). Quit now ends every
+    /// lease's tool commands, so closing the window keeps the app alive for one, a quit asks
+    /// first and names it, and a lease whose commands cannot be read counts rather than
+    /// reading as none.
+    #[test]
+    fn a_command_rich_started_keeps_the_app_alive_and_the_quit_question_names_it() {
+        use richos_core::lease_commands::CommandsReading;
+        let one = Registered { commands: CommandsReading { running: 1, unreadable: 0 }, ..Registered::nothing() };
+        assert!(one.anything());
+        assert_eq!(decide(&request(false, one.clone())), ExitDecision::StayResident);
+        assert_eq!(decide(&request(true, one.clone())), ExitDecision::AskBeforeQuitting);
+        let said = quit_question(&one);
+        assert!(said.starts_with("You have a command Rich started still running. Quitting stops the work."), "{said}");
+        let unknown = Registered { commands: CommandsReading { running: 0, unreadable: 1 }, ..Registered::nothing() };
+        assert!(unknown.anything(), "an unreadable lease is not a zero");
+        assert!(quit_question(&unknown).contains("a command Rich started that may still be running"), "{}", quit_question(&unknown));
+        let both = quit_question(&Registered { running: 1, commands: CommandsReading { running: 2, unreadable: 0 }, ..Registered::nothing() });
+        assert!(both.starts_with("You have 1 assignment still running in the background, and 2 commands Rich started still running."), "{both}");
+    }
+
     /// **The whole request space, so `allow_reason` can never describe a branch `decide` did
     /// not take** — audit-10 row 5.
     ///
@@ -297,13 +335,16 @@ mod tests {
     fn every_allowed_exit_has_exactly_one_reason_and_no_other_decision_has_any() {
         let registers = [
             Registered::nothing(),
-            Registered { running: 1, awaiting_you: 0, readable: true, team: None },
-            Registered { running: 0, awaiting_you: 1, readable: true, team: None },
-            Registered { running: 2, awaiting_you: 3, readable: true, team: None },
-            Registered { running: 0, awaiting_you: 0, readable: false, team: None },
-            Registered { running: 1, awaiting_you: 1, readable: false, team: None },
+            Registered { running: 1, awaiting_you: 0, readable: true, team: None, commands: Default::default() },
+            Registered { running: 0, awaiting_you: 1, readable: true, team: None, commands: Default::default() },
+            Registered { running: 2, awaiting_you: 3, readable: true, team: None, commands: Default::default() },
+            Registered { running: 0, awaiting_you: 0, readable: false, team: None, commands: Default::default() },
+            Registered { running: 1, awaiting_you: 1, readable: false, team: None, commands: Default::default() },
             // His team running, on an operator install: work like any other.
             Registered { team: Some("mark-sonnet-a of your team is still running.".into()), ..Registered::nothing() },
+            // A command Rich started, and a lease whose commands cannot be read (reap gap C5).
+            Registered { commands: richos_core::lease_commands::CommandsReading { running: 1, unreadable: 0 }, ..Registered::nothing() },
+            Registered { commands: richos_core::lease_commands::CommandsReading { running: 0, unreadable: 1 }, ..Registered::nothing() },
         ];
         let mut allowed = 0;
         let mut refused = 0;
@@ -341,9 +382,9 @@ mod tests {
         }
         // POSITIVE CONTROL ON THE SWEEP ITSELF: a matrix that happened to be all-allow or
         // all-refuse would pass the loop above while proving nothing about the other side.
-        // 7 registers (his team's added 2026-09-26) x programmatic x confirmed x can_come_back
-        // = 7 x 2 x 2 x 2 = 56.
-        assert_eq!(allowed + refused, 56, "the sweep did not cover the space it claims to");
+        // 9 registers (his team's added 2026-09-26, the two command states 2026-09-27) x
+        // programmatic x confirmed x can_come_back = 9 x 2 x 2 x 2 = 72.
+        assert_eq!(allowed + refused, 72, "the sweep did not cover the space it claims to");
         assert!(allowed > 0 && refused > 0, "the sweep never saw both outcomes: {allowed} / {refused}");
     }
 
@@ -377,7 +418,7 @@ mod tests {
         // An assignment waiting for HIM also keeps it alive — §7.8 says so outright: he
         // comes back to a running app rather than to a relaunch.
         assert_eq!(
-            decide(&request(false, Registered { running: 0, awaiting_you: 1, readable: true, team: None })),
+            decide(&request(false, Registered { running: 0, awaiting_you: 1, readable: true, team: None, commands: Default::default() })),
             ExitDecision::StayResident
         );
         // NOTHING registered: exactly today's behavior, which §2.4 requires by name —
@@ -389,7 +430,7 @@ mod tests {
     /// gate keeps, and the positive control beside it.
     #[test]
     fn an_unreadable_register_is_treated_as_work_rather_than_as_nothing() {
-        let unreadable = Registered { running: 0, awaiting_you: 0, readable: false, team: None };
+        let unreadable = Registered { running: 0, awaiting_you: 0, readable: false, team: None, commands: Default::default() };
         assert!(unreadable.anything());
         assert_eq!(decide(&request(false, unreadable.clone())), ExitDecision::StayResident);
         // Positive control: the same zeros, readable, quit.
@@ -432,10 +473,10 @@ mod tests {
         assert!(one.contains("You have 1 assignment still running in the background."), "{one}");
         assert!(one.contains("Everything it has done so far is kept"), "{one}");
         assert!(one.contains("nothing is landed"), "{one}");
-        let many = quit_question(&Registered { running: 2, awaiting_you: 3, readable: true, team: None });
+        let many = quit_question(&Registered { running: 2, awaiting_you: 3, readable: true, team: None, commands: Default::default() });
         assert!(many.contains("2 assignments still running in the background"), "{many}");
         assert!(many.contains("3 assignments waiting for you to approve them"), "{many}");
-        let waiting_one = quit_question(&Registered { running: 0, awaiting_you: 1, readable: true, team: None });
+        let waiting_one = quit_question(&Registered { running: 0, awaiting_you: 1, readable: true, team: None, commands: Default::default() });
         assert!(waiting_one.contains("You have 1 assignment waiting for you to approve it."), "{waiting_one}");
         // Nothing technical reaches him.
         for word in ["lease", "session", "process", "assignment id", "obligation"] {
