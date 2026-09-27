@@ -308,6 +308,29 @@ class FailurePolicy(unittest.TestCase):
         self.assertEqual(observed, [False, False, False])
         self.assertTrue(background.begin())
 
+    def test_cost_comparison_survives_source_change_but_not_changed_tools(self):
+        self.args.managed_verification = True
+        item = self.item('measured fixture', 'pass')
+        inputs = {'paths': {'source': 'first'}, 'tools': {'python': 'first-tool'},
+                  'profile': 'fixture', 'environment': {}, 'external': {}, 'platform': ['fixture']}
+        item.evidence = SimpleNamespace(identities={item.label: inputs})
+        contexts = []
+        fd = os.open(os.devnull, os.O_RDONLY)
+        self.addCleanup(os.close, fd)
+        def reserve(context, *args):
+            contexts.append(json.loads(json.dumps(context)))
+            return fd, {}, str(self.root / 'reservation.json')
+        with patch.object(pr.cpu_guard, 'reserve_verification', side_effect=reserve), \
+                patch.object(pr.cpu_guard, 'previous_verification_cost', return_value=None):
+            pr.reserve_item(item, 1, self.args, str(self.root))
+            inputs['paths']['source'] = 'changed-source'
+            pr.reserve_item(item, 2, self.args, str(self.root))
+            inputs['tools']['python'] = 'changed-tool'
+            pr.reserve_item(item, 3, self.args, str(self.root))
+        self.assertNotEqual(contexts[0]['input_key'], contexts[1]['input_key'])
+        self.assertEqual(contexts[0]['cost_comparison']['key'], contexts[1]['cost_comparison']['key'])
+        self.assertNotEqual(contexts[1]['cost_comparison']['key'], contexts[2]['cost_comparison']['key'])
+
 
 if __name__ == "__main__":
     unittest.main()

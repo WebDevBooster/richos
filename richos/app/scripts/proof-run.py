@@ -428,6 +428,18 @@ def reserve_item(item, n, args, logdir):
         'label': item.label, 'priority': 'integration' if engine_pass.is_main_checkout(ROOT) else 'background',
         'result': os.path.join(directory, 'supervision.json'),
         'seed': {'pid': os.getpid(), 'generation': native}}
+    if not inputs.get('fresh'):
+        comparison = {name: inputs[name] for name in ('tools', 'profile', 'environment', 'external', 'platform')}
+        comparison.update(command=proof_evidence.command_identity(item, ROOT, logdir),
+                          settings=identity.get('settings', {}), check=item.label, cpu_count=os.cpu_count())
+        context['cost_comparison'] = {'key': proof_evidence.digest(comparison),
+                                      'predicted_seconds': item.weight, 'check': item.label}
+        previous_cost = cpu_guard.previous_verification_cost(context['cost_comparison']['key'])
+        if previous_cost and previous_cost['status'] in ('growth', 'uncertain-growth'):
+            note = 'previous execution needs cost review (' + previous_cost['status'] + '); investigate before repetition: ' + previous_cost['history']
+            if note not in item.notes:
+                item.notes.append(note)
+                print('proof-run: COST REVIEW ' + item.label + ': ' + note, flush=True)
     lease = cpu_guard.reserve_verification(context, os.getpid(), native)
     item.reservation = lease
     context['reservation'] = {'fd': lease[0], 'id': Path(lease[2]).stem}
@@ -463,6 +475,16 @@ def finish_attempt(item):
                'cpu_seconds': record.get('reaped_cpu_seconds'),
                'log': item.log, 'supervision': path}
     item.attempts.append(attempt)
+    cost = record.get('cost')
+    if cost:
+        attempt['cost'] = cost
+        if cost.get('status') == 'growth':
+            item.notes.append('material verification cost growth: ' + json.dumps(cost['growth'], sort_keys=True)
+                              + '; compare load and investigate: ' + cost['history'])
+            print('proof-run: COST GROWTH ' + item.label + ': ' + item.notes[-1], flush=True)
+        elif cost.get('status') == 'uncertain-growth':
+            item.notes.append('elapsed cost increased but load is not comparable; investigate: ' + cost['history'])
+            print('proof-run: COST REVIEW ' + item.label + ': ' + item.notes[-1], flush=True)
     if status not in ('contained', 'resource-envelope-exceeded'):
         return False
     recovery = cpu_guard.verification_recovery(record['input_key'])

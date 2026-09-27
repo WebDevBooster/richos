@@ -355,19 +355,87 @@ class VerificationClient:
                       reaped_cpu_seconds=cpu_seconds, elapsed_seconds=time.monotonic() - self.started,
                       finished_at=time.time())
         record.setdefault('status', 'completed' if rc not in (75, 124, 125, 127, 130, 143) else 'incomplete')
+        measurement = read_json(STATE / 'verification-measurements' / (str(self.pid) + '.json'), {})
+        if measurement.get('root_generation') == self.generation:
+            record['measurement'] = measurement
+        record['cost'] = record_verification_cost(self.context, record)
         write_json(path, record, durable=True)
         if self.lease:
             try:
-                measurement = read_json(STATE / 'verification-measurements' / (str(self.pid) + '.json'), {})
                 if measurement.get('root_generation') == self.generation:
-                    record['measurement'] = measurement
-                    write_json(path, record, durable=True)
                     if record['status'] == 'completed' and rc == 0 and not survivors:
                         qualify_demand(self.context['input_key'], measurement, record)
             finally:
                 os.close(self.lease[0])
                 self.lease = None
         return record
+
+
+def record_verification_cost(context, completion):
+    """Retain the first qualified cost as the baseline; never ratchet it upward.
+
+    A comparison key binds command, execution recipe, tools and platform while
+    allowing source changes. Growth is a diagnostic, not an assertion verdict.
+    Queue time and repeated attempts stay in the runner's separate total costs.
+    """
+    comparison = context.get('cost_comparison')
+    if not comparison:
+        return {'status': 'unqualified', 'reason': 'execution inputs have no comparable cost recipe'}
+    key = comparison['key']
+    if not re.fullmatch('[0-9a-f]{64}', key):
+        raise ValueError('invalid cost comparison identity')
+    if completion.get('status') != 'completed' or completion.get('exit') != 0 or completion.get('cleanup') != 'complete':
+        return {'status': 'incomplete', 'reason': 'failed or interrupted execution is not a cost baseline'}
+    values = {'cpu_seconds': completion.get('reaped_cpu_seconds'),
+              'elapsed_seconds': completion.get('elapsed_seconds')}
+    if any(not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0 for v in values.values()):
+        return {'status': 'unknown', 'reason': 'complete finite CPU/elapsed measurement is unavailable'}
+    current = {**values, 'at': time.time(), 'input_key': context['input_key'],
+               'result': context['result'], 'predicted_seconds': comparison['predicted_seconds'],
+               'load': completion.get('measurement', {}).get('load')}
+    directory = STATE / 'verification-costs'
+    directory.mkdir(parents=True, exist_ok=True)
+    with (directory / (key + '.lock')).open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        path = directory / (key + '.json')
+        record = read_json(path)
+        if record is None:
+            record = {'schema': 1, 'comparison': comparison, 'baseline': current, 'recent': []}
+        if record.get('schema') != 1 or record.get('comparison', {}).get('key') != key:
+            raise ValueError('invalid verification cost history: ' + str(path))
+        baseline = record['baseline']
+        def load_qualified(row):
+            load = row.get('load')
+            return load and load['samples'] >= 3 and not load['pressure_seen'] and not load['unknown']
+        elapsed_comparable = bool(load_qualified(current) and load_qualified(baseline)
+            and current['load']['owners_peak'] == baseline['load']['owners_peak']
+            and abs(current['load']['busy_total'] / current['load']['samples']
+                    - baseline['load']['busy_total'] / baseline['load']['samples']) <= 10)
+        increases = {metric: {'baseline': baseline[metric], 'actual': value,
+                          'increase_seconds': value - baseline[metric]}
+                  for metric, value in values.items()
+                  if value > 1.2 * baseline[metric] and value - baseline[metric] >= 10}
+        growth = {metric: value for metric, value in increases.items()
+                  if metric == 'cpu_seconds' or elapsed_comparable}
+        unconfirmed = {metric: value for metric, value in increases.items() if metric not in growth}
+        status = ('growth' if growth else 'uncertain-growth' if unconfirmed else
+                  'within-baseline' if elapsed_comparable else 'partial')
+        record['recent'] = [*record['recent'], {**current, 'status': status}][-20:]
+        record['latest'] = {'status': status, 'growth': growth, 'actual': current,
+                            'unconfirmed_growth': unconfirmed,
+                            'baseline': baseline, 'history': str(path),
+                            'elapsed_comparable': elapsed_comparable,
+                            'uncertainty': [] if elapsed_comparable else
+                                ['elapsed comparison needs matching sampled host load and concurrency without pressure']}
+        write_json(path, record, durable=True)
+        return record['latest']
+
+
+def previous_verification_cost(key):
+    if not re.fullmatch('[0-9a-f]{64}', key):
+        raise ValueError('invalid cost comparison identity')
+    record = read_json(STATE / 'verification-costs' / (key + '.json'))
+    return record['latest'] if record else None
 
 
 def demand_capacity(heartbeat):
@@ -841,6 +909,21 @@ class Watch:
         return groups
 
     def verification_cycle(self, rows, now, busy, memory_pressure='normal', swapout_mb_per_s=0):
+        for key, owner in self.verification.items():
+            measurement = self.verification_measurements[(key, owner['input_key'])]
+            load = measurement.setdefault('load', {'samples': 0, 'busy_total': 0.0, 'busy_peak': 0.0,
+                'owners_peak': 0, 'pressure_seen': False, 'unknown': False})
+            load['samples'] += 1
+            if isinstance(busy, (int, float)) and math.isfinite(busy) and 0 <= busy <= 100:
+                load['busy_total'] += busy
+                load['busy_peak'] = max(load['busy_peak'], busy)
+            else:
+                load['unknown'] = True
+            load['unknown'] |= not math.isfinite(swapout_mb_per_s)
+            load['owners_peak'] = max(load['owners_peak'], len(self.verification))
+            load['pressure_seen'] |= memory_pressure != 'normal' or swapout_mb_per_s > 0 or busy >= 80
+            owner['load'] = load
+            write_json(STATE / 'verification-measurements' / (str(owner['root_pid']) + '.json'), owner)
         if self.containment is None:
             # Recover an already charged intervention after a controller restart.
             for key, owner in self.verification.items():

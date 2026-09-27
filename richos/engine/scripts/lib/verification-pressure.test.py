@@ -423,6 +423,56 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(len(guard.verification_recovery(key)['resource']), 1)
 
 
+class CostTests(unittest.TestCase):
+    setUp = ReservationTests.setUp
+
+    def cost(self, cpu=50, elapsed=50, **changes):
+        completion = {'status': 'completed', 'exit': 0, 'cleanup': 'complete',
+            'reaped_cpu_seconds': cpu, 'elapsed_seconds': elapsed,
+            'measurement': {'load': {'samples': 3, 'busy_total': 90, 'busy_peak': 35,
+                'owners_peak': 1, 'pressure_seen': False, 'unknown': False}}, **changes}
+        context = {**self.context, 'cost_comparison': {'key': 'c' * 64,
+                   'predicted_seconds': 45, 'check': 'fixture'}}
+        return guard.record_verification_cost(context, completion)
+
+    def test_growth_requires_both_thresholds_and_cannot_raise_the_baseline(self):
+        self.assertEqual(self.cost()['status'], 'within-baseline')
+        self.assertEqual(self.cost(60, 60)['status'], 'within-baseline')  # Exactly 20% is not more than 20%.
+        result = self.cost(60.1, 60.1)
+        self.assertEqual(set(result['growth']), {'cpu_seconds', 'elapsed_seconds'})
+        self.assertEqual(result['baseline']['cpu_seconds'], 50)
+        self.assertEqual(self.cost(80, 80)['baseline']['cpu_seconds'], 50)
+        self.assertEqual(guard.previous_verification_cost('c' * 64)['status'], 'growth')
+
+    def test_elapsed_growth_under_different_load_is_unknown_but_cpu_is_reported(self):
+        self.cost()
+        result = self.cost(75, 100, measurement={'load': {'samples': 3, 'busy_total': 270,
+            'busy_peak': 95, 'owners_peak': 3, 'pressure_seen': True, 'unknown': False}})
+        self.assertEqual(set(result['growth']), {'cpu_seconds'})
+        self.assertFalse(result['elapsed_comparable'])
+        self.assertTrue(result['uncertainty'])
+
+    def test_missing_samples_or_failed_execution_cannot_claim_comparable_elapsed(self):
+        self.assertEqual(self.cost(status='contained')['status'], 'incomplete')
+        self.assertIsNone(guard.previous_verification_cost('c' * 64))
+        self.assertEqual(self.cost(cpu=float('nan'))['status'], 'unknown')
+        self.cost()
+        result = self.cost(51, 100, measurement={})
+        self.assertEqual(result['growth'], {})
+        self.assertEqual(result['status'], 'uncertain-growth')
+        self.assertIn('elapsed_seconds', result['unconfirmed_growth'])
+        self.assertFalse(result['elapsed_comparable'])
+        self.assertEqual(guard.record_verification_cost(self.context, {})['status'], 'unqualified')
+
+    def test_history_is_bounded_and_preserves_original_baseline(self):
+        first = self.cost()
+        for i in range(21):
+            self.cost(50 + i, 50 + i)
+        record = guard.read_json(first['history'])
+        self.assertEqual(len(record['recent']), 20)
+        self.assertEqual(record['baseline'], first['baseline'])
+
+
 class SupervisorTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='verification-client.')
@@ -477,6 +527,21 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(len(list((self.root / 'roots').glob('*.json'))), 1)
         result = guard.read_json(self.root / 'result.json')
         self.assertEqual((result['status'], result['cleanup']), ('completed', 'complete'))
+
+    def test_real_supervisor_records_actual_cpu_and_elapsed_with_uncertainty(self):
+        context = guard.read_json(self.context)
+        context['cost_comparison'] = {'key': 'c' * 64, 'predicted_seconds': 1, 'check': 'fixture'}
+        guard.write_json(self.context, context)
+        child = self.start('sum(range(10000))')
+        out, err = child.communicate(timeout=10)
+        self.assertEqual(child.returncode, 0, err)
+        result = guard.read_json(self.root / 'result.json')
+        cost = result['cost']
+        self.assertGreater(cost['actual']['cpu_seconds'], 0)
+        self.assertEqual(cost['actual']['cpu_seconds'], result['reaped_cpu_seconds'])
+        self.assertEqual(cost['actual']['elapsed_seconds'], result['elapsed_seconds'])
+        self.assertTrue(cost['uncertainty'])  # No controller load samples in this fixture.
+        self.assertTrue(Path(cost['history']).is_file())
 
     def test_controller_failure_stops_an_already_running_child(self):
         ready = self.root / 'ready'

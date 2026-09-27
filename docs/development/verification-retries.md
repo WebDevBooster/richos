@@ -159,3 +159,24 @@ reuse/joining for qualified input recipes. It does not add a universal command
 interceptor. Do not claim that instructions alone make
 recurrence technically impossible. A future mechanical change must preserve
 source/input identity checks, truthful failures and required coverage.
+
+## Cost review
+
+Managed execution records actual CPU and elapsed cost beside its supervision
+result. Qualified input recipes use a comparison identity that retains the
+command, toolchain, platform and execution settings across source changes. The
+original successful observation stays the baseline; slower later passes cannot
+silently raise it. The history retains that baseline and twenty recent costs.
+
+`COST GROWTH` means a comparable metric increased by more than 20% and at least
+10 seconds. `COST REVIEW` also exposes elapsed growth when host load is missing
+or different. That uncertain comparison is not proof of a code regression.
+The next attempt reports unresolved growth again before launch. Inspect the
+linked history, original result, actual inputs and load before repeating work.
+Fix the cost, reuse applicable evidence or qualify the changed execution inputs.
+A functional pass alone does not resolve a performance regression.
+
+Unqualified recipes and interrupted attempts cannot establish a baseline.
+Queue time, completed execution and repeated attempts remain separate in the
+runner report. The cost warning does not relabel a passing assertion as failed
+or turn an unresolved performance target into completion.
