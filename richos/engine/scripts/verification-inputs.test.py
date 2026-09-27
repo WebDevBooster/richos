@@ -158,6 +158,22 @@ class Closure(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.map = {"schema": 1, "config_keys": ["A", "B", "PLANTED"], "nodes": {}, "units": {}}
 
+    def test_notice_and_stop_predicate_closures_are_independent_of_config_values(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        units = ['scripts/hooks/guard-stop-live-work.test.sh',
+                 'scripts/hooks/unevaluated-notice.test.sh',
+                 'scripts/hooks/session-start-ci-surface.test.sh']
+        for unit in units:
+            closure = graph.closure(unit)
+            self.assertEqual(closure['keys'], {}, closure)
+            self.assertEqual(closure['whole'], [], closure)
+            self.assertEqual(closure['fallback'], [], closure)
+        change = inputs.config_change('BAN_WORKFLOW_TOOL=1', 'BAN_WORKFLOW_TOOL=0')
+        self.assertEqual(graph.config_units(change, units), {})
+        document['nodes'].pop('mega-lander/workspaces.py#liveness-readers')
+        self.assertEqual(set(graph.config_units(change, units)), {units[0]})
+
     def test_serial_runner_fixtures_and_ci_discovery_do_not_read_config_values(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

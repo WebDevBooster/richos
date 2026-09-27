@@ -296,7 +296,7 @@
     "scripts/hooks/session-start-ci-surface.sh": {
       "source": "scripts/hooks/session-start-ci-surface.sh",
       "sha256": "a4f1b332f362a2374ae1dad83d44af14a977d8cfdb753154014bbcc7e74c05a5",
-      "evidence": "Reads CI_SURFACE_STATE_DIR JSON, a HOME-relative launch agent and the separate CI pause registry. It does not load orchestration.config.",
+      "evidence": "Reads the CI cache, watch plist and CI pause registry through ci_pause. Config is not read; suggested ci-status/watch commands are only printed.",
       "keys": [],
       "edges": [
         {
@@ -1063,7 +1063,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "89b422965e40236d0ed4b45aeee85c3fe44b24f894d1fd0fe2aae169296c0623",
+      "sha256": "79b4b9c18ca4e98e38bde4e5a1c2f400f5d6951e8903d79276db7bf05b645717",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed.",
       "keys": [],
       "edges": [
@@ -2233,6 +2233,118 @@
           "to": "scripts/ci-status.sh"
         }
       ]
+    },
+    "mega-lander/workspaces.py#liveness-readers": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+      "evidence": "agent-liveness imports only key_for_id, load_agent, done_path, read_json and finished_state. Their reviewed local closure is state_dir/_p/_key_segment, agent_path/session_path/load_session, session_state/process_start/_ps_env and iso. These read registry JSON and native process status, never orchestration settings, and have no dynamic engine import.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/agent-liveness.py": {
+      "source": "scripts/lib/agent-liveness.py",
+      "sha256": "f6dc620af5b9a521717d4d3d4c07c24d730af892177970b044ecac81e12b605c",
+      "evidence": "Reads Git worktree lock records, supplied transcript/roster/worker JSON and native PID liveness. The only engine import is the finite read-only workspace-registry closure.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#liveness-readers"
+        }
+      ]
+    },
+    "scripts/agent-liveness.sh": {
+      "source": "scripts/agent-liveness.sh",
+      "sha256": "f63bf7819202ffa961667b116d90aad58d3cab20d9a9e5190a4ba26fbf3ce372",
+      "evidence": "Parses explicit entity/target arguments and invokes the Python resolver. The fallback root resolver checks adoption presence; no configuration values are read.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/agent-liveness.py"
+        }
+      ]
+    },
+    "scripts/lib/stop-live-work.py": {
+      "source": "scripts/lib/stop-live-work.py",
+      "sha256": "d39269d911e9456fd0bbce45b95e67919c36dd4b7ecb96c58b3e4a8bd262532a",
+      "evidence": "Standard-library JSON/clock predicate over explicitly supplied entity ACK files and liveness. No configuration or dynamic helper read.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/stop-work-ack.sh": {
+      "source": "scripts/stop-work-ack.sh",
+      "sha256": "e2fc8689682cb4fe248ae62e381a884ae9134cad7024adbc352ba221efb6f256",
+      "evidence": "Writes a target ACK below the explicit entity or resolved root. Embedded Python uses UUID/time/JSON only. It does not source configuration.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        }
+      ]
+    },
+    "scripts/hooks/guard-stop-live-work.sh": {
+      "source": "scripts/hooks/guard-stop-live-work.sh",
+      "sha256": "5cd71abf69697f041f48560ab09d6e7f7f4b2324761916b07b589569ff7dd17e",
+      "evidence": "Normal hook path reads payload, liveness and ACK data through these finite helpers. stop.sh and recorder commands in the refusal are printed suggestions, not execution. The --self-test entry returns to the owning suite.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/agent-liveness.py"
+        },
+        {
+          "to": "scripts/lib/stop-live-work.py"
+        }
+      ]
+    },
+    "scripts/hooks/guard-stop-live-work.test.sh": {
+      "source": "scripts/hooks/guard-stop-live-work.test.sh",
+      "sha256": "52e711104bf1f6224ed806ce5c1894254a0bc6857509d8c2b626a1334e0c309a",
+      "evidence": "Runs the actual guard, predicate, recorder and liveness resolver. Every ACK path is private; the live Git worktree uses generated literal MODEL settings as adoption markers. The non-TaskStop and missing-target cases read root identity, not setting values.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-stop-live-work.sh"
+        },
+        {
+          "to": "scripts/lib/stop-live-work.py"
+        },
+        {
+          "to": "scripts/stop-work-ack.sh"
+        },
+        {
+          "to": "scripts/agent-liveness.sh"
+        }
+      ]
+    },
+    "scripts/hooks/unevaluated-notice.test.sh": {
+      "source": "scripts/hooks/unevaluated-notice.test.sh",
+      "sha256": "5bd5d623f4b995abb2b6c998791e916a3db272d6e4d8d46a8519b8934e1dfc96",
+      "evidence": "Executes the real notice library in generated stand-in guards and direct shell functions. Payload strings and private append/dedup state are fixture data. No shipped hook is executed by name.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ]
+    },
+    "scripts/hooks/session-start-ci-surface.test.sh": {
+      "source": "scripts/hooks/session-start-ci-surface.test.sh",
+      "sha256": "2e02c4987e2ad8e66c440c5cb6bec22f169f21c8b8e95bc3aaca4afd644e56eb",
+      "evidence": "Drives the notice against generated cache files and private HOME/plist, then parses JSON channels. Embedded fixture writers use only standard-library data/clock operations.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/session-start-ci-surface.sh"
+        }
+      ]
     }
   },
   "units": {
@@ -2273,7 +2385,10 @@
     "scripts/locate-engine.test.sh": "scripts/locate-engine.test.sh",
     "scripts/run-all-tests.test.sh": "scripts/run-all-tests.test.sh",
     "scripts/ci-surface-watch.test.sh": "scripts/ci-surface-watch.test.sh",
-    "scripts/lib/ci-surface.test.sh": "scripts/lib/ci-surface.test.sh"
+    "scripts/lib/ci-surface.test.sh": "scripts/lib/ci-surface.test.sh",
+    "scripts/hooks/guard-stop-live-work.test.sh": "scripts/hooks/guard-stop-live-work.test.sh",
+    "scripts/hooks/unevaluated-notice.test.sh": "scripts/hooks/unevaluated-notice.test.sh",
+    "scripts/hooks/session-start-ci-surface.test.sh": "scripts/hooks/session-start-ci-surface.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
