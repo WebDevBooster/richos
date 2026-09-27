@@ -142,3 +142,12 @@ pub fn acknowledge(root: &Path, id: &str) -> Result<(), String> {
     if !input.handed { input.handed = true; write(&path, &input)?; }
     Ok(())
 }
+
+/// [`acknowledge`] for an answer that may never have entered this inbox (the operator host is
+/// also called directly). `Ok(false)` when it is not here.
+pub fn acknowledge_if_present(root: &Path, id: &str) -> Result<bool, String> {
+    if !path(root, id).exists() {
+        return Ok(false);
+    }
+    acknowledge(root, id).map(|_| true)
+}

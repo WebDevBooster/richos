@@ -423,6 +423,16 @@ fn host(data: &Path, _driver_state: &Path, root: &Path) -> Result<(), String> {
     let _ = root;
 
     out.line(&json!({"ready": true, "pid": std::process::id(), "ecs": app.ecs.as_ref().map(|(_, seats)| json!({"seats": seats}))}));
+    // As the app does at launch (`src-tauri/src/question_host.rs`: the question worker's first
+    // wake flushes saved answers): a walk relaunched after a crash delivers every answer his
+    // team has not taken (the crash matrix, answer-delivery design §4.2). Off this thread, as
+    // the app's worker is, because a lead may have to start first.
+    let flusher = app.desk.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = flusher.flush_question_answers() {
+            eprintln!("operator_walk: a saved answer is still waiting ({e})");
+        }
+    });
     for line in std::io::stdin().lock().lines() {
         let Ok(line) = line else { break };
         let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
@@ -449,7 +459,7 @@ fn host(data: &Path, _driver_state: &Path, root: &Path) -> Result<(), String> {
             "answer" => match &thread_id {
                 Some(tid) => match app.desk.deliver_answer(&app.key(tid), v["handle"].as_str(), v["delivery"].as_str().unwrap_or(""),
                                                            v["text"].as_str().unwrap_or("")) {
-                    Ok(now) => json!({"delivered_now": now}),
+                    Ok(outcome) => json!({"outcome": format!("{outcome:?}")}),
                     Err(e) => json!({"error": e}),
                 },
                 None => json!({"error": "no such conversation"}),
