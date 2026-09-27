@@ -188,18 +188,29 @@ def is_held(path):
         return False
 
 
+def _write(handle, record):
+    """Replace the slot file's holder record (None clears it). Only its flock holder writes."""
+    handle.seek(0)
+    handle.truncate()
+    if record:
+        handle.write(json.dumps(record) + '\n')
+    handle.flush()
+
+
+def describe(path):
+    """One slot, in words: free, admitting, running (whose, for how long), or an older checkout's."""
+    if not is_held(path):
+        return f'{path.name}: free'
+    h = holder(path)
+    if not h.get('pid'):
+        return f'{path.name}: held by an older checkout (no holder record)'
+    minutes = (time.time() - h.get('since', time.time())) / 60
+    doing = 'admitting' if h.get('state') == 'admitting' else 'running'
+    return f"{path.name}: {doing}, pid {h['pid']} for {minutes:.1f} min ({h.get('purpose') or 'a run'})"
+
+
 def describe_holders(paths):
-    rows = []
-    for p in paths:
-        if not is_held(p):
-            continue
-        h = holder(p)
-        if h.get('pid'):
-            since = time.time() - h.get('since', time.time())
-            rows.append(f"{p.name}: pid {h['pid']} for {since / 60:.0f} min ({h.get('purpose') or 'a run'})")
-        else:
-            rows.append(f'{p.name}: held by an older checkout (no holder record)')
-    return '; '.join(rows) or 'none'
+    return '; '.join(describe(p) for p in paths if is_held(p)) or 'none'
 
 
 def _stop_leftovers(path, root):
@@ -249,6 +260,10 @@ def guest_slot(root=None, wait_seconds=0, purpose='', max_cpu=reserve.DEFAULT_MA
             handle = _try(candidate)
             if handle:
                 path = candidate
+                # Said at once, so `status` never mistakes a caller mid-admission for an older
+                # checkout's run (seen 2026-09-27 20:41Z).
+                _write(handle, {'pid': os.getpid(), 'since': time.time(), 'purpose': purpose,
+                                'slot': path.name, 'state': 'admitting'})
                 break
         pause = SLOT_POLL_SECONDS
         if handle is None:
@@ -268,6 +283,7 @@ def guest_slot(root=None, wait_seconds=0, purpose='', max_cpu=reserve.DEFAULT_MA
             except BlockingIOError as refused:
                 reason = str(refused)
                 pause = reserve.MIN_RETRY_SECONDS
+            _write(handle, None)
             fcntl.flock(handle, fcntl.LOCK_UN)
             handle.close()
         elapsed = clock() - started
@@ -280,11 +296,8 @@ def guest_slot(root=None, wait_seconds=0, purpose='', max_cpu=reserve.DEFAULT_MA
         sleep(min(pause, remaining))
         slept += min(pause, remaining)
     waited = clock() - started
-    record = {'pid': os.getpid(), 'since': time.time(), 'purpose': purpose, 'slot': path.name}
-    handle.seek(0)
-    handle.truncate()
-    handle.write(json.dumps(record) + '\n')
-    handle.flush()
+    _write(handle, {'pid': os.getpid(), 'since': time.time(), 'purpose': purpose, 'slot': path.name,
+                    'state': 'running'})
     previous = os.environ.get(ENV)
     os.environ[ENV] = str(path)
     # `waited` is time spent waiting for a slot or for admission; the checks themselves (one
@@ -301,9 +314,7 @@ def guest_slot(root=None, wait_seconds=0, purpose='', max_cpu=reserve.DEFAULT_MA
                 os.environ.pop(ENV, None)
             else:
                 os.environ[ENV] = previous
-            handle.seek(0)
-            handle.truncate()
-            handle.flush()
+            _write(handle, None)
             fcntl.flock(handle, fcntl.LOCK_UN)
             handle.close()
             _say(f'slot released: {path.name} after {clock() - started - waited:.0f}s')
@@ -354,16 +365,8 @@ def main():
     r.add_argument('command', nargs=argparse.REMAINDER)
     a = p.parse_args()
     if a.verb == 'status':
-        paths = slot_paths()
-        for path in paths:
-            h = holder(path) if is_held(path) else None
-            if h is None:
-                print(f'{path.name}: free')
-            elif h.get('pid'):
-                print(f"{path.name}: held by pid {h['pid']} for {(time.time() - h.get('since', time.time())) / 60:.1f} min"
-                      f" ({h.get('purpose') or 'a run'})")
-            else:
-                print(f'{path.name}: held by an older checkout (no holder record)')
+        for path in slot_paths():
+            print(describe(path))
         return 0
     if a.verb == 'check':
         why = check()

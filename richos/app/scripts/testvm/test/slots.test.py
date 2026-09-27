@@ -240,7 +240,7 @@ class Slots(unittest.TestCase):
         out = status.communicate(timeout=30)[0]
         gate.touch()
         self.finish(a)
-        self.assertIn('guest.lock: held by pid', out)
+        self.assertIn('guest.lock: running, pid', out)
         self.assertIn('walk seven', out)
         self.assertIn('guest-2.lock: free', out)
 
@@ -290,6 +290,20 @@ class Slots(unittest.TestCase):
         self.assertEqual([c[0][1:] for c in calls], [['walk-left']])
         self.assertTrue(calls[0][0][0].endswith('stop.sh'))
         self.assertEqual(calls[0][1], [True, False], 'stopped while the slot was still held')
+
+    def test_a_caller_mid_admission_reads_as_admitting_and_a_refusal_clears_it(self):
+        seen = []
+
+        def admit():
+            seen.append(slots.describe(self.root / 'guest.lock'))
+            raise BlockingIOError('total CPU is 95.0% (limit 80%)')
+        with quiet(), self.assertRaises(BlockingIOError):
+            with self.hold(purpose='walk Q', admit=admit):
+                self.fail('admitted')
+        self.assertIn('guest.lock: admitting, pid', seen[0])
+        self.assertIn('walk Q', seen[0])
+        self.assertEqual((self.root / 'guest.lock').read_text(), '', 'a refused caller leaves no record behind')
+        self.assertEqual(slots.describe(self.root / 'guest.lock'), 'guest.lock: free')
 
     def test_the_holder_record_is_cleared_on_release(self):
         with quiet(), self.hold(purpose='walk X') as slot:
