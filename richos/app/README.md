@@ -232,7 +232,7 @@ richos/app/
                               classified identically, which is what makes the operator line
                               impossible to write for only one surface
     tests/questions.rs       16 tests: durable question sets, revisions, delivery and engine witnesses
-    tests/rotation_tests.rs  25 rotation/crash-recovery/proactive-seam tests, including
+    tests/rotation_tests.rs  27 rotation/crash-recovery/proactive-seam tests, including
                               the watermark's own live-vs-estimated source reporting
     tests/action_ledger_tests.rs 15 action-ledger WRITER tests (the ledger is non-empty
                               at runtime; CEO-facing actions cross a rotation; machinery
@@ -1104,7 +1104,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1602 tests + 5 doc-tests (1598 direct, 4 ignored)
+cargo test -p richos-core                       # 1617 tests + 5 doc-tests (1613 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
@@ -1779,7 +1779,7 @@ explicit triggers), self-authored handoff summaries on clean rotation, mid-turn-
 recovery/replay (bounded to one attempt, clean-render dedup via superseded turns), and the
 identity/action-ledger re-prime that structurally excludes false attribution — all wired
 in `richos-core::spine` (`LeaseFactory`, `rotate_lease`, `recover_and_replay`) and proven
-both headless (`cargo test -p richos-core`, `tests/rotation_tests.rs`, 22 tests) and live
+both headless (`cargo test -p richos-core`, `tests/rotation_tests.rs`, 27 tests) and live
 against the real binary (`examples/rotation_roundtrip.rs` — a forced mid-conversation
 rotation swaps the backing Claude session and the successor correctly recalls the prior
 exchange purely via the re-prime payload). Company name, the assertiveness dial, and the
