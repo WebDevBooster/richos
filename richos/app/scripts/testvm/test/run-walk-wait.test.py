@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """run-walk.py --wait reaches the guest-slot admission; the default still refuses at once;
-a command that cannot run is refused before any slot is asked for.
+a command that cannot run, or the retired hold-walk.py, is refused before any slot is asked for.
 
 No guest, no lock, no CPU sample: `guest_slot` is replaced by a stub that records what it
 was asked for and refuses, so main() stops before anything is booted."""
@@ -65,6 +65,10 @@ check('--wait 900 reaches the guest-slot admission as wait_seconds=900',
       outcome == 'refused' and asked and asked[-1].get('wait_seconds') == 900, asked)
 check('...under the TESTVM_ROOT the walk runs in', asked and str(asked[-1].get('root')) == '/nonexistent/testvm-root',
       asked)
+asked.clear()
+outcome, said = main_with(command=(str(HERE / 'hold-walk.py'), '--out', '/tmp/x'))
+check('hold-walk.py is refused before a slot is asked for, and the refusal says what to do instead',
+      outcome == 'exit 2' and not asked and 'retired' in said and 'script' in said, (outcome, asked, said))
 asked.clear()
 outcome, said = main_with(command=('/nonexistent/walk.py',))
 check('a command that cannot run is refused before a slot is asked for',

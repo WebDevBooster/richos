@@ -33,6 +33,11 @@ from relaunch import guest
 
 HERE=Path(__file__).resolve().parent
 
+# Commands that are refused here, before a slot or a boot, with the way forward.
+RETIRED={'hold-walk.py':'hold-walk.py is retired (the CEO, 2026-09-27): a guest is never held for hand-driven '
+         'steps, thinking or debugging. Put the steps in a script that takes the VM name as its first '
+         'argument (ax.sh, shot.sh, guest.sh against "$1") and pass that script here as the command: the '
+         'guest exists for exactly that run, and the slot is free again the moment it ends.'}
 
 
 def main():
@@ -47,6 +52,8 @@ def main():
     p.add_argument('command',nargs=argparse.REMAINDER)
     a=p.parse_args();command=a.command[1:] if a.command[:1]==['--'] else a.command
     if not command:p.error('a scenario command is required after --')
+    retired=RETIRED.get(Path(command[0]).name)
+    if retired:p.error(retired)
     # Before a slot is taken and a guest is booted: a command that cannot start would
     # spend a boot and a slot to find that out.
     if shutil.which(command[0]) is None:p.error('the scenario command is not an executable file: '+command[0])
