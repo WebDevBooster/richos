@@ -75,6 +75,11 @@ mutant idle-slot-unseen "RW14" "$L" \
     '        if False:{NL}            lines.append("%s. IN USE RIGHT NOW: NO. The slot is held but no guest is booted." % who)' \
     "a slot held with no guest booted would not be reported as idle, which is the 5-second-fart case."
 
+mutant admitting-unseen "RW44" "$L" \
+    '        if not mine and s.get("state") == "admitting":' \
+    '        if False:' \
+    "a holder still being admitted would be reported as holding an idle slot, hiding that it is about to run."
+
 mutant holding-ignored "RW15" "$L" \
     '                if os.path.realpath(h) == os.path.realpath(s["path"]) and s["pid"] is None:' \
     '                if False:' \

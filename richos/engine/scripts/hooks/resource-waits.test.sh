@@ -326,6 +326,17 @@ else
     bad "RW14 held, no guest" "rc=$SRC err=$(printf '%s' "$SERR" | head -c 700)"
 fi
 
+# RW44 — slots.py writes `"state": "admitting"` while the holder checks CPU and
+# memory: the slot is held and nothing runs yet.
+printf '{"pid": %s, "since": %s, "purpose": "run-walk walk-x delta-walk.py", "slot": "guest.lock", "state": "admitting"}\n' \
+    "$HOLDER" "$(( $(now) - 60 ))" > "$TESTVM_ROOT/guest.lock"
+stop_run
+if [ "$SRC" = "2" ] && has "$SERR" "IN USE RIGHT NOW: NO. The holder is still being admitted"; then
+    ok "RW44 a slot whose holder is still being admitted (slots.py's \"admitting\" state) is reported as NOT in use"
+else
+    bad "RW44 admitting holder" "rc=$SRC err=$(printf '%s' "$SERR" | head -c 900)"
+fi
+
 # RW15 — the lock is held by a walk that is itself waiting for CPU (reserve.py's `holding`).
 rm -f "$TESTVM_ROOT/guest.lock"
 : > "$TESTVM_ROOT/guest.lock"

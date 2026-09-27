@@ -42,9 +42,9 @@ The waiter says it is waiting, through `waiting()`, or it is not counted.
    `waiting()` below, and removes it when the wait is over. Written by the CPU
    admission loop (app/scripts/testvm/reserve.py `cpu_admission`, which
    run-walk.py and every `reserve.py --wait` go through), by proof-run.py when
-   it has nothing of its own running and admission refuses the next check. The
-   test VM's slot queue (app/scripts/testvm/slots.py `run --wait`, being built
-   in parallel) writes one through the same call once it lands.
+   it has nothing of its own running and admission refuses the next check, and
+   by the test VM's slot queue (app/scripts/testvm/slots.py `guest_slot`, which
+   `slots.py run --wait` and run-walk.py go through).
    `resource_waits.py wait --until-exists PATH` records a hand-rolled wait for
    a file (the lead's `vm-queue/<name>-go` protocol) the same way.
    ENDS: the record is removed, or its process is gone (a dead pid, or a pid
@@ -630,7 +630,8 @@ def vm_facts(root, table, waits):
         slots.append({"name": name, "path": path,
                       "pid": int(pid) if pid and pid_alive(pid) else None,
                       "since": rec.get("since") if isinstance(rec, dict) else None,
-                      "purpose": str(rec.get("purpose") or "") if isinstance(rec, dict) else ""})
+                      "purpose": str(rec.get("purpose") or "") if isinstance(rec, dict) else "",
+                      "state": str(rec.get("state") or "") if isinstance(rec, dict) else ""})
     guests = []
     run = os.path.join(root, "run")
     try:
@@ -681,6 +682,11 @@ def vm_facts(root, table, waits):
                          "for %s (%s) and has been for %s." % (
                              who, LABELS.get(hw["resource"], hw["resource"]), hw["reason"] or "no reason recorded",
                              minutes(now - hw["since"])))
+            continue
+        if not mine and s.get("state") == "admitting":
+            lines.append("%s. IN USE RIGHT NOW: NO. The holder is still being admitted (slots.py's "
+                         "\"admitting\" state): it holds the slot while it checks CPU and memory, and "
+                         "no run has started." % who)
             continue
         if not mine:
             lines.append("%s. IN USE RIGHT NOW: NO. The slot is held but no guest is booted." % who)
