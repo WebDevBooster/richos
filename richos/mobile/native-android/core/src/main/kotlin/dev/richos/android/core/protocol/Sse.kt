@@ -91,6 +91,7 @@ data class Row(
     @SerialName("thread_id") val threadId: String,
     val cursor: Long,
     val role: String,
+    val question: dev.richos.android.core.QuestionCard? = null,
     val kind: String = "text",
     val text: String = "",
     @SerialName("created_at") val createdAt: String? = null,

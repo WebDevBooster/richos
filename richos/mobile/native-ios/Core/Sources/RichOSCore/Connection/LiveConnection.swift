@@ -251,6 +251,7 @@ public actor LiveConnection {
             // take text (the preserved client's `!negotiated || offers('text')`).
             if let capabilities = hello.capabilities, !capabilities.isEmpty {
                 await sink(.macCapabilities(text: capabilities.contains("text"), voice: capabilities.contains("voice")))
+                await sink(.macQuestionCapability(capabilities.contains("questions")))
                 await sink(.macAttachmentLimits(capabilities.contains("attachments") ? hello.attachmentLimits : nil))
             }
         }

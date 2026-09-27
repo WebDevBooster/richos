@@ -167,6 +167,7 @@ struct MessageRow: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var mine: Bool { row.author == .me }
+    private var isQuestion: Bool { if case .question = row.body { return true }; return false }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -176,7 +177,7 @@ struct MessageRow: View {
                 if row.delivery == .needsAttention { attentionLine }
             }
             .frame(width: fixedWidth, alignment: mine ? .trailing : .leading)
-            .frame(maxWidth: width * (mine ? 0.78 : 0.84), alignment: mine ? .trailing : .leading)
+            .frame(maxWidth: width * (isQuestion ? 0.92 : mine ? 0.78 : 0.84), alignment: mine ? .trailing : .leading)
             if !mine { Spacer(minLength: 0) }
         }
         .padding(.top, 0)
@@ -187,6 +188,7 @@ struct MessageRow: View {
     /// 290 pt; a file 78% up to 300 pt (round-12 `attach.css`).
     private var fixedWidth: CGFloat? {
         switch row.body {
+        case .question: return width * 0.92
         case .voice: return width * 0.74
         case .album: return min(width * 0.74, 290)
         case .file: return min(width * 0.78, 300)
@@ -197,7 +199,7 @@ struct MessageRow: View {
     /// A bubble with its own controls keeps them reachable one by one; a text bubble reads as one.
     private var hasControls: Bool {
         switch row.body {
-        case .voice, .album, .file: return true
+        case .voice, .album, .file, .question: return true
         default: return row.audio != nil || row.reference != nil
         }
     }
@@ -206,6 +208,8 @@ struct MessageRow: View {
         let shape = BubbleShape(tail: tail ? (mine ? .right : .left) : nil)
         Group {
             switch row.body {
+            case .question(let q, let pending, let savedAnswer, let canEditLocal):
+                QuestionCardView(question: q, pending: pending, savedAnswer: savedAnswer, canEditLocal: canEditLocal, send: send)
             case .text(let text):
                 BubbleLayout(spacing: 4) {
                     if let reference = row.reference {
@@ -289,7 +293,7 @@ struct MessageRow: View {
                 .padding(.top, 10).padding(.horizontal, 12).padding(.bottom, 8)
             }
         }
-        .background(shape.fill(mine ? palette.mine : palette.surface).floatShadow(palette))
+        .background { if !isQuestion { shape.fill(mine ? palette.mine : palette.surface).floatShadow(palette) } }
         .overlay(shape.stroke(mine ? palette.signalWash : Color.clear, lineWidth: 1))
         .overlay { if focused { FocusGlow(shape: shape) } }
         .overlay(alignment: .topTrailing) {
@@ -328,6 +332,7 @@ struct MessageRow: View {
         case .needsAttention?: delivery = ", not sent, needs attention"
         }
         switch row.body {
+        case .question(let q, _, _, _): return q.text
         case .text(let text): return "\(who), \(time)\(delivery): \(text)"
         case .voice(let ms, _): return "\(mine ? "Your" : "Rich's") voice message, \(DayLabel.spokenDuration(ms)), \(time)\(delivery)"
         case .replying: return "Rich is replying"

@@ -82,10 +82,11 @@ public struct StreamRow: Codable, Equatable, Sendable {
     /// A phone voice note's length (Echo's `4ce79d6e`): present on that note's row in `hello` and
     /// backfill, absent on the live frame and on desktop voice turns. Present means "a voice note";
     /// absent means show no length — never 0:00.
+    public var question: QuestionCard?
     public var durationMs: Int?
 
     enum CodingKeys: String, CodingKey {
-        case id, cursor, role, kind, text, complete
+        case id, cursor, role, kind, text, complete, question
         case threadID = "thread_id", createdAt = "created_at", clientID = "client_id", durationMs = "duration_ms"
     }
 
@@ -106,6 +107,7 @@ public struct StreamRow: Codable, Equatable, Sendable {
         createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
         clientID = try c.decodeIfPresent(String.self, forKey: .clientID)
         complete = try c.decodeIfPresent(Bool.self, forKey: .complete) ?? true
+        question = try c.decodeIfPresent(QuestionCard.self, forKey: .question)
         durationMs = try c.decodeIfPresent(Int.self, forKey: .durationMs)
     }
 
@@ -118,8 +120,10 @@ public struct StreamRow: Codable, Equatable, Sendable {
         let voice = durationMs != nil || kind == "voice"
         // A phone attachment message comes back as the words the Mac gave Rich; show its caption and files.
         let attached = role == "ceo" && !voice ? AttachmentDescription.parse(text, rowID: id) : nil
-        return Message(id: id, author: role == "ceo" ? .me : .rich, kind: voice ? .voice : .text, text: attached?.caption ?? text,
+        var message = Message(id: id, author: role == "ceo" ? .me : .rich, kind: voice ? .voice : .text, text: attached?.caption ?? text,
                        sentAt: sentAt, durationMs: durationMs, clientID: clientID, cursor: cursor, attachments: attached?.files)
+        message.question = question
+        return message
     }
 }
 

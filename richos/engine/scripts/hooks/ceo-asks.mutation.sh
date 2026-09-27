@@ -206,7 +206,7 @@ mutant broken-fails-closed "C10. " "$G" \
 
 # --- 3. THE WITNESS --------------------------------------------------------
 mutant no-ledger-write "B1. " "$W" \
-    'with open(os.environ["CA_LEDGER"], "a", encoding="utf-8") as fh:' \
+    'with open(os.environ["CA_LEDGER"], "a+", encoding="utf-8") as fh:' \
     'if False:' \
     "the ledger IS the evidence; without it nothing can ever discharge and the gate becomes a wall."
 

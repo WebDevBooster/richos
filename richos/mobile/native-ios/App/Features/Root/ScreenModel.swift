@@ -21,6 +21,7 @@ struct ScreenModel: Equatable, Sendable {
     var connection: ConnectionLine?
     /// Cards above the composer, top to bottom.
     var cards: [Card] = []
+    var recoveredQuestionAnswers: [String] = []
     var toast: Toast?
     var composer = Composer()
     /// The recording gesture, exactly as the core holds it.
@@ -121,6 +122,7 @@ struct ScreenModel: Equatable, Sendable {
     struct Row: Equatable, Identifiable, Sendable {
         enum Author: Equatable, Sendable { case rich, me }
         enum Body: Equatable, Sendable {
+            case question(QuestionCard, pending: String?, savedAnswer: String?, canEditLocal: Bool)
             case text(String)
             case voice(durationMs: Int, levels: [Double])
             /// Rich is writing: three breathing dots, no sentence (`conv-replying`).
@@ -268,12 +270,23 @@ extension ScreenModel {
             break
         }
 
+        recoveredQuestionAnswers = s.outbox.filter { $0.questionID != nil && $0.state == .blocked }.map { ($0.lastReason ?? "This answer was not sent.") + "\n" + ($0.questionAnswerText ?? "") }
+
         // The conversation.
         if let cachedTranscript {
             thread = cachedTranscript
         } else {
         let staged = Dictionary(s.outbox.flatMap { $0.files ?? [] }.map { ($0.id, $0.path) }, uniquingKeysWith: { a, _ in a })
-        thread.rows = RichOSCore.Transcript.visible(s).map { Row(message: $0, stagedPath: { staged[$0] }, directory: attachments) }
+        thread.rows = RichOSCore.Transcript.visible(s).map { Row(message: $0, questionsAvailable: s.mac?.questionAnswers == true, stagedPath: { staged[$0] }, directory: attachments) }
+        for i in thread.rows.indices {
+            if case .question(let q, _, _, _) = thread.rows[i].body,
+               let pending = s.outbox.first(where: { $0.questionID == q.id }) {
+                let status = pending.state == .blocked ? (pending.lastReason ?? "Your answer needs attention") : pending.state == .sending || s.connectionNotice == nil ? "On its way to Rich" : "Waiting to send · your Mac is out of reach"
+                var displayed = q
+                displayed.answer = pending.localQuestionAnswer ?? q.answer
+                thread.rows[i].body = .question(displayed, pending: status, savedAnswer: pending.questionAnswerText, canEditLocal: pending.state == .waiting && pending.attempts == 0)
+            }
+        }
         if let playback = s.playback, let i = thread.rows.firstIndex(where: { $0.id == playback.messageID }) {
             thread.rows[i].audio = playback.phase == .preparing ? .preparing : .playing(progress: playback.progress)
         }
@@ -442,13 +455,14 @@ extension ScreenModel.AttachFile {
 extension ScreenModel.Row {
     /// `stagedPath` finds this phone's copy of an attachment still waiting to go (the outbox holds
     /// it); a photo the Mac already has draws as a tile.
-    init(message m: Message, stagedPath: (String) -> String? = { _ in nil }, directory: URL? = nil) {
+    init(message m: Message, questionsAvailable: Bool = true, stagedPath: (String) -> String? = { _ in nil }, directory: URL? = nil) {
         let author: Author = m.author == .rich ? .rich : .me
         var body: Body
         switch m.kind {
         case .text: body = .text(m.text)
         case .voice: body = .voice(durationMs: m.durationMs ?? 0, levels: m.levels ?? [])
         }
+        if questionsAvailable, let question = m.question { body = .question(question, pending: nil, savedAnswer: nil, canEditLocal: false) }
         // Photos and files: an album when every one is a photo, a file bubble for one file.
         if m.kind == .text, let refs = m.attachments, !refs.isEmpty {
             let caption = m.text.isEmpty ? nil : m.text
@@ -485,7 +499,8 @@ final class ScreenProjectionCache {
     func model(_ state: AppState, attachments: URL?) -> ScreenModel {
         let same = directory == attachments && previous.map {
             $0.messages == state.messages && $0.outbox == state.outbox &&
-            $0.reply == state.reply && $0.playback == state.playback
+            $0.reply == state.reply && $0.playback == state.playback &&
+            $0.mac?.questionAnswers == state.mac?.questionAnswers && $0.connectionNotice == state.connectionNotice
         } == true
         let result = ScreenModel(state: state, attachments: attachments, cachedTranscript: same ? transcript : nil)
         previous = state

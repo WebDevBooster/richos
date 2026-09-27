@@ -293,6 +293,25 @@ class DevRuntime private constructor(
         when (name) {
             // The foundation's scenario: a draft is the user's work and survives the process
             // dying, and the composer's circle follows it (microphone ⇄ send arrow).
+            "question-offline-edit" -> {
+                step(DevRequest.Fixture("offline"))
+                val q = """{"id":"q","thread_id":"general","text":"When should the release ship?","options":[{"id":"a","label":"Ship today","description":"Earlier fixes"},{"id":"b","label":"Ship tomorrow","description":"More testing"}],"multiple":false,"free_answer":true,"state":"open","revision":0,"delivered":false}"""
+                step(DevRequest.Dispatch(Action.Receive("event: hello\ndata: {\"thread_id\":\"general\",\"capabilities\":[\"questions\"],\"messages\":[{\"id\":\"q\",\"thread_id\":\"general\",\"cursor\":1,\"role\":\"rich\",\"kind\":\"question\",\"question\":$q}]}\n\n")))
+                step(DevRequest.Dispatch(Action.Compose("Keep this draft")))
+                val saved = step(DevRequest.Dispatch(Action.AnswerQuestion("q", listOf("a")))).outbox.single { it.kind == "answer" }
+                var s = step(DevRequest.Restart)
+                check(s.outbox.single { it.kind == "answer" }.wire == saved.wire && s.draft == "Keep this draft", "answer and composer survive restart")
+                s = step(DevRequest.Dispatch(Action.AnswerQuestion("q", listOf("b"), revision = 0)))
+                val edited = s.outbox.single { it.kind == "answer" }
+                check(edited.text == "Ship tomorrow" && doc.calls.isEmpty(), "explicit offline edit saves without network")
+                core.backgrounded()
+                step(DevRequest.Advance(60_000))
+                // AppStore only schedules outbox retries while online. A durable due item
+                // remains due offline, without owning a timer or making a request.
+                check(doc.calls.isEmpty() && !core.state.online, "background adds no sends and disables the retry timer")
+                s = step(DevRequest.Restart)
+                check(s.outbox.single { it.kind == "answer" }.wire == edited.wire, "edited answer survives restart")
+            }
             "draft-survives-restart" -> {
                 step(DevRequest.Fixture("offline"))
                 var s = step(DevRequest.Dispatch(Action.Compose("Hello Rich")))
@@ -596,7 +615,7 @@ class DevRuntime private constructor(
 
     companion object {
         val SCENARIOS: List<String> =
-            listOf("offline-reconnect", "revoked", "interrupted", "draft-survives-restart", "pair-and-confirm", "pair-refused",
+            listOf("question-offline-edit", "offline-reconnect", "revoked", "interrupted", "draft-survives-restart", "pair-and-confirm", "pair-refused",
                 "pair-v1-mac-refused", "pair-wait-expires", "pair-mac-declined", "stream-turn", "reply-replay", "reconnect-notice", "voice-hold-send",
                 "voice-lock-interrupt", "voice-mic-denied", "settings-forget", "update-policy", "load-older")
 

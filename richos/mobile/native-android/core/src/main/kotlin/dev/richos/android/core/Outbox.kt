@@ -100,7 +100,10 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
         var reserved: CompletionLease? = null
         var used = false
         try {
-            reserved = if (all().any { it.state == OutboxState.WAITING && (it.notBefore ?: 0L) <= clock.now() }) lease()
+            reserved = if (all().any {
+                it.state == OutboxState.WAITING && (it.notBefore ?: 0L) <= clock.now() &&
+                    it.kind != "answer" && it.kind != "question_seen"
+            }) lease()
                 else CompletionLease(false)
             val report = supervisorScope {
                 var backgroundRequests = 0
@@ -218,6 +221,17 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
             }
         }
         return report.copy(waiting = items.count { it.state == OutboxState.WAITING })
+    }
+
+    /** A local edit is safe only before any transport attempt, with no drain running. */
+    suspend fun replaceUnsent(item: OutboxItem): Boolean = flushLock.withLock {
+        if (flushing != null) return@withLock false
+        val previous = items.firstOrNull { it.clientId == item.clientId } ?: return@withLock false
+        if (previous.state != OutboxState.WAITING || previous.attempts != 0) return@withLock false
+        storage.put(item)
+        items = items.map { if (it.clientId == item.clientId) item else it }
+        bump(item.clientId)
+        true
     }
 
     suspend fun discard(clientId: String) {

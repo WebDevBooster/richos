@@ -31,6 +31,7 @@
 use super::routes::{Accepted, Bridge};
 use crate::timeline_view::timeline_payload;
 use crate::AppState;
+use richos_core::read_view::SpineView;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -87,6 +88,16 @@ impl PhoneBridge {
 }
 
 impl Bridge for PhoneBridge {
+    fn questions_available(&self)->bool {true}
+    fn answer_question(&self,thread:&str,answer:richos_core::questions::AnswerRequest)->Result<Value,String> {
+        let method=if answer.text.trim().is_empty(){"phone_tap"}else{"phone_typed"};
+        let state=self.app.state::<AppState>();
+        Ok(crate::question_host::answer(&state,thread,answer,method,"phone")?.public_value())
+    }
+    fn question_shown(&self,thread:&str,question:&str)->Result<(),String> {
+        crate::question_host::shown(&self.app.state::<AppState>(),thread,question,"phone")
+    }
+
     fn native_notifications_available(&self)->bool {true}
     fn register_native_notifications(&self,device:&str,registration:Option<super::notifications::Registration>)->Result<Value,String> {
         self.app.state::<std::sync::Arc<super::PhoneRuntime>>().register_native_notifications(device,registration)
@@ -109,7 +120,38 @@ impl Bridge for PhoneBridge {
         self.voice.synthesize(row["text"].as_str().unwrap_or(""))
     }
 
-    fn submit_text(&self, thread_id: Option<&str>, text: &str) -> Result<Accepted, String> {
+    fn submit_text(&self, thread_id: Option<&str>, text: &str) -> Result<Accepted, String> {self.submit_words(thread_id,text,"phone_typed")}
+    fn submit_voice(&self, thread_id: Option<&str>, text: &str) -> Result<Accepted, String> {self.submit_words(thread_id,text,"phone_voice")}
+
+    fn snapshot(&self, thread_id: Option<&str>) -> Result<Value, String> {
+        let state = self.app.state::<AppState>();
+        let thread = thread_id
+            .map(|s| s.to_string())
+            .or_else(|| self.cache.lock().unwrap().active.clone())
+            .ok_or_else(|| "this Mac has no conversation yet".to_string())?;
+        crate::question_host::payload(&state,&thread)
+    }
+
+    fn current_thread(&self) -> Option<(String, String)> {
+        let cache = self.cache.lock().unwrap();
+        let id = cache.active.clone()?;
+        let title = cache
+            .threads
+            .iter()
+            .find(|(known, _)| *known == id)
+            .map(|(_, t)| t.clone())
+            .unwrap_or_else(|| "Rich".to_string());
+        Some((id, title))
+    }
+
+    fn threads(&self) -> Vec<(String, String)> {
+        self.cache.lock().unwrap().threads.clone()
+    }
+}
+
+
+impl PhoneBridge {
+    fn submit_words(&self, thread_id: Option<&str>, text: &str, channel:&str) -> Result<Accepted, String> {
         let state = self.app.state::<AppState>();
         // The thread the words belong to, resolved HERE and never at drain time: the desktop's
         // active thread can move while a record waits, and re-scoping the CEO's words to wherever
@@ -118,13 +160,14 @@ impl Bridge for PhoneBridge {
             .map(|s| s.to_string())
             .or_else(|| self.cache.lock().unwrap().active.clone())
             .ok_or_else(|| "this Mac has no conversation to add to yet".to_string())?;
-        let entity = state.entity.lock().unwrap().clone();
+        let entity = Some(state.reader.snapshot().ledger().thread_binding(&thread)
+            .map_err(|e| e.to_string())?.entity_id().clone());
 
         // Durable before the phone is answered. This is the whole reason the phone writes here
         // rather than calling the spine.
         let record = state
             .control
-            .submit_from_channel(&thread, entity, text, "phone")
+            .submit_from_channel(&thread, entity, text, channel)
             .map_err(|e| e.to_string())?;
         let intake_id = record.id();
 
@@ -162,43 +205,4 @@ impl Bridge for PhoneBridge {
         })
     }
 
-    fn snapshot(&self, thread_id: Option<&str>) -> Result<Value, String> {
-        let state = self.app.state::<AppState>();
-        let thread = thread_id
-            .map(|s| s.to_string())
-            .or_else(|| self.cache.lock().unwrap().active.clone())
-            .ok_or_else(|| "this Mac has no conversation yet".to_string())?;
-        if let Ok(spine) = state.spine.try_lock() {
-            // `timeline_payload` is the ONLY way this file can obtain a payload, and it is
-            // `view(ViewMode::Ceo)` — `Timeline` does not implement `Serialize`, so there is no
-            // ungated path from here to the phone even by mistake.
-            let payload = timeline_payload(&*spine, &thread)?;
-            self.cache.lock().unwrap().payloads.insert(thread.clone(), payload.clone());
-            return Ok(payload);
-        }
-        self.cache
-            .lock()
-            .unwrap()
-            .payloads
-            .get(&thread)
-            .cloned()
-            .ok_or_else(|| "Rich is working. Your conversation will appear when he finishes.".to_string())
-    }
-
-    fn current_thread(&self) -> Option<(String, String)> {
-        let cache = self.cache.lock().unwrap();
-        let id = cache.active.clone()?;
-        let title = cache
-            .threads
-            .iter()
-            .find(|(known, _)| *known == id)
-            .map(|(_, t)| t.clone())
-            .unwrap_or_else(|| "Rich".to_string());
-        Some((id, title))
-    }
-
-    fn threads(&self) -> Vec<(String, String)> {
-        self.cache.lock().unwrap().threads.clone()
-    }
 }
-

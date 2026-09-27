@@ -19,7 +19,7 @@
 //!       reads one JSON command per line on stdin, answers one JSON line each on stdout, and
 //!       writes every notice as {"event":"say",…} on stdout as it happens
 //!
-//! Commands: assign, answer, stop, interrupt, read, stop-assignment, settled, team, retire,
+//! Commands: assign, answer, questions, answer-question, stop, interrupt, read, stop-assignment, settled, team, retire,
 //! take, lease-spawns, quit. Nothing here is product code; it is the walk's stand-in for the
 //! shell, built from the shell's own parts.
 use richos_core::assignment::{self, AssignmentKind, AssignmentState, Registration};
@@ -124,6 +124,32 @@ struct App {
 }
 
 impl App {
+    /// Resolved phone answers enter the same durable store/inbox as the shell. This walk
+    /// starts after authentication and word recognition; it does not prove either one.
+    fn answer_question(&self, thread: &str, value: &Value) -> Result<Value, String> {
+        use richos_core::questions::{AnswerRequest, Store};
+        let method = value["method"].as_str().ok_or("Supply an answer method")?;
+        if !matches!(method, "phone_tap" | "phone_typed" | "phone_voice") {
+            return Err("Unknown resolved phone answer method".into());
+        }
+        let request: AnswerRequest = serde_json::from_value(value["answer"].clone()).map_err(|e| e.to_string())?;
+        let store = Store::new(&self.state);
+        let question = store.list(ENTITY, thread)?.into_iter()
+            .find(|q| q.id == request.question_id).ok_or("No question in this conversation")?;
+        if !question.asker.starts_with("operator:") {
+            return Err("This walk answers operator questions".into());
+        }
+        let answer = store.answer(ENTITY, thread, request, method, "phone")?;
+        let enqueued = store.deliver(ENTITY, thread, &question.asker,
+            |delivery| self.desk.queue_question_answer(delivery))?;
+        // A fresh reader reconciles the same durable identity before the lead is invoked.
+        let reconciled = Store::new(&self.state).deliver(ENTITY, thread, &question.asker,
+            |delivery| self.desk.queue_question_answer(delivery))?;
+        self.desk.flush_question_answers()?;
+        self.desk.flush_question_answers()?;
+        Ok(json!({"answer": answer.public_value(), "enqueued": enqueued, "reconciled": reconciled}))
+    }
+
     fn names_file(data: &Path) -> PathBuf {
         data.join("walk-threads.json")
     }
@@ -405,6 +431,21 @@ fn host(data: &Path, _driver_state: &Path, root: &Path) -> Result<(), String> {
         let thread_id = app.names.lock().unwrap().by_name.get(&name).cloned();
         let answer = match v["cmd"].as_str().unwrap_or("") {
             "assign" => app.assign(&v),
+            "questions" => match &thread_id {
+                Some(tid) => match richos_core::questions::Store::new(&app.state).list(ENTITY, tid) {
+                    Ok(questions) => {
+                        let asker = v["handle"].as_str().map(|h| format!("operator:handle:{h}"));
+                        json!({"questions": questions.iter().filter(|q| asker.as_ref().is_none_or(|a| &q.asker == a))
+                            .map(richos_core::questions::Question::public_value).collect::<Vec<_>>()})
+                    }
+                    Err(e) => json!({"error": e}),
+                },
+                None => json!({"error": "no such conversation"}),
+            },
+            "answer-question" => match &thread_id {
+                Some(tid) => app.answer_question(tid, &v).unwrap_or_else(|e| json!({"error": e})),
+                None => json!({"error": "no such conversation"}),
+            },
             "answer" => match &thread_id {
                 Some(tid) => match app.desk.deliver_answer(&app.key(tid), v["handle"].as_str(), v["delivery"].as_str().unwrap_or(""),
                                                            v["text"].as_str().unwrap_or("")) {

@@ -2377,6 +2377,11 @@ def w2_fixture(ctx, r):
     """The walk's own additions to the probe fixture: his declaration, the fences installed and
     on in the fixture entity, a planted escalation on every Stop, a cheap model."""
     p = ctx.p
+    # Question publication checks this declared record with the real premise guard.
+    # The generic probe's title and identity token alone contain no parseable ruling.
+    rules = p.entity / 'CLAUDE.md'
+    rules.write_text(rules.read_text() + '\n## Fixture boundaries\n\n'
+                     'Work only in this disposable entity. Its conversations and assignments are synthetic.\n')
     home_env = dict(ctx.stored, HOME=str(p.home), **HARNESS_PIN)
     # A cheap model for the walk's leads: the profile passes none, so his settings decide it.
     settings = json.loads((p.claude_dir / 'settings.json').read_text())
@@ -2461,8 +2466,76 @@ def spawn_via_walk(ctx, walk, thread, title, name, agent_type, seconds, timeout=
     return after[0]['worktree'] if len(after) == 1 else None
 
 
+def grade_question_step(step):
+    methods = ('phone_tap', 'phone_typed', 'phone_voice')
+    answers = step.get('answers', [])
+    questions = step.get('after', [])
+    retry = step.get('retry', {})
+    return (step.get('question_count') == 3 and step.get('independent_progress') is True
+            and step.get('lead_received') is True and len(answers) == 3 and len(questions) == 3
+            and [a.get('enqueued') for a in answers] == [0, 0, 1]
+            and all(a.get('reconciled') == 0 and a.get('answer', {}).get('outcome') == 'accepted' for a in answers)
+            and sorted(q.get('answer', {}).get('method', '') for q in questions) == sorted(methods)
+            and all(q.get('delivered') is True and q.get('revision') == 1 for q in questions)
+            and retry.get('enqueued') == 0 and retry.get('reconciled') == 0
+            and retry.get('answer', {}).get('outcome') == 'accepted'
+            and retry.get('answer', {}).get('question', {}).get('revision') == 1)
+
+
+def question_step(walk, asking, independent):
+    """S6's resolved-answer seam, with real lead reports and durable production stores.
+
+    This begins after phone authentication and recognition. Device/transport/microphone
+    checks are separate; method labels here do not claim any of those happened.
+    """
+    step = {}
+    start = walk.count()
+    prepared = [{'text': 'When should release %s ship?' % name, 'options': [
+        {'label': 'Ship today', 'description': 'Earlier fixes'},
+        {'label': 'Ship tomorrow', 'description': 'More testing'}]} for name in ('one', 'two', 'three')]
+    step['register'] = walk.call('assign', thread=asking[0], title=asking[1], origin='desk-typed', timeout=480,
+        text=FIXTURE_NOTE + ('Call mcp__richos_operator__report once with kind question, handle set to this '
+        'assignment\'s handle, text "W2 prepared question set", and questions set to this exact array: %s. '
+        'After recording it, continue independent work by reporting kind update with the same handle and '
+        'text "W2 question posted". When the complete answer set arrives, report kind update on the same '
+        'handle with text "W2 got all three answers". Never ask this set again.' % json.dumps(prepared)))
+    handle = step['register'].get('handle')
+    if not handle:
+        return dict(step, **{'pass': False})
+    deadline = time.time() + 300
+    questions = []
+    while time.time() < deadline:
+        questions = walk.call('questions', thread=asking[0], handle=handle).get('questions', [])
+        if len(questions) == 3:
+            break
+        time.sleep(1)
+    step['question_count'] = len(questions)
+    if len(questions) != 3:
+        return dict(step, **{'pass': False})
+    walk.call('assign', thread=independent[0], title=independent[1], origin='desk-typed',
+              text='Reply with exactly: W2-QUESTION-INDEPENDENT')
+    other = walk.wait_say(lambda s: s['thread'] == independent[0] and 'W2-QUESTION-INDEPENDENT' in s['text'], 240, start)
+    posted = walk.wait_say(lambda s: s.get('handle') == handle and 'W2 question posted' in s['text'], 240, start)
+    step['independent_progress'] = bool(other) and bool(posted)
+    answers = step.setdefault('answers', [])
+    request = None
+    for question, method in zip(sorted(questions, key=lambda q: q['set_index']), ('phone_tap', 'phone_typed', 'phone_voice')):
+        option = next((o['id'] for o in question['options'] if o['label'] == 'Ship tomorrow'), None)
+        if option is None:
+            return dict(step, **{'pass': False})
+        request = {'question_id': question['id'], 'client_id': 'w2-' + method,
+                   'option_ids': [option], 'text': '', 'expected_revision': None}
+        answers.append(walk.call('answer-question', thread=asking[0], method=method, answer=request))
+    step['retry'] = walk.call('answer-question', thread=asking[0], method='phone_voice', answer=request)
+    got = walk.wait_say(lambda s: s.get('handle') == handle and 'W2 got all three answers' in s['text'], 300, start)
+    step['lead_received'] = bool(got)
+    step['after'] = walk.call('questions', thread=asking[0], handle=handle).get('questions', [])
+    step['pass'] = grade_question_step(step)
+    return step
+
+
 @probe('W2', explicit=True)
-def w2(ctx, r):
+def w2(ctx, r, question_only=False):
     if not getattr(ctx, 'walk_binary', None) or not os.path.exists(ctx.walk_binary):
         return 'NOT-RUN', 'no operator_walk binary was handed to the guest (run-probes.py --walk-binary)'
     p = ctx.p
@@ -2510,6 +2583,12 @@ def w2(ctx, r):
     A, B = ('w2-a', 'Walk A: land'), ('w2-b', 'Walk B: stop')
     claim_file = p.claude_dir / 'state' / 'operator-lead.json'
     try:
+        if question_only:
+            steps['4'] = question_step(walk, A, B)
+            left.append('Resolved phone answer methods only: physical transport, recognition, microphone '
+                        'capture and visible cards need the separate device/window checks.')
+            passed = s0['pass'] and steps['4']['pass']
+            return ('PASS' if passed else 'FAIL'), 'S6 gate and durable operator question round trip'
         # ---- step 6 FIRST: the claim is taken at the first lead, so the terminal must be live
         # before any lead opens for the app-side refusal to be what decides -------------------
         s6 = steps.setdefault('6', {})
@@ -2571,24 +2650,10 @@ def w2(ctx, r):
                     'its own fence suite; not repeated here')
 
         # ---- step 4: a question round trip on one handle ----------------------------------
-        s4 = steps.setdefault('4', {})
-        start = walk.count()
-        s4['register'] = walk.call('assign', thread=A[0], title=A[1], origin='desk-typed', timeout=480, text=FIXTURE_NOTE + (
-            'Call mcp__richos_operator__report with kind question, handle set to this assignment\'s handle (given at the '
-            'top of this message), and text "W2 question: blue or green?". When his answer arrives, call the same tool '
-            'with kind answer, the same handle, and text "W2 got: " followed by his answer word. Until then reply with '
-            'the single word waiting.'))
-        handle = s4['register'].get('handle') or 'no-handle-registered'
-        q = walk.wait_say(lambda s: s['kind'] == 'question' and s.get('handle') == handle, 300, start)
-        s4['question_said'] = bool(q)
-        s4['answer_first'] = walk.call('answer', thread=A[0], title=A[1], handle=handle, delivery='w2-delivery-1', text='Green.')
-        s4['answer_again'] = walk.call('answer', thread=A[0], title=A[1], handle=handle, delivery='w2-delivery-1', text='Green.')
-        got = walk.wait_say(lambda s: s.get('handle') == handle and 'W2 got' in s['text'], 300, start)
-        s4['lead_received'] = (got or {}).get('text')
-        s4['pass'] = bool(q) and bool(got) and 'green' in (got or {}).get('text', '').lower() \
-            and s4['answer_first'].get('delivered_now') is True and s4['answer_again'].get('delivered_now') is False
-        left.append('step 4: the question reaches his surface only as a notice; PRD S6\'s question store and its phone '
-                    'answers (tap, typed, voice) are S6\'s')
+        steps['4'] = question_step(walk, A, B)
+        left.append('step 4 covers resolved phone answer methods through the durable store and operator inbox. '
+                    'Physical phone transport, word recognition, microphone capture and visible cards require '
+                    'the separate S6 device/window checks; a method label is not device evidence.')
 
         # ---- step 5: one named agent stopped mid-command, from the PHONE (step 10) ----------
         s5 = steps.setdefault('5', {})
@@ -2755,11 +2820,17 @@ def w2(ctx, r):
         if walk.proc.poll() is None:
             walk.quit()
         r['says_last_walk'] = list(walk.says)
-    r['state_after'] = state_listing(p)
-    r['state_new'] = sorted(set(r['state_after']) - set(r['state_before']))
+        r['state_after'] = state_listing(p)
+        r['state_new'] = sorted(set(r['state_after']) - set(r['state_before']))
     passed = sorted(k for k, v in steps.items() if v.get('pass'))
     failed = sorted(k for k, v in steps.items() if not v.get('pass'))
     return 'RECORDED', 'W2 steps passed: %s; not passed: %s; left: %d items (see "left")' % (passed, failed, len(left))
+
+
+@probe('S6', explicit=True)
+def s6(ctx, r):
+    """Run only the question acceptance, with W2's gate, fixture and owned cleanup."""
+    return w2(ctx, r, question_only=True)
 
 
 # =============================================================================================

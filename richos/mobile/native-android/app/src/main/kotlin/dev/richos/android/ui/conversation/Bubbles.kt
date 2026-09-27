@@ -89,8 +89,9 @@ import dev.richos.android.ui.model.Waves
 fun MessageRow(message: Message, tail: Boolean, onEvent: (UiEvent) -> Unit, modifier: Modifier = Modifier) {
     val mine = message.speaker == Speaker.ME
     val body = message.body
-    val full = body is Body.Voice || body is Body.Album || body is Body.File
+    val full = body is Body.Question || body is Body.Voice || body is Body.Album || body is Body.File
     val fraction = when (body) {
+        is Body.Question -> 0.92f
         is Body.Voice, is Body.Album -> 0.74f
         else -> if (mine) 0.78f else 0.84f
     }
@@ -142,6 +143,7 @@ private fun Bubble(message: Message, tail: Boolean, onEvent: (UiEvent) -> Unit, 
         }
     }
     when (val body = message.body) {
+        is Body.Question -> QuestionCard(body, onEvent, modifier)
         is Body.Text -> TextBubble(message, body, Modifier.then(m).padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 8.dp), onEvent)
         is Body.Voice -> VoiceBubble(message, body, Modifier.then(m).padding(start = 8.dp, end = 12.dp, top = 8.dp, bottom = 8.dp), onEvent)
         is Body.Album -> Box(Modifier.then(m)) {

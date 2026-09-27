@@ -16,6 +16,7 @@ import dev.richos.android.core.VoicePhase as CorePhase
 import dev.richos.android.core.KeptReason as CoreKept
 import dev.richos.android.core.Echo
 import dev.richos.android.core.Line
+import dev.richos.android.core.localQuestionAnswer
 import dev.richos.android.core.OutboxItem
 import dev.richos.android.core.OutboxState
 import dev.richos.android.core.SentMessage
@@ -321,7 +322,7 @@ data class ScreenModel(
             val mine = lines.flatMap { line ->
                 when (line) {
                     is Line.Accepted -> acceptedBubbles(line.message)
-                    is Line.Pending -> pendingBubbles(line.item)
+                    is Line.Pending -> if (line.item.kind in listOf("answer", "question_seen")) emptyList() else pendingBubbles(line.item)
                     is Line.Mac -> emptyList()
                 }
             }
@@ -356,6 +357,7 @@ data class ScreenModel(
 
     /** One of the Mac's rows as a bubble (contract §5.4: `role` ceo|rich, `kind` text|voice, `state`). */
     private fun bubble(row: Row, clientId: String? = null, echo: Echo? = null): Message {
+        val question = row.question?.takeIf { "questions" in app.capabilities }
         val rich = row.role != "ceo"
         val arriving = rich && !row.complete
         // Your voice message comes back as the words the Mac heard: it stays the voice message you
@@ -367,7 +369,7 @@ data class ScreenModel(
             key = clientId ?: row.id,
             speaker = if (rich) Speaker.RICH else Speaker.ME,
             // A voice row's length is core's (`duration_ms`); absent, the bubble shows no length, never 0:00.
-            body = if (voice) Body.Voice(row.durationMs ?: clientId?.let { voiceLength(it, echo?.seconds) }?.takeIf { it > 0 } ?: voiceMs[row.id] ?: 0L, Waves.forSeed(seed, 42))
+            body = if (question != null) app.outbox.firstOrNull { it.questionId == question.id }.let { pending -> Body.Question(question.copy(answer = pending?.localQuestionAnswer() ?: question.answer), pending?.let { if (it.state == OutboxState.BLOCKED) it.lastReason ?: "Your answer needs attention" else if (app.online) "On its way to Rich" else "Waiting to send · your Mac is out of reach" }, pending?.text, pending?.let { it.state == OutboxState.WAITING && it.attempts == 0 && !app.online } == true) } else if (voice) Body.Voice(row.durationMs ?: clientId?.let { voiceLength(it, echo?.seconds) }?.takeIf { it > 0 } ?: voiceMs[row.id] ?: 0L, Waves.forSeed(seed, 42))
                 else Body.Text(row.text),
             time = TimeLabels.row(row.createdAt, nowMs, zone),
             // "Arriving now" (the dots, the caret) needs an open stream behind it. Without one (a
@@ -449,6 +451,7 @@ enum class Speaker { RICH, ME }
 
 @Immutable
 sealed interface Body {
+    data class Question(val card: dev.richos.android.core.QuestionCard, val pending: String? = null, val savedAnswer: String? = null, val canEditLocal: Boolean = false) : Body
     data class Text(val text: String) : Body
     /** [wave] is the recording's own level, resampled to bars in 0..1 (NOTES "What an engineer should know"). */
     data class Voice(val durationMs: Long, val wave: List<Float>) : Body

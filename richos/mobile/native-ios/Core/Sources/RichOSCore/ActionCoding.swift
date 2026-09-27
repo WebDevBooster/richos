@@ -26,6 +26,9 @@ extension Action: Codable {
         var permission: Permission?
         var sheet: Sheet?
         var answer: PairAnswer?
+        var options: [String]?
+        var revision: Int?
+        var question: QuestionCard?
         var clientId: String?
         var textSHA256: String?
         var id: String?
@@ -44,6 +47,7 @@ extension Action: Codable {
         var notice: ConnectionNotice?
         var acceptsText: Bool?
         var acceptsVoice: Bool?
+        var acceptsQuestions: Bool?
         var width: Double?
         var dx: Double?
         var dy: Double?
@@ -70,11 +74,11 @@ extension Action: Codable {
         "compose", "set-appearance",
         "scan-pair", "close-scanner", "scanned", "pair", "camera-permission", "pairing-answered", "pairing-refused", "pairing-unreachable",
         "pairing-needs-mac-update", "confirm-pair", "mac-confirmation", "accept-consent", "dismiss-pairing-problem", "discard-and-pair", "open-sheet", "close-sheet",
-        "send", "delivery-accepted", "delivery-failed", "tick", "retry", "discard", "messages-arrived",
+        "send", "answer-question", "question-answered", "delivery-accepted", "delivery-failed", "tick", "retry", "discard", "messages-arrived",
         "reply-started", "reply-delta", "reply-finished", "older", "older-loaded", "remember-reading", "set-following", "set-composer-focus",
         "notification-open", "notification-focused", "share-take", "reply-play", "playback-started", "playback-progress",
         "playback-ended", "playback-stop", "dismiss-toast",
-        "network", "health", "connection-lost", "connected", "connection-diagnosed", "mac-capabilities", "pairing-revoked", "foregrounded", "backgrounded", "mac-attachment-limits", "push-registered",
+        "network", "health", "connection-lost", "connected", "connection-diagnosed", "mac-capabilities", "mac-question-capability", "pairing-revoked", "foregrounded", "backgrounded", "mac-attachment-limits", "push-registered",
         "voice-press", "voice-start-locked", "microphone-permission", "dismiss-microphone-card", "voice-move", "voice-release", "voice-locked-send",
         "voice-locked-cancel", "voice-touch-canceled", "voice-interrupted", "voice-level", "voice-settled",
         "send-kept", "discard-kept", "record-play",
@@ -114,6 +118,8 @@ extension Action: Codable {
         case "discard-and-pair": self = .discardUnsentAndPair
         case "open-sheet": self = .openSheet(try need(w.sheet, "sheet"))
         case "close-sheet": self = .closeSheet
+        case "answer-question": self = .answerQuestion(id: try need(w.id, "id"), options: w.options ?? [], text: w.text ?? "", revision: w.revision, clientID: w.clientId ?? UUID().uuidString.lowercased(), at: now)
+        case "question-answered": self = .questionAnswered(clientID: try need(w.clientId, "clientId"), question: try need(w.question, "question"), at: now)
         case "send": self = .sendDraft(clientID: w.clientId ?? UUID().uuidString.lowercased(), at: now)
         case "delivery-accepted": self = .deliveryAccepted(clientID: try need(w.clientId, "clientId"), at: now, textSHA256: w.textSHA256)
         case "delivery-failed": self = .deliveryFailed(clientID: try need(w.clientId, "clientId"), failure: try need(w.failure, "failure"), at: now)
@@ -146,6 +152,7 @@ extension Action: Codable {
         case "connection-lost": self = .connectionLost(at: now)
         case "connected": self = .connected(at: now)
         case "connection-diagnosed": self = .connectionDiagnosed(try need(w.notice, "notice"))
+        case "mac-question-capability": self = .macQuestionCapability(try need(w.acceptsQuestions, "acceptsQuestions"))
         case "mac-capabilities": self = .macCapabilities(text: try need(w.acceptsText, "acceptsText"), voice: try need(w.acceptsVoice, "acceptsVoice"))
         case "pairing-revoked": self = .pairingRevoked
         case "mac-attachment-limits": self = .macAttachmentLimits(w.limits)
@@ -223,6 +230,8 @@ extension Action: Codable {
         case .discardUnsentAndPair: w = Wire("discard-and-pair")
         case .openSheet(let s): w = Wire("open-sheet"); w.sheet = s
         case .closeSheet: w = Wire("close-sheet")
+        case .answerQuestion(let id, let options, let text, let revision, let c, let at): w = Wire("answer-question"); w.id = id; w.options = options; w.text = text; w.revision = revision; w.clientId = c; w.at = at
+        case .questionAnswered(let c, let q, let at): w = Wire("question-answered"); w.clientId = c; w.question = q; w.at = at
         case .sendDraft(let c, let at): w = Wire("send"); w.clientId = c; w.at = at
         case .deliveryAccepted(let c, let at, let hash): w = Wire("delivery-accepted"); w.clientId = c; w.at = at; w.textSHA256 = hash
         case .deliveryFailed(let c, let f, let at): w = Wire("delivery-failed"); w.clientId = c; w.failure = f; w.at = at
@@ -253,6 +262,7 @@ extension Action: Codable {
         case .connectionLost(let at): w = Wire("connection-lost"); w.at = at
         case .connected(let at): w = Wire("connected"); w.at = at
         case .connectionDiagnosed(let n): w = Wire("connection-diagnosed"); w.notice = n
+        case .macQuestionCapability(let v): w = Wire("mac-question-capability"); w.acceptsQuestions = v
         case .macCapabilities(let t, let v): w = Wire("mac-capabilities"); w.acceptsText = t; w.acceptsVoice = v
         case .pairingRevoked: w = Wire("pairing-revoked")
         case .macAttachmentLimits(let l): w = Wire("mac-attachment-limits"); w.limits = l

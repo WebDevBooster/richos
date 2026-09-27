@@ -109,6 +109,7 @@ class RichCore private constructor(
         is Action.ConfirmWords -> confirmWords(action.match)
         Action.MacWait -> macWait()
         Action.Forget -> forget()
+        is Action.AnswerQuestion -> answerQuestion(action)
         Action.Send -> send()
         Action.Sync -> if (session.paired) flush() else mutex.withLock { emit() }
         Action.Tick -> voice(action)
@@ -206,7 +207,10 @@ class RichCore private constructor(
             }
             flush()
         }
-        is Action.Receive -> mutex.withLock { receive(action.wire) }
+        is Action.Receive -> {
+            mutex.withLock { receive(action.wire) }
+            if (outbox.all().any { it.kind == "question_seen" }) flush() else flow.value
+        }
         is Action.SelectThread -> mutex.withLock {
             if (session.threads.none { it.id == action.threadId }) throw CoreError("Unknown conversation")
             commit(session.copy(selectedThreadId = action.threadId, readingAnchor = null))
@@ -238,7 +242,10 @@ class RichCore private constructor(
         private set
 
     /** The live stream's bytes as they arrive, split anywhere (the connection owner's input). */
-    suspend fun receive(bytes: ByteArray): AppState = mutex.withLock { apply(sse.feed(bytes)) }
+    suspend fun receive(bytes: ByteArray): AppState {
+        mutex.withLock { apply(sse.feed(bytes)) }
+        return if (outbox.all().any { it.kind == "question_seen" }) flush() else flow.value
+    }
 
     /** A challenge learned outside a request the core made (the owner's refresh or probe). */
     suspend fun adoptChallenge(challenge: String): AppState = mutex.withLock {
@@ -319,6 +326,15 @@ class RichCore private constructor(
                 is SseItem.Resnapshot -> resnapshotRequested = true
             }
         }
+        val known = session.cache.values.flatten().mapNotNull { it.question?.id }.toSet()
+        for (q in next.cache.values.flatten().mapNotNull { it.question }.distinctBy { it.id }.filter { it.id !in known }) {
+            val id = "seen-question:" + q.id
+            val wire = kotlinx.serialization.json.buildJsonObject {
+                put("kind", kotlinx.serialization.json.JsonPrimitive("question_seen")); put("client_id", kotlinx.serialization.json.JsonPrimitive(id))
+                put("question_id", kotlinx.serialization.json.JsonPrimitive(q.id)); put("thread_id", kotlinx.serialization.json.JsonPrimitive(q.threadId))
+            }.toString()
+            enqueue(OutboxItem(clientId = id, threadId = q.threadId, kind = "question_seen", text = "", queuedAt = isoMillis(ports.clock.now()), wire = wire))
+        }
         return if (next != session) commit(Echoes.reconcile(next)) else emit()
     }
 
@@ -388,6 +404,20 @@ class RichCore private constructor(
         (session.olderAvailable[thread] == true || (session.cache[thread]?.minOfOrNull { it.cursor } ?: 1L) > 1L)
 
     // --- sending (queue.js rules, via [Outbox]) --------------------------------------------------
+
+    private suspend fun answerQuestion(action: Action.AnswerQuestion): AppState {
+        mutex.withLock {
+            if (!session.paired || "questions" !in session.capabilities) throw CoreError("This Mac cannot accept question answers yet")
+            val q = session.cache[session.selectedThreadId].orEmpty().firstOrNull { it.question?.id == action.id }?.question ?: throw CoreError("This question is not in this conversation")
+            val previous = outbox.all().firstOrNull { it.questionId == q.id && it.state != OutboxState.BLOCKED }
+            if (previous != null && (session.online || previous.state != OutboxState.WAITING || previous.attempts != 0 || action.revision != q.revision)) return@withLock
+            if ((action.options.isEmpty() && action.text.isBlank()) || (!q.multiple && action.options.size > 1) || action.options.distinct().size != action.options.size || action.options.any { id -> q.options.none { it.id == id } } || (!q.freeAnswer && action.text.isNotEmpty())) throw CoreError("Choose this question's options or write an answer")
+            val clientId = previous?.clientId ?: ports.ids.next()
+            val item = OutboxItem(clientId = clientId, threadId = q.threadId, kind = "answer", text = (q.options.filter { it.id in action.options }.map { it.label } + action.text).filter { it.isNotEmpty() }.joinToString("; "), queuedAt = isoMillis(ports.clock.now()), questionId = q.id, wire = Wire.answer(clientId, q, action.options, action.text, if (q.state == "answered") action.revision else null))
+            if (previous == null) enqueueConsuming(listOf(item), session) else { outbox.replaceUnsent(item); emit() }
+        }
+        return flush()
+    }
 
     private suspend fun send(): AppState {
         // Photos or files waiting in the composer go as round 12.1 orders them ("Order of sending"):
@@ -459,6 +489,14 @@ class RichCore private constructor(
      * says, and the outbox's own removal is what makes delivery exactly-once.
      */
     private suspend fun accepted(item: OutboxItem, receipt: Receipt) = mutex.withLock {
+        if (item.kind == "answer") {
+            if (receipt.outcome == "conversation_deleted") throw TransportFailure("This conversation was deleted. Your answer is saved on this phone.", retryable = false, aboutThisMessage = true)
+            val q = receipt.question ?: throw TransportFailure("The Mac has not confirmed your answer", retryable = true)
+            val rows = session.cache[item.threadId].orEmpty().map { if (it.question?.id == q.id) it.copy(question = q) else it }
+            commit(session.copy(cache = session.cache + (item.threadId to rows)))
+            return@withLock
+        }
+        if (item.kind == "question_seen") return@withLock
         if (session.sent.any { it.clientId == item.clientId } || session.echoes.any { it.clientId == item.clientId }) return@withLock
         val hash = receipt.textSha256?.lowercase()?.takeIf { h -> h.length == 64 && h.all { it in '0'..'9' || it in 'a'..'f' } }
         // A voice message is matched by the transcript's hash only. Without one (an older Mac)
@@ -482,6 +520,7 @@ class RichCore private constructor(
         if (!session.online) return flow.value
         val before = outbox.all()
         val report = outbox.flush(lease = { reserveCompletion() }) { item ->
+            if (item.kind in listOf("answer", "question_seen") && !visible) throw TransportFailure("background", retryable = true)
             val receipt = when (item.kind) {
                 "voice" -> transport.sendVoice(item)
                 "attachments" -> transport.sendAttachments(item)
@@ -1384,6 +1423,7 @@ class RichCore private constructor(
             is Action.SelectThread -> "select-thread"
             is Action.RememberReading -> "remember-reading"
             is Action.Compose -> "compose"
+            is Action.AnswerQuestion -> "answer-question"
             Action.Send -> "send"
             is Action.SendVoice -> "send-voice"
             is Action.Network -> "network"

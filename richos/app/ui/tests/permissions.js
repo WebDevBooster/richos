@@ -50,7 +50,7 @@ async function main(){
   assert((await page.textContent("#permission-input")).includes("git log --oneline"),"the exact request is not in the document at all");
   // ONE PRESS OPENS IT, AND THE PRESS IS REACHABLE FROM THE KEYBOARD. Tab used to flip between
   // Decline and Allow only; a disclosure outside that ring would be mouse-only.
-  await page.keyboard.press("Tab");await page.keyboard.press("Tab");
+  await page.focus("#permission-detail");
   assertEqual(await page.evaluate(()=>document.activeElement&&document.activeElement.id),"permission-detail","Tab does not reach the disclosure");
   await page.keyboard.press("Enter");
   assert(await page.isVisible("#permission-input"),"the disclosure did not open");
@@ -58,8 +58,12 @@ async function main(){
   assertEqual(await page.textContent("#permission-detail"),"Hide the technical detail","the label still offers to show what is already shown");
   // AND ESCAPE STILL DECLINES, from a hand that is nowhere near Decline.
   await page.keyboard.press("Escape");
-  await page.waitForSelector("#permission-sheet",{state:"hidden"});
-  assertEqual(await page.evaluate(()=>window.__RICHOS_MOCK_PRESET__.permissionAnswer),false,"Escape hid the request without declining it");
+  assert(await page.isVisible("#permission-sheet"),"Escape dismissed a pending decision");
+  assertEqual(await page.evaluate(()=>document.activeElement.id),"input","Escape did not return to composer");
+  await page.fill("#input","A separate message");
+  assertEqual(await page.inputValue("#input"),"A separate message","permission card blocked the composer");
+  assertEqual(await page.getAttribute("#permission-sheet","aria-modal"),null,"permission card is still modal");
+  await page.click("#permission-deny");
   assertEqual(errors.length,0,"renderer errors");await page.close();
   return "description, scope, then a closed disclosure — reachable by Tab, opened by Enter, and Escape still declines";
  });

@@ -541,6 +541,12 @@ function buildStatusMark(row) {
   return { mark, label: spec.label };
 }
 
+let openQuestionCounts = {};
+async function refreshQuestionCounts() {
+  try { openQuestionCounts = await Bridge.invoke("open_question_counts") || {}; renderRail(); } catch (_) {}
+}
+document.addEventListener("richos-questions-changed", refreshQuestionCounts);
+window.addEventListener("DOMContentLoaded", refreshQuestionCounts);
 function buildThreadRow(row, opts) {
   opts = opts || {};
   const li = document.createElement("li");
@@ -563,6 +569,12 @@ function buildThreadRow(row, opts) {
   // thread lives in — §18: "worker chips: buttons with name, role and state in accessible
   // label", and the same standard applies to a thread row.
   const parts = [row.display_title];
+  const openQuestions = openQuestionCounts[row.id] || 0;
+  if (openQuestions) {
+    const count=document.createElement("span"); count.className="nav-question-count";
+    count.textContent=String(openQuestions);btn.appendChild(count);
+    parts.push(`${openQuestions} question${openQuestions===1?"":"s"} open`);
+  }
   if (opts.showEntity) parts.push("in " + entityLabel(row.entity_id));
   const status = buildStatusMark(row);
   if (status) {
@@ -3249,6 +3261,20 @@ Bridge.listen("rich://message-completed", ({ payload }) => {
   // §18: "announce meaningful commentary when it completes, not every token." Every run is
   // "meaningful" here because none of them can be told apart — see timeline.js's header.
   if (payload.text) announce(payload.text);
+});
+
+const spokenQuestionIds=new Set();
+Bridge.listen("rich://question-upserted", ({payload}) => {
+  updateCachedThread("onActivityUpserted",payload);
+  const result=window.RichTimeline.onActivityUpserted(timelineModel,payload);
+  if(!result.rejected) {
+    scheduleRender();
+    if(voiceMode && payload.question?.state==="open" && !spokenQuestionIds.has(payload.id)) {
+      spokenQuestionIds.add(payload.id);
+      Bridge.invoke("voice_speak_delta",{text:payload.text}).then(()=>Bridge.invoke("voice_speak_end")).catch(()=>{});
+    }
+  }
+  document.dispatchEvent(new Event("richos-questions-changed"));
 });
 
 Bridge.listen("rich://activity-upserted", ({ payload }) => {

@@ -306,6 +306,29 @@ impl ProfileLauncher {
     }
 }
 
+/// Even a provider that ignores disallowed tools cannot turn a question into a
+/// permission wait. Scope comes from this launched conversation, never tool input.
+struct QuestionRoute {
+    scope: PathBuf,
+    fallback: Arc<dyn ControlRoute>,
+}
+impl ControlRoute for QuestionRoute {
+    fn answer(&self, request: &Value) -> Result<Value, String> {
+        if request["subtype"] != "can_use_tool" || request["tool_name"] != "AskUserQuestion" {
+            return self.fallback.answer(request);
+        }
+        let result = crate::operator_report::read_scope(&self.scope).and_then(|scope| {
+            let context = scope.question_context.ok_or("The operator question scope is unavailable")?;
+            crate::question_tools::convert_vendor_scoped(&context, &request["input"])
+        });
+        let message = match result {
+            Ok(_) => "The questions are recorded for display. Continue work that does not depend on the answer.".to_string(),
+            Err(error) => format!("The question was not recorded: {error}. Use richos_operator.report to ask with prepared options."),
+        };
+        Ok(json!({"behavior":"deny", "message":message}))
+    }
+}
+
 impl LeadLauncher for ProfileLauncher {
     fn launch(&self, key: &ConversationKey, title: &str, start: &LeadStart, paths: &ConversationPaths,
               sink: Arc<dyn LeadSink>) -> Result<Arc<dyn LeadHandle>, String> {
@@ -314,14 +337,19 @@ impl LeadLauncher for ProfileLauncher {
         let profile = OperatorProfile::new(self.declaration.clone(), session, claim.claim_id()).map_err(|r| r.sentence())?
             .with_supervisor_files(&self.log, &paths.reap_state);
         std::fs::create_dir_all(&paths.dir).map_err(|e| format!("Your team's folder could not be made ({e})."))?;
+        let session_id = match start { LeadStart::New(id) | LeadStart::Resume(id) => id.clone() };
         write_scope(&paths.scope, &ReportScope {
             version: 1, outbox: paths.outbox.clone(), attachments: paths.attachments.clone(),
             file_roots: self.declaration.file_roots.clone(), state_root: self.state_root.clone(),
             entity_id: key.entity_id.clone(), thread_id: key.thread_id.clone(), lead: claim.claim_id().to_string(),
+            question_context: Some(crate::questions::AskScope {
+                root: self.state_root.clone(), entity_id: key.entity_id.clone(), thread_id: key.thread_id.clone(),
+                turn_id: format!("operator:{session_id}"), asker: "operator:conversation".into(), session_id: session_id.clone(),
+                engine: Some(self.declaration.engine_root.clone()), entity_root: Some(self.declaration.entity_root.clone()),
+            }),
         })?;
-        let session_id = match start { LeadStart::New(id) | LeadStart::Resume(id) => id.clone() };
         let command = profile.command(start, &mcp_config(&self.executable, &paths.scope));
-        let lead = OperatorLead::spawn(command, &session_id, sink, self.route.clone())
+        let lead = OperatorLead::spawn(command, &session_id, sink, Arc::new(QuestionRoute { scope: paths.scope.clone(), fallback: self.route.clone() }))
             .map_err(|e| format!("Your team could not be started ({e})."))?;
         if let Err(e) = lead.initialize(HANDSHAKE_TIMEOUT) {
             let _ = lead.quit(QUIT_GRACE);
@@ -552,6 +580,38 @@ mod tests {
 
     fn script(f: &Fixture, name: &str, body: &str) {
         write(&f.declaration.engine_root.join("scripts").join(name), body);
+    }
+
+    #[test]
+    fn vendor_question_is_recorded_without_reaching_the_permission_desk() {
+        struct NeverPermission;
+        impl ControlRoute for NeverPermission {
+            fn answer(&self, _: &Value) -> Result<Value,String> { Err("permission route reached".into()) }
+        }
+        let f=fixture();
+        let scope=f.root.join("scope.json");
+        let state=f.root.join("state");
+        write_scope(&scope,&ReportScope {
+            version:1,outbox:f.root.join("outbox"),attachments:f.root.join("attachments"),
+            file_roots:vec![f.root.clone()],state_root:state.clone(),entity_id:"entity".into(),thread_id:"thread".into(),lead:"lead".into(),
+            question_context:Some(crate::questions::AskScope {
+                root:state.clone(),entity_id:"entity".into(),thread_id:"thread".into(),asker:"operator:conversation".into(),
+                turn_id:"turn".into(),session_id:"original-session".into(),engine:None,entity_root:None,
+            }),
+        }).unwrap();
+        let route=QuestionRoute { scope,fallback:Arc::new(NeverPermission) };
+        let started=Instant::now();
+        let reply=route.answer(&json!({"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{
+            "question":"When should we ship?","options":[{"label":"Today","description":"Earlier fixes"},{"label":"Tomorrow","description":"More testing"}],"multiSelect":false
+        }]}})).unwrap();
+        assert!(started.elapsed()<Duration::from_secs(1));
+        assert_eq!(reply["behavior"],"deny");
+        assert!(reply["message"].as_str().unwrap().contains("recorded"));
+        let questions=crate::questions::Store::new(&state).all().unwrap();
+        assert_eq!(questions.len(),1);
+        assert_eq!(questions[0].asker,"operator:conversation");
+        assert_eq!(questions[0].session_id,"original-session");
+        assert!(route.answer(&json!({"subtype":"can_use_tool","tool_name":"Bash"})).unwrap_err().contains("permission route"));
     }
 
     // ---- engine scripts ------------------------------------------------------------------
