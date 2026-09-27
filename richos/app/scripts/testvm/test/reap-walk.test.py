@@ -81,11 +81,40 @@ class Grade(unittest.TestCase):
             self.assertIn('in my Acme folder', text)
             self.assertNotIn('New task', text)
         self.assertIn('run_in_background: true): python3 heartbeat.py beat stop-bg /tmp/reap-walk ', both)
-        self.assertIn('python3 heartbeat.py beat stop-fg /tmp/reap-walk --seconds 900 ', both)
+        self.assertIn('python3 heartbeat.py beat stop-fg /tmp/reap-walk --seconds %d ' % walk.FOREGROUND_SECONDS, both)
         self.assertIn('tell me when they have finished and what they printed', both)
         self.assertIn('python3 heartbeat.py beat normal-fg /tmp/reap-walk --seconds 8 ', one)
         self.assertNotIn('normal-bg', one)
         self.assertIn('tell me when it has finished and what it printed', one)
+
+    def test_the_foreground_heartbeat_fits_one_foreground_tool_call(self):
+        # Claude Code's Bash tool takes at most 600000 ms per foreground call. Asked for a 900-s
+        # "foreground" heartbeat, the back end ran it with run_in_background: true (guest
+        # walk-1a978b4e081b, 2026-09-27), its turn ended and the assignment settled with both
+        # commands still running, so there was nothing to Stop.
+        self.assertLess(walk.FOREGROUND_SECONDS, 600)
+        self.assertIn('--seconds %d' % walk.FOREGROUND_SECONDS, walk.ask_text('stop'))
+
+    def test_stop_needs_the_assignment_still_open_and_refuses_otherwise(self):
+        running = {'id': 'a1', 'kind': 'task', 'state': 'running', 'title': 'Run heartbeat.py'}
+        settled = dict(running, state='settled')
+        self.assertEqual(walk.stoppable([running]), (running, None))
+        row, why = walk.stoppable([settled])
+        self.assertIsNone(row)
+        self.assertTrue(why.startswith('REFUSED'), why)
+        self.assertIn('settled', why)
+        self.assertTrue(walk.stoppable([])[1].startswith('REFUSED'))
+        # The newest open task is the one pressed, never an older one.
+        older = dict(running, id='a0', registered_at_ms=1)
+        newer = dict(running, id='a2', registered_at_ms=2)
+        self.assertEqual(walk.stoppable([older, newer])[0]['id'], 'a2')
+
+    def test_only_heartbeats_recorded_after_the_ask_count_as_started(self):
+        old = BOTH  # recorded 8-9 s before T by an earlier ask with the same tag
+        self.assertFalse(walk.recorded(old, ['stop-fg', 'stop-bg'], T))
+        fresh = old + [seen('stop-bg', 900, 890, T + 10), seen('stop-fg', 910, 905, T + 20)]
+        self.assertTrue(walk.recorded(fresh, ['stop-fg', 'stop-bg'], T))
+        self.assertFalse(walk.recorded(old + [seen('stop-bg', 900, 890, T + 10)], ['stop-fg', 'stop-bg'], T))
 
     def test_ps_time_is_read_past_an_hour(self):
         self.assertAlmostEqual(walk.cpu_seconds('0:01.46'), 1.46)

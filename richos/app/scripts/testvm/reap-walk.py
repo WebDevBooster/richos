@@ -64,9 +64,36 @@ BEATS = '/tmp/reap-walk'
 BOUND_MS = 2000
 # Quit shares the Exit arm's 2 s bound (reap gap 1.3(c)), plus the same margin.
 QUIT_BOUND_MS = 3000
+# Claude Code's Bash tool takes at most 600000 ms per foreground call. Asked for a 900-s
+# "foreground" heartbeat, the back end ran it with run_in_background: true instead (guest
+# walk-1a978b4e081b, 2026-09-27), its turn ended and the assignment settled with both commands
+# still running: nothing was left to Stop. Every trigger comes seconds after the foreground
+# heartbeat records itself, so 300 s is ample and fits one call.
+FOREGROUND_SECONDS = 300
+OPEN = {'registered', 'preparing', 'running', 'blocked', 'waiting-for-screen', 'waiting-for-quota'}
 
 
-def ask_text(tag, background=True, seconds=900):
+def stoppable(assignments):
+    """(the newest open assignment, None), or (None, why the Stop case cannot be made): Stop is
+    pressed on a running assignment, so one that already closed proves nothing about Stop."""
+    live = [a for a in assignments if a.get('state') in OPEN]
+    if live:
+        return max(live, key=lambda a: a.get('registered_at_ms') or 0), None
+    if not assignments:
+        return None, 'REFUSED: no assignment was registered for the commands, so there is nothing to Stop'
+    return None, ('REFUSED: the assignment was already %s when Stop was to be pressed, with its commands '
+                  'still running, so there is nothing to Stop: %s'
+                  % ('/'.join(sorted({a.get('state') or '?' for a in assignments})), json.dumps(assignments)))
+
+
+def recorded(rows, names, since_ms):
+    """Has every named heartbeat recorded itself at or after since_ms? Rows from an earlier ask
+    with the same tag (a retry against a held guest) never count."""
+    fresh = {r['name'] for r in rows if r.get('kind') == 'seen' and r.get('t_ms', 0) >= since_ms}
+    return all(n in fresh for n in names)
+
+
+def ask_text(tag, background=True, seconds=FOREGROUND_SECONDS):
     """What he types to have the heartbeats run: worded as a job to be done, the way
     command-walk.py's fixed wording is, so the front desk registers a `task` and the back end's
     lease runs them. "Tell me what it prints" alone was registered as a `check` there (the
@@ -192,7 +219,7 @@ class Walk(adopt.Walk):
         self.type_into(text, '--role', 'AXTextArea', '--title', 'Message to Rich')
         self.press('Send')
 
-    def start(self, tag, background=True, seconds=900, within=300):
+    def start(self, tag, background=True, seconds=FOREGROUND_SECONDS, within=300):
         """Ask for the heartbeats and approve their requests until each has recorded itself."""
         names = [tag + '-fg'] + ([tag + '-bg'] if background else [])
         sent = self.now()
@@ -200,9 +227,8 @@ class Walk(adopt.Walk):
         end = time.monotonic() + within
         approved = 0
         while time.monotonic() < end:
-            seen = {r['name'] for r in self.rows() if r.get('kind') == 'seen'}
-            if all(n in seen for n in names):
-                return {'names': names, 'approved': approved, 'assignments': self.assignments_since(sent)}
+            if recorded(self.rows(), names, sent):
+                return {'names': names, 'approved': approved, 'sent_ms': sent, 'assignments': self.assignments_since(sent)}
             approved += self.approve_pending()
             time.sleep(3)
         raise StepFailed('prerequisite unavailable: %s never recorded itself within %d s (approved %d request(s))'
@@ -274,15 +300,20 @@ class Walk(adopt.Walk):
         evidence, failure = grade_normal(self.rows(), 'normal-fg', self.file_ms(BEATS + '/normal-fg.done'))
         if failure:
             raise StepFailed(failure)
-        return dict(evidence, approved=started['approved'])
+        return dict(evidence, approved=started['approved'], assignments=started['assignments'])
 
     def stop(self):
         started = self.start('stop')
         names = started['names']
+        target, why = stoppable(self.assignments_since(started['sent_ms']))
+        if why:
+            raise StepFailed(why)
         self.press('waiting for you') if self.present('waiting for you') else self.press('assignment running')
+        # The row's Stop is labeled "Stop <its title>" (work-summary.js); name this one.
+        label = 'Stop ' + (target.get('title') or '')[:60]
         trigger = self.now()
-        self.press('Stop ')
-        return dict(self.verdict(names, trigger, BOUND_MS), started=started)
+        self.press(label)
+        return dict(self.verdict(names, trigger, BOUND_MS), started=started, stopped=target['id'])
 
     def quit(self):
         started = self.start('quit')
