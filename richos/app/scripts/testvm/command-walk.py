@@ -246,6 +246,8 @@ class CommandWalk(adopt_walk.Walk):
             if record and pressed < self.a.approvals and self.approve_if_asked(record.get('title', '')):
                 pressed += 1
             time.sleep(2)
+        if record and record.get('state') not in OPEN:
+            record = self.settled_read(record)
         commands = self.evidence_commands()
         evidence = {'sent_between_guest_ms': [round(v) for v in sent], 'command_seconds': self.a.command_seconds,
                     'repository_head': {'short': short, 'subject': subject}, 'approvals_pressed': pressed,
@@ -253,7 +255,7 @@ class CommandWalk(adopt_walk.Walk):
         (self.out / 'background-observed.json').write_text(json.dumps(evidence, indent=2) + '\n')
         if not record:
             raise StepFailed('no assignment was registered after the task was sent')
-        obligation = self.obligation(record['obligation_id'])
+        obligation = self.obligation_closed(record['obligation_id'])
         evidence['obligation'] = obligation
         (self.out / 'background-observed.json').write_text(json.dumps(evidence, indent=2) + '\n')
         failures = background_verdict(record, short, subject, commands, sent, self.a.command_seconds, waiting,
@@ -285,6 +287,24 @@ class CommandWalk(adopt_walk.Walk):
         (self.out / 'callbacks.txt').write_text(text + '\n')
         kept['callbacks.txt'] = len(text)
         return kept
+
+    def settled_read(self, record):
+        """The same row read again a few seconds after it was first seen closed: the state and his
+        notice are two writes, so a single read can land between them."""
+        if not record:
+            return record
+        time.sleep(4)
+        return self.by_id(record.get('id')) or record
+
+    def obligation_closed(self, obligation_id, seconds=60):
+        """The obligation's record once it has closed, or its last reading after `seconds`: the
+        app closes it after his report is raised, which is engine subprocess calls later."""
+        end = time.monotonic() + seconds
+        reading = self.obligation(obligation_id)
+        while (not reading or reading.get('status') != 'completed') and time.monotonic() < end:
+            time.sleep(3)
+            reading = self.obligation(obligation_id)
+        return reading
 
     def obligation(self, obligation_id):
         """The engine's record of an assignment's obligation, read-only: its status and evidence."""
@@ -337,13 +357,13 @@ class CommandWalk(adopt_walk.Walk):
         # would be the second job.
         first_id = (self.ours(first_sent) or {}).get('id')
         second_sent = self.send(self.a.task)
-        second = self.until_closed(lambda: self.ours(second_sent), self.a.within, pressed)
+        second = self.settled_read(self.until_closed(lambda: self.ours(second_sent), self.a.within, pressed))
         first_meanwhile = self.by_id(first_id)
-        first = self.until_closed(lambda: self.by_id(first_id), self.a.within + self.a.yield_seconds, pressed)
+        first = self.settled_read(self.until_closed(lambda: self.by_id(first_id), self.a.within + self.a.yield_seconds, pressed))
         evidence = {'marker': marker, 'command_seconds': self.a.yield_seconds, 'first_sent_ms': first_sent,
                     'second_sent_ms': second_sent, 'first_seen_waiting': waiting or None,
                     'first_when_second_closed': first_meanwhile, 'first': first, 'second': second,
-                    'first_obligation': self.obligation(first['obligation_id']) if first else None,
+                    'first_obligation': self.obligation_closed(first['obligation_id']) if first else None,
                     'approvals_pressed': pressed[0], 'back_end_bash': self.evidence_commands()}
         (self.out / 'yield-observed.json').write_text(json.dumps(evidence, indent=2) + '\n')
         failures = yield_verdict(first, second, first_meanwhile, marker, first_sent, self.a.yield_seconds,
