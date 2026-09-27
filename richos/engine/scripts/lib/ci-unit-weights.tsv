@@ -109,7 +109,7 @@ ass-kicker/tests/brief-scope.test.sh	22.7	linux-run-34945072758
 scripts/check-census.test.sh	0.9	linux-run-34945072758
 scripts/ci-affected-units.test.sh	4.8	linux-run-34945072758
 scripts/ci-run-record-check.test.sh	1.4	linux-run-34945072758
-scripts/ci-shard.test.sh	12.7	linux-run-34945072758
+scripts/ci-shard.test.sh	112.8	darwin-local-2026-09-27-zach-opus-canary3
 scripts/ci-surface-watch.test.sh	2.7	linux-run-34945072758
 scripts/ci-units.test.sh	5.8	linux-run-34945072758
 scripts/ci-verify.test.sh	0.2	linux-run-34945072758
