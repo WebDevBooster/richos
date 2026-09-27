@@ -46,6 +46,7 @@ import fcntl
 import json
 import signal
 import os
+import re
 import subprocess
 import sys
 import time
@@ -57,6 +58,24 @@ class Token:
     def __init__(self, fd, path):
         self.fd, self.path = fd, path
         self.extra = None
+        self.parent = None
+
+    def publish(self, beneficiary=None):
+        """Bind this locked inode to its live holder and the worker it serves."""
+        import proc_tree
+        beneficiary = os.getpid() if beneficiary is None else int(beneficiary)
+        holder = proc_tree.identity(os.getpid())
+        generation = proc_tree.identity(beneficiary)
+        if holder is None or generation is None or native_ancestry().get(beneficiary) != generation:
+            raise ValueError('worker permit has no live native owner')
+        if self.extra:
+            self.extra.publish(beneficiary)
+        row = {'schema': 1, 'holder': [os.getpid(), holder],
+               'beneficiary': [beneficiary, generation],
+               'parent': self.extra.path if self.extra else self.parent}
+        os.lseek(self.fd, 0, os.SEEK_SET)
+        os.ftruncate(self.fd, 0)
+        os.write(self.fd, json.dumps(row).encode())
 
     @property
     def fds(self):
@@ -139,6 +158,11 @@ class Budget:
                 if token.extra is None:
                     token.release()
                     continue
+            try:
+                token.publish()
+            except BaseException:
+                token.release()
+                raise
             return token
         return None
 
@@ -176,13 +200,22 @@ class Budget:
     def _try_free(path):
         if not path:
             return None
+        if managed_policy():
+            validate_borrow(path)
         fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             os.close(fd)
             return None
-        return Token(fd, path)
+        token = Token(fd, path)
+        token.parent = path.removesuffix('.child')
+        try:
+            token.publish()
+        except BaseException:
+            token.release()
+            raise
+        return token
 
     def held(self):
         n = 0
@@ -213,6 +246,77 @@ class Budget:
                 except PermissionError:
                     n += 1
         return n
+
+
+def managed_policy():
+    if not os.path.isfile(os.path.join(os.path.dirname(__file__), 'cpu_guard.py')):
+        return False
+    import cpu_guard
+    return cpu_guard.verification_enabled()
+
+
+def native_ancestry():
+    import operator_fences
+    current = operator_fences.proc(os.getpid(), precise=True)
+    result = {}
+    while current and not current['zombie'] and current['pid'] not in result:
+        result[current['pid']] = current['start']
+        current = operator_fences.proc(current['ppid'], precise=True)
+    return result
+
+
+def validate_borrow(path):
+    """An environment hint must resolve to a live, locked machine permit.
+
+    Local budgets and nested free slots form a short chain of held inodes. The
+    beneficiary must be this process or its native ancestor. A shell pool's
+    separate lease keeper can serve its parent, without pretending to be its
+    ancestor. A released, replaced or stale inode never authorizes borrowing.
+    """
+    import cpu_guard
+    import proc_tree
+    machine = os.environ.get('RICHOS_MACHINE_WORKERS') or str(cpu_guard.CANONICAL_WORKERS)
+    machine = os.path.realpath(cpu_guard.governed_directory(machine, cpu_guard.CANONICAL_WORKERS))
+    if not path or not path.endswith('.child'):
+        raise ValueError('worker borrow requires the held permit child path')
+    ancestors = native_ancestry()
+    cursor, seen = path[:-len('.child')], set()
+    while cursor and len(seen) < 64:
+        canonical = os.path.realpath(cursor)
+        if canonical in seen:
+            break
+        seen.add(canonical)
+        fd = os.open(cursor, os.O_RDONLY)
+        try:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                pass
+            else:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                raise ValueError('worker borrow parent is not held: ' + cursor)
+            row = json.loads(os.read(fd, 65536))
+            holder, beneficiary = row['holder'], row['beneficiary']
+            if (row.get('schema') != 1 or ancestors.get(beneficiary[0]) != beneficiary[1]
+                    or proc_tree.identity(beneficiary[0]) != beneficiary[1]
+                    or proc_tree.identity(holder[0]) != holder[1]):
+                raise ValueError('worker borrow has no live native ancestor: ' + cursor)
+            # Keep the observation tied to the inode whose lock was inspected.
+            actual, expected = os.fstat(fd), os.stat(cursor)
+            if (actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino):
+                raise ValueError('worker borrow parent inode changed')
+            parent = row.get('parent')
+            if parent is None:
+                if (os.path.dirname(canonical) != machine
+                        or not re.fullmatch(r'token-\d+', os.path.basename(canonical))):
+                    raise ValueError('worker borrow does not reach the shared machine budget')
+                return
+            cursor = parent
+        except (KeyError, TypeError, IndexError, json.JSONDecodeError) as exc:
+            raise ValueError('invalid worker permit ownership: ' + cursor) from exc
+        finally:
+            os.close(fd)
+    raise ValueError('invalid worker permit ownership chain')
 
 
 def init(directory, n):
@@ -311,6 +415,7 @@ def lease_worker(directory, owner, ready, release, free):
         if token is None:
             time.sleep(POLL_SECONDS)
     try:
+        token.publish(owner)
         with open(ready + ".borrow", "w") as out:
             out.write(token.path + ".child")
         with open(ready + ".new", "w") as out:
@@ -348,7 +453,10 @@ def machine_command(command, timing=None):
     outcome = "infrastructure-error"
     budget = None
     try:
-        if os.environ.get("RICHOS_WORKER_TOKENS") and os.environ.get("RICHOS_WORKER_SLOT_HELD") == "1":
+        inherited = bool(os.environ.get("RICHOS_WORKER_TOKENS")
+                         and os.environ.get("RICHOS_WORKER_SLOT_HELD") == "1")
+        managed = managed_policy()
+        if inherited and not managed:
             if timing is None:
                 import proc_tree
                 os.execv(sys.executable, proc_tree.command(command, owner=os.getppid()))
@@ -358,7 +466,10 @@ def machine_command(command, timing=None):
             return rc
         directory = machine_directory()
         budget = Budget(directory, runner=True)
-        token = budget.acquire()
+        free = os.environ.get('RICHOS_WORKER_BORROW_LOCK') if inherited else None
+        if inherited:
+            validate_borrow(free)
+        token = budget.acquire(free=free)
         acquired = time.monotonic()
         env = {**os.environ, "RICHOS_MACHINE_WORKERS": directory,
                "RICHOS_WORKER_TOKENS": directory,

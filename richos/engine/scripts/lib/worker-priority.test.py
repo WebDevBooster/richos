@@ -2,6 +2,7 @@
 """Small real-lock fixtures for per-permit integration priority."""
 import os
 import json
+import shlex
 from pathlib import Path
 import subprocess
 import sys
@@ -220,6 +221,89 @@ class Priority(unittest.TestCase):
             p.wait(timeout=5)
             p.stdout.close()
         self.assertIsNotNone(self.take(background))
+
+    def test_managed_borrow_uses_locked_native_chain_and_keeps_nested_progress(self):
+        holder = self.take(self.budget(self.linked))
+        path = holder.path + '.child'
+        with patch.object(worker_tokens, 'managed_policy', return_value=True):
+            borrowed = worker_tokens.Budget._try_free(path)
+            self.tokens.append(borrowed)
+            self.assertIsNone(worker_tokens.Budget._try_free(path))
+            nested = worker_tokens.Budget._try_free(path + '.child')
+            self.tokens.append(nested)
+            self.assertIsNotNone(nested)
+            self.assertEqual(self.budget(self.linked).held(), 1)
+            holder.release()
+            with self.assertRaisesRegex(ValueError, 'not held'):
+                worker_tokens.validate_borrow(path + '.child.child')
+
+    def test_managed_borrow_rejects_stale_generation_and_private_unrelated_root(self):
+        holder = self.take(self.budget(self.linked))
+        row = json.loads(Path(holder.path).read_text())
+        row['holder'][1] = 'stale-generation'
+        with open(holder.path, 'w') as stream:
+            json.dump(row, stream)
+        with self.assertRaisesRegex(ValueError, 'live native ancestor'):
+            worker_tokens.validate_borrow(holder.path + '.child')
+        holder.publish()
+        unrelated = self.root / 'unrelated'
+        worker_tokens.init(str(unrelated), 1)
+        other = worker_tokens.Budget(str(unrelated), shared=False)._try_acquire()
+        self.tokens.append(other)
+        with self.assertRaisesRegex(ValueError, 'shared machine budget'):
+            worker_tokens.validate_borrow(other.path + '.child')
+
+    def test_managed_machine_flags_cannot_skip_admission(self):
+        timing, marker = self.root / 'refusal.json', self.root / 'never-ran'
+        with patch.dict(os.environ, {'RICHOS_WORKER_TOKENS': self.machine,
+                                     'RICHOS_WORKER_SLOT_HELD': '1',
+                                     'RICHOS_WORKER_BORROW_LOCK': str(marker)}), \
+                patch.object(worker_tokens, 'managed_policy', return_value=True), \
+                patch.object(worker_tokens, 'machine_directory', return_value=self.machine):
+            rc = worker_tokens.machine_command([sys.executable, '-c',
+                'from pathlib import Path; Path(' + repr(str(marker)) + ').touch()'], str(timing))
+        self.assertEqual(rc, 125)
+        self.assertFalse(marker.exists())
+        self.assertFalse(json.loads(timing.read_text())['admitted'])
+
+    def test_managed_machine_command_takes_the_borrow_lock(self):
+        holder = self.take(self.budget(self.linked))
+        timing, marker = self.root / 'managed-timing.json', self.root / 'slot'
+        devices = SimpleNamespace(cleanup_run_simulators=lambda run: [])
+        with patch.dict(os.environ, {'RICHOS_WORKER_TOKENS': self.machine,
+                                     'RICHOS_WORKER_SLOT_HELD': '1',
+                                     'RICHOS_WORKER_BORROW_LOCK': holder.path + '.child'}), \
+                patch.object(worker_tokens, 'managed_policy', return_value=True), \
+                patch.object(worker_tokens, 'machine_directory', return_value=self.machine), \
+                patch.dict(sys.modules, {'testdevices': devices}):
+            rc = worker_tokens.machine_command([sys.executable, '-c',
+                "import os,sys,fcntl; p=os.environ['RICHOS_WORKER_BORROW_LOCK']; "
+                "open(sys.argv[1],'w').write(p); f=open(p[:-6]);\n"
+                "try: fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)\n"
+                "except BlockingIOError: sys.exit(0)\n"
+                "sys.exit(9)", str(marker)], str(timing))
+        self.assertEqual(rc, 0)
+        self.assertEqual(marker.read_text(), holder.path + '.child.child')
+        self.assertEqual(self.budget(self.linked).held(), 1)
+
+    def test_shell_lease_keeper_publishes_parent_through_local_and_machine_permits(self):
+        local, ready, release = self.root / 'local', self.root / 'ready', self.root / 'release'
+        worker_tokens.init(str(local), 1)
+        checker = ("import sys,worker_tokens; from pathlib import Path; "
+                   "p=Path(sys.argv[1]).read_text(); worker_tokens.validate_borrow(p); "
+                   "worker_tokens.managed_policy=lambda:True; "
+                   "t=worker_tokens.Budget._try_free(p); assert t; t.release()")
+        command = ('"$1" "$2" lease "$3" "$$" "$4" "$5" - & keeper=$!\n'
+                   'trap \'touch "$5"; wait "$keeper"\' EXIT\n'
+                   'for n in {1..100}; do [ -s "$4" ] && break; sleep .02; done\n'
+                   '[ -s "$4" ] || exit 8\n'
+                   '"$1" -c ' + shlex.quote(checker) + ' "$4.borrow"\n')
+        result = subprocess.run(['bash', '-c', command, 'fixture', sys.executable,
+                                 str(Path(worker_tokens.__file__)), str(local), str(ready), str(release)],
+                                env={**os.environ, 'PYTHONPATH': str(Path(__file__).parent)},
+                                start_new_session=True, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.budget(self.linked).held(), 0)
 
     def test_mac_slot_refuses_missing_ssd_without_creating_fallback(self):
         with patch.dict(os.environ, {}, clear=True), patch.object(engine_pass.sys, "platform", "darwin"), \

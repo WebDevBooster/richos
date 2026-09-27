@@ -514,8 +514,8 @@
     },
     "scripts/lib/worker_tokens.py": {
       "source": "scripts/lib/worker_tokens.py",
-      "sha256": "b961ac06fa164cf782a898b9f2fbe9e7d392caf0eb85ac14e7a4882eeeaaebca",
-      "evidence": "Worker leases read their budget files and invoke the caller\u2019s separately declared command, through process supervision and admission policy.",
+      "sha256": "2067d6a95e1c4bf2d325a9d4348618fe5ddd3ff34198f2756c421224c1587445",
+      "evidence": "Worker leases read their budget files, bind held inodes to native process generations and invoke the caller\u2019s separately declared command through process supervision and admission policy. Borrow validation follows a finite native ancestry and permit chain, never orchestration settings.",
       "keys": [],
       "edges": [
         {
@@ -526,6 +526,9 @@
         },
         {
           "to": "scripts/lib/cpu_guard.py"
+        },
+        {
+          "to": "scripts/lib/operator_fences.py#proc"
         }
       ]
     },
@@ -1269,8 +1272,8 @@
     },
     "scripts/lib/worker-priority.test.py": {
       "source": "scripts/lib/worker-priority.test.py",
-      "sha256": "aa258e39f80da6f76df1c80676ed773734858a2ed753a91d4e24af4a951bd630",
-      "evidence": "Generated Git checkouts and private worker/slot records drive actual lease and supervision APIs. The machine-command cleanup case substitutes testdevices; the nested command path returns before device cleanup. No test sources config.",
+      "sha256": "9bf8bb75cff12d5800c4beb25455645892c0e4aa91315b1a38dc2c48b8e09efd",
+      "evidence": "Generated Git checkouts and private worker/slot records drive actual lease and supervision APIs. Machine-command cleanup cases substitute testdevices. The shell keeper runs only the worker lease helper and generated checker. No test sources config.",
       "keys": [],
       "edges": [
         {
