@@ -509,6 +509,14 @@ const WORKER_WAIT_BUDGET: std::time::Duration = std::time::Duration::from_secs(2
 /// gets its next turn, not for cost.
 const WORKER_WAIT_POLL: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// **The quota hold's detail once the back end has taken a turn of this run** ([`WorkHost::quota_gate`]'s
+/// `started`): held, and no current reading. Recovery reads a `WaitingForQuota` row carrying
+/// either one as a started job, never re-run by itself (the work-path design D6).
+pub const QUOTA_WAIT_AFTER_START: [&str; 2] = [
+    "Waiting for the allowance to refresh. It had already started; its work is saved and it will continue automatically.",
+    "Waiting for a current allowance reading before continuing. It had already started; its work is saved.",
+];
+
 /// **What the row says while his answer waits for a back end that could not take it yet**
 /// (the work-path design D4), in the design's words.
 pub const ANSWER_RETRY_DETAIL: &str = "Your answer is saved. The back end couldn't take it yet, so I'm trying again.";
@@ -655,7 +663,12 @@ impl WorkHost {
 
     /// Wait between background turns, never cancel a turn to enforce a quota hold.
     /// No lease/config lock is acquired here. Stop and quit remain reachable.
-    fn quota_gate(&self, backend: &Arc<Backend>, record: &Assignment) -> bool {
+    ///
+    /// `started`: the back end has already taken a turn of this run (a continuation, a wait, a
+    /// report). The hold then says so in its own detail ([`QUOTA_WAIT_AFTER_START`]), because
+    /// recovery reads `WaitingForQuota` as "nothing was asked of the back end" only when it is
+    /// not that (the work-path design D6: a started job is never re-run by itself).
+    fn quota_gate(&self, backend: &Arc<Backend>, record: &Assignment, started: bool) -> bool {
         let quota = self.quota.lock().unwrap().clone();
         let Some(quota) = quota else { return true };
         let mut waiting = false;
@@ -680,9 +693,11 @@ impl WorkHost {
                     thread_id: record.thread_id.clone(), session_id: String::new(),
                     name: record.title.clone(), task: None, since_at: crate::util::now_millis(), released_at: None,
                 }).ok();
-                let detail = match admission {
-                    crate::quota::Admission::Held { .. } => "Waiting for the allowance to refresh. Work is saved and will continue automatically.",
-                    _ => "Waiting for a current allowance reading before continuing. Work is saved.",
+                let detail = match (admission, started) {
+                    (crate::quota::Admission::Held { .. }, false) => "Waiting for the allowance to refresh. Work is saved and will continue automatically.",
+                    (_, false) => "Waiting for a current allowance reading before continuing. Work is saved.",
+                    (crate::quota::Admission::Held { .. }, true) => QUOTA_WAIT_AFTER_START[0],
+                    (_, true) => QUOTA_WAIT_AFTER_START[1],
                 };
                 let _publication = assignment::advance(&self.state, &record.entity_id, &record.thread_id, &record.id,
                     AssignmentState::WaitingForQuota, detail);
@@ -1078,7 +1093,7 @@ impl WorkHost {
         report: Option<Report>,
     ) {
         let reporting = report.is_some();
-        if !self.quota_gate(backend, record) {
+        if !self.quota_gate(backend, record, reporting) {
             self.settle_stopped(backend, record);
             return;
         }
@@ -1381,7 +1396,7 @@ impl WorkHost {
         // turn's words add to the account or replace it (a command's finish replaces the
         // "it has started" before it — step 3c).
         let mut say = |lease: &mut Box<dyn Cognition>, text: &str, items: &mut usize, said: &mut String| {
-            if !self.quota_gate(backend, record) {
+            if !self.quota_gate(backend, record, confirmed) {
                 return Err(CognitionError::Protocol("The waiting assignment was stopped.".into()));
             }
             lease.prompt(text, &mut |item: TurnItem| {
@@ -2117,7 +2132,7 @@ impl WorkHost {
         let mut deadline = std::time::Instant::now() + WORKER_WAIT_BUDGET;
         loop {
             let before = std::time::Instant::now();
-            if !self.quota_gate(backend, record) { return false; }
+            if !self.quota_gate(backend, record, true) { return false; }
             deadline += before.elapsed();
             {
                 let inner = backend.inner.lock().unwrap();
@@ -2170,7 +2185,7 @@ impl WorkHost {
         let mut deadline = std::time::Instant::now() + budget;
         loop {
             let before = std::time::Instant::now();
-            if !self.quota_gate(backend, record) {
+            if !self.quota_gate(backend, record, true) {
                 return CommandWait::Over;
             }
             deadline += before.elapsed();
@@ -6106,6 +6121,86 @@ mod tests {
         assert_eq!(prompts.iter().filter(|p| p.contains("You answered: tomorrow")).count(), 1, "{prompts:?}");
         assert!(!h.host.wait_for_completed(2, std::time::Duration::from_millis(300)), "a second run of the job");
         h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// A second host over the same engine state: the relaunch. Its own open first-item gate, so
+    /// a first host held at its gate does not hold this one.
+    fn relaunch(h: &Harness) -> Arc<WorkHost> {
+        let factory = WorkFactory { first_item_gate: StartGate::open_now(), ..factory_over(h, 5) };
+        let host = WorkHost::new(&h.state, Box::new(factory), h.notices.clone(), Arc::clone(&h.desk));
+        host.start();
+        host
+    }
+
+    /// §4.1 test 2 (P4, D6). The host dies after carrying his answer and before the back end's
+    /// first item. On disk the answer is still pending, and recovery puts the job back to
+    /// waiting on it with NO "was running when RichOS closed" notice. The relaunch sends it once.
+    #[test]
+    fn a_crash_before_the_first_item_leaves_his_answer_pending_and_the_relaunch_sends_it_once() {
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        let record = waiting_job(&h);
+        h.first_item_gate.shut();
+        h.host.start();
+        let answer = his_answer(&h, &record, "answer-1", "When should it ship? You answered: tomorrow");
+        until_prompts(&h, 1);
+        // The crash: this host is gone from here on. What a relaunch finds is on disk.
+        let row = assignment::read(&h.state, "depot", "thread-one", &record.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Preparing, "{}", row.detail);
+        assert_eq!(crate::question_work::pending(&h.state).unwrap().len(), 1, "lost before the back end had it");
+        let report = crate::recovery::reconcile(&h.state, &crate::recovery::UnreadableRepositories);
+        assert!(report.unknown.is_empty(), "{report:?}");
+        assert_eq!(report.answers_waiting.len(), 1, "{report:?}");
+        let row = assignment::read(&h.state, "depot", "thread-one", &record.id).unwrap();
+        assert_eq!((row.state, row.detail.as_str()), (AssignmentState::Blocked, crate::recovery::ANSWER_SAVED_AT_RELAUNCH));
+        assert!(row.notices.is_empty(), "he was told a job that never started was running: {:?}", row.notices);
+
+        let after = relaunch(&h);
+        after.queue_question_answer(&h.binding, &answer).unwrap(); // the launch wake
+        assert!(after.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let prompts = h.work_prompts.lock().unwrap().clone();
+        assert_eq!(prompts.iter().filter(|p| p.contains("You answered: tomorrow")).count(), 2,
+                   "one prompt from the host that died, one from the relaunch: {prompts:?}");
+        assert!(crate::question_work::pending(&h.state).unwrap().is_empty());
+        assert!(!after.wait_for_completed(2, std::time::Duration::from_millis(300)), "sent twice after the relaunch");
+        after.shutdown();
+        h.first_item_gate.release();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)), "the host that died never let go");
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// §4.1 test 3 (P5). The host dies after the back end's first item. The answer is taken, the
+    /// job is `Unknown` with the ordinary notice, and nothing re-runs it: §6.3, and his notice
+    /// says nothing is running.
+    #[test]
+    fn a_crash_after_the_first_item_leaves_the_job_unknown_and_nothing_re_runs_it() {
+        let h = harness(3000);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        *h.answer_reply.lock().unwrap() = "Shipping tomorrow.".into();
+        let record = waiting_job(&h);
+        h.host.start();
+        let answer = his_answer(&h, &record, "answer-1", "When should it ship? You answered: tomorrow");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while assignment::read(&h.state, "depot", "thread-one", &record.id).unwrap().state != AssignmentState::Running {
+            assert!(std::time::Instant::now() < deadline, "the first item never came");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        // The crash, mid-turn.
+        assert!(crate::question_work::pending(&h.state).unwrap().is_empty(), "taken at the first item");
+        let report = crate::recovery::reconcile(&h.state, &crate::recovery::UnreadableRepositories);
+        assert_eq!(report.unknown.len(), 1, "{report:?}");
+        assert!(report.answers_waiting.is_empty());
+        let after = relaunch(&h);
+        after.queue_question_answer(&h.binding, &answer).unwrap(); // the launch wake
+        assert!(!after.wait_for_completed(1, std::time::Duration::from_millis(400)), "a started job re-ran by itself");
+        assert_eq!(h.work_prompts.lock().unwrap().len(), 1);
+        after.shutdown();
+        h.host.shutdown();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)), "the host that died never let go");
         std::fs::remove_dir_all(&h.root).unwrap();
     }
 
