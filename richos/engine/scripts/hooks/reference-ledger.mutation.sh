@@ -35,8 +35,15 @@ ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 PASS=0
 FAIL=0
-SANDBOX="$(cd "$(mktemp -d -t reference-ledger-mutation.XXXXXX)" && pwd -P)"
-trap 'rm -rf "$SANDBOX"' EXIT
+# The sandbox comes from the engine's allocator, never a bare mktemp -d:
+# every mutant copies scripts/lib into it, which is the class of directory
+# that left 105.3 GB under a name the reaper had never been told about on
+# 2026-09-17. Allocated scratch is swept without anybody naming it.
+# shellcheck source=../lib/scratch.sh
+. "$ENGINE_ROOT/scripts/lib/scratch.sh"
+SANDBOX="$(scratch_new reference-ledger-mutation)" || {
+    echo "FATAL: could not allocate a sandbox" >&2; exit 2; }
+trap 'scratch_release "$SANDBOX"' EXIT
 
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit 1; }
 
