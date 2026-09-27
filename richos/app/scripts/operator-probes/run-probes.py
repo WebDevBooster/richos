@@ -12,6 +12,7 @@ the engine at a named commit, runs `guest_probes.py` inside the guest in the for
 pulls the results back, and deletes the clone however the run ends (§54).
 
   run-probes.py --out DIR [--only P1,P2,...] [--engine-rev REV] [--wait SECONDS] [--survey]
+                [--walk-binary PATH] [--w3-cells W3,...]
 
 Exit: the guest driver's exit code (0 when every probe that ran PASSED; 1 when any FAILED
 or its premise was false; 2 for a harness failure), or 75 when admission was refused.
@@ -99,6 +100,9 @@ def main():
     p.add_argument('--probe-timeout', type=int, default=900, help='seconds per probe inside the guest')
     p.add_argument('--walk-binary', type=Path, default=None,
                    help='the operator_walk example binary (cargo build --example operator_walk), for the W2 walk')
+    p.add_argument('--w3-cells', default='',
+                   help='comma-separated crash-matrix cells for W3 (baseline,W1b,W2,W3,W4; default all), so one '
+                        'cell can be rerun alone')
     p.add_argument('--quota-ceiling', type=float, default=85.0,
                    help='stop the run when his five-hour quota reading reaches this percent (default 85), so a '
                         'probe never carries the account to ruling §87\'s 93%% pause for every other session')
@@ -168,6 +172,8 @@ def main():
                     args += ['--survey']
                 if a.walk_binary:
                     args += ['--walk-binary', f'{payload}/probes/operator_walk']
+                if a.w3_cells:
+                    args += ['--w3-cells', a.w3_cells]
                 command = ' '.join(shlex.quote(x) for x in args)
                 began = time.monotonic()
                 report['quota_at_start'] = five_hour_used()

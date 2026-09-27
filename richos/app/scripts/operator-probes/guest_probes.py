@@ -3214,6 +3214,12 @@ def w3_ledger(ctx, data, thread_name):
     out['inbox_waiting'] = waiting
     out['transcript_uuid_counts'] = {rel['uuid']: len(uuid_entries(transcript_rows(ctx, rel.get('session') or '-'), rel['uuid']))
                                      for rel in relays if rel.get('session')}
+    # The continuation a turn that died with the app was given (richos operator_host.rs
+    # `continued`), and how many transcript entries carry its uuid.
+    out['continuation_uuid_counts'] = {
+        rel['continued']['uuid']: len(uuid_entries(transcript_rows(ctx, rel['continued'].get('session') or '-'),
+                                                   rel['continued']['uuid']))
+        for rel in relays if (rel.get('continued') or {}).get('uuid')}
     return out
 
 
@@ -3226,11 +3232,18 @@ def w3_reports(says, thread, marker):
 
 
 def grade_w3_cell(rec):
+    """A cell passes when the lead reported the answer once with NO words from him (a cell that
+    needed them does not pass: the 2026-09-27 run's W3 cell did, which is the gap the continuation
+    closes), the answer is in the transcript once, the inbox let it go, the relay is taken and no
+    turn is left open; a continuation, when one was sent, is in the transcript once."""
     ledger = rec.get('ledger') or {}
     relays = ledger.get('relays') or []
-    return (rec.get('reports') == 1 and len(relays) == 1 and relays[0].get('taken') is True
+    continued = list((ledger.get('continuation_uuid_counts') or {}).values())
+    return (rec.get('reports') == 1 and not rec.get('nudged') and len(relays) == 1
+            and relays[0].get('taken') is True and not relays[0].get('turn_open')
             and ledger.get('inbox_waiting') == 0
-            and list((ledger.get('transcript_uuid_counts') or {}).values()) == [1])
+            and list((ledger.get('transcript_uuid_counts') or {}).values()) == [1]
+            and continued in ([], [1]))
 
 
 def w3_cell(ctx, data, state, root, cell):
@@ -3290,18 +3303,15 @@ def w3_cell(ctx, data, state, root, cell):
             time.sleep(OPERATOR_REAP_GRACE + 1)
             walk = Walk(ctx, data, state, root, 'w3-%s-relaunched' % cell)
             walks.append(walk)
-            got = walk.wait_say(lambda s: s['thread'] == thread and marker in s['text'], 180)
+            # No words from him, ever: when the crash killed the turn that had taken the answer
+            # (W3 by construction, W2 when the lead began it first), the relaunched walk's
+            # launch flush continues that turn itself (richos operator_host.rs
+            # `continue_interrupted_answers`). The 2026-09-27 run needed his next words here;
+            # a cell that would still need them fails. 300 s: a resumed lead's start plus one
+            # model turn.
             rec['nudged'] = False
-            if not got:
-                # The crash killed the turn that had taken the answer: W3 by construction, and
-                # W2 when the lead began it first. That answer is not resent (W3, design §2.3),
-                # or its resend is dropped (P18 case B: a killed turn reads as answered), so it
-                # sits in the lead's context once and nothing prompts the lead. His next words
-                # in the conversation do; they are given once, and recorded.
-                rec['nudged'] = True
-                walk.call('assign', thread=thread, title=title, origin='desk-typed',
-                          text='Continue where you left off in this conversation.')
-                walk.wait_say(lambda s: s['thread'] == thread and marker in s['text'], 300)
+            rec['reported_without_his_words'] = bool(
+                walk.wait_say(lambda s: s['thread'] == thread and marker in s['text'], 300))
         time.sleep(20)  # a second report, if any, comes in this window
         rec['marker'] = marker
         rec['reports'] = w3_reports([s for w in walks for s in w.says], thread, marker)
@@ -3331,7 +3341,9 @@ def w3(ctx, r):
     if r['gate'].get('gate') != 'operator':
         return 'PREMISE-FALSE', 'the gate did not open his team: %s' % r['gate']
     cells = r.setdefault('cells', {})
-    for cell in W3_CELLS:
+    wanted = w3_wanted(getattr(ctx, 'w3_cells', ''))
+    r['cells_run'] = list(wanted)
+    for cell in wanted:
         try:
             cells[cell] = w3_cell(ctx, data, state, root, cell)
         except Exception:  # noqa: BLE001 - one cell's harness failure is recorded; the next still runs
@@ -3339,13 +3351,28 @@ def w3(ctx, r):
     claim = p.claude_dir / 'state' / 'operator-lead.json'
     left = json.loads(claim.read_text()).get('processes', []) if claim.exists() else []
     r['lead_pids_alive_after'] = {str(x['pid']): alive(x['pid']) for x in left if x.get('role') != 'app'}
-    passed = [c for c in W3_CELLS if cells[c].get('pass')]
-    failed = [c for c in W3_CELLS if not cells[c].get('pass')]
-    nudged = [c for c in W3_CELLS if cells[c].get('nudged')]
+    return w3_verdict(cells, wanted)
+
+
+def w3_wanted(named):
+    """The cells to run: all of them, or the comma-separated names given (--w3-cells), in the
+    matrix's own order. An unknown name is refused, never skipped."""
+    names = [x.strip() for x in (named or '').split(',') if x.strip()]
+    unknown = [n for n in names if n not in W3_CELLS]
+    if unknown:
+        raise ValueError('not a crash-matrix cell: %s (cells: %s)' % (unknown, list(W3_CELLS)))
+    return tuple(c for c in W3_CELLS if not names or c in names)
+
+
+def w3_verdict(cells, wanted):
+    passed = [c for c in wanted if (cells.get(c) or {}).get('pass')]
+    failed = [c for c in wanted if not (cells.get(c) or {}).get('pass')]
+    continued = [c for c in wanted if ((cells.get(c) or {}).get('ledger') or {}).get('continuation_uuid_counts')]
     if failed:
-        return 'FAIL', 'cells passed: %s; not passed: %s; needed his next words: %s' % (passed, failed, nudged)
-    return 'PASS', ('every cell: reported once by the lead, one transcript entry for the uuid, inbox empty, relay '
-                    'taken; needed his next words (the crash killed the turn that took it): %s' % nudged)
+        return 'FAIL', 'cells passed: %s; not passed: %s; continued by the app: %s' % (passed, failed, continued)
+    return 'PASS', ('cells %s: reported once by the lead with no words from him, one transcript entry for the uuid, '
+                    'inbox empty, relay taken, no turn left open; continued by the app after the crash: %s'
+                    % (list(wanted), continued))
 
 
 # =============================================================================================
@@ -3413,15 +3440,11 @@ def regrade_w3(record):
         rec['reports'] = w3_reports(saved, thread, marker)
         rec['pass'] = grade_w3_cell(rec) if not rec.get('error') else False
         cells[cell] = rec
-    passed = [c for c in W3_CELLS if (cells.get(c) or {}).get('pass')]
-    failed = [c for c in W3_CELLS if not (cells.get(c) or {}).get('pass')]
-    nudged = [c for c in W3_CELLS if (cells.get(c) or {}).get('nudged')]
+    wanted = tuple(record.get('cells_run') or W3_CELLS)
     facts = {c: {'reports': cells[c].get('reports'), 'nudged': cells[c].get('nudged'), 'pass': cells[c].get('pass')}
              for c in cells}
-    if failed:
-        return 'FAIL', 'cells passed: %s; not passed: %s; needed his next words: %s' % (passed, failed, nudged), facts
-    return 'PASS', ('every cell: reported once by the lead, one transcript entry for the uuid, inbox empty, relay '
-                    'taken; needed his next words (the crash killed the turn that took it): %s' % nudged), facts
+    verdict, why = w3_verdict(cells, wanted)
+    return verdict, why, facts
 
 
 def main():
@@ -3463,7 +3486,9 @@ def main():
     ap.add_argument('--survey', action='store_true')
     ap.add_argument('--probe-timeout', type=int, default=900)
     ap.add_argument('--walk-binary', default='')
+    ap.add_argument('--w3-cells', default='', help='comma-separated crash-matrix cells for W3 (default: all)')
     a = ap.parse_args()
+    w3_wanted(a.w3_cells)  # an unknown cell is refused before any guest work
     p = Paths(a.payload)
     p.results.mkdir(parents=True, exist_ok=True)
     setup = {'engine_commit': a.engine_commit}
@@ -3478,6 +3503,7 @@ def main():
     setup['claude_version'] = out.strip()
     ctx = Context(p, a.probe_timeout)
     ctx.walk_binary = a.walk_binary
+    ctx.w3_cells = a.w3_cells
     setup['ssh_auth_sock_method'] = ctx.ssh_method
     setup['supervisor_python'] = ctx.python
     setup['stored_names'] = sorted(ctx.stored)
