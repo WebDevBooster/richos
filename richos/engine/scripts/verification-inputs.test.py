@@ -135,6 +135,21 @@ class Inputs(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertTrue(inputs.hooks_change('{"hooks":{}}', text)["fallback"])
 
+    def test_ambiguous_hook_json_cannot_hide_an_entry_or_metadata_change(self):
+        valid = '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"one"}]}]}}'
+        cases = [
+            '{"hooks":{"Stop":[]},"hooks":{}}',
+            '{"hooks":{"Stop":[],"Stop":[]}}',
+            valid.replace('"hooks":[', '"matcher":"a","matcher":"b","hooks":['),
+            valid.replace('"command":"one"', '"command":"two","command":"one"'),
+        ]
+        cases.extend(valid.replace('"command":"one"', '"command":"one","timeout":'+value)
+                     for value in ('NaN', 'Infinity', '-Infinity', '1e999'))
+        for text in cases:
+            with self.subTest(text=text):
+                self.assertTrue(inputs.hooks_change(valid, text)['fallback'])
+                self.assertTrue(inputs.hooks_change(text, valid)['fallback'])
+
 
 class Closure(unittest.TestCase):
     def setUp(self):

@@ -5,6 +5,7 @@ quoted/bare strings and parameter paths. Unsupported syntax carries a reason
 for conservative selection instead of inventing an empty dependency set.
 """
 import json
+import math
 import hashlib
 from pathlib import Path
 import re
@@ -210,8 +211,20 @@ def config_change(before, after):
 
 
 def hook_entries(text):
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('duplicate object key: ' + key)
+            result[key] = value
+        return result
+
+    def invalid_constant(value):
+        raise ValueError('non-JSON numeric constant: ' + value)
+
     try:
-        document = json.loads(text)
+        document = json.loads(text, object_pairs_hook=unique_object,
+                              parse_constant=invalid_constant)
     except (TypeError, ValueError) as exc:
         raise Unsupported("hooks JSON is invalid: " + str(exc)) from None
     if (not isinstance(document, dict) or set(document) - {"description", "hooks"}
@@ -232,6 +245,7 @@ def hook_entries(text):
                         or not isinstance(command.get("command"), str)):
                     raise Unsupported("unknown hook command structure: " + event)
                 if ("timeout" in command and type(command["timeout"]) not in (int, float)
+                        or isinstance(command.get("timeout"), float) and not math.isfinite(command["timeout"])
                         or "async" in command and type(command["async"]) is not bool
                         or "statusMessage" in command and not isinstance(command["statusMessage"], str)):
                     raise Unsupported("unsupported hook command metadata: " + event)
