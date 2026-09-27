@@ -23,8 +23,8 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
   connect    that folder connected through Settings > Connected repositories (a company folder
              alone is not consent: `entity.rs` `connected_repositories`)
   watch      adopt-watch.py started in the guest (assignment states on the guest's clock)
-  task       typed into the Mac's composer: run `git log --oneline` in the Acme repository yourself
-             and tell me exactly what it prints
+  task       typed into the Mac's composer: run the harmless test command `git log --oneline`
+             yourself in my Acme folder, and tell me when it has finished and what it printed
   observe    within --within seconds the assignment reaches a closed state. If the provider asks
              him to approve the command, Approve is pressed once per request, from the Under the
              hood panel, well inside the call's 300 s deadline. PASS needs all of: the assignment
@@ -54,8 +54,12 @@ _spec.loader.exec_module(adopt_walk)
 StepFailed = adopt_walk.StepFailed
 
 STEPS = ['identity', 'first-run', 'connect', 'watch', 'task', 'observe']
-TASK = ('Please run git log --oneline in my Acme repository yourself, with your shell tool, '
-        'and tell me exactly what it prints.')
+# Worded as a job to be done, the way the escalation's walk and the 2026-09-27 diagnosis worded
+# theirs (both registered as a `task`). "Tell me exactly what it prints" alone was registered
+# as a `check` on the first proof run (the question path, which already reported answers) and
+# did not exercise the task path this walk exists for.
+TASK = ('Please run this harmless test command for me yourself with your shell tool, in my Acme '
+        'folder, and tell me when it has finished and what it printed: git log --oneline')
 OPEN = {'registered', 'preparing', 'running', 'blocked', 'waiting-for-screen', 'waiting-for-quota'}
 
 
