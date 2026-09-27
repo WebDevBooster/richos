@@ -744,6 +744,54 @@ pub fn fix_tool_input(tool_name: &str, input: &serde_json::Value) -> Option<(ser
     if all.is_empty() { None } else { Some((fixed, all)) }
 }
 
+/// The ONE `PreToolUse` envelope for a fixed document write: the canonical hook's own output
+/// (`app-engine-hook.py` prints at most one JSON object, the worker context) with
+/// `updatedInput` and a note of every change merged into it. Never a second envelope, never
+/// `permissionDecision` (setting it would approve the write and skip the permission flow;
+/// plan check C18). `None` means "print the canonical output unchanged": it is not one JSON
+/// object, or it already decides or transforms the call, and a spelling fix never overrides
+/// either.
+pub fn merge_into_envelope(canonical: &[u8], fixed: serde_json::Value, changes: &[Change]) -> Option<Vec<u8>> {
+    let text = std::str::from_utf8(canonical).ok()?.trim();
+    let mut envelope: serde_json::Value =
+        if text.is_empty() { serde_json::json!({}) } else { serde_json::from_str(text).ok()? };
+    let object = envelope.as_object_mut()?;
+    if object.contains_key("decision") || object.get("continue") == Some(&serde_json::Value::Bool(false)) {
+        return None;
+    }
+    let specific = object.entry("hookSpecificOutput").or_insert_with(|| serde_json::json!({})).as_object_mut()?;
+    if specific.contains_key("updatedInput") || specific.contains_key("permissionDecision") {
+        return None;
+    }
+    specific.insert("hookEventName".into(), "PreToolUse".into());
+    specific.insert("updatedInput".into(), fixed);
+    let note = change_note(changes);
+    let context = match specific.get("additionalContext").and_then(|v| v.as_str()) {
+        Some(existing) if !existing.is_empty() => format!("{existing}\n\n{note}"),
+        _ => note,
+    };
+    specific.insert("additionalContext".into(), context.into());
+    let mut bytes = serde_json::to_vec(&envelope).ok()?;
+    bytes.push(b'\n');
+    Some(bytes)
+}
+
+/// What the writer is told, so a later Edit quotes the words that are really in the file (plan
+/// check C7: a silent fix would remove the signal a refusal used to give).
+fn change_note(changes: &[Change]) -> String {
+    const SHOWN: usize = 20;
+    let listed: Vec<String> =
+        changes.iter().take(SHOWN).map(|c| format!("{} -> {} (line {})", c.from, c.to, c.line)).collect();
+    let more = changes.len().saturating_sub(SHOWN);
+    let more = if more > 0 { format!(", and {more} more") } else { String::new() };
+    format!(
+        "American spelling: this write was changed before it ran, {} word(s): {}{more}. \
+         The file holds the American forms; quote those in any later edit.",
+        changes.len(),
+        listed.join(", ")
+    )
+}
+
 /// Fix `new` as it will sit in `file` in place of `old`: the whole file as it will be is fixed,
 /// and only the changes that fall wholly inside `new` are kept. `None` if `old` is not in the
 /// file or nothing inside `new` changes. With `every`, each place `old` occurs must give the
