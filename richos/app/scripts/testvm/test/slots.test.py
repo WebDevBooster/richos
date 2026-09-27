@@ -34,6 +34,7 @@ DRIVER = textwrap.dedent(f"""
             raise BlockingIOError('total CPU is 95.0% (limit 80%)')
         return {{}}
     slots.reserve.cpu_admission = admit
+    slots.memory_refusal = lambda *a, **k: os.environ.get('FAKE_MEMORY', '')
     sys.argv = ['slots.py'] + sys.argv[1:]
     try:
         sys.exit(slots.main())
@@ -64,6 +65,7 @@ class Slots(unittest.TestCase):
     def hold(self, **kw):
         kw.setdefault('guests', lambda: [])
         kw.setdefault('admit', lambda: {})
+        kw.setdefault('memory', lambda sample, running: '')
         return slots.guest_slot(root=self.root, **kw)
 
     @staticmethod
@@ -124,6 +126,52 @@ class Slots(unittest.TestCase):
         self.assertEqual(len(seen), 1)
         self.assertEqual(seen[0][0], 30, 'CPU samples stay at least 30 s apart (reserve.py)')
         self.assertEqual(seen[0][1], [False, False], 'no slot is held while this caller waits for the CPU')
+
+    def test_a_guest_is_admitted_only_if_its_whole_ram_fits_beside_the_running_guests(self):
+        """The 2026-09-27 18:56Z numbers: 71% of 24 GB available, guest A just booting."""
+        total, ram = 24576, 7168
+        fits = slots.memory_refusal({'memory_free_percent': 71}, [], resident=[], total_mb=total, ram_mb=ram)
+        self.assertEqual(fits, '', 'one guest on a 71%-available Mac fits')
+        second = slots.memory_refusal({'memory_free_percent': 71}, ['walk-a'], resident=[50], total_mb=total,
+                                      ram_mb=ram)
+        self.assertIn('still owed to 1 running guest', second)
+        self.assertIn('floor 4096 MB', second)
+        unseen = slots.memory_refusal({'memory_free_percent': 70}, ['walk-a'], resident=[], total_mb=total,
+                                      ram_mb=ram)
+        self.assertIn('7168 MB still owed', unseen, 'a guest with no visible process is owed all of its RAM')
+        settled = slots.memory_refusal({'memory_free_percent': 55}, ['walk-a'], resident=[7000], total_mb=total,
+                                       ram_mb=ram)
+        self.assertEqual(settled, '', 'a settled guest already counted in the available memory owes little')
+
+    def test_a_memory_refusal_releases_the_slot_and_waits_like_a_cpu_refusal(self):
+        seen, answers = [], iter(['a guest needs 7168 MB: ...', ''])
+        now = iter(range(0, 1000, 1))
+
+        def sleep(seconds):
+            seen.append((seconds, [slots.is_held(p) for p in slots.slot_paths(self.root)]))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.hold(memory=lambda s, g: next(answers), wait_seconds=120,
+                                                       sleep=sleep, clock=lambda: next(now)):
+            pass
+        self.assertEqual(seen, [(30, [False, False])])
+        self.assertIn('slot waiting: a guest needs 7168 MB', err.getvalue())
+
+    def test_a_dead_stderr_reader_cannot_stop_a_release_halfway(self):
+        class Dead(io.StringIO):
+            def write(self, text):
+                raise BrokenPipeError(32, 'Broken pipe')
+        calls = []
+
+        def fake_run(args, **kw):
+            calls.append((args[1:], kw.get('restore_signals')))
+            return subprocess.CompletedProcess(args, 0)
+        with patch('slots.subprocess.run', side_effect=fake_run), contextlib.redirect_stderr(Dead()):
+            with self.hold() as slot:
+                left = self.root / 'run' / 'walk-left'
+                left.mkdir(parents=True)
+                (left / 'slot').write_text(str(slot) + '\n')
+        self.assertEqual(calls, [(['walk-left'], False)], 'stop.sh ran, with SIGPIPE still ignored')
+        self.assertFalse(slots.is_held(slot))
 
     def test_one_slot_can_be_asked_for_and_three_cannot(self):
         with patch.dict(os.environ, {'TESTVM_SLOTS': '1'}), quiet(), self.hold():

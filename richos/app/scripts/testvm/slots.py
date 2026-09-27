@@ -29,9 +29,17 @@ new code can never put a third guest beside it. Slot 2 is `guest-2.lock`.
 
 ADMISSION, in order, every attempt: a free slot (a nonblocking flock, no sample spent); fewer
 guests running than there are slots (tart's own list, so a guest booted by an old checkout
-is counted); then reserve.py's CPU and memory rule (CEO ruling §77). A refused CPU or memory
-sample RELEASES the slot before waiting, so nobody queues behind a caller that is itself
-waiting. `--wait SECONDS` bounds the whole admission; 0, the default, refuses at once.
+is counted); reserve.py's CPU and memory rule (CEO ruling §77); then THE GUEST'S OWN MEMORY.
+A refused sample RELEASES the slot before waiting, so nobody queues behind a caller that is
+itself waiting. `--wait SECONDS` bounds the whole admission; 0, the default, refuses at once.
+
+THE GUEST'S OWN MEMORY, measured 2026-09-27 18:56Z: two guests admitted 1.5 s apart both
+passed reserve.py's rule, because a guest takes its memory only as it boots. 40 s later the
+host was at 99% CPU, memory pressure warn, 32% free and swapping out 120 MB/s (it had been
+71% free, 0 MB/s). reserve.py samples what is already used; a guest is 7 GB about to be used.
+So a guest is admitted only when the kernel's available memory, less what every running guest
+may still take (its RAM less what its VM process already holds) and less this guest's whole
+RAM, leaves GUEST_MEMORY_FLOOR_MB for everything else on the Mac.
 
 A GUEST NEVER OUTLIVES ITS SLOT. run.sh records the slot it booted under in its run state,
 and refuses to boot at all unless a slot is held by one of its own ancestors (`check`). When a
@@ -40,6 +48,7 @@ that forgot its cleanup cannot turn a run into a hold.
 """
 import argparse
 from contextlib import contextmanager
+import ctypes
 import fcntl
 import json
 import os
@@ -58,6 +67,51 @@ MAX_SLOTS = len(SLOT_FILES)
 SLOT_POLL_SECONDS = 2      # a flock attempt is a syscall; checking often costs nothing
 CLONE_POLL_SECONDS = 10    # a running-guest count is one `tart list`
 ENV = 'TESTVM_SLOT'
+# What must stay available for the Mac itself once every admitted guest has all its RAM. The
+# 18:56Z measurement above swapped hard with about 3 GB projected to be left, so 4 GB.
+GUEST_MEMORY_FLOOR_MB = 4096
+VM_PROCESS = 'com.apple.Virtualization.VirtualMachine'
+
+
+def _say(message):
+    """stderr, but never at the price of a cleanup: a caller that died and took our stderr pipe
+    with it must not turn the next line into a BrokenPipeError halfway through a release."""
+    try:
+        print(message, file=sys.stderr, flush=True)
+    except (OSError, ValueError):
+        pass
+
+
+def guest_ram_mb():
+    return int(os.environ.get('TESTVM_RAM_MB', '7168'))
+
+
+def vm_resident_mb():
+    """Resident memory of each running Virtualization VM process, in MB (read-only `ps`)."""
+    table = subprocess.run(['ps', '-A', '-o', 'rss=,comm='], capture_output=True, text=True, timeout=10).stdout
+    return [int(line.split(None, 1)[0]) / 1024 for line in table.splitlines()
+            if line.strip().endswith('/' + VM_PROCESS) and line.split(None, 1)[0].isdigit()]
+
+
+def host_memory_mb():
+    return reserve._sysctl('hw.memsize', ctypes.c_uint64()).value / 1048576
+
+
+def memory_refusal(sample, running, resident=None, total_mb=None, ram_mb=None, floor_mb=GUEST_MEMORY_FLOOR_MB):
+    """'' when one more guest fits, else why not. `sample` is reserve's (memory_free_percent is
+    the kernel's own available level); `running` the running guests; `resident` the MB each VM
+    process already holds. A running guest with no visible process is owed its whole RAM."""
+    ram_mb = ram_mb or guest_ram_mb()
+    total_mb = total_mb or host_memory_mb()
+    resident = vm_resident_mb() if resident is None else resident
+    available = sample['memory_free_percent'] / 100 * total_mb
+    owed = sum(max(0.0, ram_mb - r) for r in resident[:len(running)])
+    owed += ram_mb * max(0, len(running) - len(resident))
+    left = available - owed - ram_mb
+    if left >= floor_mb:
+        return ''
+    return (f'a guest needs {ram_mb} MB: {available:.0f} MB available, {owed:.0f} MB still owed to '
+            f'{len(running)} running guest(s), would leave {left:.0f} MB (floor {floor_mb} MB)')
 
 
 def root_dir(root=None):
@@ -161,20 +215,23 @@ def _stop_leftovers(path, root):
             continue
         if recorded != str(path):
             continue
-        print(f'slot {path.name} released with guest {state.name} still recorded against it; '
-              f'stopping it (a guest never outlives its slot)', file=sys.stderr, flush=True)
-        subprocess.run([str(HERE / 'stop.sh'), state.name], timeout=300, check=False)
+        _say(f'slot {path.name} released with guest {state.name} still recorded against it; '
+             f'stopping it (a guest never outlives its slot)')
+        # SIGPIPE stays ignored in stop.sh (run-walk.py says why): a dead reader of our stderr
+        # must not end a cleanup halfway.
+        subprocess.run([str(HERE / 'stop.sh'), state.name], timeout=300, check=False, restore_signals=False)
         stopped.append(state.name)
     return stopped
 
 
 @contextmanager
 def guest_slot(root=None, wait_seconds=0, purpose='', max_cpu=reserve.DEFAULT_MAX_CPU,
-               guests=None, admit=None, clock=time.monotonic, sleep=time.sleep):
+               guests=None, admit=None, memory=None, clock=time.monotonic, sleep=time.sleep):
     """Hold one guest slot for exactly the body of the `with`. Yields the slot's path.
 
-    `guests` and `admit` are replaceable so the suite can drive every refusal offline."""
+    `guests`, `admit` and `memory` are replaceable so the suite can drive every refusal offline."""
     guests = guests or running_guests
+    memory = memory or memory_refusal
     if admit is None:
         def admit():
             return reserve.cpu_admission(max_cpu, 0)
@@ -184,6 +241,7 @@ def guest_slot(root=None, wait_seconds=0, purpose='', max_cpu=reserve.DEFAULT_MA
     count = slot_count()
     paths = slot_paths(root, count)
     started = clock()
+    slept = 0.0
     last_reason = None
     while True:
         handle = path = None
@@ -203,7 +261,10 @@ def guest_slot(root=None, wait_seconds=0, purpose='', max_cpu=reserve.DEFAULT_MA
                     pause = CLONE_POLL_SECONDS
                 else:
                     sample = admit()
-                    break
+                    reason = memory(sample, busy)
+                    if not reason:
+                        break
+                    pause = reserve.MIN_RETRY_SECONDS
             except BlockingIOError as refused:
                 reason = str(refused)
                 pause = reserve.MIN_RETRY_SECONDS
@@ -214,9 +275,10 @@ def guest_slot(root=None, wait_seconds=0, purpose='', max_cpu=reserve.DEFAULT_MA
         if remaining <= 0:
             raise BlockingIOError(f'guest slot refused after {elapsed:.0f}s: {reason}')
         if reason != last_reason:
-            print(f'slot waiting: {reason}; up to {remaining:.0f}s more', file=sys.stderr, flush=True)
+            _say(f'slot waiting: {reason}; up to {remaining:.0f}s more')
             last_reason = reason
         sleep(min(pause, remaining))
+        slept += min(pause, remaining)
     waited = clock() - started
     record = {'pid': os.getpid(), 'since': time.time(), 'purpose': purpose, 'slot': path.name}
     handle.seek(0)
@@ -225,9 +287,10 @@ def guest_slot(root=None, wait_seconds=0, purpose='', max_cpu=reserve.DEFAULT_MA
     handle.flush()
     previous = os.environ.get(ENV)
     os.environ[ENV] = str(path)
-    print(f'slot held: {path} (waited {waited:.0f}s; '
-          f"{reserve.describe(sample) if isinstance(sample, dict) and 'swap_used_mb' in sample else 'admitted'})",
-          file=sys.stderr, flush=True)
+    # `waited` is time spent waiting for a slot or for admission; the checks themselves (one
+    # `tart list`, one 1-second CPU sample) are reported apart, so "admitted at once" reads 0.
+    _say(f'slot held: {path} (waited {slept:.0f}s; admission checks {waited - slept:.1f}s; '
+         f"{reserve.describe(sample) if isinstance(sample, dict) and 'swap_used_mb' in sample else 'admitted'})")
     try:
         yield path
     finally:
@@ -243,8 +306,7 @@ def guest_slot(root=None, wait_seconds=0, purpose='', max_cpu=reserve.DEFAULT_MA
             handle.flush()
             fcntl.flock(handle, fcntl.LOCK_UN)
             handle.close()
-            print(f'slot released: {path.name} after {clock() - started - waited:.0f}s', file=sys.stderr,
-                  flush=True)
+            _say(f'slot released: {path.name} after {clock() - started - waited:.0f}s')
 
 
 def _ancestors():
