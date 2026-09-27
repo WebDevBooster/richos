@@ -152,6 +152,23 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_staleness_and_record_guards_keep_copies_distinct_from_real_readers(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        units = ['scripts/hooks/hook-staleness.test.sh', 'scripts/hooks/guard-public-record-repo.test.sh']
+        for unit in units:
+            closure = graph.closure(unit)
+            self.assertEqual(closure['keys'], {}, closure)
+            self.assertEqual(closure['whole'], [], closure)
+            self.assertEqual(closure['fallback'], [], closure)
+        self.assertEqual(set(graph.closure('scripts/hooks/guard-public-record-repo.sh')['keys']),
+                         {'PUBLIC_RECORD_REPO_GUARD', 'PUBLICATION_DECLARATION'})
+        for key in ('PUBLIC_RECORD_REPO_GUARD', 'PUBLICATION_DECLARATION', 'PROTECTED_PATHS'):
+            change = inputs.config_change(key+'=before', key+'=after')
+            self.assertEqual(graph.config_units(change, units), {})
+        document['nodes'].pop('scripts/lib/git-jurisdiction.sh')
+        self.assertEqual(set(graph.config_units(change, units)), {units[1]})
+
     def test_claims_and_premise_fixtures_replace_real_settings_through_helpers(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

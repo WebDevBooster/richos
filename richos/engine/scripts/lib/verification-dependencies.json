@@ -2542,6 +2542,135 @@
           "to": "scripts/lib/agent-liveness.py"
         }
       ]
+    },
+    "scripts/hooks/snapshot-enforcing-hooks.sh": {
+      "source": "scripts/hooks/snapshot-enforcing-hooks.sh",
+      "sha256": "d357c9a97492d4447e5ad83099da89192d877ac9282e41d712804710e6b739d4",
+      "evidence": "Root resolution tests adoption presence only. The snapshot/notice logic derives registration rows and reads/writes the supplied snapshot state. Registered command paths are parsed as data, never executed. No config value is sourced.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/registered-hooks.sh"
+        }
+      ]
+    },
+    "scripts/hooks/notice-hook-staleness.sh": {
+      "source": "scripts/hooks/notice-hook-staleness.sh",
+      "sha256": "360fd629986741403adc2337a84ae2dd2645b517f275f7cbb3af331cae48460b",
+      "evidence": "Root resolution tests adoption presence only. The snapshot/notice logic derives registration rows and reads/writes the supplied snapshot state. Registered command paths are parsed as data, never executed. No config value is sourced.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/registered-hooks.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ]
+    },
+    "scripts/hooks/hook-staleness.test.sh": {
+      "source": "scripts/hooks/hook-staleness.test.sh",
+      "sha256": "cdf85fef47b67cdb1849f005c2fdc9befe222bf5c3f35b69dbb3ae07b7dc325e",
+      "evidence": "Snapshot/notice calls use generated adopted roots and explicit copied registration surfaces. Installer cases copy the engine and run only install.sh with private CLAUDE_CONFIG_DIR. That private-home installer closure never consumes config values; copying settings is transport. Guards named in registration mutations and generated script bodies are data, not executed suites.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/snapshot-enforcing-hooks.sh"
+        },
+        {
+          "to": "scripts/hooks/notice-hook-staleness.sh"
+        },
+        {
+          "to": "scripts/lib/registered-hooks.sh"
+        },
+        {
+          "to": "scripts/hooks/install.sh#private-home"
+        }
+      ]
+    },
+    "scripts/lib/git-jurisdiction.sh": {
+      "source": "scripts/lib/git-jurisdiction.sh",
+      "sha256": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
+      "evidence": "Inline standard-library parser interprets supplied command text to identify a repository. It never executes parsed commands or reads orchestration settings. Its only external execution is the fixed Python parser. No dynamic engine helper. ",
+      "keys": [],
+      "edges": [],
+      "nonconfig_eval": "The token eval in the command-head list is parsed data; no shell eval or computed program is executed."
+    },
+    "scripts/lib/publication-boundary.sh#declaration": {
+      "source": "scripts/lib/publication-boundary.sh",
+      "sha256": "46366c80e498f6269889d21109cbfe5de696c273aa9229277ecc85d8285fac85",
+      "evidence": "The public-record guard calls pb_load_declaration, pb_repo_root and pb_physical. This finite closure parses the selected publication declaration via decl_find and queries Git paths. pb_scan and private-source scanners are not invoked by this guard. PUBLICATION_DECLARATION selects the declaration file.",
+      "keys": [
+        "PUBLICATION_DECLARATION"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/declaration-path.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-public-record-repo.sh": {
+      "source": "scripts/hooks/guard-public-record-repo.sh",
+      "sha256": "49a6e6c29e59a604b4d91e847e1e6d6060035f41f703bc95ffc8275778fec3d7",
+      "evidence": "Reads PUBLIC_RECORD_REPO_GUARD and the publication-declaration path through the finite declaration helper. Inline Python parses payload/delivery text and command operands without executing them. Git commands inspect only candidate repository state.",
+      "keys": [
+        "PUBLIC_RECORD_REPO_GUARD"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#declaration"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-public-record-repo.test.sh": {
+      "source": "scripts/hooks/guard-public-record-repo.test.sh",
+      "sha256": "80226ab4a05327f5f53128e2ec277eb1b59023faab322ae3b5d630ca3026bbf4",
+      "evidence": "Each call targets a private generated entity config and private Git/publication declaration. All payload command strings remain guard input. The fixed nested mutations rerun the same literal configuration constructor.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-public-record-repo.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/public-record-repo.mutation.sh"
+        }
+      ]
+    },
+    "scripts/hooks/public-record-repo.mutation.sh": {
+      "source": "scripts/hooks/public-record-repo.mutation.sh",
+      "sha256": "1ac85bd5715e416a0899c7b9487b37aeb84ced708d173d7d5ddfd14064fee0aa",
+      "evidence": "Ten literal source-needle mutants copy the hook, test, libraries and config; only the named test executes. That test creates replacement entity settings before reading configuration. Copying the engine config does not add value dependencies.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/stopwatch.sh"
+        },
+        {
+          "to": "scripts/lib/mutation-pool.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-public-record-repo.test.sh"
+        }
+      ]
     }
   },
   "units": {
@@ -2589,7 +2718,9 @@
     "scripts/hooks/scan-secrets.test.sh": "scripts/hooks/scan-secrets.test.sh",
     "scripts/hooks/unasked-deferral.test.sh": "scripts/hooks/unasked-deferral.test.sh",
     "scripts/hooks/agent-state-claims.test.sh": "scripts/hooks/agent-state-claims.test.sh",
-    "scripts/hooks/premise-ask.test.sh": "scripts/hooks/premise-ask.test.sh"
+    "scripts/hooks/premise-ask.test.sh": "scripts/hooks/premise-ask.test.sh",
+    "scripts/hooks/hook-staleness.test.sh": "scripts/hooks/hook-staleness.test.sh",
+    "scripts/hooks/guard-public-record-repo.test.sh": "scripts/hooks/guard-public-record-repo.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
