@@ -1185,6 +1185,9 @@ impl ActionGrant {
 /// A live session to a native `claude` child.
 pub struct NativeClient {
     child: crate::owned_process::OwnedChild,
+    /// The supervisor's per-lease state file, when this lease is supervised (the product reap,
+    /// `lease_commands.rs`): which tool commands are running outside the provider's group.
+    reap_state: Option<std::path::PathBuf>,
     settle_workers_on_stop: bool,
     stdin: Arc<Mutex<ChildStdin>>,
     session_id: String,
@@ -1731,9 +1734,16 @@ impl NativeClient {
         }
         // The supervisor observes parent death, including a crash where Rust
         // destructors cannot run. Its provider child receives the actual PID.
-        let mut command = if let Some(profile) = profile {
+        // **It reaps the lease's tool commands too** (the product reap gap design 1.3(a)): every
+        // reap parameter is the supervisor's own argument, stripped before it execs `claude`, so
+        // `claude`'s argv and environment are what they were (`lease_commands.rs`).
+        let reap = match profile {
+            Some(profile) => Some(crate::lease_commands::prepare(&profile.state, &session_id).map_err(NativeError::Io)?),
+            None => None,
+        };
+        let mut command = if let (Some(profile), Some((state, log))) = (profile, &reap) {
             let mut supervisor = Command::new(&profile.runtime.python);
-            supervisor.arg(profile.engine.join("scripts/provider-supervisor.py")).arg(bin);
+            supervisor.args(crate::lease_commands::supervisor_args(&profile.engine, state, log)).arg(bin);
             supervisor
         } else { Command::new(bin) };
         crate::owned_process::OwnedChild::configure(&mut command);
@@ -1743,7 +1753,8 @@ impl NativeClient {
         // and this is a per-role decision: it is set before `configure` runs and survives it,
         // which strips only `RICHOS_`/`LORO_`/`ECS_`/`GIT_` names. It reaches the provider
         // through `provider-supervisor.py` too — that supervisor `os.execvp`s, so the child
-        // inherits `os.environ` unchanged (`engine/scripts/provider-supervisor.py:24`).
+        // inherits `os.environ` unchanged (`operator_main` in `engine/scripts/provider-supervisor.py`;
+        // the engine's R11 proves it equal to the flagless path's).
         if let Some((name, value)) = tool_residency_env(role) {
             command.env(name, value);
         }
@@ -1861,8 +1872,19 @@ impl NativeClient {
             }
         });
 
+        // A supervised leader gets SIGTERM first and reaps its tree; only a bare child (no
+        // engine profile, no supervisor) keeps the immediate group SIGKILL (`owned_process.rs`).
+        let reap_state = reap.map(|(state, _)| state);
+        if let Some(state) = &reap_state {
+            crate::lease_commands::LiveLeases::process().register(&session_id, state);
+        }
         let mut client = NativeClient {
-            child: crate::owned_process::OwnedChild::new(child),
+            child: if reap_state.is_some() {
+                crate::owned_process::OwnedChild::supervised(child)
+            } else {
+                crate::owned_process::OwnedChild::new(child)
+            },
+            reap_state,
             settle_workers_on_stop: profile.is_some(),
             stdin,
             session_id,
@@ -2965,6 +2987,17 @@ impl Drop for NativeClient {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        if self.reap_state.is_some() {
+            crate::lease_commands::LiveLeases::process().retire(&self.session_id);
+        }
+    }
+}
+
+impl NativeClient {
+    /// The tool commands this lease has running outside its provider's group, from its
+    /// supervisor's state file. `None` for a lease with no supervisor.
+    pub fn running_commands(&self) -> Option<crate::lease_commands::CommandReading> {
+        self.reap_state.as_deref().map(crate::lease_commands::read)
     }
 }
 
@@ -3338,6 +3371,7 @@ impl Cognition for NativeCognition {
     fn worker_status(&self) -> Option<crate::worker_status::WorkerStatusView> {
         self.engine_profile.as_ref().map(|p| crate::app_workers::status(&p.state, Some(&self.session_id)))
     }
+    fn running_commands(&self) -> Option<crate::lease_commands::CommandReading> { self.client.running_commands() }
     fn prepare_work_turn(&mut self, binding: &crate::entity::ThreadBinding, turn: &str,
         source: crate::ledger::Source, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
         // **SEAM 2 OF THE SPEC'S §5.8a-ii, and it is the one that fires first** — because it

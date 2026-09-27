@@ -172,6 +172,10 @@ pub trait Cognition: Send {
     /// Scoped operational sessions cannot be reused for another thread.
     fn requires_thread_isolation(&self) -> bool { false }
     fn worker_status(&self) -> Option<crate::worker_status::WorkerStatusView> { None }
+    /// Tool commands this lease has running outside its provider's group, which retiring the
+    /// lease would end (the product reap, `lease_commands.rs`). `None`: nothing supervises
+    /// this lease's commands, so there is nothing to read.
+    fn running_commands(&self) -> Option<crate::lease_commands::CommandReading> { None }
 
     /// Bind app-owned onboarding tools before a priming turn. Adapters without these tools
     /// keep the default no-op; the native chat lease atomically updates its private scope.
