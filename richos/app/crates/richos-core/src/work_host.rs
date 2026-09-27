@@ -4328,7 +4328,7 @@ mod tests {
         *h.obligation.lock().unwrap() = Some(ObligationState::Open);
         const REPORT: &str = "I ran git rev-list --count HEAD in the Acme repository. It has 3 commits.";
         *h.answer_reply.lock().unwrap() = REPORT.into();
-        let _runner = h.host.start();
+        h.host.start();
 
         // ---- the task no helper touched ------------------------------------------------
         let itself = h
@@ -4367,7 +4367,7 @@ mod tests {
         let h = harness(5);
         every_worker_observed_ending(&h);
         *h.obligation.lock().unwrap() = Some(ObligationState::Open);
-        let _runner = h.host.start();
+        h.host.start();
         let silent = h.host.register(&h.binding, &registration(&h)).unwrap();
         assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
         let row = assignment::read(&h.state, "depot", "thread-one", &silent.id).unwrap();
