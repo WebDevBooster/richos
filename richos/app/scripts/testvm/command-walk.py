@@ -264,6 +264,23 @@ class CommandWalk(adopt_walk.Walk):
                 'waiting_seen_at_guest_ms': waiting['guest_ms'], 'approvals_pressed': pressed,
                 'obligation': obligation}
 
+    def keep_logs(self):
+        """The guest's app log and the back end's own hook records, copied out before the guest is
+        deleted: without them a failure in the guest can only be guessed at (bgdone2 run 1)."""
+        kept = {}
+        for name, path in (('app.log', self.payload + '/app.log'),):
+            text = guest(self.vm, 'tail -c 400000 ' + shlex.quote(path) + ' 2>/dev/null || true', 60)
+            (self.out / name).write_text(text + '\n')
+            kept[name] = len(text)
+        script = ('import glob,os,sys\n'
+                  'for p in sorted(glob.glob(sys.argv[1]+"/engine-state/evidence/*/callbacks.jsonl")):\n'
+                  '    print("=== "+os.path.basename(os.path.dirname(p)))\n'
+                  '    print(open(p).read()[-400000:])\n')
+        text = guest(self.vm, 'python3 -c ' + shlex.quote(script) + ' ' + shlex.quote(self.data), 60)
+        (self.out / 'callbacks.txt').write_text(text + '\n')
+        kept['callbacks.txt'] = len(text)
+        return kept
+
     def obligation(self, obligation_id):
         """The engine's record of an assignment's obligation, read-only: its status and evidence."""
         script = ('import json,sqlite3,sys\n'
@@ -613,6 +630,11 @@ def main():
         print(f"{step}: {row['outcome']}" + (f" — {row.get('detail')}" if row['outcome'] != 'PASS' else ''), flush=True)
         if not ok:
             break
+    try:
+        report['logs_kept'] = walk.keep_logs()
+    except (StepFailed, RuntimeError, subprocess.TimeoutExpired, OSError) as exc:
+        report['logs_kept'] = 'the guest logs could not be copied: ' + str(exc)
+    (a.out / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
     return 0 if ok else 1
 
 
