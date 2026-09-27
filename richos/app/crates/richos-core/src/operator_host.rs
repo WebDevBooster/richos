@@ -732,10 +732,9 @@ impl OperatorHost {
     /// channel, with no hold and no confirmation (r4 §3). `delivery_id` is S6's durable delivery
     /// identity: the same one twice relays once. Returns whether it was relayed now.
     ///
-    /// **No production caller until S6 lands** (Frank's F11): only the walk
-    /// (`examples/operator_walk.rs`) and the tests call it, through [`crate::operator_desk`].
-    /// Until then his answer to a question reaches the lead as an ordinary assignment, with a
-    /// title line and his words, never with "His answer to your question".
+    /// The app question worker queues resolved sets durably, then flushes them through
+    /// [`crate::operator_desk::OperatorDesk::deliver_answer`] outside the question store lock.
+    /// Phone and desktop answers use this same path without a desktop confirmation hold.
     pub fn deliver_answer(self: &Arc<Self>, key: &ConversationKey, title: &str, handle: Option<&str>,
                           delivery_id: &str, answer: &str) -> Result<bool, String> {
         {
