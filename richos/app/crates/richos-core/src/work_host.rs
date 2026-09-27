@@ -3516,6 +3516,56 @@ mod tests {
     }
 
     #[test]
+    fn open_question_survives_task_report_while_independent_task_finishes() {
+        use crate::questions::{AskScope, OptionInput, QuestionInput, State, Store};
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        *h.answer_reply.lock().unwrap() = "I checked the release notes.".into();
+        let request = registration(&h);
+        let store = Store::new(&h.state);
+        let question = store.ask(&AskScope {
+            root: h.state.clone(),
+            entity_id: "depot".into(),
+            thread_id: "thread-one".into(),
+            turn_id: "turn-7".into(),
+            asker: request.obligation_id.clone(),
+            session_id: "work-session-one".into(),
+            engine: None,
+            entity_root: None,
+        }, vec![QuestionInput {
+            text: "When should the release ship?".into(),
+            options: vec![
+                OptionInput { label: "Ship today".into(), description: "Deliver the fixes sooner.".into() },
+                OptionInput { label: "Ship tomorrow".into(), description: "Allow another day for testing.".into() },
+            ],
+            multiple: false,
+            free_answer: true,
+            recommended: Some(1),
+        }]).unwrap().remove(0);
+        h.host.start();
+        let waiting = h.host.register(&h.binding, &request).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        assert_eq!(assignment::read(&h.state, "depot", "thread-one", &waiting.id).unwrap().state,
+            AssignmentState::Blocked, "a task report must not close its unanswered question");
+
+        let independent = h.host.register(&h.binding, &Registration {
+            obligation_id: "obligation-8".into(), ..request
+        }).unwrap();
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        assert_eq!(assignment::read(&h.state, "depot", "thread-one", &independent.id).unwrap().state,
+            AssignmentState::Settled, "another task can finish in the same conversation");
+        assert_eq!(assignment::read(&h.state, "depot", "thread-one", &waiting.id).unwrap().state,
+            AssignmentState::Blocked);
+        let questions = store.list("depot", "thread-one").unwrap();
+        let saved = questions.iter().find(|q| q.id == question.id).unwrap();
+        assert_eq!(saved.state, State::Open);
+        assert!(!saved.delivered);
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    #[test]
     fn unverifiable_original_request_never_opens_a_work_lease() {
         for bad in ["digest", "entity", "thread", "internal", "missing", "duplicate"] {
             let h = harness(1);
