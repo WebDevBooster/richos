@@ -21,7 +21,8 @@ the allocation: this samples, every --every seconds while the walk runs, inside 
   swapouts      the guest's own cumulative swap-outs (vm_stat): any rise means the guest is short
   top           the resident size of the app (richos-tauri) and every claude process
 
-and on the host the VM processes' resident memory. Writes <out>/mem.json with every sample and
+and on the host the VM processes' resident memory, CPU, memory pressure, available memory and
+swap-out (reserve.host_sample). Writes <out>/mem.json with every sample and
 the peaks. Nothing here quits anything: run-walk.py's stop.sh does (CEO §54).
 """
 import argparse
@@ -36,6 +37,7 @@ import time
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+import reserve  # noqa: E402
 from relaunch import guest  # noqa: E402
 from slots import guest_ram_mb, vm_resident_mb  # noqa: E402
 
@@ -81,7 +83,11 @@ def main():
             at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
             try:
                 row = parse(guest(a.vm, PROBE, 20))
-                row.update(at=at, host_vm_resident_mb=[round(r) for r in vm_resident_mb()])
+                h = reserve.host_sample()
+                row.update(at=at, host_vm_resident_mb=[round(r) for r in vm_resident_mb()],
+                           host={'cpu_busy_percent': round(h['cpu_user_percent'] + h['cpu_system_percent'], 1),
+                                 'memory_pressure': h['memory_pressure'], 'available_percent': h['memory_free_percent'],
+                                 'swapout_mb_per_s': round(h['swapout_mb_per_s'], 1)})
                 samples.append(row)
             except Exception as exc:  # noqa: BLE001 - a missed sample is recorded, never fatal to the walk
                 samples.append({'at': at, 'error': str(exc)[:200]})
