@@ -85,6 +85,12 @@ class BackgroundVerdict(unittest.TestCase):
         failures = walk.background_verdict(early, SHORT, SUBJECT, BACKGROUND, SENT, 45, WAITING)
         self.assertTrue(any('before a 45 s command could have ended' in f for f in failures), failures)
 
+    def test_git_dash_c_log_is_the_same_command(self):
+        # The first proof run's back end wrote it this way, and the walk refused its own pass.
+        measured = [{'command': 'sleep 45 && git -C "/Users/admin/testvm/walk-9021a655830f/home/Acme" log --oneline',
+                     'background': True, 'stdout': ''}]
+        self.assertEqual(walk.background_verdict(finished(), SHORT, SUBJECT, measured, SENT, 45, WAITING), [])
+
     def test_a_command_run_in_the_foreground_is_not_this_path(self):
         foreground = [dict(BACKGROUND[0], background=False)]
         failures = walk.background_verdict(finished(), SHORT, SUBJECT, foreground, SENT, 45, WAITING)

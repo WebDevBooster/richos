@@ -56,6 +56,7 @@ Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.
 import argparse
 import importlib.util
 import json
+import re
 from pathlib import Path
 import shlex
 import subprocess
@@ -328,7 +329,8 @@ def background_verdict(record, short, subject, commands, sent, seconds, waiting)
     Separate from the guest so the rules can be tested on records (test/command-walk.test.py)."""
     notices = record.get('notices') or []
     failures = []
-    if not any(c.get('background') and 'git log' in c.get('command', '') for c in commands):
+    # `git -C "<folder>" log` is the same command (measured on the first proof run, 2026-09-27).
+    if not any(c.get('background') and re.search(r'\bgit\b.*\blog\b', c.get('command', '')) for c in commands):
         failures.append('the back end did not run the command in the background, so this was not exercised: '
                         + json.dumps(commands))
     if record.get('kind') != 'task':
