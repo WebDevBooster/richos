@@ -42,6 +42,7 @@ import argparse
 import importlib.util
 import json
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
@@ -87,6 +88,12 @@ def stoppable(assignments):
     return None, ('REFUSED: the assignment was already %s when Stop was to be pressed, with its commands '
                   'still running, so there is nothing to Stop: %s'
                   % ('/'.join(sorted({a.get('state') or '?' for a in assignments})), json.dumps(assignments)))
+
+
+def names_commands(question):
+    """Does the quit question name a running command? lifecycle.rs quit_question counts one per
+    process group, so two heartbeats read "2 commands Rich started", never "a command"."""
+    return re.search(r'\bcommands? Rich started\b', question) is not None
 
 
 def recorded(rows, names, since_ms):
@@ -325,7 +332,7 @@ class Walk(adopt.Walk):
         self.ax('click', '--title', 'Quit RichOS', '--role', 'AXMenuItem', '--in', 'menubar', '--first')
         self.wait_for('Quit and stop the work', seconds=20)
         question = command([HERE / 'ax.sh', self.vm, 'tree', '--in', 'dialog', '--max', '80'], 60)
-        if 'command Rich started' not in question:
+        if not names_commands(question):
             raise StepFailed('the quit question did not name the running command')
         trigger = self.now()
         self.press('Quit and stop the work')
@@ -336,7 +343,7 @@ class Walk(adopt.Walk):
         groups = {c['pgid'] for c in evidence['commands'].values()}
         if not app_log or not any('killed group %d' % g in reap_log for g in groups):
             raise StepFailed('the quit left no reap lines: app log %r, reap log %r' % (app_log, reap_log[-400:]))
-        return dict(evidence, app_log=app_log, started=started)
+        return dict(evidence, app_log=app_log, question=question[-800:], started=started)
 
     def crash(self):
         self.facts['app'] = self.relaunched()

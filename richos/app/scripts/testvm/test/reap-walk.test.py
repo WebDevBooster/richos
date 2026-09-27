@@ -160,6 +160,14 @@ class Grade(unittest.TestCase):
             kinds = [(r['kind'], r.get('pid')) for r in rows if r['kind'] != 'watch-start']
             self.assertEqual(kinds, [('seen', me['pid']), ('gone', me['pid'])])
 
+    def test_the_quit_question_names_one_command_or_several(self):
+        # lifecycle.rs quit_question, the three forms: one command per process group outside
+        # the provider's (lease_commands.rs), so the quit step's two heartbeats read "2 commands".
+        self.assertTrue(walk.names_commands('You have a command Rich started still running. Quitting stops the work.'))
+        self.assertTrue(walk.names_commands('You have 2 commands Rich started still running. Quitting stops the work.'))
+        self.assertTrue(walk.names_commands('You have a command Rich started that may still be running.'))
+        self.assertFalse(walk.names_commands('You have 1 assignment still running in the background.'))
+
     def test_ps_time_is_read_past_an_hour(self):
         self.assertAlmostEqual(walk.cpu_seconds('0:01.46'), 1.46)
         self.assertAlmostEqual(walk.cpu_seconds(' 1:02:03.50\n'), 3723.5)
