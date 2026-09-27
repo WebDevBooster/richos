@@ -86,6 +86,29 @@ def validate_text(text):
     return value
 
 
+# Claude Code backfills `content` into the SendMessage input its hooks see, as a
+# PREVIEW of `message`: the whole message when it fits in 50 display columns,
+# otherwise a prefix and an ellipsis (captured on 2.1.283, 2026-09-27). Never a
+# copy of a long message, so demanding equality refused every generated pause.
+PREVIEW_COLUMNS = 50
+ELLIPSIS = "…"
+
+
+def is_preview(alias, text):
+    """True when alias is text itself, or the harness's truncated preview of it.
+
+    A preview adds no word of its own: everything before its final ellipsis is
+    the start of the already-validated message, and it is no longer than the
+    harness ever makes one. Anything else is a second instruction.
+    """
+    if alias == text:
+        return True
+    if not isinstance(alias, str) or not alias.endswith(ELLIPSIS) or len(alias) > PREVIEW_COLUMNS:
+        return False
+    head = alias[:-len(ELLIPSIS)]
+    return 0 < len(head) < len(text) and text.startswith(head)
+
+
 def validate_payload(payload):
     if payload.get("tool_name") != "SendMessage":
         return
@@ -110,8 +133,9 @@ def validate_payload(payload):
     validate_text(text)
     if summary not in (None, "", SUMMARY):
         raise ValueError("pause summary was changed; use the generated summary unchanged")
-    # An alias must not carry a second, contradictory instruction.
-    if "content" in ti and ti["content"] != text:
+    # An alias must not carry a second, contradictory instruction. The harness's
+    # own preview of the message is not one.
+    if "content" in ti and not is_preview(ti["content"], text):
         raise ValueError("pause content alias must equal the generated message")
     if ti.get("type", "message") != "message" or ti.get("messageType", "message") != "message":
         raise ValueError("a pause is a message, never a shutdown request")
