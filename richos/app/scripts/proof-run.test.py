@@ -339,8 +339,9 @@ try:
             fh.write("cd richos/app && bash -c %s\n" % shlex_quote(command))
         out = open(os.path.join(tmp, name + ".out"), "w")
         env = {**os.environ, "RICHOS_PROOF_RUN_SLOTS_DIR": slots_dir, "RICHOS_WAITER": name,
-               "RICHOS_RUNTIME_DIR": os.path.join(tmp, "no-runtime"), **(extra_env or {})}
+               "RICHOS_RUNTIME_DIR": os.path.join(tmp, "no-runtime")}
         env.pop("RICHOS_PROOF_RUN_SLOT_HELD", None)   # this suite may itself run inside a proof run
+        env.update(extra_env or {})
         return subprocess.Popen([sys.executable, "-c", runner_boot, "--commands", cmds,
                                  "--log-dir", os.path.join(tmp, name + ".log")],
                                 stdout=out, stderr=subprocess.STDOUT, env=env)
