@@ -92,6 +92,52 @@ fn wait(
     }
 }
 
+/// Hand the callback to the canonical hook, unchanged, and pass its answer on.
+///
+/// **AND A DOCUMENT WRITTEN FOR HIM COMES OUT AMERICAN** (CEO §93; §13 "generated documents
+/// the CEO opens"). This wrapper is the one `PreToolUse` registration both leases install, so
+/// every Write, Edit, MultiEdit and NotebookEdit an app session or its workers make passes
+/// here. When the write goes to a prose file and carries words the American spelling table
+/// changes, the canonical hook's single output is captured and the fixed input merged into it
+/// (`american_spelling::merge_into_envelope`); otherwise nothing about this path changes, and
+/// the hook's output goes straight through as before. The canonical hook still judges the
+/// ORIGINAL call, as every parallel guard does; the fix differs from it only by spelling.
+fn run_canonical(
+    program: &std::ffi::OsStr,
+    args: impl Iterator<Item = std::ffi::OsString>,
+    bytes: &[u8],
+    payload: &Value,
+    out: &mut dyn Write,
+) -> io::Result<i32> {
+    let fix = match (payload.get("tool_name").and_then(Value::as_str), payload.get("tool_input")) {
+        (Some(tool), Some(input)) => crate::american_spelling::fix_tool_input(tool, input),
+        _ => None,
+    };
+    let mut command = Command::new(program);
+    command.args(args).stdin(Stdio::piped());
+    if fix.is_some() {
+        command.stdout(Stdio::piped());
+    }
+    let mut child = command.spawn()?;
+    child
+        .stdin
+        .take()
+        .ok_or_else(|| io::Error::other("missing hook input"))?
+        .write_all(bytes)?;
+    let Some((fixed, changes)) = fix else {
+        return Ok(child.wait()?.code().unwrap_or(2));
+    };
+    let output = child.wait_with_output()?;
+    let code = output.status.code().unwrap_or(2);
+    // A refusal, or output that is not one envelope, goes on exactly as the hook wrote it.
+    let merged = (code == 0)
+        .then(|| crate::american_spelling::merge_into_envelope(&output.stdout, fixed, &changes))
+        .flatten();
+    out.write_all(merged.as_deref().unwrap_or(&output.stdout))?;
+    out.flush()?;
+    Ok(code)
+}
+
 /// Runs before Tauri initialization in the desktop executable. The canonical
 /// hook still decides permissions, targets and receipts after this gate opens.
 pub fn run_cli() -> i32 {
@@ -120,16 +166,7 @@ pub fn run_cli() -> i32 {
         let program = args
             .next()
             .ok_or_else(|| io::Error::other("missing canonical hook"))?;
-        let mut child = Command::new(program)
-            .args(args)
-            .stdin(Stdio::piped())
-            .spawn()?;
-        child
-            .stdin
-            .take()
-            .ok_or_else(|| io::Error::other("missing hook input"))?
-            .write_all(&bytes)?;
-        Ok(child.wait()?.code().unwrap_or(2))
+        run_canonical(&program, args, &bytes, &payload, &mut io::stdout())
     })();
     match result {
         Ok(code) => code,
@@ -273,5 +310,89 @@ mod tests {
             Duration::ZERO
         )
         .is_err());
+    }
+
+    // ---- a document written for him comes out American (CEO §93) ----------------------------
+
+    /// A stand-in for `app-engine-hook.py`: records the bytes it was given, prints `stdout` and
+    /// exits with `code`.
+    fn canonical(dir: &Path, stdout: &str, code: i32) -> (std::path::PathBuf, std::path::PathBuf) {
+        let seen = dir.join("seen.json");
+        let script = dir.join("canonical.sh");
+        fs::write(dir.join("stdout.txt"), stdout).unwrap();
+        fs::write(
+            &script,
+            format!("#!/bin/sh\ncat > '{}'\ncat '{}'\nexit {code}\n", seen.display(), dir.join("stdout.txt").display()),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        (script, seen)
+    }
+
+    fn document_write(dir: &Path, name: &str) -> (Value, String) {
+        let body = crate::american_spelling::tests::section("report");
+        let payload = json!({"hook_event_name": "PreToolUse", "tool_name": "Write", "agent_id": "worker-1",
+            "tool_input": {"file_path": dir.join(name).to_str().unwrap(), "content": body}});
+        (payload, body)
+    }
+
+    #[test]
+    fn a_prose_document_write_is_fixed_inside_the_canonical_hook_s_one_envelope() {
+        let root = Scratch::new();
+        let worker = r#"{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"Host-verified assignment."}}"#;
+        let (script, seen) = canonical(root.path(), &format!("{worker}\n"), 0);
+        let (payload, body) = document_write(root.path(), "summary.md");
+        let bytes = serde_json::to_vec(&payload).unwrap();
+        let mut out = Vec::new();
+        let code = run_canonical(script.as_os_str(), std::iter::empty(), &bytes, &payload, &mut out).unwrap();
+        assert_eq!(code, 0);
+        // The canonical hook judged the ORIGINAL call, byte for byte.
+        assert_eq!(fs::read(&seen).unwrap(), bytes);
+        // One envelope, carrying both the hook's context and the fix, and no decision.
+        let text = String::from_utf8(out).unwrap();
+        assert_eq!(text.trim().lines().count(), 1, "exactly one JSON object: {text}");
+        let envelope: Value = serde_json::from_str(text.trim()).unwrap();
+        let specific = &envelope["hookSpecificOutput"];
+        assert_eq!(specific["hookEventName"], "PreToolUse");
+        assert!(specific.get("permissionDecision").is_none(), "a fix must never approve the write");
+        assert_eq!(specific["updatedInput"]["content"].as_str().unwrap(), crate::american_spelling::fix(&body));
+        assert_eq!(specific["updatedInput"]["file_path"], payload["tool_input"]["file_path"]);
+        let context = specific["additionalContext"].as_str().unwrap();
+        assert!(context.starts_with("Host-verified assignment."), "{context}");
+        assert!(context.contains("American spelling: this write was changed before it ran, 5 word(s)"), "{context}");
+    }
+
+    #[test]
+    fn a_refused_or_code_or_clean_write_passes_through_exactly_as_the_canonical_hook_answered() {
+        let root = Scratch::new();
+        // Refused: the hook's own words and exit code, untouched.
+        let (script, _) = canonical(root.path(), "refused\n", 2);
+        let (payload, _) = document_write(root.path(), "summary.md");
+        let bytes = serde_json::to_vec(&payload).unwrap();
+        let mut out = Vec::new();
+        assert_eq!(run_canonical(script.as_os_str(), std::iter::empty(), &bytes, &payload, &mut out).unwrap(), 2);
+        assert_eq!(out, b"refused\n");
+        // A decision already made is never overridden.
+        let (script, _) = canonical(root.path(), r#"{"decision":"block","reason":"no"}"#, 0);
+        let mut out = Vec::new();
+        run_canonical(script.as_os_str(), std::iter::empty(), &bytes, &payload, &mut out).unwrap();
+        assert_eq!(out, br#"{"decision":"block","reason":"no"}"#);
+        // A code file: nothing is captured or merged (the hook writes to the inherited stdout).
+        let (script, _) = canonical(root.path(), "", 0);
+        let (payload, _) = document_write(root.path(), "main.rs");
+        let bytes = serde_json::to_vec(&payload).unwrap();
+        let mut out = Vec::new();
+        assert_eq!(run_canonical(script.as_os_str(), std::iter::empty(), &bytes, &payload, &mut out).unwrap(), 0);
+        assert!(out.is_empty());
+        // A tool that writes no document: the same.
+        let payload = json!({"tool_name": "Bash", "tool_input": {"command": "true"}});
+        let bytes = serde_json::to_vec(&payload).unwrap();
+        let mut out = Vec::new();
+        assert_eq!(run_canonical(script.as_os_str(), std::iter::empty(), &bytes, &payload, &mut out).unwrap(), 0);
+        assert!(out.is_empty());
     }
 }

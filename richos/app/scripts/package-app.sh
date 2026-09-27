@@ -426,6 +426,19 @@ verify_bundle() {
     failures+=("Contents/Resources/icon.icns differs from src-tauri/icons/icon.icns — the bundle is carrying an icon this repository did not generate")
   fi
 
+  # 3b. The third-party notices SHIPPED inside the bundle. The executable compiles in the
+  #     American spelling table, a modified version of VarCon, whose Ispell notice requires
+  #     its terms to travel with binaries built from modified source; tauri.conf.json's
+  #     bundle.resources copies docs/legal/THIRD-PARTY-NOTICES.md to Contents/Resources.
+  #     Checked by content, not bytes, so --verify-only still reads an older bundle: the
+  #     page must be there and must carry its bundled-data section.
+  local notices="$app/Contents/Resources/THIRD-PARTY-NOTICES.md"
+  if [ ! -f "$notices" ]; then
+    failures+=("Contents/Resources/THIRD-PARTY-NOTICES.md is missing — the binary compiles in VarCon-derived data whose notice must ship with it")
+  elif ! grep -q '^## Bundled data compiled into the application' "$notices"; then
+    failures+=("Contents/Resources/THIRD-PARTY-NOTICES.md has no \"Bundled data compiled into the application\" section — the notice for the compiled-in spelling table is not in it")
+  fi
+
   # 4. The microphone usage string survived Tauri's Info.plist merge. Flagged
   #    unverified in src-tauri/Info.plist's own comment and in the signing wiki;
   #    without it macOS never shows the permission prompt.
