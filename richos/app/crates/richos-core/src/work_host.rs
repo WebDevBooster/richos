@@ -3495,7 +3495,7 @@ mod tests {
     fn his_stop_that_ends_the_back_end_is_told_as_a_stop_never_as_a_closed_channel() {
         let h = harness(5_000);
         h.fence.stop_ends_child.store(true, Ordering::SeqCst);
-        let _runner = h.host.start();
+        h.host.start();
         let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
         until_live(&h.host);
         h.host.stop_assignment("depot", "thread-one", &receipt.id).unwrap();
@@ -3530,7 +3530,7 @@ mod tests {
     fn a_quit_that_ends_the_back_end_mid_turn_leaves_the_assignment_stopped_not_failed() {
         let h = harness(5_000);
         h.fence.stop_ends_child.store(true, Ordering::SeqCst);
-        let _runner = h.host.start();
+        h.host.start();
         let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
         until_live(&h.host);
         h.host.shutdown();
