@@ -1015,7 +1015,7 @@ fn a_watermark_renewal_waits_for_a_command_the_front_desk_started() {
     spine.submit_prompt("it is done", Source::Text).unwrap();
     assert_eq!(spine.rotation_count(), 1, "the renewal never happened once the command ended");
     assert_eq!(spine.last_rotation_reason(), Some("context-watermark"));
-    let _ = std::fs::remove_file(&path);
+    std::fs::remove_file(&path).ok();
 }
 
 #[test]
@@ -1033,5 +1033,5 @@ fn an_explicit_rotation_is_not_held_by_a_running_command() {
     spine.request_rotation("test-forced").unwrap();
     spine.submit_prompt("two", Source::Text).unwrap();
     assert_eq!(spine.rotation_count(), 1);
-    let _ = std::fs::remove_file(&path);
+    std::fs::remove_file(&path).ok();
 }

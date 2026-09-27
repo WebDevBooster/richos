@@ -69,7 +69,7 @@ pub fn prepare(engine_state: &Path, session: &str) -> std::io::Result<(PathBuf, 
     std::fs::create_dir_all(&dir)?;
     let log = log_path(engine_state);
     if std::fs::metadata(&log).map(|m| m.len() > REAP_LOG_LIMIT).unwrap_or(false) {
-        let _ = std::fs::rename(&log, engine_state.join(format!("{REAP_LOG}.1")));
+        std::fs::rename(&log, engine_state.join(format!("{REAP_LOG}.1"))).ok();
     }
     // Garbage left by an earlier run of this app (§54): a state file whose supervisor answered
     // to another process. A live lease of THIS process is never touched.
@@ -81,7 +81,7 @@ pub fn prepare(engine_state: &Path, session: &str) -> std::io::Result<(PathBuf, 
                 .and_then(|text| serde_json::from_str::<Value>(&text).ok())
                 .and_then(|value| value.get("owner").and_then(Value::as_u64));
             if owner.is_some_and(|owner| owner != me as u64) {
-                let _ = std::fs::remove_file(&path);
+                std::fs::remove_file(&path).ok();
             }
         }
     }
@@ -154,7 +154,7 @@ impl LiveLeases {
     /// The lease is gone: forget it and remove its file.
     pub fn retire(&self, session: &str) {
         if let Some(state) = self.0.lock().unwrap().remove(session) {
-            let _ = std::fs::remove_file(state);
+            std::fs::remove_file(state).ok();
         }
     }
     pub fn reading(&self) -> CommandsReading {
@@ -176,7 +176,7 @@ mod tests {
 
     fn root(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("richos-lease-commands-{}-{name}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::remove_dir_all(&dir).ok();
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -210,7 +210,7 @@ mod tests {
         assert_eq!(read(&path), CommandReading::Clear);
         std::fs::write(&path, json!({"outside_provider_groups": [4242, 4343]}).to_string()).unwrap();
         assert_eq!(read(&path), CommandReading::Running(2));
-        let _ = std::fs::remove_dir_all(dir);
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
@@ -227,7 +227,7 @@ mod tests {
         leases.retire("a");
         assert!(!a.exists(), "a retired lease's file was left behind");
         assert_eq!(leases.reading(), CommandsReading { running: 0, unreadable: 0 });
-        let _ = std::fs::remove_dir_all(dir);
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
@@ -245,6 +245,6 @@ mod tests {
         assert!(!theirs.exists(), "an earlier run's state file was kept");
         assert!(ours.exists(), "a live lease's state file was removed");
         assert!(!log.exists() && dir.join(format!("{REAP_LOG}.1")).exists(), "the log was not moved aside");
-        let _ = std::fs::remove_dir_all(dir);
+        std::fs::remove_dir_all(dir).ok();
     }
 }

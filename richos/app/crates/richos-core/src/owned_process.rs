@@ -297,13 +297,17 @@ mod tests {
         let mut command = Command::new("/bin/sh");
         command.arg("-c").arg(script).arg(receipt);
         OwnedChild::configure(&mut command);
-        let child = command.spawn().unwrap();
+        let mut child = command.spawn().unwrap();
         for _ in 0..200 {
             if std::fs::read_to_string(receipt).map(|s| s.trim().parse::<i32>().is_ok()).unwrap_or(false) {
                 return child;
             }
             std::thread::sleep(Duration::from_millis(10));
         }
+        // The fixture failed: end the group it started (captured at spawn) and reap its leader,
+        // so a failed test leaves nothing running.
+        group_kill(child.id());
+        child.wait().ok();
         panic!("fixture: the fake leader never wrote its child's pid");
     }
 
@@ -335,7 +339,7 @@ mod tests {
 
     fn receipt(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("richos-owned-process-{}-{name}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::remove_dir_all(&dir).ok();
         std::fs::create_dir_all(&dir).unwrap();
         dir.join("child.pid")
     }
@@ -361,7 +365,7 @@ mod tests {
         owned.fence().kill();
         assert!(alive(sleeper), "the fence signaled after the reap");
         clean_up(sleeper);
-        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
     #[test]
@@ -377,7 +381,7 @@ mod tests {
         assert!(took >= BOUND, "the group was killed before the bound: {took:?}");
         assert!(took < BOUND + Duration::from_secs(1), "the wait overran its bound: {took:?}");
         assert!(dies_within(sleeper, Duration::from_secs(1)), "the group outlived the escalation");
-        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
     #[test]
@@ -392,7 +396,7 @@ mod tests {
         assert!(alive(sleeper), "the group was killed before the bound");
         assert!(dies_within(sleeper, BOUND + Duration::from_secs(1)), "no escalation followed the bound");
         owned.wait().unwrap();
-        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
     #[test]
@@ -406,7 +410,7 @@ mod tests {
         assert!(dies_within(sleeper, Duration::from_millis(300)), "the unsupervised fence no longer kills the group");
         owned.wait().unwrap();
         assert!(started.elapsed() < Duration::from_secs(1));
-        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
     #[test]
@@ -428,7 +432,7 @@ mod tests {
         // Reaped fences are skipped by a later settle, so nothing is signaled twice.
         assert_eq!(set.settle(Instant::now()), Settled { leases: 0, escalated: 0 });
         clean_up(kept);
-        let _ = std::fs::remove_dir_all(honors.parent().unwrap());
-        let _ = std::fs::remove_dir_all(ignores.parent().unwrap());
+        std::fs::remove_dir_all(honors.parent().unwrap()).ok();
+        std::fs::remove_dir_all(ignores.parent().unwrap()).ok();
     }
 }
