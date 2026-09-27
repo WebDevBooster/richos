@@ -445,7 +445,14 @@ def record_verification_cost(context, completion):
         path = directory / (key + '.json')
         record = read_json(path)
         if record is None:
-            record = {'schema': 1, 'comparison': comparison, 'baseline': current, 'recent': []}
+            # Retain one self-contained baseline inside the existing bounded
+            # history. Run rotation must not leave an opaque input hash and a
+            # dead path as the only explanation of the original measurement.
+            # Copy before finish() attaches this cost record to completion.
+            evidence = json.loads(json.dumps({'context': context,
+                'completion': {k: v for k, v in completion.items() if k != 'cost'}}))
+            record = {'schema': 1, 'comparison': comparison,
+                      'baseline': {**current, 'evidence': evidence}, 'recent': []}
         if record.get('schema') != 1 or record.get('comparison', {}).get('key') != key:
             raise ValueError('invalid verification cost history: ' + str(path))
         baseline = record['baseline']

@@ -433,7 +433,9 @@ def reserve_item(item, n, args, logdir):
         comparison.update(command=proof_evidence.command_identity(item, ROOT, logdir),
                           settings=identity.get('settings', {}), check=item.label, cpu_count=os.cpu_count())
         context['cost_comparison'] = {'key': proof_evidence.digest(comparison),
+                                      'identity': comparison,
                                       'predicted_seconds': item.weight, 'check': item.label}
+        context['input_evidence'] = {'source': evidence.source, 'input': identity}
         previous_cost = cpu_guard.previous_verification_cost(context['cost_comparison']['key'])
         if previous_cost and previous_cost['status'] in ('growth', 'uncertain-growth'):
             note = 'previous execution needs cost review (' + previous_cost['status'] + '); investigate before repetition: ' + previous_cost['history']

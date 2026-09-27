@@ -5,6 +5,7 @@ import subprocess
 import sys
 import time
 import signal
+import shutil
 import proc_tree
 import os
 from pathlib import Path
@@ -522,6 +523,23 @@ class CostTests(unittest.TestCase):
         record = guard.read_json(first['history'])
         self.assertEqual(len(record['recent']), 20)
         self.assertEqual(record['baseline'], first['baseline'])
+
+    def test_cost_baseline_remains_auditable_after_original_run_rotation(self):
+        original = guard.STATE / 'rotated-run'
+        original.mkdir()
+        self.context.update(result=str(original / 'supervision.json'),
+            input_evidence={'source': {'commit': 'original'}, 'input': {'tools': 'original-tools'}})
+        first = self.cost()
+        guard.write_json(self.context['result'], first)
+        shutil.rmtree(original)
+        self.context['input_evidence']['source']['commit'] = 'later'
+        result = self.cost(80, 80)
+        saved = result['baseline']['evidence']
+        self.assertEqual(saved['context']['input_evidence']['source']['commit'], 'original')
+        self.assertEqual(saved['completion']['reaped_cpu_seconds'], 50)
+        self.assertEqual(saved['completion']['measurement']['load']['samples'], 3)
+        self.assertEqual(result['baseline'], first['baseline'])
+        self.assertEqual(result['status'], 'growth')
 
 
 class SupervisorTests(unittest.TestCase):
