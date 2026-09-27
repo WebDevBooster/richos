@@ -115,9 +115,28 @@ class OwnedTreeTests(unittest.TestCase):
                 if final_alive:
                     tree = object.__new__(proc_tree.TrackedTree)
                     tree.known = {991001: 'prior-native-generation'}
+                    tree.root, tree.root_birth = 991001, 'prior-native-generation'
+                    tree.groups, tree.empty_groups = {}, set()
                     with patch.object(proc_tree, 'process_rows', return_value=rows), \
+                            patch.object(proc_tree, '_alive', return_value=[991001]), \
+                            patch.object(proc_tree.time, 'monotonic', side_effect=[0, 2]), \
                             self.assertRaisesRegex(RuntimeError, 'generation is unreadable'):
                         tree.refresh()
+
+    def test_owned_unknown_reconciles_exit_and_recycled_generation(self):
+        for native, alive in ((None, []),
+                              ({'ppid': 1, 'pgid': 991099, 'start': 'replacement', 'zombie': False}, [991001]),
+                              ({'ppid': 1, 'pgid': 991001, 'start': 'original', 'zombie': False}, [991001])):
+            with self.subTest(native=native):
+                tree = object.__new__(proc_tree.TrackedTree)
+                tree.root, tree.root_birth = 991001, 'original'
+                tree.known, tree.groups, tree.empty_groups = {991001: 'original'}, {}, set()
+                with patch.object(proc_tree, 'process_rows', return_value={991001: (1, 991001, None)}), \
+                        patch.object(proc_tree, '_alive', return_value=alive), \
+                        patch.object(proc_tree.operator_fences, 'proc', side_effect=[None, native]), \
+                        patch.object(proc_tree.time, 'sleep'):
+                    result = tree.refresh()
+                self.assertEqual(result, {991001} if native and native['start'] == 'original' else set())
 
     def test_native_lookup_across_exec_uses_native_generation_not_status(self):
         topology = subprocess.CompletedProcess([], 0, '991001 1 991001\n', '')

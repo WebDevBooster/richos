@@ -96,7 +96,10 @@ class Reliability(unittest.TestCase):
                 patch.object(proc_tree, 'process_rows', return_value={100: (1, 100, 'original')}) as rows:
             tracker = proc_tree.TrackedTree(100, 'fixture-scope')
             rows.return_value = {100: (1, 100, None)}
-            with self.assertRaisesRegex(RuntimeError, 'unreadable'):
+            with patch.object(proc_tree.operator_fences, 'proc', return_value=None), \
+                    patch.object(proc_tree, '_alive', return_value=[100]), \
+                    patch.object(proc_tree.time, 'monotonic', side_effect=[0, 2]), \
+                    self.assertRaisesRegex(RuntimeError, 'unreadable'):
                 tracker.refresh()
 
     def test_parent_exit_between_samples_retains_group_until_absence_is_confirmed(self):
@@ -137,10 +140,12 @@ class Reliability(unittest.TestCase):
         with patch.object(proc_tree.operator_fences, 'proc', return_value=None), \
                 patch.object(proc_tree.subprocess, 'run', side_effect=[
                     SimpleNamespace(stdout='100 1 100\n101 100 100\n102 100 100\n', returncode=0),
-                    SimpleNamespace(stdout='100 S\n101 Z\n', returncode=0)]) as run:
+                    SimpleNamespace(stdout='100 S\n101 Z\n', returncode=0),
+                    SimpleNamespace(stdout='100 S\n', returncode=0)]) as run:
             self.assertEqual(proc_tree.process_rows(), {100: (1, 100, None)})
-            self.assertEqual(run.call_count, 2)
-            self.assertEqual(run.call_args.args[0][-1], '100,101,102')
+            self.assertEqual(run.call_count, 3)
+            self.assertEqual(run.call_args_list[1].args[0][-1], '100,101,102')
+            self.assertEqual(run.call_args.args[0][-1], '100')
 
     def test_native_generation_is_rechecked_after_a_live_status_observation(self):
         for zombie in (False, True):

@@ -47,6 +47,9 @@ echo "=== run-all-tests: the leak canary is wired, and it decides the verdict ==
 # this suite neither depends on the operator's real record nor touches it.
 export CLAUDE_CONFIG_DIR="$SANDBOX/cfg"
 export RICHOS_MACHINE_WORKERS="$SANDBOX/machine" RICHOS_ENGINE_PASS_DIR="$SANDBOX/slot"
+# Deliberate leaks belong to the generated engine's domain. The surrounding
+# shard still witnesses this entire suite and reports any actual outer escape.
+export RICHOS_VERIFICATION_CONTAMINATION="$SANDBOX/expected-contamination"
 unset RICHOS_WORKER_TOKENS RICHOS_WORKER_SLOT_HELD RICHOS_WORKER_BORROW_LOCK
 mkdir -p "$CLAUDE_CONFIG_DIR/state"
 

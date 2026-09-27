@@ -218,32 +218,53 @@ class TrackedTree:
 
     def refresh(self, tags=False):
         table = process_rows()
-        for pid in self.known:
-            if pid in table and table[pid][2] is None:
-                raise RuntimeError("owned process generation is unreadable: %s" % pid)
-        owned = {pid for pid, birth in self.known.items() if pid in table and table[pid][2] == birth}
-        if self.root in table and table[self.root][2] == self.root_birth:
-            owned.add(self.root)
-        # A short-lived shell may exit between samples while its background child
-        # retains the original group. Keep that group until empty, rejecting a reused leader PID.
-        empty = {g for g in self.groups if not any(row[1] == g for row in table.values())}
-        self.groups = {g: birth for g, birth in self.groups.items()
-                       if (g not in table or table[g][2] == birth)
-                       and not (g in empty and g in self.empty_groups)}
-        self.empty_groups = empty
-        owned |= {p for p, row in table.items() if row[1] in self.groups}
-        if tags:
-            owned |= scoped_members(self.scope)
+        tagged = scoped_members(self.scope) if tags else set()
+        deadline = time.monotonic() + 1.0
         while True:
-            groups = {table[p][1] for p in owned if p in table} - {os.getpgrp(), 0, 1}
-            more = {pid for pid, (parent, group, _) in table.items() if parent in owned or group in groups}
-            if more <= owned:
+            owned = {pid for pid, birth in self.known.items()
+                     if pid in table and table[pid][2] == birth}
+            if self.root in table and table[self.root][2] == self.root_birth:
+                owned.add(self.root)
+            # Preserve a group until empty, but reject a reused leader. An
+            # unreadable leader must first be reconciled, never assumed owned.
+            groups = {g: birth for g, birth in self.groups.items()
+                      if g not in table or table[g][2] in (birth, None)}
+            owned |= {p for p, row in table.items() if row[1] in groups}
+            owned |= tagged
+            while True:
+                active_groups = {table[p][1] for p in owned if p in table} - {os.getpgrp(), 0, 1}
+                more = {pid for pid, (parent, group, _) in table.items()
+                        if parent in owned or group in active_groups}
+                if more <= owned:
+                    break
+                owned |= more
+            unknown = {pid for pid in owned | set(self.known) | {self.root}
+                       if pid in table and table[pid][2] is None}
+            if not unknown:
                 break
-            owned |= more
+            # exec/exit can make libproc temporarily unavailable while ps still
+            # sees the process. Hold ownership and permits during this bounded
+            # reconciliation. Neither PID nor ps status establishes a generation.
+            alive = set(_alive(unknown))
+            for pid in unknown:
+                row = operator_fences.proc(pid, precise=True)
+                if row and not row["zombie"]:
+                    table[pid] = (row["ppid"], row["pgid"], row["start"])
+                elif row or pid not in alive:
+                    del table[pid]
+            unresolved = {pid for pid in unknown if pid in table and table[pid][2] is None}
+            if unresolved:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("owned process generation is unreadable: %s" % min(unresolved))
+                time.sleep(0.01)
+            # Recompute ownership with the newly read topology/generation. A
+            # recycled PID with a different parent/group must not join our tree.
+        empty = {g for g in groups if not any(row[1] == g for row in table.values())}
+        self.groups = {g: birth for g, birth in groups.items()
+                       if not (g in empty and g in self.empty_groups)}
+        self.empty_groups = empty
         for pid in owned:
             if pid in table:
-                if table[pid][2] is None:
-                    raise RuntimeError("owned process generation is unreadable: %s" % pid)
                 group = table[pid][1]
                 if group in table and group not in (os.getpgrp(), 0, 1):
                     self.groups[group] = table[group][2]

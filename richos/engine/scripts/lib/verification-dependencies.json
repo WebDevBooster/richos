@@ -486,7 +486,7 @@
     },
     "scripts/lib/proc_tree.py": {
       "source": "scripts/lib/proc_tree.py",
-      "sha256": "f1eb81ce30a67696a38e83e73734c9a26932af737c1a9bbf7e6bb44472e33140",
+      "sha256": "5e1e7cb483a161cf7b149c8913394dd987c53272237494f13b99ea9642101b92",
       "evidence": "Supervises the caller\u2019s command and samples owned processes. Its own inputs are environment, process identity and controller state, never orchestration settings.",
       "keys": [],
       "edges": [
@@ -2164,7 +2164,7 @@
     },
     "scripts/run-all-tests.test.sh": {
       "source": "scripts/run-all-tests.test.sh",
-      "sha256": "b10a543469a3a85f19ddeb51f7758814721a6c78e68049908146a55feddcb849",
+      "sha256": "a267526138ae42298eae8e2251c204519c92e449ad97973901f482001637b6ca",
       "evidence": "Copies the real serial runner and finite helpers into generated Git repositories containing literal config and tiny generated clean/leaking suites. Every runner invocation changes cwd to that fixture engine. The real config is never copied or compared.",
       "keys": [],
       "edges": [
