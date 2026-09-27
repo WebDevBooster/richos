@@ -16,9 +16,10 @@
 #   tailnet=<dnsname|not-joined>
 #
 # Each --vm name is an INDEPENDENT guest cloned from the provisioned base, so
-# two agents can each run.sh with different names and get a window each, at the
-# same time, neither touching the host's screen. That parallelism is the point:
-# on-screen proofs used to be a queue of one behind the CEO's working day.
+# two runs can each have a guest and a window, at the same time, neither touching
+# the host's screen. That parallelism is the point: on-screen proofs used to be a
+# queue of one behind the CEO's working day. Each of the two runs holds one guest
+# slot (slots.py) for its own length only; this script refuses to boot outside one.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/lib.sh"
@@ -51,6 +52,19 @@ fi
 [ -d "$FIXTURE_HOME" ] || die "no such fixture home: $FIXTURE_HOME"
 [ "$VM" != "$TESTVM_BASE_VM" ] || die "refusing to run in the base VM — it is the template every clone comes from"
 
+# --- a guest boots only inside a slot, for exactly one run --------------------
+# The CEO, 2026-09-27: *"do I want the work to be BLOCKED AND PISSED AWAY like this because
+# the current worker might need the VM for a 5-second-long fart?"* A guest booted here by
+# hand is a guest nobody else can see or be scheduled around, kept up while its owner
+# thinks. So this boots only for a caller that holds one of the two guest slots
+# (slots.py): run-walk.py, run-probes.py, gui-proof-in-vm.sh, or `slots.py run -- ...`.
+# The slot is recorded in the run state below, and a slot released with its guest still
+# up stops that guest (a guest never outlives its slot).
+SLOT_WHY="$(python3 "$HERE/slots.py" check 2>&1)" || die "no guest is booted outside a guest slot: $SLOT_WHY.
+  Put the steps in a script that takes the VM name as its first argument and run it once:
+    $HERE/run-walk.py --bundle <zip> --home <home> --engine <engine> --report <json> -- <script>
+  The slot is held for that run only and is free again the moment it ends."
+
 # --- 0. what this host can give the guest, asked BEFORE anything boots --------
 # Both of these are properties of THIS Mac, so they are answered before a 25 GB
 # clone exists to clean up. A guest gets the host's claude binary and the host's
@@ -68,6 +82,7 @@ vm_exists "$TESTVM_BASE_VM" || die "base VM missing — run testvm/setup.sh firs
 
 STATE="$TESTVM_RUN/$VM"
 mkdir -p "$STATE"
+printf '%s\n' "$TESTVM_SLOT" > "$STATE/slot"
 
 # --- 1. an ephemeral clone ----------------------------------------------------
 # Cloning is copy-on-write on APFS: a new guest costs seconds and almost no

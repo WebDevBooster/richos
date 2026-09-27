@@ -1529,6 +1529,16 @@ t "slots: two runs at once, a third waits; a slot is held only for its run and a
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/slots.test.py" >"$TMP/slots.log" 2>&1; ok $? "$(cat "$TMP/slots.log")"
 t_done
 
+t "slots: run.sh boots no guest outside a slot, and names the one command that does"
+  : > "$TMP/slot-bundle.zip"; mkdir -p "$TMP/slot-home"
+  out="$(env -u TESTVM_SLOT "$TESTVM_DIR/run.sh" --bundle "$TMP/slot-bundle.zip" --home "$TMP/slot-home" --vm richos-test-slot 2>&1)"; no $?
+  has "$out" "no guest is booted outside a guest slot"
+  has "$out" "run-walk.py"
+  [ ! -e "$TESTVM_RUN/richos-test-slot" ]; ok $? "a refused run.sh must leave no run state"
+  out="$(TESTVM_SLOT="$TESTVM_ROOT/guest.lock" "$TESTVM_DIR/run.sh" --bundle "$TMP/slot-bundle.zip" --home "$TMP/slot-home" --vm richos-test-slot 2>&1)"; no $?
+  has "$out" "is not held"
+t_done
+
 t "files-since: every class, the baseline window, and a control that must be found and flagged"
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/files-since.test.py" >"$TMP/files-since.log" 2>&1; ok $? "$(cat "$TMP/files-since.log")"
 t_done
