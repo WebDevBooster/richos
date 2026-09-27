@@ -9,9 +9,10 @@ caller that arrives while the first is between runs gets a slot immediately. Thi
 real harness (run-walk.py + smoke-walk.py, each a real guest booting the real app), in two parts:
 
   PART 1, ONE slot (TESTVM_SLOTS=1), so nothing but the release rule can explain the result. Run
-  A1 ends and its caller is "between runs" (thinking). Caller D arrives 5 s later and must be
-  admitted with no wait. A's next run, A2, arrives 10 s after A1 ended and waits for D's run,
-  not the other way round.
+  A1 ends and its caller is "between runs" (thinking). Caller D arrives 5 s later and must never
+  wait for the slot: any wait it has names the Mac's CPU or memory (CEO ruling §77), which a
+  busy Mac imposes on every run alike, and is reported apart. A's next run, A2, arrives after D
+  holds the slot and waits for D's run, not the other way round.
 
   PART 2, two slots. Run A starts; run B arrives while A executes. B must never wait for a slot
   (the second one is free); it is admitted at once when the Mac's CPU and memory allow a second
@@ -123,10 +124,12 @@ def main():
         run_d = walk('D', 30, one)
         run_d.poll_until(run_d.held, 1800)
         held_d = run_d.held()
-        fact('with ONE slot, D arriving while A is between runs is admitted with no wait',
-             rc_a1 == 0 and held_d and held_d['waited_s'] == 0,
+        slot_waits = [w for w in run_d.waits() if w.startswith('every slot is executing')]
+        fact('with ONE slot, D arriving while A is between runs never waits for the slot',
+             rc_a1 == 0 and held_d and not slot_waits,
              {'A1_exit': rc_a1, 'D': held_d, 'D_arrived_after_A1_released_s': round(run_d.started - ended, 1),
-              'D_waits': run_d.waits()})
+              'D_slot_waits': len(slot_waits), 'D_resource_waits': len(run_d.waits()) - len(slot_waits),
+              'D_first_resource_wait': (run_d.waits() or [None])[0]})
         time.sleep(max(0, ended + 10 - time.time()))
         run_a2 = walk('A2', 0, one)
         rc_d, rc_a2 = run_d.finish(), run_a2.finish()
