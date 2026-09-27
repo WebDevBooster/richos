@@ -5373,7 +5373,7 @@ mod tests {
         fn close_answered(&self, _record: &Assignment, _answer: &str) -> Result<(), String> {
             self.asked.fetch_add(1, Ordering::SeqCst);
             let open = self.open.lock().unwrap();
-            let _ = self.released.wait_timeout_while(open, std::time::Duration::from_secs(10), |open| !*open).unwrap();
+            drop(self.released.wait_timeout_while(open, std::time::Duration::from_secs(10), |open| !*open).unwrap());
             Ok(())
         }
     }
