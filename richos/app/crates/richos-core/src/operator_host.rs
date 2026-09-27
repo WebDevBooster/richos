@@ -438,6 +438,21 @@ pub enum AnswerOutcome {
 pub const RESEND_NOTE: &str = "This session restarted before RichOS could confirm you received this answer. If it is \
                                already in your conversation, it is the same answer: do not act on it twice.";
 
+/// **The VM crash matrix's abort points** (design §4.2): with the `crash-points` feature, the
+/// process aborts where `RICHOS_CRASH_POINT` names this point (`W1b`, `W2`, `W3`), as a crash
+/// would, with no cleanup. Without the feature (every product build) it is empty.
+#[cfg(feature = "crash-points")]
+pub(crate) fn crash_point(name: &str) {
+    if std::env::var("RICHOS_CRASH_POINT").is_ok_and(|point| point == name) {
+        eprintln!("crash point {name}: aborting");
+        std::process::abort();
+    }
+}
+
+#[cfg(not(feature = "crash-points"))]
+#[inline(always)]
+pub(crate) fn crash_point(_name: &str) {}
+
 fn read_record(path: &Path) -> LeadRecord {
     std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
 }
@@ -830,6 +845,7 @@ impl OperatorHost {
             self.save(&c.paths.record, &c.record);
             return Err(sentence);
         }
+        crash_point("W2"); // sent, not yet echoed
         if let Some(h) = handle {
             c.questions.retain(|(q, _)| q.as_deref() != Some(h));
         }
@@ -881,6 +897,7 @@ impl OperatorHost {
                 // The inbox lets the answer go only now (design §2.2). An answer that never
                 // entered the inbox (a direct call) has nothing to let go of.
                 if let Some(id) = taken {
+                    crash_point("W3"); // taken and saved, the inbox not yet told
                     if let Err(e) = crate::question_work::acknowledge_if_present(&self.state, &id) {
                         self.log(&format!("answer {id} was taken; the inbox could not record it ({e}), so the next \
                                            flush does"));

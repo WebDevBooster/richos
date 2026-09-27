@@ -2598,7 +2598,7 @@ class Walk(object):
     """The walk's back end, driven over JSON lines: one command, one answer; notices arrive as
     {"event": "say"} lines at any time. Its pid is this harness's own child: owned."""
 
-    def __init__(self, ctx, data, state, root, tag):
+    def __init__(self, ctx, data, state, root, tag, crash=None):
         self.ctx, self.says, self.replies = ctx, [], {}
         self.cond = threading.Condition()
         self.next = 0
@@ -2610,6 +2610,11 @@ class Walk(object):
                'RICHOS_WALK_LAUNCHCTL': str(ctx.p.work / 'launchctl-walk'),
                # The engine's ECS store, so the walk opens and settles obligations for real.
                'RICHOS_WALK_PYTHON': ctx.python}
+        if crash:
+            # W3's crash matrix: the named point aborts the walk (compiled in only with the
+            # `crash-points` feature). The launcher builds his lead's environment from empty,
+            # so this never reaches a lead.
+            env['RICHOS_CRASH_POINT'] = crash
         self.stderr_path = ctx.p.results / ('W2-walk-%s.stderr.txt' % tag)
         self.proc = subprocess.Popen([ctx.walk_binary, 'host', str(data), str(state), str(root)], stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, stderr=open(str(self.stderr_path), 'w'), env=env,
@@ -3141,6 +3146,170 @@ def w2(ctx, r, question_only=False):
 def s6(ctx, r):
     """Run only the question acceptance, with W2's gate, fixture and owned cleanup."""
     return w2(ctx, r, question_only=True)
+
+
+# =============================================================================================
+# W3: the crash matrix of his answers to his team (richos-hq
+# docs/plans/2026-09-27-answer-delivery-crash-dedup-design.md §4.2). One question set per cell,
+# through the real `operator_walk host`, a real lead and the durable stores. The walk binary is
+# built with the `crash-points` feature; RICHOS_CRASH_POINT names where it aborts. After each
+# crash a new walk opens on the same data folder, and flushes at launch as the app does.
+# =============================================================================================
+
+W3_CELLS = ('baseline', 'W1b', 'W2', 'W3', 'W4')
+
+
+def w3_gate_on(ctx, data, decl, home_env):
+    """W2 step 0's last state only: the declaration written, the switch declared on and the
+    fences installed and on, so the gate opens his team."""
+    p = ctx.p
+    (data / 'operator.json').write_text(json.dumps(decl, indent=1))
+    config = p.entity / 'orchestration.config'
+    config.write_text(config.read_text() + 'OPERATOR_FENCES="on"\nOPERATOR_FENCES_REPOS="%s"\n' % p.entity)
+    git(p.entity, 'add', 'orchestration.config')
+    git(p.entity, 'commit', '-q', '-m', 'W3 fixture: the operator switch declared on')
+    git(p.entity, 'push', '-q', 'origin', 'main')
+    fences = p.engine / 'scripts' / 'operator-fences.sh'
+    for verb in ('install', 'on'):
+        run(['/bin/bash', str(fences), verb, '--entity', str(p.entity)], env=home_env, cwd=str(p.entity), timeout=120)
+    return w2_gate(ctx, ctx.walk_binary, data)
+
+
+def w3_ledger(ctx, data, thread_name):
+    """What the durable stores hold for one cell's conversation: the answer relay, the inbox's
+    operator inputs still waiting, and how many transcript entries carry the relay's uuid."""
+    names = json.loads((data / 'walk-threads.json').read_text()) if (data / 'walk-threads.json').exists() else {}
+    tid = names.get(thread_name)
+    out = {'thread_id': tid}
+    record = data / 'operator' / 'femcboost' / (tid or '-') / 'lead.json'
+    relays = json.loads(record.read_text()).get('answers', []) if record.exists() else []
+    out['relays'] = relays
+    waiting = 0
+    for path in (data / 'engine-state' / 'questions' / 'work-inputs').glob('*.json'):
+        try:
+            row = json.loads(path.read_text())
+        except ValueError:
+            continue
+        if not row.get('handed') and (row.get('delivery') or {}).get('thread_id') == tid:
+            waiting += 1
+    out['inbox_waiting'] = waiting
+    out['transcript_uuid_counts'] = {rel['uuid']: len(uuid_entries(transcript_rows(ctx, rel.get('session') or '-'), rel['uuid']))
+                                     for rel in relays if rel.get('session')}
+    return out
+
+
+def grade_w3_cell(rec):
+    ledger = rec.get('ledger') or {}
+    relays = ledger.get('relays') or []
+    return (rec.get('reports') == 1 and len(relays) == 1 and relays[0].get('taken') is True
+            and ledger.get('inbox_waiting') == 0
+            and list((ledger.get('transcript_uuid_counts') or {}).values()) == [1])
+
+
+def w3_cell(ctx, data, state, root, cell):
+    rec = {'cell': cell}
+    thread, title = 'w3-%s' % cell.lower(), 'Walk W3 %s' % cell
+    marker = 'W3-%s-GOT' % cell.upper()
+    crash = cell if cell in ('W1b', 'W2', 'W3') else None
+    prepared = [{'text': 'When should release %s ship?' % cell, 'options': [
+        {'label': 'Ship today', 'description': 'Earlier fixes'},
+        {'label': 'Ship tomorrow', 'description': 'More testing'}]}]
+    walk = Walk(ctx, data, state, root, 'w3-%s-first' % cell, crash=crash)
+    walks = [walk]
+    try:
+        if not walk.ready:
+            rec['error'] = 'the walk did not start: %s' % (walk.stderr_path.read_text()[-600:] if walk.stderr_path.exists() else '')
+            return rec
+        rec['register'] = walk.call('assign', thread=thread, title=title, origin='desk-typed', timeout=480,
+            text=FIXTURE_NOTE + ('Call mcp__richos_operator__report once with kind question, handle set to this '
+            'assignment\'s handle, text "W3 question", and questions set to this exact array: %s. Then reply with '
+            'exactly: W3-ASKED. When his answer arrives, call mcp__richos_operator__report once with kind update on '
+            'the same handle and text "%s: " followed by the label he chose. Report it once only, and never ask this '
+            'again.' % (json.dumps(prepared), marker)))
+        handle = rec['register'].get('handle')
+        questions = []
+        deadline = time.time() + 300
+        while handle and time.time() < deadline and len(questions) != 1:
+            questions = walk.call('questions', thread=thread, handle=handle).get('questions', [])
+            time.sleep(2)
+        rec['question_count'] = len(questions)
+        if len(questions) != 1:
+            return rec
+        walk.wait_say(lambda s: s['thread'] == thread and 'W3-ASKED' in s['text'], 240)
+        if cell == 'W4':
+            # Window W4: his answer waits in the CLI's queue behind a running command.
+            walk.call('assign', thread=thread, title=title, origin='desk-typed',
+                      text=lead_long_task(ctx, 180, 'with exactly: W3-LONG-DONE'))
+            rec['long_task_pid'] = wait_long_task(walk.proc.pid, 180, 240)
+        option = next(o['id'] for o in questions[0]['options'] if o['label'] == 'Ship tomorrow')
+        request = {'question_id': questions[0]['id'], 'client_id': 'w3-' + cell, 'option_ids': [option], 'text': '',
+                   'expected_revision': None}
+        rec['answer'] = walk.call('answer-question', thread=thread, method='phone_tap', answer=request,
+                                  timeout=60 if crash in ('W1b', 'W2') else 180)
+        if cell == 'W4':
+            time.sleep(5)
+            rec['long_task_alive_at_kill'] = bool(rec.get('long_task_pid')) and alive(rec['long_task_pid'])
+            walk.kill()
+        elif crash:
+            try:
+                walk.proc.wait(timeout=180)  # the crash point aborts the walk
+            except subprocess.TimeoutExpired:
+                rec['crash_point_not_reached'] = True
+                walk.kill()
+        else:
+            walk.wait_say(lambda s: s['thread'] == thread and marker in s['text'], 300)
+        rec['first_exit'] = walk.proc.poll()
+        if cell != 'baseline':
+            time.sleep(OPERATOR_REAP_GRACE + 1)
+            walk = Walk(ctx, data, state, root, 'w3-%s-relaunched' % cell)
+            walks.append(walk)
+            got = walk.wait_say(lambda s: s['thread'] == thread and marker in s['text'], 300)
+            if not got and cell == 'W3':
+                # The answer was TAKEN into the turn the crash killed, so nothing is resent
+                # (design §2.3), and nothing prompts the lead: its next words from him do.
+                rec['nudged'] = True
+                walk.call('assign', thread=thread, title=title, origin='desk-typed',
+                          text='Continue where you left off in this conversation.')
+                walk.wait_say(lambda s: s['thread'] == thread and marker in s['text'], 300)
+        time.sleep(20)  # a second report, if any, comes in this window
+        rec['reports'] = sum(1 for w in walks for s in w.says if s['thread'] == thread and marker in s['text'])
+        rec['says'] = [s for w in walks for s in w.says if s['thread'] == thread][-12:]
+        rec['ledger'] = w3_ledger(ctx, data, thread)
+    finally:
+        for w in walks:
+            if w.proc.poll() is None:
+                rec.setdefault('quit', []).append(w.quit())
+        rec['walks_gone'] = [w.proc.poll() is not None for w in walks]
+    rec['pass'] = grade_w3_cell(rec)
+    return rec
+
+
+@probe('W3', explicit=True)
+def w3(ctx, r):
+    if not getattr(ctx, 'walk_binary', None) or not os.path.exists(ctx.walk_binary):
+        return 'NOT-RUN', 'no operator_walk binary built with --features crash-points was handed to the guest'
+    p = ctx.p
+    decl, home_env = w2_fixture(ctx, r)
+    data = p.work / 'w3-data'
+    data.mkdir(parents=True, exist_ok=True)
+    state, root = p.work / 'w3-engine-state', p.work / 'w3-operator'
+    r['gate'] = w3_gate_on(ctx, data, decl, home_env)
+    if r['gate'].get('gate') != 'operator':
+        return 'PREMISE-FALSE', 'the gate did not open his team: %s' % r['gate']
+    cells = r.setdefault('cells', {})
+    for cell in W3_CELLS:
+        try:
+            cells[cell] = w3_cell(ctx, data, state, root, cell)
+        except Exception:  # noqa: BLE001 - one cell's harness failure is recorded; the next still runs
+            cells[cell] = {'cell': cell, 'error': traceback.format_exc()[-2000:], 'pass': False}
+    claim = p.claude_dir / 'state' / 'operator-lead.json'
+    left = json.loads(claim.read_text()).get('processes', []) if claim.exists() else []
+    r['lead_pids_alive_after'] = {str(x['pid']): alive(x['pid']) for x in left if x.get('role') != 'app'}
+    passed = [c for c in W3_CELLS if cells[c].get('pass')]
+    failed = [c for c in W3_CELLS if not cells[c].get('pass')]
+    if failed:
+        return 'FAIL', 'cells passed: %s; not passed: %s' % (passed, failed)
+    return 'PASS', 'every cell: reported once by the lead, one transcript entry for the uuid, inbox empty, relay taken'
 
 
 # =============================================================================================

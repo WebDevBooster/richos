@@ -435,6 +435,37 @@ class GradeP18(unittest.TestCase):
         self.assertNotIn('P18', gp.EXPLICIT)
 
 
+class CrashMatrix(unittest.TestCase):
+    def cell(self, **change):
+        rec = {'reports': 1, 'ledger': {'relays': [{'uuid': 'U', 'session': 'S', 'taken': True}], 'inbox_waiting': 0,
+                                        'transcript_uuid_counts': {'U': 1}}}
+        rec.update(change)
+        return rec
+
+    def test_a_cell_passes_only_delivered_once_and_let_go(self):
+        self.assertTrue(gp.grade_w3_cell(self.cell()))
+        for change in ({'reports': 0}, {'reports': 2}):
+            self.assertFalse(gp.grade_w3_cell(self.cell(**change)), change)
+        for key, value in (('inbox_waiting', 1), ('transcript_uuid_counts', {'U': 2}), ('transcript_uuid_counts', {}),
+                           ('relays', []), ('relays', [{'uuid': 'U', 'session': 'S', 'taken': False}])):
+            rec = self.cell()
+            rec['ledger'][key] = value
+            self.assertFalse(gp.grade_w3_cell(rec), (key, value))
+
+    def test_the_matrix_runs_only_when_named_and_needs_its_binary(self):
+        self.assertIn('W3', gp.EXPLICIT, 'a default probe run must never start the crash matrix')
+        self.assertEqual(gp.W3_CELLS, ('baseline', 'W1b', 'W2', 'W3', 'W4'))
+        ctx = gp.Context.__new__(gp.Context)
+        ctx.walk_binary = ''
+        self.assertEqual(gp.w3(ctx, {})[0], 'NOT-RUN')
+
+    def test_every_crash_point_the_harness_names_is_in_the_rust(self):
+        root = HERE.parents[2] / 'crates' / 'richos-core' / 'src'
+        rust = (root / 'operator_host.rs').read_text() + (root / 'operator_desk.rs').read_text()
+        for point in ('W1b', 'W2', 'W3'):
+            self.assertIn('crash_point("%s")' % point, rust)
+
+
 class Arguments(unittest.TestCase):
     def test_the_lead_arguments_mirror_the_operator_profile(self):
         """operator_profile::child_args, flag for flag. If the profile changes, this list must."""

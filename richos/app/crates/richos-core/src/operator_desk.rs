@@ -417,6 +417,7 @@ impl OperatorDesk {
                     continue;
                 }
             };
+            crate::operator_host::crash_point("W1b"); // in the inbox, nothing sent
             match self.deliver_answer(&key, handle.as_deref(), &delivery.id, &delivery.text) {
                 Ok(AnswerOutcome::Taken) => {
                     if let Err(error) = crate::question_work::acknowledge(&self.state_root, &delivery.id) {
