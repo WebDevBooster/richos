@@ -1534,7 +1534,7 @@ t "slots: run.sh boots no guest outside a slot, and names the one command that d
   out="$(env -u TESTVM_SLOT "$TESTVM_DIR/run.sh" --bundle "$TMP/slot-bundle.zip" --home "$TMP/slot-home" --vm richos-test-slot 2>&1)"; no $?
   has "$out" "no guest is booted outside a guest slot"
   has "$out" "run-walk.py"
-  [ ! -e "$TESTVM_RUN/richos-test-slot" ]; ok $? "a refused run.sh must leave no run state"
+  if [ -e "$TESTVM_RUN/richos-test-slot" ]; then ok 1 "a refused run.sh must leave no run state"; fi
   out="$(TESTVM_SLOT="$TESTVM_ROOT/guest.lock" "$TESTVM_DIR/run.sh" --bundle "$TMP/slot-bundle.zip" --home "$TMP/slot-home" --vm richos-test-slot 2>&1)"; no $?
   has "$out" "is not held"
 t_done
