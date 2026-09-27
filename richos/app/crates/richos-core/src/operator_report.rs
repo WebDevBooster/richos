@@ -328,7 +328,7 @@ pub struct ReportRecord {
 pub fn tools() -> Value {
     json!({"tools":[
         {"name": REPORT_TOOL_NAME,
-         "description": "Tell the CEO something. Everything you say at the end of a turn also reaches him; use this tool for a land, a file, a question, or a report on an assignment's handle. `kind`: `update` (progress), `question` (you need his answer; he is not at a terminal, so ask here and carry on with anything that does not depend on it), `answer` (a reply to a question of his that came without a handle; it closes nothing), `outcome` (the assignment on the handle is done; a question of his that came with a handle is closed with `outcome`, and he sees it as the answer), `failed` (it cannot be done). Only `outcome` or `failed` on a handle closes it. `handle`: the assignment this is about, exactly as the app gave it to you; leave it out for the conversation itself. `lands`: each land you are reporting, with the repository's absolute path, the FULL commit hash that is on the integration branch, the branch you merged, and `into` if the integration branch is not `main`. Every land is checked in Git before he is told it landed; one that cannot be confirmed is told to him as not confirmed. `files`: absolute paths of files he should see. `agents`: the names of the agents working on this handle.",
+         "description": "Tell the CEO something. Everything you say at the end of a turn also reaches him; use this tool for a land, a file, a question, or a report on an assignment's handle. `kind`: `update` (progress), `question` (you need his answer; he is not at a terminal, so ask here and carry on with anything that does not depend on it), `answer` (a reply to a question of his that came without a handle; it closes nothing), `outcome` (the assignment on the handle is done; a question of his that came with a handle is closed with `outcome`, and he sees it as the answer), `failed` (it cannot be done). Only `outcome` or `failed` on a handle closes it. An `outcome` that names a land Git cannot confirm closes nothing: make the land real and report `outcome` again, or report `failed`. `handle`: the assignment this is about, exactly as the app gave it to you; leave it out for the conversation itself. `lands`: each land you are reporting, with the repository's absolute path, the FULL commit hash that is on the integration branch, the branch you merged, and `into` if the integration branch is not `main`. Every land is checked in Git before he is told it landed; one that cannot be confirmed is told to him as not confirmed. `files`: absolute paths of files he should see. `agents`: the names of the agents working on this handle.",
          "inputSchema": {"type": "object", "additionalProperties": false, "required": ["kind", "text"],
             "properties": {
                 "handle": {"type": "string"},
@@ -414,6 +414,12 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
                 "{} ({why}). He will be told it could not be confirmed. If it did land, check the repository, commit and branch you named and report again.",
                 land.says)),
         }
+    }
+    // Q3 (c) of Frank's review: the host does not close an `outcome` on a handle that names a
+    // land Git could not confirm, so the lead is told here, with what to do next.
+    if record.kind == "outcome" && record.handle.is_some() && record.lands.iter().any(|l| !l.landed) {
+        said.push("Because a land could not be confirmed, this outcome does not close the assignment; it stays open. \
+Once the land is real, report `outcome` again, or report `failed`.".into());
     }
     Ok(json!({"recorded": true, "says": said.join(" ")}))
 }
@@ -543,6 +549,7 @@ mod tests {
         assert!(description.contains("Only `outcome` or `failed` on a handle closes it."), "{description}");
         assert!(description.contains("it closes nothing"), "{description}");
         assert!(description.contains("closed with `outcome`"), "{description}");
+        assert!(description.contains("An `outcome` that names a land Git cannot confirm closes nothing"), "{description}");
     }
     use crate::assignment::{self, AssignmentKind, Registration};
     use std::process::Command;
@@ -735,6 +742,26 @@ mod tests {
         let land = &outbox(&f)[2].lands[0];
         assert!(!land.landed, "{land:?}");
         assert!(land.why.as_deref().unwrap_or("").contains("is not on main"), "{land:?}");
+    }
+
+    /// **Q3 (c) / F5, the lead's half.** An `outcome` on a handle that names a land Git could
+    /// not confirm closes nothing (the host's rule), and the tool's answer says so, with what
+    /// to do next. The same land on an `update`, or an `outcome` with no handle, closes
+    /// nothing anyway, so it is not said there.
+    #[test]
+    fn an_outcome_on_a_handle_with_an_unconfirmed_land_tells_the_lead_it_stays_open() {
+        let f = fixture();
+        let handle = register(&f, "thread-a");
+        let missing = json!([{"repository": f.repo, "commit": "b".repeat(40)}]);
+        let answer = report(&f, json!({"kind": "outcome", "text": "Landed.", "handle": handle, "lands": missing})).unwrap();
+        let says = answer["says"].as_str().unwrap();
+        assert!(says.contains("does not close the assignment; it stays open.")
+                && says.contains("report `outcome` again") && says.contains("or report `failed`"), "{says}");
+        for other in [json!({"kind": "update", "text": "x", "handle": handle, "lands": missing}),
+                      json!({"kind": "outcome", "text": "x", "lands": missing})] {
+            let answer = report(&f, other).unwrap();
+            assert!(!answer["says"].as_str().unwrap().contains("stays open"), "{answer}");
+        }
     }
 
     #[test]

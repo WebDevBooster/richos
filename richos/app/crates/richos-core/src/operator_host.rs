@@ -60,6 +60,14 @@ pub const LAST_TEXTS: usize = 3;
 /// `operator-complete` contract §2.5). It is the store's protocol value, spelled as the store
 /// spells it.
 const ECS_WITHDRAWN: &str = "cancelled"; // dialect-exempt: the ECS store's own protocol literal, engine-rest-2026-09-25.md §2.5
+/// Said after an `outcome` whose land Git could not confirm (Frank's Q3 (c)).
+pub const UNCONFIRMED_STAYS_OPEN: &str =
+    "Your team reported this done, but a land it named could not be confirmed, so it stays open.";
+/// Said after a report on an assignment a report already closed (Frank's F5).
+pub const ALREADY_CLOSED: &str = "Your team reported this again, but it was already closed, so nothing changed.";
+/// The engine's refusal of an obligation that is not open (`engine/ecs/adapters/app.py`
+/// `operator_complete`: "only an open assignment can be closed; <id> is <status>").
+const ENGINE_NOT_OPEN: &str = "only an open assignment can be closed";
 
 // =============================================================================================
 // identities and channels
@@ -77,6 +85,11 @@ pub struct ConversationKey {
 pub enum Origin {
     DeskTyped,
     DeskVoice,
+    /// **Reserved: nothing produces it yet** (Frank's review, question 3 (b)). A file dropped
+    /// at the desk reaches the ledger as a typed turn, so [`Origin::of_turn`] reads it as
+    /// [`Origin::DeskTyped`]. Every declaration lists `desk-file` beside `desk-typed`
+    /// (`operator_declaration.py` `ORIGINS`), so no behavior differs; only the log's label
+    /// would. A log line saying `DeskTyped` is no proof a file drop was told apart from typing.
     DeskFile,
     Phone,
     /// A mouth this build has never heard of, recorded on the turn by its intake record (r3
@@ -352,6 +365,30 @@ struct LeadRecord {
     open_handles: BTreeSet<String>,
     /// §88 seam: answer deliveries already relayed, by S6's delivery identity.
     answers: Vec<AnswerRelay>,
+    /// **F8 of Frank's review: handles he stopped (the per-assignment Stop) or interrupted (his
+    /// Esc).** Taken out of `open_handles`, so a resume never calls them "still open", and
+    /// named to the lead in [`HELD_LINE`]: it continues none of them on its own; his next words
+    /// decide. New words of his on a handle (an answer) take it off this list.
+    ///
+    /// `#[serde(default)]` on this and `untold`: a record written before them must still read.
+    /// `read_record` falls back to an empty record on any parse error, which would lose the
+    /// session to resume and the outbox position, and settle every report again.
+    #[serde(default)]
+    held: BTreeSet<String>,
+    /// Held handles the lead has not been told about yet: named with its next message. A Stop
+    /// is told at once; an Esc is not, because a message after an Esc would start the very
+    /// turn he just ended.
+    #[serde(default)]
+    untold: BTreeSet<String>,
+}
+
+/// The line that names held handles to the lead (F8). Sent at once when he presses Stop on an
+/// assignment, with what the stop measured; otherwise first in its next message.
+pub const HELD_LINE: &str = "Stopped or interrupted by him:";
+
+fn held_line(handles: &BTreeSet<String>) -> String {
+    format!("{HELD_LINE} {}. They wait for his words; do not continue them on your own.",
+            handles.iter().cloned().collect::<Vec<_>>().join(", "))
 }
 
 /// One answer relayed to the lead. `answer_to` is the handle whose question it answers (r1
@@ -413,6 +450,8 @@ struct Conversation {
     quitting: bool,
     started_digest: String,
     told_protocol: bool,
+    /// A permission request was said to him once in this conversation (F17).
+    told_permission: bool,
     first_after_resume: bool,
     /// Questions his team asked and nothing has answered yet, by handle ((o), until S6).
     questions: Vec<(Option<String>, String)>,
@@ -562,7 +601,7 @@ impl OperatorHost {
             key: key.clone(), title: title.to_string(), paths, lead: None, record, sent: HashMap::new(),
             awaiting: BTreeSet::new(), in_turn: false, last_relay: None, last_activity: Instant::now(),
             texts: VecDeque::new(), turn_report: None, handle_agents: HashMap::new(), turn_handle: None, banner: None,
-            pending_init: None, fences: Ok(()), checked: false, quitting: false, started_digest: String::new(), told_protocol: false,
+            pending_init: None, fences: Ok(()), checked: false, quitting: false, started_digest: String::new(), told_protocol: false, told_permission: false,
             first_after_resume, questions: Vec::new(),
         }));
         all.insert(key.clone(), conversation.clone());
@@ -635,13 +674,24 @@ impl OperatorHost {
         let conversation = self.conversation(key, title);
         let mut c = conversation.lock().unwrap();
         let lead = self.ensure_lead(&mut c)?;
+        // F8: his words on a held handle are his next words about it; it is no longer held.
+        if let Some(h) = handle {
+            c.record.held.remove(h);
+            c.record.untold.remove(h);
+        }
         let mut lines = Vec::new();
         if c.first_after_resume {
             if !c.record.open_handles.is_empty() {
                 lines.push(format!("Open when you last ended: {}.",
                                    c.record.open_handles.iter().cloned().collect::<Vec<_>>().join(", ")));
             }
+            if !c.record.held.is_empty() {
+                // Every held handle, so every untold one (untold is always within held).
+                lines.push(held_line(&c.record.held));
+            }
             c.first_after_resume = false;
+        } else if !c.record.untold.is_empty() {
+            lines.push(held_line(&c.record.untold));
         }
         if let Some(since) = c.last_relay {
             if let Some(line) = changed_line(&changed_since(&watched_paths(&self.declaration), since)) {
@@ -661,6 +711,8 @@ impl OperatorHost {
         c.awaiting.insert(uuid.clone());
         c.last_relay = Some(SystemTime::now());
         c.last_activity = Instant::now();
+        // Every untold held handle was named in this message (above), and it was written.
+        c.record.untold.clear();
         if let Some(h) = handle {
             c.record.open_handles.insert(h.to_string());
         }
@@ -679,6 +731,11 @@ impl OperatorHost {
     /// question his team asked on `handle` (or on the conversation). It reaches the lead from ANY
     /// channel, with no hold and no confirmation (r4 §3). `delivery_id` is S6's durable delivery
     /// identity: the same one twice relays once. Returns whether it was relayed now.
+    ///
+    /// **No production caller until S6 lands** (Frank's F11): only the walk
+    /// (`examples/operator_walk.rs`) and the tests call it, through [`crate::operator_desk`].
+    /// Until then his answer to a question reaches the lead as an ordinary assignment, with a
+    /// title line and his words, never with "His answer to your question".
     pub fn deliver_answer(self: &Arc<Self>, key: &ConversationKey, title: &str, handle: Option<&str>,
                           delivery_id: &str, answer: &str) -> Result<bool, String> {
         {
@@ -734,6 +791,20 @@ impl OperatorHost {
                     drop(c);
                     self.delivery.say(key, &Lane::Conversation, Say::Team,
                         "Your team's connection in this conversation sent something RichOS could not read. Your team is still running.");
+                }
+            }
+            // F17 / Frank Q3 (a): the route refused it; P14 measured none in bypass mode, so
+            // every arrival is logged as the CLI having changed, and he hears it once here.
+            LeadEvent::PermissionAsked(tool) => {
+                self.log(&format!("WARNING: permission request for {tool} from {}/{}, refused; P14 measured none in \
+                                   bypass mode, so the CLI changed", key.entity_id, key.thread_id));
+                let mut c = conversation.lock().unwrap();
+                if !c.told_permission {
+                    c.told_permission = true;
+                    drop(c);
+                    self.delivery.say(key, &Lane::Conversation, Say::Team, &format!(
+                        "Your team asked for approval to use {tool}, which RichOS never expected here. RichOS refused it. \
+                         Your team is still running."));
                 }
             }
             LeadEvent::Ended => self.ended(&conversation),
@@ -863,9 +934,33 @@ impl OperatorHost {
                 return;
             }
         };
+        // F5: an assignment a report already closed stays closed. He is told so, and never
+        // "It stays open", which is what the engine's refusal used to turn into.
+        if matches!(item.state, AssignmentState::Settled | AssignmentState::Failed) {
+            self.log(&format!("{}/{}: a {} report on {handle}, which is already {}; nothing changed",
+                              key.entity_id, key.thread_id, record.kind, item.state.as_str()));
+            self.delivery.say(key, &lane, Say::Team, &format!("{text}\n\n{ALREADY_CLOSED}"));
+            return;
+        }
         let failed = record.kind == "failed";
-        let mut evidence: Vec<String> = record.lands.iter().filter(|l| l.landed)
-            .map(|l| format!("git:{}:{}:{}", l.repository.display(), l.into, l.commit)).collect();
+        // Q3 (c) of Frank's review: CLAUDE.md "Report the ARTIFACT" and r3 (c) "Lands are
+        // verified in Git before any notice says 'landed'". An `outcome` that names a land Git
+        // could not confirm is not done, even beside a land that was confirmed, so it closes
+        // nothing: the engine is not asked, the register and the open handle are kept, and he
+        // hears the land sentence and that it stays open. The lead reports again once the land
+        // is real (the tool's answer tells it so), or reports `failed`.
+        if !failed && record.lands.iter().any(|l| !l.landed) {
+            self.log(&format!("{}/{}: an outcome on {handle} names a land that could not be confirmed; it stays open",
+                              key.entity_id, key.thread_id));
+            self.delivery.say(key, &lane, Say::Team, &format!("{text}\n\n{UNCONFIRMED_STAYS_OPEN}"));
+            return;
+        }
+        // A failure closes on its answer alone: the engine refuses a `git:` item on a withdrawn
+        // close ("a land cannot close a failed assignment", `app.py` `operator_complete`). Any
+        // land it names is still said to him, in `text`.
+        let mut evidence: Vec<String> = if failed { Vec::new() } else {
+            record.lands.iter().map(|l| format!("git:{}:{}:{}", l.repository.display(), l.into, l.commit)).collect()
+        };
         use sha2::Digest;
         evidence.push(format!("answer:{:x}", sha2::Sha256::digest(record.text.as_bytes())));
         evidence.truncate(20);
@@ -888,6 +983,8 @@ impl OperatorHost {
                 }
                 let mut c = conversation.lock().unwrap();
                 c.record.open_handles.remove(handle);
+                c.record.held.remove(handle);
+                c.record.untold.remove(handle);
                 c.questions.retain(|(q, _)| q.as_deref() != Some(handle));
                 self.save(&c.paths.record, &c.record);
                 drop(c);
@@ -895,8 +992,14 @@ impl OperatorHost {
             }
             Err(why) => {
                 self.log(&format!("{}/{}: operator-complete refused {handle}: {why}", key.entity_id, key.thread_id));
-                self.delivery.say(key, &lane, Say::Team,
-                    &format!("{text}\n\nYour team reported this, but RichOS could not record it as closed ({why}). It stays open."));
+                // The engine's own words for an obligation that is no longer open (`app.py`
+                // `operator_complete`): closed already, with a register that did not say so.
+                let said = if why.contains(ENGINE_NOT_OPEN) {
+                    format!("{text}\n\n{ALREADY_CLOSED}")
+                } else {
+                    format!("{text}\n\nYour team reported this, but RichOS could not record it as closed ({why}). It stays open.")
+                };
+                self.delivery.say(key, &lane, Say::Team, &said);
             }
         }
     }
@@ -1042,7 +1145,8 @@ impl OperatorHost {
     }
 
     /// (d) item 5: the per-assignment Stop stops exactly the names seen starting on that
-    /// assignment's turns, plus the names its reports named.
+    /// assignment's turns, plus the names its reports named. F8: the handle is then held, and
+    /// the lead is told at once, with what the stop measured.
     pub fn stop_assignment(&self, key: &ConversationKey, handle: &str, words: &str, origin: Origin) -> Vec<StopResult> {
         let names: Vec<String> = self.conversations.lock().unwrap().get(key)
             .and_then(|c| c.lock().unwrap().handle_agents.get(handle).cloned())
@@ -1050,15 +1154,63 @@ impl OperatorHost {
         if names.is_empty() {
             return Vec::new();
         }
-        self.stop_named(&names, words, origin)
+        let results = self.stop_named(&names, words, origin);
+        let measured = results.iter().map(StopResult::sentence).collect::<Vec<_>>().join(" ");
+        self.hold(key, handle, Some(&measured));
+        results
+    }
+
+    /// **F8: hold a handle he stopped or interrupted.** It leaves `open_handles` and joins
+    /// `held`. With `tell_now` (a Stop), the lead is sent [`HELD_LINE`] at once, followed by what
+    /// was measured; if it has no running lead or the write fails, the line waits for its next
+    /// message instead, which is also where an Esc's goes.
+    fn hold(&self, key: &ConversationKey, handle: &str, tell_now: Option<&str>) {
+        let Some(conversation) = self.conversations.lock().unwrap().get(key).cloned() else { return };
+        let mut c = conversation.lock().unwrap();
+        c.record.open_handles.remove(handle);
+        c.record.held.insert(handle.to_string());
+        let lead = c.lead.clone().filter(|l| !l.exited());
+        let told = match (tell_now, lead) {
+            (Some(measured), Some(lead)) => {
+                let one = BTreeSet::from([handle.to_string()]);
+                match lead.send(&format!("{}\n\n{measured}", held_line(&one))) {
+                    Ok(uuid) => {
+                        c.sent.insert(uuid.clone(), None);
+                        c.awaiting.insert(uuid);
+                        c.last_activity = Instant::now();
+                        true
+                    }
+                    Err(e) => {
+                        self.log(&format!("{}/{}: {handle} is held; the lead could not be told now ({e}), so its \
+                                           next message says so", key.entity_id, key.thread_id));
+                        false
+                    }
+                }
+            }
+            _ => false,
+        };
+        if !told {
+            c.record.untold.insert(handle.to_string());
+        }
+        self.log(&format!("{}/{}: {handle} held ({})", key.entity_id, key.thread_id,
+                          if tell_now.is_some() { "Stop" } else { "Esc" }));
+        self.save(&c.paths.record, &c.record);
     }
 
     /// (d) item 6, his Esc: end the lead's running turn, never its agents (P3). Returns the
     /// sentence the front desk says, with how many of his messages still run next (r4 §1.2).
+    /// F8: the assignment whose turn it was is held, and the lead hears so with its next message.
     pub fn interrupt(&self, key: &ConversationKey) -> String {
-        let lead = self.conversations.lock().unwrap().get(key).and_then(|c| c.lock().unwrap().lead.clone());
+        let (lead, turn_handle) = match self.conversations.lock().unwrap().get(key) {
+            Some(c) => { let c = c.lock().unwrap(); (c.lead.clone(), c.turn_handle.clone()) }
+            None => (None, None),
+        };
         let Some(lead) = lead else { return "Your team isn't doing anything in this conversation.".into() };
-        match lead.interrupt() {
+        let replied = lead.interrupt();
+        if let (Ok(_), Some(handle)) = (&replied, turn_handle) {
+            self.hold(key, &handle, None);
+        }
+        match replied {
             Ok(reply) => match reply.still_queued.len() {
                 0 => "Stopped what your team was doing here. Its agents keep running.".into(),
                 1 => "Stopped what your team was doing here. Its agents keep running, and 1 of your messages is still queued and runs next.".into(),
@@ -1514,26 +1666,94 @@ pub(crate) mod tests {
         r.host.handle(&key("a"), turn(&["u-1"], Some("Working on it.")));
         let item = assignment::read(&r.state, "femcboost", "a", &handle).unwrap();
         assert_eq!(item.state, AssignmentState::Registered, "a turn ending never settles");
-        let mut rec = report(Some(&handle), "outcome", "Landed and pushed.");
-        rec["lands"] = json!([{"repository":"/r","commit":"a".repeat(40),"branch":"x","into":"main","landed":true,
-                              "pushed":true,"why":null,"says":"Landed and pushed x in r."},
-                             {"repository":"/r","commit":"b".repeat(40),"branch":"y","into":"main","landed":false,
-                              "pushed":null,"why":"commit bbbb is not on main","says":"y in r could not be confirmed as landed."}]);
-        outbox(&r, "a", &[rec]);
+        assert!(open_handles(&r, "a").contains(&handle));
+        outbox(&r, "a", &[with_lands(report(Some(&handle), "outcome", "Landed and pushed."), &[confirmed_land()])]);
         r.host.handle(&key("a"), turn(&[], None));
         let calls = r.settle.calls.lock().unwrap().clone();
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].1, "completed");
-        assert_eq!(calls[0].2.len(), 2, "the confirmed land and the answer, never the unconfirmed land: {:?}", calls[0].2);
+        assert_eq!(calls[0].2.len(), 2, "the confirmed land and the answer: {:?}", calls[0].2);
         assert_eq!(calls[0].2[0], format!("git:/r:main:{}", "a".repeat(40)));
         assert!(calls[0].2[1].starts_with("answer:"));
         let item = assignment::read(&r.state, "femcboost", "a", &handle).unwrap();
         assert_eq!(item.state, AssignmentState::Settled);
-        let outcome = r.said.all().into_iter().find(|x| x.2 == Say::Outcome).unwrap();
-        assert!(outcome.3.contains("could not be confirmed as landed"), "{}", outcome.3);
+        assert!(r.said.all().iter().any(|x| x.2 == Say::Outcome && x.3.contains("Landed and pushed x in r.")));
         // A second read of the same outbox settles nothing twice.
         r.host.handle(&key("a"), turn(&[], None));
         assert_eq!(r.settle.calls.lock().unwrap().len(), 1);
+    }
+
+    fn confirmed_land() -> Value {
+        json!({"repository":"/r","commit":"a".repeat(40),"branch":"x","into":"main","landed":true,
+               "pushed":true,"why":null,"says":"Landed and pushed x in r."})
+    }
+
+    fn unconfirmed_land() -> Value {
+        json!({"repository":"/r","commit":"b".repeat(40),"branch":"y","into":"main","landed":false,
+               "pushed":null,"why":"commit bbbb is not on main","says":"y in r could not be confirmed as landed."})
+    }
+
+    fn with_lands(mut record: Value, lands: &[Value]) -> Value {
+        record["lands"] = Value::Array(lands.to_vec());
+        record
+    }
+
+    fn open_handles(r: &Rig, thread: &str) -> BTreeSet<String> {
+        r.host.conversations.lock().unwrap().get(&key(thread)).unwrap().lock().unwrap().record.open_handles.clone()
+    }
+
+    /// **Q3 (c) of Frank's review (richos-hq `bd685c14`), CLAUDE.md "Report the ARTIFACT" and
+    /// r3 (c) "Lands are verified in Git before any notice says 'landed'".** An `outcome` that
+    /// names a land Git could not confirm does not close the obligation, even beside a land
+    /// that was confirmed: the engine is never asked, the register stays where it was, the
+    /// handle stays open, and he hears it stays open. The lead's corrected report then closes
+    /// it, which is what makes "check what you named and report again" true (F5).
+    #[test]
+    fn an_outcome_naming_an_unconfirmed_land_closes_nothing_and_the_corrected_report_closes_it() {
+        let r = rig();
+        let handle = register(&r, "a", AssignmentKind::Task);
+        r.host.relay(&key("a"), "A", Some(&handle), "Land it.", Origin::DeskTyped).unwrap();
+        outbox(&r, "a", &[with_lands(report(Some(&handle), "outcome", "Landed both."), &[confirmed_land(), unconfirmed_land()])]);
+        r.host.handle(&key("a"), turn(&[], None));
+        assert!(r.settle.calls.lock().unwrap().is_empty(), "the engine is not asked to close it");
+        assert_eq!(assignment::read(&r.state, "femcboost", "a", &handle).unwrap().state, AssignmentState::Registered);
+        assert!(open_handles(&r, "a").contains(&handle), "the handle stays open");
+        let said = r.said.all();
+        assert!(!said.iter().any(|x| x.2 == Say::Outcome), "never said as done: {said:?}");
+        let open = said.iter().find(|x| x.2 == Say::Team).expect("he is told");
+        assert_eq!(open.1, Lane::Handle(handle.clone()));
+        assert!(open.3.contains("could not be confirmed as landed") && open.3.ends_with("so it stays open."), "{}", open.3);
+        // The lead checks, finds the land, and reports again: that closes it.
+        outbox(&r, "a", &[with_lands(report(Some(&handle), "outcome", "Both landed."), &[confirmed_land()])]);
+        r.host.handle(&key("a"), turn(&[], None));
+        assert_eq!(r.settle.calls.lock().unwrap().len(), 1);
+        assert_eq!(assignment::read(&r.state, "femcboost", "a", &handle).unwrap().state, AssignmentState::Settled);
+        assert!(!open_handles(&r, "a").contains(&handle));
+    }
+
+    /// **F5.** A second report on an assignment that is already closed is never answered with
+    /// "It stays open": the register says it is closed, so that is what he hears, and the
+    /// engine is not asked again. The engine's own refusal of an already-closed obligation
+    /// (`engine/ecs/adapters/app.py` `operator_complete`, "only an open assignment can be
+    /// closed") says the same, for a register that could not be written when it closed.
+    #[test]
+    fn a_report_on_an_assignment_already_closed_says_so_and_never_that_it_stays_open() {
+        let r = rig();
+        let handle = register(&r, "a", AssignmentKind::Task);
+        r.host.relay(&key("a"), "A", Some(&handle), "Land it.", Origin::DeskTyped).unwrap();
+        outbox(&r, "a", &[report(Some(&handle), "outcome", "Done."), report(Some(&handle), "outcome", "Done, again.")]);
+        r.host.handle(&key("a"), turn(&[], None));
+        assert_eq!(r.settle.calls.lock().unwrap().len(), 1, "the engine is asked once");
+        let second = r.said.all().into_iter().filter(|x| x.2 == Say::Team).collect::<Vec<_>>();
+        assert_eq!(second.len(), 1, "{second:?}");
+        assert!(second[0].3.contains("already closed") && !second[0].3.contains("stays open"), "{}", second[0].3);
+        // The engine's refusal of a closed obligation, with a register that still says open.
+        let other = register(&r, "a", AssignmentKind::Task);
+        *r.settle.refuse.lock().unwrap() = Some("only an open assignment can be closed; ob-x is completed".into());
+        outbox(&r, "a", &[report(Some(&other), "outcome", "Done.")]);
+        r.host.handle(&key("a"), turn(&[], None));
+        let last = r.said.all().pop().unwrap();
+        assert!(last.3.contains("already closed") && !last.3.contains("stays open"), "{}", last.3);
     }
 
     #[test]
@@ -1551,6 +1771,26 @@ pub(crate) mod tests {
         let answered = assignment::read(&r.state, "femcboost", "a", &ask).unwrap();
         assert_eq!(answered.state, AssignmentState::Settled);
         assert_eq!(answered.notices.last().unwrap().kind, NoticeKind::Answer, "§58: an answer is never 'done'");
+    }
+
+    /// A `failed` report that also names a land (part of it landed, the rest cannot be done)
+    /// closes as withdrawn on its answer alone. The engine refuses any `git:` item on a
+    /// withdrawn close ("a land cannot close a failed assignment", `app.py`
+    /// `operator_complete`), so sending the land would leave the failure open for good. The
+    /// land is still said to him, in the text.
+    #[test]
+    fn a_failed_report_that_names_a_land_closes_as_withdrawn_on_its_answer_alone() {
+        let r = rig();
+        let handle = register(&r, "a", AssignmentKind::Task);
+        r.host.relay(&key("a"), "A", Some(&handle), "Try it.", Origin::DeskTyped).unwrap();
+        outbox(&r, "a", &[with_lands(report(Some(&handle), "failed", "Half landed; the rest cannot be done."), &[confirmed_land()])]);
+        r.host.handle(&key("a"), turn(&[], None));
+        let calls = r.settle.calls.lock().unwrap().clone();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].1, ECS_WITHDRAWN);
+        assert!(calls[0].2.iter().all(|e| e.starts_with("answer:")), "{:?}", calls[0].2);
+        let said = r.said.all().into_iter().find(|x| x.2 == Say::Failed).unwrap();
+        assert!(said.3.contains("Landed and pushed x in r."), "{}", said.3);
     }
 
     #[test]
@@ -1717,6 +1957,71 @@ pub(crate) mod tests {
         assert_eq!(results.len(), 2);
     }
 
+    /// **F8 of Frank's review, the Stop half.** The per-assignment Stop tells the lead at once,
+    /// with what it measured, and holds the handle: a resume lists it as held, never as open.
+    #[test]
+    fn the_assignment_stop_tells_the_lead_at_once_and_a_resume_never_calls_it_open() {
+        let r = rig();
+        r.host.relay(&key("a"), "A", Some("h-1"), "go", Origin::DeskTyped).unwrap();
+        r.host.relay(&key("a"), "A", Some("h-2"), "and this", Origin::DeskTyped).unwrap();
+        let lead = lead_of(&r, "a");
+        r.host.handle(&key("a"), LeadEvent::Took("u-1".into()));
+        agent(&lead, "t-a", "mark-sonnet-a", "task-a");
+        r.host.handle(&key("a"), LeadEvent::Agent(AgentTask { name: "mark-sonnet-a".into(), task_id: "task-a".into(),
+                                                             tool_use_id: "t-a".into(), status: TaskStatus::Running }));
+        r.engine.not_alive.lock().unwrap().insert("task-a".into());
+        lead.feed(json!({"type":"system","subtype":"task_notification","task_id":"task-a","status":"stopped"}));
+        let results = r.host.stop_assignment(&key("a"), "h-1", "Stop, pressed", Origin::DeskTyped);
+        assert!(matches!(&results[0], StopResult::Stopped { .. }), "{results:?}");
+        let told = lead.sent.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(told, "Stopped or interrupted by him: h-1. They wait for his words; do not continue them on your own.\
+                          \n\nStopped mark-sonnet-a.");
+        assert_eq!(open_handles(&r, "a"), BTreeSet::from(["h-2".to_string()]));
+        // The next message does not say it twice.
+        r.host.relay(&key("a"), "A", None, "status?", Origin::DeskTyped).unwrap();
+        assert!(!lead.sent.lock().unwrap().last().unwrap().contains(HELD_LINE));
+        // A relaunch: open is h-2 only, and h-1 is named as held.
+        let host = OperatorHost::new(r.declaration.clone(), &r.state, &r.root.join("operator"), r.launcher.clone(),
+                                     r.engine.clone(), r.settle.clone(), r.said.clone(), Arc::new(SayQuestions(r.said.clone())));
+        host.relay(&key("a"), "A", None, "where are we?", Origin::DeskTyped).unwrap();
+        let first = lead_of(&r, "a").sent.lock().unwrap()[0].clone();
+        assert!(first.starts_with("Open when you last ended: h-2.\n\nStopped or interrupted by him: h-1."), "{first}");
+    }
+
+    /// **F8, the Esc half.** His Esc ends the turn and holds the assignment it belonged to.
+    /// Nothing is sent at once (a message would start the turn he just ended); the lead's next
+    /// message names it, once. His words on that handle release it.
+    #[test]
+    fn his_esc_holds_the_turn_s_assignment_and_the_next_message_names_it_once() {
+        let r = rig();
+        r.host.relay(&key("a"), "A", Some("h-1"), "go", Origin::DeskTyped).unwrap();
+        r.host.handle(&key("a"), LeadEvent::Took("u-1".into()));
+        let lead = lead_of(&r, "a");
+        r.host.interrupt(&key("a"));
+        assert_eq!(lead.sent.lock().unwrap().len(), 1, "nothing is sent at the Esc");
+        assert!(open_handles(&r, "a").is_empty());
+        r.host.relay(&key("a"), "A", None, "one more thing", Origin::DeskTyped).unwrap();
+        r.host.relay(&key("a"), "A", None, "and another", Origin::DeskTyped).unwrap();
+        let sent = lead.sent.lock().unwrap().clone();
+        assert!(sent[1].starts_with("Stopped or interrupted by him: h-1."), "{}", sent[1]);
+        assert!(!sent[2].contains(HELD_LINE), "said once: {}", sent[2]);
+        // His answer on that handle is his next words about it: it is open again, not held.
+        r.host.deliver_answer(&key("a"), "A", Some("h-1"), "delivery-1", "Carry on.").unwrap();
+        assert!(open_handles(&r, "a").contains("h-1"));
+        let record = r.host.conversations.lock().unwrap().get(&key("a")).unwrap().lock().unwrap().record.clone();
+        assert!(record.held.is_empty() && record.untold.is_empty(), "{record:?}");
+    }
+
+    /// A lead record written before `held` and `untold` existed still reads whole: a parse
+    /// failure would reset it, losing the session to resume and the outbox position.
+    #[test]
+    fn a_lead_record_written_before_held_handles_existed_still_resumes() {
+        let record: LeadRecord = serde_json::from_str(
+            r#"{"last_session":"s-old","outbox_read":3,"open_handles":["h-1"],"answers":[]}"#).unwrap();
+        assert_eq!((record.last_session.as_deref(), record.outbox_read), (Some("s-old"), 3));
+        assert!(record.held.is_empty() && record.untold.is_empty());
+    }
+
     #[test]
     fn his_esc_ends_the_turn_and_says_how_many_of_his_messages_still_run() {
         let r = rig_with(&["desk-typed"], 2);
@@ -1817,6 +2122,26 @@ pub(crate) mod tests {
         let (_, start, second) = r.launcher.leads.lock().unwrap().last().cloned().unwrap();
         assert_eq!(start, LeadStart::Resume(first.session.clone()));
         assert!(second.sent.lock().unwrap()[0].starts_with("Open when you last ended: h-1."), "{:?}", second.sent);
+    }
+
+    /// **F17 / Frank Q3 (a).** A permission request is refused by the route (`operator_lead.rs`
+    /// `NoPermissionDesk`); here, every arrival is logged as a warning that the CLI changed,
+    /// since P14 measured none in bypass mode, and he hears it once per conversation. The lead
+    /// is kept.
+    #[test]
+    fn a_permission_request_is_logged_as_a_warning_every_time_and_said_once() {
+        let r = rig();
+        r.host.relay(&key("a"), "A", None, "go", Origin::DeskTyped).unwrap();
+        for tool in ["Write", "Bash"] {
+            r.host.handle(&key("a"), LeadEvent::PermissionAsked(tool.into()));
+        }
+        let log = std::fs::read_to_string(r.host.log_path()).unwrap();
+        assert_eq!(log.matches("WARNING: permission request").count(), 2, "{log}");
+        assert!(log.contains("for Write") && log.contains("for Bash") && log.contains("the CLI changed"), "{log}");
+        let team: Vec<_> = r.said.all().into_iter().filter(|x| x.2 == Say::Team).collect();
+        assert_eq!(team.len(), 1, "{team:?}");
+        assert!(team[0].3.contains("RichOS refused it") && team[0].3.contains("Your team is still running."), "{}", team[0].3);
+        assert_eq!(*lead_of(&r, "a").quits.lock().unwrap(), 0);
     }
 
     #[test]

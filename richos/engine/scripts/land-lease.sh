@@ -10,7 +10,10 @@
 #
 # A land is several tool calls (merge, verify, push), so it takes a lease rather
 # than the single-command flock. Take it immediately before your first write into
-# a main checkout; release it once pushed.
+# a main checkout; release it once pushed, and in femcboost only once the deploy
+# has finished in the same turn (rich-lander steps 6 and 7): its deploy runs in the
+# shared main checkout and reads `main`, so a lease released at the push lets a
+# second lead move `main` under a deploy still running (Frank's F2).
 #
 # EXIT 75 MEANS "HELD, RUN IT AGAIN". One call waits at most LAND_LEASE_WAIT
 # seconds (default 90, below the Claude Code Bash tool's 120 s default; a value
