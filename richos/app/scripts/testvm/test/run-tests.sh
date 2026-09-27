@@ -1517,6 +1517,10 @@ t "reap-walk: unrecorded pids are refused, late or surviving commands fail, a fi
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/reap-walk.test.py" >"$TMP/reap-walk.log" 2>&1; ok $? "$(cat "$TMP/reap-walk.log")"
 t_done
 
+t "command-walk: a settled task carrying the command's result passes; the 2026-09-27 'No work was started' record fails"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/command-walk.test.py" >"$TMP/command-walk.log" 2>&1; ok $? "$(cat "$TMP/command-walk.log")"
+t_done
+
 # ===========================================================================
 # hand-file.sh — a FILE handed to the app, pasted or dragged, the way a person does
 # ===========================================================================
