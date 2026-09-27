@@ -1100,6 +1100,7 @@ impl WorkHost {
         let reporting = report.is_some();
         if !self.quota_gate(backend, record, reporting) {
             self.settle_stopped(backend, record);
+            self.let_go_if_ended(record);
             return;
         }
         let scope = (record.entity_id.clone(), record.thread_id.clone(), record.id.clone());
@@ -1120,6 +1121,7 @@ impl WorkHost {
         //    An unlocked or unreadable screen costs ONE reading and this block is invisible.
         //    A report is not a start: the job already ran, and it asks nothing of the screen.
         if !reporting && !self.screen_gate(backend, record, &advance) {
+            self.let_go_if_ended(record);
             return;
         }
 
@@ -1139,6 +1141,7 @@ impl WorkHost {
                     advance(AssignmentState::Failed, why);
                     self.raise(record, NoticeKind::Failed,
                         &assignment::says::failure(record.kind, &record.title, why, false));
+                    self.let_go_if_ended(record);
                     return;
                 }
             }
@@ -1161,6 +1164,13 @@ impl WorkHost {
             return;
         }
         if let Err(why) = self.ensure_lease(backend, binding) {
+            // **An answer run that could not open its back end** (the work-path design's C10:
+            // D4 takes this exit). His answer is saved and nothing was asked of anybody, so the
+            // job waits on it again and is tried once more, within D4's bound.
+            if !reporting && self.retry_answer_run(backend, binding, record, resumed) {
+                eprintln!("[richos] work: the back end did not open for his answer ({why}); trying again");
+                return;
+            }
             // **"Did not start", not "stopped before it finished".** Nothing has been asked of
             // the back end at this line, so there is nothing that could have stopped. Ray's
             // candidate-.7 failures were all of this shape and all reported as the other one,
@@ -1174,6 +1184,7 @@ impl WorkHost {
                 NoticeKind::Failed,
                 &assignment::says::failure(record.kind, &record.title, &honest(&why), false),
             );
+            self.let_go_if_ended(record);
             return;
         }
 
@@ -1191,6 +1202,8 @@ impl WorkHost {
             let mut lease = backend.lease.lock().unwrap();
             let Some(lease) = lease.as_mut() else {
                 advance(AssignmentState::Failed, "The work connection closed before the assignment started.");
+                drop(lease);
+                self.let_go_if_ended(record);
                 return;
             };
             if let Err(why) = lease.bind_work_assignment(&work) {
@@ -1202,6 +1215,7 @@ impl WorkHost {
                     NoticeKind::Failed,
                     &assignment::says::failure(record.kind, &record.title, &honest(&why.to_string()), false),
                 );
+                self.let_go_if_ended(record);
                 return;
             }
             let session = lease.session_id().to_string();
@@ -1324,6 +1338,7 @@ impl WorkHost {
                 Err(error) => {
                     drop(inner);
                     advance(AssignmentState::Failed, &format!("The saved answer could not be read: {error}"));
+                    self.let_go_if_ended(record);
                     return;
                 }
             }
@@ -2043,14 +2058,56 @@ impl WorkHost {
                 }
             },
         }
-        if let Ok(records)=assignment::read_all(&self.state,&record.entity_id,&record.thread_id) {
-            if let Some(latest)=records.iter().find(|r|r.id==record.id) {
-                if matches!(latest.state,AssignmentState::Settled|AssignmentState::Failed|AssignmentState::Interrupted) {
-                    if let Err(error)=crate::questions::Store::new(&self.state).close(&record.entity_id,&record.thread_id,Some(&record.obligation_id),"This assignment has ended",false) {eprintln!("[richos] could not close assignment questions: {error}");}
-                    drop(crate::question_work::discard(&self.state,&record.entity_id,&record.thread_id,&record.obligation_id));
+        self.let_go_if_ended(record);
+    }
+
+    /// **When the job itself has ended, his open questions for it are withdrawn and its saved
+    /// answers let go** — the cleanup every ending takes, the early ones included (the work-path
+    /// design's C10: an early return used to skip it, leaving an input queued and refused on
+    /// every wake). It reads the record, so it acts only on an ending that is on disk.
+    fn let_go_if_ended(&self, record: &Assignment) {
+        if let Ok(latest) = assignment::read(&self.state, &record.entity_id, &record.thread_id, &record.id) {
+            if matches!(latest.state, AssignmentState::Settled | AssignmentState::Failed | AssignmentState::Interrupted) {
+                if let Err(error) = crate::questions::Store::new(&self.state).close(&record.entity_id, &record.thread_id,
+                    Some(&record.obligation_id), "This assignment has ended", false) {
+                    eprintln!("[richos] could not close assignment questions: {error}");
                 }
+                drop(crate::question_work::discard(&self.state, &record.entity_id, &record.thread_id, &record.obligation_id));
             }
         }
+    }
+
+    /// **D4 for a run that never reached its back end** (C10): his answers for this job are
+    /// saved and pending, and this launch has carried each of them fewer than
+    /// `RETRY_STARTS` times. Counted as a start, the job goes back to waiting on them and is
+    /// scheduled again. `false` when there is no such answer, or the bound is reached.
+    fn retry_answer_run(self: &Arc<Self>, backend: &Arc<Backend>, binding: &ThreadBinding, record: &Assignment,
+                        resumed: bool) -> bool {
+        let Ok(pending) = crate::question_work::pending(&self.state) else { return false };
+        let ids: Vec<String> = pending.into_iter()
+            .filter(|d| d.entity_id == record.entity_id && d.thread_id == record.thread_id && d.asker == record.obligation_id)
+            .map(|d| d.id).collect();
+        if ids.is_empty() {
+            return false;
+        }
+        {
+            let mut inner = backend.inner.lock().unwrap();
+            if inner.closing || inner.stopped.contains(&record.id) {
+                return false;
+            }
+            // This run was a start that carried them, even though it never reached a prompt.
+            for id in &ids {
+                *inner.answer_starts.entry(id.clone()).or_insert(0) += 1;
+            }
+            if ids.iter().any(|id| inner.answer_starts[id] >= crate::operator_host::RETRY_STARTS) {
+                return false;
+            }
+        }
+        let _ = assignment::advance(&self.state, &record.entity_id, &record.thread_id, &record.id,
+                                    AssignmentState::Blocked, ANSWER_RETRY_DETAIL);
+        let latest = assignment::read(&self.state, &record.entity_id, &record.thread_id, &record.id)
+            .unwrap_or_else(|_| record.clone());
+        self.schedule(binding, latest, resumed)
     }
 
     /// **The back end has his answers** (design D1): the first item of the turn that carried
@@ -6323,6 +6380,48 @@ mod tests {
         assert_eq!(card(&first)["delivered"], true);
         assert_eq!(card(&second)["delivered"], true);
         assert!(crate::question_work::pending(&h.state).unwrap().is_empty());
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// **C10: a job that ends on an early exit lets go of his answers, and an answer run whose
+    /// back end will not open is D4's retry.** (1) The back end refuses to open once: the job
+    /// waits on his answer again and the second run carries it, never "did not start". (2) His
+    /// original request can no longer be verified, so the run ends before any lease: his open
+    /// question is withdrawn and his saved answer let go, rather than re-queued and refused on
+    /// every wake for ever.
+    #[test]
+    fn an_early_exit_lets_his_answer_go_and_a_back_end_that_will_not_open_is_retried() {
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        h.refuse_next.store(true, Ordering::SeqCst);
+        let record = waiting_job(&h);
+        h.host.start();
+        his_answer(&h, &record, "answer-1", "When should it ship? You answered: tomorrow");
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)), "no retry");
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 1, "the refused open, then one lease");
+        assert_eq!(h.work_prompts.lock().unwrap().iter().filter(|p| p.contains("You answered: tomorrow")).count(), 1);
+        assert!(crate::question_work::pending(&h.state).unwrap().is_empty());
+        assert!(told(&h).iter().all(|t| !t.contains("did not start")), "{:?}", told(&h));
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+
+        let h = harness(5);
+        let receipt = assignment::register(&h.state, &Registration { instruction_sha256: "0".repeat(64), ..registration(&h) }).unwrap();
+        assignment::advance(&h.state, "depot", "thread-one", &receipt.id, AssignmentState::Blocked, "Waiting.").unwrap();
+        let record = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        open_question(&h, &record);
+        h.host.start();
+        his_answer(&h, &record, "answer-1", "When should it ship? You answered: tomorrow");
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &record.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Failed, "{}", row.detail);
+        assert!(crate::question_work::pending(&h.state).unwrap().is_empty(), "left to be re-queued and refused on every wake");
+        let open: Vec<_> = crate::questions::Store::new(&h.state).list("depot", "thread-one").unwrap()
+            .into_iter().filter(|q| q.state == crate::questions::State::Open).collect();
+        assert!(open.is_empty(), "a question left open for a job that ended");
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 0, "nothing was asked of a back end");
         h.host.shutdown();
         std::fs::remove_dir_all(&h.root).unwrap();
     }
