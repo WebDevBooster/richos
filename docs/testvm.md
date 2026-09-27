@@ -25,7 +25,9 @@ After this, no test opens a window on his Mac.
 ```sh
 cd <repo>/richos/app/scripts/testvm
 
-./run.sh     --bundle <RichOS.app.zip> --home <fixture-home-dir> [--vm <name>] [--no-tailnet]
+./run-walk.py [--wait S] --bundle <zip> --home <dir> --engine <tar> --report <json> -- <script> [args]
+./slots.py   status | run [--wait S] -- <command> | check
+./run.sh     --bundle <RichOS.app.zip> --home <fixture-home-dir> [--vm <name>] [--no-tailnet]   # inside a slot only
 ./shot.sh    <vm> <out.png> [--ocr]
 ./guest.sh   <vm> '<shell command>' | <cmd> <arg>... | --pull <guest> <host> | --push <host> <guest>
 ./ax.sh      <vm> tree  [--app <name>] [--depth N] [--window N] [--max N] [--json]
@@ -68,12 +70,39 @@ started while the first was running: **151 s** — slower only because the two w
 copying payloads at once. A capture takes **~8 s**, an accessibility read **~3 s**,
 and `stop.sh` **~8 s**.
 
-Two at once is just two names:
+Two at once is two runs, each in its own guest slot:
 
 ```sh
-./run.sh --bundle b.zip --home h --vm richos-test-1 &
-./run.sh --bundle b.zip --home h --vm richos-test-2 &
+./run-walk.py --wait 900 --bundle b.zip --home h --engine e.tar.gz --report a.json -- ./walk-a.sh &
+./run-walk.py --wait 900 --bundle b.zip --home h --engine e.tar.gz --report b.json -- ./walk-b.sh &
 ```
+
+## Guest slots: two, each held only while a run executes
+
+The CEO, 2026-09-27: *"do I want the work to be BLOCKED AND PISSED AWAY like this because the
+current worker might need the VM for a 5-second-long fart? Do I want HOURS OF DEVELOPMENT TIME
+TO BE PISSED AWAY FOR EVERY 5-SECOND FART???"*
+
+* There are **two slots** (`slots.py`): `~/.richos-testvm/guest.lock` and `guest-2.lock`.
+  This Mac has 10 cores and 24 GB, a guest takes 4 cores and 7 GB, and Apple's
+  Virtualization framework runs at most two macOS guests at once. `TESTVM_SLOTS=1` lowers
+  it; nothing raises it.
+* **A slot is held only while one run executes**: boot, the run's steps, cleanup. It is
+  released the instant the run ends. `run-walk.py`, `run-probes.py` and
+  `gui-proof-in-vm.sh` each hold one for exactly their own run.
+* **No reservations.** Nothing keeps a guest or a slot for later, across a job, a build or
+  a debugging session. `hold-walk.py` is retired, and `run.sh` refuses to boot a guest unless
+  one of its own callers holds a slot. Steps found by hand become a script that takes the
+  VM name as `$1` (`ax.sh "$1" tree`, `shot.sh "$1" out.png`, ...), run once under
+  `run-walk.py`; the next attempt takes a free slot again. A walk that needs one guest for
+  a long observation is one run, and holds a slot for that run's length only.
+* **A caller waits only while both slots are executing someone's run.** `--wait SECONDS`
+  waits for a free slot (checked every 2 s) and for the CPU and memory admission (CEO ruling
+  §77, one sample at least every 30 s; a refused sample releases the slot before waiting).
+  The default, 0, refuses at once with exit 75.
+* A slot released with its guest still recorded against it stops that guest first
+  (`stop.sh`): a guest never outlives its slot.
+* `./slots.py status` shows who holds which slot and for how long.
 
 **`stop.sh` is not optional.** A test instance of the app is garbage, and by CEO §54
 garbage is always cleaned up. `stop.sh` quits the app, verifies `pgrep` is empty, stops
@@ -886,11 +915,13 @@ environment the host recipe uses, so a host-side test script can be copied in an
 over the same ssh channel.
 
 ```sh
-./run.sh --bundle <zip> --home <fixture> --vm richos-test-1
-IP=$(cat ~/.richos-testvm/run/richos-test-1/ip)
-scp -i ~/.richos-testvm/id_testvm gui-boot.test.sh admin@$IP:/tmp/
-ssh -i ~/.richos-testvm/id_testvm admin@$IP 'bash /tmp/gui-boot.test.sh'
-./stop.sh richos-test-1
+cat > "$SCRATCH/gui-boot-in-guest.sh" <<'SH'
+#!/bin/sh
+./guest.sh "$1" --push gui-boot.test.sh /tmp/ && ./guest.sh "$1" 'bash /tmp/gui-boot.test.sh'
+SH
+chmod +x "$SCRATCH/gui-boot-in-guest.sh"
+./run-walk.py --wait 900 --bundle <zip> --home <fixture> --engine <tar> --report "$SCRATCH/run.json" -- \
+  "$SCRATCH/gui-boot-in-guest.sh"
 ```
 
 ---
