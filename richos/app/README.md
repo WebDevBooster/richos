@@ -630,6 +630,11 @@ richos/app/
                               Every negative test carries its positive control in the SAME
                               test: the one that matters runs the same fixture with and
                               without `poll_intake` one call apart
+    tests/ended_turn_tests.rs 8 tests of WHICH CONVERSATIONS' TURNS ENDED — `Spine::
+                              take_ended_turns`, the one question every entrance asks at
+                              its turn boundary so work he gives typed, aloud or from the
+                              phone starts the same way (CEO ruling §88); each road has a
+                              test, and the active thread is shown NOT to be the answer
     tests/work_gate_cost.rs   what it costs to ask "is RichOS doing anything" — timed over
                               3,000 worker rows with 1,500 liveness syscalls, because the
                               ruling the gate serves is about not getting in the way
@@ -1098,7 +1103,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1559 tests + 5 doc-tests (1555 direct, 4 ignored)
+cargo test -p richos-core                       # 1568 tests + 5 doc-tests (1564 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside

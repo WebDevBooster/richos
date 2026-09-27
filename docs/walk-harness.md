@@ -191,3 +191,28 @@ on identical immutable frames with identical reader/configuration settings; reco
 cold and warm times and verify identical hits. Do analysis after timing captures.
 Report complete scenario duration with coverage separately from these operation
 comparisons. An unfinished historical run is not an equivalent speed benchmark.
+
+## A fresh install, and work given from the phone
+
+`adopt-walk.py` needs no source home: `run-walk.py --home` gets an EMPTY directory and the
+walk goes through the app's own first run (memory setup declined, a company registered
+with a folder that it makes into a repository in the guest, the business questions
+declined; the first conversation is the app's own). It then starts `adopt-watch.py` in
+the guest, pairs the guest's Safari as the phone over Tailscale (both sides press
+`They match`, Sage F1), sends a task from the phone's composer, and passes only when an
+assignment on that conversation leaves Registered no earlier than the phone turn's
+`TurnCompleted`, with every prompt on the conversation from the phone's intake channel.
+
+```sh
+cd richos/app/scripts/testvm
+./run-walk.py --wait 600 --bundle "$ZIP" --home "$EMPTY_DIR" --engine "$ENGINE_TAR" \
+  --report "$RESULTS/run.json" -- \
+  ./adopt-walk.py --out "$RESULTS/adopt" --expect-sha "$SHA" --within 240
+```
+
+`adopt-watch.py` writes every assignment state, prompt and intake record on the guest's
+clock and never the words of a prompt. `--steps` runs a subset against a guest held with
+`hold-walk.py`, which keeps a guest up under `run-walk.py`'s lock and cleanup until
+`<out>/release` exists, for finding a step by hand with `ax.sh` and `shot.sh`. The phone
+sheet names the Tailscale account it is signed in with; screenshots of it are not for a
+public record.

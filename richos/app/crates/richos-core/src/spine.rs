@@ -549,6 +549,9 @@ pub struct Spine {
     /// the moment the turn ends. Rotation NEVER happens inside a turn.
     turn_in_progress: bool,
     queue: VecDeque<Queued>,
+    /// **The conversations whose turns have ENDED since the shell last asked** — one binding
+    /// per thread, in the order their first turn ended. See [`Spine::take_ended_turns`].
+    ended_turns: Vec<ThreadBinding>,
     /// Set true once the current lease has been re-primed (continuity foundation).
     lease_primed: bool,
     lease_primed_thread: Option<String>,
@@ -788,6 +791,7 @@ impl Spine {
             onboarding_record: None,
             onboarding_primed_block: None,
             queue: VecDeque::new(),
+            ended_turns: Vec::new(),
             lease_primed: false,
             lease_primed_thread: None,
             observer: None,
@@ -3466,6 +3470,30 @@ impl Spine {
         self.drain_queue()
     }
 
+    /// **Every conversation whose turn has ended since this was last asked, and the list
+    /// emptied.** The shell's one question at every turn boundary: which conversations may
+    /// now start the work Rich wrote down during them (`WorkHost::adopt_registered`,
+    /// background-work spec §7.1: *"`prepare` runs on the work lease after the turn has
+    /// ended"*).
+    ///
+    /// **Why the spine answers it and the caller does not guess.** The typed send used to
+    /// adopt for the thread that was active afterwards, and the spoken turn and the phone's
+    /// drain adopted for nothing (esc-20260926T083231Z-23865924): a task he gave aloud or
+    /// from the phone sat `Registered` until he next typed. Worse, one call here can run
+    /// turns on several conversations — `poll_intake` drains every record on the log, a
+    /// turn's boundary drains what arrived during it, the boot reconciliation and the front
+    /// desk's priming drain what was waiting — and only `after_turn_boundary` sees each of
+    /// them end. So each ending is written down there, and every entrance asks here after
+    /// its call and adopts for all of them, with the spine released first (§0 row 3).
+    ///
+    /// A turn that FAILED is on the list too: a registration written before the failure is
+    /// still a receipt he was given, and `adopt_registered` is a directory read that adopts
+    /// only `Registered` rows and each one once. Nothing here retries or restarts anything
+    /// (spec §6.3).
+    pub fn take_ended_turns(&mut self) -> Vec<ThreadBinding> {
+        std::mem::take(&mut self.ended_turns)
+    }
+
     /// Startup reconciliation: apply stop requests that outlived the process.
     ///
     /// The crash window this closes is one line wide. The stop request is fsync'd before
@@ -3519,6 +3547,11 @@ impl Spine {
     /// directly or from draining the queue — both call sites only reach here once
     /// `turn_in_progress` is false, so nothing below ever runs mid-turn.
     fn after_turn_boundary(&mut self, binding: &ThreadBinding) -> Result<(), SpineError> {
+        // FIRST, before anything below can fail: this turn has ended, whatever it ended in,
+        // so the work it wrote down may now start (`take_ended_turns`, background-work §7.1).
+        if !self.ended_turns.iter().any(|known| known.thread_id() == binding.thread_id()) {
+            self.ended_turns.push(binding.clone());
+        }
         self.flush_pending_proactive_emits();
         // The CEO's two mid-turn controls settle HERE, at the boundary, and in this order.
         //

@@ -1,0 +1,10 @@
+{"data": "/Users/admin/testvm/walk-7741fe9f88ef/home/Library/Application Support/com.richos.app", "kind": "watch-start", "t_ms": 1790426820598}
+{"at": 1790426805976, "event": "ThreadCreated", "intake_id": null, "kind": "ledger", "source": null, "t_ms": 1790426820598, "thread": "thr_35780e45ea5149a78bc36e9d276b2e3b", "turn": null}
+{"at": 1790426809143, "event": "PromptReceived", "intake_id": null, "kind": "ledger", "source": "internal", "t_ms": 1790426820598, "thread": "thr_35780e45ea5149a78bc36e9d276b2e3b", "turn": "turn_d5ae472bf224487280b8f74d6de2acdd"}
+{"at": 1790426944898, "event": "PromptReceived", "intake_id": 1, "kind": "ledger", "source": "text", "t_ms": 1790426944939, "thread": "thr_35780e45ea5149a78bc36e9d276b2e3b", "turn": "turn_008c709af72d489f8e2b25a5c31a2a79"}
+{"channel": "phone", "id": 1, "kind": "intake", "record": "channel", "t_ms": 1790426944940, "thread": "thr_35780e45ea5149a78bc36e9d276b2e3b", "through": null}
+{"channel": null, "id": null, "kind": "intake", "record": "drained", "t_ms": 1790426944940, "thread": null, "through": 1}
+{"at": 1790426944984, "event": "PromptReceived", "intake_id": null, "kind": "ledger", "source": "internal", "t_ms": 1790426945079, "thread": "thr_35780e45ea5149a78bc36e9d276b2e3b", "turn": "turn_5a4bb8d64988432398b671d5726071be"}
+{"assignment_kind": "task", "detail": "Written down. Preparation has not started.", "id": "eb83ab20-8475-4e1b-8ae9-0c3405951f06", "kind": "assignment", "registered_at_ms": 1790426966157, "state": "registered", "t_ms": 1790426966181, "thread": "thr_35780e45ea5149a78bc36e9d276b2e3b", "updated_at_ms": 1790426966157}
+{"assignment_kind": "task", "detail": "Opening the work connection.", "id": "eb83ab20-8475-4e1b-8ae9-0c3405951f06", "kind": "assignment", "registered_at_ms": 1790426966157, "state": "preparing", "t_ms": 1790426970956, "thread": "thr_35780e45ea5149a78bc36e9d276b2e3b", "updated_at_ms": 1790426970931}
+{"at": 1790426970920, "event": "TurnCompleted", "intake_id": null, "kind": "ledger", "source": null, "t_ms": 1790426970957, "thread": null, "turn": "turn_008c709af72d489f8e2b25a5c31a2a79"}

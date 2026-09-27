@@ -137,20 +137,11 @@ impl Bridge for PhoneBridge {
             .name("richos-phone-drain".to_string())
             .spawn(move || {
                 let state = app.state::<AppState>();
-                let (outcome, binding) = {
-                    let mut spine = state.spine.lock().unwrap();
-                    let outcome = spine.poll_intake();
-                    // On an operator install, work written down on this turn goes to his team's
-                    // desk, which refuses a phone assignment with its sentence (r3 (s) rule 1).
-                    let binding = state.operator.is_some()
-                        .then(|| spine.ledger().thread_binding(&reply_thread).ok()).flatten();
-                    (outcome, binding)
-                };
+                // The turn, and then its boundary: work he gave from the phone starts the way
+                // typed work does (`crate::adopt_at_the_turn_boundary`, CEO ruling §88).
+                let outcome = crate::drain_the_phone(&state.spine, &state.work);
                 if let Err(e) = outcome {
                     eprintln!("[richos] the phone's message could not be drained: {e}");
-                }
-                if let Some(binding) = binding {
-                    state.work.adopt_registered(&binding);
                 }
                 // The lock is free again here, so this is the cheapest correct moment both to
                 // make the cached view current and to push the reply that just finished. Neither
