@@ -378,6 +378,24 @@ pub struct Assignment {
     pub needs_screen: bool,
 }
 
+/// **The record's detail for an assignment that was ANSWERED rather than worked on** — a
+/// question of his (CEO ruling §58), or a task the back end carried out itself with no helper
+/// (esc-20260927T093052Z-85f3303f). Never spoken: what he hears is the answer itself, on his
+/// timeline. One constant because the pane and the status read decide their wording on it.
+pub const ANSWERED_DETAIL: &str = "Answered.";
+
+impl Assignment {
+    /// **Was this closed by an answer on his timeline rather than by work that finished?**
+    ///
+    /// A settled QUESTION always was. A settled TASK was only when the back end did it itself
+    /// and reported in its own words — and for that task "Finished." would be a claim the host
+    /// never witnessed (it may be the back end telling him what it needs before it can begin),
+    /// so the surfaces say what is true of both: the answer is in his conversation.
+    pub fn was_answered(&self) -> bool {
+        self.state == AssignmentState::Settled && (self.kind.is_question() || self.detail == ANSWERED_DETAIL)
+    }
+}
+
 /// One repository, as it stood when an assignment started.
 ///
 /// **`head` is what `git rev-parse HEAD` answered, verbatim, or `None` when it could not be

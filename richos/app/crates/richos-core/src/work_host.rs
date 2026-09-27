@@ -962,12 +962,18 @@ impl WorkHost {
         // reads land receipts and can say what landed on which branch, which is not an answer
         // to a question and never will be.
         //
-        // **Kept only for a question, and bounded.** A task's transcript is not retained and
-        // this does not start retaining it. The cap is `assignment::sanitize_answer`'s, applied
-        // once at the end rather than per item, so a runaway back end costs memory for one
-        // turn and cannot write a record the app can no longer read.
+        // **Kept for every kind now, and bounded** (esc-20260927T093052Z-85f3303f). A TASK
+        // that no helper ever worked on has no receipts to be read off, and the back end's
+        // own words are the only account of it there is — the command it ran and what that
+        // printed, or why it could not start (*"the Acme repository isn't connected"*). Until
+        // this they were counted and dropped, and he was told "No work was started". They are
+        // still never retained past this function and are spoken only through the one arm
+        // that reads them for a task ("A TASK THE BACK END DID ITSELF", below). The cap is
+        // `assignment::sanitize_answer`'s, applied once at the end rather than per item, so
+        // a runaway back end costs memory for one turn and cannot write a record the app can
+        // no longer read.
         let mut answer = String::new();
-        let keeping_an_answer = record.kind.is_question();
+        let keeping_an_answer = true;
         // **THE ONE PLACE `Running` IS WRITTEN, AND THE EVIDENCE THAT MAKES IT TRUE.**
         //
         // Ray's candidate-.7 walk, row 2: *"It's running now"* was on his screen at
@@ -1257,7 +1263,7 @@ impl WorkHost {
                 let said = assignment::sanitize_answer(&answer);
                 // The record's own detail, which is never spoken: `settled` here means
                 // answered, and the pane reads the kind to say so in his words.
-                advance(AssignmentState::Settled, "Answered.");
+                advance(AssignmentState::Settled, assignment::ANSWERED_DETAIL);
                 self.forget_at_the_desk(record);
                 self.raise(record, NoticeKind::Answer, &assignment::says::answered(&record.title, &said));
             }
@@ -1271,6 +1277,37 @@ impl WorkHost {
                 advance(AssignmentState::Failed, &sentence);
                 self.forget_at_the_desk(record);
                 self.raise(record, NoticeKind::Failed, &tell(&record.title, &sentence));
+            }
+            // ===========================================================================
+            // A TASK THE BACK END DID ITSELF — esc-20260927T093052Z-85f3303f
+            // ===========================================================================
+            //
+            // **No helper was ever prepared for it, the back end said what it did, and
+            // nothing of his is waiting on the desk for it.** A command he asked to have run,
+            // or the back end telling him why it could not begin. The receipts below have
+            // nothing to say about such a task — `what_happened` would read none and say *"No
+            // work was started, so nothing was landed"* — and the obligation can never close,
+            // because the engine's `complete` needs at least one worker. That is the sentence
+            // the test VM measured on 2026-09-27, 3.5 s after the command he asked for had
+            // started, with the back end's own report thrown away beside it.
+            //
+            // **So what he hears is the back end's report, as the report**: the §58 shape, and
+            // for the §58 reason — it is Rich telling him what was done or what is needed, and
+            // wrapping it in a receipt sentence would narrate over it. The record says
+            // `Settled` with the answered detail, exactly as an answered question does, so the
+            // pane says it is in his conversation and never "Finished." It is decided on
+            // POSITIVE evidence only: the child's own terminal `result` (`Ok`), words off its
+            // stream, and receipts that were READ and hold no worker, no review and no land.
+            // An unreadable trail, a helper that ran, a silent back end, and a question of his
+            // still on the desk all fall through to the readings below, unchanged.
+            Ok(_) if !answer.trim().is_empty()
+                && self.no_helper_ever_ran(record)
+                && self.pending_decision(record).is_none() =>
+            {
+                let said = assignment::sanitize_answer(&answer);
+                advance(AssignmentState::Settled, assignment::ANSWERED_DETAIL);
+                self.forget_at_the_desk(record);
+                self.raise(record, NoticeKind::Answer, &assignment::says::answered(&record.title, &said));
             }
             // ===========================================================================
             // WHAT HE HEARS IS THE OUTCOME — the CEO's ruling §52, 2026-09-18
@@ -1589,6 +1626,19 @@ impl WorkHost {
             }
         }
         parts.join(" ")
+    }
+
+    /// **Were the receipts READ, and do they hold no helper at all for this assignment?** No
+    /// worker, no reviewer verdict, no land. `false` when the trail cannot be read: "I could
+    /// not look" is never "nothing ran" (spec §6.2, the same rule `what_happened` keeps).
+    fn no_helper_ever_ran(&self, record: &Assignment) -> bool {
+        matches!(
+            crate::work_status::trail(&self.state, &record.entity_id, &record.thread_id, &record.obligation_id),
+            Ok(trail) if trail.workers == 0
+                && trail.lands.is_empty()
+                && trail.changes_requested == 0
+                && trail.reviews_passed == 0
+        )
     }
 
     /// The request this assignment is waiting on him for, if one is on the desk — the head
@@ -4232,8 +4282,12 @@ mod tests {
         assert!(!notice.text.contains("work-seat"));
 
         // **THE COMPARISON.** Same open obligation, same words off the stream, registered as
-        // a TASK — and it still reports the failure an open obligation means for work. So the
-        // arm above is reached by the KIND and not by anything else that changed here.
+        // a TASK that a helper worked on — and it still reports the failure an open
+        // obligation means for work. So the arm above is reached by the KIND and not by
+        // anything else that changed here. (The helper's receipt is what keeps this a WORK
+        // failure: a task no helper ever touched is reported in the back end's own words, see
+        // `a_task_the_back_end_did_itself_is_reported_in_its_own_words_not_as_no_work_started`.)
+        engine_receipt(&h, "worker-q", "obligation-8", "worker", None, None);
         let task = h
             .host
             .register(&h.binding, &Registration { obligation_id: "obligation-8".into(), ..registration(&h) })
@@ -4244,6 +4298,81 @@ mod tests {
         let task_notice = h.notices.0.lock().unwrap().last().unwrap().1.clone();
         assert_eq!(task_notice.kind, NoticeKind::Failed);
         assert!(task_notice.text.contains("stopped before it finished"), "{}", task_notice.text);
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **A TASK THE BACK END CARRIED OUT ITSELF IS REPORTED IN ITS OWN WORDS** —
+    /// esc-20260927T093052Z-85f3303f, measured in the test VM on 2026-09-27.
+    ///
+    /// He asked for a command to be run. The back end ran it (the process started 2.2 s after
+    /// his approval, `sleep 90` under the back end's own `claude`), said what it had done, and
+    /// ended its turn 3.5 s later. No helper was ever prepared — there was nothing to land —
+    /// so the engine's `complete` (which needs at least one worker) could never close the
+    /// obligation, and the host read the receipts, found none, and told him *"It stopped
+    /// before it finished. No work was started, so nothing was landed."* The back end's own
+    /// report was in `answer`'s place and was thrown away because the kind was not a
+    /// question. The same arm swallowed the first-run case — *"The Acme repository isn't
+    /// connected to me … connect it in the app under Connected repositories"* — and left him
+    /// with no idea what to do.
+    ///
+    /// Controls, in the same test: a task a helper DID work on, with the same words and the
+    /// same open obligation, is still the work failure the receipts say it is; a back end
+    /// that said nothing is still told as "no work was started".
+    #[test]
+    fn a_task_the_back_end_did_itself_is_reported_in_its_own_words_not_as_no_work_started() {
+        use crate::cognition::ObligationState;
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        // Open, and it stays open: nothing a back end does in its own turn can close it.
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        const REPORT: &str = "I ran git rev-list --count HEAD in the Acme repository. It has 3 commits.";
+        *h.answer_reply.lock().unwrap() = REPORT.into();
+        let _runner = h.host.start();
+
+        // ---- the task no helper touched ------------------------------------------------
+        let itself = h
+            .host
+            .register(&h.binding, &Registration { title: "count the commits in Acme".into(), ..registration(&h) })
+            .unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &itself.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Settled, "his task was reported as a failure: {}", row.detail);
+        assert_eq!(row.detail, "Answered.");
+        assert!(row.was_answered(), "the pane would call a report it never witnessed \"Finished.\"");
+        let notice = h.notices.0.lock().unwrap().last().unwrap().1.clone();
+        assert_eq!(notice.kind, NoticeKind::Answer, "the back end's report was filed as a work result");
+        assert_eq!(notice.text, REPORT, "the result he asked for did not reach him");
+        for wrapper in ["No work was started", "stopped before", "is finished", "your saved work"] {
+            assert!(!notice.text.contains(wrapper), "a receipt sentence replaced the report: {}", notice.text);
+        }
+
+        // ---- CONTROL: a helper worked on it — the receipts still decide ------------------
+        engine_receipt(&h, "worker-c", "obligation-8", "worker", None, None);
+        let helped = h
+            .host
+            .register(&h.binding, &Registration { obligation_id: "obligation-8".into(), ..registration(&h) })
+            .unwrap();
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &helped.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Failed, "a helper's unlanded work was reported as an answer");
+        assert!(!row.was_answered());
+        assert!(row.detail.contains("nothing was landed"), "{}", row.detail);
+        let notice = h.notices.0.lock().unwrap().last().unwrap().1.clone();
+        assert_eq!(notice.kind, NoticeKind::Failed);
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+
+        // ---- CONTROL: a back end that said nothing is still "no work was started" --------
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        let _runner = h.host.start();
+        let silent = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &silent.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Failed);
+        assert_eq!(row.detail, "No work was started, so nothing was landed.");
         h.host.shutdown();
         std::fs::remove_dir_all(h.root).unwrap();
     }
