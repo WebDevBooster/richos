@@ -3282,10 +3282,14 @@ def w3_cell(ctx, data, state, root, cell):
             time.sleep(OPERATOR_REAP_GRACE + 1)
             walk = Walk(ctx, data, state, root, 'w3-%s-relaunched' % cell)
             walks.append(walk)
-            got = walk.wait_say(lambda s: s['thread'] == thread and marker in s['text'], 300)
-            if not got and cell == 'W3':
-                # The answer was TAKEN into the turn the crash killed, so nothing is resent
-                # (design §2.3), and nothing prompts the lead: its next words from him do.
+            got = walk.wait_say(lambda s: s['thread'] == thread and marker in s['text'], 180)
+            rec['nudged'] = False
+            if not got:
+                # The crash killed the turn that had taken the answer: W3 by construction, and
+                # W2 when the lead began it first. That answer is not resent (W3, design §2.3),
+                # or its resend is dropped (P18 case B: a killed turn reads as answered), so it
+                # sits in the lead's context once and nothing prompts the lead. His next words
+                # in the conversation do; they are given once, and recorded.
                 rec['nudged'] = True
                 walk.call('assign', thread=thread, title=title, origin='desk-typed',
                           text='Continue where you left off in this conversation.')
@@ -3326,9 +3330,11 @@ def w3(ctx, r):
     r['lead_pids_alive_after'] = {str(x['pid']): alive(x['pid']) for x in left if x.get('role') != 'app'}
     passed = [c for c in W3_CELLS if cells[c].get('pass')]
     failed = [c for c in W3_CELLS if not cells[c].get('pass')]
+    nudged = [c for c in W3_CELLS if cells[c].get('nudged')]
     if failed:
-        return 'FAIL', 'cells passed: %s; not passed: %s' % (passed, failed)
-    return 'PASS', 'every cell: reported once by the lead, one transcript entry for the uuid, inbox empty, relay taken'
+        return 'FAIL', 'cells passed: %s; not passed: %s; needed his next words: %s' % (passed, failed, nudged)
+    return 'PASS', ('every cell: reported once by the lead, one transcript entry for the uuid, inbox empty, relay '
+                    'taken; needed his next words (the crash killed the turn that took it): %s' % nudged)
 
 
 # =============================================================================================
