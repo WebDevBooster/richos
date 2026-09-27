@@ -405,7 +405,39 @@ impl OperatorDesk {
 
     /// (o): this conversation's read, or every conversation's.
     pub fn read(&self, key: &ConversationKey, every: bool) -> Vec<ConversationRead> {
-        self.host.read(key, every)
+        let mut readings = self.host.read(key, every);
+        // Prepared questions live in the durable store, not the legacy report outbox.
+        // Read it after the host snapshot releases its conversation locks. A restart may
+        // have no live lead or host conversation yet; its saved questions still belong here.
+        let add = |rows: &mut Vec<ConversationRead>, key: &ConversationKey, text: String| {
+            let index = rows.iter().position(|row| &row.key == key).unwrap_or_else(|| {
+                rows.push(ConversationRead { key: key.clone(), lead_running: false,
+                    agents: vec![], texts: vec![], open_questions: vec![], leases: vec![] });
+                rows.len() - 1
+            });
+            rows[index].open_questions.push(text);
+        };
+        let questions = match crate::questions::Store::new(&self.state_root).all() {
+            Ok(questions) => questions,
+            Err(error) => {
+                self.host.log(&format!("saved question status could not be read: {error}"));
+                add(&mut readings, key, "I couldn't read your team's saved questions.".into());
+                return readings;
+            }
+        };
+        for question in questions {
+            let target = ConversationKey { entity_id: question.entity_id, thread_id: question.thread_id };
+            if (!every && &target != key) || !question.asker.starts_with("operator:")
+                || question.delivered || question.state == crate::questions::State::Withdrawn { continue; }
+            let prefix = question.asker.strip_prefix("operator:handle:")
+                .map_or(String::new(), |handle| format!("on {handle}: "));
+            let status = if question.state == crate::questions::State::Answered {
+                if question.remaining > 0 { "answer saved, waiting for the complete set" }
+                else { "answer saved, awaiting delivery" }
+            } else { "asked, no answer relayed yet" };
+            add(&mut readings, &target, format!("{prefix}{} ({status})", question.text));
+        }
+        readings
     }
 
     /// (m): what his team is doing, by his engine's resolver, for the update gate.
@@ -916,8 +948,24 @@ mod tests {
         let inputs = serde_json::from_value(serde_json::json!([{"text":"When should the release ship?", "options":[
             {"label":"Ship today","description":"Earlier fixes"},{"label":"Ship tomorrow","description":"More testing"}]}])).unwrap();
         let q = store.ask(&scope, inputs).unwrap().remove(0);
+        assert!(d.desk.read(&key_of(&a), false)[0].open_questions[0].contains(&q.text));
+        let other = ConversationKey { entity_id: a.entity_id.clone(), thread_id: "other".into() };
+        assert!(d.desk.read(&other, false).is_empty(), "a question stays in its conversation");
+        let declared = d.desk.declaration.clone();
+        let gate = declared.clone();
+        let restarted = OperatorDesk::new(declared, &d.root, DeskParts {
+            launcher: d.launcher.clone(), release: Box::new(|| {}), engine: d.engine.clone(),
+            settle: d.settle.clone(), push: None, origins: d.origins.clone(),
+            gate: Box::new(move || Gate::Operator(Box::new(gate.clone()))),
+        });
+        let recovered = restarted.read(&key_of(&a), false);
+        assert_eq!(recovered.len(), 1, "the store is visible without a cached host conversation");
+        assert!(!recovered[0].lead_running, "reading never starts a lead");
+        assert!(recovered[0].open_questions[0].contains(&q.text));
+        assert_eq!(restarted.read(&other, true).len(), 1, "every includes restored questions");
         store.answer(&a.entity_id, &a.thread_id, AnswerRequest { question_id:q.id.clone(), client_id:"phone-tap".into(),
             option_ids:vec![q.options[1].id.clone()], text:String::new(), expected_revision:None }, "phone_tap", "phone").unwrap();
+        assert!(d.desk.read(&key_of(&a), false)[0].open_questions[0].contains("awaiting delivery"));
         store.deliver(&a.entity_id, &a.thread_id, &scope.asker, |input| d.desk.queue_question_answer(input)).unwrap();
         let saved = crate::question_work::pending(&d.state).unwrap();
         assert_eq!(saved.len(), 1);
@@ -930,6 +978,9 @@ mod tests {
         assert!(sent(&d)[1].contains("Ship tomorrow"));
         assert!(sent(&d)[1].contains("phone_tap"));
         assert!(crate::question_work::pending(&d.state).unwrap().is_empty());
+        assert!(d.desk.read(&key_of(&a), false)[0].open_questions.is_empty());
+        assert!(restarted.read(&key_of(&a), false).is_empty(), "delivered questions leave the read");
+        restarted.quit();
         assignment::advance(&d.state, &a.entity_id, &a.thread_id, &a.id, AssignmentState::Settled, "Done").unwrap();
         assert!(d.desk.queue_question_answer(&saved[0]).is_err(), "a closed handle cannot be reopened by an answer");
     }
