@@ -346,6 +346,62 @@ class Closure(unittest.TestCase):
         document["nodes"]["scripts/lib/worker_tokens.py"]["sha256"] = "changed"
         self.assertIn(priority, graph.config_units(change, [priority]))
 
+    def test_sealed_guard_copy_keeps_real_readers_and_only_masks_the_fixture_override(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/guard-sealed-worktree.test.sh'
+        expected = {'READONLY_ALLOWLIST', 'HARNESS_UTILITY_TYPES', 'SEAL_READONLY_TOOLS',
+                    'APP_TEST_INSTANCE_PROCESS_NAMES', 'APP_TEST_INSTANCE_BUNDLE_ID',
+                    'APP_TEST_INSTANCE_REAL_HOME_PATHS', 'APP_TEST_INSTANCE_QUIT_GRACE_SECONDS',
+                    'APP_TEST_INSTANCE_KILL_GRACE_SECONDS'}
+        closure = graph.closure(unit)
+        self.assertEqual(closure['fallback'], [])
+        self.assertEqual(set(closure['keys']), expected)
+        self.assertFalse(closure['whole'])
+        self.assertTrue(closure['presence'])
+        for key in expected | {'SEAL_WAIT_SECONDS', 'SCRATCH_ROOT_NAME', 'MODEL_CEILING'}:
+            selected = graph.config_units(inputs.config_change(key+'=old', key+'=new'), [unit])
+            self.assertEqual(bool(selected), key in expected, key)
+        document['nodes']['scripts/lib/appinstances.py#workspace-cleanup']['sha256'] = 'changed'
+        self.assertIn(unit, graph.config_units(inputs.config_change('MODEL_CEILING=a', 'MODEL_CEILING=b'), [unit]))
+
+    def test_payload_guards_and_private_ruling_fixtures_do_not_consume_copied_settings(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        cases = {
+            'guard-interactive-prompt': 'scripts/lib/interactive-prompt.py#payload',
+            'guard-host-display-power': 'scripts/lib/ceo-ruled.sh',
+            'guard-no-home-network-phone': 'scripts/lib/ceo-ruled.sh',
+        }
+        for name, helper in cases.items():
+            with self.subTest(name=name):
+                unit = 'scripts/hooks/'+name+'.test.sh'
+                closure = graph.closure(unit)
+                self.assertFalse(closure['keys'] or closure['whole'] or closure['fallback'], closure)
+                self.assertTrue(closure['presence'])
+                change = inputs.config_change('CEO_RULINGS_PATHS=old', 'CEO_RULINGS_PATHS=new')
+                self.assertNotIn(unit, graph.config_units(change, [unit]))
+                previous = document['nodes'][helper]['sha256']
+                document['nodes'][helper]['sha256'] = 'changed'
+                self.assertIn(unit, graph.config_units(change, [unit]))
+                document['nodes'][helper]['sha256'] = previous
+
+    def test_session_notice_and_retired_installer_have_private_config_closures(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        cases = {'session-start-quota': 'scripts/lib/quota_watch.py#notice',
+                 'install-retire-reconciler': 'scripts/lib/registered-hooks.sh'}
+        for name, helper in cases.items():
+            with self.subTest(name=name):
+                unit = 'scripts/hooks/'+name+'.test.sh'
+                self.assertEqual(graph.closure(unit), {'keys': {}, 'whole': [], 'presence': [], 'fallback': []})
+                change = inputs.config_change('QUOTA_PAUSE_PERCENT=93', 'QUOTA_PAUSE_PERCENT=94')
+                self.assertNotIn(unit, graph.config_units(change, [unit]))
+                previous = document['nodes'][helper]['sha256']
+                document['nodes'][helper]['sha256'] = 'changed'
+                self.assertIn(unit, graph.config_units(change, [unit]))
+                document['nodes'][helper]['sha256'] = previous
+
     def test_weekly_policy_fixture_and_real_source_scan_have_different_inputs(self):
         document = json.loads((HERE / "lib/verification-dependencies.json").read_text())
         graph = inputs.Dependencies(HERE.parent, document)

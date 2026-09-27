@@ -32,8 +32,12 @@ command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit
 
 # shellcheck source=../lib/scratch.sh
 . "$HOOK_DIR/../lib/scratch.sh"
+FIXTURE="$(mktemp -d "${TMPDIR:?}/session-start-quota.XXXXXX")" || exit 1
+export HOME="$FIXTURE/home" CLAUDE_CONFIG_DIR="$FIXTURE/config"
+mkdir -p "$HOME" "$CLAUDE_CONFIG_DIR"
+trap 'rm -rf "$FIXTURE"' EXIT
 SB="$(scratch_new session-start-quota-test)" || { echo "FATAL: no scratch" >&2; exit 1; }
-trap 'scratch_release "$SB" >/dev/null 2>&1 || true' EXIT
+trap 'scratch_release "$SB" >/dev/null 2>&1 || true; rm -rf "$FIXTURE"' EXIT
 
 PASS=0; FAIL=0
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
@@ -41,15 +45,18 @@ bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); }
 
 unset CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_ROOT RICHOS_ENGINE_ROOT RICHOS_SESSION_ID
 export QUOTA_PAYLOAD="$SB/payload.json"
+export QUOTA_WATCH_NOW=1800000000
 export RICHOS_WORKSPACES_DIR="$SB/ws"
 ENT="$SB/entity"
 mkdir -p "$ENT" "$RICHOS_WORKSPACES_DIR"
 
 write_payload() { # <used> <resets-in-seconds>
     python3 - "$QUOTA_PAYLOAD" "$1" "$2" <<'PY'
-import json, sys, time
+import json, os, sys
+now = int(os.environ["QUOTA_WATCH_NOW"])
 json.dump({"rate_limits": {"five_hour": {"used_percentage": int(sys.argv[2]),
-                                         "resets_at": int(time.time()) + int(sys.argv[3])}}}, open(sys.argv[1], "w"))
+                                         "resets_at": now + int(sys.argv[3])}}}, open(sys.argv[1], "w"))
+os.utime(sys.argv[1], (now, now))
 PY
 }
 run_hook() { # [hook-path] — sets OUT, ERR, RC; runs from $RUN_DIR

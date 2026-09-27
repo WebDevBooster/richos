@@ -1057,7 +1057,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "a21a2fa1e167b3865d0ce0347a160b82f38605d3dda0756dfd1191736578e4d5",
+      "sha256": "6dded0e1676f6f61bac069d3a9a53ef7a3717a13b9a6079b3234ca872dfd18fd",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed.",
       "keys": [],
       "edges": [
@@ -1368,6 +1368,368 @@
           "to": "scripts/lib/pause_protocol.test.py"
         }
       ]
+    },
+    "mega-lander/workspaces.py#barrier": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+      "evidence": "The barrier CLI reaches reference snapshots, native process identities and private workspace/session records. Its reviewed local call closure has no dynamic helper import and does not read orchestration.config.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/appinstances.py#workspace-cleanup": {
+      "source": "scripts/lib/appinstances.py",
+      "sha256": "e30b7e3522111d099a20bc2d5af49bff1d5b9a4245d5c2147306ef065596efca",
+      "evidence": "workspaces.stop_test_instances passes RootSet(extra=own, include_declared=False). The four SCRATCH root declarations are therefore not read. The actual process/classification/quit path reads these five named values through declared(), falling back to the engine config. Failures use environment/private config-directory paths, not a sourced setting.",
+      "keys": [
+        "APP_TEST_INSTANCE_PROCESS_NAMES",
+        "APP_TEST_INSTANCE_BUNDLE_ID",
+        "APP_TEST_INSTANCE_REAL_HOME_PATHS",
+        "APP_TEST_INSTANCE_QUIT_GRACE_SECONDS",
+        "APP_TEST_INSTANCE_KILL_GRACE_SECONDS"
+      ],
+      "edges": []
+    },
+    "scripts/lib/testdevice_alerts.py": {
+      "source": "scripts/lib/testdevice_alerts.py",
+      "sha256": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
+      "evidence": "Failure records use environment and private HOME/config paths. No orchestration.config loader or repository helper runs.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/testdevices.py#workspace-collection": {
+      "source": "scripts/lib/testdevices.py",
+      "sha256": "33f21f435d27df092a5f36a89a4f1203ae3687534ca90413634e6dad0f43036f",
+      "evidence": "workspaces calls collect with private HOME/config and no fake device adapters. The collector, ownership queries and error writer read private device/workspace state; no orchestration.config values are loaded. Device admission/launch helpers are not called.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#barrier"
+        },
+        {
+          "to": "scripts/lib/testdevice_alerts.py"
+        }
+      ]
+    },
+    "scripts/lib/containers.py#workspace-cleanup": {
+      "source": "scripts/lib/containers.py",
+      "sha256": "957965ce69a27ad94066c9a20c92956e715cb5bdd234080b92024c8e9f0f08c9",
+      "evidence": "reap_for_workspaces reads declared workspace container inventories and Docker state, consulting workspaces.all_agents/live_workspaces for liveness. No orchestration.config values are loaded.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#barrier"
+        }
+      ]
+    },
+    "mega-lander/workspaces.py#lifecycle-fixtures": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+      "evidence": "Reviewed CLI paths: hook/lifecycle, register-spawn, barrier, integration/record_integration, pause and gate-stop. Their local call closure reaches workspace cleanup and these three dynamic modules; it does not reach the land CLI-only QA throwaway or scratch-sweep calls. No direct orchestration.config reader.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/appinstances.py#workspace-cleanup"
+        },
+        {
+          "to": "scripts/lib/testdevices.py#workspace-collection"
+        },
+        {
+          "to": "scripts/lib/containers.py#workspace-cleanup"
+        }
+      ]
+    },
+    "scripts/hooks/guard-sealed-worktree.sh": {
+      "source": "scripts/hooks/guard-sealed-worktree.sh",
+      "sha256": "5fdfedcb7ff7a83f4411eb5a90919ab1fc5d037a6362221551f75db8621d0f93",
+      "evidence": "Sources the resolved entity config and uses four guard policy settings. Only root/adoption functions of resolve-roots and the barrier CLI execute; stop.sh occurs as a parsed recovery-command payload, not a launched script.",
+      "keys": [
+        "READONLY_ALLOWLIST",
+        "HARNESS_UTILITY_TYPES",
+        "SEAL_READONLY_TOOLS",
+        "SEAL_WAIT_SECONDS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "mega-lander/workspaces.py#barrier"
+        }
+      ]
+    },
+    "scripts/hooks/guard-sealed-worktree.mutation.sh": {
+      "source": "scripts/hooks/guard-sealed-worktree.mutation.sh",
+      "sha256": "01863292ae4768b28dc6cacdfed3773411d5e6ca7742db1a77647993870f3e3f",
+      "evidence": "Thirteen finite verdict/refusal mutations execute the declared nested guard suite. Copied configs remain transports; only its SEAL_WAIT_SECONDS fixture override masks a real setting.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-sealed-worktree.test.sh"
+        }
+      ],
+      "literal_keys": {
+        "SEAL_READONLY_TOOLS": "Single-quoted old/new source operands for unregistered verdict mutations; the nested guard is the actual reader."
+      }
+    },
+    "scripts/hooks/guard-sealed-worktree.test.sh": {
+      "source": "scripts/hooks/guard-sealed-worktree.test.sh",
+      "sha256": "d6352b19025245583b9886a565cebe78ecea4bd59193be4165cb06d5a39e0911",
+      "evidence": "Creates private HOME/config, sessions and Git worktrees. Copies the real config, replacing only SEAL_WAIT_SECONDS with zero; all other guard settings remain inputs. Actual lifecycle and gate-stop commands can reach app cleanup reading the original engine config. The missing-library fixture copies only the guard and root resolver. Nested mutation suites retain the same closure.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-sealed-worktree.sh",
+          "overrides": [
+            "SEAL_WAIT_SECONDS"
+          ]
+        },
+        {
+          "to": "mega-lander/workspaces.py#lifecycle-fixtures"
+        },
+        {
+          "to": "scripts/hooks/guard-sealed-worktree.mutation.sh"
+        }
+      ],
+      "presence": "sed transports orchestration.config into the fixture.",
+      "literal_keys": {
+        "SEAL_WAIT_SECONDS": "The sed replacement writes a literal default; the fixture also exports zero. It never consumes the original value."
+      }
+    },
+    "scripts/lib/interactive-prompt.py#payload": {
+      "source": "scripts/lib/interactive-prompt.py",
+      "sha256": "911722b466b6c56a712c44a3f6f268608c5d10ab0bff75d9b59e5492c36c0e4f",
+      "evidence": "The no-argument CLI parses stdin and analyzes the command string using json/re only. The --corpus file reader is not invoked; payload commands are data, never executed.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/hooks/guard-interactive-prompt.sh": {
+      "source": "scripts/hooks/guard-interactive-prompt.sh",
+      "sha256": "006331257e3424466c9bd8f5f49d895362f0602063cb25d98dcef32b18fbd8c8",
+      "evidence": "Root/adoption lookup checks config existence; this guard never sources it. The no-argument analyzer reads only the payload and emits a verdict.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/interactive-prompt.py#payload"
+        }
+      ]
+    },
+    "scripts/hooks/guard-interactive-prompt.test.sh": {
+      "source": "scripts/hooks/guard-interactive-prompt.test.sh",
+      "sha256": "6a803a02cd2e3cb4ab18d5e08f1698bc890e97d87e6c028e4c73a4cdfb2907d3",
+      "evidence": "Invokes the real hook against literal payloads with the engine root for adoption. Missing-analyzer fixture copies config only as a marker and exits before reading payload. Unadopted/private-root cases test root existence. No mutation driver is invoked by this suite.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-interactive-prompt.sh"
+        }
+      ],
+      "presence": "The missing-analyzer fixture transports the config, while real root/adoption checks require its existence."
+    },
+    "scripts/hooks/guard-host-display-power.sh": {
+      "source": "scripts/hooks/guard-host-display-power.sh",
+      "sha256": "a6b99e74c251343564a32b52dbdafbf5a00ae84268853dfa7f622d032e79dc45",
+      "evidence": "Sources the resolved entity config for the guard switch. Root/adoption, seat-jurisdiction and unevaluated-payload helpers run; citation resolution uses ceo-ruled. Embedded Python classifies payload strings and never executes their commands.",
+      "keys": [
+        "HOST_DISPLAY_POWER_GUARD"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/ceo-ruled.sh"
+        }
+      ]
+    },
+    "scripts/hooks/host-display-power.mutation.sh": {
+      "source": "scripts/hooks/host-display-power.mutation.sh",
+      "sha256": "493a4e0c002b541e43d626a0a2cc1666eb784bc0bf717c55be2503cd091a5190",
+      "evidence": "Finite guard-source mutations copy config and registration files as fixture transports, then execute the nested suite which creates its own entity settings. Pool and stopwatch run without sourcing the real config. Copied hook-registration files are not read by the nested suite.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/stopwatch.sh"
+        },
+        {
+          "to": "scripts/lib/mutation-pool.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-host-display-power.test.sh"
+        }
+      ],
+      "presence": "The fixture copy requires orchestration.config to exist."
+    },
+    "scripts/hooks/guard-host-display-power.test.sh": {
+      "source": "scripts/hooks/guard-host-display-power.test.sh",
+      "sha256": "2d7b52bfb75962c8934a57db53d16ae22efa695bc630b553cefe61ea993ad13f",
+      "evidence": "Creates a private entity orchestration.config and a private ruling repository. Every hook invocation resolves that entity, its off-switch variant or an explicitly unadopted directory. Missing-resolver fixture refuses before config. Nested mutations recreate the same private settings; literal historical commands remain payload data.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-host-display-power.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/host-display-power.mutation.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-no-home-network-phone.sh": {
+      "source": "scripts/hooks/guard-no-home-network-phone.sh",
+      "sha256": "a84bf4506421d5a84ed94cbf75c7678fbc7a2b0b635a7e5a493750d3fddb82c9",
+      "evidence": "Sources the resolved entity config for the guard switch. Root/adoption, seat-jurisdiction and unevaluated-payload helpers run; citation resolution uses ceo-ruled. Embedded Python classifies payload strings and never executes their commands.",
+      "keys": [
+        "HOME_NETWORK_PHONE_GUARD"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/ceo-ruled.sh"
+        }
+      ]
+    },
+    "scripts/hooks/home-network-phone.mutation.sh": {
+      "source": "scripts/hooks/home-network-phone.mutation.sh",
+      "sha256": "22acc5fa7f7608aa23b75337ee3903972263cea89ad64f6220d7105dd25c578d",
+      "evidence": "Finite guard-source mutations copy config and registration files as fixture transports, then execute the nested suite which creates its own entity settings. Pool and stopwatch run without sourcing the real config. Copied hook-registration files are not read by the nested suite.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/stopwatch.sh"
+        },
+        {
+          "to": "scripts/lib/mutation-pool.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-no-home-network-phone.test.sh"
+        }
+      ],
+      "presence": "The fixture copy requires orchestration.config to exist."
+    },
+    "scripts/hooks/guard-no-home-network-phone.test.sh": {
+      "source": "scripts/hooks/guard-no-home-network-phone.test.sh",
+      "sha256": "8dfdc47d5bb07c75e08acb8f1307aef72c8e928fdf4132101152936631c54d3e",
+      "evidence": "Creates a private entity orchestration.config and a private ruling repository. Every hook invocation resolves that entity, its off-switch variant or an explicitly unadopted directory. Missing-resolver fixture refuses before config. Nested mutations recreate the same private settings; literal historical commands remain payload data.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-no-home-network-phone.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/home-network-phone.mutation.sh"
+        }
+      ]
+    },
+    "scripts/lib/registered-hooks.sh": {
+      "source": "scripts/lib/registered-hooks.sh",
+      "sha256": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
+      "evidence": "Parses hooks/hooks.json and the dispatcher manifest to derive registered scripts. Embedded standard-library Python and shell fallback read those registration files as data, never execute their commands or source orchestration.config.",
+      "keys": [],
+      "edges": [],
+      "nonconfig_eval": "${!want[@]} and ${!chain[@]} enumerate local array indices while checking hook order. They are not indirect configuration expansions."
+    },
+    "scripts/hooks/install.sh#private-home": {
+      "source": "scripts/hooks/install.sh",
+      "sha256": "7b80a4c9660fbab047d9e025bade584212504bfd8585e7a91cb38411f1fc88c2",
+      "evidence": "The private-HOME fixture runs settings migration, registration-derived sidecar hashing and retired-plist removal. The only sourced helper is registered-hooks. Config is not loaded; hash targets are data. Private HOME or explicit LaunchAgents redirect leaves LAUNCHD_TOUCHABLE=0, so watchdog/reaper installers cannot execute.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/registered-hooks.sh"
+        }
+      ]
+    },
+    "scripts/hooks/install-retire-reconciler.test.sh": {
+      "source": "scripts/hooks/install-retire-reconciler.test.sh",
+      "sha256": "ff9d17cd8c4d1c3850888b32337127dd1ecdeb456ce69fa74935c53d7e0208fd",
+      "evidence": "Copies scripts, mega-lander, ass-kicker, VERSION and registration tables into a fresh fixture, omitting orchestration.config. Installer invocations always redirect HOME/config and shim launchctl. Real hooks and helper programs are hashed by the installer, not executed.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/install.sh#private-home"
+        }
+      ]
+    },
+    "scripts/lib/quota_watch.py#notice": {
+      "source": "scripts/lib/quota_watch.py",
+      "sha256": "18047f7a75a35c3c2a169b8f93afa8bfc4f1ac8094fc96ef25ff002312b2517e",
+      "evidence": "The main --notice path parses arguments and reads the explicitly supplied payload file and timestamp. It never invokes get_usage, reset_tick, workers or the watch loop. Module imports pause_protocol and quota_weekly, neither reading config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/pause_protocol.py"
+        },
+        {
+          "to": "scripts/lib/quota_weekly.py#weekly-fixture"
+        }
+      ]
+    },
+    "scripts/quota-watch.sh#notice": {
+      "source": "scripts/quota-watch.sh",
+      "sha256": "70ce3fdbd3a372f727086df522819fae6b3dab759838209563ba9414805d0d10",
+      "evidence": "Resolves the entity and sources its config in a subshell only to extract QUOTA_PAUSE_PERCENT. --notice is passed to the reviewed Python notice path.",
+      "keys": [
+        "QUOTA_PAUSE_PERCENT"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/quota_watch.py#notice"
+        }
+      ]
+    },
+    "scripts/hooks/session-start-quota.sh": {
+      "source": "scripts/hooks/session-start-quota.sh",
+      "sha256": "720bdd6c4c0e392f2be9f37368f0862e92d1504a2eb56851af8a4e083f817cf1",
+      "evidence": "Calls quota-watch.sh --notice and wraps its body in JSON. It never reads stdin or any other setting.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/quota-watch.sh#notice"
+        }
+      ]
+    },
+    "scripts/hooks/session-start-quota.test.sh": {
+      "source": "scripts/hooks/session-start-quota.test.sh",
+      "sha256": "44bc647df7d0805f184f15346bf9c89dd3c05e49a07e66e40b3bd65f7f45788a",
+      "evidence": "Creates private HOME/config before scratch allocation, a private entity config and literal payloads at a pinned clock. The absent watcher copy exits before root resolution. Scratch uses unsourced defaults, so no real config values are inherited.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/scratch.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/session-start-quota.sh",
+          "fixture": true
+        }
+      ]
     }
   },
   "units": {
@@ -1388,7 +1750,13 @@
     "scripts/no-foreign-app-data.test.sh": "scripts/no-foreign-app-data.test.sh",
     "scripts/lib/engine_pass.test.sh": "scripts/lib/engine_pass.test.sh",
     "scripts/lib/worker-priority.test.sh": "scripts/lib/worker-priority.test.sh",
-    "scripts/lib/pause_protocol.test.sh": "scripts/lib/pause_protocol.test.sh"
+    "scripts/lib/pause_protocol.test.sh": "scripts/lib/pause_protocol.test.sh",
+    "scripts/hooks/guard-sealed-worktree.test.sh": "scripts/hooks/guard-sealed-worktree.test.sh",
+    "scripts/hooks/guard-host-display-power.test.sh": "scripts/hooks/guard-host-display-power.test.sh",
+    "scripts/hooks/guard-no-home-network-phone.test.sh": "scripts/hooks/guard-no-home-network-phone.test.sh",
+    "scripts/hooks/guard-interactive-prompt.test.sh": "scripts/hooks/guard-interactive-prompt.test.sh",
+    "scripts/hooks/install-retire-reconciler.test.sh": "scripts/hooks/install-retire-reconciler.test.sh",
+    "scripts/hooks/session-start-quota.test.sh": "scripts/hooks/session-start-quota.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
