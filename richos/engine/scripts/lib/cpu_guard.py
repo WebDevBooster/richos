@@ -28,7 +28,49 @@ import uuid
 import operator_fences
 from cpu_policy import DEFAULT_MAX_CPU, admission_open, VerificationPressure
 
-STATE = Path(os.environ.get('RICHOS_CPU_GUARD_STATE', '/Volumes/E1TB/state/richos/cpu-guard'))
+CANONICAL_STATE = Path('/Volumes/E1TB/state/richos/cpu-guard')
+# Preserve the existing kernel lock inodes across rollout and older worktrees.
+CANONICAL_WORKERS = Path(pwd.getpwuid(os.getuid()).pw_dir) / '.richos-nightly/worker-budget-v1'
+CANONICAL_ENGINE_PASS = Path('/Volumes/E1TB/state/richos/engine-pass-v1')
+
+
+def installed_verification_policy():
+    """Consult the machine location, never an override that could hide it."""
+    if (CANONICAL_STATE / 'verification-enabled.json').exists():
+        return True
+    try:
+        with (CANONICAL_STATE / 'verification-pressure.json').open() as source:
+            return json.load(source).get('protocol') == 1
+    except FileNotFoundError:
+        return False
+
+
+def governed_directory(path, canonical):
+    """Private pools require an explicit fixture root and private HOME/config.
+
+    This distinguishes a declared test seam from a silent production override.
+    It is not an OS sandbox or an authorization boundary against arbitrary shell.
+    """
+    target, canonical = Path(path).resolve(), Path(canonical).resolve()
+    if target == canonical or not installed_verification_policy():
+        return target
+    root = os.environ.get('RICHOS_VERIFICATION_FIXTURE_ROOT')
+    if os.environ.get('RICHOS_VERIFICATION_MODE') != 'fixture' or not root:
+        raise ValueError('managed verification refuses a private capacity/controller path; '
+                         'tests need explicit fixture mode and private HOME/config: ' + str(target))
+    root = Path(root).resolve()
+    actual_home = Path(pwd.getpwuid(os.getuid()).pw_dir).resolve()
+    home = Path(os.environ.get('HOME', str(actual_home))).resolve()
+    config = Path(os.environ.get('CLAUDE_CONFIG_DIR', str(home / '.claude'))).resolve()
+    if (not root.is_dir() or root == Path(root.anchor) or home == actual_home
+            or not home.is_relative_to(root) or not config.is_relative_to(root)
+            or not target.is_relative_to(root) or root == actual_home
+            or canonical.is_relative_to(root)):
+        raise ValueError('verification fixture override escapes its private root/HOME/config: ' + str(target))
+    return target
+
+
+STATE = governed_directory(os.environ.get('RICHOS_CPU_GUARD_STATE', str(CANONICAL_STATE)), CANONICAL_STATE)
 INTERVAL = 2.0
 VERIFICATION_PROTOCOL = 1
 WINDOW = 10.0
@@ -215,6 +257,7 @@ def resolve_verification_policy(context):
 
 
 def verification_enabled():
+    governed_directory(STATE, CANONICAL_STATE)
     expected = read_json(STATE / 'verification-enabled.json')
     if expected is not None:
         if expected.get('protocol') != VERIFICATION_PROTOCOL:

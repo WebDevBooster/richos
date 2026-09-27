@@ -82,6 +82,9 @@ class Budget:
         shared = (shared or os.environ.get("RICHOS_MACHINE_WORKERS")) if shared is not False else None
         self.shared = (Budget(shared, reserved, runner, shared=shared)
                        if shared and os.path.realpath(shared) != os.path.realpath(directory) else None)
+        if not self.shared and os.path.isfile(os.path.join(os.path.dirname(__file__), 'cpu_guard.py')):
+            import cpu_guard
+            cpu_guard.governed_directory(directory, cpu_guard.CANONICAL_WORKERS)
         self.files = sorted(os.path.join(directory, f) for f in os.listdir(directory) if f.startswith("token-") and f[6:].isdigit())
         if not self.files:
             raise ValueError("no tokens in %s; make them with `worker_tokens.py init`" % directory)
@@ -236,6 +239,11 @@ def machine_directory():
     """One per-user budget across checkouts, runners and nightlies; never release.lock."""
     directory = os.environ.get("RICHOS_MACHINE_WORKERS") or os.path.join(
         os.path.expanduser("~"), ".richos-nightly", "worker-budget-v1")
+    if os.path.isfile(os.path.join(os.path.dirname(__file__), 'cpu_guard.py')):
+        import cpu_guard
+        if cpu_guard.installed_verification_policy():
+            directory = os.environ.get('RICHOS_MACHINE_WORKERS') or str(cpu_guard.CANONICAL_WORKERS)
+            directory = str(cpu_guard.governed_directory(directory, cpu_guard.CANONICAL_WORKERS))
     # The machine ceiling is independent of a run's smaller --capacity.
     init(directory, max(1, int((os.cpu_count() or 4) * 0.8)))
     return directory

@@ -143,6 +143,9 @@ def directory():
             path = "/Volumes/E1TB/state/richos/engine-pass-v1"
         else:
             path = os.path.join(os.path.expanduser("~"), ".richos-nightly", "engine-pass-v1")
+    if os.path.isfile(os.path.join(os.path.dirname(__file__), 'cpu_guard.py')):
+        import cpu_guard
+        path = str(cpu_guard.governed_directory(path, cpu_guard.CANONICAL_ENGINE_PASS))
     os.makedirs(path, mode=0o700, exist_ok=True)
     return path
 

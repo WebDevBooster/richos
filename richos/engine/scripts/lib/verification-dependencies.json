@@ -465,7 +465,7 @@
     },
     "scripts/lib/cpu_guard.py": {
       "source": "scripts/lib/cpu_guard.py",
-      "sha256": "13f159db79b892ca37a4659758d94ebdae65217690bfd675cb153742cefd5732",
+      "sha256": "f459ebd40b8c2de266b2a1cf5210414ff2802e2711735e6eb66817d955d01fdc",
       "evidence": "Token and supervisor callers use registration, health, admission and verification-client APIs before HostMemory. These read native process data and their private controller records, never orchestration.config. They do not invoke the watch/install CLI or its HostMemory provider. Caller commands remain separate declared edges.",
       "keys": [],
       "edges": [
@@ -480,7 +480,7 @@
         }
       ],
       "region": [
-        "STATE = Path(",
+        "CANONICAL_STATE = Path(",
         "class HostMemory:"
       ]
     },
@@ -500,18 +500,21 @@
     },
     "scripts/lib/engine_pass.py": {
       "source": "scripts/lib/engine_pass.py",
-      "sha256": "17c5b55b5f64c3e743d6c4aa1bbe6481fc198217ef441f4a285d7334a14c7e7f",
+      "sha256": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
       "evidence": "Admission/slot policy reads its own records, Git identity and process generations; no orchestration settings.",
       "keys": [],
       "edges": [
         {
           "to": "scripts/lib/proc_tree.py"
+        },
+        {
+          "to": "scripts/lib/cpu_guard.py"
         }
       ]
     },
     "scripts/lib/worker_tokens.py": {
       "source": "scripts/lib/worker_tokens.py",
-      "sha256": "3415b0824a9d2acd13be390200f98b3dee4a6f7cfc26d8ee2f7eee2bee6418d7",
+      "sha256": "b961ac06fa164cf782a898b9f2fbe9e7d392caf0eb85ac14e7a4882eeeaaebca",
       "evidence": "Worker leases read their budget files and invoke the caller\u2019s separately declared command, through process supervision and admission policy.",
       "keys": [],
       "edges": [

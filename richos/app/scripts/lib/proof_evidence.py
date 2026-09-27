@@ -117,7 +117,7 @@ def prepare_environment(item, root, logdir, environment, create=True):
         "CLAUDE_CONFIG_DIR": str(home / ".claude"), "LANG": "C", "LC_ALL": "C", "TZ": "UTC",
         "PYTHONDONTWRITEBYTECODE": "1", "PYTHONNOUSERSITE": "1", "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_CONFIG_GLOBAL": str(home / ".gitconfig"), "GIT_TEMPLATE_DIR": str(private / "git-template"),
-        "RICHOS_VERIFICATION_FIXTURE_ROOT": str(private)}
+        "RICHOS_VERIFICATION_FIXTURE_ROOT": str(private), "RICHOS_VERIFICATION_MODE": "fixture"}
     # Only named stable inputs enter this profile. Per-run ownership/worker fields
     # are attached by launch(), after this environment has been fingerprinted.
     for name in set(recipe["environment"]) | set(recipe["external"]):
@@ -210,6 +210,7 @@ def recipe_identity(root, recipe, environment):
         names = {"PATH", "HOME", "TMPDIR", "CLAUDE_CONFIG_DIR", "LANG", "LC_ALL", "TZ",
                  "PYTHONDONTWRITEBYTECODE", "PYTHONNOUSERSITE", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL",
                  "GIT_TEMPLATE_DIR", "RICHOS_VERIFICATION_TOOL_PATH", "RICHOS_VERIFICATION_FIXTURE_ROOT",
+                 "RICHOS_VERIFICATION_MODE",
                  *recipe["environment"], *recipe["external"]}
         values = {name: digest(environment[name].replace(private, "$FIXTURE"))
                   if name in environment else None for name in names}

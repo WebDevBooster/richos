@@ -67,6 +67,52 @@ class GuardTests(unittest.TestCase):
             self.assertEqual(proc_tree.supervise(os.getpid(), [sys.executable, '-c', 'pass']), 75)
             launch.assert_not_called()
 
+    def test_installed_policy_rejects_silent_private_pools_before_admission(self):
+        import engine_pass
+        machine = G.STATE / 'machine-policy'
+        G.write_json(machine / 'verification-enabled.json', {'protocol': 1})
+        private = G.STATE / 'private-pool'
+        env = {'RICHOS_MACHINE_WORKERS': str(private), 'RICHOS_ENGINE_PASS_DIR': str(private),
+               'RICHOS_VERIFICATION_MODE': '', 'RICHOS_VERIFICATION_FIXTURE_ROOT': ''}
+        with patch.object(G, 'CANONICAL_STATE', machine), patch.dict(os.environ, env):
+            for function in (W.machine_directory, engine_pass.directory):
+                with self.assertRaisesRegex(ValueError, 'private capacity/controller'):
+                    function()
+            self.assertFalse(private.exists())
+            W.init(str(private), 1)
+            with self.assertRaisesRegex(ValueError, 'private capacity/controller'):
+                W.Budget(str(private), shared=False)
+
+    def test_fixture_overrides_require_private_home_config_and_contained_paths(self):
+        machine = G.STATE / 'machine-policy'
+        G.write_json(machine / 'verification-enabled.json', {'protocol': 1})
+        fixture = G.STATE / 'fixture'
+        fixture.mkdir()
+        env = {'RICHOS_VERIFICATION_MODE': 'fixture', 'RICHOS_VERIFICATION_FIXTURE_ROOT': str(fixture),
+               'HOME': str(fixture / 'home'), 'CLAUDE_CONFIG_DIR': str(fixture / 'home/.claude')}
+        with patch.object(G, 'CANONICAL_STATE', machine), patch.dict(os.environ, env):
+            self.assertEqual(G.governed_directory(fixture / 'pool', machine), fixture / 'pool')
+            self.assertEqual(G.governed_directory(machine, machine), machine)
+            for changes in ({'HOME': G.pwd.getpwuid(os.getuid()).pw_dir},
+                            {'CLAUDE_CONFIG_DIR': str(G.STATE / 'outside')},
+                            {'RICHOS_VERIFICATION_MODE': ''}):
+                with patch.dict(os.environ, changes), self.assertRaises(ValueError):
+                    G.governed_directory(fixture / 'pool', machine)
+            (fixture / 'escape').symlink_to(G.STATE)
+            with self.assertRaisesRegex(ValueError, 'escapes'):
+                G.governed_directory(fixture / 'escape/pool', machine)
+            with patch.object(G, 'STATE', fixture / 'controller'):
+                self.assertFalse(G.verification_enabled())
+
+    def test_machine_policy_remains_visible_when_controller_override_is_empty(self):
+        machine = G.STATE / 'machine-policy'
+        G.write_json(machine / 'verification-pressure.json', {'protocol': 1})
+        with patch.object(G, 'CANONICAL_STATE', machine), \
+                patch.dict(os.environ, {'RICHOS_VERIFICATION_MODE': ''}), \
+                patch.object(G, 'STATE', G.STATE / 'empty-controller'):
+            with self.assertRaisesRegex(ValueError, 'private capacity/controller'):
+                G.verification_enabled()
+
     def test_staged_runtime_can_observe_orphans_without_the_source_checkout(self):
         engine = Path(__file__).resolve().parents[2]
         target = G.stage_runtime(engine, G.STATE / 'runtime')
