@@ -90,6 +90,15 @@ def stoppable(assignments):
                   % ('/'.join(sorted({a.get('state') or '?' for a in assignments})), json.dumps(assignments)))
 
 
+def pressed_at(records):
+    """The guest-clock moment of the AXPress, from ax.sh click --json's own record. A clock read
+    before ax.sh would add its SSH trip and tree search (2.63-5.62 s, guest walk-0ddfdbf8ff00)."""
+    clicked = [r for r in records if r.get('clicked')]
+    if not clicked or not isinstance(clicked[-1].get('pressed_at_ms'), int):
+        raise StepFailed('REFUSED: the press carried no guest-clock time: ' + json.dumps(records))
+    return {k: clicked[-1][k] for k in ('pressed_at_ms', 'returned_at_ms')}
+
+
 def names_commands(question):
     """Does the quit question name a running command? lifecycle.rs quit_question counts one per
     process group, so two heartbeats read "2 commands Rich started", never "a command"."""
@@ -331,9 +340,9 @@ class Walk(adopt.Walk):
         self.press('waiting for you') if self.present('waiting for you') else self.press('assignment running')
         # The row's Stop is labeled "Stop <its title>" (work-summary.js); name this one.
         label = 'Stop ' + (target.get('title') or '')[:60]
-        trigger = self.now()
-        self.press(label)
-        return dict(self.verdict(names, trigger, BOUND_MS), started=started, stopped=target['id'])
+        press = pressed_at(self.press(label))
+        return dict(self.verdict(names, press['pressed_at_ms'], BOUND_MS), press=press, started=started,
+                    stopped=target['id'])
 
     def quit(self):
         started = self.start('quit')
@@ -344,9 +353,8 @@ class Walk(adopt.Walk):
         question = command([HERE / 'ax.sh', self.vm, 'tree', '--in', 'dialog', '--max', '80'], 60)
         if not names_commands(question):
             raise StepFailed('the quit question did not name the running command')
-        trigger = self.now()
-        self.press('Quit and stop the work')
-        evidence = self.verdict(names, trigger, QUIT_BOUND_MS)
+        press = pressed_at(self.press('Quit and stop the work'))
+        evidence = dict(self.verdict(names, press['pressed_at_ms'], QUIT_BOUND_MS), press=press)
         app_log = guest(self.vm, 'cat ' + shlex.quote(self.payload) + '/app.log ' + shlex.quote(self.payload)
                         + '/relaunch-*.log 2>/dev/null | grep "\\[richos\\] quit:" | tail -1 || true')
         reap_log = guest(self.vm, 'cat ' + shlex.quote(self.engine_state + '/provider-reap.log') + ' 2>/dev/null || true')

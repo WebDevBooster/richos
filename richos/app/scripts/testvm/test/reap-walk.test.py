@@ -179,6 +179,14 @@ class Grade(unittest.TestCase):
         self.assertIsNone(walk.owner_of([ended], [3843, 4803]))
         self.assertIsNone(walk.owner_of([live, dict(live, provider=9)], [3843, 4803]))
 
+    def test_the_trigger_is_the_press_itself_never_a_clock_read_before_ax_sh(self):
+        # Guest walk-0ddfdbf8ff00: one ax.sh call took 2.63-5.62 s, and Stop's first grade read
+        # the clock before it, so 3340 ms "after the trigger" was mostly the harness pressing.
+        clicked = [{'meta': True}, {'clicked': True, 'pressed_at_ms': T, 'returned_at_ms': T + 40}]
+        self.assertEqual(walk.pressed_at(clicked), {'pressed_at_ms': T, 'returned_at_ms': T + 40})
+        with self.assertRaises(walk.StepFailed):
+            walk.pressed_at([{'meta': True}, {'clicked': True}])
+
     def test_ps_time_is_read_past_an_hour(self):
         self.assertAlmostEqual(walk.cpu_seconds('0:01.46'), 1.46)
         self.assertAlmostEqual(walk.cpu_seconds(' 1:02:03.50\n'), 3723.5)

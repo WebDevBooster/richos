@@ -244,8 +244,13 @@ function run() {
       var actions=el.actions().map(function(a) { return a.name(); });
       if (actions.indexOf("AXPress") < 0) return meta+"\n"+error("noaction", "element has no AXPress; actions="+actions.join(","));
       var pressedNode=full(target); // A dismissal can invalidate this AX node.
+      // Timed HERE, on the guest's clock, immediately around the press: a caller that reads
+      // the clock before ax.sh also measures the SSH trip and this search (2.6-5.6 s).
+      var pressedAt=Date.now();
       el.actions.byName("AXPress").perform();
-      return meta+"\n"+JSON.stringify({clicked:true,node:pressedNode,matches:hits.length});
+      var returnedAt=Date.now();
+      return meta+"\n"+JSON.stringify({clicked:true,node:pressedNode,matches:hits.length,
+        pressed_at_ms:pressedAt,returned_at_ms:returnedAt});
     }
     proc.frontmost = true;
     el.focused = true;

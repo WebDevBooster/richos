@@ -50,6 +50,11 @@ assert.equal(exercise('type',{dropInput:true}).records.at(-1).error,'typefailed'
 const refused=exercise('type',{rejectFocus:true});
 assert.equal(refused.records.at(-1).error,'focusfailed');assert.equal(refused.typed,0);
 assert.equal(exercise('click').pressed,1);
+// The press is timed where it happens, on the guest's clock: a caller that reads the clock
+// before ax.sh measures the SSH trip and the tree search too (2.6-5.6 s, guest walk-0ddfdbf8ff00).
+{ const before=Date.now(); const clicked=exercise('click').records.at(-1); const after=Date.now();
+  assert.ok(Number.isInteger(clicked.pressed_at_ms) && clicked.pressed_at_ms>=before && clicked.pressed_at_ms<=after, JSON.stringify(clicked));
+  assert.ok(clicked.returned_at_ms>=clicked.pressed_at_ms && clicked.returned_at_ms<=after, JSON.stringify(clicked)); }
 assert.match(exercise('clickat').clicked,/click at \{12, 34\}/);
 assert.equal(exercise('find',{blocked:true}).records.at(-1).error,'blocked');
 assert.equal(exercise('find',{text:'Absent',dialog:true}).records.at(-1).error,'blocked');
