@@ -52,6 +52,28 @@ class QuestionCardTest {
         compose.onNodeWithText("Rich has your answer").assertExists()
         compose.onNodeWithText("Change answer").assertDoesNotExist()
     }
+    /** Rich's ruling on escalation esc-20260927T220629Z-cbc90040: a job that ended before any back
+     *  end took his answer says so, and only then; "On its way to Rich" would never again be true. */
+    @Test fun aJobThatStoppedBeforeRichGotTheAnswerSaysSoOnlyWhenFlagged() {
+        val stopped = "This job stopped before Rich got your answer."
+        val handedOff = q.copy(state = "answered", revision = 1, handoffStarted = true, answer = QuestionAnswer(listOf("a"), "", "phone_tap", "phone"))
+        var body by mutableStateOf(Body.Question(handedOff))
+        var theme by mutableStateOf(Theme.DARK)
+        compose.setContent { RichTheme(theme) { QuestionCard(body, {}) } }
+        for (each in listOf(Theme.DARK, Theme.LIGHT)) {
+            compose.runOnIdle { theme = each; body = Body.Question(handedOff) }
+            compose.onNodeWithText("On its way to Rich").assertExists()
+            compose.onNodeWithText(stopped).assertDoesNotExist()
+            compose.runOnIdle { body = Body.Question(handedOff.copy(endedBeforeTaken = true)) }
+            compose.onNodeWithText(stopped).assertExists()
+            compose.onNodeWithText("On its way to Rich").assertDoesNotExist()
+            compose.onNodeWithText("Change answer").assertDoesNotExist()
+        }
+        // The Mac never publishes both, but a delivered card says only that Rich has it.
+        compose.runOnIdle { body = Body.Question(handedOff.copy(delivered = true, endedBeforeTaken = true)) }
+        compose.onNodeWithText("Rich has your answer").assertExists()
+        compose.onNodeWithText(stopped).assertDoesNotExist()
+    }
     @Test fun idleQuestionRequestsNoFrames() {
         compose.mainClock.autoAdvance = false
         var clock: BroadcastFrameClock? = null

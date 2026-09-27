@@ -40,6 +40,12 @@ class QuestionsTest {
         val receipt = Json { ignoreUnknownKeys = true }.decodeFromString(Receipt.serializer(), """{"message_id":"stable","cursor":4,"outcome":"accepted","question":$q}""")
         assertEquals("q", receipt.question?.id)
     }
+    @Test fun `a card decodes whether its job ended before Rich got the answer`() {
+        // Rich's ruling on escalation esc-20260927T220629Z-cbc90040; absent on an older Mac.
+        assertFalse(CoreJson.decodeFromString(QuestionCard.serializer(), q).endedBeforeTaken)
+        val ended = q.replace("\"delivered\":false", "\"delivered\":false,\"ended_before_taken\":true")
+        assertTrue(CoreJson.decodeFromString(QuestionCard.serializer(), ended).endedBeforeTaken)
+    }
     @Test fun `explicit offline edit replaces only an unattempted answer`() = runTest {
         val runtime = DevRuntime.create().also { it.execute(DevRequest.Fixture("online")) }
         val core = runtime.core
