@@ -64,6 +64,19 @@ pub struct Client { origin: String, pub identity: Identity }
 impl Client {
     pub fn new(identity: Identity) -> Self { Self { origin: super::ORIGIN.into(), identity } }
     pub fn call(&self, method: &str, path: &str, body: &str) -> Result<Reply, PhoneError> {
+        // Tauri's command(async) can call this synchronous boundary from a Tokio
+        // worker. The request's private runtime must be created and dropped off
+        // that worker; nested block_on panics before any HTTP request is sent.
+        if tokio::runtime::Handle::try_current().is_ok() {
+            return std::thread::scope(|scope| {
+                std::thread::Builder::new().name("richos-connect".into())
+                    .spawn_scoped(scope, || self.call_blocking(method, path, body))?
+                    .join().unwrap_or_else(|_| Err(unavailable()))
+            });
+        }
+        self.call_blocking(method, path, body)
+    }
+    fn call_blocking(&self, method: &str, path: &str, body: &str) -> Result<Reply, PhoneError> {
         if !matches!((method,path), ("POST","/v1/hosts") | ("GET","/v1/host") |
             ("DELETE","/v1/host") | ("POST","/v1/host/token") | ("PUT","/v1/host/device") | ("POST","/v1/push/hosts") | ("PUT","/v1/push/device") | ("POST","/v1/push/events")) {
             return Err(PhoneError::Malformed("Unknown Connect action".into()));
@@ -107,6 +120,61 @@ pub fn unavailable() -> PhoneError {
 mod tests {
     use super::*;
     use crate::phone::{secrets::MemorySecrets, unb64url};
+    #[test]
+    fn control_request_inside_tokio_reaches_the_server_without_panicking() {
+        use std::io::{BufRead, BufReader, Read, Write};
+        use std::net::TcpListener;
+        use std::time::Instant;
+
+        // Tauri's command(async) runs this synchronous client on a Tokio worker.
+        // Exercise both runtime flavors and join the bounded server even on panic.
+        for multi_thread in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let origin = format!("http://{}", listener.local_addr().unwrap());
+            let server = std::thread::spawn(move || {
+                let until = Instant::now() + Duration::from_secs(3);
+                let (mut socket, _) = loop {
+                    match listener.accept() {
+                        Ok(connection) => break connection,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            if Instant::now() >= until { return None; }
+                            std::thread::sleep(Duration::from_millis(10));
+                        }
+                        Err(error) => panic!("accept: {error}"),
+                    }
+                };
+                socket.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+                let mut reader = BufReader::new(socket.try_clone().unwrap());
+                let mut headers = String::new();
+                loop {
+                    let mut line = String::new();
+                    assert_ne!(reader.read_line(&mut line).unwrap(), 0);
+                    if line == "\r\n" { break; }
+                    headers.push_str(&line);
+                }
+                let mut body = [0; 2];
+                reader.read_exact(&mut body).unwrap();
+                assert_eq!(&body, b"{}");
+                socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}").unwrap();
+                Some(headers)
+            });
+            let client = Client { origin, identity: Identity::open(&MemorySecrets::default()).unwrap() };
+            let mut builder = if multi_thread { tokio::runtime::Builder::new_multi_thread() }
+                else { tokio::runtime::Builder::new_current_thread() };
+            let runtime = builder.enable_all().build().unwrap();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                runtime.block_on(async { client.call("POST", "/v1/hosts", "{}") })
+            }));
+            let headers = server.join().unwrap();
+            let reply = result.expect("control request panicked inside Tokio").unwrap();
+            let headers = headers.expect("request never reached the server").to_ascii_lowercase();
+            assert!(headers.starts_with("post /v1/hosts http/1.1\r\n"));
+            assert!(headers.contains("x-richos-signature:"));
+            assert_eq!(reply.status, 200);
+            assert_eq!(reply.value["ok"], true);
+        }
+    }
     #[test]
     fn identity_survives_reopen_and_signatures_bind_the_exact_request() {
         let secrets = MemorySecrets::default();
