@@ -82,6 +82,8 @@ BACKGROUND = [{'command': 'cd "/Users/admin/testvm/walk-x/home/Acme" && sleep 45
                'background': True, 'stdout': ''}]
 WAITING = {'guest_ms': 1_010_000, 'notices': [{'kind': 'answer', 'text': "I've started it."}]}
 
+CLOSED = {'status': 'completed', 'evidence_ref': 'answer:' + '0' * 64}
+
 
 def finished(**over):
     value = {'kind': 'task', 'state': 'settled', 'detail': 'Answered.', 'notices': [
@@ -93,37 +95,94 @@ def finished(**over):
 
 class BackgroundVerdict(unittest.TestCase):
     def test_a_finish_reported_after_the_command_could_end_passes(self):
-        self.assertEqual(walk.background_verdict(finished(), SHORT, SUBJECT, BACKGROUND, SENT, 45, WAITING), [])
+        self.assertEqual(walk.background_verdict(finished(), SHORT, SUBJECT, BACKGROUND, SENT, 45, WAITING, CLOSED), [])
 
     def test_the_2026_09_27_shape_fails_the_started_words_as_the_only_report(self):
         # The VM's record: one notice, "it has started", and the assignment closed on it.
         started_only = finished(notices=[{'kind': 'answer', 'text': "I've started your test command.",
                                           'raised_at_ms': 1_008_000}])
-        failures = walk.background_verdict(started_only, SHORT, SUBJECT, BACKGROUND, SENT, 45, None)
+        failures = walk.background_verdict(started_only, SHORT, SUBJECT, BACKGROUND, SENT, 45, None, CLOSED)
         self.assertTrue(any('not reported after the start' in f for f in failures), failures)
         self.assertTrue(any('never seen waiting' in f for f in failures), failures)
 
     def test_a_report_raised_before_the_command_could_end_fails(self):
         early = finished()
         early['notices'][-1]['raised_at_ms'] = 1_030_000
-        failures = walk.background_verdict(early, SHORT, SUBJECT, BACKGROUND, SENT, 45, WAITING)
+        failures = walk.background_verdict(early, SHORT, SUBJECT, BACKGROUND, SENT, 45, WAITING, CLOSED)
         self.assertTrue(any('before a 45 s command could have ended' in f for f in failures), failures)
 
     def test_git_dash_c_log_is_the_same_command(self):
         # The first proof run's back end wrote it this way, and the walk refused its own pass.
         measured = [{'command': 'sleep 45 && git -C "/Users/admin/testvm/walk-9021a655830f/home/Acme" log --oneline',
                      'background': True, 'stdout': ''}]
-        self.assertEqual(walk.background_verdict(finished(), SHORT, SUBJECT, measured, SENT, 45, WAITING), [])
+        self.assertEqual(walk.background_verdict(finished(), SHORT, SUBJECT, measured, SENT, 45, WAITING, CLOSED), [])
 
     def test_a_command_run_in_the_foreground_is_not_this_path(self):
         foreground = [dict(BACKGROUND[0], background=False)]
-        failures = walk.background_verdict(finished(), SHORT, SUBJECT, foreground, SENT, 45, WAITING)
+        failures = walk.background_verdict(finished(), SHORT, SUBJECT, foreground, SENT, 45, WAITING, CLOSED)
         self.assertTrue(any('not run the command in the background' in f for f in failures), failures)
 
     def test_a_last_notice_without_the_head_fails(self):
         vague = finished()
         vague['notices'][-1]['text'] = 'It finished.'
-        self.assertTrue(walk.background_verdict(vague, SHORT, SUBJECT, BACKGROUND, SENT, 45, WAITING))
+        self.assertTrue(walk.background_verdict(vague, SHORT, SUBJECT, BACKGROUND, SENT, 45, WAITING, CLOSED))
+
+
+class SelfHandled(unittest.TestCase):
+    """bgdone2 item 1, on the real app's records: the obligation closes on his answer and the report
+    carries nothing about the app's bookkeeping."""
+
+    # vm-run-2 of 2026-09-27, the report as he received it (bgdone1's record).
+    VM_RUN_2 = ("Nothing was merged into the project, because this job only read the history and changed "
+                "nothing. That means there's no branch, no reviewer and no reviewer's verdict to give you. My "
+                "system's step for formally closing an assignment only takes finished code changes, so it has "
+                "no way to close a job like this. It's still open there, but the work you asked for is fully done.")
+
+    def test_the_vm_run_2_report_fails_on_its_bookkeeping(self):
+        said = finished()
+        said['notices'][-1]['text'] += ' ' + self.VM_RUN_2
+        failures = walk.background_verdict(said, SHORT, SUBJECT, BACKGROUND, SENT, 45, WAITING, CLOSED)
+        self.assertTrue(any('bookkeeping' in f for f in failures), failures)
+
+    def test_an_obligation_left_open_or_closed_on_a_land_fails(self):
+        for obligation in (None, {'status': 'active', 'evidence_ref': None},
+                           {'status': 'completed', 'evidence_ref': 'app-completion:abc'}):
+            failures = walk.background_verdict(finished(), SHORT, SUBJECT, BACKGROUND, SENT, 45, WAITING, obligation)
+            self.assertTrue(any('not closed on his answer' in f for f in failures), (obligation, failures))
+
+
+MARKER = 'yield-marker-0a1b2c3d'
+
+
+def first_job(**over):
+    value = finished(notices=[
+        {'kind': 'answer', 'text': "I've started it.", 'raised_at_ms': 1_008_000},
+        {'kind': 'answer', 'text': f'It finished and printed {MARKER}.', 'raised_at_ms': 1_095_000}])
+    value.update(over)
+    return value
+
+
+SECOND = {'kind': 'task', 'state': 'settled', 'detail': 'Answered.',
+          'notices': [{'kind': 'answer', 'text': f'It printed {SHORT} {SUBJECT}.', 'raised_at_ms': 1_030_000}]}
+MEANWHILE = {'state': 'running', 'detail': walk.STILL_RUNNING}
+
+
+class NextJob(unittest.TestCase):
+    def test_the_first_finish_reported_on_its_own_after_the_second_job_passes(self):
+        self.assertEqual(walk.yield_verdict(first_job(), SECOND, MEANWHILE, MARKER, SENT, 90, CLOSED), [])
+
+    def test_the_first_finish_folded_into_the_second_answer_fails(self):
+        folded = dict(SECOND, notices=[{'kind': 'answer', 'text': f'Also, the earlier one printed {MARKER}.'}])
+        failures = walk.yield_verdict(first_job(), folded, MEANWHILE, MARKER, SENT, 90, CLOSED)
+        self.assertTrue(any('folded into the second' in f for f in failures), failures)
+
+    def test_the_bgdone1_shape_fails_the_first_closed_before_its_command_ended(self):
+        # Before bgdone2 the first job settled when the second arrived, on its first words only.
+        closed_early = first_job(notices=[{'kind': 'answer', 'text': "I've started it.", 'raised_at_ms': 1_008_000}])
+        failures = walk.yield_verdict(closed_early, SECOND, {'state': 'settled', 'detail': 'Answered.'}, MARKER,
+                                      SENT, 90, CLOSED)
+        self.assertTrue(any('not open and waiting' in f for f in failures), failures)
+        self.assertTrue(any('does not carry its command' in f for f in failures), failures)
 
 
 class LateApproval(unittest.TestCase):

@@ -33,7 +33,7 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
              started"; the back end's own hook evidence has a Bash PostToolUse running git.
              Evidence is written to --out.
 
-FOUR MORE STEPS, run with --steps (esc-20260927T093052Z-85f3303f's leftovers):
+FIVE MORE STEPS, run with --steps (esc-20260927T093052Z-85f3303f's leftovers):
   background     "start `sleep N && git log --oneline` in the background and tell me when it has
                  finished": PASS needs the back end's own hook record to show the command run with
                  run_in_background; the assignment seen `running` with "A command it started is
@@ -52,6 +52,12 @@ FOUR MORE STEPS, run with --steps (esc-20260927T093052Z-85f3303f's leftovers):
                  seconds of the press, and the assignment closed `settled`. The 2026-09-27
                  diagnosis measured (133.479, 137.542] s on the build before 76e977dc. Evidence:
                  late-approval-observed.json.
+  next-job       a background command (sleep --yield-seconds, then echo a marker unique to the run),
+                 and while it runs a second job (--task). PASS needs the second job closed without the
+                 marker in what he was told; the first job still open, waiting on its command, when the
+                 second closed; then the first `settled` as answered with a later notice carrying the
+                 marker; its obligation closed on that answer; nothing about reviews, merges or closing.
+                 Evidence: yield-observed.json. (background also checks the obligation and the words.)
   relaunch       relaunch.py after a first run (bgdone2 item 3), observed: one relaunch, then every
                  5 s up to --relaunch-within seconds the recorded pid, every process of the app's
                  executable with its parent, the recorded pid's windows, and whether the composer is
@@ -82,12 +88,19 @@ StepFailed = adopt_walk.StepFailed
 command = adopt_walk.command
 
 STEPS = ['identity', 'first-run', 'connect', 'watch', 'task', 'observe']
-MORE_STEPS = ['background', 'deadline', 'late-approval', 'relaunch']
+MORE_STEPS = ['background', 'next-job', 'deadline', 'late-approval', 'relaunch']
 # The pane's words while an assignment waits on its command (work_host.rs COMMAND_STILL_RUNNING_DETAIL).
 STILL_RUNNING = 'A command it started is still running.'
 BACKGROUND_TASK = ('Please start this harmless test command in the background for me with your shell tool, in '
                    'my Acme folder, and tell me when it has finished and what it printed: sleep {seconds} && '
                    'git log --oneline')
+# A command whose output is unique to this run, so another job's answer can be checked for it.
+YIELD_TASK = ('Please start this harmless test command in the background for me with your shell tool, in '
+              'my Acme folder, and tell me when it has finished and what it printed: sleep {seconds} && '
+              'echo {marker}')
+# Words about the app's own bookkeeping that a report on a job that changed nothing must not carry
+# (vm-run-2 of 2026-09-27: "nothing to review or merge", "formally closing an assignment ... still open").
+BOOKKEEPING = ('merge', 'reviewer', 'formally clos', 'still open there', 'closing an assignment')
 LATE_FILE = '/tmp/richos-late-approval.txt'
 LATE_TASK = ('Please run this harmless test command for me yourself with your shell tool, in my Acme folder, '
              'and tell me when it has finished: date +%s > ' + LATE_FILE)
@@ -238,13 +251,86 @@ class CommandWalk(adopt_walk.Walk):
         (self.out / 'background-observed.json').write_text(json.dumps(evidence, indent=2) + '\n')
         if not record:
             raise StepFailed('no assignment was registered after the task was sent')
-        failures = background_verdict(record, short, subject, commands, sent, self.a.command_seconds, waiting)
+        obligation = self.obligation(record['obligation_id'])
+        evidence['obligation'] = obligation
+        (self.out / 'background-observed.json').write_text(json.dumps(evidence, indent=2) + '\n')
+        failures = background_verdict(record, short, subject, commands, sent, self.a.command_seconds, waiting,
+                                      obligation)
         if failures:
             raise StepFailed('; '.join(failures))
         notices = record['notices']
         return {'state': record['state'], 'first_words': notices[0]['text'], 'report': notices[-1]['text'],
                 'report_after_send_s': round((notices[-1]['raised_at_ms'] - sent[0]) / 1000, 3),
-                'waiting_seen_at_guest_ms': waiting['guest_ms'], 'approvals_pressed': pressed}
+                'waiting_seen_at_guest_ms': waiting['guest_ms'], 'approvals_pressed': pressed,
+                'obligation': obligation}
+
+    def obligation(self, obligation_id):
+        """The engine's record of an assignment's obligation, read-only: its status and evidence."""
+        script = ('import json,sqlite3,sys\n'
+                  'c=sqlite3.connect("file:"+sys.argv[1]+"/ecs/ecs.sqlite3?mode=ro",uri=True)\n'
+                  'r=c.execute("SELECT status,evidence_ref FROM ecs_continuity_items WHERE item_id=?",(sys.argv[2],)).fetchone()\n'
+                  'print(json.dumps({"status":r[0],"evidence_ref":r[1]} if r else None))\n')
+        return json.loads(guest(self.vm, 'python3 -c ' + shlex.quote(script) + ' ' + shlex.quote(self.data)
+                                + ' ' + shlex.quote(obligation_id), 60))
+
+    def by_id(self, assignment_id):
+        return next((r for r in self.records() if assignment_id and r.get('id') == assignment_id), None)
+
+    def until_closed(self, pick, seconds, pressed):
+        """The assignment `pick()` reads, polled until it closes or `seconds` pass; Approve pressed as asked."""
+        end, record = time.monotonic() + seconds, None
+        while time.monotonic() < end:
+            record = pick()
+            if record and record.get('state') not in OPEN:
+                break
+            if record and pressed[0] < self.a.approvals and self.approve_if_asked(record.get('title', '')):
+                pressed[0] += 1
+            time.sleep(2)
+        return record
+
+    def next_job(self):
+        """His next job arrives while a background command runs (bgdone2 item 2): the first job must
+        stay open and report its own finish later, and the second job's answer must not carry it."""
+        if not self.facts.get('thread'):
+            raise StepFailed('first-run must have run (no thread on record)')
+        marker = 'yield-marker-' + os.urandom(4).hex()
+        pressed = [0]
+        first_sent = self.send(YIELD_TASK.format(seconds=self.a.yield_seconds, marker=marker))
+        waiting = {}
+
+        def seen_waiting(record):
+            if not waiting and record.get('state') == 'running' and record.get('detail') == STILL_RUNNING:
+                waiting.update(guest_ms=round(self.clock()), notices=record.get('notices'))
+        end = time.monotonic() + self.a.within
+        while not waiting and time.monotonic() < end:
+            record = self.ours(first_sent)
+            if record:
+                seen_waiting(record)
+                if record.get('state') not in OPEN:
+                    break
+                if pressed[0] < self.a.approvals and self.approve_if_asked(record.get('title', '')):
+                    pressed[0] += 1
+            time.sleep(2)
+        # Followed by its id from here: once the second job exists, "the newest since the first send"
+        # would be the second job.
+        first_id = (self.ours(first_sent) or {}).get('id')
+        second_sent = self.send(self.a.task)
+        second = self.until_closed(lambda: self.ours(second_sent), self.a.within, pressed)
+        first_meanwhile = self.by_id(first_id)
+        first = self.until_closed(lambda: self.by_id(first_id), self.a.within + self.a.yield_seconds, pressed)
+        evidence = {'marker': marker, 'command_seconds': self.a.yield_seconds, 'first_sent_ms': first_sent,
+                    'second_sent_ms': second_sent, 'first_seen_waiting': waiting or None,
+                    'first_when_second_closed': first_meanwhile, 'first': first, 'second': second,
+                    'first_obligation': self.obligation(first['obligation_id']) if first else None,
+                    'approvals_pressed': pressed[0], 'back_end_bash': self.evidence_commands()}
+        (self.out / 'yield-observed.json').write_text(json.dumps(evidence, indent=2) + '\n')
+        failures = yield_verdict(first, second, first_meanwhile, marker, first_sent, self.a.yield_seconds,
+                                 evidence['first_obligation'])
+        if failures:
+            raise StepFailed('; '.join(failures))
+        return {'first_report': first['notices'][-1]['text'], 'second_answer': second['notices'][-1]['text'],
+                'first_state_when_second_closed': first_meanwhile.get('state'),
+                'first_obligation': evidence['first_obligation'], 'approvals_pressed': pressed[0]}
 
     def deadline(self):
         # Read off the running app's own environment rather than trusted from the command
@@ -398,7 +484,7 @@ def late_verdict(evidence, bound):
     return failures
 
 
-def background_verdict(record, short, subject, commands, sent, seconds, waiting):
+def background_verdict(record, short, subject, commands, sent, seconds, waiting, obligation):
     """Why this closed assignment does NOT show a background command's finish reported ([] = it does).
 
     Separate from the guest so the rules can be tested on records (test/command-walk.test.py)."""
@@ -426,6 +512,46 @@ def background_verdict(record, short, subject, commands, sent, seconds, waiting)
                             f'send, before a {seconds} s command could have ended')
     if any('No work was started' in n.get('text', '') for n in notices):
         failures.append('he was told "No work was started"')
+    failures += self_handled_failures(notices, obligation)
+    return failures
+
+
+def self_handled_failures(notices, obligation):
+    """A job the back end handled itself (bgdone2 item 1): its obligation is closed on the answer he
+    was given, and nothing he was told is about the app's own bookkeeping."""
+    failures = []
+    evidence = str((obligation or {}).get('evidence_ref') or '')
+    if not obligation or obligation.get('status') != 'completed' or not evidence.startswith('answer:'):
+        failures.append(f'its obligation was not closed on his answer: {obligation}')
+    for notice in notices:
+        said = notice.get('text', '').lower()
+        found = [w for w in BOOKKEEPING if w in said]
+        if found:
+            failures.append(f'he was told about the bookkeeping ({", ".join(found)}): {notice.get("text")!r}')
+    return failures
+
+
+def yield_verdict(first, second, first_meanwhile, marker, sent, seconds, obligation):
+    """Why his next job did NOT leave the first job's finish to be reported on its own ([] = it did)."""
+    if not first or not second:
+        return [f'an assignment is missing (first {bool(first)}, second {bool(second)})']
+    failures = []
+    if second.get('state') in OPEN:
+        failures.append(f"the second job never closed: {second.get('state')}")
+    if any(marker in n.get('text', '') for n in second.get('notices') or []):
+        failures.append("the first job's finish was folded into the second job's answer")
+    meanwhile = first_meanwhile or {}
+    if meanwhile.get('state') != 'running' or meanwhile.get('detail') != STILL_RUNNING:
+        failures.append('when the second job closed, the first was not open and waiting on its command: '
+                        + json.dumps({k: meanwhile.get(k) for k in ('state', 'detail')}))
+    if first.get('state') != 'settled' or first.get('detail') != 'Answered.':
+        failures.append(f"the first job ended {first.get('state')}: {first.get('detail')}")
+    notices = first.get('notices') or []
+    if len(notices) < 2 or marker not in notices[-1].get('text', ''):
+        failures.append(f"the first job's last notice does not carry its command's output ({marker})")
+    elif notices[-1].get('raised_at_ms', 0) < sent[0] + seconds * 1000:
+        failures.append('the first job reported before its command could have ended')
+    failures += self_handled_failures(notices, obligation)
     return failures
 
 
@@ -461,6 +587,7 @@ def main():
     p.add_argument('--deadline-ms', type=int, default=20000, help='the shortened permission deadline (1000-300000)')
     p.add_argument('--late-bound', type=float, default=30, help='seconds from the late Approve to the command')
     p.add_argument('--relaunch-within', type=float, default=120, help='seconds for the composer to come back')
+    p.add_argument('--yield-seconds', type=int, default=90, help="how long next-job's background command sleeps")
     p.add_argument('--steps', default=','.join(STEPS))
     a = p.parse_args()
     steps = a.steps.split(',')
