@@ -375,15 +375,29 @@ fn work_receiving_inbox_deduplicates_an_uncertain_handoff() {
         richos_core::question_work::pending(&f.root).unwrap().len(),
         1
     );
-    let input =
-        richos_core::question_work::take(&f.root, "entity", "thread", "front_desk").unwrap();
-    assert_eq!(input.len(), 1);
-    assert!(
-        richos_core::question_work::take(&f.root, "entity", "thread", "front_desk")
-            .unwrap()
-            .is_empty()
-    );
-    assert!(!richos_core::question_work::enqueue(&f.root, &input[0]).unwrap());
+    // Reading what a run carries lets nothing go: a crash before the back end takes it
+    // leaves it pending (the work-path design, D1).
+    let carried =
+        richos_core::question_work::peek(&f.root, "entity", "thread", "front_desk", "session-1").unwrap();
+    assert_eq!(carried.new.len(), 1);
+    assert_eq!(richos_core::question_work::pending(&f.root).unwrap().len(), 1);
+    richos_core::question_work::taken(&f.root, &carried.ids(), "session-1").unwrap();
+    assert!(richos_core::question_work::pending(&f.root).unwrap().is_empty());
+    // Taken in this session: never carried to it again, and a retried handoff is not new.
+    assert!(richos_core::question_work::peek(&f.root, "entity", "thread", "front_desk", "session-1")
+        .unwrap()
+        .is_empty());
+    assert!(!richos_core::question_work::enqueue(&f.root, &carried.new[0]).unwrap());
+    // A fresh session has never seen it, so it is told again, as an earlier answer (D5).
+    let fresh =
+        richos_core::question_work::peek(&f.root, "entity", "thread", "front_desk", "session-2").unwrap();
+    assert!(fresh.new.is_empty());
+    assert_eq!(fresh.earlier.len(), 1);
+    // Let go with its ended assignment: never told to anyone again.
+    richos_core::question_work::discard(&f.root, "entity", "thread", "front_desk").unwrap();
+    assert!(richos_core::question_work::peek(&f.root, "entity", "thread", "front_desk", "session-3")
+        .unwrap()
+        .is_empty());
 }
 #[test]
 fn notifications_are_once_per_set_even_after_answer_changes() {
