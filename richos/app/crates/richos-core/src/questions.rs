@@ -416,7 +416,10 @@ impl Store {
             let outcome;
             if same {
                 outcome = "already_answered";
-            } else if (q.state == State::Open && request.expected_revision.is_none()) || editable {
+            } else if (q.state == State::Open
+                && request.expected_revision.is_none_or(|revision| revision == q.revision))
+                || editable
+            {
                 q.state = State::Answered;
                 q.answer = Some(incoming);
                 q.revision += 1;

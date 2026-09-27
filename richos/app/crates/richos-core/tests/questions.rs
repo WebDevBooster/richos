@@ -590,3 +590,18 @@ fn residency_snapshot_keeps_open_and_pending_answers_without_waiting_on_store_lo
     std::fs::write(f.root.join("questions/store.json"), b"broken").unwrap();
     assert!(f.store.pending_for_residency().is_err());
 }
+
+#[test]
+fn matching_initial_revision_is_an_answer_not_conflicting_words() {
+    let f = Fixture::new();
+    let q = f.ask(1).remove(0);
+    let result = f.answer(&q, "typed-initial-revision", 0, Some(0));
+    assert_eq!(result.outcome, "accepted");
+    let mut deliveries = Vec::new();
+    f.store.deliver("entity", "thread", "front_desk", |d| {
+        deliveries.push(d.clone()); Ok("receipt".into())
+    }).unwrap();
+    assert_eq!(deliveries.len(), 1);
+    assert_eq!(deliveries[0].set_id.as_deref(), Some(q.set_id.as_str()));
+    assert!(!deliveries[0].text.contains("You also answered"));
+}
