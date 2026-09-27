@@ -80,11 +80,9 @@ impl LeaseFactory for AlwaysFailingLeaseFactory {
     }
 }
 
-// =====================================================================}
-
+// ============================================================================
 // Rotation — invisible continuity (continuity design §3, done-criterion (a))
-// =====================================================================}
-
+// ============================================================================
 
 #[test]
 fn explicit_rotation_swaps_the_lease_and_the_conversation_survives_it() {
@@ -643,11 +641,9 @@ fn clean_rotation_asks_the_outgoing_lease_for_a_self_authored_handoff_summary() 
     let _ = std::fs::remove_file(&path);
 }
 
-// =====================================================================}
-
+// ============================================================================
 // Mid-turn-crash recovery (continuity §5, done-criterion (c))
-// =====================================================================}
-
+// ============================================================================
 
 #[test]
 fn mid_turn_crash_recovers_and_replays_without_duplicating_the_message() {
@@ -875,11 +871,9 @@ fn a_crashed_lease_is_still_replayed_exactly_once() {
     let _ = std::fs::remove_file(&path);
 }
 
-// =====================================================================}
-
+// ============================================================================
 // The proactive-attention seam (persistence + UI event; judgment is a LATER leg)
-// =====================================================================}
-
+// ============================================================================
 
 #[test]
 fn proactive_tier1_and_tier2_render_as_rich_only_messages_no_preceding_ceo_prompt() {
