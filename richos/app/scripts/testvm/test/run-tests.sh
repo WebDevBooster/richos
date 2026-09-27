@@ -1533,6 +1533,10 @@ t "slots: two runs at once, a third waits; a slot is held only for its run and a
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/slots.test.py" >"$TMP/slots.log" 2>&1; ok $? "$(cat "$TMP/slots.log")"
 t_done
 
+t "slots: a caller waiting for a slot is recorded, and past ten minutes the engine's gate refuses the lead's turn"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/slots-wait-gate.test.py" >"$TMP/slots-wait-gate.log" 2>&1; ok $? "$(cat "$TMP/slots-wait-gate.log")"
+t_done
+
 t "mem-walk: a guest probe reads as used, need, swap-outs and the app's and claude's memory"
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/mem-walk.test.py" >"$TMP/mem-walk.log" 2>&1; ok $? "$(cat "$TMP/mem-walk.log")"
 t_done
