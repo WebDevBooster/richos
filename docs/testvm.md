@@ -100,6 +100,14 @@ TO BE PISSED AWAY FOR EVERY 5-SECOND FART???"*
   waits for a free slot (checked every 2 s) and for the CPU and memory admission (CEO ruling
   §77, one sample at least every 30 s; a refused sample releases the slot before waiting).
   The default, 0, refuses at once with exit 75.
+* **A second guest must fit in memory, not just in a slot.** A guest takes its 7 GB as it
+  boots, so a sample taken at admission cannot see it. Measured 2026-09-27 18:56Z: two guests
+  admitted 1.5 s apart both passed the CPU and memory rule at 71% available; 40 s later the Mac
+  was at 32% available, memory pressure warn, swapping out 120 MB/s. So a guest is admitted
+  only when available memory, less what each running guest may still take (its RAM less its VM
+  process's resident size) and less the new guest's whole RAM, leaves 4 GB. On this 24 GB Mac
+  with its usual load that often means one guest at a time; the refusal says so and the caller
+  waits (`--wait`) on that named reason, never on an idle slot.
 * A slot released with its guest still recorded against it stops that guest first
   (`stop.sh`): a guest never outlives its slot.
 * `./slots.py status` shows who holds which slot and for how long.
