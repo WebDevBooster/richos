@@ -118,6 +118,26 @@ pub trait OperatorIntake: Send + Sync {
     fn stop(&self, entity: &str, thread: &str, id: &str) -> Result<(), String>;
 }
 
+/// **Closing, in the engine, an assignment the back end handled itself** — a command he
+/// asked for, the reason it could not begin, or the answer to his question — on the words
+/// he was given (the engine's host-only `answer-complete`).
+///
+/// Such an assignment has no worker, and the engine's `complete` needs one
+/// (`engine/mega-lander/app.py` `complete`: `1 <= len(ids)`), so until this it could never
+/// close and the back end told him so: *"It's still open there"* (richos-hq
+/// `docs/verification/2026-09-27-background-command-finish`, vm-run-2). It is called only
+/// from the two arms that settle on the back end's own words with no helper on the
+/// receipts, and the engine refuses it for any assignment a helper was recorded on, so a
+/// code change still closes only through `complete`, with its workers.
+///
+/// Installed by the shell ([`WorkHost::set_answered_close`]). With none installed the
+/// obligation stays open, which is what every build before this did.
+pub trait AnsweredClose: Send + Sync {
+    /// `Err` is logged and never spoken: what he hears is the report, and the report is true
+    /// whether or not the engine's bookkeeping took it.
+    fn close_answered(&self, record: &Assignment, answer: &str) -> Result<(), String>;
+}
+
 /// The default: say nothing to anybody. Used by tests that are asserting on the durable
 /// record, which is the half that has to be right.
 pub struct SilentNotifier;
@@ -314,6 +334,9 @@ pub struct WorkHost {
     /// **His team, when this is an operator install** ([`OperatorIntake`]). `None` on every
     /// product install, which is what keeps this host byte for byte what it was.
     operator: Mutex<Option<Arc<dyn OperatorIntake>>>,
+    /// How an assignment the back end handled itself is closed in the engine
+    /// ([`AnsweredClose`]); `None` leaves it open, as every build before this did.
+    answered_close: Mutex<Option<Arc<dyn AnsweredClose>>>,
 }
 
 /// The context window this build assumes while a back end has reported nothing, and the
@@ -512,7 +535,14 @@ impl WorkHost {
             screen_poll: Mutex::new(crate::screen::SCREEN_POLL),
             quota: Mutex::new(None),
             operator: Mutex::new(None),
+            answered_close: Mutex::new(None),
         })
+    }
+
+    /// **How an assignment the back end handled itself is closed in the engine** — see
+    /// [`AnsweredClose`]. Installed by the shell.
+    pub fn set_answered_close(&self, close: Arc<dyn AnsweredClose>) {
+        *self.answered_close.lock().unwrap() = Some(close);
     }
 
     /// **Hand every assignment from here on to his team** (operator mode, decided once at
@@ -1419,6 +1449,7 @@ impl WorkHost {
                 // answered, and the pane reads the kind to say so in his words.
                 advance(AssignmentState::Settled, assignment::ANSWERED_DETAIL);
                 self.forget_at_the_desk(record);
+                self.close_answered(record, &said);
                 // Never the same words twice: he was told these while a command of this
                 // assignment was still running (step 3c), and nothing newer came after.
                 if told_while_running.as_deref() != Some(said.as_str()) {
@@ -1465,6 +1496,9 @@ impl WorkHost {
                 let said = assignment::sanitize_answer(&answer);
                 advance(AssignmentState::Settled, assignment::ANSWERED_DETAIL);
                 self.forget_at_the_desk(record);
+                // Its obligation too, on these words: `complete` needs a worker and this
+                // assignment has none ([`AnsweredClose`]).
+                self.close_answered(record, &said);
                 if told_while_running.as_deref() != Some(said.as_str()) {
                     self.raise(record, NoticeKind::Answer, &assignment::says::answered(&record.title, &said));
                 }
@@ -1735,6 +1769,20 @@ impl WorkHost {
             // Woken early by a new job on this thread (`schedule` notifies), which the next
             // pass reads as the reason to stop waiting.
             drop(backend.wake.wait_timeout(inner, COMMAND_WAIT_POLL).unwrap());
+        }
+    }
+
+    /// Close `record`'s obligation in the engine on the words he was given ([`AnsweredClose`]).
+    /// A refusal is logged and never spoken, and nothing is retried: the obligation is then
+    /// open, which is what it was before this existed, and what he heard is unchanged.
+    fn close_answered(&self, record: &Assignment, said: &str) {
+        let close = self.answered_close.lock().unwrap().clone();
+        let Some(close) = close else { return };
+        if let Err(why) = close.close_answered(record, said) {
+            eprintln!(
+                "[richos] work: this assignment was answered and its engine record could not be \
+                 closed on that answer, so it stays open there: {why}"
+            );
         }
     }
 
@@ -4695,6 +4743,73 @@ mod tests {
         let row = assignment::read(&h.state, "depot", "thread-one", &silent.id).unwrap();
         assert_eq!(row.state, AssignmentState::Failed);
         assert_eq!(row.detail, "No work was started, so nothing was landed.");
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// Records every answer close the host asks for, and fails them on demand.
+    #[derive(Default)]
+    struct Closes {
+        asked: Mutex<Vec<(String, String)>>,
+        refuse: Mutex<Option<String>>,
+    }
+
+    impl AnsweredClose for Closes {
+        fn close_answered(&self, record: &Assignment, answer: &str) -> Result<(), String> {
+            self.asked.lock().unwrap().push((record.obligation_id.clone(), answer.to_string()));
+            match &*self.refuse.lock().unwrap() {
+                Some(why) => Err(why.clone()),
+                None => Ok(()),
+            }
+        }
+    }
+
+    /// **An assignment the back end handled itself closes its engine obligation, on the words
+    /// he was given** (richos-hq `2026-09-27-background-command-finish`, "Not done": *"It's
+    /// still open there"*). One close per such assignment, question or task, with the report
+    /// as its evidence; none for an assignment a helper worked on, which still closes only
+    /// through `complete` with its workers; and a close the engine refuses is never spoken.
+    #[test]
+    fn an_assignment_the_back_end_handled_itself_closes_its_obligation_on_the_report_he_was_given() {
+        use crate::cognition::ObligationState;
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        const REPORT: &str = "I ran git rev-list --count HEAD in the Acme repository. It has 3 commits.";
+        *h.answer_reply.lock().unwrap() = REPORT.into();
+        let closes = Arc::new(Closes::default());
+        h.host.set_answered_close(closes.clone());
+        h.host.start();
+
+        let itself = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        assert_eq!(assignment::read(&h.state, "depot", "thread-one", &itself.id).unwrap().state, AssignmentState::Settled);
+        assert_eq!(*closes.asked.lock().unwrap(), vec![("obligation-7".to_string(), REPORT.to_string())],
+                   "the task it handled itself was left open in the engine");
+
+        // A question is handled by the back end itself by definition.
+        h.host
+            .register_kind(&h.binding, &Registration { obligation_id: "obligation-q".into(), ..registration(&h) },
+                           assignment::AssignmentKind::Investigate)
+            .unwrap();
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        assert_eq!(closes.asked.lock().unwrap().last().unwrap().0, "obligation-q");
+
+        // CONTROL: a helper worked on it — never closed on an answer.
+        engine_receipt(&h, "worker-c", "obligation-8", "worker", None, None);
+        h.host.register(&h.binding, &Registration { obligation_id: "obligation-8".into(), ..registration(&h) }).unwrap();
+        assert!(h.host.wait_for_completed(3, std::time::Duration::from_secs(10)));
+        assert_eq!(closes.asked.lock().unwrap().len(), 2, "work a helper did was closed on the back end's words");
+
+        // A refused close changes nothing he hears.
+        *closes.refuse.lock().unwrap() = Some("the engine's store could not be reached".into());
+        let refused = h.host.register(&h.binding, &Registration { obligation_id: "obligation-9".into(), ..registration(&h) }).unwrap();
+        assert!(h.host.wait_for_completed(4, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &refused.id).unwrap();
+        assert_eq!((row.state, row.detail.as_str()), (AssignmentState::Settled, "Answered."));
+        let notice = h.notices.0.lock().unwrap().last().unwrap().1.clone();
+        assert_eq!((notice.kind, notice.text.as_str()), (NoticeKind::Answer, REPORT));
+        assert_eq!(closes.asked.lock().unwrap().len(), 3);
         h.host.shutdown();
         std::fs::remove_dir_all(h.root).unwrap();
     }
