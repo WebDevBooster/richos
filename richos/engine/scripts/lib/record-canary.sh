@@ -79,6 +79,42 @@
 # at once — the same trade the leak canary made for an engineer's own save.
 # In CI none of the three paths exists, so there the witness is exact.
 #
+# ===========================================================================
+# AMENDED 2026-09-27 — THE RUNNERS NOW HAND EACH UNIT A RECORD OF ITS OWN
+# ===========================================================================
+# The paragraph above called those vectors a readable trade. On a busy session
+# they stopped being one. The canary compared the LIVE record before and after
+# a unit, so every spawn, land and message elsewhere on the machine during the
+# unit failed it as RECORD-TOUCHED: zach-opus-amspell3's proof went red three
+# times on `contract-integrity.test.sh --only SCR`, and each diff held only
+# other agents' spawn and land events. Engine proofs could pass only on an idle
+# session, so every engine change waited for quiet.
+#
+# The question this canary exists for is "did THIS unit write to the record?",
+# and a before/after diff of a shared file cannot answer it while anything else
+# writes there. So the runners (ci-shard.sh, run-all-tests.sh) call
+# rc_sandbox <home> before each unit: it builds a throwaway home, points the
+# canary at the record INSIDE it, and fills RC_SANDBOX_ENV with the env(1)
+# arguments the unit is run under — HOME, CLAUDE_CONFIG_DIR and
+# RICHOS_WORKSPACES_DIR inside that home (the three names the record is reached
+# by; the ownership ledger resolves from expanduser("~") alone, so moving the
+# config directory without HOME would leave it on the operator's file), and
+# every other variable whose value lies inside the operator's record removed.
+# Nothing else on the machine writes into that home, so the diff is exactly the
+# unit's own writes: a unit that WOULD have written the operator's record
+# writes this one instead, and is still red.
+#
+# The throwaway home is CI's shape, measured against engine-self-verify.yml: no
+# record at all, and a git identity (the workflow declares one because fixtures
+# commit). Nothing of the operator's own home is carried in; in particular not
+# the operator's git configuration, which is read from $HOME.
+#
+# WHAT IT CANNOT SEE NOW, named: a unit that reaches the operator's record by a
+# path fixed BEFORE it started (an absolute path baked into a script) or from
+# the password database (pwd.getpwuid) rather than $HOME. Measured 2026-09-27:
+# the engine's only two getpwuid readers (cpu_guard.py hook(), probe Q7) use it
+# to DECLINE real state when HOME is redirected, never to write it.
+#
 # A PATH IT CANNOT READ IS A FAILURE, NEVER A QUIET PASS. RC_HEALTHY carries
 # it, exactly as LC_HEALTHY does for the leak canary.
 #
@@ -89,12 +125,70 @@ if [ -n "${_RECORD_CANARY_SH_SOURCED:-}" ]; then
 fi
 _RECORD_CANARY_SH_SOURCED=1
 
-RC_CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-RC_LEDGER="$RC_CFG/state/worktree-ledger.jsonl"
-RC_FALLBACK="$RC_CFG/worker-events.jsonl"
-RC_TEAMS="$RC_CFG/teams"
-RC_WORKSPACES="$RC_CFG/state/workspaces"
+# rc_use_config <dir> — point the canary at the record under <dir>. Explicit,
+# never re-read from the environment (see the header).
+rc_use_config() {
+    RC_CFG="$1"
+    RC_LEDGER="$RC_CFG/state/worktree-ledger.jsonl"
+    RC_FALLBACK="$RC_CFG/worker-events.jsonl"
+    RC_TEAMS="$RC_CFG/teams"
+    RC_WORKSPACES="$RC_CFG/state/workspaces"
+}
+rc_use_config "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+# The operator's record and home as they were when this file was sourced: what
+# rc_sandbox keeps a unit away from, and what a runner names in its banner.
+RC_LIVE_CFG="$RC_CFG"
+RC_LIVE_HOME="${HOME:-}"
 RC_HEALTHY=1
+RC_SANDBOX_ENV=()
+
+# _rc_roads_back — the name of every environment variable whose value is the
+# operator's record or a path inside it, one per line. A function of its own so
+# the heredoc is not nested inside a command substitution, which bash 3.2 (the
+# operator's /bin/bash) can misparse.
+_rc_roads_back() {
+    python3 - "$RC_LIVE_CFG" "${RC_LIVE_HOME:+$RC_LIVE_HOME/.claude}" <<'PY'
+import os, sys
+roots = []
+for r in sys.argv[1:]:
+    if r:
+        roots.append(r.rstrip("/"))
+        roots.append(os.path.realpath(r).rstrip("/"))
+keep = {"HOME", "CLAUDE_CONFIG_DIR", "RICHOS_WORKSPACES_DIR"}
+for name, value in sorted(os.environ.items()):
+    if name in keep or not name.replace("_", "a").isalnum():
+        continue
+    if any(value == r or value.startswith(r + "/") for r in roots if r):
+        print(name)
+PY
+}
+
+# rc_sandbox <home> — give ONE unit a record of its own (see the header).
+# Creates <home> with a git identity and nothing else, points the canary at
+# <home>/.claude, and sets RC_SANDBOX_ENV to the env(1) arguments to run the
+# unit under:  env "${RC_SANDBOX_ENV[@]}" <argv...>
+# Returns 1, with the canary left pointing at nothing it could vouch for, when
+# the home cannot be built; a runner reports that as a blind canary.
+rc_sandbox() {
+    local home="$1" name names
+    RC_SANDBOX_ENV=()
+    rc_use_config "$home/.claude"
+    mkdir -p "$home" 2>/dev/null || return 1
+    home="$(cd "$home" 2>/dev/null && pwd -P)" || return 1
+    rc_use_config "$home/.claude"
+    printf '[user]\n\tname = richos-engine-unit\n\temail = richos-engine-unit@users.noreply.github.com\n' \
+        >"$home/.gitconfig" 2>/dev/null || return 1
+    # Every variable whose value is the operator's record or inside it is
+    # removed, whatever it is called: a unit is handed no road back to it.
+    # Python reads the environment because a value may hold a newline. If it
+    # cannot run, the unit is NOT started with a road left open.
+    names="$(_rc_roads_back)" || return 1
+    for name in $names; do
+        RC_SANDBOX_ENV+=(-u "$name")
+    done
+    RC_SANDBOX_ENV+=("HOME=$home" "CLAUDE_CONFIG_DIR=$home/.claude" "RICHOS_WORKSPACES_DIR=$home/.claude/state/workspaces")
+    return 0
+}
 
 # rc_paths — the watched paths, one per line (for a banner).
 rc_paths() { printf '%s\n%s\n%s/\n%s/\n' "$RC_LEDGER" "$RC_FALLBACK" "$RC_TEAMS" "$RC_WORKSPACES"; }
