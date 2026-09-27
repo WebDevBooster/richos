@@ -569,3 +569,24 @@ fn a_guard_that_never_reads_large_input_cannot_hold_the_vendor_fallback() {
     assert!(start.elapsed() < std::time::Duration::from_secs(1));
     assert!(f.store.all().unwrap().is_empty());
 }
+
+#[test]
+fn residency_snapshot_keeps_open_and_pending_answers_without_waiting_on_store_lock() {
+    let f = Fixture::new();
+    assert!(!f.store.pending_for_residency().unwrap());
+    let q = f.ask(1).remove(0);
+    let lock = std::fs::OpenOptions::new().read(true).write(true)
+        .open(f.root.join("questions/lock")).unwrap();
+    lock.lock().unwrap();
+    assert!(f.store.pending_for_residency().unwrap());
+    lock.unlock().unwrap();
+    f.answer(&q, "phone-offline-answer", 0, None);
+    assert!(f.store.pending_for_residency().unwrap());
+    f.store.deliver("entity", "thread", "front_desk", |_| Ok("receipt".into())).unwrap();
+    assert!(!f.store.pending_for_residency().unwrap());
+    let withdrawn = f.ask(1).remove(0);
+    f.store.withdraw("entity", "thread", "front_desk", &withdrawn.id, "No longer needed").unwrap();
+    assert!(!f.store.pending_for_residency().unwrap());
+    std::fs::write(f.root.join("questions/store.json"), b"broken").unwrap();
+    assert!(f.store.pending_for_residency().is_err());
+}

@@ -740,6 +740,20 @@ impl Store {
         }
         Ok(())
     }
+    /// Read the atomically replaced snapshot without waiting on a writer's OS lock.
+    /// Window-exit callbacks must answer immediately, including during answer handoff.
+    /// Missing history is idle; unreadable history remains an error, never an idle claim.
+    pub fn pending_for_residency(&self) -> Result<bool> {
+        let bytes = match std::fs::read(self.directory.join("store.json")) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error.to_string()),
+        };
+        let data: Data = serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+        Ok(data.questions.iter().any(|q| q.state == State::Open
+            || q.state == State::Answered && !q.delivered)
+            || data.deliveries.iter().any(|delivery| delivery.receipt.is_none()))
+    }
     pub fn all(&self) -> Result<Vec<Question>> {
         self.transaction(false, |d| Ok(d.questions.clone()))
     }
