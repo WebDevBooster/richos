@@ -6,6 +6,12 @@ async function main(){
  const page=await browser.newPage({viewport:{width:1280,height:900}}); const errors=[];page.on("pageerror",e=>errors.push(String(e)));
  await page.goto("file://"+path.join(UI_DIR,"index.html"));await leaveHome(page);
  await page.evaluate(()=>{
+  // This component suite owns its mounting surface. main.js retains the original
+  // messages element and periodically repaints it, even without a user turn.
+  // Give fixtures an identical sibling so that refresh cannot erase a test card.
+  const live=document.getElementById("messages");
+  const fixture=live.cloneNode(false);live.id="live-messages";live.hidden=true;
+  live.after(fixture);
   window.answerCalls=[];window.shownCalls=[];
   const invoke=window.RichBridge.invoke;
   window.RichBridge.invoke=async(command,args)=>{
