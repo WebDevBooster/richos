@@ -402,9 +402,9 @@ def execution_environment(item):
     return env
 
 
-def input_identity(item, args, logdir):
+def input_identity(item, args, logdir, snapshot=None):
     result = proof_evidence.recipe_identity(ROOT, proof_evidence.contract_for(ROOT, item.label),
-                                            execution_environment(item))
+                                            execution_environment(item), snapshot)
     result["command"] = proof_evidence.command_identity(item, ROOT, logdir)
     result["settings"] = {key: getattr(args, key) for key in (
         "capacity", "engine_shards", "max_cpu", "budget", "deadline", "fail_fast", "admission_wait", "slot_wait")}
@@ -1346,8 +1346,12 @@ def main(argv=None):
     def identity(item):
         return input_identity(item, args, logdir)
 
+    def identities(selected):
+        snapshot = proof_evidence.InputSnapshot()
+        return {item.label: input_identity(item, args, logdir, snapshot) for item in selected}
+
     args.evidence = proof_evidence.Record(ROOT, logdir, items, before,
-        {item.label: identity(item) for item in items}, args.resume, source_identity, identity)
+        identities(items), args.resume, source_identity, identity, identities)
     args.pool = proof_evidence.Pool(proof_evidence.pool_directory(ROOT, hist_dir), args.evidence,
                                     args.retry_reason)
     started = time.monotonic()

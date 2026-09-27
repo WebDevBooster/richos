@@ -54,6 +54,47 @@ class Evidence(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "engine/helper.sh"):
             evidence.qualify_recipe(self.root, {**recipe, "paths": ["engine-other", "LICENSE"]})
 
+    def test_shared_input_snapshot_keeps_distinct_external_fixtures_and_fresh_boundaries(self):
+        source = self.root / 'input'
+        source.write_text('one')
+        first, second = self.root / 'first-fixture', self.root / 'second-fixture'
+        first.write_text('first'); second.write_text('second')
+        self.qualification('Shared source, distinct named external fixture.',
+                           paths=['input'], external=['FIXTURE'])
+        recipe = {'paths': ['input'], 'tools': [], 'environment': [], 'external': ['FIXTURE'],
+                  'qualification': 'qualification.json'}
+        snapshot = evidence.InputSnapshot()
+        with patch.object(evidence, 'path_identity', wraps=evidence.path_identity) as reads:
+            left = evidence.recipe_identity(self.root, recipe, {'FIXTURE': str(first)}, snapshot)
+            right = evidence.recipe_identity(self.root, recipe, {'FIXTURE': str(second)}, snapshot)
+            self.assertEqual(sum(call.args[0] == source for call in reads.call_args_list), 1)
+        self.assertNotEqual(left['external'], right['external'])
+        self.assertEqual(left, evidence.recipe_identity(self.root, recipe, {'FIXTURE': str(first)}))
+        before = source.stat()
+        source.write_text('two')
+        os.utime(source, ns=(before.st_atime_ns, before.st_mtime_ns))
+        after = evidence.recipe_identity(self.root, recipe, {'FIXTURE': str(first)}, evidence.InputSnapshot())
+        self.assertNotEqual(left['paths'], after['paths'])
+
+    def test_source_change_during_final_input_snapshot_invalidates_pass(self):
+        items, record = self.attempt('final-snapshot')
+        self.passed(items, record)
+        def inputs(selected):
+            record.current_source = lambda: {**self.source, 'untracked_sha256': 'changed-during-read'}
+            return {item.label: self.inputs for item in selected}
+        record.current_identities = inputs
+        record.finalize(items)
+        self.assertEqual(items[0].state, 'invalid')
+        self.assertEqual(record.results['check']['exit'], 125)
+
+    def test_unreadable_final_input_snapshot_preserves_non_green_outcome(self):
+        items, record = self.attempt('unreadable-snapshot')
+        self.passed(items, record)
+        record.current_identities = lambda selected: (_ for _ in ()).throw(ValueError('cyclic input link'))
+        record.finalize(items)
+        self.assertEqual(items[0].state, 'invalid')
+        self.assertIn('cyclic input link', record.results['check']['invalid'])
+
     def test_production_recipes_reject_known_shared_and_fixture_tool_omissions(self):
         root = HERE.parents[2]
         checks = json.loads((HERE / "proof-inputs.json").read_text())["checks"]

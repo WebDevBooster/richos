@@ -90,6 +90,29 @@ def python_runtime(executable):
     return runtime
 
 
+class InputSnapshot:
+    """Share identical reads within one validation pass, never across passes.
+
+    The caller creates a new instance for planning, finalization or coverage.
+    There is no persistent metadata cache: changed bytes, inventories and tools
+    are read again at the next boundary even if their stat fields are unchanged.
+    """
+    def __init__(self):
+        self.paths = {}
+        self.runtimes = {}
+
+    def path(self, path):
+        key = str(Path(path).absolute())
+        if key not in self.paths:
+            self.paths[key] = path_identity(path)
+        return self.paths[key]
+
+    def runtime(self, executable):
+        if executable not in self.runtimes:
+            self.runtimes[executable] = python_runtime(executable)
+        return self.runtimes[executable]
+
+
 def prepare_environment(item, root, logdir, environment, create=True):
     recipe = contract_for(root, item.label)
     if not recipe.get("isolation"):
@@ -167,7 +190,7 @@ def qualify_recipe(root, recipe):
     return [qualification, review]
 
 
-def recipe_identity(root, recipe, environment):
+def recipe_identity(root, recipe, environment, snapshot=None):
     """Validate the finite declaration, then fingerprint every declared input.
 
     An absent contract is deliberately not a reusable identity. The declaration
@@ -180,24 +203,25 @@ def recipe_identity(root, recipe, environment):
     if set(recipe) - {"isolation"} != required or not recipe["qualification"]:
         raise ValueError("incomplete verification input contract")
     root = Path(root).resolve()
+    snapshot = snapshot or InputSnapshot()
     qualification_paths = qualify_recipe(root, recipe)
     paths = {}
     for rel in [*recipe["paths"], *qualification_paths]:
         path = root / rel
         if Path(rel).is_absolute() or ".." in Path(rel).parts:
             raise ValueError(f"input must be repository-relative: {rel}")
-        paths[rel] = digest(path_identity(path))
+        paths[rel] = digest(snapshot.path(path))
     tools = {}
     for name in recipe["tools"]:
         resolved = shutil.which(name, path=environment.get("RICHOS_VERIFICATION_TOOL_PATH", environment.get("PATH")))
-        tools[name] = ({"path": resolved, "input": path_identity(resolved)}
+        tools[name] = ({"path": resolved, "input": snapshot.path(resolved)}
                        if resolved else {"absent": True})
         if name == "python3" and resolved and recipe.get("isolation"):
-            tools[name]["runtime"] = python_runtime(resolved)
+            tools[name]["runtime"] = snapshot.runtime(resolved)
     external = {}
     for name in recipe["external"]:
         value = environment.get(name)
-        external[name] = digest(path_identity(value)) if value else {"unset": True}
+        external[name] = digest(snapshot.path(value)) if value else {"unset": True}
     values = {name: digest(environment[name]) if name in environment else None
               for name in recipe["environment"]}
     profile = None
@@ -275,12 +299,14 @@ def completed_receipt(item, sha, allow_known_red=False):
 
 class Record:
     def __init__(self, root, logdir, items, source, identities, previous=None,
-                 current_source=None, current_identity=None):
+                 current_source=None, current_identity=None, current_identities=None):
         self.root, self.logdir = str(root), Path(logdir)
         self.source, self.identities = source, identities
         self.previous = previous
         self.current_source = current_source or (lambda: self.source)
         self.current_identity = current_identity or (lambda item: self.identities[item.label])
+        self.current_identities = current_identities or (
+            lambda selected: {item.label: self.current_identity(item) for item in selected})
         self.source_invalidated = False
         self.lease = Lease(logdir)
         self.plan = {"schema": 1, "root": self.root, "source": source,
@@ -337,12 +363,21 @@ class Record:
     def finalize(self, items):
         """Later checks must not invalidate an earlier pass or its copied proof."""
         source = self.current_source()
+        selected = [item for item in items if item.state == 'passed' and item.label in self.results]
+        input_error = None
+        try:
+            identities = self.current_identities(selected)
+            changed_during_read = self.current_source() != source
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            input_error = str(exc)
         for item in items:
             if item.state != "passed" or item.label not in self.results:
                 continue
             row = self.results[item.label]
             try:
-                if source != row["source"] or self.current_identity(item) != row["input"]:
+                if input_error is not None:
+                    raise ValueError(input_error)
+                if changed_during_read or source != row["source"] or identities[item.label] != row["input"]:
                     raise ValueError("inputs changed after this check completed")
                 if file_digest(item.log) != row["log_sha256"]:
                     raise ValueError("completed check log changed")
@@ -585,6 +620,7 @@ def verify_target_receipts(directory, rows, root):
              for item in items if item.engine_unit}
     if len(units) != sum(item.engine_unit for item in items):
         raise ValueError("target execution plan contains duplicate engine obligations")
+    snapshot = InputSnapshot()
     for row in rows:
         unit = row["unit"]
         if unit not in units:
@@ -596,7 +632,7 @@ def verify_target_receipts(directory, rows, root):
                 or outcome.get("invalid") or outcome.get("source") != plan["source"]
                 or outcome.get("input") != identity):
             raise ValueError("no validated target outcome for " + unit)
-        actual = runner.input_identity(item, SimpleNamespace(**identity["settings"]), directory)
+        actual = runner.input_identity(item, SimpleNamespace(**identity["settings"]), directory, snapshot)
         if actual != identity:
             raise ValueError("target execution inputs changed for " + unit)
         receipt = outcome["receipt"]
@@ -619,6 +655,8 @@ def verify_target_receipts(directory, rows, root):
                 raise ValueError("unqualified historical receipt for " + unit)
         elif row.get("sha") != outcome.get("receipt_sha", plan["source"]["commit"]):
             raise ValueError("receipt execution commit differs for " + unit)
+    if runner.source_identity() != plan["source"]:
+        raise ValueError("target source changed during input validation")
     return plan["source"]["commit"]
 
 
