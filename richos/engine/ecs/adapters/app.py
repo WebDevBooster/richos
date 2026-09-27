@@ -137,6 +137,58 @@ def operator_complete(store, request, context):
             "evidence_ref": payload["evidence_ref"], "duplicate": duplicate}
 
 
+# THE APP'S OWN ANSWER CLOSE (richos-hq docs/verification/2026-09-27-background-command-
+# finish, "Not done"). An assignment the back end handled ITSELF -- a command he asked
+# for, or the reason it could not begin -- has no worker, so `complete` (which needs
+# one, mega-lander/app.py) can never close it, and the back end used to tell him so.
+# The host closes it here, on the digest of the answer he was given, from the
+# conversation's own seat. Two refusals keep a code change on `complete`: the host
+# calls this only when the assignment's receipts hold no helper, and this verb
+# refuses any assignment whose work seat has a work unit recorded on it.
+APP_ANSWER_ACTOR = "richos-app-v1"
+WORK_SEAT_PREFIX = "work-seat:"  # the app's contract spelling (richos-core assignment.rs)
+
+
+def answer_complete(store, request, context):
+    if not is_ceo_row(context):
+        raise ScopeError("closing an assignment on its answer belongs to the conversation's own seat")
+    obligation = required(request, "obligation_id")
+    text = request.get("answer_text")
+    if (not isinstance(text, str) or not text.strip()
+            or len(text.encode("utf-8")) > _OPERATOR_ANSWER_LIMIT):
+        raise ValidationError("an answer close needs the nonempty, bounded answer it closes on")
+    conn = store.connect()
+    try:
+        helpers = conn.execute("SELECT COUNT(*) FROM ecs_work_units WHERE entity_id=? AND person_id=?",
+                               (context["entity_id"], WORK_SEAT_PREFIX + obligation)).fetchone()[0]
+    finally:
+        conn.close()
+    if helpers:
+        raise ValidationError("a helper worked on this assignment, so it closes through complete "
+                              "with its workers, never on an answer")
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    payload = {"item_id": obligation, "status": "completed", "evidence_ref": "answer:" + digest}
+    key = "app-answer-complete:" + hashlib.sha256(canonical_json([obligation, digest]).encode("utf-8")).hexdigest()
+    existing = store.existing_event(key)
+    if existing:
+        if (existing["entity_id"] != context["entity_id"] or existing["thread_id"] != context["thread_id"]
+                or json.loads(existing["payload_json"]) != payload):
+            raise ScopeError("answer completion receipt does not match its original scope or answer")
+        duplicate = True
+    else:
+        item = inspect_records(store, person_id=context["person_id"], item_id=obligation)["item"]
+        if item["status"] not in OPERATOR_OPEN:
+            raise ValidationError(f"only an open assignment can be closed; {obligation} is {item['status']}")
+        store.append("continuity.item_closed", entity_id=context["entity_id"], thread_id=context["thread_id"],
+                     session_id=context["session_id"], active_context_revision=context["revision"],
+                     person_id=context["person_id"], actor_kind="authority_adapter", actor_id=APP_ANSWER_ACTOR,
+                     source_ref=required(request, "source_ref"), idempotency_key=key,
+                     expected_revision=item["revision"], payload=payload)
+        duplicate = False
+    return {"obligation_closed": True, "obligation_id": obligation, "status": "completed",
+            "evidence_ref": payload["evidence_ref"], "duplicate": duplicate}
+
+
 def required(document, key):
     value = document.get(key)
     if not isinstance(value, str) or not value.strip() or len(value) > 1024:
@@ -237,7 +289,7 @@ def execute(state_root, request):
         return {"protocol": PROTOCOL_VERSION, "event_schema": 1,
                 "migration_digest": identity.hexdigest(), "state_root": str(root),
                 "ceo_thread_seats": True, "ceo_seat_prefix": CEO_SEAT_PREFIX,
-                "commands": ["current", "bind", "checkpoint", "receipt", "brief", "inspect", "observe", "verified-work", "observation-receipt", "import-preview", "import-apply", "sync-loro-receipts", "complete-obligation", "operator-complete", "seats", "release-seat"]}
+                "commands": ["current", "bind", "checkpoint", "receipt", "brief", "inspect", "observe", "verified-work", "observation-receipt", "import-preview", "import-apply", "sync-loro-receipts", "complete-obligation", "operator-complete", "answer-complete", "seats", "release-seat"]}
     if command == "import-preview":
         from import_records import preview
         return preview(root, request.get("envelope"), request.get("target"))
@@ -404,6 +456,9 @@ def execute(state_root, request):
         # Host-only, like complete-obligation: his team's report never closes an
         # obligation by itself. The MCP server does not expose it (mcp.py TOOLS).
         result = operator_complete(store, request, context)
+    elif command == "answer-complete":
+        # Host-only, like operator-complete: the MCP server does not expose it.
+        result = answer_complete(store, request, context)
     elif command in ("observe", "verified-work"):
         # Host-issued observations only. The app translates provider facts;
         # generic checkpoints cannot impersonate a task authority.
