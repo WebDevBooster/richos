@@ -154,8 +154,13 @@
   /// Which set of sentences this row gets. `kind` comes from the assignment register
   /// (`get_assignments`); anything that is not one of the two question kinds is work, which
   /// is what every record written before 2026-09-18 is.
-  function sentencesFor(kind) {
-    return kind === "check" || kind === "investigate" ? QUESTION_STATES : STATES;
+  ///
+  /// **`answered` wins over the kind** (esc-20260927T093052Z-85f3303f). A task the back end
+  /// did itself, with no helper, is closed by its report on his timeline — the command's
+  /// result, or what it needs before it can begin — and "Finished." would be a claim nobody
+  /// witnessed. So it gets the sentence an answered question gets: it's in your conversation.
+  function sentencesFor(kind, answered) {
+    return answered || kind === "check" || kind === "investigate" ? QUESTION_STATES : STATES;
   }
 
   /// `onDecide(requestId, allow)` answers the ONE exact request this assignment is waiting
@@ -188,7 +193,7 @@
       // sentences rather than a code and a label.
       const waiting = row.awaitingYou || null;
       const key = row.state === "blocked" && !waiting ? "blockedNoRequest" : row.state;
-      detail.textContent = sentencesFor(row.kind)[key] || "Its state could not be read.";
+      detail.textContent = sentencesFor(row.kind, row.answered)[key] || "Its state could not be read.";
       // The recorded detail follows the state's sentence, because for most states it ADDS
       // something — the outcome that landed, the reason it stopped, the step it is on.
       //
@@ -199,7 +204,7 @@
       // telling him the same thing twice. And a QUESTION (§58): its detail is a record's
       // internal note ("Answered.", "Opening the work connection.") that says nothing he
       // needs and reads as machinery beside a sentence written for him.
-      const addsSomething = row.state !== "waiting-for-screen" && sentencesFor(row.kind) === STATES;
+      const addsSomething = row.state !== "waiting-for-screen" && sentencesFor(row.kind, row.answered) === STATES;
       if (row.detail && addsSomething) detail.textContent += " " + row.detail;
       item.append(title, detail);
       if (waiting) {

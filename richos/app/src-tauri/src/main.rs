@@ -3883,6 +3883,11 @@ fn get_assignments(state: State<AppState>, thread_id: String) -> Result<serde_js
                 "turnRef": row.instruction_ledger_ref,
                 "state": row.state.as_str(),
                 "detail": row.detail,
+                // **CLOSED BY AN ANSWER ON HIS TIMELINE, NOT BY WORK THAT FINISHED** — a question
+                // of his, or a task the back end did itself and reported in its own words
+                // (esc-20260927T093052Z-85f3303f). The pane says "it's in your conversation"
+                // for both and never "Finished.", which the host never witnessed.
+                "answered": row.was_answered(),
                 "repositories": row.repositories,
                 "registeredAtMs": row.registered_at_ms,
                 "canStop": row.state.is_open(),
