@@ -95,6 +95,20 @@ class Evidence(unittest.TestCase):
         self.assertEqual(items[0].state, 'invalid')
         self.assertIn('cyclic input link', record.results['check']['invalid'])
 
+    def test_private_runtime_binds_native_credentials_and_inherited_creation_mask(self):
+        program = ("import json,os,sys; os.umask(int(sys.argv[1])); "
+                   "sys.path.insert(0,sys.argv[2]); import proof_evidence as e; "
+                   "r=e.python_runtime(sys.executable); "
+                   "print(json.dumps({k:r[k] for k in ('credentials','umask')}))")
+        rows = []
+        for mask in (0o022, 0o077):
+            result = subprocess.run([sys.executable, '-B', '-c', program, str(mask), str(HERE / 'lib')],
+                                    capture_output=True, text=True, check=True, timeout=10)
+            rows.append(json.loads(result.stdout))
+            self.assertEqual(rows[-1]['umask'], mask)
+            self.assertEqual(rows[-1]['credentials'], [os.geteuid(), os.getegid(), sorted(os.getgroups())])
+        self.assertNotEqual(rows[0], rows[1])
+
     def test_production_recipes_reject_known_shared_and_fixture_tool_omissions(self):
         root = HERE.parents[2]
         checks = json.loads((HERE / "proof-inputs.json").read_text())["checks"]

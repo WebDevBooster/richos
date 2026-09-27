@@ -29,7 +29,7 @@ directories for each check. It seeds a fixed Git identity, disables system Git
 configuration and clears inherited behavior overrides. Python runs with `-s -S`:
 user packages, site packages, `.pth` files and site startup hooks cannot affect
 these standard-library-only suites. Python's remaining import roots, bytecode,
-executable and framework binary are fingerprinted. The declared command tools
+executable and framework binary are fingerprinted. The runtime identity also binds native effective user/group credentials, supplementary groups and the inherited file-creation mask. Reading the mask happens only in the short-lived runtime-query child; the runner's mask is never changed. The declared command tools
 are resolved and fingerprinted, including symlink targets. Platform identity
 binds the OS implementation of native system libraries.
 

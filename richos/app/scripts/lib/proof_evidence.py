@@ -71,8 +71,10 @@ GIT_FIXTURE = '[user]\n\tname = Verification Fixture\n\temail = verification@exa
 
 def python_runtime(executable):
     """The private profile disables site startup; bind its remaining import roots."""
-    program = ('import json,sys,sysconfig; print(json.dumps({"version":sys.version,'
-               '"paths":[p for p in sys.path if p],"prefix":sys.base_prefix}))')
+    program = ('import json,os,sys,sysconfig; print(json.dumps({"version":sys.version,'
+               '"paths":[p for p in sys.path if p],"prefix":sys.base_prefix,'
+               '"credentials":[os.geteuid(),os.getegid(),sorted(os.getgroups())],'
+               '"umask":os.umask(0)}))')
     result = subprocess.run([executable, "-B", "-I", "-S", "-c", program],
                             capture_output=True, text=True, timeout=15, check=True)
     runtime = json.loads(result.stdout)
