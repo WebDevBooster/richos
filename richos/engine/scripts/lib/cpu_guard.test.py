@@ -104,6 +104,47 @@ class GuardTests(unittest.TestCase):
             with patch.object(G, 'STATE', fixture / 'controller'):
                 self.assertFalse(G.verification_enabled())
 
+    def test_installed_resource_locks_serialize_without_authorizing_workers(self):
+        machine = G.STATE / 'machine-policy'
+        G.write_json(machine / 'verification-enabled.json', {'protocol': 1})
+        workers = G.STATE / 'worker-budget-v1'
+        with patch.object(G, 'CANONICAL_STATE', machine), \
+                patch.object(G, 'CANONICAL_WORKERS', workers), \
+                patch.object(G, 'verification_admission', side_effect=AssertionError('resource is not a worker')):
+            for resource in ('native-build', 'simulator-live', 'simulator-boot', 'simulator-cache-' + 'a' * 64):
+                directory = workers.parent / (resource + '-v1')
+                W.init(directory, 1)
+                budget = W.Budget(directory, shared=False, resource=resource)
+                first = budget.try_acquire()
+                self.assertIsNotNone(first)
+                self.assertIsNone(budget.try_acquire())
+                with self.assertRaisesRegex(ValueError, 'cannot authorize a worker'):
+                    W.run_command([sys.executable, '-c', 'raise AssertionError("must not execute")'], first)
+                second = budget.try_acquire()
+                self.assertIsNotNone(second)
+                second.release()
+                with self.assertRaisesRegex(ValueError, 'cannot borrow'):
+                    budget.acquire(free='not-a-worker')
+            with self.assertRaisesRegex(ValueError, 'unknown resource lock'):
+                W.Budget(workers, shared=False, resource='workers')
+            with patch.dict(os.environ, {'RICHOS_VERIFICATION_MODE': ''}), \
+                    self.assertRaisesRegex(ValueError, 'private capacity/controller'):
+                W.Budget(G.STATE / 'private', shared=False, resource='native-build')
+
+    def test_managed_launcher_refuses_unadmitted_work_before_any_capacity_wait(self):
+        G.write_json(G.STATE / 'verification-enabled.json', {'protocol': 1})
+        timing = str(G.STATE / 'refusal.json')
+        with patch.dict(os.environ, {'RICHOS_WORKER_TOKENS': 'forged-pool',
+                                     'RICHOS_WORKER_SLOT_HELD': '1',
+                                     'RICHOS_VERIFICATION_OWNER': '1:forged'}), \
+                patch.object(W, 'Budget', side_effect=AssertionError('must not wait')):
+            self.assertFalse(W.inherited_admission())
+            self.assertEqual(W.machine_command([sys.executable, '-c', 'raise AssertionError()'], timing), 75)
+        result = json.loads(Path(timing).read_text())
+        self.assertEqual(result['outcome'], 'not-admitted')
+        self.assertEqual(result['execution_seconds'], 0)
+        self.assertFalse(result['admitted'])
+
     def test_machine_policy_remains_visible_when_controller_override_is_empty(self):
         machine = G.STATE / 'machine-policy'
         G.write_json(machine / 'verification-pressure.json', {'protocol': 1})
@@ -124,6 +165,63 @@ class GuardTests(unittest.TestCase):
         result = subprocess.run([sys.executable, '-B', '-I', '-S', '-c', code, str(target.parent)],
                                 cwd=G.STATE, capture_output=True, text=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_installed_versions_reject_changed_or_missing_launchers(self):
+        root = G.STATE / 'checkout'
+        for name in G.LAUNCHER_FILES:
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('def acquire_ios(): pass\n')
+        inventory = G.launcher_inventory(root)
+        self.assertIsNone(G.launcher_mismatch(root, inventory))
+        G.write_json(G.STATE / 'verification-enabled.json', {'protocol': 1, 'launchers': inventory})
+        for entry in ('proof-run.py', 'run-tests.sh', 'nightly-local.py'):
+            command = 'python3 richos/app/scripts/' + entry
+            self.assertIsNone(G.forbidden(command, str(root)))
+        path = root / 'richos/engine/scripts/lib/worker_tokens.py'
+        path.write_text('old version')
+        for command in ('python3 richos/app/scripts/proof-run.py --commands plan',
+                        'bash richos/engine/scripts/ci-shard.sh --only-units example',
+                        'python3 richos/app/scripts/nightly-local.py check',
+                        'bash richos/mobile/native-ios/bin/rios sim'):
+            self.assertIn('outdated verification entrypoint', G.forbidden(command, str(root)))
+        path.unlink()
+        self.assertIn('missing or unreadable', G.launcher_mismatch(root, inventory))
+        self.assertIn('incomplete', G.launcher_mismatch(root, {}))
+        self.assertIsNone(G.forbidden('git status', str(root)))
+
+    def test_failed_install_keeps_admission_closed_and_user_settings_intact(self):
+        home = G.STATE / 'home'
+        settings = home / '.claude/settings.json'
+        settings.parent.mkdir(parents=True)
+        settings.write_text('{"user": "preserve"}')
+        engine = Path(__file__).resolve().parents[2]
+        original_run = G.subprocess.run
+        def run(argv, **kwargs):
+            if argv[0] == 'launchctl':
+                return subprocess.CompletedProcess(argv, 1, '', 'fixture bootstrap failure')
+            if argv[0] == 'git' and 'diff' in argv:
+                return subprocess.CompletedProcess(argv, 0)
+            return original_run(argv, **kwargs)
+        with patch.object(G.Path, 'home', return_value=home), \
+                patch.object(G.subprocess, 'run', side_effect=run), patch.object(G.time, 'sleep'):
+            with self.assertRaisesRegex(RuntimeError, 'bootstrap failed'):
+                G.install(engine)
+        policy = G.read_json(G.STATE / 'verification-enabled.json')
+        self.assertEqual(policy['activation'], 'starting')
+        self.assertEqual(set(policy['launchers']), set(G.LAUNCHER_FILES))
+        self.assertIn('admission remains closed', G.verification_admission())
+        self.assertEqual(settings.read_text(), '{"user": "preserve"}')
+        self.assertTrue(Path(policy['settings_backup']).is_file())
+
+    def test_native_and_device_entries_refuse_before_locks_or_creation(self):
+        G.write_json(G.STATE / 'verification-enabled.json', {'protocol': 1})
+        with patch.dict(os.environ, {'RICHOS_VERIFICATION_OWNER': '1:forged'}), \
+                patch.object(W, 'Budget', side_effect=AssertionError('must not acquire')):
+            for operation in (lambda: N.run(['swift', 'test']), D._device_admission,
+                              lambda: D.acquire_ios('phone', 'runtime'), lambda: D.boot_ios('device')):
+                with self.assertRaisesRegex(ValueError, 'REFUSED before resource wait'):
+                    operation()
 
     def test_sustained_load_and_unowned_process(self):
         self.root()

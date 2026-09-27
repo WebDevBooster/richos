@@ -74,6 +74,19 @@ STATE = governed_directory(os.environ.get('RICHOS_CPU_GUARD_STATE', str(CANONICA
 INTERVAL = 2.0
 VERIFICATION_PROTOCOL = 1
 CALIBRATION_SECONDS = 120
+LAUNCHER_FILES = (
+    'richos/app/scripts/proof-run.py', 'richos/app/scripts/lib/proof_evidence.py',
+    'richos/app/scripts/run-tests.sh', 'richos/app/scripts/nightly-local.py',
+    'richos/app/scripts/lib/simulator_budget.py', 'richos/app/scripts/testvm/reserve.py',
+    'richos/engine/scripts/ci-shard.sh', 'richos/engine/scripts/run-all-tests.sh',
+    'richos/engine/scripts/lib/ci-receipts.py', 'richos/engine/scripts/lib/engine_pass.py',
+    'richos/engine/scripts/lib/worker_tokens.py', 'richos/engine/scripts/lib/proc_tree.py',
+    'richos/engine/scripts/lib/cpu_guard.py', 'richos/engine/scripts/lib/cpu_policy.py',
+    'richos/engine/scripts/lib/operator_fences.py', 'richos/engine/scripts/lib/native-work.py',
+    'richos/engine/scripts/lib/testdevices.py', 'richos/engine/scripts/lib/mutation-harness.sh',
+    'richos/mobile/native-ios/bin/rios', 'richos/mobile/native-android/bin/randroid',
+    'richos/mobile/native-ios/Release/simulator-tests.sh',
+)
 WINDOW = 10.0
 JOB_CORES = 3.0
 LABEL = 'com.richos.cpu-guard'
@@ -265,8 +278,35 @@ def verification_enabled():
     if expected is not None:
         if expected.get('protocol') != VERIFICATION_PROTOCOL:
             raise RuntimeError('installed verification protocol requires a current launcher')
+        if (expected.get('launchers') and STATE.resolve() == CANONICAL_STATE.resolve()
+                and str(Path(__file__).resolve().parent) != expected.get('runtime')):
+            mismatch = launcher_mismatch(Path(__file__).resolve().parents[4], expected['launchers'])
+            if mismatch:
+                raise RuntimeError('unqualified verification launcher; update from the installed version: ' + mismatch)
         return True
     return read_json(STATE / 'verification-pressure.json', {}).get('protocol') == VERIFICATION_PROTOCOL
+
+
+def launcher_inventory(root):
+    return {name: hashlib.sha256((Path(root) / name).read_bytes()).hexdigest() for name in LAUNCHER_FILES}
+
+
+def launcher_mismatch(root, expected):
+    if set(expected) != set(LAUNCHER_FILES):
+        return 'installed launcher inventory is incomplete'
+    for name, digest in expected.items():
+        try:
+            actual = hashlib.sha256((Path(root) / name).read_bytes()).hexdigest()
+        except OSError:
+            return name + ' is missing or unreadable'
+        if actual != digest:
+            return name + ' differs'
+    return None
+
+
+def require_managed_ancestor():
+    if verification_enabled() and not inherited_verification_owner(os.environ.get('RICHOS_VERIFICATION_OWNER')):
+        raise ValueError('REFUSED before resource wait: use the current proof-run plan or its live admitted ancestor')
 
 
 def inherited_verification_owner(claim, pid=None):
@@ -312,6 +352,9 @@ def verification_admission():
     returning to token-only execution. Mandatory enrollment is enforced by the
     production launcher, not inferred from a private HOME path here.
     """
+    installed = read_json(STATE / 'verification-enabled.json', {})
+    if installed.get('activation', 'active') != 'active':
+        return 'verification installation is incomplete; admission remains closed'
     record = read_json(STATE / 'verification-pressure.json')
     if record is None:
         return 'verification controller is unavailable' if verification_enabled() else None
@@ -1234,7 +1277,30 @@ def stage_runtime(engine, runtime):
 def install(engine):
     if not os.path.ismount('/Volumes/E1TB'):
         raise RuntimeError('Mount /Volumes/E1TB first')
-    target = stage_runtime(engine, STATE / 'runtime')
+    engine = Path(engine).resolve()
+    root = engine.parents[1]
+    inventory = launcher_inventory(root)
+    if Path(__file__).resolve() != engine / 'scripts/lib/cpu_guard.py':
+        raise ValueError('install must use the candidate checkout controller')
+    revision = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
+    subprocess.run(['git', '-C', str(root), 'diff', '--quiet', 'HEAD', '--', *LAUNCHER_FILES], check=True)
+    # Parse and preserve user settings before making the machine policy active.
+    settings = Path.home() / '.claude/settings.json'
+    original = settings.read_bytes() if settings.exists() else b'{}'
+    data = json.loads(original)
+    hooks = data.setdefault('hooks', {})
+    bundle = hashlib.sha256(json.dumps(inventory, sort_keys=True).encode()).hexdigest()
+    target = stage_runtime(engine, STATE / 'runtimes' / bundle)
+    previous = read_json(STATE / 'verification-enabled.json', {})
+    backup = STATE / ('claude-settings-before-' + time.strftime('%Y%m%dT%H%M%S') + '.json')
+    backup.write_bytes(original)
+    backup.chmod(0o600)
+    policy = dict(protocol=VERIFICATION_PROTOCOL, installed_at=time.time(), revision=revision,
+                  launchers=inventory, runtime=str(target.parent), engine=str(engine), bundle=bundle,
+                  settings_backup=str(backup), activation='starting')
+    # The marker survives failed bootstrap or rollback. No failure can reopen
+    # token-only admission; restoration needs the same healthy managed protocol.
+    write_json(STATE / 'verification-enabled.json', policy, durable=True)
     domain = 'gui/%s' % os.getuid()
     started = time.time()
     for label, action in [(LABEL + '.devices', 'watch-devices'), (LABEL, 'watch')]:
@@ -1256,29 +1322,32 @@ def install(engine):
             raise RuntimeError('launchd bootstrap failed: ' + boot.stderr.strip())
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
-        if healthy() and read_json(STATE/'heartbeat.json', {}).get('at', 0) >= started:
+        if (healthy() and read_json(STATE/'heartbeat.json', {}).get('at', 0) >= started
+                and read_json(STATE/'devices-heartbeat.json', {}).get('at', 0) >= started
+                and read_json(STATE/'verification-pressure.json', {}).get('protocol') == VERIFICATION_PROTOCOL):
             break
         time.sleep(.25)
     else:
         raise RuntimeError('watchdog installed but did not produce a healthy heartbeat; inspect launchctl print')
-    write_json(STATE / 'verification-enabled.json', {'protocol': VERIFICATION_PROTOCOL, 'installed_at': time.time()}, durable=True)
     # A standalone user hook also covers cached/older engine plugins. The
     # canonical engine dispatcher is deliberately not a second registration.
-    settings = Path.home() / '.claude/settings.json'
-    original = settings.read_bytes() if settings.exists() else b'{}'
-    backup = STATE / ('claude-settings-before-' + time.strftime('%Y%m%dT%H%M%S') + '.json')
-    backup.write_bytes(original)
-    backup.chmod(0o600)
-    data = json.loads(original)
-    hooks = data.setdefault('hooks', {})
     for name, matcher, action in [('PreToolUse', 'Bash', 'hook'), ('SessionStart', None, 'notice-json'), ('Stop', None, 'notice-json')]:
         entries = hooks.setdefault(name, [])
+        old_targets = {str(STATE / 'runtime/cpu_guard.py')}
+        if previous.get('runtime'):
+            old_targets.add(str(Path(previous['runtime']) / 'cpu_guard.py'))
+        old_commands = {'/usr/bin/python3 -B ' + shlex.quote(path) + ' ' + action for path in old_targets}
+        for entry in entries:
+            entry['hooks'] = [h for h in entry.get('hooks', []) if h.get('command') not in old_commands]
+        entries[:] = [entry for entry in entries if entry.get('hooks')]
         command = '/usr/bin/python3 -B ' + shlex.quote(str(target)) + ' ' + action
         if not any(h.get('command') == command for e in entries for h in e.get('hooks', [])):
             entry = {'hooks': [{'type': 'command', 'command': command, 'timeout': 10}]}
             if matcher: entry['matcher'] = matcher
             entries.append(entry)
     write_json(settings, data)
+    policy.update(activation='active', activated_at=time.time())
+    write_json(STATE / 'verification-enabled.json', policy, durable=True)
     print(str(agent))
 
 
@@ -1333,12 +1402,20 @@ def forbidden(command, cwd=None):
         if name == 'cd' and len(part) > 1:
             cwd = str(Path(cwd or os.getcwd()).joinpath(part[1]).resolve())
         entry = os.path.basename(part[1]) if name in ('bash', 'sh', 'zsh', 'python3', 'python') and len(part) > 1 else name
-        if entry in ('proof-run.py', 'run-tests.sh', 'native-work.py', 'rios', 'randroid', 'simulator-tests.sh', 'native-ios-share.test.sh', 'native-ios-app.test.sh', 'native-ios-ui.test.sh'):
+        if entry in ('proof-run.py', 'run-tests.sh', 'ci-shard.sh', 'run-all-tests.sh', 'nightly-local.py',
+                     'worker_tokens.py', 'simulator_budget.py', 'mutation-harness.sh', 'testdevices.py',
+                     'native-work.py', 'rios', 'randroid', 'simulator-tests.sh',
+                     'native-ios-share.test.sh', 'native-ios-app.test.sh', 'native-ios-ui.test.sh'):
             executable = part[1] if entry != name else part[0]
             path = Path(cwd or os.getcwd()).joinpath(executable).resolve()
             for parent in path.parents:
                 policy = parent / 'richos/engine/scripts/lib/testdevices.py'
                 if policy.is_file():
+                    installed = read_json(STATE / 'verification-enabled.json', {})
+                    if installed.get('launchers'):
+                        mismatch = launcher_mismatch(parent, installed['launchers'])
+                        if mismatch:
+                            return 'outdated verification entrypoint: ' + mismatch
                     if 'def acquire_ios(' not in policy.read_text() or not policy.with_name('cpu_policy.py').is_file():
                         return 'outdated native/proof entrypoint; update this checkout from main before running it'
                     break
@@ -1445,7 +1522,7 @@ def main():
     if a.action == 'register': print(json.dumps(register(int(a.args[0]), a.args[1], a.args[2] if len(a.args)>2 else 'session')))
     if a.action == 'hook': return hook()
     if a.action == 'status':
-        print(json.dumps(dict(healthy=healthy(), heartbeat=read_json(STATE/'heartbeat.json'), devices=read_json(STATE/'devices-heartbeat.json'), ios_block=ios_block(), ios_admission_reason=ios_refusal(), ios_startups=[dict(id=r['id'], boot=r.get('boot')) for r in ios_records()], alert=read_json(STATE/'alert.json'))))
+        print(json.dumps(dict(healthy=healthy(), verification_policy=read_json(STATE/'verification-enabled.json'), verification_admission=verification_admission(), heartbeat=read_json(STATE/'heartbeat.json'), devices=read_json(STATE/'devices-heartbeat.json'), ios_block=ios_block(), ios_admission_reason=ios_refusal(), ios_startups=[dict(id=r['id'], boot=r.get('boot')) for r in ios_records()], alert=read_json(STATE/'alert.json'))))
         return 0 if healthy() else 1
     if a.action == 'notice-json':
         result = notice_payload(json.load(sys.stdin))

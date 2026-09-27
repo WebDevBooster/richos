@@ -465,8 +465,8 @@
     },
     "scripts/lib/cpu_guard.py": {
       "source": "scripts/lib/cpu_guard.py",
-      "sha256": "d82e58214967b26f2c7c573161b80fb4304fc445eb0ad9e6a70ec6a1d33b8c97",
-      "evidence": "Token and supervisor callers use registration, health, admission and verification-client APIs before HostMemory. These read native process data and their private controller records, never orchestration.config. They do not invoke the watch/install CLI or its HostMemory provider. Caller commands remain separate declared edges.",
+      "sha256": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
+      "evidence": "Token and supervisor callers use registration, health, admission and verification-client APIs before HostMemory. These read native process data and their private controller records, never orchestration.config. They do not invoke the watch/install CLI or its HostMemory provider. Caller commands remain separate declared edges. Installed launcher inventory reads source bytes as data and compares hashes; no configured setting values are consumed by this version check.",
       "keys": [],
       "edges": [
         {
@@ -514,8 +514,8 @@
     },
     "scripts/lib/worker_tokens.py": {
       "source": "scripts/lib/worker_tokens.py",
-      "sha256": "2067d6a95e1c4bf2d325a9d4348618fe5ddd3ff34198f2756c421224c1587445",
-      "evidence": "Worker leases read their budget files, bind held inodes to native process generations and invoke the caller\u2019s separately declared command through process supervision and admission policy. Borrow validation follows a finite native ancestry and permit chain, never orchestration settings.",
+      "sha256": "8c4cada1e7a4883a65435017ebac01c27307724a9724ea698f0df699898ff6b2",
+      "evidence": "Worker leases read their budget files, bind held inodes to native process generations and invoke the caller\u2019s separately declared command through process supervision and admission policy. Borrow validation follows a finite native ancestry and permit chain, never orchestration settings. Named native/compiler and simulator locks use the same kernel locks but do not grant worker capacity; their canonical paths remain governed.",
       "keys": [],
       "edges": [
         {
@@ -1404,7 +1404,7 @@
     },
     "scripts/lib/testdevices.py#workspace-collection": {
       "source": "scripts/lib/testdevices.py",
-      "sha256": "33f21f435d27df092a5f36a89a4f1203ae3687534ca90413634e6dad0f43036f",
+      "sha256": "7317a16a8075947446dd7602c1715694e4f5dcce5ea0795d9dd9cb75ed665cdd",
       "evidence": "workspaces calls collect with private HOME/config and no fake device adapters. The collector, ownership queries and error writer read private device/workspace state; no orchestration.config values are loaded. Device admission/launch helpers are not called.",
       "keys": [],
       "edges": [
