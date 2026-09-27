@@ -508,13 +508,14 @@ claude_version_of() {  # <path-on-this-machine>
 # shorten the 300 s permission deadline). Pure, so it is tested without a virtual machine.
 #
 # Deliberately narrow: a KEY must be `RICHOS_` and capitals, a VALUE letters, digits and
-# `._-`, because the pairs go into a command line built for the guest's shell. Anything else
-# is refused by name, never passed on quoted.
+# `._-`, because the pairs go into a command line built for the guest's shell. The voice
+# fixture alone also accepts an absolute path with slash separators. Spaces and shell
+# metacharacters remain refused, including for that path.
 app_env_args() {  # <space-separated KEY=VALUE pairs>
   local pair out=""
   for pair in ${1:-}; do
-    if ! printf '%s' "$pair" | grep -Eq '^RICHOS_[A-Z_]+=[A-Za-z0-9._-]+$'; then
-      printf 'TESTVM_APP_ENV entry refused (RICHOS_[A-Z_]+=[A-Za-z0-9._-]+ only): %s\n' "$pair" >&2
+    if ! printf '%s' "$pair" | grep -Eq '^RICHOS_[A-Z_]+=[A-Za-z0-9._-]+$|^RICHOS_VOICE_INPUT_WAV=/[A-Za-z0-9._/-]+$'; then
+      printf 'TESTVM_APP_ENV entry refused (plain RICHOS_ value or absolute voice fixture path required): %s\n' "$pair" >&2
       return 1
     fi
     out="$out --env $pair"
