@@ -1396,6 +1396,29 @@ struct ReaderState {
     background: Vec<crate::cognition::BackgroundCommand>,
 }
 
+/// **Whether a provider task of `task_type` is one the back end started and the provider will
+/// report the end of to it** — what the host waits for and asks a report on (`work_host.rs`
+/// step 3c). Every type in 2.1.283's own task-id table (`local_bash:"b"`, …, richos-hq
+/// `docs/verification/2026-09-27-background-command-finish-2/`), sorted:
+///
+/// - **read**: `local_bash` (a shell command, and the `Monitor` tool's watch, measured:
+///   `cap-plain.jsonl`, `cap-monitor.jsonl`), `local_workflow` (the `Workflow` tool, measured
+///   ending 11.2 s after its turn with no `is_backgrounded` field: `cap-workflow.jsonl`), and,
+///   from the binary only, `monitor_mcp` and `monitor_ws` (the `Monitor` tool's other sources),
+///   `mcp_task` (a long-running MCP tool call) and `remote_agent` (a cloud session);
+/// - **not read**: `local_agent` — in a work lease only a prepared helper, which the engine's
+///   `dispatch_intent` enforces and step 3b already waits for on `SubagentStop`;
+///   `in_process_teammate` — an agent-team member, which a work lease is not spawned for;
+///   `dream` and `auto_mode_scan` — the provider's own housekeeping (`skipTranscript`), not
+///   anything the back end started.
+///
+/// An unknown type is read: a new kind of background work whose end the provider reports is
+/// the case this exists for, and missing it loses a finish, where reading it costs a wait his
+/// Stop can end.
+fn a_task_the_back_end_awaits(task_type: &str) -> bool {
+    !matches!(task_type, "local_agent" | "in_process_teammate" | "dream" | "auto_mode_scan" | "")
+}
+
 /// How many background commands one session remembers. A back end that has started this many
 /// is a loop, not a job; past it the oldest ENDED entry is forgotten first, so a running
 /// command is never dropped while an ended one is kept.
@@ -1407,15 +1430,20 @@ impl ReaderState {
     fn note_background(&mut self, frame: &Value, ours_running: bool) {
         let field = |value: &Value, name: &str| value.get(name).and_then(Value::as_str).unwrap_or("").to_string();
         match frame.get("subtype").and_then(Value::as_str).unwrap_or("") {
+            // `is_backgrounded` is present only where a task can be either (a shell command:
+            // `false` is a foreground one); a workflow's frame has none and is always in the
+            // background (`cap-workflow.jsonl`). So only an explicit `false` excludes.
             "task_started"
-                if frame.get("task_type").and_then(Value::as_str) == Some("local_bash")
-                    && frame.get("is_backgrounded").and_then(Value::as_bool) == Some(true) =>
+                if a_task_the_back_end_awaits(frame.get("task_type").and_then(Value::as_str).unwrap_or(""))
+                    && frame.get("is_backgrounded").and_then(Value::as_bool) != Some(false) =>
             {
                 self.note_running(field(frame, "task_id"), field(frame, "description"));
             }
+            // This list holds background tasks only (a foreground command never appears in it:
+            // `cap-agent-slow.jsonl`, `cap-workflow.jsonl`).
             "background_tasks_changed" => {
                 for task in frame.get("tasks").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]) {
-                    if task.get("task_type").and_then(Value::as_str) == Some("local_bash") {
+                    if a_task_the_back_end_awaits(task.get("task_type").and_then(Value::as_str).unwrap_or("")) {
                         self.note_running(field(task, "task_id"), field(task, "description"));
                     }
                 }
@@ -6592,6 +6620,53 @@ read -r keep_alive
             "a foreground command was taken for a background one",
         );
         assert!(all[1].ended.as_ref().is_some_and(|e| e.during_a_turn_of_ours), "{:?}", all[1]);
+    }
+
+    /// **Every background task type the back end can start and the provider reports the end
+    /// of is read — not only a shell command** (richos-hq
+    /// `docs/verification/2026-09-27-background-command-finish-2/`, item 4).
+    ///
+    /// The frames are the ones 2.1.283 sent on 2026-09-27, trimmed to the fields read:
+    /// `cap-workflow.jsonl` (a `Workflow` launch: `local_workflow`, with NO `is_backgrounded`
+    /// field, ending 11.2 s after the turn that started it, and a foreground shell command of
+    /// its own agent), `cap-agent-slow.jsonl` (a background `Agent`: `local_agent`, which in a
+    /// work lease is only ever a prepared helper and is waited for through `SubagentStop`),
+    /// and two housekeeping types from the provider's own task table that are the provider's
+    /// work, not the back end's (`dream`, `auto_mode_scan`, both `skipTranscript`).
+    #[test]
+    fn every_background_task_type_the_back_end_can_start_is_read_and_a_helper_is_not() {
+        let script = write_script("background-task-types", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"wegtzwydr","task_type":"local_workflow","description":"Wait 10 seconds and return done"}]}'
+printf '%s\n' '{"type":"system","subtype":"task_started","task_id":"wegtzwydr","description":"Wait 10 seconds and return done","task_type":"local_workflow","workflow_name":"wait-and-return"}'
+printf '%s\n' '{"type":"system","subtype":"task_started","task_id":"a0cb81caf11b7e9a2","description":"Background sleep and reply","is_backgrounded":true,"task_type":"local_agent"}'
+printf '%s\n' '{"type":"system","subtype":"task_started","task_id":"d1dream","description":"dreaming","task_type":"dream"}'
+printf '%s\n' '{"type":"system","subtype":"task_started","task_id":"e1scan","description":"scanning for auto-mode setup","task_type":"auto_mode_scan"}'
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Workflow launched."}}}'
+printf '%s\n' '{"type":"result","subtype":"success","stop_reason":"end_turn","queued_turn_count":0}'
+printf '%s\n' '{"type":"system","subtype":"task_started","task_id":"b12emlbnd","description":"Wait approximately 10 seconds","is_backgrounded":false,"task_type":"local_bash"}'
+printf '%s\n' '{"type":"system","subtype":"task_notification","task_id":"b12emlbnd","status":"completed","summary":"Wait approximately 10 seconds"}'
+printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[]}'
+printf '%s\n' '{"type":"system","subtype":"task_notification","task_id":"wegtzwydr","status":"completed","summary":"Dynamic workflow \"Wait 10 seconds and return done\" completed"}'
+printf '%s\n' '{"type":"system","subtype":"task_notification","task_id":"a0cb81caf11b7e9a2","status":"completed","summary":"done"}'
+printf '%s\n' '{"type":"result","subtype":"success","stop_reason":"end_turn","queued_turn_count":0}'
+read -r keep_alive
+"#);
+        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        client.prompt("start the workflow", &mut |_| {}).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while client.background_commands().first().is_none_or(|c| c.ended.is_none()) {
+            assert!(std::time::Instant::now() < deadline, "the workflow's ending was never read: {:?}", client.background_commands());
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let all = client.background_commands();
+        assert_eq!(all.iter().map(|c| c.task_id.as_str()).collect::<Vec<_>>(), ["wegtzwydr"],
+                   "a helper, a housekeeping task or a foreground command was taken for the back end's own: {all:?}");
+        assert_eq!(all[0].description, "Wait 10 seconds and return done");
+        let ended = all[0].ended.clone().unwrap();
+        assert!(ended.summary.contains("completed") && !ended.during_a_turn_of_ours, "{ended:?}");
     }
 
     /// **The fallback, alone.** A child that names no command (an older binary, or a command it

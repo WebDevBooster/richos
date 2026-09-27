@@ -227,6 +227,27 @@ pub const EVENT_WORK_NOTICE: &str = "rich://work-notice";
 /// emitted, and `take_operator_notices` reads the durable copy. `pub` for the documentation gate.
 pub const EVENT_OPERATOR_NOTICE: &str = "rich://operator-notice";
 
+/// **One request to the PINNED engine's continuity store**, the one the register opens an
+/// assignment's obligation in (`assignment_tools.rs`), through a bridge made on first use and
+/// kept. Closing an obligation goes through it: his team's settlement on an operator install,
+/// and an assignment the product's back end handled itself (`work_host::AnsweredClose`).
+fn engine_store_call(engine_cell: Arc<Mutex<PathBuf>>, data_dir: &Path) -> richos_core::operator_runtime::EcsCall {
+    let bridge: Arc<Mutex<Option<richos_core::ecs::EcsBridge>>> = Arc::new(Mutex::new(None));
+    let ecs_state = data_dir.join("ecs");
+    Box::new(move |command, fields| {
+        let made = {
+            let mut held = bridge.lock().map_err(|_| "the engine's store could not be reached".to_string())?;
+            if held.is_none() {
+                let dir = engine_cell.lock().map(|d| d.clone()).map_err(|_| "the engine could not be located".to_string())?;
+                let runtime = richos_core::runtime::verify_engine(&dir).map_err(|e| e.to_string())?;
+                *held = Some(richos_core::ecs::EcsBridge::new(&runtime.python, &dir, &ecs_state).map_err(|e| e.0)?);
+            }
+            held.clone().expect("made above")
+        };
+        made.request(command, fields).map_err(|e| e.0)
+    })
+}
+
 /// **His team's desk, built once at launch on an operator install** (the operator-client
 /// record's §7 items 1-3). Returns the desk, the socket its front-desk tools reach it through,
 /// and the access the front desk's lease is given. A socket that cannot be served costs the
@@ -247,22 +268,7 @@ fn operator_desk_at_boot(
             eprintln!("[richos] his team: a notice could not be pushed to the window ({e}); it is held on disk");
         }
     });
-    // Settling closes the obligation in the PINNED engine's store, the one the register opened
-    // it in (`assignment_tools.rs`), through a bridge made on first use and kept.
-    let bridge: Arc<Mutex<Option<richos_core::ecs::EcsBridge>>> = Arc::new(Mutex::new(None));
-    let ecs_state = data_dir.join("ecs");
-    let settle = Arc::new(richos_core::operator_runtime::EcsSettle::with(Box::new(move |command, fields| {
-        let made = {
-            let mut held = bridge.lock().map_err(|_| "the engine's store could not be reached".to_string())?;
-            if held.is_none() {
-                let dir = engine_cell.lock().map(|d| d.clone()).map_err(|_| "the engine could not be located".to_string())?;
-                let runtime = richos_core::runtime::verify_engine(&dir).map_err(|e| e.to_string())?;
-                *held = Some(richos_core::ecs::EcsBridge::new(&runtime.python, &dir, &ecs_state).map_err(|e| e.0)?);
-            }
-            held.clone().expect("made above")
-        };
-        made.request(command, fields).map_err(|e| e.0)
-    })));
+    let settle = Arc::new(richos_core::operator_runtime::EcsSettle::with(engine_store_call(engine_cell, data_dir)));
     let origins = Arc::new(richos_core::operator_desk::LedgerOrigins::new(&data_dir.join("conversation-ledger.jsonl")));
     let executable = std::env::current_exe().unwrap_or_else(|e| {
         eprintln!("[richos] his team: this app's own path could not be read ({e}); his leads' report tool will not start");
@@ -2981,6 +2987,11 @@ fn main() {
                 permissions.clone(),
             );
             work.set_quota(quota.clone());
+            // An assignment its back end handled itself (a command he asked for, or an answer)
+            // closes its obligation in the engine on the words he was given.
+            work.set_answered_close(Arc::new(richos_core::operator_runtime::EcsAnsweredClose::with(
+                engine_store_call(Arc::clone(&engine_cell), &data_dir),
+            )));
             if let Some(desk) = &operator_desk {
                 work.set_operator(desk.clone());
             }

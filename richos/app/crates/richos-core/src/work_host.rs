@@ -118,6 +118,26 @@ pub trait OperatorIntake: Send + Sync {
     fn stop(&self, entity: &str, thread: &str, id: &str) -> Result<(), String>;
 }
 
+/// **Closing, in the engine, an assignment the back end handled itself** — a command he
+/// asked for, the reason it could not begin, or the answer to his question — on the words
+/// he was given (the engine's host-only `answer-complete`).
+///
+/// Such an assignment has no worker, and the engine's `complete` needs one
+/// (`engine/mega-lander/app.py` `complete`: `1 <= len(ids)`), so until this it could never
+/// close and the back end told him so: *"It's still open there"* (richos-hq
+/// `docs/verification/2026-09-27-background-command-finish`, vm-run-2). It is called only
+/// from the two arms that settle on the back end's own words with no helper on the
+/// receipts, and the engine refuses it for any assignment a helper was recorded on, so a
+/// code change still closes only through `complete`, with its workers.
+///
+/// Installed by the shell ([`WorkHost::set_answered_close`]). With none installed the
+/// obligation stays open, which is what every build before this did.
+pub trait AnsweredClose: Send + Sync {
+    /// `Err` is logged and never spoken: what he hears is the report, and the report is true
+    /// whether or not the engine's bookkeeping took it.
+    fn close_answered(&self, record: &Assignment, answer: &str) -> Result<(), String>;
+}
+
 /// The default: say nothing to anybody. Used by tests that are asserting on the durable
 /// record, which is the half that has to be right.
 pub struct SilentNotifier;
@@ -151,9 +171,49 @@ struct Scheduled {
     resumed: bool,
 }
 
+/// **A job whose background command outlived the wait inside `run_one`** — the wait yielded
+/// to his next job on this thread, or reached [`COMMAND_WAIT_BUDGET`]. The job stays open
+/// ("A command it started is still running.") and the runner watches the command between
+/// jobs; when it ends, the back end is asked for this job's report on this job's seat
+/// (`run_one` with a [`Report`]). Before this, the host stopped waiting and closed the job on
+/// the words he already had, and the finish was lost (richos-hq
+/// `2026-09-27-background-command-finish`, "Not done").
+#[derive(Clone)]
+struct Watched {
+    binding: ThreadBinding,
+    record: Assignment,
+    /// The provider's task id and description for each command it is waiting on.
+    commands: Vec<(String, String)>,
+    /// The words he was already told, so they are never sent twice.
+    told: Option<String>,
+    /// The lease session the commands run under; a different one cannot report them.
+    session: Option<String>,
+}
+
+/// What a watched job's report turn starts from: which of its commands ended, and what he
+/// has already been told.
+struct Report {
+    ended: Vec<String>,
+    told: Option<String>,
+}
+
+/// How a wait for background commands ended (`wait_for_background_commands`).
+#[derive(Debug, PartialEq, Eq)]
+enum CommandWait {
+    /// Every one of them was witnessed ending.
+    Ended,
+    /// His next job on this thread arrived, or the bound was reached: the commands still run
+    /// and the job is handed to the watch ([`Watched`]).
+    Handed,
+    /// His Stop, a quit, the lease gone, or a reading that cannot say: nothing is claimed.
+    Over,
+}
+
 struct Inner {
     // Includes pre-lease waits and final receipt writes, not just a live lease.
     processing: bool,
+    /// Jobs whose background commands outlived their wait ([`Watched`]).
+    watching: Vec<Watched>,
     queue: VecDeque<Scheduled>,
     /// The assignment that is ON this thread's back end right now. At most one: a lease runs
     /// one prompt at a time, so its assignments are serialized onto it and the host says so
@@ -236,6 +296,7 @@ impl Backend {
             lease: Mutex::new(None),
             inner: Mutex::new(Inner {
                 queue: VecDeque::new(),
+                watching: Vec::new(),
                 live: None,
                 cancel: None,
                 lease_session: None,
@@ -314,6 +375,11 @@ pub struct WorkHost {
     /// **His team, when this is an operator install** ([`OperatorIntake`]). `None` on every
     /// product install, which is what keeps this host byte for byte what it was.
     operator: Mutex<Option<Arc<dyn OperatorIntake>>>,
+    /// How an assignment the back end handled itself is closed in the engine
+    /// ([`AnsweredClose`]); `None` leaves it open, as every build before this did.
+    answered_close: Mutex<Option<Arc<dyn AnsweredClose>>>,
+    /// [`COMMAND_WAIT_BUDGET`] in production; shortened by tests, like `screen_poll`.
+    command_wait: Mutex<std::time::Duration>,
 }
 
 /// The context window this build assumes while a back end has reported nothing, and the
@@ -459,7 +525,10 @@ const COMMAND_ENDED_HEAD: &str =
 const COMMAND_ENDED_TAIL: &str =
     "Its output is in the file named when it started. Give him your report on this \
      assignment now, in plain words: what ran, how it ended, and what it printed that matters \
-     to him. This is the report he will read, so make it complete. Nothing about the \
+     to him. If he asked what it printed, quote the printed lines themselves, as they are, \
+     then say what they mean; a description of them is not what he asked for. This is the \
+     report he will read, so make it complete, and leave out reviews, \
+     lands and closing the assignment: the app closes it from this report. Nothing about the \
      assignment has changed and your seat is the same one.";
 
 fn command_ended_continuation(ended: &[&crate::cognition::BackgroundCommand]) -> String {
@@ -475,6 +544,28 @@ fn command_ended_continuation(ended: &[&crate::cognition::BackgroundCommand]) ->
         })
         .collect();
     format!("{COMMAND_ENDED_HEAD} {}. {COMMAND_ENDED_TAIL}", and_list(&each))
+}
+
+/// **What a turn is told about the commands this back end is still running for his OTHER
+/// jobs** ([`Watched`]). Empty when there are none. The provider folds a command's ending into
+/// whatever turn is running when it comes (`cap-fold.jsonl`), so the turn is told to keep it
+/// out of its own answer; the host asks for that job's report on that job's seat afterwards.
+fn still_running_for_others(watching: &[Watched]) -> String {
+    let each: Vec<String> = watching
+        .iter()
+        .flat_map(|watched| {
+            watched.commands.iter().map(move |(_, what)| format!("\"{what}\" (for \"{}\")", watched.record.title))
+        })
+        .collect();
+    if each.is_empty() {
+        return String::new();
+    }
+    format!(
+        "\n\nCommands you started in the background for his other requests are still running: {}. \
+         If you are told one of them has ended while you work on this, leave it out of this \
+         report entirely: this app will ask you for that request's report on its own.",
+        and_list(&each)
+    )
 }
 
 /// Add one turn's words to the account, bounded the way the stream was: 64 KiB is eight times
@@ -512,7 +603,22 @@ impl WorkHost {
             screen_poll: Mutex::new(crate::screen::SCREEN_POLL),
             quota: Mutex::new(None),
             operator: Mutex::new(None),
+            answered_close: Mutex::new(None),
+            command_wait: Mutex::new(COMMAND_WAIT_BUDGET),
         })
+    }
+
+    /// How long `run_one` waits for a background command before handing it to the watch.
+    /// Test scaffolding, same reason and shape as [`Self::set_screen_poll`].
+    #[doc(hidden)]
+    pub fn set_command_wait_budget(&self, budget: std::time::Duration) {
+        *self.command_wait.lock().unwrap() = budget;
+    }
+
+    /// **How an assignment the back end handled itself is closed in the engine** — see
+    /// [`AnsweredClose`]. Installed by the shell.
+    pub fn set_answered_close(&self, close: Arc<dyn AnsweredClose>) {
+        *self.answered_close.lock().unwrap() = Some(close);
     }
 
     /// **Hand every assignment from here on to his team** (operator mode, decided once at
@@ -770,6 +876,11 @@ impl WorkHost {
     }
 
     fn run(self: Arc<Self>, backend: Arc<Backend>) {
+        enum Next {
+            Work(Scheduled),
+            Report(Watched, Vec<String>),
+            Lost(Watched),
+        }
         loop {
             let next = {
                 let mut inner = backend.inner.lock().unwrap();
@@ -777,32 +888,95 @@ impl WorkHost {
                     if inner.closing {
                         return;
                     }
+                    // **A WATCHED JOB WHOSE COMMAND HAS ENDED GOES FIRST** ([`Watched`]): it
+                    // ended before the next job starts, and its report is one short turn. The
+                    // reading is the lease's in-memory reader state, taken with `inner`
+                    // released, because the lease lock is always taken before `inner`.
+                    if !inner.watching.is_empty() {
+                        let watching = inner.watching.clone();
+                        let session = inner.lease_session.clone();
+                        drop(inner);
+                        let verdict = self.watched_verdict(&backend, &watching, session.as_deref());
+                        inner = backend.inner.lock().unwrap();
+                        if inner.closing {
+                            return;
+                        }
+                        if let Some((id, ended)) = verdict {
+                            // His Stop may have taken it off the watch meanwhile.
+                            if let Some(at) = inner.watching.iter().position(|w| w.record.id == id) {
+                                let watched = inner.watching.remove(at);
+                                inner.processing = true;
+                                break match ended {
+                                    Some(ended) => Next::Report(watched, ended),
+                                    None => Next::Lost(watched),
+                                };
+                            }
+                            continue;
+                        }
+                    }
                     if let Some(item) = inner.queue.pop_front() {
                         inner.processing = true;
-                        break Some(item);
+                        break Next::Work(item);
                     }
-                    inner = backend.wake.wait(inner).unwrap();
+                    // Parked on the condition variable as before; while a command is watched,
+                    // it also looks again every [`COMMAND_WAIT_POLL`].
+                    inner = if inner.watching.is_empty() {
+                        backend.wake.wait(inner).unwrap()
+                    } else {
+                        backend.wake.wait_timeout(inner, COMMAND_WAIT_POLL).unwrap().0
+                    };
                 }
             };
-            let Some(Scheduled { binding, record, resumed }) = next else { return };
-            // **A stop that landed between the dequeue and the start.** The ordinary
-            // queued-stop path never reaches here — `stop_assignment` takes that assignment
-            // off the queue itself — so this is the race: the stop was recorded a moment
-            // after this runner had already picked the assignment up. It still ENDS, so it
-            // takes the same boundary as every other ending below rather than an early
-            // `continue` that skips §2.4a's report; a windowless app whose last assignment
-            // ended down this path would otherwise sit there waiting for something that was
-            // never coming.
-            let ran = !backend.inner.lock().unwrap().stopped.iter().any(|id| *id == record.id);
-            if ran {
-                self.run_one(&backend, &binding, &record, resumed);
-                let mut inner = backend.inner.lock().unwrap();
-                inner.completed += 1;
-                inner.live = None;
-                backend.wake.notify_all();
-            } else {
-                self.settle_stopped(&backend, &record);
-            }
+            let binding = match next {
+                Next::Work(Scheduled { binding, record, resumed }) => {
+                    // **A stop that landed between the dequeue and the start.** The ordinary
+                    // queued-stop path never reaches here — `stop_assignment` takes that
+                    // assignment off the queue itself — so this is the race: the stop was
+                    // recorded a moment after this runner had already picked the assignment
+                    // up. It still ENDS, so it takes the same boundary as every other ending
+                    // below rather than an early `continue` that skips §2.4a's report; a
+                    // windowless app whose last assignment ended down this path would
+                    // otherwise sit there waiting for something that was never coming.
+                    let ran = !backend.inner.lock().unwrap().stopped.iter().any(|id| *id == record.id);
+                    if ran {
+                        self.run_one(&backend, &binding, &record, resumed, None);
+                        let mut inner = backend.inner.lock().unwrap();
+                        inner.completed += 1;
+                        inner.live = None;
+                        backend.wake.notify_all();
+                    } else {
+                        self.settle_stopped(&backend, &record);
+                    }
+                    binding
+                }
+                Next::Report(watched, ended) => {
+                    // Only a job that is still open is asked about: anything that closed it
+                    // meanwhile (a quit's sweep, a path that forgot the watch) already spoke.
+                    let open = assignment::read(&self.state, &watched.record.entity_id, &watched.record.thread_id,
+                                                &watched.record.id)
+                        .is_ok_and(|row| row.state.is_open());
+                    if open {
+                        let report = Report { ended, told: watched.told.clone() };
+                        self.run_one(&backend, &watched.binding, &watched.record, false, Some(report));
+                    } else {
+                        eprintln!("[richos] work: a watched assignment had already closed when its command ended; nothing was asked");
+                    }
+                    let mut inner = backend.inner.lock().unwrap();
+                    inner.completed += 1;
+                    inner.live = None;
+                    backend.wake.notify_all();
+                    drop(inner);
+                    watched.binding
+                }
+                Next::Lost(watched) => {
+                    self.watch_lost(&watched);
+                    let mut inner = backend.inner.lock().unwrap();
+                    inner.completed += 1;
+                    backend.wake.notify_all();
+                    drop(inner);
+                    watched.binding
+                }
+            };
             // **THE ASSIGNMENT BOUNDARY, AND IT IS THE ONLY PLACE EITHER OF THESE HAPPENS.**
             //
             // Rotation first: a back end that has crossed its watermark is retired here,
@@ -869,7 +1043,17 @@ impl WorkHost {
     }
 
     /// One assignment, start to the end of its back end's own turn.
-    fn run_one(self: &Arc<Self>, backend: &Arc<Backend>, binding: &ThreadBinding, record: &Assignment, resumed: bool) {
+    ///
+    /// With a [`Report`], it is a WATCHED job coming back ([`Watched`]): its background
+    /// command has ended, and the back end is asked for this job's report on this job's seat.
+    /// Nothing about starting the job is repeated — no screen wait, no renewal, no new pin, no
+    /// `Preparing` — and the rest (the waits, the settle arms) is the same path every job
+    /// takes, so a report that starts another command is watched again like any other.
+    fn run_one(
+        self: &Arc<Self>, backend: &Arc<Backend>, binding: &ThreadBinding, record: &Assignment, resumed: bool,
+        report: Option<Report>,
+    ) {
+        let reporting = report.is_some();
         if !self.quota_gate(backend, record) {
             self.settle_stopped(backend, record);
             return;
@@ -890,30 +1074,48 @@ impl WorkHost {
         //    made all three of those sentences false.
         //
         //    An unlocked or unreadable screen costs ONE reading and this block is invisible.
-        if !self.screen_gate(backend, record, &advance) {
+        //    A report is not a start: the job already ran, and it asks nothing of the screen.
+        if !reporting && !self.screen_gate(backend, record, &advance) {
             return;
         }
 
-        advance(AssignmentState::Preparing, "Opening the work connection.");
+        if !reporting {
+            advance(AssignmentState::Preparing, "Opening the work connection.");
+        }
 
         // Resolve the frozen request before spending a work lease. The display title is
-        // intentionally shortened and cannot carry all of the user's constraints.
-        let instruction = match instruction_for(&self.state, record) {
-            Ok(text) => text,
-            Err(why) => {
-                advance(AssignmentState::Failed, why);
-                self.raise(record, NoticeKind::Failed,
-                    &assignment::says::failure(record.kind, &record.title, why, false));
-                return;
+        // intentionally shortened and cannot carry all of the user's constraints. A report
+        // sends no brief, so it needs none.
+        let instruction = if reporting {
+            String::new()
+        } else {
+            match instruction_for(&self.state, record) {
+                Ok(text) => text,
+                Err(why) => {
+                    advance(AssignmentState::Failed, why);
+                    self.raise(record, NoticeKind::Failed,
+                        &assignment::says::failure(record.kind, &record.title, why, false));
+                    return;
+                }
             }
         };
 
         // 0b. A repository he connected since this back end opened (see
         //     `renew_if_repositories_changed`). Nothing is live yet, so this is a boundary.
-        self.renew_if_repositories_changed(backend, binding);
+        //     Never before a report: renewing would retire the one back end that knows where
+        //     the command's output is.
+        if !reporting {
+            self.renew_if_repositories_changed(backend, binding);
+        }
 
         // 1. The lease. Spawning it is seconds, and this is where those seconds belong —
-        //    after the turn, never inside it.
+        //    after the turn, never inside it. A report needs the lease its command ran on,
+        //    which the runner checked a moment ago ([`Self::watched_verdict`]); a fresh one
+        //    could not report it, so none is opened for it.
+        if reporting && backend.lease.lock().unwrap().is_none() {
+            self.report_lost(record);
+            return;
+        }
         if let Err(why) = self.ensure_lease(backend, binding) {
             // **"Did not start", not "stopped before it finished".** Nothing has been asked of
             // the back end at this line, so there is nothing that could have stopped. Ray's
@@ -979,11 +1181,15 @@ impl WorkHost {
             // A failure here is logged and never fatal: the work is more important than the
             // pin, and recovery already says honestly that it has nothing to compare
             // against when the pin is missing.
-            let pins = crate::recovery::pins_for(record, self.repositories.lock().unwrap().as_ref());
-            if let Err(error) =
-                assignment::note_start(&self.state, &record.entity_id, &record.thread_id, &record.id, &session, pins)
-            {
-                eprintln!("[richos] work: this assignment's starting point was not recorded: {error}");
+            //
+            // A report keeps the pin its job's start wrote: it is the same job.
+            if !reporting {
+                let pins = crate::recovery::pins_for(record, self.repositories.lock().unwrap().as_ref());
+                if let Err(error) =
+                    assignment::note_start(&self.state, &record.entity_id, &record.thread_id, &record.id, &session, pins)
+                {
+                    eprintln!("[richos] work: this assignment's starting point was not recorded: {error}");
+                }
             }
         }
 
@@ -999,21 +1205,53 @@ impl WorkHost {
         // on his walk the receipt said the job was running and the job failed three seconds
         // later, having never started. So `Running` is now written from ONE place, below,
         // when the child's first stream item proves it took the turn.
-        advance(
-            AssignmentState::Preparing,
-            if resumed {
-                "You approved the step it stopped at. Handing it back to the back end now."
-            } else {
-                "Preparing the workspace and starting the work."
-            },
-        );
+        //
+        // A report leaves the row as it is: `Running`, its command having just ended.
+        if !reporting {
+            advance(
+                AssignmentState::Preparing,
+                if resumed {
+                    "You approved the step it stopped at. Handing it back to the back end now."
+                } else {
+                    "Preparing the workspace and starting the work."
+                },
+            );
+        }
         // **THE WATERMARK'S TWO INPUTS, READ AS THE TURN GOES PAST.** Same shape as the
         // conversation's (`spine.rs:1980, 2034-2041`) and for the same reason: a
         // `usage_update` lands in the evictable Tier B of the journal, so the stream is the
         // only place it can be consumed. They are accumulated locally and written to the
         // back end once, after the turn — a lock per streamed item would be the one cost
         // this file has spent a module doc avoiding.
-        let mut prompt = brief_for(record, resumed, &instruction);
+        //
+        // **What else this back end is still running for his other jobs** ([`Watched`]): the
+        // provider folds a command's ending into whatever turn is running when it comes
+        // (`cap-fold.jsonl`), so this turn is told to leave such an ending out of its own
+        // answer. That job's report is asked for on its own seat when this one is done.
+        //
+        // **A watched job that is run again** (his answer to its question,
+        // `queue_question_answer`) takes itself off the watch: its commands are its own again,
+        // so the waits below treat them as this run's, and it keeps what he was already told.
+        let (others, rewatched): (Vec<Watched>, Option<Watched>) = {
+            let mut inner = backend.inner.lock().unwrap();
+            let own = inner.watching.iter().position(|w| w.record.id == record.id).map(|at| inner.watching.remove(at));
+            (inner.watching.clone(), own)
+        };
+        let mut prompt = match &report {
+            Some(report) => {
+                let ended: Vec<crate::cognition::BackgroundCommand> = self
+                    .background_commands(backend)
+                    .into_iter()
+                    .filter(|c| report.ended.contains(&c.task_id))
+                    .collect();
+                format!(
+                    "This is about his earlier request \"{}\", which you are carrying on this same seat. {}",
+                    record.title,
+                    command_ended_continuation(&ended.iter().collect::<Vec<_>>())
+                )
+            }
+            None => brief_for(record, resumed, &instruction),
+        };
         match crate::question_work::take(&self.state,&record.entity_id,&record.thread_id,&record.obligation_id) {
             Ok(inputs) if !inputs.is_empty()=>{
                 prompt.push_str("\nThe user answered your questions. These complete sets include every answer and withdrawal. Continue this assignment with these decisions:\n");
@@ -1022,6 +1260,7 @@ impl WorkHost {
             Ok(_)=>{},
             Err(error)=>{advance(AssignmentState::Failed,&format!("The saved answer could not be read: {error}"));return;}
         }
+        prompt.push_str(&still_running_for_others(&others));
         // The SAME measure the spine takes, deliberately: the prompt sent plus the reply
         // that came back, in bytes (`spine.rs:2114-2118`). It is an undercount — by 2.3× to
         // 40.6×, measured (`spine.rs:138-143`) — which is exactly why it is the FALLBACK
@@ -1069,7 +1308,8 @@ impl WorkHost {
         // entire run and `running` only once the run had ended, which is the same defect
         // pointing the other way. The two are different questions: that one asks whether the
         // lease was ever equipped, this one asks whether the turn was taken.
-        let mut confirmed = false;
+        // A report's job has long since been `Running`; nothing is re-written for it.
+        let mut confirmed = reporting;
         let started_detail: &str = if resumed {
             "You approved the step it stopped at. Carrying it out now."
         } else {
@@ -1124,7 +1364,9 @@ impl WorkHost {
             let mut lease = backend.lease.lock().unwrap();
             match lease.as_mut() {
                 Some(lease) => {
-                    commands_seen.extend(lease.background_commands().unwrap_or_default().into_iter().map(|c| c.task_id));
+                    let own: Vec<&str> = rewatched.iter().flat_map(|w| w.commands.iter().map(|(id, _)| id.as_str())).collect();
+                    commands_seen.extend(lease.background_commands().unwrap_or_default().into_iter()
+                        .map(|c| c.task_id).filter(|id| !own.contains(&id.as_str())));
                     say(lease, &prompt, &mut items, &mut said)
                 }
                 None => Err(CognitionError::Protocol("The work connection closed.".into())),
@@ -1133,7 +1375,11 @@ impl WorkHost {
         keep_words(&mut answer, &said);
         // The words he was told while a command of this assignment was still running, if any
         // (step 3c). The settle arms below do not tell him the same words twice.
-        let mut told_while_running: Option<String> = None;
+        let mut told_while_running: Option<String> = report.as_ref().and_then(|report| report.told.clone())
+            .or_else(|| rewatched.as_ref().and_then(|w| w.told.clone()));
+        // Set when this job's commands outlive the wait below: it is handed to the watch
+        // ([`Watched`]) instead of being settled.
+        let mut handed: Option<Vec<String>> = None;
 
         // ===================================================================================
         // 3b. THE HELPER OUTLIVES THE TURN THAT STARTED IT, SO THE HOST WAITS AND ASKS AGAIN
@@ -1235,8 +1481,15 @@ impl WorkHost {
                         self.raise(record, NoticeKind::Answer, &assignment::says::answered(&record.title, &words));
                         told_while_running = Some(words);
                     }
-                    if !self.wait_for_background_commands(backend, record, &running) {
-                        break;
+                    match self.wait_for_background_commands(backend, record, &running) {
+                        CommandWait::Ended => {}
+                        // Still running, and he has another job or the bound was reached: the
+                        // job is watched from here, not settled ([`Watched`]).
+                        CommandWait::Handed => {
+                            handed = Some(running);
+                            break;
+                        }
+                        CommandWait::Over => break,
                     }
                 }
                 let ended: Vec<crate::cognition::BackgroundCommand> = self
@@ -1334,6 +1587,33 @@ impl WorkHost {
             let inner = backend.inner.lock().unwrap();
             inner.closing || inner.stopped.iter().any(|id| *id == record.id)
         };
+        // **ITS COMMAND OUTLIVED THE WAIT: WATCHED, NOT SETTLED** ([`Watched`]). He already has
+        // the back end's words (step 3c raised them), the row says the command is running, and
+        // the runner asks for this job's report when the provider says it ended. Only on a
+        // turn that answered, on a lease that was equipped, and with no Stop or quit: every
+        // other case settles below exactly as before.
+        if let Some(ids) = handed.filter(|_| outcome.is_ok() && readiness.is_none() && !stopped) {
+            let reading = self.background_commands(backend);
+            let commands = ids
+                .iter()
+                .map(|id| {
+                    let what = reading.iter().find(|c| c.task_id == *id).map(|c| c.description.clone()).unwrap_or_default();
+                    (id.clone(), what)
+                })
+                .collect();
+            advance(AssignmentState::Running, COMMAND_STILL_RUNNING_DETAIL);
+            let mut inner = backend.inner.lock().unwrap();
+            let session = inner.lease_session.clone();
+            inner.watching.push(Watched {
+                binding: binding.clone(),
+                record: record.clone(),
+                commands,
+                told: told_while_running,
+                session,
+            });
+            backend.wake.notify_all();
+            return;
+        }
         // **Which failure sentence he hears is decided by EVIDENCE, not by which arm we are
         // in.** A turn that broke before the child said anything did not start; one that broke
         // after it had been talking stopped before it finished. Both are true statements about
@@ -1452,6 +1732,9 @@ impl WorkHost {
                 if told_while_running.as_deref() != Some(said.as_str()) {
                     self.raise(record, NoticeKind::Answer, &assignment::says::answered(&record.title, &said));
                 }
+                // The engine's bookkeeping LAST: it is subprocess calls, and his answer must
+                // never wait on it (VM runs 1 and 5, 2026-09-27).
+                self.close_answered(record, &said);
             }
             // **A LEASE THAT TOLD US, ONE TURN LATE, THAT IT WAS NEVER EQUIPPED.** Step 3a's
             // reading, and it sits AFTER the stop arm on purpose: a stop is his own action and
@@ -1496,6 +1779,11 @@ impl WorkHost {
                 if told_while_running.as_deref() != Some(said.as_str()) {
                     self.raise(record, NoticeKind::Answer, &assignment::says::answered(&record.title, &said));
                 }
+                // Its obligation too, on these words: `complete` needs a worker and this
+                // assignment has none ([`AnsweredClose`]). LAST, after his report is his: the
+                // close is subprocess calls, and on VM runs 1 and 5 (2026-09-27) the report
+                // waited behind it long enough that the app was quit before it was raised.
+                self.close_answered(record, &said);
             }
             // ===========================================================================
             // WHAT HE HEARS IS THE OUTCOME — the CEO's ruling §52, 2026-09-18
@@ -1713,64 +2001,134 @@ impl WorkHost {
     }
 
     /// **Wait for each of `ids` to be WITNESSED ending** — the provider's own
-    /// `task_notification` for it, read by the lease. `true` when all of them did; `false`
-    /// when the wait ended for any other reason, and a `false` claims nothing:
+    /// `task_notification` for it, read by the lease. [`CommandWait::Ended`] when all of
+    /// them did. [`CommandWait::Handed`] when they still run and the wait gives way:
     ///
-    /// - his Stop, a quit, the quota hold being stopped, or the lease going away;
     /// - **his next job on this thread** — the back end is his, and a command that never ends
     ///   (a server) must not keep it from him; he already has the words it said;
-    /// - a command the lease no longer reports at all, which cannot be witnessed ending;
-    /// - [`COMMAND_WAIT_BUDGET`].
-    fn wait_for_background_commands(self: &Arc<Self>, backend: &Arc<Backend>, record: &Assignment, ids: &[String]) -> bool {
-        let mut deadline = std::time::Instant::now() + COMMAND_WAIT_BUDGET;
+    /// - the bound (60 min in production).
+    ///
+    /// Either way the job is watched from then on ([`Watched`]) and its finish still reaches
+    /// him. [`CommandWait::Over`], which claims nothing, for everything else: his Stop, a
+    /// quit, the quota hold being stopped, the lease going away, or a command the lease no
+    /// longer reports at all, which cannot be witnessed ending.
+    fn wait_for_background_commands(self: &Arc<Self>, backend: &Arc<Backend>, record: &Assignment, ids: &[String]) -> CommandWait {
+        let budget = *self.command_wait.lock().unwrap();
+        let mut deadline = std::time::Instant::now() + budget;
         loop {
             let before = std::time::Instant::now();
             if !self.quota_gate(backend, record) {
-                return false;
+                return CommandWait::Over;
             }
             deadline += before.elapsed();
             {
                 let inner = backend.inner.lock().unwrap();
                 if inner.closing || inner.stopped.contains(&record.id) {
-                    return false;
+                    return CommandWait::Over;
                 }
                 if !inner.queue.is_empty() {
                     eprintln!(
-                        "[richos] work: another assignment is waiting on this thread, so the host \
-                         stopped waiting for {} background command(s) of this one; nothing is \
-                         being claimed about them",
+                        "[richos] work: another assignment is waiting on this thread, so {} \
+                         background command(s) of this one are watched between assignments \
+                         from here",
                         ids.len()
                     );
-                    return false;
+                    return CommandWait::Handed;
                 }
             }
             let reading = match backend.lease.lock().unwrap().as_ref() {
                 Some(lease) => lease.background_commands(),
-                None => return false,
+                None => return CommandWait::Over,
             };
-            let Some(reading) = reading else { return false };
+            let Some(reading) = reading else { return CommandWait::Over };
             let mut all_ended = true;
             for id in ids {
                 match reading.iter().find(|command| command.task_id == *id) {
                     Some(command) if command.ended.is_some() => {}
                     Some(_) => all_ended = false,
-                    None => return false,
+                    None => return CommandWait::Over,
                 }
             }
             if all_ended {
-                return true;
+                return CommandWait::Ended;
             }
             if std::time::Instant::now() >= deadline {
                 eprintln!(
-                    "[richos] work: waited {COMMAND_WAIT_BUDGET:?} for this assignment's background \
-                     command(s) and they are still running; nothing is being claimed about them"
+                    "[richos] work: waited {budget:?} for this assignment's background \
+                     command(s) and they are still running; they are watched between \
+                     assignments from here"
                 );
-                return false;
+                return CommandWait::Handed;
             }
             let inner = backend.inner.lock().unwrap();
             // Woken early by a new job on this thread (`schedule` notifies), which the next
             // pass reads as the reason to stop waiting.
             drop(backend.wake.wait_timeout(inner, COMMAND_WAIT_POLL).unwrap());
+        }
+    }
+
+    /// **Which watched job, if any, the runner should act on now** ([`Watched`]): `Some((id,
+    /// Some(ended)))` when every command it waits on has ended; `Some((id, None))` when they
+    /// can no longer be witnessed — the lease it ran on is gone or was replaced, the lease
+    /// cannot say, or it no longer reports one of them; `None` while they all still run.
+    ///
+    /// Positive signals only: an ending is the provider's own `task_notification`, and "can no
+    /// longer be witnessed" is a different session or an absent reading, never a quiet one.
+    fn watched_verdict(
+        &self, backend: &Arc<Backend>, watching: &[Watched], session: Option<&str>,
+    ) -> Option<(String, Option<Vec<String>>)> {
+        let reading = backend.lease.lock().unwrap().as_ref().and_then(|lease| lease.background_commands());
+        for watched in watching {
+            let lost = || Some((watched.record.id.clone(), None));
+            if watched.session.as_deref() != session || session.is_none() {
+                return lost();
+            }
+            let Some(reading) = reading.as_ref() else { return lost() };
+            let mut ended = Vec::new();
+            for (id, _) in &watched.commands {
+                match reading.iter().find(|command| command.task_id == *id) {
+                    None => return lost(),
+                    Some(command) if command.ended.is_some() => ended.push(id.clone()),
+                    Some(_) => {}
+                }
+            }
+            if ended.len() == watched.commands.len() {
+                return Some((watched.record.id.clone(), Some(ended)));
+            }
+        }
+        None
+    }
+
+    /// **A watched job whose commands can no longer be witnessed** ([`Self::watched_verdict`]):
+    /// the connection it ran on closed, so how its command ended cannot be read. He is told
+    /// that, never nothing — he had been told the command was running.
+    fn watch_lost(self: &Arc<Self>, watched: &Watched) {
+        self.report_lost(&watched.record);
+    }
+
+    fn report_lost(self: &Arc<Self>, record: &Assignment) {
+        const WHY: &str = "The work connection it was running on closed before the command it started \
+                           had finished, so how that command ended could not be read.";
+        if let Err(error) =
+            assignment::advance(&self.state, &record.entity_id, &record.thread_id, &record.id, AssignmentState::Failed, WHY)
+        {
+            eprintln!("[richos] work: a watched assignment's ending could not be recorded: {error}");
+        }
+        self.forget_at_the_desk(record);
+        self.raise(record, NoticeKind::Failed, &assignment::says::failure(record.kind, &record.title, WHY, true));
+    }
+
+    /// Close `record`'s obligation in the engine on the words he was given ([`AnsweredClose`]).
+    /// A refusal is logged and never spoken, and nothing is retried: the obligation is then
+    /// open, which is what it was before this existed, and what he heard is unchanged.
+    fn close_answered(&self, record: &Assignment, said: &str) {
+        let close = self.answered_close.lock().unwrap().clone();
+        let Some(close) = close else { return };
+        if let Err(why) = close.close_answered(record, said) {
+            eprintln!(
+                "[richos] work: this assignment was answered and its engine record could not be \
+                 closed on that answer, so it stays open there: {why}"
+            );
         }
     }
 
@@ -2473,6 +2831,21 @@ impl WorkHost {
                 if !inner.stopped.iter().any(|held| held == id) {
                     inner.stopped.push(id.to_string());
                 }
+                // **A job watched for its command** ([`Watched`]): its turn is long over, so
+                // it ends the way a stop inside its wait does, and its finish is not asked for.
+                if let Some(at) = inner.watching.iter().position(|watched| watched.record.id == id) {
+                    inner.watching.remove(at);
+                    drop(inner);
+                    assignment::advance(&self.state, entity, thread, id, AssignmentState::Interrupted,
+                        "Stopped. The workspace and the receipts are kept.")
+                        .map_err(|e| e.to_string())?;
+                    if let Err(error) = assignment::raise_notice(&self.state, entity, thread, id, NoticeKind::Interrupted,
+                        &assignment::says::interrupted(&record.title))
+                    {
+                        eprintln!("[richos] work: a stopped assignment's notice could not be recorded: {error}");
+                    }
+                    return Ok(());
+                }
                 // **A stop must reach an assignment parked on a locked screen** (the CEO's
                 // ruling §56). It is not `live` — the screen gate runs before the lease — and
                 // its wait sleeps on its own condition variable, so neither the cancel handle
@@ -2833,7 +3206,12 @@ fn brief_for(record: &Assignment, resumed: bool, instruction: &str) -> String {
          read its receipt for an outcome, and do not try to wait for it — end your turn \
          instead. This app is watching the run and will give you another turn the moment the \
          helper has actually ended, and you carry on from there. The same goes for the \
-         reviewer.\n\nReport \
+         reviewer.\n\nIf the job changes no repository (running a command he asked for, \
+         finding something out, or a job you cannot begin), do it yourself, with no helper, \
+         and report in his terms what you did and what it showed, or what is needed and from \
+         whom. The app closes an assignment like that from your report: do not call \
+         `complete` for it, and say nothing to him about reviews, lands, branches or closing \
+         the assignment, because none of that is his.\n\nWhen you changed a repository, report \
          what you actually landed: the branch, the repository and the reviewer's verdict. If \
          the land did not go through, say so and say why, and never describe unlanded work \
          as landed or an open assignment as finished.",
@@ -3125,7 +3503,16 @@ mod tests {
                 _on(TurnItem::Text { seq: 0, text: &reply });
             }
             if let Some(started) = self.start_in_turn.lock().unwrap().pop_front() {
-                self.background.lock().unwrap().get_or_insert_with(Vec::new).extend(started);
+                // A command already known is this turn REPORTING ITS ENDING (the provider folding
+                // a `task_notification` into the turn); a new one is a command it started.
+                let mut reading = self.background.lock().unwrap();
+                let known = reading.get_or_insert_with(Vec::new);
+                for command in started {
+                    match known.iter_mut().find(|c| c.task_id == command.task_id) {
+                        Some(existing) => *existing = command,
+                        None => known.push(command),
+                    }
+                }
             }
             if let Some(usage) = *self.usage.lock().unwrap() {
                 _on(TurnItem::Machinery(crate::machinery::MachineryRecord::from_context_usage(
@@ -4920,6 +5307,159 @@ mod tests {
         std::fs::remove_dir_all(h.root).unwrap();
     }
 
+    /// **A job that changes no repository is reported in his terms, with none of the machinery**
+    /// (vm-run-2: *"there won't be anything to review or merge"*, *"My system's step for formally
+    /// closing an assignment only takes finished code changes ... It's still open there"*).
+    ///
+    /// The task brief told every job to report "the branch, the repository and the reviewer's
+    /// verdict" and never to call an open assignment finished, and `DESKTOP.md` step 7 and the
+    /// `complete` tool said only a code assignment closes; a back end that ran a command for
+    /// him obeyed all three by explaining the bookkeeping to him. All three now say the app
+    /// closes such a job from its report, and the land report stays for a job that changed a
+    /// repository.
+    #[test]
+    fn a_job_that_changes_no_repository_is_reported_without_the_machinery() {
+        let h = harness(5);
+        let receipt = assignment::register_kind(&h.state, &registration(&h), assignment::AssignmentKind::Task).unwrap();
+        let record = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        let brief = brief_for(&record, false, &record.title);
+        for said in [
+            "If the job changes no repository",
+            "do it yourself, with no helper",
+            "The app closes an assignment like that from your report",
+            "do not call `complete` for it",
+            "say nothing to him about reviews, lands, branches or closing the assignment",
+            "When you changed a repository, report what you actually landed",
+        ] {
+            assert!(brief.contains(said), "the task brief does not say: {said}\n{brief}");
+        }
+        let engine = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(3).unwrap().join("engine/mega-lander");
+        let desktop = std::fs::read_to_string(engine.join("DESKTOP.md")).unwrap().split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(desktop.contains("A job that changes no repository needs no worker and no `complete`: \
+                                 do it yourself and report it in his terms; the app closes it from your report."),
+                "DESKTOP.md step 7 still says only a code assignment closes");
+        let tools = std::fs::read_to_string(engine.join("app.py")).unwrap();
+        assert!(tools.contains("An assignment you handled yourself, with no worker, is closed by the app from your report: do not call this for it."),
+                "the complete tool does not say who closes a job with no worker");
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// Records every answer close the host asks for, and fails them on demand.
+    #[derive(Default)]
+    struct Closes {
+        asked: Mutex<Vec<(String, String)>>,
+        refuse: Mutex<Option<String>>,
+    }
+
+    impl AnsweredClose for Closes {
+        fn close_answered(&self, record: &Assignment, answer: &str) -> Result<(), String> {
+            self.asked.lock().unwrap().push((record.obligation_id.clone(), answer.to_string()));
+            match &*self.refuse.lock().unwrap() {
+                Some(why) => Err(why.clone()),
+                None => Ok(()),
+            }
+        }
+    }
+
+    /// A closer that does not return until the test lets it: the engine's close is three
+    /// subprocess calls, and on first use the runtime is verified too (VM run 5, 2026-09-27).
+    struct SlowClose {
+        open: Mutex<bool>,
+        released: std::sync::Condvar,
+        asked: AtomicUsize,
+    }
+
+    impl AnsweredClose for SlowClose {
+        fn close_answered(&self, _record: &Assignment, _answer: &str) -> Result<(), String> {
+            self.asked.fetch_add(1, Ordering::SeqCst);
+            let open = self.open.lock().unwrap();
+            drop(self.released.wait_timeout_while(open, std::time::Duration::from_secs(10), |open| !*open).unwrap());
+            Ok(())
+        }
+    }
+
+    /// **His report reaches him before the bookkeeping, never after it** (VM runs 1 and 5,
+    /// 2026-09-27, bundle 1.2.0-dev.0d3dadf8): the back end's report turn had happened, and the
+    /// walk read the row `settled` with one notice and the obligation open, because the arm
+    /// closed the obligation between writing `Settled` and raising his notice. A quit in that
+    /// window loses the report outright.
+    #[test]
+    fn his_report_is_raised_before_the_obligation_is_closed() {
+        use crate::cognition::ObligationState;
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        const REPORT: &str = "It ran and printed one line: 4b578fe init.";
+        *h.answer_reply.lock().unwrap() = REPORT.into();
+        let close = Arc::new(SlowClose { open: Mutex::new(false), released: std::sync::Condvar::new(), asked: AtomicUsize::new(0) });
+        h.host.set_answered_close(close.clone());
+        h.host.start();
+        h.host.register(&h.binding, &registration(&h)).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while close.asked.load(Ordering::SeqCst) == 0 {
+            assert!(std::time::Instant::now() < deadline, "the close was never asked for");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        // The close is still running: his report must already be his.
+        let told: Vec<String> = h.notices.0.lock().unwrap().iter().map(|(_, n)| n.text.clone()).collect();
+        *close.open.lock().unwrap() = true;
+        close.released.notify_all();
+        assert_eq!(told, [REPORT], "his report waited on the engine's bookkeeping");
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **An assignment the back end handled itself closes its engine obligation, on the words
+    /// he was given** (richos-hq `2026-09-27-background-command-finish`, "Not done": *"It's
+    /// still open there"*). One close per such assignment, question or task, with the report
+    /// as its evidence; none for an assignment a helper worked on, which still closes only
+    /// through `complete` with its workers; and a close the engine refuses is never spoken.
+    #[test]
+    fn an_assignment_the_back_end_handled_itself_closes_its_obligation_on_the_report_he_was_given() {
+        use crate::cognition::ObligationState;
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        const REPORT: &str = "I ran git rev-list --count HEAD in the Acme repository. It has 3 commits.";
+        *h.answer_reply.lock().unwrap() = REPORT.into();
+        let closes = Arc::new(Closes::default());
+        h.host.set_answered_close(closes.clone());
+        h.host.start();
+
+        let itself = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        assert_eq!(assignment::read(&h.state, "depot", "thread-one", &itself.id).unwrap().state, AssignmentState::Settled);
+        assert_eq!(*closes.asked.lock().unwrap(), vec![("obligation-7".to_string(), REPORT.to_string())],
+                   "the task it handled itself was left open in the engine");
+
+        // A question is handled by the back end itself by definition.
+        h.host
+            .register_kind(&h.binding, &Registration { obligation_id: "obligation-q".into(), ..registration(&h) },
+                           assignment::AssignmentKind::Investigate)
+            .unwrap();
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        assert_eq!(closes.asked.lock().unwrap().last().unwrap().0, "obligation-q");
+
+        // CONTROL: a helper worked on it — never closed on an answer.
+        engine_receipt(&h, "worker-c", "obligation-8", "worker", None, None);
+        h.host.register(&h.binding, &Registration { obligation_id: "obligation-8".into(), ..registration(&h) }).unwrap();
+        assert!(h.host.wait_for_completed(3, std::time::Duration::from_secs(10)));
+        assert_eq!(closes.asked.lock().unwrap().len(), 2, "work a helper did was closed on the back end's words");
+
+        // A refused close changes nothing he hears.
+        *closes.refuse.lock().unwrap() = Some("the engine's store could not be reached".into());
+        let refused = h.host.register(&h.binding, &Registration { obligation_id: "obligation-9".into(), ..registration(&h) }).unwrap();
+        assert!(h.host.wait_for_completed(4, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &refused.id).unwrap();
+        assert_eq!((row.state, row.detail.as_str()), (AssignmentState::Settled, "Answered."));
+        let notice = h.notices.0.lock().unwrap().last().unwrap().1.clone();
+        assert_eq!((notice.kind, notice.text.as_str()), (NoticeKind::Answer, REPORT));
+        assert_eq!(closes.asked.lock().unwrap().len(), 3);
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
     fn background_command(id: &str, what: &str) -> crate::cognition::BackgroundCommand {
         crate::cognition::BackgroundCommand { task_id: id.into(), description: what.into(), ended: None }
     }
@@ -5000,6 +5540,10 @@ mod tests {
         let prompts = h.work_prompts.lock().unwrap().clone();
         assert_eq!(prompts.len(), 2, "the back end was never asked for its report: {prompts:?}");
         assert!(prompts[1].contains("npm test") && prompts[1].contains("exit code 0"), "{}", prompts[1]);
+        // VM run 6 (2026-09-27): he asked "what it printed" and the report described the output
+        // ("one entry, labeled init") instead of quoting it. His words are what the report owes.
+        assert!(prompts[1].contains("If he asked what it printed, quote the printed lines themselves"),
+                "the report is not asked for the output he asked for: {}", prompts[1]);
         let row = assignment::read(&h.state, "depot", "thread-one", &job.id).unwrap();
         assert!(row.was_answered(), "{:?}: {}", row.state, row.detail);
         let notices = until_notices(&h, 2);
@@ -5047,12 +5591,20 @@ mod tests {
         h.host.shutdown();
         std::fs::remove_dir_all(&h.root).unwrap();
 
-        // ---- 2. another job arrives: the wait yields, and nothing is said twice ------------
+        // ---- 2. another job arrives: the wait yields, nothing is said twice, and the finish
+        //         still reaches him later as the first job's own report --------------------
+        //
+        // Until bgdone2 the first job settled here on the words he already had, and the
+        // command's finish was lost (richos-hq 2026-09-27-background-command-finish, "Not
+        // done"). It now stays open, "still running", while the second job runs.
         let h = harness(5);
         every_worker_observed_ending(&h);
         *h.obligation.lock().unwrap() = Some(ObligationState::Open);
         *h.background.lock().unwrap() = Some(Vec::new());
-        *h.answer_reply.lock().unwrap() = "The dev server is running at localhost:5173.".into();
+        const RUNNING: &str = "The dev server is starting at localhost:5173.";
+        const SECOND: &str = "Your Acme folder has 3 saved changes.";
+        const STOPPED: &str = "The dev server stopped on its own: it printed \"port 5173 in use\".";
+        h.replies.lock().unwrap().extend([RUNNING.to_string(), SECOND.to_string(), STOPPED.to_string()]);
         h.start_in_turn.lock().unwrap().push_back(vec![background_command("bserver1", "npm run dev")]);
         h.host.start();
         let server = h.host.register(&h.binding, &Registration { title: "start the dev server".into(), ..registration(&h) }).unwrap();
@@ -5063,14 +5615,33 @@ mod tests {
             .unwrap();
         assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)), "the second job waited on the first's command");
         let row = assignment::read(&h.state, "depot", "thread-one", &server.id).unwrap();
-        assert!(row.was_answered(), "{:?}: {}", row.state, row.detail);
-        let for_server: Vec<_> = h.notices.0.lock().unwrap().iter().filter(|(_, n)| n.assignment_id == server.id).map(|(_, n)| n.clone()).collect();
-        assert_eq!(for_server.len(), 1, "he was told the same words twice: {for_server:?}");
+        assert_eq!((row.state, row.detail.as_str()), (AssignmentState::Running, COMMAND_STILL_RUNNING_DETAIL),
+                   "the first job was closed while its command still ran, and its finish would be lost");
+        let for_server = |h: &Harness| -> Vec<PendingNotice> {
+            h.notices.0.lock().unwrap().iter().filter(|(_, n)| n.assignment_id == server.id).map(|(_, n)| n.clone()).collect()
+        };
+        assert_eq!(for_server(&h).len(), 1, "he was told the same words twice: {:?}", for_server(&h));
         let prompts = h.work_prompts.lock().unwrap().clone();
         assert_eq!(prompts.len(), 2);
-        assert!(!prompts[1].contains("npm run dev"), "the second job's turn was spent on the first's command");
+        assert!(!prompts[1].contains(COMMAND_ENDED_HEAD), "the second job's turn was spent on the first's command");
+        assert!(prompts[1].contains("\"npm run dev\" (for \"start the dev server\")") && prompts[1].contains("leave it out of this report"),
+                "the second job's back end was not told to keep the first job's finish out of its answer: {}", prompts[1]);
         let row = assignment::read(&h.state, "depot", "thread-one", &next.id).unwrap();
         assert!(!row.state.is_open(), "{:?}", row.state);
+
+        background_command_ends(&h, "bserver1", false);
+        assert!(h.host.wait_for_completed(3, std::time::Duration::from_secs(10)), "the finish was never acted on");
+        let prompts = h.work_prompts.lock().unwrap().clone();
+        assert_eq!(prompts.len(), 3);
+        assert!(prompts[2].contains(COMMAND_ENDED_HEAD) && prompts[2].contains("start the dev server") && prompts[2].contains("npm run dev"),
+                "the back end was not asked for the first job's report: {}", prompts[2]);
+        assert_eq!(h.bound.lock().unwrap().last().unwrap().assignment_id, server.id, "the report turn ran on another job's seat");
+        let row = assignment::read(&h.state, "depot", "thread-one", &server.id).unwrap();
+        assert!(row.was_answered(), "{:?}: {}", row.state, row.detail);
+        let told = for_server(&h);
+        assert_eq!(told.iter().map(|n| n.text.as_str()).collect::<Vec<_>>(), [RUNNING, STOPPED], "{told:?}");
+        let for_next: Vec<_> = h.notices.0.lock().unwrap().iter().filter(|(_, n)| n.assignment_id == next.id).map(|(_, n)| n.text.clone()).collect();
+        assert_eq!(for_next, [SECOND], "the first job's finish was folded into the second job's answer");
         h.host.shutdown();
         std::fs::remove_dir_all(&h.root).unwrap();
 
@@ -5090,6 +5661,161 @@ mod tests {
         assert_eq!(row.state, AssignmentState::Interrupted, "{}", row.detail);
         h.host.shutdown();
         std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// **A background command that outlives the wait still reaches him once, as its own
+    /// job's report** (richos-hq 2026-09-27-background-command-finish, "Not done": *"If he
+    /// gives the thread another job while it runs, or it runs past 60 min, the host stops
+    /// waiting and claims nothing"*).
+    ///
+    /// 1. Its ending folded into ANOTHER job's turn: that job's answer is that job's, and the
+    ///    first job's report is asked for on its own seat afterwards.
+    /// 2. The bound: the job is handed to the watch rather than closed, and its finish is
+    ///    reported when it comes.
+    /// 3. His Stop reaches a watched job: interrupted, and a later ending asks nothing.
+    /// 4. The connection it ran on is gone: he is told the result could not be read, never
+    ///    nothing.
+    #[test]
+    fn a_command_that_outlives_the_wait_is_still_reported_once_as_its_own_job_s_report() {
+        use crate::cognition::ObligationState;
+        let only = |h: &Harness, id: &str| -> Vec<String> {
+            h.notices.0.lock().unwrap().iter().filter(|(_, n)| n.assignment_id == id).map(|(_, n)| n.text.clone()).collect()
+        };
+
+        // ---- 1. folded into the next job's turn ---------------------------------------------
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        *h.background.lock().unwrap() = Some(Vec::new());
+        h.replies.lock().unwrap().extend(["Started the build.", "Acme has 3 saved changes.", "The build finished and passed."].map(String::from));
+        let mut folded = background_command("bbuild", "make");
+        folded.ended = Some(crate::cognition::CommandEnded {
+            status: "completed".into(), summary: "make completed (exit code 0)".into(), during_a_turn_of_ours: true,
+        });
+        h.start_in_turn.lock().unwrap().extend([vec![background_command("bbuild", "make")], vec![folded]]);
+        h.host.start();
+        let build = h.host.register(&h.binding, &Registration { title: "run the build".into(), ..registration(&h) }).unwrap();
+        until_notices(&h, 1);
+        let count = h.host.register(&h.binding, &Registration { obligation_id: "obligation-8".into(), ..registration(&h) }).unwrap();
+        assert!(h.host.wait_for_completed(3, std::time::Duration::from_secs(10)), "the folded finish was never reported on its own");
+        assert_eq!(only(&h, &count.id), ["Acme has 3 saved changes."]);
+        assert_eq!(only(&h, &build.id), ["Started the build.", "The build finished and passed."]);
+        assert!(assignment::read(&h.state, "depot", "thread-one", &build.id).unwrap().was_answered());
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+
+        // ---- 2. the bound hands it to the watch -----------------------------------------------
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        *h.background.lock().unwrap() = Some(Vec::new());
+        h.host.set_command_wait_budget(std::time::Duration::from_millis(100));
+        h.replies.lock().unwrap().extend(["Started the backup.", "The backup finished: 4 GB copied."].map(String::from));
+        h.start_in_turn.lock().unwrap().push_back(vec![background_command("bbackup", "rsync -a")]);
+        h.host.start();
+        let backup = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)), "the bound was never reached");
+        let row = assignment::read(&h.state, "depot", "thread-one", &backup.id).unwrap();
+        assert_eq!((row.state, row.detail.as_str()), (AssignmentState::Running, COMMAND_STILL_RUNNING_DETAIL),
+                   "reaching the bound closed the job and lost its finish");
+        background_command_ends(&h, "bbackup", false);
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        assert_eq!(only(&h, &backup.id), ["Started the backup.", "The backup finished: 4 GB copied."]);
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+
+        // ---- 3. his Stop reaches a watched job --------------------------------------------------
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        *h.background.lock().unwrap() = Some(Vec::new());
+        h.host.set_command_wait_budget(std::time::Duration::from_millis(100));
+        *h.answer_reply.lock().unwrap() = "Started.".into();
+        h.start_in_turn.lock().unwrap().push_back(vec![background_command("blong", "sleep 3600")]);
+        h.host.start();
+        let job = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        h.host.stop_assignment("depot", "thread-one", &job.id).unwrap();
+        let row = assignment::read(&h.state, "depot", "thread-one", &job.id).unwrap();
+        assert_eq!((row.state, row.detail.as_str()), (AssignmentState::Interrupted, "Stopped. The workspace and the receipts are kept."));
+        background_command_ends(&h, "blong", false);
+        assert!(!h.host.wait_for_completed(2, std::time::Duration::from_millis(400)), "a stopped job was asked for a report");
+        assert_eq!(h.work_prompts.lock().unwrap().len(), 1);
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+
+        // ---- 4. the connection it ran on is gone ---------------------------------------------
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        *h.background.lock().unwrap() = Some(Vec::new());
+        h.host.set_command_wait_budget(std::time::Duration::from_millis(100));
+        *h.answer_reply.lock().unwrap() = "Started the import.".into();
+        h.start_in_turn.lock().unwrap().push_back(vec![background_command("bimport", "import.sh")]);
+        h.host.start();
+        let import = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        // The next job's turn fails, and a back end that failed a turn is retired.
+        *h.turn_error.lock().unwrap() = Some("the child exited".into());
+        h.host.register(&h.binding, &Registration { obligation_id: "obligation-8".into(), ..registration(&h) }).unwrap();
+        assert!(h.host.wait_for_completed(3, std::time::Duration::from_secs(10)), "a watch on a retired connection never ended");
+        let row = assignment::read(&h.state, "depot", "thread-one", &import.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Failed, "{}", row.detail);
+        let told = only(&h, &import.id);
+        assert_eq!(told.len(), 2, "{told:?}");
+        assert!(told[1].contains("could not be read"), "{}", told[1]);
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// **A watched job that comes back for his answer keeps its command** (bgdone2, after the
+    /// questions branch landed). `queue_question_answer` puts the asking assignment back on the
+    /// queue, and it may be on the watch at that moment. The re-run must treat the command as
+    /// its own — wait for it, hand it to the watch again — rather than count it as already
+    /// seen, settle without it, and leave the watch to report on a closed job.
+    #[test]
+    fn a_watched_job_rerun_for_his_answer_still_reports_its_command_once() {
+        use crate::cognition::ObligationState;
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        *h.background.lock().unwrap() = Some(Vec::new());
+        h.host.set_command_wait_budget(std::time::Duration::from_millis(100));
+        const STARTED: &str = "Started the import.";
+        const NOTED: &str = "Noted: ship tomorrow. The import is still running.";
+        const DONE: &str = "The import finished: 12 rows.";
+        h.replies.lock().unwrap().extend([STARTED, NOTED, DONE].map(String::from));
+        h.start_in_turn.lock().unwrap().push_back(vec![background_command("bimport", "import.sh")]);
+        h.host.start();
+        let job = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let record = assignment::read(&h.state, "depot", "thread-one", &job.id).unwrap();
+        assert_eq!(record.detail, COMMAND_STILL_RUNNING_DETAIL);
+
+        let answer = crate::questions::Delivery {
+            id: "answer-1".into(), entity_id: "depot".into(), thread_id: "thread-one".into(),
+            asker: record.obligation_id.clone(), set_id: None,
+            text: "When should it ship? You answered: tomorrow".into(), receipt: None,
+        };
+        crate::question_work::enqueue(&h.state, &answer).unwrap();
+        h.host.queue_question_answer(&h.binding, &answer).unwrap();
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &job.id).unwrap();
+        assert_eq!((row.state, row.detail.as_str()), (AssignmentState::Running, COMMAND_STILL_RUNNING_DETAIL),
+                   "the re-run settled without its own command");
+
+        background_command_ends(&h, "bimport", false);
+        assert!(h.host.wait_for_completed(3, std::time::Duration::from_secs(10)));
+        let prompts = h.work_prompts.lock().unwrap().clone();
+        assert_eq!(prompts.len(), 3, "{prompts:?}");
+        assert!(prompts[1].contains("You answered: tomorrow"), "{}", prompts[1]);
+        assert!(!prompts[1].contains("\"import.sh\" (for"), "its own command was listed as another job's");
+        assert!(prompts[2].contains(COMMAND_ENDED_HEAD), "{}", prompts[2]);
+        let told: Vec<String> = h.notices.0.lock().unwrap().iter().map(|(_, n)| n.text.clone()).collect();
+        assert_eq!(told, [STARTED, NOTED, DONE], "{told:?}");
+        assert!(assignment::read(&h.state, "depot", "thread-one", &job.id).unwrap().was_answered());
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
     }
 
     /// **A QUESTION THE BACK END NEVER ANSWERED is told to him as that, not as a job that
