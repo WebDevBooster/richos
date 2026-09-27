@@ -267,6 +267,18 @@ struct Inner {
     /// `EngineProfile::configure` gave it as `--add-dir` roots and as the auto mode's trusted
     /// list. `None` when there is no lease, or the registry could not be read then.
     lease_repositories: Option<Vec<PathBuf>>,
+    /// **His answers inside the prompt in flight, not yet taken** (the work-path design, richos-hq
+    /// `docs/plans/2026-09-27-work-path-answer-delivery-design.md` D1-D3). Set under this lock
+    /// before the send and cleared at the back end's first item of that turn, or when the prompt
+    /// returns without one. While an id is here the answer is still pending on disk, and both of
+    /// its readers leave it alone: the question worker does not queue the live job again for it
+    /// (D2), and the settle does not read it as unconsumed (D3).
+    carrying: Vec<String>,
+    /// Answers this back end took whose "taken" could not be written to disk, with the session
+    /// that took them. That session is never sent them again (D1); a fresh one is.
+    taken_unsaved: Vec<(String, String)>,
+    /// How many runs of this launch have carried each answer to a back end (design D4's bound).
+    answer_starts: std::collections::HashMap<String, u32>,
 }
 
 /// **ONE BACK-END RICH, AND THERE IS ONE PER CONVERSATION THREAD.**
@@ -312,6 +324,9 @@ impl Backend {
                 last_rotation_reason: None,
                 rotation_deferred_since: None,
                 lease_repositories: None,
+                carrying: Vec::new(),
+                taken_unsaved: Vec::new(),
+                answer_starts: std::collections::HashMap::new(),
             }),
             wake: Condvar::new(),
         })
@@ -494,6 +509,46 @@ const WORKER_WAIT_BUDGET: std::time::Duration = std::time::Duration::from_secs(2
 /// gets its next turn, not for cost.
 const WORKER_WAIT_POLL: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// **The work path's one injected fault** (the VM crash matrix's P4e cell, design §4.2): with the
+/// `crash-points` feature and `RICHOS_CRASH_POINT` naming it, it is true ONCE per process. Every
+/// product build compiles it to `false`. The aborts are `operator_host::crash_point`'s.
+#[cfg(feature = "crash-points")]
+fn work_fault(name: &str) -> bool {
+    static FIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    std::env::var("RICHOS_CRASH_POINT").is_ok_and(|point| point == name)
+        && !FIRED.swap(true, std::sync::atomic::Ordering::SeqCst)
+}
+
+#[cfg(not(feature = "crash-points"))]
+#[inline(always)]
+fn work_fault(_name: &str) -> bool {
+    false
+}
+
+/// **The one line before the brief of work he picked back up after RichOS closed on it** (the
+/// work-path design's D6 note, on C6's option B path).
+pub const PICKED_UP_NOTE: &str =
+    "RichOS closed while this was running. Check what it already did before redoing anything.";
+
+/// **Where an answer to his team goes** from the question worker's pass
+/// ([`WorkHost::deliver_team_answers`]): the operator desk's inbox, which returns its receipt.
+pub type LeadSink<'a> = &'a dyn Fn(&crate::questions::Delivery) -> Result<String, String>;
+
+/// **The quota hold's detail once the back end has taken a turn of this run** ([`WorkHost::quota_gate`]'s
+/// `started`): held, and no current reading. Recovery reads a `WaitingForQuota` row carrying
+/// either one as a started job, never re-run by itself (the work-path design D6).
+pub const QUOTA_WAIT_AFTER_START: [&str; 2] = [
+    "Waiting for the allowance to refresh. It had already started; its work is saved and it will continue automatically.",
+    "Waiting for a current allowance reading before continuing. It had already started; its work is saved.",
+];
+
+/// **What the row says while his answer waits for a back end that could not take it yet**
+/// (the work-path design D4), in the design's words.
+pub const ANSWER_RETRY_DETAIL: &str = "Your answer is saved. The back end couldn't take it yet, so I'm trying again.";
+
+/// What he is told when two runs of this launch could not get his answer taken (design D4).
+const ANSWER_NOT_TAKEN: &str = "The back end did not take your answer, after two tries.";
+
 /// The recorded reason for a renewal made because his company's connected repositories
 /// changed after this back end was opened (`run_one`'s step 0b).
 pub const REPOSITORIES_CHANGED: &str = "repositories-connected";
@@ -633,7 +688,12 @@ impl WorkHost {
 
     /// Wait between background turns, never cancel a turn to enforce a quota hold.
     /// No lease/config lock is acquired here. Stop and quit remain reachable.
-    fn quota_gate(&self, backend: &Arc<Backend>, record: &Assignment) -> bool {
+    ///
+    /// `started`: the back end has already taken a turn of this run (a continuation, a wait, a
+    /// report). The hold then says so in its own detail ([`QUOTA_WAIT_AFTER_START`]), because
+    /// recovery reads `WaitingForQuota` as "nothing was asked of the back end" only when it is
+    /// not that (the work-path design D6: a started job is never re-run by itself).
+    fn quota_gate(&self, backend: &Arc<Backend>, record: &Assignment, started: bool) -> bool {
         let quota = self.quota.lock().unwrap().clone();
         let Some(quota) = quota else { return true };
         let mut waiting = false;
@@ -658,9 +718,11 @@ impl WorkHost {
                     thread_id: record.thread_id.clone(), session_id: String::new(),
                     name: record.title.clone(), task: None, since_at: crate::util::now_millis(), released_at: None,
                 }).ok();
-                let detail = match admission {
-                    crate::quota::Admission::Held { .. } => "Waiting for the allowance to refresh. Work is saved and will continue automatically.",
-                    _ => "Waiting for a current allowance reading before continuing. Work is saved.",
+                let detail = match (admission, started) {
+                    (crate::quota::Admission::Held { .. }, false) => "Waiting for the allowance to refresh. Work is saved and will continue automatically.",
+                    (_, false) => "Waiting for a current allowance reading before continuing. Work is saved.",
+                    (crate::quota::Admission::Held { .. }, true) => QUOTA_WAIT_AFTER_START[0],
+                    (_, true) => QUOTA_WAIT_AFTER_START[1],
                 };
                 let _publication = assignment::advance(&self.state, &record.entity_id, &record.thread_id, &record.id,
                     AssignmentState::WaitingForQuota, detail);
@@ -943,6 +1005,7 @@ impl WorkHost {
                         let mut inner = backend.inner.lock().unwrap();
                         inner.completed += 1;
                         inner.live = None;
+                        inner.carrying.clear();
                         backend.wake.notify_all();
                     } else {
                         self.settle_stopped(&backend, &record);
@@ -964,6 +1027,7 @@ impl WorkHost {
                     let mut inner = backend.inner.lock().unwrap();
                     inner.completed += 1;
                     inner.live = None;
+                    inner.carrying.clear();
                     backend.wake.notify_all();
                     drop(inner);
                     watched.binding
@@ -1054,8 +1118,9 @@ impl WorkHost {
         report: Option<Report>,
     ) {
         let reporting = report.is_some();
-        if !self.quota_gate(backend, record) {
+        if !self.quota_gate(backend, record, reporting) {
             self.settle_stopped(backend, record);
+            self.let_go_if_ended(record);
             return;
         }
         let scope = (record.entity_id.clone(), record.thread_id.clone(), record.id.clone());
@@ -1076,6 +1141,7 @@ impl WorkHost {
         //    An unlocked or unreadable screen costs ONE reading and this block is invisible.
         //    A report is not a start: the job already ran, and it asks nothing of the screen.
         if !reporting && !self.screen_gate(backend, record, &advance) {
+            self.let_go_if_ended(record);
             return;
         }
 
@@ -1095,6 +1161,7 @@ impl WorkHost {
                     advance(AssignmentState::Failed, why);
                     self.raise(record, NoticeKind::Failed,
                         &assignment::says::failure(record.kind, &record.title, why, false));
+                    self.let_go_if_ended(record);
                     return;
                 }
             }
@@ -1117,6 +1184,13 @@ impl WorkHost {
             return;
         }
         if let Err(why) = self.ensure_lease(backend, binding) {
+            // **An answer run that could not open its back end** (the work-path design's C10:
+            // D4 takes this exit). His answer is saved and nothing was asked of anybody, so the
+            // job waits on it again and is tried once more, within D4's bound.
+            if !reporting && self.retry_answer_run(backend, binding, record, resumed) {
+                eprintln!("[richos] work: the back end did not open for his answer ({why}); trying again");
+                return;
+            }
             // **"Did not start", not "stopped before it finished".** Nothing has been asked of
             // the back end at this line, so there is nothing that could have stopped. Ray's
             // candidate-.7 failures were all of this shape and all reported as the other one,
@@ -1130,6 +1204,7 @@ impl WorkHost {
                 NoticeKind::Failed,
                 &assignment::says::failure(record.kind, &record.title, &honest(&why), false),
             );
+            self.let_go_if_ended(record);
             return;
         }
 
@@ -1143,10 +1218,12 @@ impl WorkHost {
             instruction_ledger_ref: record.instruction_ledger_ref.clone(),
             instruction_sha256: record.instruction_sha256.clone(),
         };
-        {
+        let session = {
             let mut lease = backend.lease.lock().unwrap();
             let Some(lease) = lease.as_mut() else {
                 advance(AssignmentState::Failed, "The work connection closed before the assignment started.");
+                drop(lease);
+                self.let_go_if_ended(record);
                 return;
             };
             if let Err(why) = lease.bind_work_assignment(&work) {
@@ -1158,6 +1235,7 @@ impl WorkHost {
                     NoticeKind::Failed,
                     &assignment::says::failure(record.kind, &record.title, &honest(&why.to_string()), false),
                 );
+                self.let_go_if_ended(record);
                 return;
             }
             let session = lease.session_id().to_string();
@@ -1191,7 +1269,8 @@ impl WorkHost {
                     eprintln!("[richos] work: this assignment's starting point was not recorded: {error}");
                 }
             }
-        }
+            session
+        };
 
         // 3. The work turn. This is the long one, and nothing about it is on his turn.
         //
@@ -1250,16 +1329,54 @@ impl WorkHost {
                     command_ended_continuation(&ended.iter().collect::<Vec<_>>())
                 )
             }
+            // **Picked back up after RichOS closed on it** (C6, option B): it is registered again
+            // and it had reached a back end before, so some of it may already be done.
+            None if record.state == AssignmentState::Registered && record.work_session.is_some() && !resumed => {
+                format!("{PICKED_UP_NOTE}\n\n{}", brief_for(record, resumed, &instruction))
+            }
             None => brief_for(record, resumed, &instruction),
         };
-        match crate::question_work::take(&self.state,&record.entity_id,&record.thread_id,&record.obligation_id) {
-            Ok(inputs) if !inputs.is_empty()=>{
-                prompt.push_str("\nThe user answered your questions. These complete sets include every answer and withdrawal. Continue this assignment with these decisions:\n");
-                for input in inputs {prompt.push_str(&input.text);prompt.push_str("\n\n");}
-            },
-            Ok(_)=>{},
-            Err(error)=>{advance(AssignmentState::Failed,&format!("The saved answer could not be read: {error}"));return;}
+        // **HIS ANSWERS, CARRIED, AND NOT LET GO UNTIL THE BACK END HAS THEM** (the work-path
+        // design D1, D5). Reading them changes nothing on disk: they are let go at this turn's
+        // first item ([`Self::answers_taken`]), so a crash or a failed send before that leaves
+        // them pending for the next run. Read and marked `carrying` under ONE hold of `inner`,
+        // so the question worker never sees them pending and not carried while this prompt is
+        // on its way (D2). Answers a back end took in a session that is gone are told again,
+        // under their own heading: this session has never seen them (D5).
+        let carried = {
+            let mut inner = backend.inner.lock().unwrap();
+            match crate::question_work::peek(&self.state, &record.entity_id, &record.thread_id, &record.obligation_id, &session) {
+                Ok(mut carried) => {
+                    let unsaved = &inner.taken_unsaved;
+                    carried.new.retain(|d| !unsaved.iter().any(|(id, s)| *id == d.id && *s == session));
+                    inner.carrying = carried.new.iter().map(|d| d.id.clone()).collect();
+                    for d in &carried.new {
+                        *inner.answer_starts.entry(d.id.clone()).or_insert(0) += 1;
+                    }
+                    carried
+                }
+                Err(error) => {
+                    drop(inner);
+                    advance(AssignmentState::Failed, &format!("The saved answer could not be read: {error}"));
+                    self.let_go_if_ended(record);
+                    return;
+                }
+            }
+        };
+        if !carried.earlier.is_empty() {
+            prompt.push_str("\nAnswers he gave earlier on this assignment (a previous connection had them; they still apply):\n");
+            for input in &carried.earlier { prompt.push_str(&input.text); prompt.push_str("\n\n"); }
         }
+        if !carried.new.is_empty() {
+            prompt.push_str("\nThe user answered your questions. These complete sets include every answer and withdrawal. Continue this assignment with these decisions:\n");
+            for input in &carried.new { prompt.push_str(&input.text); prompt.push_str("\n\n"); }
+            crate::operator_host::crash_point("WORK-CARRY"); // carried, nothing sent
+        }
+        // Let go at the first item of THIS prompt, and only of this one: the continuations below
+        // carry no answers. A `RefCell` because the item callback and the reading after the send
+        // both need it, on this one thread.
+        let to_take: std::cell::RefCell<Option<Vec<String>>> =
+            std::cell::RefCell::new((!carried.is_empty()).then(|| carried.ids()));
         prompt.push_str(&still_running_for_others(&others));
         // The SAME measure the spine takes, deliberately: the prompt sent plus the reply
         // that came back, in bytes (`spine.rs:2114-2118`). It is an undercount — by 2.3× to
@@ -1324,11 +1441,15 @@ impl WorkHost {
         // turn's words add to the account or replace it (a command's finish replaces the
         // "it has started" before it — step 3c).
         let mut say = |lease: &mut Box<dyn Cognition>, text: &str, items: &mut usize, said: &mut String| {
-            if !self.quota_gate(backend, record) {
+            if !self.quota_gate(backend, record, confirmed) {
                 return Err(CognitionError::Protocol("The waiting assignment was stopped.".into()));
             }
             lease.prompt(text, &mut |item: TurnItem| {
                 *items += 1;
+                // The back end has his answers: its first item of the turn that carried them.
+                if let Some(ids) = to_take.borrow_mut().take() {
+                    self.answers_taken(backend, &ids, &session);
+                }
                 if !confirmed {
                     confirmed = true;
                     advance(AssignmentState::Running, started_detail);
@@ -1360,6 +1481,13 @@ impl WorkHost {
         // The background commands this lease already knew about before this assignment's
         // first turn: none of them is this assignment's (step 3c).
         let mut commands_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // P4e's fault: the back end died while the job waited for his answer, so the prompt
+        // carrying it finds no child and fails before anything is written (`native.rs`'s
+        // `Closed`). Dropping the lease ends its child, as a death would.
+        if !carried.new.is_empty() && work_fault("WORK-DEAD-LEASE") {
+            eprintln!("crash point WORK-DEAD-LEASE: the back end is gone before his answer is sent");
+            *backend.lease.lock().unwrap() = None;
+        }
         let mut outcome = {
             let mut lease = backend.lease.lock().unwrap();
             match lease.as_mut() {
@@ -1373,6 +1501,17 @@ impl WorkHost {
             }
         };
         keep_words(&mut answer, &said);
+        // **Carried and not taken**: the prompt returned and no item of its turn ever arrived.
+        // It is no longer in flight, so it is no longer `carrying`; what that means is decided
+        // before the settle (D4).
+        let untaken: Vec<String> = match to_take.borrow_mut().take() {
+            Some(_) => {
+                backend.inner.lock().unwrap().carrying.clear();
+                carried.new.iter().map(|d| d.id.clone()).collect()
+            }
+            None => Vec::new(),
+        };
+        let carried_ids: Vec<String> = carried.new.iter().map(|d| d.id.clone()).collect();
         // The words he was told while a command of this assignment was still running, if any
         // (step 3c). The settle arms below do not tell him the same words twice.
         let mut told_while_running: Option<String> = report.as_ref().and_then(|report| report.told.clone())
@@ -1440,7 +1579,8 @@ impl WorkHost {
         // a command that never ends — a server he asked to have started — must not hold his
         // back end, and he already has its words.
         let mut waits = 0usize;
-        while outcome.is_ok() && waits < WORKER_WAIT_ROUNDS {
+        // A turn that never took his answer is not waited on: nothing of it ran (D4).
+        while outcome.is_ok() && untaken.is_empty() && waits < WORKER_WAIT_ROUNDS {
             let Some(session) = backend.inner.lock().unwrap().lease_session.clone() else { break };
             let view = crate::app_workers::status(&self.state, Some(&session));
             // Unattributed evidence is NOT a reason to wait: it is the one thing this loop
@@ -1587,6 +1727,41 @@ impl WorkHost {
             let inner = backend.inner.lock().unwrap();
             inner.closing || inner.stopped.iter().any(|id| *id == record.id)
         };
+        // ===================================================================================
+        // HIS ANSWER WAS NOT TAKEN: A DELIVERY ERROR, NOT THE JOB'S ENDING (design D4)
+        // ===================================================================================
+        //
+        // The prompt carrying his answer came back with no item of its turn: a lease that died
+        // while the job waited for him (`Closed` before the write, or a failed write), or the
+        // child refusing or discarding the message (`native.rs`'s `command_lifecycle`). Nothing of
+        // it ran, so the answer is still pending on disk and the job goes back to waiting on it,
+        // and is run again now, on a fresh lease after an error. Bounded: two runs of this launch
+        // per answer (the lead path's `RETRY_STARTS`), and past that the arms below fail it once.
+        // His Stop and a quit outrank all of it.
+        let past_bound = {
+            let inner = backend.inner.lock().unwrap();
+            untaken.iter().any(|id| inner.answer_starts.get(id).copied().unwrap_or(0) >= crate::operator_host::RETRY_STARTS)
+        };
+        let lifecycle_stop = outcome.as_ref().is_ok_and(|reason| reason == crate::native::STOP_REASON_CANCELLED);
+        if !untaken.is_empty() && !stopped && !lifecycle_stop && !past_bound {
+            eprintln!("[richos] work: the back end did not take his answer ({}); trying again",
+                      match &outcome { Ok(reason) => reason.clone(), Err(e) => e.to_string() });
+            if outcome.is_err() {
+                // Retired exactly as the failure arm below does: the next run opens a fresh one.
+                *backend.lease.lock().unwrap() = None;
+                let mut inner = backend.inner.lock().unwrap();
+                inner.lease_session = None;
+                inner.context_chars = 0;
+                inner.context_usage = None;
+            }
+            advance(AssignmentState::Blocked, ANSWER_RETRY_DETAIL);
+            let latest = assignment::read(&self.state, &record.entity_id, &record.thread_id, &record.id)
+                .unwrap_or_else(|_| record.clone());
+            if !self.schedule(binding, latest, resumed) {
+                eprintln!("[richos] work: RichOS is closing; his answer stays saved for the next launch");
+            }
+            return;
+        }
         // **ITS COMMAND OUTLIVED THE WAIT: WATCHED, NOT SETTLED** ([`Watched`]). He already has
         // the back end's words (step 3c raised them), the row says the command is running, and
         // the runner asks for this job's report when the provider says it ended. Only on a
@@ -1627,7 +1802,8 @@ impl WorkHost {
         // job that ran and did not land, a land the reviewer refused, a land with the
         // assignment still open — as jobs that "did not start", which is Ray's row 2 inverted
         // and every bit as false. Absence of a signal is still never read as a signal here.
-        let took_the_turn = confirmed || outcome.is_ok();
+        // A turn that never took his answer did not start, whatever it returned (C4).
+        let took_the_turn = untaken.is_empty() && (confirmed || outcome.is_ok());
         // §58 adds a third shape to this: a QUESTION that did not get answered is neither
         // "stopped before it finished" nor "did not start" — both put his own question where
         // a job's name goes. The dispatch is in `says::failure` so a fourth failure path
@@ -1692,7 +1868,18 @@ impl WorkHost {
                 self.forget_at_the_desk(record);
                 self.raise(record, NoticeKind::Interrupted, &assignment::says::interrupted(&record.title));
             }
-            Ok(_) if crate::questions::Store::new(&self.state).list(&record.entity_id,&record.thread_id).is_ok_and(|qs|qs.iter().any(|q|q.asker==record.obligation_id && !q.delivered && q.state!=crate::questions::State::Withdrawn)) || crate::question_work::pending(&self.state).is_ok_and(|ds|ds.iter().any(|d|d.entity_id==record.entity_id && d.thread_id==record.thread_id && d.asker==record.obligation_id)) => {
+            // Past D4's bound, on a turn that ended with nothing run: said as what it is, once,
+            // and never as a job that "stopped before it finished" (C4).
+            Ok(_) if !untaken.is_empty() => {
+                advance(AssignmentState::Failed, ANSWER_NOT_TAKEN);
+                self.forget_at_the_desk(record);
+                self.raise(record, NoticeKind::Failed, &tell(&record.title, ANSWER_NOT_TAKEN));
+            }
+            // **Reader 1** (design D3): a question of his still open, or an answer of his that
+            // arrived during this run and waits for the next one. Never an answer THIS run
+            // carried: that one was taken at the first item, and waiting on it would leave the
+            // job blocked on an answer it already has.
+            Ok(_) if crate::questions::Store::new(&self.state).list(&record.entity_id,&record.thread_id).is_ok_and(|qs|qs.iter().any(|q|q.asker==record.obligation_id && !q.delivered && q.state!=crate::questions::State::Withdrawn)) || self.answer_waits_for_next_run(backend, record, &session, &carried_ids) => {
                 advance(AssignmentState::Blocked,"Waiting for your answer. Independent work can continue.");
             }
             // ===========================================================================
@@ -1898,14 +2085,91 @@ impl WorkHost {
                 }
             },
         }
-        if let Ok(records)=assignment::read_all(&self.state,&record.entity_id,&record.thread_id) {
-            if let Some(latest)=records.iter().find(|r|r.id==record.id) {
-                if matches!(latest.state,AssignmentState::Settled|AssignmentState::Failed|AssignmentState::Interrupted) {
-                    if let Err(error)=crate::questions::Store::new(&self.state).close(&record.entity_id,&record.thread_id,Some(&record.obligation_id),"This assignment has ended",false) {eprintln!("[richos] could not close assignment questions: {error}");}
-                    drop(crate::question_work::take(&self.state,&record.entity_id,&record.thread_id,&record.obligation_id));
+        self.let_go_if_ended(record);
+    }
+
+    /// **When the job itself has ended, his open questions for it are withdrawn and its saved
+    /// answers let go** — the cleanup every ending takes, the early ones included (the work-path
+    /// design's C10: an early return used to skip it, leaving an input queued and refused on
+    /// every wake). It reads the record, so it acts only on an ending that is on disk.
+    fn let_go_if_ended(&self, record: &Assignment) {
+        if let Ok(latest) = assignment::read(&self.state, &record.entity_id, &record.thread_id, &record.id) {
+            if matches!(latest.state, AssignmentState::Settled | AssignmentState::Failed | AssignmentState::Interrupted) {
+                if let Err(error) = crate::questions::Store::new(&self.state).close(&record.entity_id, &record.thread_id,
+                    Some(&record.obligation_id), "This assignment has ended", false) {
+                    eprintln!("[richos] could not close assignment questions: {error}");
                 }
+                drop(crate::question_work::discard(&self.state, &record.entity_id, &record.thread_id, &record.obligation_id));
             }
         }
+    }
+
+    /// **D4 for a run that never reached its back end** (C10): his answers for this job are
+    /// saved and pending, and this launch has carried each of them fewer than
+    /// `RETRY_STARTS` times. Counted as a start, the job goes back to waiting on them and is
+    /// scheduled again. `false` when there is no such answer, or the bound is reached.
+    fn retry_answer_run(self: &Arc<Self>, backend: &Arc<Backend>, binding: &ThreadBinding, record: &Assignment,
+                        resumed: bool) -> bool {
+        let Ok(pending) = crate::question_work::pending(&self.state) else { return false };
+        let ids: Vec<String> = pending.into_iter()
+            .filter(|d| d.entity_id == record.entity_id && d.thread_id == record.thread_id && d.asker == record.obligation_id)
+            .map(|d| d.id).collect();
+        if ids.is_empty() {
+            return false;
+        }
+        {
+            let mut inner = backend.inner.lock().unwrap();
+            if inner.closing || inner.stopped.contains(&record.id) {
+                return false;
+            }
+            // This run was a start that carried them, even though it never reached a prompt.
+            for id in &ids {
+                *inner.answer_starts.entry(id.clone()).or_insert(0) += 1;
+            }
+            if ids.iter().any(|id| inner.answer_starts[id] >= crate::operator_host::RETRY_STARTS) {
+                return false;
+            }
+        }
+        if let Err(error) = assignment::advance(&self.state, &record.entity_id, &record.thread_id, &record.id,
+                                                AssignmentState::Blocked, ANSWER_RETRY_DETAIL) {
+            eprintln!("[richos] work: the job could not be put back to waiting on his answer: {error}");
+        }
+        let latest = assignment::read(&self.state, &record.entity_id, &record.thread_id, &record.id)
+            .unwrap_or_else(|_| record.clone());
+        self.schedule(binding, latest, resumed)
+    }
+
+    /// **The back end has his answers** (design D1): the first item of the turn that carried
+    /// them arrived, which is the same positive evidence `Running` is written on. Written to the
+    /// inbox (synced) BEFORE they leave `carrying`, so the question worker never sees them
+    /// pending and uncarried in between. A write that fails is logged, and this session is
+    /// never sent them again ([`Inner::taken_unsaved`]); a fresh session would be, which is
+    /// right there (D5). Called on the prompt's thread with the lease held and `inner` free.
+    fn answers_taken(&self, backend: &Arc<Backend>, ids: &[String], session: &str) {
+        crate::operator_host::crash_point("WORK-FIRST-ITEM"); // the child started it; not yet written
+        let written = crate::question_work::taken(&self.state, ids, session);
+        crate::operator_host::crash_point("WORK-TAKEN"); // taken and synced
+        let mut inner = backend.inner.lock().unwrap();
+        inner.carrying.clear();
+        if let Err(error) = written {
+            eprintln!("[richos] work: the back end took his answer and that could not be written down ({error}); \
+                       this connection will not be sent it again");
+            for id in ids {
+                inner.taken_unsaved.push((id.clone(), session.to_string()));
+            }
+        }
+    }
+
+    /// **Reader 1's second clause** (design D3): an answer of his for this job that is still
+    /// waiting for a run, which is one that arrived while this run was going. The answers this
+    /// run carried are not it, and neither is one this session took but could not write down.
+    fn answer_waits_for_next_run(&self, backend: &Arc<Backend>, record: &Assignment, session: &str, carried: &[String]) -> bool {
+        let unsaved: Vec<String> = backend.inner.lock().unwrap().taken_unsaved.iter()
+            .filter(|(_, s)| s == session).map(|(id, _)| id.clone()).collect();
+        crate::question_work::pending(&self.state).is_ok_and(|ds| ds.iter().any(|d| {
+            d.entity_id == record.entity_id && d.thread_id == record.thread_id && d.asker == record.obligation_id
+                && !carried.contains(&d.id) && !unsaved.contains(&d.id)
+        }))
     }
 
     /// **Which continuation this assignment's back end is handed, decided by the receipts.**
@@ -1964,7 +2228,7 @@ impl WorkHost {
         let mut deadline = std::time::Instant::now() + WORKER_WAIT_BUDGET;
         loop {
             let before = std::time::Instant::now();
-            if !self.quota_gate(backend, record) { return false; }
+            if !self.quota_gate(backend, record, true) { return false; }
             deadline += before.elapsed();
             {
                 let inner = backend.inner.lock().unwrap();
@@ -2017,7 +2281,7 @@ impl WorkHost {
         let mut deadline = std::time::Instant::now() + budget;
         loop {
             let before = std::time::Instant::now();
-            if !self.quota_gate(backend, record) {
+            if !self.quota_gate(backend, record, true) {
                 return CommandWait::Over;
             }
             deadline += before.elapsed();
@@ -2272,6 +2536,49 @@ impl WorkHost {
         })
     }
 
+    /// **The work path's question worker, one pass** — what the app's `richos-question-work`
+    /// thread does on every question-store wake and at launch (the work-path design D8: moved
+    /// here from `src-tauri/src/question_host.rs` so the unit tests and the VM crash matrix run
+    /// reader 2 as it ships, not a copy of it).
+    ///
+    /// 1. Every saved answer still waiting in the inbox for a work job goes to
+    ///    [`Self::queue_question_answer`] again: after a relaunch nothing else schedules it.
+    /// 2. Every answered set not yet delivered is delivered: to his team's `lead` sink for an
+    ///    `operator:` asker, to this host's inbox otherwise. The front desk's own answers are
+    ///    the conversation's and are left to its worker.
+    ///
+    /// `binding_for` is the ledger's thread binding, which only the shell's ledger can give.
+    pub fn deliver_team_answers(
+        self: &Arc<Self>,
+        binding_for: &dyn Fn(&str) -> Option<ThreadBinding>,
+        lead: Option<LeadSink<'_>>,
+    ) {
+        for delivery in crate::question_work::pending(&self.state).unwrap_or_default() {
+            if delivery.asker.starts_with("operator:") {
+                continue;
+            }
+            if let Some(binding) = binding_for(&delivery.thread_id) {
+                drop(self.queue_question_answer(&binding, &delivery));
+            }
+        }
+        let store = crate::questions::Store::new(&self.state);
+        for (entity, thread, asker) in store.pending_threads().unwrap_or_default() {
+            if asker == "front_desk" {
+                continue;
+            }
+            let Some(binding) = binding_for(&thread) else { continue };
+            if let Err(error) = store.deliver(&entity, &thread, &asker, |d| {
+                if d.asker.starts_with("operator:") {
+                    lead.ok_or("Your team is unavailable")?(d)
+                } else {
+                    self.queue_question_answer(&binding, d)
+                }
+            }) {
+                eprintln!("[richos] team answer remains saved: {error}");
+            }
+        }
+    }
+
     /// Both surfaces enter the same durable receiving inbox, without a permission hold.
     pub fn queue_question_answer(
         self: &Arc<Self>,
@@ -2292,6 +2599,13 @@ impl WorkHost {
             return Err("The asking assignment has stopped".into());
         }
         crate::question_work::enqueue(&self.state, delivery)?;
+        // **A job RichOS closed on while it ran is not re-run by his answer** (the work-path
+        // design's C6, option B; spec §6.3). Its answer is saved here, and it goes to that job
+        // when he says to pick it back up (`assignment::pick_up`): the run that follows carries
+        // every answer he gave it. The notice already told him nothing is running.
+        if record.state == AssignmentState::Unknown {
+            return Ok(format!("work-input:{}", delivery.id));
+        }
         // A restart may land between durable enqueue and waking the backend. An
         // existing unconsumed input still needs a scheduled turn on this process.
         if crate::question_work::pending(&self.state)?
@@ -2306,7 +2620,16 @@ impl WorkHost {
                 return Err("The asking assignment has stopped".into());
             }
             inner.binding = Some(binding.clone());
-            if !inner.queue.iter().any(|s| s.record.id == record.id) {
+            // **Reader 2** (design D2): the live run already carries this answer and has not yet
+            // heard back that the back end took it. Queuing the job again here would send its
+            // whole brief a second time to the same back end, and end its command wait early.
+            // An answer that arrived during the run and is NOT carried still queues it: that is
+            // the next run, and the yield is intended.
+            let carried_live = inner.live.as_ref().is_some_and(|live| live.id == record.id)
+                && inner.carrying.contains(&delivery.id);
+            let taken_here = inner.lease_session.as_ref()
+                .is_some_and(|now| inner.taken_unsaved.iter().any(|(id, s)| *id == delivery.id && s == now));
+            if !carried_live && !taken_here && !inner.queue.iter().any(|s| s.record.id == record.id) {
                 inner.queue.push_back(Scheduled {
                     binding: binding.clone(),
                     record,
@@ -2820,7 +3143,7 @@ impl WorkHost {
         // he can answer into nothing.
         self.forget_at_the_desk(&record);
         crate::questions::Store::new(&self.state).close(entity,thread,Some(&record.obligation_id),"The assignment was stopped",false)?;
-        drop(crate::question_work::take(&self.state,entity,thread,&record.obligation_id));
+        drop(crate::question_work::discard(&self.state,entity,thread,&record.obligation_id));
         // Only this conversation's back end. A stop on one thread never reaches another's —
         // the CEO's page puts a whole back-end Rich behind each thread, and two threads are
         // two pieces of work he thinks of separately.
@@ -3461,6 +3784,18 @@ mod tests {
         start_in_turn: Arc<Mutex<VecDeque<Vec<crate::cognition::BackgroundCommand>>>>,
         /// What each work turn says, one per turn, in order; `answer_reply` once they run out.
         replies: Arc<Mutex<VecDeque<String>>>,
+        /// **A turn that streams NOTHING** (design C11). Every real turn streams at least one
+        /// item, so by default a turn with no words still streams one neutral item; set this
+        /// to script the degraded "the host did not get this turn" case.
+        silent: Arc<AtomicBool>,
+        /// Holds a work turn's first item until the test releases it (design §4.1): the window
+        /// between sending his answer and the back end taking it.
+        first_item_gate: Arc<StartGate>,
+        /// The next work turns end `Ok` with this reason and stream nothing, one per turn:
+        /// `refused_before_it_ran` / `discarded_before_it_ran` (`native.rs`'s lifecycle).
+        unrun: Arc<Mutex<VecDeque<String>>>,
+        /// The next work turns fail before streaming, one per turn (a dead lease, `Closed`).
+        fail_next: Arc<Mutex<VecDeque<String>>>,
     }
 
     impl Drop for WorkLease {
@@ -3498,9 +3833,28 @@ mod tests {
             if let Some(why) = self.turn_error.lock().unwrap().clone() {
                 return Err(CognitionError::Protocol(why));
             }
+            if let Some(why) = self.fail_next.lock().unwrap().pop_front() {
+                return Err(CognitionError::Io(why));
+            }
+            if let Some(reason) = self.unrun.lock().unwrap().pop_front() {
+                return Ok(reason);
+            }
             let reply = self.replies.lock().unwrap().pop_front().unwrap_or_else(|| self.answer_reply.clone());
+            if !self.silent.load(Ordering::SeqCst) {
+                self.first_item_gate.wait_until_open();
+            }
+            // A stop that arrived before the first item: nothing of the turn was streamed.
+            if self.cancel.stop_seen.load(Ordering::SeqCst) {
+                if self.cancel.stop_ends_child.load(Ordering::SeqCst) {
+                    return Err(CognitionError::Io("claude channel closed (child exited?)".into()));
+                }
+                return Ok(crate::native::STOP_REASON_CANCELLED.to_string());
+            }
             if !reply.is_empty() {
                 _on(TurnItem::Text { seq: 0, text: &reply });
+            } else if !self.silent.load(Ordering::SeqCst) {
+                // The neutral item every real turn streams (C11): no words, nothing counted.
+                _on(TurnItem::Text { seq: 0, text: "" });
             }
             if let Some(started) = self.start_in_turn.lock().unwrap().pop_front() {
                 // A command already known is this turn REPORTING ITS ENDING (the provider folding
@@ -3652,6 +4006,10 @@ mod tests {
         background: Arc<Mutex<Option<Vec<crate::cognition::BackgroundCommand>>>>,
         start_in_turn: Arc<Mutex<VecDeque<Vec<crate::cognition::BackgroundCommand>>>>,
         replies: Arc<Mutex<VecDeque<String>>>,
+        silent: Arc<AtomicBool>,
+        first_item_gate: Arc<StartGate>,
+        unrun: Arc<Mutex<VecDeque<String>>>,
+        fail_next: Arc<Mutex<VecDeque<String>>>,
     }
 
     impl LeaseFactory for WorkFactory {
@@ -3690,6 +4048,10 @@ mod tests {
                 background: self.background.clone(),
                 start_in_turn: self.start_in_turn.clone(),
                 replies: self.replies.clone(),
+                silent: self.silent.clone(),
+                first_item_gate: self.first_item_gate.clone(),
+                unrun: self.unrun.clone(),
+                fail_next: self.fail_next.clone(),
             }))
         }
     }
@@ -3729,6 +4091,10 @@ mod tests {
         background: Arc<Mutex<Option<Vec<crate::cognition::BackgroundCommand>>>>,
         start_in_turn: Arc<Mutex<VecDeque<Vec<crate::cognition::BackgroundCommand>>>>,
         replies: Arc<Mutex<VecDeque<String>>>,
+        silent: Arc<AtomicBool>,
+        first_item_gate: Arc<StartGate>,
+        unrun: Arc<Mutex<VecDeque<String>>>,
+        fail_next: Arc<Mutex<VecDeque<String>>>,
     }
 
     fn harness(step_ms: u64) -> Harness {
@@ -3764,7 +4130,15 @@ mod tests {
         let background = Arc::new(Mutex::new(None));
         let start_in_turn = Arc::new(Mutex::new(VecDeque::new()));
         let replies = Arc::new(Mutex::new(VecDeque::new()));
+        let silent = Arc::new(AtomicBool::new(false));
+        let first_item_gate = StartGate::open_now();
+        let unrun = Arc::new(Mutex::new(VecDeque::new()));
+        let fail_next = Arc::new(Mutex::new(VecDeque::new()));
         let factory = WorkFactory {
+            silent: silent.clone(),
+            first_item_gate: first_item_gate.clone(),
+            unrun: unrun.clone(),
+            fail_next: fail_next.clone(),
             background: background.clone(),
             start_in_turn: start_in_turn.clone(),
             replies: replies.clone(),
@@ -3792,7 +4166,42 @@ mod tests {
         let host = WorkHost::new(&state, Box::new(factory), notices.clone(), Arc::clone(&desk));
         Harness { root, state, host, bound, revoked, fence, notices, binding, obligation, desk, spawns,
             usage, reprimes, handoffs, handoff_reply, answer_reply, refuse_next, readiness, turn_error,
-            work_prompts, start_gate, commands, drop_probe, drops, background, start_in_turn, replies }
+            work_prompts, start_gate, commands, drop_probe, drops, background, start_in_turn, replies,
+            silent, first_item_gate, unrun, fail_next }
+    }
+
+    /// **A second lease factory over the SAME scripted state as `h`'s** — every knob and every
+    /// record shared. A test builds a second host with it: a relaunch over the same engine state
+    /// (design §4.1 tests 2 and 3), or a host with a different notifier.
+    fn factory_over(h: &Harness, step_ms: u64) -> WorkFactory {
+        WorkFactory {
+            start_gate: h.start_gate.clone(),
+            bound: h.bound.clone(),
+            revoked: h.revoked.clone(),
+            fence: h.fence.clone(),
+            step: std::time::Duration::from_millis(step_ms),
+            obligation: h.obligation.clone(),
+            spawns: h.spawns.clone(),
+            usage: h.usage.clone(),
+            reprimes: h.reprimes.clone(),
+            handoffs: h.handoffs.clone(),
+            handoff_reply: h.handoff_reply.clone(),
+            answer_reply: h.answer_reply.clone(),
+            refuse_next: h.refuse_next.clone(),
+            readiness: h.readiness.clone(),
+            turn_error: h.turn_error.clone(),
+            work_prompts: h.work_prompts.clone(),
+            commands: h.commands.clone(),
+            drop_probe: h.drop_probe.clone(),
+            drops: h.drops.clone(),
+            background: h.background.clone(),
+            start_in_turn: h.start_in_turn.clone(),
+            replies: h.replies.clone(),
+            silent: h.silent.clone(),
+            first_item_gate: h.first_item_gate.clone(),
+            unrun: h.unrun.clone(),
+            fail_next: h.fail_next.clone(),
+        }
     }
 
     fn registration(harness: &Harness) -> Registration {
@@ -4836,6 +5245,9 @@ mod tests {
             .unwrap();
             if answers {
                 *h.answer_reply.lock().unwrap() = "carrying on".to_string();
+            } else {
+                // The degraded case under test: a turn that streams nothing at all (C11).
+                h.silent.store(true, Ordering::SeqCst);
             }
             let _runner = h.host.start();
             let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
@@ -5764,6 +6176,559 @@ mod tests {
         let told = only(&h, &import.id);
         assert_eq!(told.len(), 2, "{told:?}");
         assert!(told[1].contains("could not be read"), "{}", told[1]);
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    // =======================================================================================
+    // HIS ANSWER ON THE WORK PATH: TAKEN AT THE FIRST ITEM, NEVER LOST, NEVER DOUBLED
+    // (richos-hq `docs/plans/2026-09-27-work-path-answer-delivery-design.md` §4.1)
+    // =======================================================================================
+
+    /// One saved answer of his for `record`, in the inbox, and handed to the host the way the
+    /// question worker hands it (reader 2).
+    fn his_answer(h: &Harness, record: &Assignment, id: &str, text: &str) -> crate::questions::Delivery {
+        let answer = crate::questions::Delivery {
+            id: id.into(), entity_id: "depot".into(), thread_id: "thread-one".into(),
+            asker: record.obligation_id.clone(), set_id: None, text: text.into(), receipt: None,
+        };
+        crate::question_work::enqueue(&h.state, &answer).unwrap();
+        h.host.queue_question_answer(&h.binding, &answer).unwrap();
+        answer
+    }
+
+    /// A job waiting for his answer: registered and blocked, with nothing queued.
+    fn waiting_job(h: &Harness) -> Assignment {
+        let receipt = assignment::register(&h.state, &registration(h)).unwrap();
+        assignment::advance(&h.state, "depot", "thread-one", &receipt.id, AssignmentState::Blocked,
+                            "Waiting for your answer. Independent work can continue.").unwrap();
+        assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap()
+    }
+
+    /// A question of his the job asked and he has not answered, so its runs end blocked on it.
+    fn open_question(h: &Harness, record: &Assignment) {
+        use crate::questions::{AskScope, OptionInput, QuestionInput, Store};
+        Store::new(&h.state).ask(&AskScope {
+            root: h.state.clone(), entity_id: "depot".into(), thread_id: "thread-one".into(),
+            turn_id: "turn-7".into(), asker: record.obligation_id.clone(), session_id: "work-session-one".into(),
+            engine: None, entity_root: None,
+        }, vec![QuestionInput {
+            text: "Who should review it?".into(),
+            options: vec![
+                OptionInput { label: "Dana reviews".into(), description: "Faster, knows the code.".into() },
+                OptionInput { label: "Sam reviews".into(), description: "Slower, fresh eyes.".into() },
+            ],
+            multiple: false, free_answer: true, recommended: None,
+        }]).unwrap();
+    }
+
+    fn until_prompts(h: &Harness, n: usize) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while h.work_prompts.lock().unwrap().len() < n {
+            assert!(std::time::Instant::now() < deadline, "prompt {n} was never sent");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+
+    fn told(h: &Harness) -> Vec<String> {
+        h.notices.0.lock().unwrap().iter().map(|(_, n)| n.text.clone()).collect()
+    }
+
+    /// §4.1 tests 1 and 4 (D1, D2). While the prompt carrying his answer waits for its first
+    /// item, the answer is still pending on disk, and the question worker handing it over again
+    /// queues nothing: the live run carries it. At the first item it is taken, in the lease's own
+    /// session, and exactly one prompt carried it.
+    #[test]
+    fn his_answer_stays_pending_until_the_first_item_and_the_live_run_is_never_queued_again() {
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        let record = waiting_job(&h);
+        h.first_item_gate.shut();
+        h.host.start();
+        let answer = his_answer(&h, &record, "answer-1", "When should it ship? You answered: tomorrow");
+        until_prompts(&h, 1);
+        assert_eq!(crate::question_work::pending(&h.state).unwrap().len(), 1, "let go before the back end had it");
+        // Reader 2 on a store wake, while the answer is in flight.
+        h.host.queue_question_answer(&h.binding, &answer).unwrap();
+        let backend = h.host.backend("thread-one").unwrap();
+        {
+            let inner = backend.inner.lock().unwrap();
+            assert!(inner.queue.is_empty(), "the live job was queued again for the answer it carries");
+            assert_eq!(inner.carrying, ["answer-1"]);
+        }
+        h.first_item_gate.release();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        assert!(crate::question_work::pending(&h.state).unwrap().is_empty(), "taken at the first item");
+        assert!(crate::question_work::peek(&h.state, "depot", "thread-one", &record.obligation_id, "work-session-one")
+            .unwrap().is_empty(), "taken in this lease's own session");
+        assert!(backend.inner.lock().unwrap().carrying.is_empty());
+        let prompts = h.work_prompts.lock().unwrap().clone();
+        assert_eq!(prompts.iter().filter(|p| p.contains("You answered: tomorrow")).count(), 1, "{prompts:?}");
+        assert!(!h.host.wait_for_completed(2, std::time::Duration::from_millis(300)), "a second run of the job");
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// A second host over the same engine state: the relaunch. Its own open first-item gate, so
+    /// a first host held at its gate does not hold this one.
+    fn relaunch(h: &Harness) -> Arc<WorkHost> {
+        let factory = WorkFactory { first_item_gate: StartGate::open_now(), ..factory_over(h, 5) };
+        let host = WorkHost::new(&h.state, Box::new(factory), h.notices.clone(), Arc::clone(&h.desk));
+        host.start();
+        host
+    }
+
+    /// §4.1 test 2 (P4, D6). The host dies after carrying his answer and before the back end's
+    /// first item. On disk the answer is still pending, and recovery puts the job back to
+    /// waiting on it with NO "was running when RichOS closed" notice. The relaunch sends it once.
+    #[test]
+    fn a_crash_before_the_first_item_leaves_his_answer_pending_and_the_relaunch_sends_it_once() {
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        let record = waiting_job(&h);
+        h.first_item_gate.shut();
+        h.host.start();
+        let answer = his_answer(&h, &record, "answer-1", "When should it ship? You answered: tomorrow");
+        until_prompts(&h, 1);
+        // The crash: this host is gone from here on. What a relaunch finds is on disk.
+        let row = assignment::read(&h.state, "depot", "thread-one", &record.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Preparing, "{}", row.detail);
+        assert_eq!(crate::question_work::pending(&h.state).unwrap().len(), 1, "lost before the back end had it");
+        let report = crate::recovery::reconcile(&h.state, &crate::recovery::UnreadableRepositories);
+        assert!(report.unknown.is_empty(), "{report:?}");
+        assert_eq!(report.answers_waiting.len(), 1, "{report:?}");
+        let row = assignment::read(&h.state, "depot", "thread-one", &record.id).unwrap();
+        assert_eq!((row.state, row.detail.as_str()), (AssignmentState::Blocked, crate::recovery::ANSWER_SAVED_AT_RELAUNCH));
+        assert!(row.notices.is_empty(), "he was told a job that never started was running: {:?}", row.notices);
+
+        let after = relaunch(&h);
+        after.queue_question_answer(&h.binding, &answer).unwrap(); // the launch wake
+        assert!(after.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let prompts = h.work_prompts.lock().unwrap().clone();
+        assert_eq!(prompts.iter().filter(|p| p.contains("You answered: tomorrow")).count(), 2,
+                   "one prompt from the host that died, one from the relaunch: {prompts:?}");
+        assert!(crate::question_work::pending(&h.state).unwrap().is_empty());
+        assert!(!after.wait_for_completed(2, std::time::Duration::from_millis(300)), "sent twice after the relaunch");
+        after.shutdown();
+        h.first_item_gate.release();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)), "the host that died never let go");
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// §4.1 test 3 (P5). The host dies after the back end's first item. The answer is taken, the
+    /// job is `Unknown` with the ordinary notice, and nothing re-runs it: §6.3, and his notice
+    /// says nothing is running.
+    #[test]
+    fn a_crash_after_the_first_item_leaves_the_job_unknown_and_nothing_re_runs_it() {
+        let h = harness(3000);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        *h.answer_reply.lock().unwrap() = "Shipping tomorrow.".into();
+        let record = waiting_job(&h);
+        h.host.start();
+        let answer = his_answer(&h, &record, "answer-1", "When should it ship? You answered: tomorrow");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while assignment::read(&h.state, "depot", "thread-one", &record.id).unwrap().state != AssignmentState::Running {
+            assert!(std::time::Instant::now() < deadline, "the first item never came");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        // The crash, mid-turn.
+        assert!(crate::question_work::pending(&h.state).unwrap().is_empty(), "taken at the first item");
+        let report = crate::recovery::reconcile(&h.state, &crate::recovery::UnreadableRepositories);
+        assert_eq!(report.unknown.len(), 1, "{report:?}");
+        assert!(report.answers_waiting.is_empty());
+        let after = relaunch(&h);
+        after.queue_question_answer(&h.binding, &answer).unwrap(); // the launch wake
+        assert!(!after.wait_for_completed(1, std::time::Duration::from_millis(400)), "a started job re-ran by itself");
+        assert_eq!(h.work_prompts.lock().unwrap().len(), 1);
+        after.shutdown();
+        h.host.shutdown();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)), "the host that died never let go");
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// **A job RichOS closed on while it ran is never re-run by his answer, and his word picks
+    /// it back up WITH every answer he gave it** (the work-path design's C6, option B; Rich's
+    /// call). He answered a second question while its turn ran; RichOS closed. After the
+    /// relaunch the answer is saved and nothing runs. When he says to pick it back up, the same
+    /// assignment runs once: the note first, the answer the dead back end had as an earlier one,
+    /// and the answer it never saw as new. He is never asked twice.
+    #[test]
+    fn a_started_job_waits_for_his_word_and_the_pick_up_carries_every_answer_he_gave() {
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        witnessed(&h.state, "work-session-one");
+        let record = waiting_job(&h);
+        open_question(&h, &record);
+        h.host.start();
+        his_answer(&h, &record, "answer-1", "Which branch? You answered: integration");
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        // Its next run is going when he answers again and RichOS closes: the crash, on disk.
+        assignment::advance(&h.state, "depot", "thread-one", &record.id, AssignmentState::Running, "The back end has started on it.").unwrap();
+        let second = crate::questions::Delivery {
+            id: "answer-2".into(), entity_id: "depot".into(), thread_id: "thread-one".into(),
+            asker: record.obligation_id.clone(), set_id: None, text: "Who reviews? You answered: Dana".into(), receipt: None,
+        };
+        crate::question_work::enqueue(&h.state, &second).unwrap();
+        // A crash, not a quit: nothing of the first host runs again, and it is not shut down (a
+        // quit would mark the job Interrupted, which is a witnessed stop).
+        let report = crate::recovery::reconcile(&h.state, &crate::recovery::UnreadableRepositories);
+        assert_eq!(report.unknown.len(), 1, "{report:?}");
+
+        let after = relaunch(&h);
+        after.queue_question_answer(&h.binding, &second).unwrap(); // the launch wake
+        assert!(!after.wait_for_completed(1, std::time::Duration::from_millis(400)), "a started job re-ran by itself");
+        assert_eq!(h.work_prompts.lock().unwrap().len(), 1);
+        assert_eq!(crate::question_work::pending(&h.state).unwrap().len(), 1, "his answer was not kept");
+
+        // His word.
+        assignment::pick_up(&h.state, "depot", "thread-one", &record.title).unwrap();
+        assert_eq!(after.adopt_registered(&h.binding), 1);
+        assert!(after.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let prompts = h.work_prompts.lock().unwrap().clone();
+        assert_eq!(prompts.len(), 2, "{prompts:?}");
+        let picked = &prompts[1];
+        assert!(picked.starts_with(PICKED_UP_NOTE), "{picked}");
+        assert!(picked.contains("Answers he gave earlier on this assignment") && picked.contains("You answered: integration"), "{picked}");
+        assert!(picked.contains("You answered: Dana"), "{picked}");
+        assert!(crate::question_work::pending(&h.state).unwrap().is_empty(), "the pick-up's back end took it");
+        after.shutdown();
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// §4.1 test 12 (D7) and §3's lock order. His answer goes through the real store: while
+    /// the back end has not taken it, his card does not say "Rich has your answer"; once it
+    /// has, it does. And the back end taking it (which writes the store) never waits on the
+    /// host's `inner` while a delivery holds the store lock and asks for `inner` (the sink,
+    /// `queue_question_answer`): a second answer is delivered at exactly that moment, and both
+    /// finish.
+    #[test]
+    fn his_card_says_rich_has_it_only_once_taken_and_the_store_lock_never_waits_on_inner() {
+        use crate::questions::{AnswerRequest, Store};
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        let record = waiting_job(&h);
+        let store = Store::new(&h.state);
+        let answer = |set: usize, key: &str| {
+            let q = store.list("depot", "thread-one").unwrap().into_iter()
+                .filter(|q| q.state == crate::questions::State::Open).nth(set).unwrap();
+            store.answer("depot", "thread-one", AnswerRequest { question_id: q.id.clone(), client_id: key.into(),
+                option_ids: vec![q.options[1].id.clone()], text: String::new(), expected_revision: None }, "click", "mac").unwrap();
+            q.id
+        };
+        open_question(&h, &record);
+        open_question(&h, &record);
+        let first = answer(0, "first");
+        h.first_item_gate.shut();
+        h.host.start();
+        store.deliver("depot", "thread-one", &record.obligation_id, |d| h.host.queue_question_answer(&h.binding, d)).unwrap();
+        until_prompts(&h, 1);
+        let card = |id: &str| store.list("depot", "thread-one").unwrap().into_iter().find(|q| q.id == id).unwrap().public_value();
+        assert_eq!(card(&first)["delivered"], false, "\"Rich has your answer\" before the back end had it");
+
+        // The second answer is delivered while the first one's taking waits for the store lock.
+        let second = answer(0, "second");
+        let (done, finished) = std::sync::mpsc::channel();
+        let (host, binding, gate, state, asker) =
+            (h.host.clone(), h.binding.clone(), h.first_item_gate.clone(), h.state.clone(), record.obligation_id.clone());
+        std::thread::spawn(move || {
+            let result = Store::new(&state).deliver("depot", "thread-one", &asker, |d| {
+                gate.release();
+                // The runner reaches the store's lock (the card write) and waits on it here.
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                host.queue_question_answer(&binding, d)
+            });
+            drop(done.send(result.map_err(|e| e.to_string())));
+        });
+        let delivered = finished.recv_timeout(std::time::Duration::from_secs(20));
+        assert!(matches!(delivered, Ok(Ok(1))), "deadlock or failure: {delivered:?}");
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(20)));
+        assert_eq!(card(&first)["delivered"], true);
+        assert_eq!(card(&second)["delivered"], true);
+        assert!(crate::question_work::pending(&h.state).unwrap().is_empty());
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// **C10: a job that ends on an early exit lets go of his answers, and an answer run whose
+    /// back end will not open is D4's retry.** (1) The back end refuses to open once: the job
+    /// waits on his answer again and the second run carries it, never "did not start". (2) His
+    /// original request can no longer be verified, so the run ends before any lease: his open
+    /// question is withdrawn and his saved answer let go, rather than re-queued and refused on
+    /// every wake for ever.
+    #[test]
+    fn an_early_exit_lets_his_answer_go_and_a_back_end_that_will_not_open_is_retried() {
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        h.refuse_next.store(true, Ordering::SeqCst);
+        let record = waiting_job(&h);
+        h.host.start();
+        his_answer(&h, &record, "answer-1", "When should it ship? You answered: tomorrow");
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)), "no retry");
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 1, "the refused open, then one lease");
+        assert_eq!(h.work_prompts.lock().unwrap().iter().filter(|p| p.contains("You answered: tomorrow")).count(), 1);
+        assert!(crate::question_work::pending(&h.state).unwrap().is_empty());
+        assert!(told(&h).iter().all(|t| !t.contains("did not start")), "{:?}", told(&h));
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+
+        let h = harness(5);
+        let receipt = assignment::register(&h.state, &Registration { instruction_sha256: "0".repeat(64), ..registration(&h) }).unwrap();
+        assignment::advance(&h.state, "depot", "thread-one", &receipt.id, AssignmentState::Blocked, "Waiting.").unwrap();
+        let record = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        open_question(&h, &record);
+        h.host.start();
+        his_answer(&h, &record, "answer-1", "When should it ship? You answered: tomorrow");
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &record.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Failed, "{}", row.detail);
+        assert!(crate::question_work::pending(&h.state).unwrap().is_empty(), "left to be re-queued and refused on every wake");
+        let open: Vec<_> = crate::questions::Store::new(&h.state).list("depot", "thread-one").unwrap()
+            .into_iter().filter(|q| q.state == crate::questions::State::Open).collect();
+        assert!(open.is_empty(), "a question left open for a job that ended");
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 0, "nothing was asked of a back end");
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// **D8: the question worker's pass, as it ships.** His answer in the durable store reaches
+    /// the job through `deliver_team_answers` alone (the pass the app's worker thread now
+    /// calls), once; a second pass, the launch wake, sends nothing more. An answer to his team
+    /// with no team sink stays saved, never handed to a work job.
+    #[test]
+    fn the_question_workers_pass_delivers_his_answer_once_and_leaves_his_teams_saved() {
+        use crate::questions::{AnswerRequest, Store};
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        let record = waiting_job(&h);
+        open_question(&h, &record);
+        let store = Store::new(&h.state);
+        let q = store.list("depot", "thread-one").unwrap().remove(0);
+        store.answer("depot", "thread-one", AnswerRequest { question_id: q.id.clone(), client_id: "tap".into(),
+            option_ids: vec![q.options[0].id.clone()], text: String::new(), expected_revision: None }, "click", "mac").unwrap();
+        crate::question_work::enqueue(&h.state, &crate::questions::Delivery {
+            id: "operator-answer".into(), entity_id: "depot".into(), thread_id: "thread-one".into(),
+            asker: "operator:conversation".into(), set_id: None, text: "for his team".into(), receipt: None,
+        }).unwrap();
+        h.host.start();
+        let binding = h.binding.clone();
+        let binding_for = move |thread: &str| (thread == "thread-one").then(|| binding.clone());
+        h.host.deliver_team_answers(&binding_for, None);
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        h.host.deliver_team_answers(&binding_for, None); // the launch wake, again
+        assert!(!h.host.wait_for_completed(2, std::time::Duration::from_millis(300)), "sent twice");
+        let prompts = h.work_prompts.lock().unwrap().clone();
+        assert_eq!(prompts.iter().filter(|p| p.contains("Dana reviews")).count(), 1, "{prompts:?}");
+        assert!(prompts.iter().all(|p| !p.contains("for his team")), "his team's answer reached a work job");
+        let pending = crate::question_work::pending(&h.state).unwrap();
+        assert_eq!(pending.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(), ["operator-answer"]);
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// §4.1 test 6 (D3). The run that carried his answer starts a command that outlives its
+    /// wait: the job is WATCHED, and never left blocked on the answer it already took.
+    #[test]
+    fn a_taken_answer_never_blocks_its_own_run_and_a_long_command_is_still_watched() {
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        *h.background.lock().unwrap() = Some(Vec::new());
+        h.host.set_command_wait_budget(std::time::Duration::from_millis(100));
+        *h.answer_reply.lock().unwrap() = "Shipping tomorrow; the import is running.".into();
+        h.start_in_turn.lock().unwrap().push_back(vec![background_command("bimport", "import.sh")]);
+        let record = waiting_job(&h);
+        h.host.start();
+        his_answer(&h, &record, "answer-1", "When should it ship? You answered: tomorrow");
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &record.id).unwrap();
+        assert_eq!((row.state, row.detail.as_str()), (AssignmentState::Running, COMMAND_STILL_RUNNING_DETAIL),
+                   "a job blocked on the answer it already took");
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// §4.1 test 7 (D4, a dead lease). The prompt carrying his answer fails before streaming: the
+    /// job goes back to waiting on it, ONE fresh lease is opened, and the answer reaches it. On a
+    /// second failure the job fails, with exactly one notice, and never as "stopped before it
+    /// finished" about a turn that never ran (C4).
+    #[test]
+    fn a_dead_lease_is_a_delivery_error_retried_once_on_a_fresh_lease() {
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        *h.answer_reply.lock().unwrap() = "Noted, shipping tomorrow.".into();
+        h.fail_next.lock().unwrap().push_back("claude channel closed (child exited?)".into());
+        let record = waiting_job(&h);
+        h.host.start();
+        his_answer(&h, &record, "answer-1", "When should it ship? You answered: tomorrow");
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)), "no retry");
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 2, "one fresh lease for the retry");
+        assert!(crate::question_work::pending(&h.state).unwrap().is_empty(), "the retry's back end took it");
+        assert!(crate::question_work::peek(&h.state, "depot", "thread-one", &record.obligation_id, "work-session-rotated-1")
+            .unwrap().is_empty(), "taken by the fresh lease");
+        let row = assignment::read(&h.state, "depot", "thread-one", &record.id).unwrap();
+        assert_ne!(row.state, AssignmentState::Blocked, "{}", row.detail);
+        assert!(told(&h).iter().all(|t| !t.contains("did not take your answer")), "{:?}", told(&h));
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+
+        // Past the bound: two failures.
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        h.fail_next.lock().unwrap().extend(["claude channel closed (child exited?)".to_string(), "claude channel closed (child exited?)".to_string()]);
+        let record = waiting_job(&h);
+        h.host.start();
+        his_answer(&h, &record, "answer-1", "When should it ship? You answered: tomorrow");
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        assert!(!h.host.wait_for_completed(3, std::time::Duration::from_millis(300)), "retried past the bound");
+        let row = assignment::read(&h.state, "depot", "thread-one", &record.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Failed, "{}", row.detail);
+        let notices = told(&h);
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(!notices[0].contains("stopped before it finished"), "{notices:?}");
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// §4.1 test 8 (D4, refused). The child refuses the message: nothing ran, the same lease is
+    /// asked again (a fresh uuid per prompt is `native.rs`'s), and he never hears that a job
+    /// "stopped before it finished". Past the bound, one notice that says what happened.
+    #[test]
+    fn a_refused_answer_turn_is_asked_again_and_never_reported_as_a_job_that_stopped() {
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        *h.answer_reply.lock().unwrap() = "Noted, shipping tomorrow.".into();
+        h.unrun.lock().unwrap().push_back("refused_before_it_ran".into());
+        let record = waiting_job(&h);
+        h.host.start();
+        his_answer(&h, &record, "answer-1", "When should it ship? You answered: tomorrow");
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 1, "a refusal does not retire the lease");
+        assert!(crate::question_work::pending(&h.state).unwrap().is_empty());
+        assert_eq!(h.work_prompts.lock().unwrap().iter().filter(|p| p.contains("You answered: tomorrow")).count(), 2);
+        assert!(told(&h).iter().all(|t| !t.contains("stopped before it finished")), "{:?}", told(&h));
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        h.unrun.lock().unwrap().extend(["discarded_before_it_ran".to_string(), "refused_before_it_ran".to_string()]);
+        let record = waiting_job(&h);
+        h.host.start();
+        his_answer(&h, &record, "answer-1", "When should it ship? You answered: tomorrow");
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        assert!(!h.host.wait_for_completed(3, std::time::Duration::from_millis(300)), "retried past the bound");
+        let row = assignment::read(&h.state, "depot", "thread-one", &record.id).unwrap();
+        assert_eq!((row.state, row.detail.as_str()), (AssignmentState::Failed, ANSWER_NOT_TAKEN));
+        let notices = told(&h);
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(notices[0].contains(ANSWER_NOT_TAKEN) && !notices[0].contains("stopped before it finished"), "{notices:?}");
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// §4.1 test 9 (D4 and Stop). His Stop while the answer is on its way ends the job as his
+    /// stop, as today, and nothing is retried.
+    #[test]
+    fn his_stop_outranks_the_retry_of_an_untaken_answer() {
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        h.fence.stop_ends_child.store(true, Ordering::SeqCst);
+        let record = waiting_job(&h);
+        h.first_item_gate.shut();
+        h.host.start();
+        his_answer(&h, &record, "answer-1", "When should it ship? You answered: tomorrow");
+        until_prompts(&h, 1);
+        h.host.stop_assignment("depot", "thread-one", &record.id).unwrap();
+        h.first_item_gate.release();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        assert!(!h.host.wait_for_completed(2, std::time::Duration::from_millis(300)), "retried after his Stop");
+        let row = assignment::read(&h.state, "depot", "thread-one", &record.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Interrupted, "{}", row.detail);
+        assert_eq!(told(&h), [assignment::says::interrupted(&record.title)]);
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// §4.1 test 10 (D5). His first answer was taken by a back end that has since been retired;
+    /// he answers a second question. The fresh back end is told both, the first under its own
+    /// heading. On the SAME back end only the new one is sent.
+    #[test]
+    fn a_fresh_back_end_is_told_the_answers_a_retired_one_had() {
+        for retire in [true, false] {
+            let h = harness(5);
+            every_worker_observed_ending(&h);
+            *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+            let record = waiting_job(&h);
+            // It asks him a second question, so its runs end waiting on him rather than ending.
+            open_question(&h, &record);
+            h.host.start();
+            his_answer(&h, &record, "answer-1", "Which branch? You answered: integration");
+            assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+            assert_eq!(assignment::read(&h.state, "depot", "thread-one", &record.id).unwrap().state, AssignmentState::Blocked);
+            if retire {
+                let backend = h.host.backend("thread-one").unwrap();
+                *backend.lease.lock().unwrap() = None;
+                backend.inner.lock().unwrap().lease_session = None;
+            }
+            his_answer(&h, &record, "answer-2", "When should it ship? You answered: tomorrow");
+            assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+            let prompts = h.work_prompts.lock().unwrap().clone();
+            let second = &prompts[1];
+            assert!(second.contains("You answered: tomorrow"), "{second}");
+            let earlier = second.find("Answers he gave earlier on this assignment");
+            if retire {
+                let at = earlier.expect("the fresh back end was not told his earlier answer");
+                assert!(second[at..].contains("You answered: integration"), "{second}");
+                assert!(second.find("You answered: integration") < second.find("You answered: tomorrow"));
+            } else {
+                assert!(earlier.is_none() && !second.contains("You answered: integration"),
+                        "the same back end was told an answer it already had: {second}");
+            }
+            h.host.shutdown();
+            std::fs::remove_dir_all(&h.root).unwrap();
+        }
+    }
+
+    /// §4.1 test 11. An inbox file written before `taken_in` existed (`handed: true` and nothing
+    /// else) is an answer a session that is gone took: told once to the back end running now,
+    /// never counted as pending, and not told to that back end again.
+    #[test]
+    fn a_legacy_taken_answer_is_told_once_to_a_fresh_back_end() {
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        let record = waiting_job(&h);
+        let legacy = crate::questions::Delivery {
+            id: "legacy-1".into(), entity_id: "depot".into(), thread_id: "thread-one".into(),
+            asker: record.obligation_id.clone(), set_id: None, text: "Which branch? You answered: integration".into(), receipt: None,
+        };
+        crate::question_work::enqueue(&h.state, &legacy).unwrap();
+        let file = std::fs::read_dir(h.state.join("questions/work-inputs")).unwrap().next().unwrap().unwrap().path();
+        std::fs::write(&file, serde_json::json!({"delivery": legacy, "handed": true}).to_string() + "\n").unwrap();
+        assert!(crate::question_work::pending(&h.state).unwrap().is_empty());
+        open_question(&h, &record);
+        h.host.start();
+        his_answer(&h, &record, "answer-2", "When should it ship? You answered: tomorrow");
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        his_answer(&h, &record, "answer-3", "Who reviews? You answered: Dana");
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        let prompts = h.work_prompts.lock().unwrap().clone();
+        assert_eq!(prompts.iter().filter(|p| p.contains("You answered: integration")).count(), 1, "{prompts:?}");
+        assert!(prompts[0].contains("Answers he gave earlier on this assignment"));
         h.host.shutdown();
         std::fs::remove_dir_all(&h.root).unwrap();
     }
@@ -6709,31 +7674,8 @@ mod tests {
         // A second host over the same state, with a notifier that counts.
         let host = WorkHost::new(
             &h.state,
-            Box::new(WorkFactory {
-                // The same gate as the harness's, which is open and stays open here.
-                start_gate: h.start_gate.clone(),
-                bound: h.bound.clone(),
-                revoked: h.revoked.clone(),
-                fence: h.fence.clone(),
-                step: std::time::Duration::from_millis(5),
-                obligation: h.obligation.clone(),
-                spawns: h.spawns.clone(),
-                usage: h.usage.clone(),
-                reprimes: h.reprimes.clone(),
-                handoffs: h.handoffs.clone(),
-                handoff_reply: h.handoff_reply.clone(),
-                answer_reply: h.answer_reply.clone(),
-                refuse_next: h.refuse_next.clone(),
-                readiness: h.readiness.clone(),
-                turn_error: h.turn_error.clone(),
-                work_prompts: h.work_prompts.clone(),
-                commands: h.commands.clone(),
-                drop_probe: h.drop_probe.clone(),
-                drops: h.drops.clone(),
-                background: h.background.clone(),
-                start_in_turn: h.start_in_turn.clone(),
-                replies: h.replies.clone(),
-            }),
+            // The same gate as the harness's, which is open and stays open here.
+            Box::new(factory_over(&h, 5)),
             counter.clone(),
             Arc::clone(&h.desk),
         );
