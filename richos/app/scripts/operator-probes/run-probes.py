@@ -11,7 +11,7 @@ synced in, the host's login pushed, no app launched), copies in this harness and
 the foreground, pulls the results back, and deletes the clone however the run ends (§54).
 
   run-probes.py --out DIR [--only P1,P2,...] [--engine-rev REV] [--wait SECONDS] [--survey]
-                [--walk-binary BIN] [--work-walk-binary BIN --runtime DIR]
+                [--walk-binary PATH] [--w3-cells W3,...] [--work-walk-binary BIN --runtime DIR]
 
 W4 (the work path's crash matrix, richos-hq docs/plans/2026-09-27-work-path-answer-delivery-design.md
 §4.2) runs a real work lease, which needs the delivered runtime the app ships: --runtime names one
@@ -105,6 +105,9 @@ def main():
                    help='the work_walk example binary (cargo build --features crash-points --example work_walk), for W4')
     p.add_argument('--runtime', type=Path, default=Path.home() / '.richos-nightly' / 'runtime',
                    help='a delivered runtime (delivery.json and its files) for W4\'s work lease; read, never written')
+    p.add_argument('--w3-cells', default='',
+                   help='comma-separated crash-matrix cells for W3 (baseline,W1b,W2,W3,W4; default all), so one '
+                        'cell can be rerun alone')
     p.add_argument('--quota-ceiling', type=float, default=85.0,
                    help='stop the run when his five-hour quota reading reaches this percent (default 85), so a '
                         'probe never carries the account to ruling §87\'s 93%% pause for every other session')
@@ -175,6 +178,8 @@ def main():
                     args += ['--walk-binary', f'{payload}/probes/operator_walk']
                 if a.work_walk_binary:
                     args += ['--work-walk-binary', f'{payload}/probes/work_walk', '--runtime', f'{payload}/probes/runtime']
+                if a.w3_cells:
+                    args += ['--w3-cells', a.w3_cells]
                 command = ' '.join(shlex.quote(x) for x in args)
                 began = time.monotonic()
                 report['quota_at_start'] = five_hour_used()
