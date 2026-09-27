@@ -36,6 +36,18 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
              --expect american: the stored and shown reply carry the American forms and none of
              the British ones. --expect as-written: the baseline build; only recorded.
 
+  connect    command-walk.py's: the Acme folder connected, so work can be handed over
+  document   asks for a file named note-<code>.md in the Acme repository holding only the same
+             sentence, spelling as written, and landed. A document the app's sessions write is
+             fixed in the desktop executable's PreToolUse wrapper (quota/gate.rs run_canonical),
+             which hands the provider an updatedInput. Reads: the write as the model made it
+             (the PreToolUse callback's tool_input in the engine's evidence), which must be
+             British, and the file's bytes on disk (landed in Acme, or in the worker's worktree
+             when it has not landed yet), which must be American. This is plan check C18: the
+             bundled claude honoring updatedInput without permissionDecision is proven only by
+             the bytes. A file written through the shell meets no write hook; that outcome is
+             reported as INCONCLUSIVE, not as a pass.
+
 Speech is not measured: the guest has no audio worth trusting (docs/testvm.md, CEO §53). What is
 spoken is the `rich://chunk` payload the screen renders (ui/main.js relays it to
 voice_speak_delta), so the shown text is the spoken text.
@@ -57,12 +69,15 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from relaunch import guest  # noqa: E402
 
-_spec = importlib.util.spec_from_file_location('adopt_walk', HERE / 'adopt-walk.py')
-adopt_walk = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(adopt_walk)
-StepFailed = adopt_walk.StepFailed
+_spec = importlib.util.spec_from_file_location('command_walk', HERE / 'command-walk.py')
+command_walk = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(command_walk)
+StepFailed = command_walk.StepFailed
 
-STEPS = ['identity', 'first-run', 'reply']
+STEPS = ['identity', 'first-run', 'reply', 'connect', 'document']
+DOCUMENT = ('Please add a file named {name} to the Acme repository containing only this sentence, copied '
+            'letter for letter with its spelling exactly as written, and land it: {sentence}')
+WRITE_TOOLS = ('Write', 'Edit', 'MultiEdit')
 FIXTURE = HERE.parents[2] / 'engine/scripts/lib/dialect/fixtures/stream-a-app.txt'
 # The instruction carries no British word; the sentence does, from the fixture.
 PROMPT = ('Quick copying test, answered right here in this conversation, no task needed. Reply with '
@@ -112,7 +127,29 @@ def verdict(evidence, sentence, british, american, expect):
     return failures
 
 
-class SpellingWalk(adopt_walk.Walk):
+def document_verdict(written, on_disk, british, american):
+    """The document step's failures, as sentences. Empty means PASS."""
+    if written is None:
+        return ['INCONCLUSIVE: no Write, Edit or MultiEdit of the file reached the hooks (a shell write '
+                'meets no write hook), so this run says nothing about the document fix']
+    failures = []
+    raw_british = words_in(written, british)
+    if not raw_british:
+        failures.append('INCONCLUSIVE: the model wrote no British word into the file (%r)' % written[:200])
+    if on_disk is None:
+        failures.append('the file was never found on disk')
+        return failures
+    left = words_in(on_disk, british)
+    if left:
+        failures.append(f'the file on disk is still British: {left}')
+    wanted = [american[british.index(w)] for w in raw_british]
+    missing = [w for w in wanted if not words_in(on_disk, [w])]
+    if missing:
+        failures.append(f'the file on disk lacks the American forms: {missing}')
+    return failures
+
+
+class SpellingWalk(command_walk.CommandWalk):
     def ledger(self):
         rows = guest(self.vm, 'cat ' + shlex.quote(self.data + '/conversation-ledger.jsonl') + ' 2>/dev/null || true', 60)
         return [json.loads(r) for r in rows.splitlines() if r.startswith('{')]
@@ -174,6 +211,65 @@ class SpellingWalk(adopt_walk.Walk):
         return {k: evidence.get(k) for k in ('token', 'ended', 'deltas', 'first_reply_stored_ms',
                                              'model_words', 'reply_stored', 'reply_shown')}
 
+    def written(self, name):
+        """The newest write of `name` as the model made it: the PreToolUse callback's own input."""
+        script = ('import glob,json,sys\n'
+                  'hits=[]\n'
+                  'for p in glob.glob(sys.argv[1]+"/engine-state/evidence/*/callbacks.jsonl"):\n'
+                  '    for line in open(p):\n'
+                  '        try: c=json.loads(line).get("callback",{})\n'
+                  '        except Exception: continue\n'
+                  '        i=c.get("tool_input") or {}\n'
+                  '        if (c.get("hook_event_name")=="PreToolUse" and c.get("tool_name") in sys.argv[3].split(",")\n'
+                  '                and str(i.get("file_path","")).endswith("/"+sys.argv[2])): hits.append(i)\n'
+                  'print(json.dumps(hits))\n')
+        hits = json.loads(guest(self.vm, 'python3 -c ' + shlex.quote(script) + ' ' + shlex.quote(self.data) + ' '
+                                + shlex.quote(name) + ' ' + ','.join(WRITE_TOOLS), 60))
+        return hits[-1] if hits else None
+
+    def on_disk(self, name, written):
+        """The file's bytes: landed in Acme if it has landed, else where the model wrote it."""
+        landed = self.company + '/' + name
+        paths = [landed] + ([written['file_path']] if written and written.get('file_path') else [])
+        for path in paths:
+            out = guest(self.vm, 'cat ' + shlex.quote(path) + ' 2>/dev/null || true', 30)
+            if out.strip():
+                return path, out
+        return None, None
+
+    def document(self):
+        if not self.facts.get('thread'):
+            raise StepFailed('first-run must have run (no thread on record)')
+        sentence = section('vm-sentence')
+        british = section('vm-british-words').split()
+        american = section('vm-american-words').split()
+        name = 'note-x' + uuid.uuid4().hex[:10] + '.md'
+        sent = self.send(DOCUMENT.format(name=name, sentence=sentence))
+        landed = self.company + '/' + name
+        end = time.monotonic() + self.a.document_within
+        pressed, written, path, text = 0, None, None, None
+        while time.monotonic() < end:
+            written = self.written(name) or written
+            path, text = self.on_disk(name, written)
+            if written and path == landed:
+                break
+            record = self.ours(sent)
+            if record and pressed < self.a.approvals and self.approve_if_asked(record.get('title', '')):
+                pressed += 1
+            time.sleep(3)
+        body = None
+        if written:
+            body = written.get('content')
+            if body is None:
+                body = written.get('new_string') or ''.join(e.get('new_string', '') for e in written.get('edits', []))
+        evidence = {'file': name, 'sent_between_guest_ms': [round(v) for v in sent], 'approvals_pressed': pressed,
+                    'written_by_model': body, 'path_read': path, 'on_disk': text, 'landed': path == landed}
+        (self.out / 'document-evidence.json').write_text(json.dumps(evidence, indent=2) + '\n')
+        failures = document_verdict(body, text, british, american)
+        if failures:
+            raise StepFailed('; '.join(failures))
+        return evidence
+
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -183,6 +279,8 @@ def main():
     p.add_argument('--expect', choices=['american', 'as-written'], required=True,
                    help='american: the build with the fixer; as-written: the baseline build, recorded only')
     p.add_argument('--within', type=float, default=180, help='seconds for the reply turn to end')
+    p.add_argument('--document-within', type=float, default=300, help='seconds for the document to land')
+    p.add_argument('--approvals', type=int, default=3, help='most Approve presses on the document assignment')
     p.add_argument('--steps', default=','.join(STEPS))
     a = p.parse_args()
     steps = a.steps.split(',')

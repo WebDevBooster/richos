@@ -61,6 +61,19 @@ class Verdict(unittest.TestCase):
             failures = verdict(evidence(prompt_stored='copy this: ' + american(SENTENCE)), expect)
             self.assertIn('his words were not stored as he wrote them', failures)
 
+    def test_a_document_written_british_and_on_disk_american_passes(self):
+        self.assertEqual(walk.document_verdict(SENTENCE + '\n', american(SENTENCE) + '\n', BRITISH, AMERICAN), [])
+
+    def test_a_document_still_british_on_disk_fails(self):
+        failures = walk.document_verdict(SENTENCE, SENTENCE, BRITISH, AMERICAN)
+        self.assertTrue(any(f.startswith('the file on disk is still British') for f in failures), failures)
+
+    def test_a_document_never_seen_by_a_write_hook_or_written_american_proves_nothing(self):
+        self.assertTrue(walk.document_verdict(None, american(SENTENCE), BRITISH, AMERICAN)[0].startswith('INCONCLUSIVE'))
+        failures = walk.document_verdict(american(SENTENCE), american(SENTENCE), BRITISH, AMERICAN)
+        self.assertTrue(any(f.startswith('INCONCLUSIVE') for f in failures), failures)
+        self.assertIn('the file was never found on disk', walk.document_verdict(SENTENCE, None, BRITISH, AMERICAN))
+
     def test_the_baseline_only_needs_a_completed_turn(self):
         self.assertEqual(verdict(evidence(reply_stored='x1 ' + SENTENCE), 'as-written'), [])
         self.assertTrue(verdict(evidence(ended='TurnInterrupted'), 'as-written'))
