@@ -190,6 +190,19 @@ class Closure(unittest.TestCase):
         document['nodes'].pop('scripts/lib/hook-dependencies.py')
         self.assertTrue(inputs.Dependencies(HERE.parent, document).closure(unit)['fallback'])
 
+    def test_global_witness_and_private_installer_have_no_real_config_dependency(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/lib/global-state-witness.test.sh'
+        closure = graph.closure(unit)
+        self.assertEqual(closure['fallback'], [])
+        self.assertEqual(closure['keys'], {})
+        self.assertEqual(closure['whole'], [])
+        before = (HERE.parent / 'orchestration.config').read_text()
+        self.assertEqual(graph.config_units(inputs.config_change(before, before + '\nPLANTED_UNUSED_SETTING=1'), [unit]), {})
+        document['nodes'].pop('scripts/hooks/install.sh#private-home')
+        self.assertTrue(inputs.Dependencies(HERE.parent, document).closure(unit)['fallback'])
+
     def node(self, name, content, **contract):
         path = self.root / name
         path.parent.mkdir(parents=True, exist_ok=True)

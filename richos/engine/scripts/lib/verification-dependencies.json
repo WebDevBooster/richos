@@ -1057,7 +1057,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "2ca9e8548f59ad9116b4a5e68d80c7c74bc0b4858e8bf04f73cf10139123ceb6",
+      "sha256": "3c33e8234acf65b052a08fb734386176a4fdae0d122d97833285643ced7eb493",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed.",
       "keys": [],
       "edges": [
@@ -1819,6 +1819,29 @@
           "to": "scripts/lib/hook-dependencies.sh"
         }
       ]
+    },
+    "scripts/lib/global-state-witness.sh": {
+      "source": "scripts/lib/global-state-witness.sh",
+      "sha256": "043848eeb2641037b1e56bce858035e05a80cce775098c7dfa36386f6f048f73",
+      "evidence": "Hashes or reads the link target of settings/pointer paths under the explicit config root. It does not read orchestration.config.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/global-state-witness.test.sh": {
+      "source": "scripts/lib/global-state-witness.test.sh",
+      "sha256": "de4748a587aa33bb8728ac23975967a7d851a6f0171d4a74ab4dbcb8c45c00c6",
+      "evidence": "Every witness call supplies the private config directory. Installer calls use a generated engine without orchestration.config and fake HOME; structural enumeration searches source as data. The launchctl shim proves forced pointer installation still does not reach launchd.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/global-state-witness.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/install.sh#private-home",
+          "fixture": true
+        }
+      ]
     }
   },
   "units": {
@@ -1848,7 +1871,8 @@
     "scripts/hooks/session-start-quota.test.sh": "scripts/hooks/session-start-quota.test.sh",
     "scripts/hooks/guard-definition-drift.test.sh": "scripts/hooks/guard-definition-drift.test.sh",
     "scripts/lib/seat-jurisdiction.test.sh": "scripts/lib/seat-jurisdiction.test.sh",
-    "scripts/lib/hook-dependencies.test.sh": "scripts/lib/hook-dependencies.test.sh"
+    "scripts/lib/hook-dependencies.test.sh": "scripts/lib/hook-dependencies.test.sh",
+    "scripts/lib/global-state-witness.test.sh": "scripts/lib/global-state-witness.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
