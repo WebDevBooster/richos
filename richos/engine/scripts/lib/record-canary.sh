@@ -95,11 +95,16 @@
 # writes there. So the runners (ci-shard.sh, run-all-tests.sh) call
 # rc_sandbox <home> before each unit: it builds a throwaway home, points the
 # canary at the record INSIDE it, and fills RC_SANDBOX_ENV with the env(1)
-# arguments the unit is run under — HOME, CLAUDE_CONFIG_DIR and
-# RICHOS_WORKSPACES_DIR inside that home (the three names the record is reached
-# by; the ownership ledger resolves from expanduser("~") alone, so moving the
-# config directory without HOME would leave it on the operator's file), and
-# every other variable whose value lies inside the operator's record removed.
+# arguments the unit is run under: HOME set to that home (the ownership ledger
+# resolves from expanduser("~") alone, so moving only the config directory
+# would leave it on the operator's file), and every variable whose value is the
+# operator's record or lies inside it removed — CLAUDE_CONFIG_DIR and
+# RICHOS_WORKSPACES_DIR included whenever they point there, so the engine's own
+# defaults (<HOME>/.claude, <config>/state/workspaces) resolve inside the home.
+# They are REMOVED, never SET: a unit that moves HOME or CLAUDE_CONFIG_DIR into
+# a world of its own expects the other names to follow from its choice, and an
+# exported RICHOS_WORKSPACES_DIR overrode that for scratch-reaper.test.sh S30
+# on this change's first proof run (its session records went unread).
 # Nothing else on the machine writes into that home, so the diff is exactly the
 # unit's own writes: a unit that WOULD have written the operator's record
 # writes this one instead, and is still red.
@@ -108,6 +113,11 @@
 # record at all, and a git identity (the workflow declares one because fixtures
 # commit). Nothing of the operator's own home is carried in; in particular not
 # the operator's git configuration, which is read from $HOME.
+#
+# The home lies inside the runner's temp directory. A unit that makes a claim
+# about the account's REAL home reads it from the password database, as
+# disk-watchdog.test.sh W22d does: judged against the throwaway home, the
+# declared $TMPDIR is "a folder holding the home" — a verdict about the runner.
 #
 # WHAT IT CANNOT SEE NOW, named: a unit that reaches the operator's record by a
 # path fixed BEFORE it started (an absolute path baked into a script) or from
@@ -154,9 +164,8 @@ for r in sys.argv[1:]:
     if r:
         roots.append(r.rstrip("/"))
         roots.append(os.path.realpath(r).rstrip("/"))
-keep = {"HOME", "CLAUDE_CONFIG_DIR", "RICHOS_WORKSPACES_DIR"}
 for name, value in sorted(os.environ.items()):
-    if name in keep or not name.replace("_", "a").isalnum():
+    if name == "HOME" or not name.replace("_", "a").isalnum():
         continue
     if any(value == r or value.startswith(r + "/") for r in roots if r):
         print(name)
@@ -186,7 +195,11 @@ rc_sandbox() {
     for name in $names; do
         RC_SANDBOX_ENV+=(-u "$name")
     done
-    RC_SANDBOX_ENV+=("HOME=$home" "CLAUDE_CONFIG_DIR=$home/.claude" "RICHOS_WORKSPACES_DIR=$home/.claude/state/workspaces")
+    # HOME is the one name SET. CLAUDE_CONFIG_DIR and RICHOS_WORKSPACES_DIR are
+    # removed above when they point at the operator's record, and are never
+    # set: their defaults then resolve inside this home, and a unit that builds
+    # a world of its own keeps the resolution it chose (see the header).
+    RC_SANDBOX_ENV+=("HOME=$home")
     return 0
 }
 

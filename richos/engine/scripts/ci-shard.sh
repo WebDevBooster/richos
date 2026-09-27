@@ -553,8 +553,9 @@ while IFS= read -r id; do
     lc_baseline "$CANARY_DIR"
     CANARY_BASE_HEALTHY="$LC_HEALTHY"
     # The unit gets a record of its own (lib/record-canary.sh, "AMENDED
-    # 2026-09-27"): HOME, CLAUDE_CONFIG_DIR and RICHOS_WORKSPACES_DIR inside a
-    # throwaway home, and the canary watches THAT record. Nothing else writes
+    # 2026-09-27"): HOME in a throwaway home, every variable pointing into the
+    # operator's record removed, and the canary watches the record in that
+    # home. Nothing else writes
     # there, so a spawn or a land elsewhere on the machine is never charged to
     # this unit, and a unit that would have written the operator's record is
     # still red.

@@ -164,9 +164,9 @@
 # suite. scripts/lib/record-canary.sh says exactly what it witnesses and the
 # one thing it cannot (the platform's own per-turn `finished` rows).
 #
-# AMENDED 2026-09-27: each suite now runs in a throwaway home (HOME,
-# CLAUDE_CONFIG_DIR, RICHOS_WORKSPACES_DIR) and the canary watches the record
-# there, because a diff of the LIVE record charged every spawn and land
+# AMENDED 2026-09-27: each suite now runs with HOME in a throwaway home and
+# every variable pointing into the operator's record removed, and the canary
+# watches the record there, because a diff of the LIVE record charged every spawn and land
 # elsewhere on the machine to whichever suite was running. The library's
 # "AMENDED 2026-09-27" section says what that changes and what it cannot see.
 #
@@ -337,7 +337,7 @@ fi
 printf '  leak canary: watching %s root(s); witness is contents%s\n' \
     "$CANARY_ROOTS_N" \
     "$(tw_mtime_available && printf ' and a proven sub-second mtime' || printf ' ALONE (no sub-second mtime format proved itself here)')"
-printf '  record canary: watching the record inside each suite'"'"'s own throwaway home (HOME, CLAUDE_CONFIG_DIR and RICHOS_WORKSPACES_DIR moved there; ledger rows except `finished`, the fallback event log, the team directory entries); the operator'"'"'s own is %s\n' "$RC_LIVE_CFG"
+printf '  record canary: watching the record inside each suite'"'"'s own throwaway home (HOME moved there, every variable pointing into the operator'"'"'s record removed; ledger rows except `finished`, the fallback event log, the team directory entries); the operator'"'"'s own is %s\n' "$RC_LIVE_CFG"
 printf '  timing: per suite, clock=%s%s\n' \
     "$SW_METHOD" \
     "$([ -n "$TIMING_TSV" ] && printf ', TSV -> %s' "$TIMING_TSV")"
@@ -367,8 +367,8 @@ for t in "${SUITES[@]}"; do
     lc_baseline "$CANARY_DIR"
     CANARY_BASE_HEALTHY="$LC_HEALTHY"
     # A record of the suite's own (lib/record-canary.sh, "AMENDED 2026-09-27"):
-    # the suite runs with HOME, CLAUDE_CONFIG_DIR and RICHOS_WORKSPACES_DIR in
-    # a throwaway home and the canary watches the record there, so activity
+    # the suite runs with HOME in a throwaway home, every variable pointing into
+    # the operator's record removed, and the canary watches the record there, so activity
     # elsewhere on the machine is never charged to the suite, and a suite that
     # would have written the operator's record is still red.
     SUITE_HOME="$LOG_DIR/home.$i"

@@ -187,7 +187,7 @@ chmod 644 "$CFG/state/worktree-ledger.jsonl"
 # 7. rc_sandbox — A RECORD OF THE UNIT'S OWN (2026-09-27). The runners hand each
 #    unit a throwaway home and watch the record inside it, so a concurrent
 #    writer to the live record is never charged to the unit. The runner-level
-#    proof, concurrent writer included, is ci-shard.test.sh S15b-S15g; these
+#    proof, concurrent writer included, is ci-shard.test.sh S15b-S15h; these
 #    pin the library's half.
 # ===========================================================================
 export RC_TEST_INSIDE="$CFG/state/test-devices"
@@ -202,9 +202,14 @@ if rc_sandbox "$UH"; then
     fi
     ENVARGS=" ${RC_SANDBOX_ENV[*]} "
     case "$ENVARGS" in
-        *" -u RC_TEST_INSIDE "*"HOME=$UHP "*"CLAUDE_CONFIG_DIR=$UHP/.claude "*"RICHOS_WORKSPACES_DIR=$UHP/.claude/state/workspaces "*)
-            ok "7b  the unit's env moves HOME, CLAUDE_CONFIG_DIR and RICHOS_WORKSPACES_DIR into its home and removes a variable that points into the operator's record" ;;
+        *" -u CLAUDE_CONFIG_DIR "*"-u RC_TEST_INSIDE "*"HOME=$UHP "*)
+            ok "7b  the unit's env sets HOME to its home and REMOVES every variable pointing into the operator's record, CLAUDE_CONFIG_DIR included" ;;
         *) bad "7b  the unit's env" "got:$ENVARGS" ;;
+    esac
+    case "$ENVARGS" in
+        *"CLAUDE_CONFIG_DIR="*|*"RICHOS_WORKSPACES_DIR="*)
+            bad "7b' CLAUDE_CONFIG_DIR and RICHOS_WORKSPACES_DIR are never SET" "got:$ENVARGS" ;;
+        *) ok "7b' and never SETS CLAUDE_CONFIG_DIR or RICHOS_WORKSPACES_DIR, so a unit that builds a world of its own keeps the resolution it chose" ;;
     esac
     case "$ENVARGS" in
         *RC_TEST_OUTSIDE*) bad "7c  a variable pointing elsewhere is left alone" "got:$ENVARGS" ;;

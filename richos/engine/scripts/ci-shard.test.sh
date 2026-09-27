@@ -53,14 +53,16 @@
 #        leak canary is not lost by sharding. This is the 2026-09-05
 #        escalations.test.sh finding, which run-all-tests.sh catches per suite;
 #        splitting the pass must not silently drop it.
-#   S15b-S15g  THE RECORD CANARY COUNTS ONLY THE UNIT'S OWN WRITES. Each unit
-#        runs in a throwaway home (HOME, CLAUDE_CONFIG_DIR, RICHOS_WORKSPACES_DIR)
-#        and the canary watches the record inside it. Positive controls: a write
+#   S15b-S15h  THE RECORD CANARY COUNTS ONLY THE UNIT'S OWN WRITES. Each unit
+#        runs with HOME in a throwaway home and every variable pointing into
+#        the operator's record removed, and the canary watches the record in
+#        that home. Positive controls: a write
 #        through CLAUDE_CONFIG_DIR, through $HOME alone and through the
 #        workspace registry are each RED and named (S15b-d), and none reaches
 #        the operator's record (S15b'). The 2026-09-27 defect: a clean unit
 #        PASSES while another process writes the live record during it (S15e).
-#        The unit gets no road back (S15f) and keeps a git identity (S15g).
+#        The unit gets no road back (S15f), keeps a git identity (S15g), and a
+#        unit that builds a world of its own keeps the resolution it chose (S15h).
 #
 # Exit 0 = all cases pass; exit 1 = at least one failure.
 
@@ -338,7 +340,7 @@ else
 fi
 rm -f "$E/scripts/lib/leaky.test.sh"
 
-# --- S15b-S15g: the RECORD canary counts only the unit's OWN writes --------
+# --- S15b-S15h: the RECORD canary counts only the unit's OWN writes --------
 # Every case below runs the shard under an "operator" of its own: HOME and
 # CLAUDE_CONFIG_DIR point at $OPHOME, which stands for the real ~/.claude. So a
 # case that goes wrong writes into this sandbox, never into the operator's
@@ -347,9 +349,10 @@ rm -f "$E/scripts/lib/leaky.test.sh"
 # THE DEFECT (2026-09-27): the canary compared the LIVE record before and after
 # each unit, so anything else on the machine that wrote there during the unit
 # (a spawn, a land, a message) failed the unit as RECORD-TOUCHED, and engine
-# proofs could only pass on an idle session. Each unit now runs with HOME,
-# CLAUDE_CONFIG_DIR and RICHOS_WORKSPACES_DIR redirected into a throwaway home,
-# and the canary watches THAT: a unit that would have written the operator's
+# proofs could only pass on an idle session. Each unit now runs with HOME in a
+# throwaway home and every variable pointing into the operator's record removed
+# (CLAUDE_CONFIG_DIR and RICHOS_WORKSPACES_DIR included, so their defaults
+# follow HOME), and the canary watches THAT: a unit that would have written the operator's
 # record writes the throwaway one and is still red (S15b-S15d, the positive
 # controls), and a concurrent writer to the live record is no longer charged to
 # the unit (S15e).
@@ -363,7 +366,7 @@ op_shard() { # <argv...> — run the shard as that operator; output to $SANDBOX/
     (
         export HOME="$OPHOME"
         export CLAUDE_CONFIG_DIR="$OPCFG"
-        unset RICHOS_WORKSPACES_DIR
+        export RICHOS_WORKSPACES_DIR="$OPCFG/state/workspaces"
         export RICHOS_TEST_DEVICES_DIR="$OPCFG/state/test-devices"
         cd "$LEAKDIR" && bash "$SH" "$@"
     ) > "$SANDBOX/out" 2>&1
@@ -475,9 +478,9 @@ fi
 rm -f "$E/scripts/lib/quiet.test.sh"
 rm -rf "$OPCFG/teams/session-cafebabe" "$OPCFG/worker-events.jsonl" "$OPCFG/state/worktree-ledger.jsonl"
 
-# S15f — the unit CANNOT reach the live record: none of the three names the
-# record is reached by points under the operator's home, and a variable the
-# operator exported INTO the record (RICHOS_TEST_DEVICES_DIR here) is not passed.
+# S15f — the unit CANNOT reach the live record: HOME is outside the operator's
+# home, and every variable the operator exported INTO the record is removed —
+# CLAUDE_CONFIG_DIR, RICHOS_WORKSPACES_DIR and RICHOS_TEST_DEVICES_DIR here.
 cat > "$E/scripts/lib/envprobe.test.sh" <<ENVPROBE
 #!/usr/bin/env bash
 {
@@ -494,10 +497,10 @@ ENVDUMP="$(cat "$FLAGS/env.txt" 2>/dev/null || true)"
 if [ "$RC" = "0" ] && [ -n "$ENVDUMP" ] \
    && ! printf '%s\n' "$ENVDUMP" | grep -q "$OPHOME" \
    && printf '%s\n' "$ENVDUMP" | grep -q '^HOME=/' \
-   && printf '%s\n' "$ENVDUMP" | grep -q '^CLAUDE_CONFIG_DIR=/' \
-   && printf '%s\n' "$ENVDUMP" | grep -q '^RICHOS_WORKSPACES_DIR=/' \
+   && printf '%s\n' "$ENVDUMP" | grep -qx 'CLAUDE_CONFIG_DIR=' \
+   && printf '%s\n' "$ENVDUMP" | grep -qx 'RICHOS_WORKSPACES_DIR=' \
    && printf '%s\n' "$ENVDUMP" | grep -qx 'RICHOS_TEST_DEVICES_DIR='; then
-    ok "S15f the unit runs with HOME, CLAUDE_CONFIG_DIR and RICHOS_WORKSPACES_DIR outside the operator's home, and a variable pointing into the record is not passed"
+    ok "S15f the unit runs with HOME outside the operator's home, and every variable pointing into the record (CLAUDE_CONFIG_DIR, RICHOS_WORKSPACES_DIR, RICHOS_TEST_DEVICES_DIR) is removed"
 else
     bad "S15f rc=$RC — the unit could reach the live record:"; printf '%s\n' "$ENVDUMP" | sed 's/^/          /'
 fi
@@ -523,6 +526,28 @@ else
     bad "S15g rc=$RC — git in the unit's home"; sed 's/^/          /' "$SANDBOX/out"
 fi
 rm -f "$E/scripts/lib/gitid.test.sh"
+
+# S15h — a unit that builds a world of its own KEEPS the resolution it chose.
+# The shape scratch-reaper.test.sh S30 has: it sets CLAUDE_CONFIG_DIR to its
+# world and leaves RICHOS_WORKSPACES_DIR unset, so the registry resolves to
+# <its config>/state/workspaces. This change's first version EXPORTED
+# RICHOS_WORKSPACES_DIR into the throwaway home, overrode that, and S30's
+# session records went unread. The runner removes; it never sets.
+mk_unit ownworld.test.sh <<'OWNWORLD'
+#!/usr/bin/env bash
+w="$(mktemp -d "${TMPDIR:-/tmp}/ownworld.XXXXXX")"
+trap 'rm -rf "$w"' EXIT
+got="$(CLAUDE_CONFIG_DIR="$w" python3 -c 'import os; print((os.environ.get("RICHOS_WORKSPACES_DIR") or "").strip() or os.path.join(os.environ["CLAUDE_CONFIG_DIR"], "state", "workspaces"))')"
+[ "$got" = "$w/state/workspaces" ] || { echo "the registry resolved to $got, not the unit's own world" >&2; exit 6; }
+exit 0
+OWNWORLD
+RC="$(op_shard --only-units scripts/lib/ownworld.test.sh)"
+if [ "$RC" = "0" ]; then
+    ok "S15h a unit that points CLAUDE_CONFIG_DIR at a world of its own still resolves the registry inside that world — the runner removes names, it never sets them"
+else
+    bad "S15h rc=$RC — the runner overrode a unit's own world"; sed 's/^/          /' "$SANDBOX/out"
+fi
+rm -f "$E/scripts/lib/ownworld.test.sh"
 
 # --- S16 / S17: the restricted plan ---------------------------------------
 SUBSET="$SANDBOX/subset.txt"
