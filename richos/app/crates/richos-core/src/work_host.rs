@@ -2047,7 +2047,11 @@ impl WorkHost {
     fn report_lost(self: &Arc<Self>, record: &Assignment) {
         const WHY: &str = "The work connection it was running on closed before the command it started \
                            had finished, so how that command ended could not be read.";
-        let _ = assignment::advance(&self.state, &record.entity_id, &record.thread_id, &record.id, AssignmentState::Failed, WHY);
+        if let Err(error) =
+            assignment::advance(&self.state, &record.entity_id, &record.thread_id, &record.id, AssignmentState::Failed, WHY)
+        {
+            eprintln!("[richos] work: a watched assignment's ending could not be recorded: {error}");
+        }
         self.forget_at_the_desk(record);
         self.raise(record, NoticeKind::Failed, &assignment::says::failure(record.kind, &record.title, WHY, true));
     }
@@ -2725,8 +2729,11 @@ impl WorkHost {
                     assignment::advance(&self.state, entity, thread, id, AssignmentState::Interrupted,
                         "Stopped. The workspace and the receipts are kept.")
                         .map_err(|e| e.to_string())?;
-                    let _ = assignment::raise_notice(&self.state, entity, thread, id, NoticeKind::Interrupted,
-                        &assignment::says::interrupted(&record.title));
+                    if let Err(error) = assignment::raise_notice(&self.state, entity, thread, id, NoticeKind::Interrupted,
+                        &assignment::says::interrupted(&record.title))
+                    {
+                        eprintln!("[richos] work: a stopped assignment's notice could not be recorded: {error}");
+                    }
                     return Ok(());
                 }
                 // **A stop must reach an assignment parked on a locked screen** (the CEO's
