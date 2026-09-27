@@ -1521,7 +1521,7 @@ t "scenario outcomes, turn budgets, held reservation and owned timeout cleanup"
   python3 "$HERE/scenario.test.py" >"$TMP/scenario.log" 2>&1; ok $? "$(cat "$TMP/scenario.log")"
 t_done
 
-t "run-walk --wait reaches the guest-lock admission; the default still refuses at once"
+t "run-walk --wait reaches the guest-slot admission; the default still refuses at once"
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/run-walk-wait.test.py" >"$TMP/run-walk-wait.log" 2>&1; ok $? "$(cat "$TMP/run-walk-wait.log")"
 t_done
 
