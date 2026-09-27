@@ -233,6 +233,34 @@ class Retired(unittest.TestCase):
 
 
 class Walk(unittest.TestCase):
+    def question_step(self):
+        return {'question_count': 3, 'independent_progress': True, 'lead_received': True,
+                'answers': [{'enqueued': n, 'reconciled': 0, 'answer': {'outcome': 'accepted'}} for n in (0, 0, 1)],
+                'after': [{'delivered': True, 'revision': 1, 'answer': {'method': method}}
+                          for method in ('phone_tap', 'phone_typed', 'phone_voice')],
+                'retry': {'enqueued': 0, 'reconciled': 0,
+                          'answer': {'outcome': 'accepted', 'question': {'revision': 1}}}}
+
+    def test_question_step_requires_all_methods_one_complete_delivery_and_independent_progress(self):
+        self.assertTrue(gp.grade_question_step(self.question_step()))
+        for field in ('independent_progress', 'lead_received'):
+            step = self.question_step()
+            step[field] = False
+            self.assertFalse(gp.grade_question_step(step), field)
+        for mutation in ('partial_delivery', 'duplicate', 'missing_voice', 'undelivered', 'revision_changed'):
+            step = self.question_step()
+            if mutation == 'partial_delivery':
+                step['answers'][0]['enqueued'] = 1
+            elif mutation == 'duplicate':
+                step['retry']['enqueued'] = 1
+            elif mutation == 'missing_voice':
+                step['after'][2]['answer']['method'] = 'phone_typed'
+            elif mutation == 'undelivered':
+                step['after'][2]['delivered'] = False
+            else:
+                step['retry']['answer']['question']['revision'] = 2
+            self.assertFalse(gp.grade_question_step(step), mutation)
+
     def test_the_walk_runs_only_when_named_and_says_not_run_without_its_binary(self):
         self.assertIn('W2', gp.EXPLICIT, 'a default probe run must never start the walk')
         ctx = gp.Context.__new__(gp.Context)
