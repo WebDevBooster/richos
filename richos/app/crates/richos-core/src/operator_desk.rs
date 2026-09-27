@@ -428,8 +428,10 @@ impl OperatorDesk {
                 Err(error) => {
                     self.host.log(&format!("answer {} not delivered yet, kept for the next try: {error}", delivery.id));
                     if self.told_not_yet.lock().unwrap().insert(delivery.id.clone()) {
+                        // The bound on restarts waits for his words, and says so itself.
+                        let then = if error == crate::operator_host::RETRIES_SPENT { "" } else { " I'll keep trying." };
                         self.delivery.say(&key, &Lane::Conversation, Say::Team, &format!(
-                            "Your answer is saved, but your team couldn't receive it yet: {error} I'll keep trying."));
+                            "Your answer is saved, but your team couldn't receive it yet: {error}{then}"));
                     }
                     first_error.get_or_insert(error);
                 }

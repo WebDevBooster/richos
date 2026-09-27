@@ -453,6 +453,18 @@ pub(crate) fn crash_point(name: &str) {
 #[inline(always)]
 pub(crate) fn crash_point(_name: &str) {}
 
+/// How many times an answer's retries may start a lead in one conversation with no turn
+/// completing in between. The desk's idle timer retries every minute, so without a bound a
+/// lead that ends each time it starts (an init refusal, a crash at start) would be started,
+/// and its end announced, every minute. **Not in the design:** its timer retry (§2.2) did not
+/// say what bounds it; this does, and says so here.
+pub const RETRY_STARTS: u32 = 2;
+/// Said when that bound is reached. His words to the conversation start his team as always,
+/// and the saved answer follows them.
+pub const RETRIES_SPENT: &str = "Your team ended again before it could take your answer, so I've stopped starting it \
+                                 for that. Speak to me in this conversation and I'll start it, and your answer goes \
+                                 to it then.";
+
 fn read_record(path: &Path) -> LeadRecord {
     std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
 }
@@ -513,6 +525,9 @@ struct Conversation {
     first_after_resume: bool,
     /// Questions his team asked and nothing has answered yet, by handle ((o), until S6).
     questions: Vec<(Option<String>, String)>,
+    /// Leads started to retry an answer since this conversation's last completed turn (or his
+    /// last words to it). Bounded by [`RETRY_STARTS`].
+    retry_starts: u32,
 }
 
 /// One named stop's result (r3 (d) item 3, r4 §2.1).
@@ -660,7 +675,7 @@ impl OperatorHost {
             awaiting: BTreeSet::new(), in_turn: false, last_relay: None, last_activity: Instant::now(),
             texts: VecDeque::new(), turn_report: None, handle_agents: HashMap::new(), turn_handle: None, banner: None,
             pending_init: None, fences: Ok(()), checked: false, quitting: false, started_digest: String::new(), told_protocol: false, told_permission: false,
-            first_after_resume, questions: Vec::new(),
+            first_after_resume, questions: Vec::new(), retry_starts: 0,
         }));
         all.insert(key.clone(), conversation.clone());
         conversation
@@ -725,6 +740,8 @@ impl OperatorHost {
         let conversation = self.conversation(key, title);
         let mut c = conversation.lock().unwrap();
         let lead = self.ensure_lead(&mut c)?;
+        // His words start his team whatever an answer's retries have spent.
+        c.retry_starts = 0;
         let uuid = self.write(&mut c, &lead, key, handle, text, None)?;
         self.save(&c.paths.record, &c.record);
         Ok(Relayed::Sent { uuid })
@@ -816,7 +833,14 @@ impl OperatorHost {
                 return Ok(AnswerOutcome::InFlight);
             }
         }
+        let starting = c.lead.as_ref().is_none_or(|l| l.exited());
+        if prior.is_some() && starting && c.retry_starts >= RETRY_STARTS {
+            return Err(RETRIES_SPENT.into());
+        }
         let lead = self.ensure_lead(&mut c)?;
+        if prior.is_some() && starting {
+            c.retry_starts += 1;
+        }
         let session = lead.session_id();
         let uuid = match &prior {
             Some(relay) if relay.session == session => relay.uuid.clone(),
@@ -1165,6 +1189,7 @@ impl OperatorHost {
         let last_report = c.turn_report.take();
         c.turn_handle = None;
         c.in_turn = false;
+        c.retry_starts = 0; // the lead works: an answer's retries may start it again
         c.last_activity = Instant::now();
         let key = c.key.clone();
         let deliver = end.text.filter(|t| last_report.as_deref().map(str::trim) != Some(t.trim()));
@@ -2143,6 +2168,39 @@ pub(crate) mod tests {
         assert_eq!(*second.uuids.lock().unwrap(), [uuid], "resent once, same uuid");
         assert_eq!(r.host.deliver_answer(&key("a"), "A", None, "d-2", "Blue.").unwrap(), AnswerOutcome::InFlight);
         assert_eq!(second.uuids.lock().unwrap().len(), 1, "and not again while awaited");
+    }
+
+    /// **The retry driver never loops a lead.** A lead that ends every time it starts (an init
+    /// refusal, a crash at start) is started for an answer at most [`RETRY_STARTS`] times with
+    /// no turn completing; then the answer waits for his next words there, which start the lead
+    /// as they always have, and the answer follows them. A completed turn re-arms it.
+    #[test]
+    fn a_lead_that_keeps_ending_is_started_for_an_answer_at_most_twice() {
+        let r = rig();
+        let crash = |r: &Rig| {
+            *lead_of(r, "a").exited.lock().unwrap() = true;
+            r.host.handle(&key("a"), LeadEvent::Ended);
+        };
+        r.host.deliver_answer(&key("a"), "A", None, "d-1", "Green.").unwrap();
+        crash(&r);
+        for _ in 0..RETRY_STARTS {
+            assert_eq!(r.host.deliver_answer(&key("a"), "A", None, "d-1", "Green.").unwrap(), AnswerOutcome::InFlight);
+            crash(&r);
+        }
+        let leads = r.launcher.leads.lock().unwrap().len();
+        assert_eq!(leads, 1 + RETRY_STARTS as usize);
+        for _ in 0..3 {
+            assert_eq!(r.host.deliver_answer(&key("a"), "A", None, "d-1", "Green."), Err(RETRIES_SPENT.to_string()));
+        }
+        assert_eq!(r.launcher.leads.lock().unwrap().len(), leads, "no further lead was started");
+        // His words start it; the answer then goes to the running lead.
+        r.host.relay(&key("a"), "A", None, "Are you there?", Origin::DeskTyped).unwrap();
+        assert_eq!(r.host.deliver_answer(&key("a"), "A", None, "d-1", "Green.").unwrap(), AnswerOutcome::InFlight);
+        assert!(lead_of(&r, "a").sent.lock().unwrap()[1].contains("Green."));
+        // A turn that completes re-arms the retries.
+        r.host.handle(&key("a"), turn(&["u-1"], None));
+        crash(&r);
+        assert_eq!(r.host.deliver_answer(&key("a"), "A", None, "d-1", "Green.").unwrap(), AnswerOutcome::InFlight);
     }
 
     /// Test 9: a relay written by the old code (no `session`, no `taken`) is read as taken,
