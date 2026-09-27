@@ -49,20 +49,15 @@ mutant config-threshold-ignored "RW32" "$G" \
     "RESOURCE_WAIT_MINUTES in orchestration.config would be read and never used."
 
 # --- 2. WHO IS WAITING ----------------------------------------------------
-mutant holder-counted-as-waiter "RW12" "$L" \
-    '        if p.pid in holder_pids or p.pid in recorded_pids or kids.get(p.pid):' \
-    '        if p.pid in recorded_pids:' \
-    "the walk HOLDING the slot would be read as a caller waiting for it, and a busy VM would refuse every turn."
+mutant vm-wait-misread "RW13" "$L" \
+    '            "resource": str(rec.get("resource") or "unknown"),' \
+    '            "resource": "unknown",' \
+    "a recorded wait for the VM would not be read as one: the refusal could not say who holds the VM or whether it is in use."
 
-mutant queue-unread "RW13" "$L" \
-    '    waits += queue_waiters(table, holder_pids, recorded, now)' \
-    '    waits += []' \
-    "a caller in the slot queue would wait unseen: the wait the CEO named would be invisible."
-
-mutant ps-read-gated "RW38" "$L" \
-    '    table, why = ps_table(deadline)' \
-    '    table, why = ps_table(deadline) if any(now - w["since"] >= threshold for w in waits) else (None, "")' \
-    "an older run-walk.py that holds guest.lock without saying so would never be read, because nothing LOOKED held."
+mutant ps-never-read "RW10" "$L" \
+    '    if any(now - w["since"] >= threshold for w in waits):{NL}        # Only now' \
+    '    if False:{NL}        # Only now' \
+    "an overdue wait would be reported with no word on who is using the CPU, and a reused pid could not be told from a live one."
 
 mutant dead-pid-counted "RW18" "$L" \
     '        if not pid_alive(pid):{NL}            continue{AND}        if p is None:{NL}            continue' \

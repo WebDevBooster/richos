@@ -29,29 +29,28 @@ clears it: "keep waiting" is exactly the answer the CEO asked to make
 impossible.
 
 ===========================================================================
-THE THREE SOURCES OF A WAIT, AND WHAT ENDS EACH
+THE TWO SOURCES OF A WAIT, AND WHAT ENDS EACH
 ===========================================================================
+A WAIT IS RECORDED, NEVER INFERRED. An earlier draft also read slot-queue
+callers out of the process table by their script names; the lead ruled it out
+(esc-20260927T192047Z-fb31d4e2): guessing waiters from process names is the
+matched-process pattern the working rules forbid, and it breaks on any rename.
+The waiter says it is waiting, through `waiting()`, or it is not counted.
+
 1. WAIT RECORDS — `~/.richos-waits/<pid>-<token>.json` (RICHOS_WAITS_DIR).
    A process that waits on a shared resource writes one while it waits, with
-   `waiting()` below, and removes it when the wait is over. Written today by
-   the CPU admission loop (app/scripts/testvm/reserve.py `cpu_admission`, which
-   run-walk.py and every `reserve.py --wait` go through) and by proof-run.py
-   when it has nothing of its own running and admission refuses the next check.
+   `waiting()` below, and removes it when the wait is over. Written by the CPU
+   admission loop (app/scripts/testvm/reserve.py `cpu_admission`, which
+   run-walk.py and every `reserve.py --wait` go through), by proof-run.py when
+   it has nothing of its own running and admission refuses the next check. The
+   test VM's slot queue (app/scripts/testvm/slots.py `run --wait`, being built
+   in parallel) writes one through the same call once it lands.
    `resource_waits.py wait --until-exists PATH` records a hand-rolled wait for
    a file (the lead's `vm-queue/<name>-go` protocol) the same way.
    ENDS: the record is removed, or its process is gone (a dead pid, or a pid
    reused by a process that started after the wait did).
 
-2. THE PROCESS TABLE, for the test VM's slot queue only. The slot queue being
-   built in app/scripts/testvm/slots.py (per-run slots, `run --wait`) prints
-   its wait and writes no state. Until it writes a record through `waiting()`,
-   a `slots.py run --wait N` or `run-walk.py --wait N` process that holds no
-   slot and has no child is read as a VM waiter, waiting since it started. This
-   is a READ of `ps`, never a basis for signaling anything; a process with its
-   own wait record is never read this way twice.
-   ENDS: the process takes a slot (it spawns its command), or exits.
-
-3. THE ESCALATION LEDGER — an Escalation whose title, question or meanwhile
+2. THE ESCALATION LEDGER — an Escalation whose title, question or meanwhile
    says the teammate is WAITING for a shared resource (the VM, a guest, a
    go-file, a slot, CPU admission). Its wait began when it was raised, minus
    the minutes it says it has already waited ("has waited 90 min", "waiting
@@ -70,8 +69,10 @@ while held) and from any wait record whose `holding` names a slot file (a
 walk that holds guest.lock while it waits for CPU is a holder that is NOT
 using the VM). Whether a run executes is read from `<TESTVM_ROOT>/run/<vm>/`:
 a live `vm.pid` is a booted guest, its process CPU is how busy the guest is,
-and a `hold-walk.py` under the holder is a guest held open for hand-driven
-steps rather than a scripted run. The lock files are NEVER probed with flock:
+and a `hold-walk.py` among the holder's own descendants (found from the
+holder's pid, never by searching for the name) is a guest held open for
+hand-driven steps rather than a scripted run. That only changes the WORDS of
+the refusal; whether a turn is refused never depends on a process name. The lock files are NEVER probed with flock:
 a probe that took the lock for a microsecond could refuse a real walk
 (run-walk.py takes the lock without waiting). An older checkout that holds
 guest.lock without writing a holder record is reported as such.
@@ -83,10 +84,11 @@ decide what to stop or reorder.
 ===========================================================================
 COST
 ===========================================================================
-Per turn end: one directory listing, one read of the escalation ledger, a few
-stat calls and one `ps` call (37 ms median, measured). BUDGET_SECONDS bounds
-the `ps` call. The whole hook's cost, measured, is resource-waits.test.sh's
-RW36 line.
+Per turn end: one directory listing, one read of the escalation ledger and a
+few stat calls. One `ps` call (37 ms median, measured) is added only when a
+wait has reached the threshold: to confirm its pid was not reused and to say
+who holds the resource. BUDGET_SECONDS bounds it. The whole hook's cost,
+measured, is resource-waits.test.sh's RW36 line.
 
 Exit codes of `stop`:
     0  the turn may end; stdout is one `RW<TAB>kind<TAB>detail` line
@@ -484,69 +486,7 @@ def drop_reused_pids(waits, table):
 
 
 # ---------------------------------------------------------------------------
-# SOURCE 2 — THE VM SLOT QUEUE, READ FROM THE PROCESS TABLE
-# ---------------------------------------------------------------------------
-def _wait_value(argv):
-    for i, a in enumerate(argv):
-        if a == "--wait" and i + 1 < len(argv):
-            v = argv[i + 1]
-        elif a.startswith("--wait="):
-            v = a.split("=", 1)[1]
-        else:
-            continue
-        try:
-            return float(v)
-        except ValueError:
-            return None
-    return None
-
-
-def queue_waiters(table, holder_pids, recorded_pids, now):
-    """`slots.py run --wait N` / `run-walk.py --wait N` (N > 0) processes that
-    hold no slot and have started nothing yet."""
-    if table is None:
-        return []
-    # RICHOS_RESOURCE_WAITS_SCRIPT_DIRS (colon-separated) narrows the match to
-    # scripts under those directories. It exists so resource-waits.test.sh is
-    # not disturbed by a real walk running on the same Mac; nothing else sets it.
-    only = [os.path.realpath(d) for d in
-            (os.environ.get("RICHOS_RESOURCE_WAITS_SCRIPT_DIRS") or "").split(":") if d]
-    kids = children_of(table)
-    out = []
-    for p in table.values():
-        argv = p.argv()
-        script = next((a for a in argv[:3] if os.path.basename(a) in ("slots.py", "run-walk.py")), None)
-        if script is None:
-            continue
-        if os.path.basename(script) == "slots.py" and "run" not in argv:
-            continue
-        if only and not any(os.path.realpath(os.path.dirname(script)) == d for d in only):
-            continue
-        wait = _wait_value(argv)
-        if not wait or wait <= 0:
-            continue
-        if p.pid in holder_pids or p.pid in recorded_pids or kids.get(p.pid):
-            continue
-        if os.path.basename(script) == "slots.py":
-            reason = "waiting in the slot queue (--wait %g)" % wait
-        else:
-            # An older run-walk.py waits for CPU admission while it holds
-            # guest.lock; a newer one may wait for a slot. It records neither,
-            # so both are named: either way the walk has started nothing.
-            reason = ("run-walk.py --wait %g has started nothing: it waits for a slot, or for CPU "
-                      "admission while holding guest.lock (an older checkout records neither)" % wait)
-        out.append({
-            "source": "process", "pid": p.pid,
-            "since": time.time() - (p.age or 0), "resource": VM,
-            "waiter": "pid %d (%s)" % (p.pid, short(p.command, 60)),
-            "reason": reason,
-            "holding": [], "command": p.command, "until": "",
-        })
-    return out
-
-
-# ---------------------------------------------------------------------------
-# SOURCE 3 — THE ESCALATION LEDGER
+# SOURCE 2 — THE ESCALATION LEDGER
 # ---------------------------------------------------------------------------
 def _escalations():
     try:
@@ -825,26 +765,14 @@ def collect(now=None, threshold_seconds=None, ledger_rows=None):
     waits += escalation_waits(rows, now)
 
     root = testvm_root()
-    # ONE `ps` read every turn end (measured 37 ms median on this Mac with 620
-    # processes). It is not gated on a slot looking held: an older checkout's
-    # run-walk.py holds guest.lock without saying so, and a gate that skipped the
-    # read whenever nothing LOOKED held would miss exactly that waiter.
-    table, why = ps_table(deadline)
-    if table is None:
-        problems.append(why)
-    waits = drop_reused_pids(waits, table)
-    holder_pids = set()
-    for name in SLOT_FILES:
-        try:
-            with open(os.path.join(root, name), encoding="utf-8") as fh:
-                raw = fh.read().strip()
-            pid = json.loads(raw).get("pid") if raw else None
-            if pid:
-                holder_pids.add(int(pid))
-        except (OSError, ValueError, AttributeError, TypeError):
-            pass
-    recorded = {w["pid"] for w in waits if w.get("pid")}
-    waits += queue_waiters(table, holder_pids, recorded, now)
+    table = None
+    if any(now - w["since"] >= threshold for w in waits):
+        # Only now is the process table worth its 37 ms: to drop a record whose
+        # pid was reused, and to say who holds what the overdue wait waits for.
+        table, why = ps_table(deadline)
+        if table is None:
+            problems.append(why)
+        waits = drop_reused_pids(waits, table)
     waits.sort(key=lambda w: w["since"])
     overdue = [w for w in waits if now - w["since"] >= threshold]
     facts = {}
@@ -862,8 +790,6 @@ def describe_wait(w, now):
     bits = []
     if w["source"] == "record":
         bits.append("pid %d, recorded in %s" % (w["pid"], os.path.basename(w["path"])))
-    elif w["source"] == "process":
-        bits.append("read from the process table: a slot-queue caller holding no slot")
     else:
         bits.append("from the escalation ledger: %s" % ", ".join(w.get("escalations") or []))
     if w.get("until"):

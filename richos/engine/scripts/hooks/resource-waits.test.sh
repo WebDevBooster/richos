@@ -69,9 +69,6 @@ export RICHOS_WORKSPACES_DIR="$SANDBOX/workspaces"
 export RICHOS_WAITS_DIR="$SANDBOX/waits"
 export TESTVM_ROOT="$SANDBOX/testvm"
 export RICHOS_ESCALATION_LEDGER="$SANDBOX/escalations.jsonl"
-# Only this suite's fake slots.py / run-walk.py count as queue callers: a real
-# walk running on the same Mac while the suite runs must not decide a case.
-export RICHOS_RESOURCE_WAITS_SCRIPT_DIRS="$SANDBOX/bin"
 unset RICHOS_RESOURCE_WAITS_NOW RICHOS_RESOURCE_WAIT_MINUTES RICHOS_WAITER
 mkdir -p "$RICHOS_WAITS_DIR" "$TESTVM_ROOT/run" "$SANDBOX/bin"
 : > "$RICHOS_ESCALATION_LEDGER"
@@ -144,6 +141,22 @@ settle() { # give a spawned process time to exec (ps shows the new argv)
 }
 
 now() { python3 -c 'import time; print("%.0f" % time.time())'; }
+
+await_child() { # <pid> — bounded poll until that pid (a fake holder) has started its child
+    local i=0
+    while [ -z "$(ps -A -o ppid= | awk -v p="$1" '$1==p' | head -1)" ] && [ "$i" -lt 50 ]; do
+        python3 -c 'import time; time.sleep(0.1)'
+        i=$((i + 1))
+    done
+}
+
+await_record() { # <pid> — bounded poll until that pid's wait record exists
+    local i=0
+    while ! ls "$RICHOS_WAITS_DIR"/"$1"-*.json >/dev/null 2>&1 && [ "$i" -lt 50 ]; do
+        python3 -c 'import time; time.sleep(0.1)'
+        i=$((i + 1))
+    done
+}
 
 # write_record <pid> <resource> <since-epoch> [holding-path] -> RECORD (path)
 write_record() {
@@ -273,7 +286,7 @@ unset RICHOS_RESOURCE_WAITS_NOW
 clear_all
 spawn python3 "$SANDBOX/bin/slots.py" run --wait 600 -- python3 "$SANDBOX/bin/delta-walk.py"; HOLDER=$SPAWNED
 spawn sleep 120; GUEST=$SPAWNED
-settle
+await_child "$HOLDER"
 T0="$(now)"
 printf '{"pid": %s, "since": %s, "purpose": "delta-walk.py for tester", "slot": "guest.lock"}\n' \
     "$HOLDER" "$((T0 - 300))" > "$TESTVM_ROOT/guest.lock"
@@ -288,15 +301,18 @@ else
     bad "RW12 held lock without a waiter" "rc=$SRC err=$(printf '%s' "$SERR" | head -c 2000)"
 fi
 
-# RW13 — the same holder, and a caller in the slot queue for 11 minutes.
-spawn python3 "$SANDBOX/bin/slots.py" run --wait 1800 -- WAIT; QW=$SPAWNED
-settle
+# RW13 — the same holder, and a caller waiting for a slot for 11 minutes. The
+# fake waiter records its wait through the real writer (`resource_waits.py
+# wait`, which is `waiting()`), exactly as the slot queue will: a wait is
+# recorded, never inferred.
+spawn python3 "$LIB" wait --resource vm --until-exists "$SANDBOX/never-13" --every 1 --waiter slot-waiter-13; QW=$SPAWNED
+await_record "$QW"
 export RICHOS_RESOURCE_WAITS_NOW=$(( $(now) + 660 ))
 stop_run
-if [ "$SRC" = "2" ] && has "$SERR" "pid $QW" && has "$SERR" "the test VM" \
+if [ "$SRC" = "2" ] && has "$SERR" "slot-waiter-13" && has "$SERR" "pid $QW" && has "$SERR" "the test VM" \
    && has "$SERR" "guest.lock held by pid $HOLDER" && has "$SERR" "delta-walk.py for tester" \
    && has "$SERR" "IN USE RIGHT NOW: YES" && has "$SERR" "walk-test1"; then
-    ok "RW13 a slot-queue caller waiting 11 minutes is refused on, naming the holder, its purpose and that a run IS executing"
+    ok "RW13 a recorded slot waiter of 11 minutes is refused on, naming the holder, its purpose and that a run IS executing"
 else
     bad "RW13 queue waiter + busy holder" "rc=$SRC err=$(printf '%s' "$SERR" | head -c 900)"
 fi
@@ -321,13 +337,13 @@ if [ "$SRC" = "2" ] && has "$SERR" "guest.lock held by pid $LW" && has "$SERR" "
 else
     bad "RW15 holder that is itself waiting" "rc=$SRC err=$(printf '%s' "$SERR" | head -c 900)"
 fi
-rm -f "$RICHOS_WAITS_DIR"/*.json
+rm -f "$RICHOS_WAITS_DIR"/"$LW"-*.json
 stop_pid "$LW"
 
 # RW16 — a guest held open by hold-walk.py for hand-driven steps.
 spawn python3 "$SANDBOX/bin/slots.py" run --wait 600 -- python3 "$SANDBOX/bin/hold-walk.py"; HH=$SPAWNED
 spawn sleep 120; GUEST2=$SPAWNED
-settle
+await_child "$HH"
 printf '{"pid": %s, "since": %s, "purpose": "hold-walk.py for tester", "slot": "guest.lock"}\n' \
     "$HH" "$(( $(now) - 1200 ))" > "$TESTVM_ROOT/guest.lock"
 mkdir -p "$TESTVM_ROOT/run/walk-test2"
@@ -351,22 +367,28 @@ fi
 unset RICHOS_RESOURCE_WAITS_NOW
 stop_pid "$HH"; stop_pid "$GUEST2"; stop_pid "$HOLDER"; stop_pid "$GUEST"
 
-# RW38 — an older run-walk.py with --wait that has started nothing is a wait,
-# and the refusal names both things it may be waiting for.
+# RW38 — A WAIT IS RECORDED, NEVER INFERRED (the lead's ruling on
+# esc-20260927T192047Z-fb31d4e2). A process that merely LOOKS like a queue
+# caller, by its script name and a --wait flag, is not counted...
 clear_all
 spawn python3 "$SANDBOX/bin/run-walk.py" --wait 1800 --bundle B.zip -- delta-walk.py; RWW=$SPAWNED
 settle
 export RICHOS_RESOURCE_WAITS_NOW=$(( $(now) + 660 ))
 stop_run
-if [ "$SRC" = "2" ] && has "$SERR" "pid $RWW" && has "$SERR" "waits for a slot, or for CPU admission while holding guest.lock"; then
-    ok "RW38 a run-walk.py --wait that has started nothing for 11 minutes is refused on, naming both things it may wait for"
+if [ "$SRC" = "0" ] && [ -z "$SERR" ]; then
+    ok "RW38 a process that only LOOKS like a slot caller (run-walk.py --wait, nothing recorded) is never counted as a wait"
 else
-    bad "RW38 run-walk.py waiter" "rc=$SRC err=$(printf '%s' "$SERR" | head -c 900)"
+    bad "RW38 no inference from process names" "rc=$SRC err=$(printf '%s' "$SERR" | head -c 900)"
+fi
+# ... and the pair: the same process, once it records its wait, is.
+write_record "$RWW" testvm-slot "$(( $(now) ))"
+stop_run
+if [ "$SRC" = "2" ] && has "$SERR" "tester-waiter-$RWW"; then
+    ok "RW39 the pair to RW38: the same process with its wait RECORDED refuses the turn"
+else
+    bad "RW39 recorded wait counts" "rc=$SRC err=$(printf '%s' "$SERR" | head -c 600)"
 fi
 stop_pid "$RWW"
-stop_run
-[ "$SRC" = "0" ] && ok "RW39 the pair to RW38: once that walk is gone the turn may end" \
-                 || bad "RW39 run-walk.py gone" "rc=$SRC"
 unset RICHOS_RESOURCE_WAITS_NOW
 
 # RW18 — a record whose process is dead is not a wait.
@@ -412,7 +434,7 @@ mkdir -p "$WT"
 GO="$SANDBOX/vm-queue/echo-test-go"
 mkdir -p "$(dirname "$GO")"
 T0="$(now)"
-RAISED="$(python3 -c 'import sys,time; print(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(int(sys.argv[1]))))' "$T0")"
+RAISED="$(python3 -c 'import sys,time; print(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(int(sys.argv[1]) - 5)))' "$T0")"
 esc_row() { # <id> <raised> <title> [question]
     ID="$1" RAISED="$2" TITLE="$3" Q="${4:-}" WT="$WT" python3 -c '
 import json, os
