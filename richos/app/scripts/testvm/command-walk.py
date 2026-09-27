@@ -61,7 +61,9 @@ FIVE MORE STEPS, run with --steps (esc-20260927T093052Z-85f3303f's leftovers):
   relaunch       relaunch.py after a first run (bgdone2 item 3), observed: one relaunch, then every
                  5 s up to --relaunch-within seconds the recorded pid, every process of the app's
                  executable with its parent, the recorded pid's windows, and whether the composer is
-                 back. PASS when it is. Evidence: relaunch-observed.json, relaunch-app.log, and on a
+                 back. A launch after the first run lands on the HOME SCREEN by design (ui/home.js),
+                 so its door ("Talk to Rich") is pressed once and the thread opened, and the moment
+                 is recorded. PASS when the composer is back. Evidence: relaunch-observed.json, relaunch-app.log, and on a
                  miss relaunch-tree.txt and relaunch.png.
 
 Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
@@ -399,14 +401,26 @@ class CommandWalk(adopt_walk.Walk):
         launched = relaunch(self.vm)
         observed['relaunched'] = launched
         observed['samples'] = []
-        back = None
+        back, door = None, None
         end = time.monotonic() + self.a.relaunch_within
         while time.monotonic() < end:
             pid = (state / 'app.pid').read_text().strip()
             sample = {'t': round(time.monotonic() - began, 1), 'recorded_pid': pid, 'rows': self.app_rows(),
                       'windows': self.windows_of(pid) if pid.isdigit() else None,
                       'composer': self.present('Message to Rich', role='AXTextArea')}
+            # THE HOME SCREEN IS WHERE A LAUNCH AFTER THE FIRST RUN LANDS, by his ruling of
+            # 2026-09-01 (`ui/home.js`: "must be shown in the app after the splash screen", with a
+            # way into the app UI). The first launch goes straight to first-run setup, so a
+            # walk that waited only for the composer never saw this door; reap-walk.py's
+            # `enter` walks through it the same way. Through the door once, then the thread.
+            if not sample['composer'] and door is None and self.present('Talk to Rich'):
+                door = sample['t']
+                sample['home_screen'] = True
+                self.press('Talk to Rich')
+                time.sleep(2)
+                self.press(self.facts.get('thread_title') or 'Running')
             observed['samples'].append(sample)
+            observed['home_screen_door_pressed_at_s'] = door
             (self.out / 'relaunch-observed.json').write_text(json.dumps(observed, indent=2) + '\n')
             if sample['composer']:
                 back = sample['t']
@@ -423,7 +437,8 @@ class CommandWalk(adopt_walk.Walk):
             self.shot('relaunch.png')
             raise StepFailed(f'the composer was not back within {self.a.relaunch_within:.0f} s of the relaunch; '
                              'see relaunch-observed.json, relaunch-app.log, relaunch-tree.txt, relaunch.png')
-        return {'composer_back_after_s': back, 'recorded_pid': observed['samples'][-1]['recorded_pid'],
+        return {'composer_back_after_s': back, 'home_screen_door_pressed_at_s': door,
+                'recorded_pid': observed['samples'][-1]['recorded_pid'],
                 'windows': observed['samples'][-1]['windows'], 'log': launched['log']}
 
     def file_epoch(self):
