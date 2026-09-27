@@ -525,7 +525,9 @@ const COMMAND_ENDED_HEAD: &str =
 const COMMAND_ENDED_TAIL: &str =
     "Its output is in the file named when it started. Give him your report on this \
      assignment now, in plain words: what ran, how it ended, and what it printed that matters \
-     to him. This is the report he will read, so make it complete, and leave out reviews, \
+     to him. If he asked what it printed, quote the printed lines themselves, as they are, \
+     then say what they mean; a description of them is not what he asked for. This is the \
+     report he will read, so make it complete, and leave out reviews, \
      lands and closing the assignment: the app closes it from this report. Nothing about the \
      assignment has changed and your seat is the same one.";
 
@@ -5538,6 +5540,10 @@ mod tests {
         let prompts = h.work_prompts.lock().unwrap().clone();
         assert_eq!(prompts.len(), 2, "the back end was never asked for its report: {prompts:?}");
         assert!(prompts[1].contains("npm test") && prompts[1].contains("exit code 0"), "{}", prompts[1]);
+        // VM run 6 (2026-09-27): he asked "what it printed" and the report described the output
+        // ("one entry, labeled init") instead of quoting it. His words are what the report owes.
+        assert!(prompts[1].contains("If he asked what it printed, quote the printed lines themselves"),
+                "the report is not asked for the output he asked for: {}", prompts[1]);
         let row = assignment::read(&h.state, "depot", "thread-one", &job.id).unwrap();
         assert!(row.was_answered(), "{:?}: {}", row.state, row.detail);
         let notices = until_notices(&h, 2);
