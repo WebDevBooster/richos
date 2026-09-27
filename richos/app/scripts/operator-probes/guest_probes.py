@@ -2530,7 +2530,7 @@ def question_step(walk, asking, independent):
 
 
 @probe('W2', explicit=True)
-def w2(ctx, r):
+def w2(ctx, r, question_only=False):
     if not getattr(ctx, 'walk_binary', None) or not os.path.exists(ctx.walk_binary):
         return 'NOT-RUN', 'no operator_walk binary was handed to the guest (run-probes.py --walk-binary)'
     p = ctx.p
@@ -2578,6 +2578,12 @@ def w2(ctx, r):
     A, B = ('w2-a', 'Walk A: land'), ('w2-b', 'Walk B: stop')
     claim_file = p.claude_dir / 'state' / 'operator-lead.json'
     try:
+        if question_only:
+            steps['4'] = question_step(walk, A, B)
+            left.append('Resolved phone answer methods only: physical transport, recognition, microphone '
+                        'capture and visible cards need the separate device/window checks.')
+            passed = s0['pass'] and steps['4']['pass']
+            return ('PASS' if passed else 'FAIL'), 'S6 gate and durable operator question round trip'
         # ---- step 6 FIRST: the claim is taken at the first lead, so the terminal must be live
         # before any lead opens for the app-side refusal to be what decides -------------------
         s6 = steps.setdefault('6', {})
@@ -2809,11 +2815,17 @@ def w2(ctx, r):
         if walk.proc.poll() is None:
             walk.quit()
         r['says_last_walk'] = list(walk.says)
-    r['state_after'] = state_listing(p)
-    r['state_new'] = sorted(set(r['state_after']) - set(r['state_before']))
+        r['state_after'] = state_listing(p)
+        r['state_new'] = sorted(set(r['state_after']) - set(r['state_before']))
     passed = sorted(k for k, v in steps.items() if v.get('pass'))
     failed = sorted(k for k, v in steps.items() if not v.get('pass'))
     return 'RECORDED', 'W2 steps passed: %s; not passed: %s; left: %d items (see "left")' % (passed, failed, len(left))
+
+
+@probe('S6', explicit=True)
+def s6(ctx, r):
+    """Run only the question acceptance, with W2's gate, fixture and owned cleanup."""
+    return w2(ctx, r, question_only=True)
 
 
 # =============================================================================================

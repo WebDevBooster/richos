@@ -263,9 +263,11 @@ class Walk(unittest.TestCase):
 
     def test_the_walk_runs_only_when_named_and_says_not_run_without_its_binary(self):
         self.assertIn('W2', gp.EXPLICIT, 'a default probe run must never start the walk')
+        self.assertIn('S6', gp.EXPLICIT, 'a default probe run must never start question acceptance')
         ctx = gp.Context.__new__(gp.Context)
         ctx.walk_binary = ''
         self.assertEqual(gp.w2(ctx, {})[0], 'NOT-RUN')
+        self.assertEqual(gp.s6(ctx, {})[0], 'NOT-RUN')
 
     def test_a_heartbeat_is_a_shell_loop_writing_one_file(self):
         self.assertIn('/tmp/hb.txt', gp.heartbeat_command('/tmp/hb.txt'))
