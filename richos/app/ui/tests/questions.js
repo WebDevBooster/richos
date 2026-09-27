@@ -22,6 +22,28 @@ async function main(){
    window.fixtureQuestion=q;document.getElementById("messages").appendChild(window.RichQuestions.render({threadId:"general",question:q}));
   };
  });
+ await run.check("question module loaded before the native bridge still acknowledges and answers",async()=>{
+  // index.html loads questions.js before main.js installs RichBridge in Tauri.
+  // mock.js installs it earlier in ordinary browser fixtures, hiding this ordering.
+  const late=await browser.newPage();const lateErrors=[];late.on("pageerror",e=>lateErrors.push(String(e)));
+  try {
+   await late.goto("file://"+path.join(UI_DIR,"index.html"));await leaveHome(late);
+   await late.evaluate(()=>{window.savedBridge=window.RichBridge;delete window.RichBridge;});
+   await late.addScriptTag({path:path.join(UI_DIR,"questions.js")});
+   await late.evaluate(()=>{
+    window.lateCalls=[];
+    const q={id:"late-bridge",text:"Ship when?",options:[{id:"today",label:"Today",description:"Earlier fixes"},{id:"tomorrow",label:"Tomorrow",description:"More testing"}],multiple:false,free_answer:true,state:"open",revision:0,delivered:false};
+    window.RichBridge={...savedBridge,invoke:async(c,a)=>{lateCalls.push(c);if(c==="answer_question")return {outcome:"accepted",question:{...q,state:"answered",revision:1,remaining:0,answer:{...a.answer,method:a.method,surface:"mac"}}};}};
+    document.getElementById("messages").appendChild(RichQuestions.render({threadId:"general",question:q}));
+   });
+   await late.waitForFunction(()=>lateCalls.includes("question_shown"));
+   await late.locator('[data-question-id="late-bridge"] .question-option').first().click();
+   await late.waitForFunction(()=>lateCalls.includes("answer_question"));
+   assertEqual(await late.locator('[data-question-id="late-bridge"]').getAttribute("data-state"),"answered","native-order answer stayed pending");
+   assertEqual(lateErrors,[],"native-order renderer errors");
+  } finally {await late.close();}
+  return "bridge resolves when used, after the native shell installs it";
+ });
  await run.check("single tap saves once and leaves composer draft and focus alone",async()=>{
   await page.fill("#input","Keep this draft");await page.evaluate(()=>mountQuestion());
   assertEqual(await page.inputValue("#input"),"Keep this draft","draft changed");

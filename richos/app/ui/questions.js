@@ -1,7 +1,8 @@
 "use strict";
 // Inline question controls. The composer is never used as an answer field.
 (function () {
-  const bridge = window.RichBridge;
+  // main.js installs the native bridge after this module loads. Resolve it at
+  // use time; capturing it here works only with the earlier mock bridge.
   const shown = new Set();
   const drafts = new Map();
   function node(tag, text, cls) { const el=document.createElement(tag); if(text) el.textContent=text; if(cls) el.className=cls; return el; }
@@ -90,7 +91,7 @@
     async function sendSaved(saved) {
       if(busy)return;busy=true;status.textContent="Saving your answer…";
       try {
-        const result=await bridge.invoke("answer_question",{threadId:saved.threadId,answer:saved.answer,method:saved.method});
+        const result=await window.RichBridge.invoke("answer_question",{threadId:saved.threadId,answer:saved.answer,method:saved.method});
         if(result.outcome==="conversation_deleted") {
           saved.deleted=true;localStorage.setItem(pendingKey,JSON.stringify(saved));draw();
           document.dispatchEvent(new Event("richos-questions-changed"));return;
@@ -115,7 +116,7 @@
     const acknowledge=()=>{
       if(card.isConnected && document.visibilityState === "visible" && card.getClientRects().length && !shown.has(q.id)) {
         shown.add(q.id);
-        bridge.invoke("question_shown",{threadId:item.threadId,questionId:q.id}).catch(()=>shown.delete(q.id));
+        window.RichBridge.invoke("question_shown",{threadId:item.threadId,questionId:q.id}).catch(()=>shown.delete(q.id));
       }
     };
     requestAnimationFrame(acknowledge);
