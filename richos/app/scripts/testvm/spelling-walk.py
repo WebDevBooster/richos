@@ -77,6 +77,9 @@ StepFailed = command_walk.StepFailed
 STEPS = ['identity', 'first-run', 'reply', 'connect', 'document']
 DOCUMENT = ('Please add a file named {name} to the Acme repository containing only this sentence, copied '
             'letter for letter with its spelling exactly as written, and land it: {sentence}')
+# --document-tool write: the same request, naming the file-writing tool, so the one path the
+# document fix covers (a Write/Edit/MultiEdit) is exercised on purpose (plan check C18).
+WITH_WRITE_TOOL = ' Create the file with your Write tool, not with a shell command.'
 WRITE_TOOLS = ('Write', 'Edit', 'MultiEdit')
 FIXTURE = HERE.parents[2] / 'engine/scripts/lib/dialect/fixtures/stream-a-app.txt'
 # The instruction carries no British word; the sentence does, from the fixture.
@@ -227,6 +230,22 @@ class SpellingWalk(command_walk.CommandWalk):
                                 + shlex.quote(name) + ' ' + ','.join(WRITE_TOOLS), 60))
         return hits[-1] if hits else None
 
+    def calls_naming(self, name):
+        """Every tool call whose input names the file, as the hooks saw it: which tool, whether a
+        worker made it, and the first 300 characters of its input. Says HOW the file was made."""
+        script = ('import glob,json,sys\n'
+                  'out=[]\n'
+                  'for p in glob.glob(sys.argv[1]+"/engine-state/evidence/*/callbacks.jsonl"):\n'
+                  '    for line in open(p):\n'
+                  '        try: c=json.loads(line).get("callback",{})\n'
+                  '        except Exception: continue\n'
+                  '        i=json.dumps(c.get("tool_input") or {})\n'
+                  '        if c.get("hook_event_name")=="PreToolUse" and sys.argv[2] in i:\n'
+                  '            out.append({"tool":c.get("tool_name"),"worker":bool(c.get("agent_id")),"input":i[:300]})\n'
+                  'print(json.dumps(out))\n')
+        return json.loads(guest(self.vm, 'python3 -c ' + shlex.quote(script) + ' ' + shlex.quote(self.data) + ' '
+                                + shlex.quote(name), 60))
+
     def on_disk(self, name, written):
         """The file's bytes: landed in Acme if it has landed, else where the model wrote it."""
         landed = self.company + '/' + name
@@ -244,7 +263,10 @@ class SpellingWalk(command_walk.CommandWalk):
         british = section('vm-british-words').split()
         american = section('vm-american-words').split()
         name = 'note-x' + uuid.uuid4().hex[:10] + '.md'
-        sent = self.send(DOCUMENT.format(name=name, sentence=sentence))
+        request = DOCUMENT.format(name=name, sentence=sentence)
+        if self.a.document_tool == 'write':
+            request += WITH_WRITE_TOOL
+        sent = self.send(request)
         landed = self.company + '/' + name
         end = time.monotonic() + self.a.document_within
         pressed, written, path, text = 0, None, None, None
@@ -262,10 +284,15 @@ class SpellingWalk(command_walk.CommandWalk):
             body = written.get('content')
             if body is None:
                 body = written.get('new_string') or ''.join(e.get('new_string', '') for e in written.get('edits', []))
-        evidence = {'file': name, 'sent_between_guest_ms': [round(v) for v in sent], 'approvals_pressed': pressed,
-                    'written_by_model': body, 'path_read': path, 'on_disk': text, 'landed': path == landed}
+        evidence = {'file': name, 'document_tool': self.a.document_tool,
+                    'sent_between_guest_ms': [round(v) for v in sent], 'approvals_pressed': pressed,
+                    'written_by_model': body, 'path_read': path, 'on_disk': text, 'landed': path == landed,
+                    'calls_naming_the_file': self.calls_naming(name)}
         (self.out / 'document-evidence.json').write_text(json.dumps(evidence, indent=2) + '\n')
         failures = document_verdict(body, text, british, american)
+        if failures and written is None:
+            tools = sorted({c['tool'] for c in evidence['calls_naming_the_file']})
+            failures.append('tool calls that named the file: ' + (', '.join(tools) or 'none'))
         if failures:
             raise StepFailed('; '.join(failures))
         return evidence
@@ -281,6 +308,8 @@ def main():
     p.add_argument('--within', type=float, default=180, help='seconds for the reply turn to end')
     p.add_argument('--document-within', type=float, default=300, help='seconds for the document to land')
     p.add_argument('--approvals', type=int, default=3, help='most Approve presses on the document assignment')
+    p.add_argument('--document-tool', choices=['any', 'write'], default='any',
+                   help='any: ask for the file as a person would; write: also name the Write tool (C18)')
     p.add_argument('--steps', default=','.join(STEPS))
     a = p.parse_args()
     steps = a.steps.split(',')
