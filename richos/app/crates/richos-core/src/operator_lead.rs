@@ -580,13 +580,22 @@ impl OperatorLead {
 
     /// Relay one message. Returns its uuid. Never waits for the lead to be idle.
     pub fn send(&self, text: &str) -> Result<String, LeadError> {
+        let uuid = uuid::Uuid::new_v4().to_string();
+        self.send_with_uuid(&uuid, text)?;
+        Ok(uuid)
+    }
+
+    /// Relay one message under a uuid the caller chose. **An answer's retry reuses the uuid of
+    /// its first send, into the same session,** so a lead that already has the answer drops the
+    /// repeat and only echoes it (the provider's own check against the saved transcript;
+    /// richos-hq `docs/plans/2026-09-27-answer-delivery-crash-dedup-design.md` §1.2, C3, measured
+    /// by probe P18). A fresh uuid on every call made that check unusable.
+    pub fn send_with_uuid(&self, uuid: &str, text: &str) -> Result<(), LeadError> {
         if self.closed.load(Ordering::SeqCst) {
             return Err(LeadError::Closed);
         }
-        let uuid = uuid::Uuid::new_v4().to_string();
-        self.turns.lock().unwrap().mark_sent(&uuid);
-        write_frame(&self.stdin, &user_message(&uuid, text))?;
-        Ok(uuid)
+        self.turns.lock().unwrap().mark_sent(uuid);
+        write_frame(&self.stdin, &user_message(uuid, text))
     }
 
     /// Stop one task (r3 (d) item 2).
@@ -1060,6 +1069,33 @@ done
         assert_eq!(lines.len(), 3, "two messages written back to back, none held: {lines:?}");
         assert!(lines.iter().all(|l| !has_key(l, "priority")));
         assert!(matches!(lead.quit(Duration::from_secs(5)), Quit::Terminated { .. }));
+    }
+
+    /// Design §2.2 and C3: a retry goes out under the uuid its first send used, and the CLI's
+    /// echo of that uuid is seen as the lead taking it.
+    #[test]
+    fn a_chosen_uuid_goes_on_the_wire_and_its_echo_is_a_taking() {
+        let f = fixture();
+        let sink = Collect::new();
+        let echo = r#"printf '%s\n' '{"type":"user","uuid":"answer-uuid-1","isReplay":true,"message":{}}'"#;
+        let lead = OperatorLead::spawn(fake(&f.root, ""), "s-10", sink.clone(), Arc::new(NoPermissionDesk)).unwrap();
+        lead.send_with_uuid("answer-uuid-1", "His answer.").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while written(&f.root).is_empty() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(written(&f.root)[0]["uuid"], "answer-uuid-1");
+        assert!(!has_key(&written(&f.root)[0], "priority"));
+        drop(lead);
+        // A lead whose stream echoes that uuid: the reader reports it as taken.
+        let g = fixture();
+        let sink2 = Collect::new();
+        let lead = OperatorLead::spawn(fake(&g.root, &format!("read -r first; {echo}")), "s-11", sink2.clone(),
+                                       Arc::new(NoPermissionDesk)).unwrap();
+        lead.send_with_uuid("answer-uuid-1", "His answer.").unwrap();
+        let took = sink2.wait_for(|e| matches!(e, LeadEvent::Took(u) if u == "answer-uuid-1"), Duration::from_secs(10));
+        assert!(took.is_some(), "{:?}", sink2.events.lock().unwrap());
+        let _ = sink;
     }
 
     #[test]
