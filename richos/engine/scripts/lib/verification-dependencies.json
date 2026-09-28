@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "98cb1917bcec0ed5ec366e54c4f1032d494ae24ccfe959231ce6cd46588e838d",
+      "sha256": "c799be47ccf5228a2743117b1639ae9eed2caa676edac11e34639d0339d32e8b",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -11405,6 +11405,115 @@
           "to": "scripts/hooks/contract-integrity.test.sh#list"
         }
       ]
+    },
+    "scripts/operator-fences.mutation.sh": {
+      "source": "scripts/operator-fences.mutation.sh",
+      "sha256": "3ae93acf6f923c8b679df5f5e103cafab7fe88c2c699a39a5f2894f4cd8a6cc0",
+      "evidence": "All34 named mutants patch finite literal source operands then invoke the existing operator-fences fixture suite through mutation_focus stop-at-want. Mutations change branches/constants or fixed commands, never introduce a config reader. The shared harness transports config; the fixture suite constructs its own literal entity config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/operator-fences.test.sh"
+        }
+      ]
+    },
+    "scripts/operator-fences-mutation.test.sh": {
+      "source": "scripts/operator-fences-mutation.test.sh",
+      "sha256": "547f62004265935dcaed1b6c3429b2d59cb044b9c4c8a886128e5dd7d2acc98c",
+      "evidence": "Thin wrapper invokes only the source-bound operator-fences mutation driver. No configuration read or additional runtime path.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/operator-fences.mutation.sh"
+        }
+      ]
+    },
+    "scripts/hooks/ref-transaction-forensics.test.sh": {
+      "source": "scripts/hooks/ref-transaction-forensics.test.sh",
+      "sha256": "75fc4b6529b8a37f6a445db0793be252fb723e70beaf035cd2cc34052bd0c849",
+      "evidence": "Invokes the recorder directly and through private Git hooks with all forensic output redirected. The negative control only replaces the append target. Inline eval expressions are fixed literal calls inspecting parsed fixture rows; they do not execute row contents or configuration.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/ref-transaction-forensics.sh"
+        }
+      ],
+      "nonconfig_eval": "Fixed inline Python expressions passed at literal rows call sites; record strings are data only."
+    },
+    "scripts/hooks/release-land-leases.mutation.sh": {
+      "source": "scripts/hooks/release-land-leases.mutation.sh",
+      "sha256": "83632f38ba729b6650dd844455881671992ec19ffd2588d3d9413b307b028d94",
+      "evidence": "Four fixed branch/message mutations run the same private turn-end lease fixture. No mutation introduces a configuration reader. Shared harness copies are transport edges.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/hooks/release-land-leases.test.sh"
+        }
+      ]
+    },
+    "scripts/hooks/release-land-leases.test.sh": {
+      "source": "scripts/hooks/release-land-leases.test.sh",
+      "sha256": "d859aca1be911fea9d0955db606de6c853b0c421d9ccf2c1863f20571953b79f",
+      "evidence": "Uses operator-fences-fixture to create private repositories, literal entity configuration and captured shell sessions. turn_end invokes only the fixed release hook; all shell-server commands are fixed Git/lease fixture operations. Nested mutants preserve those entry points.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/operator-fences-fixture.sh"
+        },
+        {
+          "to": "scripts/hooks/release-land-leases.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/release-land-leases.mutation.sh"
+        }
+      ]
+    },
+    "scripts/lib/assert-own-worktree-registered.sh": {
+      "source": "scripts/lib/assert-own-worktree-registered.sh",
+      "sha256": "25449eccf162725a40090afacf715a720f194b8bd3f840f11f712371c1ca9acd",
+      "evidence": "Sources only resolve-main-checkout.sh and compares supplied physical paths with Git worktree inventory. No config source, config content read or dynamic callback.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-main-checkout.sh"
+        }
+      ]
+    },
+    "scripts/lib/assert-own-worktree-registered.test.sh": {
+      "source": "scripts/lib/assert-own-worktree-registered.test.sh",
+      "sha256": "eb9e8e4e5f8e8b13d92bdd3d427dab3985bac6fbe79eba35d34c5b8880a59071",
+      "evidence": "Copies the assertion and resolver into private Git repositories and exercises existing/missing/recreated worktree paths. It invokes only those fixed helpers. No orchestration config is present or read.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/assert-own-worktree-registered.sh"
+        }
+      ]
+    },
+    "scripts/ledger-prune-sandbox.py": {
+      "source": "scripts/ledger-prune-sandbox.py",
+      "sha256": "6eae706be128d9c1f12f1af5de9f1fdbdaeae86507e862727ef4efd2310e0860",
+      "evidence": "Reviewed all CLI/predicate/apply paths: reads the supplied ledger as JSON, stats named paths, preserves bytes and writes backups/replacement. Standard library only, no subprocess or configuration reader. Data paths are never executed.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/ledger-prune-sandbox.test.sh": {
+      "source": "scripts/ledger-prune-sandbox.test.sh",
+      "sha256": "ad564cbb9337b10c594e822f768e6d7ac3ffd5ff9dbaf69c5cbec4f5c07cdee3",
+      "evidence": "Uses explicit private ledger and backup paths. Invokes only the pruner; fixed inline Python creates a unique absent-path string. Runtime path-existence and clock inputs are distinct from orchestration config values.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/ledger-prune-sandbox.py"
+        }
+      ]
     }
   },
   "units": {
@@ -11546,7 +11655,12 @@
     "scripts/lib/record-canary.test.sh": "scripts/lib/record-canary.test.sh",
     "scripts/lib/mutation-pool.test.sh": "scripts/lib/mutation-pool.test.sh",
     "scripts/mutation-inventory.test.sh": "scripts/mutation-inventory.test.sh",
-    "scripts/ci-units.test.sh": "scripts/ci-units.test.sh"
+    "scripts/ci-units.test.sh": "scripts/ci-units.test.sh",
+    "scripts/operator-fences-mutation.test.sh": "scripts/operator-fences-mutation.test.sh",
+    "scripts/hooks/ref-transaction-forensics.test.sh": "scripts/hooks/ref-transaction-forensics.test.sh",
+    "scripts/hooks/release-land-leases.test.sh": "scripts/hooks/release-land-leases.test.sh",
+    "scripts/lib/assert-own-worktree-registered.test.sh": "scripts/lib/assert-own-worktree-registered.test.sh",
+    "scripts/ledger-prune-sandbox.test.sh": "scripts/ledger-prune-sandbox.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
