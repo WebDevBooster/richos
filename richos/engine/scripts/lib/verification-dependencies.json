@@ -617,7 +617,7 @@
     },
     "scripts/lib/verification_inputs.py#config": {
       "source": "scripts/lib/verification_inputs.py",
-      "sha256": "cc7a5c552055f7ee2c8c076d0d3b29fd5cf1b33ab641028790127610df71cfb0",
+      "sha256": "c7ddb8e54b83ad2bc84eb3eaa4d15eaf4a7c0071a6c793b31bd229143e037c43",
       "evidence": "The config parser accepts assignment text as data, preserving key references and rejecting unsupported executable syntax. No selected hook or suite is invoked.",
       "keys": [],
       "edges": [],
@@ -1046,7 +1046,7 @@
     },
     "scripts/lib/verification_inputs.py": {
       "source": "scripts/lib/verification_inputs.py",
-      "sha256": "cc7a5c552055f7ee2c8c076d0d3b29fd5cf1b33ab641028790127610df71cfb0",
+      "sha256": "c7ddb8e54b83ad2bc84eb3eaa4d15eaf4a7c0071a6c793b31bd229143e037c43",
       "evidence": "Parser and dependency APIs read supplied text/paths. Snapshot executes only Git reads. It never executes a sourced configuration or a selected hook command.",
       "keys": [],
       "edges": []
@@ -14257,6 +14257,852 @@
         }
       ],
       "evidence": "Direct literal payloads never execute their command text. Sole dispatcher case is fixed find ~ -name x. Bound complete direct rule, all Bash dispatcher modules and full mutation transport."
+    },
+    "scripts/lib/cpu_guard.py#policy-fixtures": {
+      "source": "scripts/lib/cpu_guard.py",
+      "sha256": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/cpu_guard.py"
+        },
+        {
+          "to": "scripts/lib/resource_waits.py"
+        }
+      ],
+      "evidence": "Full Watch/native-sampling/stage/install fixture paths. HostMemory stages the fixed reserve provider. Install reads launcher bytes, private settings and Git metadata; its launchctl is stubbed to fail, so no actual installed process starts. Source inventory digests are opaque identity data, not orchestration settings.",
+      "external": [
+        {
+          "root": "repository",
+          "path": "richos/app/scripts/proof-run.py",
+          "sha256": "eb46db35905566f620d0a1c8cf27826939880659b6db338c769ad3b83a95718f",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/app/scripts/lib/proof_evidence.py",
+          "sha256": "a2a0b5f57e239bfb1935b67cb0df62f21c360519ae4556e68dd48a839c60622a",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/app/scripts/run-tests.sh",
+          "sha256": "ed2e06fa54198e6ac816979cef5b52096f11082b10059062f2faea932b702e67",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/app/scripts/nightly-local.py",
+          "sha256": "510c2799ac222e2f89d5d68b95b0be9cb4174677b61d1198cfa24f9d8a7253fb",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/app/scripts/lib/simulator_budget.py",
+          "sha256": "c63a923188aa52be893cf9ee11e4499049d42dc1bccbb0e7efe7b8925abba05c",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/app/scripts/testvm/reserve.py",
+          "sha256": "2dfa4a6cb1071fd07755d2dcea1ef8f344c75b78903b3fdd3c4bee117ed97399",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/engine/scripts/ci-shard.sh",
+          "sha256": "c2eddd4b6dcc3b9885bcccc648c38ddf14baf402386209a0a9de1c9eb386ecde",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/engine/scripts/run-all-tests.sh",
+          "sha256": "e70d96bab5eabf9729a1c05ad92916d5f9ab19bf48a5ed7b68b966a4f835b106",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/engine/scripts/lib/ci-receipts.py",
+          "sha256": "cd5c810a1ea0279d206d238eb3ee600b81e94477184e412fec90aaccfc6f27e6",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/engine/scripts/lib/engine_pass.py",
+          "sha256": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/engine/scripts/lib/worker_tokens.py",
+          "sha256": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/engine/scripts/lib/proc_tree.py",
+          "sha256": "78ad648204b6e5748a218df45e33b2baec0ead71bda62f0908a83bb5c35bfeb0",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/engine/scripts/lib/cpu_guard.py",
+          "sha256": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/engine/scripts/lib/cpu_policy.py",
+          "sha256": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/engine/scripts/lib/operator_fences.py",
+          "sha256": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/engine/scripts/lib/native-work.py",
+          "sha256": "73b74d0ac19a64d697fb7aa8eb5de898b7605d07ce6b81246992dde476e7dc35",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/engine/scripts/lib/testdevices.py",
+          "sha256": "7317a16a8075947446dd7602c1715694e4f5dcce5ea0795d9dd9cb75ed665cdd",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/engine/scripts/lib/mutation-harness.sh",
+          "sha256": "9dd839120e0a3b2ae4ef91054e076a8e9ea31c4592dbe0ea3eb80f3f018c88b0",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/mobile/native-ios/bin/rios",
+          "sha256": "e8e617b9275bd485a7f29b7b3079e3b9bef3439205bfdae07f6c6bd878b1238c",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/mobile/native-android/bin/randroid",
+          "sha256": "4356946a83f6cc35121207373f92a8ba3defe8adf1d62288d553c58646783162",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/mobile/native-ios/Release/simulator-tests.sh",
+          "sha256": "c113ea531a0d66e2458f5135b77f2706686e8500f50a28eec88d8f312fd393b4",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        }
+      ]
+    },
+    "scripts/lib/native-work.py#cpu-fixtures": {
+      "source": "scripts/lib/native-work.py",
+      "sha256": "73b74d0ac19a64d697fb7aa8eb5de898b7605d07ce6b81246992dde476e7dc35",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/worker_tokens.py"
+        },
+        {
+          "to": "scripts/lib/cpu_guard.py"
+        }
+      ],
+      "evidence": "Source-bound CPU fixture uses capped/needs_compiler_lane/wait_for_headroom with a fake provider. run either refuses immediately or executes with sys.platform=linux and run_command patched. Real native build and Darwin reserve admission do not execute."
+    },
+    "scripts/lib/testdevices.py#cpu-fixtures": {
+      "source": "scripts/lib/testdevices.py",
+      "sha256": "7317a16a8075947446dd7602c1715694e4f5dcce5ea0795d9dd9cb75ed665cdd",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/cpu_guard.py"
+        }
+      ],
+      "evidence": "Source-bound CPU suite calls lease_expired plus device entrypoints which refuse at require_managed_ancestor before workspace/device/provider access. No device launches or app simulator-budget import."
+    },
+    "scripts/lib/cpu_guard.test.py": {
+      "source": "scripts/lib/cpu_guard.test.py",
+      "sha256": "d45c5683b197e828e92d0c86ef9eff88476f2fab7ac739057d036704e3ddd73c",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/cpu_guard.py#policy-fixtures"
+        },
+        {
+          "to": "scripts/lib/native-work.py#cpu-fixtures"
+        },
+        {
+          "to": "scripts/lib/testdevices.py#cpu-fixtures"
+        },
+        {
+          "to": "scripts/lib/worker_tokens.py"
+        }
+      ],
+      "evidence": "Complete fixed fixture with private settings/state and literal children. Binds staged module inventory, all imports and early-refusal/Linux substitutions; no mutable orchestration config supplies a command."
+    },
+    "scripts/lib/cpu_guard.test.sh": {
+      "source": "scripts/lib/cpu_guard.test.sh",
+      "sha256": "b43777187193956787b01151e0e9c5fd7a864a7d7618dc53b25e36edeb9a99fd",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/verification-fixture.sh"
+        },
+        {
+          "to": "scripts/lib/cpu_guard.test.py"
+        }
+      ],
+      "evidence": "Fixed private verification wrapper then adjacent Python fixture."
+    },
+    "scripts/lib/verification-pressure.test.py#runner": {
+      "source": "scripts/lib/verification-pressure.test.py",
+      "sha256": "d7849af71fac71a7069e4282152769f3584802d657ec3a509d76f6e1905a41bf",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/worker_tokens.py"
+        },
+        {
+          "to": "scripts/lib/proc_tree.py"
+        },
+        {
+          "to": "scripts/lib/cpu_guard.py#policy-fixtures"
+        },
+        {
+          "to": "scripts/lib/resource_waits.py"
+        }
+      ],
+      "evidence": "The runner fixture calls run directly with two literal Python programs and explicit private state. No main/plan/recipe selection or receipt reuse is entered. Git source identity is an opaque execution-key ingredient, not a setting-dependent operation/assertion. Fixed reserve sampling is supplied; imported app modules and their actual engine helpers remain bound.",
+      "external": [
+        {
+          "root": "repository",
+          "path": "richos/app/scripts/proof-run.py",
+          "sha256": "eb46db35905566f620d0a1c8cf27826939880659b6db338c769ad3b83a95718f",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/app/scripts/testvm/reserve.py",
+          "sha256": "2dfa4a6cb1071fd07755d2dcea1ef8f344c75b78903b3fdd3c4bee117ed97399",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/app/scripts/lib/test_results.py",
+          "sha256": "9790f38172be11848fbc50fc5fc387831f25a5bda49e877e1ed4aa59fb6fa0e2",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/app/scripts/lib/proof_evidence.py",
+          "sha256": "a2a0b5f57e239bfb1935b67cb0df62f21c360519ae4556e68dd48a839c60622a",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/app/scripts/lib/proof_slots.py",
+          "sha256": "825b7652d519652322aa227532115c17c14a738b3fba639807671750bc54d8b2",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        }
+      ]
+    },
+    "scripts/lib/verification-pressure.test.py": {
+      "source": "scripts/lib/verification-pressure.test.py",
+      "sha256": "d7849af71fac71a7069e4282152769f3584802d657ec3a509d76f6e1905a41bf",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/verification-pressure.test.py#runner"
+        },
+        {
+          "to": "scripts/lib/cpu_policy.py"
+        }
+      ],
+      "evidence": "Full fixture includes pure pressure calculations, Watch APIs, literal supervised children and the fixed app runner cases. No dynamic runtime suite inventory executes."
+    },
+    "scripts/lib/verification-pressure.test.sh": {
+      "source": "scripts/lib/verification-pressure.test.sh",
+      "sha256": "58a399a7c0827fa886cd0fa989f9c9a91d7960a53b9e25668ab504df787e8020",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/verification-fixture.sh"
+        },
+        {
+          "to": "scripts/lib/verification-pressure.test.py"
+        }
+      ],
+      "evidence": "Fixed private verification wrapper then adjacent Python fixture."
+    },
+    "ecs/adapters/import_records.py": {
+      "source": "ecs/adapters/import_records.py",
+      "sha256": "0d660b43b43877436c1429790e3794fad4e32aa6832a67f062cbec609609eb1a",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/core/ecs_core.py"
+        }
+      ],
+      "evidence": "Fixed stdlib JSON receipt/import parser and explicit private SQLite event store. No writer process, shell execution or config lookup. Imported references are text, never executed."
+    },
+    "ecs/adapters/loro_receipts.py": {
+      "source": "ecs/adapters/loro_receipts.py",
+      "sha256": "07d9e8dcaaf041730f1fd9a9dfa10bddd2ff7504106bb763cccb74c5296e2bb9",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/core/ecs_core.py"
+        }
+      ],
+      "evidence": "Fixed stdlib JSON receipt/import parser and explicit private SQLite event store. No writer process, shell execution or config lookup. Imported references are text, never executed."
+    },
+    "ecs/migrations/001_initial.sql": {
+      "source": "ecs/migrations/001_initial.sql",
+      "sha256": "3dfcd94804f06852067f8c73ce0867251db5209cfc367d99ccd89e54d8befde6",
+      "keys": [],
+      "edges": [],
+      "evidence": "Shipped fixed SQLite migration source, used by the private fixture store; no external program or orchestration input."
+    },
+    "ecs/migrations/002_integrity_fences.sql": {
+      "source": "ecs/migrations/002_integrity_fences.sql",
+      "sha256": "ab16ca9806f6799fb2511ea8ccfea3688ffa079f9b8d2fe292e0cd1c0796dddf",
+      "keys": [],
+      "edges": [],
+      "evidence": "Shipped fixed SQLite migration source, used by the private fixture store; no external program or orchestration input."
+    },
+    "ecs/migrations/003_shadow_safety.sql": {
+      "source": "ecs/migrations/003_shadow_safety.sql",
+      "sha256": "c5182f6bd6216af7ed61f29bc7033876e3f33b28abeb9613350dc197f46899cb",
+      "keys": [],
+      "edges": [],
+      "evidence": "Shipped fixed SQLite migration source, used by the private fixture store; no external program or orchestration input."
+    },
+    "ecs/migrations/004_replay_attestations.sql": {
+      "source": "ecs/migrations/004_replay_attestations.sql",
+      "sha256": "b4619c875735e37b20c692c0a467686daaeee81ba73353d729d06e9bf43e7434",
+      "keys": [],
+      "edges": [],
+      "evidence": "Shipped fixed SQLite migration source, used by the private fixture store; no external program or orchestration input."
+    },
+    "ecs/migrations/005_correction_router_and_extraction.sql": {
+      "source": "ecs/migrations/005_correction_router_and_extraction.sql",
+      "sha256": "e95bdd6c69b47232bff487e985324cd6d9f34784d3e1bf4e7c73b14bcf1a7047",
+      "keys": [],
+      "edges": [],
+      "evidence": "Shipped fixed SQLite migration source, used by the private fixture store; no external program or orchestration input."
+    },
+    "ecs/migrations/006_scale_indexes.sql": {
+      "source": "ecs/migrations/006_scale_indexes.sql",
+      "sha256": "563f0ec4683649c6b766552c6e5a646c4e322a3fffdb53c3fb2bf4e7b1c5004e",
+      "keys": [],
+      "edges": [],
+      "evidence": "Shipped fixed SQLite migration source, used by the private fixture store; no external program or orchestration input."
+    },
+    "ecs/migrations/007_correction_reobservations.sql": {
+      "source": "ecs/migrations/007_correction_reobservations.sql",
+      "sha256": "3cba922a86f9762802933494a9248f996a4640178c1279de0e1b6e5783791a90",
+      "keys": [],
+      "edges": [],
+      "evidence": "Shipped fixed SQLite migration source, used by the private fixture store; no external program or orchestration input."
+    },
+    "ecs/adapters/app.py#discovery-fixtures": {
+      "source": "ecs/adapters/app.py",
+      "sha256": "807c59f61d562b4f3a89fb79b036b8c173e7be9e5f208ac9b1ec7c5515b3a4d7",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/core/ecs_core.py"
+        },
+        {
+          "to": "ecs/core/ecs_checkpoint.py"
+        },
+        {
+          "to": "ecs/core/ecs_inspect.py"
+        },
+        {
+          "to": "ecs/adapters/import_records.py"
+        },
+        {
+          "to": "ecs/adapters/loro_receipts.py"
+        },
+        {
+          "to": "ecs/migrations/001_initial.sql"
+        },
+        {
+          "to": "ecs/migrations/002_integrity_fences.sql"
+        },
+        {
+          "to": "ecs/migrations/003_shadow_safety.sql"
+        },
+        {
+          "to": "ecs/migrations/004_replay_attestations.sql"
+        },
+        {
+          "to": "ecs/migrations/005_correction_router_and_extraction.sql"
+        },
+        {
+          "to": "ecs/migrations/006_scale_indexes.sql"
+        },
+        {
+          "to": "ecs/migrations/007_correction_reobservations.sql"
+        }
+      ],
+      "evidence": "Complete source-bound test_app/test_import/test_loro_receipts request census: core/protocol/seat/checkpoint/receipt/observe-started/answer/operator completion/import/Loro receipt paths. No verified-work or complete-obligation request reaches the dynamic Mega Lander imports. SQL directory membership is fixed.",
+      "source_inventory": {
+        "directory": "ecs/migrations",
+        "members": [
+          "001_initial.sql",
+          "002_integrity_fences.sql",
+          "003_shadow_safety.sql",
+          "004_replay_attestations.sql",
+          "005_correction_router_and_extraction.sql",
+          "006_scale_indexes.sql",
+          "007_correction_reobservations.sql"
+        ]
+      }
+    },
+    "ecs/bin/ecs#discovery-fixtures": {
+      "source": "ecs/bin/ecs",
+      "sha256": "11a8455cb410e8de5cae5fa02a5275183b347be4ccd709be962bc35c96ad825f",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/adapters/app.py#discovery-fixtures"
+        }
+      ],
+      "evidence": "Fixed JSON CLI and explicit private state root; allowed fixture request paths bound by test sources."
+    },
+    "ecs/adapters/mcp.py#discovery-fixtures": {
+      "source": "ecs/adapters/mcp.py",
+      "sha256": "ec6a74e89a2e99f25f7b43fb5f34dad33303ee134f62ac90518892e49c41a67e",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/adapters/app.py#discovery-fixtures"
+        }
+      ],
+      "evidence": "Full fixture calls only checkpoint/inspect and rejected host verbs using explicit private scope files. Server loop is not launched."
+    },
+    "ecs/tests/test_app.py": {
+      "source": "ecs/tests/test_app.py",
+      "sha256": "9530b18e72174d9e82d387c9e083595f34e62fc20d6cd8bedaaafbdf2b30aa09",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/bin/ecs#discovery-fixtures"
+        },
+        {
+          "to": "ecs/adapters/mcp.py#discovery-fixtures"
+        },
+        {
+          "to": "ecs/adapters/import_records.py"
+        },
+        {
+          "to": "ecs/adapters/loro_receipts.py"
+        }
+      ],
+      "evidence": "Full fixed unittest module. Only private SQL/JSON/Git fixtures, bound ECS entrypoints and literal migration/receipt mutations. No hook manifest or arbitrary imported script executes."
+    },
+    "ecs/tests/test_import.py": {
+      "source": "ecs/tests/test_import.py",
+      "sha256": "2509f3a8c81f25b0b32626e6a16a75b0b97570b514deed12b1e9ba9e21c36fa1",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/bin/ecs#discovery-fixtures"
+        },
+        {
+          "to": "ecs/adapters/mcp.py#discovery-fixtures"
+        },
+        {
+          "to": "ecs/adapters/import_records.py"
+        },
+        {
+          "to": "ecs/adapters/loro_receipts.py"
+        }
+      ],
+      "evidence": "Full fixed unittest module. Only private SQL/JSON/Git fixtures, bound ECS entrypoints and literal migration/receipt mutations. No hook manifest or arbitrary imported script executes."
+    },
+    "ecs/tests/test_loro_receipts.py": {
+      "source": "ecs/tests/test_loro_receipts.py",
+      "sha256": "d62bc321e2615274b100d8b60928eec5fdbafc898935ccca853aec39392eedca",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/bin/ecs#discovery-fixtures"
+        },
+        {
+          "to": "ecs/adapters/mcp.py#discovery-fixtures"
+        },
+        {
+          "to": "ecs/adapters/import_records.py"
+        },
+        {
+          "to": "ecs/adapters/loro_receipts.py"
+        }
+      ],
+      "evidence": "Full fixed unittest module. Only private SQL/JSON/Git fixtures, bound ECS entrypoints and literal migration/receipt mutations. No hook manifest or arbitrary imported script executes."
+    },
+    "ecs/tests/run.test.sh": {
+      "source": "ecs/tests/run.test.sh",
+      "sha256": "c5a00e5e5a066ecfaff567feea4476c4db8c2c158f8c01cea5a47e62dbbfded8",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/tests/test_app.py"
+        },
+        {
+          "to": "ecs/tests/test_import.py"
+        },
+        {
+          "to": "ecs/tests/test_loro_receipts.py"
+        }
+      ],
+      "evidence": "Discovery is qualified only while the exact direct directory membership remains unchanged. Every current discovered Python module is bound; a future test/package/helper addition restores conservative fallback.",
+      "source_inventory": {
+        "directory": "ecs/tests",
+        "members": [
+          "answer-complete.test.sh",
+          "operator-complete.mutation.sh",
+          "operator-complete.test.sh",
+          "run.test.sh",
+          "test_app.py",
+          "test_import.py",
+          "test_loro_receipts.py"
+        ]
+      }
+    },
+    "scripts/hooks/lifecycle-payload-transport.test.py": {
+      "source": "scripts/hooks/lifecycle-payload-transport.test.py",
+      "sha256": "41c4bbd6ba0801c9f9e20dd8cfe5fbfa10ea95b27bbd5e276c151cdaa1aaace7",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/workspace-lifecycle.sh"
+        },
+        {
+          "to": "scripts/hooks/worker-ended-handoff.sh"
+        },
+        {
+          "to": "scripts/hooks/teammate-idle-handoff.sh"
+        },
+        {
+          "to": "scripts/hooks/worker-created-handoff.sh"
+        },
+        {
+          "to": "scripts/hooks/worker-started-handoff.sh"
+        },
+        {
+          "to": "scripts/hooks/worker-updated-handoff.sh"
+        },
+        {
+          "to": "scripts/hooks/notice-inflight-sends.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-sealed-worktree.sh"
+        },
+        {
+          "to": "scripts/hooks/notice-ceo-asks.sh"
+        },
+        {
+          "to": "scripts/hooks/notice-ceo-ruled-prose.sh"
+        },
+        {
+          "to": "scripts/hooks/task-completed-handoff.sh#completion-fixture"
+        },
+        {
+          "to": "scripts/lib/ceo-ruled.sh"
+        },
+        {
+          "to": "mega-lander/workspaces.py#lifecycle-fixtures"
+        },
+        {
+          "to": "mega-lander/workspaces.py#fixture-records"
+        }
+      ],
+      "evidence": "Full fixed payload/registry fixtures and explicit private entity config. Keep real helper keys conservatively. All transitive source identities are additionally bound at the optional alternate engine root.",
+      "external": [
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "mega-lander/workspaces.py",
+          "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/hooks/guard-sealed-worktree.sh",
+          "sha256": "5fdfedcb7ff7a83f4411eb5a90919ab1fc5d037a6362221551f75db8621d0f93",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/hooks/notice-ceo-asks.sh",
+          "sha256": "c1982944fcb496bd016248b31063838f2ce0806418eeb41cddd335da9687bf01",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/hooks/notice-ceo-ruled-prose.sh",
+          "sha256": "b6aa4600524c27077232a5a83feab3cfe603436ae8dcaaaa0bcc9ed725c0c1b5",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/hooks/notice-inflight-sends.sh",
+          "sha256": "b5120d7d24070d1e306ed38fd96345bfee3c7d2538e1bde72c4bde155a4e0af4",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/hooks/task-completed-handoff.sh",
+          "sha256": "e143bbca2d836099f898f588d12fa1aef39b2fd7db85cf7ad3f575f702d74216",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/hooks/teammate-idle-handoff.sh",
+          "sha256": "9e0e49d90653b6f80b9ccdcda91992bf8372e1ac53f0c8eda366c22e363d087c",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/hooks/worker-created-handoff.sh",
+          "sha256": "a65bbd37af42971db667e9576cc1eb4cc95572b22cbab120a2bfb3e8005d53fd",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/hooks/worker-ended-handoff.sh",
+          "sha256": "92a3dc39b502f1841b1c8f604eb5c42e5047fb678e86c76fb9dd3ab5aae97516",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/hooks/worker-started-handoff.sh",
+          "sha256": "f18675f4938cae746d536661b44e49e7a3425c15acff5c7cd3ad2e1bf7ee9919",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/hooks/worker-updated-handoff.sh",
+          "sha256": "6cbcdd13306d482c8bfd9da1f6ccc68141a3091f9f9405bb52232cb14430ebf8",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/hooks/workspace-lifecycle.sh",
+          "sha256": "e8a6bd193fe910eb22f76da44c81b04feaa04e2a7429b055823ea8efc8df72e8",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/lib/agent-liveness.py",
+          "sha256": "f6dc620af5b9a521717d4d3d4c07c24d730af892177970b044ecac81e12b605c",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/lib/agent_hold.py",
+          "sha256": "7ec72de051bf0fd7681324ced1ec804e51238f704bd40ec6d76c6bae1c363f38",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/lib/appinstances.py",
+          "sha256": "e30b7e3522111d099a20bc2d5af49bff1d5b9a4245d5c2147306ef065596efca",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/lib/ceo-asks.py",
+          "sha256": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/lib/ceo-asks.sh",
+          "sha256": "c0d084aef038efba8bae75eea3073bafa01c60132702282743449541abab0021",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/lib/ceo-ruled.py",
+          "sha256": "e92586fdd79f1c648c2f764613f47a56bc7f2d843061c70053611d7f2e23ce30",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/lib/ceo-ruled.sh",
+          "sha256": "737879339e074a0c41011974a8dcdc74bbbbf7118ffda2904e2f8da7a0b10e91",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/lib/ceo-todos.py",
+          "sha256": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/lib/ceo-todos.sh",
+          "sha256": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/lib/completion-proof.py",
+          "sha256": "8a963ac0209f078b2abdb1e2951760db46110bbfc5b9f7d67b2c31dc248ef091",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/lib/containers.py",
+          "sha256": "957965ce69a27ad94066c9a20c92956e715cb5bdd234080b92024c8e9f0f08c9",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/lib/durable-filesystem-identity.py",
+          "sha256": "e819901bf418f1f80e636f80d0cf880b414963689a0422f0a5fc95096853eaf8",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/lib/pause_protocol.py",
+          "sha256": "01bea3772a0c1468f6a0e2337d00e96ebf77c9e6cf7d0af19b2cce6c24097ba7",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/lib/resolve-main-checkout.sh",
+          "sha256": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/lib/resolve-roots.sh",
+          "sha256": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/lib/stop-hook-notice.sh",
+          "sha256": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/lib/teammate-identity.py",
+          "sha256": "54fed25d0e79b1757690cdc2b63fe3281c985b8324fe27b2d12d7048e27badf2",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/lib/testdevice_alerts.py",
+          "sha256": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/lib/testdevices.py",
+          "sha256": "7317a16a8075947446dd7602c1715694e4f5dcce5ea0795d9dd9cb75ed665cdd",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/lib/unevaluated-notice.sh",
+          "sha256": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/lib/worktree-ledger.py",
+          "sha256": "38f6cc15cd69ccd6aae90232db8b1b078866b6676b3f4795bdfe13212e1cb8ce",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        }
+      ]
+    },
+    "scripts/hooks/lifecycle-payload-transport.test.sh": {
+      "source": "scripts/hooks/lifecycle-payload-transport.test.sh",
+      "sha256": "d1a8d63710b34f40719cee7d5c18986e021d4a9b7ecfbd3531e7cb23bc44349a",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/lifecycle-payload-transport.test.py"
+        }
+      ],
+      "evidence": "Executes only the adjacent source-bound payload fixture."
     }
   },
   "units": {
@@ -14428,7 +15274,11 @@
     "scripts/lib/ci_pause.test.sh": "scripts/lib/ci_pause.test.sh",
     "mega-lander/tests/workspace-pause-hold.test.sh": "mega-lander/tests/workspace-pause-hold.test.sh",
     "scripts/pause-acceptance.test.sh": "scripts/pause-acceptance.test.sh",
-    "scripts/hooks/guard-foreign-app-data.test.sh": "scripts/hooks/guard-foreign-app-data.test.sh"
+    "scripts/hooks/guard-foreign-app-data.test.sh": "scripts/hooks/guard-foreign-app-data.test.sh",
+    "scripts/lib/cpu_guard.test.sh": "scripts/lib/cpu_guard.test.sh",
+    "scripts/lib/verification-pressure.test.sh": "scripts/lib/verification-pressure.test.sh",
+    "ecs/tests/run.test.sh": "ecs/tests/run.test.sh",
+    "scripts/hooks/lifecycle-payload-transport.test.sh": "scripts/hooks/lifecycle-payload-transport.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
