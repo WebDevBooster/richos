@@ -183,13 +183,22 @@ struct ScreenView: View {
                     Color.clear.onAppear { headerBottom = p.frame(in: .global).maxY }
                         .onChange(of: p.frame(in: .global).maxY) { _, y in headerBottom = y }
                 })
+                // Who gives way when the keyboard, a card and a long connection line share a small
+                // screen (the SE fit, 2026-09-28). The header is laid out first, from what the composer
+                // zone's own minimum leaves it (the composer keeps its place: accessibility audit F1);
+                // then the banner and the composer zone, whose notes region is the one part that
+                // shrinks and scrolls; the space between them last. Before, the notes region kept its
+                // full height and the header was squeezed below its own content.
+                .layoutPriority(2)
                 if let banner = model.banner {
                     UpdateBannerView(banner: banner, send: send)
                         .padding(.horizontal, 12).padding(.top, 8)
                         .transition(.opacity.combined(with: .offset(y: 12)))
+                        .layoutPriority(1)
                 }
                 Spacer(minLength: 0)
                 bottomZone(height: root.size.height)
+                    .layoutPriority(1)
             }
         }
         // Exactly the screen, whatever it holds. A ZStack is as large as its largest layer and lays
@@ -245,7 +254,9 @@ struct ScreenView: View {
                         }
                         .scrollBounceBehavior(.basedOnSize)
                         .scrollIndicators(.hidden)
-                        .frame(height: min(max(aboveHeight, 1), height * 0.4))
+                        // At most its notes' height and 40% of the screen, and less when the header
+                        // needs the room: then it scrolls (the SE fit).
+                        .frame(maxHeight: min(max(aboveHeight, 1), height * 0.4))
                         // I05: a card raised while another shows is brought into view, the least
                         // scroll that shows it, once, when it is raised: never a timer or a redraw.
                         .onChange(of: model.cards) { before, after in
@@ -257,6 +268,7 @@ struct ScreenView: View {
                 }
                 ComposerView(composer: model.composer, voice: model.voice, pending: model.attach.pending,
                              attachMenuOpen: model.attach.menuOpen, send: send)
+                    .layoutPriority(1)
             }
             .padding(.horizontal, 8)
             .padding(.bottom, 8)

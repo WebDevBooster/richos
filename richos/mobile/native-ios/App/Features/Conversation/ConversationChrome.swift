@@ -10,9 +10,25 @@ struct ConversationHeader: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        // At the accessibility sizes the status sentence leaves the nameplate for its own full-width
-        // line, so it never breaks inside words in a narrow column (accessibility audit F3).
-        let lineBelow = dynamicTypeSize.isAccessibilitySize
+        // The header is never drawn smaller than what it holds (the SE fit, 2026-09-28: squeezed by the
+        // keyboard and a card, the nameplate was given less than its own height, so "Rich" crossed its
+        // top edge and "phone." fell under the next card). The first arrangement whose whole height fits is
+        // the one drawn: the sentence in the nameplate; then, as at the accessibility sizes, on its own
+        // full-width line (accessibility audit F3: it never breaks inside words in a narrow column);
+        // and only when even that is taller than the room the composer leaves, that line scrolls inside
+        // its card, every word still there.
+        let alwaysBelow = dynamicTypeSize.isAccessibilitySize
+        ViewThatFits(in: .vertical) {
+            arrangement(lineBelow: alwaysBelow, scrolls: false)
+            if connection != nil {
+                if !alwaysBelow { arrangement(lineBelow: true, scrolls: false) }
+                arrangement(lineBelow: true, scrolls: true)
+            }
+        }
+        .dynamicTypeSize(...DynamicTypeSize.accessibility3)
+    }
+
+    private func arrangement(lineBelow: Bool, scrolls: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 10) {
                 nameplate(showLine: !lineBelow)
@@ -20,13 +36,22 @@ struct ConversationHeader: View {
                 RoundButton(icon: .settings, label: "Settings", identifier: "header.settings") { send(.openSettings) }
             }
             if lineBelow, let connection {
-                ConnectionText(line: connection)
+                let line = ConnectionText(line: connection)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 14).padding(.vertical, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .floatingSurface(palette, radius: 18)
+                Group {
+                    if scrolls {
+                        ScrollView { line }
+                            .scrollBounceBehavior(.basedOnSize)
+                            .accessibilityIdentifier("connection.scroll")
+                    } else {
+                        line
+                    }
+                }
+                .floatingSurface(palette, radius: 18)
             }
         }
-        .dynamicTypeSize(...DynamicTypeSize.accessibility3)
         .padding(.horizontal, 14)
         .padding(.top, 8)
     }
