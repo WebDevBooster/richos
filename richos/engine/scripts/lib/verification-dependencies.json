@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "878e1215f92ea00b159acd2fc3b0443933ed500ae9c3f809312cd0c967b2eda5",
+      "sha256": "7f55fff7fb33fb40c3b00dc2233c4ea23991a9aa39e1c44f5dcc2708175105f8",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -5792,6 +5792,61 @@
         "if _section IL; then",
         "fi  # _section — IL\n"
       ]
+    },
+    "scripts/hooks/guard-worktree-isolation.mutation.sh": {
+      "source": "scripts/hooks/guard-worktree-isolation.mutation.sh",
+      "sha256": "ad66612be509814f19271a71594b7c726380465c152fbb30fc39728882377b10",
+      "evidence": "The baseline and 24 finite mutants execute the fixed copied isolation test, retaining its shipped configuration readers. Each alive control also executes the copied real guard with that config. The harness shell never sources config before scratch allocation. Finite Python patches only rewrite the named guard; model-setting strings in those patches are data.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/lib/scratch.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/tree-witness.sh"
+        },
+        {
+          "to": "scripts/lib/stopwatch.sh"
+        },
+        {
+          "to": "scripts/lib/mutation-pool.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-worktree-isolation.test.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-worktree-isolation.sh"
+        }
+      ],
+      "literal_keys": {
+        "READONLY_ALLOWLIST": "Quoted source-replacement operand; the executed guard/test edge retains actual config readers.",
+        "HARNESS_UTILITY_TYPES": "Quoted source-replacement operand; the executed guard/test edge retains actual config readers.",
+        "GENERIC_AGENT_TYPES": "Quoted source-replacement operand; the executed guard/test edge retains actual config readers.",
+        "MODEL_TIERS": "Quoted source-replacement operand; the executed guard/test edge retains actual config readers.",
+        "ALLOWED_MODELS": "Quoted source-replacement operand; the executed guard/test edge retains actual config readers."
+      }
+    },
+    "scripts/hooks/contract-integrity.test.sh#WTI": {
+      "source": "scripts/hooks/contract-integrity.test.sh",
+      "sha256": "367fc70f5ccbc66e5be5f1414d821f4c11c69916829c9ca27aa2ddfb1b5638d2",
+      "evidence": "After shared template setup, WTI executes only the fixed isolation mutation harness. Its baseline and alive controls retain shipped config dependencies; no contract probe runs here.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/contract-integrity.test.sh#prelude"
+        },
+        {
+          "to": "scripts/hooks/guard-worktree-isolation.mutation.sh"
+        }
+      ],
+      "region": [
+        "if _section WTI; then",
+        "fi  # _section — WTI\n"
+      ]
     }
   },
   "units": {
@@ -5895,7 +5950,8 @@
     "ass-kicker/tests/guard-stated-actions.test.sh": "ass-kicker/tests/guard-stated-actions.test.sh",
     "scripts/hooks/contract-integrity.test.sh:SA": "scripts/hooks/contract-integrity.test.sh#SA",
     "scripts/hooks/guard-idle-land.test.sh": "scripts/hooks/guard-idle-land.test.sh",
-    "scripts/hooks/contract-integrity.test.sh:IL": "scripts/hooks/contract-integrity.test.sh#IL"
+    "scripts/hooks/contract-integrity.test.sh:IL": "scripts/hooks/contract-integrity.test.sh#IL",
+    "scripts/hooks/contract-integrity.test.sh:WTI": "scripts/hooks/contract-integrity.test.sh#WTI"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
@@ -6194,7 +6250,9 @@
         "scripts/hooks/guard-unresolved-claims.sh": "88db28246b8e79d1d623d26e366fcc3c8bf1811e3bb464fc04d484761ead14d2",
         "scripts/hooks/guard-unresolved-claims.test.sh": "3ae1f1c337d152990d8a5b0c2847115763fd569316b84d5bc81e227ae199c31e",
         "scripts/hooks/guard-workspace-gate.sh": "704f1516e9337a8dcdf4589fd5b74473bffffcb694c1460fa16bb43a4a2b802f",
+        "scripts/hooks/guard-worktree-isolation.mutation.sh": "ad66612be509814f19271a71594b7c726380465c152fbb30fc39728882377b10",
         "scripts/hooks/guard-worktree-isolation.sh": "c200f7a5b48835054ce460b95053abca44ac6dbaf677289940c23fc196917025",
+        "scripts/hooks/guard-worktree-isolation.test.sh": "00ebfd1171073a8bea5c53de7cc8a71cefa6db713946019a25a0aae02f9f2a04",
         "scripts/hooks/guard-worktree-removal.mutation.sh": "05aff533ec292eba45dc2d4a822359b880c90bc7d08d46f7a6bf39416b061030",
         "scripts/hooks/guard-worktree-removal.sh": "b39ff96220cb74cf9f94acc3d6210f3207b57bdf50cb33ffdd29882e536a5f37",
         "scripts/hooks/guard-worktree-removal.test.sh": "b4e717bbb5ff0089902e69e286e3e845a502121a898259534f04c370048f58e5",

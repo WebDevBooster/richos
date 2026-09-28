@@ -152,6 +152,25 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_isolation_contract_keeps_copied_model_and_registration_settings(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/contract-integrity.test.sh:WTI'
+        closure = graph.closure(document['units'][unit])
+        self.assertFalse(closure['whole'] or closure['fallback'], closure)
+        for key in ('READONLY_ALLOWLIST', 'ALLOWED_MODELS', 'MODEL_TIERS',
+                    'SESSION_TEAMS_DIR', 'APP_TEST_INSTANCE_BUNDLE_ID'):
+            self.assertIn(unit, graph.config_units(inputs.config_change(key+'=old', key+'=new'), [unit]), key)
+        unrelated = inputs.config_change('SHOW_TURN_MANIFEST=0', 'SHOW_TURN_MANIFEST=1')
+        self.assertFalse(graph.config_units(unrelated, [unit]))
+        self.assertIn(unit, graph.config_units(inputs.config_change('ALLOWED_MODELS=sonnet', None), [unit]))
+        for helper in ('scripts/hooks/guard-worktree-isolation.mutation.sh',
+                       'scripts/hooks/guard-worktree-isolation.test.sh',
+                       'mega-lander/workspaces.py#isolation-registration'):
+            previous = document['nodes'].pop(helper)
+            self.assertIn(unit, graph.config_units(unrelated, [unit]))
+            document['nodes'][helper] = previous
+
     def test_idle_land_contract_and_mutants_use_private_settings(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)
