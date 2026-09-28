@@ -195,6 +195,16 @@ do {
           "conn-tailscale-off says: \(w.lead) \(w.reassurance)")
     check(ConnectionWords.words(.reconnecting).lead == "Reconnecting…", "Reconnecting… keeps its words")
 }
+// The SE fit: AccessibilityLayoutTests poses conn-tailscale-off's line because no line the header can say
+// is longer. A new, longer line fails here until that test poses it.
+do {
+    let length = { (k: ScreenModel.ConnectionLine.Kind) -> Int in
+        let w = ConnectionWords.words(k); return (w.lead + " " + w.reassurance).count
+    }
+    let longest = ScreenModel.ConnectionLine.Kind.allCases.max { length($0) < length($1) }
+    check(longest == .tailscaleOff,
+          "the header's layout test poses its longest line: conn-tailscale-off, \(length(.tailscaleOff)) characters (longest: \(String(describing: longest)))")
+}
 for f in Fixture.all {
     guard let rule = expect[f.name] else { check(false, "\(f.name): no expectation for this fixture"); continue }
     check(rule(ScreenModel(state: f.state)), "\(f.name) draws its round-12 screen")
