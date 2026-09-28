@@ -34,14 +34,35 @@
 set -uo pipefail
 
 VERBOSE=0
-[ "${1:-}" = "--verbose" ] && VERBOSE=1
+MUTATION_CASE=""
+MUTATION_SEEN=0
+case "${1:-}" in
+    "") ;;
+    --verbose) [ "$#" -eq 1 ] || exit 2; VERBOSE=1 ;;
+    --mutation-case)
+        [ "$#" -eq 2 ] && [ "${RICHOS_MUTATION_INNER:-}" = 1 ] && [ -n "$2" ] || exit 2
+        MUTATION_CASE="${2%% *}"
+        ;;
+    *) exit 2 ;;
+esac
+# Stateful witnesses run their setup group, retaining every assertion in it.
+selected_group() {
+    [ -z "$MUTATION_CASE" ] && return 0
+    local group
+    for group in "$@"; do [[ "$MUTATION_CASE" == "$group"* ]] && return 0; done
+    return 1
+}
+
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_ROOT="$(cd "$SRC_DIR/../.." && pwd)"
 
 PASS=0
 FAIL=0
-ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
+ok()  {
+    printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1))
+    [ "${1%% *}" != "$MUTATION_CASE" ] || MUTATION_SEEN=1
+}
 bad() { printf '  FAIL  %s\n' "$1"; [ -n "${2:-}" ] && printf '         %s\n' "$2"; FAIL=$((FAIL + 1)); }
 say() { [ "$VERBOSE" -eq 1 ] && printf '\n----- %s -----\n%s\n' "$1" "$2"; return 0; }
 
@@ -174,6 +195,7 @@ echo "=== unstarted rows: the notice, the silences, and the loud failures ==="
 # ===========================================================================
 # 1. AN UNBLOCKED ROW WITH NOTHING RUNNING FOR IT -> NOTICE, NAMING IT
 # ===========================================================================
+if selected_group 1; then
 run_hook
 if spoke; then ok "1a  an unblocked row with nothing running ends the turn with a notice"
 else bad "1a  an unblocked row with nothing running ends the turn with a notice" "the hook said nothing: $HOUT"; fi
@@ -190,6 +212,8 @@ else bad "1c  the notice says what is wrong: nothing is running for them" "$HOUT
 if [ "$HRC" -eq 0 ]; then ok "1d  it NOTICES, it does not block — exit 0"
 else bad "1d  it NOTICES, it does not block — exit 0" "rc=$HRC"; fi
 
+fi
+
 # ===========================================================================
 # 2. THE SAME ROW WITH A LIVE WORKTREE FOR IT -> SILENT
 # ===========================================================================
@@ -198,6 +222,8 @@ else bad "1d  it NOTICES, it does not block — exit 0" "rc=$HRC"; fi
 WT="$SANDBOX/wt/norm-sonnet-a1"
 mkdir -p "$SANDBOX/wt"
 git -C "$REPO" worktree add -q -b agent/row-11 "$WT" >/dev/null 2>&1
+mkdir -p "$WT/.claude"
+if selected_group 2a 2b 6; then
 run_hook
 if spoke && names '1, 12, 3.1' && ! names '11'; then
     ok "2a  a live worktree whose BRANCH names row 11 takes it off the list"
@@ -228,10 +254,14 @@ if grep -qE '^  UNSTARTED  11 ' "$SANDBOX/lint6.txt" && grep -qE '^  CLAIMED    
     ok "6a  a worktree named row-1 claims 1 and does NOT claim row 11"
 else bad "6a  row-1 must claim 1 and not 11" "$(cat "$SANDBOX/lint6.txt")"; fi
 
+fi
+
 # ===========================================================================
 # 2 (continued). THE EXPLICIT CLAIM FILE — the escape hatch for a worktree
 # whose branch was named before anybody knew which row it was for.
 # ===========================================================================
+if selected_group 2c 2d 2e; then
+git -C "$WT" branch -m agent/row-1 >/dev/null 2>&1
 mkdir -p "$WT/.claude"
 printf '# one row id per line\n1\n11\n12\n3.1\n' > "$WT/.claude/row-claims.txt"
 run_hook
@@ -247,6 +277,8 @@ if grep -q 'row-claims.txt' "$SANDBOX/lint2c.txt"; then
     ok "2e  the sweep names the claim FILE as the source, not merely 'claimed'"
 else bad "2e  the sweep names the claim file as the source" "$(cat "$SANDBOX/lint2c.txt")"; fi
 
+fi
+
 # back to nothing claimed, without tearing the workspace down
 rm -f "$WT/.claude/row-claims.txt"
 git -C "$WT" branch -m agent/neutral >/dev/null 2>&1
@@ -254,6 +286,7 @@ git -C "$WT" branch -m agent/neutral >/dev/null 2>&1
 # ===========================================================================
 # 3. A ROW DECLARED AS WAITING ON THE CEO -> SILENT, PROVABLY
 # ===========================================================================
+if selected_group 3; then
 write_queue '**CEO — his Railway credentials**'
 write_record '**Blocked:** the CEO — he has to decide. '
 # rows 1 and 11 still name nobody, so they are claimed here to isolate the
@@ -302,11 +335,14 @@ if spoke && names '12'; then
 else bad "3h  a queue cell of 'nothing — …' must not silence the row" "$HOUT"; fi
 write_queue '**CEO — his Railway credentials**'
 
+fi
+
 rm -f "$WT/.claude/row-claims.txt"
 
 # ===========================================================================
 # 5. STATE-CHANGE DE-DUPLICATION — a stable set is announced ONCE
 # ===========================================================================
+if selected_group 5; then
 write_queue
 write_record
 run_hook
@@ -324,6 +360,8 @@ else bad "5b  the set changing speaks again" "silent"; fi
 write_queue
 write_record
 
+fi
+
 # ===========================================================================
 # 4. AN UNPARSEABLE RECORD -> LOUD, NEVER A CLEAN SWEEP
 # ===========================================================================
@@ -333,6 +371,10 @@ loud_because() { # <case> <label> <needle>
     else bad "$1  $2" "$HOUT"; fi
 }
 
+write_queue
+write_record
+
+if selected_group 4a 4b; then
 # 4a the queue's table header moves
 sed -i.bak 's/| # | Item | Blocked by |/| # | Item | Waiting on |/' "$REPO/RICH-TODOs.md"
 loud_because "4a" "the queue's \`Blocked by\` column renamed -> LOUD, not a clean sweep" "Blocked by"
@@ -340,11 +382,17 @@ if ! printf '%s' "$HOUT" | grep -qi 'clear again'; then ok "4b  ...and it does N
 else bad "4b  it must not report the queue as clear" "$HOUT"; fi
 write_queue
 
+fi
+
+if selected_group 4c; then
 # 4c the governed section is renamed away
 sed -i.bak 's/^## 3\. Buildable now.*$/## 4. Somewhere else entirely/' "$REPO/wiki/open-items.md"
 loud_because "4c" "the governed section renamed -> LOUD" "no section 3"
 write_record
 
+fi
+
+if selected_group 4d; then
 # 4d half the corpus disappears — the CEO's own rule, mechanized. A DECLARED
 # queue that is not on disk: somebody wrote down where it lives, and believing
 # them and finding nothing is the loudest fact available.
@@ -354,11 +402,17 @@ loud_because "4d" "a declared queue that is not there -> LOUD (\"the queue is tw
 mv "$SANDBOX/queue.hidden" "$REPO/RICH-TODOs.md"
 rm -f "$REPO/.unstarted-rows"
 
+fi
+
+if selected_group 4e; then
 # 4e the working record itself disappears
 mv "$REPO/wiki/open-items.md" "$SANDBOX/rec.hidden0"
 loud_because "4e" "the working record gone -> LOUD, never a sweep of the queue alone" "not present"
 mv "$SANDBOX/rec.hidden0" "$REPO/wiki/open-items.md"
 
+fi
+
+if selected_group 4f; then
 # 4f the predicate's own half-corpus branch, driven directly. Reachable in the
 # wild only as a race (the file vanishes between the resolve and the read), so
 # it is exercised here as a unit rather than left as an untested arm.
@@ -374,16 +428,25 @@ if grep -q 'QUEUE IS TWO FILES' "$SANDBOX/half.txt"; then
     ok "4f  the predicate refuses a half corpus outright, in its own words"
 else bad "4f  the predicate refuses a half corpus" "$(cat "$SANDBOX/half.txt")"; fi
 
+fi
+
+if selected_group 4k; then
 # 4k a status token outside the declared vocabulary
 sed -i.bak 's/`OPEN`/`PROBABLY-FINE`/' "$REPO/wiki/open-items.md"
 loud_because "4k" "a warrant token outside the vocabulary -> LOUD" "PROBABLY-FINE"
 write_record
 
+fi
+
+if selected_group 4l; then
 # 4l the same id in both files, which would make every claim ambiguous
 sed -i.bak 's/^| 12 |/| 3.1 |/' "$REPO/RICH-TODOs.md"
 loud_because "4l" "one id in both files -> LOUD (a claim could mean either)" "both"
 write_queue
 
+fi
+
+if selected_group 4m; then
 # 4g the queue table is emptied — the exact failure of 2026-08-31
 python3 - "$REPO/RICH-TODOs.md" <<'PY'
 import sys
@@ -402,6 +465,9 @@ PY
 loud_because "4m" "the queue table emptied -> LOUD, never \"the backlog is empty\"" "NOT ONE ROW"
 write_queue
 
+fi
+
+if selected_group 4n; then
 # 4h the section's rows are emptied
 python3 - "$REPO/wiki/open-items.md" <<'PY'
 import sys
@@ -412,16 +478,24 @@ PY
 loud_because "4n" "the governed section emptied -> LOUD (\"not an empty queue, an unread one\")" "ZERO rows"
 write_record
 
+fi
+
+if selected_group 4o; then
 # 4i the predicate itself is missing
 mv "$REPO/scripts/lib/unstarted-rows.py" "$SANDBOX/py.hidden"
 loud_because "4o" "the predicate absent -> LOUD (an absent checker is not a clean queue)" "unstarted-rows.py"
 mv "$SANDBOX/py.hidden" "$REPO/scripts/lib/unstarted-rows.py"
 
+fi
+
+if selected_group 4p; then
 # 4j the queue is renamed after a sweep has already seen it
 run_hook   # re-adopt, so the "I swept this before" memory is current
 mv "$REPO/RICH-TODOs.md" "$SANDBOX/queue.hidden2"
 loud_because "4p" "a queue swept before and now vanished -> LOUD, never a quiet stand-down" "LOST ITS QUEUE"
 mv "$SANDBOX/queue.hidden2" "$REPO/RICH-TODOs.md"
+
+fi
 
 rm -f "$REPO"/*.bak "$REPO/wiki"/*.bak
 
@@ -435,6 +509,7 @@ rm -f "$REPO"/*.bak "$REPO/wiki"/*.bak
 # `**CEO — a product decision**` and was entirely correct — the work was
 # finished, and the cell names who owns what is LEFT. Two facts, one slot,
 # and the guard was wrong about which was which.
+if selected_group 8; then
 write_queue
 write_record
 bash "$LINT" "$REPO" > "$SANDBOX/lint8.txt" 2>&1
@@ -449,9 +524,12 @@ loud_because "8b" "an UNSTRUCK row whose cell says 'done' -> LOUD (finished in o
 write_queue
 rm -f "$REPO"/*.bak
 
+fi
+
 # ===========================================================================
 # 7. THE LINT'S EXIT CODES — three answers, three codes
 # ===========================================================================
+if selected_group 7; then
 write_queue
 write_record
 bash "$LINT" "$REPO" >/dev/null 2>&1
@@ -471,6 +549,14 @@ bash "$LINT" "$REPO" >/dev/null 2>&1
 if [ "$?" -eq 2 ]; then ok "7c  the lint exits 2 when it could not read — never the same code as clean"
 else bad "7c  the lint exits 2 when it could not read"; fi
 mv "$SANDBOX/rec.hidden" "$REPO/wiki/open-items.md"
+
+fi
+
+if [ -n "$MUTATION_CASE" ]; then
+    [ "$FAIL" -eq 0 ] || exit 1
+    [ "$MUTATION_SEEN" -eq 1 ] || { echo "unknown mutation case: $MUTATION_CASE" >&2; exit 2; }
+    exit 3
+fi
 
 # --- THE MUTATION HARNESS RUNS FROM THE SUITE IT MUTATES -------------------
 # Until 2026-09-05 it ran from NOTHING. run-all-tests.sh discovers *.test.sh;

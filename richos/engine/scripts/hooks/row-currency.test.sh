@@ -89,6 +89,34 @@
 
 set -uo pipefail
 
+# Scoped mutation witnesses never report full-suite success.
+MUTATION_CASE=""
+MUTATION_GROUP=""
+if [ "$#" -gt 0 ]; then
+    [ "$#" -eq 2 ] && [ "$1" = --mutation-case ] && [ "${RICHOS_MUTATION_INNER:-}" = 1 ] || exit 2
+    MUTATION_CASE="$2"
+    case "$MUTATION_CASE" in
+        "multi-line message not refused") MUTATION_GROUP=multiline ;;
+        "created-work case not refused") MUTATION_GROUP=created ;;
+        "a documented command was treated as a commit") MUTATION_GROUP=multiline ;;
+        "shell-fed heredoc not refused") MUTATION_GROUP=multiline ;;
+        "a correction under an unchanged headline was allowed") MUTATION_GROUP=corrected ;;
+        "a current headline warrant was refused") MUTATION_GROUP=clean ;;
+        "changing one word of the headline DOES cost a re-read") MUTATION_GROUP=edit ;;
+        "re-emphasizing a phrase costs no re-read") MUTATION_GROUP=edit ;;
+        "a headline warrant with neither a command nor an unverified declaration is refused") MUTATION_GROUP=malformed ;;
+        "an unverified declaration with no real reason is refused") MUTATION_GROUP=malformed ;;
+        "a terminal row was not counted by the HC census") MUTATION_GROUP=closed ;;
+        "the default made a warrantless row a refusal") MUTATION_GROUP=missing ;;
+        "ROW_HEADLINE_REQUIRED=1 did not refuse a warrantless row") MUTATION_GROUP=missing ;;
+        "a sound-capable command was run or not refused") MUTATION_GROUP=verifier ;;
+        "a mutating command was run or not refused") MUTATION_GROUP=verifier ;;
+        *) echo "unknown mutation witness: $MUTATION_CASE" >&2; exit 2 ;;
+    esac
+fi
+selected() { [ -z "$MUTATION_CASE" ] || [ "$MUTATION_GROUP" = "$1" ]; }
+
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # The registration question has ONE answer in this engine, and it is not a
@@ -294,6 +322,7 @@ echo "=== row currency: the predicate, the CLI and the landing guard ==="
 # ---------------------------------------------------------------------------
 # (a) STAND-DOWN — the precision floor
 # ---------------------------------------------------------------------------
+if selected full; then
 set -- $(mk_pair standdown); REC="$1"; WORK="$2"
 write_record "$REC" '| 3.1 | a row with no warrant at all | |'
 commit_record "$REC"
@@ -340,9 +369,12 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+fi
+
 # (b) THE FOUR REAL SHAPES
 # ---------------------------------------------------------------------------
 # 1. work CREATED under a row stamped absent  (2026-08-29 items 3.4, 3.6, 3.12)
+if selected created; then
 set -- $(mk_pair created); REC="$1"; WORK="$2"
 write_record "$REC" '| 3.1 | the flywheel is unbuilt at both ends | **State:** `OPEN` — `work/lib/new.js`@`-` |'
 commit_record "$REC"
@@ -361,6 +393,8 @@ else
     bad "no PASTE line in the refusal: $GOUT"
 fi
 
+fi
+
 # 1b. THE SAME REFUSAL, IN THE HOUSE STYLE — a MULTI-LINE commit message.
 #
 # Every case above and below passes a one-line message, and for four days that
@@ -375,6 +409,7 @@ fi
 # recognized, and 29 commits reached richos-hq's main carrying a stale row.
 # Found by a sibling guard's author, not by this suite — which is why the case
 # is here and why it uses the shape the corpus actually contains.
+if selected multiline; then
 set -- $(mk_pair multiline); REC="$1"; WORK="$2"
 write_record "$REC" '| 3.1 | the flywheel is unbuilt at both ends | **State:** `OPEN` — `work/lib/new.js`@`-` |'
 commit_record "$REC"
@@ -430,7 +465,10 @@ else
     bad "commit -F - was not recognized (rc=$GRC): $GOUT"
 fi
 
+fi
+
 # 2. work MODIFIED under a row stamped at the old id  (2026-08-29 item 3.7)
+if selected full; then
 set -- $(mk_pair modified); REC="$1"; WORK="$2"
 OLD="$(oid_of "$WORK" lib/thing.js)"
 write_record "$REC" "| 3.1 | the canceller is still open | **State:** \`OPEN\` — \`work/lib/thing.js\`@\`$OLD\` |"
@@ -1273,6 +1311,8 @@ run_guard "$WORK" 'git commit -m \"work\"'
 # pin, so a suite that only proved the new check fires would prove nothing
 # about whether it was needed.
 # ---------------------------------------------------------------------------
+fi
+
 hl_row() {
     # hl_row <prose-suffix> <headline-field-or-empty> <oid> [status]
     printf '| 3.7 | **The shipper writes nothing to disk on a cold start.**%s | %s**State:** `%s` — `work/lib/thing.js`@`%s` |' \
@@ -1282,6 +1322,7 @@ hl_field() { printf '**Headline:** `%s` — %s ' "$1" "$2"; }
 HL_EVID='`grep -c writeFile lib/thing.js` → `0`'
 
 # --- n1. NOT ADOPTED: silent, and SAYING SO ---------------------------------
+if selected full; then
 set -- $(mk_pair hl_unadopted); REC="$1"; WORK="$2"
 OID="$(oid_of "$WORK" lib/thing.js)"
 write_record "$REC" "$(hl_row '' '' "$OID")"
@@ -1298,7 +1339,10 @@ case "$GOUT" in
     *) bad "no adoption note on an unadopted record: $GOUT" ;;
 esac
 
+fi
+
 # --- n2. ADOPTED AND CURRENT: clean, and the census proves it ran ------------
+if selected clean; then
 set -- $(mk_pair hl_clean); REC="$1"; WORK="$2"
 declare_headlines "$REC" "3"
 OID="$(oid_of "$WORK" lib/thing.js)"
@@ -1315,7 +1359,10 @@ case "$GOUT" in
     *) bad "the HC census did not count a clean adopted row: $GOUT" ;;
 esac
 
+fi
+
 # --- n3. THE REAL SHAPE: a correction lands under an unchanged headline ------
+if selected corrected; then
 CORR=' **RE-DERIVED — it writes a cache file on every cold start; the source read was of another branch.**'
 set -- $(mk_pair hl_corrected); REC="$1"; WORK="$2"
 declare_headlines "$REC" "3"
@@ -1337,11 +1384,14 @@ case "$GOUT" in
     *) bad "the refusal did not print the row's own evidence command: $GOUT" ;;
 esac
 
+fi
+
 # --- n3b. THE NEGATIVE CONTROL, and it is the argument for the whole check ---
 # The IDENTICAL landing, with the headline warrant not declared. CHECK 1 is
 # structurally blind here: nothing under the pin moved. If this case ever goes
 # red, CHECK 3 has stopped being necessary and should be deleted rather than
 # kept for its own sake.
+if selected full; then
 set -- $(mk_pair hl_control); REC="$1"; WORK="$2"
 OID="$(oid_of "$WORK" lib/thing.js)"
 write_record "$REC" "$(hl_row '' '' "$OID")"
@@ -1352,7 +1402,10 @@ run_guard "$REC" 'git commit -m \"land\"'
 [ "$GRC" -eq 0 ] && ok "CONTROL: the same correction, with CHECK 1 alone, is waved through — the pin never moved" \
                  || bad "the control landing was refused by CHECK 1, so n3 proves nothing (rc=$GRC): $GOUT"
 
+fi
+
 # --- n4. THE PASTE CLEARS IT ------------------------------------------------
+if selected full; then
 set -- $(mk_pair hl_paste); REC="$1"; WORK="$2"
 declare_headlines "$REC" "3"
 OID="$(oid_of "$WORK" lib/thing.js)"
@@ -1374,6 +1427,8 @@ else
     bad "the refusal printed no **Headline:** warrant to paste: $GOUT"
 fi
 
+fi
+
 # --- n5. ADOPTED AND MISSING: named by default, refused when required -------
 # THE ADOPTION PATH, and it is the answer to failure mode 1. This record's own
 # mechanical sweep APPENDS rows to it at a turn end and cannot state a headline
@@ -1382,6 +1437,7 @@ fi
 # declared key. Both halves are asserted, because a default that could not be
 # escalated would be a permanent note, and teeth nobody can defer would be
 # waived.
+if selected missing; then
 set -- $(mk_pair hl_missing); REC="$1"; WORK="$2"
 declare_headlines "$REC" "3"
 OID="$(oid_of "$WORK" lib/thing.js)"
@@ -1407,8 +1463,11 @@ else
     bad "ROW_HEADLINE_REQUIRED=1 did not refuse a warrantless row (rc=$GRC): $GOUT"
 fi
 
+fi
+
 # --- n6/n7/n9. THE THREE MALFORMED SHAPES -----------------------------------
 hl_malformed_case() {
+    selected malformed || return 0
     # hl_malformed_case <name> <headline-body> <expected-code> <what it is>
     set -- $(mk_pair "$1") "$2" "$3" "$4"; local rec="$1" work="$2" body="$3" code="$4" what="$5"
     declare_headlines "$rec" "3"
@@ -1433,6 +1492,7 @@ hl_malformed_case hl_thinreason '`000000000000` — unverified "dunno"' HEADLINE
     "an unverified declaration with no real reason is refused — a bare marker exempts nothing"
 
 # --- n8. `unverified` WITH A REASON: allowed, AND COUNTED, AND NAMED --------
+if selected full; then
 set -- $(mk_pair hl_unverified); REC="$1"; WORK="$2"
 declare_headlines "$REC" "3"
 OID="$(oid_of "$WORK" lib/thing.js)"
@@ -1453,7 +1513,10 @@ case "$GOUT" in
     *) bad "the unverified row was not named: $GOUT" ;;
 esac
 
+fi
+
 # --- n10. A CLOSED ROW IS EXEMPT, AND COUNTED -------------------------------
+if selected closed; then
 set -- $(mk_pair hl_closed); REC="$1"; WORK="$2"
 declare_headlines "$REC" "3"
 OID="$(oid_of "$WORK" lib/thing.js)"
@@ -1467,10 +1530,13 @@ case "$GOUT" in
     *) bad "a terminal row was not counted by the HC census: $GOUT" ;;
 esac
 
+fi
+
 # --- n11/n12. THE NORMALIZATION BOUNDARY, BOTH DIRECTIONS -------------------
 # n11 alone would pass over a normalizer that threw the whole row away, so n12
 # is its positive probe and they are written as one pair on purpose.
 hl_edit_case() {
+    selected edit || return 0
     # hl_edit_case <name> <edited-prose-suffix> <expect-rc> <what>
     set -- $(mk_pair "$1") "$2" "$3" "$4"
     local rec="$1" work="$2" suffix="$3" want="$4" what="$5"
@@ -1501,6 +1567,7 @@ hl_edit_case hl_reworded \
 # The property the whole check is named for. The WORK moves, CHECK 1 refuses,
 # the lander pastes CHECK 1's new pin — and is refused AGAIN, because pasting
 # an object id is not reading a sentence. Both halves asserted.
+if selected full; then
 set -- $(mk_pair hl_restamp); REC="$1"; WORK="$2"
 declare_headlines "$REC" "3"
 OID="$(oid_of "$WORK" lib/thing.js)"
@@ -1555,6 +1622,8 @@ for HLKEY in 'ROW_HEADLINE_SECTIONS="3"' 'ROW_HEADLINE_REQUIRED="1"'; do
 done
 
 # ===========================================================================
+fi
+
 # (o) THE VERIFIER — scripts/row-headline-verify.sh
 # ===========================================================================
 VERIFY="$ENGINE_ROOT/scripts/row-headline-verify.sh"
@@ -1562,6 +1631,7 @@ VERIFY="$ENGINE_ROOT/scripts/row-headline-verify.sh"
 run_verify() { VOUT="$("$BASH_BIN" "$VERIFY" "$@" 2>&1)"; VRC=$?; return 0; }
 
 # o1/o2. A command that still prints what the row says, and one that does not.
+if selected full; then
 set -- $(mk_pair hl_verify); REC="$1"; WORK="$2"
 declare_headlines "$REC" "3"
 OID="$(oid_of "$WORK" lib/thing.js)"
@@ -1580,11 +1650,14 @@ else
     bad "the verifier missed a headline that has gone false (rc=$VRC): $VOUT"
 fi
 
+fi
+
 # o3/o4. THE TWO REFUSALS, asserted by the side effect they would have had.
 # Neither command speaks if it escapes: spd-say is not installed here and is
 # given a flag it would reject anyway. The marker is the proof of non-execution
 # — a REFUSED line printed over a command that ran would be the worst possible
 # outcome and the only one worth testing for.
+if selected verifier; then
 set -- $(mk_pair hl_refuse); REC="$1"; WORK="$2"
 declare_headlines "$REC" "3"
 OID="$(oid_of "$WORK" lib/thing.js)"
@@ -1605,6 +1678,15 @@ else
 fi
 [ "$VRC" -ne 0 ] && ok "a refused row makes the verifier non-zero — declining to check is not passing" \
                  || bad "the verifier exited 0 having checked nothing (rc=$VRC)"
+
+fi
+
+if [ -n "$MUTATION_CASE" ]; then
+    [ "$FAIL" -eq 0 ] || exit 1
+    [ "$PASS" -gt 0 ] || exit 2
+    printf '  PASS  mutation witness: %s\n' "$MUTATION_CASE"
+    exit 3
+fi
 
 # o5. --list runs nothing at all.
 run_verify "$REC" --list
