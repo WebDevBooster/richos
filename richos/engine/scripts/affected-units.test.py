@@ -47,6 +47,12 @@ class Planner(unittest.TestCase):
         def read(path):
             file = root / path
             return file.read_text() if file.is_file() else None
+        for path in ('spawn-guard-audience.declaration',
+                     'scripts/lib/spawn-guard-audience.py',
+                     'scripts/lib/spawn-guard-audience.test.py'):
+            plan = Selection(root, [suite], read, document)
+            plan.ordinary(path)
+            self.assertEqual(set(plan.selected), {suite}, path)
         before = (root / 'hooks/hooks.json').read_text()
         for event, expected in (('PreToolUse', {suite}), ('Stop', set())):
             after = json.loads(before)

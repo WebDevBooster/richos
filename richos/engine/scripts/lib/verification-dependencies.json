@@ -1078,7 +1078,7 @@
     },
     "scripts/affected-units.test.py": {
       "source": "scripts/affected-units.test.py",
-      "sha256": "523011503867f4c74f0362797cf3e29f8d3e4c26a8dac602fb4bc7fda6301956",
+      "sha256": "0e410f177941588124d8374ab767081fda8eaa1ea94c76c856825201cae0419f",
       "evidence": "All config reads use newly written fixture files or literal before/after text. The real-file planning case reads only hooks.json and source-bound registration declarations. Nested CLI invocations use a newly created Git repository, and selected commands are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -3464,7 +3464,7 @@
     },
     "scripts/lib/spawn-guard-audience.test.sh": {
       "source": "scripts/lib/spawn-guard-audience.test.sh",
-      "sha256": "fe13dd7ee6d59a1c5414f6bcc4c280bee121a36821dac418f99b9c99604b4e8b",
+      "sha256": "0f8ee55bf8d28053e4a8a09c4061ae44a2eed5bc42889db197be91ab2fd5a49f",
       "evidence": "Thin wrapper executes the adjacent fixed Python suite; no other repository command or configuration is loaded.",
       "keys": [],
       "edges": [
@@ -3776,7 +3776,7 @@
         "PreToolUse"
       ],
       "sources": {
-        "scripts/lib/spawn-guard-audience.test.sh": "fe13dd7ee6d59a1c5414f6bcc4c280bee121a36821dac418f99b9c99604b4e8b",
+        "scripts/lib/spawn-guard-audience.test.sh": "0f8ee55bf8d28053e4a8a09c4061ae44a2eed5bc42889db197be91ab2fd5a49f",
         "scripts/lib/spawn-guard-audience.test.py": "f945703cea96df1d9eda480b892977e0456461ebd13bf299d4b9957e1387ab1c",
         "scripts/lib/spawn-guard-audience.py": "0f29e5f4d8b857670e6566646e5ba1691b8b49e55b599b7e2d9d8a4782ccc0f9"
       },
