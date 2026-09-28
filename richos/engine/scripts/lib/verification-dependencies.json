@@ -12070,6 +12070,135 @@
           "to": "scripts/lib/verification-fixture.sh"
         }
       ]
+    },
+    "ass-kicker/tests/brief-provenance.test.sh": {
+      "source": "ass-kicker/tests/brief-provenance.test.sh",
+      "sha256": "ec9f43c420de9cb3c1f56b3d6ba5313f54dace244d9f0876f6206f39ff40097d",
+      "evidence": "Invokes review/annotate CLI on generated private Markdown/cited text. Quoted commands and config names are parsed data, never sourced or executed.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ass-kicker/brief-provenance.py#annotate"
+        }
+      ]
+    },
+    "scripts/hooks/notice-claim-capability.sh": {
+      "source": "scripts/hooks/notice-claim-capability.sh",
+      "sha256": "f918e14199d059e57f306ee1202fe0edb3ab27711deb0003358ad36bcae3a1c5",
+      "evidence": "Fixed inline Python imports brief-provenance and uses norm, segment, check_capability and dedupe over supplied Markdown. Reads written files as text only, never runs their quoted commands or loads orchestration config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ass-kicker/brief-provenance.py#capability"
+        }
+      ]
+    },
+    "ass-kicker/brief-provenance.py#capability": {
+      "source": "ass-kicker/brief-provenance.py",
+      "sha256": "78b82b175a6d2e59032bcffd9ca49928023f4742bd8866275c581e7afb6d4a10",
+      "evidence": "Module initialization, norm, segment, check_capability and dedupe are stdlib text operations. No engine module import, command execution or config lookup.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/hooks/notice-claim-capability.test.sh": {
+      "source": "scripts/hooks/notice-claim-capability.test.sh",
+      "sha256": "cdfbde5790804baca3fb96cdaaf8ef64a1c7248bf33b43a94acf6af3ad0dafdd",
+      "evidence": "Private Markdown and JSON payload fixture invokes the notice hook, with missing/broken parser mirrors, then the finite custom mutation builder.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/notice-claim-capability.sh"
+        },
+        {
+          "to": "scripts/hooks/claim-capability-delivery.mutation.sh"
+        }
+      ]
+    },
+    "scripts/hooks/claim-capability-delivery.mutation.sh": {
+      "source": "scripts/hooks/claim-capability-delivery.mutation.sh",
+      "sha256": "d0447399b96de41a7ecaa19a6a500628f86a9035bb2d41cbc514a890e0c849dc",
+      "evidence": "Custom builder copies only notice hook, owning test and brief-provenance parser; no config. Literal replacements exercise same suite with nested mutation disabled.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/notice-claim-capability.test.sh"
+        }
+      ]
+    },
+    "scripts/provider-supervisor.py#fixture-providers": {
+      "source": "scripts/provider-supervisor.py",
+      "sha256": "8bfa72ada9dd8047f8cd3334d7318f871da83be688c16d811a679708257473ce",
+      "evidence": "Called by provider-supervisor.test.py with generated Python provider/launcher scripts and fixed sleep commands. Supervisor imports stdlib and native libproc only, observes process tables and executes only caller fixture argv. No engine helper or orchestration config.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/provider-supervisor.test.py": {
+      "source": "scripts/lib/provider-supervisor.test.py",
+      "sha256": "a6b9f4e3d52161cbe03777579472f26d568577101384d1fd00880472e14a5971",
+      "evidence": "Loads/calls supervisor with private generated provider/desktop scripts and native sleep/ps. Tests process identity, signals and private JSON logs, no config or live provider command.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/provider-supervisor.py#fixture-providers"
+        }
+      ]
+    },
+    "scripts/lib/provider-supervisor.test.sh": {
+      "source": "scripts/lib/provider-supervisor.test.sh",
+      "sha256": "f06e1572d0bef12a65b1f758d74e04679bdf7d31bc3fab434a4c5a36d496a14a",
+      "evidence": "Fixed Python owning suite followed by its shared-harness mutation driver.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/provider-supervisor.test.py"
+        },
+        {
+          "to": "scripts/lib/provider-supervisor.mutation.sh"
+        }
+      ]
+    },
+    "scripts/lib/provider-supervisor.mutation.sh": {
+      "source": "scripts/lib/provider-supervisor.mutation.sh",
+      "sha256": "381e1566a21d17675eea8250c01a0c6edb2f27027dd74dd5935a9dd3c34a4276",
+      "evidence": "Eight literal supervisor mutants execute the same private-provider suite. Shared mutation harness copies config but the suite does not read its values.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/lib/provider-supervisor.test.sh"
+        }
+      ]
+    },
+    "scripts/lib/ci-run-records.py": {
+      "source": "scripts/lib/ci-run-records.py",
+      "sha256": "478c8689e5daf1179a10f12887f851b207f572ef43e270836e1689ca7acc71a5",
+      "evidence": "Stdlib JSON/date/argument parser reads event and run JSON, merges pages and reports coverage. No engine imports or config evaluation.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/ci-run-record-check.sh#fixture-api": {
+      "source": "scripts/ci-run-record-check.sh",
+      "sha256": "4b5b671e3e1f1ef7b3735b0b7407daede0d76abac06fc882cb7c33295dbbacc5",
+      "evidence": "Tests pass private events/runs JSON or a literal gh stub for paging. Wrapper invokes ci-run-records and inline stdlib JSON only; no orchestration config or dynamic engine helper.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/ci-run-records.py"
+        }
+      ]
+    },
+    "scripts/ci-run-record-check.test.sh": {
+      "source": "scripts/ci-run-record-check.test.sh",
+      "sha256": "74f25c209ca0d7d8d47cd0af9b026cd9b86451ca00fc4a9407c9ed470c12550c",
+      "evidence": "Generates private event/run JSON and literal gh stub; invokes the fixed record-check wrapper. No config transport or mutation driver.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/ci-run-record-check.sh#fixture-api"
+        }
+      ]
     }
   },
   "units": {
