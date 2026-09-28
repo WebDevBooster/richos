@@ -313,7 +313,10 @@ class FailurePolicy(unittest.TestCase):
         item = self.item('measured fixture', 'pass')
         inputs = {'paths': {'source': 'first'}, 'tools': {'python': 'first-tool'},
                   'profile': 'fixture', 'environment': {}, 'external': {}, 'platform': ['fixture']}
-        item.evidence = SimpleNamespace(identities={item.label: inputs})
+        # A Record carries its run's source identity; reserve_item() records it beside the
+        # inputs (input_evidence, since bfc8c24d), so the stand-in carries one too.
+        item.evidence = SimpleNamespace(identities={item.label: inputs},
+            source={'commit': 'a' * 40, 'tracked_diff_sha256': 'clean', 'untracked_sha256': 'clean'})
         contexts = []
         fd = os.open(os.devnull, os.O_RDONLY)
         self.addCleanup(os.close, fd)

@@ -125,7 +125,7 @@ class Reliability(unittest.TestCase):
     def test_zombie_owner_is_dead_even_before_its_parent_reaps_it(self):
         zombie = {'pid': 100, 'ppid': 1, 'pgid': 100, 'start': 'old', 'zombie': True}
         with patch.object(proc_tree.operator_fences, 'proc', return_value=zombie), \
-                patch.object(proc_tree.subprocess, 'run', return_value=SimpleNamespace(stdout='100 1 100\n')):
+                patch.object(proc_tree.subprocess, 'run', return_value=SimpleNamespace(stdout='100 1 100\n', returncode=0)):
             self.assertIsNone(proc_tree.identity(100))
             self.assertEqual(proc_tree.process_rows(), {})
 
@@ -251,7 +251,9 @@ class Reliability(unittest.TestCase):
             self.assertIsNone(worker_tokens.Budget(third, runner=True, shared=machine).try_acquire())
             with self.assertRaises(ValueError):
                 worker_tokens.init(machine, 1)
-            self.assertEqual(worker_tokens.Budget(machine).held(), 2)
+            # shared=False: the machine budget itself, never nested inside whatever machine
+            # budget RICHOS_MACHINE_WORKERS names for the process running this suite.
+            self.assertEqual(worker_tokens.Budget(machine, shared=False).held(), 2)
         finally:
             for token in held:
                 token.release()

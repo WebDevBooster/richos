@@ -35,6 +35,25 @@ version heading with Added / Changed / Fixed groupings.
 - Suites: `scripts/record-owner.test.sh` (23 checks) and
   `scripts/record-committer.test.sh` (24), each with a mutation harness.
 
+### Fixed — a teammate can raise an escalation in any wording (2026-09-28)
+
+- **`escalate.sh raise --fields <file>`** reads title, state, for, question, tried and
+  meanwhile from a JSON file the teammate writes with its Write tool; `ack --fields` takes
+  the disposition the same way. A field given in the file and as an option is refused, as
+  are unknown keys, non-string values and a file that is not one JSON object. Values are
+  data: `escalations.py fields` validates the file and prints one value at a time, and
+  `escalate.sh` assigns each through a fixed `case`; nothing from the file is evaluated.
+- **Why.** Measured on Claude Code 2.1.283: for a worktree-isolated agent, Claude Code
+  refuses a Bash call before it runs when a program it does not know receives free text
+  that starts with the word git, or that carries a quote or apostrophe next to git or a
+  shell name. zach-sonnet-esctest1's `--tried "git status, git add, git commit ..."` was
+  refused with no id and no record. The refusal is the host's, it reads the text the agent
+  wrote, and no hook can intercept it, so the text now never crosses the command line.
+- **The seam teaches only the file form** (`reference/escalation-protocol-seam.md`), and
+  `install-escalation-protocol.test.sh` case 8 goes red if it ever shows
+  `--title/--question/--tried/--meanwhile "<text>"` again. Case 5's drift fixture now
+  fails loudly when its anchor sentence is missing instead of reporting "no drift".
+
 ### Removed — the idle-land gate no longer reads the CEO's sentences either (2026-09-20)
 
 - **`HOLD_RE`, `OFF_DUTY_RE`, `hold_signal()` and TERM 3b are gone** from

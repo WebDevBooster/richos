@@ -829,6 +829,29 @@ while True: time.sleep(.02)
             self.assertRegex(line, r"^\[\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z\] ")
             self.assertTrue(line.endswith(text), line)
 
+    def test_a_process_that_outlives_its_command_cannot_crash_or_hang_the_log(self):
+        """Run 20260928T143332Z-1f0e1b3a: a gate's log was closed while a process its command
+        started still held the pipe. close() closed a buffered reader under the pump thread,
+        waited on that process, and Python 3.14 raised in the pump. Now the pump is told to
+        stop, the log says it stopped, and nothing raises."""
+        path = self.root / "run.log"
+        errors = []
+        previous = threading.excepthook
+        threading.excepthook = lambda args: errors.append(repr(args.exc_value))
+        self.addCleanup(setattr, threading, "excepthook", previous)
+        log = m.TimestampedLog(path)
+        log.CLOSE_WAIT_SECONDS = 1
+        straggler = subprocess.Popen(["sh", "-c", "echo before; exec sleep 30"], stdout=log)
+        self.addCleanup(straggler.wait)
+        self.addCleanup(straggler.kill)
+        began = time.monotonic()
+        log.close()
+        self.assertLess(time.monotonic() - began, 10, "close() waited on a process it does not own")
+        self.assertEqual(errors, [])
+        lines = path.read_text().splitlines()
+        self.assertTrue(lines[0].endswith(" before"), lines)
+        self.assertIn("still holds this log's pipe", lines[-1])
+
     def test_milestones_match_in_order_and_only_while_the_build_step_is_open(self):
         """In order first; armed inside `build` as the second condition.
 
