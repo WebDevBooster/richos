@@ -524,6 +524,25 @@ class Closure(unittest.TestCase):
         with self.assertRaises(inputs.Unsupported):
             inputs.hook_reader(row, reader)
 
+    def test_login_alarm_fixture_does_not_read_copied_config_values(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/login-alarm.test.sh'
+        closure = graph.closure(unit)
+        self.assertEqual(closure['fallback'], [])
+        self.assertFalse(closure['keys'] or closure['whole'])
+        self.assertTrue(closure['presence'])  # The shared mutation transport copies the file.
+        change = inputs.config_change('QUOTA_PAUSE_PERCENT=93', 'QUOTA_PAUSE_PERCENT=94')
+        self.assertNotIn(unit, graph.config_units(change, [unit]))
+        self.assertIn(unit, graph.config_units(inputs.config_change('QUOTA_PAUSE_PERCENT=93', None), [unit]))
+        for helper in ('scripts/login-alarm.sh#suite-fixture',
+                       'scripts/lib/login_alarm.py#suite-fixture',
+                       'scripts/lib/escalations.py', 'scripts/login-alarm.mutation.sh'):
+            previous = document['nodes'][helper]['sha256']
+            document['nodes'][helper]['sha256'] = 'changed'
+            self.assertIn(unit, graph.config_units(change, [unit]), helper)
+            document['nodes'][helper]['sha256'] = previous
+
     def test_quota_fixture_retains_real_cleanup_and_nested_transport(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

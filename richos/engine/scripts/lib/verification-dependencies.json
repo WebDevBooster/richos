@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "c4d4149feee2a06d487d2bf0641efdf35fc37e39ef692f945d96fc1ec60df436",
+      "sha256": "97dd30187e2cd31499fb6d7225a0e268b0cb8881d034061e7039261fee331ab2",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -11233,6 +11233,60 @@
         "SCRIPT_DIR=\"$(cd",
         "if resolve_entity_root \"$INPUT\"; then"
       ]
+    },
+    "scripts/lib/login_alarm.py#suite-fixture": {
+      "source": "scripts/lib/login_alarm.py",
+      "sha256": "121de3803351aa98c57eeb3810c638ecd0dfa8a1d7faf26c9cc009f29b93b7e2",
+      "evidence": "Reviewed scan, report, episode renewal and notification retry paths. The suite supplies private transcript/state/ledger paths and literal security/notification recorder executables. Escalation helpers are the only engine import. No orchestration.config read, model call or dynamic engine import.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/escalations.py"
+        }
+      ]
+    },
+    "scripts/login-alarm.sh#suite-fixture": {
+      "source": "scripts/login-alarm.sh",
+      "sha256": "4e1ab541da85a9bdb1330d1a033a3df30801effa8b1f6c85c86627f6b91fb278",
+      "evidence": "The suite exercises scan/report plus print-plist/install/installed. RICHOS_LAUNCH_AGENTS_DIR is always set to its sandbox, suppressing launchctl; plist text is output, never executed. The fixed Python sibling handles scans. Neither branch sources orchestration.config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/login_alarm.py#suite-fixture"
+        }
+      ]
+    },
+    "scripts/login-alarm.mutation.sh": {
+      "source": "scripts/login-alarm.mutation.sh",
+      "sha256": "889f8b299b110c0762d8f97cb7d6673a3b86cbfa55a567092007c050bb6879fe",
+      "evidence": "All eight mutations patch finite literal Python operands and run the login-alarm fixture suite. Shared harness config copying is transport, not a value read; the nested suite preserves its private seams.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/login-alarm.test.sh"
+        }
+      ]
+    },
+    "scripts/login-alarm.test.sh": {
+      "source": "scripts/login-alarm.test.sh",
+      "sha256": "01932b697f8888280da1b6682371b2b8f1d7dae38f8e7c5256558153eef46a5f",
+      "evidence": "Reviewed all L01-L13 assertions and nested mutation invocation. Transcripts, keychain attributes, notifications, episode state, escalation ledger and launchd directory are private fixture data/recorders. Clock values are supplied to scan calls. Neither this suite nor the shell wrapper sources orchestration.config. Scratch receives only caller/environment defaults.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/scratch.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/login-alarm.sh#suite-fixture"
+        },
+        {
+          "to": "scripts/login-alarm.mutation.sh"
+        }
+      ]
     }
   },
   "units": {
@@ -11366,7 +11420,8 @@
     "scripts/hooks/unevaluated-payload.test.sh": "scripts/hooks/unevaluated-payload.test.sh",
     "scripts/hooks/contract-integrity.test.sh:base": "scripts/hooks/contract-integrity.test.sh#base",
     "scripts/hooks/by-reference.test.sh": "scripts/hooks/by-reference.test.sh",
-    "scripts/spawn.test.sh": "scripts/spawn.test.sh"
+    "scripts/spawn.test.sh": "scripts/spawn.test.sh",
+    "scripts/login-alarm.test.sh": "scripts/login-alarm.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
