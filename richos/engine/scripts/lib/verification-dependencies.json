@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "241721448dca47a4649f3a1ccedc5ae2d8962727c47e0f9262a55897b7178b55",
+      "sha256": "ab50497eac1b297a8e471b1b7a5871829a81dd92b618df05ee3d8530e68d1dcf",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -10538,6 +10538,434 @@
         "set -eo pipefail",
         "AMEND=\"$(printf"
       ]
+    },
+    "scripts/hooks/handoff-facts-annotate.sh#sandbox-payloads": {
+      "source": "scripts/hooks/handoff-facts-annotate.sh",
+      "sha256": "d28db7195c447f584e0239d0f193c2359259eedbc8f853cda66946e31b6e45d1",
+      "evidence": "The six literal sandbox payloads contain no memory restart path. Reviewed prefilter returns before invoking handoff-facts.",
+      "keys": [],
+      "edges": [],
+      "region": [
+        "set -o pipefail",
+        "[ -f \"$FACTS\" ]"
+      ]
+    },
+    "scripts/hooks/notice-claim-capability.sh#sandbox-payloads": {
+      "source": "scripts/hooks/notice-claim-capability.sh",
+      "sha256": "f918e14199d059e57f306ee1202fe0edb3ab27711deb0003358ad36bcae3a1c5",
+      "evidence": "The six literal sandbox payloads contain no verification/wiki/memory markdown record path. Reviewed prefilter returns before loading brief-provenance.",
+      "keys": [],
+      "edges": [],
+      "region": [
+        "set -o pipefail",
+        "[ -f \"$PROV\" ]"
+      ]
+    },
+    "scripts/hooks/task-completed-handoff.sh#sandbox-payloads": {
+      "source": "scripts/hooks/task-completed-handoff.sh",
+      "sha256": "e143bbca2d836099f898f588d12fa1aef39b2fd7db85cf7ad3f575f702d74216",
+      "evidence": "None of the six sandbox payloads names TaskCompleted. Unnamed events record unreadable in private HOME; SessionStart exits as another event. Returns before completion proof or ledger import.",
+      "keys": [],
+      "edges": [],
+      "region": [
+        "set -o pipefail",
+        "_ROOT_LIB="
+      ]
+    },
+    "scripts/hooks/teammate-idle-handoff.sh": {
+      "source": "scripts/hooks/teammate-idle-handoff.sh",
+      "sha256": "9e0e49d90653b6f80b9ccdcda91992bf8372e1ac53f0c8eda366c22e363d087c",
+      "evidence": "Full hook reviewed: Git status, private team JSON event logging and fixed ledger append. No config settings or arbitrary command execution.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/worktree-ledger.py#append"
+        }
+      ]
+    },
+    "scripts/hooks/notice-unlanded-branches.sh#root-donor": {
+      "source": "scripts/hooks/notice-unlanded-branches.sh",
+      "sha256": "3a1222731913dc06aecd5a9703403ae27b7d61a6f28c7fad00223c4ac6c5a90d",
+      "evidence": "The contract base copies only the marked root-resolution bootstrap then appends exit 0. Only resolver module loading and engine root discovery execute.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#engine-only"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "_SHN_LIB="
+      ]
+    },
+    "scripts/hooks/contract-integrity.test.sh#case7-assertion": {
+      "source": "scripts/hooks/contract-integrity.test.sh",
+      "sha256": "367fc70f5ccbc66e5be5f1414d821f4c11c69916829c9ca27aa2ddfb1b5638d2",
+      "evidence": "The mutation driver extracts only the literal C7_OUT Python assertion. It compares generated JSON keys, commands, registrations and idempotence without invoking any hook.",
+      "keys": [],
+      "edges": [],
+      "region": [
+        "C7_OUT=\"$(python3 - \"$ROOT\"",
+        "if [ -z \"$C7_OUT\" ]; then"
+      ]
+    },
+    "scripts/hooks/contract-integrity-case7.mutation.sh": {
+      "source": "scripts/hooks/contract-integrity-case7.mutation.sh",
+      "sha256": "a49ab1e3b263ab94238bd2a99667a642811d89b5a4439e260b9b95a1e32c1f92",
+      "evidence": "Full driver reviewed: fixed JSON mutations run only the extracted source-bound assertion with Python. No installer, hook or orchestration config executes.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/contract-integrity.test.sh#case7-assertion"
+        }
+      ]
+    },
+    "scripts/lib/owned-systems.py#template-default": {
+      "source": "scripts/lib/owned-systems.py",
+      "sha256": "722c3279040fde20c10c0e9f95a42808c02949cbb9e4f41b1425aaf4dde0372f",
+      "evidence": "The contract sandbox replaces both engine and entity configuration with the same literal template, which omits OWNED_SYSTEMS_DECLARATION. Only the built-in default filename can resolve. The shipped default rows are bound if present in the copied fixture; no real engine config is consulted.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/ci_pause.py"
+        },
+        {
+          "to": "owned-systems.declaration#fixture-default"
+        }
+      ]
+    },
+    "scripts/hooks/guard-owned-state.sh#template-default": {
+      "source": "scripts/hooks/guard-owned-state.sh",
+      "sha256": "5f137d70ca9ea567cf0d5d06250ff50606db82f2323d2e68346e5295721d58aa",
+      "evidence": "Full owned-state hook on the private seated contract template, with no original engine config path remaining.",
+      "keys": [
+        "OWNED_STATE_GATE"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/owned-systems.py#template-default"
+        }
+      ]
+    },
+    "scripts/lib/sandbox-completeness.sh#contract-template": {
+      "source": "scripts/lib/sandbox-completeness.sh",
+      "sha256": "2d141da4f87eb59130459ce74fa1c3067e43c4e7b39ad03cb43f17cfb7973131",
+      "evidence": "Full six-payload driver reviewed: private HOME/config/workspace registry, explicit literal seated root and fixed basenames from expanded registration inventory. Payload strings are never executed; every hook and dispatcher module is source-bound.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/dispatch-pretooluse.manifest"
+        },
+        {
+          "to": "hooks/hooks.json#pre-stop-fixtures"
+        },
+        {
+          "to": "scripts/hooks/commit-ceo-inputs.sh#fixtures"
+        },
+        {
+          "to": "scripts/hooks/detect-nonnative-worktree.sh"
+        },
+        {
+          "to": "scripts/hooks/dispatch-pretooluse.sh#no-chain"
+        },
+        {
+          "to": "scripts/hooks/engine-status.sh"
+        },
+        {
+          "to": "scripts/hooks/failure-type-lookup.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-agent-state-claims.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-bash-main-writes.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-brief-scope.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-ceo-ask-first.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-ceo-ruled-ask.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-ceo-todos-commits.sh#fixture-records"
+        },
+        {
+          "to": "scripts/hooks/guard-ci-red-lands.sh#fenced-commit"
+        },
+        {
+          "to": "scripts/hooks/guard-ci-turn-gate.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-completeness-commits.sh#undeclared-target"
+        },
+        {
+          "to": "scripts/hooks/guard-definition-drift.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-dialect.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-failure-type-answer.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-foreign-app-data.sh#fenced-commit"
+        },
+        {
+          "to": "scripts/hooks/guard-hook-registration-commits.sh#private-inventory"
+        },
+        {
+          "to": "scripts/hooks/guard-host-display-power.sh#fenced-commit"
+        },
+        {
+          "to": "scripts/hooks/guard-idle-land.sh#hook"
+        },
+        {
+          "to": "scripts/hooks/guard-inflight-notify.sh#fenced-commit"
+        },
+        {
+          "to": "scripts/hooks/guard-interactive-prompt.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-land-lease-commands.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-live-names.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-main-checkout-writes.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-model-ceiling.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-named-persons-commands.sh#fixture-roster"
+        },
+        {
+          "to": "scripts/hooks/guard-named-persons-writes.sh#fixture-roster"
+        },
+        {
+          "to": "scripts/hooks/guard-no-home-network-phone.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-operator-claim.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-owned-state.sh#template-default"
+        },
+        {
+          "to": "scripts/hooks/guard-public-record-repo.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-publication-commits.sh#undeclared-target"
+        },
+        {
+          "to": "scripts/hooks/guard-publication-writes.sh#undeclared"
+        },
+        {
+          "to": "scripts/hooks/guard-reference-ledger.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-resume-isolation.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-row-currency-commits.sh#undeclared-target"
+        },
+        {
+          "to": "scripts/hooks/guard-sealed-worktree.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-shared-writes.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-stale-staging.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-stated-actions.sh#hook"
+        },
+        {
+          "to": "scripts/hooks/guard-stop-live-work.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-unresolved-claims.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-vendoring-commits.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-workflow-ban.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-workspace-gate.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-worktree-isolation.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-worktree-removal.sh"
+        },
+        {
+          "to": "scripts/hooks/handoff-facts-annotate.sh#sandbox-payloads"
+        },
+        {
+          "to": "scripts/hooks/left-off-report.sh"
+        },
+        {
+          "to": "scripts/hooks/notice-ceo-asks.sh"
+        },
+        {
+          "to": "scripts/hooks/notice-ceo-inputs-unheld.sh#fixtures"
+        },
+        {
+          "to": "scripts/hooks/notice-ceo-ruled-prose.sh"
+        },
+        {
+          "to": "scripts/hooks/notice-ceo-unasked.sh"
+        },
+        {
+          "to": "scripts/hooks/notice-claim-capability.sh#sandbox-payloads"
+        },
+        {
+          "to": "scripts/hooks/notice-disk-alert.sh"
+        },
+        {
+          "to": "scripts/hooks/notice-escalations.sh"
+        },
+        {
+          "to": "scripts/hooks/notice-hook-staleness.sh"
+        },
+        {
+          "to": "scripts/hooks/notice-inflight-acks.sh"
+        },
+        {
+          "to": "scripts/hooks/notice-inflight-sends.sh"
+        },
+        {
+          "to": "scripts/hooks/notice-mechanical-findings.sh#fixture-records"
+        },
+        {
+          "to": "scripts/hooks/notice-protected-ref-moves.sh"
+        },
+        {
+          "to": "scripts/hooks/notice-unasked-deferral.sh"
+        },
+        {
+          "to": "scripts/hooks/notice-unlanded-branches.sh"
+        },
+        {
+          "to": "scripts/hooks/notice-unstarted-rows.sh#fixture-records"
+        },
+        {
+          "to": "scripts/hooks/notice-waiver-repetition.sh"
+        },
+        {
+          "to": "scripts/hooks/observe-created-refs.sh"
+        },
+        {
+          "to": "scripts/hooks/operator-claim.sh"
+        },
+        {
+          "to": "scripts/hooks/release-land-leases.sh"
+        },
+        {
+          "to": "scripts/hooks/release-shared-writes.sh"
+        },
+        {
+          "to": "scripts/hooks/scan-secrets.sh"
+        },
+        {
+          "to": "scripts/hooks/session-start-ceo-ask.sh"
+        },
+        {
+          "to": "scripts/hooks/session-start-ci-surface.sh"
+        },
+        {
+          "to": "scripts/hooks/session-start-escalations.sh"
+        },
+        {
+          "to": "scripts/hooks/session-start-quota.sh"
+        },
+        {
+          "to": "scripts/hooks/session-start-scratch.sh"
+        },
+        {
+          "to": "scripts/hooks/shell-evidence.sh"
+        },
+        {
+          "to": "scripts/hooks/snapshot-agent-definitions.sh"
+        },
+        {
+          "to": "scripts/hooks/snapshot-enforcing-hooks.sh"
+        },
+        {
+          "to": "scripts/hooks/task-completed-handoff.sh#sandbox-payloads"
+        },
+        {
+          "to": "scripts/hooks/teammate-idle-handoff.sh"
+        },
+        {
+          "to": "scripts/hooks/turn-manifest.sh"
+        },
+        {
+          "to": "scripts/hooks/verify-agent-prompt.sh"
+        },
+        {
+          "to": "scripts/hooks/worker-created-handoff.sh"
+        },
+        {
+          "to": "scripts/hooks/worker-ended-handoff.sh"
+        },
+        {
+          "to": "scripts/hooks/worker-started-handoff.sh"
+        },
+        {
+          "to": "scripts/hooks/worker-updated-handoff.sh"
+        },
+        {
+          "to": "scripts/hooks/workspace-lifecycle.sh"
+        }
+      ]
+    },
+    "scripts/hooks/contract-integrity.test.sh#base": {
+      "source": "scripts/hooks/contract-integrity.test.sh",
+      "sha256": "367fc70f5ccbc66e5be5f1414d821f4c11c69916829c9ca27aa2ddfb1b5638d2",
+      "evidence": "Full base section reviewed: seated probe/installer, finite root-bootstrap donor mutations and case-7 assertion mutations. SC1/SC2 invoke all expanded hook inventory against six literal payloads in a private seated template. Original config values are replaced before execution.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/contract-integrity.test.sh#prelude"
+        },
+        {
+          "to": "scripts/hooks/contract-integrity-probe.sh#seated-fixture",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/install.sh#private-config-dir",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/sandbox-completeness.sh#contract-template",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/notice-unlanded-branches.sh#root-donor"
+        },
+        {
+          "to": "scripts/hooks/contract-integrity-case7.mutation.sh"
+        }
+      ],
+      "region": [
+        "if _section base; then",
+        "fi  # _section — base\n"
+      ]
     }
   },
   "units": {
@@ -10668,7 +11096,8 @@
     "scripts/hooks/operator-leads.test.sh": "scripts/hooks/operator-leads.test.sh",
     "scripts/operator-fences.test.sh": "scripts/operator-fences.test.sh",
     "scripts/hooks/guard-land-lease-commands.test.sh": "scripts/hooks/guard-land-lease-commands.test.sh",
-    "scripts/hooks/unevaluated-payload.test.sh": "scripts/hooks/unevaluated-payload.test.sh"
+    "scripts/hooks/unevaluated-payload.test.sh": "scripts/hooks/unevaluated-payload.test.sh",
+    "scripts/hooks/contract-integrity.test.sh:base": "scripts/hooks/contract-integrity.test.sh#base"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
@@ -11055,7 +11484,120 @@
         "scripts/scratch-reaper.sh": "1cdefb018a15be05c60b6dd257678573d2135230ceb58cfaef0fcd9c835975b1",
         "scripts/scratch-reaper.test.sh": "3987ec7472048506ed539f672f067a601308085aa0ce4e45da2ef44c714fb16a",
         "scripts/scratch-sweep.sh": "98804cde04a632171f4323a43164e18871412d44e41ec36b2e535a2e43554297",
-        "scripts/unstarted-rows-lint.sh": "4b654eefa4fb775ba218fbee15595b415684c7a90e2168eedf864c07f142e58e"
+        "scripts/unstarted-rows-lint.sh": "4b654eefa4fb775ba218fbee15595b415684c7a90e2168eedf864c07f142e58e",
+        "scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7",
+        "hooks/hooks.json": "c75215e22ece4acfbf861225e37537dec1671e0b196fc57a8f718a054a51e0d2",
+        "scripts/hooks/commit-ceo-inputs.sh": "9e4a0af9cd1ea89110261baacdae395dc40543061a4f17740467c5a492598962",
+        "scripts/hooks/commit-ceo-inputs.py": "53a222d02892523e81e3f3dc355a010e1b140d0ac628b3649b16be36ce87a500",
+        "scripts/hooks/guard-publication-writes.sh": "c69db813e7aab086ff3f6257d3429eca9e7091c9fc985d17f91829ce943a580b",
+        "scripts/lib/publication-boundary.sh": "46366c80e498f6269889d21109cbfe5de696c273aa9229277ecc85d8285fac85",
+        "scripts/hooks/detect-nonnative-worktree.sh": "11fe1d4301e448a709fa0117b1b7df797f3dc7750233d275f09b4d749a150dee",
+        "scripts/hooks/dispatch-pretooluse.sh": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
+        "scripts/hooks/failure-type-lookup.sh": "8e77ae84f95d79e11fd2f168a2fbb39c5f9548a8eec3ffcd0af5e4496e8cffd1",
+        "scripts/lib/failure-type.py": "291919a605c334a51fc5cc1e2228ddaefdcd2e8bd4542a1cd3cc77e7e50849e7",
+        "scripts/lib/left-off.py": "f86b8a7767d1c0c4af0db1358eeaf4ce98d4e8524f7c0a2f7944a307b500e4db",
+        "scripts/hooks/failure-type.test.sh": "dfc89e12ad217ebbae8c078619a7264cf1cf297985d709865178ed80afa9b781",
+        "scripts/hooks/failure-type.mutation.sh": "1a8078c78f3a6cd5401d65af03c0b912cb5969f4dda18a15f45e3afbe17f4fdb",
+        "scripts/hooks/guard-agent-state-claims.py": "341d0223962f9ccfa6298b3d6982dc55b5f3ea19ec5ea4ba1deb162380811ab5",
+        "scripts/hooks/guard-brief-scope.sh": "acbb13498c55d05bcbf609319a5a5f12436e78d6bdc1796ec46e8dfb4030818b",
+        "ass-kicker/brief-scope.py": "ace5be7e9031e6fd5b0ea0a9f0d7a00ceaa2c490822e0b77c4ec45d81dc324d8",
+        "scripts/hooks/guard-ceo-ask-first.sh": "4dc92ca5c60ff39ed949fc88a8a4955264ece2d17bc689f9c2a2eb8b1bae0728",
+        "scripts/lib/ceo-asks.sh": "c0d084aef038efba8bae75eea3073bafa01c60132702282743449541abab0021",
+        "scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
+        "scripts/hooks/guard-ceo-ruled-ask.sh": "33a726eed8e0502107d5987e89cfbe4a287861c952c0026e855cd15c0712710a",
+        "scripts/lib/premise-ask.sh": "54ed7bab6c1f1632458c6dbabc05f13dcec91f6ab262bfe3c5c2ae20b4b91080",
+        "scripts/lib/premise-ask.py": "2a6a079fbc0fab7937f90967c29c19e7ab2747a7286ec9923ec1dd685aa63e0a",
+        "scripts/lib/ceo-ruled.sh": "737879339e074a0c41011974a8dcdc74bbbbf7118ffda2904e2f8da7a0b10e91",
+        "scripts/lib/ceo-ruled.py": "e92586fdd79f1c648c2f764613f47a56bc7f2d843061c70053611d7f2e23ce30",
+        "scripts/hooks/guard-ceo-todos-commits.sh": "b5ce1b39ad6985d4d3a52864c389968a474f05de1187baaa430941756ae0c0e0",
+        "scripts/hooks/guard-ci-red-lands.sh": "64d83f115beb4a9db8c3cfe52438b72951d2a9e2ce5becee5f9344b9fb3eb6b0",
+        "scripts/hooks/guard-ci-turn-gate.py": "b92f4e9c6c358c5941bda39405fd5ae52a07405aa5a838ea41943c595d3fa948",
+        "scripts/lib/ci_pause.py": "f41e86ea2b1aaa036c92eb44ddcb2fe2a6880724162561a5e31b84d556758693",
+        "scripts/hooks/guard-completeness-commits.sh": "bb6d0253b44d251a08dd325e8901399aafcbe4ca6fe4aa4c30c9b41a57cee673",
+        "scripts/hooks/guard-foreign-app-data.sh": "4360ace16a692e3cf5c7dd100dc206c496f0960b4584d66f76ff240bda3ee42c",
+        "scripts/hooks/guard-hook-registration-commits.sh": "0e684c61c9c4d2bd3a724b6f4693090812cff645911916e4b4cb035b90790393",
+        "scripts/hook-registration-completeness.sh": "0cf54e75ea95aa43b5f4824d54941c9faee1b840bb688b471fa50ee1e9d8b350",
+        "scripts/hooks/guard-host-display-power.sh": "a6b99e74c251343564a32b52dbdafbf5a00ae84268853dfa7f622d032e79dc45",
+        "scripts/hooks/guard-land-lease-commands.sh": "e3fb182d2571b84f9a84599fd50f404bb53aee051f6a9bbf52f0f78e01b60078",
+        "scripts/lib/operator_leads.py": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
+        "scripts/hooks/guard-live-names.sh": "f836427a7eff9c4785a22318725e87826b6890bb20c44511cb6ae9b86fe88d30",
+        "scripts/lib/operator-mode.sh": "c9b25dd5eaef11ac02dc34ac11a6997404966ddb0dcd14cf019d83065b71ba6e",
+        "scripts/hooks/guard-named-persons-commands.sh": "56891e30dde5774e5430c9459cee10dc61bb683888f76917219d97c9e9cce825",
+        "scripts/lib/named-persons.sh": "2c28d15414eed56676bd2c5588d66fe88f30c03dfb78e5e2752ffc5de17fffc3",
+        "scripts/lib/named-persons.py": "9b37ff785ef195ec844190c4b4c6e678432d3b0d9d70aac0feba9ed2303a1af2",
+        "scripts/hooks/guard-named-persons-writes.sh": "95095c3eee1ac1f3f7f156dfc2fcb0b039868c63c1d10d45d043fdd7d86ad3ce",
+        "scripts/hooks/guard-no-home-network-phone.sh": "a84bf4506421d5a84ed94cbf75c7678fbc7a2b0b635a7e5a493750d3fddb82c9",
+        "scripts/hooks/guard-operator-claim.sh": "06ded03dc7f1dc6825df5e952619dcaae26c24f0bcda7ba017c935ed20c5663b",
+        "scripts/hooks/guard-owned-state.sh": "5f137d70ca9ea567cf0d5d06250ff50606db82f2323d2e68346e5295721d58aa",
+        "scripts/lib/owned-systems.py": "722c3279040fde20c10c0e9f95a42808c02949cbb9e4f41b1425aaf4dde0372f",
+        "owned-systems.declaration": "53055602ea5dddb54a84be7d701a6a072c6b343d573a55af1783f9402d56edde",
+        "scripts/ci-status.sh": "f218d5216073ece57a9193c9d9c0ebdf5fa45edbeed615c831b3a3290e5c6dcf",
+        "scripts/lib/ci-surface.py": "ac333b6cab58f196cce2da51918724f0457199840d04fc250f66eb2a727e7e53",
+        "scripts/escalate.sh": "ead116322891a7e2205dbda200f37c846173973a58d2b745fdb803d6d23fd647",
+        "scripts/lib/escalations.sh": "656be06643a5579cc15e4ef5efe7628bd58e0a134e3677b36885f2060db59db7",
+        "scripts/lib/escalations.py": "34c2f41e1c59ebfbd5a049c4bf418e7735d2740a17f924823e0eacaaf1a6a3b2",
+        "scripts/owned-state-checks/staging-current.sh": "89e075fca4ffc1850be2f2222efe4c322bc1b59b5947791400cd680a064e9e2e",
+        "scripts/unlanded-branches-lint.sh": "c65f6be6da126b18127b28f36860c213c9649e843831ae4c0ee1f393cc52971f",
+        "scripts/owned-state-checks/registered-executables.py": "8e324db884e02950f56ab3a4616f4acb4a8eea78eab71dd3c40823fae80b6fd9",
+        "scripts/hooks/guard-public-record-repo.sh": "49a6e6c29e59a604b4d91e847e1e6d6060035f41f703bc95ffc8275778fec3d7",
+        "scripts/hooks/guard-publication-commits.sh": "180baec98c3f3b0e23e6b12bb8f3e129082ca6f10d49577b56671e102039e9fe",
+        "scripts/hooks/guard-reference-ledger.sh": "d80ab9294a7ff64b244285f5467ecf728b692701b6a5d526152909335b750874",
+        "scripts/hooks/guard-row-currency-commits.sh": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
+        "scripts/hooks/guard-shared-writes.sh": "8c93495c7a2fd02ef98b701af51fff16859fa0e11295eb9706d639a62148784a",
+        "scripts/hooks/guard-stale-staging.sh": "3aaaea16970f7d9cb08b4600ba1a2edad55333c24115e7fb759cedc9512b1a6e",
+        "scripts/hooks/guard-stop-live-work.sh": "5cd71abf69697f041f48560ab09d6e7f7f4b2324761916b07b589569ff7dd17e",
+        "scripts/lib/stop-live-work.py": "d39269d911e9456fd0bbce45b95e67919c36dd4b7ecb96c58b3e4a8bd262532a",
+        "scripts/hooks/guard-vendoring-commits.sh": "88f0eef0c45b61a143ce0ebd0cba1b8ceda9f908d0cfed09994a9acc30da1208",
+        "scripts/hooks/guard-workflow-ban.sh": "2b93395b9ef6e99b03221e0dcf7682b926f366dbb7884c3889c00384cf550ade",
+        "scripts/hooks/handoff-facts-annotate.sh": "d28db7195c447f584e0239d0f193c2359259eedbc8f853cda66946e31b6e45d1",
+        "scripts/hooks/left-off-report.sh": "d14ee9ceac38d7de2c7d04ba85eb11a4ab7d6610f3bc0d066db606dbc9090dee",
+        "scripts/lib/workspaces.py": "982dad78682707a732036c4c0b4b99753bbae9de42e2e7cf83a407913367ed54",
+        "scripts/hooks/left-off.test.sh": "159b8e36fd623094897bde2132e2c205fbc985ae72895e783645bb91720ac3a1",
+        "scripts/hooks/left-off.mutation.sh": "73d8f05182fe72341e9e62cb73e239064ea9f4ecc5fd7bc15c5dc374e342fec3",
+        "scripts/hooks/notice-ceo-asks.sh": "c1982944fcb496bd016248b31063838f2ce0806418eeb41cddd335da9687bf01",
+        "scripts/hooks/notice-ceo-inputs-unheld.sh": "22df89c10271652f710eb04caba653cdc138eda6bc4eeb1971f9b0e83adf2fc7",
+        "scripts/hooks/notice-ceo-ruled-prose.sh": "b6aa4600524c27077232a5a83feab3cfe603436ae8dcaaaa0bcc9ed725c0c1b5",
+        "scripts/hooks/notice-ceo-unasked.sh": "3eac14e8c4bb2fd3f73651e11cc703f5a121a2c6e9b7e752a11d66cb50d98daa",
+        "scripts/hooks/notice-claim-capability.sh": "f918e14199d059e57f306ee1202fe0edb3ab27711deb0003358ad36bcae3a1c5",
+        "scripts/hooks/notice-disk-alert.sh": "71ef888a95290d2267aff524e0683b6e5bc9decddfdfaef5e5e027523cbc8ffd",
+        "scripts/disk-watchdog.sh": "5168a316708d2fc3dc19e76604942e7377a6b8529d267052be2fa16f6f90cea5",
+        "scripts/lib/disk-watchdog.py": "e9e7ca4981c480b8fb3598f1feb7302dd617f8b040c2db4e4a661306cddd03ed",
+        "scripts/lib/foreign_app_data.py": "9fcafeaae9e177df0c15fc93b547b2aa08710f94f723e393d51239861859b00b",
+        "scripts/hooks/notice-escalations.sh": "d26e14d802bad45e2f6528722d38eb91076c25e1d3e32ee2228a66e138e963da",
+        "scripts/hooks/notice-hook-staleness.sh": "360fd629986741403adc2337a84ae2dd2645b517f275f7cbb3af331cae48460b",
+        "scripts/hooks/notice-protected-ref-moves.sh": "15ea383b87181c6924a00f8b5f656f72f2319e9680947674f68972fbcd6c2c43",
+        "scripts/lib/protected-ref-moves.py": "3997dcd8c049c908e3a13aee5fe822ac255b5e70d5b001d1432db518b2d0757b",
+        "scripts/hooks/protected-ref-moves.test.sh": "c51aae48a3bf49ac3215c998580766f428f4bf66a24dbd94c7b999d3ddc3413e",
+        "scripts/hooks/notice-unasked-deferral.sh": "01c58a8e0c3f279efe85cadb579c6e01f24c002c8d2b8789520285456af5fcc9",
+        "scripts/hooks/guard-unasked-deferral.py": "710a23aed3c07760de60b9f88ec23d25aa299d0a0cf996906d9a4302533398e8",
+        "scripts/hooks/notice-unlanded-branches.sh": "3a1222731913dc06aecd5a9703403ae27b7d61a6f28c7fad00223c4ac6c5a90d",
+        "scripts/hooks/notice-unstarted-rows.sh": "1bfd646f55b220671bdf92e393491341ab74b06b7f04553ffd33c48d625955d1",
+        "scripts/hooks/notice-waiver-repetition.sh": "ca6cf1b169ee2ba5717af73ff23062ad3c71a935c380aff91822c3e232780ea4",
+        "scripts/hooks/notice-waiver-repetition.py": "536de700653b2d81df7ea51223338be0a9e93e67c1203e9950ec33a312381125",
+        "scripts/hooks/operator-claim.sh": "e157c7c28b11bb7a1d9965e5207bf9b52d521ff04f38a207d0ff8211136bb03f",
+        "scripts/hooks/release-land-leases.sh": "9b933f62a43f2ef058654297789951667b27f6a116d9e4c4c1895e9c549dceb8",
+        "scripts/hooks/release-shared-writes.sh": "da06d8fbe6b3438a0bb1c33cea6e6b4789aeb041f9aef246ec3eea24d0f4ed80",
+        "scripts/hooks/session-start-ceo-ask.sh": "3b0b8396d0e50a6145401df798bde92e7bc59ffd55a7260f160f7b1b8d72ec69",
+        "scripts/hooks/session-start-ci-surface.sh": "a4f1b332f362a2374ae1dad83d44af14a977d8cfdb753154014bbcc7e74c05a5",
+        "scripts/hooks/session-start-escalations.sh": "25af57857b1dc4a1e4a61c6848753ede1d217f3a1037379e30cee4e64b206a5f",
+        "scripts/hooks/session-start-quota.sh": "720bdd6c4c0e392f2be9f37368f0862e92d1504a2eb56851af8a4e083f817cf1",
+        "scripts/quota-watch.sh": "70ce3fdbd3a372f727086df522819fae6b3dab759838209563ba9414805d0d10",
+        "scripts/lib/quota_watch.py": "aaa78a25c45c5501335543cdd78f6c343d9f0470733da6c32bd700448411a19d",
+        "scripts/lib/quota_weekly.py": "9bd2e65fa1318ff43a0d0dbf96ff9abe8df363055e58c556b363f216733b51a1",
+        "scripts/hooks/session-start-scratch.sh": "f78039d4b89732e00fdfec13abd6622f4c9c8f4badb9bca26c4b0a758068d485",
+        "scripts/hooks/shell-evidence.sh": "01d511155b7df5a4be0ab6cb25aaac934a467e086d5c31f2afd6ee9c7bcc370a",
+        "scripts/hooks/shell-evidence.py": "7e867f1d50cbb900cb5fa7cf8591a9a00de5412740233dfa037acec493cd7954",
+        "scripts/hooks/snapshot-enforcing-hooks.sh": "d357c9a97492d4447e5ad83099da89192d877ac9282e41d712804710e6b739d4",
+        "scripts/hooks/task-completed-handoff.sh": "e143bbca2d836099f898f588d12fa1aef39b2fd7db85cf7ad3f575f702d74216",
+        "scripts/hooks/teammate-idle-handoff.sh": "9e0e49d90653b6f80b9ccdcda91992bf8372e1ac53f0c8eda366c22e363d087c",
+        "scripts/lib/worktree-ledger.py": "38f6cc15cd69ccd6aae90232db8b1b078866b6676b3f4795bdfe13212e1cb8ce",
+        "scripts/hooks/turn-manifest.sh": "f5e92311f9896874e5294533673dd08160f3e4cfba4a262e161ae96e377331ae",
+        "scripts/hooks/verify-agent-prompt.sh": "108d302d819442877ea6cbf06a5d9bfca9f3ddc01300cb502049b9271be4e738",
+        "scripts/hooks/worker-created-handoff.sh": "a65bbd37af42971db667e9576cc1eb4cc95572b22cbab120a2bfb3e8005d53fd",
+        "scripts/hooks/worker-ended-handoff.sh": "92a3dc39b502f1841b1c8f604eb5c42e5047fb678e86c76fb9dd3ab5aae97516",
+        "scripts/hooks/worker-started-handoff.sh": "f18675f4938cae746d536661b44e49e7a3425c15acff5c7cd3ad2e1bf7ee9919",
+        "scripts/hooks/worker-updated-handoff.sh": "6cbcdd13306d482c8bfd9da1f6ccc68141a3091f9f9405bb52232cb14430ebf8",
+        "scripts/hooks/contract-integrity-case7.mutation.sh": "a49ab1e3b263ab94238bd2a99667a642811d89b5a4439e260b9b95a1e32c1f92"
       }
     },
     "scripts/hooks/mechanical-findings.test.sh": {

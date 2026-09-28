@@ -153,6 +153,22 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_contract_base_binds_complete_sandbox_inventory(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/contract-integrity.test.sh:base'
+        closure = graph.closure(document['units'][unit])
+        self.assertFalse(any(closure.values()), closure)
+        change = inputs.config_change('MODEL_CEILING=a', 'MODEL_CEILING=b')
+        self.assertNotIn(unit, graph.config_units(change, [unit]))
+        reader = document['hook_readers']['scripts/hooks/contract-integrity.test.sh']
+        for line in (HERE / 'hooks/dispatch-pretooluse.manifest').read_text().splitlines():
+            if line.startswith(('Bash|', 'Write|')):
+                self.assertIn('scripts/hooks/'+line.split('|')[1], reader['sources'])
+        document['nodes']['scripts/hooks/teammate-idle-handoff.sh']['sha256'] = 'changed'
+        self.assertIn(unit, graph.config_units(change, [unit]))
+        inputs.hook_reader(reader, lambda path: (HERE.parent / path).read_text())
+
     def test_unevaluated_inventory_retains_engine_declaration_reader(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)
