@@ -621,7 +621,7 @@ WAIT_SECONDS = 540     # under the Bash tool's 600 s limit, so the call returns 
 
 def wait_resume(max_seconds=WAIT_SECONDS, poll=2.0, out=sys.stdout):
     """Returns once this agent's hold is released, printing RESUMED; at the bound it
-    prints STILL PAUSED so the agent runs it again. Never ends anything."""
+    prints STILL WAITING so the agent runs it again. Never ends anything."""
     agent, session = os.environ.get(TAG, ""), os.environ.get(SESSION_TAG, "")
     if not _valid_ids(session, agent):
         out.write("PAUSE-WAIT: this shell carries no agent identity (%s, %s), so there is no hold to wait "
@@ -631,11 +631,11 @@ def wait_resume(max_seconds=WAIT_SECONDS, poll=2.0, out=sys.stdout):
     path = _held_path(session, agent)
     while os.path.exists(path):
         if time.monotonic() >= deadline:
-            out.write("STILL PAUSED at %s: run this same command again, with the Bash timeout 600000.\n"
+            out.write("STILL WAITING at %s: run this same command again, with the Bash timeout 600000.\n"
                       % time.strftime("%H:%M:%SZ", time.gmtime()))
             return 0
         time.sleep(poll)
-    out.write("RESUMED at %s: continue the same work from where it was held.\n"
+    out.write("RESUMED at %s: carry on from where you were.\n"
               % time.strftime("%H:%M:%SZ", time.gmtime()))
     return 0
 

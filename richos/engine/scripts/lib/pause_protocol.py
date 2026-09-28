@@ -11,26 +11,30 @@ import json
 import re
 import sys
 
+# WHAT THE AGENT HEARS IS WAIT, AND NOTHING ADDED TO IT. The CEO, 2026-09-28: "aha,
+# so the keyword is WAIT, not pause." and, of a rewording that told the agent never
+# to end its turn: "why do you always have to include harmful garbage?" "Pause" is
+# what the lead and the Mac see (the agent's running work frozen by agent_hold.py);
+# the agent is told to wait until it is resumed and then carry on. The wait is a
+# command, because an agent waits by running something: a background subagent that
+# finishes its reply ends its run (Rich, brief addition 1). No prohibitions: they
+# break the agent's normal finishing and a real stop, and naming an act invites it.
+WAIT_COMMAND = "python3 ~/.claude/richos-engine/scripts/lib/agent_hold.py wait"
 BODY = "\n".join([
-    "PAUSE: preserve this same task, your full context, every workspace and all work in progress.",
-    "Pause only. Do not stop, terminate, kill, cancel or restart any running work.",
-    "Do not hand off, mark the task complete, remove a workspace or replace the agent.",
-    "Hold without starting further work. Resume the same work only when the orchestrator sends RESUME.",
-    "If you cannot preserve a running operation while pausing, report that limitation; do not substitute stopping it.",
+    "WAIT until the orchestrator resumes you, then carry on from where you were.",
+    "To wait, run this command with the Bash timeout 600000, and run it again each time it prints STILL WAITING: "
+    + WAIT_COMMAND,
 ])
-SUMMARY = "PAUSE: preserve work and context"
+SUMMARY = "WAIT until resumed"
 MARKER = "richos-pause-control: "
-# The RESUME that ends a pause. It mentions the pause, so the check below would
-# refuse it as a changed pause; it carries its own control line instead and is
-# accepted only unchanged. It never carries `pause-until:`, which is what makes
-# the registry record a resume (and agent_hold.py continue the held work).
+# The RESUME that ends a pause. It carries its own control line and is accepted
+# only unchanged. It never carries `pause-until:`, which is what makes the
+# registry record a resume (and agent_hold.py continue the held work).
 RESUME_BODY = "\n".join([
-    "RESUME: continue this same task exactly where it was held, with the same context and workspaces.",
-    "Commands that were running when the pause arrived were suspended, and they are running again now. Do not restart them.",
-    "A command you started while paused waited without running, and it is running now too.",
-    "Elapsed times and timeouts inside that work include the pause, so a timeout it reports may be the pause, not a defect.",
+    "RESUME: carry on from where you were.",
+    "The commands that were running are running again, and their elapsed times include the wait.",
 ])
-RESUME_SUMMARY = "RESUME: continue the held work"
+RESUME_SUMMARY = "RESUME: carry on from where you were"
 RESUME_MARKER = "richos-resume-control: "
 RECIPIENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 CLOCK = re.compile(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]Z\Z")
@@ -109,7 +113,7 @@ def is_resume(text):
 
 def declared(text):
     return isinstance(text, str) and (bool(INTENT.search(text)) or
-        bool(re.search(r"(?im)^\s*(?:pause-until|richos-pause-control)\s*:", text)))
+        bool(re.search(r"(?im)^\s*(?:pause-until|richos-pause-control|richos-resume-control)\s*:", text)))
 
 
 def validate_text(text):
@@ -130,6 +134,25 @@ def validate_text(text):
     if text not in (expected, expected + "\n"):
         raise ValueError("pause instructions were changed; send the generated message unchanged")
     return value
+
+
+def is_generated_pause(text):
+    """True for the unchanged generated pause: the only message that freezes an agent's work
+    and that nothing but the generated RESUME ends (workspaces.py, Sage's catch 3)."""
+    try:
+        validate_text(text)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+def is_generated_resume(text):
+    """True for the unchanged generated RESUME, the only message that ends a generated pause."""
+    try:
+        validate_resume_text(text)
+        return True
+    except (ValueError, TypeError):
+        return False
 
 
 # Claude Code backfills `content` into the SendMessage input its hooks see, as a

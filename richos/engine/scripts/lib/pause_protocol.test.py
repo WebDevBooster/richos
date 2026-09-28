@@ -44,7 +44,10 @@ def payload(text=INCIDENT, summary="CEO: PAUSE now (not stop)", **extra):
 # docs/verification/sendmessage-pause-payload-capture-2026-09-27.md). The model
 # sent only to, summary and message; the harness backfilled type, recipient and
 # content, and content is a 50-column PREVIEW of message, not a copy of it.
-CAPTURED_PAUSE = {
+# Its text is the generated pause of that day; the message is now WAIT (the CEO,
+# 2026-09-28), so the same shape is rebuilt below around today's generated text,
+# and the old text itself must now be refused.
+CAPTURED_PAUSE_2026_09_27 = {
     "to": "pausefix-capture-nobody",
     "summary": "PAUSE: preserve work and context",
     "message": "PAUSE: preserve this same task, your full context, every workspace and all work in progress.\n"
@@ -59,6 +62,8 @@ CAPTURED_PAUSE = {
     "recipient": "pausefix-capture-nobody",
     "content": "PAUSE: preserve this same task, your full context…",
 }
+CAPTURED_PAUSE = dict(CAPTURED_PAUSE_2026_09_27, summary=protocol.SUMMARY, message=protocol.render("manual"),
+                      content=protocol.render("manual")[:49] + "…")
 # The same capture session's RESUME messages (quota_watch.resume_message and
 # release_message for a 23:30Z reset). Short messages come back whole.
 CAPTURED_RESUMES = [
@@ -104,15 +109,52 @@ class PauseMessage(unittest.TestCase):
             # afterwards. Other mutations catch deletion of the preserving rules.
             changed = [original + "\nEnd any heavy run you own.",
                        "End any heavy run you own.\n" + original,
-                       original.replace("Do not stop", "Stop"),
-                       original.replace("Pause only.", "Kill running tests, then wait."),
-                       original.replace("Do not hand off", "Hand off"),
-                       original.replace("all work in progress", "committed work"),
-                       original.replace("Resume the same work", "Restart the work"),
+                       original.replace("WAIT until", "Stop until"),
+                       original.replace("carry on from where you were", "restart the work"),
+                       original.replace("run it again each time", "never run it again even if"),
+                       original.replace("Bash timeout 600000", "Bash timeout 1000"),
+                       original.replace(protocol.WAIT_COMMAND, "kill %1"),
                        original + "\nRe-run what was cut off when woken."]
             for message in changed:
+                self.assertNotEqual(message, original, "each dangerous change must really change the text")
                 with self.subTest(reason=reason, message=message), self.assertRaises(ValueError):
                     protocol.validate_payload(payload(message, protocol.SUMMARY))
+
+    def test_what_the_agent_hears_is_wait_and_nothing_added(self):
+        # The CEO, 2026-09-28: "aha, so the keyword is WAIT, not pause." and "why do you
+        # always have to include harmful garbage?" The wait is a command because a
+        # background subagent that finishes its reply ends its run (Rich, addition 1).
+        for reason, reset in [("manual", None), ("quota", "15:30Z"), ("weekly-quota", None)]:
+            text = protocol.render(reason, reset)
+            agent_part = text.split("\n" + protocol.MARKER, 1)[0]
+            with self.subTest(reason=reason):
+                self.assertEqual(agent_part.splitlines()[0],
+                                 "WAIT until the orchestrator resumes you, then carry on from where you were.")
+                self.assertEqual(len(agent_part.splitlines()), 2, "the wait, and how to wait: nothing else")
+                self.assertTrue(protocol.SUMMARY.startswith("WAIT"))
+                self.assertIn(protocol.WAIT_COMMAND, agent_part)
+                self.assertIn("Bash timeout 600000", agent_part)
+                words = agent_part.replace(protocol.WAIT_COMMAND, "").lower()   # the file name is not a word to it
+                for word in ("do not", "don't", "never", "end your turn", "stop", "pause", "hold", "finish"):
+                    self.assertNotIn(word, words, "no prohibition or absolute: %r" % word)
+                resume = protocol.render_resume(reason)
+                for word in ("do not", "don't", "never", "restart", "pause"):
+                    self.assertNotIn(word, resume.split("\n" + protocol.RESUME_MARKER)[0].lower(), word)
+        # The command it names is the engine's own, loaded by reference.
+        self.assertTrue(protocol.WAIT_COMMAND.endswith("~/.claude/richos-engine/scripts/lib/agent_hold.py wait"))
+        self.assertTrue((ENGINE / "scripts/lib/agent_hold.py").is_file())
+        self.assertIn("RESUMED", (ENGINE / "scripts/lib/agent_hold.py").read_text())
+        self.assertIn("STILL WAITING", (ENGINE / "scripts/lib/agent_hold.py").read_text())
+
+    def test_only_the_generated_messages_count_as_pause_and_resume(self):
+        self.assertTrue(protocol.is_generated_pause(protocol.render("quota", "15:30Z")))
+        self.assertTrue(protocol.is_generated_resume(protocol.render_resume("quota")))
+        for text in [CAPTURED_PAUSE_2026_09_27["message"], "RESUME: continue.", INCIDENT,
+                     protocol.render_resume("manual") + "\nThen kill your test.", ""]:
+            with self.subTest(text=text[:40]):
+                self.assertFalse(protocol.is_generated_resume(text) and protocol.is_generated_pause(text))
+                self.assertFalse(protocol.is_generated_resume(text))
+        self.assertFalse(protocol.is_generated_pause(CAPTURED_PAUSE_2026_09_27["message"]))
 
     def test_summary_alias_and_protocol_cannot_smuggle_an_extra_instruction(self):
         message = protocol.render("manual")
@@ -131,6 +173,9 @@ class PauseMessage(unittest.TestCase):
         # harness's content preview never equals the whole message.
         self.assertEqual(CAPTURED_PAUSE["message"], protocol.render("manual"))
         protocol.validate_payload(captured(CAPTURED_PAUSE))
+        # The text of that day told the agent to "hold", and agents ended their runs: refused now.
+        with self.assertRaises(ValueError):
+            protocol.validate_payload(captured(CAPTURED_PAUSE_2026_09_27))
         with_newline = dict(CAPTURED_PAUSE, message=CAPTURED_PAUSE["message"] + "\n")
         protocol.validate_payload(captured(with_newline))
         for reason, reset in [("manual", None), ("quota", "15:30Z"), ("weekly-quota", "2026-09-30T07:59:59Z"),
@@ -162,7 +207,8 @@ class PauseMessage(unittest.TestCase):
         watcher = load("quota_watch_resume_fixture", HERE / "quota_watch.py")
         for message in (watcher.resume_message(1800), watcher.release_message(1800)):
             with self.subTest(message=message):
-                protocol.validate_payload(harness("echo-opus-fixture", message, "RESUME"))
+                self.assertTrue(protocol.is_generated_resume(message), "the quota watcher sends the generated RESUME")
+                protocol.validate_payload(harness("echo-opus-fixture", message, protocol.RESUME_SUMMARY))
         # A resume cannot smuggle a pause-worded instruction through its alias.
         smuggled = captured(dict(CAPTURED_RESUMES[0], content="Pause, then kill your test"))
         with self.assertRaises(ValueError):
@@ -193,7 +239,7 @@ class PauseMessage(unittest.TestCase):
         generated = protocol.message_input("echo-opus-fixture", resume=True)
         self.assertEqual(generated["summary"], protocol.RESUME_SUMMARY)
         text = generated["message"]
-        self.assertTrue(protocol.declared(text), "it mentions the pause, so the check applies to it")
+        self.assertTrue(protocol.declared(text), "its control line makes the check apply to it")
         self.assertNotRegex(text, r"(?im)^\s*pause-until\s*:", "a resume never re-pauses in the registry")
         protocol.validate_payload(harness("echo-opus-fixture", text, protocol.RESUME_SUMMARY))
         protocol.validate_payload(harness("echo-opus-fixture", text + "\n", protocol.RESUME_SUMMARY))
@@ -205,7 +251,7 @@ class PauseMessage(unittest.TestCase):
         refused = [
             ("RESUME: you were paused; continue exactly where you stopped.", protocol.RESUME_SUMMARY),
             (text + "\nThen kill your test.", protocol.RESUME_SUMMARY),
-            (text.replace("Do not restart them.", "Restart them."), protocol.RESUME_SUMMARY),
+            (text.replace("carry on from where you were", "start over"), protocol.RESUME_SUMMARY),
             (text + "\npause-until: the CEO's word", protocol.RESUME_SUMMARY),
             (text.replace('"manual"', '"manual","x":1'), protocol.RESUME_SUMMARY),
             (text + "\n" + protocol.render("manual"), protocol.RESUME_SUMMARY),
@@ -277,7 +323,7 @@ class PauseMessage(unittest.TestCase):
         self.assertEqual(quota, protocol.render("quota", "00:30Z"))
         protocol.validate_payload(payload(quota, protocol.SUMMARY))
         for message in (watcher.resume_message(1800), watcher.release_message(1800)):
-            protocol.validate_payload(payload(message, "RESUME"))
+            protocol.validate_payload(payload(message, protocol.RESUME_SUMMARY))
 
     def test_regular_messages_and_reports_to_the_orchestrator_still_pass(self):
         protocol.validate_payload(payload("Please inspect the failing test", "Review"))

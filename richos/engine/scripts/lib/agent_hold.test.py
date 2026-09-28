@@ -592,7 +592,7 @@ class Wait(Base):
         agent_hold.hold(self.session, self.agent, "fixture")
         buf = io.StringIO()
         self.assertEqual(agent_hold.wait_resume(0.5, 0.05, buf), 0)
-        self.assertIn("STILL PAUSED", buf.getvalue())
+        self.assertIn("STILL WAITING", buf.getvalue())
         agent_hold.release(self.session, self.agent)
         buf = io.StringIO()
         agent_hold.wait_resume(0.5, 0.05, buf)

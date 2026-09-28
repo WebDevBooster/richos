@@ -619,8 +619,9 @@ check "E05  inside the last 20 minutes QUOTA-RELEASE names only the quota-paused
        && ! printf '%s' "$OUT" | grep -q '^QUOTA-THRESHOLD' && ! printf '%s' "$OUT" | grep -q 'pause-until:'; echo $?)" "rc=$WRC out=$OUT"
 extract_message "$SB/e05.out" "$SB/release.msg"
 ws_send dev-held "$SB/release.msg"
-check "E06  the printed release message resumes the SAME agent in the registry" \
-    "$([ "$(recipient dev-held)" = active ] && grep -q 'less than 20 minutes from now' "$SB/release.msg"; echo $?)" \
+check "E06  the printed release message (the generated RESUME) resumes the SAME agent in the registry" \
+    "$([ "$(recipient dev-held)" = active ] && printf '%s' "$OUT" | grep -q 'less than 20 minutes, so the quota hold releases' \
+       && python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import pause_protocol as p; sys.exit(0 if p.is_generated_resume(open(sys.argv[2]).read()) else 1)' "$SCRIPT_DIR/lib" "$SB/release.msg"; echo $?)" \
     "registry says: $(recipient dev-held); message: $(cat "$SB/release.msg")"
 
 # Held again, for the --until-reset release and the reset itself.
