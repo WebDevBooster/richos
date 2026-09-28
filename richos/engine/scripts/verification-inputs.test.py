@@ -152,6 +152,25 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_named_person_fixtures_do_not_read_shipped_config_or_real_rosters(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/named-persons.test.sh'
+        self.assertFalse(any(graph.closure(document['units'][unit]).values()))
+        change = inputs.config_change('PUBLICATION_DECLARATION=old', 'PUBLICATION_DECLARATION=new')
+        self.assertFalse(graph.config_units(change, [unit]))
+        self.assertFalse(graph.config_units(inputs.config_change('PUBLICATION_DECLARATION=old', None), [unit]))
+        for helper in ('scripts/lib/named-persons.py#fixture-roster',
+                       'scripts/lib/resolve-roots.sh#engine-only',
+                       'scripts/lib/resolve-main-checkout.sh'):
+            old = document['nodes'].pop(helper)
+            self.assertIn(unit, graph.config_units(change, [unit]))
+            document['nodes'][helper] = old
+        reader = inputs.hook_reader(document['hook_readers'][unit],
+                                    lambda path: (HERE.parent / path).read_text())
+        self.assertEqual(set(reader['commands']), {'scripts/hooks/guard-named-persons-writes.sh',
+                                                  'scripts/hooks/guard-named-persons-commands.sh'})
+
     def test_completeness_uses_private_trees_but_keeps_real_surface_obligations(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

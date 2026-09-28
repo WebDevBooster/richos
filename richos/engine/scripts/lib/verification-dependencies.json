@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "821501232ec54ec5503099f4baca8bfe27f50c506248d6ef40b57858b727d97d",
+      "sha256": "ea3638431669d5b092167864f5076f94b3891e9b3fdefbf1a01bac6f5df72c27",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -6014,6 +6014,157 @@
           "fixture": true
         }
       ]
+    },
+    "scripts/lib/resolve-roots.sh#engine-only": {
+      "source": "scripts/lib/resolve-roots.sh",
+      "sha256": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+      "evidence": "Module initialization and resolve_engine_root only: derives from the script anchor or explicit engine/plugin environment, testing scripts/hooks directory existence. No entity adoption lookup, config existence check or namespace lookup executes.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-main-checkout.sh"
+        }
+      ],
+      "region": [
+        "if [ -n \"${_RESOLVE_ROOTS_SH_SOURCED:-}\" ]; then",
+        "_rr_payload_cwd() {"
+      ]
+    },
+    "scripts/lib/publication-boundary.sh#paths": {
+      "source": "scripts/lib/publication-boundary.sh",
+      "sha256": "46366c80e498f6269889d21109cbfe5de696c273aa9229277ecc85d8285fac85",
+      "evidence": "Module initialization, pb_physical, pb_repo_root and pb_path_is_ignored only. Publication declaration fields are not loaded. Named-person callers use their own fixed declaration-presence check. Only Git path/ignore queries and path normalization execute.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/declaration-path.sh"
+        }
+      ],
+      "region": [
+        "pb_physical() {",
+        "pb_load_declaration() {"
+      ]
+    },
+    "scripts/lib/named-persons.py#fixture-roster": {
+      "source": "scripts/lib/named-persons.py",
+      "sha256": "9b37ff785ef195ec844190c4b4c6e678432d3b0d9d70aac0feba9ed2303a1af2",
+      "evidence": "AST import/call inventory and I/O boundaries reviewed. Only stdlib, supplied payload/file text and explicit RICHOS_NAMED_PERSONS_FILE fixture roster are read. Command messages are parsed as data; -F targets are caller-generated files. No subprocess or config read exists.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/named-persons.sh#fixture-roster": {
+      "source": "scripts/lib/named-persons.sh",
+      "sha256": "2c28d15414eed56676bd2c5588d66fe88f30c03dfb78e5e2752ffc5de17fffc3",
+      "evidence": "Full library reviewed: fixed publication marker lookup, roster-path selection, predicate invocation, masking and diagnostics. The caller supplies an explicit private roster. Optional _sj_once comes from the declared seat-jurisdiction helper. No orchestration config is read.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/declaration-path.sh"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh#notice-once"
+        },
+        {
+          "to": "scripts/lib/named-persons.py#fixture-roster"
+        }
+      ]
+    },
+    "scripts/named-persons.sh#fixture-roster": {
+      "source": "scripts/named-persons.sh",
+      "sha256": "0c672c2e9cc4b61f9c0262df9c251692a30d1f110a335c718365c5a69cd126ca",
+      "evidence": "Full CLI reviewed. Doctor/mint/tree/paths use the fixed predicate. Seed reads entities.json in explicitly provided or Git-derived sibling HQ; the tests copy the CLI into a new repository whose sibling HQ and linked worktree are generated privately. No config is sourced.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/named-persons.sh#fixture-roster"
+        },
+        {
+          "to": "scripts/lib/resolve-main-checkout.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-named-persons-writes.sh#fixture-roster": {
+      "source": "scripts/hooks/guard-named-persons-writes.sh",
+      "sha256": "95095c3eee1ac1f3f7f156dfc2fcb0b039868c63c1d10d45d043fdd7d86ad3ce",
+      "evidence": "Full guard reviewed. Resolves only the engine location, then the supplied fixture artifact repository and publication marker. Fixed predicate reads the explicit private roster. Payload command strings are classified, never executed. No entity config is loaded.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#engine-only"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh#notice-once"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#paths"
+        },
+        {
+          "to": "scripts/lib/named-persons.sh#fixture-roster"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-named-persons-commands.sh#fixture-roster": {
+      "source": "scripts/hooks/guard-named-persons-commands.sh",
+      "sha256": "56891e30dde5774e5430c9459cee10dc61bb683888f76917219d97c9e9cce825",
+      "evidence": "Full guard reviewed. Resolves only the engine location, then the supplied fixture artifact repository and publication marker. Fixed predicate reads the explicit private roster. Payload command strings are classified, never executed. No entity config is loaded.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#engine-only"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh#notice-once"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#paths"
+        },
+        {
+          "to": "scripts/lib/named-persons.sh#fixture-roster"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        }
+      ]
+    },
+    "scripts/hooks/named-persons.test.sh": {
+      "source": "scripts/hooks/named-persons.test.sh",
+      "sha256": "effbfab0fbc380662d3dc1a21d3889c45d63a368fc319c78ebf7c1ac97a63b34",
+      "evidence": "Builds private target repositories, rosters, messages and a separate seed repository/HQ/worktree. Calls fixed guards, predicate and CLI, with RICHOS_NAMED_PERSONS_FILE set on every roster path. No nested mutation suite. Real hook registration is checked only for the two named-person guards; installer/probe are scanned as data.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/registered-hooks.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-named-persons-writes.sh#fixture-roster"
+        },
+        {
+          "to": "scripts/hooks/guard-named-persons-commands.sh#fixture-roster"
+        },
+        {
+          "to": "scripts/lib/named-persons.py#fixture-roster"
+        },
+        {
+          "to": "scripts/named-persons.sh#fixture-roster"
+        }
+      ]
+    },
+    "scripts/lib/seat-jurisdiction.sh#notice-once": {
+      "source": "scripts/lib/seat-jurisdiction.sh",
+      "sha256": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
+      "evidence": "Module initialization, _sj_notice_dir and _sj_once only. Stores a diagnostic stamp under TMPDIR keyed by UID and supplied string. No governing-root/adoption lookup executes for named-person notices.",
+      "keys": [],
+      "edges": [],
+      "region": [
+        "if [ -n \"${_SEAT_JURISDICTION_SH_SOURCED:-}\" ]; then",
+        "richos_physical() {"
+      ]
     }
   },
   "units": {
@@ -6121,7 +6272,8 @@
     "scripts/hooks/contract-integrity.test.sh:WTI": "scripts/hooks/contract-integrity.test.sh#WTI",
     "scripts/hooks/row-currency.test.sh": "scripts/hooks/row-currency.test.sh",
     "scripts/hooks/completeness-commits.test.sh": "scripts/hooks/completeness-commits.test.sh",
-    "scripts/publication-completeness.test.sh": "scripts/publication-completeness.test.sh"
+    "scripts/publication-completeness.test.sh": "scripts/publication-completeness.test.sh",
+    "scripts/hooks/named-persons.test.sh": "scripts/hooks/named-persons.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
@@ -6594,6 +6746,29 @@
       "text_needles": [
         "publication-completeness"
       ]
+    },
+    "scripts/hooks/named-persons.test.sh": {
+      "commands": [
+        "scripts/hooks/guard-named-persons-writes.sh",
+        "scripts/hooks/guard-named-persons-commands.sh"
+      ],
+      "sources": {
+        "scripts/hooks/named-persons.test.sh": "effbfab0fbc380662d3dc1a21d3889c45d63a368fc319c78ebf7c1ac97a63b34",
+        "scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
+        "scripts/hooks/guard-named-persons-writes.sh": "95095c3eee1ac1f3f7f156dfc2fcb0b039868c63c1d10d45d043fdd7d86ad3ce",
+        "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
+        "scripts/lib/publication-boundary.sh": "46366c80e498f6269889d21109cbfe5de696c273aa9229277ecc85d8285fac85",
+        "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
+        "scripts/lib/named-persons.sh": "2c28d15414eed56676bd2c5588d66fe88f30c03dfb78e5e2752ffc5de17fffc3",
+        "scripts/lib/named-persons.py": "9b37ff785ef195ec844190c4b4c6e678432d3b0d9d70aac0feba9ed2303a1af2",
+        "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "scripts/hooks/guard-named-persons-commands.sh": "56891e30dde5774e5430c9459cee10dc61bb683888f76917219d97c9e9cce825",
+        "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
+        "scripts/named-persons.sh": "0c672c2e9cc4b61f9c0262df9c251692a30d1f110a335c718365c5a69cd126ca"
+      },
+      "evidence": "Only these two registrations are resolved against plugin and seated surfaces; source oracle/bootstrap checks do not execute the probe or any other hook."
     }
   }
 }
