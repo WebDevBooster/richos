@@ -332,8 +332,12 @@ def acquire(meta, wait_seconds=DEFAULT_WAIT_SECONDS, say=None):
                 if slot is not None:
                     return slot, time.time() - started
             position = line.index(mine) + 1 if mine in line else 1
+            held = holders(d)
             why = ("proof-run: waiting for a proof-run slot (this Mac runs %d at once): held by %s; #%d in line"
-                   % (n, describe_holders(holders(d)), position))
+                   % (n, describe_holders(held), position))
+            # What the line is SAID again for: the limit, who holds, the place in line. Not the
+            # holders' elapsed time, which is in `why` and would make every poll a new line.
+            changed = (n, tuple((h.get("pid"), h.get("since")) for h in held), position)
             if record is None and resource_waits is not None:
                 try:
                     record = resource_waits.waiting(resource_waits.CPU, why).start()
@@ -342,9 +346,9 @@ def acquire(meta, wait_seconds=DEFAULT_WAIT_SECONDS, say=None):
             elif record is not None:
                 record.update(why)
             now = time.time()
-            if why != said or now - said_at >= SAY_EVERY_SECONDS:
+            if changed != said or now - said_at >= SAY_EVERY_SECONDS:
                 say("%s. Who holds and who waits: python3 %s status" % (why, os.path.abspath(__file__)))
-                said, said_at = why, now
+                said, said_at = changed, now
             if now - started >= wait_seconds:
                 raise TimeoutError("waited %.0f s for a proof-run slot (this Mac runs %d at once); held by %s"
                                    % (now - started, n, describe_holders(holders(d))))
