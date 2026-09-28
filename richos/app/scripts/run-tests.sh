@@ -656,10 +656,18 @@ suite_inputs() {  # $1 = full path to a suite; prints repo-relative paths, or ex
   # file's header counts five instances of, and the suite is the only thing that knows what
   # it reads. A suite with no `# run-tests: inputs` line declares nothing and is therefore
   # never skippable — which is the safe default for every suite written from now on.
-  local decl
+  local decl pinned
   decl="$(sed -n 's/^# run-tests: inputs[[:space:]][[:space:]]*//p' "$1" | head -1)"
   [ -n "$decl" ] || return 1
   printf '%s\n' "$decl"
+  # A suite that checks reviewed reader pins (`# run-tests: pins <file>`) is never skipped
+  # over a changed reader: every reader the pin file binds joins its digest, read from the
+  # file by the same code proof-for.sh selects with. Unreadable -> not skippable.
+  if grep -q '^# run-tests: pins' "$1"; then
+    pinned="$(python3 "$DIR/lib/proof_declarations.py" --pinned "$ROOT" "$1")" || return 1
+    [ -n "$pinned" ] || return 1
+    printf '%s\n' "$pinned"
+  fi
 }
 
 suite_input_digest() {  # $1 = full path to a suite; prints a sha256, or exits 1

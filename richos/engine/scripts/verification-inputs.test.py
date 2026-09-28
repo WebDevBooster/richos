@@ -64,7 +64,8 @@ class Inputs(unittest.TestCase):
                     "DISK_CONSUMER_CANDIDATES", "DISK_STATE_JSON"}
         actual = {key for key, row in parsed.items() if any(part[0] == "parameter" for part in row["value"])}
         self.assertEqual(actual, expected)
-        self.assertEqual(len(parsed), 103)
+        # 105 since 0ba40e59 added CHECK_RESOURCE_WAITS and RESOURCE_WAIT_MINUTES.
+        self.assertEqual(len(parsed), 105)
         self.assertIsNone(inputs.config_change("", (HERE.parent / "orchestration.config").read_text())["fallback"])
 
     def test_semantic_values_ignore_comments_spacing_and_equivalent_quotes(self):
@@ -1425,7 +1426,9 @@ class Closure(unittest.TestCase):
         row = document['hook_readers'][unit]
         reader = lambda path: (HERE.parent / path).read_text()
         inputs.hook_reader(row, reader)
-        self.assertEqual(row['commands'], ['scripts/hooks/guard-vendoring-commits.sh'])
+        # The guard runs only through the dispatcher's registration (01f38ce8), so a change
+        # to that registration must select this suite too.
+        self.assertEqual(row['commands'], ['scripts/hooks/dispatch-pretooluse.sh', 'scripts/hooks/guard-vendoring-commits.sh'])
         for helper in ('scripts/lib/git-jurisdiction.sh', 'scripts/lib/vendored-material.sh',
                        'scripts/hooks/guard-vendoring-commits.mutation.sh'):
             old = document['nodes'][helper]['sha256']
@@ -1732,7 +1735,8 @@ class Closure(unittest.TestCase):
             document['nodes'][helper] = old
         reader = inputs.hook_reader(document['hook_readers'][unit],
                                     lambda path: (HERE.parent / path).read_text())
-        self.assertEqual(set(reader['commands']), {'scripts/hooks/guard-named-persons-writes.sh',
+        self.assertEqual(set(reader['commands']), {'scripts/hooks/dispatch-pretooluse.sh',
+                                                  'scripts/hooks/guard-named-persons-writes.sh',
                                                   'scripts/hooks/guard-named-persons-commands.sh'})
 
     def test_completeness_uses_private_trees_but_keeps_real_surface_obligations(self):
@@ -1756,7 +1760,8 @@ class Closure(unittest.TestCase):
             reader = inputs.hook_reader(document['hook_readers'][unit],
                                         lambda path: (HERE.parent / path).read_text())
             self.assertFalse(reader.get('all_events'))
-        self.assertEqual(document['hook_readers'][guard]['commands'], ['scripts/hooks/guard-completeness-commits.sh'])
+        self.assertEqual(document['hook_readers'][guard]['commands'],
+                         ['scripts/hooks/dispatch-pretooluse.sh', 'scripts/hooks/guard-completeness-commits.sh'])
         self.assertEqual(document['hook_readers'][checker]['text_needles'], ['publication-completeness'])
 
     def test_row_currency_keeps_adoption_and_registration_without_config_values(self):
@@ -1777,7 +1782,7 @@ class Closure(unittest.TestCase):
             document['nodes'][helper] = previous
         reader = inputs.hook_reader(document['hook_readers'][unit],
                                     lambda path: (HERE.parent / path).read_text())
-        self.assertEqual(reader['commands'], ['scripts/hooks/guard-row-currency-commits.sh'])
+        self.assertEqual(reader['commands'], ['scripts/hooks/dispatch-pretooluse.sh', 'scripts/hooks/guard-row-currency-commits.sh'])
         document['hook_readers'][unit]['sources']['scripts/lib/registered-hooks.sh'] = 'changed'
         with self.assertRaises(inputs.Unsupported):
             inputs.hook_reader(document['hook_readers'][unit],

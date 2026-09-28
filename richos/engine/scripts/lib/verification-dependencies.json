@@ -17,6 +17,7 @@
     "CHECK_FAILURE_TYPE",
     "CHECK_LAND_COMPLETENESS",
     "CHECK_LEFT_OFF",
+    "CHECK_RESOURCE_WAITS",
     "CREATOR_TEAMMATE",
     "DIALECT_EXEMPT_PATHS",
     "DIALECT_SCAN_ALLOWLIST",
@@ -60,6 +61,7 @@
     "QA_TRIGGER_RE",
     "QUOTA_PAUSE_PERCENT",
     "READONLY_ALLOWLIST",
+    "RESOURCE_WAIT_MINUTES",
     "SCRATCH_AGE_FLOOR_MINUTES",
     "SCRATCH_APP_REGISTRY_RELPATH",
     "SCRATCH_CAMPAIGN_PARENT",
@@ -161,8 +163,8 @@
     },
     "scripts/hooks/contract-integrity-probe.sh#workspace-copy": {
       "source": "scripts/hooks/contract-integrity-probe.sh",
-      "sha256": "0275ec6c5f0866126c38bb16c2fac9ee294b2f7c1cba35afa76af5f9123a5f38",
-      "evidence": "Q copies the governed config into Q_ENT before q_env executes the workspace guards. The enclosing Q consumer must follow those executed guards. The main change adds only two registration inventory literals outside the Q copy region.",
+      "sha256": "52155e96b9a3ac8755f39d30f8d69cf9bcfdb77d09d3259b494cbebad63f6440",
+      "evidence": "Q copies the governed config into Q_ENT before q_env executes the workspace guards. The enclosing Q consumer must follow those executed guards. Later changes add registration inventory literals outside the Q copy region only (guard-record-owner-memory.sh, 2026-09-28).",
       "keys": [],
       "edges": [],
       "region": [
@@ -628,7 +630,7 @@
     },
     "scripts/lib/affected_units.py#validate-config": {
       "source": "scripts/lib/affected_units.py",
-      "sha256": "ce785bd14551bd4de13985e49b82f074da30491133a8fdc393a4f9b3f1934b56",
+      "sha256": "a5136253a47fd00a8434cc2d37c54e3e6f3518f4149df5052aaa618ee454a077",
       "evidence": "validate_config reads the real config and its declared key registry, rejecting unsupported syntax and unknown keys.",
       "keys": [],
       "edges": [
@@ -1053,8 +1055,8 @@
     },
     "scripts/lib/affected_units.py": {
       "source": "scripts/lib/affected_units.py",
-      "sha256": "ce785bd14551bd4de13985e49b82f074da30491133a8fdc393a4f9b3f1934b56",
-      "evidence": "The selector can validate a supplied engine configuration and can compute config/hook/ordinary selections from supplied snapshots. Its only subprocesses are read-only Git operations.",
+      "sha256": "a5136253a47fd00a8434cc2d37c54e3e6f3518f4149df5052aaa618ee454a077",
+      "evidence": "The selector can validate a supplied engine configuration and can compute config/hook/ordinary selections from supplied snapshots. Its only subprocesses are read-only Git operations. Renewed 2026-09-28: ordinary selection also names scripts/verification-inputs.test.sh for a path this same declaration pins (pinned_sources reads the already-loaded declaration only; no new file, setting or subprocess).",
       "keys": [],
       "edges": [
         {
@@ -1065,7 +1067,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "715f1f14cfa62c26889ee5f29dd9e65cf4ae7dd723fa172db3ea92e8d36c766f",
+      "sha256": "1a6d552421abe5cb015ced10b5fb4f4f09ae89374f8af8be2516a9c48232d55e",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -1078,8 +1080,8 @@
     },
     "scripts/affected-units.test.py": {
       "source": "scripts/affected-units.test.py",
-      "sha256": "21a472ccd1907ec9112cc88c3004443721051c58d76ac42d20cdd9c9c39954aa",
-      "evidence": "All config reads use newly written fixture files or literal before/after text. The real-file planning case reads only hooks.json and source-bound registration declarations. Nested CLI invocations use a newly created Git repository, and selected commands are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
+      "sha256": "b2befac9fb47459b07cf4d7085733158eca0da9eb75cd321eb8fada1ba70655c",
+      "evidence": "All config reads use newly written fixture files or literal before/after text. The real-file planning case reads only hooks.json and source-bound registration declarations. Nested CLI invocations use a newly created Git repository, and selected commands are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites. Renewed 2026-09-28: the pinned-reader case reads the real declaration and every suite's text as data and adds one synthetic node in memory; nothing is executed.",
       "keys": [],
       "edges": [
         {
@@ -1167,14 +1169,14 @@
     },
     "scripts/lib/pause_protocol.py": {
       "source": "scripts/lib/pause_protocol.py",
-      "sha256": "01bea3772a0c1468f6a0e2337d00e96ebf77c9e6cf7d0af19b2cce6c24097ba7",
+      "sha256": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
       "evidence": "Renders and validates strings using arguments and standard-library modules. No settings, filesystem or subprocess read occurs. Preview validation only compares strings and lengths.",
       "keys": [],
       "edges": []
     },
     "scripts/lib/quota_weekly.py#weekly-fixture": {
       "source": "scripts/lib/quota_weekly.py",
-      "sha256": "9bd2e65fa1318ff43a0d0dbf96ff9abe8df363055e58c556b363f216733b51a1",
+      "sha256": "8f601d1c2444aedae3aae9727e64e8e43b27cf8526c3f8949502f5958d8ef570",
       "evidence": "The weekly suite supplies readings, worker states and time as literals. Its reset_tick call patches subprocess.run; watcher cases patch reset_tick itself. No reset helper, live account or registry is contacted.",
       "keys": [],
       "edges": [
@@ -1185,8 +1187,8 @@
     },
     "scripts/lib/quota_watch.py#weekly-fixture": {
       "source": "scripts/lib/quota_watch.py",
-      "sha256": "df458b4af1606df70d4c54dbbb9b5726a65e63045f12d2f2e312d5813ca7ccc3",
-      "evidence": "The weekly suite calls _parse_reset and mode_watch with literal threshold/config arguments. mode_watch patches read_source, workers, time.time and weekly.reset_tick. Each reading triggers the weekly event before any sleep or five-hour path. No CLI wrapper, real config, usage API or registry code executes. The added login-alarm subprocess is reachable only through read_source, which none of this declared entry-point closure executes (weekly fixtures replace it).",
+      "sha256": "e82a2ad82a190e78bb5106d859923a180ea2592b7fcf47a7fb383018659dd401",
+      "evidence": "The weekly suite calls _parse_reset, and (renewed 2026-09-28) poll_loop directly with an in-memory Out writer and literal threshold/config arguments; it patches read_source, workers, time.time, weekly.reset_tick and time.sleep, whose first call ends the case. Each reading triggers the weekly event before any sleep or five-hour path. No CLI wrapper, real config, usage API or registry code executes. The added login-alarm subprocess is reachable only through read_source, which none of this declared entry-point closure executes (weekly fixtures replace it).",
       "keys": [],
       "edges": [
         {
@@ -1199,7 +1201,7 @@
     },
     "scripts/quota-weekly.test.sh": {
       "source": "scripts/quota-weekly.test.sh",
-      "sha256": "b548731050bce3af5f3697b73b10bedbfa7559d78b140d74f03e7c3b1e5fa5b4",
+      "sha256": "4601e54b69ca0799956ab2004075d97caee854c6fe2ee0362485d6a284794696",
       "evidence": "All settings and time originate in the inline Python fixture. Reviewed imports and mocked subprocess/registry boundaries are explicit helper edges.",
       "keys": [],
       "edges": [
@@ -1340,7 +1342,7 @@
     },
     "scripts/lib/quota_watch.py#message-fixture": {
       "source": "scripts/lib/quota_watch.py",
-      "sha256": "df458b4af1606df70d4c54dbbb9b5726a65e63045f12d2f2e312d5813ca7ccc3",
+      "sha256": "e82a2ad82a190e78bb5106d859923a180ea2592b7fcf47a7fb383018659dd401",
       "evidence": "The fixture calls only pause_message, resume_message and release_message with literal reset timestamps. hhmm uses UTC conversion, pause text uses pause_protocol; no config/source/watch/reset operation runs. The added login-alarm subprocess is reachable only through read_source, which none of this declared entry-point closure executes (weekly fixtures replace it). WAIT branch: resume and release text is pause_protocol.render_resume, also a string render.",
       "keys": [],
       "edges": [
@@ -1354,7 +1356,7 @@
     },
     "scripts/lib/pause_protocol.test.py": {
       "source": "scripts/lib/pause_protocol.test.py",
-      "sha256": "b97e92c8469e021ad6274a3ec315ef0fbe15fded978c9e7d2ea77647c450b8e5",
+      "sha256": "916cbb29363ac408e45208c7780b34e1b5c5667690860071b3fa0cfc2f31c315",
       "evidence": "Standard-message fixtures invoke pause_protocol, literal-time watcher message formatting, terminal early rejection and desktop early rejection. Real guard/template source assertions read code, not config values. Captured accepted terminal payloads continue through recipient/identity handling with an explicitly private empty registry; that expanded call closure is declared separately. WAIT branch: the generated-RESUME terminal case uses the same empty private registry, and agent_hold.py is read as text only.",
       "keys": [],
       "edges": [
@@ -1708,7 +1710,7 @@
     },
     "scripts/lib/quota_watch.py#notice": {
       "source": "scripts/lib/quota_watch.py",
-      "sha256": "df458b4af1606df70d4c54dbbb9b5726a65e63045f12d2f2e312d5813ca7ccc3",
+      "sha256": "e82a2ad82a190e78bb5106d859923a180ea2592b7fcf47a7fb383018659dd401",
       "evidence": "The main --notice path parses arguments and reads the explicitly supplied payload file and timestamp. It never invokes get_usage, reset_tick, workers or the watch loop. Module imports pause_protocol and quota_weekly, neither reading config. The added login-alarm subprocess is reachable only through read_source, which none of this declared entry-point closure executes (weekly fixtures replace it).",
       "keys": [],
       "edges": [
@@ -1722,7 +1724,7 @@
     },
     "scripts/quota-watch.sh#notice": {
       "source": "scripts/quota-watch.sh",
-      "sha256": "70ce3fdbd3a372f727086df522819fae6b3dab759838209563ba9414805d0d10",
+      "sha256": "1dd0e9aea3ce31526a9296fe0417b697daf1ae45d0e041fd59024a3f3cae7076",
       "evidence": "Resolves the entity and sources its config in a subshell only to extract QUOTA_PAUSE_PERCENT. --notice is passed to the reviewed Python notice path.",
       "keys": [
         "QUOTA_PAUSE_PERCENT"
@@ -1749,7 +1751,7 @@
     },
     "scripts/hooks/session-start-quota.test.sh": {
       "source": "scripts/hooks/session-start-quota.test.sh",
-      "sha256": "44bc647df7d0805f184f15346bf9c89dd3c05e49a07e66e40b3bd65f7f45788a",
+      "sha256": "15479b2a748147c66b48a26654f819face7e0aabd9882241842e229ca9bbe855",
       "evidence": "Creates private HOME/config before scratch allocation, a private entity config and literal payloads at a pinned clock. The absent watcher copy exits before root resolution. Scratch uses unsourced defaults, so no real config values are inherited.",
       "keys": [],
       "edges": [
@@ -2726,8 +2728,8 @@
     },
     "scripts/hooks/engine-status.test.sh": {
       "source": "scripts/hooks/engine-status.test.sh",
-      "sha256": "1480e24fcbe8af26f8bada94427a2b11dfb23f8d5bd18016d516436df9b89a79",
-      "evidence": "Copied engine settings are transport only: engine-status consumes adoption presence, not values. The entity has a literal config. Inline mutations edit registration/inventory or the rendered instruction. A missing-Python path enumerates command links but executes only the banner and its fixed libraries. The inventory adds the two failure-type hook basenames as data; those hooks are never executed by this suite. The resource-waits hook basename is another inventory datum, never executed.",
+      "sha256": "b9f61ad8dbe4d0eed87afdb77be39a38c00a817730ef38a683366e6f1e73f953",
+      "evidence": "Copied engine settings are transport only: engine-status consumes adoption presence, not values. The entity has a literal config. Inline mutations edit registration/inventory or the rendered instruction. A missing-Python path enumerates command links but executes only the banner and its fixed libraries. The inventory adds the two failure-type hook basenames as data; those hooks are never executed by this suite. The resource-waits hook basename is another inventory datum, never executed. The guard-record-owner-memory.sh basename (2026-09-28) is another inventory datum, never executed.",
       "keys": [],
       "edges": [
         {
@@ -3012,7 +3014,7 @@
     },
     "scripts/hooks/guard-ci-turn-gate.py": {
       "source": "scripts/hooks/guard-ci-turn-gate.py",
-      "sha256": "b92f4e9c6c358c5941bda39405fd5ae52a07405aa5a838ea41943c595d3fa948",
+      "sha256": "0c71e508722ac464ebd4a2729ce28ff69b33eb1052e43d6262439d3e357f7cf0",
       "evidence": "Standard-library transcript/CI-state predicate imports fixed ci_pause.pause_for only. It parses shell text as data; actual subprocesses are fixed Git queries and gh api. No orchestration config values are sourced or read.",
       "keys": [],
       "edges": [
@@ -3046,7 +3048,7 @@
     },
     "scripts/hooks/guard-ci-turn-gate.test.sh": {
       "source": "scripts/hooks/guard-ci-turn-gate.test.sh",
-      "sha256": "14e83b6a7d3983fa47ca8d8b0a4b0ef146973b3205712195c382477a059124a4",
+      "sha256": "d89488ac5a3e7970557139430837d0a00301feff35a8b29ab5468a0b11854ae0",
       "evidence": "Uses generated adopted repositories, transcript/state fixtures and a private gh adapter. Every hook call supplies the fixture root; direct analyzer import exercises parse_pushes only. No nested suite or mutation driver is invoked.",
       "keys": [],
       "edges": [
@@ -3894,7 +3896,7 @@
     },
     "scripts/lib/row-currency.sh#undeclared": {
       "source": "scripts/lib/row-currency.sh",
-      "sha256": "6aeb36f33046c910ad654f2c1f8eba96ca2c2a9675d40e9f5abf2c94e139584e",
+      "sha256": "9c4c901d56dbb2bdb198cba0df9d6840f7eed371fe9b95fe02f13cb64c4a99e4",
       "evidence": "Module initialization, rc_require_ceo_todos_lib and rc_load_declaration through absent decl_find. No row declaration exists in the jurisdiction fixture, so no record resolver or Python predicate runs. The fixed TODO library provides repository resolution.",
       "keys": [],
       "edges": [
@@ -3912,7 +3914,7 @@
     },
     "scripts/hooks/guard-row-currency-commits.sh#undeclared-target": {
       "source": "scripts/hooks/guard-row-currency-commits.sh",
-      "sha256": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
+      "sha256": "5e6104b981b6119bb22c51bbda81184df800c42e6353eeb16d05c2ca1d62c36d",
       "evidence": "The jurisdiction fixture invokes the real guard against a newly created repository without a row-currency declaration. Only setup, payload classification and repository/adoption resolution execute; the absent declaration exits before landing checks, record resolution or predicate. Full source hash binds the excluded continuation.",
       "keys": [],
       "edges": [
@@ -4116,8 +4118,8 @@
     },
     "scripts/hooks/guard-resume-isolation.test.sh": {
       "source": "scripts/hooks/guard-resume-isolation.test.sh",
-      "sha256": "8ae7ff8931733948b030736169ed956efdededac982f44e1973bc10374227908",
-      "evidence": "Real guard first resolves the real engine and sources its config. Additional copied-guard cases use literal SESSION_TEAMS_DIR fixtures. Real workspaces CLI calls integration/register-spawn/hook/pause and the guard queries recipient; private registry and Git worktrees do not replace engine cleanup settings. The finite pause/identity/liveness helpers are included and no nested suite or model agent is invoked.",
+      "sha256": "c58c65a57d542a4a9070777badf8c6057e751657bfae0d1e716f1510f8433da4",
+      "evidence": "Real guard first resolves the real engine and sources its config. Additional copied-guard cases use literal SESSION_TEAMS_DIR fixtures. Real workspaces CLI calls integration/register-spawn/hook/pause and the guard queries recipient; private registry and Git worktrees do not replace engine cleanup settings. The finite pause/identity/liveness helpers are included and no nested suite or model agent is invoked. Renewed 2026-09-28: the registry, CLAUDE_CONFIG_DIR and the land-lock directory are private from the first guard call.",
       "keys": [],
       "edges": [
         {
@@ -4140,8 +4142,8 @@
     },
     "scripts/lib/escalations.sh": {
       "source": "scripts/lib/escalations.sh",
-      "sha256": "656be06643a5579cc15e4ef5efe7628bd58e0a134e3677b36885f2060db59db7",
-      "evidence": "Resolves the fixed adjacent Python helper, checks availability and calls its list command. Ledger override is an environment path; no orchestration settings are sourced.",
+      "sha256": "bda6b4af107d64144cac6fe9a5ac507b007c81ebac30b53bb59256b49f9ff1c5",
+      "evidence": "Resolves the fixed adjacent Python helper, checks availability and calls its list command. Ledger override is an environment path; no orchestration settings are sourced. Renewed 2026-09-28: escalations_deliver calls the same helper's deliver command with a caller-supplied state directory and the Stop payload on stdin, still no orchestration settings.",
       "keys": [],
       "edges": [
         {
@@ -4442,8 +4444,8 @@
     },
     "scripts/hooks/notice-escalations.sh": {
       "source": "scripts/hooks/notice-escalations.sh",
-      "sha256": "d26e14d802bad45e2f6528722d38eb91076c25e1d3e32ee2228a66e138e963da",
-      "evidence": "Resolves adoption and reads the ledger through fixed escalations and stop-notice libraries. Payload and ledger fields are data, never sourced. Root presence is the only configuration dependency.",
+      "sha256": "beaed57b467674e9aedc24eca928ca1d194f8ff6a3f3e876fabb7edab0721b4d",
+      "evidence": "Resolves adoption and reads the ledger through fixed escalations and stop-notice libraries. Payload and ledger fields are data, never sourced. Root presence is the only configuration dependency. Renewed 2026-09-28: the Stop path also calls escalations_deliver with the payload on stdin and a per-session delivered-set under the entity's .claude/state/stop-hook-notices; the payload's session id and transcript path are data.",
       "keys": [],
       "edges": [
         {
@@ -5001,7 +5003,7 @@
     },
     "scripts/hooks/contract-integrity-probe.sh#seated-fixture": {
       "source": "scripts/hooks/contract-integrity-probe.sh",
-      "sha256": "0275ec6c5f0866126c38bb16c2fac9ee294b2f7c1cba35afa76af5f9123a5f38",
+      "sha256": "52155e96b9a3ac8755f39d30f8d69cf9bcfdb77d09d3259b494cbebad63f6440",
       "evidence": "Reviewed seated route and its shared R/AL/MT/MC/OF functions. The contract template keeps engine and entity in the same repository, including its linked-worktree case; the by-reference branch is unreachable. Parsed registration commands and sidecar inventories are data except the fixed canonical canary guards listed here. The test only replaces the write guard with literal inert shims or another copy of that same guard. q_hook has four fixed hook names; registry calls are integration/lifecycle. Q transports the fixture config. OF status and EP remain dependencies even when absent or undeclared in the generated fixture. The engine-status edge conservatively retains the literal execute floor outside this seated route.",
       "keys": [
         "PROTECTED_PATHS",
@@ -5421,8 +5423,8 @@
     },
     "scripts/lib/row-currency.sh#fixture-records": {
       "source": "scripts/lib/row-currency.sh",
-      "sha256": "6aeb36f33046c910ad654f2c1f8eba96ca2c2a9675d40e9f5abf2c94e139584e",
-      "evidence": "Loads the separate row declaration as literal fields, resolves its fixed CEO-TODO library, assembles a JSON job and invokes the fixed row predicate. These fixture callers create the declarations, records and Git roots. Source and subprocess boundaries retain both libraries.",
+      "sha256": "9c4c901d56dbb2bdb198cba0df9d6840f7eed371fe9b95fe02f13cb64c4a99e4",
+      "evidence": "Loads the separate row declaration as literal fields, resolves its fixed CEO-TODO library, assembles a JSON job and invokes the fixed row predicate. These fixture callers create the declarations, records and Git roots. Source and subprocess boundaries retain both libraries. Renewed 2026-09-28 (26b29c58): the owner line ROW_RECORD_OWNER is parsed only when a declaration carries it, and these fixtures write none; rc_record_owner is called only by guard-record-owner-memory.sh.",
       "keys": [],
       "edges": [
         {
@@ -5860,8 +5862,8 @@
     },
     "scripts/hooks/guard-row-currency-commits.sh#fixture-records": {
       "source": "scripts/hooks/guard-row-currency-commits.sh",
-      "sha256": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
-      "evidence": "Full guard path reviewed: payload classification only parses command text, root resolution retains real engine adoption, jurisdiction and row predicates read the generated target Git repositories and records. It never sources orchestration config values. All fixed libraries and the supplied-record predicate remain bound.",
+      "sha256": "5e6104b981b6119bb22c51bbda81184df800c42e6353eeb16d05c2ca1d62c36d",
+      "evidence": "Full guard path reviewed: payload classification only parses command text, root resolution retains real engine adoption, jurisdiction and row predicates read the generated target Git repositories and records. It never sources orchestration config values. All fixed libraries and the supplied-record predicate remain bound. Renewed 2026-09-28 (26b29c58): the owner-line block runs only when the record's own declaration carries ROW_RECORD_OWNER=\"app ...\"; no fixture writes it, so record_owner.py is not reached here.",
       "keys": [],
       "edges": [
         {
@@ -6208,7 +6210,7 @@
     },
     "scripts/lib/row-currency.sh#load": {
       "source": "scripts/lib/row-currency.sh",
-      "sha256": "6aeb36f33046c910ad654f2c1f8eba96ca2c2a9675d40e9f5abf2c94e139584e",
+      "sha256": "9c4c901d56dbb2bdb198cba0df9d6840f7eed371fe9b95fe02f13cb64c4a99e4",
       "evidence": "Module initialization only. Defines fixed paths and functions; no declaration, record, roster or configuration file is read and no predicate subprocess runs.",
       "keys": [],
       "edges": [
@@ -6374,7 +6376,7 @@
     },
     "scripts/hooks/guard-row-currency-commits.sh#benign-bash": {
       "source": "scripts/hooks/guard-row-currency-commits.sh",
-      "sha256": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
+      "sha256": "5e6104b981b6119bb22c51bbda81184df800c42e6353eeb16d05c2ca1d62c36d",
       "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
       "keys": [],
       "edges": [
@@ -6738,8 +6740,8 @@
     },
     "scripts/hooks/dispatch-pretooluse.manifest": {
       "source": "scripts/hooks/dispatch-pretooluse.manifest",
-      "sha256": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7",
-      "evidence": "Finite shipped module inventory read by the dispatcher test; all modules are bound by the suite edges below.",
+      "sha256": "d5022dd189c9fc70c3b728c76f713558ab2f893dbe8cb4dd5f84d34e7f307f4f",
+      "evidence": "Finite shipped module inventory read by the dispatcher test; all modules are bound by the suite edges below. Renewed 2026-09-28: the Write chain gained guard-record-owner-memory.sh, bound below and on every fixture that dispatches the Write chain.",
       "keys": [],
       "edges": []
     },
@@ -6838,6 +6840,9 @@
         },
         {
           "to": "scripts/hooks/scan-secrets.sh#benign-bash"
+        },
+        {
+          "to": "scripts/hooks/guard-record-owner-memory.sh"
         }
       ],
       "presence": "Copies real orchestration.config into private root fixtures."
@@ -6896,7 +6901,7 @@
     },
     "scripts/lib/escalations.sh#load": {
       "source": "scripts/lib/escalations.sh",
-      "sha256": "656be06643a5579cc15e4ef5efe7628bd58e0a134e3677b36885f2060db59db7",
+      "sha256": "bda6b4af107d64144cac6fe9a5ac507b007c81ebac30b53bb59256b49f9ff1c5",
       "evidence": "Only module initialization runs; fixed adjacent Python path is assigned, no ledger or predicate is read.",
       "keys": [],
       "edges": [],
@@ -7122,7 +7127,7 @@
     },
     "scripts/hooks/notice-escalations.sh#unadopted-stop": {
       "source": "scripts/hooks/notice-escalations.sh",
-      "sha256": "d26e14d802bad45e2f6528722d38eb91076c25e1d3e32ee2228a66e138e963da",
+      "sha256": "beaed57b467674e9aedc24eca928ca1d194f8ff6a3f3e876fabb7edab0721b4d",
       "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
       "keys": [],
       "edges": [
@@ -7909,7 +7914,7 @@
     },
     "scripts/lib/quota_weekly.py#quota-fixture": {
       "source": "scripts/lib/quota_weekly.py",
-      "sha256": "9bd2e65fa1318ff43a0d0dbf96ff9abe8df363055e58c556b363f216733b51a1",
+      "sha256": "8f601d1c2444aedae3aae9727e64e8e43b27cf8526c3f8949502f5958d8ef570",
       "evidence": "Reviewed all functions. The quota suite fixes QUOTA_RESET_HELPER to /usr/bin/false, so reset_tick cannot enter quota-reset.sh or a live reset service. Window data and messages are parsed/rendered, never executed.",
       "keys": [],
       "edges": [
@@ -7934,8 +7939,8 @@
     },
     "scripts/lib/quota_watch.py#quota-fixture": {
       "source": "scripts/lib/quota_watch.py",
-      "sha256": "df458b4af1606df70d4c54dbbb9b5726a65e63045f12d2f2e312d5813ca7ccc3",
-      "evidence": "Reviewed CLI, all imports, file and subprocess operations, workers and watch loop. The suite supplies a missing or literal fake Claude transport and a false reset helper. It loads only fixed workspace, weekly, pause and login-alarm siblings. Payloads, messages and registry records are data. Real clocks and process identities remain runtime inputs.",
+      "sha256": "e82a2ad82a190e78bb5106d859923a180ea2592b7fcf47a7fb383018659dd401",
+      "evidence": "Reviewed CLI, all imports, file and subprocess operations, workers and watch loop. The suite supplies a missing or literal fake Claude transport and a false reset helper. It loads only fixed workspace, weekly, pause and login-alarm siblings. Payloads, messages and registry records are data. Real clocks and process identities remain runtime inputs. Renewed 2026-09-28 (ad9da4f8, 5d3621a3): --watch and --monitor now start a detached poller that is this same file (--poll) with its state, lock and event files under QUOTA_WATCH_STATE_DIR (private in the suite), read the session pid's start time with ps and poll until the session ends. The threshold still arrives as --threshold-raw from quota-watch.sh; no new engine program and no orchestration.config read.",
       "keys": [],
       "edges": [
         {
@@ -7954,7 +7959,7 @@
     },
     "scripts/quota-watch.sh#quota-fixture": {
       "source": "scripts/quota-watch.sh",
-      "sha256": "70ce3fdbd3a372f727086df522819fae6b3dab759838209563ba9414805d0d10",
+      "sha256": "1dd0e9aea3ce31526a9296fe0417b697daf1ae45d0e041fd59024a3f3cae7076",
       "evidence": "Resolves roots then sources the explicit private entity config solely for QUOTA_PAUSE_PERCENT. Calls the adjacent watcher with fixed CLI arguments; fixture does not execute account transport.",
       "keys": [
         "QUOTA_PAUSE_PERCENT"
@@ -7970,7 +7975,7 @@
     },
     "scripts/lib/quota-watch-replay.py": {
       "source": "scripts/lib/quota-watch-replay.py",
-      "sha256": "05c96c6470423b94035dbaa504142605f139263fb826e0f1a5a7565e18d6ec96",
+      "sha256": "1d90f07e797f6723f95157b1fd39e9d376fb4738eb7e09151735db241fa5ecae",
       "evidence": "Complete bounded historical replay imports the fixed watcher. It replaces that module clock while retaining registry and fixture transport operations. All generated payloads and arguments are literal or private fixture paths.",
       "keys": [],
       "edges": [
@@ -7981,7 +7986,7 @@
     },
     "scripts/quota-watch.mutation.sh": {
       "source": "scripts/quota-watch.mutation.sh",
-      "sha256": "349ab97dd37a02319a41967460f1a2b44160d2bdc32fb6b082542bf66cfb37f9",
+      "sha256": "9e0bcc1a53481387e554e88aa8d5c1fba41ed4df58b8d8e7aacdd5a8bb9084f5",
       "evidence": "Full finite driver changes watcher predicates or output, then executes the same fixed focused suite through the shared mutation harness. It transports shipped config presence but the nested suite replaces threshold values. No new executable target is introduced.",
       "keys": [],
       "edges": [
@@ -7995,8 +8000,8 @@
     },
     "scripts/quota-watch.test.sh": {
       "source": "scripts/quota-watch.test.sh",
-      "sha256": "92b59187b61b388fc9c243bb473533b2ffff106dcc3df74d99b2c82d27808437",
-      "evidence": "Full suite fixes private entity config, payload, registry, session, reset helper and fake Claude transport before watcher calls. Guard values are private; separate workspace edge retains actual engine cleanup readers. Historical replays and finite focused mutants share these dependencies. The fake Claude answers control JSON only; no model agent is launched. WAIT branch: E06 imports pause_protocol.py to recognize the generated RESUME; pauses sent through the fixture registry reach agent_hold.py through the workspace edge, with its state inside that registry.",
+      "sha256": "9aef246cae43161da26e70a85837fda8b4e5ee8b6701ddd16a4e8d30069e1fb8",
+      "evidence": "Full suite fixes private entity config, payload, registry, session, reset helper and fake Claude transport before watcher calls. Guard values are private; separate workspace edge retains actual engine cleanup readers. Historical replays and finite focused mutants share these dependencies. The fake Claude answers control JSON only; no model agent is launched. WAIT branch: E06 imports pause_protocol.py to recognize the generated RESUME; pauses sent through the fixture registry reach agent_hold.py through the workspace edge, with its state inside that registry. Renewed 2026-09-28: QUOTA_WATCH_STATE_DIR, the session pid and the test-device state are private; a poller the watcher starts is the same bound watcher file.",
       "keys": [],
       "edges": [
         {
@@ -9152,7 +9157,7 @@
     },
     "scripts/hooks/guard-row-currency-commits.sh#operator-lease-payload": {
       "source": "scripts/hooks/guard-row-currency-commits.sh",
-      "sha256": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
+      "sha256": "5e6104b981b6119bb22c51bbda81184df800c42e6353eeb16d05c2ca1d62c36d",
       "evidence": "Operator-leads D1 supplies land-lease acquire, not a Git operation, scan or filesystem mutation. Reviewed classifier prefix is the same as the benign payload path; all settings read before classification remain. The suite explicitly supplies its literal entity config.",
       "keys": [],
       "edges": [
@@ -9402,6 +9407,9 @@
         },
         {
           "to": "scripts/hooks/guard-shared-writes.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-record-owner-memory.sh"
         }
       ]
     },
@@ -9870,8 +9878,8 @@
     },
     "scripts/hooks/shell-evidence.py": {
       "source": "scripts/hooks/shell-evidence.py",
-      "sha256": "83415f7b4a96ec2c8e46b3636aabb77167d36650d0999eec521a5124f4561bfa",
-      "evidence": "Full program reviewed: stdlib JSON/text parsing and command wrapping as returned data, plus agent_hold.capture for a subagent's call (WAIT branch): private call records in the agent-hold state directory and shell text. No command execution or config read.",
+      "sha256": "ff52225e5f9caba638223ee3e8c53056d7a5160f860ee8eb4fc6f55ac8d29298",
+      "evidence": "Full program reviewed: stdlib JSON/text parsing and command wrapping as returned data, plus agent_hold.rewrite for a subagent's call (renewed 2026-09-28: the call becomes a native background task, a held call is denied, the wait call stays foreground): private call records in the agent-hold state directory and shell text. No command execution or config read.",
       "keys": [],
       "edges": [
         {
@@ -9892,19 +9900,22 @@
     },
     "ass-kicker/brief-scope.py#hook": {
       "source": "ass-kicker/brief-scope.py",
-      "sha256": "ace5be7e9031e6fd5b0ea0a9f0d7a00ceaa2c490822e0b77c4ec45d81dc324d8",
-      "evidence": "Hook check/decide closure reviewed: workspace spec/verdict JSON and Git identity reads, pure prompt scope predicates. Fixed workspaces import; no orchestration reader or external engine execution.",
+      "sha256": "d6910b6891d7461b98d51b234343a004834e6fd4a3c52e5dc530b6539cf376a9",
+      "evidence": "Hook check/decide closure reviewed: workspace spec/verdict JSON and Git identity reads, pure prompt scope predicates. Fixed workspaces import. Renewed 2026-09-28 (ae799348): check_payload also loads brief-done.py, which runs Git on the work repositories and up to eight allow-listed read-only commands the brief quotes as evidence (edge below); no orchestration value is read on this path.",
       "keys": [],
       "edges": [
         {
           "to": "mega-lander/workspaces.py#integration"
+        },
+        {
+          "to": "ass-kicker/brief-done.py#check"
         }
       ]
     },
     "scripts/hooks/guard-brief-scope.sh": {
       "source": "scripts/hooks/guard-brief-scope.sh",
-      "sha256": "acbb13498c55d05bcbf609319a5a5f12436e78d6bdc1796ec46e8dfb4030818b",
-      "evidence": "Full hook reviewed: fixed brief-scope check on a captured payload and optional acknowledgement log. Prompt is data.",
+      "sha256": "d62b66830b5f8665bb7492b2278ad7261f3279401142b41296ab1d2ada78c9e3",
+      "evidence": "Full hook reviewed: fixed brief-scope check on a captured payload and optional acknowledgement log. Prompt is data. Renewed 2026-09-28: the brief-scope check also runs brief-done.py through brief-scope.py#hook.",
       "keys": [],
       "edges": [
         {
@@ -10292,6 +10303,9 @@
         },
         {
           "to": "scripts/hooks/dispatch-pretooluse.manifest"
+        },
+        {
+          "to": "scripts/hooks/guard-record-owner-memory.sh"
         }
       ]
     },
@@ -10507,7 +10521,7 @@
     },
     "scripts/hooks/guard-row-currency-commits.sh#inventory-write": {
       "source": "scripts/hooks/guard-row-currency-commits.sh",
-      "sha256": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
+      "sha256": "5e6104b981b6119bb22c51bbda81184df800c42e6353eeb16d05c2ca1d62c36d",
       "evidence": "The inventory parser expands dispatcher modules, while matcher_of finds no direct registration and chooses Write. This module sees a private Write payload or malformed JSON; its reviewed classifier prefix returns before Bash-only operations. Bootstrap helpers remain bound.",
       "keys": [],
       "edges": [
@@ -10951,6 +10965,9 @@
         },
         {
           "to": "scripts/hooks/workspace-lifecycle.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-record-owner-memory.sh"
         }
       ]
     },
@@ -10989,7 +11006,7 @@
     },
     "scripts/hooks/contract-integrity-probe.sh#by-reference-fixtures": {
       "source": "scripts/hooks/contract-integrity-probe.sh",
-      "sha256": "0275ec6c5f0866126c38bb16c2fac9ee294b2f7c1cba35afa76af5f9123a5f38",
+      "sha256": "52155e96b9a3ac8755f39d30f8d69cf9bcfdb77d09d3259b494cbebad63f6440",
       "evidence": "Entire by-reference branch and shared R/AL/MT/MC functions reviewed. Plugin/role/marketplace/registration rows are inspected as data. Actual execution is engine-status, the fixed BR9 worktree-isolation canary and the shared model/liveness canaries. Literal fixture shims introduce no additional reader. The shared whole-source contract retains the seated helper floor, but the branch returns before seated runtime checks.",
       "keys": [
         "PROTECTED_PATHS",
@@ -11116,7 +11133,7 @@
     },
     "ass-kicker/brief-scope.py#annotate": {
       "source": "ass-kicker/brief-scope.py",
-      "sha256": "ace5be7e9031e6fd5b0ea0a9f0d7a00ceaa2c490822e0b77c4ec45d81dc324d8",
+      "sha256": "d6910b6891d7461b98d51b234343a004834e6fd4a3c52e5dc530b6539cf376a9",
       "evidence": "Full annotate/counterstamp closure reviewed: integration record and verdict history JSON readers plus pure prompt classification. Only fixed workspaces import; no engine configuration.",
       "keys": [],
       "edges": [
@@ -11158,8 +11175,8 @@
     },
     "scripts/lib/spawn.py#fixture-guards": {
       "source": "scripts/lib/spawn.py",
-      "sha256": "03c671b261b680d8767a346540234ca8dc24ab62df1a48f08f6c018ab9ed1e9e",
-      "evidence": "All import/execution sites and full main/rollback reviewed. Fixture calls pin hook sources to literal verdict scripts plus real isolation guard. Real-surface collector calls only read hook JSON without execution. Creator runs only on plain private repositories. Prompt annotators produce data, never spawn model agents.",
+      "sha256": "5d9f07168dd547d9a0aff80b7acf2da0fadd3c61fb75e0fda956589fbd03f001",
+      "evidence": "All import/execution sites and full main/rollback reviewed. Fixture calls pin hook sources to literal verdict scripts plus real isolation guard. Real-surface collector calls only read hook JSON without execution. Creator runs only on plain private repositories. Prompt annotators produce data, never spawn model agents. Renewed 2026-09-28 (af7d7c93): for the operator audience it also loads brief-done.py, whose annotate runs the brief's quoted read-only evidence commands from its allowlist and appends their output.",
       "keys": [],
       "edges": [
         {
@@ -11185,6 +11202,9 @@
         },
         {
           "to": "scripts/hooks/guard-worktree-isolation.sh"
+        },
+        {
+          "to": "ass-kicker/brief-done.py#annotate"
         }
       ]
     },
@@ -11675,28 +11695,28 @@
     },
     "scripts/lib/agent_hold.py": {
       "source": "scripts/lib/agent_hold.py",
-      "sha256": "7ec72de051bf0fd7681324ced1ec804e51238f704bd40ec6d76c6bae1c363f38",
+      "sha256": "f8e2b2c70604088324a1da244338316aaaa791aae073d9bb18202f75ad13c9a4",
       "keys": [],
       "edges": [
         {
           "to": "mega-lander/workspaces.py#recipient"
         }
       ],
-      "evidence": "Full program reviewed (hold, release, watchdog, wait and CLI). Inputs: the agent-hold state directory (RICHOS_AGENT_HOLD_DIR, else CLAUDE_CONFIG_DIR or HOME .claude/state/agent-hold), this user's ps table, recorded shell PID files, other processes' environments read through the kernel only to match the agent's own inherited tag (never printed), test-VM slot records under TESTVM_ROOT or HOME and lock-file paths through libproc. It signals only processes under the agent's recorded shells. hold() starts a detached watchdog, which runs the workspace recipient CLI as its one engine execution. No orchestration.config read."
+      "evidence": "Full program reviewed (hold, release, watchdog, wait and CLI). Inputs: the agent-hold state directory (RICHOS_AGENT_HOLD_DIR, else CLAUDE_CONFIG_DIR or HOME .claude/state/agent-hold), this user's ps table, recorded shell PID files, other processes' environments read through the kernel only to match the agent's own inherited tag (never printed), test-VM slot records under TESTVM_ROOT or HOME and lock-file paths through libproc. It signals only processes under the agent's recorded shells. hold() starts a detached watchdog, which runs the workspace recipient CLI as its one engine execution. No orchestration.config read. Renewal 2026-09-28 (b92c21f8..1b7aa978): a subagent's foreground Bash call now runs as a native background task with its record, job, output and status files in its shell directory; wait reads that host-owned result through the agent's own transcript (the payload's transcript_path, bound by session, agent and tool-use id, read as data) and the task output file named there; BASH_MAX_TIMEOUT_MS and RICHOS_AGENT_HOLD_WAIT_SECONDS bound the wait; wait notices live in the state directory; a held call's job is detached with SIGUSR1 and stopped. Still no orchestration.config read, and the watchdog's recipient CLI is still the one engine execution."
     },
     "scripts/lib/agent_hold.py#release": {
       "source": "scripts/lib/agent_hold.py",
-      "sha256": "7ec72de051bf0fd7681324ced1ec804e51238f704bd40ec6d76c6bae1c363f38",
+      "sha256": "f8e2b2c70604088324a1da244338316aaaa791aae073d9bb18202f75ad13c9a4",
       "keys": [],
       "edges": [],
       "evidence": "release, records, release_session, release_orphans and describe_* only: read hold records in the agent-hold state directory, this user's ps table and recorded shell PID files, and continue recorded processes. No watchdog, engine execution or orchestration.config read."
     },
     "scripts/lib/agent_hold.py#capture": {
       "source": "scripts/lib/agent_hold.py",
-      "sha256": "7ec72de051bf0fd7681324ced1ec804e51238f704bd40ec6d76c6bae1c363f38",
+      "sha256": "f8e2b2c70604088324a1da244338316aaaa791aae073d9bb18202f75ad13c9a4",
       "keys": [],
       "edges": [],
-      "evidence": "capture only: for a Bash payload with valid session, agent and tool-use ids it creates and prunes call records in the agent-hold state directory (a signal-0 probe of recorded PIDs) and returns shell text as data. No process table, execution or orchestration.config read."
+      "evidence": "capture and rewrite (renewed 2026-09-28): for a Bash payload with valid session, agent and tool-use ids it creates call records in the agent-hold state directory, notes the size of the agent's transcript named by the payload, prunes records of ended calls (a signal-0 probe of recorded PIDs) and returns shell text or a deny as data. Pruning a dead call that carried a process identity takes this user's ps table and reads tagged processes' environments through the kernel, to keep ownership of live descendants. No engine execution and no orchestration.config read."
     },
     "mega-lander/tests/workspace-probes.test.sh": {
       "source": "mega-lander/tests/workspace-probes.test.sh",
@@ -11796,12 +11816,15 @@
     },
     "ass-kicker/brief-scope.py#fixture-cli": {
       "source": "ass-kicker/brief-scope.py",
-      "sha256": "ace5be7e9031e6fd5b0ea0a9f0d7a00ceaa2c490822e0b77c4ec45d81dc324d8",
-      "evidence": "Reviewed check/annotate plus record-spec and verdict entrypoints. Input paths resolve to caller supplied text and private integration/spec/verdict/history JSON. Writes use W.write_json; reads use W.integration_record/read_json/realpath/main_checkout and Git. These are the existing finite integration closure; no lifecycle action, config evaluation or additional engine import. Brief text remains data.",
+      "sha256": "d6910b6891d7461b98d51b234343a004834e6fd4a3c52e5dc530b6539cf376a9",
+      "evidence": "Reviewed check/annotate plus record-spec and verdict entrypoints. Input paths resolve to caller supplied text and private integration/spec/verdict/history JSON. Writes use W.write_json; reads use W.integration_record/read_json/realpath/main_checkout and Git. These are the existing finite integration closure; no lifecycle action, config evaluation or additional engine import. Brief text remains data. Renewed 2026-09-28 (ae799348): the check entrypoint now also loads brief-done.py (edge below).",
       "keys": [],
       "edges": [
         {
           "to": "mega-lander/workspaces.py#integration"
+        },
+        {
+          "to": "ass-kicker/brief-done.py#check"
         }
       ]
     },
@@ -12277,7 +12300,7 @@
     },
     "scripts/hooks/shell-evidence.test.py": {
       "source": "scripts/hooks/shell-evidence.test.py",
-      "sha256": "1a435fdf324a90818aea0a5ee87ed9de1f5e688a2fd2d2dc2dfdc5e90983fde4",
+      "sha256": "47a9c5ed5495a4063ef7113100fb8af6bdf4c30a4eefd4dfe6340d1786c47763",
       "evidence": "Calls fixed shell-evidence hook with literal payloads and private agent-hold state; executes returned wrappers only around literal echo/printf/false commands. The bound hook and capture helper do not read config.",
       "keys": [],
       "edges": [
@@ -13561,7 +13584,7 @@
     },
     "scripts/lib/agent_hold.test.py": {
       "source": "scripts/lib/agent_hold.test.py",
-      "sha256": "0bdf1933a8bfb97bd80eb65be2237ed01df1c20f041f74e89e5ff6dc8028a349",
+      "sha256": "6f04d36edbe24309365a43ffe316c9684ea30f39d389b6fb43df652e2f6831e1",
       "evidence": "Fixed Python fixture imports only the bound helper and standard library. Subprocess work/registry programs are literal strings in this source; no config-provided command or discovered test executes. Preserve the real helper closure conservatively.",
       "keys": [],
       "edges": [
@@ -13783,7 +13806,7 @@
     },
     "mega-lander/tests/workspace-pause-hold.test.sh": {
       "source": "mega-lander/tests/workspace-pause-hold.test.sh",
-      "sha256": "61f1eeff9e5ca25ad44975c4abfd27816739b14314d6e35ec164480d342f201c",
+      "sha256": "7f6a60a9c0227a6cd78b07264fe2614e230b2c7f8f3d7e94875245f7f16b2689",
       "evidence": "Fixed private Git/process fixture with copied real config. Retain actual isolation/model and lifecycle cleanup keys. Generated shell-evidence prefix invokes bound agent_hold; all body/worker/supervisor/WAIT programs are source-bound. No hook inventory execution.",
       "keys": [],
       "edges": [
@@ -13813,7 +13836,7 @@
     },
     "scripts/pause-acceptance.test.sh": {
       "source": "scripts/pause-acceptance.test.sh",
-      "sha256": "aab410e6f4f96c838ea282077aa33841bf9b03ada89be1a0f20a927915ffd3f6",
+      "sha256": "3cea4425f3ecb872512fac80438757ca55fb4dbecaf6447a87b29b872fef0983",
       "evidence": "Fixed private fake-agent programs plus real acceptance reader/worker. Copied config keeps actual isolation and cleanup keys. Generated shell prefixes and all subsequent commands are bound here; no real model or hook inventory executes.",
       "keys": [],
       "edges": [
@@ -13998,7 +14021,7 @@
     },
     "scripts/hooks/guard-row-currency-commits.sh#find-payload": {
       "source": "scripts/hooks/guard-row-currency-commits.sh",
-      "sha256": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
+      "sha256": "5e6104b981b6119bb22c51bbda81184df800c42e6353eeb16d05c2ca1d62c36d",
       "evidence": "Source-bound foreign-app-data D1 dispatcher payload is exactly Bash find ~ -name x. Reviewed classifier exits before Git/commit/lease/publication operations; same prefix and helper set as existing benign contract. Retain all settings read before classification. Full file hash protects this boundary.",
       "keys": [],
       "edges": [
@@ -14287,13 +14310,13 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/run-tests.sh",
-          "sha256": "ed2e06fa54198e6ac816979cef5b52096f11082b10059062f2faea932b702e67",
+          "sha256": "64ed08e92801c253acad321ccb7931b0a557d6a1859fbb078869cb85095594a9",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
           "root": "repository",
           "path": "richos/app/scripts/nightly-local.py",
-          "sha256": "510c2799ac222e2f89d5d68b95b0be9cb4174677b61d1198cfa24f9d8a7253fb",
+          "sha256": "6339daf2921a17da3830075f3063f7431e5a261d0be06f357ceb99273a5940f7",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -14936,7 +14959,7 @@
           "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
           "default_engine": true,
           "path": "scripts/lib/agent_hold.py",
-          "sha256": "7ec72de051bf0fd7681324ced1ec804e51238f704bd40ec6d76c6bae1c363f38",
+          "sha256": "f8e2b2c70604088324a1da244338316aaaa791aae073d9bb18202f75ad13c9a4",
           "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
         },
         {
@@ -15024,7 +15047,7 @@
           "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
           "default_engine": true,
           "path": "scripts/lib/pause_protocol.py",
-          "sha256": "01bea3772a0c1468f6a0e2337d00e96ebf77c9e6cf7d0af19b2cce6c24097ba7",
+          "sha256": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
           "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
         },
         {
@@ -15103,6 +15126,54 @@
         }
       ],
       "evidence": "Executes only the adjacent source-bound payload fixture."
+    },
+    "scripts/hooks/guard-record-owner-memory.sh": {
+      "source": "scripts/hooks/guard-record-owner-memory.sh",
+      "sha256": "541c13b0091e5aa1f4be35f9619da7c0cb0a35a2fc07f6fdf99cc72a97cd1806",
+      "evidence": "Write-chain module added 2026-09-28 (26b29c58). Bootstrap resolves roots and the unevaluated notice. It exits before any file read or interpreter when no seat resolves or the payload does not contain 'memory'. Otherwise it sources row-currency.sh and runs rc_record_owner on the seat: the seat's and the record's .row-currency declarations and Git main-checkout resolution. With no ROW_RECORD_OWNER line (every fixture that dispatches the Write chain) it exits 0 there. Only an owner line of \"app <dir>\" runs record_owner.py memory-guard on the payload. No orchestration.config value is read.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/row-currency.sh#fixture-records"
+        },
+        {
+          "to": "scripts/lib/record_owner.py"
+        }
+      ]
+    },
+    "scripts/lib/record_owner.py": {
+      "source": "scripts/lib/record_owner.py",
+      "sha256": "10f0983a12f686bcf462a63ec71ff8bed32507f5e3315395bf6dcf55eb20cfb1",
+      "evidence": "Complete module reviewed (26b29c58). Imports operator_fences and operator_leads only. caller() reads the platform's session record for the nearest Claude process in the call's ancestry (pid plus kernel start time); inside and memory-guard resolve paths physically and read the payload as data. No orchestration.config read and no engine execution.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/operator_fences.py#claim-readers"
+        },
+        {
+          "to": "scripts/lib/operator_leads.py#hooks"
+        }
+      ]
+    },
+    "ass-kicker/brief-done.py#check": {
+      "source": "ass-kicker/brief-done.py",
+      "sha256": "db1fd5e6658db77631bbde3d54b0ca47bbad319c14cde21bb7a44e4135efb4f3",
+      "evidence": "Runs git (rev-parse, log on the main branch) on the work repositories named by the brief's cross-repo lines, the spawn plan or the session cwd, and at most eight commands the brief quotes as evidence, each only when parse_pipeline accepts it: git log/grep/ls-files/rev-list/show without output, pager, exec or config switches, ls, grep or rg, piped only into wc, head, tail, grep, sort or cut, 5 s each, in the brief's cd directory or the first work repository. Brief text is data. check_payload/decide also append an accepted acknowledgement to <project>/.claude/state/already-done-acks.log. verifier_types() loads qa-toolkit.py (its module load reads no setting) and calls agents(), which qa-toolkit.py does not define: the AttributeError is swallowed and the literal verifier set is used, so QA_TOOLKIT_AGENTS is not read. When that call is corrected to qa_types(), this node needs the qa-toolkit.py#type edge, and the brief-scope fixtures' config-transport-only closure will then name QA_TOOLKIT_AGENTS.",
+      "keys": [],
+      "edges": []
+    },
+    "ass-kicker/brief-done.py#annotate": {
+      "source": "ass-kicker/brief-done.py",
+      "sha256": "db1fd5e6658db77631bbde3d54b0ca47bbad319c14cde21bb7a44e4135efb4f3",
+      "evidence": "Runs git (rev-parse, log on the main branch) on the work repositories named by the brief's cross-repo lines, the spawn plan or the session cwd, and at most eight commands the brief quotes as evidence, each only when parse_pipeline accepts it: git log/grep/ls-files/rev-list/show without output, pager, exec or config switches, ls, grep or rg, piped only into wc, head, tail, grep, sort or cut, 5 s each, in the brief's cd directory or the first work repository. Brief text is data. annotate() only runs the quoted evidence and appends its output; it names no verifier set and writes nothing.",
+      "keys": [],
+      "edges": []
     }
   },
   "units": {
@@ -15441,7 +15512,7 @@
         "scripts/lib/containers.py": "957965ce69a27ad94066c9a20c92956e715cb5bdd234080b92024c8e9f0f08c9",
         "scripts/hooks/snapshot-agent-definitions.sh": "51f92567f9daaa9bacd37082d0cd30beba284b3149714c8a45f945738d6ebaff",
         "scripts/hooks/session-start-escalations.sh": "25af57857b1dc4a1e4a61c6848753ede1d217f3a1037379e30cee4e64b206a5f",
-        "scripts/lib/escalations.sh": "656be06643a5579cc15e4ef5efe7628bd58e0a134e3677b36885f2060db59db7",
+        "scripts/lib/escalations.sh": "bda6b4af107d64144cac6fe9a5ac507b007c81ebac30b53bb59256b49f9ff1c5",
         "scripts/lib/escalations.py": "7a8ccdb4cd4019c96c1db3448bb0e5eb54b9c1325d4975ceb21d43e185153ded",
         "scripts/hooks/snapshot-enforcing-hooks.sh": "d357c9a97492d4447e5ad83099da89192d877ac9282e41d712804710e6b739d4",
         "scripts/hooks/session-start-ci-surface.sh": "a4f1b332f362a2374ae1dad83d44af14a977d8cfdb753154014bbcc7e74c05a5",
@@ -15465,12 +15536,12 @@
         "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
         "scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
         "scripts/hooks/session-start-quota.sh": "720bdd6c4c0e392f2be9f37368f0862e92d1504a2eb56851af8a4e083f817cf1",
-        "scripts/quota-watch.sh": "70ce3fdbd3a372f727086df522819fae6b3dab759838209563ba9414805d0d10",
-        "scripts/lib/quota_watch.py": "df458b4af1606df70d4c54dbbb9b5726a65e63045f12d2f2e312d5813ca7ccc3",
-        "scripts/lib/pause_protocol.py": "01bea3772a0c1468f6a0e2337d00e96ebf77c9e6cf7d0af19b2cce6c24097ba7",
-        "scripts/lib/quota_weekly.py": "9bd2e65fa1318ff43a0d0dbf96ff9abe8df363055e58c556b363f216733b51a1",
+        "scripts/quota-watch.sh": "1dd0e9aea3ce31526a9296fe0417b697daf1ae45d0e041fd59024a3f3cae7076",
+        "scripts/lib/quota_watch.py": "e82a2ad82a190e78bb5106d859923a180ea2592b7fcf47a7fb383018659dd401",
+        "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
+        "scripts/lib/quota_weekly.py": "8f601d1c2444aedae3aae9727e64e8e43b27cf8526c3f8949502f5958d8ef570",
         "scripts/hooks/left-off-report.sh": "d14ee9ceac38d7de2c7d04ba85eb11a4ab7d6610f3bc0d066db606dbc9090dee",
-        "scripts/lib/agent_hold.py": "7ec72de051bf0fd7681324ced1ec804e51238f704bd40ec6d76c6bae1c363f38"
+        "scripts/lib/agent_hold.py": "f8e2b2c70604088324a1da244338316aaaa791aae073d9bb18202f75ad13c9a4"
       }
     },
     "scripts/hooks/root-contract.test.sh": {
@@ -15517,7 +15588,7 @@
         "scripts/lib/resolve-roots.test.sh": "d5d4f7b6dc49da7d8dbc216bd244cd41028297b4141b18586323c8f4bb5a02c8",
         "scripts/hooks/session-start-stdin.test.sh": "8db0addda3984451123e3a9f953a068daefacff5e2165e481e5ef1edf1e115da",
         "scripts/hooks/session-start-escalations.sh": "25af57857b1dc4a1e4a61c6848753ede1d217f3a1037379e30cee4e64b206a5f",
-        "scripts/lib/escalations.sh": "656be06643a5579cc15e4ef5efe7628bd58e0a134e3677b36885f2060db59db7",
+        "scripts/lib/escalations.sh": "bda6b4af107d64144cac6fe9a5ac507b007c81ebac30b53bb59256b49f9ff1c5",
         "scripts/lib/escalations.py": "7a8ccdb4cd4019c96c1db3448bb0e5eb54b9c1325d4975ceb21d43e185153ded",
         "scripts/hooks/snapshot-enforcing-hooks.sh": "d357c9a97492d4447e5ad83099da89192d877ac9282e41d712804710e6b739d4",
         "scripts/hooks/session-start-ci-surface.sh": "a4f1b332f362a2374ae1dad83d44af14a977d8cfdb753154014bbcc7e74c05a5",
@@ -15539,12 +15610,12 @@
         "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
         "scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
         "scripts/hooks/session-start-quota.sh": "720bdd6c4c0e392f2be9f37368f0862e92d1504a2eb56851af8a4e083f817cf1",
-        "scripts/quota-watch.sh": "70ce3fdbd3a372f727086df522819fae6b3dab759838209563ba9414805d0d10",
-        "scripts/lib/quota_watch.py": "df458b4af1606df70d4c54dbbb9b5726a65e63045f12d2f2e312d5813ca7ccc3",
-        "scripts/lib/pause_protocol.py": "01bea3772a0c1468f6a0e2337d00e96ebf77c9e6cf7d0af19b2cce6c24097ba7",
-        "scripts/lib/quota_weekly.py": "9bd2e65fa1318ff43a0d0dbf96ff9abe8df363055e58c556b363f216733b51a1",
+        "scripts/quota-watch.sh": "1dd0e9aea3ce31526a9296fe0417b697daf1ae45d0e041fd59024a3f3cae7076",
+        "scripts/lib/quota_watch.py": "e82a2ad82a190e78bb5106d859923a180ea2592b7fcf47a7fb383018659dd401",
+        "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
+        "scripts/lib/quota_weekly.py": "8f601d1c2444aedae3aae9727e64e8e43b27cf8526c3f8949502f5958d8ef570",
         "scripts/hooks/left-off-report.sh": "d14ee9ceac38d7de2c7d04ba85eb11a4ab7d6610f3bc0d066db606dbc9090dee",
-        "scripts/lib/agent_hold.py": "7ec72de051bf0fd7681324ced1ec804e51238f704bd40ec6d76c6bae1c363f38"
+        "scripts/lib/agent_hold.py": "f8e2b2c70604088324a1da244338316aaaa791aae073d9bb18202f75ad13c9a4"
       }
     },
     "scripts/hooks/contract-integrity.test.sh": {
@@ -15564,7 +15635,7 @@
         "scripts/entrypoint-currency-lint.sh": "09d95bf0ae992caa52ab7eeaec9613a0cb6ca23933a4f8450c52aba36d8f7486",
         "scripts/hooks/claim-roles.mutation.sh": "d998c6197966082daa82eb5fdb30c3a76d6757a06033afadc0cbc741e7eeebc0",
         "scripts/hooks/contract-integrity-layer-ep.sh": "d94c802f86a8862bfe166f522d6e0a309a54b850cfdc8818d3e7057e7b6ac976",
-        "scripts/hooks/contract-integrity-probe.sh": "0275ec6c5f0866126c38bb16c2fac9ee294b2f7c1cba35afa76af5f9123a5f38",
+        "scripts/hooks/contract-integrity-probe.sh": "52155e96b9a3ac8755f39d30f8d69cf9bcfdb77d09d3259b494cbebad63f6440",
         "scripts/hooks/contract-integrity.test.sh": "367fc70f5ccbc66e5be5f1414d821f4c11c69916829c9ca27aa2ddfb1b5638d2",
         "scripts/hooks/engine-status.sh": "c1ea99017ada713a0a68a56fe7f23dfab11b027ed53ea3a7846d4e51b8e467b0",
         "scripts/hooks/guard-agent-state-claims.sh": "b7a14acc4ff57cdec91821f6fd74b3c745deb18a0bd256ac7d60a3e7dd35dd7e",
@@ -15586,7 +15657,7 @@
         "scripts/hooks/guard-model-ceiling.test.sh": "bd8a4b00e124d820fbe709ecd6cdab24a54919cd93590455703e80d22f61ca4c",
         "scripts/hooks/guard-resume-isolation.mutation.sh": "846c5ee377b534fe7655d4940b09828936fa2be95aae2f55ae34695314cae700",
         "scripts/hooks/guard-resume-isolation.sh": "2366c33e6d87e0b53a7c1e18a6b153b72652ac86532f88e145fd66539e373f56",
-        "scripts/hooks/guard-resume-isolation.test.sh": "8ae7ff8931733948b030736169ed956efdededac982f44e1973bc10374227908",
+        "scripts/hooks/guard-resume-isolation.test.sh": "c58c65a57d542a4a9070777badf8c6057e751657bfae0d1e716f1510f8433da4",
         "scripts/hooks/guard-sealed-worktree.sh": "5fdfedcb7ff7a83f4411eb5a90919ab1fc5d037a6362221551f75db8621d0f93",
         "scripts/hooks/guard-stated-actions.sh": "21ba110b91c10046b34ae46153ef9a42b140f5833e53217bfdb7e1b656862a27",
         "scripts/hooks/guard-unresolved-claims.mutation.sh": "47cabc1161cf1781224d1c8c2867e171421cab75c957710d09ec76879cc48607",
@@ -15594,9 +15665,9 @@
         "scripts/hooks/guard-unresolved-claims.sh": "88db28246b8e79d1d623d26e366fcc3c8bf1811e3bb464fc04d484761ead14d2",
         "scripts/hooks/guard-unresolved-claims.test.sh": "3ae1f1c337d152990d8a5b0c2847115763fd569316b84d5bc81e227ae199c31e",
         "scripts/hooks/guard-workspace-gate.sh": "704f1516e9337a8dcdf4589fd5b74473bffffcb694c1460fa16bb43a4a2b802f",
-        "scripts/hooks/guard-worktree-isolation.mutation.sh": "ad66612be509814f19271a71594b7c726380465c152fbb30fc39728882377b10",
+        "scripts/hooks/guard-worktree-isolation.mutation.sh": "98c17223d2ee2503b1a6fa8da33da1949b553d8186e4626b668a4c1afb5cb444",
         "scripts/hooks/guard-worktree-isolation.sh": "c200f7a5b48835054ce460b95053abca44ac6dbaf677289940c23fc196917025",
-        "scripts/hooks/guard-worktree-isolation.test.sh": "00ebfd1171073a8bea5c53de7cc8a71cefa6db713946019a25a0aae02f9f2a04",
+        "scripts/hooks/guard-worktree-isolation.test.sh": "7b6ed5f895a9bfe7f77e0aabad2cad498fda83fea2c22f00f4a64afb0ac715aa",
         "scripts/hooks/guard-worktree-removal.mutation.sh": "05aff533ec292eba45dc2d4a822359b880c90bc7d08d46f7a6bf39416b061030",
         "scripts/hooks/guard-worktree-removal.sh": "b39ff96220cb74cf9f94acc3d6210f3207b57bdf50cb33ffdd29882e536a5f37",
         "scripts/hooks/guard-worktree-removal.test.sh": "b4e717bbb5ff0089902e69e286e3e845a502121a898259534f04c370048f58e5",
@@ -15640,7 +15711,7 @@
         "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
         "scripts/lib/operator_fences_admin.py": "924d3bf06082e5d54a7caf7f1ea88a2124cd6a52454c094a11a8ad51b2e5e035",
-        "scripts/lib/pause_protocol.py": "01bea3772a0c1468f6a0e2337d00e96ebf77c9e6cf7d0af19b2cce6c24097ba7",
+        "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/proc_tree.py": "b70426289f48b9c31123f74fe1d22840ed940e2d251e4392df6b6b3bacb3d71e",
         "scripts/lib/qa-throwaways.py": "1c355bbfaa5bb464c020d4743bf842b8fbbe5a7265caa6ffb2200523064ef9b6",
         "scripts/lib/qa-toolkit.py": "f490cd7a72bacf99bef3eef47cc059d99cac5f3878b0d2399eea06dae55a24c0",
@@ -15649,7 +15720,7 @@
         "scripts/lib/resolve-model.sh": "80d6df68468d7484a4385eb8b1b9ffdf1ea9575776a5e7141bb3fca58ca7ec11",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/row-currency.py": "484404c6143d1a5b94182321e6fa0f6250b298b27a7d3b59ba26d5ed648db677",
-        "scripts/lib/row-currency.sh": "6aeb36f33046c910ad654f2c1f8eba96ca2c2a9675d40e9f5abf2c94e139584e",
+        "scripts/lib/row-currency.sh": "9c4c901d56dbb2bdb198cba0df9d6840f7eed371fe9b95fe02f13cb64c4a99e4",
         "scripts/lib/sandbox-completeness.sh": "2d141da4f87eb59130459ce74fa1c3067e43c4e7b39ad03cb43f17cfb7973131",
         "scripts/lib/scratch-reaper.py": "f5c852252ad28b38893f13794a05d126312fe91249505070a228ade3fb90ba19",
         "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
@@ -15677,7 +15748,7 @@
         "scripts/scratch-reaper.test.sh": "3987ec7472048506ed539f672f067a601308085aa0ce4e45da2ef44c714fb16a",
         "scripts/scratch-sweep.sh": "98804cde04a632171f4323a43164e18871412d44e41ec36b2e535a2e43554297",
         "scripts/unstarted-rows-lint.sh": "4b654eefa4fb775ba218fbee15595b415684c7a90e2168eedf864c07f142e58e",
-        "scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7",
+        "scripts/hooks/dispatch-pretooluse.manifest": "d5022dd189c9fc70c3b728c76f713558ab2f893dbe8cb4dd5f84d34e7f307f4f",
         "hooks/hooks.json": "23a48a48529125f063a128ec63e6028008caddc95e0fe373ac8656dcd29bcd20",
         "scripts/hooks/commit-ceo-inputs.sh": "9e4a0af9cd1ea89110261baacdae395dc40543061a4f17740467c5a492598962",
         "scripts/hooks/commit-ceo-inputs.py": "53a222d02892523e81e3f3dc355a010e1b140d0ac628b3649b16be36ce87a500",
@@ -15691,8 +15762,8 @@
         "scripts/hooks/failure-type.test.sh": "dfc89e12ad217ebbae8c078619a7264cf1cf297985d709865178ed80afa9b781",
         "scripts/hooks/failure-type.mutation.sh": "1a8078c78f3a6cd5401d65af03c0b912cb5969f4dda18a15f45e3afbe17f4fdb",
         "scripts/hooks/guard-agent-state-claims.py": "341d0223962f9ccfa6298b3d6982dc55b5f3ea19ec5ea4ba1deb162380811ab5",
-        "scripts/hooks/guard-brief-scope.sh": "acbb13498c55d05bcbf609319a5a5f12436e78d6bdc1796ec46e8dfb4030818b",
-        "ass-kicker/brief-scope.py": "ace5be7e9031e6fd5b0ea0a9f0d7a00ceaa2c490822e0b77c4ec45d81dc324d8",
+        "scripts/hooks/guard-brief-scope.sh": "d62b66830b5f8665bb7492b2278ad7261f3279401142b41296ab1d2ada78c9e3",
+        "ass-kicker/brief-scope.py": "d6910b6891d7461b98d51b234343a004834e6fd4a3c52e5dc530b6539cf376a9",
         "scripts/hooks/guard-ceo-ask-first.sh": "4dc92ca5c60ff39ed949fc88a8a4955264ece2d17bc689f9c2a2eb8b1bae0728",
         "scripts/lib/ceo-asks.sh": "c0d084aef038efba8bae75eea3073bafa01c60132702282743449541abab0021",
         "scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
@@ -15703,7 +15774,7 @@
         "scripts/lib/ceo-ruled.py": "e92586fdd79f1c648c2f764613f47a56bc7f2d843061c70053611d7f2e23ce30",
         "scripts/hooks/guard-ceo-todos-commits.sh": "b5ce1b39ad6985d4d3a52864c389968a474f05de1187baaa430941756ae0c0e0",
         "scripts/hooks/guard-ci-red-lands.sh": "64d83f115beb4a9db8c3cfe52438b72951d2a9e2ce5becee5f9344b9fb3eb6b0",
-        "scripts/hooks/guard-ci-turn-gate.py": "b92f4e9c6c358c5941bda39405fd5ae52a07405aa5a838ea41943c595d3fa948",
+        "scripts/hooks/guard-ci-turn-gate.py": "0c71e508722ac464ebd4a2729ce28ff69b33eb1052e43d6262439d3e357f7cf0",
         "scripts/lib/ci_pause.py": "f41e86ea2b1aaa036c92eb44ddcb2fe2a6880724162561a5e31b84d556758693",
         "scripts/hooks/guard-completeness-commits.sh": "bb6d0253b44d251a08dd325e8901399aafcbe4ca6fe4aa4c30c9b41a57cee673",
         "scripts/hooks/guard-foreign-app-data.sh": "4360ace16a692e3cf5c7dd100dc206c496f0960b4584d66f76ff240bda3ee42c",
@@ -15726,7 +15797,7 @@
         "scripts/ci-status.sh": "f218d5216073ece57a9193c9d9c0ebdf5fa45edbeed615c831b3a3290e5c6dcf",
         "scripts/lib/ci-surface.py": "ac333b6cab58f196cce2da51918724f0457199840d04fc250f66eb2a727e7e53",
         "scripts/escalate.sh": "dd1d6ce68d71f19531edc6ddadbf52cad069418dd39f52f6058fe5b822ecf1ad",
-        "scripts/lib/escalations.sh": "656be06643a5579cc15e4ef5efe7628bd58e0a134e3677b36885f2060db59db7",
+        "scripts/lib/escalations.sh": "bda6b4af107d64144cac6fe9a5ac507b007c81ebac30b53bb59256b49f9ff1c5",
         "scripts/lib/escalations.py": "7a8ccdb4cd4019c96c1db3448bb0e5eb54b9c1325d4975ceb21d43e185153ded",
         "scripts/owned-state-checks/staging-current.sh": "89e075fca4ffc1850be2f2222efe4c322bc1b59b5947791400cd680a064e9e2e",
         "scripts/unlanded-branches-lint.sh": "c65f6be6da126b18127b28f36860c213c9649e843831ae4c0ee1f393cc52971f",
@@ -15734,7 +15805,7 @@
         "scripts/hooks/guard-public-record-repo.sh": "49a6e6c29e59a604b4d91e847e1e6d6060035f41f703bc95ffc8275778fec3d7",
         "scripts/hooks/guard-publication-commits.sh": "180baec98c3f3b0e23e6b12bb8f3e129082ca6f10d49577b56671e102039e9fe",
         "scripts/hooks/guard-reference-ledger.sh": "d80ab9294a7ff64b244285f5467ecf728b692701b6a5d526152909335b750874",
-        "scripts/hooks/guard-row-currency-commits.sh": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
+        "scripts/hooks/guard-row-currency-commits.sh": "5e6104b981b6119bb22c51bbda81184df800c42e6353eeb16d05c2ca1d62c36d",
         "scripts/hooks/guard-shared-writes.sh": "8c93495c7a2fd02ef98b701af51fff16859fa0e11295eb9706d639a62148784a",
         "scripts/hooks/guard-stale-staging.sh": "3aaaea16970f7d9cb08b4600ba1a2edad55333c24115e7fb759cedc9512b1a6e",
         "scripts/hooks/guard-stop-live-work.sh": "5cd71abf69697f041f48560ab09d6e7f7f4b2324761916b07b589569ff7dd17e",
@@ -15755,7 +15826,7 @@
         "scripts/disk-watchdog.sh": "5168a316708d2fc3dc19e76604942e7377a6b8529d267052be2fa16f6f90cea5",
         "scripts/lib/disk-watchdog.py": "e9e7ca4981c480b8fb3598f1feb7302dd617f8b040c2db4e4a661306cddd03ed",
         "scripts/lib/foreign_app_data.py": "9fcafeaae9e177df0c15fc93b547b2aa08710f94f723e393d51239861859b00b",
-        "scripts/hooks/notice-escalations.sh": "d26e14d802bad45e2f6528722d38eb91076c25e1d3e32ee2228a66e138e963da",
+        "scripts/hooks/notice-escalations.sh": "beaed57b467674e9aedc24eca928ca1d194f8ff6a3f3e876fabb7edab0721b4d",
         "scripts/hooks/notice-hook-staleness.sh": "360fd629986741403adc2337a84ae2dd2645b517f275f7cbb3af331cae48460b",
         "scripts/hooks/notice-protected-ref-moves.sh": "15ea383b87181c6924a00f8b5f656f72f2319e9680947674f68972fbcd6c2c43",
         "scripts/lib/protected-ref-moves.py": "3997dcd8c049c908e3a13aee5fe822ac255b5e70d5b001d1432db518b2d0757b",
@@ -15773,12 +15844,12 @@
         "scripts/hooks/session-start-ci-surface.sh": "a4f1b332f362a2374ae1dad83d44af14a977d8cfdb753154014bbcc7e74c05a5",
         "scripts/hooks/session-start-escalations.sh": "25af57857b1dc4a1e4a61c6848753ede1d217f3a1037379e30cee4e64b206a5f",
         "scripts/hooks/session-start-quota.sh": "720bdd6c4c0e392f2be9f37368f0862e92d1504a2eb56851af8a4e083f817cf1",
-        "scripts/quota-watch.sh": "70ce3fdbd3a372f727086df522819fae6b3dab759838209563ba9414805d0d10",
-        "scripts/lib/quota_watch.py": "df458b4af1606df70d4c54dbbb9b5726a65e63045f12d2f2e312d5813ca7ccc3",
-        "scripts/lib/quota_weekly.py": "9bd2e65fa1318ff43a0d0dbf96ff9abe8df363055e58c556b363f216733b51a1",
+        "scripts/quota-watch.sh": "1dd0e9aea3ce31526a9296fe0417b697daf1ae45d0e041fd59024a3f3cae7076",
+        "scripts/lib/quota_watch.py": "e82a2ad82a190e78bb5106d859923a180ea2592b7fcf47a7fb383018659dd401",
+        "scripts/lib/quota_weekly.py": "8f601d1c2444aedae3aae9727e64e8e43b27cf8526c3f8949502f5958d8ef570",
         "scripts/hooks/session-start-scratch.sh": "f78039d4b89732e00fdfec13abd6622f4c9c8f4badb9bca26c4b0a758068d485",
         "scripts/hooks/shell-evidence.sh": "01d511155b7df5a4be0ab6cb25aaac934a467e086d5c31f2afd6ee9c7bcc370a",
-        "scripts/hooks/shell-evidence.py": "83415f7b4a96ec2c8e46b3636aabb77167d36650d0999eec521a5124f4561bfa",
+        "scripts/hooks/shell-evidence.py": "ff52225e5f9caba638223ee3e8c53056d7a5160f860ee8eb4fc6f55ac8d29298",
         "scripts/hooks/snapshot-enforcing-hooks.sh": "d357c9a97492d4447e5ad83099da89192d877ac9282e41d712804710e6b739d4",
         "scripts/hooks/task-completed-handoff.sh": "e143bbca2d836099f898f588d12fa1aef39b2fd7db85cf7ad3f575f702d74216",
         "scripts/hooks/teammate-idle-handoff.sh": "9e0e49d90653b6f80b9ccdcda91992bf8372e1ac53f0c8eda366c22e363d087c",
@@ -15790,7 +15861,10 @@
         "scripts/hooks/worker-started-handoff.sh": "f18675f4938cae746d536661b44e49e7a3425c15acff5c7cd3ad2e1bf7ee9919",
         "scripts/hooks/worker-updated-handoff.sh": "6cbcdd13306d482c8bfd9da1f6ccc68141a3091f9f9405bb52232cb14430ebf8",
         "scripts/hooks/contract-integrity-case7.mutation.sh": "a49ab1e3b263ab94238bd2a99667a642811d89b5a4439e260b9b95a1e32c1f92",
-        "scripts/lib/agent_hold.py": "7ec72de051bf0fd7681324ced1ec804e51238f704bd40ec6d76c6bae1c363f38"
+        "scripts/lib/agent_hold.py": "f8e2b2c70604088324a1da244338316aaaa791aae073d9bb18202f75ad13c9a4",
+        "scripts/hooks/guard-record-owner-memory.sh": "541c13b0091e5aa1f4be35f9619da7c0cb0a35a2fc07f6fdf99cc72a97cd1806",
+        "scripts/lib/record_owner.py": "10f0983a12f686bcf462a63ec71ff8bed32507f5e3315395bf6dcf55eb20cfb1",
+        "ass-kicker/brief-done.py": "db1fd5e6658db77631bbde3d54b0ca47bbad319c14cde21bb7a44e4135efb4f3"
       }
     },
     "scripts/hooks/mechanical-findings.test.sh": {
@@ -15808,7 +15882,7 @@
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/row-currency.py": "484404c6143d1a5b94182321e6fa0f6250b298b27a7d3b59ba26d5ed648db677",
-        "scripts/lib/row-currency.sh": "6aeb36f33046c910ad654f2c1f8eba96ca2c2a9675d40e9f5abf2c94e139584e",
+        "scripts/lib/row-currency.sh": "9c4c901d56dbb2bdb198cba0df9d6840f7eed371fe9b95fe02f13cb64c4a99e4",
         "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
         "scripts/lib/unstarted-rows.py": "d91c6bf610104fbb5f6e550d70b922d718b5027f23271aa721a7be9293a1d1d6",
         "scripts/lib/unstarted-rows.sh": "b0586a85d0e2d0a1a3f494377a3e24d0c5505a0625a9a0b14e9da41d069bd7e8",
@@ -15825,13 +15899,13 @@
       "sources": {
         "scripts/hooks/row-currency.test.sh": "c41fa53e5ad4a54ae54f2badd8f11f03eead2b51088416d210a85e3d5ff71676",
         "scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
-        "scripts/hooks/guard-row-currency-commits.sh": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
+        "scripts/hooks/guard-row-currency-commits.sh": "5e6104b981b6119bb22c51bbda81184df800c42e6353eeb16d05c2ca1d62c36d",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
         "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
-        "scripts/lib/row-currency.sh": "6aeb36f33046c910ad654f2c1f8eba96ca2c2a9675d40e9f5abf2c94e139584e",
+        "scripts/lib/row-currency.sh": "9c4c901d56dbb2bdb198cba0df9d6840f7eed371fe9b95fe02f13cb64c4a99e4",
         "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
         "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
         "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
@@ -15850,7 +15924,7 @@
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
         "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
-        "scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
+        "scripts/hooks/dispatch-pretooluse.manifest": "d5022dd189c9fc70c3b728c76f713558ab2f893dbe8cb4dd5f84d34e7f307f4f"
       },
       "evidence": "Full outer registration assertions resolve the row guard through real plugin and seated surfaces using registered-hooks. Inner mutation groups now omit registration and retain the same guard call surface. Probe and installer checks remain source-data scans in the outer suite, not dynamic inventory execution. Seated observation compares every raw line containing a named guard prefix plus every parsed dispatcher command across all events; this covers the helper direct grep and dispatcher-key lookup without approximating its verdict. The dispatcher manifest is bound as an additional input. Probe is inspected as source only: named registration grep and, where present, rootless-block source assertions. Only unrelated literal BR_EXPECTED rows may differ; all other probe bytes are preserved.",
       "seated_text_needles": [
@@ -15882,7 +15956,7 @@
         "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
         "scripts/publication-completeness.sh": "54b22bd10dd4d1e70ee41077d2cd6c21dbefe4d835d8a19a5438513faf7b60b0",
         "scripts/publication-completeness.py": "6ceadb3516b84fa0e5d61ad0423b35e1649714b4a74aa7f17d4ae3370b66a6b0",
-        "scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
+        "scripts/hooks/dispatch-pretooluse.manifest": "d5022dd189c9fc70c3b728c76f713558ab2f893dbe8cb4dd5f84d34e7f307f4f"
       },
       "evidence": "Only the fixed guard registration is resolved through both real surfaces. Seated observation compares every raw line containing a named guard prefix plus every parsed dispatcher command across all events; this covers the helper direct grep and dispatcher-key lookup without approximating its verdict. The dispatcher manifest is bound as an additional input. Probe is inspected as source only: named registration grep and, where present, rootless-block source assertions. Only unrelated literal BR_EXPECTED rows may differ; all other probe bytes are preserved.",
       "seated_text_needles": [
@@ -15932,7 +16006,7 @@
         "scripts/hooks/guard-named-persons-commands.sh": "56891e30dde5774e5430c9459cee10dc61bb683888f76917219d97c9e9cce825",
         "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
         "scripts/named-persons.sh": "0c672c2e9cc4b61f9c0262df9c251692a30d1f110a335c718365c5a69cd126ca",
-        "scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
+        "scripts/hooks/dispatch-pretooluse.manifest": "d5022dd189c9fc70c3b728c76f713558ab2f893dbe8cb4dd5f84d34e7f307f4f"
       },
       "evidence": "Only these two registrations are resolved against plugin and seated surfaces; source oracle/bootstrap checks do not execute the probe or any other hook. Seated observation compares every raw line containing a named guard prefix plus every parsed dispatcher command across all events; this covers the helper direct grep and dispatcher-key lookup without approximating its verdict. The dispatcher manifest is bound as an additional input. Probe is inspected as source only: named registration grep and, where present, rootless-block source assertions. Only unrelated literal BR_EXPECTED rows may differ; all other probe bytes are preserved.",
       "seated_text_needles": [
@@ -15959,7 +16033,7 @@
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
-        "scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7",
+        "scripts/hooks/dispatch-pretooluse.manifest": "d5022dd189c9fc70c3b728c76f713558ab2f893dbe8cb4dd5f84d34e7f307f4f",
         "scripts/hooks/install.sh": "7de38172844d3a610058157c59ca6ba3a147a8f8c54bb34f0b09a5f9e3c6fe16",
         "scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
         "scripts/hooks/dispatch-pretooluse.mutation.sh": "3d91fabf4c81c056bf785cb6d56a3e12b49d26b618eb3fcabc74d547530510f8",
@@ -16002,15 +16076,17 @@
         "scripts/hooks/guard-public-record-repo.sh": "49a6e6c29e59a604b4d91e847e1e6d6060035f41f703bc95ffc8275778fec3d7",
         "scripts/hooks/guard-publication-commits.sh": "180baec98c3f3b0e23e6b12bb8f3e129082ca6f10d49577b56671e102039e9fe",
         "scripts/hooks/guard-publication-writes.sh": "c69db813e7aab086ff3f6257d3429eca9e7091c9fc985d17f91829ce943a580b",
-        "scripts/hooks/guard-row-currency-commits.sh": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
-        "scripts/lib/row-currency.sh": "6aeb36f33046c910ad654f2c1f8eba96ca2c2a9675d40e9f5abf2c94e139584e",
+        "scripts/hooks/guard-row-currency-commits.sh": "5e6104b981b6119bb22c51bbda81184df800c42e6353eeb16d05c2ca1d62c36d",
+        "scripts/lib/row-currency.sh": "9c4c901d56dbb2bdb198cba0df9d6840f7eed371fe9b95fe02f13cb64c4a99e4",
         "scripts/hooks/guard-shared-writes.sh": "8c93495c7a2fd02ef98b701af51fff16859fa0e11295eb9706d639a62148784a",
         "scripts/hooks/guard-vendoring-commits.sh": "88f0eef0c45b61a143ce0ebd0cba1b8ceda9f908d0cfed09994a9acc30da1208",
         "scripts/lib/vendored-material.sh": "630fc9746255b5e2c6cf24be71ba0b9780a5d673f98559db3099b44f47fa3c92",
         "scripts/hooks/guard-worktree-removal.sh": "b39ff96220cb74cf9f94acc3d6210f3207b57bdf50cb33ffdd29882e536a5f37",
         "mega-lander/workspaces.py": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
         "scripts/hooks/scan-secrets.sh": "d23d1d44376e0557597f8a0add40a0226049d801769af48d81095002477e0c73",
-        "scripts/lib/agent_hold.py": "7ec72de051bf0fd7681324ced1ec804e51238f704bd40ec6d76c6bae1c363f38"
+        "scripts/lib/agent_hold.py": "f8e2b2c70604088324a1da244338316aaaa791aae073d9bb18202f75ad13c9a4",
+        "scripts/hooks/guard-record-owner-memory.sh": "541c13b0091e5aa1f4be35f9619da7c0cb0a35a2fc07f6fdf99cc72a97cd1806",
+        "scripts/lib/record_owner.py": "10f0983a12f686bcf462a63ec71ff8bed32507f5e3315395bf6dcf55eb20cfb1"
       }
     },
     "scripts/hooks/stop-hook-visibility.test.sh": {
@@ -16041,8 +16117,8 @@
         "scripts/disk-watchdog.sh": "5168a316708d2fc3dc19e76604942e7377a6b8529d267052be2fa16f6f90cea5",
         "scripts/lib/disk-watchdog.py": "e9e7ca4981c480b8fb3598f1feb7302dd617f8b040c2db4e4a661306cddd03ed",
         "scripts/lib/foreign_app_data.py": "9fcafeaae9e177df0c15fc93b547b2aa08710f94f723e393d51239861859b00b",
-        "scripts/hooks/notice-escalations.sh": "d26e14d802bad45e2f6528722d38eb91076c25e1d3e32ee2228a66e138e963da",
-        "scripts/lib/escalations.sh": "656be06643a5579cc15e4ef5efe7628bd58e0a134e3677b36885f2060db59db7",
+        "scripts/hooks/notice-escalations.sh": "beaed57b467674e9aedc24eca928ca1d194f8ff6a3f3e876fabb7edab0721b4d",
+        "scripts/lib/escalations.sh": "bda6b4af107d64144cac6fe9a5ac507b007c81ebac30b53bb59256b49f9ff1c5",
         "scripts/hooks/notice-hook-staleness.sh": "360fd629986741403adc2337a84ae2dd2645b517f275f7cbb3af331cae48460b",
         "scripts/hooks/notice-inflight-acks.sh": "09f3b2a22cbdbc9334d978a7899a3e64380b9edb386a255a4fe4f370897d1a1b",
         "scripts/lib/inflight.sh": "db5588f3a0093a55befbcab454ee7e1921e1d8f8a049ff0c243da5020e418e43",
@@ -16054,7 +16130,7 @@
         "scripts/hooks/notice-waiver-repetition.sh": "ca6cf1b169ee2ba5717af73ff23062ad3c71a935c380aff91822c3e232780ea4",
         "scripts/hooks/release-land-leases.sh": "9b933f62a43f2ef058654297789951667b27f6a116d9e4c4c1895e9c549dceb8",
         "scripts/hooks/turn-manifest.sh": "f5e92311f9896874e5294533673dd08160f3e4cfba4a262e161ae96e377331ae",
-        "scripts/lib/agent_hold.py": "7ec72de051bf0fd7681324ced1ec804e51238f704bd40ec6d76c6bae1c363f38"
+        "scripts/lib/agent_hold.py": "f8e2b2c70604088324a1da244338316aaaa791aae073d9bb18202f75ad13c9a4"
       }
     },
     "scripts/hooks/waiver-repetition.test.sh": {
@@ -16110,7 +16186,7 @@
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
         "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
-        "scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
+        "scripts/hooks/dispatch-pretooluse.manifest": "d5022dd189c9fc70c3b728c76f713558ab2f893dbe8cb4dd5f84d34e7f307f4f"
       },
       "evidence": "Only this guard registration is resolved on plugin and seated surfaces. Probe, installer and declaration-resolver source assertions are text data; no other hook registration is executed. Seated observation compares every raw line containing a named guard prefix plus every parsed dispatcher command across all events; this covers the helper direct grep and dispatcher-key lookup without approximating its verdict. The dispatcher manifest is bound as an additional input. Probe is inspected as source only: named registration grep and, where present, rootless-block source assertions. Only unrelated literal BR_EXPECTED rows may differ; all other probe bytes are preserved.",
       "seated_text_needles": [
@@ -16143,7 +16219,7 @@
         "scripts/lib/publication-boundary.py": "e2caa3ecd680024f51aa49a4f2318db7e6298315712e706841f3d86b441c6735",
         "scripts/hooks/guard-publication-commits.sh": "180baec98c3f3b0e23e6b12bb8f3e129082ca6f10d49577b56671e102039e9fe",
         "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
-        "scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
+        "scripts/hooks/dispatch-pretooluse.manifest": "d5022dd189c9fc70c3b728c76f713558ab2f893dbe8cb4dd5f84d34e7f307f4f"
       },
       "evidence": "Only the two publication guard registrations are queried on plugin and seated surfaces. Probe and installer source are assertion data. Seated observation compares every raw line containing a named guard prefix plus every parsed dispatcher command across all events; this covers the helper direct grep and dispatcher-key lookup without approximating its verdict. The dispatcher manifest is bound as an additional input. Probe is inspected as source only: named registration grep and, where present, rootless-block source assertions. Only unrelated literal BR_EXPECTED rows may differ; all other probe bytes are preserved.",
       "seated_text_needles": [
@@ -16189,7 +16265,7 @@
         "scripts/hooks/release-shared-writes.sh": "da06d8fbe6b3438a0bb1c33cea6e6b4789aeb041f9aef246ec3eea24d0f4ed80",
         "scripts/hooks/guard-live-names.sh": "f836427a7eff9c4785a22318725e87826b6890bb20c44511cb6ae9b86fe88d30",
         "scripts/hooks/dispatch-pretooluse.sh": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
-        "scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7",
+        "scripts/hooks/dispatch-pretooluse.manifest": "d5022dd189c9fc70c3b728c76f713558ab2f893dbe8cb4dd5f84d34e7f307f4f",
         "scripts/hooks/guard-interactive-prompt.sh": "006331257e3424466c9bd8f5f49d895362f0602063cb25d98dcef32b18fbd8c8",
         "scripts/lib/interactive-prompt.py": "911722b466b6c56a712c44a3f6f268608c5d10ab0bff75d9b59e5492c36c0e4f",
         "scripts/hooks/guard-bash-main-writes.sh": "103465d3f2a5744282c5147b4cf45db5f484318b6635412f9d6b3ea368e4033f",
@@ -16206,8 +16282,8 @@
         "scripts/hooks/guard-ceo-todos-commits.sh": "b5ce1b39ad6985d4d3a52864c389968a474f05de1187baaa430941756ae0c0e0",
         "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
         "scripts/hooks/guard-completeness-commits.sh": "bb6d0253b44d251a08dd325e8901399aafcbe4ca6fe4aa4c30c9b41a57cee673",
-        "scripts/hooks/guard-row-currency-commits.sh": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
-        "scripts/lib/row-currency.sh": "6aeb36f33046c910ad654f2c1f8eba96ca2c2a9675d40e9f5abf2c94e139584e",
+        "scripts/hooks/guard-row-currency-commits.sh": "5e6104b981b6119bb22c51bbda81184df800c42e6353eeb16d05c2ca1d62c36d",
+        "scripts/lib/row-currency.sh": "9c4c901d56dbb2bdb198cba0df9d6840f7eed371fe9b95fe02f13cb64c4a99e4",
         "scripts/hooks/guard-vendoring-commits.sh": "88f0eef0c45b61a143ce0ebd0cba1b8ceda9f908d0cfed09994a9acc30da1208",
         "scripts/lib/vendored-material.sh": "630fc9746255b5e2c6cf24be71ba0b9780a5d673f98559db3099b44f47fa3c92",
         "scripts/hooks/guard-hook-registration-commits.sh": "0e684c61c9c4d2bd3a724b6f4693090812cff645911916e4b4cb035b90790393",
@@ -16237,7 +16313,9 @@
         "scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
-        "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1"
+        "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
+        "scripts/hooks/guard-record-owner-memory.sh": "541c13b0091e5aa1f4be35f9619da7c0cb0a35a2fc07f6fdf99cc72a97cd1806",
+        "scripts/lib/record_owner.py": "10f0983a12f686bcf462a63ec71ff8bed32507f5e3315395bf6dcf55eb20cfb1"
       },
       "evidence": "R1 checks event/matcher registrations of these five hooks. Dispatcher manifest is independently bound; no other hook registration runs."
     },
@@ -16302,8 +16380,8 @@
         "mega-lander/workspaces.py": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
         "scripts/hooks/guard-agent-state-claims.py": "341d0223962f9ccfa6298b3d6982dc55b5f3ea19ec5ea4ba1deb162380811ab5",
         "scripts/lib/agent-liveness.py": "f6dc620af5b9a521717d4d3d4c07c24d730af892177970b044ecac81e12b605c",
-        "scripts/hooks/guard-brief-scope.sh": "acbb13498c55d05bcbf609319a5a5f12436e78d6bdc1796ec46e8dfb4030818b",
-        "ass-kicker/brief-scope.py": "ace5be7e9031e6fd5b0ea0a9f0d7a00ceaa2c490822e0b77c4ec45d81dc324d8",
+        "scripts/hooks/guard-brief-scope.sh": "d62b66830b5f8665bb7492b2278ad7261f3279401142b41296ab1d2ada78c9e3",
+        "ass-kicker/brief-scope.py": "d6910b6891d7461b98d51b234343a004834e6fd4a3c52e5dc530b6539cf376a9",
         "scripts/hooks/guard-ceo-ask-first.sh": "4dc92ca5c60ff39ed949fc88a8a4955264ece2d17bc689f9c2a2eb8b1bae0728",
         "scripts/lib/ceo-asks.sh": "c0d084aef038efba8bae75eea3073bafa01c60132702282743449541abab0021",
         "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
@@ -16315,7 +16393,7 @@
         "scripts/lib/ceo-ruled.sh": "737879339e074a0c41011974a8dcdc74bbbbf7118ffda2904e2f8da7a0b10e91",
         "scripts/lib/ceo-ruled.py": "e92586fdd79f1c648c2f764613f47a56bc7f2d843061c70053611d7f2e23ce30",
         "scripts/hooks/guard-ci-turn-gate.sh": "d5982f5f16da84d753d275669128b20c453782674189d9b8b2b7ac0dae39c324",
-        "scripts/hooks/guard-ci-turn-gate.py": "b92f4e9c6c358c5941bda39405fd5ae52a07405aa5a838ea41943c595d3fa948",
+        "scripts/hooks/guard-ci-turn-gate.py": "0c71e508722ac464ebd4a2729ce28ff69b33eb1052e43d6262439d3e357f7cf0",
         "scripts/lib/ci_pause.py": "f41e86ea2b1aaa036c92eb44ddcb2fe2a6880724162561a5e31b84d556758693",
         "scripts/hooks/guard-definition-drift.sh": "6abe090d1a5eae1c726799e7c6e9bdaad2da332635fec5737ce9ce31f4f05007",
         "scripts/hooks/guard-failure-type-answer.sh": "9178339b1342a751b3de2fa743b2d65df019af3eb4af10e7447a82ad805895aa",
@@ -16353,7 +16431,7 @@
         "scripts/ci-status.sh": "f218d5216073ece57a9193c9d9c0ebdf5fa45edbeed615c831b3a3290e5c6dcf",
         "scripts/lib/ci-surface.py": "ac333b6cab58f196cce2da51918724f0457199840d04fc250f66eb2a727e7e53",
         "scripts/escalate.sh": "dd1d6ce68d71f19531edc6ddadbf52cad069418dd39f52f6058fe5b822ecf1ad",
-        "scripts/lib/escalations.sh": "656be06643a5579cc15e4ef5efe7628bd58e0a134e3677b36885f2060db59db7",
+        "scripts/lib/escalations.sh": "bda6b4af107d64144cac6fe9a5ac507b007c81ebac30b53bb59256b49f9ff1c5",
         "scripts/lib/escalations.py": "7a8ccdb4cd4019c96c1db3448bb0e5eb54b9c1325d4975ceb21d43e185153ded",
         "scripts/owned-state-checks/staging-current.sh": "89e075fca4ffc1850be2f2222efe4c322bc1b59b5947791400cd680a064e9e2e",
         "scripts/unlanded-branches-lint.sh": "c65f6be6da126b18127b28f36860c213c9649e843831ae4c0ee1f393cc52971f",
@@ -16365,7 +16443,7 @@
         "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
         "scripts/hooks/guard-reference-ledger.sh": "d80ab9294a7ff64b244285f5467ecf728b692701b6a5d526152909335b750874",
         "scripts/hooks/guard-resume-isolation.sh": "2366c33e6d87e0b53a7c1e18a6b153b72652ac86532f88e145fd66539e373f56",
-        "scripts/lib/pause_protocol.py": "01bea3772a0c1468f6a0e2337d00e96ebf77c9e6cf7d0af19b2cce6c24097ba7",
+        "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/appinstances.py": "e30b7e3522111d099a20bc2d5af49bff1d5b9a4245d5c2147306ef065596efca",
         "scripts/lib/testdevices.py": "7317a16a8075947446dd7602c1715694e4f5dcce5ea0795d9dd9cb75ed665cdd",
         "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
@@ -16394,14 +16472,14 @@
         "scripts/disk-watchdog.sh": "5168a316708d2fc3dc19e76604942e7377a6b8529d267052be2fa16f6f90cea5",
         "scripts/lib/disk-watchdog.py": "e9e7ca4981c480b8fb3598f1feb7302dd617f8b040c2db4e4a661306cddd03ed",
         "scripts/lib/foreign_app_data.py": "9fcafeaae9e177df0c15fc93b547b2aa08710f94f723e393d51239861859b00b",
-        "scripts/hooks/notice-escalations.sh": "d26e14d802bad45e2f6528722d38eb91076c25e1d3e32ee2228a66e138e963da",
+        "scripts/hooks/notice-escalations.sh": "beaed57b467674e9aedc24eca928ca1d194f8ff6a3f3e876fabb7edab0721b4d",
         "scripts/hooks/notice-hook-staleness.sh": "360fd629986741403adc2337a84ae2dd2645b517f275f7cbb3af331cae48460b",
         "scripts/hooks/notice-inflight-acks.sh": "09f3b2a22cbdbc9334d978a7899a3e64380b9edb386a255a4fe4f370897d1a1b",
         "scripts/lib/inflight.sh": "db5588f3a0093a55befbcab454ee7e1921e1d8f8a049ff0c243da5020e418e43",
         "scripts/lib/inflight.py": "7557f1c701858629759472c355a35583e3e2edaa60ab5ea6f1b5e819984a6739",
         "scripts/hooks/notice-mechanical-findings.sh": "f2c24f99590165f5451c6a38cc8145c757e528dfb5a0528c6ddb0bb9efb46f9f",
         "scripts/lib/mechanical-findings.sh": "1c67019e979adea3071d160882f26acb6bd14c032162ba31d7a1020ad06509bb",
-        "scripts/lib/row-currency.sh": "6aeb36f33046c910ad654f2c1f8eba96ca2c2a9675d40e9f5abf2c94e139584e",
+        "scripts/lib/row-currency.sh": "9c4c901d56dbb2bdb198cba0df9d6840f7eed371fe9b95fe02f13cb64c4a99e4",
         "scripts/lib/row-currency.py": "484404c6143d1a5b94182321e6fa0f6250b298b27a7d3b59ba26d5ed648db677",
         "scripts/lib/mechanical-findings.py": "0942c108c40a62c831eaee4d569f8def0178903e17a289e221cc93ed7f51db78",
         "scripts/hooks/notice-protected-ref-moves.sh": "15ea383b87181c6924a00f8b5f656f72f2319e9680947674f68972fbcd6c2c43",
@@ -16417,7 +16495,7 @@
         "scripts/hooks/notice-waiver-repetition.py": "536de700653b2d81df7ea51223338be0a9e93e67c1203e9950ec33a312381125",
         "scripts/hooks/release-land-leases.sh": "9b933f62a43f2ef058654297789951667b27f6a116d9e4c4c1895e9c549dceb8",
         "scripts/hooks/shell-evidence.sh": "01d511155b7df5a4be0ab6cb25aaac934a467e086d5c31f2afd6ee9c7bcc370a",
-        "scripts/hooks/shell-evidence.py": "83415f7b4a96ec2c8e46b3636aabb77167d36650d0999eec521a5124f4561bfa",
+        "scripts/hooks/shell-evidence.py": "ff52225e5f9caba638223ee3e8c53056d7a5160f860ee8eb4fc6f55ac8d29298",
         "scripts/hooks/turn-manifest.sh": "f5e92311f9896874e5294533673dd08160f3e4cfba4a262e161ae96e377331ae",
         "scripts/hooks/verify-agent-prompt.sh": "108d302d819442877ea6cbf06a5d9bfca9f3ddc01300cb502049b9271be4e738",
         "scripts/hooks/guard-bash-main-writes.sh": "103465d3f2a5744282c5147b4cf45db5f484318b6635412f9d6b3ea368e4033f",
@@ -16438,12 +16516,15 @@
         "scripts/hooks/guard-named-persons-writes.sh": "95095c3eee1ac1f3f7f156dfc2fcb0b039868c63c1d10d45d043fdd7d86ad3ce",
         "scripts/lib/named-persons.py": "9b37ff785ef195ec844190c4b4c6e678432d3b0d9d70aac0feba9ed2303a1af2",
         "scripts/hooks/guard-publication-commits.sh": "180baec98c3f3b0e23e6b12bb8f3e129082ca6f10d49577b56671e102039e9fe",
-        "scripts/hooks/guard-row-currency-commits.sh": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
+        "scripts/hooks/guard-row-currency-commits.sh": "5e6104b981b6119bb22c51bbda81184df800c42e6353eeb16d05c2ca1d62c36d",
         "scripts/hooks/guard-shared-writes.sh": "8c93495c7a2fd02ef98b701af51fff16859fa0e11295eb9706d639a62148784a",
         "scripts/hooks/guard-vendoring-commits.sh": "88f0eef0c45b61a143ce0ebd0cba1b8ceda9f908d0cfed09994a9acc30da1208",
         "scripts/hooks/guard-worktree-removal.sh": "b39ff96220cb74cf9f94acc3d6210f3207b57bdf50cb33ffdd29882e536a5f37",
-        "scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7",
-        "scripts/lib/agent_hold.py": "7ec72de051bf0fd7681324ced1ec804e51238f704bd40ec6d76c6bae1c363f38"
+        "scripts/hooks/dispatch-pretooluse.manifest": "d5022dd189c9fc70c3b728c76f713558ab2f893dbe8cb4dd5f84d34e7f307f4f",
+        "scripts/lib/agent_hold.py": "f8e2b2c70604088324a1da244338316aaaa791aae073d9bb18202f75ad13c9a4",
+        "scripts/hooks/guard-record-owner-memory.sh": "541c13b0091e5aa1f4be35f9619da7c0cb0a35a2fc07f6fdf99cc72a97cd1806",
+        "scripts/lib/record_owner.py": "10f0983a12f686bcf462a63ec71ff8bed32507f5e3315395bf6dcf55eb20cfb1",
+        "ass-kicker/brief-done.py": "db1fd5e6658db77631bbde3d54b0ca47bbad319c14cde21bb7a44e4135efb4f3"
       },
       "evidence": "Enumerates PreToolUse/Stop registrations and matcher payloads; boundary assertion classifies every event. Full dynamic helper inventory is source-bound."
     },
@@ -16455,7 +16536,7 @@
         "scripts/lib/global-state-witness.sh": "043848eeb2641037b1e56bce858035e05a80cce775098c7dfa36386f6f048f73",
         "scripts/hooks/install.sh": "7de38172844d3a610058157c59ca6ba3a147a8f8c54bb34f0b09a5f9e3c6fe16",
         "scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
-        "scripts/hooks/contract-integrity-probe.sh": "0275ec6c5f0866126c38bb16c2fac9ee294b2f7c1cba35afa76af5f9123a5f38",
+        "scripts/hooks/contract-integrity-probe.sh": "52155e96b9a3ac8755f39d30f8d69cf9bcfdb77d09d3259b494cbebad63f6440",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
@@ -16481,7 +16562,7 @@
         "scripts/lib/stop-session-recovery.py": "7f73be10acfee2d62a9f05115a20d8c64bfd63764a4fffb084675ca14a4d7ed2",
         "scripts/hooks/guard-idle-land.py": "6f86233ebe1e642b9bee0eb55b5467bc8b6f2d1261a381bcaf62589291e8efd0",
         "scripts/hooks/guard-resume-isolation.sh": "2366c33e6d87e0b53a7c1e18a6b153b72652ac86532f88e145fd66539e373f56",
-        "scripts/lib/pause_protocol.py": "01bea3772a0c1468f6a0e2337d00e96ebf77c9e6cf7d0af19b2cce6c24097ba7",
+        "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/teammate-identity.py": "54fed25d0e79b1757690cdc2b63fe3281c985b8324fe27b2d12d7048e27badf2",
         "scripts/hooks/guard-bash-main-writes.sh": "103465d3f2a5744282c5147b4cf45db5f484318b6635412f9d6b3ea368e4033f",
         "scripts/hooks/guard-interactive-prompt.sh": "006331257e3424466c9bd8f5f49d895362f0602063cb25d98dcef32b18fbd8c8",
@@ -16500,7 +16581,7 @@
         "scripts/entrypoint-currency-lint.sh": "09d95bf0ae992caa52ab7eeaec9613a0cb6ca23933a4f8450c52aba36d8f7486",
         "scripts/hooks/engine-status.sh": "c1ea99017ada713a0a68a56fe7f23dfab11b027ed53ea3a7846d4e51b8e467b0",
         "scripts/hooks/notice-unlanded-branches.sh": "3a1222731913dc06aecd5a9703403ae27b7d61a6f28c7fad00223c4ac6c5a90d",
-        "scripts/lib/agent_hold.py": "7ec72de051bf0fd7681324ced1ec804e51238f704bd40ec6d76c6bae1c363f38"
+        "scripts/lib/agent_hold.py": "f8e2b2c70604088324a1da244338316aaaa791aae073d9bb18202f75ad13c9a4"
       },
       "evidence": "Suite and probe audit every event, ordering, registration count and expanded dispatcher manifest. Hook inventory edits select this whole unit."
     },
@@ -16514,17 +16595,17 @@
       ],
       "sources": {
         "scripts/spawn.test.sh": "a73f04c42df5c4ab4eae2dc106bb9406e3e3f7010a55e8e51a9f0b9ec2a9f06a",
-        "scripts/lib/spawn.py": "03c671b261b680d8767a346540234ca8dc24ab62df1a48f08f6c018ab9ed1e9e",
+        "scripts/lib/spawn.py": "5d9f07168dd547d9a0aff80b7acf2da0fadd3c61fb75e0fda956589fbd03f001",
         "ass-kicker/brief-provenance.py": "78b82b175a6d2e59032bcffd9ca49928023f4742bd8866275c581e7afb6d4a10",
-        "ass-kicker/brief-scope.py": "ace5be7e9031e6fd5b0ea0a9f0d7a00ceaa2c490822e0b77c4ec45d81dc324d8",
+        "ass-kicker/brief-scope.py": "d6910b6891d7461b98d51b234343a004834e6fd4a3c52e5dc530b6539cf376a9",
         "mega-lander/create-teammate-worktree.sh": "189e5e613e20454aeab4a5d7b66d635ed876c165d3fa18884b7e1f9fcd59c963",
         "mega-lander/workspaces.py": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
         "scripts/hooks/guard-worktree-isolation.sh": "c200f7a5b48835054ce460b95053abca44ac6dbaf677289940c23fc196917025",
-        "scripts/lib/agent_hold.py": "7ec72de051bf0fd7681324ced1ec804e51238f704bd40ec6d76c6bae1c363f38",
+        "scripts/lib/agent_hold.py": "f8e2b2c70604088324a1da244338316aaaa791aae073d9bb18202f75ad13c9a4",
         "scripts/lib/appinstances.py": "e30b7e3522111d099a20bc2d5af49bff1d5b9a4245d5c2147306ef065596efca",
         "scripts/lib/containers.py": "957965ce69a27ad94066c9a20c92956e715cb5bdd234080b92024c8e9f0f08c9",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
-        "scripts/lib/pause_protocol.py": "01bea3772a0c1468f6a0e2337d00e96ebf77c9e6cf7d0af19b2cce6c24097ba7",
+        "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/qa-toolkit.py": "f490cd7a72bacf99bef3eef47cc059d99cac5f3878b0d2399eea06dae55a24c0",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/resolve-model.sh": "80d6df68468d7484a4385eb8b1b9ffdf1ea9575776a5e7141bb3fca58ca7ec11",
@@ -16535,7 +16616,8 @@
         "scripts/lib/testdevices.py": "7317a16a8075947446dd7602c1715694e4f5dcce5ea0795d9dd9cb75ed665cdd",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
         "scripts/prepare-agent-spawn.py": "67d78fa20c52b44fa56b70d36cb8e22a432a37563105a191cd81e6471fec9dfe",
-        "scripts/spawn.sh": "62d22409afdd7ca9bb9b534ccba51794977bfc371d9d153655659f38f64ac817"
+        "scripts/spawn.sh": "62d22409afdd7ca9bb9b534ccba51794977bfc371d9d153655659f38f64ac817",
+        "ass-kicker/brief-done.py": "db1fd5e6658db77631bbde3d54b0ca47bbad319c14cde21bb7a44e4135efb4f3"
       },
       "seated_events": [
         "PreToolUse"
@@ -16556,7 +16638,7 @@
         "scripts/hooks/guard-worktree-removal.sh": "b39ff96220cb74cf9f94acc3d6210f3207b57bdf50cb33ffdd29882e536a5f37",
         "scripts/hooks/observe-created-refs.sh": "6c1bcc7fc86608dace9465fdaef957468872b82906e4134382a98b5ab8085202",
         "scripts/hooks/workspace-lifecycle.sh": "e8a6bd193fe910eb22f76da44c81b04feaa04e2a7429b055823ea8efc8df72e8",
-        "scripts/lib/agent_hold.py": "7ec72de051bf0fd7681324ced1ec804e51238f704bd40ec6d76c6bae1c363f38",
+        "scripts/lib/agent_hold.py": "f8e2b2c70604088324a1da244338316aaaa791aae073d9bb18202f75ad13c9a4",
         "scripts/lib/appinstances.py": "e30b7e3522111d099a20bc2d5af49bff1d5b9a4245d5c2147306ef065596efca",
         "scripts/lib/containers.py": "957965ce69a27ad94066c9a20c92956e715cb5bdd234080b92024c8e9f0f08c9",
         "scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
@@ -16566,7 +16648,7 @@
         "scripts/lib/mutation-harness.sh": "9dd839120e0a3b2ae4ef91054e076a8e9ea31c4592dbe0ea3eb80f3f018c88b0",
         "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
-        "scripts/lib/pause_protocol.py": "01bea3772a0c1468f6a0e2337d00e96ebf77c9e6cf7d0af19b2cce6c24097ba7",
+        "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/proc_tree.py": "b70426289f48b9c31123f74fe1d22840ed940e2d251e4392df6b6b3bacb3d71e",
         "scripts/lib/qa-throwaways.py": "1c355bbfaa5bb464c020d4743bf842b8fbbe5a7265caa6ffb2200523064ef9b6",
         "scripts/lib/qa-toolkit.py": "f490cd7a72bacf99bef3eef47cc059d99cac5f3878b0d2399eea06dae55a24c0",
@@ -16602,11 +16684,11 @@
         "scripts/hooks/guard-worktree-isolation.sh": "c200f7a5b48835054ce460b95053abca44ac6dbaf677289940c23fc196917025",
         "scripts/hooks/observe-created-refs.sh": "6c1bcc7fc86608dace9465fdaef957468872b82906e4134382a98b5ab8085202",
         "scripts/hooks/workspace-lifecycle.sh": "e8a6bd193fe910eb22f76da44c81b04feaa04e2a7429b055823ea8efc8df72e8",
-        "scripts/lib/agent_hold.py": "7ec72de051bf0fd7681324ced1ec804e51238f704bd40ec6d76c6bae1c363f38",
+        "scripts/lib/agent_hold.py": "f8e2b2c70604088324a1da244338316aaaa791aae073d9bb18202f75ad13c9a4",
         "scripts/lib/appinstances.py": "e30b7e3522111d099a20bc2d5af49bff1d5b9a4245d5c2147306ef065596efca",
         "scripts/lib/containers.py": "957965ce69a27ad94066c9a20c92956e715cb5bdd234080b92024c8e9f0f08c9",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
-        "scripts/lib/pause_protocol.py": "01bea3772a0c1468f6a0e2337d00e96ebf77c9e6cf7d0af19b2cce6c24097ba7",
+        "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/qa-throwaways.py": "1c355bbfaa5bb464c020d4743bf842b8fbbe5a7265caa6ffb2200523064ef9b6",
         "scripts/lib/qa-toolkit.py": "f490cd7a72bacf99bef3eef47cc059d99cac5f3878b0d2399eea06dae55a24c0",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
@@ -16645,7 +16727,7 @@
         "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
         "scripts/owned-state-checks/registered-executables.py": "8e324db884e02950f56ab3a4616f4acb4a8eea78eab71dd3c40823fae80b6fd9",
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
-        "scripts/lib/escalations.sh": "656be06643a5579cc15e4ef5efe7628bd58e0a134e3677b36885f2060db59db7",
+        "scripts/lib/escalations.sh": "bda6b4af107d64144cac6fe9a5ac507b007c81ebac30b53bb59256b49f9ff1c5",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
         "scripts/lib/owned-systems.py": "722c3279040fde20c10c0e9f95a42808c02949cbb9e4f41b1425aaf4dde0372f",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
@@ -16684,7 +16766,7 @@
         "scripts/lib/proc_tree.py": "b70426289f48b9c31123f74fe1d22840ed940e2d251e4392df6b6b3bacb3d71e",
         "scripts/cold-open.sh": "fddf01eaf727eacba9ff6cd108ac5eabbf5479249c2d5ffeb7d4edef40d1cdd9",
         "scripts/ceo-todos-lint.sh": "cec21eee8a4d92b52d91d67df77ca120cc42fd33c686e3a3d79775c76ee91619",
-        "scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
+        "scripts/hooks/dispatch-pretooluse.manifest": "d5022dd189c9fc70c3b728c76f713558ab2f893dbe8cb4dd5f84d34e7f307f4f"
       },
       "evidence": "Outer registration assertions query only the named guard through hook_enforced_on_surface. Nested behavior fixtures do not execute a hook inventory or the probe. Every existing reviewed helper is bound. Seated observation compares every raw line containing a named guard prefix plus every parsed dispatcher command across all events; this covers the helper direct grep and dispatcher-key lookup without approximating its verdict. The dispatcher manifest is bound as an additional input. Probe is inspected as source only: named registration grep and, where present, rootless-block source assertions. Only unrelated literal BR_EXPECTED rows may differ; all other probe bytes are preserved.",
       "seated_text_needles": [
@@ -16703,12 +16785,12 @@
       "sources": {
         "mega-lander/workspaces.py": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
         "scripts/hooks/guard-resume-isolation.sh": "2366c33e6d87e0b53a7c1e18a6b153b72652ac86532f88e145fd66539e373f56",
-        "scripts/hooks/guard-resume-isolation.test.sh": "8ae7ff8931733948b030736169ed956efdededac982f44e1973bc10374227908",
+        "scripts/hooks/guard-resume-isolation.test.sh": "c58c65a57d542a4a9070777badf8c6057e751657bfae0d1e716f1510f8433da4",
         "scripts/lib/agent-liveness.py": "f6dc620af5b9a521717d4d3d4c07c24d730af892177970b044ecac81e12b605c",
-        "scripts/lib/agent_hold.py": "7ec72de051bf0fd7681324ced1ec804e51238f704bd40ec6d76c6bae1c363f38",
+        "scripts/lib/agent_hold.py": "f8e2b2c70604088324a1da244338316aaaa791aae073d9bb18202f75ad13c9a4",
         "scripts/lib/appinstances.py": "e30b7e3522111d099a20bc2d5af49bff1d5b9a4245d5c2147306ef065596efca",
         "scripts/lib/containers.py": "957965ce69a27ad94066c9a20c92956e715cb5bdd234080b92024c8e9f0f08c9",
-        "scripts/lib/pause_protocol.py": "01bea3772a0c1468f6a0e2337d00e96ebf77c9e6cf7d0af19b2cce6c24097ba7",
+        "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/teammate-identity.py": "54fed25d0e79b1757690cdc2b63fe3281c985b8324fe27b2d12d7048e27badf2",

@@ -1,4 +1,5 @@
 """Contract tests for dependency selection versus behavioral coverage."""
+import json
 import os
 from pathlib import Path
 import shutil
@@ -12,6 +13,10 @@ SCRIPTS = Path(__file__).resolve().parent
 ROOT = SCRIPTS.parents[2]
 sys.path.insert(0, str(SCRIPTS / "lib"))
 from proof_declarations import InvalidDeclaration, read_declarations
+try:
+    from proof_declarations import pinned_readers, suite_pins
+except ImportError:  # the selector before 2026-09-28 has no pins row; those cases fail, not the file
+    pinned_readers = suite_pins = None
 
 
 class Declarations(unittest.TestCase):
@@ -124,6 +129,80 @@ class Declarations(unittest.TestCase):
                 self.write(f"# run-tests: inputs src\n# run-tests: covers {directory}\n")
                 with self.assertRaisesRegex(InvalidDeclaration, "directory coverage"):
                     read_declarations(self.root, self.suites)
+
+    def pin_file(self, units, review="docs/q.md"):
+        (self.root / "docs").mkdir(exist_ok=True)
+        (self.root / "docs/q.md").write_text("review\n")
+        document = {"schema": 1, "units": units}
+        if review is not None:
+            document["review"] = review
+        (self.root / "docs/q.json").write_text(json.dumps(document))
+
+    def test_pins_row_selects_every_reader_the_pin_file_binds(self):
+        self.pin_file({"a": {"sources": {"src/tool.py": "x", "lib/reader.sh": "y"}},
+                       "b": {"sources": {"lib/other.py": "z"}}})
+        self.write("# run-tests: inputs src\n# run-tests: covers docs/q.json\n"
+                   "# run-tests: pins docs/q.json\n")
+        suite, inputs, covers = read_declarations(self.root, self.suites)[0]
+        self.assertEqual(inputs[0], "src")
+        self.assertEqual(set(inputs[1:]), {"docs/q.json", "docs/q.md", "src/tool.py",
+                                           "lib/reader.sh", "lib/other.py"})
+        self.assertEqual(covers, ["docs/q.json"])
+        self.assertEqual(suite_pins(self.root, self.suites / "fixture.test.sh"),
+                         pinned_readers(self.root, "docs/q.json"))
+        # Read from the file on every run: a reader added to the pin file selects the suite.
+        self.pin_file({"a": {"sources": {"src/tool.py": "x", "lib/new.sh": "n"}}})
+        self.assertIn("lib/new.sh", read_declarations(self.root, self.suites)[0][1])
+
+    def test_a_pin_file_that_cannot_be_read_as_pins_refuses(self):
+        rows = "# run-tests: inputs src\n# run-tests: covers -\n# run-tests: pins {}\n"
+        cases = {
+            "missing": ("docs/absent.json", None),
+            "not json": ("docs/q.json", "{not json"),
+            "no units": ("docs/q.json", json.dumps({"units": {}})),
+            "unit without sources": ("docs/q.json", json.dumps({"units": {"a": {"review": "r"}}})),
+            "absolute source": ("docs/q.json", json.dumps({"units": {"a": {"sources": {"/etc/passwd": "x"}}}})),
+            "escaping source": ("docs/q.json", json.dumps({"units": {"a": {"sources": {"src/../x": "x"}}}})),
+        }
+        for name, (path, text) in cases.items():
+            with self.subTest(case=name):
+                (self.root / "docs").mkdir(exist_ok=True)
+                if text is not None:
+                    (self.root / path).write_text(text)
+                self.write(rows.format(path))
+                with self.assertRaisesRegex(InvalidDeclaration, "fixture.test.sh"):
+                    read_declarations(self.root, self.suites)
+        self.pin_file({"a": {"sources": {"src/tool.py": "x"}}})
+        two_rows = "# run-tests: pins docs/q.json\n# run-tests: pins docs/q.json\n"
+        empty_row = "# run-tests: pins\n"
+        for extra in (two_rows, empty_row):
+            with self.subTest(extra=extra):
+                self.write("# run-tests: inputs src\n# run-tests: covers -\n" + extra)
+                with self.assertRaisesRegex(InvalidDeclaration, "at most one"):
+                    read_declarations(self.root, self.suites)
+
+    def test_a_changed_qualified_reader_selects_the_qualification_check(self):
+        # 2026-09-28: 5b85f4fb changed four readers that verification-input-qualifications.json
+        # pins, the land selected nothing that checks those pins, and proof-evidence.test.py
+        # refused 27 recipes at the nightly's script-suites gate instead.
+        qualification = "docs/development/verification-input-qualifications.json"
+        for path in ("richos/engine/scripts/hooks/contract-integrity-probe.sh",
+                     "richos/engine/scripts/lib/row-currency.sh", qualification):
+            with self.subTest(path=path):
+                result = self.select(path)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("--only proof-run.test.sh", result.stdout)
+        # Every reader the real file pins selects it, read from the file, never typed.
+        document = json.loads((ROOT / qualification).read_text())
+        pinned = {source for unit in document["units"].values() for source in unit["sources"]}
+        rows = {suite: inputs for suite, inputs, _covers in read_declarations(ROOT, SCRIPTS)}
+        self.assertTrue(pinned)
+        self.assertLessEqual(pinned | {qualification}, set(rows["proof-run.test.sh"]))
+        result = subprocess.run([sys.executable, str(SCRIPTS / "lib/proof_declarations.py"), "--pinned",
+                                 str(ROOT), str(SCRIPTS / "proof-run.test.sh")],
+                                capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertLessEqual(pinned, set(result.stdout.split()))
 
     def test_selector_refuses_inputs_without_coverage(self):
         for suite in SCRIPTS.glob("*.test.sh"):
