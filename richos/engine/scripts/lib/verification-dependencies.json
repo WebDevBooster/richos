@@ -3390,6 +3390,64 @@
         }
       ],
       "presence": "The copied engine config remains an adoption marker in nested suites."
+    },
+    "scripts/lib/durable-filesystem-identity.py": {
+      "source": "scripts/lib/durable-filesystem-identity.py",
+      "sha256": "e819901bf418f1f80e636f80d0cf880b414963689a0422f0a5fc95096853eaf8",
+      "evidence": "Queries kernel inode/volume identity for supplied paths and reads the Linux boot UUID. Imports standard-library modules only; no orchestration config, repository execution or child commands.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/durable-filesystem-identity.test.py": {
+      "source": "scripts/lib/durable-filesystem-identity.test.py",
+      "sha256": "6efb7add4a2d6dd04a66270e7dc83542083764b14e52c8d2cfa856ca62768277",
+      "evidence": "Creates tiny private files and symlinks, drives the fixed identity helper and mocks its syscall/parser boundaries. Cross-volume cases inspect only filesystem metadata; no orchestration config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/durable-filesystem-identity.py"
+        }
+      ]
+    },
+    "scripts/lib/durable-filesystem-identity.test.sh": {
+      "source": "scripts/lib/durable-filesystem-identity.test.sh",
+      "sha256": "d3c46277804366975f1e08956d418c8b626676f51269c0b683c8ddcf81c625b8",
+      "evidence": "Thin wrapper executes the adjacent fixed Python suite; no other repository command or configuration is loaded.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/durable-filesystem-identity.test.py"
+        }
+      ]
+    },
+    "scripts/lib/spawn-guard-audience.py": {
+      "source": "scripts/lib/spawn-guard-audience.py",
+      "sha256": "0f29e5f4d8b857670e6566646e5ba1691b8b49e55b599b7e2d9d8a4782ccc0f9",
+      "evidence": "Parses a separate spawn-guard-audience.declaration as literal records. Registered command names are parsed as text, never executed. Imports only json, os, sys and re; no orchestration config.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/spawn-guard-audience.test.py": {
+      "source": "scripts/lib/spawn-guard-audience.test.py",
+      "sha256": "f945703cea96df1d9eda480b892977e0456461ebd13bf299d4b9957e1387ab1c",
+      "evidence": "Reads the audience declaration and PreToolUse hook registration as data, then checks literal private declaration fixtures. Imports only the fixed audience parser and standard library; no hook is executed and no orchestration config is read.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/spawn-guard-audience.py"
+        }
+      ]
+    },
+    "scripts/lib/spawn-guard-audience.test.sh": {
+      "source": "scripts/lib/spawn-guard-audience.test.sh",
+      "sha256": "fe13dd7ee6d59a1c5414f6bcc4c280bee121a36821dac418f99b9c99604b4e8b",
+      "evidence": "Thin wrapper executes the adjacent fixed Python suite; no other repository command or configuration is loaded.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/spawn-guard-audience.test.py"
+        }
+      ]
     }
   },
   "units": {
@@ -3452,7 +3510,9 @@
     "scripts/hooks/turn-manifest.test.sh": "scripts/hooks/turn-manifest.test.sh",
     "scripts/hooks/guard-worktree-removal.test.sh": "scripts/hooks/guard-worktree-removal.test.sh",
     "scripts/cold-open.test.sh": "scripts/cold-open.test.sh",
-    "scripts/hooks/ceo-todos.test.sh": "scripts/hooks/ceo-todos.test.sh"
+    "scripts/hooks/ceo-todos.test.sh": "scripts/hooks/ceo-todos.test.sh",
+    "scripts/lib/durable-filesystem-identity.test.sh": "scripts/lib/durable-filesystem-identity.test.sh",
+    "scripts/lib/spawn-guard-audience.test.sh": "scripts/lib/spawn-guard-audience.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
@@ -3534,6 +3594,18 @@
       "events": [
         "PreToolUse"
       ]
+    },
+    "scripts/lib/spawn-guard-audience.test.sh": {
+      "commands": [],
+      "events": [
+        "PreToolUse"
+      ],
+      "sources": {
+        "scripts/lib/spawn-guard-audience.test.sh": "fe13dd7ee6d59a1c5414f6bcc4c280bee121a36821dac418f99b9c99604b4e8b",
+        "scripts/lib/spawn-guard-audience.test.py": "f945703cea96df1d9eda480b892977e0456461ebd13bf299d4b9957e1387ab1c",
+        "scripts/lib/spawn-guard-audience.py": "0f29e5f4d8b857670e6566646e5ba1691b8b49e55b599b7e2d9d8a4782ccc0f9"
+      },
+      "evidence": "The Python suite inventories every PreToolUse registration whose matcher accepts Agent. Any semantic change to that event remains selected, including new commands and matchers. Other events and nonsemantic JSON formatting are not read by its inventory assertions. All three executable sources are bound."
     }
   }
 }

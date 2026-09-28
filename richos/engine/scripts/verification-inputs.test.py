@@ -152,6 +152,21 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_python_wrappers_follow_their_actual_imports(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        for stem in ('durable-filesystem-identity', 'spawn-guard-audience'):
+            base = 'scripts/lib/' + stem
+            unit = base + '.test.sh'
+            with self.subTest(unit=unit):
+                self.assertEqual(graph.closure(unit),
+                                 {'keys': {}, 'whole': [], 'presence': [], 'fallback': []})
+                for suffix in ('.test.py', '.py'):
+                    original = document['nodes'][base + suffix]['sha256']
+                    document['nodes'][base + suffix]['sha256'] = 'changed'
+                    self.assertTrue(graph.closure(unit)['fallback'])
+                    document['nodes'][base + suffix]['sha256'] = original
+
     def test_todo_records_and_cold_readers_are_fixtures_but_adoption_still_matters(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

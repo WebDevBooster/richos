@@ -17,6 +17,26 @@ from verification_inputs import Unsupported
 
 
 class Planner(unittest.TestCase):
+    def test_python_audience_wrapper_keeps_complete_pretooluse_inventory(self):
+        root = HERE.parent
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        suite = 'scripts/lib/spawn-guard-audience.test.sh'
+        def read(path):
+            file = root / path
+            return file.read_text() if file.is_file() else None
+        before = (root / 'hooks/hooks.json').read_text()
+        for event, expected in (('PreToolUse', {suite}), ('Stop', set())):
+            after = json.loads(before)
+            after['hooks'][event].append({'matcher': 'Agent', 'hooks': [
+                {'type': 'command', 'command': 'bash ${CLAUDE_PLUGIN_ROOT}/new-hook.sh'}]})
+            plan = Selection(root, [suite], read, document)
+            plan.hooks(before, json.dumps(after))
+            self.assertEqual(set(plan.selected), expected)
+        document['hook_readers'][suite]['sources']['scripts/lib/spawn-guard-audience.test.py'] = 'changed'
+        plan = Selection(root, [suite], read, document)
+        plan.hooks(before, json.dumps(after))
+        self.assertEqual(set(plan.selected), {suite})
+
     def test_private_todo_and_removal_suites_keep_adoption_and_source_obligations(self):
         root = HERE.parent
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
