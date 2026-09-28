@@ -11244,7 +11244,7 @@
           "default": "/Users/alex/ab/femcboost",
           "path": "scripts/hooks/guard-brief-verification-scope.sh",
           "optional_file": true,
-          "sha256": "5fb427d47356c823896d072fc1c1995ac9a83261b1868ad91db6265af8360d7e",
+          "sha256": "e9813c75276bff02ef23af18637261c18321d33967587bdf6e3e559184fccf49",
           "evidence": "Full external guard reviewed: parses a literal Agent prompt through stdlib Python and grep, no config/import/source. The fixed test prompt has no full-suite-ack so no state write. Changed bytes require review; absent file is an explicit skipped case, not a pass."
         }
       ]
