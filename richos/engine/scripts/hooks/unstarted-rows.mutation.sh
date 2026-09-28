@@ -61,8 +61,8 @@ PYEOF
 
 # mutant <name> <expected-failing-case> <rel-file> <old> <new> <why>
 # --- concurrency ------------------------------------------------------------
-# Each mutant builds its own sandbox under $SANDBOX/<name> and runs a whole
-# suite against it, so no two mutants share a path and none of them is ordered
+# Each mutant builds its own sandbox and runs its named setup group, first
+# unmodified and then mutated, so no two mutants share a path and none of them is ordered
 # against another. They ran one at a time only because a `for` loop is what this
 # harness was first written as. mutation-pool.sh bounds the fan-out, keeps the
 # report in declaration order, and counts a KILLED mutant as a failure rather
@@ -91,15 +91,23 @@ _mutant_body() {
     cp "$ENGINE_ROOT/scripts/unstarted-rows-lint.sh" "$dir/scripts/"
     chmod +x "$dir/scripts/hooks/"*.sh "$dir/scripts/"*.sh
 
+    bash "$dir/scripts/hooks/unstarted-rows.test.sh" --mutation-case "$want" >"$dir/control.txt" 2>&1
+    local control_rc=$?
+    if [ "$control_rc" -ne 3 ] || ! grep -qF "PASS  $want" "$dir/control.txt"; then
+        printf '  FAIL  %s: unmutated named witness was not green (rc=%s)\n' "$name" "$control_rc"
+        tail -15 "$dir/control.txt"
+        return 1
+    fi
+
     if ! python3 "$SANDBOX/mutate.py" "$dir/$rel" "$old" "$new" 2>"$dir/mutate.err"; then
         printf '  FAIL  %s — the mutation did not apply\n' "$name"
         sed 's/^/          /' "$dir/mutate.err"
         return 1
     fi
 
-    bash "$dir/scripts/hooks/unstarted-rows.test.sh" >"$dir/out.txt" 2>&1
+    bash "$dir/scripts/hooks/unstarted-rows.test.sh" --mutation-case "$want" >"$dir/out.txt" 2>&1
     local rc=$?
-    if [ "$rc" -eq 0 ]; then
+    if [ "$rc" -eq 0 ] || [ "$rc" -eq 3 ]; then
         printf '  FAIL  %s — the suite still PASSED without this property.\n' "$name"
         printf '          %s\n' "$why"
         return 1
