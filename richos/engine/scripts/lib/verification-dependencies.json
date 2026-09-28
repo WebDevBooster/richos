@@ -12778,6 +12778,45 @@
           "to": "scripts/hooks/teammate-idle-handoff.sh"
         }
       ]
+    },
+    "scripts/handoff-facts.py": {
+      "source": "scripts/handoff-facts.py",
+      "sha256": "0f7c56cccef2adbe94b52adefcc90b82c9c4c263acc494f4417c54f5876b51df",
+      "evidence": "Measures note claims with native Git/docker, the escalation parser and optional real agent-liveness. Notes and command renderings are data, never evaluated. No orchestration value reads; liveness retains adoption-presence checks.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/escalations.py"
+        },
+        {
+          "to": "scripts/agent-liveness.sh"
+        }
+      ]
+    },
+    "scripts/hooks/handoff-facts-annotate.sh#facts": {
+      "source": "scripts/hooks/handoff-facts-annotate.sh",
+      "sha256": "d28db7195c447f584e0239d0f193c2359259eedbc8f853cda66946e31b6e45d1",
+      "evidence": "Parses a payload for existing note paths and invokes the fixed handoff-facts.py entrypoint with --in-place. This full path includes agent liveness, unlike the separate no-note payload contract.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/handoff-facts.py"
+        }
+      ]
+    },
+    "scripts/handoff-facts.test.sh": {
+      "source": "scripts/handoff-facts.test.sh",
+      "sha256": "1fee6e485d5f4be92486113151526fdc39040155cf712b4818bc81600e7a5836",
+      "evidence": "Direct CLI cases use private notes/repos, literal docker stubs and escalation ledger. Annotate-hook cases invoke the real fixed facts entrypoint; retain its complete liveness/escalation helper closure. No other code or mutation driver executes.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/handoff-facts.py"
+        },
+        {
+          "to": "scripts/hooks/handoff-facts-annotate.sh#facts"
+        }
+      ]
     }
   },
   "units": {
@@ -12933,7 +12972,8 @@
     "mega-lander/tests/workspace-probes.test.sh": "mega-lander/tests/workspace-probes.test.sh",
     "scripts/ci-shard.test.sh": "scripts/ci-shard.test.sh",
     "ass-kicker/tests/brief-scope.test.sh": "ass-kicker/tests/brief-scope.test.sh",
-    "scripts/lib/worktree-ledger.test.sh": "scripts/lib/worktree-ledger.test.sh"
+    "scripts/lib/worktree-ledger.test.sh": "scripts/lib/worktree-ledger.test.sh",
+    "scripts/handoff-facts.test.sh": "scripts/handoff-facts.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
