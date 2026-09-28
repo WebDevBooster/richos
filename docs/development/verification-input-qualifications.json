@@ -1665,6 +1665,54 @@
         "environment": [],
         "external": []
       }
+    },
+    "make-engine-asset": {
+      "review": "Synthetic refusal and proof-cache cases create private Git repositories. Real cases build two archives from the working engine, tracked member inventory, canonical LICENSE, third-party notices and the supplied verified runtime. The engine commit epoch affects archive mtimes and is explicit. HEAD is printed in the pin comment only, never used by a verdict. Literal Node model fixtures and an ephemeral loopback HTTP server exercise the extracted runtime; no remote service or installed models are used. Free disk is an operational precondition, with the refusal case supplying explicit low space. Private execution clears runtime/Node/Git overrides except the declared RICHOS_RUNTIME_DIR and preserves the complete assertions. Node executable and dependencies are included in the runtime tree identity.",
+      "sources": {
+        "richos/app/scripts/make-engine-asset.test.sh": "e6b80bbe758510b2e697d42e0941cbc66e429bf8c699e2afe4541778afd86767",
+        "richos/app/scripts/make-engine-asset.sh": "fbd19879e5d6b4b1a4ca8035aeb848c6b6abb5d722b5ec80fe72ec60710a195e",
+        "richos/app/scripts/verify-engine-asset-members.sh": "505257f5135f9c77f989245b61f162d990137e3949eb06fa17d341a762854ff6",
+        "richos/app/scripts/verify-runtime.py": "cbbaf6b2d50e7a8e648dce3217950742046e216be08a93ab7afb6969853f6f34",
+        "richos/engine/voice/tests/run.mjs": "81674da73960594c74b3de2331a0c193e7434a5a0bec87be2eb6b3cec2e64610",
+        "richos/engine/voice/tests/models.test.mjs": "83a6dc88d1e029afab534a06410c60dd9727befa307610c7cd8a62d196bb8eee",
+        "richos/engine/voice/tests/fetch.test.mjs": "595b0b9674ced3bffcbf5443b56503ffaff379909a6bb5d07bf78afff6c3b885",
+        "richos/engine/voice/tests/support/harness.mjs": "330b08085e188e5d6bdb62b283bd4cd6b52ec0837efa6837b57a871d5e0e7a09",
+        "richos/engine/voice/tests/support/models.mjs": "90175a1b117b57ff59125c8f756f45af4253b4331257ca847b3be2db724c8de1",
+        "richos/engine/voice/provisioning/model-catalog.js": "acbed1357dbf39b8aea02c65354e51a603227816e150cfabae3c665a976270a2",
+        "richos/engine/voice/provisioning/model-integrity.js": "15694c852f5d5cc91b51e36f06c4e3766c2932398af77540ebeb616f5f878cbf",
+        "richos/engine/voice/provisioning/model-fetch.js": "bc978aee452ca57dae194b81b9f3a8778c6754a985ebf9803bf8f8bec88940b7"
+      },
+      "requires": {
+        "paths": [
+          "LICENSE",
+          "docs/legal/THIRD-PARTY-NOTICES.md"
+        ],
+        "tools": [
+          "/bin/bash",
+          "/bin/sh",
+          "/usr/bin/tar",
+          "/usr/bin/shasum",
+          "/usr/bin/stat",
+          "gzip",
+          "touch",
+          "ls",
+          "cmp"
+        ],
+        "environment": [],
+        "external": [
+          "RICHOS_RUNTIME_DIR"
+        ]
+      },
+      "git_inputs": {
+        "tracked": [
+          "richos/engine",
+          "LICENSE",
+          "docs/legal/THIRD-PARTY-NOTICES.md"
+        ],
+        "last_change": [
+          "richos/engine"
+        ]
+      }
     }
   },
   "isolation": "private-home-v1"

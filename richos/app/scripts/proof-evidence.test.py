@@ -102,6 +102,59 @@ class Evidence(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "engine/helper.sh"):
             evidence.qualify_recipe(self.root, {**recipe, "paths": ["engine-other", "LICENSE"]})
 
+    def test_git_inputs_notice_index_and_engine_epoch_but_allow_unrelated_commit(self):
+        self.qualification('Archive reads tracked engine members, terms and the engine epoch.',
+                           paths=['engine', 'LICENSE'], tools=['git'])
+        declaration = {'tracked': ['engine', 'LICENSE'], 'last_change': ['engine']}
+        contract_path = self.root / 'qualification.json'
+        contract = json.loads(contract_path.read_text())
+        contract['git_inputs'] = declaration
+        contract_path.write_text(json.dumps(contract))
+        recipe = {'paths': ['engine', 'LICENSE'], 'tools': ['git'], 'environment': [],
+                  'external': [], 'qualification': 'qualification.json', 'git_inputs': declaration}
+        env = {**os.environ, 'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,
+               'GIT_AUTHOR_DATE': '2001-01-01T00:00:00Z', 'GIT_COMMITTER_DATE': '2001-01-01T00:00:00Z'}
+        for key in ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'):
+            env.pop(key, None)
+        def git(*args):
+            return subprocess.run(['git', '-C', str(self.root), '-c', 'user.name=Fixture',
+                                   '-c', 'user.email=fixture@example.invalid', *args],
+                                  env=env, capture_output=True, check=True, timeout=10)
+        git('init', '-q')
+        (self.root / 'engine').mkdir()
+        (self.root / 'engine/source').write_text('source')
+        (self.root / 'LICENSE').write_text('terms')
+        git('add', 'engine', 'LICENSE')
+        git('commit', '-qm', 'source', '--no-gpg-sign')
+        identity = lambda: evidence.recipe_identity(self.root, recipe, env)
+        baseline = identity()
+        # An unrelated landing must retain both the byte and Git input identity.
+        (self.root / 'notes').write_text('unrelated documentation')
+        git('add', 'notes')
+        git('commit', '-qm', 'notes', '--no-gpg-sign')
+        self.assertEqual(baseline, identity())
+        git('rm', '--cached', 'LICENSE')
+        untracked = identity()
+        self.assertEqual(baseline['paths'], untracked['paths'])
+        self.assertNotEqual(baseline['git_inputs'], untracked['git_inputs'])
+        git('add', 'LICENSE')
+        self.assertEqual(baseline, identity())
+        git('config', 'core.quotepath', 'false')
+        self.assertNotEqual(baseline, identity())
+        git('config', '--unset', 'core.quotepath')
+        # Same final engine bytes with a newer engine history still change mtimes.
+        (self.root / 'engine/source').write_text('intermediate')
+        env['GIT_AUTHOR_DATE'] = env['GIT_COMMITTER_DATE'] = '2001-01-02T00:00:00Z'
+        git('add', 'engine'); git('commit', '-qm', 'intermediate', '--no-gpg-sign')
+        (self.root / 'engine/source').write_text('source')
+        git('add', 'engine'); git('commit', '-qm', 'restore', '--no-gpg-sign')
+        restored = identity()
+        self.assertEqual(baseline['paths'], restored['paths'])
+        self.assertNotEqual(baseline['git_inputs'], restored['git_inputs'])
+        for kind in declaration:
+            with self.subTest(kind=kind), self.assertRaisesRegex(ValueError, 'omits git_inputs ' + kind):
+                evidence.recipe_identity(self.root, {**recipe, 'git_inputs': {**declaration, kind: []}}, env)
+
     def test_shared_input_snapshot_keeps_distinct_external_fixtures_and_fresh_boundaries(self):
         source = self.root / 'input'
         source.write_text('one')
@@ -174,6 +227,14 @@ class Evidence(unittest.TestCase):
                     if contract.get('external_paths'):
                         with self.assertRaisesRegex(ValueError, 'omits external_paths'):
                             evidence.qualify_recipe(root, {**recipe, 'external_paths': []})
+                    for kind in contract.get('git_inputs', {}):
+                        broken = {**recipe, 'git_inputs': {**recipe['git_inputs'], kind: []}}
+                        with self.assertRaisesRegex(ValueError, 'omits git_inputs ' + kind):
+                            evidence.qualify_recipe(root, broken)
+                    for field in ('paths', 'external', 'environment'):
+                        for value in contract['requires'][field]:
+                            with self.assertRaisesRegex(ValueError, 'qualification omits ' + field):
+                                evidence.qualify_recipe(root, {**recipe, field: [v for v in recipe[field] if v != value]})
                 for tool in ("seq", "tee", "rmdir", "ln", "basename"):
                     broken = {**recipe, "tools": [name for name in recipe["tools"] if name != tool]}
                     with self.assertRaisesRegex(ValueError, "qualification omits tools: " + tool):

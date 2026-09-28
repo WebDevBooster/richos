@@ -225,7 +225,56 @@ def qualify_recipe(root, recipe):
     missing = sorted(set(required_external) - set(external_paths))
     if missing:
         raise ValueError("input qualification omits external_paths: " + ", ".join(missing))
+    git_inputs = recipe.get("git_inputs", {})
+    git_required = [contract.get("git_inputs", {})]
+    if extra is not None:
+        git_required.append(extra.get("git_inputs", {}))
+    for declaration in [git_inputs, *git_required]:
+        if not isinstance(declaration, dict) or set(declaration) - {"tracked", "last_change"}:
+            raise ValueError("invalid Git input declaration")
+        for values in declaration.values():
+            if not isinstance(values, list):
+                raise ValueError("invalid Git input paths")
+            for value in values:
+                relative(value)
+    for declaration in git_required:
+        for kind, required_paths in declaration.items():
+            missing = sorted(set(required_paths) - set(git_inputs.get(kind, [])))
+            if missing:
+                raise ValueError("input qualification omits git_inputs " + kind + ": " + ", ".join(missing))
+    if git_inputs and "git" not in recipe["tools"]:
+        raise ValueError("Git inputs require the git tool identity")
     return [qualification, review]
+
+
+def git_input_identity(root, declaration, environment):
+    """Read only the qualified index/history inputs, without keying on HEAD.
+
+    File contents are independently covered by paths. Tracked membership and
+    commit timestamps can change while those bytes stay identical. Whole-repo
+    HEAD would instead invalidate results for unrelated documentation commits.
+    """
+    if not declaration:
+        return {}
+    executable = shutil.which("git", path=environment.get("PATH"))
+    if not executable:
+        raise ValueError("Git input identity requires an available git")
+    def read(*args, absent=False):
+        result = subprocess.run([executable, "-C", str(root), *args], env=environment,
+                                capture_output=True, timeout=10)
+        if result.returncode != 0 and not (absent and result.returncode == 1):
+            raise ValueError("cannot read qualified Git input: " + " ".join(args))
+        return {"exit": result.returncode, "sha256": hashlib.sha256(result.stdout).hexdigest()}
+    identity = {}
+    if declaration.get("tracked"):
+        identity["tracked"] = read("ls-files", "--stage", "-z", "--", *declaration["tracked"])
+        # The packaging suite also uses line-oriented ls-files. Its quoting is
+        # controlled by local repository config even under the private profile.
+        identity["quote_path"] = read("config", "--get", "core.quotepath", absent=True)
+    if declaration.get("last_change"):
+        identity["last_change"] = {path: read("log", "-1", "--format=%ct", "--", path)
+                                   for path in declaration["last_change"]}
+    return identity
 
 
 def recipe_identity(root, recipe, environment, snapshot=None):
@@ -238,7 +287,7 @@ def recipe_identity(root, recipe, environment, snapshot=None):
     if recipe.get("fresh"):
         return {"fresh": recipe["fresh"]}
     required = {"paths", "tools", "environment", "external", "qualification"}
-    if set(recipe) - {"isolation", "qualification_unit", "external_paths"} != required or not recipe["qualification"]:
+    if set(recipe) - {"isolation", "qualification_unit", "external_paths", "git_inputs"} != required or not recipe["qualification"]:
         raise ValueError("incomplete verification input contract")
     root = Path(root).resolve()
     snapshot = snapshot or InputSnapshot()
@@ -283,6 +332,7 @@ def recipe_identity(root, recipe, environment, snapshot=None):
     literal_external = {path: digest(snapshot.path(path)) for path in recipe.get("external_paths", [])}
     return {"contract": digest(recipe), "paths": paths, "tools": tools, "profile": profile,
             "external_paths": literal_external,
+            "git_inputs": git_input_identity(root, recipe.get("git_inputs"), environment),
             "environment": values, "external": external,
             "platform": [platform.system(), platform.release(), platform.machine(), platform.mac_ver()[0], os.cpu_count()]}
 

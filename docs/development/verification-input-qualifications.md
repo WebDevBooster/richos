@@ -118,3 +118,13 @@ Their records, worktrees and Git histories are generated fixtures. The optional
 including its inventory and contents. Its omission is rejected by the unit floor.
 The per-unit rows describe each fixture boundary; these are not blanket grants
 for other record suites with live clock, process or transcript inputs.
+
+The `make-engine-asset` recipe includes the root `LICENSE`, third-party notices
+and the complete `RICHOS_RUNTIME_DIR` inventory. Its Git inputs cover tracked
+engine members, tracked packaging additions and the last engine commit timestamp.
+Index membership, index modes and the effective path-quoting option participate
+in identity. The current HEAD printed in the pin comment is provenance only;
+an unrelated commit does not invalidate identical archive inputs. The extracted
+Node test uses generated models and a private loopback HTTP server. It never
+downloads a model from a remote host. Missing known packaging inputs are rejected
+before reuse. This declaration does not by itself constitute an archive test pass.
