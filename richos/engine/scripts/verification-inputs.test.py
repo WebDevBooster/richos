@@ -152,6 +152,30 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_vendoring_unsourced_defaults_keep_adoption_and_registration(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/guard-vendoring-commits.test.sh'
+        closure = graph.closure(unit)
+        self.assertFalse(closure['keys'] or closure['whole'] or closure['fallback'], closure)
+        self.assertTrue(closure['presence'])
+        change = inputs.config_change('VENDORING_DECLARATION=a', 'VENDORING_DECLARATION=b')
+        self.assertFalse(graph.config_units(change, [unit]))
+        self.assertIn(unit, graph.config_units(inputs.config_change('VENDORING_DECLARATION=a', None), [unit]))
+        row = document['hook_readers'][unit]
+        reader = lambda path: (HERE.parent / path).read_text()
+        inputs.hook_reader(row, reader)
+        self.assertEqual(row['commands'], ['scripts/hooks/guard-vendoring-commits.sh'])
+        for helper in ('scripts/lib/git-jurisdiction.sh', 'scripts/lib/vendored-material.sh',
+                       'scripts/hooks/guard-vendoring-commits.mutation.sh'):
+            old = document['nodes'][helper]['sha256']
+            document['nodes'][helper]['sha256'] = 'changed'
+            self.assertIn(unit, graph.config_units(change, [unit]), helper)
+            document['nodes'][helper]['sha256'] = old
+        row['sources']['scripts/lib/vendored-material.sh'] = 'changed'
+        with self.assertRaises(inputs.Unsupported):
+            inputs.hook_reader(row, reader)
+
     def test_quota_fixture_retains_real_cleanup_and_nested_transport(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

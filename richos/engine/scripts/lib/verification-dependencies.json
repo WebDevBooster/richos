@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "b35b318849ef273c6c3bc45313e339d06fa75ec74e3498362e4754ac542c41c8",
+      "sha256": "6ff61fe1aef61cb35815e62eb92c6fdf157408660719001fedf6a9b249138886",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -8012,6 +8012,65 @@
           "to": "scripts/quota-watch.mutation.sh"
         }
       ]
+    },
+    "scripts/hooks/guard-vendoring-commits.sh": {
+      "source": "scripts/hooks/guard-vendoring-commits.sh",
+      "sha256": "88f0eef0c45b61a143ce0ebd0cba1b8ceda9f908d0cfed09994a9acc30da1208",
+      "evidence": "Complete guard resolves adoption and Git jurisdiction but never sources orchestration.config. Vendoring uses unsourced defaults; command/message text is parsed as data. It performs fixed Git reads and appends accepted acknowledgements only. No payload command executes.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/vendored-material.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-vendoring-commits.mutation.sh": {
+      "source": "scripts/hooks/guard-vendoring-commits.mutation.sh",
+      "sha256": "ffc1e0470f3737677e3be7350de971ec328ca7c726803bc2b0dd9ed5e6463063",
+      "evidence": "Full finite mutation driver rewrites the guard or vendoring predicate then invokes the same suite through the generic harness. Source operands are data and introduce no new executable helper. Shipped config transport remains a presence dependency.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-vendoring-commits.test.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-vendoring-commits.test.sh": {
+      "source": "scripts/hooks/guard-vendoring-commits.test.sh",
+      "sha256": "4b486cec7187c7ba639a3d35a12fb6845959b71fac008dbf9f3727573e0aa674",
+      "evidence": "Full suite creates private Git repos and literal vendoring registries with hooks disabled. It explicitly resolves real engine adoption without sourcing config, checks the shipped vendoring declaration and tracked inventory as data and verifies only its own registration. Direct library sourcing uses unsourced defaults. Nested finite mutants repeat these paths, omitting only the shipped-tree data section.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/registered-hooks.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-vendoring-commits.sh"
+        },
+        {
+          "to": "scripts/lib/vendored-material.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-vendoring-commits.mutation.sh"
+        }
+      ]
     }
   },
   "units": {
@@ -8129,7 +8188,8 @@
     "scripts/hooks/protected-ref-moves.test.sh": "scripts/hooks/protected-ref-moves.test.sh",
     "scripts/hooks/owned-state.test.sh": "scripts/hooks/owned-state.test.sh",
     "scripts/hooks/left-off.test.sh": "scripts/hooks/left-off.test.sh",
-    "scripts/quota-watch.test.sh": "scripts/quota-watch.test.sh"
+    "scripts/quota-watch.test.sh": "scripts/quota-watch.test.sh",
+    "scripts/hooks/guard-vendoring-commits.test.sh": "scripts/hooks/guard-vendoring-commits.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
@@ -8756,6 +8816,36 @@
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7"
       }
+    },
+    "scripts/hooks/guard-vendoring-commits.test.sh": {
+      "commands": [
+        "scripts/hooks/guard-vendoring-commits.sh"
+      ],
+      "sources": {
+        "scripts/hooks/guard-vendoring-commits.test.sh": "4b486cec7187c7ba639a3d35a12fb6845959b71fac008dbf9f3727573e0aa674",
+        "scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
+        "scripts/hooks/guard-vendoring-commits.sh": "88f0eef0c45b61a143ce0ebd0cba1b8ceda9f908d0cfed09994a9acc30da1208",
+        "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
+        "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
+        "scripts/lib/vendored-material.sh": "630fc9746255b5e2c6cf24be71ba0b9780a5d673f98559db3099b44f47fa3c92",
+        "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
+        "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "scripts/hooks/guard-vendoring-commits.mutation.sh": "ffc1e0470f3737677e3be7350de971ec328ca7c726803bc2b0dd9ed5e6463063",
+        "scripts/lib/mutation-harness.sh": "9dd839120e0a3b2ae4ef91054e076a8e9ea31c4592dbe0ea3eb80f3f018c88b0",
+        "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
+        "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
+        "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
+        "scripts/lib/worker_tokens.py": "8c4cada1e7a4883a65435017ebac01c27307724a9724ea698f0df699898ff6b2",
+        "scripts/lib/proc_tree.py": "dbd97c9b9758184e960348cd6c81e5089ae9691aee8324977a3ddbc0460a219d",
+        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
+        "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
+        "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
+        "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1"
+      },
+      "evidence": "Only this guard registration is resolved on plugin and seated surfaces. Probe, installer and declaration-resolver source assertions are text data; no other hook registration is executed."
     }
   }
 }
