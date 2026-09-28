@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "56ac88f15ecdba06911f046db0741d27c911388457d8e6098864b549544f2c33",
+      "sha256": "9122b1a5c7190c327d72197679f95f753b5bc72c5d7c6a4fcb80b1773d344fdc",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -5584,6 +5584,156 @@
         "if _section MF; then",
         "fi  # _section — MF\n"
       ]
+    },
+    "scripts/hooks/notice-unstarted-rows.sh#fixture-records": {
+      "source": "scripts/hooks/notice-unstarted-rows.sh",
+      "sha256": "1bfd646f55b220671bdf92e393491341ab74b06b7f04553ffd33c48d625955d1",
+      "evidence": "Normal Stop dispatch resolves adoption and notice state, then invokes the fixed unstarted-row helper. It never sources orchestration config; fixture callers construct record declarations, queue and worktree claims.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/unstarted-rows.sh#fixture-records"
+        }
+      ]
+    },
+    "scripts/hooks/unstarted-rows.test.sh": {
+      "source": "scripts/hooks/unstarted-rows.test.sh",
+      "sha256": "f1782db977ff86d8527b9942c6e92412fa0e0c42e503eb5254b6fb4c1afb457b",
+      "evidence": "Builds a private adopted repository, literal row/CEO-TODO declarations, queue, record and claimed worktrees. Only the copied notice, lint and predicate execute. Its nested mutation harness copies the same fixed helpers and rebuilds these fixtures.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/notice-unstarted-rows.sh#fixture-records",
+          "fixture": true
+        },
+        {
+          "to": "scripts/unstarted-rows-lint.sh#fixture-records",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/unstarted-rows.mutation.sh"
+        }
+      ]
+    },
+    "scripts/hooks/unstarted-rows.mutation.sh": {
+      "source": "scripts/hooks/unstarted-rows.mutation.sh",
+      "sha256": "bdab1a4acab1d764e4d97e74e25883287c2595f7ac4d1a0c293218a6977b4af0",
+      "evidence": "Finite literal patches run the fixed copied unstarted-row test with RICHOS_MUTATION_INNER=1. No shipped config is copied; nested test rebuilds private configuration and records. None of the patches adds a new input or executable.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/stopwatch.sh"
+        },
+        {
+          "to": "scripts/lib/mutation-pool.sh"
+        },
+        {
+          "to": "scripts/hooks/unstarted-rows.test.sh"
+        }
+      ]
+    },
+    "ass-kicker/guard-stated-actions.py": {
+      "source": "ass-kicker/guard-stated-actions.py",
+      "sha256": "e18787c25137c401eabdb34cfe833612c7d569a1aa790e9dfcd7955470697fc4",
+      "evidence": "AST I/O/import boundaries: parses payload/transcript data, lists role names, reads team JSON and appends a verdict ledger. The only dynamic imports are the fixed turn-manifest and idle-land analyzers. Neither transcript commands nor role Markdown are executed. Ambient roster inputs require separate execution-reuse qualification.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/turn-manifest.py"
+        },
+        {
+          "to": "scripts/hooks/guard-idle-land.py"
+        }
+      ]
+    },
+    "scripts/hooks/guard-stated-actions.sh#hook": {
+      "source": "scripts/hooks/guard-stated-actions.sh",
+      "sha256": "21ba110b91c10046b34ae46153ef9a42b140f5833e53217bfdb7e1b656862a27",
+      "evidence": "Normal Stop invocation sources entity configuration for two flags, performs fixed recovery/payload/root checks and executes the fixed stated-actions analyzer. --self-test dispatch is not reached by the fixture callers.",
+      "keys": [
+        "CHECK_STATED_ACTIONS",
+        "STATED_ACTIONS_ENFORCE"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/stop-session-recovery.py"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "ass-kicker/guard-stated-actions.py"
+        }
+      ]
+    },
+    "ass-kicker/tests/guard-stated-actions.test.sh": {
+      "source": "ass-kicker/tests/guard-stated-actions.test.sh",
+      "sha256": "2d60f14e7fbc4cb65f11873f119fa1a8b6920552b54ca434418d63a5099e25e6",
+      "evidence": "All hook invocations use the explicit private entity or private unadopted repository. Entity configs are empty or contain literal flag overrides; transcripts and role Markdown are generated as data. Mirror fixtures exercise missing helpers; the real analyzer is otherwise invoked. No mutation harness is called here.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-stated-actions.sh#hook",
+          "fixture": true
+        }
+      ],
+      "literal_keys": {
+        "CHECK_STATED_ACTIONS": "Literal private fixture override.",
+        "STATED_ACTIONS_ENFORCE": "Literal private fixture override."
+      }
+    },
+    "ass-kicker/tests/stated-actions.mutation.sh": {
+      "source": "ass-kicker/tests/stated-actions.mutation.sh",
+      "sha256": "6ee77e488fc4d2b872d0e94b5a1d0ede7f8212c04036d914a80fa82e375e3c89",
+      "evidence": "Control and finite source mutants execute the same fixed stated-actions test, which recreates private entity config. The one added transcript reader reads generated JSON only. Replacement operands are source data; helper copies are fixed.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/stopwatch.sh"
+        },
+        {
+          "to": "scripts/lib/mutation-pool.sh"
+        },
+        {
+          "to": "ass-kicker/tests/guard-stated-actions.test.sh"
+        }
+      ],
+      "literal_keys": {
+        "CHECK_STATED_ACTIONS": "Quoted source replacement operand; the nested suite supplies the private setting."
+      }
+    },
+    "scripts/hooks/contract-integrity.test.sh#SA": {
+      "source": "scripts/hooks/contract-integrity.test.sh",
+      "sha256": "367fc70f5ccbc66e5be5f1414d821f4c11c69916829c9ca27aa2ddfb1b5638d2",
+      "evidence": "SA executes only the fixed stated-actions suite and its mutation driver after shared private-template setup. Both nested calls recreate private configuration; no contract probe runs in this section.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/contract-integrity.test.sh#prelude"
+        },
+        {
+          "to": "ass-kicker/tests/guard-stated-actions.test.sh"
+        },
+        {
+          "to": "ass-kicker/tests/stated-actions.mutation.sh"
+        }
+      ],
+      "region": [
+        "if _section SA; then",
+        "fi  # _section — SA\n"
+      ]
     }
   },
   "units": {
@@ -5682,7 +5832,10 @@
     "scripts/hooks/contract-integrity.test.sh:MC": "scripts/hooks/contract-integrity.test.sh#MC",
     "scripts/hooks/contract-integrity.test.sh:IP": "scripts/hooks/contract-integrity.test.sh#IP",
     "scripts/hooks/mechanical-findings.test.sh": "scripts/hooks/mechanical-findings.test.sh",
-    "scripts/hooks/contract-integrity.test.sh:MF": "scripts/hooks/contract-integrity.test.sh#MF"
+    "scripts/hooks/contract-integrity.test.sh:MF": "scripts/hooks/contract-integrity.test.sh#MF",
+    "scripts/hooks/unstarted-rows.test.sh": "scripts/hooks/unstarted-rows.test.sh",
+    "ass-kicker/tests/guard-stated-actions.test.sh": "ass-kicker/tests/guard-stated-actions.test.sh",
+    "scripts/hooks/contract-integrity.test.sh:SA": "scripts/hooks/contract-integrity.test.sh#SA"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
@@ -5946,6 +6099,9 @@
       "all_events": true,
       "evidence": "Every scoped section derives its sandbox inventory from the entire real hooks manifest before dispatch. All event changes remain observable, including future events. These source bindings cover the shared inventory builders and all currently qualified scoped execution closures.",
       "sources": {
+        "ass-kicker/guard-stated-actions.py": "e18787c25137c401eabdb34cfe833612c7d569a1aa790e9dfcd7955470697fc4",
+        "ass-kicker/tests/guard-stated-actions.test.sh": "2d60f14e7fbc4cb65f11873f119fa1a8b6920552b54ca434418d63a5099e25e6",
+        "ass-kicker/tests/stated-actions.mutation.sh": "6ee77e488fc4d2b872d0e94b5a1d0ede7f8212c04036d914a80fa82e375e3c89",
         "mega-lander/workspaces.py": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
         "mega-lander/workspaces.sh": "93b86b885516641e69a7cd84105260ee94d52300f0099362c7ed9b475855764e",
         "scripts/entrypoint-currency-lint.sh": "09d95bf0ae992caa52ab7eeaec9613a0cb6ca23933a4f8450c52aba36d8f7486",
@@ -5971,6 +6127,7 @@
         "scripts/hooks/guard-resume-isolation.sh": "2366c33e6d87e0b53a7c1e18a6b153b72652ac86532f88e145fd66539e373f56",
         "scripts/hooks/guard-resume-isolation.test.sh": "8ae7ff8931733948b030736169ed956efdededac982f44e1973bc10374227908",
         "scripts/hooks/guard-sealed-worktree.sh": "5fdfedcb7ff7a83f4411eb5a90919ab1fc5d037a6362221551f75db8621d0f93",
+        "scripts/hooks/guard-stated-actions.sh": "21ba110b91c10046b34ae46153ef9a42b140f5833e53217bfdb7e1b656862a27",
         "scripts/hooks/guard-unresolved-claims.mutation.sh": "47cabc1161cf1781224d1c8c2867e171421cab75c957710d09ec76879cc48607",
         "scripts/hooks/guard-unresolved-claims.py": "793b6ea10ac7db990e7c3062af9ce21d7fbcf984804d69d92452ab336737d053",
         "scripts/hooks/guard-unresolved-claims.sh": "88db28246b8e79d1d623d26e366fcc3c8bf1811e3bb464fc04d484761ead14d2",
@@ -5991,6 +6148,7 @@
         "scripts/hooks/notice-mechanical-findings.sh": "f2c24f99590165f5451c6a38cc8145c757e528dfb5a0528c6ddb0bb9efb46f9f",
         "scripts/hooks/scan-secrets.sh": "d23d1d44376e0557597f8a0add40a0226049d801769af48d81095002477e0c73",
         "scripts/hooks/snapshot-agent-definitions.sh": "51f92567f9daaa9bacd37082d0cd30beba284b3149714c8a45f945738d6ebaff",
+        "scripts/hooks/turn-manifest.py": "f7846899fa05c44ed325cffa18c6304c3177b46901923bd26d829e226d87665b",
         "scripts/hooks/workspace-lifecycle.sh": "e8a6bd193fe910eb22f76da44c81b04feaa04e2a7429b055823ea8efc8df72e8",
         "scripts/inflight-ack.sh": "4fb7b966b62d32bf662719990643dc3b874d79a33e4aac1fbaec3b242a106adb",
         "scripts/inflight-notify.sh": "e6f19fa062751cb68eb1d06f08b95b7a60c02b4491865edcfb8db5e245ec8265",

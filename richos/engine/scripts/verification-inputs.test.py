@@ -152,6 +152,28 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_unstarted_and_stated_actions_rebuild_private_configuration(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        units = ('scripts/hooks/unstarted-rows.test.sh',
+                 'ass-kicker/tests/guard-stated-actions.test.sh',
+                 'scripts/hooks/contract-integrity.test.sh:SA')
+        for unit in units:
+            closure = graph.closure(document['units'][unit])
+            self.assertFalse(any(closure.values()), (unit, closure))
+        change = inputs.config_change('CHECK_STATED_ACTIONS=1', 'CHECK_STATED_ACTIONS=0')
+        self.assertFalse(graph.config_units(change, units))
+        self.assertFalse(graph.config_units(inputs.config_change('PROTECTED_PATHS=app', None), units))
+        for helper, affected in (
+                ('scripts/hooks/unstarted-rows.mutation.sh', units[:1]),
+                ('scripts/lib/row-currency.py#fixture-records', units[:1]),
+                ('ass-kicker/guard-stated-actions.py', units[1:]),
+                ('scripts/lib/stop-session-recovery.py', units[1:]),
+                ('ass-kicker/tests/stated-actions.mutation.sh', units[2:])):
+            previous = document['nodes'].pop(helper)
+            self.assertEqual(set(graph.config_units(change, units)), set(affected))
+            document['nodes'][helper] = previous
+
     def test_mechanical_findings_only_read_fixture_configuration_and_inventory(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)
