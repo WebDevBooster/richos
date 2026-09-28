@@ -367,20 +367,47 @@ class Dependencies:
                 raise Unsupported("nonliteral config command binding: " + key)
             if literal not in allowed:
                 raise Unsupported("changed config command binding: " + key)
+        inventory = row.get("source_inventory")
+        if inventory is not None:
+            if (not isinstance(inventory, dict) or set(inventory) != {"directory", "members"}
+                    or not isinstance(inventory["directory"], str)
+                    or not isinstance(inventory["members"], list)
+                    or any(not isinstance(member, str) or not member or member in (".", "..", "__pycache__")
+                           or Path(member).name != member for member in inventory["members"])
+                    or len(set(inventory["members"])) != len(inventory["members"])):
+                raise Unsupported("invalid source inventory: " + name)
+            relative = Path(inventory["directory"])
+            if relative.is_absolute() or ".." in relative.parts or not relative.parts:
+                raise Unsupported("invalid source inventory directory: " + name)
+            try:
+                members = list((self.root / relative).iterdir())
+                actual = sorted(member.name for member in members if member.name != "__pycache__")
+                if any(member.is_symlink() for member in members):
+                    raise Unsupported("redirected source inventory: " + name)
+            except OSError:
+                raise Unsupported("missing source inventory: " + name) from None
+            if actual != sorted(inventory["members"]):
+                raise Unsupported("changed source inventory: " + name)
         for external in row.get("external", []):
             relative = Path(external.get("path", ""))
-            if (external.get("root") not in ("HOME", "environment") or relative.is_absolute()
+            if (external.get("root") not in ("HOME", "environment", "repository") or relative.is_absolute()
                     or ".." in relative.parts or not relative.parts
                     or not external.get("evidence")):
                 raise Unsupported("invalid external reader binding: " + name)
             if external["root"] == "HOME":
                 base = Path.home()
+            elif external["root"] == "repository":
+                # The selector root is <repository>/richos/engine.
+                base = self.root.parent.parent
             else:
                 variable = external.get("variable", "")
                 default = external.get("default", "")
-                if not NAME.fullmatch(variable) or not isinstance(default, str):
+                engine_default = external.get("default_engine", False)
+                if (not NAME.fullmatch(variable) or not isinstance(default, str)
+                        or type(engine_default) is not bool or (engine_default and default)):
                     raise Unsupported("invalid external environment binding: " + name)
-                base = Path(os.environ.get(variable) or default)
+                value = os.environ.get(variable)
+                base = (self.root if value is None else Path(value)) if engine_default else Path(value or default)
                 if not base.is_absolute():
                     raise Unsupported("relative external environment binding: " + name)
             path = base / relative

@@ -165,6 +165,118 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_discovery_and_relocated_external_inputs_fail_closed(self):
+        import copy
+        import shutil
+        with tempfile.TemporaryDirectory(prefix='input-boundaries-') as directory:
+            repository = Path(directory) / 'repo'
+            root = repository / 'richos/engine'
+            fixtures = root / 'fixtures'
+            fixtures.mkdir(parents=True)
+            (fixtures / 'reader.py').write_text('pass\n')
+            (fixtures / 'helper.py').write_text('pass\n')
+            (repository / 'outside.py').write_text('pass\n')
+            digest = hashlib.sha256(b'pass\n').hexdigest()
+            document = {'schema': 1, 'config_keys': [], 'units': {'unit': 'reader'}, 'nodes': {'reader': {
+                'source': 'fixtures/reader.py', 'sha256': digest, 'evidence': 'Closed fixture', 'keys': [],
+                'source_inventory': {'directory': 'fixtures', 'members': ['reader.py', 'helper.py']},
+                'external': [{'root': 'repository', 'path': 'outside.py', 'sha256': digest, 'evidence': 'Sibling helper'},
+                             {'root': 'environment', 'variable': 'RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT',
+                              'default_engine': True, 'path': 'fixtures/helper.py', 'sha256': digest,
+                              'evidence': 'Alternate engine helper'}]}}}
+            change = inputs.config_change('A=one', 'A=two')
+            def selected(doc=document, at=root):
+                return inputs.Dependencies(at, doc).config_units(change, ['unit'])
+            with patch.dict(os.environ):
+                os.environ.pop('RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT', None)
+                self.assertFalse(selected())
+                other = Path(directory) / 'relocated'
+                shutil.copytree(repository, other)
+                self.assertFalse(selected(at=other / 'richos/engine'))
+                (other / 'outside.py').write_text('changed')
+                self.assertTrue(selected(at=other / 'richos/engine'))
+                self.assertFalse(selected())
+                (repository / 'outside.py').unlink()
+                self.assertTrue(selected())
+                (repository / 'outside.py').write_text('pass\n')
+                for name in ('test_new.py', 'package'):
+                    target = fixtures / name
+                    target.mkdir() if name == 'package' else target.write_text('pass\n')
+                    self.assertTrue(selected())
+                    target.rmdir() if name == 'package' else target.unlink()
+                (fixtures / 'helper.py').unlink()
+                self.assertTrue(selected())
+                (fixtures / 'helper.py').write_text('pass\n')
+                (fixtures / 'helper.py').unlink()
+                (fixtures / 'helper.py').symlink_to(repository / 'outside.py')
+                self.assertTrue(selected())
+                (fixtures / 'helper.py').unlink()
+                (fixtures / 'helper.py').write_text('pass\n')
+                for override in ('', 'relative', str(Path(directory) / 'absent')):
+                    os.environ['RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT'] = override
+                    self.assertTrue(selected())
+                os.environ['RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT'] = str(other / 'richos/engine')
+                self.assertFalse(selected())
+                (other / 'richos/engine/fixtures/helper.py').write_text('changed')
+                self.assertTrue(selected())
+                os.environ.pop('RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT')
+                for invalid in ({}, {'directory': '../escape', 'members': []},
+                                {'directory': 'fixtures', 'members': ['reader.py', 'reader.py']},
+                                {'directory': 'fixtures', 'members': [None]},
+                                {'directory': 'fixtures', 'members': ['../reader.py']}):
+                    bad = copy.deepcopy(document)
+                    bad['nodes']['reader']['source_inventory'] = invalid
+                    self.assertTrue(selected(bad))
+                bad = copy.deepcopy(document)
+                bad['nodes']['reader']['external'][1]['default_engine'] = 'yes'
+                self.assertTrue(selected(bad))
+
+    def test_last_four_fixtures_keep_all_execution_inputs(self):
+        from functools import lru_cache
+        import copy
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        @lru_cache(None)
+        def read(path): return (HERE.parent / path).read_text()
+        units = ['scripts/lib/cpu_guard.test.sh', 'scripts/lib/verification-pressure.test.sh',
+                 'ecs/tests/run.test.sh', 'scripts/hooks/lifecycle-payload-transport.test.sh']
+        change = inputs.config_change('CHECK_FAILURE_TYPE=0', 'CHECK_FAILURE_TYPE=1')
+        with patch.dict(os.environ):
+            os.environ.pop('RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT', None)
+            for unit in units:
+                with self.subTest(unit=unit):
+                    graph = inputs.Dependencies(HERE.parent, document, read=read)
+                    self.assertFalse(graph.closure(unit)['fallback'])
+                    self.assertFalse(graph.config_units(change, [unit]))
+                    # Check every newly declared reached source, plus source-bound
+                    # existing boundaries. Prior helper controls remain applicable.
+                    visited, sources = set(), set()
+                    def walk(name):
+                        if name in visited: return
+                        visited.add(name)
+                        row = document['nodes'][name]
+                        sources.add(row['source'])
+                        if name in ('scripts/lib/cpu_guard.py', 'scripts/lib/worker_tokens.py',
+                                    'scripts/lib/proc_tree.py', 'ecs/core/ecs_core.py',
+                                    'ecs/core/ecs_checkpoint.py', 'ecs/core/ecs_inspect.py'):
+                            return
+                        for edge in row.get('edges', []): walk(edge['to'])
+                    walk(unit)
+                    # One invalidation per source; exact-source and external-root
+                    # mechanics have independent controls above.
+                    for source in sources:
+                        changed = lambda p: read(p) + '\n# changed\n' if p == source else read(p)
+                        self.assertIn(unit, inputs.Dependencies(HERE.parent, document, read=changed).config_units(change, [unit]), source)
+            for name in ('scripts/lib/cpu_guard.py#policy-fixtures', 'scripts/lib/verification-pressure.test.py#runner',
+                         'scripts/hooks/lifecycle-payload-transport.test.py'):
+                bad = copy.deepcopy(document)
+                bad['nodes'][name]['external'][-1]['sha256'] = 'changed'
+                owner = units[0] if 'cpu_guard' in name else units[1] if 'pressure' in name else units[3]
+                self.assertIn(owner, inputs.Dependencies(HERE.parent, bad, read=read).config_units(change, [owner]))
+            for name in ('ecs/tests/run.test.sh', 'ecs/adapters/app.py#discovery-fixtures'):
+                bad = copy.deepcopy(document)
+                bad['nodes'][name]['source_inventory']['members'].append('unreviewed.py')
+                self.assertIn(units[2], inputs.Dependencies(HERE.parent, bad, read=read).config_units(change, [units[2]]))
+
     def test_foreign_app_fixture_keeps_full_dispatch_chain(self):
         from functools import lru_cache
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
