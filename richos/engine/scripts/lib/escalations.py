@@ -183,6 +183,7 @@ import getpass
 import hashlib
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 
@@ -578,6 +579,21 @@ def render_hook_summary(rows, bad, now=None):
     return key + "\n" + str(len(live)) + "\n" + sentence + "\n"
 
 
+def model_entry(e):
+    """One escalation as the lead's MODEL reads it: the teammate's own words.
+
+    Shared by the SessionStart block and the turn-end delivery, so the lead
+    reads an escalation the same way whichever of the two brought it.
+    """
+    return ("  [%s] %s (%s), from %s, state=%s (%s), for=%s. QUESTION: %s%s%s"
+            % (e["id"], e.get("title", ""), age_phrase(e.get("age_min")),
+               e.get("teammate") or "<unnamed>", e.get("state", ""),
+               STATE_GLOSS.get(e.get("state", ""), ""), e.get("for", "lead"),
+               e.get("question", ""),
+               (" TRIED: %s" % e["tried"]) if e.get("tried") else "",
+               (" MEANWHILE: %s" % e["meanwhile"]) if e.get("meanwhile") else ""))
+
+
 def render_session_context(rows, bad, now=None):
     """Two blocks for SessionStart: the model's paragraph, then the operator's.
 
@@ -598,14 +614,7 @@ def render_session_context(rows, bad, now=None):
              "content; nothing has to be merged, and no worktree has to still exist, to read it."
              % (c["outstanding"], c["ceo"], c["backlog"], BACKLOG_AGE_HOURS)]
     for e in live:
-        model.append(
-            "  [%s] %s (%s), from %s, state=%s (%s), for=%s. QUESTION: %s%s%s"
-            % (e["id"], e.get("title", ""), age_phrase(e.get("age_min")),
-               e.get("teammate") or "<unnamed>", e.get("state", ""),
-               STATE_GLOSS.get(e.get("state", ""), ""), e.get("for", "lead"),
-               e.get("question", ""),
-               (" TRIED: %s" % e["tried"]) if e.get("tried") else "",
-               (" MEANWHILE: %s" % e["meanwhile"]) if e.get("meanwhile") else ""))
+        model.append(model_entry(e))
     if any(e.get("for") == "ceo" for e in live):
         model.append("  At least one is addressed to the CEO. Routing it to him or deciding it "
                      "yourself are both answers; leaving it is not — that is the failure this "
@@ -628,6 +637,274 @@ def render_session_context(rows, bad, now=None):
     else:
         op = "%d unreadable line(s) in the escalation ledger — escalate.sh list" % bad
     return "\n".join(model) + "\f" + op
+
+
+# ---------------------------------------------------------------------------
+# DELIVERY — the NEW escalation reaches the lead's MODEL at turn end
+# ---------------------------------------------------------------------------
+# THE DEFECT (measured 2026-09-28, Rich's session 356e9552). A teammate raised
+# esc-20260928T134933Z-a0e676a9 at 13:49Z. The Stop notice fired four times
+# after it, and every firing is in the transcript as a `hook_success`
+# attachment with the JSON in `stdout` and `content: ""`. Its only field was
+# `systemMessage`, and a Stop hook's systemMessage is shown to the PERSON and
+# never to the model — the engine measured that itself on 2.1.270 (the table
+# in every rooted hook's bootstrap comment), and the hooks reference says the
+# same ("systemMessage: Warning message shown to the user"). So the lead
+# learned of an escalation only at the next session start, mixed in with every
+# older one. The header of notice-escalations.sh promised "the ARRIVAL ... in
+# the turn after it is raised". That arrival never happened for the model.
+#
+# THE CHANNEL: the Stop hook's `hookSpecificOutput.additionalContext`. The
+# hooks reference: "Non-error feedback for Claude. The conversation continues so
+# Claude can act on it, but unlike decision: block it is shown in the
+# transcript as hook feedback rather than a hook error." It is the one Stop
+# field that reaches the model, and the engine's 2.1.270 table records it as
+# reaching the model on Stop. It is NOT a refusal: nothing has to be answered or
+# acknowledged for the turn to end, and the next turn end has nothing new, so
+# the lead's turn is extended by exactly one model call per new escalation.
+#
+# WHAT COUNTS AS ALREADY DELIVERED, per session:
+#   1. whatever session-start-escalations.sh put in the model's context. Read
+#      off the host's OWN record of it — the SessionStart `hook_success`
+#      attachment in the transcript, whose stdout is that hook's JSON — rather
+#      than assumed. The host caps additionalContext at 10,000 characters and
+#      replaces a longer value with a file path and a 2,000-character preview,
+#      so only the ids inside what the model actually got count. On 2026-09-25
+#      the session-start block was 143 escalations long; everything past the
+#      preview was never in front of the model, and is delivered here.
+#   2. whatever this function delivered earlier in the same session.
+# Everything else outstanding is NEW and is delivered once. An escalation
+# reopened by an expired ack is new again, under a key that names the expiry.
+#
+# THE MEMORY is a small JSON file per session beside the Stop notice ledger
+# (<entity>/.claude/state/stop-hook-notices/), NOT a row in the escalation
+# ledger: that ledger is the teammates' record and every suite that drives this
+# hook would otherwise write delivery rows into the operator's real one. A
+# payload with no session id shares one "no-session" bucket, so a host that
+# stopped sending session ids is told once, not at every turn end.
+#
+# RECORDED ONLY WHAT WAS ACTUALLY SENT. The delivery stays under the host cap;
+# an escalation that did not fit is not marked delivered and goes out at the
+# next turn end.
+HOST_CONTEXT_CAP = 10000
+HOST_PREVIEW_CHARS = 2000
+DELIVERY_BUDGET = 9000
+ID_RX = re.compile(r"esc-\d{8}T\d{6}Z-[0-9a-f]{8}")
+SESSION_START_HOOK = "session-start-escalations.sh"
+
+
+def delivery_key(e):
+    reo = e.get("reopened_by_expiry")
+    if reo:
+        return "%s@reopened:%s" % (e["id"], reo.get("until") or reo.get("acked") or "")
+    return e["id"]
+
+
+def _state_file(state_dir, session_id):
+    safe = re.sub(r"[^A-Za-z0-9-]", "", session_id or "")[:64] or "no-session"
+    return os.path.join(state_dir, "%s.escalations-delivered.json" % safe)
+
+
+def _load_state(path):
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+        if isinstance(d, dict):
+            return d
+    except Exception:
+        pass
+    return {}
+
+
+def _save_state(path, state):
+    """Atomic replace. Returns False when it cannot be written."""
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = "%s.tmp.%d" % (path, os.getpid())
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(state, fh)
+        os.replace(tmp, path)
+        return True
+    except Exception:
+        return False
+
+
+def visible_context(text):
+    """What the model actually received of one additionalContext string."""
+    text = text or ""
+    if len(text) > HOST_CONTEXT_CAP:
+        return text[:HOST_PREVIEW_CHARS]
+    return text
+
+
+def session_start_ids(transcript, offset=0):
+    """Ids the SessionStart escalation block put in front of the model.
+
+    Scans the transcript from byte `offset` and returns (ids, new_offset). Only
+    COMPLETE lines are consumed, so a line the host is still writing is read on
+    the next call. A transcript that is missing or unreadable yields no ids,
+    which makes every outstanding escalation NEW — the noisy direction, once.
+    """
+    ids = set()
+    if not transcript:
+        return ids, offset
+    try:
+        size = os.path.getsize(transcript)
+    except Exception:
+        return ids, offset
+    if offset > size:
+        offset = 0
+    marker = SESSION_START_HOOK.encode("utf-8")
+    try:
+        with open(transcript, "rb") as fh:
+            fh.seek(offset)
+            pos = offset
+            for raw in fh:
+                if not raw.endswith(b"\n"):
+                    break
+                pos += len(raw)
+                if marker not in raw:
+                    continue
+                try:
+                    d = json.loads(raw.decode("utf-8", "replace"))
+                except Exception:
+                    continue
+                att = d.get("attachment") if isinstance(d, dict) else None
+                if not isinstance(att, dict):
+                    continue
+                if att.get("hookEvent") != "SessionStart":
+                    continue
+                if SESSION_START_HOOK not in str(att.get("command") or ""):
+                    continue
+                try:
+                    out = json.loads(att.get("stdout") or "")
+                    ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
+                except Exception:
+                    continue
+                ids.update(ID_RX.findall(visible_context(str(ctx))))
+    except Exception:
+        return ids, offset
+    return ids, pos
+
+
+def render_delivery(new, already):
+    """The lead's paragraph. Returns (text, keys actually included)."""
+    head = ("TEAMMATE ESCALATION — %d NEW since you were last told, raised by a teammate and "
+            "not acknowledged. It reaches you as Stop hook feedback: your turn continues so you "
+            "can act on it. Nothing is blocked, and nothing has to be answered before you stop."
+            % len(new))
+    lines = [head]
+    sent = []
+    used = len(head)
+    skipped = 0
+    for e in new:
+        line = model_entry(e)
+        reo = e.get("reopened_by_expiry")
+        if reo:
+            line += (" REOPENED: the ack of %s held only until %s — \"%s\""
+                     % (reo.get("acked") or "?", reo.get("until") or "?",
+                        reo.get("disposition") or ""))
+        if e.get("worktree"):
+            line += " WORKTREE: %s (%s)" % (e["worktree"], e.get("branch") or "no branch")
+        if sent and used + len(line) + 1 > DELIVERY_BUDGET:
+            skipped += 1
+            continue
+        lines.append(line)
+        used += len(line) + 1
+        sent.append(e)
+    if any(e.get("for") == "ceo" for e in sent):
+        lines.append("  At least one is addressed to the CEO. Routing it to him or deciding it "
+                     "yourself are both answers; leaving it is not.")
+    if not any(e.get("state") == "stopped" for e in sent):
+        lines.append("  None of these is a stall: each teammate finished or is still working.")
+    tail = []
+    if skipped:
+        tail.append("%d more NEW escalation(s) did not fit and arrive at your next turn end"
+                    % skipped)
+    if already:
+        tail.append("%d other outstanding escalation(s) were already delivered this session and "
+                    "are not repeated" % already)
+    if tail:
+        lines.append("  " + "; ".join(tail) + ". escalate.sh list has all of them.")
+    lines.append("  Close each one you have dealt with: escalate.sh ack <id> --disposition "
+                 "\"<what you decided or did>\".")
+    return "\n".join(lines), [delivery_key(e) for e in sent]
+
+
+def deliver(payload, state_dir, rows, now=None):
+    """(additionalContext text or "", note for the operator or "").
+
+    Never raises on a bad payload: a payload it cannot read has no session id
+    and no transcript, which is the one-bucket, deliver-everything-once path.
+    """
+    now = now or utcnow()
+    if not isinstance(payload, dict):
+        payload = {}
+    if payload.get("agent_id"):
+        # A worker's own turn. Escalations are for the lead; a teammate told
+        # about every other teammate's escalation is noise it cannot act on.
+        return "", ""
+    sid = str(payload.get("session_id") or "")
+    transcript = str(payload.get("transcript_path") or "")
+    path = _state_file(state_dir, sid)
+    state = _load_state(path)
+    if state.get("transcript") != transcript:
+        state = {"transcript": transcript, "offset": 0, "baseline": [], "delivered": []}
+    found, offset = session_start_ids(transcript, int(state.get("offset") or 0))
+    baseline = set(state.get("baseline") or []) | found
+    delivered = set(state.get("delivered") or [])
+
+    live = outstanding(rows, now)
+    new = [e for e in live
+           if delivery_key(e) not in delivered
+           and not (e["id"] in baseline and not e.get("reopened_by_expiry"))]
+    already = len(live) - len(new)
+    # NEWEST FIRST. Two kinds of "new" share this list: an escalation raised
+    # during this session, and an older one the SessionStart block raised but
+    # the host cut from the model's preview. Measured on the lead's own session
+    # 356e9552: its block was 12,547 characters, so the model got a 2,000-
+    # character preview naming 2 of the 8. When both kinds exist and the budget
+    # cannot hold them all, the one a teammate raised minutes ago goes first; the
+    # older overflow follows at the next turn end.
+    new.sort(key=lambda e: str(e.get("raised") or ""), reverse=True)
+
+    text, sent = ("", [])
+    if new:
+        text, sent = render_delivery(new, already)
+    state.update({
+        "session_id": sid,
+        "transcript": transcript,
+        "offset": offset,
+        "baseline": sorted(baseline),
+        "delivered": sorted(delivered | set(sent)),
+        "updated": iso(now),
+    })
+    note = ""
+    if not _save_state(path, state) and sent:
+        note = ("the delivery memory at %s could not be written, so these escalations will be "
+                "delivered to the lead again at the next turn end" % path)
+    return text, note
+
+
+def merge_stop_output(operator_json, context, note):
+    """One JSON object for the Stop hook: the operator's line plus the model's."""
+    out = {}
+    if operator_json:
+        try:
+            d = json.loads(operator_json)
+            if isinstance(d, dict):
+                out = d
+        except Exception:
+            out = {}
+    if note:
+        msg = out.get("systemMessage") or ""
+        out["systemMessage"] = (msg + " | " if msg else "") + "ESCALATION DELIVERY: " + note + "."
+        out.setdefault("suppressOutput", True)
+    if context:
+        out["hookSpecificOutput"] = {"hookEventName": "Stop", "additionalContext": context}
+    if not out:
+        return ""
+    return json.dumps(out, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------
@@ -731,6 +1008,30 @@ def cmd_list(args):
     else:
         print(render_text(rows, bad))
     return 1 if outstanding(rows) else 0
+
+
+def cmd_deliver(args):
+    """Stop-hook delivery. Payload on stdin; the operator's JSON (possibly empty)
+    in ESCALATIONS_OPERATOR_JSON; the final hook JSON on stdout, or nothing.
+
+    Exit 0 whenever it printed what the hook must print; 2 when the ledger
+    could not be read, and then it prints nothing so the caller keeps its own
+    operator line and says that delivery failed.
+    """
+    raw = sys.stdin.read()
+    try:
+        payload = json.loads(raw) if raw.strip() else {}
+    except Exception:
+        payload = {}
+    rows, _bad = read_rows()
+    if rows is None:
+        sys.stderr.write("escalations: the ledger at %s could not be read.\n" % ledger_path())
+        return 2
+    context, note = deliver(payload, args.state_dir, rows)
+    out = merge_stop_output(os.environ.get("ESCALATIONS_OPERATOR_JSON", ""), context, note)
+    if out:
+        print(out)
+    return 0
 
 
 def cmd_show(args):
@@ -866,6 +1167,11 @@ def main(argv=None):
     l.add_argument("--format", default="text",
                    choices=("text", "json", "hook-summary", "session-context"))
     l.set_defaults(func=cmd_list)
+
+    dv = sub.add_parser("deliver")
+    dv.add_argument("--state-dir", required=True,
+                    help="where the per-session delivery memory lives")
+    dv.set_defaults(func=cmd_deliver)
 
     s = sub.add_parser("show")
     s.add_argument("--id", required=True)
