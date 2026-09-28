@@ -115,6 +115,10 @@ export RICHOS_WORKSPACES_DIR="$TX_SANDBOX/workspaces"
 # Land-record lookups create their directory even when no land is performed.
 # Keep it beside the private registry, outside both the caller HOME and registry.
 export RICHOS_LAND_LOCKS_DIR="$TX_SANDBOX/land-locks"
+# Point5 discards its worktree and consults the device collector. Its lock and
+# failure record also belong to this fixture, not the caller's account state.
+export RICHOS_TEST_DEVICES_DIR="$TX_SANDBOX/test-devices"
+export TEST_DEVICE_FAILURES_STATE="$TX_SANDBOX/test-device-failures.json"
 RICHOS_SESSION_PID="$(sh -c 'sleep 3600 >/dev/null 2>&1 & echo $!')"
 export RICHOS_SESSION_PID
 trap 'kill "$RICHOS_SESSION_PID" 2>/dev/null || true' EXIT

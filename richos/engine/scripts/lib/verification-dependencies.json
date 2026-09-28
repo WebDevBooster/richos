@@ -4056,7 +4056,7 @@
     },
     "scripts/hooks/guard-worktree-isolation.test.sh": {
       "source": "scripts/hooks/guard-worktree-isolation.test.sh",
-      "sha256": "84ae1f6a6e212239127270db8b8c523bc07cbf8912e83ca4e2745e656775b9b6",
+      "sha256": "7b6ed5f895a9bfe7f77e0aabad2cad498fda83fea2c22f00f4a64afb0ac715aa",
       "evidence": "Calls the real guard against the real engine adoption/config/model roster before additional literal private-config cases. Other cases copy real configuration unchanged, so private directories do not remove these dependencies. Private Git worktrees and registry records exercise register-cc/confirm-cc, integration, hook and discard; their real engine cleanup settings remain dependencies. Copies of lifecycle/sealed-worktree are inspected for presence/mode only. No model agents are launched and no nested mutation suite is run. Internal mutation scopes select existing assertions with their prerequisite fixture groups; the no-argument invocation still executes the complete suite.",
       "keys": [],
       "edges": [
