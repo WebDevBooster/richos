@@ -12630,6 +12630,154 @@
           "to": "voice/provisioning/model-integrity.js"
         }
       ]
+    },
+    "mega-lander/workspaces.py#fixture-records": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "evidence": "Fixture and completion functions only: named_key/new_record/_add_workspace/save_agent/load_agent/live_workspaces plus path/JSON/id/iso helpers. Writes private registry records, reads no config and runs no lifecycle command. _add_workspace also calls _remember_repo and _bind_body_of_work, which read/write private JSON and call the bound integration_record closure.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#integration"
+        }
+      ]
+    },
+    "scripts/lib/workspaces.py#fixture-records": {
+      "source": "scripts/lib/workspaces.py",
+      "sha256": "982dad78682707a732036c4c0b4b99753bbae9de42e2e7cf83a407913367ed54",
+      "evidence": "Compatibility module loads the fixed canonical workspaces.py bytes. Only fixture record-construction APIs execute in finish-row suite.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#fixture-records"
+        }
+      ],
+      "nonconfig_eval": "exec(compile) loads the one fixed canonical source bound by the edge, never configuration or supplied text."
+    },
+    "scripts/lib/completion-proof.py#private-fixture": {
+      "source": "scripts/lib/completion-proof.py",
+      "sha256": "8a963ac0209f078b2abdb1e2951760db46110bbfc5b9f7d67b2c31dc248ef091",
+      "evidence": "Completion tests provide private repositories/native/task records. Proof uses fixed Git and ps plus durable filesystem identity; workspace calls are integration_for and load_agent/named_key/live_workspaces. Tracked files including literal private adoption config are hashed as data. No live orchestration config or command from records executes.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/durable-filesystem-identity.py"
+        },
+        {
+          "to": "mega-lander/workspaces.py#integration"
+        },
+        {
+          "to": "mega-lander/workspaces.py#fixture-records"
+        }
+      ]
+    },
+    "scripts/hooks/task-completed-handoff.sh#completion-fixture": {
+      "source": "scripts/hooks/task-completed-handoff.sh",
+      "sha256": "e143bbca2d836099f898f588d12fa1aef39b2fd7db85cf7ad3f575f702d74216",
+      "evidence": "Fixture payload targets private native/task/repository records. Full event path resolves entity adoption, invokes completion proof and advisory ledger append, writes JSON event logs; never sources config values.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/completion-proof.py#private-fixture"
+        },
+        {
+          "to": "scripts/lib/worktree-ledger.py#append"
+        }
+      ]
+    },
+    "scripts/lib/completion-proof.test.py": {
+      "source": "scripts/lib/completion-proof.test.py",
+      "sha256": "6d82bc88d0fff3f6ba12696803f9266899bb8091c6716d55fb234eae40e34e94",
+      "evidence": "Creates private Git repositories with literal adoption config, isolated native/task/registry state and exact filesystem controls. All proof and hook calls use these fixture inputs; helper APIs only create/read records and record integration branch.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/completion-proof.py#private-fixture"
+        },
+        {
+          "to": "mega-lander/workspaces.py#fixture-records"
+        },
+        {
+          "to": "mega-lander/workspaces.py#integration"
+        },
+        {
+          "to": "scripts/hooks/task-completed-handoff.sh#completion-fixture",
+          "fixture": true
+        }
+      ]
+    },
+    "scripts/lib/completion-proof.test.sh": {
+      "source": "scripts/lib/completion-proof.test.sh",
+      "sha256": "bef7d707b8e30b005a334276cb81dcbc9fbcec6a292f2c74fc2c28830e1f3b6e",
+      "evidence": "Fixed wrapper invokes completion-proof.test.py private fixture.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/completion-proof.test.py"
+        }
+      ]
+    },
+    "scripts/hooks/task-completed-handoff.test.sh": {
+      "source": "scripts/hooks/task-completed-handoff.test.sh",
+      "sha256": "4172b06232a06dc3a53670d6aaf90c6e8a1a1cc9e287fb374e07b2aea16fc582",
+      "evidence": "Fixed wrapper invokes completion-proof.test.py private fixture.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/completion-proof.test.py"
+        }
+      ]
+    },
+    "scripts/lib/finish-row-completion.test.sh": {
+      "source": "scripts/lib/finish-row-completion.test.sh",
+      "sha256": "cc03841a095899b2b0b688b0ec88f4394472a767281e0dda9421a3640ef1d673",
+      "evidence": "Private registry record constructors, fixed ledger append/record, existing ended/idle event emitters. Task-completed source is inspected for ledger wiring but not executed. Real event log is only counted as text to check noninterference. Shared mutation transport retains config presence.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/workspaces.py#fixture-records"
+        },
+        {
+          "to": "scripts/lib/worktree-ledger.py#cli"
+        },
+        {
+          "to": "scripts/hooks/worker-ended-handoff.sh"
+        },
+        {
+          "to": "scripts/hooks/teammate-idle-handoff.sh"
+        },
+        {
+          "to": "scripts/lib/finish-row-completion.mutation.sh"
+        }
+      ]
+    },
+    "scripts/lib/finish-row-completion.mutation.sh": {
+      "source": "scripts/lib/finish-row-completion.mutation.sh",
+      "sha256": "61c593a1c66cd136f3aff6692d1f7b37391f52b80dcef5e8b2673521410d1e12",
+      "evidence": "Six literal ledger resolution mutants use shared harness and same private fixture; nested mutation exits before repeating.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/lib/finish-row-completion.test.sh"
+        }
+      ]
+    },
+    "scripts/hooks/teammate-idle-handoff.test.sh": {
+      "source": "scripts/hooks/teammate-idle-handoff.test.sh",
+      "sha256": "7d8ae435bcc655b16407313a4a6d804181054497400efe2bd68ca752dd421b2f",
+      "evidence": "Fixed existing emitter invoked on literal idle payloads with private HOME/team/ledger and empty temporary Git repo. No orchestration config read or mutation driver.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/teammate-idle-handoff.sh"
+        }
+      ]
     }
   },
   "units": {
