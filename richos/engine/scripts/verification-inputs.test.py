@@ -152,6 +152,24 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_left_off_retains_real_session_start_settings(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/left-off.test.sh'
+        closure = graph.closure(unit)
+        self.assertFalse(closure['whole'] or closure['fallback'], closure)
+        self.assertEqual(set(closure['keys']), {'CHECK_LEFT_OFF', 'LEFT_OFF_GAP_MINUTES'})
+        unrelated = inputs.config_change('MODEL_TIERS=one', 'MODEL_TIERS=two')
+        self.assertFalse(graph.config_units(unrelated, [unit]))
+        for key in closure['keys']:
+            self.assertIn(unit, graph.config_units(inputs.config_change(key+'=one', key+'=two'), [unit]))
+        self.assertIn(unit, graph.config_units(inputs.config_change('MODEL_TIERS=one', None), [unit]))
+        for helper in ('scripts/lib/unlanded-branches.py', 'scripts/lib/workspaces.py#left-off-registry',
+                       'scripts/lib/escalations.py', 'scripts/hooks/left-off.mutation.sh'):
+            old = document['nodes'].pop(helper)
+            self.assertIn(unit, graph.config_units(unrelated, [unit]), helper)
+            document['nodes'][helper] = old
+
     def test_owned_state_binds_executable_declaration_and_nested_transport(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)
