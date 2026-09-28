@@ -94,6 +94,11 @@ command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit
 export CLAUDE_CONFIG_DIR="$SANDBOX/cfg"
 export RICHOS_MACHINE_WORKERS="$SANDBOX/machine" RICHOS_ENGINE_PASS_DIR="$SANDBOX/slot"
 unset RICHOS_WORKER_TOKENS RICHOS_WORKER_SLOT_HELD RICHOS_WORKER_BORROW_LOCK
+# The cases below contaminate their synthetic shards ON PURPOSE (S15's leaky unit, the
+# record-canary cases). Under proof-run.py this variable names the REAL run's
+# contamination directory, so an inherited value made S15's fixture report itself there
+# and cancel every check of the run (2026-09-28). S23 sets its own below.
+unset RICHOS_VERIFICATION_CONTAMINATION
 mkdir -p "$CLAUDE_CONFIG_DIR/state"
 
 echo "=== ci-shard tests ==="

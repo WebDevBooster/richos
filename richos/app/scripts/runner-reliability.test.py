@@ -91,16 +91,66 @@ class Reliability(unittest.TestCase):
             self.assertEqual(tracker.refresh(), set())
             self.assertEqual(tracker.refresh(), set())
 
-    def test_unreadable_owned_generation_is_not_clean_completion(self):
-        with patch.object(proc_tree, 'identity', return_value='original'), \
-                patch.object(proc_tree, 'process_rows', return_value={100: (1, 100, 'original')}) as rows:
+    def test_unreadable_owned_generation_is_carried_unsignaled_and_is_not_clean_completion(self):
+        # Nightly 20260928T165947Z-b83ab374 (and its retry, a57cdba4): a live member whose
+        # generation libproc cannot read -- a setuid child such as /usr/bin/top or /bin/ps,
+        # or one still inside exit -- used to raise "owned process generation is unreadable"
+        # after 1 s, which failed the supervision AND skipped its cleanup, refusing a UI
+        # suite in which nothing had failed. Fault injection: pid 101 never reads.
+        class Clock:
+            def __init__(self, *_args, **_kwargs):
+                self.t = 0.0
+            def now(self):
+                self.t += 1.0
+                return self.t
+            def since(self, start):
+                return self.now() - start
+        with patch.object(proc_tree, 'identity', side_effect=lambda pid: {100: 'original'}.get(pid)), \
+                patch.object(proc_tree, 'process_rows', return_value={100: (1, 100, 'original')}) as rows, \
+                patch.object(proc_tree.operator_fences, 'proc', return_value=None), \
+                patch.object(proc_tree, '_alive', side_effect=lambda pids: sorted(pids)) as alive, \
+                patch.object(proc_tree, 'scoped_members', return_value=set()), \
+                patch.object(proc_tree, 'HeldClock', Clock), \
+                patch.object(proc_tree.time, 'sleep'):
             tracker = proc_tree.TrackedTree(100, 'fixture-scope')
+            rows.return_value = {100: (1, 100, 'original'), 101: (100, 100, None)}
+            # Carried, not fatal: still a member, never proven.
+            self.assertEqual(tracker.refresh(), {100, 101})
+            self.assertEqual(tracker.known, {100: 'original'})
+            self.assertEqual(tracker.unresolved, {101: None})
+            # Re-read at the next sample, without waiting out the bound again.
+            alive.reset_mock()
+            self.assertEqual(tracker.refresh(), {100, 101})
+            self.assertEqual(alive.call_count, 1)
+            # Cleanup: only the proven member is signaled; the unproven one still holds the
+            # scope open and is reported as a survivor, never called a clean completion.
+            killed = []
+            with patch.object(proc_tree.os, 'kill', side_effect=lambda pid, sig: killed.append((pid, sig))):
+                left = proc_tree.finish_scope(SimpleNamespace(poll=lambda: None), tracker)
+            self.assertEqual(left, [100, 101])
+            self.assertIn((100, signal.SIGTERM), killed)
+            self.assertNotIn(101, [pid for pid, _sig in killed])
+            # A proven member that becomes unreadable keeps its last generation while carried,
+            # and is proven again the moment it reads as that generation.
             rows.return_value = {100: (1, 100, None)}
-            with patch.object(proc_tree.operator_fences, 'proc', return_value=None), \
-                    patch.object(proc_tree, '_alive', return_value=[100]), \
-                    patch.object(proc_tree.time, 'monotonic', side_effect=[0, 2]), \
-                    self.assertRaisesRegex(RuntimeError, 'unreadable'):
-                tracker.refresh()
+            self.assertEqual(tracker.refresh(), {100})
+            self.assertEqual((tracker.known, tracker.unresolved), ({}, {100: 'original'}))
+            rows.return_value = {100: (1, 100, 'original')}
+            self.assertEqual(tracker.refresh(), {100})
+            self.assertEqual((tracker.known, tracker.unresolved), ({100: 'original'}, {}))
+
+    @unittest.skipUnless(sys.platform == 'darwin' and os.path.isfile('/usr/bin/top')
+                         and os.stat('/usr/bin/top').st_mode & 0o4000, 'needs setuid /usr/bin/top')
+    def test_a_setuid_child_does_not_fail_a_passing_command(self):
+        # The real trigger, with no load and no mocks: lib/navigation-evidence.js runs
+        # `/usr/bin/top -l 2 -s 1` (setuid root, so libproc reads nothing for it) for about
+        # two seconds, twice the supervisor's one-second bound. Before the fix: exit 125,
+        # "owned process generation is unreadable".
+        result = subprocess.run(proc_tree.command(
+            ['bash', '-c', '/usr/bin/top -l 3 -s 1 -n 0 >/dev/null; exit 7']),
+            capture_output=True, text=True, timeout=60)
+        self.assertNotIn('unreadable', result.stderr)
+        self.assertEqual(result.returncode, 7, result.stderr)
 
     def test_parent_exit_between_samples_retains_group_until_absence_is_confirmed(self):
         with patch.object(proc_tree, 'identity', return_value='original'), \

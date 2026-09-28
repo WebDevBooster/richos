@@ -290,15 +290,38 @@ class TrackedTree:
             raise RuntimeError("cannot establish owned root generation: %s" % root)
         self.groups = {}
         self.empty_groups = set()
+        # {pid: last proven generation, or None}: members whose generation could not be
+        # read at the last sample. See refresh() for why they are carried, not fatal.
+        self.unresolved = {}
         self.refresh()
 
     def refresh(self, tags=False):
+        """Re-sample the tree. Returns every live member: proven ones (`known`, the only
+        processes finish_scope may ever signal) and `unresolved` ones.
+
+        UNRESOLVED IS NOT FATAL (nightly 20260928T165947Z-b83ab374, gates/ui-suite, pid
+        42499). A live member whose native generation cannot be read is not rare: libproc
+        answers nothing for a process that is setuid (macOS /bin/ps is setuid root, and a
+        nested supervisor runs ps several times a second) or still inside exit, and at
+        100% CPU either state easily outlasts the one-second reconciliation below. That
+        used to raise, which failed the supervision, skipped its cleanup (finish_scope
+        raised the same error) and refused a UI suite in which nothing had failed.
+
+        Now such a process is CARRIED: never signaled (its identity is not proven, so it is
+        not in `known`), still counted as a live member so the scope is not called clean
+        and its permits are not released while it runs, and re-read at every later sample;
+        the moment its generation is readable and matches, it is proven again. If it is
+        still alive when cleanup's hard deadline passes, finish_scope reports it as an
+        unidentified survivor, which is the same verdict any surviving member gets.
+        """
         table = process_rows()
         tagged = scoped_members(self.scope) if tags else set()
         clock = HeldClock(gap=0.5)
         deadline = clock.now() + 1.0
+        carried = {pid: birth for pid, birth in self.unresolved.items() if birth is not None}
+        settle = False
         while True:
-            owned = {pid for pid, birth in self.known.items()
+            owned = {pid for pid, birth in {**carried, **self.known}.items()
                      if pid in table and table[pid][2] == birth}
             if self.root in table and table[self.root][2] == self.root_birth:
                 owned.add(self.root)
@@ -315,9 +338,9 @@ class TrackedTree:
                 if more <= owned:
                     break
                 owned |= more
-            unknown = {pid for pid in owned | set(self.known) | {self.root}
+            unknown = {pid for pid in owned | set(self.known) | set(self.unresolved) | {self.root}
                        if pid in table and table[pid][2] is None}
-            if not unknown:
+            if not unknown or settle:
                 break
             # exec/exit can make libproc temporarily unavailable while ps still
             # sees the process. Hold ownership and permits during this bounded
@@ -330,9 +353,12 @@ class TrackedTree:
                 elif row or pid not in alive:
                     del table[pid]
             unresolved = {pid for pid in unknown if pid in table and table[pid][2] is None}
-            if unresolved:
-                if clock.now() >= deadline:
-                    raise RuntimeError("owned process generation is unreadable: %s" % min(unresolved))
+            # Wait (bounded) only for a NEWLY unreadable member: one already carried from the
+            # last sample is re-read at the next, not waited on here at every tick. When the
+            # bound passes, carry what is left instead of failing the supervision.
+            if not unresolved or unresolved <= set(self.unresolved) or clock.now() >= deadline:
+                settle = True
+            else:
                 time.sleep(0.01)
             # Recompute ownership with the newly read topology/generation. A
             # recycled PID with a different parent/group must not join our tree.
@@ -344,9 +370,20 @@ class TrackedTree:
             if pid in table:
                 group = table[pid][1]
                 if group in table and group not in (os.getpgrp(), 0, 1):
-                    self.groups[group] = table[group][2]
-        self.known = {pid: table[pid][2] for pid in owned if pid in table and pid != os.getpid()}
-        return set(self.known)
+                    # An unreadable leader never overwrites the generation already proven
+                    # for its group; a new group led by one is kept only until its leader
+                    # reads as anything at all (see the filter at the top of the loop).
+                    if table[group][2] is not None:
+                        self.groups[group] = table[group][2]
+                    else:
+                        self.groups.setdefault(group, None)
+        previous = {**self.unresolved, **self.known}
+        members = (owned | set(self.known) | set(self.unresolved) | {self.root}) - {os.getpid()}
+        self.known = {pid: table[pid][2] for pid in owned
+                      if pid in table and pid != os.getpid() and table[pid][2] is not None}
+        self.unresolved = {pid: (previous.get(pid) if pid != self.root else self.root_birth)
+                           for pid in members if pid in table and table[pid][2] is None}
+        return set(self.known) | set(self.unresolved)
 
 
 def finish_scope(child, tracker, grace=8.0):
@@ -373,9 +410,12 @@ def finish_scope(child, tracker, grace=8.0):
         # Signal the original tree once. A shell's EXIT trap may start cleanup
         # commands during the grace period; terminating those immediately defeats
         # cooperative cleanup. Track them and kill any survivors at the deadline.
+        # Only a PROVEN member is ever signaled: an unresolved one (tracker.unresolved) has
+        # no generation to compare, and None == None must never pass for identity.
         for pid in alive if hard or initial else ():
+            birth = tracker.known.get(pid)
             try:
-                if identity(pid) == tracker.known.get(pid):
+                if birth is not None and identity(pid) == birth:
                     os.kill(pid, signal.SIGKILL if hard else signal.SIGTERM)
             except ProcessLookupError:
                 pass
@@ -474,7 +514,10 @@ def supervise(owner, argv, deadline=None, timeout_marker=None, verification=None
             os.close(write_fd)  # A child not yet enrolled exits without executing.
         left = finish_scope(child, tracker) if tracker else []
         if left:
-            print("process cleanup failed; owned survivors: %s" % left, file=sys.stderr)
+            unproven = sorted(set(left) & set(tracker.unresolved))
+            print("process cleanup failed; owned survivors: %s%s" % (
+                left, "; generation unreadable, never signaled: %s" % unproven if unproven else ""),
+                file=sys.stderr)
             rc = 125
         try:
             child.wait(timeout=1)
