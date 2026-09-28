@@ -228,31 +228,52 @@ esac
 #    assertions pass and which leaves the checkout clean appends a `terminated`
 #    row to the ownership ledger under the config directory — the exact shape
 #    session-start-stdin.test.sh 9b produced through the shipped reaper. The
-#    runner must fail it, name it, and print the row. Beside it, a suite that
-#    leaves the record untouched runs before the contaminating suite and stays
-#    green. No event label grants an exemption to a writing suite.
+#    runner must fail it, name it, and print the row. Beside it (5d, amended
+#    2026-09-27), a clean suite during which ANOTHER process writes the live
+#    record stays green: each suite runs in a throwaway home and the canary
+#    watches the record there, so activity elsewhere is never charged to it.
+#
+#    The suites resolve the record at RUN time, from their own environment, as
+#    the shipped reaper did. A path baked in before the suite started is the
+#    one road the library's header names as out of its sight.
 # ===========================================================================
 fi
 E5="$SANDBOX/e5"
-# Start with an existing ledger to exercise row mutation, not only creation.
-touch "$CLAUDE_CONFIG_DIR/state/worktree-ledger.jsonl"
+FLAGS5="$SANDBOX/flags5"; mkdir -p "$FLAGS5"
 build_engine "$E5"
 clean_suite "$E5/engine/scripts/hooks/alpha.test.sh"
-cat > "$E5/engine/scripts/hooks/toucher.test.sh" <<EOF
+cat > "$E5/engine/scripts/hooks/toucher.test.sh" <<'EOF'
 #!/usr/bin/env bash
-mkdir -p "$CLAUDE_CONFIG_DIR/state"
-printf '{"event": "terminated", "agent_id": "ae904aac1949e5696", "teammate": "sage-fable-cert3", "witness": "platform-terminal-record", "ts": "2026-09-11T00:02:34.984941+00:00"}\n' >> "$CLAUDE_CONFIG_DIR/state/worktree-ledger.jsonl"
+cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+mkdir -p "$cfg/state"
+printf '{"event": "terminated", "agent_id": "ae904aac1949e5696", "teammate": "sage-fable-cert3", "witness": "platform-terminal-record", "ts": "2026-09-11T00:02:34.984941+00:00"}\n' >> "$cfg/state/worktree-ledger.jsonl"
 echo "  PASS  every assertion passed"
 exit 0
 EOF
+# platform-turn.test.sh: clean, and it waits (bounded) until the concurrent writer below
+# has written the live record, so that write lands WHILE the suite runs.
 cat > "$E5/engine/scripts/hooks/platform-turn.test.sh" <<EOF
 #!/usr/bin/env bash
+touch "$FLAGS5/started"
+n=0
+while [ ! -e "$FLAGS5/written" ] && [ "\$n" -lt 300 ]; do sleep 0.1; n=\$((n + 1)); done
+[ -e "$FLAGS5/written" ] || { echo "  FAIL  the concurrent writer never wrote; this case proves nothing"; exit 7; }
 echo "  PASS  every assertion passed"
 exit 0
 EOF
 chmod +x "$E5/engine/scripts/hooks/toucher.test.sh" "$E5/engine/scripts/hooks/platform-turn.test.sh"
 git_q "$E5" add -A; git_q "$E5" commit -q -m suites
+(
+    n=0
+    while [ ! -e "$FLAGS5/started" ] && [ "$n" -lt 1200 ]; do sleep 0.1; n=$((n + 1)); done
+    [ -e "$FLAGS5/started" ] || exit 0
+    printf '{"event": "registered", "agent_id": "live1", "teammate": "echo-opus-live1", "source": "detect-nonnative-worktree.sh", "ts": "t"}\n' >> "$CLAUDE_CONFIG_DIR/state/worktree-ledger.jsonl"
+    mkdir -p "$CLAUDE_CONFIG_DIR/teams/session-cafebabe"
+    touch "$FLAGS5/written"
+) &
+WRITER5=$!
 OUT5="$( cd "$E5/engine" && bash scripts/run-all-tests.sh 2>&1 )"; RC5=$?
+wait "$WRITER5" 2>/dev/null
 if [ "$RC5" -ne 0 ]; then
     ok "5a  RED: a suite whose assertions pass and whose checkout stays clean still fails the run because it appended a row to the operator's ledger"
 else
@@ -272,10 +293,20 @@ case "$OUT5" in
 esac
 TURN_LINE="$(printf '%s\n' "$OUT5" | sed $'s/\033\\[[0-9;]*m//g' | grep 'platform-turn\.test\.sh')"
 case "$TURN_LINE" in
-    *PASS*) ok "5d  the preceding suite with unchanged records remains green" ;;
-    "")     bad "5d  the unchanged-record suite has no result" "turn.test.sh has no line in the output" ;;
-    *)      bad "5d  the unchanged-record suite is not blamed" "got: $TURN_LINE" ;;
+    *PASS*) if [ -e "$FLAGS5/written" ]; then
+                ok "5d  and a clean suite during which ANOTHER process wrote the live record is NOT blamed — the canary counts only the suite's own writes"
+            else
+                bad "5d  the concurrent write happened during the suite" "the writer never wrote; the case proves nothing"
+            fi ;;
+    "")     bad "5d  the suite beside a concurrent writer is not blamed" "turn.test.sh has no line in the output" ;;
+    *)      bad "5d  the suite beside a concurrent writer is not blamed" "got: $TURN_LINE" ;;
 esac
+if [ ! -e "$CLAUDE_CONFIG_DIR/state/worktree-ledger.jsonl" ] || ! grep -q 'sage-fable-cert3' "$CLAUDE_CONFIG_DIR/state/worktree-ledger.jsonl"; then
+    ok "5g  and the toucher's row landed in its own throwaway home, never in the operator's record"
+else
+    bad "5g  the toucher's row stayed out of the operator's record" "it is in $CLAUDE_CONFIG_DIR/state/worktree-ledger.jsonl"
+fi
+rm -rf "$CLAUDE_CONFIG_DIR/teams/session-cafebabe" "$CLAUDE_CONFIG_DIR/state/worktree-ledger.jsonl"
 case "$OUT5" in
     *"record canary: watching"*) ok "5e  and the runner announces the record canary and what it watches, so a reader can tell this run from one where it was absent" ;;
     *) bad "5e  the record canary announces itself" "got: $OUT5" ;;

@@ -321,11 +321,12 @@ reserve.host_sample = lambda: {'cpu_user_percent': 5.0, 'cpu_system_percent': 2.
 sys.argv = [sys.argv[2]] + sys.argv[3:]
 runpy.run_path(sys.argv[0], run_name='__main__')"
 # RICHOS_RUNTIME_DIR is named so the runner does not verify the nightly's runtime for two fake
-# suites, and RICHOS_MACHINE_WORKERS so they do not queue behind the Mac's real workers
+# suites, and RICHOS_MACHINE_WORKERS and RICHOS_PROOF_RUN_SLOTS_DIR so they do not queue behind
+# the Mac's real workers or proof runs
 # (proof-run.test.py does the same); proof-run.py refuses to run on a Mac without the external
 # SSD, and says so.
 FAKE_SHARED="$TMP/p/shared" RICHOS_PROOF_RUN_DIR="$TMP/p/state" RICHOS_RUNTIME_DIR="$TMP/p/no-runtime" \
-  RICHOS_MACHINE_WORKERS="$TMP/p/machine" \
+  RICHOS_MACHINE_WORKERS="$TMP/p/machine" RICHOS_PROOF_RUN_SLOTS_DIR="$TMP/p/slots" \
   python3 -c "$BOOT" "$DIR/testvm" "$DIR/proof-run.py" --keep-going --commands "$TMP/p/commands" \
   --log-dir "$TMP/p/log" > "$TMP/p/out" 2>&1
 prc=$?
@@ -349,7 +350,7 @@ else bad "P1 proof-run names the failing test and keeps its result file" "exit $
 
 # P2 — R5's suite through proof-run: the check is named by its last error, in summary.json too.
 echo "cd $TMP/rd && scripts/run-tests.sh --only c.test.sh" > "$TMP/rd/commands"
-RICHOS_PROOF_RUN_DIR="$TMP/rd/state" RICHOS_RUNTIME_DIR="$TMP/rd/no-runtime" RICHOS_MACHINE_WORKERS="$TMP/rd/machine" \
+RICHOS_PROOF_RUN_DIR="$TMP/rd/state" RICHOS_RUNTIME_DIR="$TMP/rd/no-runtime" RICHOS_MACHINE_WORKERS="$TMP/rd/machine" RICHOS_PROOF_RUN_SLOTS_DIR="$TMP/rd/slots" \
   RUN_TESTS_RESULTS_STATE="$TMP/rd/kept" \
   python3 -c "$BOOT" "$DIR/testvm" "$DIR/proof-run.py" --keep-going --commands "$TMP/rd/commands" \
   --log-dir "$TMP/rd/log" > "$TMP/rd/out" 2>&1

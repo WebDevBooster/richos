@@ -1280,6 +1280,7 @@ commit-ceo-inputs.sh|UserPromptSubmit
 left-off-report.sh|UserPromptSubmit
 failure-type-lookup.sh|UserPromptSubmit
 guard-failure-type-answer.sh|Stop
+guard-resource-waits.sh|Stop
 notice-ceo-inputs-unheld.sh|Stop
 release-land-leases.sh|Stop
 operator-claim.sh|SessionStart

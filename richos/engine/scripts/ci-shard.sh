@@ -546,21 +546,41 @@ while IFS= read -r id; do
     LC_HEALTHY=1
     lc_baseline "$CANARY_DIR"
     CANARY_BASE_HEALTHY="$LC_HEALTHY"
-    rc_baseline "$CANARY_DIR/record.txt"
-    RECORD_BASE_HEALTHY="$RC_HEALTHY"
+    # The unit gets a record of its own (lib/record-canary.sh, "AMENDED
+    # 2026-09-27"): HOME in a throwaway home, every variable pointing into the
+    # operator's record removed, and the canary watches the record in that
+    # home. Nothing else writes
+    # there, so a spawn or a land elsewhere on the machine is never charged to
+    # this unit, and a unit that would have written the operator's record is
+    # still red.
+    UNIT_HOME="$LOG_DIR/home.$i"
+    if rc_sandbox "$UNIT_HOME"; then
+        rc_baseline "$CANARY_DIR/record.txt"
+        RECORD_BASE_HEALTHY="$RC_HEALTHY"
+    else
+        RECORD_BASE_HEALTHY=0
+    fi
 
     # The argv comes from ci-units.sh, so "how is a unit invoked" has exactly
     # one definition and a section's --only cannot drift from its id.
     ARGV=()
     while IFS= read -r tok; do ARGV+=("$tok"); done < <(bash "$UNITS_SH" cmd "$id" | tr '\t' '\n')
+    if [ "$RECORD_BASE_HEALTHY" -eq 1 ]; then
+        ARGV=(env "${RC_SANDBOX_ENV[@]}" "${ARGV[@]}")
+    fi
 
     export -f run_with_deadline
     export SCRIPT_DIR
     TIMING="$LOG_DIR/$i.timing.json"
     export RICHOS_UNIT_DEADLINE_MARKER="$LOG.deadline"
-    ${PASS_ARGS[@]+"${PASS_ARGS[@]}"} python3 "$SCRIPT_DIR/lib/worker_tokens.py" machine --timing "$TIMING" -- \
-        bash -c 'run_with_deadline "$@"' bash "$DEADLINE" "$LOG" "${ARGV[@]}"
-    RC=$?
+    if [ "$RECORD_BASE_HEALTHY" -eq 1 ]; then
+        ${PASS_ARGS[@]+"${PASS_ARGS[@]}"} python3 "$SCRIPT_DIR/lib/worker_tokens.py" machine --timing "$TIMING" -- \
+            bash -c 'run_with_deadline "$@"' bash "$DEADLINE" "$LOG" "${ARGV[@]}"
+        RC=$?
+    else
+        printf "ci-shard.sh: NOT RUN: private home unavailable\n" >"$LOG"
+        RC=1
+    fi
     SLOT_REFUSED=0
     [ "$RC" -ne 75 ] || [ -f "$TIMING" ] || SLOT_REFUSED=1
     # Admission waits do not spend the unit's execution deadline or inflate
@@ -585,7 +605,9 @@ PY
     printf '(admission %ss) ' "${QUEUED:-unknown}"
 
     ESCAPED="$(lc_escaped "$CANARY_DIR" "$LOG_DIR")"
-    TOUCHED="$(rc_escaped "$CANARY_DIR/record.txt")"
+    TOUCHED=""
+    [ "$RECORD_BASE_HEALTHY" -eq 1 ] && TOUCHED="$(rc_escaped "$CANARY_DIR/record.txt")"
+    rm -rf "$UNIT_HOME" 2>/dev/null || true
 
     VERDICT=""
     if [ "$EXECUTION" = "not-admitted" ]; then
@@ -684,10 +706,10 @@ PY
             done
             ;;
         RECORD-TOUCHED)
-            printf '%sFAIL%s %ss — touched the operator'"'"'s record\n' "$C_RED" "$C_RESET" "$SECS"
+            printf '%sFAIL%s %ss — RECORD-TOUCHED: wrote to the record it was given, which outside this runner is the operator'"'"'s\n' "$C_RED" "$C_RESET" "$SECS"
             FAILED=$((FAILED + 1))
-            FAIL_LINES+=("$id — touched the operator's record under $RC_CFG")
-            printf '        TOUCHED THE OPERATOR'"'"'S RECORD — the class that wrote a false termination for a running agent on 2026-09-11:\n'
+            FAIL_LINES+=("$id — RECORD-TOUCHED: wrote to its HOME/CLAUDE_CONFIG_DIR record (run by hand, that is $RC_LIVE_CFG)")
+            printf '        WROTE TO THE RECORD UNDER ITS OWN HOME — run by hand it would have written the operator'"'"'s, the class that wrote a false termination for a running agent on 2026-09-11:\n'
             printf '%s\n' "$TOUCHED" | sed 's/^/          /'
             ;;
         CANARY-BLIND)

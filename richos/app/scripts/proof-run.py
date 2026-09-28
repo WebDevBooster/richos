@@ -14,6 +14,8 @@
                            (default: 80% of logical cores — the admission line, in cores)
       --engine-shards N    at most N engine shards (default: logical cores / 2)
       --admission-wait S   how long one check may wait for admission (default 1800 s)
+      --slot-wait S        how long this RUN may wait for a proof-run slot on this Mac (default
+                           10800 s; see RUNS SHARE THE MAC below)
       --budget S           a check running past S seconds is named while the run goes (600)
       --deadline S         a check still running at max(S, 3 x its expected seconds), capped
                            at an hour, is stopped with its whole tree and fails (1800)
@@ -23,7 +25,8 @@
     There is no low-priority switch: CEO ruling §78's mode is for the native app build, and a
     runner of tests never skips the CPU line.
 
-Exit: 0 every check passed; 1 a check failed, timed out, was not admitted, or proof-for.sh
+Exit: 0 every check passed; 1 a check failed, timed out, was not admitted, the run was not
+admitted to a proof-run slot within --slot-wait, or proof-for.sh
 found a changed code path no suite covers (nothing is run then); 2 usage or an unreadable
 selection.
 
@@ -91,6 +94,17 @@ evidence of host use, not a guarantee that running compilers stay under the admi
 
 THE MACHINE BUDGET for separate runners and nightlies is shared through worker_tokens.machine_directory(). Local --capacity remains an additional
 ceiling. All nested workers must acquire both budgets or borrow their caller's held slot.
+
+RUNS SHARE THE MAC (2026-09-27). The machine budget counts CHECKS, and one check (cargo, shellcheck,
+xcodebuild, Gradle) can use several cores; the CPU line is one sample per check, so runs started in
+the same minute each saw a free Mac and stacked. So before its first check a run takes a host-wide
+proof-run SLOT (scripts/lib/proof_slots.py): measured, one run alone peaks at the whole Mac, so the
+default is one run at a time, and the lead sets another number for the whole Mac with
+`proof_slots.py set N`. A run over the limit waits in first-come order, recorded as a CPU-admission
+wait for the lead's turn-end gate; `python3 scripts/lib/proof_slots.py status` shows who holds and
+who waits. The slot is an flock the kernel drops with the run's last descriptor (the run's checks'
+supervisors hold it too), so a killed run releases it once its checks are stopped. A proof run
+started by a check of a proof run works inside its caller's slot.
 """
 import argparse
 import uuid
@@ -141,6 +155,11 @@ import cpu_guard  # noqa: E402
 sys.path.insert(0, os.path.join(HERE, "lib"))
 import test_results  # noqa: E402  (what names a failing test; one reader for every caller)
 import proof_evidence  # noqa: E402
+import proof_slots  # noqa: E402  (how many proof runs share the Mac at once)
+
+# The run's host-wide slot (main); every check's supervisor holds it too, so a killed runner keeps it
+# only until its checks are stopped. Empty when run() is driven directly (the tests).
+SLOT = None
 
 
 class Item:
@@ -406,8 +425,8 @@ def input_identity(item, args, logdir, snapshot=None):
     result = proof_evidence.recipe_identity(ROOT, proof_evidence.contract_for(ROOT, item.label),
                                             execution_environment(item), snapshot)
     result["command"] = proof_evidence.command_identity(item, ROOT, logdir)
-    result["settings"] = {key: getattr(args, key) for key in (
-        "capacity", "engine_shards", "max_cpu", "budget", "deadline", "fail_fast", "admission_wait", "slot_wait")}
+    result["settings"] = {key: getattr(args, key, None) for key in (
+        "capacity", "engine_shards", "max_cpu", "budget", "deadline", "fail_fast", "admission_wait", "slot_wait", "engine_slot_wait")}
     return result
 
 
@@ -533,7 +552,7 @@ def launch(item, n, logdir, tokens_dir, reserved):
            "RICHOS_WORKER_TOKENS_TOOL": os.path.abspath(worker_tokens.__file__),
            "RICHOS_WORKER_TOKENS_RESERVED": str(reserved),
            "RICHOS_MACHINE_WORKERS": item.machine_tokens, "RICHOS_WORKER_SLOT_HELD": "1",
-           "RICHOS_WORKER_BORROW_LOCK": item.token.path + ".child"}
+           "RICHOS_WORKER_BORROW_LOCK": item.token.path + ".child", **(SLOT.env() if SLOT else {})}
     if getattr(item, 'verification_context', None):
         env['RICHOS_CPU_GUARD_STATE'] = str(cpu_guard.STATE)
     if os.environ.get(proc_tree.SCOPE_ENV):
@@ -553,7 +572,7 @@ def launch(item, n, logdir, tokens_dir, reserved):
             command[0] = "python3"  # The recipe's fingerprinted -s -S wrapper also covers supervision.
         item.proc = subprocess.Popen(command, cwd=item.cwd, stdout=fh, stderr=subprocess.STDOUT,
                                      stdin=subprocess.DEVNULL, start_new_session=True, env=env,
-                                     pass_fds=tuple(item.token.fds) + tuple(getattr(item, "slot_fds", ()))
+                                     pass_fds=(SLOT.fds if SLOT else ()) + tuple(item.token.fds) + tuple(getattr(item, "slot_fds", ()))
                                      + ((evidence.lease.fd,) if evidence else ())
                                      + ((item.reservation[0],) if item.reservation else ())
                                      + ((item.input_owner_fd,) if hasattr(item, "input_owner_fd") else ()))
@@ -691,7 +710,7 @@ def run(items, args, logdir, sampler=None):
     running = []
     units = {it.argv[it.argv.index("--only-units") + 1] for it in items if it.engine_unit}
     args.engine_gate = (engine_pass.PlanGate(len(units), "proof-run", ROOT, sorted(units),
-                                            getattr(args, "slot_wait", None))
+                                            getattr(args, "engine_slot_wait", None))
                         if engine_pass.needs_slot(len(units)) and not engine_pass.held_by_ancestor()
                         else None)
     t0 = time.monotonic()
@@ -742,6 +761,7 @@ def run(items, args, logdir, sampler=None):
                 "" if not left else "; pids %s survived SIGKILL" % left), flush=True)
         raise
     finally:
+        STALL.over()
         monitor.halt.set()
         for sig, handler in previous.items():
             signal.signal(sig, handler)
@@ -1028,6 +1048,7 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 else:
                     it = admitted_item
             if ok:
+                STALL.over()
                 it.finish_queue()
                 it.token = token
                 n += 1
@@ -1055,6 +1076,7 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 # Refused by the CPU line or the memory rule (not merely waiting for a token).
                 waited = now - it.first_wait
                 if waited >= args.admission_wait:
+                    STALL.over()
                     it.finish_queue()
                     it.state, it.rc = "not-admitted", 75
                     reason = (reserve.describe(s) if s is not None else getattr(it, 'resource_refusal', None)
@@ -1066,11 +1088,46 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                     next_sample = now + (reserve.MIN_RETRY_SECONDS if s is not None else 0.2)
                     backoff_reason = refusal_kind
                     if not running and s is not None:
+                        STALL.refused("proof-run: %s not admitted: %s" % (it.label, reserve.describe(s)))
+                    else:
+                        STALL.over()
+                    if not running and s is not None:
                         print("[%s] wait   %-40s admission: %s" % (stamp(), it.label, reserve.describe(s)), flush=True)
         time.sleep(0.2)
 
 
 SHOWN_FAILURES = 20
+
+
+class Stall(object):
+    """A proof run with nothing of its own running whose next check admission refuses is a job
+    waiting on the Mac's CPU. It is recorded for exactly that long (engine resource_waits.py), so
+    the lead is stopped at turn end once it passes ten minutes. Checks waiting behind this run's
+    own running checks are scheduling, not a wait, and are never recorded."""
+
+    def __init__(self):
+        self.wait = None
+
+    def refused(self, why):
+        rw = getattr(reserve, "resource_waits", None)
+        if rw is None:
+            return
+        try:
+            if self.wait is None:
+                self.wait = rw.waiting(rw.CPU, why).start()
+            else:
+                self.wait.update(why)
+        except Exception as exc:  # the record never breaks the run
+            print("proof-run: admission wait not recorded: %s" % exc, flush=True)
+            self.wait = None
+
+    def over(self):
+        if self.wait is not None:
+            self.wait.close()
+            self.wait = None
+
+
+STALL = Stall()
 
 
 def name_failures(it):
@@ -1280,8 +1337,9 @@ def main(argv=None):
     p.add_argument("--as-printed", action="store_true")
     p.add_argument("--capacity", type=int, default=max(2, int((os.cpu_count() or 4) * 0.8)))
     p.add_argument("--engine-shards", type=int, default=max(1, (os.cpu_count() or 4) // 2))
-    p.add_argument("--slot-wait", type=float, help="bounded wait for the existing large-plan slot")
+    p.add_argument("--engine-slot-wait", type=float, help="bounded wait for the existing large engine-plan slot")
     p.add_argument("--admission-wait", type=float, default=1800)
+    p.add_argument("--slot-wait", type=float, default=proof_slots.DEFAULT_WAIT_SECONDS)
     p.add_argument("--max-cpu", type=float, default=reserve.DEFAULT_MAX_CPU)
     p.add_argument("--budget", type=float, default=BUDGET_SECONDS)
     p.add_argument("--deadline", type=float, default=3 * BUDGET_SECONDS)
@@ -1293,14 +1351,14 @@ def main(argv=None):
         p.error("--resume takes its frozen plan from the saved run; no new selection is allowed")
     if args.capacity < 1 or args.engine_shards < 1:
         p.error("--capacity and --engine-shards must be at least 1")
-    for name in ("admission_wait", "max_cpu", "budget", "deadline", "sample_every"):
+    for name in ("admission_wait", "slot_wait", "max_cpu", "budget", "deadline", "sample_every"):
         value = getattr(args, name)
         if not math.isfinite(value) or value < 0 or (name != "admission_wait" and value == 0):
             p.error("--" + name.replace("_", "-") + " must be finite and positive")
     if args.max_cpu > 100:
         p.error("--max-cpu must be at most 100")
-    if args.slot_wait is not None and (not math.isfinite(args.slot_wait) or args.slot_wait < 0):
-        p.error("--slot-wait must be finite and nonnegative")
+    if args.engine_slot_wait is not None and (not math.isfinite(args.engine_slot_wait) or args.engine_slot_wait < 0):
+        p.error("--engine-slot-wait must be finite and nonnegative")
     parent = args.log_dir or default_logdir()
     run_id = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     logdir = os.path.join(parent, run_id if not args.log_dir else "")
@@ -1340,48 +1398,64 @@ def main(argv=None):
     if args.dry_run:
         return 0
     print("  logs: %s" % logdir, flush=True)
-    before = source_identity()
-    with open(os.path.join(logdir, "source.json"), "w") as out:
-        json.dump(before, out, indent=2)
-    for item in items:
-        proof_evidence.prepare_environment(item, ROOT, logdir, execution_environment(item))
-    def identity(item):
-        return input_identity(item, args, logdir)
-
-    def identities(selected):
-        snapshot = proof_evidence.InputSnapshot()
-        return {item.label: input_identity(item, args, logdir, snapshot) for item in selected}
-
-    args.evidence = proof_evidence.Record(ROOT, logdir, items, before,
-        identities(items), args.resume, source_identity, identity, identities)
-    args.pool = proof_evidence.Pool(proof_evidence.pool_directory(ROOT, hist_dir), args.evidence,
-                                    args.retry_reason)
-    started = time.monotonic()
+    global SLOT
     try:
-        if args.resume:
-            lease = proof_evidence.Lease(args.resume)
-            try:
-                proof_evidence.reuse(args.resume, items, args.evidence)
-            finally:
-                lease.close()
-        for previous in args.reuse:
-            lease = proof_evidence.Lease(previous)
-            try:
-                proof_evidence.reuse(previous, items, args.evidence, exact=False)
-            finally:
-                lease.close()
-        run(items, args, logdir)
-        args.evidence.finalize(items)
+        SLOT, slot_wait = proof_slots.acquire(
+            {"checkout": ROOT, "logs": logdir, "selection": " ".join(argv if argv is not None else sys.argv[1:])[:300]},
+            args.slot_wait, say=lambda line: print("[%s] %s" % (stamp(), line), flush=True))
+    except TimeoutError as exc:
+        print("proof-run: NOT ADMITTED: %s. Nothing was run. Logs: %s" % (exc, logdir), flush=True)
+        return 1
+    try:
+        slot_line = ("inside its caller's proof-run slot (a proof run started by a check of one)" if SLOT.borrowed
+                     else "proof-run slot %d on this Mac (%d run(s) at once), waited %.0f s for it" % (
+                         SLOT.index, proof_slots.limit()[0], slot_wait))
+        print("[%s] %s" % (stamp(), slot_line), flush=True)
+        before = source_identity()
+        with open(os.path.join(logdir, "source.json"), "w") as out:
+            json.dump(before, out, indent=2)
+        for item in items:
+            proof_evidence.prepare_environment(item, ROOT, logdir, execution_environment(item))
+        def identity(item):
+            return input_identity(item, args, logdir)
+
+        def identities(selected):
+            snapshot = proof_evidence.InputSnapshot()
+            return {item.label: input_identity(item, args, logdir, snapshot) for item in selected}
+
+        args.evidence = proof_evidence.Record(ROOT, logdir, items, before,
+            identities(items), args.resume, source_identity, identity, identities)
+        args.pool = proof_evidence.Pool(proof_evidence.pool_directory(ROOT, hist_dir), args.evidence,
+                                        args.retry_reason)
+        started = time.monotonic()
+        try:
+            if args.resume:
+                lease = proof_evidence.Lease(args.resume)
+                try:
+                    proof_evidence.reuse(args.resume, items, args.evidence)
+                finally:
+                    lease.close()
+            for previous in args.reuse:
+                lease = proof_evidence.Lease(previous)
+                try:
+                    proof_evidence.reuse(previous, items, args.evidence, exact=False)
+                finally:
+                    lease.close()
+            run(items, args, logdir)
+            args.evidence.finalize(items)
+        finally:
+            args.pool.close(items)
+            args.evidence.close()
+        wall = time.monotonic() - started
+        if source_identity() != before:
+            changed = Item("source changed during verification", ROOT, [])
+            changed.state, changed.rc = "failed", 1
+            items.append(changed)
+        notes_from_logs(items)
+        rc = summarize(items, wall, logdir, args.budget, [slot_line] + list(getattr(args, "monitor_lines", ())))
     finally:
-        args.pool.close(items)
-        args.evidence.close()
-    wall = time.monotonic() - started
-    if source_identity() != before:
-        changed = Item("source changed during verification", ROOT, [])
-        changed.state, changed.rc = "failed", 1
-        items.append(changed)
-    notes_from_logs(items)
-    rc = summarize(items, wall, logdir, args.budget, getattr(args, "monitor_lines", ()))
+        SLOT.release()
+        SLOT = None
     if not args.as_printed:
         record_weights(hist_dir, items)
     if not args.log_dir:

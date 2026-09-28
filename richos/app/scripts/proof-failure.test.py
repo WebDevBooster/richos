@@ -123,7 +123,7 @@ class FailurePolicy(unittest.TestCase):
             self.assertIsNone(item.started)
 
     def test_large_engine_slot_refusal_preserves_independent_check(self):
-        self.args.slot_wait = .5
+        self.args.engine_slot_wait = .5
         slot_root = self.root / "engine-slot"
         code = ("import sys; sys.path.insert(0,sys.argv[1]); import engine_pass; "
                 "s=engine_pass.acquire(20,'fixture',sys.argv[2],wait=0); "
