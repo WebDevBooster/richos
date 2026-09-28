@@ -1521,12 +1521,20 @@ t "scenario outcomes, turn budgets, held reservation and owned timeout cleanup"
   python3 "$HERE/scenario.test.py" >"$TMP/scenario.log" 2>&1; ok $? "$(cat "$TMP/scenario.log")"
 t_done
 
+t "reserve: a CPU-admission wait is recorded for the lead's turn-end gate for exactly as long as it lasts"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/reserve-waits.test.py" >"$TMP/reserve-waits.log" 2>&1; ok $? "$(cat "$TMP/reserve-waits.log")"
+t_done
+
 t "run-walk --wait reaches the guest-slot admission; the default still refuses at once; hold-walk.py is retired"
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/run-walk-wait.test.py" >"$TMP/run-walk-wait.log" 2>&1; ok $? "$(cat "$TMP/run-walk-wait.log")"
 t_done
 
 t "slots: two runs at once, a third waits; a slot is held only for its run and a guest never outlives it"
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/slots.test.py" >"$TMP/slots.log" 2>&1; ok $? "$(cat "$TMP/slots.log")"
+t_done
+
+t "slots: a caller waiting for a slot is recorded, and past ten minutes the engine's gate refuses the lead's turn"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/slots-wait-gate.test.py" >"$TMP/slots-wait-gate.log" 2>&1; ok $? "$(cat "$TMP/slots-wait-gate.log")"
 t_done
 
 t "mem-walk: a guest probe reads as used, need, swap-outs and the app's and claude's memory"

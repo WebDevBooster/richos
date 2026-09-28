@@ -342,3 +342,18 @@ neither decides which failure type applies; that judgment stays with the lead.
 | `scripts/hooks/failure-type-lookup.sh` | b-literal | HIS PROMPT, for two words | yes, literally: whether an inflection of "type" and one of "failure" are within six words; if so, the register's list is injected and an obligation recorded | `scripts/lib/failure-type.py` 410 `prompt = payload.get("prompt")`, 413 `trigger(prompt)` |
 | `scripts/hooks/guard-failure-type-answer.sh` | b-literal | his turns in the transcript (origin human, the `left-off.py` predicate), for the same two words; everything else it checks is the lead's tool calls, reply and git | yes, literally, the same predicate; the refusal itself is decided by what the lead did (read, named, committed) | `scripts/lib/failure-type.py` 522 `lo.is_human(rec)`, 665 `trigger(text)` |
 | `scripts/lib/failure-type.py` | b-literal | both of the above | as above | the predicate is `trigger()`; its window and word lists are constants at the top of the file |
+
+## Addendum, 2026-09-27: one hook added after this audit, classified the same way
+
+**Not audited at `dd6fb305`.** This row was added when the hook was written, by its author, using
+this page's classes. It is a declaration for the next audit to check, not a finding of this one.
+
+The gate never reads the operator's messages or the transcript. It reads wait records, the process
+table, the test VM's state files and the escalation ledger; the only prose it reads is escalations
+TEAMMATES raised, for a literal claim that the teammate itself is waiting (`WAIT_CLAIM`, calibrated
+on the real ledger). His rule is quoted in its header and refusal; it is not a predicate.
+
+| file | class | reads | decides from his words? | evidence |
+|---|---|---|---|---|
+| `scripts/hooks/guard-resource-waits.sh` | a | payload `agent_id` / `stop_hook_active`, orchestration.config; hands the rest to the .py | no | the wrapper passes `RESOURCE_WAIT_MINUTES` and reads one `RW` verdict line |
+| `scripts/lib/resource_waits.py` | a | wait records, `ps`, `<TESTVM_ROOT>` state, and teammates' escalation titles, questions and meanwhile lines | no: a teammate's literal wait claim, never his message | 568 `WAIT_CLAIM.finditer(whole)`; 925 `payload.get("agent_id")` is the only payload field it decides on |

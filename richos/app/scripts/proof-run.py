@@ -508,6 +508,7 @@ def run(items, args, logdir, sampler=None):
                 "" if not left else "; pids %s survived SIGKILL" % left), flush=True)
         raise
     finally:
+        STALL.over()
         monitor.halt.set()
         for sig, handler in previous.items():
             signal.signal(sig, handler)
@@ -608,6 +609,7 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 if not ok:
                     token.release()
             if ok:
+                STALL.over()
                 it.admission_wait, it.token = now - it.first_wait, token
                 n += 1
                 running.append(it)
@@ -620,6 +622,7 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 # Refused by the CPU line or the memory rule (not merely waiting for a token).
                 waited = now - it.first_wait
                 if waited >= args.admission_wait:
+                    STALL.over()
                     it.state, it.admission_wait = "not-admitted", waited
                     it.notes.append("not admitted after %.0f s: %s" % (waited, (reserve.describe(s) if s is not None else "worker budget is full")))
                     print("[%s] REFUSED %-39s not admitted after %.0f s (%s)" % (stamp(), it.label, waited,
@@ -627,11 +630,46 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 else:
                     next_sample = now + (reserve.MIN_RETRY_SECONDS if s is not None else 0.2)
                     if not running and s is not None:
+                        STALL.refused("proof-run: %s not admitted: %s" % (it.label, reserve.describe(s)))
+                    else:
+                        STALL.over()
+                    if not running and s is not None:
                         print("[%s] wait   %-40s admission: %s" % (stamp(), it.label, reserve.describe(s)), flush=True)
         time.sleep(0.2)
 
 
 SHOWN_FAILURES = 20
+
+
+class Stall(object):
+    """A proof run with nothing of its own running whose next check admission refuses is a job
+    waiting on the Mac's CPU. It is recorded for exactly that long (engine resource_waits.py), so
+    the lead is stopped at turn end once it passes ten minutes. Checks waiting behind this run's
+    own running checks are scheduling, not a wait, and are never recorded."""
+
+    def __init__(self):
+        self.wait = None
+
+    def refused(self, why):
+        rw = getattr(reserve, "resource_waits", None)
+        if rw is None:
+            return
+        try:
+            if self.wait is None:
+                self.wait = rw.waiting(rw.CPU, why).start()
+            else:
+                self.wait.update(why)
+        except Exception as exc:  # the record never breaks the run
+            print("proof-run: admission wait not recorded: %s" % exc, flush=True)
+            self.wait = None
+
+    def over(self):
+        if self.wait is not None:
+            self.wait.close()
+            self.wait = None
+
+
+STALL = Stall()
 
 
 def name_failures(it):
