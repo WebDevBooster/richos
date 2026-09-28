@@ -552,22 +552,45 @@ while IFS= read -r id; do
     LC_HEALTHY=1
     lc_baseline "$CANARY_DIR"
     CANARY_BASE_HEALTHY="$LC_HEALTHY"
-    rc_baseline "$CANARY_DIR/record.txt"
-    RECORD_BASE_HEALTHY="$RC_HEALTHY"
+    # The unit gets a record of its own (lib/record-canary.sh, "AMENDED
+    # 2026-09-27"): HOME in a throwaway home, every variable pointing into the
+    # operator's record removed, and the canary watches the record in that
+    # home. Nothing else writes
+    # there, so a spawn or a land elsewhere on the machine is never charged to
+    # this unit, and a unit that would have written the operator's record is
+    # still red.
+    UNIT_HOME="$LOG_DIR/home.$i"
+    if rc_sandbox "$UNIT_HOME"; then
+        rc_baseline "$CANARY_DIR/record.txt"
+        RECORD_BASE_HEALTHY="$RC_HEALTHY"
+    else
+        RECORD_BASE_HEALTHY=0
+    fi
 
     # The argv comes from ci-units.sh, so "how is a unit invoked" has exactly
     # one definition and a section's --only cannot drift from its id.
     ARGV=()
     while IFS= read -r tok; do ARGV+=("$tok"); done < <(bash "$UNITS_SH" cmd "$id" | tr '\t' '\n')
+    if [ "$RECORD_BASE_HEALTHY" -eq 1 ]; then
+        ARGV=(env "${RC_SANDBOX_ENV[@]}" "${ARGV[@]}")
+    fi
 
     START="$(python3 -c 'import time; print(time.time())')"
-    run_with_deadline "$DEADLINE" "$LOG" "${ARGV[@]}"
-    RC=$?
+    if [ "$RECORD_BASE_HEALTHY" -eq 1 ]; then
+        run_with_deadline "$DEADLINE" "$LOG" "${ARGV[@]}"
+        RC=$?
+    else
+        # Never run a unit with the road to the operator's record still open.
+        printf 'ci-shard.sh: NOT RUN — the throwaway home %s could not be built, so this unit would have run against the operator'"'"'s record.\n' "$UNIT_HOME" >"$LOG"
+        RC=1
+    fi
     END="$(python3 -c 'import time; print(time.time())')"
     SECS="$(python3 -c "print(round($END - $START, 1))")"
 
     ESCAPED="$(lc_escaped "$CANARY_DIR" "$LOG_DIR")"
-    TOUCHED="$(rc_escaped "$CANARY_DIR/record.txt")"
+    TOUCHED=""
+    [ "$RECORD_BASE_HEALTHY" -eq 1 ] && TOUCHED="$(rc_escaped "$CANARY_DIR/record.txt")"
+    rm -rf "$UNIT_HOME" 2>/dev/null || true
 
     VERDICT=""
     if [ "$RC" -eq 124 ] && [ "${DEADLINE:-0}" -gt 0 ]; then
@@ -657,10 +680,10 @@ while IFS= read -r id; do
             done
             ;;
         RECORD-TOUCHED)
-            printf '%sFAIL%s %ss — touched the operator'"'"'s record\n' "$C_RED" "$C_RESET" "$SECS"
+            printf '%sFAIL%s %ss — RECORD-TOUCHED: wrote to the record it was given, which outside this runner is the operator'"'"'s\n' "$C_RED" "$C_RESET" "$SECS"
             FAILED=$((FAILED + 1))
-            FAIL_LINES+=("$id — touched the operator's record under $RC_CFG")
-            printf '        TOUCHED THE OPERATOR'"'"'S RECORD — the class that wrote a false termination for a running agent on 2026-09-11:\n'
+            FAIL_LINES+=("$id — RECORD-TOUCHED: wrote to its HOME/CLAUDE_CONFIG_DIR record (run by hand, that is $RC_LIVE_CFG)")
+            printf '        WROTE TO THE RECORD UNDER ITS OWN HOME — run by hand it would have written the operator'"'"'s, the class that wrote a false termination for a running agent on 2026-09-11:\n'
             printf '%s\n' "$TOUCHED" | sed 's/^/          /'
             ;;
         CANARY-BLIND)
