@@ -128,3 +128,15 @@ an unrelated commit does not invalidate identical archive inputs. The extracted
 Node test uses generated models and a private loopback HTTP server. It never
 downloads a model from a remote host. Missing known packaging inputs are rejected
 before reuse. This declaration does not by itself constitute an archive test pass.
+
+The payload, transcript and private Git fixtures for host-display-power,
+public-record-repo, Bash main-write, turn-manifest, idle-land, unresolved-claims,
+stated-actions and worktree-removal have per-unit contracts. CL, SA, IL and WTR
+retain their existing nested mutation coverage. Private recovery/roster state
+is part of their execution profile. The public-record fixture's `/nowhere`
+lookup is explicitly bound rather than presumed permanently absent.
+
+The app `no-foreign-app-data` recipe also includes the scanned app source,
+crates, UI and tools trees outside the common roots. Scanned source is text;
+the scanner does not execute it or inspect installed application data. The
+shared app wrapper and its result helpers are bound as reviewed readers.
