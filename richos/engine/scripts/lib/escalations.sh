@@ -62,3 +62,12 @@ escalations_ledger() {
 escalations_list() {
     python3 "$ESCALATIONS_PY" list --format "${1:-text}"
 }
+
+# escalations_deliver <state-dir> — the Stop payload on stdin, the operator's
+# JSON line (possibly empty) in ESCALATIONS_OPERATOR_JSON. Prints the ONE JSON
+# object the Stop hook emits: the operator's systemMessage plus, when a NEW
+# escalation is outstanding, hookSpecificOutput.additionalContext for the
+# lead's model. Exit 2 (and nothing printed) when the ledger cannot be read.
+escalations_deliver() {
+    python3 "$ESCALATIONS_PY" deliver --state-dir "$1"
+}

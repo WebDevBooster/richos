@@ -889,6 +889,204 @@ case "$OUT" in
 esac
 
 # ===========================================================================
+# 18. THE LEAD'S MODEL IS TOLD — the 2026-09-28 defect.
+#
+# Every case above asserts on `systemMessage`, and a Stop hook's systemMessage
+# reaches the PERSON, never the model. So all of them were green on 2026-09-28
+# while a teammate's escalation sat unread by the lead for the rest of the
+# session: the hook fired four times and the model received nothing. These
+# cases assert on the field that reaches the model —
+# hookSpecificOutput.additionalContext — and on WHICH escalations it carries:
+# the new one by id, teammate, title, state and question; never one the
+# session-start block already delivered; never the same one twice.
+# ===========================================================================
+L8="$SANDBOX/state/deliver.jsonl"
+S8="18181818-0000-4000-8000-000000000000"
+T8="$SANDBOX/transcript-18.jsonl"
+
+# jfield <json> <expr> — one field of the hook's JSON, or "" when absent.
+jfield() {
+    printf '%s' "$1" | python3 -c '
+import json, sys
+expr = sys.argv[1]
+try:
+    d = json.loads(sys.stdin.read() or "{}")
+except Exception:
+    print("<NOT JSON>"); raise SystemExit
+for k in expr.split("."):
+    d = d.get(k) if isinstance(d, dict) else None
+print("" if d is None else d)
+' "$2"
+}
+stop_payload_t() { # <session-id> <transcript> [agent-id]
+    python3 -c '
+import json, sys
+d = {"session_id": sys.argv[1], "hook_event_name": "Stop", "cwd": sys.argv[3],
+     "transcript_path": sys.argv[2], "stop_hook_active": False,
+     "last_assistant_message": "Done."}
+if len(sys.argv) > 4 and sys.argv[4]:
+    d["agent_id"] = sys.argv[4]
+print(json.dumps(d))
+' "$1" "$2" "$ENG" "${3:-}"
+}
+# The host's own record of the SessionStart block, in the shape the lead's
+# transcript carries it (measured on 356e9552, line 15): an attachment whose
+# stdout is session-start-escalations.sh's JSON, byte for byte.
+record_session_start() { # <transcript> <hook-stdout>
+    python3 -c '
+import json, sys
+row = {"type": "attachment", "timestamp": "2026-09-28T13:44:26.236Z",
+       "attachment": {"type": "hook_success", "hookName": "SessionStart:startup",
+                      "hookEvent": "SessionStart", "content": "", "stdout": sys.argv[2],
+                      "stderr": "", "exitCode": 0,
+                      "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start-escalations.sh"}}
+with open(sys.argv[1], "a", encoding="utf-8") as fh:
+    fh.write(json.dumps(row) + "\n")
+' "$1" "$2"
+}
+raise8() { # <teammate> <title> [ledger]
+    RICHOS_ESCALATION_LEDGER="${3:-$L8}" "$ESCALATE" raise --title "$2" --state proceeding --for lead \
+        --question "is this delivered to the lead's model by id?" \
+        --worktree "$SANDBOX" --teammate "$1" --no-record 2>/dev/null \
+        | sed -n 's/^escalation RAISED: //p' | head -1
+}
+
+# An escalation that was outstanding when the session started, delivered by
+# the SessionStart block and recorded in the transcript the way the host does.
+OLD8="$(raise8 zach-opus-e1before "raised before this session started")"
+SS_OUT="$(RICHOS_ESCALATION_LEDGER="$L8" "$START_HOOK" </dev/null 2>/dev/null)"
+: > "$T8"
+record_session_start "$T8" "$SS_OUT"
+case "$SS_OUT" in
+    *"$OLD8"*) ok "18a  fixture: the SessionStart block really carries $OLD8, and the transcript records it" ;;
+    *)         bad "18a  SessionStart fixture" "the session-start output does not name $OLD8: $SS_OUT" ;;
+esac
+
+# Mid-session, a teammate raises a NEW one.
+sleep 1
+NEW8="$(raise8 zach-opus-e1during "raised during the lead's session")"
+OUT="$(stop_payload_t "$S8" "$T8" | RICHOS_ESCALATION_LEDGER="$L8" "$STOP_HOOK" 2>/dev/null)"
+say "18 first turn end" "$OUT"
+CTX="$(jfield "$OUT" hookSpecificOutput.additionalContext)"
+EVT="$(jfield "$OUT" hookSpecificOutput.hookEventName)"
+if [ "$EVT" = "Stop" ] && [ -n "$CTX" ]; then
+    ok "18b  the turn end carries hookSpecificOutput.additionalContext for event Stop — the field that reaches the MODEL"
+else
+    bad "18b  model channel present" "hookEventName='$EVT', additionalContext empty=$([ -z "$CTX" ] && echo yes || echo no): $OUT"
+fi
+MISSING=""
+for want in "$NEW8" "zach-opus-e1during" "raised during the lead's session" "state=proceeding" \
+            "is this delivered to the lead's model by id?"; do
+    case "$CTX" in *"$want"*) ;; *) MISSING="$MISSING [$want]" ;; esac
+done
+if [ -z "$MISSING" ] && [ -n "$NEW8" ]; then
+    ok "18c  it names the NEW escalation by id, teammate, title, state and question"
+else
+    bad "18c  names the new escalation" "missing:$MISSING in: $CTX"
+fi
+case "$CTX" in
+    *"$OLD8"*) bad "18d  not repeated from session start" "$OLD8 was already delivered by the SessionStart block and was sent again: $CTX" ;;
+    *)         ok "18d  the one the SessionStart block already delivered is NOT repeated" ;;
+esac
+case "$(jfield "$OUT" systemMessage)" in
+    *"ESCALATION OUTSTANDING"*) ok "18e  and the operator's line is still in the same JSON object" ;;
+    *) bad "18e  operator line kept" "got: $OUT" ;;
+esac
+
+OUT="$(stop_payload_t "$S8" "$T8" | RICHOS_ESCALATION_LEDGER="$L8" "$STOP_HOOK" 2>/dev/null)"
+if [ -z "$(jfield "$OUT" hookSpecificOutput.additionalContext)" ]; then
+    ok "18f  the next turn end does NOT deliver it again — once per session, so the lead's turn is not held"
+else
+    bad "18f  delivered once" "delivered a second time: $OUT"
+fi
+
+sleep 1
+NEW8B="$(raise8 zach-opus-e1second "a second one, later in the session")"
+OUT="$(stop_payload_t "$S8" "$T8" | RICHOS_ESCALATION_LEDGER="$L8" "$STOP_HOOK" 2>/dev/null)"
+CTX="$(jfield "$OUT" hookSpecificOutput.additionalContext)"
+case "$CTX" in
+    *"$NEW8B"*)
+        case "$CTX" in
+            *"$NEW8"*) bad "18g  only the newest" "the first one was repeated beside the second: $CTX" ;;
+            *)         ok "18g  a later escalation is delivered ALONE — and the count of those already told is stated" ;;
+        esac ;;
+    *) bad "18g  later escalation delivered" "got: $OUT" ;;
+esac
+
+# A WORKER'S turn is not the lead's. Stop is the main thread's event, but a
+# payload that carries agent_id is a subagent's and must not be handed other
+# teammates' escalations.
+sleep 1
+NEW8C="$(raise8 zach-opus-e1third "raised while a worker's turn ends")"
+OUT="$(stop_payload_t "$S8" "$T8" "agent-abc123" | RICHOS_ESCALATION_LEDGER="$L8" "$STOP_HOOK" 2>/dev/null)"
+if [ -z "$(jfield "$OUT" hookSpecificOutput.additionalContext)" ]; then
+    ok "18h  a payload carrying agent_id (a worker) gets NO model delivery"
+else
+    bad "18h  worker not told" "got: $OUT"
+fi
+OUT="$(stop_payload_t "$S8" "$T8" | RICHOS_ESCALATION_LEDGER="$L8" "$STOP_HOOK" 2>/dev/null)"
+case "$(jfield "$OUT" hookSpecificOutput.additionalContext)" in
+    *"$NEW8C"*) ok "18i  and the lead still gets it at its own next turn end — the worker's turn consumed nothing" ;;
+    *) bad "18i  lead still told after a worker turn" "got: $OUT" ;;
+esac
+
+# THE HOST CAP. A SessionStart block over 10,000 characters is replaced by a
+# path and a 2,000-character preview, so only the ids in that preview reached
+# the model. The rest must be delivered at the first turn end, not assumed.
+L8B="$SANDBOX/state/deliver-cap.jsonl"
+T8B="$SANDBOX/transcript-18cap.jsonl"
+for i in $(seq 1 60); do
+    raise8 "zach-opus-e1cap$i" "cap fixture number $i with a title long enough to fill the block" "$L8B" >/dev/null
+done
+SS_OUT="$(RICHOS_ESCALATION_LEDGER="$L8B" "$START_HOOK" </dev/null 2>/dev/null)"
+: > "$T8B"
+record_session_start "$T8B" "$SS_OUT"
+SS_LEN="$(jfield "$SS_OUT" hookSpecificOutput.additionalContext | wc -c | tr -d ' ')"
+sleep 1
+CAPNEW="$(raise8 zach-opus-e1capnew "raised mid-session beside a cut-off backlog" "$L8B")"
+OUT="$(stop_payload_t "19191919-0000-4000-8000-000000000000" "$T8B" \
+       | RICHOS_ESCALATION_LEDGER="$L8B" "$STOP_HOOK" 2>/dev/null)"
+CTX="$(jfield "$OUT" hookSpecificOutput.additionalContext)"
+if [ "$SS_LEN" -gt 10000 ] && [ -n "$CTX" ] && [ "${#CTX}" -le 10000 ] \
+   && printf '%s' "$CTX" | grep -q 'cap fixture number'; then
+    ok "18j  a SessionStart block of $SS_LEN chars was cut by the host; the ids past its preview are delivered, in ${#CTX} chars (under the cap)"
+else
+    bad "18j  host cap honored" "session-start=$SS_LEN chars, delivery=${#CTX} chars: $OUT"
+fi
+FIRST_ENTRY="$(printf '%s\n' "$CTX" | sed -n '2p')"
+case "$FIRST_ENTRY" in
+    *"$CAPNEW"*) ok "18m  the escalation raised mid-session is delivered FIRST, ahead of the cut-off backlog" ;;
+    *) bad "18m  newest first" "first entry is not $CAPNEW: $FIRST_ENTRY" ;;
+esac
+
+# MUTATION — is the model half carried by additionalContext, or by luck? Put
+# back the pre-fix world (the predicate adds nothing for the model) and the
+# cases above must lose it.
+cp "$ENG/scripts/lib/escalations.py" "$SANDBOX/escalations.py.real3"
+python3 - "$ENG/scripts/lib/escalations.py" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+s = s.replace('        out["hookSpecificOutput"] = {"hookEventName": "Stop", "additionalContext": context}',
+              '        pass  # MUTATION (test-only): the operator line alone, as before 2026-09-28')
+open(p, "w", encoding="utf-8").write(s)
+PY
+L8M="$SANDBOX/state/deliver-mutant.jsonl"
+raise8 zach-opus-e1mutant "the mutant must not reach the model" "$L8M" >/dev/null
+OUT="$(stop_payload_t "20202020-0000-4000-8000-000000000000" "" | RICHOS_ESCALATION_LEDGER="$L8M" "$STOP_HOOK" 2>/dev/null)"
+if [ -n "$(jfield "$OUT" systemMessage)" ] && [ -z "$(jfield "$OUT" hookSpecificOutput.additionalContext)" ]; then
+    ok "18k  NEGATIVE CONTROL: with the model half removed the operator is still told and the model gets NOTHING — the 2026-09-28 defect, reproduced"
+else
+    bad "18k  negative control" "the mutant still reached the model or lost the operator line: $OUT"
+fi
+cp "$SANDBOX/escalations.py.real3" "$ENG/scripts/lib/escalations.py"
+OUT="$(stop_payload_t "21212121-0000-4000-8000-000000000000" "" | RICHOS_ESCALATION_LEDGER="$L8M" "$STOP_HOOK" 2>/dev/null)"
+case "$(jfield "$OUT" hookSpecificOutput.additionalContext)" in
+    *"the mutant must not reach the model"*) ok "18l  and the shipped source delivers the same fixture to the model" ;;
+    *) bad "18l  restored source delivers" "got: $OUT" ;;
+esac
+
+# ===========================================================================
 # 17. THE LEAK CANARY, PROVEN IN BOTH DIRECTIONS BEFORE IT IS TRUSTED.
 #
 # A canary that cannot go red is worse than no canary: it is a green tick
