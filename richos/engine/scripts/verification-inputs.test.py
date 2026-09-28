@@ -152,6 +152,29 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_inflight_durability_retains_real_workspace_cleanup_settings(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/inflight-ack-durability.test.sh'
+        closure = graph.closure(unit)
+        expected = {'APP_TEST_INSTANCE_PROCESS_NAMES', 'APP_TEST_INSTANCE_BUNDLE_ID',
+                    'APP_TEST_INSTANCE_REAL_HOME_PATHS', 'APP_TEST_INSTANCE_QUIT_GRACE_SECONDS',
+                    'APP_TEST_INSTANCE_KILL_GRACE_SECONDS'}
+        self.assertEqual(set(closure['keys']), expected)
+        self.assertFalse(closure['whole'] or closure['presence'] or closure['fallback'], closure)
+        for key in expected | {'INFLIGHT_ACK_TIMEOUT_MIN', 'PROTECTED_PATHS', 'SHOW_TURN_MANIFEST'}:
+            change = inputs.config_change(key+'=old', key+'=new')
+            self.assertEqual(bool(graph.config_units(change, [unit])), key in expected, key)
+        unrelated = inputs.config_change('PROTECTED_PATHS=old', 'PROTECTED_PATHS=new')
+        for helper in ('mega-lander/workspaces.py#discard', 'mega-lander/workspaces.sh#discard',
+                       'scripts/lib/appinstances.py#workspace-cleanup',
+                       'scripts/lib/testdevices.py#workspace-collection',
+                       'scripts/lib/containers.py#workspace-cleanup'):
+            with self.subTest(helper=helper):
+                previous = document['nodes'].pop(helper)
+                self.assertEqual(set(graph.config_units(unrelated, [unit])), {unit})
+                document['nodes'][helper] = previous
+
     def test_inflight_notification_covers_stop_and_durable_ack_readers(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

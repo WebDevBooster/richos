@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "5c2804c187993dc696999799c48ed9553d48a65880cd3c9f1807b8c0ebf05ed9",
+      "sha256": "f0151cfd49812a8340113710378066cc7a456548677a4a006bffa18a4114f1c0",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -3593,7 +3593,7 @@
     "mega-lander/workspaces.py#empty-recipient-fixture": {
       "source": "mega-lander/workspaces.py",
       "sha256": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
-      "evidence": "The pause fixture explicitly supplies a newly created private RICHOS_WORKSPACES_DIR with no agent/done records. The recipient CLI reads load_agent(named_key(session,name)) and returns unregistered before observe_platform_end or any lifecycle operation. CLI preparation resolves entity via cwd Git metadata. Reached helpers are state_dir/_p/_key_segment, agent_path/done_path/read_json, named_key, realpath and main_checkout/git/_git_env; none consumes config. The caller test hash binds this empty-registry precondition.",
+      "evidence": "The pause fixture explicitly supplies a newly created private RICHOS_WORKSPACES_DIR with no agent/done records. The recipient CLI reads load_agent(named_key(session,name)) and returns unregistered before observe_platform_end or any lifecycle operation. The recipient CLI takes entity from its argument or environment and does not perform the hook-only cwd Git lookup. Reached helpers are state_dir/_p/_key_segment, agent_path/done_path/read_json and named_key; none consumes config. The caller test hash binds this empty-registry precondition.",
       "keys": [],
       "edges": []
     },
@@ -3778,6 +3778,55 @@
           "to": "scripts/lib/inflight.py"
         }
       ]
+    },
+    "mega-lander/workspaces.py#discard": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+      "evidence": "Reviewed discard CLI plus fixture registration new_record/named_key/_add_workspace/main_checkout/save_agent and record_end. Every local helper other than discard is shared with the already reviewed lifecycle closure. Discard validates record state/reason, records tips and invokes the same _delete_chain cleanup. CLI receives explicit --session; it never enters land-only QA or scratch-sweep paths. Retains actual engine configuration reads from app-instance cleanup.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#lifecycle-fixtures"
+        }
+      ]
+    },
+    "mega-lander/workspaces.sh#discard": {
+      "source": "mega-lander/workspaces.sh",
+      "sha256": "93b86b885516641e69a7cd84105260ee94d52300f0099362c7ed9b475855764e",
+      "evidence": "Fixed Python wrapper invoked only with explicit session and discard; no shell config lookup.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#discard"
+        }
+      ]
+    },
+    "scripts/hooks/inflight-ack-durability.test.sh": {
+      "source": "scripts/hooks/inflight-ack-durability.test.sh",
+      "sha256": "8845d8b27d388d5591019c150041dad4bfb55a6abbd38555c37be706d0f043d4",
+      "evidence": "Finite notification/ack hook and library copies run against literal PROTECTED_PATHS entity fixtures and private team/ack records. Separately the real workspaces CLI removes registered private Git worktrees after explicit record_end. That uncopied cleanup retains its real engine app-instance settings. Native cases create Git worktrees and locks, not model agents. Ledger/cwd leak checks read record content and directory names, not production config values.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/notice-inflight-sends.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/notice-inflight-acks.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/inflight-notify.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/inflight-ack.sh",
+          "fixture": true
+        },
+        {
+          "to": "mega-lander/workspaces.sh#discard"
+        }
+      ]
     }
   },
   "units": {
@@ -3846,7 +3895,8 @@
     "scripts/hooks/stale-staging.test.sh": "scripts/hooks/stale-staging.test.sh",
     "scripts/hooks/detect-nonnative-worktree.test.sh": "scripts/hooks/detect-nonnative-worktree.test.sh",
     "scripts/hooks/inflight-two-leads.test.sh": "scripts/hooks/inflight-two-leads.test.sh",
-    "scripts/hooks/inflight-notify.test.sh": "scripts/hooks/inflight-notify.test.sh"
+    "scripts/hooks/inflight-notify.test.sh": "scripts/hooks/inflight-notify.test.sh",
+    "scripts/hooks/inflight-ack-durability.test.sh": "scripts/hooks/inflight-ack-durability.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
