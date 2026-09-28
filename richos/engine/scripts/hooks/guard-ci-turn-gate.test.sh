@@ -521,6 +521,53 @@ else
     bad "8b. not repeated" "it said it again: $(printf '%s' "$GONE2" | head -c 200)"
 fi
 
+# ===========================================================================
+# 9. ZERO OBSERVED RUNS IS NEVER CALLED "RUNNING" — richos-hq, 2026-09-28
+# ===========================================================================
+# The founder hit this verbatim: a push to a repository with NO WORKFLOWS AT
+# ALL (GitHub answers `workflow_runs: []` for every commit, forever, because
+# there is nothing to run) used to be promoted to "CI IS STILL RUNNING ... (no
+# runs have appeared yet)" for a grace window on the guess that GitHub just
+# had not indexed the run yet. It never would have. The fix: zero runs is
+# silent, exactly like a green commit — never "running" unless a run is
+# actually observed in flight.
+runs_json nocirepo
+fire nocirepo s-nocirepo "All done."
+if [ "$RC" -eq 0 ]; then
+    ok "9a. a commit with ZERO observed runs does not hold the turn (exit 0)"
+else
+    bad "9a. zero runs never traps the session" "exit $RC — stderr: $(printf '%s' "$ERR" | head -c 300)"
+fi
+case "$OUT" in
+    *"STILL RUNNING"*)
+        bad "9b. zero runs is never announced as running" "stdout falsely claimed CI was running: $(printf '%s' "$OUT" | head -c 300)" ;;
+    *)
+        ok "9b. a repository with no CI at all (0 workflow runs, ever) prints no RUNNING notice" ;;
+esac
+
+# 9c. THE SAME MACHINERY STILL REPORTS A REAL IN-FLIGHT RUN. Case 6 above
+# already proves this end to end; restated here as the paired negative/positive
+# so the two cases cannot silently drift apart (a fix to 9b that also broke 6a
+# would still show a regression right beside it).
+runs_json running
+fire nocirepo2 s-nocirepo2 "All done."
+case "$OUT" in
+    *"STILL RUNNING"*"NOT HELD"*)
+        ok "9c. and a run that IS actually in flight is still announced as running" ;;
+    *)
+        bad "9c. a real in-flight run is still reported" "stdout: $(printf '%s' "$OUT" | head -c 300)" ;;
+esac
+
+# 9d. AND A FAILED RUN STILL HOLDS THE TURN, EXACTLY AS BEFORE — the fix
+# touches only the "zero runs" branch, never the red branch case 1 covers.
+runs_json red
+fire nocirepo3 s-nocirepo3 "All done."
+if [ "$RC" -eq 2 ]; then
+    ok "9d. a push whose tip run FAILED still refuses the turn, unchanged by this fix"
+else
+    bad "9d. red still refuses" "expected exit 2, got $RC"
+fi
+
 echo ""
 printf 'passed %d, failed %d\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
