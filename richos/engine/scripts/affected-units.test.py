@@ -258,8 +258,14 @@ class Planner(unittest.TestCase):
         group['hooks'].append({'type': 'command', 'command': 'bash ${CLAUDE_PLUGIN_ROOT}/new-fixture-hook.sh'})
         plan = Selection(root, suites, lambda p: (root / p).read_text() if (root / p).is_file() else None, document)
         plan.hooks(old, json.dumps(changed, indent=2))
-        # JSON escapes in the description remain outside these registration needles.
-        self.assertEqual(set(plan.selected), {'scripts/check-census.test.sh'})
+        # JSON escapes in the description remain outside these registration needles. The
+        # hook is added to Stop, and stop-hook-visibility.test.sh has read every Stop
+        # registration since 6ac2edc4 (events: ["Stop"]), so it is the one fixed reader
+        # this change concerns; every other fixed reader stays out.
+        self.assertEqual(set(plan.selected), {'scripts/check-census.test.sh',
+                                              'scripts/hooks/stop-hook-visibility.test.sh'})
+        self.assertIn('changed event ordering/inventory for Stop',
+                      ' '.join(plan.selected['scripts/hooks/stop-hook-visibility.test.sh']))
 
     def test_session_start_inventory_keeps_new_events_and_reader_invalidation(self):
         root = HERE.parent

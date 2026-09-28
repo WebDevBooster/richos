@@ -417,7 +417,7 @@
       "review": "The full parser/dependency suite reads engine sources as data and creates private fixture repositories. The new spawn closure assertion also validates an optional fixed external scope guard by bytes. The private execution profile clears RICHOS_SPAWN_TEST_REAL_PROJECT so the bound literal default is the only external location. HOME-based optional dispatcher lookup is private; fixtures patch HOME for their own cases. External absence is part of identity, never an invented runtime pass. Renewed 2026-09-28 for verification_inputs.py's source_inventory, repository-rooted and default_engine external bindings: the suite's closures over the real dependency map compare the digests of three repository files outside richos/engine and richos/app/scripts (cpu_guard.py#policy-fixtures), so those files are now declared paths. The new affected_units.py cases run git and the selector on private fixture repositories; RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT is set and cleared by the suite itself.",
       "sources": {
         "richos/engine/scripts/verification-inputs.test.sh": "5c1044eb2b8c463aa4667b1f48c68e306157d3e72df91f700220498d97e4ba2e",
-        "richos/engine/scripts/verification-inputs.test.py": "96cec1858411bbabe743ce38ed00b8c552c3f7d04078734cf404922c434ae95f",
+        "richos/engine/scripts/verification-inputs.test.py": "1a6d552421abe5cb015ced10b5fb4f4f09ae89374f8af8be2516a9c48232d55e",
         "richos/engine/scripts/lib/verification_inputs.py": "c7ddb8e54b83ad2bc84eb3eaa4d15eaf4a7c0071a6c793b31bd229143e037c43"
       },
       "requires": {
