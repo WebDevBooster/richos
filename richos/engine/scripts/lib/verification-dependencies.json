@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "4e6a1a37fde2dad79d12d501986d64ca1aec3ae56f7a7d64208c84984f16ccc3",
+      "sha256": "3392f1f398edc4f5ce09f43a5b256bc85693310a80d2a0d81f526d4e8026462d",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -3621,6 +3621,101 @@
           "to": "scripts/lib/teammate-identity.py"
         }
       ]
+    },
+    "scripts/lib/inflight.py": {
+      "source": "scripts/lib/inflight.py",
+      "sha256": "7557f1c701858629759472c355a35583e3e2edaa60ab5ea6f1b5e819984a6739",
+      "evidence": "Reads Git worktree/ref/diff metadata, acknowledgement and notice ledgers, timestamps and PID liveness. Its only dynamic imports are teammate-identity and the workspaces integration_for reader. It never reads orchestration.config, runs payload commands or invokes workspace lifecycle actions. The full module was reviewed, including default-tip and durable-ack paths.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/teammate-identity.py"
+        },
+        {
+          "to": "mega-lander/workspaces.py#integration"
+        }
+      ]
+    },
+    "scripts/lib/inflight.sh": {
+      "source": "scripts/lib/inflight.sh",
+      "sha256": "db5588f3a0093a55befbcab454ee7e1921e1d8f8a049ff0c243da5020e418e43",
+      "evidence": "Shell interface to fixed in-flight and identity modules. Reads exactly INFLIGHT_ACK_TIMEOUT_MIN from the chosen repository config via grep; other paths come from explicit arguments/environment. Registration writes the selected team ledger.",
+      "keys": [
+        "INFLIGHT_ACK_TIMEOUT_MIN"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/inflight.py"
+        },
+        {
+          "to": "scripts/lib/teammate-identity.py"
+        }
+      ]
+    },
+    "scripts/hooks/guard-inflight-notify.sh": {
+      "source": "scripts/hooks/guard-inflight-notify.sh",
+      "sha256": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
+      "evidence": "Classifies a push as data, resolves its repository with git-jurisdiction and inspects Git/registry state. Does not execute the push or generated remediation text. The only setting read is delegated timeout selection in inflight.sh; root and seat helpers retain adoption checks.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/inflight.sh"
+        }
+      ]
+    },
+    "scripts/hooks/notice-inflight-sends.sh": {
+      "source": "scripts/hooks/notice-inflight-sends.sh",
+      "sha256": "b5120d7d24070d1e306ed38fd96345bfee3c7d2538e1bde72c4bde155a4e0af4",
+      "evidence": "Standard-library payload parser imports only the fixed teammate-identity module, then appends a notice JSON row to the resolved team directory. Message content and SHA tokens are data; no settings or payload command executes.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/teammate-identity.py"
+        }
+      ]
+    },
+    "scripts/inflight-notify.sh": {
+      "source": "scripts/inflight-notify.sh",
+      "sha256": "e6f19fa062751cb68eb1d06f08b95b7a60c02b4491865edcfb8db5e245ec8265",
+      "evidence": "The CLI sources inflight.sh, invokes its fixed readers and renders status/notice/ack records. Waive writes a JSON record to the selected team ledger. Generated SendMessage and acknowledgement instructions are output text only.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/inflight.sh"
+        }
+      ]
+    },
+    "scripts/hooks/inflight-two-leads.test.sh": {
+      "source": "scripts/hooks/inflight-two-leads.test.sh",
+      "sha256": "ea3347ec7a6635d1cf50f93d076cffcf3ea2c3dd0e27db2eff49b16e68b375ea",
+      "evidence": "Copies a finite list of guard, witness, runner and libraries into a new Git repository with a literal PROTECTED_PATHS config. All guard/CLI calls use that repository, private transcripts, teams and ack ledger. Native-agent helpers only create Git worktrees/locks, never model processes. No production config is copied or sourced; no mutation driver executes.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-inflight-notify.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/notice-inflight-sends.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/inflight-notify.sh",
+          "fixture": true
+        }
+      ]
     }
   },
   "units": {
@@ -3687,7 +3782,8 @@
     "scripts/lib/durable-filesystem-identity.test.sh": "scripts/lib/durable-filesystem-identity.test.sh",
     "scripts/lib/spawn-guard-audience.test.sh": "scripts/lib/spawn-guard-audience.test.sh",
     "scripts/hooks/stale-staging.test.sh": "scripts/hooks/stale-staging.test.sh",
-    "scripts/hooks/detect-nonnative-worktree.test.sh": "scripts/hooks/detect-nonnative-worktree.test.sh"
+    "scripts/hooks/detect-nonnative-worktree.test.sh": "scripts/hooks/detect-nonnative-worktree.test.sh",
+    "scripts/hooks/inflight-two-leads.test.sh": "scripts/hooks/inflight-two-leads.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {

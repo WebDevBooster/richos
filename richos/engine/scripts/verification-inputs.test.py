@@ -51,7 +51,7 @@ class Inputs(unittest.TestCase):
                     "DISK_CONSUMER_CANDIDATES", "DISK_STATE_JSON"}
         actual = {key for key, row in parsed.items() if any(part[0] == "parameter" for part in row["value"])}
         self.assertEqual(actual, expected)
-        self.assertEqual(len(parsed), 101)
+        self.assertEqual(len(parsed), 103)
         self.assertIsNone(inputs.config_change("", (HERE.parent / "orchestration.config").read_text())["fallback"])
 
     def test_semantic_values_ignore_comments_spacing_and_equivalent_quotes(self):
@@ -152,6 +152,27 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_inflight_two_leads_keeps_private_settings_and_transitive_bindings(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/inflight-two-leads.test.sh'
+        self.assertEqual(graph.closure(unit),
+                         {'keys': {}, 'whole': [], 'presence': [], 'fallback': []})
+        self.assertEqual(set(graph.closure('scripts/hooks/guard-inflight-notify.sh')['keys']),
+                         {'INFLIGHT_ACK_TIMEOUT_MIN'})
+        change = inputs.config_change('INFLIGHT_ACK_TIMEOUT_MIN=5', 'INFLIGHT_ACK_TIMEOUT_MIN=10')
+        self.assertEqual(graph.config_units(change, [unit]), {})
+        self.assertEqual(graph.config_units(inputs.config_change(None, 'PROTECTED_PATHS=src'), [unit]), {})
+        for helper in ('scripts/lib/inflight.py', 'scripts/lib/inflight.sh',
+                       'scripts/hooks/guard-inflight-notify.sh',
+                       'scripts/hooks/notice-inflight-sends.sh', 'scripts/inflight-notify.sh',
+                       'scripts/lib/teammate-identity.py', 'mega-lander/workspaces.py#integration'):
+            with self.subTest(helper=helper):
+                previous = document['nodes'][helper]['sha256']
+                document['nodes'][helper]['sha256'] = 'changed'
+                self.assertEqual(set(graph.config_units(change, [unit])), {unit})
+                document['nodes'][helper]['sha256'] = previous
+
     def test_staging_and_worktree_detectors_replace_entity_settings(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)
