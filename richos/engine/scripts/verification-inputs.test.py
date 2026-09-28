@@ -152,6 +152,26 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_disk_watchdog_keeps_only_its_real_candidate_assertion(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/disk-watchdog.test.sh'
+        closure = graph.closure(unit)
+        self.assertEqual(closure['fallback'], [])
+        self.assertEqual(set(closure['keys']), {'DISK_CONSUMER_CANDIDATES'})
+        self.assertFalse(closure['whole'])
+        self.assertTrue(closure['presence'])
+        for key in ('DISK_CONSUMER_CANDIDATES', 'DISK_RICH_ALERT_GB', 'SCRATCH_REAPER_CMD',
+                    'TEST_DEVICE_FAILURES_STATE', 'APP_TEST_INSTANCE_PROCESS_NAMES'):
+            self.assertEqual(bool(graph.config_units(inputs.config_change(key+'=a', key+'=b'), [unit])), key == 'DISK_CONSUMER_CANDIDATES', key)
+        self.assertIn(unit, graph.config_units(inputs.config_change('DISK_CONSUMER_CANDIDATES=a', None), [unit]))
+        change = inputs.config_change('MODEL_TIERS=a', 'MODEL_TIERS=b')
+        for helper in ('scripts/lib/disk-watchdog.py#suite-fixtures', 'scripts/lib/testdevices.py#scheduled-collection',
+                       'scripts/lib/foreign_app_data.py'):
+            old = document['nodes'].pop(helper)
+            self.assertIn(unit, graph.config_units(change, [unit]), helper)
+            document['nodes'][helper] = old
+
     def test_vendoring_unsourced_defaults_keep_adoption_and_registration(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

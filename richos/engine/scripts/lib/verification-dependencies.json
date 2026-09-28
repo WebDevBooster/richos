@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "6ff61fe1aef61cb35815e62eb92c6fdf157408660719001fedf6a9b249138886",
+      "sha256": "f9665f88e09602aaeed37ad07ec15e5c58992c159e773c4d6802c3da3769b8ab",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -8071,6 +8071,54 @@
           "to": "scripts/hooks/guard-vendoring-commits.mutation.sh"
         }
       ]
+    },
+    "scripts/lib/disk-watchdog.py#suite-fixtures": {
+      "source": "scripts/lib/disk-watchdog.py",
+      "sha256": "e9e7ca4981c480b8fb3598f1feb7302dd617f8b040c2db4e4a661306cddd03ed",
+      "evidence": "Adds json/status rendering and reviewed run_reaper to the existing check closure. Every status fixture sets SCRATCH_REAPER_CMD to a literal JSON stub or absent path, so no production reaper executes. Scheduled device collection and fixed foreign-data classifier remain bound. Real disk capacity/free space and time are runtime inputs.",
+      "keys": [
+        "SCRATCH_REAPER_CMD"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/disk-watchdog.py#check"
+        }
+      ]
+    },
+    "scripts/disk-watchdog.sh#suite-fixtures": {
+      "source": "scripts/disk-watchdog.sh",
+      "sha256": "5168a316708d2fc3dc19e76604942e7377a6b8529d267052be2fa16f6f90cea5",
+      "evidence": "Full wrapper receives explicit private config and LaunchAgents directories. Normal alert/json/status/check calls execute the fixed Python library. The copied print-plist call renders data; the copied worktree install call refuses before scheduling. No live service is installed.",
+      "keys": [
+        "DISK_STATE_JSON",
+        "DISK_WATCHDOG_ENABLE",
+        "DISK_WATCHDOG_LOG",
+        "DISK_WATCHDOG_MINUTES"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/disk-watchdog.py#suite-fixtures"
+        }
+      ],
+      "presence": "The selected private config must exist before each invocation."
+    },
+    "scripts/disk-watchdog.test.sh": {
+      "source": "scripts/disk-watchdog.test.sh",
+      "sha256": "88c38beb642a506e4263e2f5b8cd16c33f5beb0e5f8023ba9ab36d4feb6e4236",
+      "evidence": "Full suite uses literal private configs/states, notification stubs, private LaunchAgents and explicit fake device adapters. Status uses a literal fake reaper or absent executable. W22d separately sources the real engine config in env -i and reads DISK_CONSUMER_CANDIDATES; those actual values remain a dependency. No mutation driver is nested.",
+      "keys": [
+        "DISK_CONSUMER_CANDIDATES"
+      ],
+      "edges": [
+        {
+          "to": "scripts/disk-watchdog.sh#suite-fixtures",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/foreign_app_data.py"
+        }
+      ],
+      "presence": "W22d requires the real config to provide a nonempty consumer list."
     }
   },
   "units": {
@@ -8189,7 +8237,8 @@
     "scripts/hooks/owned-state.test.sh": "scripts/hooks/owned-state.test.sh",
     "scripts/hooks/left-off.test.sh": "scripts/hooks/left-off.test.sh",
     "scripts/quota-watch.test.sh": "scripts/quota-watch.test.sh",
-    "scripts/hooks/guard-vendoring-commits.test.sh": "scripts/hooks/guard-vendoring-commits.test.sh"
+    "scripts/hooks/guard-vendoring-commits.test.sh": "scripts/hooks/guard-vendoring-commits.test.sh",
+    "scripts/disk-watchdog.test.sh": "scripts/disk-watchdog.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
