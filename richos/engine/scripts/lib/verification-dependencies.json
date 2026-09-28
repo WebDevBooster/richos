@@ -163,8 +163,8 @@
     },
     "scripts/hooks/contract-integrity-probe.sh#workspace-copy": {
       "source": "scripts/hooks/contract-integrity-probe.sh",
-      "sha256": "52155e96b9a3ac8755f39d30f8d69cf9bcfdb77d09d3259b494cbebad63f6440",
-      "evidence": "Q copies the governed config into Q_ENT before q_env executes the workspace guards. The enclosing Q consumer must follow those executed guards. Later changes add registration inventory literals outside the Q copy region only (guard-record-owner-memory.sh, 2026-09-28).",
+      "sha256": "6a82794553fcd9c510aeb28dde2cafd325390fbcb70694753f3f7e636ece2102",
+      "evidence": "Q copies the governed config into Q_ENT before q_env executes the workspace guards. The enclosing Q consumer must follow those executed guards. Later changes add registration inventory literals outside the Q copy region only (guard-record-owner-memory.sh, 2026-09-28). Renewed 2026-09-28 (stall watcher): one BR_EXPECTED row and one R_ROOTLESS_HOOKS name (session-start-stall), registration inventory literals only; no reviewed function changed.",
       "keys": [],
       "edges": [],
       "region": [
@@ -2728,8 +2728,8 @@
     },
     "scripts/hooks/engine-status.test.sh": {
       "source": "scripts/hooks/engine-status.test.sh",
-      "sha256": "b9f61ad8dbe4d0eed87afdb77be39a38c00a817730ef38a683366e6f1e73f953",
-      "evidence": "Copied engine settings are transport only: engine-status consumes adoption presence, not values. The entity has a literal config. Inline mutations edit registration/inventory or the rendered instruction. A missing-Python path enumerates command links but executes only the banner and its fixed libraries. The inventory adds the two failure-type hook basenames as data; those hooks are never executed by this suite. The resource-waits hook basename is another inventory datum, never executed. The guard-record-owner-memory.sh basename (2026-09-28) is another inventory datum, never executed.",
+      "sha256": "56a5918072ec2f9b3333e38e6e8eb664cfb748995ef31295de429d1c070d0015",
+      "evidence": "Copied engine settings are transport only: engine-status consumes adoption presence, not values. The entity has a literal config. Inline mutations edit registration/inventory or the rendered instruction. A missing-Python path enumerates command links but executes only the banner and its fixed libraries. The inventory adds the two failure-type hook basenames as data; those hooks are never executed by this suite. The resource-waits hook basename is another inventory datum, never executed. The guard-record-owner-memory.sh basename (2026-09-28) is another inventory datum, never executed. Renewed 2026-09-28 (stall watcher): one ACKNOWLEDGED_SCRIPTS name (session-start-stall.sh) and its comment; no case changed.",
       "keys": [],
       "edges": [
         {
@@ -4318,8 +4318,8 @@
     },
     "scripts/hooks/session-start-stdin.test.sh": {
       "source": "scripts/hooks/session-start-stdin.test.sh",
-      "sha256": "8db0addda3984451123e3a9f953a068daefacff5e2165e481e5ef1edf1e115da",
-      "evidence": "Copies the real engine config and scripts, so engine-relative disk/scratch and workspace cleanup readers remain real dependencies. Session entity settings are generated literals; CEO-ask, quota and no-transcript left-off paths consume those literals. Thirteen fixed SessionStart invocations run under private HOME/records; real manifest is read for registration coverage and an explicit snapshot. No registered command is dynamically executed from that manifest.",
+      "sha256": "7fe7fa956e36b6d93e4ed748fd4c57a96199cbde01bbce0d12567513d2fecd5f",
+      "evidence": "Copies the real engine config and scripts, so engine-relative disk/scratch and workspace cleanup readers remain real dependencies. Session entity settings are generated literals; CEO-ask, quota and no-transcript left-off paths consume those literals. Fourteen fixed SessionStart invocations run under private HOME/records; real manifest is read for registration coverage and an explicit snapshot. No registered command is dynamically executed from that manifest.",
       "keys": [],
       "edges": [
         {
@@ -4362,6 +4362,10 @@
         },
         {
           "to": "scripts/hooks/left-off-report.sh#no-transcript",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/session-start-stall.sh",
           "fixture": true
         }
       ]
@@ -5003,8 +5007,8 @@
     },
     "scripts/hooks/contract-integrity-probe.sh#seated-fixture": {
       "source": "scripts/hooks/contract-integrity-probe.sh",
-      "sha256": "52155e96b9a3ac8755f39d30f8d69cf9bcfdb77d09d3259b494cbebad63f6440",
-      "evidence": "Reviewed seated route and its shared R/AL/MT/MC/OF functions. The contract template keeps engine and entity in the same repository, including its linked-worktree case; the by-reference branch is unreachable. Parsed registration commands and sidecar inventories are data except the fixed canonical canary guards listed here. The test only replaces the write guard with literal inert shims or another copy of that same guard. q_hook has four fixed hook names; registry calls are integration/lifecycle. Q transports the fixture config. OF status and EP remain dependencies even when absent or undeclared in the generated fixture. The engine-status edge conservatively retains the literal execute floor outside this seated route.",
+      "sha256": "6a82794553fcd9c510aeb28dde2cafd325390fbcb70694753f3f7e636ece2102",
+      "evidence": "Reviewed seated route and its shared R/AL/MT/MC/OF functions. The contract template keeps engine and entity in the same repository, including its linked-worktree case; the by-reference branch is unreachable. Parsed registration commands and sidecar inventories are data except the fixed canonical canary guards listed here. The test only replaces the write guard with literal inert shims or another copy of that same guard. q_hook has four fixed hook names; registry calls are integration/lifecycle. Q transports the fixture config. OF status and EP remain dependencies even when absent or undeclared in the generated fixture. The engine-status edge conservatively retains the literal execute floor outside this seated route. Renewed 2026-09-28 (stall watcher): one BR_EXPECTED row and one R_ROOTLESS_HOOKS name (session-start-stall), registration inventory literals only; no reviewed function changed.",
       "keys": [
         "PROTECTED_PATHS",
         "ALLOWED_MODELS",
@@ -6912,8 +6916,8 @@
     },
     "hooks/hooks.json#stop-visibility-inventory": {
       "source": "hooks/hooks.json",
-      "sha256": "23a48a48529125f063a128ec63e6028008caddc95e0fe373ac8656dcd29bcd20",
-      "evidence": "Binds the dynamically enumerated Stop script inventory for config selection. A new or changed manifest needs requalification before these fixture closures can exclude a config change.",
+      "sha256": "1ac87295207186846ad0f8fb48dc3d6ec5435634ac9e45702963a0ee30c3391e",
+      "evidence": "Binds the dynamically enumerated Stop script inventory for config selection. A new or changed manifest needs requalification before these fixture closures can exclude a config change. Renewed 2026-09-28 (stall watcher): one SessionStart row added (session-start-stall.sh); no PreToolUse or Stop row changed.",
       "keys": [],
       "edges": []
     },
@@ -10029,8 +10033,8 @@
     },
     "hooks/hooks.json#pre-stop-fixtures": {
       "source": "hooks/hooks.json",
-      "sha256": "23a48a48529125f063a128ec63e6028008caddc95e0fe373ac8656dcd29bcd20",
-      "evidence": "Binds the dynamically enumerated PreToolUse/Stop inventory and matcher selection. New inventory bytes require requalification before excluding a config edit.",
+      "sha256": "1ac87295207186846ad0f8fb48dc3d6ec5435634ac9e45702963a0ee30c3391e",
+      "evidence": "Binds the dynamically enumerated PreToolUse/Stop inventory and matcher selection. New inventory bytes require requalification before excluding a config edit. Renewed 2026-09-28 (stall watcher): one SessionStart row added (session-start-stall.sh); no PreToolUse or Stop row changed.",
       "keys": [],
       "edges": []
     },
@@ -10931,6 +10935,9 @@
           "to": "scripts/hooks/session-start-scratch.sh"
         },
         {
+          "to": "scripts/hooks/session-start-stall.sh"
+        },
+        {
           "to": "scripts/hooks/shell-evidence.sh"
         },
         {
@@ -11006,8 +11013,8 @@
     },
     "scripts/hooks/contract-integrity-probe.sh#by-reference-fixtures": {
       "source": "scripts/hooks/contract-integrity-probe.sh",
-      "sha256": "52155e96b9a3ac8755f39d30f8d69cf9bcfdb77d09d3259b494cbebad63f6440",
-      "evidence": "Entire by-reference branch and shared R/AL/MT/MC functions reviewed. Plugin/role/marketplace/registration rows are inspected as data. Actual execution is engine-status, the fixed BR9 worktree-isolation canary and the shared model/liveness canaries. Literal fixture shims introduce no additional reader. The shared whole-source contract retains the seated helper floor, but the branch returns before seated runtime checks.",
+      "sha256": "6a82794553fcd9c510aeb28dde2cafd325390fbcb70694753f3f7e636ece2102",
+      "evidence": "Entire by-reference branch and shared R/AL/MT/MC functions reviewed. Plugin/role/marketplace/registration rows are inspected as data. Actual execution is engine-status, the fixed BR9 worktree-isolation canary and the shared model/liveness canaries. Literal fixture shims introduce no additional reader. The shared whole-source contract retains the seated helper floor, but the branch returns before seated runtime checks. Renewed 2026-09-28 (stall watcher): one BR_EXPECTED row and one R_ROOTLESS_HOOKS name (session-start-stall), registration inventory literals only; no reviewed function changed.",
       "keys": [
         "PROTECTED_PATHS",
         "ALLOWED_MODELS",
@@ -15177,6 +15184,43 @@
       "evidence": "Runs git (rev-parse, log on the main branch) on the work repositories named by the brief's cross-repo lines, the spawn plan or the session cwd, and at most eight commands the brief quotes as evidence, each only when parse_pipeline accepts it: git log/grep/ls-files/rev-list/show without output, pager, exec or config switches, ls, grep or rg, piped only into wc, head, tail, grep, sort or cut, 5 s each, in the brief's cd directory or the first work repository. Brief text is data. annotate() only runs the quoted evidence and appends its output; it names no verifier set and writes nothing.",
       "keys": [],
       "edges": []
+    },
+    "scripts/hooks/session-start-stall.sh": {
+      "source": "scripts/hooks/session-start-stall.sh",
+      "sha256": "2e053c98aa8808098401b88d4a473e3dade01fcc6f6b8829d10b171cd031f56c",
+      "evidence": "Calls stall-watch.sh --notice with stdin closed and wraps its body in JSON. It never reads stdin or any setting itself.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/stall-watch.sh#notice"
+        }
+      ]
+    },
+    "scripts/stall-watch.sh#notice": {
+      "source": "scripts/stall-watch.sh",
+      "sha256": "9250cc6828fe23694656fc01d5c366c647dfb7448448a0b8a6d4a07e697a3234",
+      "evidence": "Resolves the engine and entity roots, then tests only whether the entity's orchestration.config exists; it never sources the file and reads no key. --notice is passed to the reviewed Python notice path.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/stall_watch.py#notice"
+        }
+      ],
+      "presence": "stall-watch.sh checks whether the entity's orchestration.config exists"
+    },
+    "scripts/lib/stall_watch.py#notice": {
+      "source": "scripts/lib/stall_watch.py",
+      "sha256": "e93b291604af1b017126cbffc75b4eba5f301629db0dd3973a42bf587d492e9d",
+      "evidence": "--notice parses arguments and prints fixed text; its numbers are this file's constants or the STALL_WATCH_* and RICHOS_RESOURCE_WAIT_MINUTES environment overrides. It returns before the registry, the slot line or the CPU sampler is loaded. The module imports resource_waits.py, which reads no configuration at import.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resource_waits.py"
+        }
+      ]
     }
   },
   "units": {
@@ -15502,7 +15546,7 @@
       "all_events": true,
       "evidence": "Reads real hooks.json for SessionStart coverage and explicitly snapshots all registration rows through registered-hooks.sh. New event names affect that snapshot too. Registered command strings are parsed as data; top-level description text is not inspected. All reached script readers remain content-bound.",
       "sources": {
-        "scripts/hooks/session-start-stdin.test.sh": "8db0addda3984451123e3a9f953a068daefacff5e2165e481e5ef1edf1e115da",
+        "scripts/hooks/session-start-stdin.test.sh": "7fe7fa956e36b6d93e4ed748fd4c57a96199cbde01bbce0d12567513d2fecd5f",
         "scripts/hooks/engine-status.sh": "c1ea99017ada713a0a68a56fe7f23dfab11b027ed53ea3a7846d4e51b8e467b0",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
@@ -15589,7 +15633,7 @@
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
         "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
         "scripts/lib/resolve-roots.test.sh": "d5d4f7b6dc49da7d8dbc216bd244cd41028297b4141b18586323c8f4bb5a02c8",
-        "scripts/hooks/session-start-stdin.test.sh": "8db0addda3984451123e3a9f953a068daefacff5e2165e481e5ef1edf1e115da",
+        "scripts/hooks/session-start-stdin.test.sh": "7fe7fa956e36b6d93e4ed748fd4c57a96199cbde01bbce0d12567513d2fecd5f",
         "scripts/hooks/session-start-escalations.sh": "25af57857b1dc4a1e4a61c6848753ede1d217f3a1037379e30cee4e64b206a5f",
         "scripts/lib/escalations.sh": "bda6b4af107d64144cac6fe9a5ac507b007c81ebac30b53bb59256b49f9ff1c5",
         "scripts/lib/escalations.py": "7a8ccdb4cd4019c96c1db3448bb0e5eb54b9c1325d4975ceb21d43e185153ded",
@@ -15638,7 +15682,7 @@
         "scripts/entrypoint-currency-lint.sh": "09d95bf0ae992caa52ab7eeaec9613a0cb6ca23933a4f8450c52aba36d8f7486",
         "scripts/hooks/claim-roles.mutation.sh": "d998c6197966082daa82eb5fdb30c3a76d6757a06033afadc0cbc741e7eeebc0",
         "scripts/hooks/contract-integrity-layer-ep.sh": "d94c802f86a8862bfe166f522d6e0a309a54b850cfdc8818d3e7057e7b6ac976",
-        "scripts/hooks/contract-integrity-probe.sh": "52155e96b9a3ac8755f39d30f8d69cf9bcfdb77d09d3259b494cbebad63f6440",
+        "scripts/hooks/contract-integrity-probe.sh": "6a82794553fcd9c510aeb28dde2cafd325390fbcb70694753f3f7e636ece2102",
         "scripts/hooks/contract-integrity.test.sh": "367fc70f5ccbc66e5be5f1414d821f4c11c69916829c9ca27aa2ddfb1b5638d2",
         "scripts/hooks/engine-status.sh": "c1ea99017ada713a0a68a56fe7f23dfab11b027ed53ea3a7846d4e51b8e467b0",
         "scripts/hooks/guard-agent-state-claims.sh": "b7a14acc4ff57cdec91821f6fd74b3c745deb18a0bd256ac7d60a3e7dd35dd7e",
@@ -15752,7 +15796,7 @@
         "scripts/scratch-sweep.sh": "98804cde04a632171f4323a43164e18871412d44e41ec36b2e535a2e43554297",
         "scripts/unstarted-rows-lint.sh": "4b654eefa4fb775ba218fbee15595b415684c7a90e2168eedf864c07f142e58e",
         "scripts/hooks/dispatch-pretooluse.manifest": "d5022dd189c9fc70c3b728c76f713558ab2f893dbe8cb4dd5f84d34e7f307f4f",
-        "hooks/hooks.json": "23a48a48529125f063a128ec63e6028008caddc95e0fe373ac8656dcd29bcd20",
+        "hooks/hooks.json": "1ac87295207186846ad0f8fb48dc3d6ec5435634ac9e45702963a0ee30c3391e",
         "scripts/hooks/commit-ceo-inputs.sh": "9e4a0af9cd1ea89110261baacdae395dc40543061a4f17740467c5a492598962",
         "scripts/hooks/commit-ceo-inputs.py": "53a222d02892523e81e3f3dc355a010e1b140d0ac628b3649b16be36ce87a500",
         "scripts/hooks/guard-publication-writes.sh": "c69db813e7aab086ff3f6257d3429eca9e7091c9fc985d17f91829ce943a580b",
@@ -16372,7 +16416,7 @@
       "sources": {
         "scripts/hooks/unevaluated-payload.test.sh": "3b3b903d46dd52413f79b837f9c62444fea1b4c002e244d33a35a0ca39b43a74",
         "scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
-        "hooks/hooks.json": "23a48a48529125f063a128ec63e6028008caddc95e0fe373ac8656dcd29bcd20",
+        "hooks/hooks.json": "1ac87295207186846ad0f8fb48dc3d6ec5435634ac9e45702963a0ee30c3391e",
         "scripts/hooks/dispatch-pretooluse.sh": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
         "scripts/hooks/guard-agent-state-claims.sh": "b7a14acc4ff57cdec91821f6fd74b3c745deb18a0bd256ac7d60a3e7dd35dd7e",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
@@ -16539,7 +16583,7 @@
         "scripts/lib/global-state-witness.sh": "043848eeb2641037b1e56bce858035e05a80cce775098c7dfa36386f6f048f73",
         "scripts/hooks/install.sh": "7de38172844d3a610058157c59ca6ba3a147a8f8c54bb34f0b09a5f9e3c6fe16",
         "scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
-        "scripts/hooks/contract-integrity-probe.sh": "52155e96b9a3ac8755f39d30f8d69cf9bcfdb77d09d3259b494cbebad63f6440",
+        "scripts/hooks/contract-integrity-probe.sh": "6a82794553fcd9c510aeb28dde2cafd325390fbcb70694753f3f7e636ece2102",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
