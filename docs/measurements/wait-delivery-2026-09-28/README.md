@@ -34,8 +34,8 @@ conversation's commands (`agentId === undefined`), never to a subagent's.
 3. **A held agent's new Bash call is refused at once** with the WAIT text (exit 75). It
    never suspends itself, because a suspended call keeps the round open (Sage's catch B).
 4. **The wait command is exempt** from the refusal and is never frozen (Sage's catch A).
-   Its Bash timeout is set to the tool's maximum, and it returns STILL WAITING 15 s
-   before that, so the harness never backgrounds it (E2: a backgrounded call is how a
+   Its Bash timeout is set to the tool's maximum, and it returns STILL WAITING after
+   270 s (see the cost below), so the harness never backgrounds it (E2: a backgrounded call is how a
    subagent ends up ending its run). It runs the engine file that wrapped the calls.
 5. **After release,** the wait prints RESUMED and then the frozen command's own output
    and exit status once it ends: the same process, from the same point.
@@ -66,11 +66,16 @@ sent the generated RESUME.
 A 60 s dry run with a 25 s bound gave the same shape: WAIT row 50 ms after the send,
 counter frozen 72 s at one pid with an unbroken chain, two STILL WAITING cycles.
 
-**The cost of waiting.** Each STILL WAITING cycle is one model turn. In the dry run each
-cycle read the context from the prompt cache (about 18,000 tokens read) and wrote about
-350 new tokens and 134 output tokens. With the production bound (585 s) a 5-hour
-pause is about 31 turns. Whether the cache survives a 585 s gap is NOT measured here
-(a probe was started and not finished before the handoff).
+**The cost of waiting.** Each STILL WAITING cycle is one model turn. In the dry run
+(25 s gaps) each cycle read the context from the prompt cache (about 18,000 tokens)
+and wrote about 350 new tokens and 134 output tokens. A probe with a 585 s gap (E5)
+showed the conversation's cache EXPIRED: 5,244 tokens were rewritten, and only the
+shared 11,430-token prefix was still read. So the wait now returns after 270 s
+(`WAIT_CACHE_SECONDS`), inside the cache's lifetime. A 5-hour pause is about 67 turns
+that read the cache (about 0.1x the input price), instead of 31 turns that rewrite it
+(1.25x): about 6 times cheaper for an agent with a large context. The 270 s figure
+assumes the documented 5-minute cache lifetime. It was measured only at 25 s (kept)
+and 585 s (expired).
 
 ## Changes that follow for other code
 

@@ -83,7 +83,7 @@ class ShellEvidence(unittest.TestCase):
         self.assertTrue(ui["command"].endswith("\npython3 %s wait" % (HERE.parent / "lib" / "agent_hold.py")),
                         "the wait runs the same engine file that wrapped the agent's calls")
         self.assertNotIn("exit 75", ui["command"])
-        self.assertIn("RICHOS_AGENT_HOLD_WAIT_SECONDS=585", ui["command"])
+        self.assertIn("RICHOS_AGENT_HOLD_WAIT_SECONDS=270", ui["command"])
         # The lead's own call of the same text is left as it was.
         lead = self.run_hook(self.bash("python3 ~/.claude/richos-engine/scripts/lib/agent_hold.py wait"))
         self.assertEqual(lead["hookSpecificOutput"]["updatedInput"]["timeout"], 5000)

@@ -634,11 +634,11 @@ class Wait(Base):
         try:
             for k in keep:
                 os.environ.pop(k, None)
-            self.assertEqual(agent_hold._wait_bound_seconds(), (600000, 585))
-            os.environ["BASH_MAX_TIMEOUT_MS"] = "300000"
-            self.assertEqual(agent_hold._wait_bound_seconds(), (300000, 285))
+            self.assertEqual(agent_hold._wait_bound_seconds(), (600000, 270))
+            os.environ["BASH_MAX_TIMEOUT_MS"] = "200000"
+            self.assertEqual(agent_hold._wait_bound_seconds(), (200000, 185))
             os.environ["RICHOS_AGENT_HOLD_WAIT_SECONDS"] = "60"
-            self.assertEqual(agent_hold._wait_bound_seconds(), (300000, 60))
+            self.assertEqual(agent_hold._wait_bound_seconds(), (200000, 60))
         finally:
             for k, v in keep.items():
                 if v is None:

@@ -72,8 +72,9 @@ So, for a subagent:
     suspends itself (Sage's catch B, 2026-09-28: a self-suspended call keeps the
     round open exactly as a frozen one does).
   - The wait command itself is exempt from that refusal and is never frozen
-    (Sage's catch A), and its Bash timeout is set to the tool's maximum so it
-    returns STILL WAITING before the harness would move it to the background: a
+    (Sage's catch A), and its Bash timeout is set to the tool's maximum; it
+    returns STILL WAITING after 270 s (inside the prompt cache's lifetime, so
+    each repeat is a cache read), well before the harness would move it to the background: a
     backgrounded call reads to the model as "you will be notified", and a subagent
     that then ends its turn ends its run (measured, 2026-09-28).
   - Background (run_in_background) calls are frozen whole, shell included, as
@@ -122,6 +123,11 @@ WAIT_CALL = re.compile(r"\s*(?:python3\s+)?(?:\S*/)?agent_hold\.py\s+wait"
                        r"(?:\s+--max-seconds\s+\d+(?:\.\d+)?)?\s*(?:2>&1\s*)?\Z")
 TOOL_MAX_TIMEOUT_MS = 600000   # the Bash tool's ceiling unless BASH_MAX_TIMEOUT_MS says otherwise
 WAIT_MARGIN_SECONDS = 15       # the wait returns this long before its call's timeout
+# Each STILL WAITING is one model turn. Measured 2026-09-28: after a 25 s gap the turn read the
+# agent's whole context from the prompt cache; after 585 s the conversation part had expired and
+# was written again (5,244 tokens rewritten, only the shared 11,430-token prefix still read).
+# Returning inside the cache's lifetime keeps each turn a cache read: about 6x cheaper per hour held.
+WAIT_CACHE_SECONDS = 270
 HOW_TO_WAIT = ("To wait, run this command with the Bash timeout 600000, and run it again each time it prints "
                "STILL WAITING: " + WAIT_COMMAND)
 REFUSED_TEXT = ("WAIT: the orchestrator has told you to wait, so this command did not run. Run it again after "
@@ -237,7 +243,7 @@ def _wait_bound_seconds():
             ceiling = declared
     except ValueError:
         pass
-    bound = max(5, ceiling // 1000 - WAIT_MARGIN_SECONDS)
+    bound = max(5, min(WAIT_CACHE_SECONDS, ceiling // 1000 - WAIT_MARGIN_SECONDS))
     try:
         # A declared seam: a shorter bound, so a test can watch a STILL WAITING cycle.
         asked = float(os.environ.get("RICHOS_AGENT_HOLD_WAIT_SECONDS") or 0)
