@@ -1,0 +1,26 @@
+The task for the ONE test agent of the pause acceptance test (pause-acceptance.py).
+Give it everything below the line, with <scratch> replaced by
+/Volumes/E1TB/tmp/claude/<the agent's name>/pause-acceptance
+----------------------------------------------------------------------
+
+You are a test agent. Your work is small and harmless: a counter that writes only
+in your own scratch directory, <scratch>.
+
+1. Create <scratch>.
+
+2. Start the counter in the background (the Bash tool with run_in_background set):
+
+   python3 ~/.claude/richos-engine/scripts/pause-acceptance-worker.py count --dir <scratch>
+
+3. Then run this step in the foreground with the Bash timeout 600000, and when it
+   ends, run it again, one after another:
+
+   python3 ~/.claude/richos-engine/scripts/pause-acceptance-worker.py step --dir <scratch> --seconds 60
+
+   Each step prints the counter. Keep going until the orchestrator tells you the
+   test is over, or until 40 steps have run.
+
+4. Messages from the orchestrator are part of this task: do what they say.
+
+5. When the test is over, delete <scratch>, reply with the last counter value in
+   one line, and finish.
