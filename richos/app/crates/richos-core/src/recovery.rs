@@ -174,6 +174,12 @@ pub struct Reconciliation {
     pub untouched: Vec<Reconciled>,
     /// Assignment records that could not be read at all. Reported, never skipped.
     pub unreadable: Option<String>,
+    /// **Answer runs that had not started, back to waiting on his answer** (the work-path design
+    /// D6, richos-hq `docs/plans/2026-09-27-work-path-answer-delivery-design.md`). The job was
+    /// in a state where nothing had been asked of the back end, and an answer of his for it is
+    /// saved and was never taken. It is `Blocked`, not `Unknown`: nothing ran that anyone could
+    /// be unsure about, so there is nothing to tell him, and the launch hands the answer to it.
+    pub answers_waiting: Vec<Reconciled>,
     /// Standing action grants closed because no lease can be holding them (§6.3a).
     pub grants_closed: usize,
     /// Grant files that could not be closed. A reconciliation that silently skips what it
@@ -191,6 +197,9 @@ impl Reconciliation {
             self.unknown.len(),
             self.untouched.len()
         ));
+        if !self.answers_waiting.is_empty() {
+            parts.push(format!("{} answer run(s) that had not started are waiting on his saved answer again", self.answers_waiting.len()));
+        }
         if self.grants_closed > 0 {
             parts.push(format!("{} orphan grant(s) closed", self.grants_closed));
         }
@@ -235,6 +244,31 @@ pub fn reconcile(state: &Path, repositories: &dyn Repositories) -> Reconciliatio
                 state: AssignmentState::Blocked,
                 said: None,
             }),
+            // **AN ANSWER RUN THAT HAD NOT STARTED** (design D6). Nothing had been asked of the
+            // back end: the job was written down, waiting for the screen, waiting for its
+            // allowance before its first turn, or opening its connection (`work_host.rs` writes
+            // `Running` only at the back end's first item). And an answer of his for it is saved
+            // and was never taken. So it goes back to waiting on that answer, which the launch
+            // delivers. A job whose run HAD started stays `Unknown` below: §6.3, nothing started
+            // re-runs by itself (the CEO's call on the design's C6, option B).
+            _ if not_started(&record)
+                && crate::question_work::untaken(state, &record.entity_id, &record.thread_id, &record.obligation_id)
+                    .unwrap_or(false) =>
+            {
+                if assignment::advance(state, &record.entity_id, &record.thread_id, &record.id,
+                                       AssignmentState::Blocked, ANSWER_SAVED_AT_RELAUNCH).is_err() {
+                    report.unreadable = Some("an assignment could not be brought up to date".into());
+                    continue;
+                }
+                report.answers_waiting.push(Reconciled {
+                    entity_id: record.entity_id.clone(),
+                    thread_id: record.thread_id.clone(),
+                    id: record.id.clone(),
+                    title: record.title.clone(),
+                    state: AssignmentState::Blocked,
+                    said: None,
+                });
+            }
             // Everything else that is open was in flight when the process went away.
             _ => {
                 let said = assignment::says::unknown(&record.title, &what_was_checked(state, &record, repositories));
@@ -272,6 +306,22 @@ pub fn reconcile(state: &Path, repositories: &dyn Repositories) -> Reconciliatio
     }
     report.grants_closed = close_orphan_grants(state, &mut report.grants_unreconciled);
     report
+}
+
+/// The row's detail for a job put back to waiting on his saved answer (design D6).
+pub const ANSWER_SAVED_AT_RELAUNCH: &str =
+    "Your answer is saved. RichOS closed before the back end took it, so it goes to the back end now.";
+
+/// **Had nothing been asked of the back end in the run this job was on?** The states before
+/// its first turn. `WaitingForQuota` counts only when its detail is not the one a started run
+/// writes ([`crate::work_host::QUOTA_WAIT_AFTER_START`]): the quota gate also holds between the
+/// turns of a run that has started.
+fn not_started(record: &Assignment) -> bool {
+    match record.state {
+        AssignmentState::Registered | AssignmentState::WaitingForScreen | AssignmentState::Preparing => true,
+        AssignmentState::WaitingForQuota => !crate::work_host::QUOTA_WAIT_AFTER_START.contains(&record.detail.as_str()),
+        _ => false,
+    }
 }
 
 /// The receipt's own detail line: what state it was in, and what was established about it.
@@ -349,7 +399,8 @@ fn what_was_checked(state: &Path, record: &Assignment, repositories: &dyn Reposi
 /// and is rewritten to `false` when the assignment ends (`native.rs`'s
 /// `revoke_work_assignment`). A crash skips that write, so the file is left on disk with the
 /// grant open. Nothing can be holding it — every work lease died with the process, and its
-/// child group with it (`richos/engine/scripts/provider-supervisor.py:28-37`) — so at boot,
+/// child group and its tool commands with it (`operator_main` in
+/// `richos/engine/scripts/provider-supervisor.py`, the owner-death reap) — so at boot,
 /// before any new lease exists, every one of them is closed.
 ///
 /// **Only `*-work.json`.** The conversation's own `*-continuity.json` is not this sweep's
@@ -674,6 +725,53 @@ mod tests {
             "the receipt does not say what it was doing: {}",
             row.detail
         );
+        std::fs::remove_dir_all(state).unwrap();
+    }
+
+    /// **An answer run that had not started goes back to waiting on his saved answer** (the
+    /// work-path design D6), and only that one. Four jobs, each with a saved answer nobody took:
+    /// opening its connection, and held for its allowance before its first turn, come back
+    /// `Blocked` with no notice; running, and held for its allowance AFTER it had started, stay
+    /// `Unknown` with the ordinary notice (§6.3, nothing started re-runs by itself). A fifth,
+    /// opening its connection with NO saved answer, is the control: `Unknown` as before.
+    #[test]
+    fn only_an_answer_run_that_had_not_started_waits_on_his_answer_again() {
+        let state = root();
+        let cases = [
+            ("obligation-a", AssignmentState::Preparing, "Opening the work connection.", true, AssignmentState::Blocked),
+            ("obligation-b", AssignmentState::WaitingForQuota,
+             "Waiting for the allowance to refresh. Work is saved and will continue automatically.", true, AssignmentState::Blocked),
+            ("obligation-c", AssignmentState::Running, "The back end has started on it.", true, AssignmentState::Unknown),
+            ("obligation-d", AssignmentState::WaitingForQuota, crate::work_host::QUOTA_WAIT_AFTER_START[0], true, AssignmentState::Unknown),
+            ("obligation-e", AssignmentState::Preparing, "Opening the work connection.", false, AssignmentState::Unknown),
+        ];
+        let mut ids = Vec::new();
+        for (obligation, at, detail, answered, _) in &cases {
+            let receipt = assignment::register(&state, &registration(obligation)).unwrap();
+            assignment::advance(&state, "depot", "thread-one", &receipt.id, *at, detail).unwrap();
+            if *answered {
+                crate::question_work::enqueue(&state, &crate::questions::Delivery {
+                    id: format!("question-set:{obligation}"), entity_id: "depot".into(), thread_id: "thread-one".into(),
+                    asker: obligation.to_string(), set_id: None, text: "You answered: tomorrow".into(), receipt: None,
+                }).unwrap();
+            }
+            ids.push(receipt.id);
+        }
+        let report = reconcile(&state, &Fixed(HashMap::new()));
+        assert_eq!(report.answers_waiting.len(), 2, "{report:?}");
+        assert_eq!(report.unknown.len(), 3, "{report:?}");
+        for ((obligation, _, _, _, expected), id) in cases.iter().zip(&ids) {
+            let row = assignment::read(&state, "depot", "thread-one", id).unwrap();
+            assert_eq!(row.state, *expected, "{obligation}: {}", row.detail);
+            if *expected == AssignmentState::Blocked {
+                assert!(row.notices.is_empty(), "{obligation}: told it was running: {:?}", row.notices);
+                assert_eq!(row.detail, ANSWER_SAVED_AT_RELAUNCH);
+            } else {
+                assert_eq!(row.notices.last().unwrap().kind, NoticeKind::Unknown, "{obligation}");
+            }
+        }
+        // Nothing was let go by looking.
+        assert_eq!(crate::question_work::pending(&state).unwrap().len(), 4);
         std::fs::remove_dir_all(state).unwrap();
     }
 

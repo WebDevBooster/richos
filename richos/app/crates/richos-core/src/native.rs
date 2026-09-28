@@ -790,6 +790,8 @@ pub fn child_args(session_id: &str) -> Vec<String> {
         "--setting-sources",
         "",
         "--no-session-persistence",
+        "--disallowed-tools",
+        "AskUserQuestion",
         "--session-id",
         session_id,
         PERMISSION_PROMPT_TOOL,
@@ -915,10 +917,13 @@ enum TurnPhase {
 ///
 /// **A parked prompt is answered by the `result` of the turn that consumed the message it
 /// sent, never by the next `result` to arrive.** A `result` reaches it only when the child
-/// has said our message drained into a turn, or has said nothing of ours is waiting behind it
-/// (`queued_turn_count == 0`). A `result` the child reports with a user send still queued
-/// belongs to a turn that was already in flight: it is RETAINED on the between-turn lane
-/// (§1.4 G5 — traffic is never dropped), and the prompt keeps waiting.
+/// has said our message drained into a turn, or — when the child has said nothing about our
+/// message at all — has said nothing of ours is waiting behind it (`queued_turn_count == 0`).
+/// A `result` that arrives while the child's last word on our message was `queued`, or that
+/// the child reports with a user send still queued, belongs to a turn that was already in
+/// flight: it is RETAINED on the between-turn lane (§1.4 G5 — traffic is never dropped), and
+/// the prompt keeps waiting. (The lifecycle outranks the count: 2.1.283 was measured
+/// reporting `0` on the platform's own turn while ours was still queued.)
 ///
 /// Frames arriving while our message is known to be still queued are retained the same way
 /// rather than streamed into this turn, because they belong to the other turn. Attributing
@@ -951,15 +956,27 @@ impl PendingTurn {
         if self.phase == TurnPhase::Running {
             return false;
         }
+        // **The child has said, by name, that our message is still in its queue.** That is
+        // positive evidence about OUR message, and it outranks the count, which is a number
+        // about the queue at the moment the result was produced. Measured on 2.1.283
+        // (2026-09-27): the platform's own `<task-notification>` turn ended with
+        // `queued_turn_count: 0` while the lifecycle for our message had said only `queued`,
+        // and `started` for it came 1 ms after that result. Reading the count first handed the
+        // platform's result to this prompt. On the fold path the child says `completed`
+        // BEFORE the result (schema, quoted on [`PendingTurn`]), so `Queued` here never means
+        // our message was folded into this turn.
+        if self.phase == TurnPhase::Queued {
+            return true;
+        }
         match result.get("queued_turn_count").and_then(Value::as_u64) {
             // The child's own count of user-initiated sends still waiting. Ours is the only
             // one there can be, so a positive count is the child saying "your turn has not
             // run yet".
             Some(waiting) => waiting >= 1,
-            // No count on this frame. Then the lifecycle is the only positive evidence: if
-            // the child said ours is still QUEUED, this result is another turn's. If it has
-            // said nothing at all, nothing is inferred and the result is delivered.
-            None => self.phase == TurnPhase::Queued,
+            // No count on this frame, and the child has said nothing about our message (a
+            // `Queued` one was answered above). Nothing is inferred and the result is
+            // delivered.
+            None => false,
         }
     }
 }
@@ -1129,6 +1146,7 @@ enum ActionGrant {
     Continuity(std::path::PathBuf),
     /// The assignment register's grant (`assignment_tools.rs`). Conversation leases only.
     Assignments(std::path::PathBuf),
+    Questions(std::path::PathBuf),
     /// **The `richos_continuity` server's own grant, and the only one that is not opened at
     /// turn start** — the CEO's §55: the front desk's bookkeeping waits until he has been
     /// spoken to. Opened by [`ReaderState::he_has_now_been_spoken_to`], closed with the rest.
@@ -1168,6 +1186,7 @@ impl ActionGrant {
             // A scope that EXISTS and cannot be written is still a hard failure, which is
             // what takes the lease down in the loop above — the same rule the other two
             // grants follow.
+            Self::Questions(path) => crate::question_tools::set_actions_allowed(path, allowed),
             Self::Assignments(path) if !path.exists() => Ok(()),
             Self::Assignments(path) => crate::assignment_tools::set_actions_allowed(path, allowed),
         }
@@ -1177,6 +1196,7 @@ impl ActionGrant {
             Self::Onboarding(path)
             | Self::Continuity(path)
             | Self::Assignments(path)
+            | Self::Questions(path)
             | Self::ContinuityTools(path) => path,
         }
     }
@@ -1185,6 +1205,9 @@ impl ActionGrant {
 /// A live session to a native `claude` child.
 pub struct NativeClient {
     child: crate::owned_process::OwnedChild,
+    /// The supervisor's per-lease state file, when this lease is supervised (the product reap,
+    /// `lease_commands.rs`): which tool commands are running outside the provider's group.
+    reap_state: Option<std::path::PathBuf>,
     settle_workers_on_stop: bool,
     stdin: Arc<Mutex<ChildStdin>>,
     session_id: String,
@@ -1221,6 +1244,7 @@ pub struct NativeClient {
 /// starting value is `NotYetReported` and a derived default would be whichever variant happens
 /// to be declared first.
 struct ReaderState {
+    question_scope: Option<std::path::PathBuf>,
     permissions: Option<crate::permissions::ScopedPermissions>,
     /// Did the child list all five `richos_work` tools? [`InitFact`], not `bool` — see its
     /// doc for what the collapse cost.
@@ -1366,9 +1390,104 @@ struct ReaderState {
     /// The same argument as `tool_search_offered` and `skills_verdict` above: the fact is on
     /// the wire, so it is READ rather than assumed. Machinery — it never reaches the CEO.
     turns_named_by_the_child: bool,
+    /// The commands this session's provider has put in the background, in the order it
+    /// reported them ([`crate::cognition::BackgroundCommand`]). Bounded by
+    /// [`BACKGROUND_COMMANDS_KEPT`]; an ended one is the first to go.
+    background: Vec<crate::cognition::BackgroundCommand>,
 }
 
+/// **Whether a provider task of `task_type` is one the back end started and the provider will
+/// report the end of to it** — what the host waits for and asks a report on (`work_host.rs`
+/// step 3c). Every type in 2.1.283's own task-id table (`local_bash:"b"`, …, richos-hq
+/// `docs/verification/2026-09-27-background-command-finish-2/`), sorted:
+///
+/// - **read**: `local_bash` (a shell command, and the `Monitor` tool's watch, measured:
+///   `cap-plain.jsonl`, `cap-monitor.jsonl`), `local_workflow` (the `Workflow` tool, measured
+///   ending 11.2 s after its turn with no `is_backgrounded` field: `cap-workflow.jsonl`), and,
+///   from the binary only, `monitor_mcp` and `monitor_ws` (the `Monitor` tool's other sources),
+///   `mcp_task` (a long-running MCP tool call) and `remote_agent` (a cloud session);
+/// - **not read**: `local_agent` — in a work lease only a prepared helper, which the engine's
+///   `dispatch_intent` enforces and step 3b already waits for on `SubagentStop`;
+///   `in_process_teammate` — an agent-team member, which a work lease is not spawned for;
+///   `dream` and `auto_mode_scan` — the provider's own housekeeping (`skipTranscript`), not
+///   anything the back end started.
+///
+/// An unknown type is read: a new kind of background work whose end the provider reports is
+/// the case this exists for, and missing it loses a finish, where reading it costs a wait his
+/// Stop can end.
+fn a_task_the_back_end_awaits(task_type: &str) -> bool {
+    !matches!(task_type, "local_agent" | "in_process_teammate" | "dream" | "auto_mode_scan" | "")
+}
+
+/// How many background commands one session remembers. A back end that has started this many
+/// is a loop, not a job; past it the oldest ENDED entry is forgotten first, so a running
+/// command is never dropped while an ended one is kept.
+const BACKGROUND_COMMANDS_KEPT: usize = 64;
+
 impl ReaderState {
+    /// Read one of the three task frames (see [`crate::cognition::BackgroundCommand`]).
+    /// `ours_running`: a turn this client sent was running when the frame arrived.
+    fn note_background(&mut self, frame: &Value, ours_running: bool) {
+        let field = |value: &Value, name: &str| value.get(name).and_then(Value::as_str).unwrap_or("").to_string();
+        match frame.get("subtype").and_then(Value::as_str).unwrap_or("") {
+            // `is_backgrounded` is present only where a task can be either (a shell command:
+            // `false` is a foreground one); a workflow's frame has none and is always in the
+            // background (`cap-workflow.jsonl`). So only an explicit `false` excludes.
+            "task_started"
+                if a_task_the_back_end_awaits(frame.get("task_type").and_then(Value::as_str).unwrap_or(""))
+                    && frame.get("is_backgrounded").and_then(Value::as_bool) != Some(false) =>
+            {
+                self.note_running(field(frame, "task_id"), field(frame, "description"));
+            }
+            // This list holds background tasks only (a foreground command never appears in it:
+            // `cap-agent-slow.jsonl`, `cap-workflow.jsonl`).
+            "background_tasks_changed" => {
+                for task in frame.get("tasks").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]) {
+                    if a_task_the_back_end_awaits(task.get("task_type").and_then(Value::as_str).unwrap_or("")) {
+                        self.note_running(field(task, "task_id"), field(task, "description"));
+                    }
+                }
+            }
+            "task_notification" => {
+                let id = field(frame, "task_id");
+                // Only a command this reader saw go to the background. A foreground command
+                // gets a notification too (`cap-fold.jsonl`, 15.200 s) and is not one.
+                if let Some(command) = self.background.iter_mut().find(|c| c.task_id == id && c.ended.is_none()) {
+                    command.ended = Some(crate::cognition::CommandEnded {
+                        status: field(frame, "status"),
+                        summary: field(frame, "summary"),
+                        during_a_turn_of_ours: ours_running,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn note_running(&mut self, id: String, description: String) {
+        if id.is_empty() || self.background.iter().any(|c| c.task_id == id) {
+            return;
+        }
+        if self.background.len() >= BACKGROUND_COMMANDS_KEPT {
+            match self.background.iter().position(|c| c.ended.is_some()) {
+                Some(oldest_ended) => {
+                    self.background.remove(oldest_ended);
+                }
+                // Every remembered command is still running: keep them and do not add
+                // another, and say so, because a reading that silently stopped growing
+                // would look like fewer commands than there are.
+                None => {
+                    eprintln!(
+                        "[richos] this back end has {BACKGROUND_COMMANDS_KEPT} background commands \
+                         running; a further one ({id}) is not being tracked"
+                    );
+                    return;
+                }
+            }
+        }
+        self.background.push(crate::cognition::BackgroundCommand { task_id: id, description, ended: None });
+    }
+
     /// **HE HAS NOW HEARD SOMETHING — and that is what opens the front desk's bookkeeping**
     /// (the CEO's §55, `doctrine/front-desk.md`'s "The record": *"Write it after you have
     /// answered him, never before"*).
@@ -1444,6 +1563,7 @@ impl ReaderState {
 impl Default for ReaderState {
     fn default() -> Self {
         ReaderState {
+            question_scope: None,
             permissions: None,
             work_tools_loaded: InitFact::NotYetReported,
             assignment_tool_loaded: false,
@@ -1469,6 +1589,7 @@ impl Default for ReaderState {
             checkpoint_after_his_words: false,
             withheld_after_checkpoint: String::new(),
             turns_named_by_the_child: false,
+            background: Vec::new(),
         }
     }
 }
@@ -1626,6 +1747,10 @@ fn mcp_config(executable: &Path, onboarding_scope: &Path, assignments_scope: &Pa
     continuity: Option<(&crate::ecs::EcsBridge, &Path)>, continuity_tools_scope: Option<&Path>,
     profile: Option<&crate::engine_profile::EngineProfile>, role: LeaseRole, claude_bin: &Path) -> Value {
     let mut config = json!({"mcpServers": {}});
+    config["mcpServers"][crate::question_tools::SERVER] = json!({
+        "type":"stdio", "command": executable,
+        "args":["--questions-mcp",crate::question_tools::path(assignments_scope)]
+    });
     // **The company-notes tools, on the CONVERSATION lease only** (`onboarding_tools.rs`).
     //
     // **This was on both leases until 2026-09-18, and it is Ray's candidate-.8 row 1.** The
@@ -1731,9 +1856,16 @@ impl NativeClient {
         }
         // The supervisor observes parent death, including a crash where Rust
         // destructors cannot run. Its provider child receives the actual PID.
-        let mut command = if let Some(profile) = profile {
+        // **It reaps the lease's tool commands too** (the product reap gap design 1.3(a)): every
+        // reap parameter is the supervisor's own argument, stripped before it execs `claude`, so
+        // `claude`'s argv and environment are what they were (`lease_commands.rs`).
+        let reap = match profile {
+            Some(profile) => Some(crate::lease_commands::prepare(&profile.state, &session_id).map_err(NativeError::Io)?),
+            None => None,
+        };
+        let mut command = if let (Some(profile), Some((state, log))) = (profile, &reap) {
             let mut supervisor = Command::new(&profile.runtime.python);
-            supervisor.arg(profile.engine.join("scripts/provider-supervisor.py")).arg(bin);
+            supervisor.args(crate::lease_commands::supervisor_args(&profile.engine, state, log)).arg(bin);
             supervisor
         } else { Command::new(bin) };
         crate::owned_process::OwnedChild::configure(&mut command);
@@ -1743,7 +1875,8 @@ impl NativeClient {
         // and this is a per-role decision: it is set before `configure` runs and survives it,
         // which strips only `RICHOS_`/`LORO_`/`ECS_`/`GIT_` names. It reaches the provider
         // through `provider-supervisor.py` too — that supervisor `os.execvp`s, so the child
-        // inherits `os.environ` unchanged (`engine/scripts/provider-supervisor.py:24`).
+        // inherits `os.environ` unchanged (`operator_main` in `engine/scripts/provider-supervisor.py`;
+        // the engine's R11 proves it equal to the flagless path's).
         if let Some((name, value)) = tool_residency_env(role) {
             command.env(name, value);
         }
@@ -1782,6 +1915,7 @@ impl NativeClient {
         let current_prompt: Arc<Mutex<Option<PendingTurn>>> = Arc::new(Mutex::new(None));
         let between: Arc<Mutex<BetweenTurn>> = Arc::new(Mutex::new(BetweenTurn::default()));
         let state: Arc<Mutex<ReaderState>> = Arc::new(Mutex::new(ReaderState::default()));
+        state.lock().unwrap().question_scope = onboarding.map(|(_,_,path,_)|crate::question_tools::path(path));
         if let (Some(profile), Some((_, scope))) = (profile, continuity) {
             state.lock().unwrap().permissions = Some(crate::permissions::ScopedPermissions {desk: profile.permissions.clone(), scope: scope.into()});
         }
@@ -1861,8 +1995,19 @@ impl NativeClient {
             }
         });
 
+        // A supervised leader gets SIGTERM first and reaps its tree; only a bare child (no
+        // engine profile, no supervisor) keeps the immediate group SIGKILL (`owned_process.rs`).
+        let reap_state = reap.map(|(state, _)| state);
+        if let Some(state) = &reap_state {
+            crate::lease_commands::LiveLeases::process().register(&session_id, state);
+        }
         let mut client = NativeClient {
-            child: crate::owned_process::OwnedChild::new(child),
+            child: if reap_state.is_some() {
+                crate::owned_process::OwnedChild::supervised(child)
+            } else {
+                crate::owned_process::OwnedChild::new(child)
+            },
+            reap_state,
             settle_workers_on_stop: profile.is_some(),
             stdin,
             session_id,
@@ -1904,6 +2049,7 @@ impl NativeClient {
                 .map(|(_, path, _, _)| ActionGrant::Onboarding(path.into())).into_iter()
                 .chain(onboarding.filter(|_| role == LeaseRole::Conversation)
                     .map(|(_, _, path, _)| ActionGrant::Assignments(path.into())))
+                .chain(onboarding.map(|(_,_,path,_)|ActionGrant::Questions(crate::question_tools::path(path))))
                 .chain(continuity.map(|(_, path)| ActionGrant::Continuity(path.into())))
                 // **The continuity tools' own grant is in this list for the CLOSING half
                 // only.** `prompt` deliberately does not open it with the others (see there);
@@ -2103,7 +2249,8 @@ impl NativeClient {
             // **Read on the reader thread, which is also the thread the text deltas arrive
             // on** — so "has he heard anything yet" is answered in the order the wire put the
             // two events in, with no race to lose.
-            Self::handle_agent_request(&msg, stdin, current, between, context_only, permissions.as_ref());
+            let question_scope = state.lock().unwrap().question_scope.clone();
+            Self::handle_agent_request(&msg, stdin, current, between, context_only, permissions.as_ref(), question_scope.as_deref());
             return;
         }
 
@@ -2237,6 +2384,24 @@ impl NativeClient {
                 None => between.lock().unwrap().offer_frame(msg),
             }
             return;
+        }
+
+        // ---- the commands this lease has running in the background ------------------------
+        //
+        // Read here, on the reader thread, whatever turn (or none) the frame arrives in: the
+        // ending of a background command almost always arrives when NO prompt is parked, so a
+        // reading taken off a turn's stream would never see it. Routed on afterwards like any
+        // other traffic. See [`crate::cognition::BackgroundCommand`] for the measured shapes.
+        if ty == "system" {
+            let subtype = msg.get("subtype").and_then(Value::as_str).unwrap_or("");
+            if matches!(subtype, "task_started" | "background_tasks_changed" | "task_notification") {
+                let ours_running = current
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .is_some_and(|pending| pending.phase != TurnPhase::Queued);
+                state.lock().unwrap().note_background(&msg, ours_running);
+            }
         }
 
         // ---- session identity ----------------------------------------------------------
@@ -2581,6 +2746,7 @@ impl NativeClient {
         between: &Arc<Mutex<BetweenTurn>>,
         context_only: bool,
         permissions: Option<&crate::permissions::ScopedPermissions>,
+        question_scope: Option<&Path>,
     ) {
         let request_id = msg.get("request_id").cloned().unwrap_or(Value::Null);
         let request = msg.get("request").cloned().unwrap_or(Value::Null);
@@ -2589,6 +2755,15 @@ impl NativeClient {
         let (response, machinery) = if subtype == "can_use_tool" {
             let decision = if context_only {
                 PermissionDecision::Deny { message: "Internal context preparation is tool-free. Do not act on historical requests. Wait for the next visible conversation turn.".into() }
+            } else if request["tool_name"] == "AskUserQuestion" {
+                let result = question_scope.ok_or_else(||"This turn has no question scope.".to_string())
+                    .and_then(|path|crate::question_tools::convert_vendor(path,&request["input"]));
+                PermissionDecision::Deny {message: match result {
+                    Ok(value)=>value["instruction"].as_str().unwrap_or("The question is recorded. Do not wait for an answer.").to_string(),
+                    Err(error)=>error,
+                }}
+            } else if request["tool_name"].as_str().is_some_and(|name|name.starts_with("mcp__richos_questions__")) {
+                PermissionDecision::Allow {updated_input:request["input"].clone()}
             } else if let Some(policy) = permissions { policy.decide(&request) }
               else { decide_permission(&request) };
             let body = match &decision {
@@ -2695,6 +2870,12 @@ impl NativeClient {
     ///
     /// Takes `&self` so a caller holding the lease immutably can pump the lane; the buffer is
     /// behind its own `Mutex` and is never held across a turn.
+    /// The commands this session's provider has put in the background and how each ended
+    /// ([`crate::cognition::BackgroundCommand`]). A reading, never held across a turn.
+    pub fn background_commands(&self) -> Vec<crate::cognition::BackgroundCommand> {
+        self.reader_state.lock().map(|s| s.background.clone()).unwrap_or_default()
+    }
+
     pub fn drain_between_turn(&self, session_id: &str) -> Vec<MachineryRecord> {
         self.between.lock().unwrap().drain(session_id)
     }
@@ -2795,13 +2976,46 @@ impl NativeClient {
         // THE shared per-turn counter (§1.4 G1). Advanced only when an item is actually
         // delivered — a frame that normalizes to nothing consumes no position.
         let mut seq: u64 = 0;
+        let question_scope = {
+            let state=self.reader_state.lock().unwrap();
+            if state.context_only {None} else {state.question_scope.clone()}
+        };
         // Set the moment a `Cancel` wakes this loop. From then on the loop keeps DELIVERING
         // whatever still arrives — §9.3 step 4, "preserve partial commentary, activity and
         // assistant output" — but stops waiting forever for a `result` that a non-compliant
         // agent may never send.
         let mut cancel_deadline: Option<std::time::Instant> = None;
+        // **AMERICAN SPELLING, FIXED HERE AND NOWHERE ELSE** (CEO §93; plan check 1(a), C9).
+        // This is the one place every piece of reply text passes — streamed deltas, the app-said
+        // receipt and the degraded whole message alike — and the one place `seq` is assigned,
+        // so a held-back word goes out under the counter that already exists. Everything
+        // downstream of the ledger inherits the fixed text: the Mac's screen, speech, crash
+        // recovery, the phones and both kinds of push preview. His own words never come
+        // through here (`record_prompt_received*`); `american_spelling.rs` has the rules.
+        //
+        // **The held word is released before anything else is delivered and on every way out
+        // of this loop** — the next tool row, a permission, a usage reading, `content_block_stop`,
+        // `Done`, the cancel timeout (before the sink is detached), the child vanishing, and a
+        // question ending the turn — so §9.3 step 4's partial output is never lost to it.
+        let mut spelling = crate::american_spelling::Speller::new();
+        fn release(seq: &mut u64, on_item: &mut dyn FnMut(TurnItem), spelling: &mut crate::american_spelling::Speller) {
+            let held = spelling.finish();
+            if !held.is_empty() {
+                on_item(TurnItem::Text { seq: *seq, text: &held });
+                *seq += 1;
+            }
+        }
         loop {
+            // Persisted questions terminate only the front desk's asking turn. A
+            // non-cooperative provider cannot retain its conversation mutex indefinitely.
+            if question_scope.as_deref().is_some_and(crate::question_tools::has_asked) {
+                release(&mut seq, on_item, &mut spelling);
+                self.cancel_handle().shutdown();
+                *self.current_prompt.lock().unwrap()=None;
+                return Ok("question_asked".into());
+            }
             let received = match cancel_deadline {
+                None if question_scope.is_some()=>rx.recv_timeout(Duration::from_millis(40)),
                 None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
                 Some(deadline) => match deadline.checked_duration_since(std::time::Instant::now()) {
                     Some(remaining) => rx.recv_timeout(remaining),
@@ -2810,16 +3024,28 @@ impl NativeClient {
             };
             match received {
                 Ok(ChunkMsg::Text(t)) => {
-                    on_item(TurnItem::Text { seq, text: &t });
-                    seq += 1;
+                    let decided = spelling.push(&t);
+                    // Never an empty item: a delta that is all held-back word delivers nothing
+                    // now and consumes no position.
+                    if !decided.is_empty() {
+                        on_item(TurnItem::Text { seq, text: &decided });
+                        seq += 1;
+                    }
                 }
                 Ok(ChunkMsg::Frame(frame)) => {
+                    // A keep-alive `ping` can arrive mid-word and says nothing about the text,
+                    // so it releases nothing; every other frame ends the run of text in front
+                    // of it (`content_block_stop` right after a block's last delta, above all).
+                    if !is_ping(&frame) {
+                        release(&mut seq, on_item, &mut spelling);
+                    }
                     for record in MachineryRecord::from_native_event(&frame, &self.session_id, seq) {
                         seq += 1;
                         on_item(TurnItem::Machinery(record));
                     }
                 }
                 Ok(ChunkMsg::Permission { request, chosen }) => {
+                    release(&mut seq, on_item, &mut spelling);
                     on_item(TurnItem::Machinery(MachineryRecord::from_permission_request(
                         &request,
                         &chosen,
@@ -2829,6 +3055,7 @@ impl NativeClient {
                     seq += 1;
                 }
                 Ok(ChunkMsg::Usage { used, size, usage }) => {
+                    release(&mut seq, on_item, &mut spelling);
                     on_item(TurnItem::Machinery(MachineryRecord::from_context_usage(
                         used,
                         size,
@@ -2845,6 +3072,7 @@ impl NativeClient {
                     cancel_deadline.get_or_insert_with(|| std::time::Instant::now() + cancel_grace());
                 }
                 Ok(ChunkMsg::Done(result)) => {
+                    release(&mut seq, on_item, &mut spelling);
                     let reason = stop_reason_of(&result);
                     if reason == "child_exited" { return Err(NativeError::Closed); }
                     if result.get("is_error").and_then(Value::as_bool) == Some(true)
@@ -2856,18 +3084,30 @@ impl NativeClient {
                     }
                     return Ok(reason);
                 }
+                Err(RecvTimeoutError::Timeout) if cancel_deadline.is_none() => continue,
                 Err(RecvTimeoutError::Timeout) => {
                     // The agent was told to interrupt and did not answer within the grace
                     // window. Stop rendering this turn — and DETACH the sink first, so
                     // anything the agent says afterwards cannot be routed into whatever turn
-                    // runs next.
+                    // runs next. What was already said is released first: it is this turn's.
+                    release(&mut seq, on_item, &mut spelling);
                     *self.current_prompt.lock().unwrap() = None;
                     return Ok(STOP_REASON_CANCEL_UNACKNOWLEDGED.to_string());
                 }
-                Err(RecvTimeoutError::Disconnected) => return Err(NativeError::Closed),
+                Err(RecvTimeoutError::Disconnected) => {
+                    release(&mut seq, on_item, &mut spelling);
+                    return Err(NativeError::Closed);
+                }
             }
         }
     }
+}
+
+/// A streamed keep-alive: it says nothing about the text, so it must not end a run of it (the
+/// drain's American spelling hold-back releases on every other frame).
+fn is_ping(frame: &Value) -> bool {
+    frame.get("type").and_then(Value::as_str) == Some("stream_event")
+        && frame.get("event").and_then(|e| e.get("type")).and_then(Value::as_str) == Some("ping")
 }
 
 /// `used`, summed from a vendor `usage` object, or `None` if it carries no input side.
@@ -2965,6 +3205,17 @@ impl Drop for NativeClient {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        if self.reap_state.is_some() {
+            crate::lease_commands::LiveLeases::process().retire(&self.session_id);
+        }
+    }
+}
+
+impl NativeClient {
+    /// The tool commands this lease has running outside its provider's group, from its
+    /// supervisor's state file. `None` for a lease with no supervisor.
+    pub fn running_commands(&self) -> Option<crate::lease_commands::CommandReading> {
+        self.reap_state.as_deref().map(crate::lease_commands::read)
     }
 }
 
@@ -3278,6 +3529,24 @@ impl NativeCognition {
             continuity: Some((bridge, continuity_scope)), continuity_tools_scope: None, work_binding: None, engine_profile: Some(profile), role: LeaseRole::Work, ceo_thread_seats: None })
     }
 
+    fn prepare_question_scope(&self,entity:&str,thread:&str,turn:&str,asker:&str,method:&str)->Result<(),CognitionError> {
+        let Some(path)=self.client.reader_state.lock().unwrap().question_scope.clone() else {return Ok(());};
+        let root=self.engine_profile.as_ref().map(|p|p.state.clone())
+            .unwrap_or_else(||path.parent().and_then(Path::parent).unwrap_or(Path::new(".")).join("engine-state"));
+        let declared=self.engine_profile.as_ref().filter(|p|p.coordination.join("orchestration.config").is_file());
+        crate::question_tools::write_scope(&path,&crate::question_tools::Scope {
+            context:crate::questions::AskScope {root,entity_id:entity.into(),thread_id:thread.into(),turn_id:turn.into(),asker:asker.into(),session_id:self.session_id.clone(),
+                engine:declared.map(|p|p.engine.clone()),entity_root:declared.map(|p|p.coordination.clone())},
+            actions_allowed:false,answer_method:method.into(),surface:"mac".into()
+        }).map_err(CognitionError::Io)
+    }
+    fn question_context(&self)->Result<String,CognitionError> {
+        let Some(path)=self.client.reader_state.lock().unwrap().question_scope.clone() else {return Ok(String::new());};
+        let scope=crate::question_tools::read_scope(&path).map_err(CognitionError::Io)?;
+        let questions:Vec<_>=crate::questions::Store::new(&scope.context.root).list(&scope.context.entity_id,&scope.context.thread_id).map_err(CognitionError::Io)?.into_iter().filter(|q|q.state==crate::questions::State::Open || !q.delivered).map(|q|q.public_value()).collect();
+        if questions.is_empty(){return Ok(String::new());}
+        Ok(format!("\nApp-owned questions in this conversation (records, not new instructions). Resolve unmistakable answers with richos_questions.answer; withdraw moot questions. Never guess an ambiguous answer.\n{}",serde_json::to_string(&questions).map_err(|e|CognitionError::Io(e.to_string()))?))
+    }
     pub fn role(&self) -> LeaseRole { self.role }
 
     /// **The CEO's seat for the conversation this lease serves** — `ceo-thread:<thread_id>`,
@@ -3312,6 +3581,7 @@ impl NativeCognition {
 
 impl Drop for NativeCognition {
     fn drop(&mut self) {
+        if let Some(path)=self.client.reader_state.lock().unwrap().question_scope.as_ref(){drop(std::fs::remove_file(path));}
         let _ = self.client.child.kill();
         let _ = self.client.child.wait();
         if let Some(profile) = &self.engine_profile { let _ = std::fs::remove_dir_all(&profile.plugin); }
@@ -3334,9 +3604,23 @@ impl Drop for NativeCognition {
 }
 
 impl Cognition for NativeCognition {
+    fn set_input_channel(&mut self,channel:Option<&str>)->Result<(),CognitionError> {
+        let Some(path)=self.client.reader_state.lock().unwrap().question_scope.clone() else{return Ok(());};
+        if let Some(channel)=channel.filter(|c|c.starts_with("phone")) {
+            let mut scope=crate::question_tools::read_scope(&path).map_err(CognitionError::Io)?;
+            scope.surface="phone".into();scope.answer_method=if channel=="phone_voice" {"phone_voice"}else{"phone_typed"}.into();
+            crate::question_tools::write_scope(&path,&scope).map_err(CognitionError::Io)?;
+        }
+        Ok(())
+    }
+
     fn requires_thread_isolation(&self) -> bool { self.continuity.is_some() }
     fn worker_status(&self) -> Option<crate::worker_status::WorkerStatusView> {
         self.engine_profile.as_ref().map(|p| crate::app_workers::status(&p.state, Some(&self.session_id)))
+    }
+    fn running_commands(&self) -> Option<crate::lease_commands::CommandReading> { self.client.running_commands() }
+    fn background_commands(&self) -> Option<Vec<crate::cognition::BackgroundCommand>> {
+        Some(self.client.background_commands())
     }
     fn prepare_work_turn(&mut self, binding: &crate::entity::ThreadBinding, turn: &str,
         source: crate::ledger::Source, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
@@ -3351,13 +3635,24 @@ impl Cognition for NativeCognition {
         if let Some(refusal) = work_preparation_refusal(self.role) {
             return Err(CognitionError::Protocol(refusal.into()));
         }
+        self.prepare_question_scope(binding.entity_id().as_str(),binding.thread_id(),turn,"front_desk",
+            if source==crate::ledger::Source::Jam {"spoken"}else{"typed"})?;
         // Read before the `&self.continuity` borrow, because the assignment scope below
         // needs it and the register lives in the engine state root beside the receipts.
         let profile_state = self.engine_profile.as_ref().map(|p| p.state.clone());
         // **His seat for THIS conversation, resolved before the continuity borrow** — the
         // bind below states what it is and why it is asked rather than assumed.
         let seat = self.ceo_thread_seat(binding.thread_id());
-        let Some((bridge, path)) = &self.continuity else { return Ok(()); };
+        let Some((bridge, path)) = &self.continuity else {
+            // Customer installs without the operator engine still resolve spoken and
+            // typed answers using the same authoritative question ids.
+            let context=self.question_context()?;
+            if !context.is_empty() {
+                let reason=self.client.prompt_context_only(&crate::reprime::context_only_priming(&context),on_item)?;
+                if reason!="end_turn" {return Err(CognitionError::PrimingStopped(reason));}
+            }
+            return Ok(());
+        };
         // **UNCHANGED BEHAVIOR, ON PURPOSE.** `!= Yes` is exactly what `!engine_plugin_loaded`
         // meant while the field was a `bool`: this path runs on the CONVERSATION lease and
         // only after `prepare_request` → `prime_lease_if_needed` has taken a priming turn
@@ -3544,6 +3839,7 @@ impl Cognition for NativeCognition {
             })
             .map_err(CognitionError::Io)?;
         }
+        brief.push_str(&self.question_context()?);
         // **His team's desk, for this turn's conversation** — only when this lease was given
         // it (an operator install). Rewritten every turn for the status scope's reason, and it
         // names the turn his words were spoken in, for the operator log's origin.
@@ -3577,6 +3873,7 @@ impl Cognition for NativeCognition {
         if let Some(refusal) = assignment_binding_refusal(self.role) {
             return Err(CognitionError::Protocol(refusal.into()));
         }
+        self.prepare_question_scope(&work.entity_id,&work.thread_id,&work.obligation_id,&work.obligation_id,"typed")?;
         let Some((bridge, path)) = &self.continuity else {
             return Err(CognitionError::Protocol("This work connection has no continuity scope.".into()));
         };
@@ -3774,6 +4071,13 @@ impl Cognition for NativeCognition {
         }
         let result = self.client.prompt(text, on_item).map_err(CognitionError::from);
         let _operation = self.client.operation_cancel.lock().unwrap();
+        for grant in &self.client.action_grants {
+            if matches!(grant,ActionGrant::Questions(_)) && grant.set(false).is_err() {
+                drop(std::fs::remove_file(grant.path()));
+                drop(self.client.child.kill());drop(self.client.child.wait());
+                return Err(CognitionError::Io("The question scope could not be closed.".into()));
+            }
+        }
         // The deferred grant is revoked with the same severity as the one below it: a lease
         // whose grant cannot be revoked must not accept another operation. It is closed FIRST
         // because it is the one that was opened last.
@@ -3872,6 +4176,56 @@ impl Cognition for NativeCognition {
 #[cfg(test)]
 mod native_driver_tests {
     use super::*;
+
+
+    #[test]
+    fn a_vendor_question_is_converted_and_the_host_ends_a_noncooperative_turn() {
+        let script=write_script("nonblocking-vendor-question", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+printf '%s\n' '{"type":"control_request","request_id":"ask","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"When should the release ship?","options":[{"label":"Ship today","description":"Earlier fixes"},{"label":"Ship tomorrow","description":"More testing"}]}]}}}'
+read -r response
+sleep 3
+printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+"#);
+        let root=script.parent().unwrap();
+        let client=NativeClient::spawn(&script,root,&doctrine_fixture(),&skills_fixture()).unwrap();
+        let path=root.join("questions-scope.json");
+        let scope=crate::question_tools::Scope{context:crate::questions::AskScope{root:root.into(),entity_id:"company".into(),thread_id:"thread".into(),turn_id:"ask-turn".into(),asker:"front_desk".into(),session_id:client.session_id().into(),engine:None,entity_root:None},actions_allowed:true,answer_method:"typed".into(),surface:"mac".into()};
+        crate::question_tools::write_scope(&path,&scope).unwrap();
+        client.reader_state.lock().unwrap().question_scope=Some(path);
+        let started=std::time::Instant::now();
+        assert_eq!(client.prompt("Ask one choice",&mut |_|{}).unwrap(),"question_asked");
+        assert!(started.elapsed()<Duration::from_secs(1),"vendor question retained the asking turn");
+        let qs=crate::questions::Store::new(root).list("company","thread").unwrap();
+        assert_eq!(qs.len(),1);assert_eq!(qs[0].state,crate::questions::State::Open);
+        assert!(qs[0].shown.is_none(),"persisting a question must not claim it was shown");
+    }
+
+    #[test]
+    fn app_owned_ask_ends_the_front_desk_without_a_provider_result() {
+        let script=write_script("nonblocking-app-question",r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Asking now"}]}}'
+sleep 3
+printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+"#);
+        let root=script.parent().unwrap();
+        let client=NativeClient::spawn(&script,root,&doctrine_fixture(),&skills_fixture()).unwrap();
+        let path=root.join("scope.json");
+        let scope=crate::question_tools::Scope{context:crate::questions::AskScope{root:root.into(),entity_id:"company".into(),thread_id:"thread".into(),turn_id:"ask-turn".into(),asker:"front_desk".into(),session_id:client.session_id().into(),engine:None,entity_root:None},actions_allowed:true,answer_method:"typed".into(),surface:"mac".into()};
+        crate::question_tools::write_scope(&path,&scope).unwrap();
+        client.reader_state.lock().unwrap().question_scope=Some(path.clone());
+        let started=std::time::Instant::now();let mut asked=false;
+        let reason=client.prompt("Ask one choice",&mut |item|{if matches!(item,TurnItem::Text{..}) && !asked {
+            asked=true;
+            crate::question_tools::call(&path,"ask",json!({"questions":[{"text":"When should the release ship?","options":[{"label":"Ship today","description":"Earlier fixes"},{"label":"Ship tomorrow","description":"More testing"}]}]})).unwrap();
+        }}).unwrap();
+        assert!(asked);assert_eq!(reason,"question_asked");assert!(started.elapsed()<Duration::from_secs(1));
+    }
 
     // ---- the background-work spec's §5.8a-ii seams ------------------------------------
 
@@ -4046,7 +4400,7 @@ mod native_driver_tests {
             Some((&bridge, &continuity)), Some(continuity_tools.as_path()), Some(&profile), LeaseRole::Conversation, Path::new("claude"));
         assert_eq!(
             names(&chat),
-            vec!["richos_assignments", "richos_continuity", "richos_onboarding", "richos_status"],
+            vec!["richos_assignments", "richos_continuity", "richos_onboarding", "richos_questions", "richos_status"],
             "the front desk's tool list moved"
         );
         // Named on its own as well, because the list above is the WHAT and this is the WHY.
@@ -4059,7 +4413,7 @@ mod native_driver_tests {
             Some((&bridge, &continuity)), Some(continuity_tools.as_path()), Some(&profile), LeaseRole::Work, Path::new("claude"));
         assert_eq!(
             names(&work),
-            vec!["richos_quota", "richos_work"],
+            vec!["richos_questions", "richos_quota", "richos_work"],
             "the back end's tool list moved"
         );
         // **The back end holds the work and NOTHING ELSE, and that is the third absence.**
@@ -4192,6 +4546,7 @@ mod native_driver_tests {
                 ActionGrant::Assignments(_) => "assignments",
                 ActionGrant::Continuity(_) => "continuity",
                 ActionGrant::ContinuityTools(_) => "continuity-tools",
+                ActionGrant::Questions(_) => "questions",
             })
             .collect()
     }
@@ -4257,7 +4612,7 @@ mod native_driver_tests {
             lease_with_production_grants("work-list", LeaseRole::Work, SILENT_AFTER_HANDSHAKE);
         assert_eq!(
             grant_names(&work.client),
-            vec!["continuity"],
+            vec!["questions", "continuity"],
             "a work lease's grant list is not just its own continuity scope"
         );
         assert!(
@@ -4274,7 +4629,7 @@ mod native_driver_tests {
             // `continuity-tools` joined this list on 2026-09-18 and is the one grant `prompt`
             // does NOT open with the others — it is in the list so that the turn's end, a
             // cancel and a dropped lease all revoke it by the same loop.
-            vec!["onboarding", "assignments", "continuity", "continuity-tools"],
+            vec!["onboarding", "assignments", "questions", "continuity", "continuity-tools"],
             "the front desk lost a grant it needs — the fix has moved, not landed"
         );
         drop(chat);
@@ -6210,6 +6565,156 @@ read -r keep_alive
         );
     }
 
+    /// **THE PLATFORM'S OWN TURN CAN REPORT ZERO QUEUED WHILE OURS IS STILL IN ITS QUEUE.**
+    ///
+    /// Measured on `claude` 2.1.283, 2026-09-27 (richos-hq
+    /// `docs/verification/2026-09-27-background-command-finish/`, `cap-continue.jsonl`): a
+    /// background command ended, the child started its own `<task-notification>` turn, and the
+    /// host's message written 0 ms after the notification was answered `queued` at 15.141 s.
+    /// The platform's turn then ended at 17.374 s with `"queued_turn_count": 0`, and the child
+    /// said `started` for our message only at 17.375 s. The count is not a statement about our
+    /// message at that instant; the lifecycle is, and it says ours had not run.
+    ///
+    /// **RED at `238557bb`**: the count was read first, so the platform's result answered this
+    /// prompt with none of its own items, and the host's real turn streamed into nothing.
+    #[test]
+    fn a_platform_turn_that_counts_nothing_queued_still_never_answers_a_prompt_the_child_said_is_queued() {
+        let script = write_script("injected-turn-count-zero", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+ours=$(printf '%s' "$prompt" | sed -n 's/.*"uuid":"\([0-9a-fA-F-]*\)".*/\1/p')
+test -n "$ours" || exit 9
+printf '%s\n' "{\"type\":\"command_lifecycle\",\"command_uuid\":\"$ours\",\"state\":\"queued\"}"
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Background command completed (exit code 0)."}}}'
+printf '%s\n' '{"type":"result","subtype":"success","stop_reason":"end_turn","queued_turn_count":0}'
+printf '%s\n' "{\"type\":\"command_lifecycle\",\"command_uuid\":\"$ours\",\"state\":\"started\"}"
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"It printed bg-marker-done."}}}'
+printf '%s\n' '{"type":"result","subtype":"success","stop_reason":"end_turn","queued_turn_count":0}'
+printf '%s\n' "{\"type\":\"command_lifecycle\",\"command_uuid\":\"$ours\",\"state\":\"completed\"}"
+read -r keep_alive
+"#);
+        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        let mut said = String::new();
+        client
+            .prompt("The command you started has ended", &mut |item| {
+                if let TurnItem::Text { text, .. } = item {
+                    said.push_str(text);
+                }
+            })
+            .unwrap();
+        assert_eq!(said, "It printed bg-marker-done.", "the platform's own turn answered this prompt");
+    }
+
+    /// **A background command is read off the provider's own frames, whichever turn they
+    /// arrive in** — and its ending says whether the model had it before it answered.
+    ///
+    /// The frames are the ones 2.1.283 sent on 2026-09-27 (`cap-plain.jsonl`, `cap-fold.jsonl`
+    /// in richos-hq `docs/verification/2026-09-27-background-command-finish/`), trimmed to the
+    /// fields read. Three facts in one script:
+    ///
+    /// 1. a command that ends after its turn is recorded as ended OUTSIDE a turn of ours —
+    ///    the case whose report reached nobody before this;
+    /// 2. a command that ends while a turn of ours runs is recorded as inside it;
+    /// 3. a FOREGROUND command, which gets the same two frames with `is_backgrounded: false`,
+    ///    is not a background command at all.
+    #[test]
+    fn a_background_command_is_read_off_the_providers_frames_and_its_ending_says_whose_turn_had_it() {
+        let script = write_script("background-commands", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"bk1c0clka","task_type":"local_bash","description":"sleep 12; echo bg-marker-done"}]}'
+printf '%s\n' '{"type":"system","subtype":"task_started","task_id":"bk1c0clka","task_type":"local_bash","is_backgrounded":true,"description":"sleep 12; echo bg-marker-done"}'
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Started."}}}'
+printf '%s\n' '{"type":"result","subtype":"success","stop_reason":"end_turn","queued_turn_count":0}'
+printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[]}'
+printf '%s\n' '{"type":"system","subtype":"task_notification","task_id":"bk1c0clka","status":"completed","summary":"Background command \"sleep 12; echo bg-marker-done\" completed (exit code 0)"}'
+printf '%s\n' '{"type":"result","subtype":"success","stop_reason":"end_turn","queued_turn_count":0}'
+read -r second
+printf '%s\n' '{"type":"system","subtype":"task_started","task_id":"b50y3od71","task_type":"local_bash","is_backgrounded":true,"description":"sleep 4"}'
+printf '%s\n' '{"type":"system","subtype":"task_started","task_id":"bil7jpdo5","task_type":"local_bash","is_backgrounded":false,"description":"sleep 12"}'
+printf '%s\n' '{"type":"system","subtype":"task_notification","task_id":"b50y3od71","status":"completed","summary":"sleep 4 completed (exit code 0)"}'
+printf '%s\n' '{"type":"system","subtype":"task_notification","task_id":"bil7jpdo5","status":"completed","summary":"sleep 12"}'
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Both done."}}}'
+printf '%s\n' '{"type":"result","subtype":"success","stop_reason":"end_turn","queued_turn_count":0}'
+read -r keep_alive
+"#);
+        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        assert!(client.background_commands().is_empty(), "a fresh session reported a command");
+        client.prompt("start it in the background", &mut |_| {}).unwrap();
+        // The notification arrives after the turn: wait for the reader, on the reading itself.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while client.background_commands().first().is_none_or(|c| c.ended.is_none()) {
+            assert!(std::time::Instant::now() < deadline, "the ending was never read");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let first = client.background_commands();
+        assert_eq!(first.len(), 1, "one command, reported by two frames, is one command: {first:?}");
+        assert_eq!(first[0].task_id, "bk1c0clka");
+        assert_eq!(first[0].description, "sleep 12; echo bg-marker-done");
+        let ended = first[0].ended.clone().unwrap();
+        assert_eq!(ended.status, "completed");
+        assert!(ended.summary.contains("exit code 0"), "{}", ended.summary);
+        assert!(!ended.during_a_turn_of_ours, "an ending after the turn was counted as inside it");
+
+        client.prompt("start another and run one in the foreground", &mut |_| {}).unwrap();
+        let all = client.background_commands();
+        assert_eq!(
+            all.iter().map(|c| c.task_id.as_str()).collect::<Vec<_>>(),
+            ["bk1c0clka", "b50y3od71"],
+            "a foreground command was taken for a background one",
+        );
+        assert!(all[1].ended.as_ref().is_some_and(|e| e.during_a_turn_of_ours), "{:?}", all[1]);
+    }
+
+    /// **Every background task type the back end can start and the provider reports the end
+    /// of is read — not only a shell command** (richos-hq
+    /// `docs/verification/2026-09-27-background-command-finish-2/`, item 4).
+    ///
+    /// The frames are the ones 2.1.283 sent on 2026-09-27, trimmed to the fields read:
+    /// `cap-workflow.jsonl` (a `Workflow` launch: `local_workflow`, with NO `is_backgrounded`
+    /// field, ending 11.2 s after the turn that started it, and a foreground shell command of
+    /// its own agent), `cap-agent-slow.jsonl` (a background `Agent`: `local_agent`, which in a
+    /// work lease is only ever a prepared helper and is waited for through `SubagentStop`),
+    /// and two housekeeping types from the provider's own task table that are the provider's
+    /// work, not the back end's (`dream`, `auto_mode_scan`, both `skipTranscript`).
+    #[test]
+    fn every_background_task_type_the_back_end_can_start_is_read_and_a_helper_is_not() {
+        let script = write_script("background-task-types", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"wegtzwydr","task_type":"local_workflow","description":"Wait 10 seconds and return done"}]}'
+printf '%s\n' '{"type":"system","subtype":"task_started","task_id":"wegtzwydr","description":"Wait 10 seconds and return done","task_type":"local_workflow","workflow_name":"wait-and-return"}'
+printf '%s\n' '{"type":"system","subtype":"task_started","task_id":"a0cb81caf11b7e9a2","description":"Background sleep and reply","is_backgrounded":true,"task_type":"local_agent"}'
+printf '%s\n' '{"type":"system","subtype":"task_started","task_id":"d1dream","description":"dreaming","task_type":"dream"}'
+printf '%s\n' '{"type":"system","subtype":"task_started","task_id":"e1scan","description":"scanning for auto-mode setup","task_type":"auto_mode_scan"}'
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Workflow launched."}}}'
+printf '%s\n' '{"type":"result","subtype":"success","stop_reason":"end_turn","queued_turn_count":0}'
+printf '%s\n' '{"type":"system","subtype":"task_started","task_id":"b12emlbnd","description":"Wait approximately 10 seconds","is_backgrounded":false,"task_type":"local_bash"}'
+printf '%s\n' '{"type":"system","subtype":"task_notification","task_id":"b12emlbnd","status":"completed","summary":"Wait approximately 10 seconds"}'
+printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[]}'
+printf '%s\n' '{"type":"system","subtype":"task_notification","task_id":"wegtzwydr","status":"completed","summary":"Dynamic workflow \"Wait 10 seconds and return done\" completed"}'
+printf '%s\n' '{"type":"system","subtype":"task_notification","task_id":"a0cb81caf11b7e9a2","status":"completed","summary":"done"}'
+printf '%s\n' '{"type":"result","subtype":"success","stop_reason":"end_turn","queued_turn_count":0}'
+read -r keep_alive
+"#);
+        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        client.prompt("start the workflow", &mut |_| {}).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while client.background_commands().first().is_none_or(|c| c.ended.is_none()) {
+            assert!(std::time::Instant::now() < deadline, "the workflow's ending was never read: {:?}", client.background_commands());
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let all = client.background_commands();
+        assert_eq!(all.iter().map(|c| c.task_id.as_str()).collect::<Vec<_>>(), ["wegtzwydr"],
+                   "a helper, a housekeeping task or a foreground command was taken for the back end's own: {all:?}");
+        assert_eq!(all[0].description, "Wait 10 seconds and return done");
+        let ended = all[0].ended.clone().unwrap();
+        assert!(ended.summary.contains("completed") && !ended.during_a_turn_of_ours, "{ended:?}");
+    }
+
     /// **The fallback, alone.** A child that names no command (an older binary, or a command it
     /// enqueued without our uuid) still reports `queued_turn_count`, and that count alone is
     /// enough to refuse a result belonging to a turn ahead of ours.
@@ -6284,5 +6789,112 @@ read -r keep_alive
 "#);
         let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
         assert_eq!(client.prompt("carry on", &mut |_| {}).unwrap(), "refused_before_it_ran");
+    }
+
+    // ---- AMERICAN SPELLING AT THE DRAIN (CEO §93) --------------------------------------------
+
+    /// What one scripted turn delivered: every item in delivery order (`None` text for a
+    /// machinery record), the turn's result, and the prompt line the child received.
+    struct BritishTurn {
+        items: Vec<(u64, Option<String>)>,
+        result: Result<String, NativeError>,
+        received: String,
+    }
+
+    /// One scripted turn whose text is `blocks` (each a list of deltas, streamed in its own text
+    /// block, with a tool call between the blocks), then `ending`: `"result"` for a normal end,
+    /// `"exit"` for a child that dies with no `result`.
+    fn a_british_turn(tag: &str, prompt: &str, blocks: &[Vec<String>], ending: &str) -> BritishTurn {
+        let dir = fixture_root().join(format!("american-{tag}-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ev = |event: Value| json!({"type": "stream_event", "event": event}).to_string();
+        let mut frames = vec![ev(json!({"type": "message_start"}))];
+        for (i, deltas) in blocks.iter().enumerate() {
+            if i > 0 {
+                frames.push(ev(json!({"type": "content_block_start",
+                    "content_block": {"type": "tool_use", "id": format!("toolu_{i}"), "name": "Read", "input": {}}})));
+                frames.push(ev(json!({"type": "content_block_stop"})));
+            }
+            frames.push(ev(json!({"type": "content_block_start", "content_block": {"type": "text", "text": ""}})));
+            for delta in deltas {
+                frames.push(ev(json!({"type": "content_block_delta", "delta": {"type": "text_delta", "text": delta}})));
+            }
+            // A child that dies does so mid-block: nothing after its last delta.
+            if !(ending == "exit" && i + 1 == blocks.len()) {
+                frames.push(ev(json!({"type": "content_block_stop"})));
+            }
+        }
+        if ending == "result" {
+            frames.push(json!({"type": "result", "stop_reason": "end_turn"}).to_string());
+        }
+        let frames_path = dir.join("frames.jsonl");
+        std::fs::write(&frames_path, frames.join("\n") + "\n").unwrap();
+        let received = dir.join("received");
+        let script = write_script(tag, &format!(r#"
+read -r init
+printf '%s\n' '{{"type":"control_response","response":{{"subtype":"success","request_id":"req_init","response":{{}}}}}}'
+read -r prompt
+printf '%s\n' "$prompt" > '{received}'
+cat '{frames}'
+"#, received = received.display(), frames = frames_path.display()));
+        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        let mut items = Vec::new();
+        let result = client.prompt(prompt, &mut |item| match item {
+            TurnItem::Text { seq, text } => items.push((seq, Some(text.to_string()))),
+            TurnItem::Machinery(record) => items.push((record.seq, None)),
+        });
+        BritishTurn { items, result, received: std::fs::read_to_string(&received).unwrap_or_default() }
+    }
+
+    /// A fixture section of `|`-separated deltas (British on purpose, in the exempt location).
+    fn british_deltas(section: &str) -> Vec<String> {
+        crate::american_spelling::tests::section(section)
+            .trim_end_matches('\n')
+            .split('|')
+            .map(str::to_string)
+            .collect()
+    }
+
+    fn said_in(items: &[(u64, Option<String>)]) -> String {
+        items.iter().filter_map(|(_, t)| t.clone()).collect()
+    }
+
+    #[test]
+    fn a_british_reply_reaches_him_american_and_his_own_words_reach_the_model_as_he_said_them() {
+        let prompt = crate::american_spelling::tests::section("drain-prompt").trim_end().to_string();
+        let first = british_deltas("drain-deltas-1");
+        let second = british_deltas("drain-deltas-2");
+        let BritishTurn { items, result, received } = a_british_turn("reply", &prompt, &[first.clone(), second.clone()], "result");
+        assert_eq!(result.unwrap(), "end_turn");
+
+        // HIS WORDS: the child received exactly what he wrote, British spelling and all.
+        let sent: Value = serde_json::from_str(received.trim()).expect("the child saw the prompt line");
+        assert_eq!(sent["message"]["content"][0]["text"].as_str(), Some(prompt.as_str()), "his words were rewritten");
+        assert_ne!(crate::american_spelling::fix(&prompt), prompt, "the prompt fixture must carry table words");
+
+        // THE REPLY: each block is exactly the fixer's answer for that block, so what is
+        // stored delta by delta is what `message-completed` reads back.
+        let tool_at = items.iter().position(|(_, t)| t.is_none()).expect("the tool call is delivered");
+        let before = said_in(&items[..tool_at]);
+        let after = said_in(&items[tool_at..]);
+        assert_eq!(before, crate::american_spelling::fix(&first.concat()));
+        assert_eq!(after, crate::american_spelling::fix(&second.concat()));
+        assert_ne!(before, first.concat(), "the first block must have changed");
+        assert_ne!(after, second.concat(), "the second block must have changed");
+
+        // ORDER: one counter, strictly increasing, the held tail delivered before the tool
+        // call, and no empty text item.
+        let seqs: Vec<u64> = items.iter().map(|(s, _)| *s).collect();
+        assert!(seqs.windows(2).all(|w| w[0] < w[1]), "seq must strictly increase: {seqs:?}");
+        assert!(items.iter().all(|(_, t)| t.as_deref() != Some("")), "an empty text item was delivered");
+    }
+
+    #[test]
+    fn a_child_that_dies_mid_reply_still_delivers_its_held_word_fixed() {
+        let third = british_deltas("drain-deltas-3");
+        let BritishTurn { items, result, .. } = a_british_turn("crash", "go on", std::slice::from_ref(&third), "exit");
+        assert!(matches!(result, Err(NativeError::Closed)), "a vanished child is Closed: {result:?}");
+        assert_eq!(said_in(&items), crate::american_spelling::fix(&third.concat()), "the partial reply must be kept, fixed");
+        assert_ne!(said_in(&items), third.concat());
     }
 }

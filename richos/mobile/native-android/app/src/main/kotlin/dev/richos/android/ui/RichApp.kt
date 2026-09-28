@@ -1,6 +1,12 @@
 package dev.richos.android.ui
 
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -381,6 +387,25 @@ private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEven
             Column(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 8.dp)) {
                 // Notes above the composer scroll inside a bounded height; the compose row never
                 // leaves the screen (iOS audit F1, F11).
+                val openQuestions = thread.filter { (it.body as? dev.richos.android.ui.model.Body.Question)?.let { q -> q.card.state == "open" && q.savedAnswer == null } == true }
+                if (openQuestions.isNotEmpty()) {
+                    BasicText("${openQuestions.size} question${if (openQuestions.size == 1) "" else "s"} open", style = Rich.type.read.copy(color = Rich.colors.ink), modifier = Modifier.align(Alignment.CenterHorizontally).background(Rich.colors.surface, CircleShape)
+                        .border(1.dp, if (model.app.theme == dev.richos.android.core.Theme.DARK) Rich.colors.ink.copy(alpha = 0.46f) else Rich.colors.line, CircleShape)
+                        .heightIn(min = 48.dp).clickable(role = Role.Button) {
+                        val index = controller.indexOf(openQuestions.first().id)
+                        if (index >= 0) scope.launch {
+                            controller.follow.dragStarted()
+                            controller.list.animateScrollToItem(index)
+                            controller.follow.settled(Float.MAX_VALUE, 0f)
+                        }
+                    }.padding(12.dp))
+                }
+                val recovered = model.app.outbox.filter { it.questionId != null && it.state == dev.richos.android.core.OutboxState.BLOCKED }
+                if (recovered.isNotEmpty()) {
+                    Column(Modifier.heightIn(max = maxAbove / 2).verticalScroll(rememberScrollState())) {
+                        recovered.forEach { answer -> SelectionContainer { BasicText((answer.lastReason ?: "This answer was not sent.") + "\n" + answer.text, style = Rich.type.read.copy(color = Rich.colors.ink)) } }
+                    }
+                }
                 val waiting = model.waitingToSend
                 val a = model.attach
                 val hasAbove = model.inlineNotice != null || waiting != null || model.cards.isNotEmpty() || model.keptRecording != null || model.notificationOffer ||

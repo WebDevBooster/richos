@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Hold the test VM's guest lock through guest boot, a scenario command and guest cleanup.
+"""Hold one test VM guest slot through guest boot, a scenario command and guest cleanup.
 
 The command after -- receives the owned VM name as its first argument. Example:
 run-walk.py --bundle BUNDLE --home FIXTURE --engine ENGINE -- delta-walk.py --out OUT ...
 
 CEO ruling §77: a walk is a test run, admitted by the CPU rule; it does not take
-the nightly release.lock. The VM is one shared resource, so the walk holds
-<TESTVM_ROOT>/guest.lock (default ~/.richos-testvm) instead: one walk guest at a time.
+the nightly release.lock. The guest is a shared resource with TWO slots (slots.py):
+this walk holds one of them for exactly its own run, boot to cleanup, and releases it
+the instant the run ends (the CEO, 2026-09-27: no slot is ever held between runs,
+across a job, a build or a debugging session). Hand-driven steps are a script run
+here as the command, not a guest kept up while somebody thinks.
 
---wait SECONDS retries the CPU admission under that lock for at most SECONDS (reserve.py's
-own bound and backoff). The default, 0, refuses at once, as before. Wrapping this in
+--wait SECONDS waits for a free slot and retries the CPU and memory admission for at most
+SECONDS in total (slots.py). The default, 0, refuses at once, as before. Wrapping this in
 `reserve.py --wait` does not help on a busy Mac: this script samples again as soon as the
 outer one admits, and that second single sample decides the run (2026-09-24: outer
 admitted, inner refused at 86.3%, exit 75).
@@ -20,14 +23,21 @@ import os
 from pathlib import Path
 import signal
 import shlex
+import shutil
 import time
 import subprocess
 import sys
 import uuid
-from reserve import reservation
+from slots import guest_ram_mb, guest_slot
 from relaunch import guest
 
 HERE=Path(__file__).resolve().parent
+
+# Commands that are refused here, before a slot or a boot, with the way forward.
+RETIRED={'hold-walk.py':'hold-walk.py is retired (the CEO, 2026-09-27): a guest is never held for hand-driven '
+         'steps, thinking or debugging. Put the steps in a script that takes the VM name as its first '
+         'argument (ax.sh, shot.sh, guest.sh against "$1") and pass that script here as the command: the '
+         'guest exists for exactly that run, and the slot is free again the moment it ends.'}
 
 
 def main():
@@ -38,24 +48,23 @@ def main():
     p.add_argument('--state-dir',type=Path,default=Path.home()/'.richos-nightly',
                    help='accepted so older command lines parse; a walk no longer takes release.lock (CEO ruling §77)')
     p.add_argument('--wait',type=float,default=0,metavar='SECONDS',
-                   help='retry CPU admission under the guest lock for at most SECONDS (default 0: refuse at once)')
+                   help='wait for a free guest slot and CPU/memory admission for at most SECONDS (default 0: refuse at once)')
     p.add_argument('command',nargs=argparse.REMAINDER)
     a=p.parse_args();command=a.command[1:] if a.command[:1]==['--'] else a.command
     if not command:p.error('a scenario command is required after --')
+    retired=RETIRED.get(Path(command[0]).name)
+    if retired:p.error(retired)
+    # Before a slot is taken and a guest is booted: a command that cannot start would
+    # spend a boot and a slot to find that out.
+    if shutil.which(command[0]) is None:p.error('the scenario command is not an executable file: '+command[0])
     vm='walk-'+uuid.uuid4().hex[:12]
     root=Path(os.environ.get('TESTVM_ROOT',str(Path.home()/'.richos-testvm')))
     state=root/'run'/vm
-    guest_lock=root/'guest.lock'
     def interrupted(signum,frame):raise KeyboardInterrupt('interrupted by signal '+str(signum))
     for sig in (signal.SIGTERM,signal.SIGHUP):signal.signal(sig,interrupted)
-    with reservation(lock=guest_lock,wait_seconds=a.wait):
-        listing=subprocess.run(['bash','-c','. "$1/lib.sh"; preflight_tart; tart list --format json','walk',str(HERE)],capture_output=True,text=True,timeout=20,check=True)
-        rows=json.loads(listing.stdout)
-        base=os.environ.get('TESTVM_BASE_VM','richos-base')
-        if any(r.get('Source')=='local' and r.get('Running') and r.get('Name')!=base for r in rows):
-            raise BlockingIOError('another clone is running; guest admission refused')
-        if state.exists() or any(r.get('Name')==vm for r in rows):raise RuntimeError('owned VM name already exists')
-        child=None;began=time.monotonic();result={'vm':vm,'load':os.getloadavg()[0],'outcome':'harness failure','reservation':str(guest_lock.resolve()),'resources':{k:os.environ.get(k,v) for k,v in [('TESTVM_CPU','4'),('TESTVM_RAM_MB','7168'),('TESTVM_DISPLAY','1680x1050')]}}
+    with guest_slot(root=root,wait_seconds=a.wait,purpose='run-walk '+vm+' '+Path(command[0]).name) as slot:
+        if state.exists():raise RuntimeError('owned VM name already exists')
+        child=None;began=time.monotonic();result={'vm':vm,'load':os.getloadavg()[0],'outcome':'harness failure','reservation':str(slot.resolve()),'resources':{'TESTVM_CPU':os.environ.get('TESTVM_CPU','4'),'TESTVM_RAM_MB':str(guest_ram_mb()),'TESTVM_DISPLAY':os.environ.get('TESTVM_DISPLAY','1680x1050')}}
         try:
             # Give each subprocess a group so interruption cannot strand the SSH
             # command. stop.sh subsequently reaps the captured VM process.
@@ -89,7 +98,11 @@ def main():
             for sig in (signal.SIGINT,signal.SIGTERM,signal.SIGHUP):signal.signal(sig,signal.SIG_IGN)
             try:
                 if state.exists():
-                    subprocess.run([str(HERE/'stop.sh'),vm],check=True,timeout=120)
+                    # restore_signals=False: stop.sh inherits this process's ignored SIGPIPE (and the
+                    # interruptions ignored above), so a caller that died and took this script's
+                    # stderr pipe with it cannot kill the cleanup halfway (2026-09-27: two clones
+                    # were left stopped but undeleted exactly that way).
+                    subprocess.run([str(HERE/'stop.sh'),vm],check=True,timeout=120,restore_signals=False)
                     if state.exists():raise RuntimeError('VM state remains after cleanup: '+str(state))
                 result['cleanup_complete']=True
             except Exception as exc:

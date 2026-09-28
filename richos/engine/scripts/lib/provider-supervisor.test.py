@@ -43,8 +43,10 @@ class Supervisor(unittest.TestCase):
                 unrelated.kill();unrelated.wait()
 
 PROVIDER_WITH_TOOL_SHELL = r'''
-import json, os, subprocess, sys, time
+import json, os, signal, subprocess, sys, time
 receipt, beat = sys.argv[1], sys.argv[2]
+if len(sys.argv) > 3 and sys.argv[3] == "slow-to-stop":
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)   # a provider that takes its time over SIGTERM
 # A tool shell the way Claude Code starts one: its own session and process group,
 # no controlling terminal. It starts a background heartbeat and a grandchild.
 shell = subprocess.Popen(["/bin/sh", "-c",
@@ -58,6 +60,13 @@ if len(sys.argv) > 3 and sys.argv[3] == "exit-soon":
     os._exit(0)
 time.sleep(300)
 '''
+
+
+def without_operator_names():
+    """This process's environment minus the operator's three supervisor names, so a product
+    case proves its parameters came from the command line."""
+    return {k: v for k, v in os.environ.items()
+            if k not in ("OPERATOR_REAP_GRACE", "RICHOS_OPERATOR_REAP_STATE", "RICHOS_OPERATOR_REAP_LOG")}
 
 
 def beating(path, window=0.7):
@@ -76,7 +85,7 @@ def group_members(pgid):
 class ReapDescendants(unittest.TestCase):
     """Spec r3 (q) item 2 (F5), Frank G8 and G9; the P15 shape, in-process."""
 
-    def run_case(self, trigger, reap=True, provider_arg=None):
+    def run_case(self, trigger, reap=True, provider_arg=None, product=False):
         with tempfile.TemporaryDirectory(prefix="supervisor reap ") as root:
             root = Path(root)
             receipt, beat, state = root/"pids.json", root/"beat", root/"state.json"
@@ -85,10 +94,18 @@ class ReapDescendants(unittest.TestCase):
             launcher.write_text("import subprocess,sys,time\np=subprocess.Popen(sys.argv[2:],start_new_session=True)\n"
                                 "open(sys.argv[1],'w').write(str(p.pid))\ntime.sleep(120)\n")
             unrelated = subprocess.Popen(["/bin/sleep", "120"])
-            args = [sys.executable, str(SUPERVISOR)] + (["--reap-descendants"] if reap else []) + \
+            if product:
+                # THE PRODUCT'S SHAPE (design C3, C7): every parameter on the supervisor's own
+                # command line, and none of the operator's environment names set at all.
+                options = ["--reap-descendants", "--reap-grace=0", "--reap-state=%s" % state,
+                           "--reap-log=%s" % (root/"reap.log")]
+                env = without_operator_names()
+            else:
+                options = ["--reap-descendants"] if reap else []
+                env = dict(os.environ, OPERATOR_REAP_GRACE="1", RICHOS_OPERATOR_REAP_STATE=str(state),
+                           RICHOS_OPERATOR_REAP_LOG=str(root/"reap.log"))
+            args = [sys.executable, str(SUPERVISOR)] + options + \
                    [sys.executable, str(fake), str(receipt), str(beat)] + ([provider_arg] if provider_arg else [])
-            env = dict(os.environ, OPERATOR_REAP_GRACE="1", RICHOS_OPERATOR_REAP_STATE=str(state),
-                       RICHOS_OPERATOR_REAP_LOG=str(root/"reap.log"))
             desktop = subprocess.Popen([sys.executable, str(launcher), str(root/"sup.pid")] + args, env=env)
             shell_group = None
             try:
@@ -97,6 +114,7 @@ class ReapDescendants(unittest.TestCase):
                         break
                     time.sleep(0.05)
                 pids = json.loads(receipt.read_text()); sup = int((root/"sup.pid").read_text())
+                pids["desktop"] = desktop.pid
                 shell_group = pids["shell"]
                 time.sleep(1.4)                      # at least one in-process snapshot
                 self.assertTrue(beating(beat), "fixture: the heartbeat never started")
@@ -109,11 +127,24 @@ class ReapDescendants(unittest.TestCase):
                     os.kill(pids["provider"], signal.SIGKILL)     # G9: the provider crashes
                 elif trigger == "provider-exits":
                     pass                                          # it exits by itself (exit-soon)
+                elif trigger == "group-kill":
+                    os.killpg(sup, signal.SIGKILL)                # today's host fence (owned_process.rs)
                 t0 = time.time()
+                # Measured on the processes themselves, not through the heartbeat's staleness
+                # window: the moment the provider, the tool shell and every member of its
+                # group are gone.
+                dead_after = None
+                while time.time() - t0 < 4:
+                    if not alive(pids["provider"]) and not group_members(shell_group):
+                        dead_after = time.time() - t0
+                        break
+                    time.sleep(0.02)
                 while time.time() - t0 < 4 and beating(beat):
                     time.sleep(0.1)
                 stopped_after = time.time() - t0
-                return {"pids": pids, "beating": beating(beat), "stopped_after": stopped_after,
+                final = json.loads(state.read_text()) if state.exists() else {}
+                return {"pids": pids, "beating": beating(beat), "stopped_after": stopped_after, "dead_after": dead_after,
+                        "final": final,
                         "left": group_members(shell_group), "snapshot": snapshot,
                         "unrelated_alive": unrelated.poll() is None,
                         "log": (root/"reap.log").read_text() if (root/"reap.log").exists() else ""}
@@ -167,14 +198,98 @@ class ReapDescendants(unittest.TestCase):
         self.assertEqual(rec.live_groups(recycled), set(), "a recycled group leader with no live recorded member")
         rec.snapshot(recycled)
         self.assertNotIn(300, rec.procs, "a process in a recycled group was adopted")
-        still = {100: (1, 100, 4000), 201: (1, 200, 5001)}                             # a real member lives on
+        # A real member lives on. A fresh record, because a pid absent from one table is dead
+        # and the record is right to forget it (design C4): it can never come back with the
+        # same start, which is what reusing the first record here used to pretend.
+        rec = mod.Record(provider=100, own_group=100)
+        rec.procs = {200: (5000, 200), 201: (5001, 200)}; rec.groups = {200: 5000}
+        still = {100: (1, 100, 4000), 201: (1, 200, 5001)}
         self.assertEqual(rec.live_groups(still), {200})
 
-    def test_R8_N1_the_product_invocation_is_unchanged(self):
+    def test_R8_the_flagless_main_is_the_compatibility_path(self):
+        # N1, split (design 1.5): the product now runs WITH the reap (R10, R11). The flagless
+        # `main()` stays exactly what it was, at the lines other files cite, for any caller
+        # that names no option.
         source = SUPERVISOR.read_text().splitlines()
         self.assertTrue(any(l.startswith("def main():") for l in source[:20]))
         main_body = "\n".join(source[source.index("def main():"):source.index("def main():") + 26])
-        self.assertNotIn("reap", main_body, "the product main() must not know about reaping")
+        self.assertNotIn("reap", main_body, "the compatibility main() must not know about reaping")
+        self.assertFalse("main() above is the product path" in "\n".join(source),
+                         "a comment still says the flagless main() is what the product runs")
+
+    def test_R9_control_the_flag_alone_does_not_survive_the_host_s_group_sigkill(self):
+        # Design C1: the host's fence SIGKILLs the supervisor's whole group, which no Python
+        # can catch, so the reap never runs and the tool shell outlives its lead. This is why
+        # the host sends SIGTERM first (owned_process.rs, `OwnedChild::supervised`).
+        result = self.run_case("group-kill")
+        self.assertTrue(result["beating"] or result["left"],
+                        "control: a group SIGKILL should leave the tool shell running (C1)")
+
+    def test_R10_product_mode_grace_zero_ends_the_tree_within_one_second_of_sigterm(self):
+        # The provider ignores SIGTERM, as one winding down would: only a grace of zero, a
+        # SIGKILL to the provider first, ends the tree inside the host's bound (design C3).
+        result = self.run_case("sigterm", product=True, provider_arg="slow-to-stop")
+        self.assertIsNotNone(result["dead_after"], "the provider or the tool shell's group outlived the reap")
+        self.assertLessEqual(result["dead_after"], 1.0, "not within 1 s of SIGTERM: %.3f s" % result["dead_after"])
+        self.assertFalse(result["beating"], "the tool shell's heartbeat outlived the lead")
+        self.assertEqual(result["left"], [], "members of the tool shell's group survived")
+        self.assertTrue(result["unrelated_alive"], "an unrelated process was touched")
+        self.assertIn("killed group %d" % result["pids"]["shell"], result["log"], "the --reap-log file names no group")
+        self.assertIn(result["pids"]["shell"], result["snapshot"].get("outside_provider_group") or [],
+                      "the --reap-state file was not written")
+        self.assertIn(result["pids"]["shell"], result["snapshot"].get("outside_provider_groups") or [],
+                      "the --reap-state file does not name the command's group")
+        self.assertEqual(result["snapshot"].get("owner"), result["pids"]["desktop"], "the state file names no owner")
+        # After the reap the file says what is left, so a host still holding the lease does
+        # not read the last snapshot's commands as running.
+        self.assertTrue(result["final"].get("ended"), "no final state was written: %s" % result["final"])
+        self.assertEqual(result["final"].get("outside_provider_groups"), [], "the final state still lists commands")
+
+    def test_R11_the_provider_s_argv_and_environment_equal_the_flagless_path_s(self):
+        seen = {}
+        for mode in ("flagless", "product"):
+            with tempfile.TemporaryDirectory(prefix="supervisor argv ") as root:
+                root = Path(root)
+                out = root/"seen.json"
+                fake = root/"provider.py"
+                fake.write_text("import json,os,sys\nenv=dict(os.environ)\n"
+                                "assert env.pop('RICHOS_SESSION_PID')==str(os.getpid())\n"
+                                "open(sys.argv[1],'w').write(json.dumps({'argv':sys.argv[2:],'env':env}))\n")
+                launcher = root/"desktop.py"
+                launcher.write_text("import subprocess,sys\nsubprocess.Popen(sys.argv[1:],start_new_session=True).wait()\n")
+                options = [] if mode == "flagless" else [
+                    "--reap-descendants", "--reap-grace=0", "--reap-state=%s" % (root/"state.json"),
+                    "--reap-log=%s" % (root/"reap.log")]
+                provider = [sys.executable, str(fake), str(out), "--a-flag", "value with spaces"]
+                subprocess.run([sys.executable, str(launcher), sys.executable, str(SUPERVISOR)] + options + provider,
+                               env=without_operator_names(), timeout=20)
+                self.assertTrue(out.exists(), "%s: the provider never started" % mode)
+                seen[mode] = json.loads(out.read_text())
+        self.assertEqual(seen["flagless"]["argv"], ["--a-flag", "value with spaces"], "fixture")
+        self.assertEqual(seen["product"]["argv"], seen["flagless"]["argv"], "the provider's argv changed")
+        self.assertEqual(seen["product"]["env"], seen["flagless"]["env"], "the provider's environment changed")
+
+    def test_R12_a_long_lived_lease_s_record_holds_only_live_entries(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("provider_supervisor", str(SUPERVISOR))
+        mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+        rec = mod.Record(provider=100, own_group=100)
+        idle = {100: (1, 100, 1000), 101: (100, 100, 1001)}          # the provider and a same-group server
+        largest = 0
+        for n in range(200):
+            shell, child = 10_000 + 2 * n, 10_001 + 2 * n
+            running = dict(idle)
+            running[shell] = (100, shell, 50_000 + n)                 # a tool shell: its own group
+            running[child] = (shell, shell, 60_000 + n)               # and its command
+            rec.snapshot(running)
+            self.assertIn(shell, rec.groups, "fixture: the running command's group was never recorded")
+            rec.snapshot(dict(idle))                                  # the command has ended
+            largest = max(largest, len(rec.procs) + len(rec.groups))
+        # One snapshot's work is proportional to what the record holds: bounded by what is
+        # ALIVE, not by every command the lease has ever run.
+        self.assertEqual(sorted(rec.procs), [100, 101], "the record kept ended commands: %d entries" % len(rec.procs))
+        self.assertEqual(rec.groups, {}, "the record kept ended groups: %d" % len(rec.groups))
+        self.assertLessEqual(largest, 2, "one snapshot's work grew with the number of commands ever run")
 
 
 class _Named(unittest.TextTestResult):

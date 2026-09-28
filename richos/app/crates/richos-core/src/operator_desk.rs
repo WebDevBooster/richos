@@ -38,17 +38,20 @@
 use crate::assignment::{self, Assignment, AssignmentState, NoticeKind};
 use crate::ledger::Source;
 use crate::operator_declaration::{Declaration, Gate};
-use crate::operator_host::{ConversationKey, ConversationRead, Lane, LeadLauncher, OperatorDelivery, OperatorEngine,
-                           OperatorHost, Origin, Relayed, Say, SayQuestions, Settle, StopResult, TeamReading, LEAD_IDLE};
+use crate::operator_host::{AnswerOutcome, ConversationKey, ConversationRead, Lane, LeadLauncher, OperatorDelivery,
+                           OperatorEngine, OperatorHost, Origin, Relayed, Say, SayQuestions, Settle, StopResult,
+                           TeamReading, LEAD_IDLE};
 use crate::operator_lead::Quit;
 use crate::operator_runtime::{DurableDelivery, NoticePush, OperatorNotice};
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 /// What an assignment's record says once his team has it.
 pub const HANDED_OVER: &str = "Your team has it.";
+/// How the title line of a relayed assignment begins (F1): the front desk's label, not his words.
+pub const TITLE_LABEL: &str = "Title (the front desk's label for the job, not his words):";
 /// (s) rule 4 as it applies to an assignment: its turn's mouth was never recorded.
 pub const NO_ORIGIN_WORK: &str =
     "I can't tell where this was asked from, so I didn't hand it to your team. Ask me again at your desk.";
@@ -142,6 +145,10 @@ pub struct OperatorDesk {
     release: Box<dyn Fn() + Send + Sync>,
     inbox: Arc<Inbox>,
     quit: Mutex<bool>,
+    /// One answer flush at a time (C9): the question worker and the idle timer both flush.
+    flushing: Mutex<()>,
+    /// Answers he was already told have not reached his team yet, this launch (C2).
+    told_not_yet: Mutex<HashSet<String>>,
 }
 
 impl Drop for OperatorDesk {
@@ -165,7 +172,8 @@ impl OperatorDesk {
                                      wake: Condvar::new() });
         let desk = Arc::new(OperatorDesk {
             declaration, state_root, host, delivery, settle: parts.settle, origins: parts.origins, gate: parts.gate,
-            release: parts.release, inbox: inbox.clone(), quit: Mutex::new(false),
+            release: parts.release, inbox: inbox.clone(), quit: Mutex::new(false), flushing: Mutex::new(()),
+            told_not_yet: Mutex::new(HashSet::new()),
         });
         let weak = Arc::downgrade(&desk);
         let spawned = std::thread::Builder::new()
@@ -275,7 +283,10 @@ impl OperatorDesk {
         };
         let origin = Origin::of_turn(facts.source, facts.channel.as_deref());
         let title = self.origins.title(&record.thread_id).unwrap_or_default();
-        let text = format!("{}\n\nHis words, exactly as he said them:\n{}", record.title, facts.text);
+        // F1 of Frank's review: the title is the front desk's label, and the line says so
+        // itself, so a lead never takes it for his words (W2 r5a: a title was read as the
+        // instruction). His words come last, so everything after their marker is his, verbatim.
+        let text = format!("{TITLE_LABEL} {}\n\nHis words, exactly as he said them:\n{}", record.title, facts.text);
         match self.host.relay(&key, &title, Some(&record.id), &text, origin) {
             Ok(Relayed::Sent { .. }) => {
                 if let Err(e) = assignment::advance(&self.state_root, &record.entity_id, &record.thread_id, &record.id,
@@ -325,6 +336,9 @@ impl OperatorDesk {
                 self.host.log(&format!("{id} was stopped; its record could not say so ({e})"));
             }
         }
+        if results.iter().all(|r| matches!(r, StopResult::Stopped { .. })) {
+            crate::questions::Store::new(&self.state_root).close(entity, thread, Some(&format!("operator:handle:{id}")), "Your team stopped this work", false)?;
+        }
         Ok(())
     }
 
@@ -346,16 +360,152 @@ impl OperatorDesk {
 
     /// **The §88 seam, through the desk** (r4 §3): PRD S6's question store calls this with the
     /// resolved answer to a question his team asked, from any channel; `delivery_id` is S6's
-    /// durable identity, and the same one twice relays once (the host's rule).
+    /// durable identity, and the lead has it once (the host's rule, [`OperatorHost::deliver_answer`]).
     pub fn deliver_answer(&self, key: &ConversationKey, handle: Option<&str>, delivery_id: &str, answer: &str)
-                          -> Result<bool, String> {
+                          -> Result<AnswerOutcome, String> {
         let title = self.origins.title(&key.thread_id).unwrap_or_default();
         self.host.deliver_answer(key, &title, handle, delivery_id, answer)
     }
 
+    /// Accept a question set into the existing durable receiving inbox. The UI store
+    /// calls only this bounded disk operation; starting/resuming the lead happens later.
+    pub fn queue_question_answer(&self, delivery: &crate::questions::Delivery) -> Result<String, String> {
+        self.question_target(delivery)?;
+        crate::question_work::enqueue(&self.state_root, delivery)?;
+        Ok(format!("operator-question:{}", delivery.id))
+    }
+
+    fn question_target(&self, delivery: &crate::questions::Delivery) -> Result<Option<String>, String> {
+        if delivery.asker == "operator:conversation" { return Ok(None); }
+        let handle = delivery.asker.strip_prefix("operator:handle:").ok_or("Unknown operator question target")?;
+        let record = assignment::read(&self.state_root, &delivery.entity_id, &delivery.thread_id, handle)
+            .map_err(|e| e.to_string())?;
+        if !record.state.is_open() { return Err("The asking assignment has stopped".into()); }
+        Ok(Some(handle.to_string()))
+    }
+
+    /// **Deliver every saved answer his team has not taken yet** (richos-hq
+    /// `docs/plans/2026-09-27-answer-delivery-crash-dedup-design.md` §2.2). Runs outside the
+    /// question store lock, one at a time (C9). Its callers are the retry driver: the question
+    /// worker at launch and on every store change, and the idle timer every minute while an
+    /// answer waits (W5, and C2's transient failures).
+    ///
+    /// **An answer leaves the inbox only once his team has it** ([`AnswerOutcome::Taken`], the
+    /// CLI's own echo). It was let go before the send, so a crash in between lost it silently
+    /// (W1b), and so did any failed delivery, while he had been told "Your answer is saved"
+    /// (C2). Now a failure leaves it saved and retried; he hears once per answer per launch
+    /// that it has not reached his team yet; and one failure never holds back the rest (C12).
+    ///
+    /// **Scope: his team (the lead) only.** The product path's own inbox (`work_host.rs`,
+    /// `question_work::take`) still lets an input go before the work starts, and needs its own
+    /// pass (the design's C8): two of its readers treat a pending input as unconsumed.
+    ///
+    /// **Then every turn that took an answer and died with the app is continued** (crash
+    /// matrix cell W3, [`OperatorHost::continue_interrupted_answers`]), whatever the inbox
+    /// held, so the launch's flush carries his team on with no words from him.
+    pub fn flush_question_answers(&self) -> Result<(), String> {
+        let _one_at_a_time = self.flushing.lock().unwrap();
+        let flushed = self.flush_inbox();
+        self.host.continue_interrupted_answers(&|thread| self.origins.title(thread).unwrap_or_default());
+        flushed
+    }
+
+    /// The continuation step alone, one at a time with the flush (C9).
+    fn continue_interrupted_turns(&self) {
+        let _one_at_a_time = self.flushing.lock().unwrap();
+        self.host.continue_interrupted_answers(&|thread| self.origins.title(thread).unwrap_or_default());
+    }
+
+    fn flush_inbox(&self) -> Result<(), String> {
+        let mut first_error = None;
+        for delivery in crate::question_work::pending(&self.state_root)? {
+            if !delivery.asker.starts_with("operator:") { continue; }
+            let key = ConversationKey { entity_id: delivery.entity_id.clone(), thread_id: delivery.thread_id.clone() };
+            let handle = match self.question_target(&delivery) {
+                Ok(handle) => handle,
+                Err(reason) => {
+                    let closed = crate::questions::Store::new(&self.state_root)
+                        .close(&key.entity_id, &key.thread_id, Some(&delivery.asker), &reason, false)
+                        .and_then(|_| crate::question_work::acknowledge(&self.state_root, &delivery.id));
+                    if let Err(error) = closed {
+                        first_error.get_or_insert(error);
+                    }
+                    continue;
+                }
+            };
+            crate::operator_host::crash_point("W1b"); // in the inbox, nothing sent
+            match self.deliver_answer(&key, handle.as_deref(), &delivery.id, &delivery.text) {
+                Ok(AnswerOutcome::Taken) => {
+                    if let Err(error) = crate::question_work::acknowledge(&self.state_root, &delivery.id) {
+                        first_error.get_or_insert(error);
+                    }
+                }
+                Ok(AnswerOutcome::InFlight) => {}
+                Err(error) => {
+                    self.host.log(&format!("answer {} not delivered yet, kept for the next try: {error}", delivery.id));
+                    if self.told_not_yet.lock().unwrap().insert(delivery.id.clone()) {
+                        // The bound on restarts waits for his words, and says so itself.
+                        let then = if error == crate::operator_host::RETRIES_SPENT { "" } else { " I'll keep trying." };
+                        self.delivery.say(&key, &Lane::Conversation, Say::Team, &format!(
+                            "Your answer is saved, but your team couldn't receive it yet: {error}{then}"));
+                    }
+                    first_error.get_or_insert(error);
+                }
+            }
+        }
+        first_error.map_or(Ok(()), Err)
+    }
+
+    /// Is an answer to his team waiting in the inbox? The idle timer flushes only then.
+    fn answers_waiting(&self) -> bool {
+        crate::question_work::pending(&self.state_root)
+            .is_ok_and(|all| all.iter().any(|d| d.asker.starts_with("operator:")))
+    }
+
     /// (o): this conversation's read, or every conversation's.
     pub fn read(&self, key: &ConversationKey, every: bool) -> Vec<ConversationRead> {
-        self.host.read(key, every)
+        let mut readings = self.host.read(key, every);
+        // Prepared questions live in the durable store, not the legacy report outbox.
+        // Read it after the host snapshot releases its conversation locks. A restart may
+        // have no live lead or host conversation yet; its saved questions still belong here.
+        let add = |rows: &mut Vec<ConversationRead>, key: &ConversationKey, text: String| {
+            let index = rows.iter().position(|row| &row.key == key).unwrap_or_else(|| {
+                rows.push(ConversationRead { key: key.clone(), lead_running: false,
+                    agents: vec![], texts: vec![], open_questions: vec![], leases: vec![] });
+                rows.len() - 1
+            });
+            rows[index].open_questions.push(text);
+        };
+        let questions = match crate::questions::Store::new(&self.state_root).all() {
+            Ok(questions) => questions,
+            Err(error) => {
+                self.host.log(&format!("saved question status could not be read: {error}"));
+                add(&mut readings, key, "I couldn't read your team's saved questions.".into());
+                return readings;
+            }
+        };
+        // C10: the store marks a question delivered when the inbox accepts its answer, and the
+        // inbox now keeps the answer until his team has it. So "delivered, still in the inbox"
+        // is "saved, not yet with your team", and only then does it leave his read.
+        let not_yet_taken: HashSet<String> = crate::question_work::pending(&self.state_root)
+            .map(|all| all.into_iter().filter(|d| d.asker.starts_with("operator:")).map(|d| d.id).collect())
+            .unwrap_or_default();
+        for question in questions {
+            let target = ConversationKey { entity_id: question.entity_id, thread_id: question.thread_id };
+            let waiting = question.delivered && not_yet_taken.contains(&format!("question-set:{}", question.set_id));
+            if (!every && &target != key) || !question.asker.starts_with("operator:")
+                || (question.delivered && !waiting) || question.state == crate::questions::State::Withdrawn { continue; }
+            let prefix = question.asker.strip_prefix("operator:handle:")
+                .map_or(String::new(), |handle| format!("on {handle}: "));
+            let status = if waiting {
+                "answer saved, not yet with your team"
+            } else if question.state == crate::questions::State::Answered {
+                if question.remaining > 0 { "answer saved, waiting for the complete set" }
+                else { "answer saved, awaiting delivery" }
+            } else { "asked, no answer relayed yet" };
+            add(&mut readings, &target, format!("{prefix}{} ({status})", question.text));
+        }
+        readings
     }
 
     /// (m): what his team is doing, by his engine's resolver, for the update gate.
@@ -403,6 +553,17 @@ impl OperatorDesk {
             let retired = desk.retire_idle_now(idle_after);
             if !retired.is_empty() {
                 desk.host.log(&format!("idle timer retired {} lead(s)", retired.len()));
+            }
+            // The retry driver's third caller (design §2.2): an answer his team has not taken
+            // (its lead crashed, W5, or a delivery failed, C2) is tried again. Free when none waits.
+            if desk.answers_waiting() {
+                if let Err(error) = desk.flush_question_answers() {
+                    desk.host.log(&format!("idle timer: an answer is still waiting ({error})"));
+                }
+            } else {
+                // A continuation whose lead could not start yet is tried again, within the
+                // retry bound; with none owed this looks at the open conversations only.
+                desk.continue_interrupted_turns();
             }
         });
         if let Err(e) = spawned {
@@ -663,8 +824,9 @@ mod tests {
         let sent = sent(&d);
         assert_eq!(sent.len(), 1, "one relay: {sent:?}");
         assert!(sent[0].contains(&format!("Assignment handle: {}.", a.id)), "{}", sent[0]);
-        assert!(sent[0].contains("Land the pricing fix"), "{}", sent[0]);
-        assert!(sent[0].contains("His words, exactly as he said them:\nland the pricing fix on main"), "{}", sent[0]);
+        // F1: the title says it is the front desk's label, and his words are last, whole.
+        assert!(sent[0].ends_with("\n\nTitle (the front desk's label for the job, not his words): Land the pricing fix\
+                                   \n\nHis words, exactly as he said them:\nland the pricing fix on main"), "{}", sent[0]);
         assert_eq!(state_of(&d, &a), (AssignmentState::Running, HANDED_OVER.into()));
         let (key, _, _) = d.launcher.leads.lock().unwrap()[0].clone();
         assert_eq!(key.thread_id, "t-1");
@@ -852,6 +1014,61 @@ mod tests {
         assert_eq!(detail, HANDED_OVER);
     }
 
+    #[test]
+    fn phone_question_set_uses_the_durable_operator_inbox_without_a_desktop_hold() {
+        use crate::questions::{AskScope, AnswerRequest, Store};
+        let d = desk();
+        let a = assignment(&d, "t-1", "prepare release", Source::Text, Some("desk"));
+        d.desk.take(a.clone());
+        assert!(d.desk.wait_quiet(Duration::from_secs(10)));
+        let store = Store::new(&d.state);
+        let scope = AskScope { root: d.state.clone(), entity_id: a.entity_id.clone(), thread_id: a.thread_id.clone(),
+            turn_id: "lead-turn".into(), asker: format!("operator:handle:{}", a.id), session_id: "original-lead".into(), engine: None, entity_root: None };
+        let inputs = serde_json::from_value(serde_json::json!([{"text":"When should the release ship?", "options":[
+            {"label":"Ship today","description":"Earlier fixes"},{"label":"Ship tomorrow","description":"More testing"}]}])).unwrap();
+        let q = store.ask(&scope, inputs).unwrap().remove(0);
+        assert!(d.desk.read(&key_of(&a), false)[0].open_questions[0].contains(&q.text));
+        let other = ConversationKey { entity_id: a.entity_id.clone(), thread_id: "other".into() };
+        assert!(d.desk.read(&other, false).is_empty(), "a question stays in its conversation");
+        let declared = d.desk.declaration.clone();
+        let gate = declared.clone();
+        let restarted = OperatorDesk::new(declared, &d.root, DeskParts {
+            launcher: d.launcher.clone(), release: Box::new(|| {}), engine: d.engine.clone(),
+            settle: d.settle.clone(), push: None, origins: d.origins.clone(),
+            gate: Box::new(move || Gate::Operator(Box::new(gate.clone()))),
+        });
+        let recovered = restarted.read(&key_of(&a), false);
+        assert_eq!(recovered.len(), 1, "the store is visible without a cached host conversation");
+        assert!(!recovered[0].lead_running, "reading never starts a lead");
+        assert!(recovered[0].open_questions[0].contains(&q.text));
+        assert_eq!(restarted.read(&other, true).len(), 1, "every includes restored questions");
+        store.answer(&a.entity_id, &a.thread_id, AnswerRequest { question_id:q.id.clone(), client_id:"phone-tap".into(),
+            option_ids:vec![q.options[1].id.clone()], text:String::new(), expected_revision:None }, "phone_tap", "phone").unwrap();
+        assert!(d.desk.read(&key_of(&a), false)[0].open_questions[0].contains("awaiting delivery"));
+        store.deliver(&a.entity_id, &a.thread_id, &scope.asker, |input| d.desk.queue_question_answer(input)).unwrap();
+        let saved = crate::question_work::pending(&d.state).unwrap();
+        assert_eq!(saved.len(), 1);
+        assert_eq!(sent(&d).len(), 1, "saving an answer never waits on or invokes the lead");
+        // Reconcile the saved identity twice, including a fresh store reader.
+        Store::new(&d.state).deliver(&a.entity_id, &a.thread_id, &scope.asker, |input| d.desk.queue_question_answer(input)).unwrap();
+        d.desk.flush_question_answers().unwrap();
+        d.desk.flush_question_answers().unwrap();
+        assert_eq!(sent(&d).len(), 2);
+        assert!(sent(&d)[1].contains("Ship tomorrow"));
+        assert!(sent(&d)[1].contains("phone_tap"));
+        // Written to the lead is not his team having it (C1): the inbox keeps it, and his read
+        // says so (C10), until the CLI echoes it.
+        assert_eq!(crate::question_work::pending(&d.state).unwrap().len(), 1, "kept until taken");
+        assert!(d.desk.read(&key_of(&a), false)[0].open_questions[0].contains("answer saved, not yet with your team"));
+        d.desk.host.handle(&key_of(&a), crate::operator_lead::LeadEvent::Took(last_uuid(&d)));
+        assert!(crate::question_work::pending(&d.state).unwrap().is_empty());
+        assert!(d.desk.read(&key_of(&a), false)[0].open_questions.is_empty());
+        assert!(restarted.read(&key_of(&a), false).is_empty(), "delivered questions leave the read");
+        restarted.quit();
+        assignment::advance(&d.state, &a.entity_id, &a.thread_id, &a.id, AssignmentState::Settled, "Done").unwrap();
+        assert!(d.desk.queue_question_answer(&saved[0]).is_err(), "a closed handle cannot be reopened by an answer");
+    }
+
     /// The §88 seam reaches the lead through the desk, once per delivery identity.
     #[test]
     fn an_answer_reaches_the_lead_through_the_desk_once_per_delivery() {
@@ -859,11 +1076,156 @@ mod tests {
         let a = assignment(&d, "t-1", "ask me something", Source::Text, Some("desk"));
         d.desk.take(a.clone());
         assert!(d.desk.wait_quiet(Duration::from_secs(10)));
-        assert_eq!(d.desk.deliver_answer(&key_of(&a), Some(&a.id), "delivery-1", "Green."), Ok(true));
-        assert_eq!(d.desk.deliver_answer(&key_of(&a), Some(&a.id), "delivery-1", "Green."), Ok(false), "once");
+        assert_eq!(d.desk.deliver_answer(&key_of(&a), Some(&a.id), "delivery-1", "Green."), Ok(AnswerOutcome::InFlight));
+        assert_eq!(d.desk.deliver_answer(&key_of(&a), Some(&a.id), "delivery-1", "Green."), Ok(AnswerOutcome::InFlight),
+                   "awaited: not sent again");
         let sent = sent(&d);
         assert_eq!(sent.len(), 2, "the assignment, then the answer: {sent:?}");
         assert!(sent[1].contains(&format!("His answer to your question on {}:", a.id)), "{}", sent[1]);
+        d.desk.host.handle(&key_of(&a), crate::operator_lead::LeadEvent::Took(last_uuid(&d)));
+        assert_eq!(d.desk.deliver_answer(&key_of(&a), Some(&a.id), "delivery-1", "Green."), Ok(AnswerOutcome::Taken));
+        assert_eq!(self::sent(&d).len(), 2, "once");
+    }
+
+    // ---- crash-safe answer delivery (richos-hq docs/plans/2026-09-27-answer-delivery-crash-dedup-design.md) --
+
+    fn last_uuid(d: &Desk) -> String {
+        let leads = d.launcher.leads.lock().unwrap();
+        let lead = leads.iter().rev().find(|(_, _, l)| !l.uuids.lock().unwrap().is_empty()).unwrap().2.clone();
+        let last = lead.uuids.lock().unwrap().last().unwrap().clone();
+        last
+    }
+
+    /// An operator answer saved in the inbox the way the question store saves it.
+    fn saved_answer(d: &Desk, a: &Assignment, set: &str, text: &str) -> crate::questions::Delivery {
+        let delivery = crate::questions::Delivery {
+            id: format!("question-set:{set}"), entity_id: a.entity_id.clone(), thread_id: a.thread_id.clone(),
+            asker: format!("operator:handle:{}", a.id), set_id: Some(set.into()), text: text.into(), receipt: None };
+        d.desk.queue_question_answer(&delivery).unwrap();
+        delivery
+    }
+
+    /// The app after a crash: a new desk over the same folders, sharing the fake launcher.
+    fn relaunched(d: &Desk) -> Arc<OperatorDesk> {
+        let gate = d.desk.declaration.clone();
+        OperatorDesk::new(d.desk.declaration.clone(), &d.root, DeskParts {
+            launcher: d.launcher.clone(), release: Box::new(|| {}), engine: d.engine.clone(), settle: d.settle.clone(),
+            push: None, origins: d.origins.clone(), gate: Box::new(move || Gate::Operator(Box::new(gate.clone()))),
+        })
+    }
+
+    fn answers_sent(d: &Desk) -> Vec<(String, String)> {
+        d.launcher.leads.lock().unwrap().iter().flat_map(|(_, _, l)| {
+            let sent = l.sent.lock().unwrap().clone();
+            let uuids = l.uuids.lock().unwrap().clone();
+            sent.into_iter().zip(uuids).filter(|(s, _)| s.contains("His answer to your question")).collect::<Vec<_>>()
+        }).map(|(s, u)| (u, s)).collect()
+    }
+
+    /// The five windows in order, across three launches (design §2.1, §4.1 tests 1-4): the
+    /// inbox keeps the answer until his team has it; W1b, a crash before any send, delivers it
+    /// at the next launch; W2/W4, a crash after the send and before the echo, resends it under
+    /// its first uuid with the note; W3, a crash after `taken` and before the inbox let go,
+    /// sends nothing and lets go.
+    #[test]
+    fn an_answer_survives_every_crash_window_and_reaches_his_team_once() {
+        let d = desk();
+        let a = assignment(&d, "t-1", "ask me", Source::Text, Some("desk"));
+        d.desk.take(a.clone());
+        assert!(d.desk.wait_quiet(Duration::from_secs(10)));
+        // W1b: saved; the app dies before any flush.
+        saved_answer(&d, &a, "s-1", "Ship tomorrow.");
+        let second = relaunched(&d);
+        second.flush_question_answers().unwrap();
+        second.flush_question_answers().unwrap();
+        let sent = answers_sent(&d);
+        assert_eq!(sent.len(), 1, "delivered once at the next launch: {sent:?}");
+        assert!(!sent[0].1.contains(crate::operator_host::RESEND_NOTE));
+        assert_eq!(crate::question_work::pending(&d.state).unwrap().len(), 1, "test 1: not let go before taken");
+        // W2/W4: the app dies again before the echo.
+        let third = relaunched(&d);
+        third.flush_question_answers().unwrap();
+        let sent = answers_sent(&d);
+        assert_eq!(sent.len(), 2);
+        assert_eq!(sent[1].0, sent[0].0, "resent under the first uuid");
+        // The note goes directly before the answer (design §2.2), after the lines every relay
+        // carries (the resume's open handles, the assignment handle).
+        assert!(sent[1].1.contains(&format!("{}\n\nHis answer to your question on {}:\n\nShip tomorrow.",
+                                            crate::operator_host::RESEND_NOTE, a.id)), "{}", sent[1].1);
+        // Taken: the inbox lets go at the echo.
+        third.host.handle(&key_of(&a), crate::operator_lead::LeadEvent::Took(sent[1].0.clone()));
+        assert!(crate::question_work::pending(&d.state).unwrap().is_empty());
+        // W3: taken is saved, and the app died before the inbox let go.
+        let input = d.state.join("questions/work-inputs")
+            .join(format!("{:x}.json", <sha2::Sha256 as sha2::Digest>::digest(b"question-set:s-1")));
+        let mut value: serde_json::Value = serde_json::from_slice(&std::fs::read(&input).unwrap()).unwrap();
+        value["handed"] = serde_json::json!(false);
+        std::fs::write(&input, value.to_string()).unwrap();
+        let fourth = relaunched(&d);
+        fourth.flush_question_answers().unwrap();
+        fourth.flush_question_answers().unwrap();
+        assert_eq!(answers_sent(&d).len(), 2, "test 4: nothing sent for a taken answer");
+        assert!(crate::question_work::pending(&d.state).unwrap().is_empty(), "and the inbox let it go");
+        // The turn that took it died with the app, so the launch's flush continues it: once,
+        // naming the answer's uuid, with no words from him (crash matrix cell W3).
+        let continued: Vec<String> = self::sent(&d).into_iter()
+            .filter(|s| s.contains(crate::operator_host::CONTINUE_NOTE)).collect();
+        assert_eq!(continued.len(), 1, "{continued:?}");
+        assert!(continued[0].contains(&sent[1].0) && !continued[0].contains("Ship tomorrow."), "{}", continued[0]);
+        for desk in [second, third, fourth] {
+            desk.quit();
+        }
+    }
+
+    /// C2 and C12 (test 8): a failed delivery keeps the answer, says so once this launch, does
+    /// not hold back the next answer, and is retried on the next flush.
+    #[test]
+    fn a_failed_delivery_keeps_the_answer_says_so_once_and_is_retried() {
+        let d = desk();
+        let a = assignment(&d, "t-1", "ask me", Source::Text, Some("desk"));
+        d.desk.take(a.clone());
+        assert!(d.desk.wait_quiet(Duration::from_secs(10)));
+        let lead = d.launcher.leads.lock().unwrap()[0].2.clone();
+        *lead.fail_send.lock().unwrap() = true;
+        saved_answer(&d, &a, "s-1", "Ship tomorrow.");
+        assert!(d.desk.flush_question_answers().is_err());
+        assert!(d.desk.flush_question_answers().is_err());
+        let told: Vec<_> = d.desk.take_pending(&key_of(&a)).unwrap().into_iter()
+            .filter(|n| n.text.contains("couldn't receive it yet")).collect();
+        assert_eq!(told.len(), 1, "said once this launch: {told:?}");
+        assert!(told[0].text.starts_with("Your answer is saved") && told[0].text.ends_with("I'll keep trying."));
+        assert_eq!(crate::question_work::pending(&d.state).unwrap().len(), 1, "kept");
+        *lead.fail_send.lock().unwrap() = false;
+        d.desk.flush_question_answers().unwrap();
+        let sent = answers_sent(&d);
+        assert_eq!(sent.len(), 1);
+        assert!(!sent[0].1.contains(crate::operator_host::RESEND_NOTE), "no send happened before, so no note");
+    }
+
+    /// W5 (test 7): his team's lead crashes with the answer queued; the idle timer resends it
+    /// into the resumed session, once, under the same uuid.
+    #[test]
+    fn the_idle_timer_resends_an_answer_his_team_s_crash_lost() {
+        let d = desk();
+        let a = assignment(&d, "t-1", "ask me", Source::Text, Some("desk"));
+        d.desk.take(a.clone());
+        assert!(d.desk.wait_quiet(Duration::from_secs(10)));
+        saved_answer(&d, &a, "s-1", "Ship tomorrow.");
+        d.desk.flush_question_answers().unwrap();
+        let first = d.launcher.leads.lock().unwrap()[0].2.clone();
+        *first.exited.lock().unwrap() = true;
+        d.desk.host.handle(&key_of(&a), crate::operator_lead::LeadEvent::Ended);
+        d.desk.start_retirement(Duration::from_millis(20), LEAD_IDLE);
+        let began = Instant::now();
+        while answers_sent(&d).len() < 2 && began.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        std::thread::sleep(Duration::from_millis(200)); // several more timer ticks: no third send
+        let sent = answers_sent(&d);
+        assert_eq!(sent.len(), 2, "resent once by the timer: {sent:?}");
+        assert_eq!(sent[1].0, sent[0].0);
+        let (_, start, _) = d.launcher.leads.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(start, LeadStart::Resume(first.session.clone()));
     }
 
     // ---- rule 6 ------------------------------------------------------------------------------

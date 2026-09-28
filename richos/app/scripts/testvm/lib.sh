@@ -65,12 +65,22 @@ TESTVM_BASE_VM="${TESTVM_BASE_VM:-richos-base}"
 TESTVM_DISPLAY="${TESTVM_DISPLAY:-1680x1050}"
 
 # Per-VM resources. Host has 10 cores / 24 GB. TWO guests must run at once
-# (that is the point), so a guest gets 4 cores and 7 GB: 2x7=14 GB leaves 10 GB
-# for the host, its own apps and the CEO's work. macOS guests below ~6 GB swap
-# hard and boot slowly, so 7 GB is the floor that keeps boots honest, not a
-# luxury. tart's defaults (whatever the image baked) are not trusted.
+# (that is the point), so a guest gets 4 cores and 5 GB.
+#
+# 5 GB IS MEASURED, NOT GUESSED (2026-09-27, mem-walk.py inside the guest). The
+# old 7 GB rested on "below ~6 GB a macOS guest swaps and boots slowly", which
+# was never measured, and two 7 GB guests did not fit beside this Mac's usual
+# load: at 18:56Z two of them took it from 71% available to 32% and 120 MB/s
+# swap-out. A real walk (spelling-walk: first run, then a real model turn) at
+# 5120 MB peaked at 3218 MB Memory Used (app 102 MB, claude 698 MB in all),
+# with ZERO guest swap-outs and a 70 s boot (68 s at 7 GB). 5120 is that peak
+# plus 1.9 GB: room for a second claude worker (about 260 MB each, measured)
+# and the rest. At 7 GB the same guest used 3.4-4.1 GB only because macOS
+# spreads out when it has room. Two 5 GB guests need 58% of this Mac available
+# (slots.py's memory admission adds a 4 GB floor), which it usually is.
+# tart's defaults (whatever the image baked) are not trusted.
 TESTVM_CPU="${TESTVM_CPU:-4}"
-TESTVM_RAM_MB="${TESTVM_RAM_MB:-7168}"
+TESTVM_RAM_MB="${TESTVM_RAM_MB:-5120}"
 
 # The guest account the app runs as. It must be the console (auto-login) user:
 # a window only exists inside the GUI session, and screencapture over ssh can
@@ -502,6 +512,27 @@ claude_version_of() {  # <path-on-this-machine>
 
 # The line every run prints. Written in one place so the summary and the
 # refusal cannot disagree about what was measured.
+# TESTVM_APP_ENV: extra `KEY=VALUE` pairs, space-separated, for the app's FIRST launch, as the
+# `--env` arguments `open` takes — for a walk that must start the app with one of its own test
+# knobs (command-walk.py's late-approval step: RICHOS_PERMISSION_DEADLINE_MS, which can only
+# shorten the 300 s permission deadline). Pure, so it is tested without a virtual machine.
+#
+# Deliberately narrow: a KEY must be `RICHOS_` and capitals, a VALUE letters, digits and
+# `._-`, because the pairs go into a command line built for the guest's shell. The voice
+# fixture alone also accepts an absolute path with slash separators. Spaces and shell
+# metacharacters remain refused, including for that path.
+app_env_args() {  # <space-separated KEY=VALUE pairs>
+  local pair out=""
+  for pair in ${1:-}; do
+    if ! printf '%s' "$pair" | grep -Eq '^RICHOS_[A-Z_]+=[A-Za-z0-9._-]+$|^RICHOS_VOICE_INPUT_WAV=/[A-Za-z0-9._/-]+$'; then
+      printf 'TESTVM_APP_ENV entry refused (plain RICHOS_ value or absolute voice fixture path required): %s\n' "$pair" >&2
+      return 1
+    fi
+    out="$out --env $pair"
+  done
+  printf '%s\n' "${out# }"
+}
+
 claude_version_line() {  # <host-version> <guest-version>
   printf 'claude: host %s guest %s\n' "${1:-unknown}" "${2:-unknown}"
 }

@@ -37,6 +37,7 @@
 //! | `system/task_notification` `{task_id, status}` | the agent's last status (r4 §1.1) |
 //! | `system/task_updated` `{task_id, patch: {status}}` | `killed`, which arrives beside `stopped` (P12) |
 //! | `user` echoed with a uuid this client sent (`--replay-user-messages`) | which message started a turn (P13) |
+//! | `command_lifecycle` `{command_uuid, state}` `completed` with no `started` | a resent message the CLI dropped (P18) |
 //! | `result` `{result}` | the turn's end and its final text ((c)) |
 //! | `system/hook_response`, `system/informational` | his engine's alarms ([`crate::operator_frames`]) |
 use crate::operator_frames::{alarms_in, Alarm};
@@ -292,11 +293,39 @@ pub struct TurnEnd {
 pub struct TurnTracker {
     sent: HashSet<String>,
     taken: Vec<String>,
+    /// This client's messages the CLI said it `started` (`command_lifecycle`).
+    started: HashSet<String>,
 }
 
 impl TurnTracker {
     pub fn mark_sent(&mut self, uuid: &str) {
         self.sent.insert(uuid.to_string());
+    }
+
+    /// **A duplicate the CLI dropped** (design C5, measured by P18 on 2.1.283): its echo came,
+    /// then `command_lifecycle` `completed` for it with no `started` before, so no turn ran for
+    /// it. A message the CLI runs is `started` before its echo in every recorded run. Returns
+    /// the dropped uuid, and takes it out of the turn attribution. A CLI that sends no
+    /// lifecycle frames reports no drop, which is today's reading.
+    pub fn lifecycle(&mut self, frame: &Value) -> Option<String> {
+        if frame.get("type").and_then(Value::as_str) != Some("command_lifecycle") {
+            return None;
+        }
+        let uuid = frame.get("command_uuid").and_then(Value::as_str)?;
+        if !self.sent.contains(uuid) {
+            return None;
+        }
+        match frame.get("state").and_then(Value::as_str) {
+            Some("started") => {
+                self.started.insert(uuid.to_string());
+                None
+            }
+            Some("completed") if !self.started.contains(uuid) && self.taken.iter().any(|u| u == uuid) => {
+                self.taken.retain(|u| u != uuid);
+                Some(uuid.to_string())
+            }
+            _ => None,
+        }
     }
 
     /// **The moment the CLI takes one of this client's messages** (its `--replay-user-messages`
@@ -381,6 +410,10 @@ pub enum LeadEvent {
     /// The CLI took one of this client's messages into the running turn: its uuid, from the
     /// `--replay-user-messages` echo. Delivered before anything that turn starts.
     Took(String),
+    /// The CLI took this message and ran nothing for it: a resent uuid the session already
+    /// holds as answered (its echo, then `command_lifecycle` `completed` with no `started`;
+    /// P18). Follows its [`LeadEvent::Took`]; no turn follows it.
+    Dropped(String),
     /// A named agent started, or its status changed (r4 §1.1).
     Agent(AgentTask),
     /// A turn ended ((c)).
@@ -389,6 +422,10 @@ pub enum LeadEvent {
     Reported,
     /// A frame this client could not read. Reported; the lead is kept (r3 (q) item 1).
     Protocol(String),
+    /// A `can_use_tool` permission request arrived, for this tool, and the route answered it.
+    /// P14 measured none in bypass mode, so each one is a sign the CLI changed (F17 / Frank
+    /// Q3 (a)); the host logs it as a warning.
+    PermissionAsked(String),
     /// The lead's stdout ended: a positive signal, never an inference. [`OperatorLead::exited`]
     /// then confirms with `waitid`.
     Ended,
@@ -407,6 +444,13 @@ pub trait ControlRoute: Send + Sync {
     fn answer(&self, request: &Value) -> Result<Value, String>;
 }
 
+/// What a refused permission request tells the lead (F17 / Frank Q3 (a)). It never invites a
+/// question: his answer could not approve a call already refused, so asking would unlock
+/// nothing. It says what the lead can do instead.
+pub const PERMISSION_REFUSED: &str =
+    "Refused: nobody approves tool calls here, and no later answer can approve this one. Find another way to do it, \
+or report `failed` on the assignment's handle.";
+
 /// The route with nobody behind it: a permission question is denied with a sentence the lead
 /// can act on, and anything else is refused as not supported (native.rs answers the same way).
 pub struct NoPermissionDesk;
@@ -414,8 +458,7 @@ pub struct NoPermissionDesk;
 impl ControlRoute for NoPermissionDesk {
     fn answer(&self, request: &Value) -> Result<Value, String> {
         match request.get("subtype").and_then(Value::as_str) {
-            Some("can_use_tool") => Ok(json!({"behavior": "deny",
-                "message": "Nobody is at the Mac to approve this. Use richos_operator.report with kind question to ask him."})),
+            Some("can_use_tool") => Ok(json!({"behavior": "deny", "message": PERMISSION_REFUSED})),
             other => Err(format!("RichOS does not answer {} requests on this lead.", other.unwrap_or("unnamed"))),
         }
     }
@@ -570,13 +613,22 @@ impl OperatorLead {
 
     /// Relay one message. Returns its uuid. Never waits for the lead to be idle.
     pub fn send(&self, text: &str) -> Result<String, LeadError> {
+        let uuid = uuid::Uuid::new_v4().to_string();
+        self.send_with_uuid(&uuid, text)?;
+        Ok(uuid)
+    }
+
+    /// Relay one message under a uuid the caller chose. **An answer's retry reuses the uuid of
+    /// its first send, into the same session,** so a lead that already has the answer drops the
+    /// repeat and only echoes it (the provider's own check against the saved transcript;
+    /// richos-hq `docs/plans/2026-09-27-answer-delivery-crash-dedup-design.md` §1.2, C3, measured
+    /// by probe P18). A fresh uuid on every call made that check unusable.
+    pub fn send_with_uuid(&self, uuid: &str, text: &str) -> Result<(), LeadError> {
         if self.closed.load(Ordering::SeqCst) {
             return Err(LeadError::Closed);
         }
-        let uuid = uuid::Uuid::new_v4().to_string();
-        self.turns.lock().unwrap().mark_sent(&uuid);
-        write_frame(&self.stdin, &user_message(&uuid, text))?;
-        Ok(uuid)
+        self.turns.lock().unwrap().mark_sent(uuid);
+        write_frame(&self.stdin, &user_message(uuid, text))
     }
 
     /// Stop one task (r3 (d) item 2).
@@ -777,6 +829,10 @@ fn read_frames(stdout: std::process::ChildStdout, pending: Pending, book: Arc<Mu
                 if let Err(e) = write_frame(&writer, &reply) {
                     sink.event(LeadEvent::Protocol(format!("a control request could not be answered ({e})")));
                 }
+                if request.get("subtype").and_then(Value::as_str) == Some("can_use_tool") {
+                    let tool = request.get("tool_name").and_then(Value::as_str).unwrap_or("an unnamed tool");
+                    sink.event(LeadEvent::PermissionAsked(tool.to_string()));
+                }
                 continue;
             }
             _ => {}
@@ -791,6 +847,10 @@ fn read_frames(stdout: std::process::ChildStdout, pending: Pending, book: Arc<Mu
         let took = turns.lock().unwrap().taking(&frame);
         if let Some(uuid) = took {
             sink.event(LeadEvent::Took(uuid));
+        }
+        let dropped = turns.lock().unwrap().lifecycle(&frame);
+        if let Some(uuid) = dropped {
+            sink.event(LeadEvent::Dropped(uuid));
         }
         let changed = book.lock().unwrap().observe(&frame);
         for task in changed {
@@ -940,6 +1000,40 @@ mod tests {
         assert_eq!(turns.taking(&json!({"type":"assistant","uuid":"u-1"})), None);
     }
 
+    fn lifecycle(uuid: &str, state: &str) -> Value {
+        json!({"type":"command_lifecycle","command_uuid":uuid,"state":state,"uuid":"frame-x","session_id":"s"})
+    }
+
+    /// **C5, from P18's recorded frames** (richos-hq `docs/verification/2026-09-27-operator-probe-p18/`,
+    /// `P18-A-resumed.jsonl` t=3.146, `P18-C-resumed.jsonl` t=2.247-15.246): a message the CLI runs
+    /// goes queued, started, echo, completed; a duplicate it drops goes echo, then completed, with
+    /// no started. Only the second is a drop, and the dropped uuid is not the next turn's.
+    #[test]
+    fn a_duplicate_the_cli_drops_is_told_apart_from_a_message_it_runs() {
+        let mut turns = TurnTracker::default();
+        turns.mark_sent("dropped");
+        turns.mark_sent("ran");
+        // The drop: its echo, then completed, with no started.
+        let echo = json!({"type":"user","uuid":"dropped","isReplay":true,"message":{}});
+        assert_eq!(turns.lifecycle(&echo), None);
+        assert_eq!(turns.taking(&echo).as_deref(), Some("dropped"));
+        turns.observe(&echo);
+        assert_eq!(turns.lifecycle(&lifecycle("dropped", "completed")).as_deref(), Some("dropped"));
+        // The run: queued, started, echo, and its completed is no drop.
+        for frame in [lifecycle("ran", "queued"), lifecycle("ran", "started")] {
+            assert_eq!(turns.lifecycle(&frame), None);
+        }
+        let echo = json!({"type":"user","uuid":"ran","isReplay":true,"message":{}});
+        turns.observe(&echo);
+        assert_eq!(turns.lifecycle(&lifecycle("ran", "completed")), None);
+        let end = turns.observe(&json!({"type":"result","subtype":"success","result":"MARK-D"})).unwrap();
+        assert_eq!(end.started_by, ["ran"], "the dropped uuid is not attributed to the next turn");
+        // Not this client's, or a completed never echoed: never a drop.
+        assert_eq!(turns.lifecycle(&lifecycle("someone-else", "completed")), None);
+        turns.mark_sent("never-echoed");
+        assert_eq!(turns.lifecycle(&lifecycle("never-echoed", "completed")), None);
+    }
+
     #[test]
     fn the_report_tool_s_result_is_seen_as_it_arrives() {
         let mut watch = ReportWatch::default();
@@ -1048,6 +1142,33 @@ done
         assert!(matches!(lead.quit(Duration::from_secs(5)), Quit::Terminated { .. }));
     }
 
+    /// Design §2.2 and C3: a retry goes out under the uuid its first send used, and the CLI's
+    /// echo of that uuid is seen as the lead taking it.
+    #[test]
+    fn a_chosen_uuid_goes_on_the_wire_and_its_echo_is_a_taking() {
+        let f = fixture();
+        let sink = Collect::new();
+        let echo = r#"printf '%s\n' '{"type":"user","uuid":"answer-uuid-1","isReplay":true,"message":{}}'"#;
+        let lead = OperatorLead::spawn(fake(&f.root, ""), "s-10", sink.clone(), Arc::new(NoPermissionDesk)).unwrap();
+        lead.send_with_uuid("answer-uuid-1", "His answer.").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while written(&f.root).is_empty() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(written(&f.root)[0]["uuid"], "answer-uuid-1");
+        assert!(!has_key(&written(&f.root)[0], "priority"));
+        drop(lead);
+        // A lead whose stream echoes that uuid: the reader reports it as taken.
+        let g = fixture();
+        let sink2 = Collect::new();
+        let lead = OperatorLead::spawn(fake(&g.root, &format!("read -r first; {echo}")), "s-11", sink2.clone(),
+                                       Arc::new(NoPermissionDesk)).unwrap();
+        lead.send_with_uuid("answer-uuid-1", "His answer.").unwrap();
+        let took = sink2.wait_for(|e| matches!(e, LeadEvent::Took(u) if u == "answer-uuid-1"), Duration::from_secs(10));
+        assert!(took.is_some(), "{:?}", sink2.events.lock().unwrap());
+        let _ = sink;
+    }
+
     #[test]
     fn a_bad_frame_is_reported_and_the_lead_is_kept() {
         let f = fixture();
@@ -1113,7 +1234,8 @@ done
     fn a_permission_question_from_the_lead_is_answered_on_the_route() {
         let f = fixture();
         let ask = r#"printf '{"type":"control_request","request_id":"perm-1","request":{"subtype":"can_use_tool","tool_name":"Write","input":{}}}\n'"#;
-        let lead = OperatorLead::spawn(fake(&f.root, ask), "s-7", Collect::new(), Arc::new(NoPermissionDesk)).unwrap();
+        let sink = Collect::new();
+        let lead = OperatorLead::spawn(fake(&f.root, ask), "s-7", sink.clone(), Arc::new(NoPermissionDesk)).unwrap();
         lead.initialize(Duration::from_secs(10)).unwrap();
         let deadline = Instant::now() + Duration::from_secs(10);
         let mut answer = None;
@@ -1123,6 +1245,23 @@ done
         }
         let answer = answer.expect("the permission question was answered");
         assert_eq!(answer["response"]["response"]["behavior"], "deny");
+        // F17 / Frank Q3 (a): the host is told a permission request arrived, with the tool, so
+        // it can log it as the CLI having changed (P14 measured none in bypass mode).
+        let asked = sink.wait_for(|e| matches!(e, LeadEvent::PermissionAsked(_)), Duration::from_secs(10));
+        assert!(matches!(asked, Some(LeadEvent::PermissionAsked(ref tool)) if tool == "Write"), "{asked:?}");
+    }
+
+    /// **F17 / Frank Q3 (a).** The refusal never invites a question: his answer cannot approve a
+    /// call that was already refused. It says nobody approves tool calls here, and what the
+    /// lead can do instead.
+    #[test]
+    fn the_permission_refusal_says_nobody_approves_here_and_never_to_ask_him() {
+        let reply = NoPermissionDesk.answer(&json!({"subtype": "can_use_tool", "tool_name": "Write", "input": {}})).unwrap();
+        assert_eq!(reply["behavior"], "deny");
+        let message = reply["message"].as_str().unwrap();
+        assert_eq!(message, PERMISSION_REFUSED);
+        assert!(message.contains("nobody approves tool calls here") && message.contains("report `failed`"), "{message}");
+        assert!(!message.contains("ask him") && !message.contains("question"), "{message}");
     }
 
     #[test]

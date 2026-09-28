@@ -159,6 +159,38 @@ async function main() {
     return "blocked says the decision is his, claims nothing about his repository, and never speaks of finishing; the scan is proven able to fail";
   });
 
+  // esc-20260927T093052Z-85f3303f: a task the back end carried out itself, with no helper,
+  // closes on its report — the command's result, or "the Acme repository isn't connected".
+  // The host never witnessed that as work finishing, so the row must not say "Finished."
+  await run.check("a task the back end answered itself says it is in his conversation, never finished", async () => {
+    const page = await openPage(browser, "light");
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e)));
+    await page.evaluate(() =>
+      window.__renderAssignments({ rows: [
+        { id: "t1", title: "count the commits in Acme", kind: "task", state: "settled", detail: "Answered.",
+          answered: true, repositories: [], registeredAtMs: 1, canStop: false, onTheConnection: false },
+        { id: "t2", title: "the nightly build", kind: "task", state: "settled", detail: "It landed on cc/echo-1 in project.",
+          answered: false, repositories: [], registeredAtMs: 2, canStop: false, onTheConnection: false },
+      ] })
+    );
+    const rows = await page.locator("#slideover-body section").all();
+    assertEqual(rows.length, 2, "both assignments rendered");
+    const answered = (await rows[0].innerText()).toLowerCase();
+    assert(answered.includes("it's in your conversation"), "the answered task does not point at his conversation: " + answered);
+    for (const word of FORBIDDEN) {
+      assert(!answered.includes(word), `the answered task said "${word}": ${answered}`);
+    }
+    // The record's internal note never reaches him beside a sentence written for him.
+    assert(!answered.includes("answered."), "the record's internal detail was shown: " + answered);
+    // POSITIVE CONTROL: a task whose work finished still says so, with what it landed.
+    const finished = (await rows[1].innerText()).toLowerCase();
+    assert(finished.includes("finished.") && finished.includes("cc/echo-1"), "a finished task lost its sentence: " + finished);
+    assertEqual(errors.length, 0, "renderer errors");
+    await page.close();
+    return "an answered task reads as answered in his conversation; a finished task still reads as finished";
+  });
+
   await run.check("the stop control is per assignment, names it, and only where it can act", async () => {
     const page = await openPage(browser, "dark");
     await page.evaluate(() =>

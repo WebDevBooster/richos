@@ -50,6 +50,8 @@ public enum Action: Equatable, Sendable {
     /// Send the draft. `clientID` and `at` are stamped by the caller (`Action.sendDraftNow()` in the
     /// app, fixed values in a scenario), so the reducer stays pure and a trace replays exactly.
     case sendDraft(clientID: String, at: Int64)
+    case answerQuestion(id: String, options: [String], text: String, revision: Int?, clientID: String, at: Int64)
+    case questionAnswered(clientID: String, question: QuestionCard, at: Int64)
     /// The Mac accepted this message (200, including `duplicate: true`).
     case deliveryAccepted(clientID: String, at: Int64, textSHA256: String? = nil)
     case deliveryFailed(clientID: String, failure: DeliveryFailure, at: Int64)
@@ -99,6 +101,7 @@ public enum Action: Equatable, Sendable {
     case tunnelChanged(up: Bool)
     /// What the Mac says it accepts (capability negotiation, contract §12).
     case macCapabilities(text: Bool, voice: Bool)
+    case macQuestionCapability(Bool)
     /// The Mac answered 403 `{"revoked":true}`: this phone was removed (round-12 `conn-revoked`).
     case pairingRevoked
     /// What the Mac accepts for attachments (from `hello` or the pairing answer); `nil` = none.
@@ -302,7 +305,7 @@ public enum Reducer {
              .pairingRefused, .pairingUnreachable, .pairingNeedsMacUpdate, .confirmWords, .rejectWords, .macConfirmation,
              .acceptConsent, .dismissPairingProblem, .discardUnsentAndPair:
             PairingReducer.reduce(&next, action, &effects)
-        case .networkChanged, .connectionLost, .connected, .connectionDiagnosed, .tunnelChanged, .macCapabilities, .pairingRevoked,
+        case .networkChanged, .connectionLost, .connected, .connectionDiagnosed, .tunnelChanged, .macCapabilities, .macQuestionCapability, .pairingRevoked,
              .macAttachmentLimits, .pushRegistered:
             ConnectionReducer.reduce(&next, action, &effects)
         case .foregrounded, .backgrounded:

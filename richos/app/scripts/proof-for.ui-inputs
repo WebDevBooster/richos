@@ -100,6 +100,7 @@ provider-auth.js        @shell
 inspector.js            @shell richos/app/ui/timeline.js richos/app/ui/mock.js
 interruption.js         @shell richos/app/ui/timeline.js
 local-notice.js         @shell richos/app/ui/timeline.js
+operator-notice.js      @shell richos/app/ui/timeline.js richos/app/ui/mock.js
 markdown.js             @shell richos/app/ui/timeline.js
 memory-strategy.js      @shell richos/app/ui/timeline.js richos/app/ui/mock.js
 outage.js               @shell richos/app/ui/timeline.js
@@ -123,6 +124,7 @@ settings-fit.js         @shell @phone richos/app/ui/settings-button.js
 background-work.js      @shell richos/app/ui/work-summary.js
 no-home-network.js      @shell @phone
 permissions.js          @shell richos/app/ui/permissions.js
+questions.js            @shell richos/app/ui/questions.js richos/app/ui/timeline.js
 phone.js                @shell @phone richos/app/ui/mock.js
 quit-question.js        @shell richos/app/ui/quit-question.js
 repositories.js         @shell richos/app/ui/repositories.js

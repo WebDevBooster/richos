@@ -92,6 +92,16 @@ public struct Courier: Sendable {
             if (200..<300).contains(response.status) {
                 let json = (try? JSONSerialization.jsonObject(with: response.body)) as? [String: Any]
                 duplicate = json?["duplicate"] as? Bool == true
+                if item.questionID != nil {
+                    if json?["outcome"] as? String == "conversation_deleted" {
+                        return Result(action: .deliveryFailed(clientID: item.clientID, failure: .refused(reason: "This conversation was deleted. Your answer is saved on this phone."), at: at), duplicate: false)
+                    }
+                    if let value = json?["question"], let bytes = try? JSONSerialization.data(withJSONObject: value),
+                       let question = try? JSONDecoder().decode(QuestionCard.self, from: bytes) {
+                        return Result(action: .questionAnswered(clientID: item.clientID, question: question, at: at), duplicate: duplicate)
+                    }
+                    return Result(action: .deliveryFailed(clientID: item.clientID, failure: .retryable(reason: "The Mac has not confirmed your answer.", afterMs: nil), at: at), duplicate: false)
+                }
                 if item.kind == .voice, let hash = json?["text_sha256"] as? String,
                    hash.utf8.count == 64, hash.allSatisfy({ $0.isHexDigit && $0.isASCII }) {
                     transcriptHash = hash.lowercased()

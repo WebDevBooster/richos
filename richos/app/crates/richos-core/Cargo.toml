@@ -20,6 +20,13 @@ sha2 = "0.10"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[features]
+# The crash matrix's abort points for his answers to his team (`operator_host::crash_point`) and to
+# a work job (`work_host`'s, and its one `work_fault`), compiled only into the `operator_walk` and
+# `work_walk` builds the VM crash matrices hand the guest. No product build enables it; without it
+# every point is an empty inline function.
+crash-points = []
+
 [[example]]
 name = "native_roundtrip"
 path = "examples/native_roundtrip.rs"

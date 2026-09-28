@@ -16,7 +16,9 @@
 //! - No `RICHOS_PROJECTS_DIR`, `RICHOS_SESSIONS_DIR` or any other app partition variable,
 //!   because the environment is built from empty ([`OperatorProfile::environment`]).
 //! - The supervisor is `provider-supervisor.py` from HIS declared engine (B9), with
-//!   `--reap-descendants` (r3 §11 item 5); the product invocation in `native.rs` is untouched.
+//!   `--reap-descendants` (r3 §11 item 5). The product lease names the same flag since the
+//!   product reap gap design, with its parameters on the supervisor's command line
+//!   (`lease_commands.rs`); this profile keeps the environment names below.
 //!
 //! ## The environment, built from empty (r3 §11 item 3)
 //!
@@ -60,11 +62,10 @@ pub const REAP_STATE_ENV: &str = "RICHOS_OPERATOR_REAP_STATE";
 pub const ARTIFACT_ENV: (&str, &str) = ("CLAUDE_CODE_ARTIFACT", "1");
 /// The only tool taken away from his lead: nobody is at a terminal to answer it (n).
 ///
-/// **Known gap, not built here** (esc-20260925T050529Z-a3d5a077): with this tool withheld, his
-/// engine's two CEO-ask gates (`guard-ceo-ruled-ask.sh`, and the witness `guard-ceo-ask-first.sh`
-/// reads) cannot see a question from the lead. A PRD covers the question path. Until it lands, the
-/// lead passes the ask-first gate only with the logged `ceo-todos-deferred:` line. The operator
-/// probes never hit that gate (20 of 20 `ok`, a fixture with no prepared question).
+/// App-owned questions now run the declared engine guard and write its ask witness
+/// after a durable display acknowledgement. The operator runtime must supply the
+/// original session's `ReportScope.question_context` and connect its inbound delivery
+/// before opening the runtime gate. The existing fixture probes do not prove that path.
 pub const DISALLOWED_TOOL: &str = "AskUserQuestion";
 
 /// The `claude` versions the probe harness has measured this path against (r2 (b), note 7).
@@ -716,11 +717,18 @@ mod tests {
     }
 
     #[test]
-    fn the_product_supervisor_invocation_is_untouched() {
-        // N1 for r3 §11 item 5: the flag is operator-only. The product client builds its own
-        // supervisor command in `native.rs`; this pins that it never names the flag.
+    fn the_product_supervisor_reaps_too_with_its_parameters_on_its_own_command_line() {
+        // N1, split by the product reap gap design (1.5): clause 1 (no declaration → the
+        // product path, `claude`'s arguments and environment unchanged) stands and is the
+        // engine's R11; clause 2 ("the product supervisor runs without the flag") is retired.
+        // The product now names the same flag, and its reap parameters are arguments, never
+        // the environment names this profile sets for the operator.
+        let args = crate::lease_commands::supervisor_args(Path::new("/e"), Path::new("/s.json"), Path::new("/r.log"));
+        assert_eq!(args[1].to_str(), Some(REAP_DESCENDANTS));
+        assert!(args.iter().all(|a| !a.to_string_lossy().contains(REAP_LOG_ENV) && !a.to_string_lossy().contains(REAP_STATE_ENV)));
         let native = include_str!("native.rs");
-        assert!(!native.contains(REAP_DESCENDANTS), "the product supervisor must not reap descendants");
+        assert!(native.contains("crate::lease_commands::supervisor_args("), "the product lease no longer builds the reaping invocation");
+        assert!(!native.contains(REAP_STATE_ENV) && !native.contains(REAP_LOG_ENV), "the product put a reap parameter in the environment");
     }
 
     // ---- (b): the init check -------------------------------------------------------------

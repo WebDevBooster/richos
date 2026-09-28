@@ -6,6 +6,7 @@
 // this file is just the window + the Tauri command bridge to the web UI in ../ui.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod question_host;
 mod activation;
 mod lifecycle;
 mod events;
@@ -77,7 +78,6 @@ mod updates;
 /// The `get_timeline` command body, in its own file so `examples/timeline_payload.rs`
 /// can include the SAME source and print the exact JSON the webview receives.
 mod timeline_view;
-use timeline_view::timeline_payload;
 
 /// The `get_machinery` command body — techy mode's read path. Its own file for the same
 /// reason `timeline_view` is: an example includes the SAME source and prints the exact
@@ -227,6 +227,27 @@ pub const EVENT_WORK_NOTICE: &str = "rich://work-notice";
 /// emitted, and `take_operator_notices` reads the durable copy. `pub` for the documentation gate.
 pub const EVENT_OPERATOR_NOTICE: &str = "rich://operator-notice";
 
+/// **One request to the PINNED engine's continuity store**, the one the register opens an
+/// assignment's obligation in (`assignment_tools.rs`), through a bridge made on first use and
+/// kept. Closing an obligation goes through it: his team's settlement on an operator install,
+/// and an assignment the product's back end handled itself (`work_host::AnsweredClose`).
+fn engine_store_call(engine_cell: Arc<Mutex<PathBuf>>, data_dir: &Path) -> richos_core::operator_runtime::EcsCall {
+    let bridge: Arc<Mutex<Option<richos_core::ecs::EcsBridge>>> = Arc::new(Mutex::new(None));
+    let ecs_state = data_dir.join("ecs");
+    Box::new(move |command, fields| {
+        let made = {
+            let mut held = bridge.lock().map_err(|_| "the engine's store could not be reached".to_string())?;
+            if held.is_none() {
+                let dir = engine_cell.lock().map(|d| d.clone()).map_err(|_| "the engine could not be located".to_string())?;
+                let runtime = richos_core::runtime::verify_engine(&dir).map_err(|e| e.to_string())?;
+                *held = Some(richos_core::ecs::EcsBridge::new(&runtime.python, &dir, &ecs_state).map_err(|e| e.0)?);
+            }
+            held.clone().expect("made above")
+        };
+        made.request(command, fields).map_err(|e| e.0)
+    })
+}
+
 /// **His team's desk, built once at launch on an operator install** (the operator-client
 /// record's §7 items 1-3). Returns the desk, the socket its front-desk tools reach it through,
 /// and the access the front desk's lease is given. A socket that cannot be served costs the
@@ -247,22 +268,7 @@ fn operator_desk_at_boot(
             eprintln!("[richos] his team: a notice could not be pushed to the window ({e}); it is held on disk");
         }
     });
-    // Settling closes the obligation in the PINNED engine's store, the one the register opened
-    // it in (`assignment_tools.rs`), through a bridge made on first use and kept.
-    let bridge: Arc<Mutex<Option<richos_core::ecs::EcsBridge>>> = Arc::new(Mutex::new(None));
-    let ecs_state = data_dir.join("ecs");
-    let settle = Arc::new(richos_core::operator_runtime::EcsSettle::with(Box::new(move |command, fields| {
-        let made = {
-            let mut held = bridge.lock().map_err(|_| "the engine's store could not be reached".to_string())?;
-            if held.is_none() {
-                let dir = engine_cell.lock().map(|d| d.clone()).map_err(|_| "the engine could not be located".to_string())?;
-                let runtime = richos_core::runtime::verify_engine(&dir).map_err(|e| e.to_string())?;
-                *held = Some(richos_core::ecs::EcsBridge::new(&runtime.python, &dir, &ecs_state).map_err(|e| e.0)?);
-            }
-            held.clone().expect("made above")
-        };
-        made.request(command, fields).map_err(|e| e.0)
-    })));
+    let settle = Arc::new(richos_core::operator_runtime::EcsSettle::with(engine_store_call(engine_cell, data_dir)));
     let origins = Arc::new(richos_core::operator_desk::LedgerOrigins::new(&data_dir.join("conversation-ledger.jsonl")));
     let executable = std::env::current_exe().unwrap_or_else(|e| {
         eprintln!("[richos] his team: this app's own path could not be read ({e}); his leads' report tool will not start");
@@ -318,6 +324,35 @@ impl richos_core::work_host::WorkNotifier for WorkNotice {
     /// on the assignment (§3.4), which is what makes this safe to do while he is away.
     fn nothing_left_to_do(&self) {
         if !self.app.webview_windows().is_empty() {
+            return;
+        }
+        if self.app.try_state::<AppState>().is_some_and(|state| questions_pending(&state)) {
+            return;
+        }
+        // **A command Rich started outlives its assignment** (reap gap C5): quitting would end
+        // it, so the app stays until the command ends, then closes itself exactly as below.
+        // Read from each lease's supervisor state (a positive reading, once every 5 s), never
+        // inferred from silence; one waiter at a time.
+        static WAITING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        let commands = || richos_core::lease_commands::LiveLeases::process().reading();
+        let busy = |reading: richos_core::lease_commands::CommandsReading| reading.running > 0 || reading.unreadable > 0;
+        if busy(commands()) {
+            if WAITING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
+            eprintln!("[richos] the last assignment ended with no window open and a command Rich started still running: RichOS stays until it ends.");
+            let app = self.app.clone();
+            std::thread::spawn(move || {
+                while busy(commands()) {
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                }
+                WAITING.store(false, std::sync::atomic::Ordering::SeqCst);
+                let quiet = app.try_state::<AppState>().is_some_and(|state| !registered_work(&state).anything() && !questions_pending(&state));
+                if app.webview_windows().is_empty() && quiet {
+                    eprintln!("[richos] the last command Rich started has ended with no window open: RichOS is closing itself.");
+                    app.exit(0);
+                }
+            });
             return;
         }
         eprintln!("[richos] the last assignment ended with no window open: RichOS is closing itself.");
@@ -965,7 +1000,7 @@ fn get_messages(state: State<AppState>, thread_id: String) -> Result<Vec<Message
 /// Fails closed on an unbound thread, exactly like `get_messages`.
 #[tauri::command(async)]
 fn get_timeline(app: AppHandle, state: State<AppState>, thread_id: String) -> Result<serde_json::Value, String> {
-    let payload = timeline_payload(&*state.reader.snapshot(), &thread_id);
+    let payload = question_host::payload(&state, &thread_id);
     // **HIS FRONT DESK IS MADE READY HERE, AFTER THE SNAPSHOT AND NEVER BEFORE IT** — the CEO's
     // §55. See [`ready_the_front_desk`] for why this command is the hook.
     ready_the_front_desk(&app, &thread_id);
@@ -1023,7 +1058,11 @@ fn ready_the_front_desk(app: &AppHandle, thread_id: &str) {
     let thread_id = thread_id.to_string();
     std::thread::spawn(move || {
         let Some(state) = app.try_state::<AppState>() else { return };
-        let verdict = take_the_spine(&state.spine).prime_front_desk(&thread_id);
+        let mut spine = take_the_spine(&state.spine);
+        let verdict = spine.prime_front_desk(&thread_id);
+        // Priming drains what he sent while it ran (`prime_front_desk`'s `poll_intake`), and
+        // those are real turns: their boundary is here (`adopt_at_the_turn_boundary`).
+        adopt_at_the_turn_boundary(spine, &state.work);
         match verdict {
             richos_core::spine::FrontDeskReady::Ready { millis, spawned } => eprintln!(
                 "[richos] the front desk is ready before he types: {millis} ms{} — that is what his \
@@ -1496,12 +1535,80 @@ fn send_message(
     // **It is a directory read at a boundary, not a timer.** Adoption happens once per
     // assignment, at the end of the turn that created it. Nothing here retries and nothing
     // restarts work by itself (spec §6.3).
-    let binding = spine.ledger().thread_binding(&thread).ok();
-    drop(spine);
-    if let Some(binding) = binding {
-        state.work.adopt_registered(&binding);
-    }
+    //
+    // **Every conversation whose turn ended in this call, not the one active afterwards** —
+    // the same door the spoken turn, the phone and the boot use (`adopt_at_the_turn_boundary`).
+    adopt_at_the_turn_boundary(spine, &state.work);
     Ok(messages)
+}
+
+// =====================================================================================
+// THE TURN BOUNDARY'S ADOPTION — ONE DOOR, EVERY ENTRANCE THAT RUNS HIS TURNS
+// =====================================================================================
+//
+// CEO ruling §88: *"The user should be able to answer on their phone just as well as they
+// can answer on the desktop app."* Until this door existed only the typed send adopted the
+// work Rich wrote down during a turn; a task given aloud or from the phone sat `Registered`
+// until he next typed in that conversation (esc-20260926T083231Z-23865924). Each entrance
+// below runs his turns and then hands the spine to this function, which asks the spine
+// which conversations' turns ended (`Spine::take_ended_turns`) and adopts for each.
+//
+// The entrances, all of them (a new one that runs a turn must call this too, and
+// `turn_boundary_tests::every_entrance_that_runs_his_turns_adopts_at_its_boundary` names each):
+//   * typed      — `send_message`
+//   * spoken     — the voice submit callback, through `run_the_spoken_turn`
+//   * phone      — `phone::bridge`'s drain, through `drain_the_phone`
+//   * priming    — `ready_the_front_desk` (`prime_front_desk` drains what was sent during it)
+//   * boot       — `reconcile_intake`, which runs what outlived the last process
+
+/// **Release the spine, then start the work his ended turns wrote down.** Returns how many
+/// assignments were adopted; zero is the ordinary answer.
+///
+/// **It takes the hold BY VALUE, and that is the enforcement of §0 row 3**: the work host is
+/// never reached while the spine is held, and a caller cannot keep a guard it has given
+/// away. `&mut Spine` also satisfies the bound, for the boot, where the spine is not behind
+/// its mutex yet.
+fn adopt_at_the_turn_boundary<G>(mut spine: G, work: &Arc<richos_core::work_host::WorkHost>) -> usize
+where
+    G: std::ops::DerefMut<Target = Spine>,
+{
+    let ended = spine.take_ended_turns();
+    drop(spine);
+    ended.iter().map(|binding| work.adopt_registered(binding)).sum()
+}
+
+/// **His spoken sentence, as a turn, and then its boundary** — the tail of the voice submit
+/// callback, a function so the adoption it ends with is tested rather than assumed.
+fn run_the_spoken_turn<G>(
+    mut spine: G,
+    work: &Arc<richos_core::work_host::WorkHost>,
+    text: &str,
+    rich_audible: bool,
+) where
+    G: std::ops::DerefMut<Target = Spine>,
+{
+    // Source::Jam — voice and text are ONE thread and ONE ledger.
+    //
+    // `submit_prompt_spoken` rather than `submit_prompt`: the latter writes
+    // `rich_audible: None`, which means "not recorded", and would throw away the one fact
+    // about this audio that nothing downstream can reconstruct.
+    if let Err(e) = spine.submit_prompt_spoken(text, Source::Jam, rich_audible) {
+        eprintln!("[richos] voice turn failed: {e}");
+    }
+    // A failed turn still reaches here: what it wrote down before failing is a receipt.
+    adopt_at_the_turn_boundary(spine, work);
+}
+
+/// **The phone's drain: take his words off the intake log, run them, then the boundary.**
+/// Called from `phone::bridge` on its own thread, because the drain runs the turn.
+fn drain_the_phone(
+    spine: &std::sync::Mutex<Spine>,
+    work: &Arc<richos_core::work_host::WorkHost>,
+) -> Result<(), richos_core::spine::SpineError> {
+    let mut spine = spine.lock().unwrap();
+    let outcome = spine.poll_intake();
+    adopt_at_the_turn_boundary(spine, work);
+    outcome
 }
 
 /// **A TYPED MESSAGE THAT NEVER BECAME A TURN, ON THE OPERATOR'S LOG** — the nightly's D4.
@@ -1960,6 +2067,12 @@ fn main() {
     // spec §1.1), and a failure here is stderr its parent captures plus the startup log —
     // never an alert, because `activation.rs`'s parent-pid condition is false by
     // construction in a child.
+    if first.as_deref() == Some(std::ffi::OsStr::new("--questions-mcp")) {
+        let result=args.next().ok_or_else(||"Missing question scope".to_string())
+            .and_then(|scope|richos_core::question_tools::run_stdio(Path::new(&scope)).map_err(|e|e.to_string()));
+        if let Err(error)=result {eprintln!("Question tool server: {error}");std::process::exit(1);}
+        return;
+    }
     if first.as_deref() == Some(std::ffi::OsStr::new("--assignments-mcp")) {
         let result = args.next().ok_or_else(|| "Missing assignment scope".to_string())
             .and_then(|scope| richos_core::assignment_tools::run_stdio(Path::new(&scope))
@@ -2874,6 +2987,11 @@ fn main() {
                 permissions.clone(),
             );
             work.set_quota(quota.clone());
+            // An assignment its back end handled itself (a command he asked for, or an answer)
+            // closes its obligation in the engine on the words he was given.
+            work.set_answered_close(Arc::new(richos_core::operator_runtime::EcsAnsweredClose::with(
+                engine_store_call(Arc::clone(&engine_cell), &data_dir),
+            )));
             if let Some(desk) = &operator_desk {
                 work.set_operator(desk.clone());
             }
@@ -3055,6 +3173,11 @@ fn main() {
             if let Err(e) = spine.reconcile_intake() {
                 eprintln!("[richos] intake reconciliation at boot: {e}");
             }
+            // What it ran — a phone message that outlived the last process — ended here, so
+            // the work those turns wrote down starts here (`adopt_at_the_turn_boundary`). The
+            // recovery above has already settled every assignment the LAST process left, so
+            // only what these turns registered can be adopted (spec §6.3: nothing restarts).
+            adopt_at_the_turn_boundary(&mut spine, &work);
 
             // THE CORRECTION DESK (open-items 3.5). Its log sits beside the ledger and the
             // intake log, same durability posture, and deliberately NOT in the ledger: a
@@ -3264,6 +3387,7 @@ fn main() {
             // A persisted pairing resumes without opening a new pairing window.
             phone_runtime.resume_if_paired(app.handle().clone());
             app.manage(phone_runtime);
+            question_host::start(app.handle().clone());
             // The composer's attachments, in the SAME app-data directory the phone's
             // attachment desk writes to (`phone/attachments.rs`). No I/O until a file arrives.
             let attachments_home = app.state::<AppState>().data_dir.clone();
@@ -3353,6 +3477,7 @@ fn main() {
         })
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            question_host::answer_question, question_host::question_shown, question_host::open_question_counts,
             claude_quota,
             claude_quota_activity,
             set_claude_quota_policy,
@@ -3548,6 +3673,7 @@ fn main() {
             if let tauri::RunEvent::ExitRequested { code, api, .. } = &event {
                 if let Some(state) = handle.try_state::<AppState>() {
                     let request = lifecycle::ExitRequest {
+                        questions_pending: questions_pending(&state),
                         programmatic: code.is_some(),
                         confirmed: state.quit_confirmed.load(std::sync::atomic::Ordering::SeqCst),
                         registered: registered_work(&state),
@@ -3569,10 +3695,14 @@ fn main() {
                         }
                         lifecycle::ExitDecision::StayResident => {
                             api.prevent_exit();
-                            eprintln!(
-                                "[richos] window closed with work registered: RichOS stays \
-                                 running with no window. The Dock icon brings it back."
-                            );
+                            if request.questions_pending {
+                                eprintln!("[richos] window closed with pending questions: the phone service stays available. Quit ends it; the questions are saved.");
+                            } else {
+                                eprintln!(
+                                    "[richos] window closed with work registered: RichOS stays \
+                                     running with no window. The Dock icon brings it back."
+                                );
+                            }
                         }
                         lifecycle::ExitDecision::AskBeforeQuitting => {
                             // PREVENT FIRST, UNCONDITIONALLY, THEN ASK. The other order is
@@ -3599,6 +3729,9 @@ fn main() {
             }
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = handle.try_state::<AppState>() {
+                    // ONE bound for the whole quit, shared by the work lease's runners below and
+                    // every lease's supervisor after them (reap gap 1.3(c)).
+                    let quit_bound = std::time::Instant::now() + std::time::Duration::from_secs(2);
                     state.quota.shutdown();
                     let _ = state.control.request_stop();
                     state.control.shutdown_lease();
@@ -3622,6 +3755,14 @@ fn main() {
                         socket.close();
                     }
                     state.work.shutdown();
+                    // **EVERY LEASE'S TOOL COMMANDS END WITH THE APP, by its supervisor's reap**
+                    // (reap gap C1, 1.3(c)): each supervisor gets SIGTERM, ends its tool shells
+                    // and background commands, and exits; one still running at the bound has its
+                    // group killed as before. Waited for here, because destructors and detached
+                    // threads are not guaranteed on this path.
+                    let settled = richos_core::owned_process::SupervisedSet::process().settle(quit_bound);
+                    eprintln!("[richos] quit: {} lease(s) ended their tool commands; {} stopped at the bound.",
+                              settled.leases, settled.escalated);
                     if let Err(e) = state.launch.lock().unwrap().note_clean_exit() {
                         eprintln!("[richos] launch record: could not mark a clean exit: {e}");
                     }
@@ -3769,6 +3910,11 @@ fn get_assignments(state: State<AppState>, thread_id: String) -> Result<serde_js
                 "turnRef": row.instruction_ledger_ref,
                 "state": row.state.as_str(),
                 "detail": row.detail,
+                // **CLOSED BY AN ANSWER ON HIS TIMELINE, NOT BY WORK THAT FINISHED** — a question
+                // of his, or a task the back end did itself and reported in its own words
+                // (esc-20260927T093052Z-85f3303f). The pane says "it's in your conversation"
+                // for both and never "Finished.", which the host never witnessed.
+                "answered": row.was_answered(),
                 "repositories": row.repositories,
                 "registeredAtMs": row.registered_at_ms,
                 "canStop": row.state.is_open(),
@@ -4080,7 +4226,7 @@ fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serd
     let submit: Arc<dyn Fn(String, bool) + Send + Sync> =
         Arc::new(move |text: String, rich_audible: bool| {
             let state = submit_app.state::<AppState>();
-            let Some(mut spine) = take_the_spine_or_give_up(&state.spine) else { return };
+            let Some(spine) = take_the_spine_or_give_up(&state.spine) else { return };
             // ===========================================================================
             // A FACTORY IS NOT AN ENGINE — the spoken half of the same arm
             // ===========================================================================
@@ -4135,25 +4281,9 @@ fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serd
                 );
                 return;
             }
-            // Source::Jam — voice and text are ONE thread and ONE ledger.
-            //
-            // `submit_prompt_spoken` rather than `submit_prompt`: the latter writes
-            // `rich_audible: None`, which means "not recorded", and would throw away the one fact
-            // about this audio that nothing downstream can reconstruct.
-            if let Err(e) = spine.submit_prompt_spoken(&text, Source::Jam, rich_audible) {
-                eprintln!("[richos] voice turn failed: {e}");
-            }
-            // **WORK HE GAVE ALOUD REACHES HIS TEAM** (operator install only; `desk-voice` is
-            // a listed origin, r3 (s)). The typed path adopts at its turn boundary
-            // (`send_message`); the spoken path never has, so on an operator install it does
-            // the same here, after the spine is let go. The product path is untouched.
-            if state.operator.is_some() {
-                let binding = spine.active_thread().and_then(|t| spine.ledger().thread_binding(t).ok());
-                drop(spine);
-                if let Some(binding) = binding {
-                    state.work.adopt_registered(&binding);
-                }
-            }
+            // The turn, and then its boundary: work he gave aloud starts the way typed work
+            // does (`adopt_at_the_turn_boundary`, CEO ruling §88).
+            run_the_spoken_turn(spine, &state.work, &text, rich_audible);
         });
 
     let scratch_dir = app
@@ -5240,7 +5370,8 @@ fn ready_the_front_desk_after_a_repair(app: &AppHandle, thread_id: &str) {
 
 #[tauri::command(async)]
 fn pending_permission(state: State<AppState>) -> Option<richos_core::permissions::PermissionRequest> {
-    state.permissions.current()
+    let view=state.reader.snapshot();
+    state.permissions.current().filter(|request|view.active_binding().is_some_and(|b|b.thread_id()==request.binding.thread_id && b.entity_id().as_str()==request.binding.entity_id))
 }
 /// **His answer to one exact action — and the second half is the background-work spec's
 /// §5.7.**
@@ -8699,9 +8830,13 @@ const MENU_QUIT: &str = "richos-quit";
 /// line (`rich://work-notice`'s own reasoning): there is no turn open when he presses Quit.
 pub const EVENT_QUIT_QUESTION: &str = "rich://quit-question";
 
-/// What the assignment register says, for the exit decision — **the same derivation the
-/// update gate uses**, so "is there work" cannot have two answers in one process
-/// (`WorkHost::background_work`, `work_gate.rs`).
+/// Pending questions keep phone answers possible while the Mac window is closed.
+fn questions_pending(state: &AppState) -> bool {
+    // A read failure must not silently disconnect a phone. Explicit Quit still works.
+    question_host::store(state).pending_for_residency().unwrap_or(true)
+}
+
+/// What the assignment register says, using the same derivation as the update gate.
 fn registered_work(state: &AppState) -> lifecycle::Registered {
     let work = state.work.background_work();
     lifecycle::Registered {
@@ -8713,6 +8848,8 @@ fn registered_work(state: &AppState) -> lifecycle::Registered {
         // here (`OperatorHost::team_from_stream`). It names the agents the quit would stop.
         team: state.operator.as_ref()
             .and_then(|desk| richos_core::work_gate::operator_quit_sentence(&desk.team_from_stream())),
+        // Commands Rich started, on every live lease (reap gap C5): a few small files, no lock.
+        commands: richos_core::lease_commands::LiveLeases::process().reading(),
     }
 }
 
@@ -8871,3 +9008,6 @@ mod ipc_responsiveness_tests {
 
 #[cfg(test)]
 mod window_read_tests;
+
+#[cfg(test)]
+mod turn_boundary_tests;

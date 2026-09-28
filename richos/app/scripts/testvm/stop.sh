@@ -95,6 +95,27 @@ if [ -n "$VMPID" ] && kill -0 "$VMPID" 2>/dev/null; then
 fi
 vm_running "$VM" 2>/dev/null && PROBLEMS+=("VM $VM is still running")
 
+# --- 2b. end this run's login keeper, by its recorded pid ---------------------
+# run.sh started it and wrote its pid. Only that pid, and only if its recorded
+# launch is this run's keeper (its command line names `claude-login.sh keep`
+# and this VM); a pid reused by anything else is left alone. It would also end
+# by itself once the state below is removed.
+KEEPPID="$(cat "$STATE/claude-keep.pid" 2>/dev/null || true)"
+case "$KEEPPID" in
+  *[!0-9]*|"") ;;
+  *)
+    KEEPCMD="$(ps -p "$KEEPPID" -o command= 2>/dev/null || true)"
+    case "$KEEPCMD" in
+      *"claude-login.sh keep $VM "*)
+        log "ending the login keeper (pid $KEEPPID)"
+        kill -TERM "$KEEPPID" 2>/dev/null
+        for i in 1 2 3 4 5; do kill -0 "$KEEPPID" 2>/dev/null || break; sleep 1; done
+        kill -0 "$KEEPPID" 2>/dev/null && PROBLEMS+=("the login keeper pid $KEEPPID is still running")
+        ;;
+    esac
+    ;;
+esac
+
 # --- 3. delete the ephemeral clone -------------------------------------------
 if [ "$KEEP_VM" -eq 0 ] && [ -f "$STATE/ephemeral" ]; then
   log "deleting ephemeral clone $VM..."

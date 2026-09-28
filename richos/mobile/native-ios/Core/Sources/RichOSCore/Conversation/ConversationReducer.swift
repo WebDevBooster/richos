@@ -20,6 +20,11 @@ public enum ConversationReducer {
 
     static func reduce(_ s: inout AppState, _ action: Action, _ effects: inout [Effect]) {
         switch action {
+        case .answerQuestion(let id, let options, let text, let revision, let clientID, let at):
+            questionAnswer(&s, id: id, options: options, text: text, revision: revision, clientID: clientID, at: at, &effects)
+        case .questionAnswered(let clientID, let q, let at):
+            if let i = s.messages.firstIndex(where: { $0.question?.id == q.id }) { s.messages[i].question = q }
+            reduce(&s, .deliveryAccepted(clientID: clientID, at: at), &effects)
         case .sendDraft(let clientID, let at):
             send(&s, clientID: clientID, at: at, &effects)
         case .deliveryAccepted(let clientID, let at, let transcriptHash):
@@ -85,7 +90,15 @@ public enum ConversationReducer {
             }
             if s.sheet == .forgetBlocked, s.outbox.isEmpty { s.sheet = .forget }
         case .messagesArrived(let arrived):
+            for q in arrived.compactMap(\.question) where !s.messages.contains(where: { $0.question?.id == q.id }) {
+                let id = "seen-question:" + q.id
+                if s.pairing == .paired, !s.outbox.contains(where: { $0.clientID == id }),
+                   let body = try? JSONSerialization.data(withJSONObject: ["kind": "question_seen", "question_id": q.id, "thread_id": q.thread_id, "client_id": id], options: [.sortedKeys]) {
+                    s.outbox.append(OutboxItem(clientID: id, kind: .text, body: String(decoding: body, as: UTF8.self), queuedAt: 0))
+                }
+            }
             merge(&s, arrived)
+            pump(&s, at: 0, &effects)
             seekNotified(&s, &effects, progressed: true)
         case .replyStarted:
             s.reply = .thinking

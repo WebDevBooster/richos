@@ -981,6 +981,38 @@ case "$ATTR" in
 esac
 rm -rf "$MERGE_REPO"
 
+# ==========================================================================
+# 13. A NOTICE'S AGE IS READ AS UTC, IN DAYLIGHT SAVING TOO
+#
+# Measured 2026-09-26 on this Mac, in BST: a notice sent seconds earlier read
+# "60 min since the notice (OVERDUE)" against the 30-minute ack timeout, because
+# the age was time.mktime(t) - time.timezone, and time.timezone is the STANDARD
+# offset. containers.py fixed the same defect on 2026-09-13; its C10 explains
+# why the zone must be PINNED in a child process: in a zone not in daylight
+# saving the two readings are arithmetically identical, and the case proves
+# nothing. So the precondition is checked before anything rests on it.
+# ==========================================================================
+AGE="$(TZ=Europe/London LIB_DIR="$SRC_DIR/../lib" python3 - <<'AGEPY' 2>&1
+import calendar, os, sys, time
+sys.path.insert(0, os.environ["LIB_DIR"])
+import inflight
+summer = calendar.timegm((2026, 7, 1, 12, 0, 0, 0, 0, 0))
+if time.localtime(summer).tm_isdst != 1:
+    sys.exit("precondition: Europe/London is not in daylight saving at the moment under test")
+inflight.time.time = lambda: summer + 5
+wt = {"path": "/nowhere", "resolved_name": "", "addresses": [], "identity_tokens": set(),
+      "identity_tokens_strict": set(), "agent_id": ""}
+ack = inflight.ack_status(wt, "0" * 40, "2026-07-01T12:00:00+00:00", [], 30)
+print("age=%s ack_age=%s overdue=%s" % (inflight._age_of_iso("2026-07-01T12:00:00+00:00"),
+                                         ack.get("age_sec"), ack.get("overdue")))
+AGEPY
+)"
+say "13 age in BST" "$AGE"
+case "$AGE" in
+    "age=5 ack_age=5 overdue=False") ok "13. a notice 5 s old reads 5 s old in BST, and is not overdue" ;;
+    *) bad "13. a notice's age is read as UTC under daylight saving" "$AGE" ;;
+esac
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
     printf '\033[32m✓ in-flight sweep: all %s checks passed.\033[0m\n' "$PASS"

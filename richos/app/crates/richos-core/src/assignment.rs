@@ -117,7 +117,8 @@ pub enum AssignmentState {
     ///
     /// **It is deliberately NOT [`Self::is_open`].** Nothing is running on it: the work
     /// lease and its worker group are gone with the process that held them
-    /// (`richos/engine/scripts/provider-supervisor.py:28-37`). Counting it as open would
+    /// (`operator_main` in `richos/engine/scripts/provider-supervisor.py`, whose owner-death
+    /// reap ends the lease's tool commands too). Counting it as open would
     /// mean the update gate reads `busy` forever over work that stopped days ago, which is
     /// §6.5's named trap — *"an app with near-permanent background work is an app that may
     /// never install an update"*. It is unresolved instead, which is a thing he can act on
@@ -375,6 +376,24 @@ pub struct Assignment {
     /// is there for.
     #[serde(default)]
     pub needs_screen: bool,
+}
+
+/// **The record's detail for an assignment that was ANSWERED rather than worked on** — a
+/// question of his (CEO ruling §58), or a task the back end carried out itself with no helper
+/// (esc-20260927T093052Z-85f3303f). Never spoken: what he hears is the answer itself, on his
+/// timeline. One constant because the pane and the status read decide their wording on it.
+pub const ANSWERED_DETAIL: &str = "Answered.";
+
+impl Assignment {
+    /// **Was this closed by an answer on his timeline rather than by work that finished?**
+    ///
+    /// A settled QUESTION always was. A settled TASK was only when the back end did it itself
+    /// and reported in its own words — and for that task "Finished." would be a claim the host
+    /// never witnessed (it may be the back end telling him what it needs before it can begin),
+    /// so the surfaces say what is true of both: the answer is in his conversation.
+    pub fn was_answered(&self) -> bool {
+        self.state == AssignmentState::Settled && (self.kind.is_question() || self.detail == ANSWERED_DETAIL)
+    }
 }
 
 /// One repository, as it stood when an assignment started.
@@ -828,6 +847,30 @@ pub fn read_all(state: &Path, entity: &str, thread: &str) -> Result<Vec<Assignme
     }
     rows.sort_by_key(|row| (row.registered_at_ms, row.id.clone()));
     Ok(rows)
+}
+
+/// The row's detail when he has said to pick back up work RichOS closed on.
+pub const PICKED_UP_DETAIL: &str = "You asked for it to be picked back up. It is starting again.";
+
+/// **His word to pick back up work RichOS closed on** — [`AssignmentState::Unknown`] is
+/// "whether to pick it back up at all", and *"resuming is a decision, and the decision is his"*
+/// (spec §6.3). The richos-hq work-path design's C6, option B, Rich's call: a started job is
+/// never re-run by itself after a crash, and when he says the word it is THE SAME assignment
+/// that goes back on the register (same obligation, same seat, same asker), so every answer he
+/// already gave it is carried to the run, and he never answers twice.
+///
+/// `title` is the row's own `what`, the only name the front desk is ever given for it. The
+/// newest `unknown` row of that name on this conversation is the one picked up; nothing else
+/// is ever moved by this.
+pub fn pick_up(state: &Path, entity: &str, thread: &str, title: &str) -> Result<Receipt, AssignmentError> {
+    let title = sanitize_title(title)?;
+    let found = read_all(state, entity, thread)?
+        .into_iter()
+        .filter(|row| row.state == AssignmentState::Unknown && row.title == title)
+        .max_by_key(|row| (row.updated_at_ms, row.registered_at_ms))
+        .ok_or_else(|| AssignmentError("nothing by that name is waiting to be picked back up in this conversation".into()))?;
+    advance(state, entity, thread, &found.id, AssignmentState::Registered, PICKED_UP_DETAIL)?;
+    Ok(Receipt { id: found.id, title: found.title, kind: found.kind })
 }
 
 pub fn read(state: &Path, entity: &str, thread: &str, id: &str) -> Result<Assignment, AssignmentError> {

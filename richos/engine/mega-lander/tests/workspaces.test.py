@@ -606,7 +606,8 @@ class Point03_TheLeadIsNeverLockedOutByASubagent(Base):
                                     capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, expected, result.stderr)
         for name in ("guard-ci-turn-gate", "guard-idle-land", "guard-stated-actions",
-                     "guard-unresolved-claims", "guard-agent-state-claims", "guard-workspace-gate"):
+                     "guard-unresolved-claims", "guard-agent-state-claims", "guard-workspace-gate",
+                     "guard-failure-type-answer"):
             result = subprocess.run(["bash", os.path.join(engine, "scripts/hooks", name + ".sh")],
                                     input=json.dumps(payload), capture_output=True, text=True,
                                     cwd=self.entity, timeout=15)

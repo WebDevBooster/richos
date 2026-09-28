@@ -541,6 +541,12 @@ function buildStatusMark(row) {
   return { mark, label: spec.label };
 }
 
+let openQuestionCounts = {};
+async function refreshQuestionCounts() {
+  try { openQuestionCounts = await Bridge.invoke("open_question_counts") || {}; renderRail(); } catch (_) {}
+}
+document.addEventListener("richos-questions-changed", refreshQuestionCounts);
+window.addEventListener("DOMContentLoaded", refreshQuestionCounts);
 function buildThreadRow(row, opts) {
   opts = opts || {};
   const li = document.createElement("li");
@@ -563,6 +569,12 @@ function buildThreadRow(row, opts) {
   // thread lives in — §18: "worker chips: buttons with name, role and state in accessible
   // label", and the same standard applies to a thread row.
   const parts = [row.display_title];
+  const openQuestions = openQuestionCounts[row.id] || 0;
+  if (openQuestions) {
+    const count=document.createElement("span"); count.className="nav-question-count";
+    count.textContent=String(openQuestions);btn.appendChild(count);
+    parts.push(`${openQuestions} question${openQuestions===1?"":"s"} open`);
+  }
   if (opts.showEntity) parts.push("in " + entityLabel(row.entity_id));
   const status = buildStatusMark(row);
   if (status) {
@@ -1222,6 +1234,8 @@ async function openThread(threadId, opts) {
   // AFTER the thread is on screen, deliberately: a notice is a line in a conversation he
   // is looking at, and §3.5's rule is that he is told when he is listening.
   drainWorkNotices();
+  // His team's lane, the same read on the same occasion (an operator install only).
+  drainOperatorNotices();
   // Returning to a thread whose turn is still streaming picks its live state back up (§2:
   // "return to a running thread without losing its live state") — `loadTimeline` already
   // called `reviveLiveTurns()`, so the duration row resumes ticking from the real
@@ -3150,6 +3164,16 @@ Bridge.listen("rich://turn-status", ({ payload }) => {
     announce("Rich started working");
   }
   if (payload.status === "completed" || payload.status === "failed" || payload.status === "stopped") {
+    // THE BOUNDARY, AS THE MODEL SEES IT. A notice held mid-turn (background-work spec §3.5)
+    // was only ever flushed from `rich://turn-completed`, and the spine emits that BEFORE this
+    // terminal status (`spine.rs`: `TurnCompleted`, then `emit_live(TurnStatus)`), so the turn
+    // still read as live there, the flush declined, and the notice waited for the NEXT
+    // boundary: his next answer, or voice going quiet. Measured in the browser harness on
+    // 2026-09-27: at `turn-completed` `anyLiveTurn()` was true with one notice held; at this
+    // status it was false, and nothing flushed. A stopped or failed turn never flushed at all.
+    // Flushed here, where the turn is over by the model's own account; `flushWorkNotices`
+    // re-checks the calm itself, so another live turn still holds it.
+    flushWorkNotices();
     // §6.4: "Collapse the working transcript after a short settling transition."
     // 180ms — inside §17.4's allowed 150–220ms band — and skipped entirely under reduced
     // motion, where the collapse is immediate rather than transitioned.
@@ -3239,6 +3263,20 @@ Bridge.listen("rich://message-completed", ({ payload }) => {
   if (payload.text) announce(payload.text);
 });
 
+const spokenQuestionIds=new Set();
+Bridge.listen("rich://question-upserted", ({payload}) => {
+  updateCachedThread("onActivityUpserted",payload);
+  const result=window.RichTimeline.onActivityUpserted(timelineModel,payload);
+  if(!result.rejected) {
+    scheduleRender();
+    if(voiceMode && payload.question?.state==="open" && !spokenQuestionIds.has(payload.id)) {
+      spokenQuestionIds.add(payload.id);
+      Bridge.invoke("voice_speak_delta",{text:payload.text}).then(()=>Bridge.invoke("voice_speak_end")).catch(()=>{});
+    }
+  }
+  document.dispatchEvent(new Event("richos-questions-changed"));
+});
+
 Bridge.listen("rich://activity-upserted", ({ payload }) => {
   updateCachedThread("onActivityUpserted", payload);
   const r = window.RichTimeline.onActivityUpserted(timelineModel, payload);
@@ -3307,6 +3345,7 @@ Bridge.listen("rich://turn-completed", ({ payload }) => {
   // picks up anything that landed while this window was not the one listening.
   flushWorkNotices();
   drainWorkNotices();
+  drainOperatorNotices();
 });
 
 Bridge.listen("rich://turn-error", ({ payload }) => {
@@ -3810,6 +3849,21 @@ function renderVoiceState(state, noAudio) {
 let voiceBusy = false;
 let heldWorkNotices = [];
 const workNoticeDrains = new Map();
+const operatorNoticeDrains = new Map();
+/// **ONE REPORT, ONE CARD, when two lanes carry the same words.** On an operator install a
+/// report that closes an assignment is raised on the assignment's record AND said on his
+/// team's lane, with the same words (`operator_host.rs` `settle_handle`: `raise_notice(..,
+/// text)` and then `say(.., text)`), and the two are drained by two different reads. Keyed by
+/// conversation, assignment and the exact words, so it cannot merge two assignments that
+/// happen to say the same sentence (`ui/tests/background-work.js` pins that), and a line with
+/// no assignment is never merged at all. Bounded: it only has to outlive the moment between
+/// the two drains, and it is gone with the process, like the cards it describes.
+const sameWordsOnScreen = new Map();
+const SAME_WORDS_KEPT = 256;
+
+function sameWordsKey(threadId, assignment, text) {
+  return assignment && text ? threadId + "\u0000" + assignment + "\u0000" + text : null;
+}
 
 /// Can a background result be said right now? A live turn or a live voice exchange means no.
 function calmEnoughForANotice() {
@@ -3826,9 +3880,26 @@ function calmEnoughForANotice() {
 /// failures raised at `08:13:10Z` and `08:14` come back, after the relaunch at `08:19:35Z`,
 /// BELOW an answer given at about `08:16` — "his scrollback no longer matches the order of
 /// events". Omitted (the live `rich://` lane, a relayed refusal) it still means now.
-function sayWorkNotice(text, raisedAt, model = timelineModel) {
+///
+/// `team` is who it is from on an operator install (`{kind, about}`, see `timeline.js`'s
+/// `teamAttribution`), or null for the app's own line. `key` is `sameWordsKey`'s, or null.
+function sayWorkNotice(text, raisedAt, model = timelineModel, team = null, key = null) {
   if (!text) return;
-  window.RichTimeline.addLocalNotice(model, text, typeof raisedAt === "number" ? raisedAt : Date.now());
+  const earlier = key ? sameWordsOnScreen.get(key) : null;
+  if (earlier && earlier.model === model && model.items.has(earlier.id)) {
+    // The second copy of one report. If it is the attributed one, the card already on
+    // screen gains the attribution; otherwise the card already says everything.
+    if (team && !earlier.team && window.RichTimeline.attributeLocalNotice(model, earlier.id, team)) {
+      earlier.team = team;
+      if (model === timelineModel) scheduleRender();
+    }
+    return;
+  }
+  const id = window.RichTimeline.addLocalNotice(model, text, typeof raisedAt === "number" ? raisedAt : Date.now(), team);
+  if (key) {
+    sameWordsOnScreen.set(key, { model, id, team });
+    if (sameWordsOnScreen.size > SAME_WORDS_KEPT) sameWordsOnScreen.delete(sameWordsOnScreen.keys().next().value);
+  }
   if (model === timelineModel) { followBottom = true; scheduleRender(); }
 }
 
@@ -3836,19 +3907,19 @@ function flushWorkNotices() {
   if (!heldWorkNotices.length || !calmEnoughForANotice()) return;
   const pending = heldWorkNotices;
   heldWorkNotices = [];
-  for (const held of pending) sayWorkNotice(held.text, held.raisedAt, held.model);
+  for (const held of pending) sayWorkNotice(held.text, held.raisedAt, held.model, held.team, held.key);
 }
 
-function receiveWorkNotice(text, raisedAt, model = timelineModel) {
+function receiveWorkNotice(text, raisedAt, model = timelineModel, team = null, key = null) {
   if (!text) return;
   // HELD WITH ITS OWN TIME. A notice that waits for a turn boundary can wait minutes, and
   // stamping it at the moment the boundary arrives would misplace it for the same reason the
   // relaunch did.
   if (!calmEnoughForANotice()) {
-    heldWorkNotices.push({ text, raisedAt, model });
+    heldWorkNotices.push({ text, raisedAt, model, team, key });
     return;
   }
-  sayWorkNotice(text, raisedAt, model);
+  sayWorkNotice(text, raisedAt, model, team, key);
 }
 
 /// Everything he has not been told yet on this conversation. Called when a thread opens and
@@ -3866,11 +3937,81 @@ async function drainWorkNotices() {
     let pending;
     try { pending = await Bridge.invoke("take_work_notices", {threadId}); }
     catch (_) { return; } // Still durable; a later boundary can collect it.
-    for (const notice of pending || []) receiveWorkNotice(notice.text, notice.raisedAtMs, model);
+    for (const notice of pending || []) {
+      receiveWorkNotice(notice.text, notice.raisedAtMs, model, null, sameWordsKey(threadId, notice.assignmentId, notice.text));
+    }
   });
   workNoticeDrains.set(threadId, drain);
   try { await drain; }
   finally { if (workNoticeDrains.get(threadId) === drain) workNoticeDrains.delete(threadId); }
+}
+
+// ---------------------------------------------------------------------------------------
+// HIS TEAM, ON AN OPERATOR INSTALL — the operator-client record's §7 item 1 (richos-hq
+// docs/verification/2026-09-25-operator-client), `app/STREAMING.md` "His team, on an
+// operator install"
+// ---------------------------------------------------------------------------------------
+//
+// THE SAME TWO HALVES AND THE SAME THREE RULES AS THE WORK LANE ABOVE, deliberately through
+// the same functions rather than beside them. The durable half is
+// `<app data>/operator/<entity>/<thread>/notices.jsonl`, read and marked by
+// `take_operator_notices`; `rich://operator-notice` only wakes that read. Held while a turn
+// runs or voice is mid-sentence, flushed at the same two boundaries; placed by `at_ms`, when
+// it was said, not when he was told; an attributed local line, never Rich's own turn text.
+//
+// ONLY AN OPERATOR INSTALL EVER HAS ONE. On any other install the command answers an empty
+// list before it reads anything (`main.rs`, `take_operator_notices`: no desk, `Ok(vec![])`)
+// and the event is never emitted, so nothing here draws anything.
+
+/// The assignment's title, in his terms, if this window can read it; never its identifier.
+/// Only the conversation on screen is ever drained, and `rows` is that conversation's
+/// register as `get_assignments` answers it.
+function assignmentTitle(rows, handle) {
+  if (!handle) return null;
+  const row = (rows || []).find((r) => r.id === handle);
+  return row && row.title ? row.title : null;
+}
+
+/// The register to name the notices' assignments from. The three-second read usually has it
+/// already; on a thread just opened, or after a relaunch, it has not run yet, so ONE read is
+/// made — only when some notice names an assignment the window has not seen. A read that is
+/// refused (another conversation's turn holds the spine) costs the title and nothing else:
+/// the card is drawn without it.
+async function registerFor(threadId, pending) {
+  const known = assignments.rows || [];
+  const unknown = pending.some((n) => n && n.handle && !known.some((r) => r.id === n.handle));
+  if (!unknown) return known;
+  try {
+    const view = await Bridge.invoke("get_assignments", {threadId});
+    return view.assignments || known;
+  } catch (_) {
+    return known;
+  }
+}
+
+async function drainOperatorNotices() {
+  const model = timelineModel;
+  const threadId = activeThreadId;
+  if (!threadId || model.threadId !== threadId) return;
+  // Serialized per thread for the same reason the work lane's reads are.
+  const previous = operatorNoticeDrains.get(threadId) || Promise.resolve();
+  const drain = previous.then(async () => {
+    let pending;
+    try { pending = await Bridge.invoke("take_operator_notices", {threadId}); }
+    catch (_) { return; } // Still durable; a later boundary can collect it.
+    if (!pending || !pending.length) return;
+    // Marked told already: from here every notice is drawn, with or without its title.
+    const rows = await registerFor(threadId, pending);
+    for (const notice of pending) {
+      if (!notice || !notice.text) continue;
+      receiveWorkNotice(notice.text, notice.at_ms, model,
+        {kind: notice.kind, about: assignmentTitle(rows, notice.handle)},
+        sameWordsKey(threadId, notice.handle, notice.text));
+    }
+  });
+  operatorNoticeDrains.set(threadId, drain);
+  try { await drain; }
+  finally { if (operatorNoticeDrains.get(threadId) === drain) operatorNoticeDrains.delete(threadId); }
 }
 
 /// A line Rich says LOCALLY — a voice-mode failure he explains himself. Not a turn and not
@@ -4313,6 +4454,16 @@ Bridge.listen("rich://work-notice", ({ payload }) => {
   if (!payload || !payload.notice || !payload.notice.text) return;
   if (payload.threadId !== activeThreadId) return;
   drainWorkNotices();
+});
+
+/// **His team said something, pushed** (an operator install only; `app/STREAMING.md` "His
+/// team, on an operator install"). A wakeup for the durable read, exactly like the work
+/// lane's: the notice is on disk before this is emitted, so the read, not this payload, is
+/// what draws it and marks it told.
+Bridge.listen("rich://operator-notice", ({ payload }) => {
+  if (!payload || !payload.notice || !payload.notice.text) return;
+  if (payload.threadId !== activeThreadId) return;
+  drainOperatorNotices();
 });
 
 // Relay the reply stream to the speaker. Separate listeners so the render path above is

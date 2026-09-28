@@ -153,7 +153,45 @@ pub enum Answered {
 /// do not try again — it is his and he still has it.
 const NOT_APPROVED_YET: &str =
     "This is waiting for the CEO to approve it and has not been approved. Do not retry it \
-     and do not work around it: the request is in his queue and he will answer it.";
+     and do not work around it: the request is in his queue and he will answer it. End your \
+     turn now and say what is waiting on him; the app gives you another turn when he answers.";
+
+/// What a background call is told when an EARLIER step of the same assignment is already
+/// waiting on him with no call left to take his answer. Written for the model, like the one
+/// above: nothing ran, nothing was put in front of him, and the one useful move is to end
+/// the turn so his answer can be carried out.
+const STEP_ALREADY_WAITING: &str =
+    "Not run. An earlier step of this assignment is waiting for the CEO to approve it, and \
+     nothing else of this assignment runs until he answers. End your turn now and say what \
+     is waiting on him; the app gives you another turn when he answers, and you can ask for \
+     this then if it is still needed.";
+
+/// **How long one permission call waits for him: 300 s.** A background call then ends in
+/// *not approved* and the request stays on his screen (§5.7).
+///
+/// `RICHOS_PERMISSION_DEADLINE_MS` can SHORTEN it, to between 1 s and 300 s, and nothing can
+/// lengthen it. It exists for one caller: the test VM's walk of the late-approval path
+/// (`76e977dc`), which otherwise has to wait out the whole 300 s before his Approve can
+/// arrive late. The same shape as `RICHOS_CANCEL_GRACE_MS` (`native.rs`). The app's launcher
+/// sets no such variable, so an install behaves exactly as before; an override in effect is
+/// said on stderr at every call, so a log shows it.
+pub const PERMISSION_DEADLINE: Duration = Duration::from_secs(300);
+
+pub fn permission_deadline() -> Duration {
+    let value = std::env::var("RICHOS_PERMISSION_DEADLINE_MS").ok();
+    let deadline = permission_deadline_from(value.as_deref());
+    if deadline != PERMISSION_DEADLINE {
+        eprintln!("[richos] permission calls wait {} ms (RICHOS_PERMISSION_DEADLINE_MS)", deadline.as_millis());
+    }
+    deadline
+}
+
+fn permission_deadline_from(value: Option<&str>) -> Duration {
+    match value.and_then(|v| v.trim().parse::<u64>().ok()) {
+        Some(ms) if (1_000..=300_000).contains(&ms) => Duration::from_millis(ms),
+        _ => PERMISSION_DEADLINE,
+    }
+}
 
 /// What a background call is told when its assignment stopped underneath it.
 const ASSIGNMENT_GONE: &str =
@@ -276,11 +314,12 @@ impl PermissionDesk {
     }
 }
 impl ScopedPermissions {
-    pub fn decide(&self, request: &Value) -> PermissionDecision { self.wait(request,Duration::from_secs(300)) }
+    pub fn decide(&self, request: &Value) -> PermissionDecision { self.wait(request,permission_deadline()) }
     /// The same decision with a caller-supplied deadline. **Test scaffolding**, and it is
     /// here rather than in a test module because `work_host`'s tests need to raise a real
     /// request against the real desk — a second implementation of this path would be a test
-    /// asserting about itself. The shipping caller is [`Self::decide`], at 300 s.
+    /// asserting about itself. The shipping caller is [`Self::decide`], at 300 s
+    /// ([`permission_deadline`]).
     #[doc(hidden)]
     pub fn decide_within(&self, request: &Value, limit: Duration) -> PermissionDecision { self.wait(request,limit) }
     fn wait(&self, request: &Value, limit: Duration) -> PermissionDecision {
@@ -392,6 +431,19 @@ impl ScopedPermissions {
         // the moment it is read.
         if let Some(allowed)=PermissionDesk::take_standing(&mut desk,&binding,tool,&input) {
             return if allowed {allow()} else {deny("The CEO declined this step. Do not retry it and do not work around it.")};
+        }
+        // **ONE STEP OF AN ASSIGNMENT WAITS ON HIM AT A TIME, AND WHILE IT WAITS THE TURN
+        // ENDS** (esc-20260927T093052Z-85f3303f). His answer to a step whose call has already
+        // returned goes to the ASSIGNMENT, and the work host can only put the assignment back
+        // on the lease once this turn is over. A second request here would hold the turn for
+        // a whole deadline of its own — measured in the test VM: he approved the first
+        // command and nothing ran for 133.5-137.5 s, because the back end had gone on to ask for a
+        // different one. So it is refused at once and never put in front of him; the resumed
+        // run asks again if it still needs it. Another assignment's requests are untouched.
+        let key=assignment_key(&binding);
+        if is_background(&binding) && desk.queue.iter().any(|q| q.call_returned && q.decision.is_none()
+            && is_background(&q.request.binding) && assignment_key(&q.request.binding)==key) {
+            return deny(STEP_ALREADY_WAITING);
         }
         desk.queue.push(Queued{request:PermissionRequest{id:id.clone(),binding:binding.clone(),tool:tool.into(),
             input:input.clone(),description:request["description"].as_str().unwrap_or("").into(),reason:permission_reason(request),
@@ -547,6 +599,20 @@ impl ScopedPermissions {
 
     // ---- §5.7: the deadline stops the CALL, not the REQUEST -------------------------------
 
+    /// **The deadline is 300 s unless the test VM asks for less, and never more.**
+    /// `RICHOS_PERMISSION_DEADLINE_MS` exists so a walk can drive the late-approval path
+    /// (`76e977dc`) in the guest without waiting out 300 s; the same shape as
+    /// `RICHOS_CANCEL_GRACE_MS` (`native.rs`). It can shorten the wait and cannot lengthen it:
+    /// anything outside 1 s to 300 s, or not a number, is the shipping 300 s.
+    #[test] fn the_deadline_is_three_hundred_seconds_unless_a_walk_asks_for_less(){
+        assert_eq!(permission_deadline_from(None),Duration::from_secs(300));
+        assert_eq!(permission_deadline_from(Some("20000")),Duration::from_secs(20));
+        assert_eq!(permission_deadline_from(Some("1000")),Duration::from_secs(1));
+        for refused in ["999","0","-5","300001","3600000","twenty",""] {
+            assert_eq!(permission_deadline_from(Some(refused)),Duration::from_secs(300),"{refused:?} changed the deadline");
+        }
+    }
+
     /// **§5.7, and it is the test the acceptance step 7.6 rests on.** The call ends at its
     /// deadline in *not approved* — never in approval — and the request is still there
     /// afterwards. His later answer goes to the ASSIGNMENT, and the standing decision it
@@ -592,6 +658,55 @@ impl ScopedPermissions {
         // And it is still HIS: the different action is waiting for him, not thrown away.
         assert_eq!(desk.background_queue().len(),1);
         std::fs::remove_file(p).unwrap();
+    }
+
+    /// **A step that is already waiting on him ends the turn; it does not start a second
+    /// wait** (esc-20260927T093052Z-85f3303f, measured in the test VM on 2026-09-27).
+    ///
+    /// The back end asked for one command, its call ended at the deadline, and instead of
+    /// ending its turn it asked for a DIFFERENT command. That second request held the turn for
+    /// another full deadline, and the work host cannot put the assignment back on the lease
+    /// until the turn ends: he approved the first command and nothing ran for 133.5-137.5 s. So once
+    /// a step of this assignment is waiting on him with no call left to take his answer, a
+    /// further request on the SAME assignment is refused at once, is not put in front of him,
+    /// and tells the back end to end its turn.
+    ///
+    /// Controls in the same test: the waiting request is untouched and his later answer still
+    /// reaches the assignment; another assignment's request still waits for him as before.
+    #[test] fn a_step_already_waiting_on_him_ends_the_turn_instead_of_opening_a_second_wait(){
+        let desk=Arc::new(PermissionDesk::default());
+        let (p,work_lease)=joined(&desk,WORK_AUDIENCE,"obligation-7");
+        let first=work_lease.wait(&json!({"tool_name":"Bash","input":{"command":"sleep 95"}}),Duration::from_millis(30));
+        assert_eq!(first.behavior(),"deny");
+        assert_eq!(desk.background_queue().len(),1);
+        // A different command, on the same assignment, with a deadline long enough that a
+        // desk which queued it would visibly wait for it.
+        let started=Instant::now();
+        let second=work_lease.wait(&json!({"tool_name":"Bash","input":{"command":"cat /tmp/out.txt"}}),Duration::from_secs(3));
+        assert!(started.elapsed()<Duration::from_secs(1),
+            "the second request held the turn for {:?} while an earlier step was waiting on him", started.elapsed());
+        match &second {
+            PermissionDecision::Deny{message}=>assert!(message.contains("End your turn now"),"{message}"),
+            _=>panic!("a second step ran while the first was waiting on him"),
+        }
+        assert_eq!(desk.background_queue().len(),1,"the second request was put in front of him as well");
+        assert_eq!(desk.background_queue()[0].input["command"],"sleep 95");
+        // His answer to the first still reaches the assignment, and the resumed run takes it.
+        let answered=desk.resolve(&desk.background_queue()[0].id,true).unwrap();
+        assert!(matches!(answered,Answered::ToAssignment{allow:true,..}));
+        assert_eq!(work_lease.wait(&json!({"tool_name":"Bash","input":{"command":"sleep 95"}}),Duration::from_millis(30)).behavior(),"allow");
+        // CONTROL: another assignment is not held up by this one's waiting step. This one is
+        // put back into exactly that state first: a step waiting on him with no call left.
+        let (p2,other)=joined(&desk,WORK_AUDIENCE,"obligation-8");
+        assert_eq!(work_lease.wait(&json!({"tool_name":"Bash","input":{"command":"third"}}),Duration::from_millis(30)).behavior(),"deny");
+        assert_eq!(desk.background_queue().len(),1);
+        let call=ask(&other,"Bash",Duration::from_secs(3));
+        assert!(wait_for(||desk.background_queue().iter().any(|r|r.binding.turn_id=="obligation-8")),
+            "another assignment's request was refused because of this one");
+        let theirs=desk.background_queue().into_iter().find(|r|r.binding.turn_id=="obligation-8").unwrap();
+        desk.resolve(&theirs.id,true).unwrap();
+        assert_eq!(call.join().unwrap().behavior(),"allow");
+        std::fs::remove_file(p).unwrap();std::fs::remove_file(p2).unwrap();
     }
 
     /// His DECLINE, given after the call ended, is carried to the assignment the same way —

@@ -51,13 +51,21 @@ const REPLY_WAIT: Duration = Duration::from_secs(150);
 const SOCKET_PATH_LIMIT: usize = 103;
 
 /// **The front desk's operator addendum, served as this server's `instructions`** (Sage's text,
-/// richos-hq `tools-private/operator/front-desk-addendum.md` at `ff8e7d04`, copied verbatim;
+/// richos-hq `tools-private/operator/front-desk-addendum.md` at `f59342ee`, revised to Frank's
+/// F6, F14, F15 and F16, copied byte for byte; [`ADDENDUM_SHA256`] pins it;
 /// its notes' §3 item 8: *"where it lives is echo's wiring"*). `claude` places a server's
 /// instructions in the system prompt under "MCP Server Instructions" (the sentence that heads
 /// that block is in the 2.1.282 and 2.1.283 binaries), and this server exists only on an operator
 /// install's front desk, which is exactly the "operator mode only" the addendum asks for. It
 /// names the three tools below; a test holds the names together.
 pub const INSTRUCTIONS: &str = include_str!("../doctrine/operator-front-desk.md");
+
+/// SHA-256 of richos-hq `tools-private/operator/front-desk-addendum.md` at `f59342ee` (last
+/// changed in `3dc2ca74`), which this build serves. Re-derive it from richos-hq with
+/// `git show <commit>:tools-private/operator/front-desk-addendum.md | shasum -a 256`; a test
+/// holds [`INSTRUCTIONS`] to it, so a copy that drifted from Sage's text by one byte fails. The
+/// record lives in a private repository, so the digest is what this public tree can carry.
+pub const ADDENDUM_SHA256: &str = "b3b3cbf326ff6b6b46dd3d534e8c2c1a6011bf5ac7f351040a348d5acad5eafe";
 
 /// The scope the app writes for the front desk's turn. Everything a request could use to
 /// redirect itself is here, and none of it is a tool argument.
@@ -344,7 +352,7 @@ keep running, and any messages of his still queued run next. Use it when he asks
          "inputSchema": {"type": "object", "additionalProperties": false, "properties": {}}},
         {"name": READ_TOOL,
          "description": "What his team is doing: whether it is running here, its named agents and their status, its last \
-words, questions it asked him, and land leases it holds. `every`: true for every conversation, not only this one.",
+words, the questions it is still waiting on (asked, and no answer relayed yet), and land leases it holds. `every`: true for every conversation, not only this one.",
          "inputSchema": {"type": "object", "additionalProperties": false,
              "properties": {"every": {"type": "boolean"}}}}
     ]})
@@ -660,6 +668,28 @@ mod tests {
         }
         assert!(INSTRUCTIONS.contains("the read"), "the addendum's read is this server's `read`");
         assert!(INSTRUCTIONS.starts_with("## Operator mode: the other one is his own team"));
+    }
+
+    /// **The app serves Sage's current addendum, byte for byte** (Frank's F19: the addendum
+    /// ships only with an app build; Rich's order of 2026-09-26 to copy f59342ee's text).
+    #[test]
+    fn the_served_addendum_is_the_record_s_text_byte_for_byte() {
+        use sha2::Digest;
+        assert_eq!(format!("{:x}", sha2::Sha256::digest(INSTRUCTIONS.as_bytes())), ADDENDUM_SHA256);
+        // The revision's own lines (F14, F15), so a stale copy with a re-pinned digest still fails.
+        assert!(INSTRUCTIONS.contains("the read, with\n  `every`, is the one call before the stop"), "{INSTRUCTIONS}");
+        assert!(INSTRUCTIONS.contains("Say the sentence `stop` or `interrupt` hands back"), "{INSTRUCTIONS}");
+    }
+
+    /// **F16 of Frank's review:** the read lists only questions with no answer relayed yet
+    /// (`operator_host.rs` `read_one`), so its description says so, as the addendum does.
+    #[test]
+    fn the_read_tool_says_it_lists_the_questions_still_waiting() {
+        let listed = tools();
+        let read = listed["tools"].as_array().unwrap().iter().find(|t| t["name"] == READ_TOOL).unwrap();
+        let description = read["description"].as_str().unwrap();
+        assert!(description.contains("the questions it is still waiting on"), "{description}");
+        assert!(!description.contains("questions it asked him"), "{description}");
     }
 
     #[test]

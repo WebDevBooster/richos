@@ -134,6 +134,9 @@ public final class AppStore {
         case .voicePress, .voiceStartLocked: recordingProblem = nil
         case .backgrounded:
             foreground = false
+            if state.outbox.contains(where: { $0.state == .sending && ($0.questionID != nil || $0.clientID.hasPrefix("seen-question:")) }) {
+                deliveryTask?.cancel()
+            }
             historyGeneration &+= 1
             historyTask?.cancel()
             historyTask = nil
@@ -408,7 +411,11 @@ public final class AppStore {
 
     private func deliver(_ id: String, snapshot: AppState) async -> [Action] {
         guard let item = snapshot.outbox.first(where: { $0.clientID == id }) else { return [] }
-        if !completionActive, foreground {
+        let questionOperation = item.questionID != nil || item.clientID.hasPrefix("seen-question:")
+        if questionOperation && !foreground {
+            return [.deliveryFailed(clientID: id, failure: .retryable(reason: "background", afterMs: 0), at: SystemClock().nowMs())]
+        }
+        if !completionActive, foreground, !questionOperation {
             completionActive = true
             completionReservation = await runner.reserveCompletion()
         }

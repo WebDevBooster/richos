@@ -28,6 +28,13 @@ type, Home, lock and screenshot goes through one XCUITest check that executes a 
 end on the phone's clock, which this tool collects. A failed step stops the list; nothing is
 retried. Validation happens here, before anything is built, so a typo costs a second, not a build.
 
+First launch of a newly signed development app can require Apple's online verification.
+On the physical SE on 2026-09-27, Xcode reported an untrusted certificate but the icon showed
+"Unable to Verify App" and Settings had no Developer App profile. One tap on the app icon while
+the phone was online resolved it. If that exact refusal occurs, inspect the launch error and
+provisioning profile first, then request that one hand step once before retrying. Do not send
+the person searching for a trust profile that is absent or repeatedly retry the unchanged refusal.
+
 Steps are JSON objects with "do" and, where needed, "id" (accessibility identifier), "label"
 (substring of the accessibility label) or "kind" ("switch" or "button": the first one), "in":
 "springboard" for system UI or "tailscale" for the route's own app, "timeout" (s) and "optional":

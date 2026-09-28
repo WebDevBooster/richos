@@ -69,6 +69,8 @@ struct ScreenView: View {
     @State private var zoneTop: CGFloat = 700
     @State private var showsLatest = false
     @State private var jumpToken = 0
+    @State private var questionJumpToken = 0
+    @State private var questionJumpID: String?
     @State private var aboveHeight: CGFloat = 0
     /// Whether the CURRENT model has a sheet. SwiftUI may call the setter of the binding it was first
     /// given, whose captured model is stale; this box always holds the latest answer.
@@ -149,7 +151,7 @@ struct ScreenView: View {
                 TranscriptView(
                     transcript: model.thread, palette: palette,
                     topInset: headerBottom + 16, bottomInset: max(0, fullHeight - zoneTop) + 20,
-                    calendar: clock.calendar, now: clock.now, jumpToken: jumpToken, send: send,
+                    calendar: clock.calendar, now: clock.now, jumpToken: jumpToken, questionJumpToken: questionJumpToken, questionJumpID: questionJumpID, send: send,
                     onShowsLatest: { shows in
                         DispatchQueue.main.async { withAnimation(Motion.latest) { showsLatest = shows } }
                     })
@@ -217,6 +219,24 @@ struct ScreenView: View {
                     .transition(.opacity)
             }
             VStack(spacing: 8) {
+                let openQuestions = model.thread.rows.filter { if case .question(let q, _, let saved, _) = $0.body { return q.state == "open" && saved == nil }; return false }
+                if let oldest = openQuestions.first {
+                    Button("\(openQuestions.count) question\(openQuestions.count == 1 ? "" : "s") open") {
+                        send(.setFollowing(false))
+                        questionJumpID = oldest.listID
+                        questionJumpToken += 1
+                    }
+                    .type(Typography.read.weight(500)).foregroundStyle(Palette.for(model.appearance).ink)
+                    .padding(.horizontal, 16).frame(minHeight: 44)
+                    .background(Capsule().fill(Palette.for(model.appearance).surface))
+                    .overlay(Capsule().stroke(model.appearance == .dark ? Palette.sovereign.ink.opacity(0.46) : Palette.daybreak.trim, lineWidth: 1))
+                    .buttonStyle(.plain).accessibilityIdentifier("questions.open")
+                }
+                if !model.recoveredQuestionAnswers.isEmpty {
+                    ScrollView {
+                        ForEach(model.recoveredQuestionAnswers, id: \.self) { answer in Text(answer).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+                    }.frame(maxHeight: height * 0.2)
+                }
                 if !model.cards.isEmpty || model.toast != nil {
                     ScrollViewReader { region in
                         ScrollView {

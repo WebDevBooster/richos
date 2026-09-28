@@ -323,3 +323,22 @@ session**, not this one.
 | `ass-kicker/guard-stated-actions.py` | a (was b-decides) | tool calls + the orchestrator's own final message | no | 614: the idle.hold_signal(turn["said"]) call DELETED this commit |
 | `ass-kicker/brief-scope.py` | a | TOOL INPUT — the orchestrator's own Agent brief | no | `ti.get("prompt")` at 876, where `ti` is tool_input: the brief Rich wrote, not a message the CEO typed |
 | `ass-kicker/brief-provenance.py` | a | TOOL INPUT — the orchestrator's own Agent brief | no | `ti.get("prompt")` at 1448, where `ti` is tool_input: the brief Rich wrote, not a message the CEO typed |
+
+## Addendum, 2026-09-26: two hooks added after this audit, classified the same way
+
+**Not audited at `dd6fb305`.** These rows were added when the hooks were written, by their author,
+using this page's classes. They are a declaration for the next audit to check, not a finding of
+this one.
+
+The operator asked, on 2026-09-26, what must always happen whenever he mentions the words "type"
+and "failure" close to each other. That rule is stated in terms of his WORDS, so reading his
+message for those two words is the rule itself, not an inference about what he meant. The class is
+the one this page already uses for `scripts/hooks/commit-ceo-inputs.sh`: a literal reference
+recognized in his message, acted on. Nothing in either file classifies intent, tone or topic, and
+neither decides which failure type applies; that judgment stays with the lead.
+
+| file | class | reads | decides from his words? | evidence |
+|---|---|---|---|---|
+| `scripts/hooks/failure-type-lookup.sh` | b-literal | HIS PROMPT, for two words | yes, literally: whether an inflection of "type" and one of "failure" are within six words; if so, the register's list is injected and an obligation recorded | `scripts/lib/failure-type.py` 410 `prompt = payload.get("prompt")`, 413 `trigger(prompt)` |
+| `scripts/hooks/guard-failure-type-answer.sh` | b-literal | his turns in the transcript (origin human, the `left-off.py` predicate), for the same two words; everything else it checks is the lead's tool calls, reply and git | yes, literally, the same predicate; the refusal itself is decided by what the lead did (read, named, committed) | `scripts/lib/failure-type.py` 522 `lo.is_human(rec)`, 665 `trigger(text)` |
+| `scripts/lib/failure-type.py` | b-literal | both of the above | as above | the predicate is `trigger()`; its window and word lists are constants at the top of the file |

@@ -68,6 +68,9 @@
 #            each falls back to the status-line file and says why
 #   G07      --watch takes a fresh get_usage at every poll, so a status-line
 #            file ten minutes old wakes nobody
+#   G09      get_usage refused with "Login expired": the login alarm is raised
+#            (sandboxed: a recorder, never the CEO's notification center)
+#   G10      any other refusal raises no login alarm
 #   G08      get_usage failing: a stale status-line file still wakes the lead
 #   R04      this morning's 91% (07:57Z) to 95% (08:07Z), lead idle: through
 #            get_usage the pause fires before 08:07Z under 95%, no wake needed
@@ -166,6 +169,23 @@ export QUOTA_WATCH_STALE_SECONDS=30
 export QUOTA_CLAUDE_BIN="$SB/no-claude-here"
 # Reset integration has its own fake-transport suite; never contact the real account here.
 export QUOTA_RESET_HELPER=/usr/bin/false
+# The login alarm (G09) is sandboxed whole: never the CEO's notification center,
+# transcripts, keychain or escalation ledger.
+export LOGIN_ALARM_PROJECTS_DIR="$SB/la-projects"
+export LOGIN_ALARM_STATE="$SB/la-state/login-alarm.json"
+export LOGIN_ALARM_SECURITY="$SB/la-security"
+export LOGIN_ALARM_NOTIFY_CMD="$SB/la-notify"
+export RICHOS_ESCALATION_LEDGER="$SB/la-escalations.jsonl"
+mkdir -p "$LOGIN_ALARM_PROJECTS_DIR"
+cat >"$SB/la-security" <<'SH'
+#!/bin/sh
+exit 44
+SH
+cat >"$SB/la-notify" <<'SH'
+#!/bin/sh
+printf '%s|%s\n' "$1" "$2" >>"$(dirname "$0")/la-notified"
+SH
+chmod +x "$SB/la-security" "$SB/la-notify"
 FAKE="$SB/fake"
 SID="beadfeed-0000-4000-8000-00000000q001"
 export RICHOS_SESSION_ID="$SID"
@@ -359,6 +379,11 @@ for line in sys.stdin:
         body, sub = {}, "success"
     elif mode == "error":
         body, sub = {}, "error"
+    elif mode == "autherr":
+        print(json.dumps({"type": "control_response",
+                          "response": {"subtype": "error", "request_id": v["request_id"],
+                                       "error": "Login expired · Please run /login"}}), flush=True)
+        continue
     elif mode == "unavailable":
         body, sub = {"rate_limits_available": False}, "success"
     else:
@@ -415,6 +440,24 @@ fake eof; gonce
 check "G06  an unreadable answer and an early close both fall back to the status-line file, each saying why" \
     "$([ "$RCG" -eq 0 ] && printf '%s' "$OUTG" | grep -q 'cannot read' && [ "$RC" -eq 0 ] \
        && printf '%s' "$OUT" | grep -q 'closed its output'; echo $?)" "garbage: rc=$RCG $OUTG // eof: rc=$RC $OUT"
+
+fi
+
+# G09 / G10: a refusal that says the login is dead raises the login alarm (a
+# sandboxed notification and escalation); any other refusal does not. Each has
+# its own fresh status-line reading so it runs alone under its focus.
+if wants "G09" || wants "G10"; then
+write_payload 50 3600 10
+fake autherr; rm -f "$SB/la-notified"; gonce
+check "G09  get_usage refused with 'Login expired': the fallback still reads, and the login alarm is raised once (CEO notified, lead escalation)" \
+    "$([ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'Login expired.*login alarm raised' \
+       && [ "$(wc -l <"$SB/la-notified" 2>/dev/null | tr -d ' ')" = 1 ] \
+       && grep -q 'from quota-watch' "$RICHOS_ESCALATION_LEDGER"; echo $?)" \
+    "rc=$RC out=$OUT notified=$(cat "$SB/la-notified" 2>/dev/null)"
+fake error; rm -f "$SB/la-notified"; gonce
+check "G10  a refusal that is not a dead login raises no login alarm" \
+    "$([ "$RC" -eq 0 ] && [ ! -f "$SB/la-notified" ] && ! printf '%s' "$OUT" | grep -q 'login alarm'; echo $?)" \
+    "rc=$RC out=$OUT"
 
 fi
 

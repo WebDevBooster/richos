@@ -16,9 +16,10 @@
 #   tailnet=<dnsname|not-joined>
 #
 # Each --vm name is an INDEPENDENT guest cloned from the provisioned base, so
-# two agents can each run.sh with different names and get a window each, at the
-# same time, neither touching the host's screen. That parallelism is the point:
-# on-screen proofs used to be a queue of one behind the CEO's working day.
+# two runs can each have a guest and a window, at the same time, neither touching
+# the host's screen. That parallelism is the point: on-screen proofs used to be a
+# queue of one behind the CEO's working day. Each of the two runs holds one guest
+# slot (slots.py) for its own length only; this script refuses to boot outside one.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/lib.sh"
@@ -51,6 +52,19 @@ fi
 [ -d "$FIXTURE_HOME" ] || die "no such fixture home: $FIXTURE_HOME"
 [ "$VM" != "$TESTVM_BASE_VM" ] || die "refusing to run in the base VM — it is the template every clone comes from"
 
+# --- a guest boots only inside a slot, for exactly one run --------------------
+# The CEO, 2026-09-27: *"do I want the work to be BLOCKED AND PISSED AWAY like this because
+# the current worker might need the VM for a 5-second-long fart?"* A guest booted here by
+# hand is a guest nobody else can see or be scheduled around, kept up while its owner
+# thinks. So this boots only for a caller that holds one of the two guest slots
+# (slots.py): run-walk.py, run-probes.py, gui-proof-in-vm.sh, or `slots.py run -- ...`.
+# The slot is recorded in the run state below, and a slot released with its guest still
+# up stops that guest (a guest never outlives its slot).
+SLOT="$(python3 "$HERE/slots.py" check 2>&1)" || die "no guest is booted outside a guest slot: $SLOT.
+  Put the steps in a script that takes the VM name as its first argument and run it once:
+    $HERE/run-walk.py --bundle <zip> --home <home> --engine <engine> --report <json> -- <script>
+  The slot is held for that run only and is free again the moment it ends."
+
 # --- 0. what this host can give the guest, asked BEFORE anything boots --------
 # Both of these are properties of THIS Mac, so they are answered before a 25 GB
 # clone exists to clean up. A guest gets the host's claude binary and the host's
@@ -68,6 +82,7 @@ vm_exists "$TESTVM_BASE_VM" || die "base VM missing — run testvm/setup.sh firs
 
 STATE="$TESTVM_RUN/$VM"
 mkdir -p "$STATE"
+printf '%s\n' "$SLOT" > "$STATE/slot"
 
 # --- 1. an ephemeral clone ----------------------------------------------------
 # Cloning is copy-on-write on APFS: a new guest costs seconds and almost no
@@ -306,6 +321,18 @@ fi
 # asked to. It says so here rather than at the first model turn.
 CLAUDE_LOGIN_LINE="$("$HERE/claude-login.sh" push "$VM" "$GUEST_HOME")" || true
 printf '%s\n' "$CLAUDE_LOGIN_LINE" >&2
+# The keeper: for the run's lifetime, each access token THIS Mac renews is
+# handed to the guest, so a run longer than one token's remaining life keeps
+# working without the guest ever holding a refresh token (claude-login.sh, "A
+# LONG RUN OUTLIVES ONE ACCESS TOKEN"). Its pid is recorded here and stop.sh
+# ends exactly that pid; it also ends by itself once this run's state is gone.
+# Nothing it prints reaches this script's output (a caller reading run.sh's
+# pipe must not wait on it).
+if [ "$CLAUDE_LOGIN_LINE" = "claude login: guest logged in" ]; then
+  nohup "$HERE/claude-login.sh" keep "$VM" "$GUEST_HOME" \
+    >>"$STATE/claude-keep.log" 2>&1 </dev/null &
+  echo $! > "$STATE/claude-keep.pid"
+fi
 
 if [ -n "$ENGINE" ] && [ -e "$ENGINE" ]; then
   log "copying the engine payload in..."
@@ -378,12 +405,24 @@ LOGFILE="$PAYLOAD/app.log"
 # which is where a window can actually exist. --env carries the environment the
 # host QA recipe uses, so the app under test is configured identically.
 #
+# TESTVM_APP_MODEL, when set (for example `sonnet`), is handed to the app as ANTHROPIC_MODEL,
+# which every `claude` it starts inherits: a walk that only needs the app's machinery to run can
+# spend a cheaper model. The app passes `--setting-sources ''`, so a settings file in the
+# fixture home cannot do this. Unset, nothing changes.
+#
 # DISABLE_AUTOUPDATER=1 is on the launch, and it is not decoration: `claude`
 # updates ITSELF, and a `claude` that updated itself mid-walk would silently
 # stop being the version step 2a just measured and printed. The env var is the
 # only pin that holds for a native install — the `autoUpdates:false` config key
 # is ignored once `autoUpdatesProtectedForNative` is set, which the native
 # updater sets itself. Reasoning and the quoted check: lib.sh, TESTVM_CLAUDE_PIN.
+APP_MODEL_ENV=""
+if [ -n "${TESTVM_APP_MODEL:-}" ]; then
+  APP_MODEL_ENV="--env ANTHROPIC_MODEL='$TESTVM_APP_MODEL'"
+fi
+# TESTVM_APP_ENV, when set, adds the app's own test knobs to this launch (lib.sh app_env_args,
+# which refuses anything but RICHOS_ names and plain values). Unset, nothing changes.
+APP_EXTRA_ENV="$(app_env_args "${TESTVM_APP_ENV:-}")" || die "TESTVM_APP_ENV was refused; nothing was launched"
 log "launching the app in the guest's GUI session..."
 guest_ssh "$VM" "rm -f '$LOGFILE'; \
   open -n -a '$APP' \
@@ -393,6 +432,8 @@ guest_ssh "$VM" "rm -f '$LOGFILE'; \
     --env RICHOS_CLAUDE_BIN='$TESTVM_GUEST_CLAUDE' \
     --env $TESTVM_CLAUDE_PIN_VAR=$TESTVM_CLAUDE_PIN_VALUE \
     ${ENGINE:+--env RICHOS_ENGINE_DIR='$PAYLOAD/engine'} \
+    $APP_MODEL_ENV \
+    $APP_EXTRA_ENV \
     --stdout '$LOGFILE' --stderr '$LOGFILE'"
 
 # Wait for the process, then for a WINDOW. A pid is not a proof: the app can be

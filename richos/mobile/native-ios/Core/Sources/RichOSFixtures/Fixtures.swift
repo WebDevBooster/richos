@@ -24,7 +24,19 @@ public struct Fixture: Sendable {
     }
 
     public static let all: [Fixture] = pairing + conversation + composer + voiceHold + voiceLock + recovery
-        + connection + notifications + settings + updates + launch
+        + connection + notifications + settings + updates + launch + questions
+
+    // Round 13 can be opened through the same CLI and native fixture bridge.
+    static let questions: [Fixture] = [Fixture(name: "ask-open", state: paired { s in
+        s.messages = []
+        s.mac?.questionAnswers = true
+        s.connectionNotice = .phoneOffline
+        let wire = #"{"id":"release-question","thread_id":"thr_5c1e","text":"When should the release ship?","options":[{"id":"today","label":"Ship today","description":"Earlier fixes"},{"id":"tomorrow","label":"Ship tomorrow","description":"More testing"}],"multiple":false,"free_answer":true,"recommended":"tomorrow","state":"open","revision":0,"delivered":false,"asker":"Rich"}"#
+        let q = try! JSONDecoder().decode(QuestionCard.self, from: Data(wire.utf8))
+        var m = Message(id: q.id, author: .rich, text: q.text, sentAt: Conversation.at(9, 41))
+        m.question = q
+        s.messages = [m]
+    })]
 
     // MARK: builders
 
@@ -347,6 +359,19 @@ public struct Scenario: Sendable {
     static let t0 = Conversation.at(9, 41)
 
     public static let all: [Scenario] = [
+        Scenario(name: "question-offline-edit", steps: [
+            Command(.fixture, name: "ask-open"),
+            Command(.action, action: .compose(text: "Keep this draft")),
+            Command(.action, action: .answerQuestion(id: "release-question", options: ["today"], text: "", revision: nil, clientID: "first-answer", at: t0)),
+            Command(.restart),
+            Command(.action, action: .answerQuestion(id: "release-question", options: ["tomorrow"], text: "", revision: 0, clientID: "edited-answer", at: t0 + 1)),
+            Command(.restart)
+        ], check: { s in
+            try require(s[2].outbox.count == 1 && s[2].draft == "Keep this draft", "answer saves without consuming the composer")
+            try require(s[3].outbox[0].body == s[2].outbox[0].body, "restart preserves exact answer bytes")
+            try require(s[4].outbox.count == 1 && s[4].outbox[0].questionAnswerText == "Ship tomorrow", "explicit edit replaces only the unattempted answer")
+            try require(s[5].outbox[0].body == s[4].outbox[0].body && s[5].draft == "Keep this draft", "edited answer and composer survive restart")
+        }),
         // A send that fails, waits its backoff, is interrupted by a relaunch mid-flight, and is
         // accepted on the resend — with the SAME body bytes throughout (contract §5.2, §6.4).
         Scenario(name: "outbox-retry", steps: [

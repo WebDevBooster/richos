@@ -758,9 +758,33 @@ Added 2026-09-26 with the shell wiring of the operator back end (the operator-cl
 
 **The same two halves as `rich://work-notice`, for the same reason.** The notice is appended to
 `<app data>/operator/<entity>/<thread>/notices.jsonl` before this is emitted, and
-`take_operator_notices` reads AND marks the durable copy. The surface that renders these (the
-record's item 4) is not built yet; until it is, the durable copy keeps every notice and this
-event reaches nobody, which loses nothing.
+`take_operator_notices` reads AND marks the durable copy.
+
+**The surface** (`ui/main.js` "HIS TEAM, ON AN OPERATOR INSTALL", drawn by `ui/timeline.js`'s
+`renderLocalNotice`, proved by `ui/tests/operator-notice.js`) keeps the work lane's three rules
+through the work lane's own functions: held while a turn runs or voice is mid-sentence and
+drawn at the boundary; placed by `at_ms`; an attributed local line, never Rich's own turn text.
+The durable read runs when a conversation opens, at every turn boundary, and on this event.
+What it adds is the from-line above the words, chosen by `kind` and never by parsing the text:
+
+| `kind` | From-line | Left rule |
+|---|---|---|
+| `update` | Your team | `--attention` |
+| `question` | Your team asks you | `--attention` |
+| `answer` | Your team answered | `--attention` |
+| `outcome` | Your team reported back (never "done": what landed is in its own words) | `--attention` |
+| `failed` | Your team could not finish | `--danger` |
+| `alarm` | Alarm (his engine's, not his team's) | `--danger` |
+| `team` | About your team (RichOS speaking about it, as "I") | `--attention` |
+
+An unknown `kind` is drawn as "About your team". When `handle` names an assignment the window
+can read, its title follows the from-line; the handle itself never reaches the screen.
+
+**One report, one card.** A report that closes an assignment is raised on the assignment's
+record (the work lane) AND said here, with the same words (`operator_host.rs`
+`settle_handle`). The surface keys each line by conversation, assignment and exact words;
+whichever lane arrives second draws nothing, and if it is this one, the card already on screen
+gains the from-line. A line with no `handle` is never merged.
 
 ## Quitting while work runs: `rich://quit-question`
 

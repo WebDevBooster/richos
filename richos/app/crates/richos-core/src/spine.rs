@@ -549,6 +549,10 @@ pub struct Spine {
     /// the moment the turn ends. Rotation NEVER happens inside a turn.
     turn_in_progress: bool,
     queue: VecDeque<Queued>,
+    /// **The conversations whose turns have ENDED since the shell last asked** — one binding
+    /// per thread, in the order their first turn ended. See [`Spine::take_ended_turns`].
+    ended_turns: Vec<ThreadBinding>,
+    input_channels: std::collections::HashMap<String,String>,
     /// Set true once the current lease has been re-primed (continuity foundation).
     lease_primed: bool,
     lease_primed_thread: Option<String>,
@@ -593,6 +597,9 @@ pub struct Spine {
     /// If set while a turn is in flight, honored at the NEXT turn boundary instead of
     /// firing mid-turn.
     pending_rotation_reason: Option<String>,
+    /// Since when a due watermark renewal has waited for a command the lease started (the
+    /// product reap gap design C6, the same rule as `work_host.rs`'s back end).
+    rotation_deferred_since: Option<std::time::Instant>,
     /// **Keep the mouth his words came through on each prompt record** (operator back-end
     /// spec r3 (s)). Off unless the shell turns it on, which it does only on an install whose
     /// `operator.json` passed the gate at launch, so every product install writes exactly the
@@ -788,6 +795,8 @@ impl Spine {
             onboarding_record: None,
             onboarding_primed_block: None,
             queue: VecDeque::new(),
+            ended_turns: Vec::new(),
+            input_channels: std::collections::HashMap::new(),
             lease_primed: false,
             lease_primed_thread: None,
             observer: None,
@@ -800,6 +809,7 @@ impl Spine {
             context_window_tokens: DEFAULT_CONTEXT_WINDOW_TOKENS,
             watermark_ratio: DEFAULT_WATERMARK_RATIO,
             pending_rotation_reason: None,
+            rotation_deferred_since: None,
             keep_intake_channel: false,
             pending_proactive_emits: VecDeque::new(),
             rotation_count: 0,
@@ -2696,7 +2706,10 @@ impl Spine {
                     }
                 };
                 self.lease.as_mut().ok_or(SpineError::NoLease)?
-                    .prepare_work_turn(binding, turn_id, self.ledger.turn(turn_id).ok_or_else(|| SpineError::NoLease)?.source, text, &mut on_item).map_err(SpineError::from)
+                    .prepare_work_turn(binding, turn_id, self.ledger.turn(turn_id).ok_or_else(|| SpineError::NoLease)?.source, text, &mut on_item).map_err(SpineError::from)?;
+                let channel = self.input_channels.get(turn_id).cloned()
+                    .or_else(|| self.ledger.turn(turn_id).and_then(|turn| turn.channel.clone()));
+                self.lease.as_mut().ok_or(SpineError::NoLease)?.set_input_channel(channel.as_deref()).map_err(SpineError::from)
             })
         };
         let stopped_before_prompt = self.control.stop_claim_for(turn_id).is_some();
@@ -2957,6 +2970,9 @@ impl Spine {
                 // of a failure, which is what silence looks like.
                 self.upstream_budget.succeeded();
                 self.ledger.complete_turn(turn_id, &stop_reason)?;
+                if stop_reason == "question_asked" {
+                    self.pending_rotation_reason=Some("question_asked".into());
+                }
                 self.emit(StreamEvent::TurnCompleted {
                     thread_id: thread_id.to_string(),
                     turn_id: turn_id.to_string(),
@@ -3373,6 +3389,7 @@ impl Spine {
                     // **The one line where the mouth survives** (operator back-end spec r3 (s)).
                     // Kept only when this install keeps it; see `record_prompt`.
                     let turn_id = self.record_prompt(&binding, &text, Source::Text, None, Some(id), &channel)?;
+                    self.input_channels.insert(turn_id.clone(), channel);
                     self.emit_live(self.turn_status_event(&binding, &turn_id, TurnStatus::Queued, None));
                     self.emit_live(self.ceo_message_event(&binding, &turn_id));
                     self.emit_live(self.thread_summary_event(&binding, &turn_id, ThreadStatus::Queued));
@@ -3458,12 +3475,48 @@ impl Spine {
     ///
     /// Returns what `drain_queue` returns: the turn runs to completion inside this call,
     /// exactly as it does for a desktop prompt.
+    pub fn queue_question_answer(&mut self,delivery:&crate::questions::Delivery)->Result<String,SpineError> {
+        let binding=self.fence_binding(&delivery.thread_id)?;
+        if binding.entity_id().as_str()!=delivery.entity_id {return Err(SpineError::Steering("Question scope mismatch".into()));}
+        let turn_id=self.ledger.record_question_answer(&binding,delivery)?;
+        if self.ledger.turn(&turn_id).is_some_and(|t|t.state==crate::ledger::TurnState::Received)
+            && !self.queue.iter().any(|q|q.turn_id==turn_id) {
+            if delivery.set_id.is_none(){self.emit_live(self.ceo_message_event(&binding,&turn_id));}
+            self.queue.push_back(Queued{turn_id:turn_id.clone(),binding,text:delivery.text.clone(),intake_id:None});
+        }
+        Ok(turn_id)
+    }
+
     pub fn poll_intake(&mut self) -> Result<(), SpineError> {
         if self.turn_in_progress {
             return Ok(());
         }
         self.drain_intake()?;
         self.drain_queue()
+    }
+
+    /// **Every conversation whose turn has ended since this was last asked, and the list
+    /// emptied.** The shell's one question at every turn boundary: which conversations may
+    /// now start the work Rich wrote down during them (`WorkHost::adopt_registered`,
+    /// background-work spec §7.1: *"`prepare` runs on the work lease after the turn has
+    /// ended"*).
+    ///
+    /// **Why the spine answers it and the caller does not guess.** The typed send used to
+    /// adopt for the thread that was active afterwards, and the spoken turn and the phone's
+    /// drain adopted for nothing (esc-20260926T083231Z-23865924): a task he gave aloud or
+    /// from the phone sat `Registered` until he next typed. Worse, one call here can run
+    /// turns on several conversations — `poll_intake` drains every record on the log, a
+    /// turn's boundary drains what arrived during it, the boot reconciliation and the front
+    /// desk's priming drain what was waiting — and only `after_turn_boundary` sees each of
+    /// them end. So each ending is written down there, and every entrance asks here after
+    /// its call and adopts for all of them, with the spine released first (§0 row 3).
+    ///
+    /// A turn that FAILED is on the list too: a registration written before the failure is
+    /// still a receipt he was given, and `adopt_registered` is a directory read that adopts
+    /// only `Registered` rows and each one once. Nothing here retries or restarts anything
+    /// (spec §6.3).
+    pub fn take_ended_turns(&mut self) -> Vec<ThreadBinding> {
+        std::mem::take(&mut self.ended_turns)
     }
 
     /// Startup reconciliation: apply stop requests that outlived the process.
@@ -3492,6 +3545,12 @@ impl Spine {
                 continue;
             }
             let binding = self.fence_binding(&turn.thread_id)?;
+            if turn.state == crate::ledger::TurnState::Received && (id.starts_with("question-answer:") || id.starts_with("question-followup:")) {
+                if !self.queue.iter().any(|q|q.turn_id==id) {
+                    self.queue.push_back(Queued{turn_id:id.clone(),binding,text:turn.user_text.clone(),intake_id:None});
+                }
+                continue;
+            }
             self.ledger.interrupt_turn_after_restart(&id, "RichOS closed before this request finished. Your message is saved; send it again to retry.")?;
             self.emit_live(self.turn_status_event(&binding, &id, TurnStatus::Failed, None));
             self.emit_live(self.thread_summary_event(&binding, &id, ThreadStatus::Failed));
@@ -3519,6 +3578,15 @@ impl Spine {
     /// directly or from draining the queue — both call sites only reach here once
     /// `turn_in_progress` is false, so nothing below ever runs mid-turn.
     fn after_turn_boundary(&mut self, binding: &ThreadBinding) -> Result<(), SpineError> {
+        // FIRST, before anything below can fail: this turn has ended, whatever it ended in,
+        // so the work it wrote down may now start (`take_ended_turns`, background-work §7.1).
+        if !self.ended_turns.iter().any(|known| known.thread_id() == binding.thread_id()) {
+            self.ended_turns.push(binding.clone());
+        }
+        // Keep transient phone provenance through an in-process lease recovery, then
+        // release it at the boundary. Product installs still write no channel to the ledger.
+        self.input_channels.retain(|id, _| self.ledger.turn(id).is_some_and(|turn|
+            matches!(turn.state, crate::ledger::TurnState::Received | crate::ledger::TurnState::InFlight)));
         self.flush_pending_proactive_emits();
         // The CEO's two mid-turn controls settle HERE, at the boundary, and in this order.
         //
@@ -3838,11 +3906,13 @@ impl Spine {
         // A replay re-issues HIS words, so on an install that keeps the mouth it keeps the
         // original's; one that was never recorded stays unrecorded rather than becoming the
         // desk's (operator back-end spec r3 (s)).
-        let original_channel = self.ledger.turn(failed_turn_id).and_then(|t| t.channel.clone());
-        let replay_turn_id = match original_channel.filter(|_| self.keep_intake_channel) {
+        let original_channel = self.input_channels.get(failed_turn_id).cloned()
+            .or_else(|| self.ledger.turn(failed_turn_id).and_then(|t| t.channel.clone()));
+        let replay_turn_id = match original_channel.clone().filter(|_| self.keep_intake_channel) {
             Some(channel) => self.record_prompt(binding, original_text, Source::Text, None, None, &channel)?,
             None => self.ledger.record_prompt_received(binding, original_text, Source::Text)?,
         };
+        if let Some(channel) = original_channel { self.input_channels.insert(replay_turn_id.clone(), channel); }
         self.ledger.mark_turn_superseded(failed_turn_id, &replay_turn_id)?;
         self.emit_live(self.turn_status_event(
             binding, &replay_turn_id, TurnStatus::Queued, Some(failed_turn_id.to_string()),
@@ -4120,7 +4190,21 @@ impl Spine {
             self.resume_front_desk(binding.thread_id());
         }
         if let Some(reason) = self.pending_rotation_reason.take() {
-            if self.lease.is_some() {
+            // **A WATERMARK RENEWAL WAITS FOR A COMMAND THE LEASE STARTED** (reap gap C6).
+            // Retiring the lease ends its tool commands, and a renewal is invisible, so one due
+            // only to the watermark is held while the lease's supervisor shows a command
+            // running (or cannot say), up to `work_host::ROTATION_WAITS_FOR_COMMANDS`. An
+            // explicit or context-critical rotation is not held.
+            use crate::lease_commands::CommandReading;
+            let commands = self.lease.as_ref().and_then(|lease| lease.running_commands());
+            let holding = reason == "context-watermark"
+                && matches!(commands, Some(CommandReading::Running(_) | CommandReading::Unreadable));
+            let waited = holding.then(|| self.rotation_deferred_since.get_or_insert_with(std::time::Instant::now).elapsed());
+            if waited.is_some_and(|waited| waited < crate::work_host::ROTATION_WAITS_FOR_COMMANDS) {
+                eprintln!("[richos] front desk: renewal deferred while a command it started is running ({commands:?})");
+                self.pending_rotation_reason = Some(reason);
+            } else if self.lease.is_some() {
+                self.rotation_deferred_since = None;
                 self.rotate_lease(binding, &reason)?;
                 spawned = true;
             }

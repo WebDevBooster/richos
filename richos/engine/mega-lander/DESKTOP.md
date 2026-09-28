@@ -74,7 +74,10 @@ For an authorized implementation assignment:
    `richos_work.complete` with every final worker receipt.
    It refuses unresolved execution, omitted workers or missing review/integration
    evidence. Do not use it for unrelated business outcomes. Report partial results
-   and unresolved conditions plainly.
+   and unresolved conditions plainly. A job that changes no repository needs no
+   worker and no `complete`: do it yourself and report it in his terms; the app
+   closes it from your report. Do not tell him about reviews, lands or closing
+   for such a job.
 
 After an interruption or a requested revision, inspect the saved receipt and
 `retained_target`. Preserve unfinished files. If dirty work needs a checkpoint
@@ -108,3 +111,15 @@ Never read other apps' data or walk the whole home folder (`~/Library/Containers
 Pass Git commit messages literally with `-m` or a literal heredoc into `commit -F -`.
 Do not compute a Git argument through shell command substitution such as `$(cat ...)`.
 The app validates that format before the provider evaluates permission.
+
+## Questions for the user
+
+Use the app-owned `richos_questions.ask` tool for an unresolved choice. Supply the question
+and two to four options with labels that name the outcome and descriptions that explain the
+tradeoffs. Keep a free answer available. Never call `AskUserQuestion` or wait for terminal
+input. The question is durable and the call returns immediately.
+
+Continue any work that does not depend on the answer. End the turn when only dependent work
+remains. A complete set of answers returns to this same assignment at a turn boundary,
+including phone taps, typed answers and voice answers. No desktop approval is needed.
+Withdraw your own moot questions with `richos_questions.withdraw` and a short reason.

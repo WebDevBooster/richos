@@ -3666,6 +3666,30 @@ body.bp-narrow .tl-user-bubble {
   color: var(--ink);
 }
 
+/* HIS TEAM, ON AN OPERATOR INSTALL (the operator-client record's §7 item 1). The same card;
+   what it adds is the from-line, in the message lane's own byline shape (`.tl-who` for the
+   name, the rest quieter), so a line from his team reads as attributed without becoming a
+   message from Rich. `failed` and `alarm` take the failure card's `--danger` rule, the only
+   second tone this card family has.
+
+   16px, not the message byline's 14px, and that is deliberate: here the from-line carries
+   the KIND ("asks you", "could not finish"), which he is expected to take in, so it is not
+   the skippable tier (`wiki/ceo-decisions.md` §15). Nothing is declared exempt.
+
+   CONTRAST, COMPUTED UNDER WEBKIT IN BOTH THEMES by `ui/tests/operator-notice.js` for every
+   kind: the from-line is `--ink-faint` on `--surface`, floor 4.5:1; the `--danger` rule is a
+   non-text indicator, floor 3:1. */
+.tl-notice--danger {
+  border-left-color: var(--danger);
+}
+
+.tl-notice-from {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  line-height: 1.4;
+  color: var(--ink-faint);
+}
+
 .tl-intervention-body {
   margin: 0;
   font-size: 1rem;
@@ -6658,6 +6682,90 @@ body.home-open {
   color: var(--ink);
   overflow-wrap: anywhere;
 }
+
+/* Round 13, HQ c50ed191. The existing palette and text-scale remain authoritative.
+   The added control boundary and gold text are the designer's measured values. */
+.question-card { --ctl-line:rgba(223,228,238,.46);--surface:var(--surface-raised);--ink-soft:rgba(223,228,238,.72);--sh-card:0 8px 24px var(--shadow-weak);color:var(--ink);margin:1rem 0;font-size:1rem; }
+:root[data-theme="light"] .question-card {--ctl-line:#4c6087;--ink-soft:rgba(12,19,34,.72);}
+.ask{position:relative;max-width:680px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 22px 16px 24px;box-shadow:var(--sh-card);animation:rise .55s var(--out-quint) both}
+.ask::before{content:"";position:absolute;left:-1px;top:16px;bottom:16px;width:3px;border-radius:2px;background:var(--gold);transition:background-color .3s}
+.ask.is-withdrawn::before{background:var(--line)}
+.ask.is-answered::before{top:14px;bottom:14px}
+.ask-set{font-size:1rem;color:var(--trim-text);margin-bottom:6px;font-variant-numeric:tabular-nums}
+.ask-q{font-family:var(--font-serif);font-size:1.375rem;line-height:1.32;color:var(--ink);letter-spacing:-.004em;text-wrap:pretty}
+.ask.is-answered .ask-q,.ask.is-withdrawn .ask-q{font-size:1.125rem;line-height:1.4}
+.ask-options{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+.ask-opt{position:relative;display:grid;grid-template-columns:auto 1fr auto;align-items:center;column-gap:12px;width:100%;text-align:left;background:var(--card);border:1px solid var(--ctl-line);border-radius:10px;padding:10px 14px 10px 12px;cursor:pointer;transition:border-color .15s,background-color .15s,transform .18s var(--out-quint);animation:rise .5s var(--out-quint) both}
+.ask-opt.is-multi{grid-template-columns:auto auto 1fr auto}
+.ask-opt:nth-child(2){animation-delay:.05s}.ask-opt:nth-child(3){animation-delay:.1s}.ask-opt:nth-child(4){animation-delay:.15s}
+.ask-opt:hover{border-color:var(--gold);background:var(--gold-soft)}
+.ask-opt:active{transform:scale(.992)}
+.ask-opt:focus-visible,.ask.kb .ask-opt.kb-focus{outline:2px solid var(--gold);outline-offset:2px}
+.ask-opt[aria-checked="true"]{border-color:var(--gold);background:var(--gold-soft)}
+.ask-opt.chosen{border-color:var(--gold);background:var(--gold-soft)}
+.ask-key{width:24px;height:24px;display:grid;place-items:center;border:1px solid var(--ctl-line);border-radius:6px;font-size:1rem;color:var(--ink-faint);font-variant-numeric:tabular-nums;transition:color .15s,border-color .15s}
+.ask-opt:hover .ask-key,.ask-opt:focus-visible .ask-key{color:var(--ink);border-color:var(--gold)}
+.ask-box{width:22px;height:22px;border:1.5px solid var(--ctl-line);border-radius:6px;display:grid;place-items:center;color:var(--on-gold);font-size:.9rem;transition:background-color .15s,border-color .15s}
+.ask-box svg{width:14px;height:14px;opacity:0;transition:opacity .12s}
+.ask-opt[aria-checked="true"] .ask-box{background:var(--gold);border-color:var(--gold)}
+.ask-opt[aria-checked="true"] .ask-box svg{opacity:1}
+.ask-body{min-width:0}
+.ask-label{display:block;font-size:1.0625rem;font-weight:600;color:var(--ink);line-height:1.35}
+.ask-desc{display:block;font-size:1rem;color:var(--ink-soft);line-height:1.45;margin-top:1px}
+.ask-rec{display:inline-flex;align-items:center;gap:7px;font-size:1rem;font-weight:500;color:var(--gold-text);white-space:nowrap;padding-left:6px}
+.ask-rec::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--gold)}
+.ask-foot{display:flex;align-items:center;gap:16px;margin-top:12px;min-height:34px}
+.ask-link{background:none;border:0;padding:6px 0;font-size:1rem;color:var(--ink-soft);cursor:pointer;text-decoration:underline;text-decoration-color:var(--gold);text-underline-offset:3px;text-decoration-thickness:1.5px;transition:color .15s}
+.ask-link:hover{color:var(--ink)}
+.ask-link:focus-visible{outline:2px solid var(--gold);outline-offset:2px;border-radius:4px}
+.ask-send{margin-left:auto;background:var(--gold);color:var(--on-gold);border:0;border-radius:999px;padding:8px 18px;font-size:1rem;font-weight:600;cursor:pointer;transition:opacity .2s,transform .18s var(--out-quint)}
+.ask-send:disabled{opacity:.42;cursor:default}   /* an inactive control: WCAG 1.4.3 exempts it; declared in NOTES */
+.ask-send:not(:disabled):hover{filter:brightness(1.06)}
+.ask-send:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+.ask-hint{font-size:1rem;color:var(--ink-faint);margin-top:8px;display:block;visibility:hidden}
+.ask:focus-within .ask-hint,.ask.kb .ask-hint{visibility:visible}
+.ask-hint kbd{font-family:inherit;border:1px solid var(--line);border-radius:4px;padding:0 5px;color:var(--ink-soft)}
+.ask-other{margin-top:12px;display:flex;gap:8px;align-items:flex-end;background:var(--card);border:1px solid var(--ctl-line);border-radius:12px;padding:6px 6px 6px 14px;transition:border-color .2s}
+.ask-other:focus-within{border-color:var(--gold)}
+.ask-other textarea{flex:1;resize:none;border:0;background:none;outline:none;color:var(--ink);font-family:inherit;font-size:1rem;line-height:1.45;padding:7px 0;max-height:120px}
+.ask-other textarea::placeholder{color:var(--ink-faint)}
+.ask-other .ask-send{margin-left:0}
+/* answered, withdrawn */
+.ask.is-answered,.ask.is-withdrawn{padding:14px 22px 14px 24px}
+.ask-answer{display:flex;align-items:baseline;gap:10px;margin-top:8px;font-size:1.0625rem;color:var(--ink);line-height:1.45}
+.ask-answer b{font-weight:600}
+.ask-answer q{quotes:"“" "”"}
+.ask-check{color:var(--gold-text);font-weight:600;flex-shrink:0}
+.ask-how{font-size:1rem;color:var(--ink-soft);margin-top:3px}
+.ask-state{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:1rem;color:var(--trim-text)}
+.ask.is-delivered .ask-state{color:var(--gold-text)}
+.ask-withdrawn{margin-top:8px;font-size:1rem;color:var(--ink-soft);line-height:1.5}
+.ask.is-withdrawn .ask-q{color:var(--ink-soft)}
+.ask.flash{animation:askflash 1.6s var(--out-quint) 1}
+@keyframes askflash{0%{box-shadow:var(--sh-card),0 0 0 0 var(--gold)}25%{box-shadow:var(--sh-card),0 0 0 3px var(--gold)}100%{box-shadow:var(--sh-card),0 0 0 0 var(--gold)}}
+.ask .fresh{animation:fadein .35s ease both}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+
+
+.question-card p {margin-bottom:0;}
+.question-card button,.question-card textarea {font-family:var(--font-sans);}
+.question-card .ask-other[hidden],.question-card [hidden],.questions-open[hidden],.question-recovery:empty {display:none;}
+.question-controls:empty,.question-status:empty {display:none;}
+.question-card .question-asker {font-size:1rem;color:var(--ink-soft);margin-bottom:.4rem;}
+.question-status {font-size:1rem;line-height:1.5;}
+.question-card pre,.question-recovery pre {font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;}
+.questions-open {font:inherit;font-size:1rem;line-height:1.5;align-self:flex-start;color:var(--ink);background:var(--surface-raised);border:1px solid var(--line-control);border-radius:999px;padding:.4rem .85rem;cursor:pointer;}
+.nav-question-count {font-size:1rem;font-weight:600;color:var(--on-gold);background:var(--gold);border-radius:999px;padding:0 .45rem;}
+.question-recovery {max-height:30vh;overflow:auto;font-size:1rem;padding:1rem;background:var(--surface-raised);border-left:3px solid var(--gold);border-radius:.75rem;}
+.question-recovery button {font:inherit;color:var(--on-gold);background:var(--gold);border:0;border-radius:999px;padding:.5rem 1rem;cursor:pointer;}
+.permission-inline {position:static;max-width:100%;margin:1rem;padding:1rem;border:1px solid var(--line-control);border-left:3px solid var(--gold);background:var(--surface-raised);border-radius:.75rem;}
+.permission-inline .overlay-title {font-size:1.125rem;}
+.permission-inline .overlay-note {font-size:1rem;color:var(--ink);}
+@media(max-width:750px){.question-card .ask-opt{grid-template-columns:auto 1fr;}.question-card .ask-rec{grid-column:2;white-space:normal;padding-left:0;}.question-card .ask-opt.is-multi{grid-template-columns:auto auto 1fr;}.question-card .is-multi .ask-rec{grid-column:3;}}
+@media(prefers-reduced-motion:reduce){.question-card,.question-card *{animation:none!important;transition:none!important;}}
+
+.ask-box {font-size:1rem;color:transparent;}
+.ask-opt[aria-checked="true"] .ask-box {color:var(--on-gold);}
 /* Round 14 quota settings: scoped to the desktop technical surface. */
 #quota-sheet { padding: 16px; align-items: center; justify-content: center; }
 .quota-panel { width: min(1140px, 94vw); max-width: none; max-height: calc(100vh - 32px); padding: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); }

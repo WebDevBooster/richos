@@ -52,17 +52,19 @@ engine copies. The pinned engine is supplied separately to `run.sh`. Inputs stay
 unchanged; unexpected symbolic links are refused. The output `fixture.json` records
 the source and resulting ledger hashes. The caller owns deletion of these copies.
 
-`run-walk.py` holds the test VM's own guest lock, `<TESTVM_ROOT>/guest.lock` (default
-`~/.richos-testvm/guest.lock`), and measured CPU use must be below 80%. Since CEO ruling
-§77 (2026-09-22) a walk is a test run: it does not take the nightly `release.lock`, which
-stays with the nightly/release commands. `--state-dir` is still accepted and no longer
-read. Acquisition is nonblocking unless `--wait SECONDS` is given: then the CPU admission
-is retried under the guest lock for at most that long, with `reserve.py`'s own bound and
-backoff. Do not wrap a walk in `reserve.py --wait` instead: the walk samples again the
+`run-walk.py` holds one of the test VM's two guest slots (`slots.py`:
+`<TESTVM_ROOT>/guest.lock` and `guest-2.lock`, default root `~/.richos-testvm`) for exactly
+its own run, boot to cleanup, and measured CPU use must be below 80%. The slot is released
+the instant the run ends; nothing holds a guest between runs (the CEO, 2026-09-27). Since
+CEO ruling §77 (2026-09-22) a walk is a test run: it does not take the nightly
+`release.lock`, which stays with the nightly/release commands. `--state-dir` is still
+accepted and no longer read. Acquisition is nonblocking unless `--wait SECONDS` is given:
+then the walk waits for a free slot and retries the CPU admission for at most that long in
+total, releasing the slot while it waits on the CPU. Do not wrap a walk in `reserve.py --wait` instead: the walk samples again the
 moment the outer command admits it, and on a busy Mac that second single sample refuses
-the run. Under
-that lock it refuses another running clone, creates a unique headless guest and
-keeps the reservation until `stop.sh` has stopped the captured processes and deleted
+the run. With
+a slot it refuses a third running guest, creates a unique headless guest and
+keeps the slot until `stop.sh` has stopped the captured processes and deleted
 the clone. It also cleans up after boot failure or interruption. Only `caffeinate -is`
 is used by the underlying VM launcher.
 
@@ -191,3 +193,29 @@ on identical immutable frames with identical reader/configuration settings; reco
 cold and warm times and verify identical hits. Do analysis after timing captures.
 Report complete scenario duration with coverage separately from these operation
 comparisons. An unfinished historical run is not an equivalent speed benchmark.
+
+## A fresh install, and work given from the phone
+
+`adopt-walk.py` needs no source home: `run-walk.py --home` gets an EMPTY directory and the
+walk goes through the app's own first run (memory setup declined, a company registered
+with a folder that it makes into a repository in the guest, the business questions
+declined; the first conversation is the app's own). It then starts `adopt-watch.py` in
+the guest, pairs the guest's Safari as the phone over Tailscale (both sides press
+`They match`, Sage F1), sends a task from the phone's composer, and passes only when an
+assignment on that conversation leaves Registered no earlier than the phone turn's
+`TurnCompleted`, with every prompt on the conversation from the phone's intake channel.
+
+```sh
+cd richos/app/scripts/testvm
+./run-walk.py --wait 600 --bundle "$ZIP" --home "$EMPTY_DIR" --engine "$ENGINE_TAR" \
+  --report "$RESULTS/run.json" -- \
+  ./adopt-walk.py --out "$RESULTS/adopt" --expect-sha "$SHA" --within 240
+```
+
+`adopt-watch.py` writes every assignment state, prompt and intake record on the guest's
+clock and never the words of a prompt. `--steps` runs a subset, still as one run under
+`run-walk.py`. `hold-walk.py`, which kept a guest up for hand-driven steps, is retired
+(the CEO, 2026-09-27): a step found by hand with `ax.sh` and `shot.sh` goes into a script
+run once under `run-walk.py`, and the slot is free again while its author thinks. The phone
+sheet names the Tailscale account it is signed in with; screenshots of it are not for a
+public record.

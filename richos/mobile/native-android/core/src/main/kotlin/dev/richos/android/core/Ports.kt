@@ -78,10 +78,12 @@ interface Recorder {
 @Serializable
 data class Receipt(
     @SerialName("message_id") val messageId: String,
-    val duplicate: Boolean,
+    val duplicate: Boolean = false,
     val cursor: Long,
     /** Voice only: the SHA-256 of the transcript the Mac made, lowercase hex (`phone/routes.rs`). */
     @SerialName("text_sha256") val textSha256: String? = null,
+    val outcome: String? = null,
+    val question: QuestionCard? = null,
 )
 
 /**

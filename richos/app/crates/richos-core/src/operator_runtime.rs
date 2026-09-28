@@ -217,6 +217,9 @@ impl LeadHandle for ClaimedLead {
     fn send(&self, text: &str) -> Result<String, LeadError> {
         self.lead.send(text)
     }
+    fn send_with_uuid(&self, uuid: &str, text: &str) -> Result<(), LeadError> {
+        self.lead.send_with_uuid(uuid, text)
+    }
     fn stop_task(&self, task_id: &str) -> Result<(), LeadError> {
         self.lead.stop_task(task_id, CONTROL_TIMEOUT)
     }
@@ -306,6 +309,29 @@ impl ProfileLauncher {
     }
 }
 
+/// Even a provider that ignores disallowed tools cannot turn a question into a
+/// permission wait. Scope comes from this launched conversation, never tool input.
+struct QuestionRoute {
+    scope: PathBuf,
+    fallback: Arc<dyn ControlRoute>,
+}
+impl ControlRoute for QuestionRoute {
+    fn answer(&self, request: &Value) -> Result<Value, String> {
+        if request["subtype"] != "can_use_tool" || request["tool_name"] != "AskUserQuestion" {
+            return self.fallback.answer(request);
+        }
+        let result = crate::operator_report::read_scope(&self.scope).and_then(|scope| {
+            let context = scope.question_context.ok_or("The operator question scope is unavailable")?;
+            crate::question_tools::convert_vendor_scoped(&context, &request["input"])
+        });
+        let message = match result {
+            Ok(_) => "The questions are recorded for display. Continue work that does not depend on the answer.".to_string(),
+            Err(error) => format!("The question was not recorded: {error}. Use richos_operator.report to ask with prepared options."),
+        };
+        Ok(json!({"behavior":"deny", "message":message}))
+    }
+}
+
 impl LeadLauncher for ProfileLauncher {
     fn launch(&self, key: &ConversationKey, title: &str, start: &LeadStart, paths: &ConversationPaths,
               sink: Arc<dyn LeadSink>) -> Result<Arc<dyn LeadHandle>, String> {
@@ -314,14 +340,19 @@ impl LeadLauncher for ProfileLauncher {
         let profile = OperatorProfile::new(self.declaration.clone(), session, claim.claim_id()).map_err(|r| r.sentence())?
             .with_supervisor_files(&self.log, &paths.reap_state);
         std::fs::create_dir_all(&paths.dir).map_err(|e| format!("Your team's folder could not be made ({e})."))?;
+        let session_id = match start { LeadStart::New(id) | LeadStart::Resume(id) => id.clone() };
         write_scope(&paths.scope, &ReportScope {
             version: 1, outbox: paths.outbox.clone(), attachments: paths.attachments.clone(),
             file_roots: self.declaration.file_roots.clone(), state_root: self.state_root.clone(),
             entity_id: key.entity_id.clone(), thread_id: key.thread_id.clone(), lead: claim.claim_id().to_string(),
+            question_context: Some(crate::questions::AskScope {
+                root: self.state_root.clone(), entity_id: key.entity_id.clone(), thread_id: key.thread_id.clone(),
+                turn_id: format!("operator:{session_id}"), asker: "operator:conversation".into(), session_id: session_id.clone(),
+                engine: Some(self.declaration.engine_root.clone()), entity_root: Some(self.declaration.entity_root.clone()),
+            }),
         })?;
-        let session_id = match start { LeadStart::New(id) | LeadStart::Resume(id) => id.clone() };
         let command = profile.command(start, &mcp_config(&self.executable, &paths.scope));
-        let lead = OperatorLead::spawn(command, &session_id, sink, self.route.clone())
+        let lead = OperatorLead::spawn(command, &session_id, sink, Arc::new(QuestionRoute { scope: paths.scope.clone(), fallback: self.route.clone() }))
             .map_err(|e| format!("Your team could not be started ({e})."))?;
         if let Err(e) = lead.initialize(HANDSHAKE_TIMEOUT) {
             let _ = lead.quit(QUIT_GRACE);
@@ -392,28 +423,73 @@ impl EcsSettle {
 impl Settle for EcsSettle {
     fn complete(&self, key: &ConversationKey, obligation_id: &str, source_ref: &str, status: &str,
                 evidence: &[String], answer_text: &str) -> Result<(), String> {
-        // His seat for this conversation, when the engine has per-thread seats: asked, never
-        // assumed, exactly as the front desk asks (`native.rs`'s `ceo_thread_seat`), because an
-        // older engine with one cursor would refuse a seat it does not have.
-        let hello = (self.call)("hello", json!({}))?;
-        let seats = hello["ceo_thread_seats"] == true && hello["ceo_seat_prefix"].as_str() == Some(crate::ecs::CEO_SEAT_PREFIX);
-        let seat = if seats { crate::ecs::ceo_seat(&key.thread_id) } else { None };
-        // The front desk rebinding between the read and the close is the one race; it is asked
-        // once more at the new binding, and never more than once.
-        for attempt in 0..2 {
-            let current = (self.call)("current", crate::ecs::seated_request(seat.as_deref(), json!({})))?;
-            let binding = current.get("binding").filter(|b| !b.is_null()).cloned()
-                .ok_or("this conversation has no current binding to close it on")?;
-            let body = crate::ecs::seated_request(seat.as_deref(),
-                Self::request_body(&binding, obligation_id, source_ref, status, evidence, answer_text));
-            match (self.call)("operator-complete", body) {
-                Ok(result) if result.get("obligation_closed").and_then(Value::as_bool) == Some(true) => return Ok(()),
-                Ok(result) => return Err(format!("the engine did not close it ({result})")),
-                Err(why) if attempt == 0 && why.contains("stale app binding") => continue,
-                Err(why) => return Err(why),
-            }
+        close_on_conversation_seat(&self.call, &key.thread_id, "operator-complete", |binding| {
+            Self::request_body(binding, obligation_id, source_ref, status, evidence, answer_text)
+        })
+    }
+}
+
+/// **Close an obligation through a host-only ECS verb, on the conversation's own seat, at the
+/// store's CURRENT binding** — the one derivation [`EcsSettle`] and [`EcsAnsweredClose`] share.
+///
+/// His seat for this conversation, when the engine has per-thread seats: asked, never assumed,
+/// exactly as the front desk asks (`native.rs`'s `ceo_thread_seat`), because an older engine
+/// with one cursor would refuse a seat it does not have. The binding is the seat's `current`,
+/// because the front desk rebinds that row at every turn of his (`engine/ecs/adapters/app.py`
+/// `fence`: *"stale app binding"*). That rebinding between the read and the close is the one
+/// race; it is asked once more at the new binding, and never more than once.
+fn close_on_conversation_seat(call: &EcsCall, thread_id: &str, command: &str,
+                              body: impl Fn(&Value) -> Value) -> Result<(), String> {
+    let hello = call("hello", json!({}))?;
+    let seats = hello["ceo_thread_seats"] == true && hello["ceo_seat_prefix"].as_str() == Some(crate::ecs::CEO_SEAT_PREFIX);
+    let seat = if seats { crate::ecs::ceo_seat(thread_id) } else { None };
+    for attempt in 0..2 {
+        let current = call("current", crate::ecs::seated_request(seat.as_deref(), json!({})))?;
+        let binding = current.get("binding").filter(|b| !b.is_null()).cloned()
+            .ok_or("this conversation has no current binding to close it on")?;
+        match call(command, crate::ecs::seated_request(seat.as_deref(), body(&binding))) {
+            Ok(result) if result.get("obligation_closed").and_then(Value::as_bool) == Some(true) => return Ok(()),
+            Ok(result) => return Err(format!("the engine did not close it ({result})")),
+            Err(why) if attempt == 0 && why.contains("stale app binding") => continue,
+            Err(why) => return Err(why),
         }
-        Err("the conversation moved on twice while this was being closed".into())
+    }
+    Err("the conversation moved on twice while this was being closed".into())
+}
+
+/// [`crate::work_host::AnsweredClose`] through the pinned engine's `answer-complete`: an
+/// assignment the product's own back end handled itself closes on the words he was given.
+///
+/// An engine that does not announce the verb (one older than this app) is told apart from a
+/// refusal and leaves the obligation open, which is what every build before this did.
+pub struct EcsAnsweredClose {
+    call: EcsCall,
+}
+
+impl EcsAnsweredClose {
+    pub fn with(call: EcsCall) -> Self {
+        EcsAnsweredClose { call }
+    }
+}
+
+impl crate::work_host::AnsweredClose for EcsAnsweredClose {
+    fn close_answered(&self, record: &crate::assignment::Assignment, answer: &str) -> Result<(), String> {
+        let hello = (self.call)("hello", json!({}))?;
+        let announced = hello["commands"].as_array().is_some_and(|all| all.iter().any(|c| c == "answer-complete"));
+        if !announced {
+            return Err("this engine has no answer-complete, so an answered assignment stays open in it".into());
+        }
+        // His instruction's ledger row is the source, as it is for `complete`; the register
+        // refuses an assignment without one, so the fallback is for a record written before.
+        let source = if record.instruction_ledger_ref.trim().is_empty() {
+            format!("app-assignment:{}", record.id)
+        } else {
+            record.instruction_ledger_ref.clone()
+        };
+        close_on_conversation_seat(&self.call, &record.thread_id, "answer-complete", |binding| {
+            json!({"binding": binding, "obligation_id": record.obligation_id, "source_ref": source,
+                   "answer_text": answer})
+        })
     }
 }
 
@@ -554,6 +630,38 @@ mod tests {
         write(&f.declaration.engine_root.join("scripts").join(name), body);
     }
 
+    #[test]
+    fn vendor_question_is_recorded_without_reaching_the_permission_desk() {
+        struct NeverPermission;
+        impl ControlRoute for NeverPermission {
+            fn answer(&self, _: &Value) -> Result<Value,String> { Err("permission route reached".into()) }
+        }
+        let f=fixture();
+        let scope=f.root.join("scope.json");
+        let state=f.root.join("state");
+        write_scope(&scope,&ReportScope {
+            version:1,outbox:f.root.join("outbox"),attachments:f.root.join("attachments"),
+            file_roots:vec![f.root.clone()],state_root:state.clone(),entity_id:"entity".into(),thread_id:"thread".into(),lead:"lead".into(),
+            question_context:Some(crate::questions::AskScope {
+                root:state.clone(),entity_id:"entity".into(),thread_id:"thread".into(),asker:"operator:conversation".into(),
+                turn_id:"turn".into(),session_id:"original-session".into(),engine:None,entity_root:None,
+            }),
+        }).unwrap();
+        let route=QuestionRoute { scope,fallback:Arc::new(NeverPermission) };
+        let started=Instant::now();
+        let reply=route.answer(&json!({"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{
+            "question":"When should we ship?","options":[{"label":"Today","description":"Earlier fixes"},{"label":"Tomorrow","description":"More testing"}],"multiSelect":false
+        }]}})).unwrap();
+        assert!(started.elapsed()<Duration::from_secs(1));
+        assert_eq!(reply["behavior"],"deny");
+        assert!(reply["message"].as_str().unwrap().contains("recorded"));
+        let questions=crate::questions::Store::new(&state).all().unwrap();
+        assert_eq!(questions.len(),1);
+        assert_eq!(questions[0].asker,"operator:conversation");
+        assert_eq!(questions[0].session_id,"original-session");
+        assert!(route.answer(&json!({"subtype":"can_use_tool","tool_name":"Bash"})).unwrap_err().contains("permission route"));
+    }
+
     // ---- engine scripts ------------------------------------------------------------------
 
     #[test]
@@ -644,10 +752,13 @@ mod tests {
         revisions: Mutex<Vec<Option<u64>>>,
         stale_first: Mutex<bool>,
         calls: Mutex<Vec<(String, Value)>>,
+        /// An engine older than `answer-complete` does not announce it.
+        older: Mutex<bool>,
     }
     impl FakeStore {
         fn new(seats: bool, revisions: Vec<Option<u64>>, stale_first: bool) -> Arc<Self> {
-            Arc::new(FakeStore { seats, revisions: Mutex::new(revisions), stale_first: Mutex::new(stale_first), calls: Mutex::new(Vec::new()) })
+            Arc::new(FakeStore { seats, revisions: Mutex::new(revisions), stale_first: Mutex::new(stale_first), calls: Mutex::new(Vec::new()),
+                                   older: Mutex::new(false) })
         }
         fn binding(revision: u64) -> Value {
             json!({"entity_id": "femcboost", "thread_id": "t-9", "session_id": "desk-s", "turn_id": format!("turn-{revision}"),
@@ -658,13 +769,16 @@ mod tests {
             Box::new(move |command: &str, fields: Value| {
                 store.calls.lock().unwrap().push((command.to_string(), fields.clone()));
                 match command {
-                    "hello" => Ok(json!({"ceo_thread_seats": store.seats, "ceo_seat_prefix": crate::ecs::CEO_SEAT_PREFIX})),
+                    "hello" => {
+                        let commands = if *store.older.lock().unwrap() { vec!["operator-complete"] } else { vec!["operator-complete", "answer-complete"] };
+                        Ok(json!({"ceo_thread_seats": store.seats, "ceo_seat_prefix": crate::ecs::CEO_SEAT_PREFIX, "commands": commands}))
+                    }
                     "current" => {
                         let mut revisions = store.revisions.lock().unwrap();
                         let next = if revisions.len() > 1 { revisions.remove(0) } else { revisions[0] };
                         Ok(json!({"binding": next.map(Self::binding)}))
                     }
-                    "operator-complete" => {
+                    "operator-complete" | "answer-complete" => {
                         if std::mem::replace(&mut *store.stale_first.lock().unwrap(), false) {
                             return Err("stale app binding; reconcile in its original scope before retrying".into());
                         }
@@ -732,6 +846,42 @@ mod tests {
         let err = EcsSettle::with(store.call()).complete(&conversation(), "ob-1", "s", "completed", &[], "Done.").unwrap_err();
         assert!(err.contains("no current binding"), "{err}");
         assert!(store.sent("operator-complete").is_empty());
+    }
+
+    /// **An assignment the back end handled itself closes through `answer-complete`**, on the
+    /// conversation's own seat at its live binding (the same derivation as the settlement
+    /// above), carrying the words he was given, its obligation and his instruction's ledger
+    /// row, and nothing an answer cannot certify: no status, no evidence list. An engine that
+    /// does not announce the verb is told apart and asked nothing.
+    #[test]
+    fn an_answered_assignment_closes_through_answer_complete_on_the_conversation_s_seat() {
+        use crate::work_host::AnsweredClose;
+        let dir = std::env::temp_dir().join(format!("richos-answered-close-{}", uuid::Uuid::new_v4().simple()));
+        let receipt = crate::assignment::register_kind(&dir, &crate::assignment::Registration {
+            entity_id: "femcboost".into(), thread_id: "t-9".into(), obligation_id: "work-1".into(),
+            instruction_ledger_ref: "ledger:t-9:turn-4".into(), instruction_sha256: "0".repeat(64),
+            title: "run the tests".into(), repositories: vec![], needs_screen: false,
+        }, crate::assignment::AssignmentKind::Task).unwrap();
+        let record = crate::assignment::read(&dir, "femcboost", "t-9", &receipt.id).unwrap();
+        let store = FakeStore::new(true, vec![Some(7), Some(8)], true);
+        EcsAnsweredClose::with(store.call()).close_answered(&record, "It ran; 12 passed.").unwrap();
+        let sent = store.sent("answer-complete");
+        assert_eq!(sent.len(), 2, "a rebind between the read and the close is retried once");
+        assert_eq!(sent[1]["seat"], "ceo-thread:t-9");
+        assert_eq!(sent[1]["binding"], FakeStore::binding(8));
+        let mut keys: Vec<&str> = sent[1].as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort();
+        assert_eq!(keys, ["answer_text", "binding", "obligation_id", "seat", "source_ref"]);
+        assert_eq!((sent[1]["obligation_id"].as_str(), sent[1]["answer_text"].as_str(), sent[1]["source_ref"].as_str()),
+                   (Some("work-1"), Some("It ran; 12 passed."), Some("ledger:t-9:turn-4")));
+        assert!(store.sent("operator-complete").is_empty());
+
+        let older = FakeStore::new(true, vec![Some(7)], false);
+        *older.older.lock().unwrap() = true;
+        let err = EcsAnsweredClose::with(older.call()).close_answered(&record, "x").unwrap_err();
+        assert!(err.contains("no answer-complete"), "{err}");
+        assert!(older.sent("current").is_empty() && older.sent("answer-complete").is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     // ---- delivery -------------------------------------------------------------------------

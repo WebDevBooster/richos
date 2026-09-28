@@ -233,11 +233,41 @@ class Retired(unittest.TestCase):
 
 
 class Walk(unittest.TestCase):
+    def question_step(self):
+        return {'question_count': 3, 'independent_progress': True, 'lead_received': True,
+                'answers': [{'enqueued': n, 'reconciled': 0, 'answer': {'outcome': 'accepted'}} for n in (0, 0, 1)],
+                'after': [{'delivered': True, 'revision': 1, 'answer': {'method': method}}
+                          for method in ('phone_tap', 'phone_typed', 'phone_voice')],
+                'retry': {'enqueued': 0, 'reconciled': 0,
+                          'answer': {'outcome': 'accepted', 'question': {'revision': 1}}}}
+
+    def test_question_step_requires_all_methods_one_complete_delivery_and_independent_progress(self):
+        self.assertTrue(gp.grade_question_step(self.question_step()))
+        for field in ('independent_progress', 'lead_received'):
+            step = self.question_step()
+            step[field] = False
+            self.assertFalse(gp.grade_question_step(step), field)
+        for mutation in ('partial_delivery', 'duplicate', 'missing_voice', 'undelivered', 'revision_changed'):
+            step = self.question_step()
+            if mutation == 'partial_delivery':
+                step['answers'][0]['enqueued'] = 1
+            elif mutation == 'duplicate':
+                step['retry']['enqueued'] = 1
+            elif mutation == 'missing_voice':
+                step['after'][2]['answer']['method'] = 'phone_typed'
+            elif mutation == 'undelivered':
+                step['after'][2]['delivered'] = False
+            else:
+                step['retry']['answer']['question']['revision'] = 2
+            self.assertFalse(gp.grade_question_step(step), mutation)
+
     def test_the_walk_runs_only_when_named_and_says_not_run_without_its_binary(self):
         self.assertIn('W2', gp.EXPLICIT, 'a default probe run must never start the walk')
+        self.assertIn('S6', gp.EXPLICIT, 'a default probe run must never start question acceptance')
         ctx = gp.Context.__new__(gp.Context)
         ctx.walk_binary = ''
         self.assertEqual(gp.w2(ctx, {})[0], 'NOT-RUN')
+        self.assertEqual(gp.s6(ctx, {})[0], 'NOT-RUN')
 
     def test_a_heartbeat_is_a_shell_loop_writing_one_file(self):
         self.assertIn('/tmp/hb.txt', gp.heartbeat_command('/tmp/hb.txt'))
@@ -331,6 +361,233 @@ class ArtifactScrub(unittest.TestCase):
         self.assertNotIn('private artifact title', out)
         self.assertIn('kept', out)
         self.assertIn('private artifact title', json.dumps(frame), 'the live frame is not changed, only the saved copy')
+
+
+class P18Transcript(unittest.TestCase):
+    """The saved transcript is read the way the provider's own check reads it: the message is a
+    non-sidechain `user` entry carrying the uuid (design §1.2, `persisted`)."""
+    ROWS = [
+        {'type': 'queue-operation', 'operation': 'enqueue', 'content': 'Reply with exactly: MARK-C'},
+        {'type': 'user', 'uuid': 'U', 'isSidechain': False, 'message': {'role': 'user', 'content': 'secret words'}},
+        {'type': 'user', 'uuid': 'U', 'isSidechain': True, 'message': {'role': 'user'}},
+        {'type': 'assistant', 'uuid': 'a-1', 'message': {'role': 'assistant', 'content': 'MARK-A'}},
+        {'type': 'user', 'uuid': 'x-1', 'interruptedByShutdown': True, 'message': {'role': 'user'}},
+    ]
+
+    def test_only_the_non_sidechain_user_entry_counts(self):
+        self.assertEqual(len(gp.uuid_entries(self.ROWS, 'U')), 1)
+        self.assertEqual(gp.uuid_entries(self.ROWS, 'absent'), [])
+        self.assertEqual(gp.uuid_entries(self.ROWS, 'a-1'), [], 'an assistant entry is not the message')
+
+    def test_what_follows_the_message_is_read_as_shapes_and_the_shutdown_marker_is_seen(self):
+        after = gp.after_entry(self.ROWS, 'U')
+        self.assertTrue(after['found'])
+        self.assertTrue(after['interrupted_by_shutdown'])
+        self.assertEqual(after['after'][1], ('assistant', 'assistant'))
+        self.assertFalse(gp.after_entry(self.ROWS, 'nothing')['found'])
+
+    def test_the_summary_never_carries_text(self):
+        out = json.dumps(gp.transcript_summary(self.ROWS))
+        self.assertNotIn('secret words', out)
+        self.assertNotIn('MARK-C', out, 'a queued message\'s content stays out of the record')
+        self.assertIn('queue-operation', out)
+
+
+class GradeP18(unittest.TestCase):
+    def passing(self):
+        return {
+            'A': {'session': 's-a', 'resumed_session_id': 's-a', 'first_answered': True, 'echo': True,
+                  'again_answered': False, 'transcript_u_after': 1, 'claude_alive_after_grace_plus_one': False},
+            'B': {'session': 's-b', 'resumed_session_id': 's-b', 'echo': True, 'ran': {}, 'transcript_u_after': 1},
+            'C': {'session': 's-c', 'resumed_session_id': 's-c', 'in_shell': True, 'echo_before_kill': False,
+                  'u_in_transcript_before_kill': 0, 'again_results': 1, 'transcript_u_after': 1},
+            'D': {'answered': True},
+            'E': {'first_answered': True, 'echo': True, 'again_answered': False},
+        }
+
+    def test_the_design_s_pass_line(self):
+        self.assertEqual(gp.grade_p18(self.passing())[0], 'PASS')
+
+    def test_b_is_recorded_and_never_graded(self):
+        r = self.passing()
+        r['B'].update(echo=False, transcript_u_after=2, ran={'MARK-B-AGAIN': True})
+        self.assertEqual(gp.grade_p18(r)[0], 'PASS')
+
+    def test_each_failed_pass_condition_fails(self):
+        for case, field, value in (('A', 'again_answered', True), ('A', 'echo', False), ('A', 'transcript_u_after', 2),
+                                   ('C', 'again_results', 2), ('C', 'again_results', 0),
+                                   ('C', 'u_in_transcript_before_kill', 1), ('C', 'transcript_u_after', 2),
+                                   ('E', 'again_answered', True), ('B', 'resumed_session_id', 's-other')):
+            r = self.passing()
+            r[case][field] = value
+            self.assertEqual(gp.grade_p18(r)[0], 'FAIL', (case, field, value))
+
+    def test_a_control_that_did_not_behave_concludes_nothing(self):
+        for case, field, value in (('D', 'answered', False), ('A', 'first_answered', False), ('C', 'in_shell', False),
+                                   ('C', 'echo_before_kill', True), ('E', 'first_answered', False),
+                                   ('A', 'claude_alive_after_grace_plus_one', True), ('C', 'resumed_session_id', None)):
+            r = self.passing()
+            r[case][field] = value
+            self.assertEqual(gp.grade_p18(r)[0], 'PREMISE-FALSE', (case, field, value))
+
+    def test_a_dropped_duplicate_s_session_is_read_off_its_echo(self):
+        """Run 2026-09-27, case B: the drop started no turn, so no system/init came; the echo
+        carried the session."""
+        r = self.passing()
+        r['B']['resumed_session_id'] = None
+        r['B']['frames_30s_after_echo'] = [{'t': 0.0, 'type': 'user', 'isReplay': True, 'session_id': 's-b'},
+                                          {'t': 0.0, 'type': 'command_lifecycle', 'session_id': 's-b'}]
+        self.assertEqual(gp.grade_p18(r)[0], 'PASS')
+        r['B']['frames_30s_after_echo'][0]['session_id'] = 's-forked'
+        r['B']['frames_30s_after_echo'][1]['session_id'] = 's-forked'
+        self.assertEqual(gp.grade_p18(r)[0], 'FAIL', 'a resume that did not keep its session fails')
+
+    def test_p18_runs_in_a_default_run(self):
+        self.assertIn('P18', [pid for pid, _ in gp.PROBES])
+        self.assertNotIn('P18', gp.EXPLICIT)
+
+
+class CrashMatrix(unittest.TestCase):
+    def cell(self, **change):
+        rec = {'reports': 1, 'ledger': {'relays': [{'uuid': 'U', 'session': 'S', 'taken': True}], 'inbox_waiting': 0,
+                                        'transcript_uuid_counts': {'U': 1}}}
+        rec.update(change)
+        return rec
+
+    def test_a_cell_passes_only_delivered_once_and_let_go(self):
+        self.assertTrue(gp.grade_w3_cell(self.cell()))
+        for change in ({'reports': 0}, {'reports': 2}):
+            self.assertFalse(gp.grade_w3_cell(self.cell(**change)), change)
+        for key, value in (('inbox_waiting', 1), ('transcript_uuid_counts', {'U': 2}), ('transcript_uuid_counts', {}),
+                           ('relays', []), ('relays', [{'uuid': 'U', 'session': 'S', 'taken': False}]),
+                           ('relays', [{'uuid': 'U', 'session': 'S', 'taken': True, 'turn_open': True}]),
+                           ('continuation_uuid_counts', {'C': 2}), ('continuation_uuid_counts', {'C': 0})):
+            rec = self.cell()
+            rec['ledger'][key] = value
+            self.assertFalse(gp.grade_w3_cell(rec), (key, value))
+
+    def test_a_cell_that_needed_his_words_does_not_pass(self):
+        """Run 2026-09-27, cell W3: the lead reported once, but only after the harness gave his
+        next words. That is the gap the continuation closes, so it is no longer a pass."""
+        self.assertFalse(gp.grade_w3_cell(self.cell(nudged=True)))
+        continued = self.cell()
+        continued['ledger']['continuation_uuid_counts'] = {'C': 1}
+        self.assertTrue(gp.grade_w3_cell(continued), 'continued by the app, once: a pass')
+
+    def test_one_cell_can_be_run_alone_and_an_unknown_one_is_refused(self):
+        self.assertEqual(gp.w3_wanted(''), gp.W3_CELLS)
+        self.assertEqual(gp.w3_wanted('W3'), ('W3',))
+        self.assertEqual(gp.w3_wanted('W4, baseline'), ('baseline', 'W4'), 'the matrix order')
+        with self.assertRaises(ValueError):
+            gp.w3_wanted('W5')
+        self.assertEqual(gp.w3_verdict({'W3': dict(self.cell(), **{'pass': True})}, ('W3',))[0], 'PASS',
+                         'a one-cell run is graded on that cell alone')
+        self.assertEqual(gp.w3_verdict({}, ('W3',))[0], 'FAIL', 'a cell that did not run is not a pass')
+
+    def test_the_old_w3_record_regrades_as_a_fail_now(self):
+        """The 2026-09-27 record's W3 cell (nudged) no longer passes, from the record alone."""
+        cells = {c: dict(self.cell(), says=[{'thread': 'w3-%s' % c.lower(), 'text': 'W3-%s-GOT: x' % c.upper()}])
+                 for c in gp.W3_CELLS}
+        cells['W3']['nudged'] = True
+        verdict, why, facts = gp.regrade_w3({'cells': cells})
+        self.assertEqual(verdict, 'FAIL', why)
+        self.assertIn("not passed: ['W3']", why)
+        self.assertEqual(gp.regrade_w3({'cells': {'W3': dict(cells['W3'], nudged=False)}, 'cells_run': ['W3']})[0],
+                         'PASS', 'a one-cell record regrades on its one cell')
+
+    def test_the_report_is_the_notice_that_begins_with_the_marker(self):
+        """Run 2026-09-27, cell W1b: one report, then the lead's closing words quoting it."""
+        says = [{'thread': 'w3-w1b', 'kind': 'update', 'text': 'W3-W1B-GOT: Ship tomorrow'},
+                {'thread': 'w3-w1b', 'kind': 'update',
+                 'text': 'Reported. His answer was "Ship tomorrow," and I\'ve recorded W3-W1B-GOT: Ship tomorrow.'},
+                {'thread': 'w3-w2', 'kind': 'update', 'text': 'W3-W1B-GOT: another conversation'}]
+        self.assertEqual(gp.w3_reports(says, 'w3-w1b', 'W3-W1B-GOT'), 1)
+        says.append({'thread': 'w3-w1b', 'kind': 'update', 'text': 'W3-W1B-GOT: Ship tomorrow'})
+        self.assertEqual(gp.w3_reports(says, 'w3-w1b', 'W3-W1B-GOT'), 2, 'a second report is a second report')
+
+    def test_a_saved_run_is_regraded_only_from_a_complete_list(self):
+        cell = self.cell(reports=2, says=[{'thread': 'w3-w1b', 'text': 'W3-W1B-GOT: Ship tomorrow'},
+                                          {'thread': 'w3-w1b', 'text': 'Reported. I recorded W3-W1B-GOT: Ship tomorrow.'}])
+        record = {'cells': {c: dict(self.cell(), says=[{'thread': 'w3-%s' % c.lower(), 'text': 'W3-%s-GOT: x' % c.upper()}])
+                            for c in gp.W3_CELLS}}
+        record['cells']['W1b'] = cell
+        self.assertEqual(gp.regrade_w3(record)[0], 'PASS')
+        record['cells']['W1b'] = dict(cell, reports=3)
+        self.assertEqual(gp.regrade_w3(record)[0], 'ERROR', 'a count the saved notices cannot hold is refused')
+
+    def test_the_matrix_runs_only_when_named_and_needs_its_binary(self):
+        self.assertIn('W3', gp.EXPLICIT, 'a default probe run must never start the crash matrix')
+        self.assertEqual(gp.W3_CELLS, ('baseline', 'W1b', 'W2', 'W3', 'W4'))
+        ctx = gp.Context.__new__(gp.Context)
+        ctx.walk_binary = ''
+        self.assertEqual(gp.w3(ctx, {})[0], 'NOT-RUN')
+
+    def test_every_crash_point_the_harness_names_is_in_the_rust(self):
+        root = HERE.parents[2] / 'crates' / 'richos-core' / 'src'
+        rust = (root / 'operator_host.rs').read_text() + (root / 'operator_desk.rs').read_text()
+        for point in ('W1b', 'W2', 'W3'):
+            self.assertIn('crash_point("%s")' % point, rust)
+
+
+class WorkCrashMatrix(unittest.TestCase):
+    """W4, the work path's matrix (richos-hq docs/plans/2026-09-27-work-path-answer-delivery-design.md §4.2):
+    its grading, graded without a guest."""
+
+    def cell(self, cell, **change):
+        rec = {'cell': cell, 'register': {'assignment': 'J'}, 'reports': 1, 'walks_gone': [True, True],
+               'row': {'state': 'settled', 'notices': [{'kind': 'Answer'}]}, 'spawns_last_walk': 1,
+               'inbox': {'inputs': [{'id': 'question-set:x', 'handed': True, 'taken_in': 'S'}]},
+               'recovery': {'unknown': [], 'answers_waiting': ['J']}, 'blocked_before_crash': True}
+        rec.update(change)
+        return rec
+
+    def test_each_cell_passes_on_its_own_terms_only(self):
+        for cell in ('baseline', 'P4-carry', 'P4-sent', 'P7'):
+            self.assertTrue(gp.grade_w4_cell(self.cell(cell))[0], cell)
+            self.assertFalse(gp.grade_w4_cell(self.cell(cell, reports=2))[0], '%s: doubled' % cell)
+            self.assertFalse(gp.grade_w4_cell(self.cell(cell, reports=0))[0], '%s: lost' % cell)
+            untaken = {'inputs': [{'id': 'question-set:x', 'handed': False, 'taken_in': None}]}
+            self.assertFalse(gp.grade_w4_cell(self.cell(cell, inbox=untaken))[0], '%s: never taken' % cell)
+            self.assertFalse(gp.grade_w4_cell(self.cell(cell, walks_gone=[True, False]))[0], '%s: a walk left running' % cell)
+        for cell in ('P4-carry', 'P4-sent'):
+            told = self.cell(cell, row={'state': 'settled', 'notices': [{'kind': 'Unknown'}, {'kind': 'Answer'}]})
+            self.assertFalse(gp.grade_w4_cell(told)[0], '%s: told a job that never started was running' % cell)
+            self.assertFalse(gp.grade_w4_cell(self.cell(cell, recovery={'unknown': ['J'], 'answers_waiting': []}))[0])
+        self.assertTrue(gp.grade_w4_cell(self.cell('P4e', spawns_last_walk=2))[0])
+        self.assertFalse(gp.grade_w4_cell(self.cell('P4e', spawns_last_walk=1))[0], 'no fresh back end')
+        self.assertFalse(gp.grade_w4_cell(self.cell('P4e', spawns_last_walk=2,
+                                                    row={'state': 'failed', 'notices': [{'kind': 'Failed'}]}))[0])
+        p5 = dict(recovery={'unknown': ['J'], 'answers_waiting': []}, row={'state': 'unknown', 'notices': [{'kind': 'Unknown'}]},
+                  spawns_last_walk=0, reports=0)
+        self.assertTrue(gp.grade_w4_cell(self.cell('P5', **p5))[0])
+        self.assertFalse(gp.grade_w4_cell(self.cell('P5', **dict(p5, spawns_last_walk=1)))[0], 'a started job re-ran')
+        self.assertFalse(gp.grade_w4_cell(self.cell('P5', **dict(p5, reports=2)))[0])
+
+    def test_the_matrix_runs_only_when_named_and_needs_its_binary_and_runtime(self):
+        self.assertIn('W4', gp.EXPLICIT, 'a default probe run must never start the work crash matrix')
+        self.assertEqual(gp.W4_CELLS, ('baseline', 'P4-carry', 'P4-sent', 'P5', 'P4e', 'P7'))
+        ctx = gp.Context.__new__(gp.Context)
+        ctx.work_walk_binary = ''
+        self.assertEqual(gp.w4(ctx, {})[0], 'NOT-RUN')
+
+    def test_one_cell_can_be_retried_alone_and_an_unknown_name_is_refused(self):
+        self.assertEqual(gp.w4_wanted(''), gp.W4_CELLS)
+        self.assertEqual(gp.w4_wanted('P5'), ('P5',))
+        self.assertEqual(gp.w4_wanted('P7, baseline'), ('baseline', 'P7'), 'in the matrix\'s own order')
+        with self.assertRaises(ValueError):
+            gp.w4_wanted('P6')
+
+    def test_a_walk_has_long_enough_to_verify_its_runtime(self):
+        """Run 1's P5: the relaunch verified 322 MB of runtime for over 120 s, and its recovery
+        line was read before it arrived. 64.3 s measured on the host; the bound is 600 s."""
+        self.assertGreaterEqual(gp.W4_READY_SECONDS, 600)
+
+    def test_every_work_crash_point_the_harness_names_is_in_the_rust(self):
+        rust = (HERE.parents[2] / 'crates' / 'richos-core' / 'src' / 'work_host.rs').read_text()
+        for point in ('WORK-CARRY', 'WORK-FIRST-ITEM', 'WORK-TAKEN'):
+            self.assertIn('crash_point("%s")' % point, rust)
+        self.assertIn('work_fault("WORK-DEAD-LEASE")', rust)
+        self.assertEqual(set(gp.W4_POINT.values()), {'WORK-CARRY', 'WORK-FIRST-ITEM', 'WORK-TAKEN', 'WORK-DEAD-LEASE'})
 
 
 class Arguments(unittest.TestCase):

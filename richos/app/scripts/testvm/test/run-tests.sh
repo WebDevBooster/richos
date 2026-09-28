@@ -38,8 +38,17 @@ FILTER="${1:-}"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/testvm-tests.XXXXXX")"
 # §54: this scratch directory goes however this script ends — pass, fail, or
 # an interrupt from a keyboard.
+#
+# A signal ENDS the run. A trap that only cleaned up let bash carry on after a
+# TERM, against the directory it had just deleted: on 2026-09-27 the proof
+# runner's supervisor sent TERM 0.6 s in, and every later case "failed" on a
+# missing file — the claude-login cases among them — which read as a login
+# regression when nothing about the login had changed. 130/143 are the codes
+# the shell itself would have exited with.
 cleanup() { rm -rf "$TMP"; }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'cleanup; trap - EXIT; exit 130' INT
+trap 'cleanup; trap - EXIT; exit 143' TERM
 
 PASS=0; FAIL=0; FAILED_NAMES=()
 
@@ -646,6 +655,26 @@ sync_env() {  # the fixed half of every claude-sync invocation
 }
 reset_guest_claude() { rm -f "$STUB_GUEST_FS/claude-state.sha" "$STUB_GUEST_FS/claude-state.version"; }
 
+t "app env: TESTVM_APP_ENV becomes --env pairs for the app's own RICHOS_ knobs, and nothing else passes"
+  eq "$(app_env_args "")" ""
+  eq "$(app_env_args "RICHOS_PERMISSION_DEADLINE_MS=20000")" "--env RICHOS_PERMISSION_DEADLINE_MS=20000"
+  eq "$(app_env_args "RICHOS_A=1 RICHOS_B_C=x.y-z")" "--env RICHOS_A=1 --env RICHOS_B_C=x.y-z"
+  eq "$(app_env_args "RICHOS_VOICE_INPUT_WAV=/Users/admin/testvm/ship-tomorrow.wav")" "--env RICHOS_VOICE_INPUT_WAV=/Users/admin/testvm/ship-tomorrow.wav"
+  # Literal $(...) and backticks are the refusal inputs under test.
+  # shellcheck disable=SC2016
+  for refused in 'RICHOS_OTHER=/Users/admin/input.wav' 'RICHOS_VOICE_INPUT_WAV=/a;b' 'RICHOS_VOICE_INPUT_WAV=/a$(id)' 'RICHOS_VOICE_INPUT_WAV=/a`id`' 'RICHOS_VOICE_INPUT_WAV=/a b' 'RICHOS_VOICE_INPUT_WAV=/a*'; do
+    app_env_args "$refused" >/dev/null 2>&1; no $? "$refused passed"
+  done
+  for refused in "PATH=/tmp" "RICHOS_X=a;b" "RICHOS_X=\$(id)" "RICHOS_X='a'" "richos_x=1" "RICHOS_X="; do
+    app_env_args "$refused" >/dev/null 2>&1; no $? "$refused passed"
+  done
+  src="$(cat "$TESTVM_DIR/run.sh")"
+  # shellcheck disable=SC2016  # the $ names are literal source text
+  has "$src" 'APP_EXTRA_ENV="$(app_env_args "${TESTVM_APP_ENV:-}")" || die'
+  # shellcheck disable=SC2016  # the $ names are literal source text: only the open line uses it
+  has "$src" '$APP_EXTRA_ENV'
+t_done
+
 t "claude verdict: identical bytes and equal versions is the only in-sync there is"
   eq "$(claude_sync_verdict abc abc 2.1.277 2.1.277)" "in-sync"
 t_done
@@ -765,12 +794,30 @@ if [ "\$WANT_W" -eq 1 ]; then
   else
     printf '%s\n' '$FAKE_CRED'
   fi
+elif [ -n "\${HOST_SECURITY_MDAT_FILE:-}" ] && [ -f "\$HOST_SECURITY_MDAT_FILE" ]; then
+  # ATTRIBUTES, the way the real one prints them without -w: no value here.
+  printf '    "mdat"<timedate>=0x00  "%sZ\\\\000"\n' "\$(cat "\$HOST_SECURITY_MDAT_FILE")"
 fi
 exit 0
 PLACEHOLDER
 chmod 755 "$TMP/host-security.sh"
+# THE HOST RENEWAL, stubbed for the WHOLE suite: no case may start the CEO's
+# real `claude`. It records each request; with HOST_RENEW_TO set it plays this
+# Mac renewing its login (the credential file and the item's write time change).
+cat > "$TMP/host-renew.sh" <<'RENEW'
+#!/usr/bin/env bash
+printf 'renew\n' >> "${HOST_RENEW_LOG:-/dev/null}"
+if [ -n "${HOST_RENEW_TO:-}" ] && [ -n "${HOST_SECURITY_CREDENTIAL_FILE:-}" ]; then
+  cp "$HOST_RENEW_TO" "$HOST_SECURITY_CREDENTIAL_FILE"
+  [ -n "${HOST_SECURITY_MDAT_FILE:-}" ] && date -u +%Y%m%d%H%M%S > "$HOST_SECURITY_MDAT_FILE"
+fi
+exit 0
+RENEW
+chmod 755 "$TMP/host-renew.sh"
+export TESTVM_HOST_CLAUDE_RENEW="$TMP/host-renew.sh"
 login_env() {
   printf '%s\n' "TESTVM_HOST_SECURITY=$TMP/host-security.sh"
+  printf '%s\n' "TESTVM_HOST_CLAUDE_RENEW=$TMP/host-renew.sh"
 }
 
 t "engine payload: untarred with --strip-components 1, and CHECKED afterwards"
@@ -908,6 +955,131 @@ t_done
 t "claude login: a home that is not the guest's is refused before anything is read"
   err="$(env $(login_env) "$TESTVM_DIR/claude-login.sh" push richos-test-a "$HOME" 2>&1)"; no $?
   has "$err" "not under the guest user's home"
+t_done
+
+# --- a long run outlives one access token (2026-09-26) -----------------------
+cred_at() {  # <file> <token> <seconds-from-now>
+  printf '{"claudeAiOauth":{"accessToken":"%s","refreshToken":"also-not-real-9876543210","expiresAt":%s}}' \
+    "$2" "$(( ( $(date +%s) + $3 ) * 1000 ))" > "$1"
+}
+KEEP_HOME="/Users/admin/testvm/richos-test-a/home"
+# The same words login_env prints, as an array: nothing to word-split.
+LOGIN_ENV=("TESTVM_HOST_SECURITY=$TMP/host-security.sh" "TESTVM_HOST_CLAUDE_RENEW=$TMP/host-renew.sh")
+
+t "claude login: a token inside the renewal window is renewed by THIS Mac first, and the fresh one crosses"
+  cred_at "$TMP/cred-short.json" "short-lived-token-0123456789" 120
+  cred_at "$TMP/cred-renewed.json" "renewed-access-token-0123456789" 28800
+  : > "$TMP/renew.log"
+  out="$(env "${LOGIN_ENV[@]}" HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-short.json" HOST_RENEW_TO="$TMP/cred-renewed.json" \
+         HOST_RENEW_LOG="$TMP/renew.log" STUB_LOG=/dev/null STUB_SECURITY_STDIN=/dev/null STUB_CLAUDE_LOGIN=absent \
+         "$TESTVM_DIR/claude-login.sh" push richos-test-a "$KEEP_HOME" 2>/dev/null)"
+  ok $? "a renewed token is a login"
+  eq "$out" "claude login: guest logged in"
+  eq "$(wc -l < "$TMP/renew.log" | tr -d ' ')" "1" "this Mac is asked exactly once"
+  has   "$(cat "$STUB_GUEST_FS/credentials.json")" "renewed-access-token-0123456789"
+  hasnt "$(cat "$STUB_GUEST_FS/credentials.json")" "short-lived-token"
+  hasnt "$(cat "$STUB_GUEST_FS/credentials.json")" "refreshToken"
+t_done
+
+t "claude login: an expired host token is renewed by THIS Mac rather than refused"
+  cred_at "$TMP/cred-expired.json" "expired-token-0123456789" -60
+  cred_at "$TMP/cred-renewed.json" "renewed-access-token-0123456789" 28800
+  : > "$TMP/renew.log"
+  out="$(env "${LOGIN_ENV[@]}" HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-expired.json" HOST_RENEW_TO="$TMP/cred-renewed.json" \
+         HOST_RENEW_LOG="$TMP/renew.log" STUB_LOG=/dev/null STUB_SECURITY_STDIN=/dev/null STUB_CLAUDE_LOGIN=absent \
+         "$TESTVM_DIR/claude-login.sh" push richos-test-a "$KEEP_HOME" 2>/dev/null)"
+  ok $? "renewed, not refused"
+  eq "$out" "claude login: guest logged in"
+  has "$(cat "$STUB_GUEST_FS/credentials.json")" "renewed-access-token-0123456789"
+t_done
+
+t "claude login: a token with hours left is handed over as it is, without asking this Mac to renew"
+  cred_at "$TMP/cred-long.json" "long-lived-token-0123456789" 7200
+  : > "$TMP/renew.log"
+  out="$(env "${LOGIN_ENV[@]}" HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-long.json" HOST_RENEW_LOG="$TMP/renew.log" \
+         STUB_LOG=/dev/null STUB_SECURITY_STDIN=/dev/null STUB_CLAUDE_LOGIN=absent \
+         "$TESTVM_DIR/claude-login.sh" push richos-test-a "$KEEP_HOME" 2>/dev/null)"
+  ok $? "a long-lived token is a login"
+  eq "$(wc -c < "$TMP/renew.log" | tr -d ' ')" "0" "no renewal was needed"
+  has "$(cat "$STUB_GUEST_FS/credentials.json")" "long-lived-token-0123456789"
+t_done
+
+t "claude login: push records WHEN the guest's copy runs out and WHICH host write it came from, and no token"
+  mkdir -p "$TESTVM_ROOT/run/richos-test-a"
+  printf '20260926110315\n' > "$TMP/host-mdat"
+  cred_at "$TMP/cred-long.json" "long-lived-token-0123456789" 7200
+  out="$(env "${LOGIN_ENV[@]}" HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-long.json" HOST_SECURITY_MDAT_FILE="$TMP/host-mdat" \
+         STUB_LOG=/dev/null STUB_SECURITY_STDIN=/dev/null STUB_CLAUDE_LOGIN=absent \
+         "$TESTVM_DIR/claude-login.sh" push richos-test-a "$KEEP_HOME" 2>/dev/null)"
+  ok $? "push"
+  exp="$(cat "$TESTVM_ROOT/run/richos-test-a/claude-login.expires" 2>/dev/null)"
+  case "$exp" in ''|*[!0-9]*) no 0 "expires must be a number, got [$exp]" ;; esac
+  eq "$(cat "$TESTVM_ROOT/run/richos-test-a/claude-login.host-written" 2>/dev/null)" "20260926110315"
+  hasnt "$(cat "$TESTVM_ROOT/run/richos-test-a/"claude-login.* 2>/dev/null)" "token"
+t_done
+
+t "claude login: keep hands the guest each token THIS Mac renews, and ends when the run state goes"
+  mkdir -p "$TESTVM_ROOT/run/richos-test-a"
+  printf '20260926110315\n' > "$TMP/host-mdat"
+  cred_at "$TMP/cred-keep.json" "first-token-0123456789" 7200
+  env "${LOGIN_ENV[@]}" HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-keep.json" HOST_SECURITY_MDAT_FILE="$TMP/host-mdat" \
+      STUB_LOG=/dev/null STUB_SECURITY_STDIN=/dev/null STUB_CLAUDE_LOGIN=absent \
+      "$TESTVM_DIR/claude-login.sh" push richos-test-a "$KEEP_HOME" >/dev/null 2>&1
+  env "${LOGIN_ENV[@]}" HOST_SECURITY_CREDENTIAL_FILE="$TMP/cred-keep.json" HOST_SECURITY_MDAT_FILE="$TMP/host-mdat" \
+      STUB_LOG=/dev/null STUB_SECURITY_STDIN=/dev/null STUB_CLAUDE_LOGIN=absent TESTVM_CLAUDE_KEEP_SECONDS=1 \
+      "$TESTVM_DIR/claude-login.sh" keep richos-test-a "$KEEP_HOME" >"$TMP/keep.out" 2>&1 &
+  KEEP_PID=$!
+  sleep 2
+  cred_at "$TMP/cred-keep.json" "second-token-0123456789" 28800   # THIS Mac renews
+  printf '20260926190000\n' > "$TMP/host-mdat"
+  for _ in 1 2 3 4 5 6 7 8; do
+    grep -q second-token "$STUB_GUEST_FS/credentials.json" 2>/dev/null && break
+    sleep 1
+  done
+  has   "$(cat "$STUB_GUEST_FS/credentials.json")" "second-token-0123456789"
+  hasnt "$(cat "$STUB_GUEST_FS/credentials.json")" "refreshToken"
+  rm -rf "$TESTVM_ROOT/run/richos-test-a"                         # stop.sh's last act
+  for _ in 1 2 3 4 5 6; do kill -0 "$KEEP_PID" 2>/dev/null || break; sleep 1; done
+  if kill -0 "$KEEP_PID" 2>/dev/null; then
+    no 0 "the keeper outlived its run"; kill "$KEEP_PID" 2>/dev/null
+  fi
+  wait "$KEEP_PID" 2>/dev/null
+  has "$(cat "$TMP/keep.out")" "the run state is gone"
+t_done
+
+t "claude login: keep asks THIS Mac to renew once when the guest's copy enters the window unrenewed"
+  mkdir -p "$TESTVM_ROOT/run/richos-test-a"
+  printf '20260926110315\n' > "$TMP/host-mdat"
+  printf '20260926110315\n' > "$TESTVM_ROOT/run/richos-test-a/claude-login.host-written"
+  printf '%s\n' "$(( ( $(date +%s) + 100 ) * 1000 ))" > "$TESTVM_ROOT/run/richos-test-a/claude-login.expires"
+  : > "$TMP/renew.log"
+  env "${LOGIN_ENV[@]}" HOST_SECURITY_MDAT_FILE="$TMP/host-mdat" HOST_RENEW_LOG="$TMP/renew.log" \
+      TESTVM_CLAUDE_KEEP_SECONDS=1 \
+      "$TESTVM_DIR/claude-login.sh" keep richos-test-a "$KEEP_HOME" >"$TMP/keep2.out" 2>&1 &
+  KEEP_PID=$!
+  sleep 4
+  rm -rf "$TESTVM_ROOT/run/richos-test-a"
+  for _ in 1 2 3 4 5 6; do kill -0 "$KEEP_PID" 2>/dev/null || break; sleep 1; done
+  kill -0 "$KEEP_PID" 2>/dev/null && { no 0 "the keeper outlived its run"; kill "$KEEP_PID" 2>/dev/null; }
+  wait "$KEEP_PID" 2>/dev/null
+  eq "$(wc -l < "$TMP/renew.log" | tr -d ' ')" "1" "asked once per token, never in a loop"
+t_done
+
+t "claude login: run.sh starts ONE keeper after a successful push and records its pid; stop.sh ends that pid"
+  src="$(cat "$TESTVM_DIR/run.sh")"
+  # shellcheck disable=SC2016  # the $ names are literal source text
+  has "$src" 'claude-login.sh" keep "$VM" "$GUEST_HOME"'
+  # shellcheck disable=SC2016  # the $ names are literal source text
+  has "$src" '"$STATE/claude-keep.pid"'
+  lg="$(printf '%s\n' "$src" | grep -n 'claude-login.sh" push' | head -1 | cut -d: -f1)"
+  kp="$(printf '%s\n' "$src" | grep -n 'claude-login.sh" keep' | head -1 | cut -d: -f1)"
+  if [ -n "$lg" ] && [ -n "$kp" ] && [ "$lg" -lt "$kp" ]; then ok 0; else ok 1 "the keeper starts after the push"; fi
+  stop="$(cat "$TESTVM_DIR/stop.sh")"
+  has "$stop" 'claude-keep.pid'
+  kk="$(printf '%s\n' "$stop" | grep -n 'claude-keep.pid' | head -1 | cut -d: -f1)"
+  # shellcheck disable=SC2016  # the $ names are literal source text
+  rs="$(printf '%s\n' "$stop" | grep -n 'rm -rf "$STATE"' | head -1 | cut -d: -f1)"
+  if [ -n "$kk" ] && [ -n "$rs" ] && [ "$kk" -lt "$rs" ]; then ok 0; else ok 1 "the keeper is ended before the state goes"; fi
 t_done
 
 t "claude login: run.sh copies the login in after the keychain exists, and prints the line"
@@ -1349,12 +1521,46 @@ t "scenario outcomes, turn budgets, held reservation and owned timeout cleanup"
   python3 "$HERE/scenario.test.py" >"$TMP/scenario.log" 2>&1; ok $? "$(cat "$TMP/scenario.log")"
 t_done
 
-t "run-walk --wait reaches the guest-lock admission; the default still refuses at once"
+t "run-walk --wait reaches the guest-slot admission; the default still refuses at once; hold-walk.py is retired"
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/run-walk-wait.test.py" >"$TMP/run-walk-wait.log" 2>&1; ok $? "$(cat "$TMP/run-walk-wait.log")"
+t_done
+
+t "slots: two runs at once, a third waits; a slot is held only for its run and a guest never outlives it"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/slots.test.py" >"$TMP/slots.log" 2>&1; ok $? "$(cat "$TMP/slots.log")"
+t_done
+
+t "mem-walk: a guest probe reads as used, need, swap-outs and the app's and claude's memory"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/mem-walk.test.py" >"$TMP/mem-walk.log" 2>&1; ok $? "$(cat "$TMP/mem-walk.log")"
+t_done
+
+t "slots: run.sh boots no guest outside a slot, and names the one command that does"
+  : > "$TMP/slot-bundle.zip"; mkdir -p "$TMP/slot-home"
+  out="$(env -u TESTVM_SLOT "$TESTVM_DIR/run.sh" --bundle "$TMP/slot-bundle.zip" --home "$TMP/slot-home" --vm richos-test-slot 2>&1)"; no $?
+  has "$out" "no guest is booted outside a guest slot"
+  has "$out" "run-walk.py"
+  if [ -e "$TESTVM_RUN/richos-test-slot" ]; then ok 1 "a refused run.sh must leave no run state"; fi
+  out="$(TESTVM_SLOT="$TESTVM_ROOT/guest.lock" "$TESTVM_DIR/run.sh" --bundle "$TMP/slot-bundle.zip" --home "$TMP/slot-home" --vm richos-test-slot 2>&1)"; no $?
+  has "$out" "is not held"
 t_done
 
 t "files-since: every class, the baseline window, and a control that must be found and flagged"
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/files-since.test.py" >"$TMP/files-since.log" 2>&1; ok $? "$(cat "$TMP/files-since.log")"
+t_done
+
+t "adopt-walk: phone-only, left Registered at the boundary, each way to fail named"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/adopt-walk.test.py" >"$TMP/adopt-walk.log" 2>&1; ok $? "$(cat "$TMP/adopt-walk.log")"
+t_done
+
+t "reap-walk: unrecorded pids are refused, late or surviving commands fail, a finished command is never cut short"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/reap-walk.test.py" >"$TMP/reap-walk.log" 2>&1; ok $? "$(cat "$TMP/reap-walk.log")"
+t_done
+
+t "command-walk: a settled task carrying the command's result passes; the 2026-09-27 'No work was started' record fails"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/command-walk.test.py" >"$TMP/command-walk.log" 2>&1; ok $? "$(cat "$TMP/command-walk.log")"
+t_done
+
+t "spelling-walk: a British model reply or document that reaches him American passes; British left on a surface, his words rewritten, or nothing British to fix fail"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/spelling-walk.test.py" >"$TMP/spelling-walk.log" 2>&1; ok $? "$(cat "$TMP/spelling-walk.log")"
 t_done
 
 # ===========================================================================
