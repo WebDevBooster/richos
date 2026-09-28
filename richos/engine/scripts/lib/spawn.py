@@ -113,6 +113,8 @@ PROV = _load("richos_brief_provenance",
              os.path.join(ENGINE, "ass-kicker", "brief-provenance.py"))
 SCOPE = _load("richos_brief_scope",
               os.path.join(ENGINE, "ass-kicker", "brief-scope.py"))
+DONE = _load("richos_brief_done",
+             os.path.join(ENGINE, "ass-kicker", "brief-done.py"))
 AUDIENCE = _load("richos_spawn_guard_audience",
                  os.path.join(HERE, "spawn-guard-audience.py"))
 QATOOLS = _load("richos_qa_toolkit", os.path.join(HERE, "qa-toolkit.py"))
@@ -849,6 +851,19 @@ def main(argv):
         payload["prompt"], qa_notes = QATOOLS.annotate(payload["prompt"], args["type"], repos)
         for _n in qa_notes:
             notes.append("qa tools:    %s" % _n)
+        # THE BRIEF'S OWN EVIDENCE, RUN. On 2026-09-28 a brief said a quoted `git log`
+        # "shows no fix"; run, it printed 40 lines including all ten fix commits, and the
+        # teammate spent 75 minutes finding that out. Each command the brief quotes as
+        # evidence is run once here, read-only and time-limited (brief-done.py says
+        # exactly which programs), and its real output is appended beside the claim.
+        # Appended LAST, so no earlier annotator reads command output as the lead's prose.
+        # Never for the app: its dispatches are the user's, not the operator's (see
+        # spawn-guard-audience.declaration), and nothing is run on a user's behalf here.
+        # A brief that quotes no evidence command is byte-identical after this.
+        if args["audience"] == OPERATOR:
+            payload["prompt"], ev_notes = DONE.annotate(payload["prompt"], repos)
+            for _n in ev_notes:
+                notes.append("evidence:    %s" % _n)
     except (Refusal, W.SpecError) as exc:
         report_problems("refused", [{"headline": str(exc), "detail": ""}])
         if args["json"]:
