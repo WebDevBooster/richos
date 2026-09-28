@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "4198fcaf4944ff4d74636df372f458b164684ff415ec4d0eef4e9b7c491cde44",
+      "sha256": "c521d129562ab5b51d0ade3e7f3e44d376f18fe640720a6cece2bbdfaa07d54b",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -9450,6 +9450,187 @@
         }
       ],
       "nonconfig_eval": "pay evaluates only literal fixture dictionaries with fixture paths. Session commands have fixed hook/lease/Git callsites."
+    },
+    "ecs/core/ecs_core.py#load": {
+      "source": "ecs/core/ecs_core.py",
+      "sha256": "a8ac81f7fb6c7a57f60c2eb20a968eee9db061d03a0a0fb44d1128b72ca91a59",
+      "evidence": "Module-load imports and initializers reviewed: only stdlib, literal constants, regular expressions and class/dataclass definitions. No EventStore is instantiated.",
+      "keys": [],
+      "edges": []
+    },
+    "ecs/core/ecs_extract.py#load": {
+      "source": "ecs/core/ecs_extract.py",
+      "sha256": "66cd23c5eb8c742aa80e7081ed30b7bd7e8a4cc5d374fb3718effe80e21caef2",
+      "evidence": "Module-load imports, class fields and initializers reviewed: constants, regular expressions and dataclass definitions only. No extraction function runs.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/core/ecs_core.py#load"
+        }
+      ]
+    },
+    "ecs/core/ecs_checkpoint.py#load": {
+      "source": "ecs/core/ecs_checkpoint.py",
+      "sha256": "1ac18c29388049cc9b1a911ae44bcbb96d730c66fc9362f92869a6c06fbdb77e",
+      "evidence": "Module-load imports and initializers reviewed. Definitions import core/extract; no checkpoint function or store construction runs.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/core/ecs_core.py#load"
+        },
+        {
+          "to": "ecs/core/ecs_extract.py#load"
+        }
+      ]
+    },
+    "ecs/core/ecs_inspect.py#load": {
+      "source": "ecs/core/ecs_inspect.py",
+      "sha256": "9987e141ac6b4c2a445f72eef76454053dd849cf1252b3ea2002a9decd24293c",
+      "evidence": "Module-load imports and initializers reviewed: stdlib/core and literal SECTIONS. No inspect function or store construction runs.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/core/ecs_core.py#load"
+        }
+      ]
+    },
+    "ecs/adapters/app.py#load": {
+      "source": "ecs/adapters/app.py",
+      "sha256": "807c59f61d562b4f3a89fb79b036b8c173e7be9e5f208ac9b1ec7c5515b3a4d7",
+      "evidence": "Module-load imports and initializers reviewed: stdlib/core/checkpoint/inspect, constants and definitions. No adapter entrypoint runs.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/core/ecs_core.py#load"
+        },
+        {
+          "to": "ecs/core/ecs_checkpoint.py#load"
+        },
+        {
+          "to": "ecs/core/ecs_inspect.py#load"
+        }
+      ]
+    },
+    "mega-lander/workspaces.py#land-record-readers": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+      "evidence": "Reviewed read_land_lock, land_record_path and land_records: bounded JSON history reads beside canonical repository lock paths, with no config read or execution.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#land-lock-paths"
+        }
+      ]
+    },
+    "mega-lander/app.py#land-lock-fixtures": {
+      "source": "mega-lander/app.py",
+      "sha256": "71965a989538ac783bb73e99772de4b7f6c93e8a743982ab1a46b6c8a23ed8e6",
+      "evidence": "Fixture calls only land_lock and _live_fence_lease. Full local closure reviewed: lock metadata, flock, process liveness and repository lease/history reads. Workspaces and ECS imports are bound; ECS runtime operations are not invoked.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#land-record-readers"
+        },
+        {
+          "to": "mega-lander/workspaces.py#liveness-readers"
+        },
+        {
+          "to": "ecs/core/ecs_core.py#load"
+        },
+        {
+          "to": "ecs/adapters/app.py#load"
+        }
+      ]
+    },
+    "mega-lander/workspaces.py#fence-restore": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+      "evidence": "Full _recreate_deleted_ref and _fence_restore_intent reviewed: private Git ref/intent operations, launcher text reads and native process identity. No config execution; installed callbacks are separately bound by the fixture.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#land-lock-paths"
+        },
+        {
+          "to": "mega-lander/workspaces.py#liveness-readers"
+        }
+      ]
+    },
+    "scripts/hooks/ref-transaction-forensics.sh": {
+      "source": "scripts/hooks/ref-transaction-forensics.sh",
+      "sha256": "149dd7e31f997f3121304073451999fc1f59ca381a410fd9bb95fd27033631c7",
+      "evidence": "Full recorder reviewed: Git metadata, native ps and JSON append. No config source or dynamic engine command.",
+      "keys": [],
+      "edges": [],
+      "nonconfig_eval": "The two eval sites expand only a literal eight-name environment inventory for the forensic record; no orchestration key is evaluated."
+    },
+    "scripts/install-ref-forensics.sh": {
+      "source": "scripts/install-ref-forensics.sh",
+      "sha256": "2c43617926e4fc2704d8a2a886ee5beb23fc91c1c5a50f601168e7aa4d0ca69c",
+      "evidence": "Full installer reviewed: Git hook path/config discovery and fixed recorder source copying into the private fixture hook chain.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/ref-transaction-forensics.sh"
+        }
+      ]
+    },
+    "scripts/hooks/commit-ceo-inputs.py#fenced-fixtures": {
+      "source": "scripts/hooks/commit-ceo-inputs.py",
+      "sha256": "53a222d02892523e81e3f3dc355a010e1b140d0ac628b3649b16be36ce87a500",
+      "evidence": "The private fenced ingress fixture executes classification and secret/publication gates plus take_lease/release_lease through fixed land-lease.sh. The seat, ingress state and repository inputs are literal private fixture paths.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/scan-secrets.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-publication-writes.sh#undeclared"
+        },
+        {
+          "to": "scripts/land-lease.sh"
+        }
+      ]
+    },
+    "scripts/operator-fences.test.sh": {
+      "source": "scripts/operator-fences.test.sh",
+      "sha256": "22173e2f85edbe12fbab2d6d6d614fe63f86e964eb8cdda28eaf0e28ae3c9f4f",
+      "evidence": "Full standalone suite and fixed shell-server commands reviewed: private literal entity settings, Git repositories, fence/lease state and ingress payloads. Exercises reference transaction callbacks, restore intents and land locks without launching model agents.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/operator-fences-fixture.sh"
+        },
+        {
+          "to": "scripts/land-lease.sh"
+        },
+        {
+          "to": "scripts/operator-fences.sh#fixture-admin",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/ref-transaction-forensics.sh"
+        },
+        {
+          "to": "scripts/install-ref-forensics.sh"
+        },
+        {
+          "to": "scripts/lib/operator_fences.py#runtime"
+        },
+        {
+          "to": "scripts/hooks/guard-land-lease-commands.sh"
+        },
+        {
+          "to": "mega-lander/workspaces.py#fence-restore"
+        },
+        {
+          "to": "mega-lander/app.py#land-lock-fixtures"
+        },
+        {
+          "to": "scripts/hooks/commit-ceo-inputs.py#fenced-fixtures",
+          "fixture": true
+        }
+      ]
     }
   },
   "units": {
@@ -9577,7 +9758,8 @@
     "scripts/hooks/contract-integrity.test.sh:Q": "scripts/hooks/contract-integrity.test.sh#Q",
     "scripts/hooks/contract-integrity.test.sh:Qscope": "scripts/hooks/contract-integrity.test.sh#Qscope",
     "scripts/hooks/publication-boundary.test.sh": "scripts/hooks/publication-boundary.test.sh",
-    "scripts/hooks/operator-leads.test.sh": "scripts/hooks/operator-leads.test.sh"
+    "scripts/hooks/operator-leads.test.sh": "scripts/hooks/operator-leads.test.sh",
+    "scripts/operator-fences.test.sh": "scripts/operator-fences.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {

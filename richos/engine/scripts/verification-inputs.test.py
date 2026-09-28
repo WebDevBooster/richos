@@ -153,6 +153,23 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_operator_fence_fixture_binds_restore_ingress_and_imports(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/operator-fences.test.sh'
+        closure = graph.closure(unit)
+        self.assertFalse(any(closure.values()), closure)
+        change = inputs.config_change('OPERATOR_FENCES=on', 'OPERATOR_FENCES=off')
+        self.assertNotIn(unit, graph.config_units(change, [unit]))
+        for helper in ('mega-lander/app.py#land-lock-fixtures',
+                       'ecs/core/ecs_extract.py#load',
+                       'scripts/hooks/commit-ceo-inputs.py#fenced-fixtures',
+                       'scripts/hooks/ref-transaction-forensics.sh'):
+            original = document['nodes'][helper]['sha256']
+            document['nodes'][helper]['sha256'] = 'changed'
+            self.assertIn(unit, graph.config_units(change, [unit]))
+            document['nodes'][helper]['sha256'] = original
+
     def test_operator_lead_fixture_binds_dispatcher_without_real_entity_values(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)
