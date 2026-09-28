@@ -153,6 +153,47 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_unevaluated_inventory_retains_engine_declaration_reader(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/unevaluated-payload.test.sh'
+        closure = graph.closure(unit)
+        self.assertFalse(closure['whole'] or closure['fallback'], closure)
+        self.assertEqual(set(closure['keys']), {'OWNED_SYSTEMS_DECLARATION'})
+        change = inputs.config_change('MODEL_CEILING=a', 'MODEL_CEILING=b')
+        self.assertNotIn(unit, graph.config_units(change, [unit]))
+        self.assertIn(unit, graph.config_units(inputs.config_change('OWNED_SYSTEMS_DECLARATION=a', 'OWNED_SYSTEMS_DECLARATION=b'), [unit]))
+        document['nodes']['owned-systems.declaration#fixture-default']['sha256'] = 'changed'
+        self.assertIn(unit, graph.config_units(change, [unit]))
+        self.assertTrue(document['hook_readers'][unit]['all_events'])
+        inputs.hook_reader(document['hook_readers'][unit], lambda path: (HERE.parent / path).read_text())
+
+    def test_config_selected_commands_require_a_reviewed_literal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'reader.py').write_text('pass\n')
+            document = {'schema': 1, 'config_keys': ['COMMAND_FILE'],
+                'units': {'unit': 'reader'}, 'nodes': {'reader': {
+                    'source': 'reader.py',
+                    'sha256': hashlib.sha256(b'pass\n').hexdigest(),
+                    'evidence': 'Only the built-in command file is reviewed.',
+                    'keys': ['COMMAND_FILE'],
+                    'config_literals': {'COMMAND_FILE': [None, '', 'builtin']}}}}
+            change = inputs.config_change('OTHER=a', 'OTHER=b')
+            self.assertEqual(inputs.Dependencies(root, document).config_units(change, ['unit']), {})
+            def unreadable(path):
+                if path == 'orchestration.config':
+                    raise PermissionError(path)
+                return (root / path).read_text()
+            self.assertIn('unit', inputs.Dependencies(root, document, unreadable).config_units(change, ['unit']))
+            for text in ('', 'COMMAND_FILE="builtin"', "COMMAND_FILE='builtin'", 'COMMAND_FILE='):
+                (root / 'orchestration.config').write_text(text)
+                self.assertEqual(inputs.Dependencies(root, document).config_units(change, ['unit']), {})
+            for text in ('COMMAND_FILE=custom', 'COMMAND_FILE="$HOME/custom"',
+                         'COMMAND_FILE=builtin\nCOMMAND_FILE=custom'):
+                (root / 'orchestration.config').write_text(text)
+                self.assertIn('unit', inputs.Dependencies(root, document).config_units(change, ['unit']))
+
     def test_land_lease_selection_keeps_real_dispatcher_config(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

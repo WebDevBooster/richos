@@ -346,6 +346,27 @@ class Dependencies:
             raise Unsupported("changed reader requires input qualification: " + str(source))
         if not row.get("evidence"):
             raise Unsupported("reader has no qualification evidence: " + str(source))
+        for key, allowed in row.get("config_literals", {}).items():
+            if key not in self.declaration["config_keys"] or not isinstance(allowed, list):
+                raise Unsupported("invalid config command binding: " + name)
+            config_path = Path("orchestration.config")
+            if config_path not in self.contents:
+                try:
+                    self.contents[config_path] = self.read(str(config_path))
+                except FileNotFoundError:
+                    self.contents[config_path] = None
+                except OSError:
+                    raise Unsupported("unreadable config command binding: " + key) from None
+            values = config(self.contents[config_path] or "")
+            value = values.get(key)
+            if value is None:
+                literal = None
+            elif all(part[0] == "text" for part in value["value"]):
+                literal = "".join(part[1] for part in value["value"])
+            else:
+                raise Unsupported("nonliteral config command binding: " + key)
+            if literal not in allowed:
+                raise Unsupported("changed config command binding: " + key)
         for external in row.get("external", []):
             relative = Path(external.get("path", ""))
             if (external.get("root") != "HOME" or relative.is_absolute()
