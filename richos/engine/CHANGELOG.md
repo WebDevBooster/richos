@@ -10,6 +10,31 @@ version heading with Added / Changed / Fixed groupings.
 
 ## [Unreleased]
 
+### Added — one writer at cut-over: the owner line, its two refusals, and a record committer (2026-09-28)
+
+- **The owner line.** A record's `.row-currency` may carry
+  `ROW_RECORD_OWNER="app <memory dir>"` (`scripts/lib/row-currency.sh`,
+  `rc_record_owner`). Absent, which is the state until the owner switches to the RichOS
+  app, nothing changes. Present, his plain terminal is refused a landing (commit or merge
+  in the main checkout) in that record (`guard-row-currency-commits.sh`) and a
+  Write/Edit into the named memory directory (`guard-record-owner-memory.sh`, a new
+  module of the Write chain). Only `app` is a value; a typo, a missing directory, the
+  line twice or the line in a peer declaration is BROKEN. Deleting the line reverses both.
+- **Who is calling** is `scripts/lib/record_owner.py`: the platform's own session record
+  for the nearest Claude process in the call's ancestry (pid plus kernel start time; the
+  same identity the operator claim uses). `sdk-*` is the app's lead and passes; a caller
+  that cannot be identified is refused.
+- **The switch**, `scripts/record-owner.sh on|off|status`, writes or removes that one
+  line in one commit of one file, taking the land lease for it when the operator fence
+  is on. `on` refuses until the record committer is installed.
+- **The record committer**, `scripts/record-committer.sh run|install|uninstall|status`
+  (`scripts/lib/record_committer.py`): a launchd job that commits only the paths the
+  loro writer writes, and only while the app lander's land lock is free, no land lease
+  is held, the checkout is at rest and the loro writer's own lock is free. It commits
+  with `--only`, so nothing a person staged is swept in.
+- Suites: `scripts/record-owner.test.sh` (23 checks) and
+  `scripts/record-committer.test.sh` (24), each with a mutation harness.
+
 ### Removed — the idle-land gate no longer reads the CEO's sentences either (2026-09-20)
 
 - **`HOLD_RE`, `OFF_DUTY_RE`, `hold_signal()` and TERM 3b are gone** from
