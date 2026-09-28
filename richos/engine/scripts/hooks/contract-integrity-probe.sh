@@ -438,8 +438,9 @@ run_layer_R() {
     # ROOTLESS, EACH FOR A REASON READ OFF ITS SOURCE RATHER THAN ITS INTENT:
     #   guard-brief-scope, notice-claim-capability, handoff-facts-annotate,
     #   notice-inflight-sends, session-start-ci-surface, session-start-scratch,
-    #   session-start-quota, shell-evidence — they
-    #     resolve no entity root at all, so naming them would make this layer
+    #   session-start-quota, session-start-stall, shell-evidence — they
+    #     resolve no entity root at all (session-start-stall.sh leaves that to
+    #     stall-watch.sh, as session-start-quota.sh does), so naming them would make this layer
     #     assert something false about them (hook-registration-completeness.sh
     #     names handoff-facts-annotate.sh as a live instance of exactly that).
     #   task-completed-handoff, teammate-idle-handoff, worker-created-handoff,
@@ -464,7 +465,7 @@ run_layer_R() {
     #     session sits in changes nothing about whether `find ~` opens other apps'
     #     containers, so it asks for no root.
     R_ROOTLESS_HOOKS="guard-brief-scope notice-claim-capability handoff-facts-annotate \
-    notice-inflight-sends session-start-ci-surface session-start-scratch session-start-quota shell-evidence \
+    notice-inflight-sends session-start-ci-surface session-start-scratch session-start-quota session-start-stall shell-evidence \
     task-completed-handoff teammate-idle-handoff \
     worker-created-handoff worker-started-handoff worker-updated-handoff worker-ended-handoff \
     guard-ci-red-lands guard-land-lease-commands guard-foreign-app-data"
@@ -1196,6 +1197,7 @@ session-start-ci-surface.sh|SessionStart
 notice-disk-alert.sh|SessionStart
 session-start-scratch.sh|SessionStart
 session-start-quota.sh|SessionStart
+session-start-stall.sh|SessionStart
 left-off-report.sh|SessionStart
 guard-sealed-worktree.sh|PreToolUse
 guard-worktree-isolation.sh|PreToolUse

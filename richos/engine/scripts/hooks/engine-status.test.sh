@@ -741,6 +741,14 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # the percentage out of the CEO's view (R4). Silent where the engine is not
 # adopted. It resolves no entity root itself (quota-watch.sh does), so it is
 # declared in the probe's R_ROOTLESS_HOOKS; suite: session-start-quota.test.sh.
+# session-start-stall.sh, ADDED 2026-09-28 — SessionStart, refuses nothing. It
+# tells every lead that the stall watcher (scripts/stall-watch.sh --monitor,
+# started by the engine's plugin monitor) runs with the session, what it
+# reports, that it only reports, and the one-line --alive check. It exists
+# because three teammates sat 70-85 minutes queued behind one proof-run slot
+# on 2026-09-28 and nothing woke the lead. additionalContext only; silent where
+# the engine is not adopted; it resolves no entity root itself (stall-watch.sh
+# does), so it is in the probe's R_ROOTLESS_HOOKS; suite: stall-watch.test.sh.
 # notice-disk-alert.sh, ADDED 2026-09-19 — SessionStart, refuses nothing, and
 # the CEO's own §54: when the disk falls below the declared DISK_CEO_NOTIFY_GB
 # it tells him at session start and keeps telling him until the space is back,
@@ -948,6 +956,7 @@ session-start-ci-surface.sh
 session-start-escalations.sh
 session-start-quota.sh
 session-start-scratch.sh
+session-start-stall.sh
 shell-evidence.sh
 snapshot-agent-definitions.sh
 snapshot-enforcing-hooks.sh

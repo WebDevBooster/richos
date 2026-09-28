@@ -387,6 +387,9 @@ say_hang 9n left-off-report.sh --event SessionStart
 # 9r — operator-claim.sh, registered 2026-09-25 (the operator lead claim). It
 # reads stdin with a bounded `read -t`, never `cat`.
 say_hang 9r operator-claim.sh
+# 9s — session-start-stall.sh, registered 2026-09-28 (the stall watcher's
+# notice). It never reads stdin; its call to stall-watch.sh runs </dev/null.
+say_hang 9s session-start-stall.sh
 
 # 9i NEGATIVE — the partner to 9d, and the reason 9g cannot be satisfied by
 # simply never reading stdin: snapshot-enforcing-hooks.sh must STILL take its

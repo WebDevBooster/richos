@@ -4,5 +4,11 @@
     "command": "bash \"${CLAUDE_PLUGIN_ROOT}\"/scripts/quota-watch.sh --monitor",
     "description": "The CEO's 93% quota rule: polls every 5 minutes for the whole session and wakes the lead at the threshold, the hold's release, the reset and a reading that stays unknown",
     "when": "always"
+  },
+  {
+    "name": "stall-watch",
+    "command": "bash \"${CLAUDE_PLUGIN_ROOT}\"/scripts/stall-watch.sh --monitor",
+    "description": "Wakes the lead the moment teammate work stalls: a resource wait over 10 minutes, a live teammate with no commit and no transcript activity for 20 minutes, or a teammate waiting on a slot its own process holds. Looks every 60 s, tells each stall once, and only reports",
+    "when": "always"
   }
 ]
