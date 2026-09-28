@@ -524,6 +524,114 @@ class Closure(unittest.TestCase):
         with self.assertRaises(inputs.Unsupported):
             inputs.hook_reader(row, reader)
 
+    def test_large_transport_fixtures_bind_helpers_without_live_config_values(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        cases = {
+            'scripts/lib/bulk-record-transport.test.sh': ['scripts/lib/ceo-asks.sh', 'scripts/lib/unstarted-rows.sh#fixture-records'],
+            'scripts/hooks/payload-transport.test.sh': ['scripts/hooks/guard-inflight-notify.sh', 'scripts/hooks/guard-vendoring-commits.sh', 'scripts/hooks/guard-bash-main-writes.sh'],
+        }
+        change = inputs.config_change('PROTECTED_PATHS=src', 'PROTECTED_PATHS=app')
+        for unit, helpers in cases.items():
+            with self.subTest(unit=unit):
+                self.assertEqual(graph.closure(unit), {'keys': {}, 'whole': [], 'presence': [], 'fallback': []})
+                self.assertNotIn(unit, graph.config_units(change, [unit]))
+                for helper in helpers:
+                    original = document['nodes'][helper]['sha256']
+                    document['nodes'][helper]['sha256'] = 'changed'
+                    self.assertIn(unit, graph.config_units(change, [unit]), helper)
+                    document['nodes'][helper]['sha256'] = original
+
+    def test_text_fixture_tools_keep_only_the_toolkit_environment_reader(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        cases = {
+            'scripts/hardware-choice-check.test.sh': ('scripts/hardware-choice-check.py', set()),
+            'scripts/qa-throwaways.test.sh': ('scripts/lib/qa-throwaways.py', {'QA_TOOLKIT_DIR'}),
+            'scripts/provision-claude-md.test.sh': ('scripts/provision-claude-md.sh#identity-fixture', set()),
+        }
+        unrelated = inputs.config_change('CHECK_FAILURE_TYPE=0', 'CHECK_FAILURE_TYPE=1')
+        for unit, (helper, keys) in cases.items():
+            with self.subTest(unit=unit):
+                closure = graph.closure(unit)
+                self.assertEqual(set(closure['keys']), keys)
+                self.assertFalse(closure['whole'] or closure['presence'] or closure['fallback'], closure)
+                self.assertNotIn(unit, graph.config_units(unrelated, [unit]))
+                affected = inputs.config_change('QA_TOOLKIT_DIR=old', 'QA_TOOLKIT_DIR=new')
+                self.assertEqual(unit in graph.config_units(affected, [unit]), bool(keys))
+                old = document['nodes'][helper]['sha256']
+                document['nodes'][helper]['sha256'] = 'changed'
+                self.assertIn(unit, graph.config_units(unrelated, [unit]))
+                document['nodes'][helper]['sha256'] = old
+
+    def test_fence_and_ledger_fixtures_keep_only_real_config_transport(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        cases = {
+            'scripts/operator-fences-mutation.test.sh': ('scripts/operator-fences.mutation.sh', True),
+            'scripts/hooks/ref-transaction-forensics.test.sh': ('scripts/hooks/ref-transaction-forensics.sh', False),
+            'scripts/hooks/release-land-leases.test.sh': ('scripts/hooks/release-land-leases.mutation.sh', True),
+            'scripts/lib/assert-own-worktree-registered.test.sh': ('scripts/lib/resolve-main-checkout.sh', False),
+            'scripts/ledger-prune-sandbox.test.sh': ('scripts/ledger-prune-sandbox.py', False),
+        }
+        change = inputs.config_change('PROTECTED_PATHS=app', 'PROTECTED_PATHS=packages')
+        for unit, (helper, presence) in cases.items():
+            with self.subTest(unit=unit):
+                closure = graph.closure(unit)
+                self.assertFalse(closure['keys'] or closure['whole'] or closure['fallback'], closure)
+                self.assertEqual(bool(closure['presence']), presence)
+                self.assertNotIn(unit, graph.config_units(change, [unit]))
+                self.assertEqual(unit in graph.config_units(inputs.config_change('PROTECTED_PATHS=app', None), [unit]), presence)
+                original = document['nodes'][helper]['sha256']
+                document['nodes'][helper]['sha256'] = 'changed'
+                self.assertIn(unit, graph.config_units(change, [unit]))
+                document['nodes'][helper]['sha256'] = original
+
+    def test_utility_fixtures_and_inventory_list_modes_exclude_config_values(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        helpers = {
+            'scripts/lib/scratch.test.sh': 'scripts/lib/scratch.sh',
+            'scripts/lib/stopwatch.test.sh': 'scripts/lib/stopwatch.sh',
+            'scripts/lib/leak-canary.test.sh': 'scripts/lib/tree-witness.sh',
+            'scripts/lib/record-canary.test.sh': 'scripts/lib/record-canary.sh',
+            'scripts/lib/mutation-pool.test.sh': 'scripts/lib/worker_tokens.py',
+            'scripts/mutation-inventory.test.sh': 'scripts/mutation-inventory.test.sh',
+            'scripts/ci-units.test.sh': 'scripts/hooks/contract-integrity.test.sh#list',
+        }
+        change = inputs.config_change('MODEL_CEILING=old', 'MODEL_CEILING=new')
+        for unit, helper in helpers.items():
+            with self.subTest(unit=unit):
+                self.assertEqual(graph.closure(unit), {'keys': {}, 'whole': [], 'presence': [], 'fallback': []})
+                self.assertNotIn(unit, graph.config_units(change, [unit]))
+                original = document['nodes'][helper]['sha256']
+                document['nodes'][helper]['sha256'] = 'changed'
+                self.assertIn(unit, graph.config_units(change, [unit]))
+                document['nodes'][helper]['sha256'] = original
+        # A qualified new read in a previously independent helper must propagate.
+        document['nodes']['scripts/lib/stopwatch.sh']['keys'] = ['MODEL_CEILING']
+        self.assertIn('scripts/lib/stopwatch.test.sh', graph.config_units(change, helpers))
+        self.assertNotIn('scripts/lib/record-canary.test.sh', graph.config_units(change, helpers))
+
+    def test_login_alarm_fixture_does_not_read_copied_config_values(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/login-alarm.test.sh'
+        closure = graph.closure(unit)
+        self.assertEqual(closure['fallback'], [])
+        self.assertFalse(closure['keys'] or closure['whole'])
+        self.assertTrue(closure['presence'])  # The shared mutation transport copies the file.
+        change = inputs.config_change('QUOTA_PAUSE_PERCENT=93', 'QUOTA_PAUSE_PERCENT=94')
+        self.assertNotIn(unit, graph.config_units(change, [unit]))
+        self.assertIn(unit, graph.config_units(inputs.config_change('QUOTA_PAUSE_PERCENT=93', None), [unit]))
+        for helper in ('scripts/login-alarm.sh#suite-fixture',
+                       'scripts/lib/login_alarm.py#suite-fixture',
+                       'scripts/lib/escalations.py', 'scripts/login-alarm.mutation.sh'):
+            previous = document['nodes'][helper]['sha256']
+            document['nodes'][helper]['sha256'] = 'changed'
+            self.assertIn(unit, graph.config_units(change, [unit]), helper)
+            document['nodes'][helper]['sha256'] = previous
+
     def test_quota_fixture_retains_real_cleanup_and_nested_transport(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

@@ -54,8 +54,8 @@
 # come in through a single-quoted heredoc, which the shell does not interpret
 # at all, and are matched byte-for-byte.
 #
-# Every mutant is a throwaway copy of the engine subtree. Nothing here touches
-# the real tree.
+# Each mutant runs its named witness in a private fixture, first unmodified
+# and then mutated. The outer suite retains every assertion and runs once.
 #
 # Run directly: scripts/hooks/conceal.mutation.sh
 # Exit 0 = every property is proven load-bearing.
@@ -115,6 +115,15 @@ _mutant_body() {
     cp "$ENGINE_ROOT/orchestration.config" "$dir/"
     chmod +x "$dir/scripts/hooks/"*.sh
 
+    ( cd "$dir" && RICHOS_MUTATION_INNER=1 bash "$dir/scripts/hooks/verify-agent-prompt.test.sh" --mutation-case "$want" ) \
+        >"$dir/control.txt" 2>&1
+    local control_rc=$?
+    if [ "$control_rc" -ne 3 ] || ! grep -qxF "  PASS  $want" "$dir/control.txt"; then
+        printf '  FAIL  %s: unmutated named case was not green (rc=%s)\n' "$name" "$control_rc"
+        tail -15 "$dir/control.txt"
+        return 1
+    fi
+
     if ! python3 "$SANDBOX/mutate.py" "$dir/$rel" 2>"$dir/mutate.err"; then
         printf '  FAIL  %s — the mutation did not apply\n' "$name"
         sed 's/^/          /' "$dir/mutate.err"
@@ -122,15 +131,15 @@ _mutant_body() {
     fi
 
     # RICHOS_MUTATION_INNER stops the copied suite reaching for this harness.
-    ( cd "$dir" && RICHOS_MUTATION_INNER=1 bash "$dir/scripts/hooks/verify-agent-prompt.test.sh" ) \
+    ( cd "$dir" && RICHOS_MUTATION_INNER=1 bash "$dir/scripts/hooks/verify-agent-prompt.test.sh" --mutation-case "$want" ) \
         >"$dir/out.txt" 2>&1
     local rc=$?
-    if [ "$rc" -eq 0 ]; then
+    if [ "$rc" -eq 0 ] || [ "$rc" -eq 3 ]; then
         printf '  FAIL  %s — the suite still PASSED without this property.\n' "$name"
         printf '          %s\n' "$why"
         return 1
     fi
-    if ! grep -q "FAIL  $want" "$dir/out.txt"; then
+    if ! grep -qF "FAIL  $want" "$dir/out.txt"; then
         printf '  FAIL  %s — the suite went red, but NOT at "%s" (so the red is unrelated).\n' "$name" "$want"
         grep '  FAIL' "$dir/out.txt" | head -5 | sed 's/^/          /'
         return 1
