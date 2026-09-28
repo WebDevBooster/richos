@@ -165,6 +165,32 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_desktop_work_fixture_preserves_real_keys_and_reader_invalidation(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        from functools import lru_cache
+        @lru_cache(None)
+        def read(path):
+            return (HERE.parent / path).read_text()
+        unit = 'mega-lander/tests/app.test.sh'
+        change = inputs.config_change('CHECK_FAILURE_TYPE=0', 'CHECK_FAILURE_TYPE=1')
+        graph = inputs.Dependencies(HERE.parent, document, read=read)
+        self.assertFalse(graph.closure(unit)['fallback'])
+        self.assertFalse(graph.config_units(change, [unit]))
+        for before, after in (('ALLOWED_MODELS=a', 'ALLOWED_MODELS=b'),
+                              ('APP_TEST_INSTANCE_PROCESS_NAMES=a', 'APP_TEST_INSTANCE_PROCESS_NAMES=b'),
+                              (None, 'CHECK_FAILURE_TYPE=1'), ('A=one', 'A=$(bad)')):
+            self.assertIn(unit, graph.config_units(inputs.config_change(before, after), [unit]))
+        # Prior qualified helper controls remain applicable. Check every newly
+        # bound source and the immediate existing execution boundaries here.
+        for source in ('mega-lander/app.py', 'mega-lander/tests/app.test.py',
+                       'mega-lander/tests/app.test.sh', 'mega-lander/tests/app.mutation.sh',
+                       'mega-lander/workspaces.py', 'ecs/adapters/app.py',
+                       'scripts/lib/spawn.py', 'scripts/lib/pause_protocol.py',
+                       'scripts/lib/mutation-harness.sh', 'ecs/core/ecs_core.py'):
+            with self.subTest(source=source):
+                changed = lambda p: read(p) + '\n# changed reader\n' if p == source else read(p)
+                self.assertIn(unit, inputs.Dependencies(HERE.parent, document, read=changed).config_units(change, [unit]))
+
     def test_creation_and_app_evidence_fixtures_keep_real_model_readers(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         read = lambda path: (HERE.parent / path).read_text()
