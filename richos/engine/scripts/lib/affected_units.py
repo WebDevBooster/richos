@@ -16,6 +16,28 @@ from verification_inputs import (Dependencies, Snapshot, Unsupported, config, co
 
 SECTIONED = "scripts/hooks/contract-integrity.test.sh"
 GLOBAL_CONFIG = "scripts/verification-config.test.sh"
+# The suite that checks verification-dependencies.json's reviewed reader pins against the
+# readers' bytes. A change to a pinned reader selects it, so a stale pin fails at the land
+# that made it stale, not at the next nightly (2026-09-28: 33 sources had gone stale on
+# main, one land at a time, because nothing that checks pins was ever selected).
+PIN_CHECK = "scripts/verification-inputs.test.sh"
+
+
+def pinned_sources(declaration):
+    """Every engine-relative file whose bytes the dependency map pins."""
+    out = set()
+    for row in declaration.get("nodes", {}).values():
+        if isinstance(row, dict):
+            if isinstance(row.get("source"), str):
+                out.add(row["source"])
+            for ext in row.get("external", []):
+                if (isinstance(ext, dict) and ext.get("root") == "environment"
+                        and ext.get("default_engine") and isinstance(ext.get("path"), str)):
+                    out.add(ext["path"])
+    for row in declaration.get("hook_readers", {}).values():
+        if isinstance(row, dict) and isinstance(row.get("sources"), dict):
+            out.update(row["sources"])
+    return out
 
 
 def sections(text):
@@ -57,6 +79,7 @@ class Selection:
         self.units = [unit for suite in self.suites for unit in
                       ([suite + ":" + part for part in self.bodies] if suite == SECTIONED else [suite])]
         self.selected, self.unmapped = {}, []
+        self.pinned = pinned_sources(declaration)
 
     def add(self, unit, reason):
         self.selected.setdefault(unit, set()).add(reason)
@@ -171,6 +194,11 @@ class Selection:
         matched = sum(len(reasons) for reasons in self.selected.values()) > prior_count
         if not matched and (Path(path).suffix in (".sh", ".py", ".bash") or (self.read(path) or "").startswith("#!")):
             self.unmapped.append(path)
+        # Decided AFTER `matched`: the pin check proves the pin, not the reader's behavior,
+        # so it never turns an unmapped executable into a mapped one.
+        if path in self.pinned and PIN_CHECK in self.units:
+            self.add(PIN_CHECK, path + ": pinned reader in verification-dependencies.json "
+                     "(renew its pin after review, in the same land)")
 
     def configuration(self, before, after, unknown=False):
         change = config_change(before, after)

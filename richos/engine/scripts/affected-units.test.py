@@ -267,6 +267,43 @@ class Planner(unittest.TestCase):
         self.assertIn('changed event ordering/inventory for Stop',
                       ' '.join(plan.selected['scripts/hooks/stop-hook-visibility.test.sh']))
 
+    def test_changed_pinned_reader_selects_the_pin_check(self):
+        # 2026-09-28: 33 sources pinned in verification-dependencies.json had gone stale on
+        # main one land at a time, because a change to a pinned reader never selected the
+        # suite that checks the pins. A land that changes one must run that suite.
+        pin_check = 'scripts/verification-inputs.test.sh'
+        root = HERE.parent
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        suites = sorted(p.relative_to(root).as_posix() for p in root.rglob('*.test.sh') if p.is_file())
+        def read(path):
+            file = root / path
+            return file.read_text() if file.is_file() else None
+        # A source only a hook reader pins selects it too (a synthetic row, in memory).
+        document['hook_readers']['scripts/hooks/reader-only-probe.test.sh'] = {
+            'evidence': 'fixture', 'commands': [],
+            'sources': {'scripts/lib/reader-only-probe.sh': '0' * 64}}
+        for path in ('scripts/lib/row-currency.sh', 'scripts/hooks/dispatch-pretooluse.manifest',
+                     'scripts/lib/agent_hold.py', 'scripts/lib/reader-only-probe.sh'):
+            with self.subTest(path=path):
+                plan = Selection(root, suites, read, document)
+                plan.ordinary(path)
+                self.assertIn(pin_check, plan.selected)
+                self.assertIn('pinned reader', ' '.join(plan.selected[pin_check]))
+        # A file the map does not pin selects no pin check, and stays unmapped.
+        plan = Selection(root, suites, read, document)
+        plan.ordinary('scripts/lib/not-a-pinned-probe.sh')
+        self.assertNotIn(pin_check, plan.selected)
+        self.assertIn('scripts/lib/not-a-pinned-probe.sh', plan.unmapped)
+        # The pin check proves the pin, not the reader: a pinned executable no suite names
+        # is still reported unmapped.
+        document['nodes']['scripts/lib/pinned-orphan-probe.sh'] = {
+            'source': 'scripts/lib/pinned-orphan-probe.sh', 'sha256': '0' * 64,
+            'evidence': 'fixture', 'keys': [], 'edges': []}
+        plan = Selection(root, suites, read, document)
+        plan.ordinary('scripts/lib/pinned-orphan-probe.sh')
+        self.assertIn(pin_check, plan.selected)
+        self.assertIn('scripts/lib/pinned-orphan-probe.sh', plan.unmapped)
+
     def test_session_start_inventory_keeps_new_events_and_reader_invalidation(self):
         root = HERE.parent
         document = json.loads((root / 'scripts/lib/verification-dependencies.json').read_text())

@@ -630,7 +630,7 @@
     },
     "scripts/lib/affected_units.py#validate-config": {
       "source": "scripts/lib/affected_units.py",
-      "sha256": "ce785bd14551bd4de13985e49b82f074da30491133a8fdc393a4f9b3f1934b56",
+      "sha256": "a5136253a47fd00a8434cc2d37c54e3e6f3518f4149df5052aaa618ee454a077",
       "evidence": "validate_config reads the real config and its declared key registry, rejecting unsupported syntax and unknown keys.",
       "keys": [],
       "edges": [
@@ -1055,8 +1055,8 @@
     },
     "scripts/lib/affected_units.py": {
       "source": "scripts/lib/affected_units.py",
-      "sha256": "ce785bd14551bd4de13985e49b82f074da30491133a8fdc393a4f9b3f1934b56",
-      "evidence": "The selector can validate a supplied engine configuration and can compute config/hook/ordinary selections from supplied snapshots. Its only subprocesses are read-only Git operations.",
+      "sha256": "a5136253a47fd00a8434cc2d37c54e3e6f3518f4149df5052aaa618ee454a077",
+      "evidence": "The selector can validate a supplied engine configuration and can compute config/hook/ordinary selections from supplied snapshots. Its only subprocesses are read-only Git operations. Renewed 2026-09-28: ordinary selection also names scripts/verification-inputs.test.sh for a path this same declaration pins (pinned_sources reads the already-loaded declaration only; no new file, setting or subprocess).",
       "keys": [],
       "edges": [
         {
@@ -1080,8 +1080,8 @@
     },
     "scripts/affected-units.test.py": {
       "source": "scripts/affected-units.test.py",
-      "sha256": "18b5ff4adc809b20c55db0fec4c0a2b71832f06256bc242b5a3d2e86d716da32",
-      "evidence": "All config reads use newly written fixture files or literal before/after text. The real-file planning case reads only hooks.json and source-bound registration declarations. Nested CLI invocations use a newly created Git repository, and selected commands are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
+      "sha256": "b2befac9fb47459b07cf4d7085733158eca0da9eb75cd321eb8fada1ba70655c",
+      "evidence": "All config reads use newly written fixture files or literal before/after text. The real-file planning case reads only hooks.json and source-bound registration declarations. Nested CLI invocations use a newly created Git repository, and selected commands are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites. Renewed 2026-09-28: the pinned-reader case reads the real declaration and every suite's text as data and adds one synthetic node in memory; nothing is executed.",
       "keys": [],
       "edges": [
         {
