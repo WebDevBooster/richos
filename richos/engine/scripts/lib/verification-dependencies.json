@@ -11877,6 +11877,199 @@
           "to": "scripts/lib/worktree-ledger.test.sh"
         }
       ]
+    },
+    "scripts/lib/land-completeness.py": {
+      "source": "scripts/lib/land-completeness.py",
+      "sha256": "104eeeb53f83feec5437c8b15cfc6c2b80bfb947aa8d8695c177418fbeec8e92",
+      "evidence": "Full analyzer reads Git metadata and ledger records. Its only dynamic modules are worktree-ledger and workspace integration_for. Commands in records are data, not executed.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/worktree-ledger.py#cli"
+        },
+        {
+          "to": "mega-lander/workspaces.py#integration"
+        }
+      ]
+    },
+    "scripts/lib/land-residue-gate.py": {
+      "source": "scripts/lib/land-residue-gate.py",
+      "sha256": "3a13a7ce7b8b5ee958f6b0eaca635a164eef8bdad45cc46f9b58f18e93b91766",
+      "evidence": "Loads adjacent land-completeness analyzer; parses supplied command and private ack log as data. No orchestration config reader.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/land-completeness.py"
+        }
+      ]
+    },
+    "scripts/land-completeness.sh#report": {
+      "source": "scripts/land-completeness.sh",
+      "sha256": "7326772493a714c1a07ddd4c4df060c6c527ba5742df9534c58a8f213afece1a",
+      "evidence": "Reporting entrypoints used by land-completeness.test.sh: reads ledger JSON and Git identity, invokes analyzer and renders JSON with inline stdlib Python. Does not invoke --self-test.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/land-completeness.py"
+        }
+      ]
+    },
+    "scripts/workspaces.sh#integration": {
+      "source": "scripts/workspaces.sh",
+      "sha256": "3f8fca9eed32770c01146388940de489ed3ccdd6d2c406d478ba09d0f4ceb7c4",
+      "evidence": "Compatibility shell shim executes mega-lander/workspaces.sh with integration arguments from land-completeness fixture.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.sh#integration"
+        }
+      ]
+    },
+    "scripts/land-completeness.test.sh": {
+      "source": "scripts/land-completeness.test.sh",
+      "sha256": "84070bb57e01c086513b4e7f7c1cbfcb3a144baf12e5fc9fb353ec21491195d4",
+      "evidence": "Private Git/ledger/registry fixtures call analyzer, gate, report wrapper and workspace integration. Registry hygiene scanner reads sibling source as text only. Shared mutation transport retains config presence.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/land-completeness.py"
+        },
+        {
+          "to": "scripts/lib/land-residue-gate.py"
+        },
+        {
+          "to": "scripts/land-completeness.sh#report"
+        },
+        {
+          "to": "scripts/workspaces.sh#integration"
+        },
+        {
+          "to": "scripts/land-completeness.mutation.sh"
+        }
+      ]
+    },
+    "scripts/land-completeness.mutation.sh": {
+      "source": "scripts/land-completeness.mutation.sh",
+      "sha256": "3196f646db7ae4c0b81554a458a7b07c8d3948cd62c7a598e1a883ca4698931b",
+      "evidence": "Four mutants edit owning suite registry isolation/scanner assertions, then execute the same suite in the shared mutation harness.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/land-completeness.test.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-ci-red-lands.sh#offline-fixture": {
+      "source": "scripts/hooks/guard-ci-red-lands.sh",
+      "sha256": "64d83f115beb4a9db8c3cfe52438b72951d2a9e2ce5becee5f9344b9fb3eb6b0",
+      "evidence": "Full guard in guard-ci-red-lands.test.sh private engine. CI probe is literal test stub. Config search remains explicit behind fixture edge: both target repos and copied engine lack config. Actual root, jurisdiction, notice, integration and residue helpers remain bound.",
+      "keys": [
+        "CHECK_LAND_COMPLETENESS",
+        "LAND_COMPLETENESS_ENFORCE",
+        "LAND_COMPLETENESS_TIMEOUT"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#engine-only"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "mega-lander/workspaces.sh#integration"
+        },
+        {
+          "to": "scripts/lib/land-residue-gate.py"
+        }
+      ],
+      "presence": "Checks repository and engine config existence before sourcing; caller fixture supplies neither."
+    },
+    "scripts/hooks/guard-ci-red-lands.test.sh": {
+      "source": "scripts/hooks/guard-ci-red-lands.test.sh",
+      "sha256": "aa8ed6fa40ac2bb9e407d575adbdac0e973a4fe0459d3446436dba901ebab682",
+      "evidence": "Copies finite guard/helper set to empty private engine, creates config-free repositories, supplies literal CI probe and isolated ledger/registry/ack records. No live orchestration config is transported.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-ci-red-lands.sh#offline-fixture",
+          "fixture": true
+        }
+      ]
+    },
+    "scripts/ci-shard.sh#boundary-fixture": {
+      "source": "scripts/ci-shard.sh",
+      "sha256": "c2eddd4b6dcc3b9885bcccc648c38ddf14baf402386209a0a9de1c9eb386ecde",
+      "evidence": "Runner-boundaries fixture copies this runner into a synthetic engine and creates literal marker/status suites and known-red data. No target-proof receipt route; all actual runner helper sources remain bound.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/ci-units.sh"
+        },
+        {
+          "to": "scripts/lib/ci-receipts.py#plain"
+        },
+        {
+          "to": "scripts/lib/tree-witness.sh"
+        },
+        {
+          "to": "scripts/lib/leak-canary.sh"
+        },
+        {
+          "to": "scripts/lib/record-canary.sh"
+        },
+        {
+          "to": "scripts/lib/proc_tree.py"
+        },
+        {
+          "to": "scripts/lib/worker_tokens.py"
+        },
+        {
+          "to": "scripts/lib/engine_pass.py"
+        }
+      ]
+    },
+    "scripts/lib/runner-boundaries.test.py": {
+      "source": "scripts/lib/runner-boundaries.test.py",
+      "sha256": "15a618c947b33a95108f9266778999a62192cfd6e23382645b6e3d1f4ffb1202",
+      "evidence": "Creates private synthetic engine with finite copied runner helpers and literal generated suites. Invokes shard and serial runners, plain receipt verify and direct process/pass APIs. No live suite inventory or orchestration config is copied or evaluated.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/ci-shard.sh#boundary-fixture"
+        },
+        {
+          "to": "scripts/run-all-tests.sh#generated-inventory"
+        },
+        {
+          "to": "scripts/lib/ci-receipts.py#plain"
+        },
+        {
+          "to": "scripts/lib/proc_tree.py"
+        },
+        {
+          "to": "scripts/lib/engine_pass.py"
+        }
+      ]
+    },
+    "scripts/lib/runner-boundaries.test.sh": {
+      "source": "scripts/lib/runner-boundaries.test.sh",
+      "sha256": "5f5d3c38fd66f84ea2ac80c08c64dd664b752da160dcdafddbcd65e293f08b3d",
+      "evidence": "Fixed Python suite wrapper with private verification-fixture setup.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/runner-boundaries.test.py"
+        },
+        {
+          "to": "scripts/lib/verification-fixture.sh"
+        }
+      ]
     }
   },
   "units": {

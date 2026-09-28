@@ -153,6 +153,43 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_landing_and_runner_fixtures_exclude_live_config(self):
+        from affected_units import Selection, GLOBAL_CONFIG
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        read = lambda path: (HERE.parent / path).read_text()
+        before = 'CHECK_FAILURE_TYPE=0\nFAILURE_TYPE_REGISTER=old\n'
+        after = 'CHECK_FAILURE_TYPE=1\nFAILURE_TYPE_REGISTER=new\n'
+        units = ('scripts/hooks/guard-ci-red-lands.test.sh',
+                 'scripts/land-completeness.test.sh', 'scripts/lib/runner-boundaries.test.sh')
+        for unit in units:
+            graph = inputs.Dependencies(HERE.parent, document)
+            closure = graph.closure(unit)
+            self.assertFalse(closure['keys'] or closure['whole'] or closure['fallback'], closure)
+            transport = unit == 'scripts/land-completeness.test.sh'
+            self.assertEqual(bool(closure['presence']), transport, closure)
+            selection = Selection(HERE.parent, [unit, GLOBAL_CONFIG], read, document)
+            selection.configuration(before, after)
+            self.assertEqual(set(selection.selected), {GLOBAL_CONFIG})
+            for changed in (None, 'CHECK_FAILURE_TYPE=$(unknown)\n'):
+                self.assertEqual(unit in graph.config_units(inputs.config_change(before, changed), [unit]), transport)
+            pending, seen, sources = [unit], set(), set()
+            while pending:
+                name = pending.pop()
+                if name in seen:
+                    continue
+                seen.add(name)
+                row = document['nodes'][name]
+                sources.add(row['source'])
+                pending.extend(edge['to'] for edge in row.get('edges', []))
+            for source in sorted(sources):
+                with self.subTest(unit=unit, changed_source=source):
+                    changed_read = lambda path: read(path) + ('\n# changed\n' if path == source else '')
+                    changed = Selection(HERE.parent, [unit, GLOBAL_CONFIG], changed_read, document)
+                    changed.configuration(before, after)
+                    self.assertIn(unit, changed.selected)
+            selection.ordinary(unit)
+            self.assertIn(unit, selection.selected)
+
     def test_brief_scope_and_ledger_fixtures_keep_config_transport_only(self):
         from affected_units import Selection, GLOBAL_CONFIG
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
