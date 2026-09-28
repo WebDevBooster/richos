@@ -24,6 +24,11 @@
 #        own workflows.
 #   A9   The output is sorted and deduplicated, so a file named by six suites
 #        does not produce six copies of one unit.
+#   A10  THE REGRESSION: hooks/hooks.json and spawn-guard-audience.declaration
+#        each select spawn-guard-audience.test.sh. Five guards landed
+#        registered and undeclared (found by zach-opus-canary3 at fff77cb0)
+#        because neither file's basename appeared, as a literal string, in any
+#        *.test.sh — the wrapper only execed the .py that actually checks them.
 #
 # A NOTE ON THE FIXTURES FOR A6 AND A7: the invented file names are assembled
 # from fragments at runtime rather than written as literals. Written out, they
@@ -178,6 +183,24 @@ if [ "${DUPES:-0}" -eq 0 ] && [ "$SORTED" = "$ASIS" ]; then
     ok "A9   the unit list is sorted and deduplicated"
 else
     bad "A9   dupes=$DUPES sorted='$SORTED' as-is='$ASIS'"
+fi
+
+# --- A10: THE REGRESSION — a guard can be registered and never declared -----
+# hooks/hooks.json is the registration surface and spawn-guard-audience.declaration
+# is the classification checked against it; a diff touching either must select
+# spawn-guard-audience.test.sh, or the completeness check it runs never gets a
+# scoped run and a guard can land registered and undeclared, as five did.
+OUT="$(aff --paths richos/engine/hooks/hooks.json)"
+if printf '%s\n' "$OUT" | grep -qxF 'scripts/lib/spawn-guard-audience.test.sh'; then
+    ok "A10a a change to hooks/hooks.json selects spawn-guard-audience.test.sh"
+else
+    bad "A10a hooks/hooks.json did not select spawn-guard-audience.test.sh — got: $OUT"
+fi
+OUT="$(aff --paths richos/engine/spawn-guard-audience.declaration)"
+if printf '%s\n' "$OUT" | grep -qxF 'scripts/lib/spawn-guard-audience.test.sh'; then
+    ok "A10b a change to spawn-guard-audience.declaration selects spawn-guard-audience.test.sh"
+else
+    bad "A10b spawn-guard-audience.declaration did not select spawn-guard-audience.test.sh — got: $OUT"
 fi
 
 # Voice imports cross directories inside the component; metadata must select code tests.

@@ -32,6 +32,12 @@ import math
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'engine/scripts/lib'))
 from cpu_policy import DEFAULT_MAX_CPU, admission_open, busy_percent
+try:
+    # A wait that lasts is recorded where the lead's turn-end gate reads it
+    # (engine scripts/lib/resource_waits.py). Admission never depends on it.
+    import resource_waits
+except ImportError:  # pragma: no cover - an engine older than the recorder
+    resource_waits = None
 
 MIN_RETRY_SECONDS = 30
 LOW_PRIORITY_NICE = 10
@@ -139,11 +145,28 @@ def describe(s):
             f"swap-out {s['swapout_mb_per_s']:.1f} MB/s")
 
 
-def cpu_admission(max_cpu=DEFAULT_MAX_CPU, wait_seconds=0, retry_every=MIN_RETRY_SECONDS, max_swapout=16, cpu_rule=True):
+def _record_wait(why, holding):
+    """The wait, recorded for the lead's turn-end gate from its first refusal; None if unrecordable."""
+    if resource_waits is None:
+        return None
+    try:
+        return resource_waits.waiting(resource_waits.CPU, why, holding=holding).start()
+    except Exception as exc:  # never let the record break admission
+        print(f'admission wait not recorded: {exc}', file=sys.stderr, flush=True)
+        return None
+
+
+def cpu_admission(max_cpu=DEFAULT_MAX_CPU, wait_seconds=0, retry_every=MIN_RETRY_SECONDS, max_swapout=16, cpu_rule=True,
+                  holding=()):
     """Bounded admission before work or a paid send; never infer jobs from load.
     Retries at most every `retry_every` (>= 30) seconds, never spins.
     `cpu_rule=False` is the low-priority mode (CEO ruling §78): the CPU line is
-    not applied, the memory rule still is."""
+    not applied, the memory rule still is.
+
+    From the first refusal until admission or the final refusal the wait is
+    recorded (resource_waits.py), with `holding` naming any lock the caller holds
+    while it waits, so the lead is stopped at turn end once it passes ten minutes
+    and a lock held by a waiter is shown as held and NOT in use."""
     if not math.isfinite(max_cpu) or not 0 < max_cpu <= 100:
         raise ValueError('max_cpu must be greater than 0 and at most 100')
     if not math.isfinite(wait_seconds) or not 0 <= wait_seconds <= MAX_WAIT_SECONDS:
@@ -154,21 +177,30 @@ def cpu_admission(max_cpu=DEFAULT_MAX_CPU, wait_seconds=0, retry_every=MIN_RETRY
         raise ValueError('max_swapout must be a positive number of MB/s')
     started = time.monotonic()
     samples = 0
-    while True:
-        s = host_sample()
-        samples += 1
-        elapsed = time.monotonic() - started
-        why = _refusal(s, max_cpu, max_swapout, cpu_rule)
-        if not why:
-            return {**s, 'cpu_busy_percent': busy_percent(s), 'load': os.getloadavg()[0],
-                    'admission_wait_seconds': elapsed, 'admission_samples': samples}
-        remaining = wait_seconds - elapsed
-        if remaining <= 0:
-            raise BlockingIOError(f'{why}; admission refused after {elapsed:.0f}s and {samples} sample(s). '
-                                  f'{describe(s)}. Load average alone does not identify another running job.')
-        print(f'admission waiting: {why}; next sample in {min(retry_every, remaining):.0f}s', file=sys.stderr,
-              flush=True)
-        time.sleep(min(retry_every, remaining))
+    recorded = None
+    try:
+        while True:
+            s = host_sample()
+            samples += 1
+            elapsed = time.monotonic() - started
+            why = _refusal(s, max_cpu, max_swapout, cpu_rule)
+            if not why:
+                return {**s, 'cpu_busy_percent': busy_percent(s), 'load': os.getloadavg()[0],
+                        'admission_wait_seconds': elapsed, 'admission_samples': samples}
+            remaining = wait_seconds - elapsed
+            if remaining <= 0:
+                raise BlockingIOError(f'{why}; admission refused after {elapsed:.0f}s and {samples} sample(s). '
+                                      f'{describe(s)}. Load average alone does not identify another running job.')
+            if recorded is None:
+                recorded = _record_wait(why, holding)
+            else:
+                recorded.update(why)
+            print(f'admission waiting: {why}; next sample in {min(retry_every, remaining):.0f}s', file=sys.stderr,
+                  flush=True)
+            time.sleep(min(retry_every, remaining))
+    finally:
+        if recorded is not None:
+            recorded.close()
 
 
 @contextmanager
@@ -223,7 +255,8 @@ def reservation(state=None, max_load=None, max_cpu=DEFAULT_MAX_CPU, release_lock
             if not math.isfinite(max_load) or max_load <= 0 or os.getloadavg()[0] >= max_load:
                 raise BlockingIOError('load is above the explicitly requested limit; admission refused')
         else:
-            sample = cpu_admission(max_cpu, wait_seconds, retry_every, max_swapout, cpu_rule=not low_priority)
+            sample = cpu_admission(max_cpu, wait_seconds, retry_every, max_swapout, cpu_rule=not low_priority,
+                                   holding=paths)
             print(f"admission: {describe(sample)}; waited {sample['admission_wait_seconds']:.0f}s over "
                   f"{sample['admission_samples']} sample(s); load {sample['load']:.2f} is informational",
                   file=sys.stderr, flush=True)

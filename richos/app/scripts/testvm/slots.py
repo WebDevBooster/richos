@@ -32,6 +32,9 @@ guests running than there are slots (tart's own list, so a guest booted by an ol
 is counted); reserve.py's CPU and memory rule (CEO ruling §77); then THE GUEST'S OWN MEMORY.
 A refused sample RELEASES the slot before waiting, so nobody queues behind a caller that is
 itself waiting. `--wait SECONDS` bounds the whole admission; 0, the default, refuses at once.
+From the first refusal until the caller is admitted or refused for good, the wait is RECORDED
+(the engine's resource_waits.py, through reserve.py), so the lead's turn end is refused once
+any caller has waited past ten minutes (the engine's guard-resource-waits.sh).
 
 THE GUEST'S OWN MEMORY, measured 2026-09-27 18:56Z: two guests admitted 1.5 s apart both
 passed reserve.py's rule, because a guest takes its memory only as it boots. 40 s later the
@@ -82,6 +85,22 @@ def _say(message):
         print(message, file=sys.stderr, flush=True)
     except (OSError, ValueError):
         pass
+
+
+def _record_wait(recorded, reason):
+    """The caller's wait, recorded for the lead's turn-end gate from its first refusal: opened
+    once, its reason kept current. Never breaks admission: an engine without the recorder, or
+    a directory it cannot write, is announced once and the wait goes on unrecorded."""
+    rw = getattr(reserve, 'resource_waits', None)
+    if rw is None:
+        return None
+    try:
+        if recorded is None:
+            return rw.waiting(rw.VM, reason).start()
+        recorded.update(reason)
+    except Exception as exc:  # the record is never a reason to refuse a guest
+        _say(f'slot wait not recorded: {exc}')
+    return recorded
 
 
 def guest_ram_mb():
@@ -263,47 +282,53 @@ def guest_slot(root=None, wait_seconds=0, purpose='', max_cpu=reserve.DEFAULT_MA
     started = clock()
     slept = 0.0
     last_reason = None
-    while True:
-        handle = path = None
-        for candidate in paths:
-            handle = _try(candidate)
-            if handle:
-                path = candidate
-                # Said at once, so `status` never mistakes a caller mid-admission for an older
-                # checkout's run (seen 2026-09-27 20:41Z).
-                _write(handle, {'pid': os.getpid(), 'since': time.time(), 'purpose': purpose,
-                                'slot': path.name, 'state': 'admitting'})
-                break
-        pause = SLOT_POLL_SECONDS
-        if handle is None:
-            reason = f'every slot is executing a run ({describe_holders(paths)})'
-        else:
-            try:
-                busy = guests()
-                if len(busy) >= count:
-                    reason = f'{len(busy)} guest(s) already running ({", ".join(busy)})'
-                    pause = CLONE_POLL_SECONDS
-                else:
-                    sample = admit()
-                    reason = memory(sample, busy)
-                    if not reason:
-                        break
+    recorded = None
+    try:
+        while True:
+            handle = path = None
+            for candidate in paths:
+                handle = _try(candidate)
+                if handle:
+                    path = candidate
+                    # Said at once, so `status` never mistakes a caller mid-admission for an older
+                    # checkout's run (seen 2026-09-27 20:41Z).
+                    _write(handle, {'pid': os.getpid(), 'since': time.time(), 'purpose': purpose,
+                                    'slot': path.name, 'state': 'admitting'})
+                    break
+            pause = SLOT_POLL_SECONDS
+            if handle is None:
+                reason = f'every slot is executing a run ({describe_holders(paths)})'
+            else:
+                try:
+                    busy = guests()
+                    if len(busy) >= count:
+                        reason = f'{len(busy)} guest(s) already running ({", ".join(busy)})'
+                        pause = CLONE_POLL_SECONDS
+                    else:
+                        sample = admit()
+                        reason = memory(sample, busy)
+                        if not reason:
+                            break
+                        pause = reserve.MIN_RETRY_SECONDS
+                except BlockingIOError as refused:
+                    reason = str(refused)
                     pause = reserve.MIN_RETRY_SECONDS
-            except BlockingIOError as refused:
-                reason = str(refused)
-                pause = reserve.MIN_RETRY_SECONDS
-            _write(handle, None)
-            fcntl.flock(handle, fcntl.LOCK_UN)
-            handle.close()
-        elapsed = clock() - started
-        remaining = wait_seconds - elapsed
-        if remaining <= 0:
-            raise BlockingIOError(f'guest slot refused after {elapsed:.0f}s: {reason}')
-        if reason != last_reason:
-            _say(f'slot waiting: {reason}; up to {remaining:.0f}s more')
-            last_reason = reason
-        sleep(min(pause, remaining))
-        slept += min(pause, remaining)
+                _write(handle, None)
+                fcntl.flock(handle, fcntl.LOCK_UN)
+                handle.close()
+            elapsed = clock() - started
+            remaining = wait_seconds - elapsed
+            if remaining <= 0:
+                raise BlockingIOError(f'guest slot refused after {elapsed:.0f}s: {reason}')
+            if reason != last_reason:
+                _say(f'slot waiting: {reason}; up to {remaining:.0f}s more')
+                last_reason = reason
+            recorded = _record_wait(recorded, reason)
+            sleep(min(pause, remaining))
+            slept += min(pause, remaining)
+    finally:
+        if recorded is not None:
+            recorded.close()
     waited = clock() - started
     _write(handle, {'pid': os.getpid(), 'since': time.time(), 'purpose': purpose, 'slot': path.name,
                     'state': 'running'})
