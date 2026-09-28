@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "0ffbc654577fff6bbf48f40ec0c1d68ee00a7c0e05b79bef32a5d5adc368a641",
+      "sha256": "241721448dca47a4649f3a1ccedc5ae2d8962727c47e0f9262a55897b7178b55",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -10006,7 +10006,7 @@
     "scripts/hooks/unevaluated-payload.test.sh": {
       "source": "scripts/hooks/unevaluated-payload.test.sh",
       "sha256": "3b3b903d46dd52413f79b837f9c62444fea1b4c002e244d33a35a0ca39b43a74",
-      "evidence": "Full inventory-driven suite reviewed: literal private entity config, Git/TODO/rulings fixtures and four fixed payload variants. All current PreToolUse/Stop entrypoints are bound. Dispatcher is called without a chain argument. Engine owned-state declaration fallback remains a real key dependency; shape/boundary scanners read text only.",
+      "evidence": "Full inventory-driven suite reviewed: literal private entity config, Git/TODO/rulings fixtures and four fixed payload variants. All current PreToolUse/Stop entrypoints are bound. Dispatcher is called without a chain argument. Engine owned-state declaration fallback remains a real key dependency; shape/boundary scanners read text only. registered_hook_scripts also expands all Bash/Write dispatcher modules; matcher_of assigns those unregistered basenames the Write control payload. Their complete prefix or Write closures are bound.",
       "keys": [],
       "edges": [
         {
@@ -10189,7 +10189,354 @@
         },
         {
           "to": "scripts/lib/owned-systems.py#fixture-default"
+        },
+        {
+          "to": "scripts/hooks/guard-bash-main-writes.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-ceo-todos-commits.sh#inventory-write",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-ci-red-lands.sh#inventory-write",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-completeness-commits.sh#inventory-write",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-dialect.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-foreign-app-data.sh#inventory-write",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-hook-registration-commits.sh#inventory-write",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-inflight-notify.sh#inventory-write",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-interactive-prompt.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-land-lease-commands.sh#inventory-write",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-main-checkout-writes.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-named-persons-commands.sh#inventory-write",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-named-persons-writes.sh#fixture-roster",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-publication-commits.sh#inventory-write",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-publication-writes.sh#undeclared",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-row-currency-commits.sh#inventory-write",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-shared-writes.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-vendoring-commits.sh#inventory-write",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-worktree-removal.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/scan-secrets.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/dispatch-pretooluse.manifest"
         }
+      ]
+    },
+    "scripts/hooks/guard-ceo-todos-commits.sh#inventory-write": {
+      "source": "scripts/hooks/guard-ceo-todos-commits.sh",
+      "sha256": "b5ce1b39ad6985d4d3a52864c389968a474f05de1187baaa430941756ae0c0e0",
+      "evidence": "The inventory parser expands dispatcher modules, while matcher_of finds no direct registration and chooses Write. This module sees a private Write payload or malformed JSON; its reviewed classifier prefix returns before Bash-only operations. Bootstrap helpers remain bound.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/ceo-todos.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "STAGE_ALL=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-ci-red-lands.sh#inventory-write": {
+      "source": "scripts/hooks/guard-ci-red-lands.sh",
+      "sha256": "64d83f115beb4a9db8c3cfe52438b72951d2a9e2ce5becee5f9344b9fb3eb6b0",
+      "evidence": "The inventory parser expands dispatcher modules, while matcher_of finds no direct registration and chooses Write. This module sees a private Write payload or malformed JSON; its reviewed classifier prefix returns before Bash-only operations. Bootstrap helpers remain bound.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#engine-only"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "VERB=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-completeness-commits.sh#inventory-write": {
+      "source": "scripts/hooks/guard-completeness-commits.sh",
+      "sha256": "bb6d0253b44d251a08dd325e8901399aafcbe4ca6fe4aa4c30c9b41a57cee673",
+      "evidence": "The inventory parser expands dispatcher modules, while matcher_of finds no direct registration and chooses Write. This module sees a private Write payload or malformed JSON; its reviewed classifier prefix returns before Bash-only operations. Bootstrap helpers remain bound.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "_CC_GJ="
+      ]
+    },
+    "scripts/hooks/guard-foreign-app-data.sh#inventory-write": {
+      "source": "scripts/hooks/guard-foreign-app-data.sh",
+      "sha256": "4360ace16a692e3cf5c7dd100dc206c496f0960b4584d66f76ff240bda3ee42c",
+      "evidence": "The inventory parser expands dispatcher modules, while matcher_of finds no direct registration and chooses Write. This module sees a private Write payload or malformed JSON; its reviewed classifier prefix returns before Bash-only operations. Bootstrap helpers remain bound.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "_gfad_in=\"$(cat)\"",
+        "_gfad_py="
+      ]
+    },
+    "scripts/hooks/guard-hook-registration-commits.sh#inventory-write": {
+      "source": "scripts/hooks/guard-hook-registration-commits.sh",
+      "sha256": "0e684c61c9c4d2bd3a724b6f4693090812cff645911916e4b4cb035b90790393",
+      "evidence": "The inventory parser expands dispatcher modules, while matcher_of finds no direct registration and chooses Write. This module sees a private Write payload or malformed JSON; its reviewed classifier prefix returns before Bash-only operations. Bootstrap helpers remain bound.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#engine-only"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "IFS= read -r -d '' _HR_CLASSIFIER"
+      ]
+    },
+    "scripts/hooks/guard-inflight-notify.sh#inventory-write": {
+      "source": "scripts/hooks/guard-inflight-notify.sh",
+      "sha256": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
+      "evidence": "The inventory parser expands dispatcher modules, while matcher_of finds no direct registration and chooses Write. This module sees a private Write payload or malformed JSON; its reviewed classifier prefix returns before Bash-only operations. Bootstrap helpers remain bound.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/inflight.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "SESSION_ID=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-land-lease-commands.sh#inventory-write": {
+      "source": "scripts/hooks/guard-land-lease-commands.sh",
+      "sha256": "e3fb182d2571b84f9a84599fd50f404bb53aee051f6a9bbf52f0f78e01b60078",
+      "evidence": "The inventory parser expands dispatcher modules, while matcher_of finds no direct registration and chooses Write. This module sees a private Write payload or malformed JSON; its reviewed classifier prefix returns before Bash-only operations. Bootstrap helpers remain bound.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "_gllc_in=\"$(cat)\"",
+        "_gllc_py="
+      ]
+    },
+    "scripts/hooks/guard-named-persons-commands.sh#inventory-write": {
+      "source": "scripts/hooks/guard-named-persons-commands.sh",
+      "sha256": "56891e30dde5774e5430c9459cee10dc61bb683888f76917219d97c9e9cce825",
+      "evidence": "The inventory parser expands dispatcher modules, while matcher_of finds no direct registration and chooses Write. This module sees a private Write payload or malformed JSON; its reviewed classifier prefix returns before Bash-only operations. Bootstrap helpers remain bound.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#engine-only"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh#notice-once"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#load"
+        },
+        {
+          "to": "scripts/lib/named-persons.sh#load"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "NP_ANCHOR=\"$(richos_git_anchor"
+      ]
+    },
+    "scripts/hooks/guard-publication-commits.sh#inventory-write": {
+      "source": "scripts/hooks/guard-publication-commits.sh",
+      "sha256": "180baec98c3f3b0e23e6b12bb8f3e129082ca6f10d49577b56671e102039e9fe",
+      "evidence": "The inventory parser expands dispatcher modules, while matcher_of finds no direct registration and chooses Write. This module sees a private Write payload or malformed JSON; its reviewed classifier prefix returns before Bash-only operations. Bootstrap helpers remain bound.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "STAGE_ALL=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-row-currency-commits.sh#inventory-write": {
+      "source": "scripts/hooks/guard-row-currency-commits.sh",
+      "sha256": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
+      "evidence": "The inventory parser expands dispatcher modules, while matcher_of finds no direct registration and chooses Write. This module sees a private Write payload or malformed JSON; its reviewed classifier prefix returns before Bash-only operations. Bootstrap helpers remain bound.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/row-currency.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "ACTION=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-vendoring-commits.sh#inventory-write": {
+      "source": "scripts/hooks/guard-vendoring-commits.sh",
+      "sha256": "88f0eef0c45b61a143ce0ebd0cba1b8ceda9f908d0cfed09994a9acc30da1208",
+      "evidence": "The inventory parser expands dispatcher modules, while matcher_of finds no direct registration and chooses Write. This module sees a private Write payload or malformed JSON; its reviewed classifier prefix returns before Bash-only operations. Bootstrap helpers remain bound.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/vendored-material.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "AMEND=\"$(printf"
       ]
     }
   },
@@ -11269,7 +11616,30 @@
         "scripts/hooks/shell-evidence.sh": "01d511155b7df5a4be0ab6cb25aaac934a467e086d5c31f2afd6ee9c7bcc370a",
         "scripts/hooks/shell-evidence.py": "7e867f1d50cbb900cb5fa7cf8591a9a00de5412740233dfa037acec493cd7954",
         "scripts/hooks/turn-manifest.sh": "f5e92311f9896874e5294533673dd08160f3e4cfba4a262e161ae96e377331ae",
-        "scripts/hooks/verify-agent-prompt.sh": "108d302d819442877ea6cbf06a5d9bfca9f3ddc01300cb502049b9271be4e738"
+        "scripts/hooks/verify-agent-prompt.sh": "108d302d819442877ea6cbf06a5d9bfca9f3ddc01300cb502049b9271be4e738",
+        "scripts/hooks/guard-bash-main-writes.sh": "103465d3f2a5744282c5147b4cf45db5f484318b6635412f9d6b3ea368e4033f",
+        "scripts/hooks/guard-ceo-todos-commits.sh": "b5ce1b39ad6985d4d3a52864c389968a474f05de1187baaa430941756ae0c0e0",
+        "scripts/hooks/guard-ci-red-lands.sh": "64d83f115beb4a9db8c3cfe52438b72951d2a9e2ce5becee5f9344b9fb3eb6b0",
+        "scripts/hooks/guard-completeness-commits.sh": "bb6d0253b44d251a08dd325e8901399aafcbe4ca6fe4aa4c30c9b41a57cee673",
+        "scripts/hooks/guard-dialect.sh": "2a19b37f44f5805b9b57c613f1cc7eae0cd1ef806dd36db2b4b10bfed990a58e",
+        "scripts/lib/vendored-material.sh": "630fc9746255b5e2c6cf24be71ba0b9780a5d673f98559db3099b44f47fa3c92",
+        "scripts/hooks/guard-foreign-app-data.sh": "4360ace16a692e3cf5c7dd100dc206c496f0960b4584d66f76ff240bda3ee42c",
+        "scripts/hooks/guard-hook-registration-commits.sh": "0e684c61c9c4d2bd3a724b6f4693090812cff645911916e4b4cb035b90790393",
+        "scripts/hooks/guard-inflight-notify.sh": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
+        "scripts/hooks/guard-interactive-prompt.sh": "006331257e3424466c9bd8f5f49d895362f0602063cb25d98dcef32b18fbd8c8",
+        "scripts/lib/interactive-prompt.py": "911722b466b6c56a712c44a3f6f268608c5d10ab0bff75d9b59e5492c36c0e4f",
+        "scripts/hooks/guard-land-lease-commands.sh": "e3fb182d2571b84f9a84599fd50f404bb53aee051f6a9bbf52f0f78e01b60078",
+        "scripts/hooks/guard-main-checkout-writes.sh": "15ef50dd54edf557ac14c16ce894b7212cfc692244d5fa19728cf2c6edad35a7",
+        "scripts/hooks/guard-named-persons-commands.sh": "56891e30dde5774e5430c9459cee10dc61bb683888f76917219d97c9e9cce825",
+        "scripts/lib/named-persons.sh": "2c28d15414eed56676bd2c5588d66fe88f30c03dfb78e5e2752ffc5de17fffc3",
+        "scripts/hooks/guard-named-persons-writes.sh": "95095c3eee1ac1f3f7f156dfc2fcb0b039868c63c1d10d45d043fdd7d86ad3ce",
+        "scripts/lib/named-persons.py": "9b37ff785ef195ec844190c4b4c6e678432d3b0d9d70aac0feba9ed2303a1af2",
+        "scripts/hooks/guard-publication-commits.sh": "180baec98c3f3b0e23e6b12bb8f3e129082ca6f10d49577b56671e102039e9fe",
+        "scripts/hooks/guard-row-currency-commits.sh": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
+        "scripts/hooks/guard-shared-writes.sh": "8c93495c7a2fd02ef98b701af51fff16859fa0e11295eb9706d639a62148784a",
+        "scripts/hooks/guard-vendoring-commits.sh": "88f0eef0c45b61a143ce0ebd0cba1b8ceda9f908d0cfed09994a9acc30da1208",
+        "scripts/hooks/guard-worktree-removal.sh": "b39ff96220cb74cf9f94acc3d6210f3207b57bdf50cb33ffdd29882e536a5f37",
+        "scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
       },
       "evidence": "Enumerates PreToolUse/Stop registrations and matcher payloads; boundary assertion classifies every event. Full dynamic helper inventory is source-bound."
     }

@@ -166,6 +166,10 @@ class Closure(unittest.TestCase):
         document['nodes']['owned-systems.declaration#fixture-default']['sha256'] = 'changed'
         self.assertIn(unit, graph.config_units(change, [unit]))
         self.assertTrue(document['hook_readers'][unit]['all_events'])
+        reader_sources = document['hook_readers'][unit]['sources']
+        for line in (HERE / 'hooks/dispatch-pretooluse.manifest').read_text().splitlines():
+            if line.startswith(('Bash|', 'Write|')):
+                self.assertIn('scripts/hooks/'+line.split('|')[1], reader_sources)
         inputs.hook_reader(document['hook_readers'][unit], lambda path: (HERE.parent / path).read_text())
 
     def test_config_selected_commands_require_a_reviewed_literal(self):
