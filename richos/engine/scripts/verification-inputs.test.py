@@ -152,6 +152,26 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_workspace_land_journey_keeps_actual_scratch_and_qa_inputs(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'mega-lander/tests/workspaces-e2e.test.sh'
+        closure = graph.closure(unit)
+        self.assertEqual(closure['fallback'], [])
+        self.assertFalse(closure['whole'])
+        self.assertTrue(closure['presence'])
+        for key in ('QA_TOOLKIT_AGENTS', 'SCRATCH_ROOT_NAME', 'SCRATCH_REAPER_ENABLE',
+                    'SCRATCH_DOCKER_PRUNE', 'ALLOWED_MODELS', 'SEAL_WAIT_SECONDS'):
+            self.assertIn(key, closure['keys'])
+            self.assertIn(unit, graph.config_units(inputs.config_change(key+'=a', key+'=b'), [unit]))
+        for key in ('QA_TOOLKIT_DIR', 'QUOTA_PAUSE_PERCENT', 'DISK_RICH_ALERT_GB'):
+            self.assertNotIn(unit, graph.config_units(inputs.config_change(key+'=a', key+'=b'), [unit]))
+        for helper in ('scripts/scratch-sweep.sh', 'scripts/lib/qa-toolkit.py#type',
+                       'scripts/lib/appinstances.py#declared-reader', 'scripts/hooks/observe-created-refs.sh'):
+            old = document['nodes'].pop(helper)
+            self.assertIn(unit, graph.config_units(inputs.config_change('MODEL_CEILING=a', 'MODEL_CEILING=b'), [unit]))
+            document['nodes'][helper] = old
+
     def test_stopped_workspace_fixture_keeps_copied_policy_values(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

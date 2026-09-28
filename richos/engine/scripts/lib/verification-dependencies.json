@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "cfdd8991b9b6d2e93949c94772067dae3004031a8cc82459ca22775706ff54db",
+      "sha256": "17f666be10e5a8e1dd38c05c3a428da361d48bbd0b8d0c9d16cb23cf20d83461",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -8176,6 +8176,151 @@
         }
       ],
       "nonconfig_eval": "The complete finite sub assertion list evaluates literal tests, grep/jget, private Git queries and stop_gate; no config values supply executable text."
+    },
+    "scripts/lib/appinstances.py#declared-reader": {
+      "source": "scripts/lib/appinstances.py",
+      "sha256": "e30b7e3522111d099a20bc2d5af49bff1d5b9a4245d5c2147306ef065596efca",
+      "evidence": "Module constants/functions are installed without I/O. Reviewed engine_root, _config_file, _from_file and declared form an env-then-file data reader; callers declare their finite key names. No process or root collection operation executes.",
+      "keys": [],
+      "edges": [],
+      "region": [
+        "def engine_root():",
+        "def _expand(p):"
+      ]
+    },
+    "scripts/lib/qa-toolkit.py#type": {
+      "source": "scripts/lib/qa-toolkit.py",
+      "sha256": "f490cd7a72bacf99bef3eef47cc059d99cac5f3878b0d2399eea06dae55a24c0",
+      "evidence": "Module load imports fixed appinstances data reader. Land calls only is_qa_type and qa_types, which request QA_TOOLKIT_AGENTS. Toolkit discovery, Git queries and prompt assembly do not run.",
+      "keys": [
+        "QA_TOOLKIT_AGENTS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/appinstances.py#declared-reader"
+        }
+      ],
+      "region": [
+        "import importlib.util",
+        "def candidate_roots(repos):"
+      ]
+    },
+    "scripts/lib/qa-throwaways.py#scan-classify": {
+      "source": "scripts/lib/qa-throwaways.py",
+      "sha256": "1c355bbfaa5bb464c020d4743bf842b8fbbe5a7265caa6ffb2200523064ef9b6",
+      "evidence": "Reviewed module import and scan/classify closure. Transcript records and embedded shell commands are parsed as data; only the supplied transcript is opened. Toolkit suffix comes from QA_TOOLKIT_DIR environment or literal default, not a config file.",
+      "keys": [
+        "QA_TOOLKIT_DIR"
+      ],
+      "edges": [],
+      "region": [
+        "import json",
+        "def report(path, scripts, toolkit, events, rows, out=sys.stdout):"
+      ]
+    },
+    "scripts/scratch-sweep.sh": {
+      "source": "scripts/scratch-sweep.sh",
+      "sha256": "98804cde04a632171f4323a43164e18871412d44e41ec36b2e535a2e43554297",
+      "evidence": "Full wrapper acquires a kernel lock and invokes the fixed scratch-reaper.sh with apply/dry-run arguments. It parses stdout/log counters and formats JSON. No config is sourced by the wrapper; actual reaper settings are retained.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/scratch-reaper.sh"
+        }
+      ]
+    },
+    "mega-lander/workspaces.py#land-cli-fixtures": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+      "evidence": "Reviewed CLI integration/discard/withdraw-cc/land and current_session. Land shares existing lifecycle eligibility/deletion helpers but its CLI also calls qa_throwaway_lines and sweep_scratch_after_land. Those fixed helper imports and the real scratch sweep are included. Unsourced QA transcript classifier defaults are separately scoped.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#discard"
+        },
+        {
+          "to": "mega-lander/workspaces.py#isolation-registration"
+        },
+        {
+          "to": "scripts/lib/qa-toolkit.py#type"
+        },
+        {
+          "to": "scripts/lib/qa-throwaways.py#scan-classify",
+          "fixture": true
+        },
+        {
+          "to": "scripts/scratch-sweep.sh"
+        }
+      ]
+    },
+    "mega-lander/workspaces.sh#land-cli-fixtures": {
+      "source": "mega-lander/workspaces.sh",
+      "sha256": "93b86b885516641e69a7cd84105260ee94d52300f0099362c7ed9b475855764e",
+      "evidence": "Fixed Python CLI wrapper used for reviewed integration, discard, withdraw-cc and land commands. Includes the land CLI QA/scratch side effects.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#land-cli-fixtures"
+        }
+      ]
+    },
+    "mega-lander/workspaces.py#observe-refs": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+      "evidence": "Reviewed observe CLI parses payload, resolves its recorded agent and observes only unfinished work. observe_created_refs and its snapshot/protected-ref helpers are shared with the lifecycle/barrier closures; payload commands are never executed.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#lifecycle-fixtures"
+        },
+        {
+          "to": "mega-lander/workspaces.py#barrier"
+        }
+      ]
+    },
+    "scripts/hooks/observe-created-refs.sh": {
+      "source": "scripts/hooks/observe-created-refs.sh",
+      "sha256": "6c1bcc7fc86608dace9465fdaef957468872b82906e4134382a98b5ab8085202",
+      "evidence": "Complete hook resolves adoption then invokes fixed workspaces.py observe-refs and formats findings. It does not source config or execute printed recovery commands.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "mega-lander/workspaces.py#observe-refs"
+        }
+      ]
+    },
+    "mega-lander/tests/workspaces-e2e.test.sh": {
+      "source": "mega-lander/tests/workspaces-e2e.test.sh",
+      "sha256": "98ab5258ff74f8c554ace58ffffdf3ea3456705b22e46684a1e9e876f55a49a2",
+      "evidence": "Complete suite copies real engine configuration into private Git fixtures. Fixed guard/lifecycle calls simulate Agent events without model dispatch. Direct land CLI calls include their actual QA and scratch-sweep dependencies; private HOME does not replace engine config. Creator targets have no setup script. Finite eval assertions inspect fixture files, Git and fixed helper results.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/workspace-lifecycle.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-worktree-isolation.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-sealed-worktree.sh"
+        },
+        {
+          "to": "scripts/hooks/observe-created-refs.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-workspace-gate.sh"
+        },
+        {
+          "to": "mega-lander/create-teammate-worktree.sh#plain-fixture-repos"
+        },
+        {
+          "to": "mega-lander/workspaces.sh#land-cli-fixtures"
+        }
+      ],
+      "nonconfig_eval": "Complete fixed check assertion list evaluates literal tests, private Git queries and fixed fixture helpers. Config values never supply command text."
     }
   },
   "units": {
@@ -8296,7 +8441,8 @@
     "scripts/quota-watch.test.sh": "scripts/quota-watch.test.sh",
     "scripts/hooks/guard-vendoring-commits.test.sh": "scripts/hooks/guard-vendoring-commits.test.sh",
     "scripts/disk-watchdog.test.sh": "scripts/disk-watchdog.test.sh",
-    "mega-lander/tests/workspace-stopped-ending.test.sh": "mega-lander/tests/workspace-stopped-ending.test.sh"
+    "mega-lander/tests/workspace-stopped-ending.test.sh": "mega-lander/tests/workspace-stopped-ending.test.sh",
+    "mega-lander/tests/workspaces-e2e.test.sh": "mega-lander/tests/workspaces-e2e.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
