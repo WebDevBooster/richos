@@ -1078,7 +1078,7 @@
     },
     "scripts/affected-units.test.py": {
       "source": "scripts/affected-units.test.py",
-      "sha256": "0e410f177941588124d8374ab767081fda8eaa1ea94c76c856825201cae0419f",
+      "sha256": "c2805ae2fa1b3416474f9564fcfa225f54b989c5ce126445ef0200b733470eaa",
       "evidence": "All config reads use newly written fixture files or literal before/after text. The real-file planning case reads only hooks.json and source-bound registration declarations. Nested CLI invocations use a newly created Git repository, and selected commands are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -3957,6 +3957,49 @@
           "fixture": true
         }
       ]
+    },
+    "scripts/hook-registration-completeness.sh#private-inventory": {
+      "source": "scripts/hook-registration-completeness.sh",
+      "sha256": "0cf54e75ea95aa43b5f4824d54941c9faee1b840bb688b471fa50ee1e9d8b350",
+      "evidence": "The test supplies literal hook manifests, probe/ack tables, hook scripts and new Git histories for every --root. Checker reads these as data with JSON/regex/Git commands. Its one non-Git subprocess is the target scripts/ci-units.sh, generated in the caller as find/sed/sort only. It never executes hooks or probe content, reads production config or imports other engine code. Three literal in-test mutations change predicates only.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/hooks/guard-hook-registration-commits.sh#private-inventory": {
+      "source": "scripts/hooks/guard-hook-registration-commits.sh",
+      "sha256": "0e684c61c9c4d2bd3a724b6f4693090812cff645911916e4b4cb035b90790393",
+      "evidence": "Runs the fixed checker on the caller's private target after payload/Git classification. Root helper resolves the engine location only; no entity-config values are loaded. Literal commit/ack payloads are data and ACK_LOG is supplied privately. Generated hooks.json and registered-hooks.sh in the private target are adoption markers, not the shipped manifest.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/hook-registration-completeness.sh#private-inventory"
+        }
+      ]
+    },
+    "scripts/hook-registration-completeness.test.sh": {
+      "source": "scripts/hook-registration-completeness.test.sh",
+      "sha256": "d1b9cdb765d24d2897108dbceeaaf05d498605478c93deb5d3d53633ff7f09a8",
+      "evidence": "Every checker and guard invocation targets a fresh synthetic Git repository. make_fixture generates three fake hooks, their manifests/inventories and a find-only ci-units script; no production config or manifest is copied. The in-test checker mutations run against those same fixtures. Production files used are the checker, guard and their fixed libraries only.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hook-registration-completeness.sh#private-inventory",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-hook-registration-commits.sh#private-inventory",
+          "fixture": true
+        }
+      ]
     }
   },
   "units": {
@@ -4027,7 +4070,8 @@
     "scripts/hooks/inflight-two-leads.test.sh": "scripts/hooks/inflight-two-leads.test.sh",
     "scripts/hooks/inflight-notify.test.sh": "scripts/hooks/inflight-notify.test.sh",
     "scripts/hooks/inflight-ack-durability.test.sh": "scripts/hooks/inflight-ack-durability.test.sh",
-    "scripts/lib/git-jurisdiction.test.sh": "scripts/lib/git-jurisdiction.test.sh"
+    "scripts/lib/git-jurisdiction.test.sh": "scripts/lib/git-jurisdiction.test.sh",
+    "scripts/hook-registration-completeness.test.sh": "scripts/hook-registration-completeness.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
@@ -4147,6 +4191,20 @@
         "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1"
       },
       "evidence": "8a parses the PreToolUse Agent groups for the stale-staging command. No JSON formatting or unrelated registration is asserted. Nested mutants execute the same assertion and all their executable helper sources are bound."
+    },
+    "scripts/hook-registration-completeness.test.sh": {
+      "commands": [],
+      "text_needles": [],
+      "evidence": "All hook manifests and inventory tables in this suite are generated literals. Changes to the real manifest do not change those fixtures. Executed checker/guard/libraries and fixture constructor are all content-bound here; no real hooks.json bytes are read.",
+      "sources": {
+        "scripts/hook-registration-completeness.test.sh": "d1b9cdb765d24d2897108dbceeaaf05d498605478c93deb5d3d53633ff7f09a8",
+        "scripts/hook-registration-completeness.sh": "0cf54e75ea95aa43b5f4824d54941c9faee1b840bb688b471fa50ee1e9d8b350",
+        "scripts/hooks/guard-hook-registration-commits.sh": "0e684c61c9c4d2bd3a724b6f4693090812cff645911916e4b4cb035b90790393",
+        "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
+        "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631"
+      }
     }
   }
 }

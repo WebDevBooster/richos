@@ -235,6 +235,47 @@ class Planner(unittest.TestCase):
         # JSON escapes in the description remain outside these registration needles.
         self.assertEqual(set(plan.selected), {'scripts/check-census.test.sh'})
 
+    def test_registration_fixture_skips_real_manifest_but_binds_its_readers(self):
+        root = HERE.parent
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        unit = 'scripts/hook-registration-completeness.test.sh'
+        sources = {}
+        def read(path):
+            if path in sources:
+                return sources[path]
+            file = root / path
+            return file.read_text() if file.is_file() else None
+        suites = [unit, GLOBAL_CONFIG]
+        plan = Selection(root, suites, read, document)
+        plan.configuration('PROTECTED_PATHS=old', 'PROTECTED_PATHS=new')
+        self.assertEqual(set(plan.selected), {GLOBAL_CONFIG})
+        old = read('hooks/hooks.json')
+        # Removing every real hook still follows the retained ordinary
+        # basename rule for hooks named in this suite's rationale comments.
+        plan = Selection(root, suites, read, document)
+        plan.hooks(old, self.hooks_document(['scripts/hooks/new-fixture-hook.sh']))
+        self.assertIn(unit, plan.selected)
+        changed_document = json.loads(old)
+        changed_document['hooks']['Stop'][-1]['hooks'].append({
+            'type': 'command',
+            'command': 'bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/new-fixture-hook.sh'})
+        changed = json.dumps(changed_document)
+        plan = Selection(root, suites, read, document)
+        plan.hooks(old, changed)
+        self.assertNotIn(unit, plan.selected)
+        for helper in document['hook_readers'][unit]['sources']:
+            with self.subTest(helper=helper):
+                sources[helper] = read(helper) + '\n# changed reader\n'
+                plan = Selection(root, suites, read, document)
+                plan.hooks(old, changed)
+                self.assertIn(unit, plan.selected)
+                sources.clear()
+        for helper in ('scripts/hook-registration-completeness.sh',
+                       'scripts/hooks/guard-hook-registration-commits.sh'):
+            plan = Selection(root, suites, read, document)
+            plan.ordinary(helper)
+            self.assertIn(unit, plan.selected)
+
     def test_real_fixture_suites_skip_config_changes_but_keep_source_changes(self):
         root = HERE.parent
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
