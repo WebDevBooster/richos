@@ -524,6 +524,24 @@ class Closure(unittest.TestCase):
         with self.assertRaises(inputs.Unsupported):
             inputs.hook_reader(row, reader)
 
+    def test_large_transport_fixtures_bind_helpers_without_live_config_values(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        cases = {
+            'scripts/lib/bulk-record-transport.test.sh': ['scripts/lib/ceo-asks.sh', 'scripts/lib/unstarted-rows.sh#fixture-records'],
+            'scripts/hooks/payload-transport.test.sh': ['scripts/hooks/guard-inflight-notify.sh', 'scripts/hooks/guard-vendoring-commits.sh', 'scripts/hooks/guard-bash-main-writes.sh'],
+        }
+        change = inputs.config_change('PROTECTED_PATHS=src', 'PROTECTED_PATHS=app')
+        for unit, helpers in cases.items():
+            with self.subTest(unit=unit):
+                self.assertEqual(graph.closure(unit), {'keys': {}, 'whole': [], 'presence': [], 'fallback': []})
+                self.assertNotIn(unit, graph.config_units(change, [unit]))
+                for helper in helpers:
+                    original = document['nodes'][helper]['sha256']
+                    document['nodes'][helper]['sha256'] = 'changed'
+                    self.assertIn(unit, graph.config_units(change, [unit]), helper)
+                    document['nodes'][helper]['sha256'] = original
+
     def test_text_fixture_tools_keep_only_the_toolkit_environment_reader(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)
