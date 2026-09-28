@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "9df7eb0b8450b0152d34adaeb0a9e87bd9305ecb90fac212c26b2b71119aadf0",
+      "sha256": "df48d04cc1da31705b95e8c895d2f58dafda12123bfd3755f5207b9f466d7b3e",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -4418,6 +4418,120 @@
           "to": "scripts/hooks/root-contract.mutation.sh"
         }
       ]
+    },
+    "scripts/escalate.sh": {
+      "source": "scripts/escalate.sh",
+      "sha256": "ead116322891a7e2205dbda200f37c846173973a58d2b745fdb803d6d23fd647",
+      "evidence": "Fixed escalations library/Python calls with argument values; Git reads derive record identity. Output markdown, actor strings and record paths are data. No orchestration config or manifest is read.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/escalations.sh"
+        }
+      ]
+    },
+    "scripts/hooks/notice-escalations.sh": {
+      "source": "scripts/hooks/notice-escalations.sh",
+      "sha256": "d26e14d802bad45e2f6528722d38eb91076c25e1d3e32ee2228a66e138e963da",
+      "evidence": "Resolves adoption and reads the ledger through fixed escalations and stop-notice libraries. Payload and ledger fields are data, never sourced. Root presence is the only configuration dependency.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/escalations.sh"
+        }
+      ]
+    },
+    "scripts/hooks/escalations.test.sh": {
+      "source": "scripts/hooks/escalations.test.sh",
+      "sha256": "159803e2c8abbba467cb4b71230e64728884a2abab571fc58506545553c0a331",
+      "evidence": "Builds a private engine with literal PROTECTED_PATHS config, fixed hooks/libraries and private ledgers. All commands target these copies. Finite inline Python mutations replace a predicate or age buckets and invoke the same hooks. The leak canary reads real Git/file metadata as data; neither real config contents nor hook manifest is read.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/escalate.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/notice-escalations.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/session-start-escalations.sh",
+          "fixture": true
+        }
+      ]
+    },
+    "scripts/lib/testdevices.py#scheduled-collection": {
+      "source": "scripts/lib/testdevices.py",
+      "sha256": "7317a16a8075947446dd7602c1715694e4f5dcce5ea0795d9dd9cb75ed665cdd",
+      "evidence": "Same reviewed collect/classification/registry/workspace-barrier closure as workspace collection, reached by the scheduled watchdog. Also retains the exported TEST_DEVICE_FAILURES_STATE read used by machine admission and the failure writer. Device launch/admission helpers are not called.",
+      "keys": [
+        "TEST_DEVICE_FAILURES_STATE"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/testdevices.py#workspace-collection"
+        }
+      ]
+    },
+    "scripts/lib/disk-watchdog.py#check": {
+      "source": "scripts/lib/disk-watchdog.py",
+      "sha256": "e9e7ca4981c480b8fb3598f1feb7302dd617f8b040c2db4e4a661306cddd03ed",
+      "evidence": "Reviewed check entry, complete main and all reached helpers. Adds scheduled device collection and condition-triggered du measurements, notification and state/log writes to the alert readers. Status-only run_reaper is unreachable. Fixed device collector reads registry ownership through the existing workspace-barrier closure; candidate paths and notification text are data.",
+      "keys": [
+        "SCRATCH_ROOT_NAME",
+        "SCRATCH_CLAUDE_ROOTS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/disk-watchdog.py#alert"
+        },
+        {
+          "to": "scripts/lib/testdevices.py#scheduled-collection"
+        },
+        {
+          "to": "scripts/lib/testdevice_alerts.py"
+        }
+      ]
+    },
+    "scripts/disk-watchdog.sh#check": {
+      "source": "scripts/disk-watchdog.sh",
+      "sha256": "5168a316708d2fc3dc19e76604942e7377a6b8529d267052be2fa16f6f90cea5",
+      "evidence": "Caller supplies --check. Wrapper sources the selected config and exports finite resource families to fixed Python. Install, uninstall and status are not invoked. The enable switch may return before Python.",
+      "keys": [
+        "DISK_STATE_JSON",
+        "DISK_WATCHDOG_ENABLE",
+        "DISK_WATCHDOG_LOG",
+        "DISK_WATCHDOG_MINUTES"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/disk-watchdog.py#check"
+        }
+      ],
+      "presence": "Selected config must exist before the scheduled check can execute."
+    },
+    "scripts/hooks/notice-disk-alert.test.sh": {
+      "source": "scripts/hooks/notice-disk-alert.test.sh",
+      "sha256": "e1de2df178508723a98de4f3b2347adfb6cfab0ffa68c39d202e946f6b21cce6",
+      "evidence": "Every watchdog invocation uses a generated literal DISK_WATCHDOG_CONFIG or a deliberately absent file. Hook events are fixed SessionStart and Stop. D7/D8 also call --check, including device collection and condition-triggered measurements; no real engine config values are loaded. Live statvfs/time/external state are runtime inputs, so this declaration alone grants no evidence reuse.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/notice-disk-alert.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/disk-watchdog.sh#check",
+          "fixture": true
+        }
+      ]
     }
   },
   "units": {
@@ -4493,7 +4607,9 @@
     "scripts/hooks/guard-worktree-isolation.test.sh": "scripts/hooks/guard-worktree-isolation.test.sh",
     "scripts/hooks/guard-resume-isolation.test.sh": "scripts/hooks/guard-resume-isolation.test.sh",
     "scripts/hooks/session-start-stdin.test.sh": "scripts/hooks/session-start-stdin.test.sh",
-    "scripts/hooks/root-contract.test.sh": "scripts/hooks/root-contract.test.sh"
+    "scripts/hooks/root-contract.test.sh": "scripts/hooks/root-contract.test.sh",
+    "scripts/hooks/escalations.test.sh": "scripts/hooks/escalations.test.sh",
+    "scripts/hooks/notice-disk-alert.test.sh": "scripts/hooks/notice-disk-alert.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {

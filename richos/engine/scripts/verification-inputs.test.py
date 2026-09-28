@@ -152,6 +152,26 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_private_alert_settings_do_not_select_real_config_changes(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        units = ('scripts/hooks/escalations.test.sh', 'scripts/hooks/notice-disk-alert.test.sh')
+        changes = [inputs.config_change('SHOW_TURN_MANIFEST=0', 'SHOW_TURN_MANIFEST=1'),
+                   inputs.config_change('DISK_PRIMARY_VOLUME=old', 'DISK_PRIMARY_VOLUME=new'),
+                   inputs.config_change('PROTECTED_PATHS=src', None)]
+        for unit in units:
+            closure = graph.closure(unit)
+            self.assertFalse(any(closure.values()), closure)
+            for change in changes:
+                self.assertFalse(graph.config_units(change, [unit]), (unit, change))
+        for unit, helper in ((units[0], 'scripts/escalate.sh'),
+                             (units[0], 'scripts/hooks/notice-escalations.sh'),
+                             (units[1], 'scripts/lib/disk-watchdog.py#check'),
+                             (units[1], 'scripts/lib/testdevices.py#workspace-collection')):
+            previous = document['nodes'].pop(helper)
+            self.assertIn(unit, graph.config_units(changes[0], [unit]))
+            document['nodes'][helper] = previous
+
     def test_root_mutations_retain_nested_session_and_engine_settings(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)
