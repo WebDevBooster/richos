@@ -165,6 +165,31 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_remaining_fixed_fixtures_exclude_unrelated_config(self):
+        from functools import lru_cache
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        @lru_cache(None)
+        def read(path):
+            return (HERE.parent / path).read_text()
+        units = ['scripts/lib/agent_hold.test.sh', 'scripts/lib/proc_tree_pause.test.sh',
+                 'gates/unmanaged-assignment/lib/harness.test.sh', 'scripts/lib/ci_pause.test.sh',
+                 'mega-lander/tests/workspace-pause-hold.test.sh', 'scripts/pause-acceptance.test.sh']
+        change = inputs.config_change('CHECK_FAILURE_TYPE=0', 'CHECK_FAILURE_TYPE=1')
+        for unit in units:
+            with self.subTest(unit=unit):
+                graph = inputs.Dependencies(HERE.parent, document, read=read)
+                self.assertFalse(graph.closure(unit)['fallback'])
+                self.assertFalse(graph.config_units(change, [unit]))
+                if unit in units[-2:]:
+                    self.assertIn(unit, graph.config_units(inputs.config_change('ALLOWED_MODELS=a', 'ALLOWED_MODELS=b'), [unit]))
+                # Every immediate new fixture/helper identity is tested here;
+                # unchanged transitive helper controls remain applicable.
+                sources = {document['nodes'][unit]['source']}
+                sources.update(document['nodes'][e['to']]['source'] for e in document['nodes'][unit]['edges'])
+                for source in sources:
+                    changed = lambda p: read(p) + '\n# changed reader\n' if p == source else read(p)
+                    self.assertIn(unit, inputs.Dependencies(HERE.parent, document, read=changed).config_units(change, [unit]), source)
+
     def test_desktop_work_fixture_preserves_real_keys_and_reader_invalidation(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         from functools import lru_cache

@@ -13558,6 +13558,291 @@
           "to": "mega-lander/tests/app.mutation.sh"
         }
       ]
+    },
+    "scripts/lib/agent_hold.test.py": {
+      "source": "scripts/lib/agent_hold.test.py",
+      "sha256": "0bdf1933a8bfb97bd80eb65be2237ed01df1c20f041f74e89e5ff6dc8028a349",
+      "evidence": "Fixed Python fixture imports only the bound helper and standard library. Subprocess work/registry programs are literal strings in this source; no config-provided command or discovered test executes. Preserve the real helper closure conservatively.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/agent_hold.py"
+        }
+      ]
+    },
+    "scripts/lib/agent_hold.test.sh": {
+      "source": "scripts/lib/agent_hold.test.sh",
+      "sha256": "846da1c83c7c30dbaa40d9ce42264b434ed754f5ac954c4b591068b66fd2a61a",
+      "evidence": "Executes exactly the adjacent fixed Python fixture, with no mutation driver.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/agent_hold.test.py"
+        }
+      ]
+    },
+    "scripts/lib/proc_tree_pause.test.py": {
+      "source": "scripts/lib/proc_tree_pause.test.py",
+      "sha256": "57f5cd14777c8425e01ed986b0243981e0fa341c5608d457b937a87465e02e5e",
+      "evidence": "Fixed Python fixture imports only the bound helper and standard library. Subprocess work/registry programs are literal strings in this source; no config-provided command or discovered test executes. Preserve the real helper closure conservatively.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/proc_tree.py"
+        }
+      ]
+    },
+    "scripts/lib/proc_tree_pause.test.sh": {
+      "source": "scripts/lib/proc_tree_pause.test.sh",
+      "sha256": "adf1fec7b72c2980a46579eddaec9d36e99c97716c05cb7eba1cdfdc51b20933",
+      "evidence": "Executes exactly the adjacent fixed Python fixture, with no mutation driver.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/proc_tree_pause.test.py"
+        }
+      ]
+    },
+    "gates/unmanaged-assignment/lib/gate.py#harness-fixture": {
+      "source": "gates/unmanaged-assignment/lib/gate.py",
+      "sha256": "44146eb96ad7da451f985a1e2525ded416e53f895f0db53b92519bd2763b9eb0",
+      "evidence": "Bound imported module under harness fixture: _one_call, scenarios, fixture_integrity, build, live run, controls, prove and grading are replaced by literal fixture functions before use. Imported helpers have only definitions/constants at module scope; no orchestration settings read. The interrupted driver ends at its literal fixture_integrity stub.",
+      "keys": [],
+      "edges": []
+    },
+    "gates/unmanaged-assignment/lib/model_judge.py#harness-fixture": {
+      "source": "gates/unmanaged-assignment/lib/model_judge.py",
+      "sha256": "acaa1cda2ccabe9ea514cb2b84717b16c721cfe9eda415edc33f0ef29ec0d511",
+      "evidence": "Bound imported module under harness fixture: _one_call, scenarios, fixture_integrity, build, live run, controls, prove and grading are replaced by literal fixture functions before use. Imported helpers have only definitions/constants at module scope; no orchestration settings read. The interrupted driver ends at its literal fixture_integrity stub.",
+      "keys": [],
+      "edges": []
+    },
+    "gates/unmanaged-assignment/lib/records.py#harness-fixture": {
+      "source": "gates/unmanaged-assignment/lib/records.py",
+      "sha256": "bb1689b9a47e5ebd30a58759f88436cf03f90faf2a47bf3d5e582e4389128ced",
+      "evidence": "Bound imported module under harness fixture: _one_call, scenarios, fixture_integrity, build, live run, controls, prove and grading are replaced by literal fixture functions before use. Imported helpers have only definitions/constants at module scope; no orchestration settings read. The interrupted driver ends at its literal fixture_integrity stub.",
+      "keys": [],
+      "edges": []
+    },
+    "gates/unmanaged-assignment/lib/build_sandbox.py#harness-fixture": {
+      "source": "gates/unmanaged-assignment/lib/build_sandbox.py",
+      "sha256": "812566bc9a6129b0160c4e17fc3f2c9226635875b25a65a5770b7ba20313d201",
+      "evidence": "Bound imported module under harness fixture: _one_call, scenarios, fixture_integrity, build, live run, controls, prove and grading are replaced by literal fixture functions before use. Imported helpers have only definitions/constants at module scope; no orchestration settings read. The interrupted driver ends at its literal fixture_integrity stub.",
+      "keys": [],
+      "edges": []
+    },
+    "gates/unmanaged-assignment/lib/controls.py#harness-fixture": {
+      "source": "gates/unmanaged-assignment/lib/controls.py",
+      "sha256": "d93c9f144b209f4e77e9f4884ef3725e90f0d98b2d49403de294ff53ac0bfcbf",
+      "evidence": "Bound imported module under harness fixture: _one_call, scenarios, fixture_integrity, build, live run, controls, prove and grading are replaced by literal fixture functions before use. Imported helpers have only definitions/constants at module scope; no orchestration settings read. The interrupted driver ends at its literal fixture_integrity stub.",
+      "keys": [],
+      "edges": []
+    },
+    "gates/unmanaged-assignment/lib/judge.py#harness-fixture": {
+      "source": "gates/unmanaged-assignment/lib/judge.py",
+      "sha256": "98a492cafece93198f36f559ef30224e45f9efac99f81bc5811c929b9c6a56a8",
+      "evidence": "Bound imported module under harness fixture: _one_call, scenarios, fixture_integrity, build, live run, controls, prove and grading are replaced by literal fixture functions before use. Imported helpers have only definitions/constants at module scope; no orchestration settings read. The interrupted driver ends at its literal fixture_integrity stub.",
+      "keys": [],
+      "edges": []
+    },
+    "gates/unmanaged-assignment/lib/live_run.py#harness-fixture": {
+      "source": "gates/unmanaged-assignment/lib/live_run.py",
+      "sha256": "b3575d4c9598d54556862b18f639c00e5e6ae15d3edca0c97b638c8083ac7d85",
+      "evidence": "Bound imported module under harness fixture: _one_call, scenarios, fixture_integrity, build, live run, controls, prove and grading are replaced by literal fixture functions before use. Imported helpers have only definitions/constants at module scope; no orchestration settings read. The interrupted driver ends at its literal fixture_integrity stub.",
+      "keys": [],
+      "edges": []
+    },
+    "gates/unmanaged-assignment/lib/prove_records.py#harness-fixture": {
+      "source": "gates/unmanaged-assignment/lib/prove_records.py",
+      "sha256": "905d7549fda6fab739189f77ee0c15e8750fdb277bc8c0f6fbb9fc86584c93a9",
+      "evidence": "Bound imported module under harness fixture: _one_call, scenarios, fixture_integrity, build, live run, controls, prove and grading are replaced by literal fixture functions before use. Imported helpers have only definitions/constants at module scope; no orchestration settings read. The interrupted driver ends at its literal fixture_integrity stub.",
+      "keys": [],
+      "edges": []
+    },
+    "gates/unmanaged-assignment/lib/run_suite.py#harness-fixture": {
+      "source": "gates/unmanaged-assignment/lib/run_suite.py",
+      "sha256": "07e4a77c56d35ef41acb2d43aadf97bee7284ad9b3c6ab163d55bd1258cdf33e",
+      "evidence": "Bound imported module under harness fixture: _one_call, scenarios, fixture_integrity, build, live run, controls, prove and grading are replaced by literal fixture functions before use. Imported helpers have only definitions/constants at module scope; no orchestration settings read. The interrupted driver ends at its literal fixture_integrity stub.",
+      "keys": [],
+      "edges": []
+    },
+    "gates/unmanaged-assignment/lib/harness.test.sh": {
+      "source": "gates/unmanaged-assignment/lib/harness.test.sh",
+      "sha256": "e9711584fc8586181e2a1bbf8e6185993956e58a25e6f3eed67e52c381b1c1a5",
+      "evidence": "Full source binds the two literal child drivers, all stubs and two fixed source mutants. The same closed local module set imports in the copied mutant tree. No real model, discovered scenario or generated production suite executes.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "gates/unmanaged-assignment/lib/gate.py#harness-fixture"
+        },
+        {
+          "to": "gates/unmanaged-assignment/lib/model_judge.py#harness-fixture"
+        },
+        {
+          "to": "gates/unmanaged-assignment/lib/records.py#harness-fixture"
+        },
+        {
+          "to": "gates/unmanaged-assignment/lib/build_sandbox.py#harness-fixture"
+        },
+        {
+          "to": "gates/unmanaged-assignment/lib/controls.py#harness-fixture"
+        },
+        {
+          "to": "gates/unmanaged-assignment/lib/judge.py#harness-fixture"
+        },
+        {
+          "to": "gates/unmanaged-assignment/lib/live_run.py#harness-fixture"
+        },
+        {
+          "to": "gates/unmanaged-assignment/lib/prove_records.py#harness-fixture"
+        },
+        {
+          "to": "gates/unmanaged-assignment/lib/run_suite.py#harness-fixture"
+        }
+      ]
+    },
+    "scripts/lib/ci-red.py#pause-fixture": {
+      "source": "scripts/lib/ci-red.py",
+      "sha256": "f5cb6af63d4a367c0fbdc7e0102e9b533518793526f31c2d8c753a164b20cd1a",
+      "evidence": "Probe/main reads only private CI cache/paused JSON and fixed gh API responses; API calls are patched in this source-bound fixture. No orchestration configuration is read.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/ci_pause.py"
+        }
+      ]
+    },
+    "scripts/lib/owned-systems.py#paused-rows": {
+      "source": "scripts/lib/owned-systems.py",
+      "sha256": "722c3279040fde20c10c0e9f95a42808c02949cbb9e4f41b1425aaf4dde0372f",
+      "evidence": "Only sweep/render/ordered_standing with supplied literal rows. Paused CI returns before command/declaration resolution. No CLI configuration/declaration lookup or row command executes; the fixture additionally makes run raise if invoked.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/ci_pause.py"
+        }
+      ]
+    },
+    "scripts/lib/ci_pause.test.sh": {
+      "source": "scripts/lib/ci_pause.test.sh",
+      "sha256": "3bc1bddc58467b4fd5d8f8a051d6022c772a2e357ac7718b0af93d111e33bd34",
+      "evidence": "Private pause JSON and Git repo; fixed imports only. Discovery/collection/state/verdict seams are bound by this full fixture. Retain existing surface presence dependency conservatively.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/ci_pause.py"
+        },
+        {
+          "to": "scripts/lib/ci-red.py#pause-fixture"
+        },
+        {
+          "to": "scripts/lib/ci-surface.py"
+        },
+        {
+          "to": "scripts/lib/owned-systems.py#paused-rows"
+        },
+        {
+          "to": "scripts/hooks/guard-ci-turn-gate.py"
+        }
+      ]
+    },
+    "mega-lander/workspaces.sh#pause-fixture": {
+      "source": "mega-lander/workspaces.sh",
+      "sha256": "93b86b885516641e69a7cd84105260ee94d52300f0099362c7ed9b475855764e",
+      "evidence": "Wrapper executes workspaces.py; this fixture invokes only stop. Existing lifecycle closure includes actual stop cleanup and agent_hold release.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#lifecycle-fixtures"
+        }
+      ]
+    },
+    "scripts/pause-acceptance.py#fixture": {
+      "source": "scripts/pause-acceptance.py",
+      "sha256": "c7d727179c667930c558ee5772fc10ef76f7f99f3c89ef056a42020dd66c0fe5",
+      "evidence": "Fixed acceptance reader uses only workspace current_session/named_key/load_agent/recipient_state/_platform_projects_dir, native process samples, own transcripts and worker hash-chain data. Only subprocess is git rev-parse. No orchestration value lookup.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/agent_hold.py"
+        },
+        {
+          "to": "scripts/lib/pause_protocol.py"
+        },
+        {
+          "to": "mega-lander/workspaces.py#recipient"
+        }
+      ]
+    },
+    "scripts/pause-acceptance-worker.py": {
+      "source": "scripts/pause-acceptance-worker.py",
+      "sha256": "77f3fb7e9dad41ea4e54113427bf90bbe10af85c65bc1ed80c5d94831a06c1f7",
+      "evidence": "Counter and step operate only on the explicit fixture directory, hash data and time. Standard library only; no imports or configuration readers outside this file.",
+      "keys": [],
+      "edges": []
+    },
+    "mega-lander/tests/workspace-pause-hold.test.sh": {
+      "source": "mega-lander/tests/workspace-pause-hold.test.sh",
+      "sha256": "61f1eeff9e5ca25ad44975c4abfd27816739b14314d6e35ec164480d342f201c",
+      "evidence": "Fixed private Git/process fixture with copied real config. Retain actual isolation/model and lifecycle cleanup keys. Generated shell-evidence prefix invokes bound agent_hold; all body/worker/supervisor/WAIT programs are source-bound. No hook inventory execution.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/workspace-lifecycle.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-worktree-isolation.sh"
+        },
+        {
+          "to": "scripts/hooks/shell-evidence.sh"
+        },
+        {
+          "to": "scripts/lib/agent_hold.py"
+        },
+        {
+          "to": "scripts/lib/pause_protocol.py"
+        },
+        {
+          "to": "mega-lander/workspaces.py#lifecycle-fixtures"
+        },
+        {
+          "to": "mega-lander/workspaces.sh#pause-fixture"
+        }
+      ],
+      "nonconfig_eval": "sub evaluates only literal assertion strings in this bound suite; no configuration supplies shell code."
+    },
+    "scripts/pause-acceptance.test.sh": {
+      "source": "scripts/pause-acceptance.test.sh",
+      "sha256": "aab410e6f4f96c838ea282077aa33841bf9b03ada89be1a0f20a927915ffd3f6",
+      "evidence": "Fixed private fake-agent programs plus real acceptance reader/worker. Copied config keeps actual isolation and cleanup keys. Generated shell prefixes and all subsequent commands are bound here; no real model or hook inventory executes.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/workspace-lifecycle.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-worktree-isolation.sh"
+        },
+        {
+          "to": "scripts/hooks/shell-evidence.sh"
+        },
+        {
+          "to": "scripts/lib/agent_hold.py"
+        },
+        {
+          "to": "scripts/lib/pause_protocol.py"
+        },
+        {
+          "to": "mega-lander/workspaces.py#lifecycle-fixtures"
+        },
+        {
+          "to": "scripts/pause-acceptance.py#fixture"
+        },
+        {
+          "to": "scripts/pause-acceptance-worker.py"
+        }
+      ],
+      "nonconfig_eval": "sub evaluates only literal assertion strings in this bound suite; no configuration supplies shell code."
     }
   },
   "units": {
@@ -13722,7 +14007,13 @@
     "loro/tests/run.test.sh": "loro/tests/run.test.sh",
     "mega-lander/tests/create-teammate-worktree.test.sh": "mega-lander/tests/create-teammate-worktree.test.sh",
     "scripts/lib/app-evidence.test.sh": "scripts/lib/app-evidence.test.sh",
-    "mega-lander/tests/app.test.sh": "mega-lander/tests/app.test.sh"
+    "mega-lander/tests/app.test.sh": "mega-lander/tests/app.test.sh",
+    "scripts/lib/agent_hold.test.sh": "scripts/lib/agent_hold.test.sh",
+    "scripts/lib/proc_tree_pause.test.sh": "scripts/lib/proc_tree_pause.test.sh",
+    "gates/unmanaged-assignment/lib/harness.test.sh": "gates/unmanaged-assignment/lib/harness.test.sh",
+    "scripts/lib/ci_pause.test.sh": "scripts/lib/ci_pause.test.sh",
+    "mega-lander/tests/workspace-pause-hold.test.sh": "mega-lander/tests/workspace-pause-hold.test.sh",
+    "scripts/pause-acceptance.test.sh": "scripts/pause-acceptance.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
