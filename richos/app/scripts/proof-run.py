@@ -676,6 +676,24 @@ def deadline_for(item, args):
     return min(3600.0, max(args.deadline, 3 * item.weight))
 
 
+# The scheduler comes round every 0.2 s plus its own work (a stop can take ~11 s).
+# A loop gap beyond this was a pause suspending the runner WITH its checks
+# (agent_hold.py): that time is nobody's work, so it moves each running check's
+# start later instead of bringing its deadline closer. Sage's catch 2 (2026-09-27):
+# without it a five-minute pause killed every check with less than five minutes left.
+HELD_GAP_SECONDS = 30.0
+
+
+def discount_held_gap(interval, running):
+    """Seconds of `interval` that were a pause; each running check's start moves by that much."""
+    held = interval - HELD_GAP_SECONDS
+    if held <= 0:
+        return 0.0
+    for it in running:
+        it.started += held
+    return held
+
+
 def run(items, args, logdir, sampler=None):
     args.managed_verification = cpu_guard.verification_enabled()
     remaining = list(items)
@@ -807,6 +825,7 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
     while True:
         now = time.monotonic()
         interval, previous_loop = now - previous_loop, now
+        heartbeat += discount_held_gap(interval, running)
         for it in order:
             if it.state == "waiting":
                 it.wait_times[it.wait_reason] = it.wait_times.get(it.wait_reason, 0.0) + interval

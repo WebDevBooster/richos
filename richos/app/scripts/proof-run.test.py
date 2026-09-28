@@ -476,6 +476,22 @@ try:
     check(waited, "P16i naming the holder's slot in the environment does not let an unrelated run skip the line",
           output("p16-fake")[-400:])
 
+    # P37 — a pause (agent_hold.py) suspends the runner with its checks. The loop gap it leaves is
+    # not the checks' time: each running check's start moves by it, so its deadline is where it was.
+    class Held:
+        def __init__(self, started):
+            self.started = started
+    now = 1000.0
+    running = [Held(now - 100), Held(now - 5)]
+    gap = 300.0 + pr.HELD_GAP_SECONDS               # a 5-minute pause landing in one loop turn
+    shifted = pr.discount_held_gap(gap, running)
+    ages = [now + gap - it.started for it in running]
+    check(shifted == 300.0 and ages == [100 + pr.HELD_GAP_SECONDS, 5 + pr.HELD_GAP_SECONDS],
+          "P37 a 5-minute pause ages each running check by the loop's own %.0f s, not by the pause" % pr.HELD_GAP_SECONDS,
+          (shifted, ages))
+    check(pr.discount_held_gap(pr.HELD_GAP_SECONDS, running) == 0.0 and running[0].started == now - 100 + 300.0,
+          "P37b an ordinary slow loop turn (a stop, an admission sample) moves nothing", [it.started for it in running])
+
     # P9 — the log directory is bounded: the last three runs of a checkout, nothing more.
     parent = os.path.join(tmp, "rot")
     for n in range(5):
