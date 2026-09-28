@@ -20,6 +20,9 @@
 #   N9  at or above the threshold with the reset less than 20 minutes away:
 #       it says NO PAUSE (his 2026-09-25 update, ruling §87); N1 also checks
 #       that the update is quoted
+#   N10 the watcher starts by itself with the session (the engine's plugin
+#       monitor, 2026-09-28): the notice names it and --alive, and gives
+#       --watch only as the fallback
 #
 # Exit 0 = every case passed; exit 1 = at least one failed.
 
@@ -86,6 +89,18 @@ if [ "$RC" -eq 0 ] \
     ok "N1  his words verbatim, the declared line, the reading and the exact command"
 else
     bad "N1  rc=$RC context=$C out=$OUT"
+fi
+# N10 (2026-09-28): the watcher starts by itself with the session (the plugin
+# monitor), so the notice says so, gives the check, and offers --watch only as
+# the fallback; it no longer tells every lead to start the watcher.
+if printf '%s' "$C" | grep -qE '/scripts/quota-watch\.sh --monitor$' \
+   && printf '%s' "$C" | grep -qE '/scripts/quota-watch\.sh --alive$' \
+   && printf '%s' "$C" | grep -q 'Do not start it yourself' \
+   && printf '%s' "$C" | grep -q 'Only if --alive says nothing delivers them' \
+   && ! printf '%s' "$C" | grep -q 'Start the watcher now'; then
+    ok "N10 the watcher starts with the session (plugin monitor): the notice gives --alive, and --watch only as the fallback"
+else
+    bad "N10 context=$C"
 fi
 if printf '%s' "$OUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if "systemMessage" not in d and d["hookSpecificOutput"]["hookEventName"]=="SessionStart" else 1)'; then
     ok "N2  the lead hears it (additionalContext); the CEO sees no meter (no systemMessage)"
