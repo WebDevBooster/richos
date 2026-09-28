@@ -165,6 +165,28 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_foreign_app_fixture_keeps_full_dispatch_chain(self):
+        from functools import lru_cache
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        @lru_cache(None)
+        def read(path): return (HERE.parent / path).read_text()
+        unit = 'scripts/hooks/guard-foreign-app-data.test.sh'
+        change = inputs.config_change('CHECK_FAILURE_TYPE=0', 'CHECK_FAILURE_TYPE=1')
+        graph = inputs.Dependencies(HERE.parent, document, read=read)
+        self.assertFalse(graph.closure(unit)['fallback'])
+        self.assertFalse(graph.config_units(change, [unit]))
+        for before, after in ((None, 'CHECK_FAILURE_TYPE=1'), ('HOST_DISPLAY_POWER_GUARD=0', 'HOST_DISPLAY_POWER_GUARD=1')):
+            self.assertIn(unit, graph.config_units(inputs.config_change(before, after), [unit]))
+        names = [unit, 'scripts/hooks/foreign-app-data.mutation.sh', 'scripts/hooks/guard-foreign-app-data.sh',
+                 'scripts/hooks/dispatch-pretooluse.sh#find-payload']
+        names += [e['to'] for e in document['nodes'][names[-1]]['edges']]
+        sources = {document['nodes'][n]['source'] for n in names}
+        sources.add('scripts/lib/foreign_app_data.py')
+        for source in sources:
+            with self.subTest(source=source):
+                changed = lambda p: read(p) + '\n# changed\n' if p == source else read(p)
+                self.assertIn(unit, inputs.Dependencies(HERE.parent, document, read=changed).config_units(change, [unit]))
+
     def test_remaining_fixed_fixtures_exclude_unrelated_config(self):
         from functools import lru_cache
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
