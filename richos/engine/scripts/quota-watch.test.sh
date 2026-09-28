@@ -163,6 +163,11 @@ export RICHOS_SESSION_PID="$SLEEPER"
 export RESUME_GUARD_TEAMS_DIR="$SB/teams"
 export QUOTA_WATCH_POLL_SECONDS=1
 export QUOTA_WATCH_STALE_SECONDS=30
+# The E cases' SubagentStop runs the registry's test-device collection, which
+# otherwise takes ~/.claude/state/test-devices/.lock: the operator's record
+# (ci-shard's record canary, 2026-09-28).
+export RICHOS_TEST_DEVICES_DIR="$SB/test-devices"
+export TEST_DEVICE_FAILURES_STATE="$SB/test-device-failures.json"
 # NEVER the operator's real `claude`: by default get_usage has no binary and
 # every case reads the status-line fallback, as before; the G cases point this
 # at the fixture below, which answers the control protocol from files.
