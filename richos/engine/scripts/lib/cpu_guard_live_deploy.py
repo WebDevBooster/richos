@@ -63,6 +63,7 @@ class Live:
         self.record = self.state / 'live-runtime.json'
         self.restart = restart or self.kickstart
         self.wait = wait
+        self.interpreter = None
 
     @staticmethod
     def kickstart():
@@ -90,6 +91,10 @@ class Live:
         program = config.get('ProgramArguments', [])
         if len(program) < 4 or Path(program[2]) != self.running or program[3] != 'watch':
             raise SystemExit('refused: %s does not run %s watch (it runs %s)' % (self.plist, self.running, program))
+        # The interpreter launchd (and the Bash hook) run it with: /usr/bin/python3 is
+        # 3.9 on this Mac, and a candidate that only loads under a newer Python must be
+        # refused here, not discovered by a watchdog that no longer starts.
+        self.interpreter = program[0]
         if sha256(self.runtime / 'cpu_policy.py') != POLICY_SHA256:
             raise SystemExit('refused: %s is not the policy module this controller was installed with'
                              % (self.runtime / 'cpu_policy.py'))
@@ -108,11 +113,16 @@ class Live:
 
     def loads(self, path):
         """The file must import and answer `status` beside the runtime's cpu_policy.py."""
-        result = subprocess.run([sys.executable, '-B', str(path), 'status'], cwd=str(self.runtime),
+        result = subprocess.run([self.interpreter, '-B', str(path), 'status'], cwd=str(self.runtime),
                                 env={**os.environ, 'RICHOS_CPU_GUARD_STATE': str(self.state)},
                                 capture_output=True, text=True, timeout=30)
-        if result.returncode not in (0, 1):
-            raise SystemExit('refused: %s does not load: %s' % (path, (result.stderr or result.stdout)[-2000:]))
+        try:
+            answered = result.returncode in (0, 1) and 'healthy' in json.loads(result.stdout)
+        except ValueError:
+            answered = False
+        if not answered:
+            raise SystemExit('refused: %s does not load under %s: %s' % (
+                path, self.interpreter, (result.stderr or result.stdout or 'no output')[-2000:]))
 
     def swap_in(self, source, expected):
         staged = self.runtime / 'cpu_guard.py.deploy-new'

@@ -144,6 +144,16 @@ class DeployTests(unittest.TestCase):
             self.live().deploy()
         self.assertEqual(self.restarts, [])
 
+    def test_a_candidate_that_does_not_load_under_launchds_interpreter_is_refused_untouched(self):
+        # launchd runs /usr/bin/python3 (3.9 on this Mac), not the shell's python3.
+        self.plist.write_bytes(plistlib.dumps({'ProgramArguments': [
+            '/usr/bin/false', '-B', str(self.state / 'runtime/cpu_guard.py'), 'watch', '/engine']}))
+        with self.assertRaisesRegex(SystemExit, 'does not load under /usr/bin/false'):
+            self.live().deploy()
+        self.assertEqual((self.state / 'runtime/cpu_guard.py').read_bytes(), self.legacy)
+        self.assertEqual(self.restarts, [])
+        self.assertEqual(sorted(p.name for p in (self.state / 'runtime').iterdir()), ['cpu_guard.py', 'cpu_policy.py'])
+
     def test_rollback_restores_the_verified_legacy_bytes(self):
         self.live().deploy()
         self.assertIn('rolled back', self.live().rollback())
