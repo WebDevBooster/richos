@@ -1042,14 +1042,22 @@ SS_OUT="$(RICHOS_ESCALATION_LEDGER="$L8B" "$START_HOOK" </dev/null 2>/dev/null)"
 : > "$T8B"
 record_session_start "$T8B" "$SS_OUT"
 SS_LEN="$(jfield "$SS_OUT" hookSpecificOutput.additionalContext | wc -c | tr -d ' ')"
+sleep 1
+CAPNEW="$(raise8 zach-opus-e1capnew "raised mid-session beside a cut-off backlog" "$L8B")"
 OUT="$(stop_payload_t "19191919-0000-4000-8000-000000000000" "$T8B" \
        | RICHOS_ESCALATION_LEDGER="$L8B" "$STOP_HOOK" 2>/dev/null)"
 CTX="$(jfield "$OUT" hookSpecificOutput.additionalContext)"
-if [ "$SS_LEN" -gt 10000 ] && [ -n "$CTX" ] && [ "${#CTX}" -le 10000 ]; then
+if [ "$SS_LEN" -gt 10000 ] && [ -n "$CTX" ] && [ "${#CTX}" -le 10000 ] \
+   && printf '%s' "$CTX" | grep -q 'cap fixture number'; then
     ok "18j  a SessionStart block of $SS_LEN chars was cut by the host; the ids past its preview are delivered, in ${#CTX} chars (under the cap)"
 else
     bad "18j  host cap honored" "session-start=$SS_LEN chars, delivery=${#CTX} chars: $OUT"
 fi
+FIRST_ENTRY="$(printf '%s\n' "$CTX" | sed -n '2p')"
+case "$FIRST_ENTRY" in
+    *"$CAPNEW"*) ok "18m  the escalation raised mid-session is delivered FIRST, ahead of the cut-off backlog" ;;
+    *) bad "18m  newest first" "first entry is not $CAPNEW: $FIRST_ENTRY" ;;
+esac
 
 # MUTATION — is the model half carried by additionalContext, or by luck? Put
 # back the pre-fix world (the predicate adds nothing for the model) and the

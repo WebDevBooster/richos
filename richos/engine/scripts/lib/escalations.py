@@ -859,6 +859,14 @@ def deliver(payload, state_dir, rows, now=None):
            if delivery_key(e) not in delivered
            and not (e["id"] in baseline and not e.get("reopened_by_expiry"))]
     already = len(live) - len(new)
+    # NEWEST FIRST. Two kinds of "new" share this list: an escalation raised
+    # during this session, and an older one the SessionStart block raised but
+    # the host cut from the model's preview. Measured on the lead's own session
+    # 356e9552: its block was 12,547 characters, so the model got a 2,000-
+    # character preview naming 2 of the 8. When both kinds exist and the budget
+    # cannot hold them all, the one a teammate raised minutes ago goes first; the
+    # older overflow follows at the next turn end.
+    new.sort(key=lambda e: str(e.get("raised") or ""), reverse=True)
 
     text, sent = ("", [])
     if new:
