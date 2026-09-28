@@ -160,7 +160,7 @@ struct ScreenModel: Equatable, Sendable {
     }
 
     struct ConnectionLine: Equatable, Sendable {
-        enum Kind: Equatable, Sendable {
+        enum Kind: Equatable, Sendable, CaseIterable {
             case reconnecting, phoneOffline, serviceUnavailable, macUnreachable, incompatible
             case voiceUnsupported, voicePaused, attachmentsUnsupported
             /// D05: on the Tailscale route, this phone is not on Tailscale.

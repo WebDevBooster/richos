@@ -182,6 +182,91 @@ final class AccessibilityLayoutTests: XCTestCase {
         keepScreenshot(app, name: "ax5-conv-empty")
     }
 
+    /// The SE fit (the real iPhone SE, 2026-09-28, D05 right after Send with Tailscale off): between
+    /// the status bar and the keyboard, the "Waiting to send" card and the composer, the nameplate was
+    /// given less than its own height, so "Rich" crossed its top edge and "phone." fell under the card;
+    /// at the accessibility sizes the line was cut short ("Tailscale on…"). With the longest line the
+    /// header can say (D05's; the headless part proves no line is longer), in both appearances, at the
+    /// default size, the largest standard size and three accessibility sizes, keyboard down and up:
+    /// the header is inside the window and clear of the card and the composer, which stays touchable;
+    /// its line keeps its whole height, as tall with the keyboard up as with it down, or, where even
+    /// its own full-width line cannot fit, scrolls inside its card to its last word.
+    func testTheHeaderHoldsTheLongestLineWithTheKeyboardAndACard() {
+        let sizes: [String?] = [nil, "UICTContentSizeCategoryXXXL", "UICTContentSizeCategoryAccessibilityM",
+                                "UICTContentSizeCategoryAccessibilityXL", Self.largest]
+        for appearance in ["light", "dark"] {
+            for size in sizes {
+                let sizeName = size?.replacingOccurrences(of: "UICTContentSizeCategory", with: "") ?? "default"
+                let what = "\(appearance) \(sizeName)"
+                let app = Screen.launch("conn-tailscale-off", appearance: appearance, textSize: size)
+                XCTAssertTrue(app.descendants(matching: .any)["header.nameplate"].waitForExistence(timeout: 5), "\(what): the nameplate is missing")
+                Thread.sleep(forTimeInterval: 0.6)
+                let down = assertHeaderClear(app, "\(what), keyboard down")
+                messageField(app).tap()
+                XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "\(what): the keyboard did not come up")
+                Thread.sleep(forTimeInterval: 0.8)
+                let up = assertHeaderClear(app, "\(what), keyboard up")
+                switch (down.line, up.line) {
+                case (nil, nil):
+                    // In the nameplate both times: the keyboard must not take any of its height.
+                    XCTAssertEqual(up.nameplate.height, down.nameplate.height, accuracy: 1,
+                                   "\(what): the keyboard squeezed the nameplate from \(down.nameplate) to \(up.nameplate)")
+                case (let before?, let after?):
+                    XCTAssertEqual(after.height, before.height, accuracy: 1,
+                                   "\(what): the keyboard cut the connection line from \(before) to \(after)")
+                default:
+                    break // The line left the nameplate for its own line, where its height is checked.
+                }
+                keepScreenshot(app, name: "sefit-\(appearance)-\(sizeName)")
+            }
+        }
+    }
+
+    /// Where the header's parts are, after checking that it is inside the window, clear of what is
+    /// below it (the card, the composer), and, when its line scrolls, that it scrolls to its last word.
+    private func assertHeaderClear(_ app: XCUIApplication, _ what: String,
+                                   file: StaticString = #filePath, line: UInt = #line) -> (nameplate: CGRect, line: CGRect?) {
+        let window = app.windows.firstMatch.frame
+        let nameplateElement = app.descendants(matching: .any)["header.nameplate"]
+        let nameplate = nameplateElement.frame
+        let settings = app.buttons["header.settings"].frame
+        let textElement = app.descendants(matching: .any)["connection.line"]
+        let scroll = app.descendants(matching: .any)["connection.scroll"]
+        let text: CGRect? = textElement.exists ? textElement.frame : nil
+        // What is drawn of the line: all of it, or the part its scrolling card shows.
+        let shown: CGRect? = scroll.exists ? scroll.frame : text
+        XCTAssertTrue(nameplateElement.label.contains("Messages stay on this phone.") || text != nil,
+                      "\(what): the line is neither in the nameplate nor on its own line", file: file, line: line)
+        var parts: [(String, CGRect)] = [("the nameplate", nameplate), ("Settings", settings)]
+        if let shown { parts.append(("the line", shown)) }
+        for (part, frame) in parts {
+            XCTAssertTrue(window.insetBy(dx: -0.5, dy: -0.5).contains(frame), "\(what): \(part) at \(frame) is outside the window \(window)",
+                          file: file, line: line)
+        }
+        let bottom = max(nameplate.maxY, settings.maxY, shown?.maxY ?? 0)
+        var below: [(String, CGRect)] = [("the message field", messageField(app).frame),
+                                         ("the record control", app.descendants(matching: .any)["composer.mic"].frame)]
+        let card = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "isn’t reachable from here")).firstMatch
+        if card.exists { below.append(("the Waiting to send card", card.frame)) }
+        for (part, frame) in below {
+            XCTAssertGreaterThanOrEqual(frame.minY, bottom - 0.5, "\(what): \(part) at \(frame) is over the header, which ends at \(bottom)",
+                                        file: file, line: line)
+        }
+        assertOnScreenAndHittable(app.descendants(matching: .any)["composer.mic"], in: app, "\(what): the record control", file: file, line: line)
+        if scroll.exists, text != nil {
+            // Every word is reachable: the line scrolls until its end is inside its card.
+            var swipes = 0
+            while textElement.frame.maxY > scroll.frame.maxY + 1, swipes < 6 {
+                scroll.swipeUp()
+                swipes += 1
+            }
+            XCTAssertLessThanOrEqual(textElement.frame.maxY, scroll.frame.maxY + 1,
+                                     "\(what): the line's last word is still below its card after \(swipes) swipes", file: file, line: line)
+            scroll.swipeDown()
+        }
+        return (nameplate, text)
+    }
+
     /// F4, F5: the settings button is a fixed-size control with a name, at every size.
     func testSettingsButtonKeepsItsSize() {
         let app = Screen.launch("conv-populated", textSize: Self.largest)
