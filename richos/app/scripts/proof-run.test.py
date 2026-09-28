@@ -60,6 +60,8 @@ os.environ["RICHOS_MACHINE_WORKERS"] = os.path.join(tmp, "machine")
 # A stalled admission is recorded for the lead's turn-end gate (engine resource_waits.py); a
 # test never writes one where the operator's gate reads.
 os.environ["RICHOS_WAITS_DIR"] = os.path.join(tmp, "waits")
+# The host-wide proof-run slots (lib/proof_slots.py): a test's runs never take the Mac's real ones.
+os.environ["RICHOS_PROOF_RUN_SLOTS_DIR"] = os.path.join(tmp, "slots")
 try:
     print("=== proof-run ===")
 
@@ -314,6 +316,164 @@ try:
           and not left,
           "P15 a stalled run is recorded as a CPU-admission wait while it stalls, and the record is gone "
           "once the check is admitted", (its[0].state, seen[:1], left))
+
+    # P16 — RUNS share the Mac: a host-wide limit on how many proof runs go at once, counted by
+    # OS-held locks (lib/proof_slots.py). 2026-09-27: several agents each saw a free Mac on one
+    # instant sample and each started a full selection; one run alone already peaks at the whole
+    # Mac. Real proof-run.py processes, a fixture slot directory, a stubbed idle sampler (so only
+    # the run limit can make a run wait), fixture commands only.
+    slots_dir = os.path.join(tmp, "slots")
+    slots_tool = os.path.join(HERE, "lib", "proof_slots.py")
+    runner_boot = ("import runpy,sys; sys.path.insert(0," + repr(os.path.join(HERE, 'testvm')) + "); "
+                   "import reserve; reserve.host_sample=lambda: " + repr(idle()) + "; "
+                   "sys.argv=[" + repr(os.path.join(HERE, 'proof-run.py')) + "]+sys.argv[1:]; "
+                   "runpy.run_path(sys.argv[0],run_name='__main__')")
+
+    def slots(*argv):
+        return subprocess.run([sys.executable, slots_tool, *argv], capture_output=True, text=True,
+                              env={**os.environ, "RICHOS_PROOF_RUN_SLOTS_DIR": slots_dir})
+
+    def start_run(name, command, extra_env=None):
+        cmds = os.path.join(tmp, name + ".cmds")
+        with open(cmds, "w") as fh:
+            fh.write("cd richos/app && bash -c %s\n" % shlex_quote(command))
+        out = open(os.path.join(tmp, name + ".out"), "w")
+        env = {**os.environ, "RICHOS_PROOF_RUN_SLOTS_DIR": slots_dir, "RICHOS_WAITER": name,
+               "RICHOS_RUNTIME_DIR": os.path.join(tmp, "no-runtime")}
+        env.pop("RICHOS_PROOF_RUN_SLOT_HELD", None)   # this suite may itself run inside a proof run
+        env.update(extra_env or {})
+        return subprocess.Popen([sys.executable, "-c", runner_boot, "--commands", cmds,
+                                 "--log-dir", os.path.join(tmp, name + ".log")],
+                                stdout=out, stderr=subprocess.STDOUT, env=env)
+
+    def output(name):
+        with open(os.path.join(tmp, name + ".out")) as fh:
+            return fh.read()
+
+    def until(predicate, seconds):
+        end = time.time() + seconds
+        while time.time() < end:
+            if predicate():
+                return True
+            time.sleep(0.1)
+        return predicate()
+
+    def exists(path):
+        return os.path.exists(path)
+
+    from shlex import quote as shlex_quote
+    r = slots("set", "1")
+    check(r.returncode == 0 and slots("status", "--json").returncode == 0
+          and json.loads(slots("status", "--json").stdout)["limit"] == 1,
+          "P16a the limit is the host's setting: `proof_slots.py set 1` is what a later run reads",
+          (r.returncode, r.stdout, r.stderr))
+    bad = [slots("set", v).returncode for v in ("0", "-1", "x", "1000")]
+    check(all(rc == 2 for rc in bad), "P16a2 a limit below 1, above the core count or not a number is refused", bad)
+
+    # P16b — over the limit, the second run WAITS, is recorded as waiting while it waits, is named
+    # in the status with the holder, and runs once the first run is over.
+    mark = os.path.join(tmp, "p16")
+    os.makedirs(mark)
+    a = start_run("p16-a", "touch %s/a.start; sleep 3; touch %s/a.end" % (mark, mark))
+    check(until(lambda: exists(os.path.join(mark, "a.start")), 30), "P16b0 the first run starts at once under the limit",
+          output("p16-a")[-400:])
+    b = start_run("p16-b", "touch %s/b.start" % mark)
+    waited_seen = until(lambda: "waiting for a proof-run slot" in output("p16-b"), 10)
+    status = json.loads(slots("status", "--json").stdout)
+    records = []
+    for f in (os.listdir(os.environ["RICHOS_WAITS_DIR"]) if os.path.isdir(os.environ["RICHOS_WAITS_DIR"]) else []):
+        if f.endswith(".json"):
+            with open(os.path.join(os.environ["RICHOS_WAITS_DIR"], f)) as fh:
+                records.append(json.load(fh))
+    check(waited_seen and not exists(os.path.join(mark, "b.start")),
+          "P16b a second run over the limit of 1 WAITS, and says so, while the first holds the Mac",
+          output("p16-b")[-400:])
+    check([h["pid"] for h in status["holders"]] == [a.pid] and [w["pid"] for w in status["waiting"]] == [b.pid]
+          and status["holders"][0]["waiter"] == "p16-a" and status["waiting"][0]["waiter"] == "p16-b",
+          "P16c `proof_slots.py status` names who holds the Mac (pid %d) and who waits (pid %d)" % (a.pid, b.pid),
+          status)
+    check(any(rec.get("pid") == b.pid and rec.get("resource") == "cpu-admission" and "proof-run slot" in rec.get("reason", "")
+              and "p16-a" in rec.get("reason", "") for rec in records),
+          "P16d the waiting run is RECORDED for the lead's turn-end gate, naming the run it waits for", records)
+    a_rc, b_rc = a.wait(timeout=60), b.wait(timeout=60)
+    a_end = os.path.getmtime(os.path.join(mark, "a.end")) if exists(os.path.join(mark, "a.end")) else None
+    b_start = os.path.getmtime(os.path.join(mark, "b.start")) if exists(os.path.join(mark, "b.start")) else None
+    left = [f for f in os.listdir(os.environ["RICHOS_WAITS_DIR"]) if f.endswith(".json")] \
+        if os.path.isdir(os.environ["RICHOS_WAITS_DIR"]) else []
+    check(a_rc == 0 and b_rc == 0 and a_end is not None and b_start is not None and b_start >= a_end
+          and not left and "waited" in output("p16-b"),
+          "P16e ... and it runs after the first run is over, passes, reports its wait, and leaves no wait record",
+          (a_rc, b_rc, a_end, b_start, left, output("p16-b")[-400:]))
+    # P16e2 — the wait is SAID when it changes (who holds, place in line, the limit) or every
+    # proof_slots.SAY_EVERY_SECONDS, never once a second: 2026-09-28's end-to-end run printed its
+    # wait line every second (the elapsed time made each line new), 10,800 lines in a 3 h wait.
+    said = [l for l in output("p16-b").splitlines() if "waiting for a proof-run slot" in l]
+    check(len(said) == 1,
+          "P16e2 a run waiting behind one unchanged holder says so once, not once a second (%d line(s))" % len(said),
+          said)
+
+    # P16f — a killed holder releases the Mac: SIGKILL the holding runner (its pid, captured at
+    # spawn). The kernel drops its locks; its check's supervisor stops the check it was running.
+    a = start_run("p16-kill-a", "echo $$ > %s/k.pid; sleep 60" % mark)
+    check(until(lambda: exists(os.path.join(mark, "k.pid")) and open(os.path.join(mark, "k.pid")).read().strip(), 30),
+          "P16f0 the holder's check is running", output("p16-kill-a")[-400:])
+    b = start_run("p16-kill-b", "touch %s/k.b" % mark)
+    until(lambda: "waiting for a proof-run slot" in output("p16-kill-b"), 10)
+    a.send_signal(signal.SIGKILL)
+    a.wait(timeout=10)
+    released = until(lambda: exists(os.path.join(mark, "k.b")), 20)
+    b_rc = b.wait(timeout=30)
+    sleeper = int(open(os.path.join(mark, "k.pid")).read().strip())
+    try:
+        os.kill(sleeper, 0)
+        survived = True
+        os.kill(sleeper, signal.SIGKILL)
+    except ProcessLookupError:
+        survived = False
+    check(released and b_rc == 0 and not survived,
+          "P16f a SIGKILLed holder releases the Mac: the waiting run starts and passes, the dead run's check is gone",
+          (released, b_rc, survived, output("p16-kill-b")[-400:]))
+
+    # P16g — the positive control: under the limit, a second run starts at once.
+    slots("set", "2")
+    a = start_run("p16-two-a", "touch %s/t.a; sleep 3" % mark)
+    until(lambda: exists(os.path.join(mark, "t.a")), 30)
+    t_b = time.time()
+    b = start_run("p16-two-b", "touch %s/t.b" % mark)
+    started = until(lambda: exists(os.path.join(mark, "t.b")), 10)
+    to_start = time.time() - t_b
+    b_rc = b.wait(timeout=30)
+    a_rc = a.wait(timeout=30)
+    check(started and b_rc == 0 and a_rc == 0 and "waiting for a proof-run slot" not in output("p16-two-b"),
+          "P16g under a limit of 2, the second run's check starts beside the first (%.1f s after launch)" % to_start,
+          output("p16-two-b")[-400:])
+
+    # P16h — a proof run started BY a check of a proof run (a suite that runs the real runner)
+    # works inside its caller's slot, never waiting for the slot its own caller holds.
+    slots("set", "1")
+    nested_cmds = os.path.join(tmp, "p16-inner.cmds")
+    with open(nested_cmds, "w") as fh:
+        fh.write("cd richos/app && bash -c 'touch %s/inner'\n" % mark)
+    inner = ("%s -c %s --commands %s --log-dir %s" % (
+        shlex_quote(sys.executable), shlex_quote(runner_boot), shlex_quote(nested_cmds),
+        shlex_quote(os.path.join(tmp, "p16-inner.log"))))
+    outer = start_run("p16-outer", inner)
+    rc = outer.wait(timeout=60)
+    check(rc == 0 and exists(os.path.join(mark, "inner")),
+          "P16h a proof run inside a check of a proof run uses its caller's slot and does not deadlock",
+          output("p16-outer")[-600:])
+    # ... and nobody else can claim that: a run that is NOT a descendant of the holder, naming the
+    # holder in the environment, still waits.
+    a = start_run("p16-hold", "touch %s/h.a; sleep 3" % mark)
+    until(lambda: exists(os.path.join(mark, "h.a")), 30)
+    holder = json.loads(slots("status", "--json").stdout)["holders"]
+    fake = holder[0]["holder_file"] if holder else "none"
+    b = start_run("p16-fake", "touch %s/h.b" % mark, {"RICHOS_PROOF_RUN_SLOT_HELD": fake})
+    waited = until(lambda: "waiting for a proof-run slot" in output("p16-fake"), 10)
+    a.wait(timeout=30)
+    b.wait(timeout=30)
+    check(waited, "P16i naming the holder's slot in the environment does not let an unrelated run skip the line",
+          output("p16-fake")[-400:])
 
     # P9 — the log directory is bounded: the last three runs of a checkout, nothing more.
     parent = os.path.join(tmp, "rot")
