@@ -152,6 +152,26 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_workspace_unit_masks_only_the_explicitly_disabled_sweep(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'mega-lander/tests/workspaces.test.sh'
+        expected = {'QA_TOOLKIT_AGENTS', 'APP_TEST_INSTANCE_PROCESS_NAMES', 'APP_TEST_INSTANCE_BUNDLE_ID',
+                    'APP_TEST_INSTANCE_REAL_HOME_PATHS', 'APP_TEST_INSTANCE_QUIT_GRACE_SECONDS',
+                    'APP_TEST_INSTANCE_KILL_GRACE_SECONDS'}
+        closure = graph.closure(unit)
+        self.assertEqual(closure['fallback'], [])
+        self.assertEqual(set(closure['keys']), expected)
+        self.assertFalse(closure['whole'])
+        self.assertTrue(closure['presence'])
+        for key in expected | {'SCRATCH_REAPER_ENABLE', 'SCRATCH_ROOT_NAME', 'MODEL_TIERS', 'QA_TOOLKIT_DIR'}:
+            self.assertEqual(bool(graph.config_units(inputs.config_change(key+'=a', key+'=b'), [unit])), key in expected, key)
+        for helper in ('mega-lander/workspaces.py#unit-fixtures', 'mega-lander/tests/workspaces.mutation.sh',
+                       'scripts/hooks/guard-idle-land.sh#forbidden-stop', 'scripts/lib/qa-toolkit.py#type'):
+            old = document['nodes'].pop(helper)
+            self.assertIn(unit, graph.config_units(inputs.config_change('MODEL_TIERS=a', 'MODEL_TIERS=b'), [unit]))
+            document['nodes'][helper] = old
+
     def test_workspace_land_journey_keeps_actual_scratch_and_qa_inputs(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

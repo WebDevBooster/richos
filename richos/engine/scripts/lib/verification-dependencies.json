@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "17f666be10e5a8e1dd38c05c3a428da361d48bbd0b8d0c9d16cb23cf20d83461",
+      "sha256": "8ee19b1ff78d16c469a2d89bae9605aaffdc67e5a3acbfd91d7867b9834bf8a8",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -8321,6 +8321,226 @@
         }
       ],
       "nonconfig_eval": "Complete fixed check assertion list evaluates literal tests, private Git queries and fixed fixture helpers. Config values never supply command text."
+    },
+    "scripts/hooks/guard-ci-turn-gate.sh#forbidden-stop": {
+      "source": "scripts/hooks/guard-ci-turn-gate.sh",
+      "sha256": "d5982f5f16da84d753d275669128b20c453782674189d9b8b2b7ac0dae39c324",
+      "evidence": "The workspace unit suite invokes this hook without arguments for a recorded forbidden lead. Reviewed bootstrap and successful stop-session-recovery return before root resolution or later policy readers. Self-test dispatch is not entered.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/stop-session-recovery.py"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "if resolve_entity_root \"$INPUT\"; then"
+      ]
+    },
+    "scripts/hooks/guard-idle-land.sh#forbidden-stop": {
+      "source": "scripts/hooks/guard-idle-land.sh",
+      "sha256": "c65ff6beb940c15ff20cf5a7e54e2f8453c4f6594d2ed2a8d32cda662dc3efae",
+      "evidence": "The workspace unit suite invokes this hook without arguments for a recorded forbidden lead. Reviewed bootstrap and successful stop-session-recovery return before root resolution or later policy readers. Self-test dispatch is not entered.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/stop-session-recovery.py"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "if resolve_entity_root \"$INPUT\"; then"
+      ]
+    },
+    "scripts/hooks/guard-stated-actions.sh#forbidden-stop": {
+      "source": "scripts/hooks/guard-stated-actions.sh",
+      "sha256": "21ba110b91c10046b34ae46153ef9a42b140f5833e53217bfdb7e1b656862a27",
+      "evidence": "The workspace unit suite invokes this hook without arguments for a recorded forbidden lead. Reviewed bootstrap and successful stop-session-recovery return before root resolution or later policy readers. Self-test dispatch is not entered.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/stop-session-recovery.py"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "if resolve_entity_root \"$INPUT\"; then"
+      ]
+    },
+    "scripts/hooks/guard-unresolved-claims.sh#forbidden-stop": {
+      "source": "scripts/hooks/guard-unresolved-claims.sh",
+      "sha256": "88db28246b8e79d1d623d26e366fcc3c8bf1811e3bb464fc04d484761ead14d2",
+      "evidence": "The workspace unit suite invokes this hook without arguments for a recorded forbidden lead. Reviewed bootstrap and successful stop-session-recovery return before root resolution or later policy readers. Self-test dispatch is not entered.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/stop-session-recovery.py"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "if resolve_entity_root \"$INPUT\"; then"
+      ]
+    },
+    "scripts/hooks/guard-agent-state-claims.sh#forbidden-stop": {
+      "source": "scripts/hooks/guard-agent-state-claims.sh",
+      "sha256": "b7a14acc4ff57cdec91821f6fd74b3c745deb18a0bd256ac7d60a3e7dd35dd7e",
+      "evidence": "The workspace unit suite invokes this hook without arguments for a recorded forbidden lead. Reviewed bootstrap and successful stop-session-recovery return before root resolution or later policy readers. Self-test dispatch is not entered.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/stop-session-recovery.py"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "if resolve_entity_root \"$INPUT\"; then"
+      ]
+    },
+    "scripts/hooks/guard-failure-type-answer.sh#forbidden-stop": {
+      "source": "scripts/hooks/guard-failure-type-answer.sh",
+      "sha256": "9178339b1342a751b3de2fa743b2d65df019af3eb4af10e7447a82ad805895aa",
+      "evidence": "The workspace unit suite invokes this hook without arguments for a recorded forbidden lead. Reviewed bootstrap and successful stop-session-recovery return before root resolution or later policy readers. Self-test dispatch is not entered.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/stop-session-recovery.py"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "if resolve_entity_root \"$INPUT\"; then"
+      ]
+    },
+    "mega-lander/workspaces.py#unit-fixtures": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+      "evidence": "Reviewed all external import/execution sites and unit-call census. Library calls use lifecycle, registration and observation helpers. QA uses the fixed toolkit/classifier imports. The only main(land) call patches sweep_scratch_after_land to a no-op, so its production reaper is not invoked. Stop and wait only update records and observe refs.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#lifecycle-fixtures"
+        },
+        {
+          "to": "mega-lander/workspaces.py#isolation-registration"
+        },
+        {
+          "to": "mega-lander/workspaces.py#observe-refs"
+        },
+        {
+          "to": "scripts/lib/qa-toolkit.py#type"
+        },
+        {
+          "to": "scripts/lib/qa-throwaways.py#scan-classify",
+          "fixture": true
+        }
+      ]
+    },
+    "mega-lander/tests/workspaces.test.py": {
+      "source": "mega-lander/tests/workspaces.test.py",
+      "sha256": "17448b12acb2fb453764f631876bc29b891343402fc64531f9157ef701037ba2",
+      "evidence": "AST census of every ws call, subprocess and run call: fixed Git fixtures, captured sleep processes, a literal shutdown writer and seven Stop guards. Private HOME/config directories and Git config do not replace real app cleanup or QA settings. Six guards receive only a forbidden lead; workspace gate receives a private unadopted repository. The sole land CLI call explicitly patches out the scratch sweep.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#unit-fixtures"
+        },
+        {
+          "to": "scripts/lib/stop-session-recovery.py"
+        },
+        {
+          "to": "scripts/hooks/guard-workspace-gate.sh#unadopted-stop",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-ci-turn-gate.sh#forbidden-stop"
+        },
+        {
+          "to": "scripts/hooks/guard-idle-land.sh#forbidden-stop"
+        },
+        {
+          "to": "scripts/hooks/guard-stated-actions.sh#forbidden-stop"
+        },
+        {
+          "to": "scripts/hooks/guard-unresolved-claims.sh#forbidden-stop"
+        },
+        {
+          "to": "scripts/hooks/guard-agent-state-claims.sh#forbidden-stop"
+        },
+        {
+          "to": "scripts/hooks/guard-failure-type-answer.sh#forbidden-stop"
+        }
+      ]
+    },
+    "mega-lander/tests/workspaces.mutation.sh": {
+      "source": "mega-lander/tests/workspaces.mutation.sh",
+      "sha256": "cd75ae1378bc0f820344dad0acf2c3aad39517ac56e1fc6be8b715f65da30ff0",
+      "evidence": "Reviewed all finite old/new mutation operands: local workspace predicates, records, Git queries and fixed helper calls. No mutant introduces a dynamic configuration reader or executable. Focused inner suite keeps the same fixture boundaries; copied configuration presence remains a harness input.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "mega-lander/tests/workspaces.test.sh"
+        }
+      ]
+    },
+    "mega-lander/tests/workspaces.test.sh": {
+      "source": "mega-lander/tests/workspaces.test.sh",
+      "sha256": "3641facebf4d57c9b4c55e8d6048b3612c6f8e5b8a6cbd1f8933a43a2d1e68ce",
+      "evidence": "Fixed Python unit suite and optional finite mutation driver.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/tests/workspaces.test.py"
+        },
+        {
+          "to": "mega-lander/tests/workspaces.mutation.sh"
+        }
+      ]
     }
   },
   "units": {
@@ -8442,7 +8662,8 @@
     "scripts/hooks/guard-vendoring-commits.test.sh": "scripts/hooks/guard-vendoring-commits.test.sh",
     "scripts/disk-watchdog.test.sh": "scripts/disk-watchdog.test.sh",
     "mega-lander/tests/workspace-stopped-ending.test.sh": "mega-lander/tests/workspace-stopped-ending.test.sh",
-    "mega-lander/tests/workspaces-e2e.test.sh": "mega-lander/tests/workspaces-e2e.test.sh"
+    "mega-lander/tests/workspaces-e2e.test.sh": "mega-lander/tests/workspaces-e2e.test.sh",
+    "mega-lander/tests/workspaces.test.sh": "mega-lander/tests/workspaces.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
