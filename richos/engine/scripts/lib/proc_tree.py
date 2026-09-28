@@ -425,9 +425,17 @@ def finish_scope(child, tracker, grace=8.0):
         time.sleep(0.05)
 
 
-def supervise(owner, argv, deadline=None, timeout_marker=None, verification=None):
+GUARD_ROLES = ("session", "release-build")
+
+
+def supervise(owner, argv, deadline=None, timeout_marker=None, verification=None, guard_role="session"):
     # Enroll managed workloads even when invoked by Codex or a nightly without
     # Claude hooks. Fixtures copying just this helper keep working unchanged.
+    # `release-build` is the one other role: nightly-local.py names it for its build
+    # step alone, so the CPU guard gives that tree's compiler its longer window
+    # (cpu_guard.BUILD_WINDOW). It is registered exactly where "session" would be.
+    if guard_role not in GUARD_ROLES:
+        raise ValueError("unknown CPU guard role: %s" % guard_role)
     guard_path = os.path.join(os.path.dirname(__file__), "cpu_guard.py")
     client = None
     if verification:
@@ -445,7 +453,7 @@ def supervise(owner, argv, deadline=None, timeout_marker=None, verification=None
         if (not managed and inherited_owner is None
                 and os.path.realpath(os.path.expanduser("~")) == pwd.getpwuid(os.getuid()).pw_dir
                 and not os.environ.get("CLAUDE_CONFIG_DIR") and cpu_guard.healthy()):
-            cpu_guard.register(os.getpid(), "managed " + os.path.basename(argv[0]), "session")
+            cpu_guard.register(os.getpid(), "managed " + os.path.basename(argv[0]), guard_role)
     owner_id = identity(owner)
     if owner_id is None:
         return 125
@@ -539,12 +547,14 @@ def main(argv):
         parser.add_argument("--deadline", type=float)
         parser.add_argument("--timeout-marker")
         parser.add_argument("--verification")
+        parser.add_argument("--guard-role", choices=GUARD_ROLES, default="session")
         split = argv.index("--")
         args = parser.parse_args(argv[1:split])
         if args.deadline is not None and (not math.isfinite(args.deadline) or args.deadline <= 0):
             parser.error("deadline must be finite and positive")
         try:
-            return supervise(args.owner, argv[split + 1:], args.deadline, args.timeout_marker, args.verification)
+            return supervise(args.owner, argv[split + 1:], args.deadline, args.timeout_marker, args.verification,
+                             args.guard_role)
         except (RuntimeError, ValueError, OSError) as exc:
             print('process supervision unavailable: %s' % exc, file=sys.stderr)
             return 125

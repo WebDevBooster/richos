@@ -4,6 +4,12 @@
 Ownership is explicit PID + birth identity, then observed ancestry, retained across
 reparenting. Names never authorize signals. Sample CPU *time deltas*, not ps's
 smoothed %cpu. Never signal a registered session, an unrelated process or a reused PID.
+
+THIS FILE IS THE CONTROLLER LAUNCHD RUNS, not the one beside it. `cpu_guard.py` on main
+carries the verification controller that was rolled back on 2026-09-27; this is cpu_guard.py
+as of 9154bf51 (the bytes restored at that rollback) plus the release-build window below.
+A change to the per-process rule is made in BOTH files until the verification controller
+is re-qualified.
 """
 import argparse
 import contextlib
@@ -27,6 +33,13 @@ STATE = Path(os.environ.get('RICHOS_CPU_GUARD_STATE', '/Volumes/E1TB/state/richo
 INTERVAL = 2.0
 WINDOW = 10.0
 JOB_CORES = 3.0
+# A RELEASE BUILD'S COMPILER IS NOT A RUNAWAY FOR USING THE CORES A COMPILE NEEDS.
+# Identical to cpu_guard.py's rule: a process whose OBSERVED ANCESTRY reaches a root
+# registered with this role (nightly-local.py registers its build step's own supervisor,
+# by PID and birth, never by name) may stay above JOB_CORES for BUILD_WINDOW seconds
+# instead of WINDOW; longer than that and it is stopped exactly as before.
+BUILD_ROLE = 'release-build'
+BUILD_WINDOW = 600.0
 LABEL = 'com.richos.cpu-guard'
 IOS_FIRST_BOOT_SECONDS = 180
 IOS_WARM_BOOT_SECONDS = 120
@@ -263,6 +276,18 @@ class Watch:
         self.host_since = None
         self.reported_at = 0
         self.unowned_rates = {}
+        self.windows = {}
+
+    @staticmethod
+    def in_release_build(pid, rows, build_roots):
+        """True when the process's CURRENT parent chain reaches a registered build root."""
+        seen = set()
+        while pid in rows and pid not in seen:
+            if pid in build_roots:
+                return True
+            seen.add(pid)
+            pid = rows[pid]['parent']
+        return False
 
     def sample(self, rows, now, host_busy=0):
         roots = {}
@@ -303,21 +328,26 @@ class Watch:
                               for pid, row in rows.items() if pid not in owned and elapsed > 0
                               and pid in self.previous and self.previous[pid]['birth'] == row['birth']}
         self.previous, self.last = rows, now
-        # Sessions stay alive. A registered workload root may itself be stopped.
-        protected = {p for p, r in roots.items() if r['role'] == 'session'} | {os.getpid()}
+        # Sessions stay alive, and so does a release build's own supervisor. A
+        # registered workload root may itself be stopped.
+        protected = {p for p, r in roots.items() if r['role'] in ('session', BUILD_ROLE)} | {os.getpid()}
+        build_roots = {p for p, r in roots.items() if r['role'] == BUILD_ROLE}
         allowed = set(owned) - protected - set(self.pending)
         # Host pressure closes admission, not already admitted work. Killing
         # the largest process here repeatedly killed sub-core land checks and
         # capped Gradle builds while unrelated work saturated the host.
         candidates = []
+        self.windows = {}
         for pid in allowed:
             rate = rates.get(pid, 0)
+            window = BUILD_WINDOW if self.in_release_build(pid, rows, build_roots) else WINDOW
+            self.windows[pid] = window
             if rate > JOB_CORES:
                 self.over.setdefault((pid, rows[pid]['birth']), now)
             else:
                 self.over.pop((pid, rows[pid]['birth']), None)
             since = self.over.get((pid, rows[pid]['birth']))
-            if since is not None and now - since >= WINDOW:
+            if since is not None and now - since >= window:
                 candidates.append(pid)
         self.over = {k: v for k, v in self.over.items() if k[0] in allowed and rows[k[0]]['birth'] == k[1]}
         return sorted(set(candidates), key=lambda p: rates.get(p, 0), reverse=True), rates, protected
@@ -376,7 +406,7 @@ class Watch:
         event('CPU circuit breaker stopped an owned workload', pid=pid,
               reason=reason,
               executable=rows[pid]['name'], owner=self.owned[str(pid)]['owner'],
-              cores=round(rates.get(pid, 0), 2), sustained_seconds=WINDOW,
+              cores=round(rates.get(pid, 0), 2), sustained_seconds=self.windows.get(pid, WINDOW),
               signalled=signalled)
 
     def reap(self, rows, now):
