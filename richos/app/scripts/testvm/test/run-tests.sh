@@ -1563,6 +1563,10 @@ t "spelling-walk: a British model reply or document that reaches him American pa
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/spelling-walk.test.py" >"$TMP/spelling-walk.log" 2>&1; ok $? "$(cat "$TMP/spelling-walk.log")"
 t_done
 
+t "permission-provider: only the exact native decision releases a request; interruption never approves"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/permission-provider.test.py" >"$TMP/permission-provider.log" 2>&1; ok $? "$(cat "$TMP/permission-provider.log")"
+t_done
+
 # ===========================================================================
 # hand-file.sh — a FILE handed to the app, pasted or dragged, the way a person does
 # ===========================================================================
