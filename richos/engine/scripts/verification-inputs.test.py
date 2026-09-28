@@ -152,6 +152,22 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_owned_state_binds_executable_declaration_and_nested_transport(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/owned-state.test.sh'
+        closure = graph.closure(unit)
+        self.assertFalse(closure['keys'] or closure['whole'] or closure['fallback'], closure)
+        self.assertTrue(closure['presence'])
+        change = inputs.config_change('OWNED_SYSTEMS_DECLARATION=one', 'OWNED_SYSTEMS_DECLARATION=two')
+        self.assertFalse(graph.config_units(change, [unit]))
+        self.assertIn(unit, graph.config_units(inputs.config_change('OWNED_SYSTEMS_DECLARATION=one', None), [unit]))
+        for helper in ('owned-systems.declaration#escalations', 'scripts/escalate.sh',
+                       'scripts/lib/ci_pause.py', 'scripts/hooks/owned-state.mutation.sh'):
+            old = document['nodes'].pop(helper)
+            self.assertIn(unit, graph.config_units(change, [unit]), helper)
+            document['nodes'][helper] = old
+
     def test_protected_ref_notice_has_no_real_config_reader(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

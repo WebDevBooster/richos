@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "808f0095573081eabf5cb15d6ff7f35b8ae607757d5b6ae6c8ecbea6312ae464",
+      "sha256": "aa6eff40d0e21329377cdca3ea19a6c9dd40c769dfc74eefb79ac1af07b76ed7",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -7667,6 +7667,116 @@
           "to": "scripts/lib/protected-ref-moves.py"
         }
       ]
+    },
+    "owned-systems.declaration#escalations": {
+      "source": "owned-systems.declaration",
+      "sha256": "53055602ea5dddb54a84be7d701a6a072c6b343d573a55af1783f9402d56edde",
+      "evidence": "The suite extracts only id: escalations. Reviewed row executes test -f on the fixed escalate wrapper and bash scripts/escalate.sh list. Full declaration hash invalidates a changed command or selected row.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/escalate.sh"
+        }
+      ]
+    },
+    "scripts/lib/owned-systems.py#fixture-rows": {
+      "source": "scripts/lib/owned-systems.py",
+      "sha256": "722c3279040fde20c10c0e9f95a42808c02949cbb9e4f41b1425aaf4dde0372f",
+      "evidence": "Reviewed config precedence, declaration parser/expansion, all subprocess sites and report/demanded/dispose call closure. The suite always provides a nonempty literal entity OWNED_SYSTEMS_DECLARATION, so the engine setting is not consulted. Every executed row is a literal shell builtin fixture, absent path or the bound shipped escalations row. Remaining helpers only parse/render text or read/write entity state with wall-clock TTLs. No general arbitrary-declaration qualification is claimed.",
+      "keys": [
+        "OWNED_SYSTEMS_DECLARATION"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/ci_pause.py"
+        },
+        {
+          "to": "owned-systems.declaration#escalations"
+        }
+      ]
+    },
+    "scripts/hooks/guard-owned-state.sh#fixture-declaration": {
+      "source": "scripts/hooks/guard-owned-state.sh",
+      "sha256": "5f137d70ca9ea567cf0d5d06250ff50606db82f2323d2e68346e5295721d58aa",
+      "evidence": "Full guard sources the entity config and calls fixed owned-systems demanded/dispose commands; prompt matching is string/regex data. Only qualified for the literal owned-state suite declarations, including its bound escalation row.",
+      "keys": [
+        "OWNED_STATE_GATE"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/owned-systems.py#fixture-rows"
+        }
+      ]
+    },
+    "scripts/owned-state.sh#fixture-declaration": {
+      "source": "scripts/owned-state.sh",
+      "sha256": "313a26b975baf1005c6a86beaa03cc7910481b9e1d6754d45a0e4206b5b001a0",
+      "evidence": "Full wrapper resolves explicit entity argument and calls fixed owned-systems report. Only qualified for the suite declaration context.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/owned-systems.py#fixture-rows"
+        }
+      ]
+    },
+    "scripts/owned-state-checks/registered-executables.py": {
+      "source": "scripts/owned-state-checks/registered-executables.py",
+      "sha256": "8e324db884e02950f56ab3a4616f4acb4a8eea78eab71dd3c40823fae80b6fd9",
+      "evidence": "Full check parses hook/launchd registration files as data and inspects file existence/executable mode. It never runs those registered commands or reads orchestration.config. Tests supply every engine/entity/launch-agent directory explicitly.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/hooks/owned-state.mutation.sh": {
+      "source": "scripts/hooks/owned-state.mutation.sh",
+      "sha256": "7eb9e8010a5113527b391ec6284f48839137d9efc09f855f76485f7133c6eb58",
+      "evidence": "Full finite driver retains the shipped declaration, then applies fixed gate/verdict/triage mutations and runs the fixed suite via the reviewed mutation harness. No new execution target is introduced.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/hooks/owned-state.test.sh"
+        },
+        {
+          "to": "owned-systems.declaration#escalations"
+        }
+      ]
+    },
+    "scripts/hooks/owned-state.test.sh": {
+      "source": "scripts/hooks/owned-state.test.sh",
+      "sha256": "265c0099789c0bd4451cb6a246bb13ebedb3525d07e13f9ada60f11a3ce05b26",
+      "evidence": "Full suite writes literal entity configs and shell-check declarations, tests registration metadata in a separate private engine and extracts the one shipped escalation row. The latter command and declaration are bound explicitly. Private ledger and time-dependent baselines remain execution inputs; real config is copied only by the nested mutation transport.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-owned-state.sh#fixture-declaration",
+          "fixture": true
+        },
+        {
+          "to": "scripts/owned-state.sh#fixture-declaration",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/owned-systems.py#fixture-rows",
+          "fixture": true
+        },
+        {
+          "to": "scripts/owned-state-checks/registered-executables.py"
+        },
+        {
+          "to": "scripts/lib/escalations.py"
+        },
+        {
+          "to": "scripts/hooks/owned-state.mutation.sh"
+        }
+      ]
     }
   },
   "units": {
@@ -7781,7 +7891,8 @@
     "scripts/hooks/waiver-repetition.test.sh": "scripts/hooks/waiver-repetition.test.sh",
     "scripts/hooks/verify-agent-prompt.test.sh": "scripts/hooks/verify-agent-prompt.test.sh",
     "scripts/hooks/worker-lifecycle.test.sh": "scripts/hooks/worker-lifecycle.test.sh",
-    "scripts/hooks/protected-ref-moves.test.sh": "scripts/hooks/protected-ref-moves.test.sh"
+    "scripts/hooks/protected-ref-moves.test.sh": "scripts/hooks/protected-ref-moves.test.sh",
+    "scripts/hooks/owned-state.test.sh": "scripts/hooks/owned-state.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
