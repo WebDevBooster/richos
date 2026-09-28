@@ -152,6 +152,26 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_staging_and_worktree_detectors_replace_entity_settings(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        units = ['scripts/hooks/stale-staging.test.sh',
+                 'scripts/hooks/detect-nonnative-worktree.test.sh']
+        for unit in units:
+            closure = graph.closure(unit)
+            self.assertEqual(closure['keys'], {}, closure)
+            self.assertEqual(closure['whole'], [], closure)
+            self.assertEqual(closure['fallback'], [], closure)
+        for key in ('STAGING_TREES', 'STAGING_DEPLOY_RECORD', 'READONLY_ALLOWLIST', 'SESSION_TEAMS_DIR'):
+            self.assertEqual(graph.config_units(inputs.config_change(key + '=a', key + '=b'), units), {})
+        self.assertEqual(set(graph.config_units(inputs.config_change(None, 'STAGING_TREES=a'), units)), {units[0]})
+        for helper, unit in (('scripts/hooks/stale-staging.mutation.sh', units[0]),
+                             ('scripts/staging-record.sh', units[0]),
+                             ('scripts/hooks/detect-nonnative-worktree.sh', units[1])):
+            original = document['nodes'].pop(helper)
+            self.assertTrue(graph.closure(unit)['fallback'])
+            document['nodes'][helper] = original
+
     def test_python_wrappers_follow_their_actual_imports(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

@@ -1063,8 +1063,8 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "2fc2486c006f2a8f93a29c9454c2b40c907fc615ff1eef1582e044969d64e5c1",
-      "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed.",
+      "sha256": "9ff2dcded64ae639801af77bfca62654528f7acf8336d233080208097ff0f7f4",
+      "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
         {
@@ -1076,8 +1076,8 @@
     },
     "scripts/affected-units.test.py": {
       "source": "scripts/affected-units.test.py",
-      "sha256": "eb845e44d0958686f993f2b43f90446eedddb5bb16e90611dff45aa1842e62bd",
-      "evidence": "All config reads use newly written fixture files or literal before/after text. The real-file planning case reads only hooks.json and source-bound registration declarations. Nested CLI invocations use a newly created Git repository, and selected commands are never executed.",
+      "sha256": "523011503867f4c74f0362797cf3e29f8d3e4c26a8dac602fb4bc7fda6301956",
+      "evidence": "All config reads use newly written fixture files or literal before/after text. The real-file planning case reads only hooks.json and source-bound registration declarations. Nested CLI invocations use a newly created Git repository, and selected commands are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
         {
@@ -3448,6 +3448,105 @@
           "to": "scripts/lib/spawn-guard-audience.test.py"
         }
       ]
+    },
+    "scripts/hooks/guard-stale-staging.sh": {
+      "source": "scripts/hooks/guard-stale-staging.sh",
+      "sha256": "3aaaea16970f7d9cb08b4600ba1a2edad55333c24115e7fb759cedc9512b1a6e",
+      "evidence": "Sources only the resolved entity config, reads private Git/deploy metadata and emits a refusal or acknowledgement. Deploy commands are printed as remediation text, never executed.",
+      "keys": [
+        "STAGING_TREES",
+        "STAGING_DEPLOY_RECORD",
+        "STAGING_DEPLOY_COMMAND",
+        "STAGING_RECORD_REQUIRED",
+        "STAGING_MAIN_REF",
+        "STAGING_TRIGGER_RE"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/resolve-main-checkout.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "presence": "Entity adoption requires a config marker."
+    },
+    "scripts/staging-record.sh": {
+      "source": "scripts/staging-record.sh",
+      "sha256": "8f2e6332a8cf87a4e70569120e2e0c95e50b0355ab22eb4c0734dfbd2f509f60",
+      "evidence": "Sources only the --root config when no explicit --record is supplied, reads the record or writes literal SHA/tree/outcome fields. No deploy or other repository code executes.",
+      "keys": [
+        "STAGING_DEPLOY_RECORD"
+      ],
+      "edges": [],
+      "presence": "The optional root config selects the declared record location."
+    },
+    "scripts/hooks/stale-staging.test.sh": {
+      "source": "scripts/hooks/stale-staging.test.sh",
+      "sha256": "00fdf492db21cc44c9053ff5852d07c1eb594fbf91f9ffd4f036e65f96e2361f",
+      "evidence": "Constructs every entity config with write_config and literal overrides. Every guard call fixes RICHOS_ENTITY_ROOT to that private entity and every recorder call supplies --root. Registration assertions parse JSON or grep source; nested mutants rerun the same constructors.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-stale-staging.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/staging-record.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/stale-staging.mutation.sh"
+        }
+      ]
+    },
+    "scripts/hooks/stale-staging.mutation.sh": {
+      "source": "scripts/hooks/stale-staging.mutation.sh",
+      "sha256": "7becc51cf0b8d199f4af546b86908017e38c1a77a6195ea08d455dabee419d24",
+      "evidence": "Sixteen literal mutations affect only the guard or recorder. The shared harness transports config without sourcing it and reruns the fixed suite with nested mutation disabled; the suite generates a separate entity config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/hooks/stale-staging.test.sh"
+        }
+      ],
+      "literal_keys": {}
+    },
+    "scripts/hooks/detect-nonnative-worktree.sh": {
+      "source": "scripts/hooks/detect-nonnative-worktree.sh",
+      "sha256": "11fe1d4301e448a709fa0117b1b7df797f3dc7750233d275f09b4d749a150dee",
+      "evidence": "Reads resolved entity allowlist/team config, parses the Agent payload and reads Git/worktree/process metadata. Workspaces and kill commands in notices are text, never executed. Calls only root and unevaluated-payload helpers.",
+      "keys": [
+        "READONLY_ALLOWLIST",
+        "SESSION_TEAMS_DIR"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "presence": "Entity config is the adoption marker."
+    },
+    "scripts/hooks/detect-nonnative-worktree.test.sh": {
+      "source": "scripts/hooks/detect-nonnative-worktree.test.sh",
+      "sha256": "893ddfc4afcc1c76cae48de8a975dad666b18ceb11a1343e5bd95631f54f04b7",
+      "evidence": "make_sandbox copies the hook and three fixed helpers with a literal READONLY_ALLOWLIST config. All behavior calls select private entities. The two calls to the original hook select a missing-config private root or unset adoption in a fresh private directory; neither can reach production config values. Process and ledger observations do not execute repository code.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/detect-nonnative-worktree.sh",
+          "fixture": true
+        }
+      ]
     }
   },
   "units": {
@@ -3512,7 +3611,9 @@
     "scripts/cold-open.test.sh": "scripts/cold-open.test.sh",
     "scripts/hooks/ceo-todos.test.sh": "scripts/hooks/ceo-todos.test.sh",
     "scripts/lib/durable-filesystem-identity.test.sh": "scripts/lib/durable-filesystem-identity.test.sh",
-    "scripts/lib/spawn-guard-audience.test.sh": "scripts/lib/spawn-guard-audience.test.sh"
+    "scripts/lib/spawn-guard-audience.test.sh": "scripts/lib/spawn-guard-audience.test.sh",
+    "scripts/hooks/stale-staging.test.sh": "scripts/hooks/stale-staging.test.sh",
+    "scripts/hooks/detect-nonnative-worktree.test.sh": "scripts/hooks/detect-nonnative-worktree.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
@@ -3606,6 +3707,32 @@
         "scripts/lib/spawn-guard-audience.py": "0f29e5f4d8b857670e6566646e5ba1691b8b49e55b599b7e2d9d8a4782ccc0f9"
       },
       "evidence": "The Python suite inventories every PreToolUse registration whose matcher accepts Agent. Any semantic change to that event remains selected, including new commands and matchers. Other events and nonsemantic JSON formatting are not read by its inventory assertions. All three executable sources are bound."
+    },
+    "scripts/hooks/stale-staging.test.sh": {
+      "commands": [
+        "scripts/hooks/guard-stale-staging.sh"
+      ],
+      "sources": {
+        "scripts/hooks/stale-staging.test.sh": "00fdf492db21cc44c9053ff5852d07c1eb594fbf91f9ffd4f036e65f96e2361f",
+        "scripts/hooks/guard-stale-staging.sh": "3aaaea16970f7d9cb08b4600ba1a2edad55333c24115e7fb759cedc9512b1a6e",
+        "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "scripts/staging-record.sh": "8f2e6332a8cf87a4e70569120e2e0c95e50b0355ab22eb4c0734dfbd2f509f60",
+        "scripts/hooks/stale-staging.mutation.sh": "7becc51cf0b8d199f4af546b86908017e38c1a77a6195ea08d455dabee419d24",
+        "scripts/lib/mutation-harness.sh": "9dd839120e0a3b2ae4ef91054e076a8e9ea31c4592dbe0ea3eb80f3f018c88b0",
+        "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
+        "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
+        "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
+        "scripts/lib/worker_tokens.py": "8c4cada1e7a4883a65435017ebac01c27307724a9724ea698f0df699898ff6b2",
+        "scripts/lib/proc_tree.py": "dbd97c9b9758184e960348cd6c81e5089ae9691aee8324977a3ddbc0460a219d",
+        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
+        "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
+        "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
+        "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1"
+      },
+      "evidence": "8a parses the PreToolUse Agent groups for the stale-staging command. No JSON formatting or unrelated registration is asserted. Nested mutants execute the same assertion and all their executable helper sources are bound."
     }
   }
 }

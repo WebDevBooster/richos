@@ -17,6 +17,29 @@ from verification_inputs import Unsupported
 
 
 class Planner(unittest.TestCase):
+    def test_staging_fixture_registration_tracks_its_command_and_matcher(self):
+        root = HERE.parent
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        suite = 'scripts/hooks/stale-staging.test.sh'
+        def read(path):
+            file = root / path
+            return file.read_text() if file.is_file() else None
+        before = (root / 'hooks/hooks.json').read_text()
+        after = json.loads(before)
+        group = next(group for group in after['hooks']['PreToolUse']
+                     if group.get('matcher') == 'Agent' and any(
+                         'guard-stale-staging.sh' in hook.get('command', '') for hook in group['hooks']))
+        group['matcher'] = 'Bash'
+        plan = Selection(root, [suite], read, document)
+        plan.hooks(before, json.dumps(after))
+        self.assertEqual(set(plan.selected), {suite})
+        after = json.loads(before)
+        after['hooks']['Stop'].append({'hooks': [
+            {'type': 'command', 'command': 'bash ${CLAUDE_PLUGIN_ROOT}/new-hook.sh'}]})
+        plan = Selection(root, [suite], read, document)
+        plan.hooks(before, json.dumps(after))
+        self.assertEqual(plan.selected, {})
+
     def test_python_audience_wrapper_keeps_complete_pretooluse_inventory(self):
         root = HERE.parent
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
