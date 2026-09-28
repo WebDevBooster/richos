@@ -8,6 +8,7 @@ import sys
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "lib"))
@@ -152,6 +153,56 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_operator_lead_fixture_binds_dispatcher_without_real_entity_values(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/operator-leads.test.sh'
+        closure = graph.closure(unit)
+        self.assertFalse(closure['keys'] or closure['whole'] or closure['fallback'], closure)
+        self.assertTrue(closure['presence'])
+        change = inputs.config_change('OPERATOR_FENCES=on', 'OPERATOR_FENCES=off')
+        self.assertNotIn(unit, graph.config_units(change, [unit]))
+        for helper in ('scripts/lib/operator_fences.py#runtime',
+                       'scripts/hooks/dispatch-pretooluse.manifest',
+                       'scripts/lib/operator_leads.py#hooks'):
+            original = document['nodes'][helper]['sha256']
+            document['nodes'][helper]['sha256'] = 'changed'
+            self.assertIn(unit, graph.config_units(change, [unit]))
+            document['nodes'][helper]['sha256'] = original
+        inputs.hook_reader(document['hook_readers'][unit], lambda path: (HERE.parent / path).read_text())
+
+    def test_optional_external_executable_requires_reviewed_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'fixture.sh').write_text('exit 0\n')
+            external = root / 'dispatcher'
+            reviewed = b'#!/bin/sh\nexit 0\n'
+            document = {'schema': 1, 'config_keys': [], 'units': {'fixture': 'fixture'},
+                'nodes': {'fixture': {'source': 'fixture.sh',
+                    'sha256': hashlib.sha256((root / 'fixture.sh').read_bytes()).hexdigest(),
+                    'evidence': 'Fixture with an optional executable and literal fallback.',
+                    'external': [{'root': 'HOME', 'path': 'dispatcher',
+                        'sha256': hashlib.sha256(reviewed).hexdigest(),
+                        'optional_executable': True, 'evidence': 'Reviewed executable.'}]}}}
+            change = inputs.config_change('A=before', 'A=after')
+            with patch.dict(os.environ, {'HOME': directory}):
+                graph = inputs.Dependencies(root, document)
+                self.assertEqual(graph.config_units(change, ['fixture']), {})
+                external.write_bytes(reviewed)
+                external.chmod(0o700)
+                self.assertEqual(graph.config_units(change, ['fixture']), {})
+                external.write_text('#!/bin/sh\n. "$ENGINE/orchestration.config"\n')
+                self.assertIn('changed external reader', str(graph.config_units(change, ['fixture'])))
+                external.unlink()
+                external.symlink_to(root / 'missing')
+                self.assertEqual(graph.config_units(change, ['fixture']), {})
+                external.unlink()
+                target = root / 'target'
+                target.write_text('unreviewed')
+                target.chmod(0o700)
+                external.symlink_to(target)
+                self.assertIn('fixture', graph.config_units(change, ['fixture']))
+
     def test_publication_fixture_preserves_adoption_and_scanner_binding(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

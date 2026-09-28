@@ -7,6 +7,7 @@ for conservative selection instead of inventing an empty dependency set.
 import json
 import math
 import hashlib
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -345,6 +346,23 @@ class Dependencies:
             raise Unsupported("changed reader requires input qualification: " + str(source))
         if not row.get("evidence"):
             raise Unsupported("reader has no qualification evidence: " + str(source))
+        for external in row.get("external", []):
+            relative = Path(external.get("path", ""))
+            if (external.get("root") != "HOME" or relative.is_absolute()
+                    or ".." in relative.parts or not relative.parts
+                    or not external.get("evidence")):
+                raise Unsupported("invalid external reader binding: " + name)
+            path = Path.home() / relative
+            # The reviewed fixture takes its literal fallback when this exact
+            # optional executable is unavailable. Otherwise bind its bytes.
+            if external.get("optional_executable") and not os.access(path, os.X_OK):
+                continue
+            try:
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            except OSError:
+                raise Unsupported("missing external reader: HOME/" + str(relative)) from None
+            if digest != external.get("sha256"):
+                raise Unsupported("changed external reader: HOME/" + str(relative))
         # Known direct parameter accesses cannot be omitted from the contract.
         # This check is a floor, not a claim of arbitrary shell interpretation.
         text = "\n".join(line for line in content.decode().splitlines() if not line.lstrip().startswith("#"))

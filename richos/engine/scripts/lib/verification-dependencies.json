@@ -617,7 +617,7 @@
     },
     "scripts/lib/verification_inputs.py#config": {
       "source": "scripts/lib/verification_inputs.py",
-      "sha256": "bc61d9d257fbe97caf40090dafe988b1e84504a5235a745af86690dc0feede48",
+      "sha256": "a62fbf4ee864db02fd776e784f5bac2b81b090d6df0dd2dd5f9251de9c70c28c",
       "evidence": "The config parser accepts assignment text as data, preserving key references and rejecting unsupported executable syntax. No selected hook or suite is invoked.",
       "keys": [],
       "edges": [],
@@ -1046,7 +1046,7 @@
     },
     "scripts/lib/verification_inputs.py": {
       "source": "scripts/lib/verification_inputs.py",
-      "sha256": "bc61d9d257fbe97caf40090dafe988b1e84504a5235a745af86690dc0feede48",
+      "sha256": "a62fbf4ee864db02fd776e784f5bac2b81b090d6df0dd2dd5f9251de9c70c28c",
       "evidence": "Parser and dependency APIs read supplied text/paths. Snapshot executes only Git reads. It never executes a sourced configuration or a selected hook command.",
       "keys": [],
       "edges": []
@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "4e60373d0d6c334f4f82ca9efb70c24db32e1ca23250efbb2209ab97ee400640",
+      "sha256": "4198fcaf4944ff4d74636df372f458b164684ff415ec4d0eef4e9b7c491cde44",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -8768,6 +8768,688 @@
         }
       ],
       "nonconfig_eval": "The single eval applies exactly three literal s.replace expressions shown at the callsites to fixture copies. It does not evaluate a config value or change execution targets."
+    },
+    "mega-lander/workspaces.py#live-names": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+      "evidence": "Reviewed all_agents(False), finished_state and fixture record creation. Private enumeration adds only JSON reads to liveness/claims paths; no cleanup or dynamic engine import.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#liveness-readers"
+        },
+        {
+          "to": "mega-lander/workspaces.py#claims-fixture"
+        }
+      ]
+    },
+    "scripts/lib/operator_leads.py#lease-refusal": {
+      "source": "scripts/lib/operator_leads.py",
+      "sha256": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
+      "evidence": "Reviewed lease_refusal, claim_state/read_claim/live_processes, labels and is_app_lead: fixed identity helpers and private claim JSON only.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/operator_fences.py#claim-readers"
+        }
+      ]
+    },
+    "scripts/lib/operator_fences.py#runtime": {
+      "source": "scripts/lib/operator_fences.py",
+      "sha256": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+      "evidence": "AST call/import inventory and all external execution boundaries reviewed for fence, lease, merge-owner, turn-end and early-check. Only engine imports are workspace lock paths and the claim predicate. Launcher assignments are data. Git uses the caller repository and its separately bound hooks. Admin is a separate dispatch.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#land-lock-paths"
+        },
+        {
+          "to": "scripts/lib/operator_leads.py#lease-refusal"
+        }
+      ]
+    },
+    "scripts/lib/operator-fence-launcher.sh#fixture-chain": {
+      "source": "scripts/lib/operator-fence-launcher.sh",
+      "sha256": "b83c89e06e3e8aab78b2fd3eebb4693e2e41a08d752eae525fddceb10316ac59",
+      "evidence": "Full launcher reviewed. Baked assignments are not sourced config. Executes the fixed installed fence program and fixture repository chain; the suite supplies its chain callbacks.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/operator_fences.py#runtime"
+        }
+      ]
+    },
+    "scripts/lib/operator_fences_admin.py#fixture-admin": {
+      "source": "scripts/lib/operator_fences_admin.py",
+      "sha256": "924d3bf06082e5d54a7caf7f1ea88a2124cd6a52454c094a11a8ad51b2e5e035",
+      "evidence": "All admin bodies reviewed. Reads three named keys from explicit entity configuration, copies the fixed program and renders the fixed launcher. Registry and hook files are data in admin; copied hooks do not execute here.",
+      "keys": [
+        "OPERATOR_FENCES",
+        "OPERATOR_FENCES_REPOS",
+        "LAND_LEASE_HOLDERS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/operator_fences.py#runtime"
+        },
+        {
+          "to": "scripts/lib/operator-fence-launcher.sh#fixture-chain"
+        }
+      ],
+      "presence": "Explicit entity config must exist."
+    },
+    "scripts/operator-fences.sh#fixture-admin": {
+      "source": "scripts/operator-fences.sh",
+      "sha256": "057c5d9cb36f1563366bcacfc2a295a5bd62aded90860f8208865ee86de8e217",
+      "evidence": "Full wrapper executes only the fixed admin dispatcher for caller-supplied fixture repositories.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/operator_fences_admin.py#fixture-admin"
+        }
+      ]
+    },
+    "scripts/land-lease.sh": {
+      "source": "scripts/land-lease.sh",
+      "sha256": "a3a621ff827d5d60c4a127e9cb155bb03a78e9fed842d34acc727a39669e84b2",
+      "evidence": "Full wrapper executes only the fixed lease dispatcher.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/operator_fences.py#runtime"
+        }
+      ]
+    },
+    "scripts/lib/operator-fences-fixture.sh": {
+      "source": "scripts/lib/operator-fences-fixture.sh",
+      "sha256": "cf035be668ccb5fcaba1d6c668275f943ea115050990be0444dcabfa8e0b5fd7",
+      "evidence": "Full fixture reviewed: literal entity config, private Git/session/lease trees and captured shell servers. Optional installed dispatcher runs only as reference-transaction, skipping identity policy and chaining to the private repository hook. Its executable bytes are independently bound.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/scratch.sh",
+          "overrides": [
+            "SCRATCH_DEFAULT_TTL_MINUTES"
+          ]
+        },
+        {
+          "to": "scripts/operator-fences.sh#fixture-admin",
+          "fixture": true
+        },
+        {
+          "to": "scripts/land-lease.sh"
+        }
+      ],
+      "nonconfig_eval": "Session eval receives only fixed commands from the bound callers. The other eval sets OFX_PID_name, not a config value.",
+      "external": [
+        {
+          "root": "HOME",
+          "path": ".config/git/hooks/git-identity-guard-dispatch",
+          "sha256": "da2862a6f2e1216062454e1440670b9fbd96b66a956658ce935ca5e449923df2",
+          "optional_executable": true,
+          "evidence": "Full dispatcher reviewed under reference-transaction basename: only Git common-dir lookup and fixture hook chaining, no identity policy execution. Absent/nonexecutable takes the literal in-file fallback."
+        }
+      ]
+    },
+    "scripts/lib/operator_leads.py#hooks": {
+      "source": "scripts/lib/operator_leads.py",
+      "sha256": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
+      "evidence": "Complete module reviewed. Fixed verbs consume private claims/memory leases, launcher data and native identity. Only engine imports are fence runtime and workspace live-record readers. No orchestration reader or payload command execution.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/operator_fences.py#runtime"
+        },
+        {
+          "to": "mega-lander/workspaces.py#live-names"
+        }
+      ]
+    },
+    "scripts/hooks/guard-operator-claim.sh": {
+      "source": "scripts/hooks/guard-operator-claim.sh",
+      "sha256": "06ded03dc7f1dc6825df5e952619dcaae26c24f0bcda7ba017c935ed20c5663b",
+      "evidence": "Full hook reviewed: root/switch checks then one literal operator_leads verb. No config sourced.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/operator-mode.sh"
+        },
+        {
+          "to": "scripts/lib/operator_leads.py#hooks"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-shared-writes.sh": {
+      "source": "scripts/hooks/guard-shared-writes.sh",
+      "sha256": "8c93495c7a2fd02ef98b701af51fff16859fa0e11295eb9706d639a62148784a",
+      "evidence": "Full hook reviewed: root/switch checks then one literal operator_leads verb. No config sourced.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/operator-mode.sh"
+        },
+        {
+          "to": "scripts/lib/operator_leads.py#hooks"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-live-names.sh": {
+      "source": "scripts/hooks/guard-live-names.sh",
+      "sha256": "f836427a7eff9c4785a22318725e87826b6890bb20c44511cb6ae9b86fe88d30",
+      "evidence": "Full hook reviewed: root/switch checks then one literal operator_leads verb. No config sourced.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/operator-mode.sh"
+        },
+        {
+          "to": "scripts/lib/operator_leads.py#hooks"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ]
+    },
+    "scripts/hooks/release-shared-writes.sh": {
+      "source": "scripts/hooks/release-shared-writes.sh",
+      "sha256": "da06d8fbe6b3438a0bb1c33cea6e6b4789aeb041f9aef246ec3eea24d0f4ed80",
+      "evidence": "Full hook reviewed: root/switch checks then one literal operator_leads verb. No config sourced.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/operator-mode.sh"
+        },
+        {
+          "to": "scripts/lib/operator_leads.py#hooks"
+        }
+      ]
+    },
+    "scripts/hooks/guard-land-lease-commands.sh": {
+      "source": "scripts/hooks/guard-land-lease-commands.sh",
+      "sha256": "e3fb182d2571b84f9a84599fd50f404bb53aee051f6a9bbf52f0f78e01b60078",
+      "evidence": "Full hook reviewed: fixed payload prefilter and operator_fences early-check. Commands remain data.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/operator_fences.py#runtime"
+        }
+      ]
+    },
+    "scripts/hooks/guard-inflight-notify.sh#operator-lease-payload": {
+      "source": "scripts/hooks/guard-inflight-notify.sh",
+      "sha256": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
+      "evidence": "Operator-leads D1 supplies land-lease acquire, not a Git operation, scan or filesystem mutation. Reviewed classifier prefix is the same as the benign payload path; all settings read before classification remain. The suite explicitly supplies its literal entity config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/inflight.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "SESSION_ID=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-publication-commits.sh#operator-lease-payload": {
+      "source": "scripts/hooks/guard-publication-commits.sh",
+      "sha256": "180baec98c3f3b0e23e6b12bb8f3e129082ca6f10d49577b56671e102039e9fe",
+      "evidence": "Operator-leads D1 supplies land-lease acquire, not a Git operation, scan or filesystem mutation. Reviewed classifier prefix is the same as the benign payload path; all settings read before classification remain. The suite explicitly supplies its literal entity config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "STAGE_ALL=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-named-persons-commands.sh#operator-lease-payload": {
+      "source": "scripts/hooks/guard-named-persons-commands.sh",
+      "sha256": "56891e30dde5774e5430c9459cee10dc61bb683888f76917219d97c9e9cce825",
+      "evidence": "Operator-leads D1 supplies land-lease acquire, not a Git operation, scan or filesystem mutation. Reviewed classifier prefix is the same as the benign payload path; all settings read before classification remain. The suite explicitly supplies its literal entity config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#engine-only"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh#notice-once"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#load"
+        },
+        {
+          "to": "scripts/lib/named-persons.sh#load"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "NP_ANCHOR=\"$(richos_git_anchor"
+      ]
+    },
+    "scripts/hooks/guard-ceo-todos-commits.sh#operator-lease-payload": {
+      "source": "scripts/hooks/guard-ceo-todos-commits.sh",
+      "sha256": "b5ce1b39ad6985d4d3a52864c389968a474f05de1187baaa430941756ae0c0e0",
+      "evidence": "Operator-leads D1 supplies land-lease acquire, not a Git operation, scan or filesystem mutation. Reviewed classifier prefix is the same as the benign payload path; all settings read before classification remain. The suite explicitly supplies its literal entity config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/ceo-todos.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "STAGE_ALL=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-completeness-commits.sh#operator-lease-payload": {
+      "source": "scripts/hooks/guard-completeness-commits.sh",
+      "sha256": "bb6d0253b44d251a08dd325e8901399aafcbe4ca6fe4aa4c30c9b41a57cee673",
+      "evidence": "Operator-leads D1 supplies land-lease acquire, not a Git operation, scan or filesystem mutation. Reviewed classifier prefix is the same as the benign payload path; all settings read before classification remain. The suite explicitly supplies its literal entity config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "_CC_GJ="
+      ]
+    },
+    "scripts/hooks/guard-row-currency-commits.sh#operator-lease-payload": {
+      "source": "scripts/hooks/guard-row-currency-commits.sh",
+      "sha256": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
+      "evidence": "Operator-leads D1 supplies land-lease acquire, not a Git operation, scan or filesystem mutation. Reviewed classifier prefix is the same as the benign payload path; all settings read before classification remain. The suite explicitly supplies its literal entity config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/row-currency.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "ACTION=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-vendoring-commits.sh#operator-lease-payload": {
+      "source": "scripts/hooks/guard-vendoring-commits.sh",
+      "sha256": "88f0eef0c45b61a143ce0ebd0cba1b8ceda9f908d0cfed09994a9acc30da1208",
+      "evidence": "Operator-leads D1 supplies land-lease acquire, not a Git operation, scan or filesystem mutation. Reviewed classifier prefix is the same as the benign payload path; all settings read before classification remain. The suite explicitly supplies its literal entity config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/vendored-material.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "AMEND=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-hook-registration-commits.sh#operator-lease-payload": {
+      "source": "scripts/hooks/guard-hook-registration-commits.sh",
+      "sha256": "0e684c61c9c4d2bd3a724b6f4693090812cff645911916e4b4cb035b90790393",
+      "evidence": "Operator-leads D1 supplies land-lease acquire, not a Git operation, scan or filesystem mutation. Reviewed classifier prefix is the same as the benign payload path; all settings read before classification remain. The suite explicitly supplies its literal entity config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#engine-only"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "IFS= read -r -d '' _HR_CLASSIFIER"
+      ]
+    },
+    "scripts/hooks/guard-ci-red-lands.sh#operator-lease-payload": {
+      "source": "scripts/hooks/guard-ci-red-lands.sh",
+      "sha256": "64d83f115beb4a9db8c3cfe52438b72951d2a9e2ce5becee5f9344b9fb3eb6b0",
+      "evidence": "Operator-leads D1 supplies land-lease acquire, not a Git operation, scan or filesystem mutation. Reviewed classifier prefix is the same as the benign payload path; all settings read before classification remain. The suite explicitly supplies its literal entity config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#engine-only"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "VERB=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-host-display-power.sh#operator-lease-payload": {
+      "source": "scripts/hooks/guard-host-display-power.sh",
+      "sha256": "a6b99e74c251343564a32b52dbdafbf5a00ae84268853dfa7f622d032e79dc45",
+      "evidence": "Operator-leads D1 supplies land-lease acquire, not a Git operation, scan or filesystem mutation. Reviewed classifier prefix is the same as the benign payload path; all settings read before classification remain. The suite explicitly supplies its literal entity config.",
+      "keys": [
+        "HOST_DISPLAY_POWER_GUARD"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "SESSION_ID=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-public-record-repo.sh#operator-lease-payload": {
+      "source": "scripts/hooks/guard-public-record-repo.sh",
+      "sha256": "49a6e6c29e59a604b4d91e847e1e6d6060035f41f703bc95ffc8275778fec3d7",
+      "evidence": "Operator-leads D1 supplies land-lease acquire, not a Git operation, scan or filesystem mutation. Reviewed classifier prefix is the same as the benign payload path; all settings read before classification remain. The suite explicitly supplies its literal entity config.",
+      "keys": [
+        "PUBLIC_RECORD_REPO_GUARD"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "    _GJ=\"$(richos_git_anchor"
+      ]
+    },
+    "scripts/hooks/guard-foreign-app-data.sh#operator-lease-payload": {
+      "source": "scripts/hooks/guard-foreign-app-data.sh",
+      "sha256": "4360ace16a692e3cf5c7dd100dc206c496f0960b4584d66f76ff240bda3ee42c",
+      "evidence": "Operator-leads D1 supplies land-lease acquire, not a Git operation, scan or filesystem mutation. Reviewed classifier prefix is the same as the benign payload path; all settings read before classification remain. The suite explicitly supplies its literal entity config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "_gfad_in=\"$(cat)\"",
+        "_gfad_py="
+      ]
+    },
+    "scripts/hooks/dispatch-pretooluse.sh#operator-fixtures": {
+      "source": "scripts/hooks/dispatch-pretooluse.sh",
+      "sha256": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
+      "evidence": "Full chassis/manifest reviewed. D1 uses a lease-acquire Bash payload and an Edit of a fixture record with no publication declaration. Both use explicit literal entity config. Every module is bound, including modules after the refusal.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/hooks/dispatch-pretooluse.manifest"
+        },
+        {
+          "to": "scripts/hooks/guard-interactive-prompt.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-bash-main-writes.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-inflight-notify.sh#operator-lease-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-worktree-removal.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-publication-commits.sh#operator-lease-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-named-persons-commands.sh#operator-lease-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-ceo-todos-commits.sh#operator-lease-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-completeness-commits.sh#operator-lease-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-row-currency-commits.sh#operator-lease-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-vendoring-commits.sh#operator-lease-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-hook-registration-commits.sh#operator-lease-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-ci-red-lands.sh#operator-lease-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-host-display-power.sh#operator-lease-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-public-record-repo.sh#operator-lease-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-land-lease-commands.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-foreign-app-data.sh#operator-lease-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-operator-claim.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-main-checkout-writes.sh"
+        },
+        {
+          "to": "scripts/hooks/scan-secrets.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-publication-writes.sh#undeclared"
+        },
+        {
+          "to": "scripts/hooks/guard-named-persons-writes.sh#fixture-roster"
+        },
+        {
+          "to": "scripts/hooks/guard-dialect.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-no-home-network-phone.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-host-display-power.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-shared-writes.sh"
+        }
+      ]
+    },
+    "scripts/hooks/operator-leads.mutation.sh": {
+      "source": "scripts/hooks/operator-leads.mutation.sh",
+      "sha256": "f74d9ab97206aa682432a6a9c79e17728a14f49c968107ce92f9075d24a34104",
+      "evidence": "Full finite driver reviewed: fixed claim/switch/lease/name predicates and one hook-event rename. No new execution target; nested fixture replaces entity values copied by the transport.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/hooks/operator-leads.test.sh"
+        }
+      ]
+    },
+    "scripts/hooks/operator-leads.test.sh": {
+      "source": "scripts/hooks/operator-leads.test.sh",
+      "sha256": "d3663029c4cf718309ccd1b58d7b139133161228d97346a11b5c092968937a31",
+      "evidence": "Full suite reviewed: private literal entity config, claims, memory and named records; captured shell servers run finite hook/lease/Git commands. Exercises the real dispatcher and fixed Python readers. No model agents launch.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/operator-fences-fixture.sh"
+        },
+        {
+          "to": "scripts/hooks/operator-claim.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-operator-claim.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-shared-writes.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/release-shared-writes.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-live-names.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/dispatch-pretooluse.sh#operator-fixtures",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/operator_leads.py#hooks"
+        },
+        {
+          "to": "mega-lander/workspaces.py#live-names"
+        },
+        {
+          "to": "scripts/hooks/operator-leads.mutation.sh"
+        },
+        {
+          "to": "scripts/land-lease.sh"
+        }
+      ],
+      "nonconfig_eval": "pay evaluates only literal fixture dictionaries with fixture paths. Session commands have fixed hook/lease/Git callsites."
     }
   },
   "units": {
@@ -8894,7 +9576,8 @@
     "mega-lander/tests/workspace-spec-fourteen.test.sh": "mega-lander/tests/workspace-spec-fourteen.test.sh",
     "scripts/hooks/contract-integrity.test.sh:Q": "scripts/hooks/contract-integrity.test.sh#Q",
     "scripts/hooks/contract-integrity.test.sh:Qscope": "scripts/hooks/contract-integrity.test.sh#Qscope",
-    "scripts/hooks/publication-boundary.test.sh": "scripts/hooks/publication-boundary.test.sh"
+    "scripts/hooks/publication-boundary.test.sh": "scripts/hooks/publication-boundary.test.sh",
+    "scripts/hooks/operator-leads.test.sh": "scripts/hooks/operator-leads.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
@@ -9582,6 +10265,87 @@
         "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23"
       },
       "evidence": "Only the two publication guard registrations are queried on plugin and seated surfaces. Probe and installer source are assertion data."
+    },
+    "scripts/hooks/operator-leads.test.sh": {
+      "commands": [
+        "scripts/hooks/operator-claim.sh",
+        "scripts/hooks/guard-operator-claim.sh",
+        "scripts/hooks/guard-live-names.sh",
+        "scripts/hooks/release-shared-writes.sh",
+        "scripts/hooks/guard-shared-writes.sh"
+      ],
+      "sources": {
+        "scripts/hooks/operator-leads.test.sh": "d3663029c4cf718309ccd1b58d7b139133161228d97346a11b5c092968937a31",
+        "scripts/lib/operator-fences-fixture.sh": "cf035be668ccb5fcaba1d6c668275f943ea115050990be0444dcabfa8e0b5fd7",
+        "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
+        "scripts/operator-fences.sh": "057c5d9cb36f1563366bcacfc2a295a5bd62aded90860f8208865ee86de8e217",
+        "scripts/lib/operator_fences_admin.py": "924d3bf06082e5d54a7caf7f1ea88a2124cd6a52454c094a11a8ad51b2e5e035",
+        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "mega-lander/workspaces.py": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+        "scripts/lib/operator_leads.py": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
+        "scripts/lib/operator-fence-launcher.sh": "b83c89e06e3e8aab78b2fd3eebb4693e2e41a08d752eae525fddceb10316ac59",
+        "scripts/land-lease.sh": "a3a621ff827d5d60c4a127e9cb155bb03a78e9fed842d34acc727a39669e84b2",
+        "scripts/hooks/operator-claim.sh": "e157c7c28b11bb7a1d9965e5207bf9b52d521ff04f38a207d0ff8211136bb03f",
+        "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "scripts/lib/operator-mode.sh": "c9b25dd5eaef11ac02dc34ac11a6997404966ddb0dcd14cf019d83065b71ba6e",
+        "scripts/hooks/guard-operator-claim.sh": "06ded03dc7f1dc6825df5e952619dcaae26c24f0bcda7ba017c935ed20c5663b",
+        "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "scripts/hooks/guard-shared-writes.sh": "8c93495c7a2fd02ef98b701af51fff16859fa0e11295eb9706d639a62148784a",
+        "scripts/hooks/release-shared-writes.sh": "da06d8fbe6b3438a0bb1c33cea6e6b4789aeb041f9aef246ec3eea24d0f4ed80",
+        "scripts/hooks/guard-live-names.sh": "f836427a7eff9c4785a22318725e87826b6890bb20c44511cb6ae9b86fe88d30",
+        "scripts/hooks/dispatch-pretooluse.sh": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
+        "scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7",
+        "scripts/hooks/guard-interactive-prompt.sh": "006331257e3424466c9bd8f5f49d895362f0602063cb25d98dcef32b18fbd8c8",
+        "scripts/lib/interactive-prompt.py": "911722b466b6c56a712c44a3f6f268608c5d10ab0bff75d9b59e5492c36c0e4f",
+        "scripts/hooks/guard-bash-main-writes.sh": "103465d3f2a5744282c5147b4cf45db5f484318b6635412f9d6b3ea368e4033f",
+        "scripts/hooks/guard-inflight-notify.sh": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
+        "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
+        "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
+        "scripts/lib/inflight.sh": "db5588f3a0093a55befbcab454ee7e1921e1d8f8a049ff0c243da5020e418e43",
+        "scripts/hooks/guard-worktree-removal.sh": "b39ff96220cb74cf9f94acc3d6210f3207b57bdf50cb33ffdd29882e536a5f37",
+        "scripts/hooks/guard-publication-commits.sh": "180baec98c3f3b0e23e6b12bb8f3e129082ca6f10d49577b56671e102039e9fe",
+        "scripts/lib/publication-boundary.sh": "46366c80e498f6269889d21109cbfe5de696c273aa9229277ecc85d8285fac85",
+        "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
+        "scripts/hooks/guard-named-persons-commands.sh": "56891e30dde5774e5430c9459cee10dc61bb683888f76917219d97c9e9cce825",
+        "scripts/lib/named-persons.sh": "2c28d15414eed56676bd2c5588d66fe88f30c03dfb78e5e2752ffc5de17fffc3",
+        "scripts/hooks/guard-ceo-todos-commits.sh": "b5ce1b39ad6985d4d3a52864c389968a474f05de1187baaa430941756ae0c0e0",
+        "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
+        "scripts/hooks/guard-completeness-commits.sh": "bb6d0253b44d251a08dd325e8901399aafcbe4ca6fe4aa4c30c9b41a57cee673",
+        "scripts/hooks/guard-row-currency-commits.sh": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
+        "scripts/lib/row-currency.sh": "6aeb36f33046c910ad654f2c1f8eba96ca2c2a9675d40e9f5abf2c94e139584e",
+        "scripts/hooks/guard-vendoring-commits.sh": "88f0eef0c45b61a143ce0ebd0cba1b8ceda9f908d0cfed09994a9acc30da1208",
+        "scripts/lib/vendored-material.sh": "630fc9746255b5e2c6cf24be71ba0b9780a5d673f98559db3099b44f47fa3c92",
+        "scripts/hooks/guard-hook-registration-commits.sh": "0e684c61c9c4d2bd3a724b6f4693090812cff645911916e4b4cb035b90790393",
+        "scripts/hooks/guard-ci-red-lands.sh": "64d83f115beb4a9db8c3cfe52438b72951d2a9e2ce5becee5f9344b9fb3eb6b0",
+        "scripts/hooks/guard-host-display-power.sh": "a6b99e74c251343564a32b52dbdafbf5a00ae84268853dfa7f622d032e79dc45",
+        "scripts/hooks/guard-public-record-repo.sh": "49a6e6c29e59a604b4d91e847e1e6d6060035f41f703bc95ffc8275778fec3d7",
+        "scripts/hooks/guard-land-lease-commands.sh": "e3fb182d2571b84f9a84599fd50f404bb53aee051f6a9bbf52f0f78e01b60078",
+        "scripts/hooks/guard-foreign-app-data.sh": "4360ace16a692e3cf5c7dd100dc206c496f0960b4584d66f76ff240bda3ee42c",
+        "scripts/hooks/guard-main-checkout-writes.sh": "15ef50dd54edf557ac14c16ce894b7212cfc692244d5fa19728cf2c6edad35a7",
+        "scripts/hooks/scan-secrets.sh": "d23d1d44376e0557597f8a0add40a0226049d801769af48d81095002477e0c73",
+        "scripts/hooks/guard-publication-writes.sh": "c69db813e7aab086ff3f6257d3429eca9e7091c9fc985d17f91829ce943a580b",
+        "scripts/hooks/guard-named-persons-writes.sh": "95095c3eee1ac1f3f7f156dfc2fcb0b039868c63c1d10d45d043fdd7d86ad3ce",
+        "scripts/lib/named-persons.py": "9b37ff785ef195ec844190c4b4c6e678432d3b0d9d70aac0feba9ed2303a1af2",
+        "scripts/hooks/guard-dialect.sh": "2a19b37f44f5805b9b57c613f1cc7eae0cd1ef806dd36db2b4b10bfed990a58e",
+        "scripts/hooks/guard-no-home-network-phone.sh": "a84bf4506421d5a84ed94cbf75c7678fbc7a2b0b635a7e5a493750d3fddb82c9",
+        "scripts/lib/ceo-ruled.sh": "737879339e074a0c41011974a8dcdc74bbbbf7118ffda2904e2f8da7a0b10e91",
+        "scripts/lib/ceo-asks.sh": "c0d084aef038efba8bae75eea3073bafa01c60132702282743449541abab0021",
+        "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
+        "scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
+        "scripts/lib/ceo-ruled.py": "e92586fdd79f1c648c2f764613f47a56bc7f2d843061c70053611d7f2e23ce30",
+        "scripts/hooks/operator-leads.mutation.sh": "f74d9ab97206aa682432a6a9c79e17728a14f49c968107ce92f9075d24a34104",
+        "scripts/lib/mutation-harness.sh": "9dd839120e0a3b2ae4ef91054e076a8e9ea31c4592dbe0ea3eb80f3f018c88b0",
+        "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
+        "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
+        "scripts/lib/worker_tokens.py": "8c4cada1e7a4883a65435017ebac01c27307724a9724ea698f0df699898ff6b2",
+        "scripts/lib/proc_tree.py": "dbd97c9b9758184e960348cd6c81e5089ae9691aee8324977a3ddbc0460a219d",
+        "scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
+        "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
+        "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
+        "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1"
+      },
+      "evidence": "R1 checks event/matcher registrations of these five hooks. Dispatcher manifest is independently bound; no other hook registration runs."
     }
   }
 }
