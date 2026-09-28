@@ -78,6 +78,18 @@ must be stopped or reordered, use its recorded process ownership and cleanup
 mechanism. Preserve evidence first. Do not select processes to kill by name or
 path, touch another task's processes or call cancellation a pause.
 
+### Mutation witnesses and full-suite results
+
+The CEO-todos, prompt-verification, unstarted-row and row-currency mutation
+harnesses run the full outer suite once. Each mutant then runs its original
+named assertion or required fixture group, first against unmodified source and
+then against the mutation. Keep those controls and the full outer coverage.
+
+Their internal `--mutation-case` mode requires `RICHOS_MUTATION_INNER=1` and
+returns 3 when its selected witness passes. That result is not a full-suite pass
+and cannot satisfy an engine-unit receipt. Unknown scopes are errors. Use the
+normal no-argument unit invocation for complete coverage.
+
 ## 3. Before accepting reused results
 
 Reuse is evidence validation, not optimistic caching. Check source identity and
