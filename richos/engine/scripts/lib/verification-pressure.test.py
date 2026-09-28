@@ -102,7 +102,7 @@ class OwnedTreeTests(unittest.TestCase):
         with patch.object(guard, "processes", return_value={pid: self.row(generation=generation)}):
             guard.register(pid, "test unit", "verification", {"input_key": "a" * 64, "priority": priority, "result": str(guard.STATE / (str(pid) + ".result.json"))})
 
-    def test_native_lookup_exit_race_is_absent_but_live_unknown_still_refuses(self):
+    def test_native_lookup_exit_race_is_absent_and_live_unknown_is_carried_unproven(self):
         topology = subprocess.CompletedProcess([], 0, '991001 1 991001\n', '')
         for final_alive in ([], [991001]):
             with self.subTest(final_alive=final_alive), \
@@ -116,12 +116,14 @@ class OwnedTreeTests(unittest.TestCase):
                     tree = object.__new__(proc_tree.TrackedTree)
                     tree.known = {991001: 'prior-native-generation'}
                     tree.root, tree.root_birth = 991001, 'prior-native-generation'
-                    tree.groups, tree.empty_groups = {}, set()
+                    tree.groups, tree.empty_groups, tree.unresolved = {}, set(), {}
+                    # A live member that stays unreadable past the bound is carried, never
+                    # proven and never fatal (nightly 20260928T165947Z-b83ab374).
                     with patch.object(proc_tree, 'process_rows', return_value=rows), \
-                            patch.object(proc_tree, '_alive', return_value=[991001]), \
-                            patch.object(proc_tree.time, 'monotonic', side_effect=[0, 2]), \
-                            self.assertRaisesRegex(RuntimeError, 'generation is unreadable'):
-                        tree.refresh()
+                            patch.object(proc_tree, '_alive', return_value=[991001]):
+                        self.assertEqual(tree.refresh(), {991001})
+                    self.assertEqual(tree.known, {})
+                    self.assertEqual(tree.unresolved, {991001: 'prior-native-generation'})
 
     def test_owned_unknown_reconciles_exit_and_recycled_generation(self):
         for native, alive in ((None, []),
@@ -131,6 +133,7 @@ class OwnedTreeTests(unittest.TestCase):
                 tree = object.__new__(proc_tree.TrackedTree)
                 tree.root, tree.root_birth = 991001, 'original'
                 tree.known, tree.groups, tree.empty_groups = {991001: 'original'}, {}, set()
+                tree.unresolved = {}
                 with patch.object(proc_tree, 'process_rows', return_value={991001: (1, 991001, None)}), \
                         patch.object(proc_tree, '_alive', return_value=alive), \
                         patch.object(proc_tree.operator_fences, 'proc', side_effect=[None, native]), \
