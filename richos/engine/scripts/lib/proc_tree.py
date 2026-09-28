@@ -25,6 +25,76 @@ import time
 import operator_fences
 
 
+class HeldClock:
+    """Elapsed time that does not count the time this process was held (suspended).
+
+    A pause (agent_hold.py) suspends an agent's running work with SIGSTOP and
+    continues it with SIGCONT. time.monotonic() keeps advancing while a process is
+    stopped, so every deadline inside held work expired during a long pause and the
+    work killed itself the moment it was continued (Sage's catch 2, 2026-09-27).
+
+    A stopped process cannot observe its own suspension except as a GAP: a polling
+    loop that normally comes round in well under a second sees many seconds pass
+    between two iterations. Each gap beyond `gap` seconds counts as held time:
+
+        clock = HeldClock()
+        deadline = clock.now() + 600       # instead of time.monotonic() + 600
+        while ...:
+            if clock.now() >= deadline: ...
+            time.sleep(0.2)
+
+    The loop must call now() at least once per iteration. The first `gap` seconds of
+    a gap still count, so a loop that is merely slow under load loses nothing it
+    did not spend; a host that slept is treated like a pause, which is right for a
+    deadline meant to catch a HUNG process. It lives in this file, not a module of
+    its own, because every runner and fixture that copies proc_tree.py (cpu_guard's
+    installed runtime included) must keep working with that one file.
+    """
+    def __init__(self, gap=5.0, clock=time.monotonic):
+        self.gap = float(gap)
+        self.clock = clock
+        self.held = 0.0
+        self.gaps = 0
+        self._last = clock()
+
+    def now(self):
+        t = self.clock()
+        d = t - self._last
+        if d > self.gap:
+            self.held += d - self.gap
+            self.gaps += 1
+        self._last = t
+        return t - self.held
+
+    def since(self, start):
+        return self.now() - start
+
+
+# A `ps` that "timed out" may only have been SUSPENDED with its caller: a pause
+# (agent_hold.py) stops the supervisor and its ps child together, and at RESUME
+# Python finds the 10 s timeout long past and raises, which used to end the
+# supervised check (finish_scope): a RESUME killing its own test, Sage's catch 2.
+# ps is a read, so it is simply asked again. A timeout raised well after its time
+# was a suspension, and is never counted; a ps that really hangs still fails after
+# PS_ATTEMPTS timeouts that were not.
+PS_TIMEOUT = 10
+PS_ATTEMPTS = 3
+
+
+def _ps(argv):
+    hung = 0
+    for _ in range(100):
+        began = time.monotonic()
+        try:
+            return subprocess.run(argv, capture_output=True, text=True, timeout=PS_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            if time.monotonic() - began - PS_TIMEOUT <= 0.25 * PS_TIMEOUT:
+                hung += 1
+                if hung >= PS_ATTEMPTS:
+                    raise
+    raise subprocess.TimeoutExpired(argv, PS_TIMEOUT)
+
+
 def snapshot():
     """{pid: (ppid, pgid)} for every process, from one `ps` call."""
     out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,pgid="], capture_output=True, text=True).stdout
@@ -85,8 +155,7 @@ def _alive(pids):
     # Unreadable native identities are common for other users' processes, not
     # an exceptional one-PID case. One status snapshot preserves zombie/exit
     # handling without spawning a ps child for every such process on every tick.
-    result = subprocess.run(["ps", "-o", "pid=,stat=", "-p", ",".join(map(str, sorted(pids)))],
-                            capture_output=True, text=True, timeout=10)
+    result = _ps(["ps", "-o", "pid=,stat=", "-p", ",".join(map(str, sorted(pids)))])
     if result.returncode not in (0, 1) or (result.returncode == 0 and not result.stdout.strip()):
         raise RuntimeError("cannot read owned process states")
     left = []
@@ -178,8 +247,9 @@ def native_processes(pids):
 
 def process_rows():
     """Topology plus native birth generations, without a subprocess per identity."""
-    result = subprocess.run(["ps", "-ax", "-o", "pid=,ppid=,pgid="],
-                            capture_output=True, text=True, timeout=10, check=True)
+    result = _ps(["ps", "-ax", "-o", "pid=,ppid=,pgid="])
+    if result.returncode:
+        raise subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr)
     topology = {}
     for line in result.stdout.splitlines():
         fields = line.split()
@@ -192,8 +262,7 @@ def process_rows():
 
 def scoped_members(scope):
     """Inherited random scope finds detached, reparented descendants. Never print environments."""
-    result = subprocess.run(["ps", "-Eww" if sys.platform == "darwin" else "eww", "-ax", "-o", "uid=,pid=,command="],
-                            capture_output=True, text=True, timeout=10)
+    result = _ps(["ps", "-Eww" if sys.platform == "darwin" else "eww", "-ax", "-o", "uid=,pid=,command="])
     if result.returncode:
         raise RuntimeError("cannot inspect owned processes: ps failed")
     found = set()
@@ -226,7 +295,8 @@ class TrackedTree:
     def refresh(self, tags=False):
         table = process_rows()
         tagged = scoped_members(self.scope) if tags else set()
-        deadline = time.monotonic() + 1.0
+        clock = HeldClock(gap=0.5)
+        deadline = clock.now() + 1.0
         while True:
             owned = {pid for pid, birth in self.known.items()
                      if pid in table and table[pid][2] == birth}
@@ -261,7 +331,7 @@ class TrackedTree:
                     del table[pid]
             unresolved = {pid for pid in unknown if pid in table and table[pid][2] is None}
             if unresolved:
-                if time.monotonic() >= deadline:
+                if clock.now() >= deadline:
                     raise RuntimeError("owned process generation is unreadable: %s" % min(unresolved))
                 time.sleep(0.01)
             # Recompute ownership with the newly read topology/generation. A
@@ -281,7 +351,8 @@ class TrackedTree:
 
 def finish_scope(child, tracker, grace=8.0):
     """Re-scan while stopping so a TERM trap cannot fork an uncounted survivor."""
-    deadline = time.monotonic() + grace
+    clock = HeldClock()
+    deadline = clock.now() + grace
     killed_at = deadline + 3.0
     initial = True
     empty = False
@@ -298,7 +369,7 @@ def finish_scope(child, tracker, grace=8.0):
             time.sleep(0.05)
             continue
         empty = False
-        hard = time.monotonic() >= deadline
+        hard = clock.now() >= deadline
         # Signal the original tree once. A shell's EXIT trap may start cleanup
         # commands during the grace period; terminating those immediately defeats
         # cooperative cleanup. Track them and kill any survivors at the deadline.
@@ -309,7 +380,7 @@ def finish_scope(child, tracker, grace=8.0):
             except ProcessLookupError:
                 pass
         initial = False
-        if time.monotonic() >= killed_at:
+        if clock.now() >= killed_at:
             return sorted(alive)
         time.sleep(0.05)
 
@@ -365,7 +436,9 @@ def supervise(owner, argv, deadline=None, timeout_marker=None, verification=None
     os.close(read_fd)
     tracker = None
     rc = 125
-    started = time.monotonic()
+    # The check's own deadline counts ACTIVE time: a pause is not the check hanging.
+    clock = HeldClock()
+    started = clock.now()
     before = resource.getrusage(resource.RUSAGE_CHILDREN)
     try:
         tracker = TrackedTree(child.pid, scope)
@@ -381,7 +454,7 @@ def supervise(owner, argv, deadline=None, timeout_marker=None, verification=None
             if interrupted or identity(owner) != owner_id:
                 rc = 128 + interrupted[0] if interrupted else 125
                 break
-            if deadline is not None and time.monotonic() - started >= deadline:
+            if deadline is not None and clock.since(started) >= deadline:
                 if timeout_marker:
                     with open(timeout_marker, "x"):
                         pass

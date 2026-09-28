@@ -566,18 +566,24 @@ def pause_message(r, threshold):
 
 
 def resume_message(reset_at):
-    # NEVER a `pause-until:` line: a message without one is what resumes a
-    # paused agent in the registry.
-    return ("RESUME: the five-hour quota window reset at %s. Continue exactly where you stopped."
-            % hhmm(reset_at))
+    # The generated RESUME, unchanged: the registry ends a generated pause on it
+    # and on nothing else (Sage's catch 3), and it never carries `pause-until:`.
+    # The reset time is printed beside it for the lead, never inside it.
+    return pause_protocol.render_resume(reason="quota")
 
 
 def release_message(reset_at):
     # His 2026-09-25 update: the hold releases when the reset is less than 20
-    # minutes away. The same agent resumes, so, like the resume message, this
-    # NEVER carries a `pause-until:` line.
-    return ("RESUME: the five-hour quota window resets at %s, less than 20 minutes from now, so the quota "
-            "hold is released (%s). Continue exactly where you stopped." % (hhmm(reset_at), RULING))
+    # minutes away. The same agent resumes, with the same generated RESUME.
+    return pause_protocol.render_resume("quota")
+
+
+def _print_message(text, summary):
+    print("  ---- message begins ----")
+    for ln in text.splitlines():
+        print("  " + ln)
+    print("  ---- message ends ----")
+    print("  Use summary: " + summary)
 
 
 # ---------------------------------------------------------------------------
@@ -689,9 +695,7 @@ def _emit_reset(a, reset_at, w):
             print("  Paused for OTHER reasons, not named in this rule's wake: %s" % ", ".join(w["other_paused"]))
     else:
         print("  The registry could not name the paused agents; wake every agent you paused for the quota.")
-    print("  ---- message begins ----")
-    print("  " + resume_message(reset_at))
-    print("  ---- message ends ----")
+    _print_message(resume_message(reset_at), pause_protocol.RESUME_SUMMARY)
     print("  Then start the watcher again:")
     print("    %s --watch" % a.command)
 
@@ -709,9 +713,7 @@ def _emit_release(a, reset_at, now, w):
             print("  Paused for OTHER reasons, not named in this rule's wake: %s" % ", ".join(w["other_paused"]))
     else:
         print("  The registry could not name the paused agents; wake every agent you paused for the quota.")
-    print("  ---- message begins ----")
-    print("  " + release_message(reset_at))
-    print("  ---- message ends ----")
+    _print_message(release_message(reset_at), pause_protocol.RESUME_SUMMARY)
     print("  Then start the watcher again; inside the last 20 minutes it pauses nobody and wakes you at the reset:")
     print("    %s --watch" % a.command)
 

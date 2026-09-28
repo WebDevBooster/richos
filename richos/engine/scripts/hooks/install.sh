@@ -704,6 +704,12 @@ HOOK_FILES+=(
     # protects a decision. This one also protects a write.
     "$REPO_ROOT/scripts/hooks/commit-ceo-inputs.py"
     "$REPO_ROOT/scripts/hooks/shell-evidence.py"
+    # The hold behind a pause. Not a hook, and hashed because it SIGNALS: the
+    # registry's pause, resume and stop, shell-evidence.py's capture and its own
+    # detached watchdog take their whole answer from it about which processes are
+    # an agent's to freeze and continue. A tampered copy would freeze or continue
+    # processes nobody verified were that agent's.
+    "$REPO_ROOT/scripts/lib/agent_hold.py"
     # The CI turn gate's analyzer. Same argument as guard-idle-land.py above,
     # and it lands in the same place: guard-ci-turn-gate.sh resolves roots and
     # then hands the ENTIRE verdict to this file — which repositories this

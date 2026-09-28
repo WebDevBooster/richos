@@ -78,8 +78,8 @@ class Weekly(unittest.TestCase):
                 text=out.getvalue()
                 self.assertIn('WEEKLY-QUOTA-THRESHOLD',text)
                 self.assertNotIn('RESUME:',text)
-                message=text.split('PAUSE: preserve',1)[1].split('\n  Summary:',1)[0]
-                pause_protocol.validate_text('PAUSE: preserve'+message)
+                message=text.split('WAIT until the orchestrator',1)[1].split('\n  Summary:',1)[0]
+                pause_protocol.validate_text('WAIT until the orchestrator'+message)
     def test_unusable_reset_still_pauses(self):
         args=types.SimpleNamespace(stale=300,command='watch')
         for status in ({'error':'unavailable'},{'actionError':'uncertain'},{'resets':{'approval':None}}):

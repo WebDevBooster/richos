@@ -1938,6 +1938,12 @@ def _record_for_agent(session_id, agent_id, name=""):
 
 def record_end(session_id, agent_id, signal_name, detail=""):
     """The platform's own end-of-run signal, recorded automatically."""
+    if signal_name == "stopped":
+        # A stopped agent's suspended processes would hold their termination forever.
+        # Released by the ids the stop names, BEFORE any early return below: an agent
+        # already disposed of, or one the registry never knew, is still released
+        # (Sage's catch 1).
+        release_held_ids(session_id, agent_id)
     with Lock():
         rec = _record_for_agent(session_id, agent_id)
         if not rec:
@@ -2147,6 +2153,7 @@ def observe_platform_end(rec):
             fresh["end"] = {"at": now(), "signal": signal_name, "detail": why, "source": field}
             fresh["pause"] = None
             save_agent(fresh)
+        release_held_work(fresh)
         observe_created_refs(fresh, all_open=True)
         event("end", key=fresh["key"], signal=signal_name, detail=why, source=field)
         return fresh
@@ -2263,44 +2270,144 @@ def _resolve_record(ref, session_id=""):
     raise SpecError("%r names %d agents; use a key: %s" % (ref, len(hits), ", ".join(h["key"] for h in hits)))
 
 
-def pause(ref, until, session_id=""):
+def _agent_hold():
+    """scripts/lib/agent_hold.py, with its state beside a fixture registry's (tests)."""
+    here = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "lib")
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    if (os.environ.get("RICHOS_WORKSPACES_DIR") or "").strip() and not os.environ.get("RICHOS_AGENT_HOLD_DIR"):
+        os.environ["RICHOS_AGENT_HOLD_DIR"] = _p("agent-hold")
+    import agent_hold
+    return agent_hold
+
+
+def _generated(kind, text):
+    """Is `text` the unchanged generated pause (kind "pause") or RESUME (kind "resume")?"""
+    try:
+        _agent_hold()                  # puts scripts/lib on the path
+        import pause_protocol
+        return (pause_protocol.is_generated_pause if kind == "pause" else pause_protocol.is_generated_resume)(text)
+    except Exception:
+        return False
+
+
+def hold_running_work(rec, notes=None):
+    """A pause takes effect at once: the agent's running commands are suspended and its
+    new ones wait (agent_hold.py). The message alone reaches it only at its next tool
+    call. Never raises: a hold that fails is reported, and the pause stands."""
+    try:
+        ah = _agent_hold()
+        try:
+            spid = session_pid(rec.get("session_id") or "")
+        except Exception:
+            spid = None
+        res = ah.hold(str(rec.get("session_id") or ""), str(rec.get("agent_id") or ""), rec.get("name") or "",
+                      session_pid=spid)
+        line = ah.describe_hold(res)
+        event("hold", key=rec["key"], held=len(res.get("held") or {}), ok=res.get("ok"),
+              stopped_seconds=res.get("stopped_seconds"), cpu_during_sample=res.get("cpu_during_sample"),
+              excluded=res.get("excluded") or None, why=res.get("why"))
+    except Exception as e:
+        line = "HOLD %s: FAILED (%s); its running work was not suspended." % (rec.get("name") or "?", str(e)[:200])
+        event("hold-failed", key=rec.get("key"), why=str(e)[:200])
+    if notes is not None:
+        notes.append(line)
+    return line
+
+
+def release_held_work(rec, notes=None):
+    """RESUME, a stop and every other end of a pause continue what the hold suspended.
+    Never raises; a release that fails is reported."""
+    return release_held_ids(str(rec.get("session_id") or ""), str(rec.get("agent_id") or ""),
+                            rec.get("name") or "", rec.get("key"), notes)
+
+
+def release_held_ids(session_id, agent_id, name="", key=None, notes=None):
+    """The same release, by the ids alone: a stop names an agent id whether or not the
+    registry still holds a live record for it (Sage's catch 1)."""
+    try:
+        ah = _agent_hold()
+        res = ah.release(str(session_id or ""), str(agent_id or ""))
+        line = ah.describe_release(res)
+        if line:
+            event("release", key=key, agent_id=agent_id, continued=len(res.get("continued") or []),
+                  waited=len(res.get("waited") or []), gone=len(res.get("gone") or []))
+    except Exception as e:
+        line = "RELEASE %s: FAILED (%s); its held work may still be suspended: agent_hold.py status." % (
+            name or agent_id or "?", str(e)[:200])
+        event("release-failed", key=key, agent_id=agent_id, why=str(e)[:200])
+    if notes is not None and line:
+        notes.append(line)
+    return line
+
+
+def release_session_holds(session_id, notes=None):
+    """No work stays suspended after its session: at SessionEnd every hold of that session,
+    and at SessionStart (session_id None) every hold whose session process is gone."""
+    try:
+        ah = _agent_hold()
+        if not ah.records():
+            return
+        results = ah.release_session(session_id) if session_id else ah.release_orphans()
+        for res in results:
+            line = ah.describe_release(res)
+            if line:
+                event("release", continued=len(res.get("continued") or []), gone=len(res.get("gone") or []),
+                      why="session ended" if session_id else "session process gone")
+                if notes is not None:
+                    notes.append(line + " (its session ended)")
+    except Exception as e:
+        event("release-failed", why=str(e)[:200])
+        if notes is not None:
+            notes.append("RELEASE after a session ended FAILED (%s): agent_hold.py status." % str(e)[:200])
+
+
+def pause(ref, until, session_id="", notes=None, control=False):
+    """`control`: the pause came as the unchanged generated message (pause_protocol.py).
+    Only the generated RESUME, a resume command, a stop or the session's end ends
+    such a pause; any other message leaves it waiting (Sage's catch 3)."""
     with Lock():
         rec = _resolve(ref, session_id)
         fin, _p_, why = finished_state(rec)
         if fin:
             raise SpecError("%s is already finished (%s); a finished agent is not paused" % (rec["name"], why))
-        rec["pause"] = {"at": now(), "until": (until or "").strip()}
+        rec["pause"] = {"at": now(), "until": (until or "").strip(), "control": bool(control)}
         save_agent(rec)
-    event("pause", key=rec["key"], until=until)
+    event("pause", key=rec["key"], until=until, control=bool(control))
+    hold_running_work(rec, notes)
     return rec
 
 
-def resume(ref, session_id=""):
+def resume(ref, session_id="", notes=None):
     with Lock():
         rec = _resolve(ref, session_id)
         fin, paused_, why = finished_state(rec)
         if fin:
             raise SpecError("%s is finished (%s); it cannot be resumed. Land or discard it, or continue "
                             "its work with a new agent (point 7)." % (rec["name"], why))
-        if not paused_:
-            return rec
-        rec.setdefault("history", []).append({"at": iso(), "fact": "resumed", "pause": rec.get("pause"),
-                                              "end": rec.get("end")})
-        rec["pause"] = None
-        rec["end"] = None
-        rec["handed_in"] = None
-        save_agent(rec)
-    event("resume", key=rec["key"])
+        if paused_:
+            rec.setdefault("history", []).append({"at": iso(), "fact": "resumed", "pause": rec.get("pause"),
+                                                  "end": rec.get("end")})
+            rec["pause"] = None
+            rec["end"] = None
+            rec["handed_in"] = None
+            save_agent(rec)
+    if paused_:
+        event("resume", key=rec["key"])
+    # Also when the registry had no pause: a hold left by any path is released here.
+    release_held_work(rec, notes)
     return rec
 
 
-def stop(ref, why, session_id=""):
+def stop(ref, why, session_id="", notes=None):
     """Point 11: a pause whose work is no longer wanted ends by stopping it."""
     with Lock():
         rec = _resolve(ref, session_id)
         rec["end"] = {"at": now(), "signal": "stopped", "detail": why or "stopped by Rich"}
         rec["pause"] = None
         save_agent(rec)
+    # A suspended process holds a pending termination forever: continue it first.
+    release_held_work(rec, notes)
     observe_created_refs(rec, all_open=True)
     event("end", key=rec["key"], signal="stopped", detail=why)
     return rec
@@ -5040,6 +5147,7 @@ def lifecycle(payload, entity):
             # runs inside the hook's timeout; what is not reached is collected
             # by the next land or sweep.
             collect_test_devices(budget=8.0)
+        release_session_holds(None, notices)
         retry_due()
         items = pending(sid, entity, scan=True)
         if items:
@@ -5047,6 +5155,7 @@ def lifecycle(payload, entity):
                    + gate_message(items, "start new work"))
     elif ev == "SessionEnd":
         record_session_end(sid, str(payload.get("reason") or "SessionEnd"))
+        release_session_holds(sid)
         collect_test_devices(budget=8.0)
     elif ev == "SubagentStart":
         record_start(sid, str(payload.get("agent_id") or ""), str(payload.get("cwd") or ""),
@@ -5083,13 +5192,22 @@ def lifecycle(payload, entity):
                     until = prompt_lines(text, "pause-until")
                     if prompt_lines(text, "pause-until") or re.search(r"(?m)^\s*pause-until:\s*$", text):
                         try:
-                            pause(rec["key"], until[0] if until else "", sid)
+                            pause(rec["key"], until[0] if until else "", sid, notices,
+                                  control=_generated("pause", text))
                         except SpecError as e:
                             notices.append(str(e))
                     else:
                         st = finished_state(rec)
-                        if st[1]:
-                            resume(rec["key"], sid)
+                        if st[1] and (rec.get("pause") or {}).get("control") and not _generated("resume", text):
+                            # Sage's catch 3: a land's in-flight notice or any other message
+                            # must not thaw a generated pause. The agent reads it when it wakes.
+                            event("pause-kept", key=rec["key"])
+                            notices.append(
+                                "%s is WAITING under the generated pause: this message did not resume it. Its "
+                                "work stays frozen and its new commands wait until you send the generated RESUME: "
+                                "pause_protocol.py --resume --to %s" % (rec["name"], rec["name"]))
+                        elif st[1]:
+                            resume(rec["key"], sid, notices)
         elif tool == "Bash":
             cmd = str(ti.get("command") or "")
             if re.search(r"\bgit\b.*\b(merge|pull|rebase|cherry-pick)\b", cmd):
@@ -5342,6 +5460,10 @@ def main(argv):
                 out["hookSpecificOutput"] = {"hookEventName": "SessionStart", "additionalContext": ctx}
             if notices:
                 out["systemMessage"] = "\n".join(notices)
+            # The measured hold/release result is also context for the lead, who reports it.
+            held = [n for n in notices if n.startswith(("HOLD ", "RELEASE ")) or "is WAITING under the generated pause" in n]
+            if held and payload.get("hook_event_name") == "PostToolUse":
+                out["hookSpecificOutput"] = {"hookEventName": "PostToolUse", "additionalContext": "\n".join(held)}
             if out:
                 print(json.dumps(out))
             return 0
@@ -5363,14 +5485,23 @@ def main(argv):
             r = discard(a.agent, a.reason, a.ceo_word, a.not_ceo_ordered, me)
             print("discarded: %s — tips recorded: %s" % (a.agent, json.dumps(r["tips"])))
         elif a.cmd == "pause":
-            pause(a.agent, a.until, me)
+            notes = []
+            pause(a.agent, a.until, me, notes)
             print("paused: %s until %s" % (a.agent, a.until))
+            for _l in notes:
+                print(_l)
         elif a.cmd == "resume":
-            resume(a.agent, me)
+            notes = []
+            resume(a.agent, me, notes)
             print("resumed: %s" % a.agent)
+            for _l in notes:
+                print(_l)
         elif a.cmd == "stop":
-            stop(a.agent, a.why, me)
+            notes = []
+            stop(a.agent, a.why, me, notes)
             print("stopped: %s (finished)" % a.agent)
+            for _l in notes:
+                print(_l)
         elif a.cmd == "wait":
             kind, on = ("started", a.started) if a.started else (("outside", a.outside) if a.outside else ("ceo-discard", a.ceo))
             wait(a.agent, kind, on, a.todo, me)
