@@ -8,13 +8,14 @@ smoothed %cpu. Never signal a registered session, an unrelated process or a reus
 THIS FILE IS THE CONTROLLER LAUNCHD RUNS, not the one beside it. `cpu_guard.py` on main
 carries the verification controller that was rolled back on 2026-09-27; this is cpu_guard.py
 as of 9154bf51 (the bytes restored at that rollback) plus the release-build window below.
-A change to the per-process rule is made in BOTH files until the verification controller
-is re-qualified.
+`cpu_guard_live_deploy.py` puts it in place and takes it out again. A change to the
+per-process rule is made in BOTH files until the verification controller is re-qualified.
 """
 import argparse
 import contextlib
 import ctypes
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -433,6 +434,9 @@ def watch(engine):
     with (STATE / 'watch.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         watcher = Watch()
+        # Which controller is running, read from its own bytes, so a deploy can prove the
+        # restarted watch is the file it put in place (cpu_guard_live_deploy.py).
+        controller = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
         ticks_before = host_ticks()
         while True:
             try:
@@ -464,7 +468,8 @@ def watch(engine):
                 write_json(STATE / 'owned.json', watcher.owned)
                 write_json(STATE / 'heartbeat.json', dict(at=time.time(), ok=True,
                            pid=os.getpid(), owned=len(watcher.owned), host_busy=round(busy, 1),
-                           admission_open=admission_open(busy), admission_limit=DEFAULT_MAX_CPU))
+                           admission_open=admission_open(busy), admission_limit=DEFAULT_MAX_CPU,
+                           controller=controller))
             except Exception as exc:
                 event('CPU watchdog sampling failed', error=str(exc))
                 write_json(STATE / 'heartbeat.json', dict(at=time.time(), ok=False, error=str(exc)))
