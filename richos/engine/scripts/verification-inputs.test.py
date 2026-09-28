@@ -152,6 +152,24 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_publication_fixture_preserves_adoption_and_scanner_binding(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/publication-boundary.test.sh'
+        closure = graph.closure(unit)
+        self.assertFalse(closure['keys'] or closure['whole'] or closure['fallback'], closure)
+        self.assertTrue(closure['presence'])
+        change = inputs.config_change('PUBLICATION_DECLARATION=old', 'PUBLICATION_DECLARATION=new')
+        self.assertNotIn(unit, graph.config_units(change, [unit]))
+        self.assertIn(unit, graph.config_units(inputs.config_change('MODEL_CEILING=a', None), [unit]))
+        for helper in ('scripts/lib/publication-boundary.py', 'scripts/hooks/guard-publication-commits.sh#scan'):
+            previous = document['nodes'][helper]['sha256']
+            document['nodes'][helper]['sha256'] = 'changed'
+            self.assertIn(unit, graph.config_units(change, [unit]))
+            document['nodes'][helper]['sha256'] = previous
+        reader = document['hook_readers'][unit]
+        inputs.hook_reader(reader, lambda path: (HERE.parent / path).read_text())
+
     def test_contract_workspace_sections_keep_their_distinct_nested_readers(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

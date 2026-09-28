@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "797c43a0e63a7fb930267f9fcc494ebeec6edc1913e5b57a85f8dec262ea3bd0",
+      "sha256": "4e60373d0d6c334f4f82ca9efb70c24db32e1ca23250efbb2209ab97ee400640",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -8672,6 +8672,102 @@
         "if _section Qscope; then",
         "fi  # _section — Qscope\n"
       ]
+    },
+    "scripts/lib/publication-boundary.py": {
+      "source": "scripts/lib/publication-boundary.py",
+      "sha256": "e2caa3ecd680024f51aa49a4f2318db7e6298315712e706841f3d86b441c6735",
+      "evidence": "AST inventory and every import, execution and I/O boundary reviewed. Only stdlib hashing, JSON, path and text operations; supplied corpus/item files and job limits are data. No configuration, engine imports or subprocess execution.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/publication-boundary.sh#scan": {
+      "source": "scripts/lib/publication-boundary.sh",
+      "sha256": "46366c80e498f6269889d21109cbfe5de696c273aa9229277ecc85d8285fac85",
+      "evidence": "Full shell library reviewed: declarations are parsed as literal records, Git only resolves/ignores paths, and the sole scanner is the adjacent Python implementation. No declaration is sourced or evaluated.",
+      "keys": [
+        "PUBLICATION_DECLARATION"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/declaration-path.sh"
+        },
+        {
+          "to": "scripts/lib/resolve-main-checkout.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.py"
+        }
+      ]
+    },
+    "scripts/hooks/guard-publication-writes.sh#scan": {
+      "source": "scripts/hooks/guard-publication-writes.sh",
+      "sha256": "c69db813e7aab086ff3f6257d3429eca9e7091c9fc985d17f91829ce943a580b",
+      "evidence": "Complete executable hook reviewed. Payload shell commands are parsed as text; only fixed Git queries, inline JSON conversion and the bound publication scanner run. No orchestration config is sourced.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#scan"
+        }
+      ]
+    },
+    "scripts/hooks/guard-publication-commits.sh#scan": {
+      "source": "scripts/hooks/guard-publication-commits.sh",
+      "sha256": "180baec98c3f3b0e23e6b12bb8f3e129082ca6f10d49577b56671e102039e9fe",
+      "evidence": "Complete executable hook reviewed. Payload shell commands are parsed as text; only fixed Git queries, inline JSON conversion and the bound publication scanner run. No orchestration config is sourced.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#scan"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        }
+      ]
+    },
+    "scripts/hooks/publication-boundary.test.sh": {
+      "source": "scripts/hooks/publication-boundary.test.sh",
+      "sha256": "140b288e44c4805083ee9df0c3f9fc7bc9fc5f7e7558f59b9568da4c26c3ff78",
+      "evidence": "Harness and executable call inventory reviewed. All publication declarations, corpus content and Git histories are generated fixtures. Real engine root remains the adoption seat. PUBLICATION_DECLARATION uses its unsourced environment/default value, not orchestration.config. Three literal source replacements mutate only the publication predicate and published-copy field; installer/probe reads are text assertions.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/registered-hooks.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-publication-writes.sh#scan",
+          "overrides": [
+            "PUBLICATION_DECLARATION"
+          ]
+        },
+        {
+          "to": "scripts/hooks/guard-publication-commits.sh#scan",
+          "overrides": [
+            "PUBLICATION_DECLARATION"
+          ]
+        },
+        {
+          "to": "scripts/lib/publication-boundary.py"
+        }
+      ],
+      "nonconfig_eval": "The single eval applies exactly three literal s.replace expressions shown at the callsites to fixture copies. It does not evaluate a config value or change execution targets."
     }
   },
   "units": {
@@ -8797,7 +8893,8 @@
     "mega-lander/tests/workspaces.test.sh": "mega-lander/tests/workspaces.test.sh",
     "mega-lander/tests/workspace-spec-fourteen.test.sh": "mega-lander/tests/workspace-spec-fourteen.test.sh",
     "scripts/hooks/contract-integrity.test.sh:Q": "scripts/hooks/contract-integrity.test.sh#Q",
-    "scripts/hooks/contract-integrity.test.sh:Qscope": "scripts/hooks/contract-integrity.test.sh#Qscope"
+    "scripts/hooks/contract-integrity.test.sh:Qscope": "scripts/hooks/contract-integrity.test.sh#Qscope",
+    "scripts/hooks/publication-boundary.test.sh": "scripts/hooks/publication-boundary.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
@@ -9464,6 +9561,27 @@
         "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1"
       },
       "evidence": "Only this guard registration is resolved on plugin and seated surfaces. Probe, installer and declaration-resolver source assertions are text data; no other hook registration is executed."
+    },
+    "scripts/hooks/publication-boundary.test.sh": {
+      "commands": [
+        "scripts/hooks/guard-publication-writes.sh",
+        "scripts/hooks/guard-publication-commits.sh"
+      ],
+      "sources": {
+        "scripts/hooks/publication-boundary.test.sh": "140b288e44c4805083ee9df0c3f9fc7bc9fc5f7e7558f59b9568da4c26c3ff78",
+        "scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
+        "scripts/hooks/guard-publication-writes.sh": "c69db813e7aab086ff3f6257d3429eca9e7091c9fc985d17f91829ce943a580b",
+        "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
+        "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "scripts/lib/publication-boundary.sh": "46366c80e498f6269889d21109cbfe5de696c273aa9229277ecc85d8285fac85",
+        "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
+        "scripts/lib/publication-boundary.py": "e2caa3ecd680024f51aa49a4f2318db7e6298315712e706841f3d86b441c6735",
+        "scripts/hooks/guard-publication-commits.sh": "180baec98c3f3b0e23e6b12bb8f3e129082ca6f10d49577b56671e102039e9fe",
+        "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23"
+      },
+      "evidence": "Only the two publication guard registrations are queried on plugin and seated surfaces. Probe and installer source are assertion data."
     }
   }
 }
