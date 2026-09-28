@@ -13456,6 +13456,108 @@
           "to": "mega-lander/tests/path-spaces.test.py"
         }
       ]
+    },
+    "mega-lander/workspaces.py#desktop-work-fixtures": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "evidence": "Desktop app and fixture use the reviewed lifecycle/unit/spawn/land closure. Additional append_land_record/_trim_land_records write bounded JSON only, while land_by_another_conversation reads history and thread identity. _require_clean uses the reviewed land residue/uncommitted helpers. Retain real cleanup and CLI helper configuration conservatively.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#unit-fixtures"
+        },
+        {
+          "to": "mega-lander/workspaces.py#land-cli-fixtures"
+        },
+        {
+          "to": "mega-lander/workspaces.py#spawn-fixtures"
+        },
+        {
+          "to": "mega-lander/workspaces.py#land-record-readers"
+        }
+      ]
+    },
+    "ecs/adapters/app.py#desktop-work-fixtures": {
+      "source": "ecs/adapters/app.py",
+      "sha256": "807c59f61d562b4f3a89fb79b036b8c173e7be9e5f208ac9b1ec7c5515b3a4d7",
+      "evidence": "Finite desktop fixture requests: bind/checkpoint/brief/inspect/observe/verified-work/observation-receipt/seats/release-seat/complete-obligation. Reached dynamic imports return to the bound Mega Lander app for receipt verification. Import-preview/import-apply/sync-loro-receipts are not invoked. Core uses private SQLite/JSON and fixed SQL; no config value is sourced.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/core/ecs_core.py"
+        },
+        {
+          "to": "ecs/core/ecs_checkpoint.py"
+        },
+        {
+          "to": "ecs/core/ecs_inspect.py"
+        },
+        {
+          "to": "mega-lander/app.py#desktop-work-fixtures"
+        }
+      ]
+    },
+    "mega-lander/app.py#desktop-work-fixtures": {
+      "source": "mega-lander/app.py",
+      "sha256": "71965a989538ac783bb73e99772de4b7f6c93e8a743982ab1a46b6c8a23ed8e6",
+      "evidence": "All call entrypoints plus observe, dispatch_intent, lock and receipt helpers run against source-bound private fixtures. Subprocesses are Git or fixed spawn.py; the test failure override is literal Python. Spawn hook sources are explicitly fixed to actual isolation guard. The module is imported, never launched as its MCP server. Retain every actual workspace/spawn configuration dependency.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/adapters/app.py#desktop-work-fixtures"
+        },
+        {
+          "to": "mega-lander/workspaces.py#desktop-work-fixtures"
+        },
+        {
+          "to": "scripts/lib/spawn.py#fixture-guards"
+        },
+        {
+          "to": "scripts/lib/pause_protocol.py"
+        }
+      ]
+    },
+    "mega-lander/tests/app.test.py": {
+      "source": "mega-lander/tests/app.test.py",
+      "sha256": "3b0cb16dcaabdb4142230da138e0e0a56f45935e0d35964804f031490ea47769",
+      "evidence": "Full fixed unittest fixture, literal holder/probe subprocess programs and one literal spawn failure override. Private Git, ECS stores, registry, scope, land locks and explicit single-hook manifest bind the app/adapter entrypoint guarantees. No agent, model, arbitrary setup or MCP server is invoked.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/app.py#desktop-work-fixtures"
+        },
+        {
+          "to": "scripts/lib/pause_protocol.py"
+        }
+      ]
+    },
+    "mega-lander/tests/app.mutation.sh": {
+      "source": "mega-lander/tests/app.mutation.sh",
+      "sha256": "9a3472785ddfec33111451fa6078799356bb058c079e7a74d2ecd9111592ceec",
+      "evidence": "Sixteen finite app/workspace source replacements then the shared mutation harness runs the same full desktop fixture. Transport presence remains; no other runtime suite is invoked.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "mega-lander/tests/app.test.sh"
+        }
+      ]
+    },
+    "mega-lander/tests/app.test.sh": {
+      "source": "mega-lander/tests/app.test.sh",
+      "sha256": "2e5e8e4aabc10969111865636fa53dfecdb6bae95f77d22a2fa07fda2d7154cc",
+      "evidence": "Runs exactly the bound full Python fixture and its mutation driver. Neither half is omitted from config qualification.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/tests/app.test.py"
+        },
+        {
+          "to": "mega-lander/tests/app.mutation.sh"
+        }
+      ]
     }
   },
   "units": {
@@ -13619,7 +13721,8 @@
     "scripts/stop.test.sh": "scripts/stop.test.sh",
     "loro/tests/run.test.sh": "loro/tests/run.test.sh",
     "mega-lander/tests/create-teammate-worktree.test.sh": "mega-lander/tests/create-teammate-worktree.test.sh",
-    "scripts/lib/app-evidence.test.sh": "scripts/lib/app-evidence.test.sh"
+    "scripts/lib/app-evidence.test.sh": "scripts/lib/app-evidence.test.sh",
+    "mega-lander/tests/app.test.sh": "mega-lander/tests/app.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
