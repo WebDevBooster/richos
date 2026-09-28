@@ -152,6 +152,26 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_interactive_contract_keeps_real_adoption_without_config_values(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/contract-integrity.test.sh:IP'
+        closure = graph.closure(document['units'][unit])
+        self.assertFalse(closure['keys'] or closure['whole'] or closure['fallback'], closure)
+        self.assertTrue(closure['presence'], closure)
+        change = inputs.config_change('SHOW_TURN_MANIFEST=0', 'SHOW_TURN_MANIFEST=1')
+        self.assertFalse(graph.config_units(change, [unit]))
+        self.assertIn(unit, graph.config_units(inputs.config_change('PROTECTED_PATHS=app', None), [unit]))
+        for helper in ('scripts/hooks/interactive-prompt.mutation.sh',
+                       'scripts/hooks/guard-interactive-prompt.test.sh',
+                       'scripts/lib/interactive-prompt.py#payload'):
+            previous = document['nodes'].pop(helper)
+            self.assertIn(unit, graph.config_units(change, [unit]))
+            document['nodes'][helper] = previous
+        reader = inputs.hook_reader(document['hook_readers'][unit.split(':')[0]],
+                                    lambda path: (HERE.parent / path).read_text())
+        self.assertTrue(reader['all_events'])
+
     def test_seated_contract_fixtures_do_not_consume_shipped_config(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)
