@@ -13843,6 +13843,420 @@
         }
       ],
       "nonconfig_eval": "sub evaluates only literal assertion strings in this bound suite; no configuration supplies shell code."
+    },
+    "scripts/hooks/guard-foreign-app-data.sh": {
+      "source": "scripts/hooks/guard-foreign-app-data.sh",
+      "sha256": "4360ace16a692e3cf5c7dd100dc206c496f0960b4584d66f76ff240bda3ee42c",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/foreign_app_data.py"
+        }
+      ],
+      "evidence": "Complete hook passes payload to fixed foreign_app_data.py bash-check; parses command as text and reads/writes acknowledgement state. No orchestration values."
+    },
+    "scripts/hooks/guard-inflight-notify.sh#find-payload": {
+      "source": "scripts/hooks/guard-inflight-notify.sh",
+      "sha256": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
+      "evidence": "Source-bound foreign-app-data D1 dispatcher payload is exactly Bash find ~ -name x. Reviewed classifier exits before Git/commit/lease/publication operations; same prefix and helper set as existing benign contract. Retain all settings read before classification. Full file hash protects this boundary.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/inflight.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "SESSION_ID=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-publication-commits.sh#find-payload": {
+      "source": "scripts/hooks/guard-publication-commits.sh",
+      "sha256": "180baec98c3f3b0e23e6b12bb8f3e129082ca6f10d49577b56671e102039e9fe",
+      "evidence": "Source-bound foreign-app-data D1 dispatcher payload is exactly Bash find ~ -name x. Reviewed classifier exits before Git/commit/lease/publication operations; same prefix and helper set as existing benign contract. Retain all settings read before classification. Full file hash protects this boundary.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "STAGE_ALL=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-named-persons-commands.sh#find-payload": {
+      "source": "scripts/hooks/guard-named-persons-commands.sh",
+      "sha256": "56891e30dde5774e5430c9459cee10dc61bb683888f76917219d97c9e9cce825",
+      "evidence": "Source-bound foreign-app-data D1 dispatcher payload is exactly Bash find ~ -name x. Reviewed classifier exits before Git/commit/lease/publication operations; same prefix and helper set as existing benign contract. Retain all settings read before classification. Full file hash protects this boundary.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#engine-only"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh#notice-once"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#load"
+        },
+        {
+          "to": "scripts/lib/named-persons.sh#load"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "NP_ANCHOR=\"$(richos_git_anchor"
+      ]
+    },
+    "scripts/hooks/guard-ceo-todos-commits.sh#find-payload": {
+      "source": "scripts/hooks/guard-ceo-todos-commits.sh",
+      "sha256": "b5ce1b39ad6985d4d3a52864c389968a474f05de1187baaa430941756ae0c0e0",
+      "evidence": "Source-bound foreign-app-data D1 dispatcher payload is exactly Bash find ~ -name x. Reviewed classifier exits before Git/commit/lease/publication operations; same prefix and helper set as existing benign contract. Retain all settings read before classification. Full file hash protects this boundary.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/ceo-todos.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "STAGE_ALL=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-completeness-commits.sh#find-payload": {
+      "source": "scripts/hooks/guard-completeness-commits.sh",
+      "sha256": "bb6d0253b44d251a08dd325e8901399aafcbe4ca6fe4aa4c30c9b41a57cee673",
+      "evidence": "Source-bound foreign-app-data D1 dispatcher payload is exactly Bash find ~ -name x. Reviewed classifier exits before Git/commit/lease/publication operations; same prefix and helper set as existing benign contract. Retain all settings read before classification. Full file hash protects this boundary.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "_CC_GJ="
+      ]
+    },
+    "scripts/hooks/guard-row-currency-commits.sh#find-payload": {
+      "source": "scripts/hooks/guard-row-currency-commits.sh",
+      "sha256": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
+      "evidence": "Source-bound foreign-app-data D1 dispatcher payload is exactly Bash find ~ -name x. Reviewed classifier exits before Git/commit/lease/publication operations; same prefix and helper set as existing benign contract. Retain all settings read before classification. Full file hash protects this boundary.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/row-currency.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "ACTION=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-vendoring-commits.sh#find-payload": {
+      "source": "scripts/hooks/guard-vendoring-commits.sh",
+      "sha256": "88f0eef0c45b61a143ce0ebd0cba1b8ceda9f908d0cfed09994a9acc30da1208",
+      "evidence": "Source-bound foreign-app-data D1 dispatcher payload is exactly Bash find ~ -name x. Reviewed classifier exits before Git/commit/lease/publication operations; same prefix and helper set as existing benign contract. Retain all settings read before classification. Full file hash protects this boundary.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/vendored-material.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "AMEND=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-hook-registration-commits.sh#find-payload": {
+      "source": "scripts/hooks/guard-hook-registration-commits.sh",
+      "sha256": "0e684c61c9c4d2bd3a724b6f4693090812cff645911916e4b4cb035b90790393",
+      "evidence": "Source-bound foreign-app-data D1 dispatcher payload is exactly Bash find ~ -name x. Reviewed classifier exits before Git/commit/lease/publication operations; same prefix and helper set as existing benign contract. Retain all settings read before classification. Full file hash protects this boundary.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#engine-only"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "IFS= read -r -d '' _HR_CLASSIFIER"
+      ]
+    },
+    "scripts/hooks/guard-ci-red-lands.sh#find-payload": {
+      "source": "scripts/hooks/guard-ci-red-lands.sh",
+      "sha256": "64d83f115beb4a9db8c3cfe52438b72951d2a9e2ce5becee5f9344b9fb3eb6b0",
+      "evidence": "Source-bound foreign-app-data D1 dispatcher payload is exactly Bash find ~ -name x. Reviewed classifier exits before Git/commit/lease/publication operations; same prefix and helper set as existing benign contract. Retain all settings read before classification. Full file hash protects this boundary.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#engine-only"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "VERB=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-host-display-power.sh#find-payload": {
+      "source": "scripts/hooks/guard-host-display-power.sh",
+      "sha256": "a6b99e74c251343564a32b52dbdafbf5a00ae84268853dfa7f622d032e79dc45",
+      "evidence": "Source-bound foreign-app-data D1 dispatcher payload is exactly Bash find ~ -name x. Reviewed classifier exits before Git/commit/lease/publication operations; same prefix and helper set as existing benign contract. Retain all settings read before classification. Full file hash protects this boundary.",
+      "keys": [
+        "HOST_DISPLAY_POWER_GUARD"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "SESSION_ID=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-public-record-repo.sh#find-payload": {
+      "source": "scripts/hooks/guard-public-record-repo.sh",
+      "sha256": "49a6e6c29e59a604b4d91e847e1e6d6060035f41f703bc95ffc8275778fec3d7",
+      "evidence": "Source-bound foreign-app-data D1 dispatcher payload is exactly Bash find ~ -name x. Reviewed classifier exits before Git/commit/lease/publication operations; same prefix and helper set as existing benign contract. Retain all settings read before classification. Full file hash protects this boundary.",
+      "keys": [
+        "PUBLIC_RECORD_REPO_GUARD"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "    _GJ=\"$(richos_git_anchor"
+      ]
+    },
+    "scripts/hooks/guard-land-lease-commands.sh#find-payload": {
+      "source": "scripts/hooks/guard-land-lease-commands.sh",
+      "sha256": "e3fb182d2571b84f9a84599fd50f404bb53aee051f6a9bbf52f0f78e01b60078",
+      "evidence": "Source-bound foreign-app-data D1 dispatcher payload is exactly Bash find ~ -name x. Reviewed classifier exits before Git/commit/lease/publication operations; same prefix and helper set as existing benign contract. Retain all settings read before classification. Full file hash protects this boundary.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "_gllc_in=\"$(cat)\"",
+        "_gllc_py="
+      ]
+    },
+    "scripts/hooks/dispatch-pretooluse.sh#find-payload": {
+      "source": "scripts/hooks/dispatch-pretooluse.sh",
+      "sha256": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/hooks/dispatch-pretooluse.manifest"
+        },
+        {
+          "to": "scripts/hooks/guard-interactive-prompt.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-bash-main-writes.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-inflight-notify.sh#find-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-worktree-removal.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-publication-commits.sh#find-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-named-persons-commands.sh#find-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-ceo-todos-commits.sh#find-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-completeness-commits.sh#find-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-row-currency-commits.sh#find-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-vendoring-commits.sh#find-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-hook-registration-commits.sh#find-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-ci-red-lands.sh#find-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-host-display-power.sh#find-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-public-record-repo.sh#find-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-land-lease-commands.sh#find-payload"
+        },
+        {
+          "to": "scripts/hooks/guard-foreign-app-data.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-operator-claim.sh"
+        }
+      ],
+      "evidence": "D1 runs Bash find ~ -name x through exactly the source-bound Bash manifest. Includes every executed module and pre-classification helper; foreign_app_data takes its complete rule path."
+    },
+    "scripts/hooks/foreign-app-data.mutation.sh": {
+      "source": "scripts/hooks/foreign-app-data.mutation.sh",
+      "sha256": "7af37b8cf0b635b56f91bfff5118a36c3354ff8f2ccb56c60bd66a7d928eadf4",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-foreign-app-data.test.sh"
+        }
+      ],
+      "evidence": "Fixed rule/hook mutants execute the same full source-bound suite through shared mutation transport. Retain transport config presence."
+    },
+    "scripts/hooks/guard-foreign-app-data.test.sh": {
+      "source": "scripts/hooks/guard-foreign-app-data.test.sh",
+      "sha256": "d45ebecd14eb17633f9bcd0ba50a253d8d43d7d2881a6d2291b43486f31a6b5a",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-foreign-app-data.sh"
+        },
+        {
+          "to": "scripts/hooks/dispatch-pretooluse.sh#find-payload"
+        },
+        {
+          "to": "scripts/hooks/foreign-app-data.mutation.sh"
+        }
+      ],
+      "evidence": "Direct literal payloads never execute their command text. Sole dispatcher case is fixed find ~ -name x. Bound complete direct rule, all Bash dispatcher modules and full mutation transport."
     }
   },
   "units": {
@@ -14013,7 +14427,8 @@
     "gates/unmanaged-assignment/lib/harness.test.sh": "gates/unmanaged-assignment/lib/harness.test.sh",
     "scripts/lib/ci_pause.test.sh": "scripts/lib/ci_pause.test.sh",
     "mega-lander/tests/workspace-pause-hold.test.sh": "mega-lander/tests/workspace-pause-hold.test.sh",
-    "scripts/pause-acceptance.test.sh": "scripts/pause-acceptance.test.sh"
+    "scripts/pause-acceptance.test.sh": "scripts/pause-acceptance.test.sh",
+    "scripts/hooks/guard-foreign-app-data.test.sh": "scripts/hooks/guard-foreign-app-data.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
