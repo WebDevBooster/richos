@@ -165,6 +165,30 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_creation_and_app_evidence_fixtures_keep_real_model_readers(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        read = lambda path: (HERE.parent / path).read_text()
+        change = inputs.config_change('CHECK_FAILURE_TYPE=0', 'CHECK_FAILURE_TYPE=1')
+        graph = inputs.Dependencies(HERE.parent, document, read=read)
+        for unit in ('mega-lander/tests/create-teammate-worktree.test.sh', 'scripts/lib/app-evidence.test.sh'):
+            self.assertFalse(graph.closure(unit)['fallback'], unit)
+            self.assertFalse(graph.config_units(change, [unit]), unit)
+            for before, after in (('ALLOWED_MODELS=a', 'ALLOWED_MODELS=b'),
+                                  (None, 'CHECK_FAILURE_TYPE=1'), ('A=one', 'A=$(bad)')):
+                self.assertIn(unit, graph.config_units(inputs.config_change(before, after), [unit]))
+            seen = set()
+            def visit(name):
+                if name in seen:
+                    return
+                seen.add(name)
+                for edge in document['nodes'][name].get('edges', []):
+                    visit(edge['to'])
+            visit(unit)
+            for source in {document['nodes'][name]['source'] for name in seen}:
+                with self.subTest(unit=unit, source=source):
+                    changed = lambda p: read(p) + '\n# changed reader\n' if p == source else read(p)
+                    self.assertIn(unit, inputs.Dependencies(HERE.parent, document, read=changed).config_units(change, [unit]))
+
     def test_fixture_and_event_observers_preserve_readers_and_conservative_fallback(self):
         import copy
         from affected_units import Selection
