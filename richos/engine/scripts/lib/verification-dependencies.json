@@ -11655,6 +11655,48 @@
           "to": "scripts/hooks/payload-transport.test.py"
         }
       ]
+    },
+    "mega-lander/tests/workspace-probes.test.sh": {
+      "source": "mega-lander/tests/workspace-probes.test.sh",
+      "sha256": "60c25bfd8915b207ae81831867548595373f4fcae8ca8406cdc71ebc25b31655",
+      "evidence": "Full fixture review: creates a fresh Git repository containing only the copied runner/library and literal synthetic probes. Executes integration CLI, then the copied runner. Probes only inspect library attributes or call integration_for; no in-tree probe or live manifest is executed. Config values never enter the fixture. The optional mutation driver executes this same suite and retains config transport presence.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspace-probes.py#synthetic-probes"
+        },
+        {
+          "to": "mega-lander/workspaces.py#integration"
+        },
+        {
+          "to": "mega-lander/tests/workspace-probes.mutation.sh"
+        }
+      ]
+    },
+    "mega-lander/workspace-probes.py#synthetic-probes": {
+      "source": "mega-lander/workspace-probes.py",
+      "sha256": "e6a4c76ac9d18b9845b72eddb318d5d50c6fa98551f7087d52c8bbbd1690a77d",
+      "evidence": "Bound to workspace-probes.test.sh synthetic repository: discovery, retirement and branch/commit reads inspect fixture Git and text. integration_witness imports the adjacent library and calls integration_for. Only literal argv probes from the suite execute; stage_in_tree is unreachable for these fixtures. Probe library imports and integration CLI are bound separately. No orchestration.config reader.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#integration"
+        }
+      ]
+    },
+    "mega-lander/tests/workspace-probes.mutation.sh": {
+      "source": "mega-lander/tests/workspace-probes.mutation.sh",
+      "sha256": "8fa871fea2a41db487d26c6b415708de6ccf860e0cf625ac1dd8485b95613c56",
+      "evidence": "All mutant operands target workspace-probes.py and retain the synthetic-suite fixture. Shared mutation harness copies config bytes with a presence requirement, then executes the same nested suite; it does not source config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "mega-lander/tests/workspace-probes.test.sh"
+        }
+      ]
     }
   },
   "units": {
@@ -11806,7 +11848,8 @@
     "scripts/qa-throwaways.test.sh": "scripts/qa-throwaways.test.sh",
     "scripts/provision-claude-md.test.sh": "scripts/provision-claude-md.test.sh",
     "scripts/lib/bulk-record-transport.test.sh": "scripts/lib/bulk-record-transport.test.sh",
-    "scripts/hooks/payload-transport.test.sh": "scripts/hooks/payload-transport.test.sh"
+    "scripts/hooks/payload-transport.test.sh": "scripts/hooks/payload-transport.test.sh",
+    "mega-lander/tests/workspace-probes.test.sh": "mega-lander/tests/workspace-probes.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
