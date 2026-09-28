@@ -518,6 +518,107 @@ while True: time.sleep(.02)
         self.assertLess(role, launched[0].index("--"))
         self.assertNotIn("--guard-role", launched[1])
 
+    # ── --gates-passed-in: resume after the gates (run 20260928T190111Z-40a16163) ─────────
+    RESUMED = "20260928T190111Z-40a16163"
+    SOURCE = "9fbf4332b47093be6539dac4b898f2e754eaa78b"
+
+    def recorded_run(self, verdicts=None, at_once=2, grade="release", reached_recheck=True,
+                     inside=(), suites_run=None, suites_commit=None):
+        """A run log shaped like the coordinator writes it, and its script-suites record."""
+        verdicts = verdicts or {}
+        lines = [f"Gates at once: {at_once} (--gates-at-once {at_once}, chosen by fixture)",
+                 "=== phase fetch begins ===", "=== phase fetch ends: 1.0s ===", f"Source: {self.SOURCE}"]
+        for gate in m.GATE_NAMES:
+            verdict = verdicts.get(gate, "PASSED")
+            if verdict == "SKIPPED":
+                lines += [f"SKIPPED {gate}: the land already ran it"] + ([f"  SKIPPED {gate}"] if at_once != 1 else [])
+                continue
+            lines += [f"=== phase {gate} begins ===", "gate output",
+                      *(inside if gate == "gates/script-suites" else ()),
+                      f"=== phase {gate} ends: 1.0s ==="]
+            if verdict is None:
+                lines.pop()   # the section never ended: this gate recorded nothing
+            elif at_once != 1:
+                lines.append(f"  {verdict} {gate} {'in' if verdict == 'PASSED' else 'after'} 1.0s")
+        if reached_recheck:
+            lines += ["=== phase plan-recheck begins ===", "=== phase plan-recheck ends: 5.0s ===",
+                      "Building and publishing v1.2.0-nightly.20260928.28..." if grade == "release"
+                      else "Building v1.2.0-nightly.20260928.28..."]
+        logs = self.root / "state" / "logs"
+        logs.mkdir(parents=True, exist_ok=True)
+        (logs / f"{self.RESUMED}.log").write_text(
+            "".join(f"[2026-09-28T19:01:11.429Z] {line}\n" for line in lines))
+        (self.root / "state" / m.SUITE_RESULTS).write_text(json.dumps(
+            {"run_id": suites_run or self.RESUMED, "commit": suites_commit or self.SOURCE, "suites": []}))
+
+    def test_a_run_whose_gates_all_passed_is_built_without_running_any_gate(self):
+        self.recorded_run()
+        r = self.runner()
+        r.checkout = Mock(return_value=self.SOURCE)
+        (self.root / "plan.json").write_text("{}")
+        with contextlib.redirect_stdout(io.StringIO()):
+            r.perform("release", gates_passed_in=self.RESUMED)
+        r.gates.assert_not_called()
+        r.checkout.assert_called_once_with(self.SOURCE)       # that run's commit, not main's tip
+        ancestry, build = r.command.call_args_list
+        self.assertEqual(ancestry.args[:4], ("git", "merge-base", "--is-ancestor", self.SOURCE))
+        self.assertEqual(build.args[2], "run")
+        self.assertIs(build.kwargs["release_build"], True)
+        plan = json.loads((self.root / "plan.json").read_text())
+        self.assertEqual(plan["gates_passed_in"], {"run_id": self.RESUMED, "source_commit": self.SOURCE})
+        self.assertEqual(plan["checks_skipped"], sorted(m.GATE_NAMES))
+        self.assertEqual(plan["script_suites"]["run_id"], self.RESUMED)
+
+    def test_a_run_whose_gates_did_not_all_pass_is_refused_before_anything_runs(self):
+        cases = {
+            "a gate failed": dict(verdicts={"gates/lint-tauri": "FAILED"}, reached_recheck=False),
+            "a gate was stopped": dict(verdicts={"gates/ui-suite": "STOPPED"}, reached_recheck=False),
+            "a gate was skipped": dict(verdicts={m.LAND_PROVEN_GATE: "SKIPPED"}),
+            "a gate never recorded a pass": dict(verdicts={"gates/privacy-sweep": None}),
+            "passes forged into a run that failed": dict(reached_recheck=False),
+            "a build run reused by release": dict(grade="build"),
+            "the suite record is another run's": dict(suites_run="20260928T180049Z-bed5009b"),
+            "the suite record is another commit's": dict(suites_commit="0" * 40),
+        }
+        for name, shape in cases.items():
+            with self.subTest(name):
+                self.recorded_run(**shape)
+                r = self.runner()
+                with self.assertRaises(ValueError), contextlib.redirect_stdout(io.StringIO()):
+                    r.perform("release", gates_passed_in=self.RESUMED)
+                r.checkout.assert_not_called()
+                r.gates.assert_not_called()
+                r.command.assert_not_called()
+
+    def test_only_the_coordinators_own_lines_count_and_one_at_a_time_runs_count_too(self):
+        # A suite printing a verdict-shaped line inside its own section is not a verdict.
+        self.recorded_run(inside=("  FAILED gates/core-tests after 0.0s: a fixture",
+                                  "Source: " + "1" * 40))
+        r = self.runner()
+        self.assertEqual(r.accept_passed_gates(self.RESUMED, "release")["source_commit"], self.SOURCE)
+        self.recorded_run(at_once=1)
+        self.assertEqual(r.accept_passed_gates(self.RESUMED, "release")["source_commit"], self.SOURCE)
+        self.recorded_run(grade="build")
+        self.assertEqual(r.accept_passed_gates(self.RESUMED, "build")["source_commit"], self.SOURCE)
+        for bad in ("", "../x", "20260928T190111Z-40a1616"):
+            with self.assertRaisesRegex(ValueError, "run id"):
+                r.accept_passed_gates(bad, "release")
+
+    def test_a_resume_is_refused_for_any_other_command_or_beside_other_gate_options(self):
+        r = self.runner()
+        self.recorded_run()
+        for kwargs in (dict(checks_done_at_land=self.SOURCE), dict(no_host_screen=True)):
+            with self.subTest(**kwargs), self.assertRaisesRegex(ValueError, "alone"):
+                r.perform("build", gates_passed_in=self.RESUMED, **kwargs)
+        with self.assertRaisesRegex(ValueError, "alone"):
+            r.perform("stable", gates_passed_in=self.RESUMED, from_nightly="v1")
+        script = Path(m.__file__)
+        for argv in (["publish", "--run", "x", "--gates-passed-in", self.RESUMED],
+                     ["release", "--gates-passed-in", self.RESUMED, "--gates-at-once", "2"]):
+            result = subprocess.run([sys.executable, str(script), *argv], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIn("--gates-passed-in", result.stderr)
+
     def test_unchanged_source_does_not_build(self):
         r = self.runner(False)
         r.perform("release")

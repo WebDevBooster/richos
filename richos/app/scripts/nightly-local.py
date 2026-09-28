@@ -345,6 +345,26 @@ UI_QUARANTINE = ()
 # Neither replaces a backstop. Every command still takes a machine worker token
 # (worker_tokens.py), a simulator boot still passes simulator_budget.py's live/boot limits
 # and its CPU/memory check, and cargo still serializes builds on one target directory.
+# ── Resuming after the gates: `--gates-passed-in <run-id>` ──────────────────────────────────
+#
+# THE CEO, 2026-09-25: "use everything he did before". Run 20260928T190111Z-40a16163 passed
+# all eight gates on 9fbf4332 (about 38 minutes of them), and then the CPU guard stopped the
+# compiler in the build step. Running those gates again proves nothing new about 9fbf4332.
+#
+# `--gates-passed-in RUN` (build or release) builds THAT run's source commit -- not main's
+# tip -- and runs no gate, and it refuses unless RUN's own log shows, from the coordinator's
+# own lines: the source it fetched, every gate below PASSED (or, one at a time, ended), no
+# gate FAILED, STOPPED or SKIPPED, and the run went on to `plan-recheck`, which it only
+# reaches when gates() returned. `release` further requires RUN to have been a release or
+# stable run, because a `build` run's script suites may skip over unchanged inputs and
+# `release` never does. The script-suites record in the state directory must still be RUN's,
+# because it travels into the candidate's provenance. The resumed run records each gate as
+# SKIPPED, naming RUN, so a resume can never be resumed from: the chain always points at
+# the run that actually ran the gates.
+PASSED_GATES_FLAG = "--gates-passed-in"
+GATE_NAMES = ("gates/release-smoke", LAND_PROVEN_GATE, "gates/updater-tests", "gates/script-suites",
+              "gates/lint-tauri", WORKSPACE_MUTANTS_GATE, UI_SUITE_GATE, "gates/privacy-sweep")
+
 GATES_AT_ONCE_FLAG = "--gates-at-once"
 SIMULATED_PHONES_FLAG = "--simulated-phones"
 SIMULATED_PHONES_ENV = "RICHOS_IOS_POOL_LEASES"
@@ -1398,7 +1418,7 @@ class Runner:
         # refusals come first so that, one at a time, there is no sense spending 378 s of
         # WebKit to learn that `cargo test` was going to fail anyway. What waits for what is
         # GATE_AFTER, and nothing else.
-        self.run_gates([
+        gates = [
             ("gates/release-smoke", release_smoke),
             (LAND_PROVEN_GATE, core_tests),
             ("gates/updater-tests", updater_tests),
@@ -1407,7 +1427,12 @@ class Runner:
             (WORKSPACE_MUTANTS_GATE, workspace_mutants),
             (UI_SUITE_GATE, lambda: self.ui_suite(checks_done_at_land)),
             ("gates/privacy-sweep", privacy_sweep),
-        ])
+        ]
+        # `--gates-passed-in` checks a recorded run against GATE_NAMES; a gate added here
+        # and not there would be waved through by every resume.
+        if tuple(name for name, _ in gates) != GATE_NAMES:
+            raise ValueError("gates() and GATE_NAMES disagree; update GATE_NAMES")
+        self.run_gates(gates)
         try:
             return json.loads(results.read_text())
         except (OSError, ValueError):
@@ -1728,10 +1753,89 @@ class Runner:
                 "run without the flag.")
         return source
 
+    LOG_LINE = re.compile(r"^\[\d{4}-\d\d-\d\dT[\d:.]+Z\] (.*)$")
+    GATE_VERDICT = re.compile(r"^ {0,2}(PASSED|FAILED|STOPPED|SKIPPED) (gates/[a-z-]+)\b")
+
+    def accept_passed_gates(self, run_id, command):
+        """What `--gates-passed-in RUN` may reuse: RUN's source and its suite record, or refuse.
+
+        Read from RUN's log, which the coordinator writes whatever happens, and only from
+        the coordinator's own lines: verdicts outside every gate's merged section. Even a
+        forged PASSED could not pass a failed run, because a failed run never reaches
+        `plan-recheck`.
+        """
+        if not re.fullmatch(r"\d{8}T\d{6}Z-[0-9a-f]{8}", run_id or ""):
+            raise ValueError(f"{PASSED_GATES_FLAG} needs a run id like 20260928T190111Z-40a16163")
+        path = self.state / "logs" / f"{run_id}.log"
+        try:
+            raw = path.read_text(errors="replace").splitlines()
+        except OSError as error:
+            raise ValueError(f"{PASSED_GATES_FLAG} {run_id}: its log cannot be read ({error})") from None
+        # A gate's own output sits between its `=== phase gates/X begins/ends ===` lines
+        # (merged whole when it ends); the coordinator's verdict follows the section. Only
+        # lines outside every section are the coordinator's, and only those are read.
+        outer, ended, inside = [], set(), []
+        for match in map(self.LOG_LINE.match, raw):
+            line = match[1] if match else None
+            section = line and re.fullmatch(r"=== phase (gates/[a-z-]+(?:/[a-z-]+)*) (begins ===|ends: [\d.]+s ===)", line)
+            if section:
+                if section[2] == "begins ===":
+                    inside.append(section[1])
+                elif inside and inside[-1] == section[1]:
+                    inside.pop()
+                    ended.add(section[1])
+            elif line is not None and not inside:
+                outer.append(line)
+        source = next((m[1] for m in (re.fullmatch(r"Source: ([0-9a-f]{40})", l) for l in outer) if m), None)
+        if not source:
+            raise ValueError(f"run {run_id} never recorded the source it fetched, so there is nothing to resume")
+        verdicts = {}
+        for match in filter(None, map(self.GATE_VERDICT.match, outer)):
+            verdicts.setdefault(match[2], set()).add(match[1])
+        bad = sorted(f"{gate} {verdict}" for gate, seen in verdicts.items()
+                     for verdict in seen - {"PASSED"})
+        if bad:
+            raise ValueError(f"run {run_id} did not pass every gate on {source[:12]}: {', '.join(bad)}. "
+                             "Run the gates again.")
+        # One gate at a time writes no verdict line; a gate that ended and a run that went
+        # on to plan-recheck is the same fact there, because the first failure raises.
+        one_at_a_time = any(re.match(r"Gates at once: 1 \(", l) for l in outer)
+        missing = [g for g in GATE_NAMES if "PASSED" not in verdicts.get(g, ()) and
+                   not (one_at_a_time and g in ended)]
+        if missing:
+            raise ValueError(f"run {run_id} has no pass recorded for {', '.join(missing)} on "
+                             f"{source[:12]}. Run the gates again.")
+        if "=== phase plan-recheck begins ===" not in outer:
+            raise ValueError(f"run {run_id} stopped before its gates returned; nothing it ran can be reused")
+        after = outer[len(outer) - 1 - outer[::-1].index("=== phase plan-recheck begins ==="):]
+        grade = ("release" if any(l.startswith("Building and publishing v") for l in after) else
+                 "build" if any(re.fullmatch(r"Building v\S+\.\.\.", l) for l in after) else None)
+        if grade is None or (command == "release" and grade != "release"):
+            raise ValueError(f"run {run_id} was a {grade or 'unknown'} run; `release` reuses only the "
+                             "gates of a release or stable run, which never skip a suite over "
+                             "unchanged inputs")
+        try:
+            suites = json.loads((self.state / SUITE_RESULTS).read_text())
+        except (OSError, ValueError):
+            suites = None
+        if not isinstance(suites, dict) or suites.get("commit") != source or suites.get("run_id") != run_id:
+            raise ValueError(f"{self.state / SUITE_RESULTS} is no longer run {run_id}'s record of its "
+                             "script suites, and the candidate's provenance needs it. Run the gates again.")
+        return {"run_id": run_id, "source_commit": source, "script_suites": suites}
+
     def perform(self, command, force=False, runtime=None, run_id=None,
                 checks_done_at_land=None, no_host_screen=False, gui_proof=None,
-                from_nightly=None, dry_run=False):
-        if command in GATE_COMMANDS and not (command == "stable" and dry_run):
+                from_nightly=None, dry_run=False, gates_passed_in=None):
+        passed = None
+        if gates_passed_in:
+            if command not in ("build", "release") or checks_done_at_land or no_host_screen:
+                raise ValueError(f"{PASSED_GATES_FLAG} is for build or release, alone: it runs no gate, "
+                                 "so nothing else about the gates means anything beside it")
+            # Before any network call: the whole question is answered by files on this Mac.
+            passed = self.accept_passed_gates(gates_passed_in, command)
+            self.announce(f"Gates: none run. Every gate passed on {passed['source_commit']} in run "
+                          f"{gates_passed_in} ({PASSED_GATES_FLAG}); this run builds that commit.")
+        elif command in GATE_COMMANDS and not (command == "stable" and dry_run):
             # The run log's first lines: what runs at once, and who chose it.
             self.record_settings()
         if command == "stable":
@@ -1797,7 +1901,14 @@ class Runner:
             return
 
         with self.phase("fetch"):
-            source = self.checkout()
+            source = self.checkout(passed["source_commit"] if passed else None)
+            if passed:
+                # checkout() fetched main; the resumed commit must still be on it.
+                try:
+                    self.command("git", "merge-base", "--is-ancestor", source, "FETCH_HEAD", cwd=self.repo)
+                except RuntimeError:
+                    raise ValueError(f"{source} is no longer on main, so its gates prove nothing "
+                                     "about what main is; run the gates again") from None
         with self.phase("plan"):
             plan_path, info = self.plan(force)
         self.announce(f"Source: {source}")
@@ -1821,8 +1932,13 @@ class Runner:
             self.runtime(runtime)
         # SKIPPING IS FOR CANDIDATES, NEVER FOR THE COMMAND THAT PUBLISHES. `release` runs
         # every suite every time, whatever a proof file on this host remembers.
-        suites = self.gates(checks_done_at_land, no_host_screen=no_host_screen,
-                            skip_unchanged=(command == "build"))
+        if passed:
+            for name in GATE_NAMES:
+                self.skip(name, f"passed in run {passed['run_id']} on {passed['source_commit']}")
+            suites = passed["script_suites"]
+        else:
+            suites = self.gates(checks_done_at_land, no_host_screen=no_host_screen,
+                                skip_unchanged=(command == "build"))
         # Capture the UTC date at allocation, even if checks crossed midnight.
         with self.phase("plan-recheck"):
             plan_path, info = self.plan(force)
@@ -1856,6 +1972,13 @@ class Runner:
             # the candidate's provenance cannot claim a gate ran that did not, or the
             # reverse, the next time a third skippable gate appears.
             info = {**info, "checks_done_at_land": checks_done_at_land,
+                    "checks_skipped": sorted(self.skipped)}
+            plan_path.write_text(json.dumps(info, indent=2) + "\n")
+        if passed:
+            # Into the candidate's provenance for the same reason: the run that proved
+            # these gates is named wherever the candidate goes.
+            info = {**info, "gates_passed_in": {"run_id": passed["run_id"],
+                                                "source_commit": passed["source_commit"]},
                     "checks_skipped": sorted(self.skipped)}
             plan_path.write_text(json.dumps(info, indent=2) + "\n")
         out = self.state / "releases" / info["tag"]
@@ -1954,6 +2077,10 @@ def main():
                         help="REQUIRED for build, release and stable: how many simulated "
                              "iPhones the suites may use at once (one per device type; the "
                              "machine still boots at most two simulators at a time).")
+    parser.add_argument(PASSED_GATES_FLAG, metavar="RUN_ID",
+                        help="build or release: run no gate, and build the source commit of RUN_ID, "
+                             "a recorded run whose log shows every gate PASSED on that commit; "
+                             "refused otherwise (see the note above GATE_NAMES)")
     parser.add_argument("--gui-proof", metavar="PATH",
                         help="a gui-boot proof taken against this candidate's commit, required "
                              "to publish a candidate built with --no-host-screen")
@@ -1994,9 +2121,14 @@ def main():
     if args.gui_proof and args.command != "publish":
         parser.error("--gui-proof is evidence `publish` demands; it means nothing to any other "
                      "command")
+    if args.gates_passed_in and args.command not in ("build", "release"):
+        parser.error(f"{PASSED_GATES_FLAG} names a run whose gates a build or release reuses; it means "
+                     f"nothing to {args.command}")
     # NO SILENT DEFAULT (CEO, 2026-09-25: "how do I know that you won't fuck this up next
     # time?"). A command that runs the gates names both numbers, or it does not start.
-    runs_gates = args.command in GATE_COMMANDS and not (args.command == "stable" and args.dry_run)
+    # A command that reuses a recorded run's gates runs none, so it names neither.
+    runs_gates = (args.command in GATE_COMMANDS and not (args.command == "stable" and args.dry_run)
+                  and not args.gates_passed_in)
     missing = [flag for flag, value in ((GATES_AT_ONCE_FLAG, args.gates_at_once),
                                         (SIMULATED_PHONES_FLAG, args.simulated_phones))
                if value is None]
@@ -2011,7 +2143,8 @@ def main():
     if not runs_gates and len(missing) < 2:
         parser.error(f"{GATES_AT_ONCE_FLAG} and {SIMULATED_PHONES_FLAG} decide how the gates run; "
                      f"they mean nothing to {args.command}"
-                     + (" --dry-run, which runs no gate" if args.command == "stable" else ""))
+                     + (" --dry-run, which runs no gate" if args.command == "stable" else "")
+                     + (f" {PASSED_GATES_FLAG}, which runs no gate" if args.gates_passed_in else ""))
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         parser.error("local nightly releases currently require an Apple Silicon Mac")
     os.umask(0o077)
@@ -2028,7 +2161,7 @@ def main():
                    chosen_by=chosen_by()).perform(
                 args.command, args.force, args.runtime_dir.resolve() if args.runtime_dir else None,
                 args.run, args.checks_done_at_land, args.no_host_screen, args.gui_proof,
-                args.from_nightly, args.dry_run)
+                args.from_nightly, args.dry_run, args.gates_passed_in)
 
 
 if __name__ == "__main__":
