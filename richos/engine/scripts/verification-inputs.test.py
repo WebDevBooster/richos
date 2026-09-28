@@ -153,6 +153,39 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_ci_shard_synthetic_inventory_has_no_live_config_dependency(self):
+        from affected_units import Selection, GLOBAL_CONFIG
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        unit = 'scripts/ci-shard.test.sh'
+        read = lambda path: (HERE.parent / path).read_text()
+        graph = inputs.Dependencies(HERE.parent, document)
+        self.assertEqual(graph.closure(unit), {'keys': {}, 'whole': [], 'presence': [], 'fallback': []})
+        before = 'CHECK_FAILURE_TYPE=0\nFAILURE_TYPE_REGISTER=old\n'
+        after = 'CHECK_FAILURE_TYPE=1\nFAILURE_TYPE_REGISTER=new\n'
+        for config_after in (after, None, 'CHECK_FAILURE_TYPE=$(unknown)\n'):
+            selection = Selection(HERE.parent, [unit, GLOBAL_CONFIG], read, document)
+            selection.configuration(before, config_after)
+            self.assertEqual(set(selection.selected), {GLOBAL_CONFIG})
+        pending, seen, sources = [unit], set(), set()
+        while pending:
+            name = pending.pop()
+            if name in seen:
+                continue
+            seen.add(name)
+            row = document['nodes'][name]
+            sources.add(row['source'])
+            pending.extend(edge['to'] for edge in row.get('edges', []))
+        for source in sorted(sources):
+            with self.subTest(changed_source=source):
+                changed_read = lambda path: read(path) + ('\n# new reader\n' if path == source else '')
+                selection = Selection(HERE.parent, [unit, GLOBAL_CONFIG], changed_read, document)
+                selection.configuration(before, after)
+                self.assertIn(unit, selection.selected)
+        for path in (unit, 'scripts/ci-shard.sh', 'scripts/lib/ci-receipts.py'):
+            selection = Selection(HERE.parent, [unit, GLOBAL_CONFIG], read, document)
+            selection.ordinary(path)
+            self.assertIn(unit, selection.selected, path)
+
     def test_workspace_probes_ignores_config_values_but_keeps_transport_and_source_changes(self):
         from affected_units import Selection, GLOBAL_CONFIG
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())

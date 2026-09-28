@@ -11739,6 +11739,60 @@
           "to": "mega-lander/tests/workspace-probes.test.sh"
         }
       ]
+    },
+    "scripts/ci-shard.test.sh": {
+      "source": "scripts/ci-shard.test.sh",
+      "sha256": "cfffa227169013e3a4e2ceebd18f7a41d38252e68d027bb607cc569653503626",
+      "evidence": "Full synthetic-engine fixture review: copies only runner/inventory/receipt/canary/process helpers and constructs literal suites, predicates and weight tables. No orchestration.config is copied or sourced. The allocator fixture sources scratch.sh with environment/default settings. Nested receipt verification uses emit/plain verify, without --proof-run; the normal engine-unit launcher sets RICHOS_PROOF_RUN only for its separate receipt item.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/ci-shard.sh#synthetic-fixture"
+        },
+        {
+          "to": "scripts/lib/scratch.sh",
+          "fixture": true
+        }
+      ]
+    },
+    "scripts/ci-shard.sh#synthetic-fixture": {
+      "source": "scripts/ci-shard.sh",
+      "sha256": "c2eddd4b6dcc3b9885bcccc648c38ddf14baf402386209a0a9de1c9eb386ecde",
+      "evidence": "Reached through ci-shard.test.sh synthetic inventory only. Executes literal fixture suites and known-red shell predicates supplied by that test. Plan/weights/receipts/canary data do not execute config. The optional target-provenance route is not requested by the fixture. All actual runner helpers are bound below.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/ci-units.sh"
+        },
+        {
+          "to": "scripts/lib/ci-receipts.py#plain"
+        },
+        {
+          "to": "scripts/lib/tree-witness.sh"
+        },
+        {
+          "to": "scripts/lib/leak-canary.sh"
+        },
+        {
+          "to": "scripts/lib/record-canary.sh"
+        },
+        {
+          "to": "scripts/lib/proc_tree.py"
+        },
+        {
+          "to": "scripts/lib/worker_tokens.py"
+        },
+        {
+          "to": "scripts/lib/engine_pass.py"
+        }
+      ]
+    },
+    "scripts/lib/ci-receipts.py#plain": {
+      "source": "scripts/lib/ci-receipts.py",
+      "sha256": "cd5c810a1ea0279d206d238eb3ee600b81e94477184e412fec90aaccfc6f27e6",
+      "evidence": "emit and verify without --proof-run: stdlib JSON/environment receipt serialization, coverage validation and numeric TSV weight reporting. No config read or engine import in these entrypoints. The optional proof-run provenance import is outside this fixture entrypoint.",
+      "keys": [],
+      "edges": []
     }
   },
   "units": {
@@ -11891,7 +11945,8 @@
     "scripts/provision-claude-md.test.sh": "scripts/provision-claude-md.test.sh",
     "scripts/lib/bulk-record-transport.test.sh": "scripts/lib/bulk-record-transport.test.sh",
     "scripts/hooks/payload-transport.test.sh": "scripts/hooks/payload-transport.test.sh",
-    "mega-lander/tests/workspace-probes.test.sh": "mega-lander/tests/workspace-probes.test.sh"
+    "mega-lander/tests/workspace-probes.test.sh": "mega-lander/tests/workspace-probes.test.sh",
+    "scripts/ci-shard.test.sh": "scripts/ci-shard.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
