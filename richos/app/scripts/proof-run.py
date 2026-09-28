@@ -120,6 +120,7 @@ import shutil
 import signal
 import subprocess
 import sys
+sys.dont_write_bytecode = True
 import threading
 import time
 from pathlib import Path
@@ -412,7 +413,8 @@ def slug(label):
 def execution_environment(item):
     if hasattr(item, "private_environment"):
         return {**item.private_environment, **item.env}
-    env = {**os.environ, **item.env}
+    # Verification must not rewrite bytecode inside its own declared inputs.
+    env = {**os.environ, **item.env, "PYTHONDONTWRITEBYTECODE": "1"}
     path = env.get("PATH", "").split(os.pathsep)
     for extra in (os.path.join(os.path.expanduser("~"), ".cargo", "bin"), "/opt/homebrew/bin", "/usr/local/bin"):
         if extra not in path:

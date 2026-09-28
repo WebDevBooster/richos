@@ -503,6 +503,8 @@ class Evidence(unittest.TestCase):
             RICHOS_PROOF_RUN_DIR=str(Path(self.tmp.name) / "history"),
             CLAUDE_CONFIG_DIR=str(Path(self.tmp.name) / "config"),
             FIXTURE_COUNTER=str(counter), PYTHONDONTWRITEBYTECODE="1")
+        # Exercise a normal caller without the test wrapper's bytecode setting.
+        env.pop("PYTHONDONTWRITEBYTECODE", None)
         commands = Path(self.tmp.name) / "commands"
         def invoke(name, units, *options):
             commands.write_text("cd richos/engine && bash scripts/ci-shard.sh --only-units " + units + "\n")
@@ -540,6 +542,8 @@ class Evidence(unittest.TestCase):
         git("commit", "-qm", "changed declared outside input")
         invoke("changed-input", "scripts/alpha.test.sh", "--reuse", str(target))
         self.assertEqual(counter.read_text().splitlines(), ["alpha", "beta", "alpha"])
+        self.assertEqual(list(self.root.rglob("__pycache__")), [],
+                         "the runner and receipt verifier must not change source inputs")
 
     def test_private_profile_drops_ambient_inputs_and_uses_fixed_fixture_seeds(self):
         self.qualification("Controlled private profile fixture.",
