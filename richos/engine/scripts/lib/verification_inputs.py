@@ -211,7 +211,7 @@ def config_change(before, after):
     return result
 
 
-def hook_entries(text):
+def hook_entries(text, settings=False):
     def unique_object(pairs):
         result = {}
         for key, value in pairs:
@@ -228,7 +228,7 @@ def hook_entries(text):
                               parse_constant=invalid_constant)
     except (TypeError, ValueError) as exc:
         raise Unsupported("hooks JSON is invalid: " + str(exc)) from None
-    if (not isinstance(document, dict) or set(document) - {"description", "hooks"}
+    if (not isinstance(document, dict) or (not settings and set(document) - {"description", "hooks"})
             or not isinstance(document.get("hooks"), dict)):
         raise Unsupported("unknown hooks document structure")
     entries = {}

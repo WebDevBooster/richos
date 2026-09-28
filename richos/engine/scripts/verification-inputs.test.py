@@ -16,6 +16,18 @@ import verification_inputs as inputs
 
 
 class Inputs(unittest.TestCase):
+    def test_settings_mode_preserves_strict_hook_shapes_and_duplicate_rejection(self):
+        valid = '{"permissions":{},"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"dispatcher"}]}]}}'
+        self.assertEqual(len(inputs.hook_entries(valid, settings=True)), 1)
+        with self.assertRaises(inputs.Unsupported):
+            inputs.hook_entries(valid)
+        for invalid in (valid.replace('"permissions":{}', '"permissions":{},"permissions":{}'),
+                        valid.replace('"hooks":{"PreToolUse":', '"hooks":{"PreToolUse":[],"PreToolUse":'),
+                        valid.replace('"type":"command"', '"type":"prompt"'),
+                        valid.replace('"command":"dispatcher"', '"command":"first","command":"dispatcher"')):
+            with self.subTest(invalid=invalid), self.assertRaises(inputs.Unsupported):
+                inputs.hook_entries(invalid, settings=True)
+
     def test_assignment_context_is_preserved_across_commit_index_and_worktree(self):
         with tempfile.TemporaryDirectory(prefix="config-versions.") as directory:
             root = Path(directory)
@@ -153,6 +165,99 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_registration_observers_keep_own_dispatcher_probe_and_source_changes(self):
+        from affected_units import Selection
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        read = lambda path: (HERE.parent / path).read_text()
+        names = ('guard-dialect', 'ceo-todos', 'row-currency', 'completeness-commits',
+                 'named-persons', 'publication-boundary', 'guard-vendoring-commits', 'ceo-asks')
+        def selected(unit, path, before, after, reader=read):
+            selection = Selection(HERE.parent, [unit], reader, document)
+            selection.ordinary(path, before, after)
+            return selection.selected
+        for name in names:
+            unit = 'scripts/hooks/' + name + '.test.sh'
+            row = document['hook_readers'][unit]
+            if 'seated_text_needles' in row:
+                path = '.claude/settings.local.json'
+                guard = row['seated_text_needles'][0]
+                doc = {'permissions': {}, 'hooks': {'PreToolUse': [{'hooks': [
+                    {'type': 'command', 'command': '$CLAUDE_PROJECT_DIR/scripts/hooks/' + guard + '.sh'},
+                    {'type': 'command', 'command': '$CLAUDE_PROJECT_DIR/scripts/hooks/dispatch-pretooluse.sh Bash'}]}]}}
+                before = json.dumps(doc, indent=2)
+                doc['hooks']['UserPromptSubmit'] = [{'hooks': [
+                    {'type': 'command', 'command': '$CLAUDE_PROJECT_DIR/scripts/hooks/failure-type-lookup.sh'}]}]
+                after = json.dumps(doc, indent=2)
+                self.assertFalse(selected(unit, path, before, after), name)
+                for changed in (after.replace(guard, 'removed'), after.replace('.sh Bash', '.sh Write'),
+                                after.replace('"permissions": {}', '"permissions": {}, "permissions": {}'),
+                                '{', None):
+                    self.assertIn(unit, selected(unit, path, before, changed), (name, changed))
+                self.assertIn(unit, selected(unit, path, None, after))
+                for source in row['sources']:
+                    changed = lambda p: read(p) + '\n# changed reader\n' if p == source else read(p)
+                    self.assertIn(unit, selected(unit, path, before, after, changed), (name, source))
+            if 'probe_registration_needles' in row:
+                path = 'scripts/hooks/contract-integrity-probe.sh'
+                guard = row['probe_registration_needles'][0]
+                before = '    R_ROOTLESS_HOOKS="stable"\n    BR_EXPECTED="\\\n' + guard + '.sh|PreToolUse\nother.sh|Stop"\n# code\n'
+                after = before.replace('other.sh|Stop', 'other.sh|Stop\nfailure-type-lookup.sh|UserPromptSubmit')
+                self.assertFalse(selected(unit, path, before, after), name)
+                for changed in (after.replace(guard + '.sh|PreToolUse', guard + '.sh|Stop'),
+                                after.replace('R_ROOTLESS_HOOKS', 'RENAMED_ROOTLESS'),
+                                after.replace('# code', '# changed code'),
+                                after.replace('other.sh|Stop', '$(execute)|Stop'),
+                                after.replace('BR_EXPECTED=', 'UNKNOWN='), after + after, None):
+                    self.assertIn(unit, selected(unit, path, before, changed), (name, changed))
+                self.assertIn(unit, selected(unit, path, None, after))
+                for source in row['sources']:
+                    changed = lambda p: read(p) + '\n# changed reader\n' if p == source else read(p)
+                    self.assertIn(unit, selected(unit, path, before, after, changed), (name, source))
+                unknown = json.loads(json.dumps(document))
+                del unknown['hook_readers'][unit]['probe_registration_needles']
+                selection = Selection(HERE.parent, [unit], read, unknown)
+                selection.ordinary(path, before, after)
+                self.assertIn(unit, selection.selected)
+
+    def test_probe_reader_cli_uses_commit_index_and_working_bytes(self):
+        with tempfile.TemporaryDirectory(prefix='probe-reader-cli.') as directory:
+            root = Path(directory)
+            library = root / 'scripts/lib'
+            library.mkdir(parents=True)
+            for name in ('affected_units.py', 'verification_inputs.py'):
+                (library / name).write_bytes((HERE / 'lib' / name).read_bytes())
+            unit = 'scripts/fixture.test.sh'
+            source = '# observes contract-integrity-probe.sh for guard-fixture\n'
+            (root / unit).write_text(source)
+            probe = root / 'scripts/hooks/contract-integrity-probe.sh'
+            probe.parent.mkdir()
+            before = '    BR_EXPECTED="\\\nguard-fixture.sh|PreToolUse\nother.sh|Stop"\n'
+            probe.write_text(before)
+            document = {'schema': 1, 'config_keys': [], 'nodes': {}, 'units': {},
+                        'hook_readers': {unit: {'commands': [], 'probe_registration_needles': ['guard-fixture'],
+                         'sources': {unit: hashlib.sha256(source.encode()).hexdigest()},
+                         'evidence': 'Fixture observes its own registration row.'}}}
+            (library / 'verification-dependencies.json').write_text(json.dumps(document))
+            env = {**os.environ, 'GIT_CONFIG_GLOBAL': os.devnull, 'GIT_CONFIG_SYSTEM': os.devnull,
+                   'GIT_AUTHOR_NAME': 'fixture', 'GIT_AUTHOR_EMAIL': 'fixture@example.invalid',
+                   'GIT_COMMITTER_NAME': 'fixture', 'GIT_COMMITTER_EMAIL': 'fixture@example.invalid'}
+            def git(*args):
+                return subprocess.check_output(['git', '-C', directory, *args], env=env, text=True)
+            def selection(*args):
+                return subprocess.check_output([sys.executable, '-B', str(library / 'affected_units.py'),
+                                                *args], env=env, text=True, stderr=subprocess.PIPE)
+            git('init', '-q')
+            git('add', '.')
+            git('commit', '-q', '-m', 'fixture')
+            probe.write_text(before.replace('other.sh|Stop', 'another.sh|Stop'))
+            git('add', '.')
+            probe.write_text(before.replace('guard-fixture', 'removed'))
+            self.assertEqual(selection('--staged'), '')
+            self.assertIn(unit, selection('--working'))
+            self.assertIn(unit, selection('--paths', 'scripts/hooks/contract-integrity-probe.sh'))
+            git('commit', '-q', '-m', 'unrelated registration')
+            self.assertEqual(selection('--range', 'HEAD^..HEAD'), '')
+
     def test_handoff_facts_keeps_liveness_presence_but_no_config_values(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         read = lambda path: (HERE.parent / path).read_text()
