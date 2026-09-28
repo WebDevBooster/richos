@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Source and consumer integration for engine/voice, including Rust's compiled metadata.
-# run-tests: inputs richos/app/scripts/voice-component.test.sh richos/engine/voice richos/app/crates/richos-voice richos/app/Cargo.toml
+# run-tests: inputs richos/app/scripts/voice-component.test.sh richos/engine/voice richos/app/crates/richos-voice richos/app/crates/richos-core richos/engine/scripts/lib/dialect/dialect-en-US.generated.dict richos/app/Cargo.toml
 # run-tests: covers richos/app/crates/richos-voice/build.rs
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,6 +18,11 @@ mkdir -p "$PRODUCT/app/crates" "$PRODUCT/engine/voice"
 cp "$APP/Cargo.toml" "$APP/Cargo.lock" "$PRODUCT/app/"
 cp -R "$APP/crates/richos-core" "$APP/crates/richos-voice" "$PRODUCT/app/crates/"
 cp -R "$VOICE/models" "$PRODUCT/engine/voice/"
+# richos-core's library embeds the American-spelling table from the engine
+# (american_spelling.rs, since 8a11f174), so the copied product carries it too.
+DICT="engine/scripts/lib/dialect/dialect-en-US.generated.dict"
+mkdir -p "$PRODUCT/$(dirname "$DICT")"
+cp "$HERE/../../$DICT" "$PRODUCT/$DICT"
 CARGO_BIN="${CARGO:-cargo}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$APP/target}"
 "$CARGO_BIN" run --quiet --locked --manifest-path "$APP/Cargo.toml" -p richos-voice --example model_metadata > "$SCRATCH/original.json"
