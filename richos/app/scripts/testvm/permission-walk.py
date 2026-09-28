@@ -90,20 +90,33 @@ def run(a):
                 raise RuntimeError('composer did not retain input while permission waited')
             report['checks'].append({'name': decision + ': composer usable while pending',
                                      'result': 'passed', 'control': observed})
-            # Navigate through native controls and obtain a reply elsewhere while
-            # the original request remains unresolved.
-            w.press('New thread in Acme')
-            send('S7_INDEPENDENT_' + decision.upper())
-            wait_for_reply('S7 independent conversation replied.')
-            w.shot('independent-' + decision + '.png')
-            w.press(marker)
+            # PRD section 5 explicitly preserves the permission turn's wait.
+            # Prove the card leaves other native controls usable, without
+            # demanding another model turn while that conversation lock is held.
+            w.press('Settings', role='AXPopUpButton', contains=False)
+            w.wait_for('Use Rich from your phone', role='AXMenuItem')
+            w.shot('settings-while-pending-' + decision + '.png')
+            adopt.command([HERE / 'ax.sh', a.vm, '--key', '53'])
             button(control)
-            w.press(control, contains=False)
+            fields = w.ax('find', '--title', 'Message to Rich', '--role', 'AXTextArea')
+            if not any(row.get('enabled') and row.get('value') == draft for row in fields):
+                raise RuntimeError('opening settings lost the pending composer draft')
+            report['checks'].append({'name': decision + ': settings usable and draft preserved while pending',
+                                     'result': 'passed'})
+            report.setdefault('decision_presses', []).append(w.press(control, contains=False))
+            w.shot('decision-pressed-' + decision + '.png')
             receipt = 'S7 provider received ' + decision + ' for s7-'
             wait_for_reply(receipt)
             w.shot('answered-' + decision + '.png')
-            report['checks'].append({'name': decision + ': independent reply and exact decision receipt',
+            report['checks'].append({'name': decision + ': exact decision receipt',
                                      'result': 'passed', 'receipt_prefix': receipt})
+            # Once its permission is answered, another conversation can reply.
+            w.press('New thread in Acme')
+            send('S7_INDEPENDENT_' + decision.upper())
+            wait_for_reply('S7 independent conversation replied.')
+            w.shot('independent-after-decision-' + decision + '.png')
+            report['checks'].append({'name': decision + ': new conversation replies after decision',
+                                     'result': 'passed'})
         report['result'] = 'passed'
     finally:
         report['finished_at_ms'] = time.time() * 1000

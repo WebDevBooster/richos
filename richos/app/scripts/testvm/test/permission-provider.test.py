@@ -6,6 +6,7 @@ from pathlib import Path
 import select
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -52,6 +53,33 @@ class PermissionProviderTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'read-only auth status'):
                 provider.main(['auth', 'login'])
             self.assertEqual(execute.call_count, 1)
+
+    def test_app_session_invokes_its_declared_hook_and_refuses_hook_failure(self):
+        spec = importlib.util.spec_from_file_location('s7_hook_provider', PROVIDER)
+        provider = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(provider)
+        with tempfile.TemporaryDirectory(prefix='s7-hook-') as directory:
+            profile = Path(directory)
+            (profile / '.claude-plugin').mkdir()
+            (profile / 'hooks').mkdir()
+            (profile / '.claude-plugin/plugin.json').write_text(json.dumps({'name': 'richos-app-engine'}))
+            (profile / 'hooks/hooks.json').write_text(json.dumps({'hooks': {'SessionStart': [
+                {'hooks': [{'type': 'command', 'command': 'declared-session-hook', 'timeout': 25}]}]}}))
+            args = ['--session-id', 'owned-session', '--plugin-dir', str(profile)]
+            with patch.object(provider.subprocess, 'run') as invoke:
+                invoke.return_value.returncode = 0
+                provider.session_start(args)
+                invoke.assert_called_once()
+                self.assertEqual(invoke.call_args.args[0], ['/bin/sh', '-c', 'declared-session-hook'])
+                payload = json.loads(invoke.call_args.kwargs['input'])
+                self.assertEqual(payload['session_id'], 'owned-session')
+                self.assertEqual(payload['hook_event_name'], 'SessionStart')
+                self.assertEqual(invoke.call_args.kwargs['timeout'], 25)
+                invoke.return_value.returncode = 1
+                with self.assertRaisesRegex(RuntimeError, 'hook refused'):
+                    provider.session_start(args)
+            with self.assertRaisesRegex(ValueError, 'exactly one'):
+                provider.session_start(['--session-id', 'owned-session'])
 
     def test_initialize_and_hidden_context_do_not_ask(self):
         self.send({'type': 'control_request', 'request_id': 'req_init',

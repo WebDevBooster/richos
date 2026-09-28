@@ -7,6 +7,8 @@ It never logs prompts or provider account data. Use only in a disposable guest.
 """
 import json
 import os
+from pathlib import Path
+import subprocess
 import sys
 import uuid
 
@@ -76,6 +78,33 @@ def serve(lines):
         raise ValueError('input closed before the permission decision')
 
 
+def session_start(argv):
+    """Invoke the app's declared lifecycle hook, as the replaced provider would.
+
+    This fixture starts no workers. The real hook records that session's
+    observation; the app's worker-settlement gate remains unchanged.
+    """
+    if '--session-id' not in argv:
+        return  # The standalone protocol unit has no app profile.
+    session = argv[argv.index('--session-id') + 1]
+    plugins = [Path(argv[i + 1]) for i, arg in enumerate(argv[:-1]) if arg == '--plugin-dir']
+    profiles = [p for p in plugins if json.loads((p / '.claude-plugin/plugin.json').read_text()).get('name') == 'richos-app-engine']
+    if len(profiles) != 1:
+        raise ValueError('S7 requires exactly one declared app engine profile')
+    hooks = json.loads((profiles[0] / 'hooks/hooks.json').read_text())['hooks']['SessionStart']
+    commands = [h for group in hooks for h in group['hooks']]
+    if not commands or any(h.get('type') != 'command' for h in commands):
+        raise ValueError('S7 requires the declared SessionStart command hook')
+    payload = {'hook_event_name': 'SessionStart', 'session_id': session,
+               'source': 'startup', 'cwd': os.getcwd()}
+    for hook in commands:
+        completed = subprocess.run(['/bin/sh', '-c', hook['command']],
+                                   input=json.dumps(payload), text=True, capture_output=True,
+                                   timeout=min(30, hook.get('timeout', 25)))
+        if completed.returncode:
+            raise RuntimeError('S7 SessionStart hook refused: exit ' + str(completed.returncode))
+
+
 def main(argv):
     if argv == ['auth', 'status', '--json']:
         # Keep the real signed-in guest's auth gate. Never invent an account or
@@ -86,6 +115,7 @@ def main(argv):
     elif '--version' in argv:
         print('2.1.283 (synthetic S7 acceptance provider)')
     else:
+        session_start(argv)
         serve(sys.stdin)
 
 
