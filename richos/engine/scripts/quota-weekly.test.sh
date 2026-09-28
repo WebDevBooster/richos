@@ -71,10 +71,15 @@ class Weekly(unittest.TestCase):
                     engine_root='fixture',poll=300,stale=300,command='watch')
                 r=reading(99,95,five_until)
                 out=io.StringIO()
+                # The poll loop never returns on an event (2026-09-28): its
+                # first sleep ends this test, after the first poll's output.
+                class FirstPollDone(BaseException): pass
+                def end(_seconds): raise FirstPollDone
                 with patch.object(watcher,'read_source',return_value=r),patch.object(watcher,'workers',return_value=workers(['worker'])), \
-                    patch.object(watcher.time,'time',return_value=NOW),patch.object(weekly,'reset_tick',return_value={'error':'no offer'}), \
-                    contextlib.redirect_stdout(out):
-                    self.assertEqual(watcher.mode_watch(args),0)
+                    patch.object(watcher.time,'time',return_value=NOW),patch.object(watcher.time,'sleep',side_effect=end), \
+                    patch.object(weekly,'reset_tick',return_value={'error':'no offer'}):
+                    with self.assertRaises(FirstPollDone):
+                        watcher.poll_loop(args,watcher.Out(lines=out,events=out))
                 text=out.getvalue()
                 self.assertIn('WEEKLY-QUOTA-THRESHOLD',text)
                 self.assertNotIn('RESUME:',text)

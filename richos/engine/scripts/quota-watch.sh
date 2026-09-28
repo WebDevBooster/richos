@@ -23,10 +23,21 @@
 #       3 at or above it with the reset less than 20 minutes away (no pause)
 #   quota-watch.sh --status
 #       the same reading, human-readable, with this session's live workers
+#   quota-watch.sh --monitor
+#       THE WATCHER, started by Claude Code itself with every interactive
+#       session: the engine's plugin monitor (monitors/monitors.json) runs it
+#       for the whole session. A poller polls every 300 s and NEVER stops on an
+#       event; each event below is printed once and reaches the lead as a
+#       notification. (2026-09-28: the watcher used to EXIT to wake the lead,
+#       and nothing polled until it was started again by hand.)
+#   quota-watch.sh --alive
+#       what polls for this session and what delivers its wake-ups
 #   quota-watch.sh --watch [--until-reset]
-#       polls every 300 s. Run it as a BACKGROUND command (Bash with
-#       run_in_background: true) so its exit wakes the lead. It exits after
-#       printing ONE event:
+#       the fallback, where plugin monitors do not run: run it as a BACKGROUND
+#       command (Bash with run_in_background: true) so its exit wakes the
+#       lead. The same poller polls every 300 s and keeps polling after it
+#       exits; a wake-up that comes before the next --watch waits for it. It
+#       exits after printing the next event:
 #         QUOTA-THRESHOLD  at or above the threshold with a worker running and
 #                          20 minutes or more to the reset: the exact pause
 #                          message, the names to send it to, the minutes to
@@ -41,7 +52,10 @@
 #                          reply refreshes it (woken at 270 s, not after 300)
 #         QUOTA-STALE      get_usage failed and the status-line reading is
 #                          older than one poll while a worker runs: its value
-#                          is not the current one; the lead's turn refreshes it
+#                          is not the current one; the lead's turn refreshes it.
+#                          Once get_usage has answered in this window, a failure
+#                          is retried every 60 s and wakes the lead only when
+#                          the threshold could have been crossed unseen
 #         QUOTA-UNKNOWN    the reading has been missing or malformed for one
 #                          poll while a worker runs, so the watcher is blind
 #       --until-reset never fires the threshold: for a window in which the
