@@ -163,18 +163,25 @@ class OwnedGroups:
             pass
 
 
-def owned_run(args, *, timeout=None, groups=None, cleanup=False, **kwargs):
+def owned_run(args, *, timeout=None, groups=None, cleanup=False, release_build=False, **kwargs):
     """subprocess.run's result shape with bounded, owned-group cleanup on all exits.
 
     `groups`, when given, is the run's OwnedGroups: the command is registered there for as
-    long as it lives, so a failing gate elsewhere can stop it (Runner.run_gates)."""
+    long as it lives, so a failing gate elsewhere can stop it (Runner.run_gates).
+
+    `release_build` registers the supervisor with the CPU guard as a release build
+    instead of a plain session, which gives the compiler under it the guard's longer
+    per-process window (cpu_guard.BUILD_WINDOW). Only the build step passes it: on
+    2026-09-28 the guard's 10-second rule stopped rustc compiling the app binary at
+    4.52 cores after every gate had passed (run 20260928T190111Z-40a16163)."""
     library = Path(__file__).resolve().parents[2] / "engine/scripts/lib"
     worker = library / "worker_tokens.py"
     # The worker wrapper owns its command, but does not watch this coordinator.
     # Keep an independent supervisor tied to our identity around the entire
     # admission/worker lifetime, so even SIGKILL here cancels waiting or active work.
     supervisor = library / "proc_tree.py"
-    process = subprocess.Popen([sys.executable, str(supervisor), "run", str(os.getpid()), "--",
+    role = ["--guard-role", "release-build"] if release_build else []
+    process = subprocess.Popen([sys.executable, str(supervisor), "run", str(os.getpid()), *role, "--",
                                 sys.executable, str(worker), "machine", "--", *map(str, args)],
                                start_new_session=True, **kwargs)
     try:
@@ -951,7 +958,7 @@ class Runner:
         self.announce(f"  {'total'.ljust(width)} : {time.time() - self.started:7.1f}s")
 
     def command(self, *args, cwd=None, capture=False, timeout=None, credentials=False,
-                env_extra=None, cleanup=False):
+                env_extra=None, cleanup=False, release_build=False):
         if self.groups.stopping and not cleanup:
             raise GateStopped(f"{self.active_phase or Path(str(args[0])).name} was stopped: "
                               "another gate already refused this build")
@@ -965,7 +972,8 @@ class Runner:
                                env=env, stdin=subprocess.DEVNULL, text=True,
                                stdout=subprocess.PIPE if capture else self.log,
                                stderr=self.log, timeout=timeout,
-                               groups=self.groups, cleanup=cleanup)
+                               groups=self.groups, cleanup=cleanup,
+                               **({"release_build": True} if release_build else {}))
         except CommandCleanupError as error:
             label = self.active_phase or Path(str(args[0])).name
             raise CommandCleanupError(f"{label} cleanup failed (command budget {timeout}s): {error}") from None
@@ -1760,7 +1768,8 @@ class Runner:
                           f"{info['source_commit'][:12]}...")
             with self.phase("build"):
                 self.command(sys.executable, self.source / SCRIPTS / "nightly.py", "run",
-                             "--plan", plan_path, "--out", out, credentials=True)
+                             "--plan", plan_path, "--out", out, credentials=True,
+                             release_build=True)
             print(f"Published https://github.com/{REPO}/releases/tag/{info['tag']}",
                   flush=True)
             self.summary()
@@ -1857,7 +1866,8 @@ class Runner:
             # (make-release.sh:359 and its notarize_env at :410).
             with self.phase("build"):
                 self.command(sys.executable, self.source / SCRIPTS / "nightly.py", "run",
-                             "--plan", plan_path, "--out", out, credentials=True)
+                             "--plan", plan_path, "--out", out, credentials=True,
+                             release_build=True)
             print(f"Published https://github.com/{REPO}/releases/tag/{info['tag']}", flush=True)
             self.summary()
             return
@@ -1873,7 +1883,8 @@ class Runner:
             self.command(sys.executable, self.source / SCRIPTS / "nightly.py", "build",
                          "--plan", plan_path, "--out", out, credentials=True,
                          env_extra={"RICHOS_ENGINE_CHECK_PROOF_DIR":
-                                    str(self.state / "engine-repro-proofs")})
+                                    str(self.state / "engine-repro-proofs")},
+                         release_build=True)
         candidate_info = json.loads((out / "candidate.json").read_text())["info"]
         self.record_run(self.env["RICHOS_NIGHTLY_RUN_ID"], out)
         self.summary()

@@ -483,6 +483,41 @@ while True: time.sleep(.02)
         self.assertIs(r.command.call_args.kwargs["credentials"], True)
         self.assertEqual(r.plan.call_count, 2)
 
+    def test_only_the_build_step_is_registered_with_the_cpu_guard_as_a_release_build(self):
+        # Run 20260928T190111Z-40a16163: every gate passed, then the CPU guard's 10-second
+        # rule stopped rustc in the build step. The build step's supervisor carries the
+        # release-build role (cpu_guard.BUILD_WINDOW); no gate's does.
+        for command in ("release", "build"):
+            with self.subTest(command=command):
+                r = self.runner()
+                r.env = {"RICHOS_NIGHTLY_RUN_ID": "fixture-run-id"}
+                if command == "build":
+                    r.command = Mock(side_effect=lambda *a, **k: self.write_candidate(
+                        Path(a[a.index("--out") + 1])))
+                with contextlib.redirect_stdout(io.StringIO()):
+                    r.perform(command)
+                self.assertIs(r.command.call_args.kwargs.get("release_build"), True)
+        seen = []
+        r = m.Runner(self.root, self.root, {}, io.StringIO())
+        with patch.object(m, "owned_run", side_effect=lambda args, **kwargs: seen.append(kwargs) or
+                          subprocess.CompletedProcess(args, 0, "", "")):
+            r.command("cargo", "test")
+            r.command("cargo", "build", release_build=True)
+        self.assertNotIn("release_build", seen[0])
+        self.assertIs(seen[1]["release_build"], True)
+        launched = []
+        def popen(argv, **kwargs):
+            launched.append(argv)
+            raise OSError("fixture stops before anything starts")
+        with patch.object(m.subprocess, "Popen", side_effect=popen):
+            for flag in (True, False):
+                with self.assertRaises(OSError):
+                    m.owned_run(["cargo", "build"], release_build=flag)
+        role = launched[0].index("--guard-role")
+        self.assertEqual(launched[0][role:role + 2], ["--guard-role", "release-build"])
+        self.assertLess(role, launched[0].index("--"))
+        self.assertNotIn("--guard-role", launched[1])
+
     def test_unchanged_source_does_not_build(self):
         r = self.runner(False)
         r.perform("release")
