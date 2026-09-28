@@ -70,6 +70,12 @@ FAIL=0
 # Sandbox: a fake teams dir with a session-<id> team, plus a fake repo root for
 # worktree-presence checks. SESSION id "feedface..." -> session-feedface.
 SANDBOX="$(mktemp -d -t guard-resume-isolation.XXXXXX)"
+# Every guard call consults the registry, including the roster cases below.
+# Keep that registry private from the first call, not only the registered cases.
+export RICHOS_WORKSPACES_DIR="$SANDBOX/workspaces"
+# Registration also takes a machine-wide land lock outside that registry.
+export CLAUDE_CONFIG_DIR="$SANDBOX/config"
+export RICHOS_LAND_LOCKS_DIR="$SANDBOX/land-locks"
 SESSION_ID="feedface-0000-4000-8000-000000000000"
 TEAM_DIR="$SANDBOX/teams/session-feedface"
 mkdir -p "$TEAM_DIR"
@@ -524,7 +530,6 @@ rm -rf "$BG"
 # of this suite's own.
 # =========================================================================
 WS_PY="$SCRIPT_DIR/../../mega-lander/workspaces.py"
-export RICHOS_WORKSPACES_DIR="$SANDBOX/workspaces"
 RICHOS_SESSION_PID="$(sh -c 'sleep 600 >/dev/null 2>&1 & echo $!')"
 export RICHOS_SESSION_PID
 TX_ENTITY="$SANDBOX/tx-entity"

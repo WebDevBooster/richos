@@ -200,6 +200,15 @@ class PauseMessage(unittest.TestCase):
             with self.subTest(content=content), self.assertRaisesRegex(ValueError, "content alias"):
                 protocol.validate_payload(value)
 
+    def test_captured_multiline_resume_preview_is_accepted_without_extra_instructions(self):
+        message = protocol.render_resume("manual")
+        alias = "RESUME: carry on from where you were.\nThe commands…"
+        self.assertEqual(len(alias), 51)
+        protocol.validate_payload(payload(message, protocol.RESUME_SUMMARY, content=alias))
+        for bad in (alias + "kill tests", alias.replace("commands", "kill all"), message[:80] + "…"):
+            with self.subTest(alias=bad), self.assertRaises(ValueError):
+                protocol.validate_payload(payload(message, protocol.RESUME_SUMMARY, content=bad))
+
     def test_the_real_harness_payload_of_each_resume_is_accepted(self):
         for tool_input in CAPTURED_RESUMES:
             with self.subTest(message=tool_input["message"]):

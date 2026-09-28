@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Preserve ordinary Bash command failures before output filters can hide them.
 
-PreToolUse changes only the command, preserving all other tool arguments and
-permission decisions. No shell parsing, command execution or auto-approval.
+PreToolUse preserves failure propagation and records subagent ownership. Subagent
+commands use native background execution; wait calls remain foreground. Held
+calls are denied. No shell parsing, command execution or auto-approval.
 Expected failures belong in explicit if/else or || branches. This covers the
 calling shell; scripts and explicit failure handling retain their own semantics.
 """
@@ -41,9 +42,12 @@ def rewrite(payload):
     if not isinstance(original, dict) or not isinstance(original.get("command"), str):
         return {"systemMessage": "Shell evidence hook could not read this call (Bash command missing); failure propagation is unverified."}
     command = original["command"]
-    if command.startswith(PREFIX):
+    if command.startswith(PREFIX) and not payload.get("agent_id"):
         return {}
     owned = ownership(payload)
+    if owned and owned.get("deny"):
+        return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                "permissionDecision": "deny", "permissionDecisionReason": owned["deny"]}}
     updated = dict(original, command=PREFIX + command)
     if owned:
         updated.update(owned["input"])
@@ -54,6 +58,7 @@ def rewrite(payload):
         "additionalContext": "Shell commands use errexit and pipefail: a failed command or pipeline stops this call. "
         "Handle expected nonzero results explicitly with if/else. Keep JSON stdout separate from stderr. "
         "Read saved logs in a separate call; do not turn a failed check into success with a trailing echo or filter."
+        + (" " + owned.get("context", "") if owned else "")
     }}
 
 
