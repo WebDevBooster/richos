@@ -28,7 +28,7 @@ ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 PASS=0
 FAIL=0
-SANDBOX="$(cd "$(mktemp -d -t mutation-focus-test.XXXXXX)" && pwd -P)"
+SANDBOX="$(cd "$(mktemp -d "${TMPDIR:?}/mutation-focus-test.XXXXXX")" && pwd -P)"
 trap 'rm -rf "$SANDBOX"' EXIT
 # Scratch and the scratch ledger inside the sandbox: test data never touches live data,
 # and a fixture engine under the real $TMPDIR would be refused as a copy source.
@@ -57,7 +57,7 @@ mkdir -p "$FAKE_ENG/mega-lander/tests"
 printf 'PROTECTED_PATHS="app"\n' > "$FAKE_ENG/orchestration.config"
 printf '0.0.0-fixture\n' > "$FAKE_ENG/VERSION"
 cp "$ENGINE_ROOT"/scripts/lib/*.sh "$FAKE_ENG/scripts/lib/"
-cp "$ENGINE_ROOT/scripts/lib/stop-at-line.py" "$ENGINE_ROOT/scripts/lib/proc_tree.py" "$FAKE_ENG/scripts/lib/"
+cp "$ENGINE_ROOT/scripts/lib/stop-at-line.py" "$ENGINE_ROOT/scripts/lib/operator_fences.py" "$ENGINE_ROOT/scripts/lib/proc_tree.py" "$FAKE_ENG/scripts/lib/"
 printf 'RULE_A=1\nRULE_B=1\nUNUSED=1\n' > "$FAKE_ENG/mega-lander/feature.sh"
 
 PROBE="$SANDBOX/probe"; mkdir -p "$PROBE"
@@ -230,7 +230,7 @@ rm -f "$FOCUS_PROBE/running.$$"
 [ "${RULE_A:-0}" = 1 ] || { echo "      FAIL  P1.1 rule A"; exit 1; }
 EOF
 chmod +x "$FAKE_ENG/mega-lander/tests/par.test.sh"
-cp "$ENGINE_ROOT/scripts/lib/worker_tokens.py" "$FAKE_ENG/scripts/lib/"
+cp "$ENGINE_ROOT/scripts/lib/worker_tokens.py" "$ENGINE_ROOT/scripts/lib/engine_pass.py" "$FAKE_ENG/scripts/lib/"
 M4=()
 for n in 1 2 3 4 5 6; do
     M4+=("mutant par-$n P1.1 mega-lander/feature.sh \"RULE_A=1\" \"RULE_A=0\" \"rule A removed ($n)\"")

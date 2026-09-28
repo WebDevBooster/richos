@@ -70,6 +70,11 @@
 # Exit 0 = all cases pass; exit 1 = at least one failure.
 
 set -uo pipefail
+case "${1:-}" in
+    "") ;;
+    --contamination-only) [ "$#" -eq 1 ] || exit 2 ;;
+    *) echo "usage: ci-shard.test.sh [--contamination-only]" >&2; exit 2 ;;
+esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -80,13 +85,15 @@ trap 'rm -rf "$SANDBOX"' EXIT
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); }
 
-for f in ci-shard.sh ci-units.sh lib/ci-receipts.py lib/leak-canary.sh lib/record-canary.sh lib/tree-witness.sh lib/proc_tree.py lib/worker_tokens.py; do
+for f in ci-shard.sh ci-units.sh lib/ci-receipts.py lib/leak-canary.sh lib/record-canary.sh lib/tree-witness.sh lib/proc_tree.py lib/operator_fences.py lib/worker_tokens.py lib/engine_pass.py; do
     [ -f "$ENGINE_ROOT/scripts/$f" ] || { echo "FATAL: missing scripts/$f" >&2; exit 1; }
 done
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit 1; }
 # The shard runner's RECORD canary (round 15) watches ${CLAUDE_CONFIG_DIR:-$HOME/.claude};
 # every invocation below points it at a throwaway config directory.
 export CLAUDE_CONFIG_DIR="$SANDBOX/cfg"
+export RICHOS_MACHINE_WORKERS="$SANDBOX/machine" RICHOS_ENGINE_PASS_DIR="$SANDBOX/slot"
+unset RICHOS_WORKER_TOKENS RICHOS_WORKER_SLOT_HELD RICHOS_WORKER_BORROW_LOCK
 mkdir -p "$CLAUDE_CONFIG_DIR/state"
 
 echo "=== ci-shard tests ==="
@@ -101,7 +108,7 @@ mk_engine() { # <root>
     for f in ci-shard.sh ci-units.sh; do
         cp "$ENGINE_ROOT/scripts/$f" "$r/scripts/$f"; chmod +x "$r/scripts/$f"
     done
-    for f in ci-receipts.py leak-canary.sh record-canary.sh tree-witness.sh proc_tree.py worker_tokens.py; do
+    for f in ci-receipts.py leak-canary.sh record-canary.sh tree-witness.sh proc_tree.py operator_fences.py worker_tokens.py engine_pass.py; do
         cp "$ENGINE_ROOT/scripts/lib/$f" "$r/scripts/lib/$f"
     done
     # The sectioned suite, with two real `if _section` markers, so the section
@@ -147,6 +154,7 @@ run_shard() { # captures stdout+stderr to $SANDBOX/out, echoes the rc
 }
 
 # --- S1 / S2 ---------------------------------------------------------------
+if [ "${1:-}" != --contamination-only ]; then
 RC="$(run_shard --only-units scripts/lib/green.test.sh)"
 if [ "$RC" = "0" ] && grep -q 'PASS' "$SANDBOX/out"; then
     ok "S1   a suite unit is green at exit 0"
@@ -872,8 +880,35 @@ else
     bad "S22b full-inventory mode lost a unit"
 fi
 
+fi
+
+# A contamination finding stops the shard even with default continuation and
+# signals the outer runner without inventing receipts for units never executed.
+mk_suite "$E/scripts/lib/01-stop-green.test.sh" 0
+cat > "$E/scripts/lib/00-contaminate.test.sh" <<'CONTAMINATE'
+#!/usr/bin/env bash
+cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+mkdir -p "$cfg/state"
+printf '{"event":"terminated","agent_id":"contamination-fixture"}\n' >> "$cfg/state/worktree-ledger.jsonl"
+CONTAMINATE
+export RICHOS_VERIFICATION_CONTAMINATION="$SANDBOX/contamination"
+RC="$(run_shard --only-units 'scripts/lib/00-contaminate.test.sh,scripts/lib/01-stop-green.test.sh' --receipt "$SANDBOX/unsafe.jsonl")"
+if [ "$RC" = 1 ] && [ "$(wc -l < "$SANDBOX/unsafe.jsonl" | tr -d ' ')" = 1 ] \
+   && grep -q 'RECORD-TOUCHED' "$SANDBOX/unsafe.jsonl" \
+   && [ "$(find "$RICHOS_VERIFICATION_CONTAMINATION" -name '*.json' | wc -l | tr -d ' ')" = 1 ]; then
+    ok "S23 contamination stops the domain and signals siblings in default continuation mode"
+else
+    bad "S23 contamination was continued or lost its signal"
+    sed 's/^/          /' "$SANDBOX/out"
+fi
+unset RICHOS_VERIFICATION_CONTAMINATION
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
+    if [ "${1:-}" = --contamination-only ]; then
+        echo "=== ci-shard tests: scoped S23 passed; other cases were not run ==="
+        exit 3
+    fi
     echo "=== ci-shard tests: all $PASS passed ==="
     exit 0
 fi

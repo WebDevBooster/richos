@@ -24,12 +24,17 @@
 # here.
 
 set -uo pipefail
+case "${1:-}" in
+    "") ;;
+    --record-only) echo "Focused record-canary cases only; other cases are not run." ;;
+    *) echo "usage: run-all-tests.test.sh [--record-only]" >&2; exit 2 ;;
+esac
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 PASS=0
 FAIL=0
-SANDBOX="$(cd "$(mktemp -d -t run-all-tests-test.XXXXXX)" && pwd -P)"
+SANDBOX="$(cd "$(mktemp -d "${TMPDIR:?}/run-all-tests-test.XXXXXX")" && pwd -P)"
 trap 'rm -rf "$SANDBOX"' EXIT
 
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
@@ -41,6 +46,11 @@ echo "=== run-all-tests: the leak canary is wired, and it decides the verdict ==
 # Every runner invocation below points it at a throwaway config directory, so
 # this suite neither depends on the operator's real record nor touches it.
 export CLAUDE_CONFIG_DIR="$SANDBOX/cfg"
+export RICHOS_MACHINE_WORKERS="$SANDBOX/machine" RICHOS_ENGINE_PASS_DIR="$SANDBOX/slot"
+# Deliberate leaks belong to the generated engine's domain. The surrounding
+# shard still witnesses this entire suite and reports any actual outer escape.
+export RICHOS_VERIFICATION_CONTAMINATION="$SANDBOX/expected-contamination"
+unset RICHOS_WORKER_TOKENS RICHOS_WORKER_SLOT_HELD RICHOS_WORKER_BORROW_LOCK
 mkdir -p "$CLAUDE_CONFIG_DIR/state"
 
 NO_HOOKS="$SANDBOX/empty-hooks"; mkdir -p "$NO_HOOKS"
@@ -62,6 +72,9 @@ build_engine() {
     cp "$ENGINE_ROOT/scripts/lib/tree-witness.sh" \
        "$ENGINE_ROOT/scripts/lib/leak-canary.sh" \
        "$ENGINE_ROOT/scripts/lib/record-canary.sh" \
+       "$ENGINE_ROOT/scripts/lib/worker_tokens.py" \
+       "$ENGINE_ROOT/scripts/lib/operator_fences.py" "$ENGINE_ROOT/scripts/lib/proc_tree.py" \
+       "$ENGINE_ROOT/scripts/lib/engine_pass.py" \
        "$ENGINE_ROOT/scripts/lib/stopwatch.sh" "$d/engine/scripts/lib/"
     chmod +x "$d/engine/scripts/run-all-tests.sh"
     printf 'PROTECTED_PATHS="app"\n' > "$d/engine/orchestration.config"
@@ -85,6 +98,7 @@ EOF
 # ===========================================================================
 # 1. GREEN: well-behaved suites leave the runner green, and it SAYS it checked.
 # ===========================================================================
+if [ "${1:-}" != --record-only ]; then
 E1="$SANDBOX/e1"
 build_engine "$E1"
 clean_suite "$E1/engine/scripts/hooks/alpha.test.sh"
@@ -223,6 +237,7 @@ esac
 #    the shipped reaper did. A path baked in before the suite started is the
 #    one road the library's header names as out of its sight.
 # ===========================================================================
+fi
 E5="$SANDBOX/e5"
 FLAGS5="$SANDBOX/flags5"; mkdir -p "$FLAGS5"
 build_engine "$E5"
@@ -235,9 +250,9 @@ printf '{"event": "terminated", "agent_id": "ae904aac1949e5696", "teammate": "sa
 echo "  PASS  every assertion passed"
 exit 0
 EOF
-# turn.test.sh: clean, and it waits (bounded) until the concurrent writer below
+# platform-turn.test.sh: clean, and it waits (bounded) until the concurrent writer below
 # has written the live record, so that write lands WHILE the suite runs.
-cat > "$E5/engine/scripts/hooks/turn.test.sh" <<EOF
+cat > "$E5/engine/scripts/hooks/platform-turn.test.sh" <<EOF
 #!/usr/bin/env bash
 touch "$FLAGS5/started"
 n=0
@@ -246,7 +261,7 @@ while [ ! -e "$FLAGS5/written" ] && [ "\$n" -lt 300 ]; do sleep 0.1; n=\$((n + 1
 echo "  PASS  every assertion passed"
 exit 0
 EOF
-chmod +x "$E5/engine/scripts/hooks/toucher.test.sh" "$E5/engine/scripts/hooks/turn.test.sh"
+chmod +x "$E5/engine/scripts/hooks/toucher.test.sh" "$E5/engine/scripts/hooks/platform-turn.test.sh"
 git_q "$E5" add -A; git_q "$E5" commit -q -m suites
 (
     n=0
@@ -276,7 +291,7 @@ case "$OUT5" in
         ok "5c  and the row it wrote is printed (event, witness, teammate), so a reader can tell a false witness from a fixture at a glance" ;;
     *)  bad "5c  the row is printed" "got: $OUT5" ;;
 esac
-TURN_LINE="$(printf '%s\n' "$OUT5" | sed $'s/\033\\[[0-9;]*m//g' | grep 'turn\.test\.sh')"
+TURN_LINE="$(printf '%s\n' "$OUT5" | sed $'s/\033\\[[0-9;]*m//g' | grep 'platform-turn\.test\.sh')"
 case "$TURN_LINE" in
     *PASS*) if [ -e "$FLAGS5/written" ]; then
                 ok "5d  and a clean suite during which ANOTHER process wrote the live record is NOT blamed — the canary counts only the suite's own writes"

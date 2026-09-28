@@ -14,9 +14,7 @@
 #   fixture rows appended to the fallback event log     (feedbeef, 2026-09-10)
 #   a fixture team directory created                    (session-deadbeef, 2026-09-10)
 #
-# and pins the one thing it deliberately cannot see — the platform's own
-# per-turn `finished` rows — so nobody reads more into a green run than is
-# there.
+# No event label exempts a write. Removal and restoration must also be visible.
 #
 # Everything happens under a throwaway CLAUDE_CONFIG_DIR. This suite reads
 # nothing under the operator's real ~/.claude and writes nothing there —
@@ -25,7 +23,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PASS=0
 FAIL=0
-SANDBOX="$(cd "$(mktemp -d -t record-canary-test.XXXXXX)" && pwd -P)"
+SANDBOX="$(cd "$(mktemp -d "${TMPDIR:?}/record-canary-test.XXXXXX")" && pwd -P)"
 trap 'rm -rf "$SANDBOX"' EXIT
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n' "$1"; [ -n "${2:-}" ] && printf '          %s\n' "$2"; FAIL=$((FAIL + 1)); }
@@ -36,7 +34,7 @@ export CLAUDE_CONFIG_DIR="$CFG"
 # shellcheck source=record-canary.sh
 . "$SCRIPT_DIR/record-canary.sh"
 
-echo "=== record canary: red on the operator's record, green on the noise ==="
+echo "=== record canary: red on changed records, green on unchanged fixtures ==="
 
 # ===========================================================================
 # 1. THE PATHS ARE CAPTURED AT SOURCE TIME, NOT RE-READ
@@ -69,10 +67,10 @@ B1="$SANDBOX/b1.txt"
 rc_baseline "$B1"
 printf '{"event": "finished", "agent_id": "a2", "signal": "SubagentStop", "source": "worker-ended-handoff.sh", "ts": "2026-09-11T00:00:01+00:00"}\n' >>"$CFG/state/worktree-ledger.jsonl"
 E="$(rc_escaped "$B1")"
-if [ -z "$E" ]; then
-    ok "2b  a 'finished' row appended to the ledger is NOT reported — the platform's own per-turn row, the one exclusion, stated in the library's header"
+if printf '%s' "$E" | grep -q 'event=finished'; then
+    ok "2b  a finished label cannot exempt a write from the record canary"
 else
-    bad "2b  finished rows are excluded" "got: $E"
+    bad "2b  every ledger event is witnessed" "got: $E"
 fi
 
 # ===========================================================================
@@ -94,7 +92,7 @@ printf '{"event": "registered", "agent_id": "x", "teammate": "dev-1", "source": 
 E="$(rc_escaped "$B3")"
 if [ "$(printf '%s\n' "$E" | grep -c 'ledger row APPEARED')" -eq 3 ] \
    && printf '%s' "$E" | grep -q 'event=registered' && printf '%s' "$E" | grep -q 'event=prepared' && printf '%s' "$E" | grep -q 'event=retracted'; then
-    ok "3b  and so are registered, prepared and retracted rows — every event except 'finished' is witnessed, one line each"
+    ok "3b  registered, prepared and retracted rows are witnessed, one line each"
 else
     bad "3b  every other event is witnessed" "got: $E"
 fi
@@ -183,6 +181,51 @@ else
 fi
 chmod 644 "$CFG/state/worktree-ledger.jsonl"
 
+# Deletion of one row cannot disappear behind surviving rows. Restoring bytes
+# and mtime cannot restore the kernel's change time. All targets are private.
+for mutation in remove-row truncate restore detached-restore; do
+    SNAPSHOT="$SANDBOX/$mutation.txt"
+    rc_baseline "$SNAPSHOT"
+    python3 - "$CFG/state/worktree-ledger.jsonl" "$mutation" <<'PY'
+import os, pathlib, subprocess, sys
+p = pathlib.Path(sys.argv[1])
+kind = sys.argv[2]
+if kind == 'detached-restore':
+    subprocess.run([sys.executable, '-c', 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); old=p.read_bytes(); p.write_bytes(b"escape"); p.write_bytes(old)', str(p)], start_new_session=True, check=True)
+elif kind == 'restore':
+    old, before = p.read_bytes(), p.stat()
+    p.write_bytes(b'escape'); p.write_bytes(old)
+    os.utime(p, ns=(before.st_atime_ns, before.st_mtime_ns))
+elif kind == 'truncate':
+    p.write_bytes(b'')
+else:
+    p.write_bytes(b''.join(p.read_bytes().splitlines(keepends=True)[1:]))
+PY
+    E="$(rc_escaped "$SNAPSHOT")"
+    if printf '%s' "$E" | grep -q 'record file CHANGED:'; then
+        ok "5c $mutation remains non-green"
+    else
+        bad "5c $mutation was missed" "$E"
+    fi
+done
+
+mkdir -p "$CFG/state/workspaces/agents"
+printf '{"state":"active"}\n' > "$CFG/state/workspaces/agents/fixture.json"
+rc_baseline "$SANDBOX/registry-edit.txt"
+printf '{"state":"finished"}\n' > "$CFG/state/workspaces/agents/fixture.json"
+if printf '%s' "$(rc_escaped "$SANDBOX/registry-edit.txt")" | grep -q 'record file CHANGED:.*fixture.json'; then
+    ok "5d registry content changes are visible without adding a filename or event"
+else
+    bad "5d registry content edit was missed"
+fi
+rc_baseline "$SANDBOX/registry-delete.txt"
+rm "$CFG/state/workspaces/agents/fixture.json"
+if printf '%s' "$(rc_escaped "$SANDBOX/registry-delete.txt")" | grep -q 'record file REMOVED:.*fixture.json'; then
+    ok "5e removal of an individual registry record is visible"
+else
+    bad "5e registry record removal was missed"
+fi
+
 # ===========================================================================
 # 7. rc_sandbox — A RECORD OF THE UNIT'S OWN (2026-09-27). The runners hand each
 #    unit a throwaway home and watch the record inside it, so a concurrent
@@ -244,6 +287,30 @@ rc_use_config "$CFG"
 # 6. NOTHING HERE TOUCHED THE OPERATOR'S REAL RECORD — the library's own promise,
 #    checked against the real paths rather than assumed from the sandbox.
 # ===========================================================================
+if printf '%s' "$(rc_escaped "$SANDBOX/missing-baseline")" | grep -q UNREADABLE; then
+    ok "5f missing baseline remains unresolved"
+else
+    bad "5f missing baseline was treated as unchanged"
+fi
+ln -s "$CFG/state/worktree-ledger.jsonl" "$CFG/state/workspaces/agents/linked.json"
+rc_baseline "$SANDBOX/symlink.txt"
+if [ "$RC_HEALTHY" -eq 0 ] && printf '%s' "$(rc_escaped "$SANDBOX/symlink.txt")" | grep -q UNREADABLE; then
+    ok "5g symbolic-link record boundaries remain unresolved"
+else
+    bad "5g symbolic-link boundary claimed complete observation"
+fi
+rm "$CFG/state/workspaces/agents/linked.json"
+
+rm "$CFG/worker-events.jsonl"
+rc_baseline "$SANDBOX/create-delete.txt"
+printf 'temporary escape\n' > "$CFG/worker-events.jsonl"
+rm "$CFG/worker-events.jsonl"
+if printf '%s' "$(rc_escaped "$SANDBOX/create-delete.txt")" | grep -q 'record file CHANGED:'; then
+    ok "5h creating then removing an initially absent record remains visible"
+else
+    bad "5h create-delete restoration was missed"
+fi
+
 if [ -e "$SANDBOX/elsewhere" ]; then
     bad "6a  the suite wrote under the CLAUDE_CONFIG_DIR it merely pointed at" "$SANDBOX/elsewhere exists"
 else

@@ -1113,6 +1113,13 @@ def cleanup_run_simulators(run_id, budget=15):
     errors = []
     token = _DEADLINE.set(time.time() + budget)
     try:
+        # Owned processes have already ended. An absent registry cannot contain
+        # this run's device, so cleanup must not create state for an empty run.
+        # Other lookup errors still take the visible failure path below.
+        try:
+            os.stat(registry_dir())
+        except FileNotFoundError:
+            return []
         with registry_lock():
             regs = [r for r in records() if r["kind"] == "ios-simulator" and any(
                 o.get("verification_run") == run_id for o in r.get("owners", [r.get("owner", {})]))]
@@ -1263,6 +1270,7 @@ def _device_admission():
     """The same boot/live pool as iOS, and a machine token held until shutdown."""
     from pathlib import Path
     import cpu_guard
+    cpu_guard.require_managed_ancestor()
     import worker_tokens
     if not cpu_guard.healthy():
         raise RuntimeError("CPU watchdog is unhealthy; device launch refused")
@@ -1334,6 +1342,7 @@ def hold_lease(kind, ident):
 
 def boot_ios(udid):
     import cpu_guard
+    cpu_guard.require_managed_ancestor()
     cpu_guard.require_ios()
     if not _read_json(_record_path("ios-simulator", udid)):
         raise ValueError("register the exact simulator before booting it")
@@ -1506,6 +1515,7 @@ def acquire_ios(device_type, runtime, owner_pid=None, checkout="", timeout=POOL_
     `purpose` names a declared lifetime from LEASE_PURPOSES for a NEW lease.
     An existing lease is never lengthened by acquiring it again."""
     import cpu_guard
+    cpu_guard.require_managed_ancestor()
     if purpose is not None and purpose not in LEASE_PURPOSES:
         raise ValueError("unknown lease purpose %r (declared: %s)" % (purpose, ", ".join(sorted(LEASE_PURPOSES))))
     limit = pool_leases() if leases is None else int(leases)

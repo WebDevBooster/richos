@@ -29,7 +29,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOL="$SCRIPT_DIR/ledger-prune-sandbox.py"
 PASS=0
 FAIL=0
-SANDBOX="$(cd "$(mktemp -d -t ledger-prune-test.XXXXXX)" && pwd -P)"
+SANDBOX="$(cd "$(mktemp -d "${TMPDIR:?}/ledger-prune-test.XXXXXX")" && pwd -P)"
 trap 'rm -rf "$SANDBOX"' EXIT
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n' "$1"; [ -n "${2:-}" ] && printf '          %s\n' "$2"; FAIL=$((FAIL + 1)); }
@@ -40,10 +40,13 @@ if [ ! -x "$TOOL" ]; then
 fi
 
 # A sandbox directory that EXISTS, to stand in for a suite running right now.
-LIVE_TMP="$(cd "$(mktemp -d -t ledger-prune-live.XXXXXX)" && pwd -P)"
+LIVE_TMP="$(cd "$(mktemp -d "${TMPDIR:?}/ledger-prune-live.XXXXXX")" && pwd -P)"
 # A temp path that is guaranteed NOT to exist.
-DEAD_TMP="${TMPDIR:-/tmp}/ledger-prune-gone.XXXXXX.deadbeef"
-rm -rf "$DEAD_TMP" 2>/dev/null || true
+# A nonexistent path string exercises the pruner's documented system-temp
+# predicate. No files are created there. Actual fixture data stays in TMPDIR,
+# which may contain "codex" and intentionally receives blanket protection.
+DEAD_TMP="/tmp/ledger-prune-gone.$(python3 -c 'import uuid; print(uuid.uuid4().hex)')"
+[ ! -e "$DEAD_TMP" ] || exit 1
 
 LEDGER="$SANDBOX/worktree-ledger.jsonl"
 BACKUPS="$SANDBOX/backups"

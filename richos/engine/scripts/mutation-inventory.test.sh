@@ -70,7 +70,7 @@ FAIL=0
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n' "$1"; [ -n "${2:-}" ] && printf '        %s\n' "$2"; FAIL=$((FAIL + 1)); return 0; }
 
-SANDBOX="$(cd "$(mktemp -d -t mutation-inventory.XXXXXX)" && pwd -P)"
+SANDBOX="$(cd "$(mktemp -d "${TMPDIR:?}/mutation-inventory.XXXXXX")" && pwd -P)"
 trap 'rm -rf "$SANDBOX"' EXIT
 
 # ---------------------------------------------------------------------------

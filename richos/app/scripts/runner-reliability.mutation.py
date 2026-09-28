@@ -43,6 +43,18 @@ BORROW = "test_borrow_files_do_not_create_extra_capacity"
 # without it). A mutant scores only when its case goes red WITH that failure, never an
 # incidental import error.
 MUTANTS = (
+    ("drained-tree-reacquires-a-recycled-root", "proc_tree.py",
+     "test_recycled_root_in_same_second_is_never_readmitted_after_tree_drains",
+     "if self.root in table and table[self.root][2] == self.root_birth:",
+     "if not self.known and self.root in table:",
+     "Items in the first set but not the second",
+     "a recycled root PID would let cleanup acquire and signal an unrelated process tree."),
+    ("verification-discards-kernel-birth-precision", "operator_fences.py",
+     "test_native_generation_preserves_default_session_identity",
+     '(info.start_sec, info.start_usec)' if sys.platform == 'darwin' else '(boot.read().strip(), rest[19])',
+     '(info.start_sec, 0)' if sys.platform == 'darwin' else '(boot.read().strip(), "0")',
+     'AssertionError',
+     "two generations of a reused PID in one second could be treated as the same process."),
     ("the-run-takes-no-machine-lease", "worker_tokens.py", SIGKILL,
      "            if self.shared:\n                token.extra = self.shared.try_acquire()",
      "            if False:\n                token.extra = self.shared.try_acquire()",
@@ -103,7 +115,8 @@ def passes(lib, case, edit, env, log):
 
 
 def main():
-    sources = {"worker_tokens.py": (LIB / "worker_tokens.py").read_text(),
+    sources = {"operator_fences.py": (LIB / "operator_fences.py").read_text(),
+               "worker_tokens.py": (LIB / "worker_tokens.py").read_text(),
                "proc_tree.py": (LIB / "proc_tree.py").read_text(),
                TEST.name: TEST.read_text()}
     print("=== runner-reliability: SIGKILL lease + borrow, each property proven load-bearing ===")

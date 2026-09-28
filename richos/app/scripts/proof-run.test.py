@@ -95,8 +95,9 @@ try:
     with open(os.path.join(tmp, "engine-units.txt")) as fh:
         units = fh.read().split()
     check(units == ["scripts/spawn.test.sh", "scripts/stop.test.sh"] and shards
-          and all("--units-file" in i.argv and "--shard" in i.argv and "--receipt" in i.argv for i in shards),
-          "P1d engine units become one units file, packed into receipted shards by the engine's planner",
+          and all("--only-units" in i.argv and "--receipt" in i.argv for i in shards)
+          and {i.lane for i in shards} == {"engine-shard-1", "engine-shard-2"},
+          "P1d engine units retain the packer's shard lanes and acquire admission per unit",
           [i.argv for i in shards])
     check(len(recv) == 1 and recv[0].after == {i.label for i in shards} and "--verify-receipts" in recv[0].argv,
           "P1e and a receipts check runs after every shard, proving the union of units run is the set selected")

@@ -36,10 +36,12 @@ def booted_devices(runner=subprocess.run):
 
 
 def acquire(kind, timeout=1800, sampler=None, cache=None, inventory=None):
+    import cpu_guard
+    cpu_guard.require_managed_ancestor()
     name = kind if kind != "cache" else "cache-" + hashlib.sha256(os.path.realpath(cache).encode()).hexdigest()
     directory = Path(worker_tokens.machine_directory()).parent / ("simulator-" + name + "-v1")
     worker_tokens.init(directory, 2 if kind == "live" else 1)
-    budget = worker_tokens.Budget(directory, runner=True, shared=False)
+    budget = worker_tokens.Budget(directory, runner=True, shared=False, resource='simulator-' + name)
     deadline = time.monotonic() + timeout
     sample = sampler or reserve.host_sample
     while time.monotonic() < deadline:

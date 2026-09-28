@@ -46,6 +46,7 @@ import fcntl
 import json
 import signal
 import os
+import re
 import subprocess
 import sys
 import time
@@ -57,6 +58,24 @@ class Token:
     def __init__(self, fd, path):
         self.fd, self.path = fd, path
         self.extra = None
+        self.parent = None
+
+    def publish(self, beneficiary=None):
+        """Bind this locked inode to its live holder and the worker it serves."""
+        import proc_tree
+        beneficiary = os.getpid() if beneficiary is None else int(beneficiary)
+        holder = proc_tree.identity(os.getpid())
+        generation = proc_tree.identity(beneficiary)
+        if holder is None or generation is None or native_ancestry().get(beneficiary) != generation:
+            raise ValueError('worker permit has no live native owner')
+        if self.extra:
+            self.extra.publish(beneficiary)
+        row = {'schema': 1, 'holder': [os.getpid(), holder],
+               'beneficiary': [beneficiary, generation],
+               'parent': self.extra.path if self.extra else self.parent}
+        os.lseek(self.fd, 0, os.SEEK_SET)
+        os.ftruncate(self.fd, 0)
+        os.write(self.fd, json.dumps(row).encode())
 
     @property
     def fds(self):
@@ -74,14 +93,25 @@ class Token:
 
 
 class Budget:
-    def __init__(self, directory, reserved=0, runner=False, shared=None):
+    def __init__(self, directory, reserved=0, runner=False, shared=None, resource=None):
         """`reserved` tokens at the end of the budget are the runner's alone. `runner=True` is the
         runner itself: every token is open to it, the shared ones first, so the reserved ones
         are left for the moments nested workers hold all the rest."""
         self.dir = directory
+        self.resource = resource
+        if resource is not None:
+            if shared is not False or not re.fullmatch(
+                    r'native-build|simulator-(?:live|boot|cache-[0-9a-f]{64})', resource):
+                raise ValueError('unknown resource lock or shared worker budget on a resource lock')
+            import cpu_guard
+            cpu_guard.governed_directory(
+                directory, cpu_guard.CANONICAL_WORKERS.parent / (resource + '-v1'))
         shared = (shared or os.environ.get("RICHOS_MACHINE_WORKERS")) if shared is not False else None
         self.shared = (Budget(shared, reserved, runner, shared=shared)
                        if shared and os.path.realpath(shared) != os.path.realpath(directory) else None)
+        if not self.shared and not resource and os.path.isfile(os.path.join(os.path.dirname(__file__), 'cpu_guard.py')):
+            import cpu_guard
+            cpu_guard.governed_directory(directory, cpu_guard.CANONICAL_WORKERS)
         self.files = sorted(os.path.join(directory, f) for f in os.listdir(directory) if f.startswith("token-") and f[6:].isdigit())
         if not self.files:
             raise ValueError("no tokens in %s; make them with `worker_tokens.py init`" % directory)
@@ -92,6 +122,41 @@ class Budget:
             self.usable = self.files[:len(self.files) - reserved]
 
     def try_acquire(self):
+        # These existing serialization/device locks constrain already admitted
+        # work. They neither grant worker capacity nor enter the worker queue.
+        if self.resource:
+            return self._try_acquire()
+        # Only the final machine budget gates priority; recursively acquiring a
+        # local and shared budget must not deadlock against our own guard.
+        if self.shared:
+            return self._try_acquire()
+        self.refusal = None
+        if os.path.isfile(os.path.join(os.path.dirname(__file__), 'cpu_guard.py')):
+            import cpu_guard
+            self.refusal = cpu_guard.verification_admission()
+            if self.refusal:
+                return None
+        import engine_pass
+        if not hasattr(self, "admission"):
+            self.admission = engine_pass.Admission(
+                self.dir, os.environ.get("RICHOS_VERIFICATION_CHECKOUT", os.getcwd()),
+                permits=[os.path.basename(path) for path in self.usable])
+        if not self.admission.begin():
+            return None
+        token = None
+        try:
+            token = self._try_acquire()
+            return token
+        finally:
+            self.admission.attempted(token is not None)
+
+    def close(self):
+        if self.shared:
+            self.shared.close()
+        if hasattr(self, "admission"):
+            self.admission.close()
+
+    def _try_acquire(self):
         for path in self.usable:
             fd = os.open(path, os.O_RDWR)
             try:
@@ -100,11 +165,17 @@ class Budget:
                 os.close(fd)
                 continue
             token = Token(fd, path)
+            token.resource = self.resource
             if self.shared:
                 token.extra = self.shared.try_acquire()
                 if token.extra is None:
                     token.release()
                     continue
+            try:
+                token.publish()
+            except BaseException:
+                token.release()
+                raise
             return token
         return None
 
@@ -115,6 +186,8 @@ class Budget:
         not by the first worker ever submitted, which starved every later worker of the pool
         in the second full run (2026-09-23: workspaces.test.sh at one worker for 40 minutes).
         While waiting, a `wait-<pid>` marker says so (Budget.waiting, for the run's report)."""
+        if self.resource and free:
+            raise ValueError('a resource lock cannot borrow a worker permit')
         if free:
             free = os.environ.get("RICHOS_WORKER_BORROW_LOCK", free)
         t = self._try_free(free) or self.try_acquire()
@@ -132,6 +205,7 @@ class Budget:
                     raise TimeoutError("worker admission timed out after %gs: %s" % (timeout, self.dir))
                 time.sleep(POLL_SECONDS)
         finally:
+            self.close()
             try:
                 os.remove(marker)
             except OSError:
@@ -141,13 +215,22 @@ class Budget:
     def _try_free(path):
         if not path:
             return None
+        if managed_policy():
+            validate_borrow(path)
         fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             os.close(fd)
             return None
-        return Token(fd, path)
+        token = Token(fd, path)
+        token.parent = path.removesuffix('.child')
+        try:
+            token.publish()
+        except BaseException:
+            token.release()
+            raise
+        return token
 
     def held(self):
         n = 0
@@ -180,6 +263,91 @@ class Budget:
         return n
 
 
+def managed_policy():
+    if not os.path.isfile(os.path.join(os.path.dirname(__file__), 'cpu_guard.py')):
+        return False
+    import cpu_guard
+    return cpu_guard.verification_enabled()
+
+
+def inherited_admission():
+    """Validate the existing launcher shortcut before skipping its wrapper."""
+    if not (os.environ.get('RICHOS_WORKER_TOKENS')
+            and os.environ.get('RICHOS_WORKER_SLOT_HELD') == '1'):
+        return False
+    if not managed_policy():
+        return True
+    import cpu_guard
+    if not cpu_guard.inherited_verification_owner(os.environ.get('RICHOS_VERIFICATION_OWNER')):
+        return False
+    validate_borrow(os.environ.get('RICHOS_WORKER_BORROW_LOCK'))
+    return True
+
+
+def native_ancestry():
+    import operator_fences
+    current = operator_fences.proc(os.getpid(), precise=True)
+    result = {}
+    while current and not current['zombie'] and current['pid'] not in result:
+        result[current['pid']] = current['start']
+        current = operator_fences.proc(current['ppid'], precise=True)
+    return result
+
+
+def validate_borrow(path):
+    """An environment hint must resolve to a live, locked machine permit.
+
+    Local budgets and nested free slots form a short chain of held inodes. The
+    beneficiary must be this process or its native ancestor. A shell pool's
+    separate lease keeper can serve its parent, without pretending to be its
+    ancestor. A released, replaced or stale inode never authorizes borrowing.
+    """
+    import cpu_guard
+    import proc_tree
+    machine = os.environ.get('RICHOS_MACHINE_WORKERS') or str(cpu_guard.CANONICAL_WORKERS)
+    machine = os.path.realpath(cpu_guard.governed_directory(machine, cpu_guard.CANONICAL_WORKERS))
+    if not path or not path.endswith('.child'):
+        raise ValueError('worker borrow requires the held permit child path')
+    ancestors = native_ancestry()
+    cursor, seen = path[:-len('.child')], set()
+    while cursor and len(seen) < 64:
+        canonical = os.path.realpath(cursor)
+        if canonical in seen:
+            break
+        seen.add(canonical)
+        fd = os.open(cursor, os.O_RDONLY)
+        try:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                pass
+            else:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                raise ValueError('worker borrow parent is not held: ' + cursor)
+            row = json.loads(os.read(fd, 65536))
+            holder, beneficiary = row['holder'], row['beneficiary']
+            if (row.get('schema') != 1 or ancestors.get(beneficiary[0]) != beneficiary[1]
+                    or proc_tree.identity(beneficiary[0]) != beneficiary[1]
+                    or proc_tree.identity(holder[0]) != holder[1]):
+                raise ValueError('worker borrow has no live native ancestor: ' + cursor)
+            # Keep the observation tied to the inode whose lock was inspected.
+            actual, expected = os.fstat(fd), os.stat(cursor)
+            if (actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino):
+                raise ValueError('worker borrow parent inode changed')
+            parent = row.get('parent')
+            if parent is None:
+                if (os.path.dirname(canonical) != machine
+                        or not re.fullmatch(r'token-\d+', os.path.basename(canonical))):
+                    raise ValueError('worker borrow does not reach the shared machine budget')
+                return
+            cursor = parent
+        except (KeyError, TypeError, IndexError, json.JSONDecodeError) as exc:
+            raise ValueError('invalid worker permit ownership: ' + cursor) from exc
+        finally:
+            os.close(fd)
+    raise ValueError('invalid worker permit ownership chain')
+
+
 def init(directory, n):
     """Create an immutable budget under an initialization lock. Never unlink a live lease."""
     n = int(n)
@@ -204,6 +372,11 @@ def machine_directory():
     """One per-user budget across checkouts, runners and nightlies; never release.lock."""
     directory = os.environ.get("RICHOS_MACHINE_WORKERS") or os.path.join(
         os.path.expanduser("~"), ".richos-nightly", "worker-budget-v1")
+    if os.path.isfile(os.path.join(os.path.dirname(__file__), 'cpu_guard.py')):
+        import cpu_guard
+        if cpu_guard.installed_verification_policy():
+            directory = os.environ.get('RICHOS_MACHINE_WORKERS') or str(cpu_guard.CANONICAL_WORKERS)
+            directory = str(cpu_guard.governed_directory(directory, cpu_guard.CANONICAL_WORKERS))
     # The machine ceiling is independent of a run's smaller --capacity.
     init(directory, max(1, int((os.cpu_count() or 4) * 0.8)))
     return directory
@@ -214,11 +387,27 @@ def run_command(cmd, token, env=None, worker=True):
     # reuse that slot until the supervisor has stopped the command's descendants.
     import proc_tree
     env = dict(env if env is not None else os.environ)
+    env.setdefault("RICHOS_VERIFICATION_CHECKOUT", os.getcwd())
     if worker:
         env.update(RICHOS_WORKER_SLOT_HELD="1", RICHOS_WORKER_BORROW_LOCK=token.path + ".child")
     try:
+        if worker and getattr(token, 'resource', None):
+            raise ValueError('a resource lock cannot authorize a worker')
+        inherited = env.pop("RICHOS_ENGINE_PASS_FD", None)
+        lease_fds = list(token.fds)
+        if inherited is not None:
+            import engine_pass
+            fd = int(inherited)
+            actual = os.fstat(fd)
+            expected = os.stat(os.path.join(engine_pass.directory(), "slot.lock"))
+            if ((actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino) or
+                    not engine_pass.held_by_ancestor()):
+                raise ValueError("invalid inherited engine-slot descriptor")
+            # The supervisor retains the slot through owned cleanup even if this
+            # wrapper dies. Its child does not inherit an unusable FD hint.
+            lease_fds.append(fd)
         child = subprocess.Popen(proc_tree.command(cmd, owner=os.getpid()), env=env,
-                                 pass_fds=tuple(token.fds), start_new_session=True)
+                                 pass_fds=tuple(lease_fds), start_new_session=True)
         def stop(signum, _frame):
             child.send_signal(signum)
         previous = {sig: signal.signal(sig, stop) for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
@@ -257,6 +446,7 @@ def lease_worker(directory, owner, ready, release, free):
         if token is None:
             time.sleep(POLL_SECONDS)
     try:
+        token.publish(owner)
         with open(ready + ".borrow", "w") as out:
             out.write(token.path + ".child")
         with open(ready + ".new", "w") as out:
@@ -280,27 +470,53 @@ def lease_worker(directory, owner, ready, release, free):
         token.release()
 
 
-def main(argv):
-    if argv == ["directory"]:
-        print(machine_directory())
-        return 0
-    if len(argv) == 6 and argv[0] == "lease":
-        return lease_worker(*argv[1:])
-    if len(argv) >= 3 and argv[:2] == ["machine", "--"]:
-        if os.environ.get("RICHOS_WORKER_TOKENS") and os.environ.get("RICHOS_WORKER_SLOT_HELD") == "1":
-            import proc_tree
-            command = proc_tree.command(argv[2:], owner=os.getppid())
-            os.execv(sys.executable, command)
+def execution_outcome(rc):
+    marker = os.environ.get("RICHOS_UNIT_DEADLINE_MARKER")
+    if rc == 124 and (marker is None or (marker and os.path.isfile(marker))):
+        return "timed-out"
+    return "completed" if rc < 125 else "infrastructure-error"
+
+
+def machine_command(command, timing=None):
+    start = time.monotonic()
+    acquired = None
+    rc = 125
+    outcome = "infrastructure-error"
+    budget = None
+    try:
+        inherited = bool(os.environ.get("RICHOS_WORKER_TOKENS")
+                         and os.environ.get("RICHOS_WORKER_SLOT_HELD") == "1")
+        managed = managed_policy()
+        if managed:
+            import cpu_guard
+            if not cpu_guard.inherited_verification_owner(os.environ.get('RICHOS_VERIFICATION_OWNER')):
+                rc, outcome = 75, 'not-admitted'
+                print('worker_tokens: REFUSED before resource wait: use the current proof-run plan '
+                      'or its live admitted ancestor', file=sys.stderr)
+                return rc
+        if inherited and not managed:
+            if timing is None:
+                import proc_tree
+                os.execv(sys.executable, proc_tree.command(command, owner=os.getppid()))
+            acquired = time.monotonic()
+            rc = run_command(command, Token(None, ""), worker=False)
+            outcome = execution_outcome(rc)
+            return rc
         directory = machine_directory()
-        token = Budget(directory, runner=True).acquire()
+        budget = Budget(directory, runner=True)
+        free = os.environ.get('RICHOS_WORKER_BORROW_LOCK') if inherited else None
+        if inherited:
+            validate_borrow(free)
+        token = budget.acquire(free=free)
+        acquired = time.monotonic()
         env = {**os.environ, "RICHOS_MACHINE_WORKERS": directory,
                "RICHOS_WORKER_TOKENS": directory,
                "RICHOS_WORKER_TOKENS_TOOL": os.path.abspath(__file__),
-               "RICHOS_WORKER_TOKENS_RESERVED": str(max(1, len(Budget(directory).files) // 4))}
+               "RICHOS_WORKER_TOKENS_RESERVED": str(max(1, len(budget.files) // 4))}
         import uuid
         env["RICHOS_TEST_DEVICE_RUN_ID"] = uuid.uuid4().hex
         try:
-            return run_command(argv[2:], token, env)
+            rc = run_command(command, token, env)
         finally:
             # The complete engine owns test-device cleanup. Minimal test fixtures
             # copy only the process/budget helpers and never create real devices.
@@ -309,7 +525,40 @@ def main(argv):
                 errors = testdevices.cleanup_run_simulators(env["RICHOS_TEST_DEVICE_RUN_ID"])
                 if errors:
                     print("worker_tokens: simulator cleanup FAILED: " + "; ".join(errors), file=sys.stderr)
-                    raise SystemExit(125)
+                    rc = 125
+        outcome = execution_outcome(rc)
+        return rc
+    except (TimeoutError, OSError, ValueError) as exc:
+        refused = isinstance(exc, TimeoutError) and acquired is None
+        outcome = "not-admitted" if refused else "infrastructure-error"
+        rc = 75 if refused else 125
+        print("worker_tokens: %s: %s" % (outcome, exc), file=sys.stderr)
+        return rc
+    finally:
+        if budget:
+            budget.close()
+        if timing is not None:
+            end = time.monotonic()
+            with open(timing + ".new", "w") as out:
+                json.dump({"admission_seconds": (acquired or end) - start,
+                           "execution_seconds": end - acquired if acquired else 0,
+                           "exit": rc, "admitted": acquired is not None,
+                           "outcome": outcome}, out)
+            os.replace(timing + ".new", timing)
+
+
+def main(argv):
+    if argv == ['inherited-admission']:
+        return 0 if inherited_admission() else 1
+    if len(argv) >= 5 and argv[:2] == ["machine", "--timing"] and argv[3] == "--":
+        return machine_command(argv[4:], timing=argv[2])
+    if argv == ["directory"]:
+        print(machine_directory())
+        return 0
+    if len(argv) == 6 and argv[0] == "lease":
+        return lease_worker(*argv[1:])
+    if len(argv) >= 3 and argv[:2] == ["machine", "--"]:
+        return machine_command(argv[2:])
     reserved = os.environ.get("RICHOS_WORKER_TOKENS_RESERVED", "0")
     reserved = int(reserved) if reserved.isdigit() else 0
     if len(argv) == 3 and argv[0] == "init":

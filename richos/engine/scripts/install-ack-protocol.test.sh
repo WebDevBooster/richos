@@ -18,7 +18,7 @@ FAIL=0
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n' "$1"; [ -n "${2:-}" ] && printf '         %s\n' "$2"; FAIL=$((FAIL + 1)); }
 
-SANDBOX="$(mktemp -d -t ack-protocol.XXXXXX)"
+SANDBOX="$(mktemp -d "${TMPDIR:?}/ack-protocol.XXXXXX")"
 trap 'rm -rf "$SANDBOX"' EXIT
 
 PLACEHOLDER='*ACK-PROTOCOL-SEAM — how you acknowledge a correction sent TO you by the lead is defined

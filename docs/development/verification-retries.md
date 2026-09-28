@@ -27,6 +27,14 @@ that the test code failed or that the machine is inherently slow. Inspect the
 recorded admission reason, CPU samples, worker leases and owned processes before
 choosing a remedy. Preserve CPU limits, shared worker budgets and build locks.
 
+The proof runner also takes the host-wide proof-run slot, which defaults to one
+run at a time. `--slot-wait` bounds that admission wait. The separate
+`--engine-slot-wait` bounds the large engine-plan slot wait; leaving it unset
+preserves that gate's default. Neither option changes execution deadlines.
+The runner and receipt verifier suppress Python bytecode writes so verification
+does not alter its own declared source inputs. Existing bytecode remains part
+of the input identity and changed inputs still invalidate evidence.
+
 ## 2. Before any retry
 
 Run failed, timed-out, refused or previously unrun units before repeating
@@ -84,11 +92,44 @@ record the provenance of every selected receipt. Never manufacture a verdict,
 edit its SHA or overwrite the failed run's summary.
 
 Verify the selected receipt set against the original plan. The existing verifier
-rejects missing, duplicate, unplanned, non-green and mixed-commit receipts. Also
-check the source fingerprint and relevant environment independently; the receipt
-verifier is not a general environment-equivalence checker. For non-engine checks,
+rejects missing, duplicate, unplanned and non-green receipts. Mixed-commit receipts
+require target provenance; the legacy invocation still rejects them. For non-engine checks,
 preserve their full-run summary and logs and verify their actual scope and status.
-Do not invent a general proof-run resume/cache feature that does not exist.
+For a run with `plan.json` and `outcomes.json`, use
+`python3 richos/app/scripts/proof-run.py --resume <saved-run-directory>` to
+restore its exact plan. It creates a separate attempt, prioritizes unresolved
+checks and copies validated logs and receipts without rewriting their SHAs.
+Exact resume requires the original checkout and frozen plan. For a newly selected
+target, including another checkout or commit, use
+`python3 richos/app/scripts/proof-run.py --reuse <author-run-directory> <target-range>`.
+`--reuse` may be repeated for more than one prior run. Each reused obligation must
+have identical qualified inputs and command. An unrelated commit does not itself
+invalidate its result. Missing qualification, changed inputs or damaged evidence
+requires execution with the reason recorded. Live known-red declarations are
+evaluated again and are never reused.
+
+The runner supplies target provenance to `ci-receipts.py verify --proof-run <target-run>`.
+The verifier independently recomputes target inputs and checks saved outcomes,
+log/receipt hashes and original receipt commits before accepting mixed-SHA coverage.
+Changing receipt SHAs is never valid. Older runs without saved input qualifications
+still need execution or the explicit same-commit reconciliation described above.
+The mechanism does not qualify a suite automatically: production execution recipes
+and their per-unit declarations remain necessary before reuse is available.
+
+Qualified inputs are also discovered automatically across this repository's
+worktrees. One kernel-held lock owns each identical execution identity. A second
+request joins that owner without occupying a worker permit; independent checks
+remain eligible. After cleanup the owner publishes its existing evidence, which
+the joiner validates through the same reuse and coverage paths. A damaged or
+rotated artifact is a cache miss, never a pass. Fresh checks still execute.
+
+The input owner record retains behavioral failures across new run directories.
+After diagnosing an unchanged failure, pass `--retry-reason "<diagnosis>"` for
+its one permitted retry. Two failed attempts require a relevant input change;
+renaming the run or supplying another explanation does not reset the count.
+Admission refusal, deadline and infrastructure failures do not spend this
+behavioral budget. Their distinct recovery policies still apply. A corrupt retry
+record refuses execution rather than silently clearing its history.
 
 If a required gate explicitly demands a fresh single invocation, preserve that
 requirement and run it after resolving the blocker. A request for full coverage
@@ -121,7 +162,29 @@ reconciled verification. Preserve useful evidence before deleting owned scratch.
 
 These are mandatory agent instructions. The existing coverage verifier and
 resource guards provide mechanical checks for their specific invariants. This
-change does not add a universal command interceptor, a general result cache or
-automatic failed-first scheduling. Do not claim that instructions alone make
+runner adds durable exact-plan retry, unresolved-first scheduling and automatic
+reuse/joining for qualified input recipes. It does not add a universal command
+interceptor. Do not claim that instructions alone make
 recurrence technically impossible. A future mechanical change must preserve
 source/input identity checks, truthful failures and required coverage.
+
+## Cost review
+
+Managed execution records actual CPU and elapsed cost beside its supervision
+result. Qualified input recipes use a comparison identity that retains the
+command, toolchain, platform and execution settings across source changes. The
+original successful observation stays the baseline; slower later passes cannot
+silently raise it. The history retains that baseline and twenty recent costs.
+
+`COST GROWTH` means a comparable metric increased by more than 20% and at least
+10 seconds. `COST REVIEW` also exposes elapsed growth when host load is missing
+or different. That uncertain comparison is not proof of a code regression.
+The next attempt reports unresolved growth again before launch. Inspect the
+linked history, original result, actual inputs and load before repeating work.
+Fix the cost, reuse applicable evidence or qualify the changed execution inputs.
+A functional pass alone does not resolve a performance regression.
+
+Unqualified recipes and interrupted attempts cannot establish a baseline.
+Queue time, completed execution and repeated attempts remain separate in the
+runner report. The cost warning does not relabel a passing assertion as failed
+or turn an unresolved performance target into completion.
