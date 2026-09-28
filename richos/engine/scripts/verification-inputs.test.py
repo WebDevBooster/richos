@@ -165,11 +165,23 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_dialect_source_scan_keeps_unqualified_registration_selection(self):
+        from affected_units import Selection
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        unit = 'scripts/hooks/guard-dialect.test.sh'
+        read = lambda path: (HERE.parent / path).read_text()
+        selection = Selection(HERE.parent, [unit], read, document)
+        selection.ordinary('.claude/settings.local.json', '{"hooks":{}}', '{"hooks":{},"extra":true}')
+        self.assertIn(unit, selection.selected)
+        selection = Selection(HERE.parent, [unit], read, document)
+        selection.hooks('{"hooks":{}}', '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"bash ${CLAUDE_PLUGIN_ROOT}/unrelated.sh"}]}]}}')
+        self.assertIn(unit, selection.selected)
+
     def test_registration_observers_keep_own_dispatcher_probe_and_source_changes(self):
         from affected_units import Selection
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         read = lambda path: (HERE.parent / path).read_text()
-        names = ('guard-dialect', 'ceo-todos', 'row-currency', 'completeness-commits',
+        names = ('ceo-todos', 'row-currency', 'completeness-commits',
                  'named-persons', 'publication-boundary', 'guard-vendoring-commits', 'ceo-asks')
         def selected(unit, path, before, after, reader=read):
             selection = Selection(HERE.parent, [unit], reader, document)
