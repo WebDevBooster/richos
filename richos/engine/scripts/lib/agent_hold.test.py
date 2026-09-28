@@ -109,7 +109,8 @@ class Base(unittest.TestCase):
             try:
                 os.killpg(p.pid, signal.SIGCONT)
                 os.killpg(p.pid, signal.SIGKILL)
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):
+                # macOS answers EPERM for a group whose only member is an unreaped zombie.
                 pass
             p.wait()
         for k, v in self.env_before.items():
@@ -120,7 +121,7 @@ class Base(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def payload(self, tuid="toolu_fixture1", agent=None):
-        return {"tool_name": "Bash", "session_id": self.session, "agent_id": agent or self.agent,
+        return {"tool_name": "Bash", "session_id": self.session, "agent_id": self.agent if agent is None else agent,
                 "tool_use_id": tuid, "cwd": self.tmp, "tool_input": {"command": "true"}}
 
     def start_call(self, body, tuid="toolu_fixture1", agent=None):
@@ -363,13 +364,18 @@ class RealTree(Base):
     def test_release_skips_a_reused_pid(self):
         self.start_call('%s %s %s %d' % (sys.executable, self.worker, self.out("w"), ROUNDS * 20))
         pid = self.worker_pid("w")
+        # Older than release's one-second window for commands that started while held.
+        time.sleep(agent_hold.BIRTH_SLACK + 0.5)
         agent_hold.hold(self.session, self.agent, "fixture")
         path = agent_hold._held_path(self.session, self.agent)
         rec = json.loads(Path(path).read_text())
-        rec["held"][str(pid)] = rec["held"][str(pid)] - 3600      # as if the PID now names another process
+        # As if every held PID now named another process. (All of them: a continued
+        # shell may itself continue its stopped child, which is not a signal from us.)
+        rec["held"] = {k: v - 3600 for k, v in rec["held"].items()}
         Path(path).write_text(json.dumps(rec))
         rel = agent_hold.release(self.session, self.agent)
         self.assertIn(pid, rel["gone"])
+        self.assertEqual(rel["continued"], [], rel)
         self.assertTrue(state(pid).startswith("T"), "a process that fails the start-time check is not signaled")
 
 

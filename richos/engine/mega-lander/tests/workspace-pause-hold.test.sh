@@ -93,7 +93,8 @@ import subprocess, sys
 shell, cmd, pidfile, rcfile = sys.argv[1:5]
 p = subprocess.Popen([shell, "-c", cmd], process_group=0, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 open(pidfile, "w").write(str(p.pid))
-open(rcfile, "w").write(str(p.wait()))
+rc = p.wait()          # the rc file appears only once the call has ended
+open(rcfile, "w").write(str(rc))
 PY
 cat > "$T/worker.py" <<'PY'
 import hashlib, os, sys
@@ -127,6 +128,9 @@ is_stopped() { case "$(pstate "$1")" in T*) return 0;; *) return 1;; esac; }
 children_of() { ps -A -o pid=,ppid= | awk -v p="$1" '$2 == p {print $1}'; }
 
 start_session "sess-hold-1111"
+# Point 14: a spawn is registered only when this body of work's branch is recorded.
+python3 "$ENGINE/mega-lander/workspaces.py" --entity "$ENT" --session "$CUR_SID" integration --repo "$ENT" --branch main \
+    --why "the pause-hold suite's body of work" >/dev/null 2>>"$T/hooks.err"
 AID="aholdholdholdhold"
 register_agent "zach-opus-hold1" "$AID"
 sub "H0 the agent is registered with its id" "grep -q '\"agent_id\": \"$AID\"' \"\$(ls $STORE/agents/*--zach-opus-hold1.json)\"" "$(cat "$T/spawn.err" "$T/hooks.err" 2>/dev/null)"
@@ -153,7 +157,8 @@ SHL="$(cat "$T/late.shell")"
 i=0; while ! is_stopped "$SHL" && [ $i -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
 sleep 1
 sub "H2.1 the new call's shell suspended itself before its command ($(pstate "$SHL"))" "is_stopped $SHL"
-sub "H2.2 it started no process and its command has not run" "[ -z \"\$(children_of $SHL)\" ] && [ ! -e '$T/late.ran' ] && [ ! -e '$T/late.rc' ]"
+sub "H2.2 it started no process and its command has not run" "[ -z \"\$(children_of $SHL)\" ] && [ ! -e '$T/late.ran' ] && [ ! -e '$T/late.rc' ]" \
+    "children: $(children_of "$SHL" | tr '\n' ' ') files: $(ls "$T"/late.* 2>&1 | tr '\n' ' ')"
 
 echo "=== H3 the generated RESUME continues the same work, which finishes correctly ==="
 send "zach-opus-hold1" "$RESUME_TEXT" "$T/resume.out"
@@ -161,7 +166,9 @@ sub "H3.1 the lead is told what continued" "grep -q 'RELEASE zach-opus-hold1:' '
 wait_file "$T/w1.rc" 1200; wait_file "$T/late.rc" 200
 sub "H3.2 the held worker finished with the correct result, exit 0" "[ \"\$(cat $T/w1 2>/dev/null)\" = '$EXPECTED' ] && [ \"\$(cat $T/w1.rc)\" = 0 ]" "rc=$(cat "$T/w1.rc" 2>/dev/null)"
 sub "H3.3 the command that waited ran normally after RESUME, exit 0" "[ \"\$(cat $T/late.ran 2>/dev/null)\" = ran ] && [ \"\$(cat $T/late.rc)\" = 0 ]"
-sub "H3.4 the registry records the resume and no hold is left" "[ -z \"\$(ls $HOLD_STATE/held 2>/dev/null)\" ] && ! grep -q '\"pause\": {' \"\$(ls $STORE/agents/*--zach-opus-hold1.json)\""
+unpaused() { python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("pause") is None else 1)' "$(ls "$STORE"/agents/*--"$1".json)"; }
+sub "H3.4 the registry records the resume and no hold is left" "[ -z \"\$(ls $HOLD_STATE/held 2>/dev/null)\" ] && unpaused zach-opus-hold1" \
+    "held: $(ls "$HOLD_STATE/held" 2>&1 | tr '\n' ' ')"
 
 echo "=== H4 a stop never leaves held work suspended ==="
 agent_call "$AID" "toolu_work2" "python3 $T/worker.py $T/w2 $((ROUNDS * 50))" w2
