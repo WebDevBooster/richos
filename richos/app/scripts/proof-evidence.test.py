@@ -22,6 +22,26 @@ spec = importlib.util.spec_from_file_location("proof_run", HERE / "proof-run.py"
 runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
 
+IDLE_SAMPLE = {"cpu_user_percent": 5.0, "cpu_system_percent": 2.0, "cpu_idle_percent": 93.0,
+               "swapout_mb_per_s": 0.0, "memory_pressure": "normal", "memory_free_percent": 80,
+               "swap_used_mb": 0.0}
+
+
+def idle_proof_run(script):
+    """A command line for `script` (a proof-run.py) whose admission sample is fixed and idle.
+
+    These fixtures prove evidence reuse and joining, not CPU admission, which proof-run.test.py
+    covers. The nightly runs this suite beside every other gate on a Mac at up to 100% busy,
+    where the real sample held a fixture's one-line check past its 45 s and 20 s deadlines.
+    Same bootstrap as proof-run.test.py P8 and test-results.test.sh P1.
+    """
+    testvm = str(Path(script).parent / "testvm")
+    bootstrap = ("import runpy,sys; sys.path.insert(0," + repr(testvm) + "); "
+                 "import reserve; reserve.host_sample=lambda *a, **k: " + repr(IDLE_SAMPLE) + "; "
+                 "sys.argv=[" + repr(str(script)) + "]+sys.argv[1:]; "
+                 "runpy.run_path(sys.argv[0],run_name='__main__')")
+    return [sys.executable, "-B", "-c", bootstrap]
+
 
 class Evidence(unittest.TestCase):
     def setUp(self):
@@ -516,7 +536,7 @@ class Evidence(unittest.TestCase):
         def invoke(name, units, *options):
             commands.write_text("cd richos/engine && bash scripts/ci-shard.sh --only-units " + units + "\n")
             directory = Path(self.tmp.name) / name
-            result = subprocess.run([sys.executable, "-B", str(app / "proof-run.py"),
+            result = subprocess.run([*idle_proof_run(app / "proof-run.py"),
                 "--commands", str(commands), "--log-dir", str(directory), *options],
                 cwd=self.root, env=env, text=True, capture_output=True, timeout=45)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr + "\n" +
@@ -776,7 +796,7 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
             commands.write_text("".join("cd . && bash " + label + ".test.sh\n" for label in labels))
             log = (temporary / (name + ".log")).open("w")
             self.addCleanup(log.close)
-            process = subprocess.Popen([sys.executable, "-B", str(root / "richos/app/scripts/proof-run.py"),
+            process = subprocess.Popen([*idle_proof_run(root / "richos/app/scripts/proof-run.py"),
                 "--commands", str(commands), "--log-dir", str(temporary / name)],
                 cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT)
             processes.append(process)
