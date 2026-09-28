@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """The native-walk provider must wait for the exact decision, not invent one."""
 import json
+import importlib.util
 from pathlib import Path
 import select
 import subprocess
 import sys
 import unittest
+from unittest.mock import patch
 
 PROVIDER = Path(__file__).resolve().parents[1] / 'permission-provider.py'
 
@@ -31,6 +33,25 @@ class PermissionProviderTests(unittest.TestCase):
 
     def prompt(self, text):
         self.send({'type': 'user', 'message': {'content': text}})
+        init = self.read()
+        self.assertEqual((init['type'], init['subtype']), ('system', 'init'))
+        self.assertIn({'name': 'richos-app-engine'}, init['plugins'])
+        self.assertEqual(init['permissionMode'], 'auto')
+        self.assertIn('mcp__richos_onboarding__save_company_notes', init['tools'])
+        self.assertIn('mcp__richos_onboarding__decline_onboarding', init['tools'])
+        self.assertIn('mcp__richos_continuity__checkpoint', init['tools'])
+
+    def test_auth_status_uses_real_provider_and_login_is_refused(self):
+        spec = importlib.util.spec_from_file_location('s7_provider', PROVIDER)
+        provider = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(provider)
+        with patch.object(provider.os, 'execv') as execute:
+            provider.main(['auth', 'status', '--json'])
+            execute.assert_called_once_with(provider.REAL_PROVIDER,
+                                           [provider.REAL_PROVIDER, 'auth', 'status', '--json'])
+            with self.assertRaisesRegex(ValueError, 'read-only auth status'):
+                provider.main(['auth', 'login'])
+            self.assertEqual(execute.call_count, 1)
 
     def test_initialize_and_hidden_context_do_not_ask(self):
         self.send({'type': 'control_request', 'request_id': 'req_init',

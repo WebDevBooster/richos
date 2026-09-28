@@ -266,6 +266,48 @@ async function main() {
   const browser = await webkit.launch();
   const run = createRun("§25 Steering and stop — real bytes + real shell, WebKit");
 
+  for (const newThread of [true, false]) {
+    await run.check(`sending from ${newThread ? "New thread" : "the company overview"} does not steer a pending conversation`, async () => {
+      const p = await openApp(browser);
+      try {
+        await startTurn(p);
+        await p.evaluate(() => {
+          window.__previousModel = window.__RICHOS_TIMELINE__();
+          window.__stub.pending_permission = {
+            id: "pending-other-conversation", binding: {entity_id: window.__previousModel.entityId},
+            tool: "Bash", description: "An action in the original conversation", input: {command: "true"},
+          };
+        });
+        await p.waitForSelector("#permission-sheet:not([hidden])");
+        const group = p.locator("section.nav-group").filter({has: p.locator('.nav-thread[data-thread-id="acme"]')});
+        await group.locator(newThread ? ".nav-group-add" : ".nav-group-label").click();
+        await p.evaluate(() => { window.__calls = []; });
+        await p.fill("#input", "An independent conversation");
+        assert(await p.locator("#send").isVisible(), "Send stayed hidden after leaving the pending conversation");
+        if (newThread) await p.click("#send");
+        else await p.press("#input", "Enter");
+        await p.waitForFunction("window.__calls.some(c => c.cmd === 'create_thread_in' || c.cmd === 'steer_message')");
+        const calls = await p.evaluate(() => window.__calls.map(c => c.cmd));
+        assert(!calls.includes("steer_message"), "new conversation was routed as steering to the pending one");
+        assert(calls.includes("create_thread_in"), "no new conversation was created");
+        await p.waitForFunction("window.__calls.some(c => c.cmd === 'send_message')");
+        const state = await p.evaluate(() => ({
+          original: window.__previousModel.threadId,
+          current: window.__RICHOS_TIMELINE__().threadId,
+          pending: window.__previousModel.turns.get("turn_live_1").live,
+          answers: window.__calls.filter(c => c.cmd === "answer_permission" || c.cmd === "stop_turn"),
+          sent: window.__calls.find(c => c.cmd === "send_message").args.text,
+        }));
+        assert(state.current !== state.original, "send kept the previous conversation binding");
+        assertEqual(state.sent, "An independent conversation");
+        assertEqual(state.pending, true, "opening a new conversation ended the pending turn");
+        assertEqual(state.answers, [], "navigation answered permission or stopped work");
+        assertEqual(p.__errors, [], "renderer errors");
+        return "independent send with the original permission still pending";
+      } finally { await p.close(); }
+    });
+  }
+
   // ===================================================================================
   // §25 criterion 4: "The terminal row reads `You stopped after {duration}`."
   // ===================================================================================

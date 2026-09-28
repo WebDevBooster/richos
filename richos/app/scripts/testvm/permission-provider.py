@@ -6,10 +6,16 @@ answer the permission through its normal policy. This script executes no tools.
 It never logs prompts or provider account data. Use only in a disposable guest.
 """
 import json
+import os
 import sys
 import uuid
 
 MARKER = 'S7_NATIVE_PERMISSION_'
+REAL_PROVIDER = '/Users/admin/.local/bin/claude'
+TOOLS = ['Bash', 'mcp__richos_onboarding__save_company_notes',
+         'mcp__richos_onboarding__decline_onboarding',
+         'mcp__richos_continuity__checkpoint', 'mcp__richos_continuity__inspect',
+         'mcp__richos_assignments__record', 'mcp__richos_status__background_work']
 
 
 def emit(value):
@@ -36,6 +42,11 @@ def serve(lines):
                 pending = None
                 result()
         elif kind == 'user':
+            # The provider boundary includes its startup inventory. These are
+            # fixture declarations; the scenario executes none of these tools.
+            emit({'type': 'system', 'subtype': 'init', 'model': 's7-fixture',
+                  'plugins': [{'name': 'rich-skills'}, {'name': 'richos-app-engine'}],
+                  'permissionMode': 'auto', 'tools': TOOLS})
             # The app also supplies hidden context. Only an explicit visible
             # walk marker asks for permission; other turns have no tool action.
             content = frame.get('message', {}).get('content', '')
@@ -65,8 +76,18 @@ def serve(lines):
         raise ValueError('input closed before the permission decision')
 
 
-if __name__ == '__main__':
-    if '--version' in sys.argv:
+def main(argv):
+    if argv == ['auth', 'status', '--json']:
+        # Keep the real signed-in guest's auth gate. Never invent an account or
+        # read/save its credentials; replace this process with the pinned CLI.
+        os.execv(REAL_PROVIDER, [REAL_PROVIDER, *argv])
+    elif argv[:1] == ['auth']:
+        raise ValueError('the S7 fixture supports only read-only auth status')
+    elif '--version' in argv:
         print('2.1.283 (synthetic S7 acceptance provider)')
     else:
         serve(sys.stdin)
+
+
+if __name__ == '__main__':
+    main(sys.argv[1:])

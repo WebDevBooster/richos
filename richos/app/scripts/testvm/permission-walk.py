@@ -33,11 +33,20 @@ def run(a):
               'source': a.expect_sha, 'checks': [], 'result': 'failed'}
     try:
         report['identity'] = w.identity()
+        # This scenario always starts with an empty home. The helper's initial
+        # optional-dialog check is instantaneous; wait for the asynchronous
+        # first-run surface before letting it decide which control to press.
+        w.wait_for('Set it up')
         w.first_run()
         fixture = w.payload + '/permission-provider.py'
         adopt.command([HERE / 'guest.sh', a.vm, '--push', HERE / 'permission-provider.py', fixture], 60)
         guest(a.vm, 'chmod 700 ' + shlex.quote(fixture))
         report['launch'] = relaunch(a.vm, environment={'RICHOS_CLAUDE_BIN': fixture})
+        # Subsequent launches show the home screen, which keeps the desk inert.
+        # Enter through its native control, as command-walk's relaunch does.
+        w.wait_for('Talk to Rich')
+        w.press('Talk to Rich', contains=False)
+        report['home_door_pressed'] = True
         w.wait_for('Message to Rich', role='AXTextArea')
 
         def send(text):
@@ -51,6 +60,21 @@ def run(a):
             if not found:
                 raise RuntimeError('permission control is not visibly usable: ' + title)
             return found[0]
+
+        def wait_for_reply(text):
+            # WebKit exposes static prose as AXValue, not AXTitle/Description.
+            end = time.monotonic() + 30
+            while time.monotonic() < end:
+                try:
+                    rows = w.ax('find', '--value', text, '--role', 'AXStaticText', '--contains', '--first')
+                    if any(row.get('role') == 'AXStaticText' and row.get('w', 0) > 0
+                           and row.get('h', 0) > 0 for row in rows):
+                        return
+                except adopt.StepFailed as error:
+                    if 'notfound' not in str(error) and 'nothing matched' not in str(error):
+                        raise
+                time.sleep(1)
+            raise adopt.StepFailed('reply never appeared within 30 s: ' + text)
 
         for decision, control in [('allow', 'Allow action'), ('deny', 'Decline')]:
             marker = 'S7_NATIVE_PERMISSION_' + decision.upper()
@@ -70,13 +94,13 @@ def run(a):
             # the original request remains unresolved.
             w.press('New thread in Acme')
             send('S7_INDEPENDENT_' + decision.upper())
-            w.wait_for('S7 independent conversation replied.', role='AXStaticText', seconds=30)
+            wait_for_reply('S7 independent conversation replied.')
             w.shot('independent-' + decision + '.png')
             w.press(marker)
             button(control)
             w.press(control, contains=False)
             receipt = 'S7 provider received ' + decision + ' for s7-'
-            w.wait_for(receipt, role='AXStaticText', seconds=30)
+            wait_for_reply(receipt)
             w.shot('answered-' + decision + '.png')
             report['checks'].append({'name': decision + ': independent reply and exact decision receipt',
                                      'result': 'passed', 'receipt_prefix': receipt})
