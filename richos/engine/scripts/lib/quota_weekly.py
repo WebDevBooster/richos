@@ -86,7 +86,7 @@ def handle(args, reading, now, workers, reset_status, five_verdict):
             reset = datetime.datetime.fromtimestamp(w["resets_at"], datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if w["resets_at"] and w["resets_at"] > now else None
             print(pause_protocol.render("weekly-quota", reset))
             print("  Summary: " + pause_protocol.SUMMARY)
-            print("  Restart %s --watch; a five-hour reset does not release this weekly hold." % args.command)
+            print("  The watcher keeps polling; a five-hour reset does not release this weekly hold.")
             return True, True
         return True, False
     if paused:
@@ -94,7 +94,7 @@ def handle(args, reading, now, workers, reset_status, five_verdict):
             print("WEEKLY-QUOTA-RELEASE: fresh weekly allowance and five-hour policy both permit work.")
             print("  Send to: " + ", ".join(paused))
             print("RESUME: quota allowance is confirmed. Continue the same work with the same context and workspace.")
-            print("  Restart %s --watch." % args.command)
+            print("  The watcher keeps polling.")
             return False, True
         return True, False
     return False, False

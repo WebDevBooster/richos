@@ -84,7 +84,8 @@
 #   R03      the 07:57Z/08:07Z shape on the fallback: every wake is a REFRESH
 #            under one poll old, and the pause fires before 08:07Z under 95%
 #   W06      a stale reading with nothing running does NOT wake the lead
-#   W07      no payload at all: --watch cannot watch, exit 2
+#   W07      no payload at all: the watcher keeps polling, and with nothing
+#            working it wakes nobody (until 2026-09-28 it exited 2 at start)
 #   W08      no threshold declared: --watch cannot watch, exit 2
 #   W09      the default poll is his "every 5 minutes" (300 s), and a worker
 #            set the registry cannot name still fires the threshold
@@ -103,6 +104,29 @@
 #              E07  --until-reset also wakes at the release when one is held
 #              E08  at the reset only the quota-paused agent is named to wake
 #              E09  the printed resume message resumes it in the registry
+#
+# THE POLLING NEVER STOPS (2026-09-28). --watch used to EXIT to wake the lead,
+# and at the 14:30Z reset and a 15:32Z get_usage timeout nothing polled until
+# the lead started it again by hand. Now a poller polls for as long as its
+# session lives; --watch (the fallback doorbell) still exits on a wake-up, and
+# --monitor (the plugin monitor every interactive session starts) prints it
+# and goes on. Every case below fails on the watcher before that change:
+#   N01      at the reset the lead is woken ONCE and the polling goes on into
+#            the new window
+#   N02      get_usage timing out twice at 8% (the 15:32Z shape, initialize
+#            answered): retried sooner than a poll, nobody woken, polling goes
+#            on, and the failure says which request hung and claude's stderr
+#   N03      a crossing during a timeout streak, seen by the status line:
+#            QUOTA-THRESHOLD, and the polling goes on
+#   N04      a timeout streak right after a steep measured rise: QUOTA-STALE as
+#            soon as the reading is a poll old, not at the two-poll cap
+#   N05      an outage that does not end, far from the threshold: ONE
+#            QUOTA-STALE at the two-poll mark, and the polling goes on
+#   N06      a stale status-line reading: QUOTA-STALE once, polling goes on
+#   M01      --monitor prints each wake-up once and no poll line, keeps
+#            running, --watch stands down to it, --alive names it, and it ends
+#            with its session, poller and all
+#   M02      --alive with nothing polling: NOT WATCHED, exit 2
 #
 # The mutation harness, quota-watch.mutation.sh, is run from the bottom of
 # this file, so the runner that discovers *.test.sh runs it too.
@@ -129,8 +153,21 @@ SB="$(scratch_new quota-watch-test)" || { echo "FATAL: no scratch" >&2; exit 1; 
 # the watchers it starts itself.
 SLEEPER="$(sh -c 'sleep 900 >/dev/null 2>&1 & echo $!')"
 WATCH_PID=""
+# The pollers a --watch starts record their own pid in this suite's sandbox
+# (poller.json); those are this suite's processes, and they also end by
+# themselves within seconds of SLEEPER, the session they belong to.
+stop_pollers() { # [state-dir] — every poller under it (default: all of this suite's)
+    local f p
+    for f in "${1:-$SB}"/state*/*/poller.json "${1:-$SB}"/*/poller.json; do
+        [ -f "$f" ] || continue
+        p="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("pid") or "")' "$f" 2>/dev/null)"
+        [ -n "$p" ] && kill "$p" 2>/dev/null
+    done
+    return 0
+}
 cleanup() {
     [ -n "$WATCH_PID" ] && kill "$WATCH_PID" 2>/dev/null
+    stop_pollers "$SB"
     kill "$SLEEPER" 2>/dev/null
     # The fixture writes its own pid at start: those are this suite's processes.
     if [ -f "${FAKE:-/nonexistent}/pids" ]; then
@@ -163,6 +200,9 @@ export RICHOS_SESSION_PID="$SLEEPER"
 export RESUME_GUARD_TEAMS_DIR="$SB/teams"
 export QUOTA_WATCH_POLL_SECONDS=1
 export QUOTA_WATCH_STALE_SECONDS=30
+# Never the operator's ~/.claude/state/quota-watch: each --watch run gets its
+# own directory under the sandbox (new_state).
+export QUOTA_WATCH_STATE_DIR="$SB/state-0"
 # The E cases' SubagentStop runs the registry's test-device collection, which
 # otherwise takes ~/.claude/state/test-devices/.lock: the operator's record
 # (ci-shard's record canary, 2026-09-28).
@@ -332,12 +372,21 @@ check "Q24  --status names the 2026-09-25 update and says NO PAUSE inside the la
 fi
 
 # --- W: --watch ------------------------------------------------------------
+# Since 2026-09-28 --watch is the doorbell: it EXITS on a wake-up (that exit
+# is what wakes the lead) while a separate poller goes on polling. Each run
+# gets its own state directory, so no case inherits another's poller.
+RUN_N=0
+new_state() {
+    RUN_N=$((RUN_N + 1))
+    export QUOTA_WATCH_STATE_DIR="$SB/state-$RUN_N"
+}
 start_watch() { # <outfile> [args...]
     local out="$1"; shift
+    new_state
     bash "$Q" --watch "$@" >"$out" 2>&1 &
     WATCH_PID=$!
 }
-finish_watch() { # <timeout-seconds> — sets WRC (124 on timeout)
+finish_watch() { # <timeout-seconds> — sets WRC (124 on timeout), then POLLING (see polling_goes_on)
     local n=0 lim=$(( $1 * 10 ))
     while kill -0 "$WATCH_PID" 2>/dev/null && [ "$n" -lt "$lim" ]; do sleep 0.1; n=$((n + 1)); done
     if kill -0 "$WATCH_PID" 2>/dev/null; then
@@ -346,7 +395,36 @@ finish_watch() { # <timeout-seconds> — sets WRC (124 on timeout)
         wait "$WATCH_PID"; WRC=$?
     fi
     WATCH_PID=""
+    POLLING=unchecked
+    if [ "${CHECK_POLLING:-}" = 1 ]; then polling_goes_on; fi
+    stop_pollers "$QUOTA_WATCH_STATE_DIR"
 }
+poll_count() { # poll lines the current run's poller has written so far
+    local f
+    f="$(ls "$QUOTA_WATCH_STATE_DIR"/*/polls.log 2>/dev/null | head -1)"
+    [ -n "$f" ] || { echo 0; return; }
+    grep -cE '^[0-9]{2}:[0-9]{2}:[0-9]{2}Z  ' "$f" 2>/dev/null || echo 0
+}
+polling_goes_on() { # POLLING=yes when the run's poller is alive and polls again within ~3 polls
+    local before after f p
+    POLLING=no
+    f="$(ls "$QUOTA_WATCH_STATE_DIR"/*/poller.json 2>/dev/null | head -1)"
+    [ -n "$f" ] || return 0
+    p="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("pid") or "")' "$f" 2>/dev/null)"
+    [ -n "$p" ] && kill -0 "$p" 2>/dev/null || return 0
+    before="$(poll_count)"
+    sleep "${POLL_WAIT:-3.5}"
+    after="$(poll_count)"
+    kill -0 "$p" 2>/dev/null && [ "$after" -gt "$before" ] && POLLING=yes
+    return 0
+}
+events_of() { # <kind> — how many wake-ups of that kind the current run's poller journaled
+    local f
+    f="$(ls "$QUOTA_WATCH_STATE_DIR"/*/events.jsonl 2>/dev/null | head -1)"
+    [ -n "$f" ] || { echo 0; return; }
+    python3 -c 'import json,sys; print(sum(1 for l in open(sys.argv[1]) if json.loads(l).get("kind") == sys.argv[2]))' "$f" "$1"
+}
+polls_log() { cat "$QUOTA_WATCH_STATE_DIR"/*/polls.log 2>/dev/null; }
 wait_for_line() { # <file> <pattern> <timeout-seconds>
     local n=0 lim=$(( $3 * 10 ))
     while ! grep -q "$2" "$1" 2>/dev/null && [ "$n" -lt "$lim" ]; do sleep 0.1; n=$((n + 1)); done
@@ -372,6 +450,17 @@ if sys.argv[1:] != want or "CLAUDECODE" in os.environ or os.getcwd() != "/":
     sys.exit(3)
 read = lambda n, dflt: (open(os.path.join(d, n)).read().strip() if os.path.exists(os.path.join(d, n)) else dflt)
 mode = read("mode", "ok")
+used_override = None
+# $FAKE/seq: one "<mode> [used]" per call, in order; the last line repeats.
+seqf = os.path.join(d, "seq")
+if os.path.exists(seqf):
+    rows = [ln.split() for ln in open(seqf).read().splitlines() if ln.strip()]
+    if rows:
+        if len(rows) > 1:
+            open(seqf, "w").write("".join(" ".join(r) + "\n" for r in rows[1:]))
+        mode = rows[0][0]
+        used_override = rows[0][1] if len(rows[0]) > 1 else None
+open(os.path.join(d, "calls"), "a").write(mode + "\n")
 if mode == "hang":
     time.sleep(30); sys.exit(0)
 if mode == "eof":
@@ -382,6 +471,10 @@ for line in sys.stdin:
     open(os.path.join(d, "requests"), "a").write(kind + "\n")
     if kind == "initialize":
         body, sub = {}, "success"
+    elif mode == "hang-usage":
+        # 2026-09-28 15:32Z: initialize answered, get_usage never did.
+        print("waiting on the usage endpoint", file=sys.stderr, flush=True)
+        time.sleep(30); sys.exit(0)
     elif mode == "error":
         body, sub = {}, "error"
     elif mode == "autherr":
@@ -392,7 +485,7 @@ for line in sys.stdin:
     elif mode == "unavailable":
         body, sub = {"rate_limits_available": False}, "success"
     else:
-        used = read("used", "50")
+        used = used_override or read("used", "50")
         used = json.loads(used)
         reset = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=int(read("reset_in", "3600")))
         body = {"rate_limits_available": True, "rate_limits": {
@@ -407,8 +500,12 @@ chmod +x "$FAKE/claude"
 export QUOTA_FAKE_DIR="$FAKE"
 fake() { # <mode> [used] [reset-in] — resets the fixture's record
     printf '%s' "$1" >"$FAKE/mode"; printf '%s' "${2:-50}" >"$FAKE/used"; printf '%s' "${3:-3600}" >"$FAKE/reset_in"
-    rm -f "$FAKE/requests" "$FAKE/refused"
+    rm -f "$FAKE/requests" "$FAKE/refused" "$FAKE/seq" "$FAKE/calls"
     : >"$FAKE/pids.now"
+}
+fake_seq() { # <line>... — one "<mode> [used]" per get_usage call; the last repeats
+    fake ok
+    printf '%s\n' "$@" >"$FAKE/seq"
 }
 last_fake_pid() { tail -1 "$FAKE/pids" 2>/dev/null; }
 gonce() { OUT="$(QUOTA_CLAUDE_BIN="$FAKE/claude" bash "$Q" --once 2>&1)"; RC=$?; }
@@ -476,6 +573,26 @@ check "W02  the reset passing wakes the lead: WINDOW-RESET with the resume messa
 
 fi
 
+# N01 (2026-09-28, 14:30Z): the watcher EXITED at the window reset and nothing
+# polled until the lead started it again by hand. Now the lead is woken ONCE
+# at the reset and the polling goes on into the new window, which the status
+# line reports a few seconds after the reset.
+if wants "N01"; then
+write_payload 50 2 0
+start_watch "$SB/n01.out"
+wait_for_line "$SB/n01.out" '^WINDOW-RESET' 8
+sleep 1.5
+write_payload 5 3600 0
+POLL_WAIT=4; polling_goes_on; unset POLL_WAIT; POLLED="$POLLING"
+NRESET="$(events_of RESET)"; PL="$(polls_log)"
+finish_watch 2; OUT="$(cat "$SB/n01.out")"
+check "N01  at the reset the lead is woken ONCE and the polling goes on into the new window (5%)" \
+    "$([ "$WRC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^WINDOW-RESET' && [ "$POLLED" = yes ] && [ "$NRESET" = 1 ] \
+       && printf '%s' "$PL" | grep -q ' 5% of the five-hour window'; echo $?)" \
+    "rc=$WRC polling=$POLLED resets=$NRESET out=$OUT polls=$PL"
+
+fi
+
 # W03: 1203 s to the reset, so the first polls are outside the last 20 minutes
 # (nothing working: nothing to pause) and the polls from about 4 s on are
 # inside it (nobody held: nothing to release). It is still waiting at 8 s.
@@ -511,7 +628,8 @@ fi
 # cannot rule out a running worker and fires at once, after its first line.
 if wants "W09"; then
 write_payload 95 3600 0
-( unset QUOTA_WATCH_POLL_SECONDS RICHOS_SESSION_ID; bash "$Q" --watch >"$SB/w09.out" 2>&1 ) &
+new_state
+( unset QUOTA_WATCH_POLL_SECONDS RICHOS_SESSION_ID; exec bash "$Q" --watch >"$SB/w09.out" 2>&1 ) &
 WATCH_PID=$!; finish_watch 10; OUT="$(cat "$SB/w09.out")"
 check "W09  the default poll is his every 5 minutes (300 s), and an unnamed worker set still fires the threshold" \
     "$([ "$WRC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'polling every 300 s' && printf '%s' "$OUT" | grep -q '^QUOTA-THRESHOLD' \
@@ -519,11 +637,16 @@ check "W09  the default poll is his every 5 minutes (300 s), and an unnamed work
 
 fi
 
+# W07: no payload and no get_usage is an UNKNOWN reading, not a reason to stop
+# (until 2026-09-28 it ended the watcher with exit 2 at start, and a session
+# whose status line had not rendered yet was left unwatched). With nothing
+# working there is no spend it could hide, so nobody is woken.
 if wants "W07"; then
 rm -f "$QUOTA_PAYLOAD"
-start_watch "$SB/w07.out"; finish_watch 5; OUT="$(cat "$SB/w07.out")"
-check "W07  no payload at all: --watch cannot watch, exit 2" \
-    "$([ "$WRC" -eq 2 ] && printf '%s' "$OUT" | grep -q '^QUOTA-UNKNOWN'; echo $?)" "rc=$WRC out=$OUT"
+CHECK_POLLING=1 start_watch "$SB/w07.out"; CHECK_POLLING=1 finish_watch 4; OUT="$(cat "$SB/w07.out")"
+check "W07  no payload at all: the watcher keeps polling (UNKNOWN each time) and wakes nobody with nothing working" \
+    "$([ "$WRC" -eq 124 ] && [ "$POLLING" = yes ] && printf '%s' "$OUT" | grep -q 'UNKNOWN' \
+       && ! printf '%s' "$OUT" | grep -q '^QUOTA-UNKNOWN'; echo $?)" "rc=$WRC polling=$POLLING out=$OUT"
 
 fi
 
@@ -616,7 +739,8 @@ check "E04  the 2026-09-18 message (no pause-until:) leaves a FINISHED agent, an
 # outside the window (nothing working, nothing to pause, nothing released),
 # and the watcher must wake at the boundary about 4 s later, not a poll later.
 write_payload 96 1203 0
-( unset QUOTA_WATCH_POLL_SECONDS; bash "$Q" --watch >"$SB/e05.out" 2>&1 ) &
+new_state
+( unset QUOTA_WATCH_POLL_SECONDS; exec bash "$Q" --watch >"$SB/e05.out" 2>&1 ) &
 WATCH_PID=$!; finish_watch 12; OUT="$(cat "$SB/e05.out")"
 check "E05  inside the last 20 minutes QUOTA-RELEASE names only the quota-paused agent, on time at the 300 s poll" \
     "$([ "$WRC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^QUOTA-RELEASE' && printf '%s' "$OUT" | grep -q 'with this message: dev-held$' \
@@ -633,7 +757,8 @@ check "E06  the printed release message (the generated RESUME) resumes the SAME 
 ws_send dev-held "$SB/pause.msg"
 ws_stop "$HELD_AID"
 write_payload 96 1202 0
-( unset QUOTA_WATCH_POLL_SECONDS; bash "$Q" --watch --until-reset >"$SB/e07.out" 2>&1 ) &
+new_state
+( unset QUOTA_WATCH_POLL_SECONDS; exec bash "$Q" --watch --until-reset >"$SB/e07.out" 2>&1 ) &
 WATCH_PID=$!; finish_watch 12; OUT="$(cat "$SB/e07.out")"
 check "E07  --until-reset also wakes at the release when an agent is held" \
     "$([ "$(recipient dev-held)" != active ] && [ "$WRC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^QUOTA-RELEASE' \
@@ -748,7 +873,8 @@ fi
 # the lead there, while the reading is still under 30 s old.
 if wants "W12"; then
 write_payload 50 3600 25
-( export QUOTA_WATCH_POLL_SECONDS=30 QUOTA_WATCH_STALE_SECONDS=30; bash "$Q" --watch >"$SB/w12.out" 2>&1 ) &
+new_state
+( export QUOTA_WATCH_POLL_SECONDS=30 QUOTA_WATCH_STALE_SECONDS=30; exec bash "$Q" --watch >"$SB/w12.out" 2>&1 ) &
 WATCH_PID=$!; finish_watch 10; OUT="$(cat "$SB/w12.out")"
 check "W12  below the threshold, the lead is woken with QUOTA-REFRESH before the reading turns one poll old" \
     "$([ "$WRC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^QUOTA-REFRESH' \
@@ -780,7 +906,8 @@ fi
 if wants "G07"; then
 fake ok 60
 write_payload 50 3600 600
-( QUOTA_CLAUDE_BIN="$FAKE/claude" bash "$Q" --watch >"$SB/g07.out" 2>&1 ) &
+new_state
+( export QUOTA_CLAUDE_BIN="$FAKE/claude"; exec bash "$Q" --watch >"$SB/g07.out" 2>&1 ) &
 WATCH_PID=$!; finish_watch 4; OUT="$(cat "$SB/g07.out")"
 NGET="$(grep -c '^get_usage$' "$FAKE/requests" 2>/dev/null || true)"
 check "G07  --watch takes a fresh get_usage at every poll: a stale status-line file wakes nobody" \
@@ -794,11 +921,150 @@ fi
 if wants "G08"; then
 fake error
 write_payload 50 3600 60
-( QUOTA_CLAUDE_BIN="$FAKE/claude" bash "$Q" --watch >"$SB/g08.out" 2>&1 ) &
+new_state
+( export QUOTA_CLAUDE_BIN="$FAKE/claude"; exec bash "$Q" --watch >"$SB/g08.out" 2>&1 ) &
 WATCH_PID=$!; finish_watch 10; OUT="$(cat "$SB/g08.out")"
 check "G08  get_usage failing falls back to the file, and a stale file still wakes the lead with QUOTA-STALE, saying why" \
     "$([ "$WRC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^QUOTA-STALE' \
        && printf '%s' "$OUT" | grep -q 'status-line file, because get_usage was refused'; echo $?)" "rc=$WRC out=$OUT"
+
+fi
+
+# --- N02-N06: 2026-09-28, the polling never stops --------------------------
+# At 15:32Z get_usage gave no answer within 20 s (initialize had answered);
+# the watcher fell back to a status-line file 25 minutes old, woke the lead
+# with QUOTA-STALE and EXITED, and nothing polled until it was started again
+# by hand. The reading 5 minutes earlier, through get_usage, was 8%.
+# A worker (dev-held) is running for all of these.
+outage_watch() { # <outfile> <poll> <stale> [retry] — get_usage through the fixture, bounded at 1 s
+    new_state
+    ( export QUOTA_CLAUDE_BIN="$FAKE/claude" QUOTA_WATCH_GET_USAGE_SECONDS=1 \
+             QUOTA_WATCH_POLL_SECONDS="$2" QUOTA_WATCH_STALE_SECONDS="$3" QUOTA_WATCH_RETRY_SECONDS="${4:-60}"
+      exec bash "$Q" --watch >"$1" 2>&1 ) &
+    WATCH_PID=$!
+}
+
+# N02: the 15:32Z shape, far from the threshold: get_usage times out twice and
+# answers again. It is retried sooner than a poll (1 s against 4 s here, 60 s
+# against 300 s in production), the lead is NOT woken (the threshold cannot
+# have been crossed from 8%), and the polling goes on. Retried only at the
+# poll, the reading would reach the two-poll mark (8 s) and wake the lead.
+if wants "N02"; then
+write_payload 7 3600 1500
+fake_seq "ok 8" "ok 8" "hang-usage" "hang-usage" "ok 8"
+outage_watch "$SB/n02.out" 4 4 1
+wait_for_line "$SB/n02.out" 'get_usage answers again' 30
+POLL_WAIT=5; polling_goes_on; unset POLL_WAIT; POLLED="$POLLING"
+NSTALE="$(events_of STALE)"
+finish_watch 1; OUT="$(cat "$SB/n02.out")"; POLLING="$POLLED"
+check "N02  get_usage timing out twice at 8%: retried sooner than a poll, nobody woken, and the polling goes on" \
+    "$([ "$WRC" -eq 124 ] && [ "$POLLING" = yes ] && [ "$NSTALE" = 0 ] \
+       && printf '%s' "$OUT" | grep -q 'no answer to get_usage within 1 s (initialize' \
+       && printf '%s' "$OUT" | grep -q 'get_usage is not answering; the threshold cannot have been reached before' \
+       && printf '%s' "$OUT" | grep -q 'get_usage answers again' && ! printf '%s' "$OUT" | grep -q '^QUOTA-'; echo $?)" \
+    "rc=$WRC polling=$POLLING stale_events=$NSTALE out=$OUT"
+
+fi
+
+# N03: a crossing DURING a timeout streak, seen by the status line: get_usage
+# read 90% and then stops answering; the status line (the lead spoke) reads
+# 94%. The pause fires from the fresher reading, and the polling goes on.
+if wants "N03"; then
+write_payload 90 3600 1500
+fake_seq "ok 90" "hang-usage"
+outage_watch "$SB/n03.out" 2 30
+wait_for_line "$SB/n03.out" '90% of the five-hour window' 10
+write_payload 94 3600 0
+CHECK_POLLING=1 finish_watch 15; OUT="$(cat "$SB/n03.out")"
+check "N03  a threshold crossing during a get_usage timeout streak: QUOTA-THRESHOLD from the status line, and the polling goes on" \
+    "$([ "$WRC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^QUOTA-THRESHOLD 94%' && [ "$POLLING" = yes ]; echo $?)" \
+    "rc=$WRC polling=$POLLING out=$OUT"
+
+fi
+
+# N04: a crossing DURING a timeout streak that nothing can see: get_usage read
+# 80% then 88% one poll later, then stops answering. At that measured rise the
+# threshold could be crossed within the next poll, so the lead is woken as
+# soon as the reading is one poll old, not at the two-poll cap.
+if wants "N04"; then
+write_payload 50 3600 1500
+fake_seq "ok 80" "ok 88" "hang-usage"
+outage_watch "$SB/n04.out" 2 5
+CHECK_POLLING=1 finish_watch 20; OUT="$(cat "$SB/n04.out")"
+check "N04  a timeout streak just after a steep rise (80->88% in one poll): QUOTA-STALE at once, from the measured rise, and the polling goes on" \
+    "$([ "$WRC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^QUOTA-STALE: get_usage has not answered since' \
+       && printf '%s' "$OUT" | grep -q 'at the fastest rise measured this window' \
+       && ! printf '%s' "$OUT" | grep -q 'has been missed' && [ "$POLLING" = yes ]; echo $?)" \
+    "rc=$WRC polling=$POLLING out=$OUT"
+
+fi
+
+# N05: a streak that does not end, far from the threshold: the lead is woken
+# ONCE, when the reading is two polls old (a check he ordered has been
+# missed), and the polling goes on, still retrying.
+if wants "N05"; then
+write_payload 7 3600 1500
+fake_seq "ok 8" "ok 8" "hang-usage"
+outage_watch "$SB/n05.out" 2 3
+CHECK_POLLING=1 POLL_WAIT=5 finish_watch 20; OUT="$(cat "$SB/n05.out")"
+NSTALE="$(cat "$QUOTA_WATCH_STATE_DIR"/*/events.jsonl 2>/dev/null | grep -c '"STALE"' || true)"
+check "N05  a get_usage outage that does not end, at 8%: one QUOTA-STALE at the two-poll mark, and the polling goes on" \
+    "$([ "$WRC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^QUOTA-STALE: get_usage has not answered since' \
+       && printf '%s' "$OUT" | grep -q 'a check the rule orders every 5 minutes has been missed' \
+       && [ "$POLLING" = yes ] && [ "$NSTALE" = 1 ]; echo $?)" "rc=$WRC polling=$POLLING stale_events=$NSTALE out=$OUT"
+
+fi
+
+# N06: a STALE status-line reading with no get_usage at all (the 2026-09-25
+# design): the lead is woken once, and the polling goes on.
+if wants "N06"; then
+write_payload 50 3600 60
+CHECK_POLLING=1 start_watch "$SB/n06.out"; CHECK_POLLING=1 finish_watch 10; OUT="$(cat "$SB/n06.out")"
+NSTALE="$(cat "$QUOTA_WATCH_STATE_DIR"/*/events.jsonl 2>/dev/null | grep -c '"STALE"' || true)"
+check "N06  a stale status-line reading: QUOTA-STALE once, and the polling goes on" \
+    "$([ "$WRC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^QUOTA-STALE' && [ "$POLLING" = yes ] && [ "$NSTALE" = 1 ]; echo $?)" \
+    "rc=$WRC polling=$POLLING stale_events=$NSTALE out=$OUT"
+
+fi
+
+# --- M01-M02: the plugin monitor, the watcher every session starts with ------
+# M01: --monitor prints each wake-up ONCE and nothing else (every line a
+# monitor prints wakes the lead), keeps running after it, makes --watch in the
+# same session stand down, and ends by itself, with its poller, when the
+# session's process ends. Its session here is this case's own sleeper.
+if wants "M01"; then
+new_state
+SESS2="$(sh -c 'sleep 120 >/dev/null 2>&1 & echo $!')"
+write_payload 50 2 0
+( export RICHOS_SESSION_PID="$SESS2"; exec bash "$Q" --monitor >"$SB/m01.out" 2>"$SB/m01.err" ) &
+MON=$!
+wait_for_line "$SB/m01.out" '^WINDOW-RESET' 10
+sleep 2
+MON_ALIVE=no; kill -0 "$MON" 2>/dev/null && MON_ALIVE=yes
+WOUT="$(RICHOS_SESSION_PID="$SESS2" bash "$Q" --watch 2>&1)"; WRC=$?
+AOUT="$(RICHOS_SESSION_PID="$SESS2" bash "$Q" --alive 2>&1)"; ARC=$?
+PPID_M="$(python3 -c 'import json,sys,glob; print(json.load(open(glob.glob(sys.argv[1] + "/*/poller.json")[0])).get("pid") or "")' "$QUOTA_WATCH_STATE_DIR" 2>/dev/null)"
+kill "$SESS2" 2>/dev/null
+n=0; while { kill -0 "$MON" 2>/dev/null || { [ -n "$PPID_M" ] && kill -0 "$PPID_M" 2>/dev/null; }; } && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+ENDED=no; ! kill -0 "$MON" 2>/dev/null && [ -n "$PPID_M" ] && ! kill -0 "$PPID_M" 2>/dev/null && ENDED=yes
+kill "$MON" 2>/dev/null; [ -n "$PPID_M" ] && kill "$PPID_M" 2>/dev/null
+OUT="$(cat "$SB/m01.out")"
+check "M01  --monitor prints the reset once and no poll line, keeps running, --watch stands down to it, --alive names it, and it ends with its session" \
+    "$([ "$MON_ALIVE" = yes ] && [ "$(grep -c '^WINDOW-RESET' "$SB/m01.out")" = 1 ] \
+       && ! grep -qE '^[0-9]{2}:[0-9]{2}:[0-9]{2}Z  ' "$SB/m01.out" \
+       && [ "$WRC" -eq 0 ] && printf '%s' "$WOUT" | grep -q 'its plugin monitor' \
+       && [ "$ARC" -eq 0 ] && printf '%s' "$AOUT" | grep -q 'through the plugin monitor' && [ "$ENDED" = yes ]; echo $?)" \
+    "monitor_alive=$MON_ALIVE ended=$ENDED watch=($WRC) $WOUT alive=($ARC) $AOUT out=$OUT err=$(cat "$SB/m01.err")"
+
+fi
+
+# M02: --alive with no poller says NOT WATCHED and names the command (exit 2).
+if wants "M02"; then
+new_state
+AOUT="$(bash "$Q" --alive 2>&1)"; ARC=$?
+check "M02  --alive with nothing polling: NOT WATCHED, exit 2, and the command that starts it" \
+    "$([ "$ARC" -eq 2 ] && printf '%s' "$AOUT" | grep -q 'NOT WATCHED' && printf '%s' "$AOUT" | grep -q 'quota-watch.sh --watch'; echo $?)" \
+    "rc=$ARC out=$AOUT"
 
 fi
 

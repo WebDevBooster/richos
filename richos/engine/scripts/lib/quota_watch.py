@@ -111,20 +111,65 @@ orchestration.config, beside MODEL_CEILING. quota-watch.sh resolves the entity
 and hands the raw value in; an undeclared or malformed value is UNKNOWN, never
 a default, because a second place holding 93 is how the number drifts.
 
+THE POLLING NEVER STOPS (2026-09-28). Until today --watch EXITED to wake the
+lead, because a background command's exit is what reaches an idle lead. It did
+so at the 14:30Z reset and on a get_usage timeout at 15:32Z, and each time
+nothing polled until the lead noticed and started it again by hand. Waking the
+lead was right; ending the polling to do it was the defect. So the two are now
+separate processes:
+
+  THE POLLER polls every 300 s for as long as its session lives and never
+  stops on an event. It writes each poll line to polls.log and each wake-up,
+  once, to events.jsonl, in ~/.claude/state/quota-watch/<session>/
+  (QUOTA_WATCH_STATE_DIR overrides, for tests). One per session: it holds
+  poller.lock for its whole life, and it ends when the session's own claude
+  process has gone (its pid and start time, recorded at spawn).
+
+  THE DOORBELL is how a wake-up reaches the lead:
+    --monitor  the engine's plugin monitor (monitors/monitors.json), which
+               Claude Code starts with EVERY interactive session and stops
+               when the session ends. Each line a monitor prints reaches the
+               lead as a notification without the monitor ending, so it prints
+               every wake-up and keeps going. It starts the poller if none is
+               running, and starts it again if it ever dies.
+    --watch    the fallback, for a session where plugin monitors do not run:
+               a background command that exits on the next wake-up, as before.
+               The poller keeps polling between one --watch and the next, and
+               a wake-up that comes while none is running waits in the journal
+               for the next --watch to print it.
+  With no session process to tie a poller to (a plain terminal), --watch polls
+  in the foreground and prints everything, never stopping.
+
+  A get_usage failure (timeout, refusal) is retried every 60 s instead of
+  every 300 s, and it wakes nobody by itself. Once get_usage has answered in
+  this run, an outage wakes the lead only when the threshold could have been
+  crossed unseen: when the freshest reading plus the fastest rise this watcher
+  has measured over the time since it was taken reaches the threshold, or when
+  the freshest reading is two polls old, whichever comes first (the rule's own
+  resolution is one poll; two polls means a check he ordered has been missed,
+  and the measured rise is not a guarantee). See outage_verdict().
+
 EXIT CODES
   --once    0 below the threshold, 1 at or above it (pause), 2 unknown,
             3 at or above it with the reset less than 20 minutes away (no
             pause; a hold in place releases)
   --status  the same codes as --once
-  --watch   0 after printing one event (QUOTA-THRESHOLD, QUOTA-RELEASE,
-            WINDOW-RESET, QUOTA-REFRESH, QUOTA-STALE or QUOTA-UNKNOWN), 2 when
-            it cannot watch at all
+  --watch   0 after printing the next wake-up (QUOTA-THRESHOLD, QUOTA-RELEASE,
+            WINDOW-RESET, QUOTA-REFRESH, QUOTA-STALE, QUOTA-UNKNOWN or a weekly
+            one), or at once when the session's monitor already delivers them;
+            2 when it cannot watch at all. The poller does not stop with it.
+  --monitor runs for the whole session; 2 when it cannot watch at all
+  --alive   0 a poller is polling and something delivers its wake-ups, 1 a
+            poller is polling but nothing delivers them, 2 no poller
   --notice  always 0 (it is a SessionStart hook's body)
 """
 
 import argparse
+import contextlib
 import datetime as _dt
+import fcntl
 import importlib.util
+import io
 import json
 import math
 import os
@@ -184,6 +229,37 @@ CONTROL_ARGS = ["--print", "--input-format=stream-json", "--output-format=stream
 
 PAUSE_UNTIL_PREFIX = "the five-hour quota reset"
 CONFIG_KEY = "QUOTA_PAUSE_PERCENT"
+
+# Captured at import, so a test that swaps this module's `time` for a
+# simulated clock (quota-watch-replay.py) still times real requests.
+_monotonic = time.monotonic
+
+# THE POLLING NEVER STOPS (2026-09-28; the module docstring says why).
+# A failed get_usage is tried again after this long instead of a whole poll:
+# "retried at the next poll, or sooner".
+RETRY_SECONDS = 60
+# An outage wakes the lead at the latest when the freshest reading is this
+# many polls old: one poll is the resolution of his rule, so two polls means a
+# check he ordered has been missed, whatever the measured rise says.
+BLIND_POLLS = 2
+FIVE_HOUR_SECONDS = 5 * 3600
+STATE_KEEP_SECONDS = 2 * 86400
+POLLS_LOG_MAX = 1024 * 1024
+# The kinds a --until-reset run still wakes for.
+UNTIL_RESET_KINDS = ("RELEASE", "RESET", "WEEKLY-THRESHOLD", "WEEKLY-RELEASE", "CANNOT-WATCH")
+
+
+def _last_line(fh):
+    """The last non-empty line of a small stderr capture, at most 160 characters."""
+    try:
+        fh.seek(0, os.SEEK_END)
+        size = fh.tell()
+        fh.seek(max(0, size - 4096))
+        text = fh.read().decode("utf-8", "replace")
+    except (OSError, AttributeError, ValueError):
+        return ""
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    return "".join(c for c in (lines[-1] if lines else "") if c.isprintable())[:160]
 
 
 def _env_int(name, default):
@@ -324,14 +400,27 @@ def read_get_usage(now, deadline_s=None):
         return r
     deadline_s = deadline_s or _env_int("QUOTA_WATCH_GET_USAGE_SECONDS", GET_USAGE_SECONDS)
     env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+    # WHY A READ FAILED IS KEPT (2026-09-28). At 15:32Z get_usage gave no answer
+    # within 20 s and nothing recorded why: stderr went to /dev/null and no
+    # step was timed. cpu-guard's own log was the only witness (host 100% busy
+    # at 15:32:39Z, 99.6% at 15:27:38Z). So each request is timed, and the last
+    # line claude wrote on stderr goes into the reason. The file is unlinked at
+    # creation (TemporaryFile), so a crash leaves nothing behind.
+    import tempfile
+    try:
+        errf = tempfile.TemporaryFile()
+    except OSError:
+        errf = subprocess.DEVNULL
+    started = _monotonic()
     try:
         proc = subprocess.Popen([b] + CONTROL_ARGS, cwd="/", env=env, stdin=subprocess.PIPE,
-                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
+                                stdout=subprocess.PIPE, stderr=errf, start_new_session=True)
     except OSError as e:
         r["state"], r["why"] = "failed", "cannot start %s (%s)" % (b, e.__class__.__name__)
         return r
     buf = [b""]
     sel = selectors.DefaultSelector()
+    timing = []
 
     def request(rid, subtype):
         proc.stdin.write((json.dumps({"type": "control_request", "request_id": rid,
@@ -355,14 +444,22 @@ def read_get_usage(now, deadline_s=None):
                 raise EOFError("claude closed its output before answering %s" % subtype)
             buf[0] += chunk
 
+    def step(rid, subtype):
+        t0 = _monotonic()
+        try:
+            return request(rid, subtype)
+        finally:
+            timing.append("%s %.1f s" % (subtype, _monotonic() - t0))
+
     try:
         sel.register(proc.stdout, selectors.EVENT_READ)
-        init = request("quota-1", "initialize")
+        init = step("quota-1", "initialize")
         if init.get("subtype") != "success":
             raise ValueError("initialize was refused")
-        usage = request("quota-2", "get_usage")
+        usage = step("quota-2", "get_usage")
     except (OSError, ValueError, TimeoutError, EOFError, UnicodeDecodeError) as e:
         r["state"], r["why"] = "failed", "get_usage failed: %s" % (str(e) or e.__class__.__name__)
+        r["why"] += " (%s)" % "; ".join(timing + ["claude's last stderr line: %s" % (_last_line(errf) or "none")])
         return r
     finally:
         # The process group is this call's own (start_new_session, pid captured
@@ -381,6 +478,13 @@ def read_get_usage(now, deadline_s=None):
         for fh in (proc.stdin, proc.stdout):
             try:
                 fh.close()
+            except OSError:
+                pass
+        r["timing"] = ", ".join(timing)
+        r["seconds"] = round(_monotonic() - started, 1)
+        if errf is not subprocess.DEVNULL:
+            try:
+                errf.close()
             except OSError:
                 pass
     if usage.get("subtype") != "success":
@@ -480,7 +584,8 @@ def describe(r, threshold, now):
         return "UNKNOWN: %s" % r["why"]
     bits = ["%s%% of the five-hour window" % fmt_pct(r["used"]),
             "threshold %s%%" % fmt_pct(threshold) if threshold is not None else "threshold UNDECLARED",
-            "read %s ago" % span(r["age"] or 0) + (" via %s" % r["source"] if r.get("source") else "")]
+            "read %s ago" % span(r["age"] or 0) + (" via %s" % r["source"] if r.get("source") else "")
+            + (" (answered in %.1f s)" % r["seconds"] if r.get("source") == "get_usage" and r.get("seconds") else "")]
     if r["ended"]:
         bits.append("window ended at %s" % hhmm(r["resets_at"]))
     else:
@@ -655,6 +760,9 @@ def mode_status(a, now):
     return _exit_for(verdict)
 
 
+KEEPS_POLLING = "  The watcher keeps polling every 5 minutes; nothing needs starting again."
+
+
 def _emit_threshold(a, r, now, w):
     print("QUOTA-THRESHOLD %s%%" % fmt_pct(r["used"]))
     print("  %s" % describe(r, a.threshold, now))
@@ -675,11 +783,10 @@ def _emit_threshold(a, r, now, w):
     print("  ---- message ends ----")
     print("  Use summary: " + pause_protocol.SUMMARY)
     print("  Delivery is only a request. Check the actual hold before reporting anyone paused.")
-    print("  Then start the watcher again; with nothing working it waits, and wakes you with the resume message")
-    print("  when the reset is less than 20 minutes away (the hold releases there, %s):" % RULING)
-    print("    %s --watch" % a.command)
-    print("  If you keep them working this window, wake only at the reset instead:")
-    print("    %s --watch --until-reset" % a.command)
+    print(KEEPS_POLLING)
+    print("  It wakes you with the resume message when the reset is less than 20 minutes away (the hold")
+    print("  releases there, %s) and at the reset. It does not wake you for this window's threshold" % RULING)
+    print("  again unless an agent that was not named above starts working.")
 
 
 def _emit_reset(a, reset_at, w):
@@ -696,8 +803,7 @@ def _emit_reset(a, reset_at, w):
     else:
         print("  The registry could not name the paused agents; wake every agent you paused for the quota.")
     _print_message(resume_message(reset_at), pause_protocol.RESUME_SUMMARY)
-    print("  Then start the watcher again:")
-    print("    %s --watch" % a.command)
+    print(KEEPS_POLLING + " It goes on into the new window.")
 
 
 def _emit_release(a, reset_at, now, w):
@@ -714,8 +820,7 @@ def _emit_release(a, reset_at, now, w):
     else:
         print("  The registry could not name the paused agents; wake every agent you paused for the quota.")
     _print_message(release_message(reset_at), pause_protocol.RESUME_SUMMARY)
-    print("  Then start the watcher again; inside the last 20 minutes it pauses nobody and wakes you at the reset:")
-    print("    %s --watch" % a.command)
+    print(KEEPS_POLLING + " Inside the last 20 minutes it pauses nobody, and it wakes you at the reset.")
 
 
 def refresh_point(stale_after):
@@ -735,65 +840,383 @@ def _emit_refresh(a, r, w, at):
     print("  %s" % worker_line(w))
     print("  REFRESH THE READING: reply once, in this turn. The payload is rewritten only when your")
     print("  status line renders, and it renders when a new assistant message of yours arrives;")
-    print("  teammates' work does not render it. Then start the watcher again:")
-    print("    %s --watch" % a.command)
+    print("  teammates' work does not render it.")
+    print(KEEPS_POLLING)
 
 
-def mode_watch(a):
+def _emit_blind(a, r, w, why, outage=None):
+    stale = r["state"] == "ok" and not r.get("ended")
+    if outage is not None:
+        print("QUOTA-STALE: get_usage has not answered since %s, and the reading is %s old (one poll is %d s), so"
+              " the current value is UNKNOWN" % (_hms(outage["at"]), span(r["age"] or 0), a.poll))
+        print("  Why the lead is woken now: %s." % outage["why"])
+        print("  The last failure: %s." % outage["fallback_why"])
+        print("  Last value seen: %s%%. It is NOT the current value: usage has only grown since."
+              % fmt_pct(r["used"]))
+    elif stale:
+        print("QUOTA-STALE: the reading is %s old (one poll is %d s), so the current value is UNKNOWN"
+              % (span(r["age"] or 0), a.poll))
+        if r.get("fallback_why"):
+            print("  It came from the status-line file, because %s." % r["fallback_why"])
+        print("  Last value seen: %s%%. It is NOT the current value: usage has only grown since."
+              % fmt_pct(r["used"]))
+    else:
+        print("QUOTA-UNKNOWN: %s" % (why or r["why"]))
+    print("  The watcher cannot tell whether the threshold was crossed.")
+    print("  %s" % worker_line(w))
+    print("  REFRESH THE READING: reply once, in this turn. The payload is rewritten only when your")
+    print("  status line renders, and it renders when a new assistant message of yours arrives;")
+    print("  teammates' work does not render it.")
+    print(KEEPS_POLLING + " get_usage is tried again every %d s while it fails." % _retry_seconds(a))
+
+
+def _hms(epoch):
+    return _dt.datetime.fromtimestamp(epoch, _dt.timezone.utc).strftime("%H:%M:%SZ")
+
+
+def _retry_seconds(a):
+    # The environment override is for the test suite only, whose polls are
+    # seconds long: it must be able to retry sooner than one of them.
+    return max(1, min(_env_int("QUOTA_WATCH_RETRY_SECONDS", RETRY_SECONDS), a.poll))
+
+
+# ---------------------------------------------------------------------------
+# a get_usage outage: retried, and a wake-up only when the threshold could
+# have been crossed unseen (2026-09-28)
+# ---------------------------------------------------------------------------
+
+def same_window(a_reset, b_reset):
+    """Two resets_at values name the same window. get_usage reports the reset
+    to the second and it jitters by one (19:29:59Z / 19:30:00Z, 2026-09-28's
+    log), so anything under ten minutes apart is the same five-hour window."""
+    return a_reset is not None and b_reset is not None and abs(a_reset - b_reset) < 600
+
+
+def fastest_rise(history, reading):
+    """Percentage points per second: the fastest rise this watcher has MEASURED
+    in the current window, between two consecutive get_usage readings, or on
+    average since the window began, whichever is faster. Measured, never
+    assumed: no constant here says how fast usage can grow."""
+    rate = 0.0
+    for (t0, u0), (t1, u1) in zip(history, history[1:]):
+        if t1 > t0 and u1 > u0:
+            rate = max(rate, (u1 - u0) / float(t1 - t0))
+    at = reading.get("taken")
+    if at is not None and reading.get("resets_at"):
+        began = reading["resets_at"] - FIVE_HOUR_SECONDS
+        if at > began and reading.get("used"):
+            rate = max(rate, reading["used"] / float(at - began))
+    return rate
+
+
+def outage_verdict(a, reading, history, now):
+    """(wake, why) for a below-threshold reading that is older than one poll
+    because get_usage stopped answering.
+
+    WAKE when the threshold could have been crossed unseen: the reading plus
+    the fastest rise measured over the time since it was taken reaches the
+    threshold, or the reading is BLIND_POLLS polls old. Otherwise keep retrying
+    and say until when the crossing is ruled out."""
+    age = now - reading["taken"]
+    rate = fastest_rise(history, reading)
+    reach = reading["used"] + rate * age
+    cap = BLIND_POLLS * a.stale
+    if reach >= a.threshold:
+        return True, ("at the fastest rise measured this window (%.1f points per 5 minutes) usage could have gone"
+                      " from %s%% to %s%% in %s" % (rate * 300, fmt_pct(reading["used"]), fmt_pct(a.threshold),
+                                                   span(age)))
+    if age >= cap:
+        return True, ("no reading for %s, %d polls: a check the rule orders every 5 minutes has been missed"
+                      % (span(age), BLIND_POLLS))
+    if rate > 0:
+        cross = reading["taken"] + int((a.threshold - reading["used"]) / rate)
+    else:
+        cross = None
+    until = reading["taken"] + cap if cross is None else min(cross, reading["taken"] + cap)
+    return False, ("the threshold cannot have been reached before %s at the fastest rise measured (%.1f points"
+                   " per 5 minutes); the lead is woken then if no reading has arrived"
+                   % (_hms(until), rate * 300))
+
+
+# ---------------------------------------------------------------------------
+# where the lines and the wake-ups go
+# ---------------------------------------------------------------------------
+
+def state_root():
+    return (os.environ.get("QUOTA_WATCH_STATE_DIR") or "").strip() or os.path.join(
+        os.path.expanduser("~"), ".claude", "state", "quota-watch")
+
+
+def _append(path, text, rotate=False):
+    try:
+        if rotate and os.path.getsize(path) > POLLS_LOG_MAX:
+            os.replace(path, path + ".1")
+    except OSError:
+        pass
+    try:
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(text)
+    except OSError:
+        pass
+
+
+def _write_json(path, data):
+    tmp = "%s.%d.tmp" % (path, os.getpid())
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def _read_json(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            v = json.load(fh)
+        return v if isinstance(v, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _try_lock(path, patience=0.0):
+    """An open descriptor holding an exclusive flock on path, or None when
+    another process holds it. The OS drops the lock when its holder dies.
+    lock_held() takes the lock for an instant to look, so a process that must
+    not lose a race with a mere look waits `patience` seconds before giving up."""
+    try:
+        fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    except OSError:
+        return None
+    until = _monotonic() + patience
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fd
+        except OSError:
+            if _monotonic() >= until:
+                os.close(fd)
+                return None
+            _real_sleep(0.05)
+
+
+def lock_held(path):
+    """True when a live process holds the lock at path. Takes nothing."""
+    if not os.path.exists(path):
+        return False
+    fd = _try_lock(path)
+    if fd is None:
+        return True
+    try:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+    return False
+
+
+class Out:
+    """Where the poller's output goes.
+
+    inline:  Out(lines=sys.stdout, events=sys.stdout): poll lines and wake-ups
+             to this process's stdout (a terminal, the replay, and --watch with
+             no session process).
+    journal: Out(sd=<session dir>): poll lines to polls.log and each wake-up,
+             as one JSON line, to events.jsonl, where --monitor and --watch
+             deliver it. Nothing on stdout.
+    The streams are captured when Out is made, before poll_loop points stdout
+    at the Out itself, so every print() in the loop lands in line()."""
+
+    def __init__(self, sd=None, lines=None, events=None):
+        self.sd = sd
+        self.lines = lines
+        self.events = events
+        self.partial = ""
+
+    # the file-like face, so every print() in the poll loop lands in line()
+    def write(self, s):
+        self.partial += s
+        while "\n" in self.partial:
+            ln, self.partial = self.partial.split("\n", 1)
+            self.line(ln)
+        return len(s)
+
+    def flush(self):
+        pass
+
+    def line(self, text):
+        if self.lines is not None:
+            self.lines.write(text + "\n")
+            self.lines.flush()
+        if self.sd:
+            _append(os.path.join(self.sd, "polls.log"), text + "\n", rotate=True)
+
+    def wake(self, kind, text, now):
+        """ONE wake-up, written whole in one write, so a monitor's host sees
+        the block arrive together."""
+        if not text.endswith("\n"):
+            text += "\n"
+        if self.sd:
+            _append(os.path.join(self.sd, "events.jsonl"),
+                    json.dumps({"at": now, "kind": kind, "text": text}) + "\n")
+        if self.events is not None:
+            self.events.write(text)
+            self.events.flush()
+
+    def beat(self, now, a):
+        if self.sd:
+            hb = _read_json(os.path.join(self.sd, "poller.json"))
+            if hb.get("pid") == os.getpid():
+                hb["last_poll"] = now
+                _write_json(os.path.join(self.sd, "poller.json"), hb)
+
+
+def _capture(fn, *args):
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        fn(*args)
+    return buf.getvalue()
+
+
+def _nap(seconds, alive):
+    """Sleep, in slices of at most 5 s when there is a session to outlive, so
+    a poller stops within seconds of its session and not a poll later."""
+    if alive is None:
+        time.sleep(seconds)
+        return
+    left = seconds
+    while left > 0:
+        step = min(5, left)
+        time.sleep(step)
+        left -= step
+        if not alive():
+            return
+
+
+# ---------------------------------------------------------------------------
+# the poll loop — every 300 s, for as long as its session lives
+# ---------------------------------------------------------------------------
+
+def poll_loop(a, out, alive=None):
+    """His rule, applied at every poll, forever. Returns only when the session
+    it belongs to has ended (0) or it cannot watch at all (2): an event is
+    printed and the loop goes on. A poll that raises is reported and the
+    polling goes on: nothing but the end of its session stops it."""
+    with contextlib.redirect_stdout(out):
+        while True:
+            try:
+                return _poll_loop(a, out, alive)
+            except Exception as e:  # noqa: BLE001 — any failure is one lost poll, never the end of polling
+                print("quota-watch: a poll failed (%s: %s); polling goes on" % (e.__class__.__name__, e), flush=True)
+                _nap(a.poll, alive)
+
+
+def _poll_loop(a, out, alive):
     if a.threshold is None:
-        print("QUOTA-UNKNOWN: cannot watch: %s is %s in %s" % (CONFIG_KEY, a.threshold_problem, a.config or "(no config)"))
-        return 2
-    now = int(time.time())
-    r = read_source(a, now)
-    if r["state"] == "missing":
-        print("QUOTA-UNKNOWN: cannot watch: %s" % r["why"])
+        out.wake("CANNOT-WATCH", "QUOTA-UNKNOWN: cannot watch: %s is %s in %s\n" % (
+            CONFIG_KEY, a.threshold_problem, a.config or "(no config)"), int(time.time()))
         return 2
     window_end = None
-    if r["state"] == "ok" and not r["ended"]:
-        window_end = r["resets_at"]
-    elif a.until_reset and r["state"] == "ok" and r["ended"]:
-        # The reset this run was asked to wait for has already happened.
-        # Check weekly holds before releasing an already-ended five-hour window.
-        window_end = r["resets_at"]
-    elif a.until_reset and not quota_weekly.held(r, now):
-        print("QUOTA-UNKNOWN: cannot wait for the reset: %s" % r["why"])
-        return 2
     blind_since = None
     refresh_in = None
+    blind_woken = False          # one QUOTA-STALE/UNKNOWN per blind episode
+    refreshed_for = None         # one QUOTA-REFRESH per status-line render
+    threshold_named = {}         # window -> the working names already told to pause
+    released = None              # the window whose hold release was announced
+    reset_done = None            # the window whose reset was announced
+    weekly_seen = set()
+    last_gu = None               # the last get_usage reading: {"used", "resets_at", "taken", "why"}
+    history = []                 # (taken, used) get_usage readings in the current window
+    outage = None                # {"at": first failure, "fallback_why"} while get_usage fails
+    first = True
     print("quota-watch: polling every %d s; threshold %s%%%s" % (
-        a.poll, fmt_pct(a.threshold), "; waking only at the reset" if a.until_reset else ""), flush=True)
+        a.poll, fmt_pct(a.threshold), "; waking only at the release and the reset" if a.until_reset else ""),
+        flush=True)
     while True:
+        if alive is not None and not alive():
+            print("quota-watch: the session this poller belongs to has ended; it ends with it", flush=True)
+            return 0
         now = int(time.time())
         reset_status = quota_weekly.reset_tick(a.engine_root)
         r = read_source(a, now)
         w = workers(a.engine_root)
-        weekly_blocked, weekly_event = quota_weekly.handle(a, r, now, w, reset_status,
-            lambda: rule_verdict(r, a.threshold, a.stale, now)[0])
+        out.beat(now, a)
+        retry = False
+        asked_refresh = False
+        if r.get("source") == "get_usage":
+            if last_gu is not None and not same_window(last_gu["resets_at"], r["resets_at"]):
+                history = []
+            history = (history + [(now, r["used"])])[-24:]
+            last_gu = {"used": r["used"], "resets_at": r["resets_at"], "taken": now, "state": "ok"}
+            if outage is not None:
+                print("  get_usage answers again (it failed first at %s)" % _hms(outage["at"]), flush=True)
+            outage = None
+        else:
+            retry = True
+            if outage is None:
+                outage = {"at": now, "fallback_why": r.get("fallback_why", "")}
+            outage["fallback_why"] = r.get("fallback_why", "")
+            if r.get("fallback_why"):
+                print("  source: the status-line file, because %s" % r["fallback_why"], flush=True)
+            # Once get_usage has answered in this window, its last reading is
+            # kept: the status-line file stands in for it only when it is fresher.
+            if last_gu is not None and last_gu["resets_at"] > now:
+                file_taken = now - r["age"] if r["state"] == "ok" and not r["ended"] and r["age"] is not None else None
+                if file_taken is None or file_taken < last_gu["taken"]:
+                    kept = dict(r)
+                    kept.update({"state": "ok", "used": last_gu["used"], "resets_at": last_gu["resets_at"],
+                                 "age": float(now - last_gu["taken"]), "ended": False,
+                                 "source": "get_usage at %s" % _hms(last_gu["taken"])})
+                    r = kept
+        weekly_text = io.StringIO()
+        with contextlib.redirect_stdout(weekly_text):
+            weekly_blocked, weekly_event = quota_weekly.handle(a, r, now, w, reset_status,
+                lambda: rule_verdict(r, a.threshold, a.stale, now)[0])
         if weekly_event:
-            return 0
+            text = weekly_text.getvalue()
+            key = (text.split("\n", 1)[0], tuple(w["working"]), tuple(w.get("weekly_paused", [])))
+            if key not in weekly_seen:
+                weekly_seen.add(key)
+                out.wake("WEEKLY-THRESHOLD" if weekly_blocked else "WEEKLY-RELEASE", text, now)
         if weekly_blocked:
             print(quota_weekly.describe(r, now), flush=True)
-            time.sleep(a.poll)
+            _nap(a.poll, alive)
             continue
+        if first and r["state"] == "ok" and r["ended"]:
+            # Started after a reset had already passed: the agents it held
+            # still need waking, and nothing else does.
+            if not w["known"] or w["quota_paused"]:
+                window_end = r["resets_at"]
+        first = False
         if window_end is not None and now >= window_end:
-            _emit_reset(a, window_end, workers(a.engine_root))
-            return 0
-        if window_end is not None and in_last_twenty(window_end, now):
+            if reset_done is None or not same_window(reset_done, window_end):
+                out.wake("RESET", _capture(_emit_reset, a, window_end, workers(a.engine_root)), now)
+                reset_done = window_end
+            a.until_reset = False
+            window_end = None
+            blind_since, blind_woken = None, False
+        if window_end is not None and in_last_twenty(window_end, now) and released != window_end:
             # His 2026-09-25 update: a hold in place releases inside the last
             # 20 minutes. Only when somebody is held (or the registry cannot
             # say): with nobody held there is nothing to release.
             w = workers(a.engine_root)
             if not w["known"] or w["quota_paused"]:
-                _emit_release(a, window_end, now, w)
-                return 0
-        if r.get("fallback_why"):
-            print("  source: the status-line file, because %s" % r["fallback_why"], flush=True)
+                out.wake("RELEASE", _capture(_emit_release, a, window_end, now, w), now)
+                released = window_end
         if window_end is None and r["state"] == "ok" and not r["ended"]:
             window_end = r["resets_at"]
         verdict, why = rule_verdict(r, a.threshold, a.stale, now)
         print("%s  %s" % (_dt.datetime.fromtimestamp(now, _dt.timezone.utc).strftime("%H:%M:%SZ"),
                           describe(r, a.threshold, now) + ("  [UNKNOWN: %s]" % why if verdict == "unknown" and r["state"] == "ok" else "")),
               flush=True)
+        # A get_usage OUTAGE: it answered earlier in this window and fails now.
+        # Its last reading, or the status-line file when that is fresher, is
+        # the reading; the 2026-09-25 status-line rules (wake to refresh before
+        # one poll) apply only when get_usage has not answered in this window.
+        in_outage = (outage is not None and last_gu is not None and last_gu["resets_at"] > now
+                     and r["state"] == "ok" and not r["ended"])
         if not a.until_reset:
             if verdict == "near-reset":
                 print("  at or above the threshold, but %s" % why, flush=True)
@@ -802,9 +1225,31 @@ def mode_watch(a):
                 if w["known"] and not w["working"]:
                     print("  at the threshold with nothing working: nothing to pause; waiting for the reset", flush=True)
                 else:
-                    _emit_threshold(a, r, now, w)
-                    return 0
-            if verdict == "unknown":
+                    told = threshold_named.get(window_end)
+                    if told is None or (w["known"] and not set(w["working"]) <= told):
+                        out.wake("THRESHOLD", _capture(_emit_threshold, a, r, now, w), now)
+                        threshold_named[window_end] = set(w["working"]) if w["known"] else set()
+                    else:
+                        print("  at or above the threshold; the lead was told for this window at the first crossing",
+                              flush=True)
+            if verdict == "unknown" and in_outage:
+                # A get_usage OUTAGE, not a blind watcher: retried every
+                # RETRY_SECONDS, and the lead is woken only when the threshold
+                # could have been crossed unseen (outage_verdict).
+                reading = {"used": r["used"], "resets_at": r["resets_at"], "taken": now - int(r["age"] or 0)}
+                wake, owhy = outage_verdict(a, reading, history, now)
+                w = workers(a.engine_root)
+                if not wake:
+                    print("  get_usage is not answering; %s; trying again in %d s" % (owhy, _retry_seconds(a)),
+                          flush=True)
+                elif w["known"] and not w["working"]:
+                    print("  the reading is unknown but nothing is working: no spend it could hide", flush=True)
+                elif not blind_woken:
+                    out.wake("STALE", _capture(_emit_blind, a, r, w, why,
+                                               {"at": outage["at"], "why": owhy,
+                                                "fallback_why": outage["fallback_why"]}), now)
+                    blind_woken = asked_refresh = True
+            elif verdict == "unknown":
                 if blind_since is None:
                     blind_since = now
                 # A STALE reading (older than one poll) is blind NOW: it is the
@@ -818,35 +1263,23 @@ def mode_watch(a):
                     w = workers(a.engine_root)
                     if w["known"] and not w["working"]:
                         print("  the reading is unknown but nothing is working: no spend it could hide", flush=True)
-                    else:
-                        if stale:
-                            print("QUOTA-STALE: the reading is %s old (one poll is %d s), so the current value is UNKNOWN"
-                                  % (span(r["age"] or 0), a.poll))
-                            if r.get("fallback_why"):
-                                print("  It came from the status-line file, because %s." % r["fallback_why"])
-                            print("  Last value seen: %s%%. It is NOT the current value: usage has only grown since."
-                                  % fmt_pct(r["used"]))
-                        else:
-                            print("QUOTA-UNKNOWN: %s" % (why or r["why"]))
-                        print("  The watcher cannot tell whether the threshold was crossed.")
-                        print("  %s" % worker_line(w))
-                        print("  REFRESH THE READING: reply once, in this turn. The payload is rewritten only when your")
-                        print("  status line renders, and it renders when a new assistant message of yours arrives;")
-                        print("  teammates' work does not render it. Then start the watcher again:")
-                        print("    %s --watch" % a.command)
-                        return 0
+                    elif not blind_woken:
+                        out.wake("STALE" if stale else "UNKNOWN", _capture(_emit_blind, a, r, w, why), now)
+                        blind_woken = asked_refresh = True
             else:
                 blind_since = None
-            if verdict == "below" and r["age"] is not None and r.get("source") != "get_usage":
+                blind_woken = False
+            if verdict == "below" and r["age"] is not None and r.get("source") == "the status line" and not in_outage:
                 at = refresh_point(a.stale)
                 if r["age"] >= at:
                     w = workers(a.engine_root)
                     if w["known"] and not w["working"]:
                         print("  the reading is about to turn one poll old, but nothing is working: no refresh needed",
                               flush=True)
-                    else:
-                        _emit_refresh(a, r, w, at)
-                        return 0
+                    elif refreshed_for != int(now - r["age"]):
+                        out.wake("REFRESH", _capture(_emit_refresh, a, r, w, at), now)
+                        refreshed_for = int(now - r["age"])
+                        asked_refresh = True
                 else:
                     refresh_in = at - r["age"]
         sleep_for = a.poll
@@ -862,7 +1295,350 @@ def mode_watch(a):
             # poll later (the 07:57Z/08:07Z defect above).
             sleep_for = max(1, min(sleep_for, int(math.ceil(refresh_in))))
             refresh_in = None
-        time.sleep(sleep_for)
+        if retry:
+            # "retried at the next poll, or sooner" (2026-09-28).
+            sleep_for = max(1, min(sleep_for, _retry_seconds(a)))
+        if asked_refresh:
+            # The lead was asked to refresh the status line: read it again
+            # shortly, so the next refresh point is scheduled from the new
+            # render and not a whole poll after it (until 2026-09-28 the lead
+            # restarted the watcher, which re-read at once).
+            sleep_for = max(1, min(sleep_for, REFRESH_AHEAD_SECONDS, a.stale // 10))
+        # Counted from the START of this poll, so the polls are 300 s apart
+        # and not 300 s plus however long get_usage took (20 s on a timeout).
+        _nap(max(1, sleep_for - int(time.time() - now)), alive)
+
+
+# ---------------------------------------------------------------------------
+# the session, its poller and its doorbells
+# ---------------------------------------------------------------------------
+
+def session_identity(engine_root):
+    """(session id, claude pid, that pid's start time) for the session this
+    command runs in, from the workspace registry's own resolution. Empty when
+    there is none (a plain terminal)."""
+    ws, _why = _load_registry(engine_root)
+    if ws is None:
+        return "", None, ""
+    try:
+        sid = ws.current_session() or ""
+        pid = ws.session_pid(sid) if sid else ws.session_pid()
+        start = ws.process_start(pid)[1] if pid else ""
+    except Exception:  # noqa: BLE001 — no session is a state, not a crash
+        return "", None, ""
+    return sid, pid, start or ""
+
+
+def _pid_start(pid):
+    """The OS's start time of pid, as `ps -o lstart=` prints it; '' if gone."""
+    try:
+        res = subprocess.run(["ps", "-o", "lstart=", "-p", str(int(pid))], capture_output=True, text=True, timeout=10)
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return ""
+    return res.stdout.strip() if res.returncode == 0 else ""
+
+
+def session_alive_check(pid):
+    """A callable: is the session's claude process still the one this was
+    started for? Its pid at every call, and its start time (captured now) once
+    a minute, so a pid the OS has reused is not mistaken for it."""
+    start = _pid_start(pid)
+    calls = [0]
+
+    def alive():
+        try:
+            os.kill(int(pid), 0)
+        except PermissionError:
+            pass
+        except (OSError, ValueError, TypeError):
+            return False
+        calls[0] += 1
+        if start and calls[0] % 12 == 0:
+            now_start = _pid_start(pid)
+            if now_start and now_start != start:
+                return False
+        return True
+    return alive
+
+
+def session_dir(sid):
+    d = os.path.join(state_root(), sid or "no-session")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def prune_state(keep):
+    """§54: a session's directory goes once nothing holds its locks and it has
+    not been written for two days. Never the one in use."""
+    root = state_root()
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return
+    now = time.time()
+    for n in names:
+        d = os.path.join(root, n)
+        if d == keep or not os.path.isdir(d):
+            continue
+        if lock_held(os.path.join(d, "poller.lock")) or lock_held(os.path.join(d, "monitor.lock")):
+            continue
+        try:
+            newest = max([os.path.getmtime(os.path.join(d, f)) for f in os.listdir(d)] + [os.path.getmtime(d)])
+        except OSError:
+            continue
+        if now - newest > STATE_KEEP_SECONDS:
+            shutil.rmtree(d, ignore_errors=True)
+
+
+def ensure_poller(a, sd, spid):
+    """(pid, started_now) of this session's poller, starting one if nothing
+    holds poller.lock. The poller is detached (its own session), so it
+    outlives the command that started it and ends with the claude process."""
+    lock = os.path.join(sd, "poller.lock")
+    if lock_held(lock):
+        return _read_json(os.path.join(sd, "poller.json")).get("pid"), False
+    args = [sys.executable, os.path.abspath(__file__), "--poll", "--session-dir", sd,
+            "--session-pid", str(spid), "--threshold-raw", a.threshold_raw, "--config", a.config or "",
+            "--engine-root", a.engine_root, "--command", a.command]
+    try:
+        err = open(os.path.join(sd, "poller.err"), "ab")
+    except OSError:
+        err = subprocess.DEVNULL
+    try:
+        p = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=err,
+                             start_new_session=True, close_fds=True)
+    except OSError:
+        return None, False
+    finally:
+        if err is not subprocess.DEVNULL:
+            err.close()
+    for _ in range(100):
+        if lock_held(lock):
+            return p.pid, True
+        if p.poll() is not None:
+            break
+        _real_sleep(0.1)
+    return (p.pid, True) if lock_held(lock) else (None, False)
+
+
+# The doorbells wait on files with the real clock, whatever a test does to `time`.
+_real_sleep = time.sleep
+_real_time = time.time
+
+
+def mode_poll(a):
+    """The detached poller: one per session, holding poller.lock for its life."""
+    sd = a.session_dir
+    fd = _try_lock(os.path.join(sd, "poller.lock"), patience=1.0)
+    if fd is None:
+        return 0  # another poller already polls this session
+    _write_json(os.path.join(sd, "poller.json"), {"pid": os.getpid(), "started": int(_real_time()),
+                                                  "poll": a.poll, "last_poll": None, "session_pid": a.session_pid})
+    prune_state(sd)
+    alive = session_alive_check(a.session_pid) if a.session_pid else None
+    try:
+        return poll_loop(a, Out(sd=sd), alive)
+    finally:
+        os.close(fd)
+
+
+def _read_events(sd, offset):
+    """[(end_offset, event)] after offset in events.jsonl."""
+    path = os.path.join(sd, "events.jsonl")
+    out = []
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(offset)
+            pos = offset
+            for raw in fh:
+                if not raw.endswith(b"\n"):
+                    break
+                pos += len(raw)
+                try:
+                    ev = json.loads(raw.decode("utf-8"))
+                except ValueError:
+                    continue
+                if isinstance(ev, dict) and isinstance(ev.get("text"), str):
+                    out.append((pos, ev))
+    except OSError:
+        pass
+    return out
+
+
+def _cursor(sd):
+    v = _read_json(os.path.join(sd, "delivered.json")).get("offset")
+    return v if isinstance(v, int) and v >= 0 else 0
+
+
+def _set_cursor(sd, offset):
+    _write_json(os.path.join(sd, "delivered.json"), {"offset": offset, "at": int(_real_time())})
+
+
+def _doorbell_setup(a):
+    """(sd, spid) for a doorbell, or None to poll inline (no session)."""
+    sid, spid, _start = session_identity(a.engine_root)
+    if not spid:
+        return None
+    return session_dir(sid), spid
+
+
+def mode_monitor(a):
+    """The plugin monitor's body: runs for the whole session, and every line it
+    prints reaches the lead as a notification. It prints each wake-up once and
+    keeps going; it keeps a poller running (starting it again if it dies)."""
+    if not a.config:
+        return 0  # a repository that never adopted the engine: nothing to watch, and nothing said
+    if a.threshold is None:
+        print("QUOTA-UNKNOWN: cannot watch: %s is %s in %s" % (CONFIG_KEY, a.threshold_problem, a.config), flush=True)
+        return 2
+    setup = _doorbell_setup(a)
+    if setup is None:
+        # No session process to hand a poller to: poll here, wake-ups only
+        # (every line a monitor prints wakes the lead).
+        return poll_loop(a, Out(events=sys.stdout))
+    sd, spid = setup
+    mfd = _try_lock(os.path.join(sd, "monitor.lock"), patience=1.0)
+    if mfd is None:
+        return 0  # this session already has its monitor
+    _write_json(os.path.join(sd, "monitor.json"), {"pid": os.getpid(), "started": int(_real_time())})
+    alive = session_alive_check(spid)
+    offset = _cursor(sd)
+    try:
+        while alive():
+            pid, started = ensure_poller(a, sd, spid)
+            if pid is None:
+                print("QUOTA-UNKNOWN: the quota poller could not start; see %s" % os.path.join(sd, "poller.err"),
+                      flush=True)
+                _real_sleep(60)
+                continue
+            for end, ev in _read_events(sd, offset):
+                sys.stdout.write(ev["text"])
+                sys.stdout.flush()
+                offset = end
+                _set_cursor(sd, offset)
+            _real_sleep(1)
+    finally:
+        os.close(mfd)
+    return 0
+
+
+def mode_watch(a):
+    """The fallback doorbell, run as a background command: it prints the poll
+    lines as they come and EXITS on the next wake-up, which is what wakes the
+    lead. The poller does not stop with it."""
+    if a.threshold is None:
+        print("QUOTA-UNKNOWN: cannot watch: %s is %s in %s" % (CONFIG_KEY, a.threshold_problem, a.config or "(no config)"))
+        return 2
+    setup = _doorbell_setup(a)
+    if setup is None:
+        # No session process to tie a poller to: poll right here, forever.
+        return poll_loop(a, Out(lines=sys.stdout, events=sys.stdout))
+    sd, spid = setup
+    if lock_held(os.path.join(sd, "monitor.lock")):
+        mon = _read_json(os.path.join(sd, "monitor.json"))
+        print("quota-watch: this session's watcher is its plugin monitor (pid %s); it polls every 5 minutes and wakes"
+              " you by itself. Nothing to start." % mon.get("pid", "?"))
+        return 0
+    wfd = _try_lock(os.path.join(sd, "waker.lock"), patience=1.0)
+    if wfd is None:
+        print("quota-watch: another --watch already waits for this session's next wake-up. Nothing to start.")
+        return 0
+    try:
+        polls = os.path.join(sd, "polls.log")
+        try:
+            ppos = os.path.getsize(polls)
+        except OSError:
+            ppos = 0
+        pid, started = ensure_poller(a, sd, spid)
+        if pid is None:
+            print("QUOTA-UNKNOWN: cannot watch: the poller could not start; see %s" % os.path.join(sd, "poller.err"))
+            return 2
+        print("quota-watch: polling every %d s; threshold %s%%%s; poller pid %s (%s)" % (
+            a.poll, fmt_pct(a.threshold), "; waking only at the release and the reset" if a.until_reset else "",
+            pid, "started now" if started else "already polling"), flush=True)
+        offset = _cursor(sd)
+        alive = session_alive_check(spid)
+        while True:
+            ppos = _print_new_lines(polls, ppos)
+            woke = False
+            for end, ev in _read_events(sd, offset):
+                offset = end
+                if a.until_reset and ev.get("kind") not in UNTIL_RESET_KINDS:
+                    continue
+                age = int(_real_time()) - int(ev.get("at") or 0)
+                if age > 90:
+                    print("(this wake-up came at %s, %s ago, while no --watch was running)" % (
+                        _hms(ev.get("at") or 0), span(age)))
+                sys.stdout.write(ev["text"])
+                woke = True
+            _set_cursor(sd, offset)
+            if woke:
+                print("  To be woken at the next one, start this again as a background command:")
+                print("    %s --watch" % a.command)
+                sys.stdout.flush()
+                return 0
+            if not lock_held(os.path.join(sd, "poller.lock")):
+                if not alive():
+                    print("quota-watch: the session has ended")
+                    return 0
+                pid, started = ensure_poller(a, sd, spid)
+                print("quota-watch: the poller had stopped; %s" % (
+                    "started again, pid %s" % pid if pid else "it could not be started again"), flush=True)
+            _real_sleep(0.5)
+    finally:
+        os.close(wfd)
+
+
+def _print_new_lines(path, pos):
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return pos
+    if size < pos:
+        pos = 0  # rotated
+    if size == pos:
+        return pos
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(pos)
+            data = fh.read()
+    except OSError:
+        return pos
+    cut = data.rfind(b"\n") + 1
+    if cut:
+        sys.stdout.write(data[:cut].decode("utf-8", "replace"))
+        sys.stdout.flush()
+    return pos + cut
+
+
+def mode_alive(a):
+    """Is this session's quota rule being watched right now, and by what?"""
+    setup = _doorbell_setup(a)
+    if setup is None:
+        print("quota-watch: no session process here; nothing to check")
+        return 2
+    sd, _spid = setup
+    poller = lock_held(os.path.join(sd, "poller.lock"))
+    hb = _read_json(os.path.join(sd, "poller.json"))
+    monitor = lock_held(os.path.join(sd, "monitor.lock"))
+    waker = lock_held(os.path.join(sd, "waker.lock"))
+    now = int(_real_time())
+    if not poller:
+        print("quota-watch: NOT WATCHED: no poller for this session (%s)." % sd)
+        print("  Start one as a background command (Bash with run_in_background: true): %s --watch" % a.command)
+        return 2
+    last = hb.get("last_poll")
+    print("quota-watch: poller pid %s, polling every %s s; last poll %s" % (
+        hb.get("pid"), hb.get("poll"), ("%s, %s ago" % (_hms(last), span(now - last))) if last else "not yet"))
+    if monitor:
+        print("  wake-ups reach you through the plugin monitor (pid %s)" % _read_json(os.path.join(sd, "monitor.json")).get("pid"))
+        return 0
+    if waker:
+        print("  wake-ups reach you when the running --watch exits")
+        return 0
+    print("  NOTHING DELIVERS ITS WAKE-UPS: the poller keeps polling and journals them, but no monitor or --watch is")
+    print("  running. Start as a background command (Bash with run_in_background: true): %s --watch" % a.command)
+    return 1
 
 
 def mode_notice(a, now):
@@ -911,8 +1687,14 @@ def main(argv):
     g.add_argument("--watch", action="store_true")
     g.add_argument("--status", action="store_true")
     g.add_argument("--notice", action="store_true")
+    g.add_argument("--monitor", action="store_true",
+                   help="the plugin monitor's body: runs for the whole session and prints each wake-up")
+    g.add_argument("--alive", action="store_true", help="what polls for this session, and what delivers")
+    g.add_argument("--poll", dest="poller", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--until-reset", action="store_true",
-                    help="with --watch: wake only at the reset (the lead has decided this window)")
+                    help="with --watch: wake only at the hold's release and the reset (the lead has decided this window)")
+    ap.add_argument("--session-dir", default="", help=argparse.SUPPRESS)
+    ap.add_argument("--session-pid", type=int, default=0, help=argparse.SUPPRESS)
     ap.add_argument("--threshold-raw", default="")
     ap.add_argument("--config", default="")
     ap.add_argument("--engine-root", default="")
@@ -920,6 +1702,8 @@ def main(argv):
     a = ap.parse_args(argv)
     if a.until_reset and not a.watch:
         ap.error("--until-reset goes with --watch")
+    if a.poller and not a.session_dir:
+        ap.error("--poll is started by --watch or --monitor")
     a.payload = default_payload_path()
     a.poll = _env_int("QUOTA_WATCH_POLL_SECONDS", POLL_SECONDS)
     a.stale = _env_int("QUOTA_WATCH_STALE_SECONDS", a.poll)
@@ -938,6 +1722,12 @@ def main(argv):
         return mode_status(a, now)
     if a.notice:
         return mode_notice(a, now)
+    if a.monitor:
+        return mode_monitor(a)
+    if a.alive:
+        return mode_alive(a)
+    if a.poller:
+        return mode_poll(a)
     return mode_watch(a)
 
 

@@ -143,13 +143,13 @@ mutant watch-ignores-exception "W10" "$L" \
     "--once would say no pause while the watcher woke the lead to pause anyway."
 
 mutant release-never-fires "E05" "$L" \
-    '            if not w["known"] or w["quota_paused"]:{NL}                _emit_release' \
-    '            if False:{NL}                _emit_release' \
+    '            if not w["known"] or w["quota_paused"]:{NL}                out.wake("RELEASE"' \
+    '            if False:{NL}                out.wake("RELEASE"' \
     "A hold would last to the reset instead of releasing inside the last 20 minutes."
 
 mutant release-with-nobody-held "W03" "$L" \
-    '            if not w["known"] or w["quota_paused"]:{NL}                _emit_release' \
-    '            if True:{NL}                _emit_release' \
+    '            if not w["known"] or w["quota_paused"]:{NL}                out.wake("RELEASE"' \
+    '            if True:{NL}                out.wake("RELEASE"' \
     "The lead would be woken to release a hold nobody is in."
 
 mutant release-a-poll-late "E05" "$L" \
@@ -157,9 +157,12 @@ mutant release-a-poll-late "E05" "$L" \
     '            if False:' \
     "The release would come up to one 5-minute poll after the 20-minute mark."
 
+# The release message is the generated RESUME (render_resume("quota")); until
+# 2026-09-28 this mutant targeted a handwritten text the file no longer has,
+# so it matched nothing.
 mutant release-message-re-pauses "E06" "$L" \
-    '"hold is released (%s). Continue exactly where you stopped."' \
-    '"hold is released (%s). Continue exactly where you stopped.\npause-until: later"' \
+    '    return pause_protocol.render_resume("quota")' \
+    '    return pause_protocol.render_resume("quota") + "\npause-until: later"' \
     "The release message would re-pause the agent it was meant to wake."
 
 mutant stale-bound-usage-tier "Q23" "$L" \
@@ -219,6 +222,70 @@ mutant refresh-with-nothing-working "W13" "$L" \
     '                    if w["known"] and not w["working"]:{NL}                        print("  the reading is about to turn' \
     '                    if False:{NL}                        print("  the reading is about to turn' \
     "A quiet session would be woken every 5 minutes to refresh a number that nothing is spending."
+
+# 10. THE POLLING NEVER STOPS (2026-09-28). The watcher exited at the 14:30Z
+#     reset and on a get_usage timeout at 15:32Z, and nothing polled until it
+#     was started again by hand.
+mutant polling-stops-at-reset "N01" "$L" \
+    '                reset_done = window_end' \
+    '                reset_done = window_end{NL}                return 0' \
+    "The watcher would end at the reset, as it did at 14:30Z, and nothing would poll the new window."
+
+mutant polling-stops-at-threshold "N03" "$L" \
+    '                        threshold_named[window_end] = set(w["working"]) if w["known"] else set()' \
+    '                        threshold_named[window_end] = set(w["working"]) if w["known"] else set(){NL}                        return 0' \
+    "The watcher would end at the pause, and nothing would poll for the release or the reset."
+
+mutant stale-wakes-every-poll "N06" "$L" \
+    '                    elif not blind_woken:{NL}                        out.wake("STALE" if stale' \
+    '                    elif True:{NL}                        out.wake("STALE" if stale' \
+    "A watcher that no longer exits would wake the lead at every poll of a stale reading."
+
+mutant outage-wakes-at-once "N02" "$L" \
+    '    if reach >= a.threshold:' \
+    '    if True:' \
+    "A get_usage timeout at 8% would wake the lead at once, as at 15:32Z, though the threshold could not have been crossed."
+
+mutant outage-not-retried-sooner "N02" "$L" \
+    '            sleep_for = max(1, min(sleep_for, _retry_seconds(a)))' \
+    '            pass' \
+    "A failed get_usage would wait a whole poll to be tried again, and a short outage would reach the two-poll mark."
+
+mutant outage-ignores-measured-rise "N04" "$L" \
+    '    if reach >= a.threshold:' \
+    '    if False:' \
+    "A timeout streak right after a steep rise would wait for the two-poll mark while the threshold may already be crossed."
+
+mutant outage-never-wakes "N05" "$L" \
+    '    if age >= cap:' \
+    '    if False:' \
+    "A get_usage outage far from the threshold would never wake anyone, however long it lasted."
+
+mutant outage-reason-unkept "N02" "$L" \
+    '        r["why"] += " (%s)" % "; ".join(timing' \
+    '        r["why"] += "" and " (%s)" % "; ".join(timing' \
+    "The next timeout would again leave no record of which request hung or what claude said."
+
+mutant refresh-not-re-read "R03" "$L" \
+    '            sleep_for = max(1, min(sleep_for, REFRESH_AHEAD_SECONDS, a.stale // 10))' \
+    '            pass' \
+    "After a refresh the watcher would read the status line a whole poll later, and the next refresh would come as it turns one poll old."
+
+# THE DOORBELL EVERY SESSION STARTS WITH: the plugin monitor.
+mutant monitor-delivers-nothing "M01" "$L" \
+    '                sys.stdout.write(ev["text"])' \
+    '                pass' \
+    "The monitor would run all session and never wake the lead."
+
+mutant monitor-outlives-session "M01" "$L" \
+    '    try:{NL}        while alive():' \
+    '    try:{NL}        while True:' \
+    "A monitor would keep running after its session ended."
+
+mutant poller-outlives-session "M01" "$L" \
+    '    alive = session_alive_check(a.session_pid) if a.session_pid else None' \
+    '    alive = None' \
+    "A detached poller would poll forever after its session ended."
 
 # A DEAD LOGIN SEEN BY THE WATCHER REACHES THE CEO (2026-09-26).
 mutant login-refusal-unreported "G09" "$L" \
