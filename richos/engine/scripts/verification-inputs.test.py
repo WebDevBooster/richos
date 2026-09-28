@@ -152,6 +152,26 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_git_jurisdiction_binds_undeclared_target_guard_paths(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/lib/git-jurisdiction.test.sh'
+        self.assertEqual(graph.closure(unit),
+                         {'keys': {}, 'whole': [], 'presence': [], 'fallback': []})
+        change = inputs.config_change('PROTECTED_PATHS=old', 'PROTECTED_PATHS=new')
+        self.assertEqual(graph.config_units(change, [unit]), {})
+        for helper in ('scripts/hooks/guard-completeness-commits.sh#undeclared-target',
+                       'scripts/hooks/guard-publication-commits.sh#undeclared-target',
+                       'scripts/hooks/guard-row-currency-commits.sh#undeclared-target',
+                       'scripts/lib/row-currency.sh#undeclared',
+                       'scripts/lib/publication-boundary.sh#undeclared',
+                       'scripts/hooks/guard-inflight-notify.sh'):
+            with self.subTest(helper=helper):
+                previous = document['nodes'][helper]['sha256']
+                document['nodes'][helper]['sha256'] = 'changed'
+                self.assertEqual(set(graph.config_units(change, [unit])), {unit})
+                document['nodes'][helper]['sha256'] = previous
+
     def test_inflight_durability_retains_real_workspace_cleanup_settings(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

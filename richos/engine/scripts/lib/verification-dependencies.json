@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "f0151cfd49812a8340113710378066cc7a456548677a4a006bffa18a4114f1c0",
+      "sha256": "25f3bba1de42c257e3ac1e5a81bf7407c5b56193809a8ab78b714cd19dfcf600",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -3827,6 +3827,136 @@
           "to": "mega-lander/workspaces.sh#discard"
         }
       ]
+    },
+    "scripts/hooks/guard-completeness-commits.sh#undeclared-target": {
+      "source": "scripts/hooks/guard-completeness-commits.sh",
+      "sha256": "bb6d0253b44d251a08dd325e8901399aafcbe4ca6fe4aa4c30c9b41a57cee673",
+      "evidence": "Git-jurisdiction fixture supplies a new target repository with no publication declaration. Module setup, payload classifier and seat/Git resolution run; pb_load_declaration returns absent before the checker or corpus path. Broken-library copies exit still earlier. Full source hash binds both the early return and excluded continuation.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#undeclared"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "CHECKER=\"$ENGINE_ROOT/scripts/publication-completeness.sh\""
+      ]
+    },
+    "scripts/hooks/guard-publication-commits.sh#undeclared-target": {
+      "source": "scripts/hooks/guard-publication-commits.sh",
+      "sha256": "180baec98c3f3b0e23e6b12bb8f3e129082ca6f10d49577b56671e102039e9fe",
+      "evidence": "Git-jurisdiction fixture supplies a new target repository with no publication declaration. Module setup, payload classifier and seat/Git resolution run; pb_load_declaration returns absent before the checker or corpus path. Broken-library copies exit still earlier. Full source hash binds both the early return and excluded continuation.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#undeclared"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "if ! pb_resolve_sources \"$PB_REPO\"; then"
+      ]
+    },
+    "scripts/lib/row-currency.sh#undeclared": {
+      "source": "scripts/lib/row-currency.sh",
+      "sha256": "6aeb36f33046c910ad654f2c1f8eba96ca2c2a9675d40e9f5abf2c94e139584e",
+      "evidence": "Module initialization, rc_require_ceo_todos_lib and rc_load_declaration through absent decl_find. No row declaration exists in the jurisdiction fixture, so no record resolver or Python predicate runs. The fixed TODO library provides repository resolution.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/declaration-path.sh"
+        },
+        {
+          "to": "scripts/lib/ceo-todos.sh#fixture-records"
+        }
+      ],
+      "region": [
+        ": \"${ROW_CURRENCY_DECLARATION:=.row-currency}\"",
+        "f=\"$DECL_PATH\""
+      ]
+    },
+    "scripts/hooks/guard-row-currency-commits.sh#undeclared-target": {
+      "source": "scripts/hooks/guard-row-currency-commits.sh",
+      "sha256": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
+      "evidence": "The jurisdiction fixture invokes the real guard against a newly created repository without a row-currency declaration. Only setup, payload classification and repository/adoption resolution execute; the absent declaration exits before landing checks, record resolution or predicate. Full source hash binds the excluded continuation.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/row-currency.sh#undeclared"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "rc_is_landing \"$REPO\" || exit 0"
+      ]
+    },
+    "scripts/lib/git-jurisdiction.test.sh": {
+      "source": "scripts/lib/git-jurisdiction.test.sh",
+      "sha256": "c90214ce50a34b663725e7a4f3020b9ca6f1738c7508fd1fad883742f5439572",
+      "evidence": "Resolver-only shapes treat commands as data. Five real guards then target fresh private Git repositories with a literal adopted seat and no target publication, TODO or row declarations. Their early returns exclude content predicates. Broken-library copies execute only those five guards and exit before helper use. The broad guard grep reads source text, not runtime config. No production config is copied or sourced.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-completeness-commits.sh#undeclared-target",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-publication-commits.sh#undeclared-target",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-row-currency-commits.sh#undeclared-target",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-ceo-todos-commits.sh#fixture-records",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-inflight-notify.sh",
+          "fixture": true
+        }
+      ]
     }
   },
   "units": {
@@ -3896,7 +4026,8 @@
     "scripts/hooks/detect-nonnative-worktree.test.sh": "scripts/hooks/detect-nonnative-worktree.test.sh",
     "scripts/hooks/inflight-two-leads.test.sh": "scripts/hooks/inflight-two-leads.test.sh",
     "scripts/hooks/inflight-notify.test.sh": "scripts/hooks/inflight-notify.test.sh",
-    "scripts/hooks/inflight-ack-durability.test.sh": "scripts/hooks/inflight-ack-durability.test.sh"
+    "scripts/hooks/inflight-ack-durability.test.sh": "scripts/hooks/inflight-ack-durability.test.sh",
+    "scripts/lib/git-jurisdiction.test.sh": "scripts/lib/git-jurisdiction.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
