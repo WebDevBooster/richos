@@ -1050,9 +1050,92 @@ def cmd_show(args):
     return 0
 
 
+# ---------------------------------------------------------------------------
+# THE FIELDS FILE: free text that never crosses the command line
+# ---------------------------------------------------------------------------
+# Measured 2026-09-28 on Claude Code 2.1.283. For a worktree-isolated agent,
+# Claude Code refuses a Bash call before it runs when a program it does not know
+# (escalate.sh is one) receives a literal argument that (a) has several words and
+# starts with the word `git` or a shell name, or (b) contains a quote, `$`,
+# backtick or backslash anywhere and names `git` or a shell as any word. Ordinary
+# escalation prose does both: "git status, git add, git commit in the workspace",
+# "we can't run git here". The refusal comes from the host, not from this engine,
+# and it arrives before escalate.sh runs, so nothing here can intercept it.
+#
+# So the text travels in a file the agent writes with its Write tool, which that
+# check never reads, and the command line carries only a path. This reads it and
+# refuses anything it would have to guess about. `fields` prints the names that
+# are present; `fields --get NAME` prints one value followed by a single "." so
+# the caller keeps trailing newlines intact. escalate.sh assigns each value
+# through a fixed case statement: nothing from the file is ever evaluated.
+FIELD_NAMES = ("title", "state", "for", "question", "tried", "meanwhile",
+               "teammate", "worktree", "disposition", "until")
+FIELDS_MAX_BYTES = 65536
+
+
+def _load_fields(path, given):
+    """(dict, None) for a usable fields file, or (None, [problem, ...])."""
+    try:
+        with open(path, "rb") as f:
+            raw = f.read(FIELDS_MAX_BYTES + 1)
+    except OSError as exc:
+        return None, ["cannot read the fields file %s (%s)." % (path, exc.strerror or exc)]
+    if len(raw) > FIELDS_MAX_BYTES:
+        return None, ["the fields file %s is over %d bytes. An escalation is a question, not a "
+                      "log; put long evidence in a file and name it in 'tried'." % (path, FIELDS_MAX_BYTES)]
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        return None, ["the fields file %s is not a JSON object (%s).\n"
+                      "  Write it with your Write tool, for example:\n"
+                      '  {"title": "...", "state": "proceeding", "question": "...", "tried": "...", '
+                      '"meanwhile": "..."}' % (path, exc)]
+    if not isinstance(data, dict):
+        return None, ["the fields file %s must hold one JSON object, not a %s."
+                      % (path, type(data).__name__)]
+    problems = []
+    for key in sorted(data):
+        if key not in FIELD_NAMES:
+            problems.append("unknown field %r in %s. Allowed: %s."
+                            % (key, path, ", ".join(FIELD_NAMES)))
+        elif not isinstance(data[key], str):
+            problems.append("field %r in %s must be a string, not %s."
+                            % (key, path, type(data[key]).__name__))
+        elif "\x00" in data[key]:
+            problems.append("field %r in %s contains a NUL character, which a shell "
+                            "variable cannot hold." % (key, path))
+        elif key in given:
+            problems.append("field %r is given both in %s and as --%s; give it once."
+                            % (key, path, key))
+    return (None, problems) if problems else (data, None)
+
+
+def cmd_fields(args):
+    data, problems = _load_fields(args.file, set((args.given or "").split()))
+    if problems:
+        for p in problems:
+            sys.stderr.write("escalations: %s\n" % p)
+        return 2
+    if args.get:
+        if args.get not in data:
+            sys.stderr.write("escalations: field %r is not in %s.\n" % (args.get, args.file))
+            return 2
+        sys.stdout.write(data[args.get] + ".")
+        return 0
+    print(" ".join(k for k in FIELD_NAMES if k in data))
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="escalations.py")
     sub = ap.add_subparsers(dest="cmd")
+
+    fl = sub.add_parser("fields")
+    fl.add_argument("--file", required=True)
+    fl.add_argument("--given", default="",
+                    help="space-separated field names already given as options")
+    fl.add_argument("--get", default="", help="print this one field's value, then a '.'")
+    fl.set_defaults(func=cmd_fields)
 
     r = sub.add_parser("raise")
     r.add_argument("--title", default="")

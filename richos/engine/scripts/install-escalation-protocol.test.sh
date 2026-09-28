@@ -178,13 +178,20 @@ if [ "$RC" -eq 0 ]; then ok "4b  --check now exits 0"; else bad "4b  --check gre
 # ===========================================================================
 # 5. DRIFT — a definition edited by hand is REPLACED and SAID OUT LOUD
 # ===========================================================================
-python3 - "$REPO/.claude/agents/zach.md" <<'PY'
+# The anchor is a sentence the canonical text carries. If it ever stops carrying
+# it, the edit below would change nothing and 5a would fail as "no drift" for a
+# reason that has nothing to do with drift, so a missing anchor is named.
+if python3 - "$REPO/.claude/agents/zach.md" <<'PY'
 import sys
 p = sys.argv[1]
+anchor = "Your name, your branch, your HEAD and your repository are read"
 s = open(p, encoding="utf-8").read()
-s = s.replace("Run it from your own worktree.", "Someone edited this by hand.")
+if anchor not in s:
+    sys.exit(1)
+s = s.replace(anchor, "Someone edited this by hand.")
 open(p, "w", encoding="utf-8").write(s)
 PY
+then :; else bad "5   drift fixture" "the anchor sentence is not in the installed seam; re-point case 5 at a sentence the canonical text carries"; fi
 OUT="$("$INSTALLER" --repo "$REPO" --check 2>&1)"
 RC=$?
 if [ "$RC" -eq 1 ]; then ok "5a  a hand-edited definition is reported as drift"
@@ -225,10 +232,24 @@ else bad "6c  missing agents dir" "rc=$RC: $OUT"; fi
 #    A seam installed everywhere that told teammates nothing useful would pass
 #    every case above.
 # ===========================================================================
-for want in 'escalate.sh raise' '--state' 'work-complete' 'docs/verification/' 'EXITS NON-ZERO'; do
+for want in 'escalate.sh raise --fields' '"state"' 'Write tool' 'work-complete' 'docs/verification/' 'EXITS NON-ZERO'; do
     if grep -qF -e "$want" "$CANON"; then ok "7   the canonical text names: $want"
     else bad "7   canonical text" "missing: $want"; fi
 done
+
+# ===========================================================================
+# 8. AND IT NEVER TEACHES FREE TEXT ON THE COMMAND LINE.
+#    Measured 2026-09-28: Claude Code refuses a worktree-isolated agent's
+#    command, before it runs, when a free-text argument starts with the word
+#    git or has an apostrophe beside it. A seam that showed
+#    `--tried "<what you already tried>"` taught every teammate the one form
+#    that is refused for exactly the escalations that matter. The refusal must
+#    never be the first thing a teammate meets, so the taught form carries
+#    only a path.
+# ===========================================================================
+TAUGHT="$(grep -nE -e '--(title|question|tried|meanwhile) +"' "$CANON" || true)"
+if [ -z "$TAUGHT" ]; then ok "8   the canonical text shows no --title/--question/--tried/--meanwhile \"<text>\" form"
+else bad "8   no free text on the command line" "the canonical text teaches: $TAUGHT"; fi
 
 printf '\n  %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
