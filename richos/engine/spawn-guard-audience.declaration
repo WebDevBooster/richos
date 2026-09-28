@@ -107,6 +107,11 @@ audience: user-work
 reason: It refuses a worker on a model tier above the declared cost ceiling, and the subscription that tier is charged to is the user's own.
 user_message: This work asked for a more expensive model than this app is allowed to spend on, so I did not start it. Nothing was created.
 
+id: guard-host-display-power.sh
+audience: user-work
+reason: It refuses a command, brief, message or spawn that would change THIS machine's display, sleep, lock, session or input state, and the machine on the far side of a background assignment is the user's own, not a development session's.
+user_message: This work asked to change your computer's screen, sleep, or lock settings, so I did not start it. Nothing was created.
+
 # ===========================================================================
 # OPERATOR-SESSION — the app runs none of these, ever
 # ===========================================================================
@@ -130,3 +135,19 @@ reason: It refuses a dispatch that ties a phone surface to a home-network path, 
 id: guard-brief-scope.sh
 audience: operator-session
 reason: It refuses a dispatch that drifts off a design-round specification recorded in the DEVELOPMENT project, and its spec pages, round verdict history and CEO-word escape line are all conventions of that session; it was silent on a user's own repository only because a user's repository happens to carry no such record.
+
+id: guard-reference-ledger.sh
+audience: operator-session
+reason: It refuses a dispatch that rebuilds a surface the DEVELOPMENT project's own adoption ledger already answered, and the ledger document, the named reference project behind it and the CEO's ruling that ordered it are records of that one session; an app user's own repository carries no such ledger and cites nothing.
+
+id: guard-public-record-repo.sh
+audience: operator-session
+reason: It refuses a commit that adds a research read, brief or plan into the DEVELOPMENT project's PUBLIC repository instead of its private one, and that public/private repository split is this development session's own record-keeping convention; an app user's repository is neither of the two and carries no such split.
+
+id: guard-live-names.sh
+audience: operator-session
+reason: It refuses a spawn whose name is already held by a live agent of ANOTHER session on the same Mac, a hazard that exists only because several of the DEVELOPMENT project's own orchestrator sessions can run on one machine at once; it acts only while that session's own operator mode is switched on, which the app's spawn path never is.
+
+id: guard-operator-claim.sh
+audience: operator-session
+reason: It refuses the DEVELOPMENT session's own terminal from acting on the team while the app itself holds a live claim on that same team, keeping the two from driving one team at once; it is a boundary between the operator's terminal and the app, and it explicitly passes every non-terminal, app-side spawn untouched.
