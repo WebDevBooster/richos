@@ -404,6 +404,13 @@ try:
           and not left and "waited" in output("p16-b"),
           "P16e ... and it runs after the first run is over, passes, reports its wait, and leaves no wait record",
           (a_rc, b_rc, a_end, b_start, left, output("p16-b")[-400:]))
+    # P16e2 — the wait is SAID when it changes (who holds, place in line, the limit) or every
+    # proof_slots.SAY_EVERY_SECONDS, never once a second: 2026-09-28's end-to-end run printed its
+    # wait line every second (the elapsed time made each line new), 10,800 lines in a 3 h wait.
+    said = [l for l in output("p16-b").splitlines() if "waiting for a proof-run slot" in l]
+    check(len(said) == 1,
+          "P16e2 a run waiting behind one unchanged holder says so once, not once a second (%d line(s))" % len(said),
+          said)
 
     # P16f — a killed holder releases the Mac: SIGKILL the holding runner (its pid, captured at
     # spawn). The kernel drops its locks; its check's supervisor stops the check it was running.
