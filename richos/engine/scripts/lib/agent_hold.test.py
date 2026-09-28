@@ -918,6 +918,20 @@ class NativeResults(Base):
         transcript.write_text(json.dumps(row))
         self.assertIsNone(agent_hold.native_result(value))
 
+    def test_sdk_cli_result_without_structured_metadata(self):
+        meta, transcript, _, row = self.fixture("sdk-output\n", 4)
+        del row["toolUseResult"]
+        row["entrypoint"] = "sdk-cli"
+        transcript.write_text(json.dumps(row) + "\n")
+        self.assertEqual(agent_hold.native_result(json.loads(meta.read_text())),
+                         (4, "sdk-output\n", "bfixture"))
+
+    def test_conflicting_structured_and_text_task_ids_are_rejected(self):
+        meta, transcript, _, row = self.fixture()
+        row["toolUseResult"]["backgroundTaskId"] = "another-task"
+        transcript.write_text(json.dumps(row) + "\n")
+        self.assertIsNone(agent_hold.native_result(json.loads(meta.read_text())))
+
     def test_terminal_footer_is_required_and_last_status_wins(self):
         meta, _, output, _ = self.fixture()
         value = json.loads(meta.read_text())

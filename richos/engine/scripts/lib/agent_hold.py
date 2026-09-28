@@ -1069,7 +1069,7 @@ def native_result(meta):
             if not isinstance(content, list):
                 continue
             response = row.get("toolUseResult") or {}
-            task = response.get("backgroundTaskId") if isinstance(response, dict) else None
+            structured_task = response.get("backgroundTaskId") if isinstance(response, dict) else None
             for item in content:
                 if not isinstance(item, dict) or item.get("type") != "tool_result" or item.get("tool_use_id") != meta["tool_use_id"]:
                     continue
@@ -1078,10 +1078,14 @@ def native_result(meta):
                     continue
                 if item.get("is_error"):
                     return (2, "Host refused or failed this call:\n" + text, None)
-                match = re.search(r"Output is being written to: (.+?\.output)(?:\. |\n|$)", text)
-                if not _valid_ids(task) or not match:
+                # sdk-cli omits toolUseResult. Both entrypoints include this
+                # host-generated result text; bind its id and path together.
+                match = re.match(r"Command running in background with ID: ([A-Za-z0-9_-]+)\. Output is being written to: (.+?\.output)(?:\. |\n|$)", text)
+                if not match:
                     continue
-                path = match[1]
+                task, path = match[1], match[2]
+                if not _valid_ids(task) or (structured_task is not None and structured_task != task):
+                    continue
                 if (not os.path.isabs(path) or os.path.basename(path) != task + ".output" or
                         os.path.basename(os.path.dirname(path)) != "tasks" or
                         os.path.basename(os.path.dirname(os.path.dirname(path))) != source["session"]):
