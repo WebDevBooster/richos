@@ -153,6 +153,32 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_handoff_facts_keeps_liveness_presence_but_no_config_values(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        read = lambda path: (HERE.parent / path).read_text()
+        unit = 'scripts/handoff-facts.test.sh'
+        graph = inputs.Dependencies(HERE.parent, document, read=read)
+        closure = graph.closure(unit)
+        self.assertFalse(closure['fallback'] or closure['keys'] or closure['whole'])
+        self.assertTrue(closure['presence'])
+        change = inputs.config_change('CHECK_FAILURE_TYPE=0', 'CHECK_FAILURE_TYPE=1')
+        self.assertFalse(graph.config_units(change, [unit]))
+        for change_control in (inputs.config_change(None, 'CHECK_FAILURE_TYPE=1'),
+                               inputs.config_change('CHECK_FAILURE_TYPE=0', 'CHECK_FAILURE_TYPE=$(bad)')):
+            self.assertIn(unit, graph.config_units(change_control, [unit]))
+        seen = set()
+        def visit(name):
+            if name in seen:
+                return
+            seen.add(name)
+            for edge in document['nodes'][name].get('edges', []):
+                visit(edge['to'])
+        visit(unit)
+        for source in {document['nodes'][name]['source'] for name in seen}:
+            with self.subTest(changed_reader=source):
+                changed = lambda p: read(p) + '\n# changed reader\n' if p == source else read(p)
+                self.assertIn(unit, inputs.Dependencies(HERE.parent, document, read=changed).config_units(change, [unit]))
+
     def test_owned_state_manifest_is_private_and_all_readers_are_bound(self):
         from affected_units import Selection
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
