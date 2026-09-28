@@ -12199,6 +12199,167 @@
           "to": "scripts/ci-run-record-check.sh#fixture-api"
         }
       ]
+    },
+    "scripts/lib/resource_waits.py": {
+      "source": "scripts/lib/resource_waits.py",
+      "sha256": "0e1a7dc300ee05dfdf2e182b176268471b36c488e9c451f0f786619893292cb9",
+      "evidence": "Stdlib reads private wait/slot/escalation JSON and native ps output. Only engine import is sibling escalations. Resource command strings are classified as data; wait writer loops over supplied file existence, never invokes a VM or build.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/escalations.py"
+        }
+      ]
+    },
+    "scripts/hooks/guard-resource-waits.sh#hook": {
+      "source": "scripts/hooks/guard-resource-waits.sh",
+      "sha256": "fa3e2205a0acb31b8eae7453ff17ec001445b9e37780f0fb5648d86c8bea267b",
+      "evidence": "Normal Stop path uses fixed root/notice/recovery helpers, sources entity config and invokes resource_waits stop. Self-test branch not invoked by owning fixture.",
+      "keys": [
+        "CHECK_RESOURCE_WAITS",
+        "RESOURCE_WAIT_MINUTES"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/stop-session-recovery.py"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/resource_waits.py"
+        }
+      ]
+    },
+    "scripts/hooks/resource-waits.test.sh": {
+      "source": "scripts/hooks/resource-waits.test.sh",
+      "sha256": "60b0d929774f59d184fc2f6d1f3cbdce22fab4dbc413a2dec66eef660ba2dc17",
+      "evidence": "All hook calls target explicit private entity and empty/literal config, analyzer reads private wait/escalation/slot files. Generated process fixtures sleep or spawn supplied fixture commands only. Shared mutation transport remains source-bound.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-resource-waits.sh#hook",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/resource_waits.py"
+        },
+        {
+          "to": "scripts/lib/scratch.sh"
+        },
+        {
+          "to": "scripts/hooks/resource-waits.mutation.sh"
+        }
+      ]
+    },
+    "scripts/hooks/resource-waits.mutation.sh": {
+      "source": "scripts/hooks/resource-waits.mutation.sh",
+      "sha256": "f4b1247008ac0c9201192e037cc4865540f8340d81d927edfcf9c06430d05875",
+      "evidence": "Finite literal predicate/wrapper mutations execute the owning private-entity fixture through shared mutation harness. Replacement strings mention config variables as text only.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/hooks/resource-waits.test.sh"
+        }
+      ],
+      "literal_keys": {
+        "RESOURCE_WAIT_MINUTES": "Literal shell text replacement in wrapper mutant."
+      }
+    },
+    "scripts/hooks/shell-evidence.test.py": {
+      "source": "scripts/hooks/shell-evidence.test.py",
+      "sha256": "1a435fdf324a90818aea0a5ee87ed9de1f5e688a2fd2d2dc2dfdc5e90983fde4",
+      "evidence": "Calls fixed shell-evidence hook with literal payloads and private agent-hold state; executes returned wrappers only around literal echo/printf/false commands. The bound hook and capture helper do not read config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/shell-evidence.sh"
+        }
+      ]
+    },
+    "scripts/hooks/shell-evidence.test.sh": {
+      "source": "scripts/hooks/shell-evidence.test.sh",
+      "sha256": "dbc0d52c0a2f4ab98506455891a458834e2679471111a4d3c376a9ed96129bed",
+      "evidence": "Fixed Python suite wrapper.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/shell-evidence.test.py"
+        }
+      ]
+    },
+    "scripts/hooks/long-payload.test.py": {
+      "source": "scripts/hooks/long-payload.test.py",
+      "sha256": "0c5fc7aaa6c1c335663baade3af724a8fe99577dea2d1a537ea464ddaabe3a72",
+      "evidence": "Explicit private entity with literal CREATOR_TEAMMATE/QA flags, private HOME/registry and controlled environment. Invokes four fixed guards; strings are payload data. Sealed-worktree case uses missing Python early refusal. No production config transported.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/verify-agent-prompt.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-worktree-isolation.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-resume-isolation.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-sealed-worktree.sh",
+          "fixture": true
+        }
+      ]
+    },
+    "scripts/hooks/long-payload.test.sh": {
+      "source": "scripts/hooks/long-payload.test.sh",
+      "sha256": "09589d0e9cea291228eb98c4b5e4f885b7327f0a7640f73e48087c366dd877a1",
+      "evidence": "Fixed Python long-payload fixture wrapper.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/long-payload.test.py"
+        }
+      ]
+    },
+    "scripts/lib/dialect/dialect-table.py#generate-check": {
+      "source": "scripts/lib/dialect/dialect-table.py",
+      "sha256": "e9ee2db4618347382d1ef63fa6ca2a3c664de2b6a717f912a797c177a8b096fc",
+      "evidence": "Suite reaches module initialization, dictionary/cluster readers, assemble/render/generate and main --check only. Reads fixed dictionaries/fixtures as text. Optional deny_lists subprocess path is not invoked.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/dialect/dialect-table.test.py": {
+      "source": "scripts/lib/dialect/dialect-table.test.py",
+      "sha256": "c20e4f0cb02b9616490f9e2d4e1122213ca60178c42f6fb10f773704d31b267b",
+      "evidence": "Imports fixed table generator, runs generate/check on real and private dictionary text, scans own sources as text. No deny_lists entrypoint, config, subprocess or dynamic code from dictionary data.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/dialect/dialect-table.py#generate-check"
+        }
+      ]
+    },
+    "scripts/lib/dialect/dialect-table.test.sh": {
+      "source": "scripts/lib/dialect/dialect-table.test.sh",
+      "sha256": "d6713f9efab157401b4b71912685011df47b809438706ce0f360b4f77855d647",
+      "evidence": "Fixed Python table-suite wrapper.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/dialect/dialect-table.test.py"
+        }
+      ]
     }
   },
   "units": {
