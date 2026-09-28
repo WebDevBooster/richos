@@ -628,7 +628,7 @@
     },
     "scripts/lib/affected_units.py#validate-config": {
       "source": "scripts/lib/affected_units.py",
-      "sha256": "729488b11451f243b70d631564161f0b33a3b6598c3eb9a0fc84b0b4cebbeb97",
+      "sha256": "b4659cccdf27b67c0f4e53c527c32bbfb8d9ca2b60a5fd5c7fdec4ab1304c554",
       "evidence": "validate_config reads the real config and its declared key registry, rejecting unsupported syntax and unknown keys.",
       "keys": [],
       "edges": [
@@ -1053,7 +1053,7 @@
     },
     "scripts/lib/affected_units.py": {
       "source": "scripts/lib/affected_units.py",
-      "sha256": "729488b11451f243b70d631564161f0b33a3b6598c3eb9a0fc84b0b4cebbeb97",
+      "sha256": "b4659cccdf27b67c0f4e53c527c32bbfb8d9ca2b60a5fd5c7fdec4ab1304c554",
       "evidence": "The selector can validate a supplied engine configuration and can compute config/hook/ordinary selections from supplied snapshots. Its only subprocesses are read-only Git operations.",
       "keys": [],
       "edges": [
@@ -13052,7 +13052,10 @@
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
         "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1"
       },
-      "evidence": "8a parses the PreToolUse Agent groups for the stale-staging command. No JSON formatting or unrelated registration is asserted. Nested mutants execute the same assertion and all their executable helper sources are bound."
+      "evidence": "8a parses the PreToolUse Agent groups for the stale-staging command. No JSON formatting or unrelated registration is asserted. Nested mutants execute the same assertion and all their executable helper sources are bound. Seated settings are observed only by assertion 8b, a grep for guard-stale-staging.sh. Comparing every complete line containing the guard-stale-staging prefix covers its unescaped-dot pattern and formatting changes. The bound mutation transport copies settings for the same assertion; no other reached reader consumes them.",
+      "seated_text_needles": [
+        "guard-stale-staging"
+      ]
     },
     "scripts/hook-registration-completeness.test.sh": {
       "commands": [],
