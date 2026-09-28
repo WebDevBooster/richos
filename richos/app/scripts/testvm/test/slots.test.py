@@ -4,12 +4,14 @@
 No guest and no CPU sample: the running-guest count and the CPU/memory admission are
 replaced, in process and in every child process driven here, so the suite answers the same
 on an idle Mac and a busy one. Every slot file lives under a temporary TESTVM_ROOT."""
+import atexit
 import contextlib
 import fcntl
 import io
 import json
 import os
 import re
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -21,6 +23,11 @@ from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
+# A caller that waits records its wait (the engine's resource_waits.py); a test never writes one
+# where the operator's turn-end gate reads. Children inherit it.
+_WAITS = tempfile.mkdtemp(prefix='slots-test-waits.')
+os.environ['RICHOS_WAITS_DIR'] = _WAITS
+atexit.register(shutil.rmtree, _WAITS, True)
 import slots  # noqa: E402
 
 # A child process that runs slots.main() with the guest count and admission replaced.

@@ -64,7 +64,8 @@ export async function handle(request, env, ports = {}) {
     }
     if (url.pathname === '/v1/hosts' || request.method === 'DELETE') {
       if (body !== '' && body !== '{}') return json(400, { error: 'invalid_request' });
-      return json(200, await transition(store, provider, identity.id, request.method === 'DELETE' ? 'disable' : 'enable', env.CONNECT_DOMAIN));
+      return json(200, await transition(store, provider, identity.id, request.method === 'DELETE' ? 'disable' : 'enable', env.CONNECT_DOMAIN,
+        { open: env.ENROLLMENT_OPEN === 'true' }));
     }
     if (!host.desired) return json(410, { error: 'connect_disabled', ...view(host) });
     if (request.method === 'GET') return json(200, view(host));
@@ -90,6 +91,8 @@ export async function handle(request, env, ports = {}) {
     if (error.message === 'body_too_large') return json(413, { error: 'body_too_large' });
     if (error instanceof SyntaxError) return json(400, { error: 'invalid_request' });
     if (error.message === 'busy') return json(409, { error: 'busy' });
+    // The same answer a never-admitted identity gets; the Mac already reads 403 as "an operator must admit this Mac".
+    if (error.message === 'enrollment_closed') return json(403, { error: 'enrollment_closed' });
     return json(503, { error: 'service_unavailable' });
   }
 }

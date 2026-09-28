@@ -184,6 +184,63 @@ fi
 chmod 644 "$CFG/state/worktree-ledger.jsonl"
 
 # ===========================================================================
+# 7. rc_sandbox — A RECORD OF THE UNIT'S OWN (2026-09-27). The runners hand each
+#    unit a throwaway home and watch the record inside it, so a concurrent
+#    writer to the live record is never charged to the unit. The runner-level
+#    proof, concurrent writer included, is ci-shard.test.sh S15b-S15h; these
+#    pin the library's half.
+# ===========================================================================
+export RC_TEST_INSIDE="$CFG/state/test-devices"
+export RC_TEST_OUTSIDE="$SANDBOX/not-the-record"
+UH="$SANDBOX/unit-home"
+if rc_sandbox "$UH"; then
+    UHP="$(cd "$UH" && pwd -P)"
+    if [ "$RC_CFG" = "$UHP/.claude" ] && [ "$RC_LEDGER" = "$UHP/.claude/state/worktree-ledger.jsonl" ] && [ "$RC_LIVE_CFG" = "$CFG" ]; then
+        ok "7a  rc_sandbox points the canary at the record inside the unit's home, and still names the operator's as RC_LIVE_CFG"
+    else
+        bad "7a  rc_sandbox repoints the canary" "RC_CFG=$RC_CFG RC_LIVE_CFG=$RC_LIVE_CFG"
+    fi
+    ENVARGS=" ${RC_SANDBOX_ENV[*]} "
+    case "$ENVARGS" in
+        *" -u CLAUDE_CONFIG_DIR "*"-u RC_TEST_INSIDE "*"HOME=$UHP "*)
+            ok "7b  the unit's env sets HOME to its home and REMOVES every variable pointing into the operator's record, CLAUDE_CONFIG_DIR included" ;;
+        *) bad "7b  the unit's env" "got:$ENVARGS" ;;
+    esac
+    case "$ENVARGS" in
+        *"CLAUDE_CONFIG_DIR="*|*"RICHOS_WORKSPACES_DIR="*)
+            bad "7b' CLAUDE_CONFIG_DIR and RICHOS_WORKSPACES_DIR are never SET" "got:$ENVARGS" ;;
+        *) ok "7b' and never SETS CLAUDE_CONFIG_DIR or RICHOS_WORKSPACES_DIR, so a unit that builds a world of its own keeps the resolution it chose" ;;
+    esac
+    case "$ENVARGS" in
+        *RC_TEST_OUTSIDE*) bad "7c  a variable pointing elsewhere is left alone" "got:$ENVARGS" ;;
+        *) ok "7c  and a variable pointing anywhere else is passed through untouched" ;;
+    esac
+    B8="$SANDBOX/b8.txt"
+    rc_baseline "$B8"
+    printf '{"event": "terminated", "agent_id": "z", "ts": "t"}\n' >>"$CFG/state/worktree-ledger.jsonl"
+    if [ -z "$(rc_escaped "$B8")" ]; then
+        ok "7d  a row written to the LIVE record while a unit runs is not charged to the unit"
+    else
+        bad "7d  the live record is out of the unit's diff" "got: $(rc_escaped "$B8")"
+    fi
+    env "${RC_SANDBOX_ENV[@]}" bash -c 'mkdir -p "$HOME/.claude/state" && printf "{\"event\": \"terminated\", \"agent_id\": \"own\", \"ts\": \"t\"}\n" >> "$HOME/.claude/state/worktree-ledger.jsonl"'
+    case "$(rc_escaped "$B8")" in
+        *"event=terminated"*"agent=own"*) ok "7e  POSITIVE CONTROL: a row the unit writes through its own \$HOME is caught and named" ;;
+        *) bad "7e  the unit's own write is caught" "got: $(rc_escaped "$B8")" ;;
+    esac
+else
+    bad "7a  rc_sandbox could not build a home in a writable directory"
+fi
+: >"$SANDBOX/a-file"
+if rc_sandbox "$SANDBOX/a-file/home"; then
+    bad "7f  a home that cannot be built is reported" "rc_sandbox returned 0 under a regular file"
+else
+    ok "7f  a home that cannot be built returns 1, so the runner reports a blind canary and never runs the unit against the operator's record"
+fi
+unset RC_TEST_INSIDE RC_TEST_OUTSIDE
+rc_use_config "$CFG"
+
+# ===========================================================================
 # 6. NOTHING HERE TOUCHED THE OPERATOR'S REAL RECORD — the library's own promise,
 #    checked against the real paths rather than assumed from the sandbox.
 # ===========================================================================

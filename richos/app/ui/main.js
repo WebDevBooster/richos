@@ -848,6 +848,7 @@ function showEntityView(entityId, mode) {
   composerBlockedEl.hidden = true;
   inputEl.disabled = false;
   sendBtn.disabled = false;
+  sendBtn.hidden = false;
 
   const group = navTree.groups.find((g) => g.entity.id === entityId);
   const threads = group ? group.threads.filter((t) => !t.archived) : [];
@@ -1871,7 +1872,8 @@ async function send(explicitText) {
   // CEO in a passive state." Until this slice the line here read `if (anyLiveTurn()) return;`
   // — an honest refusal, because the spine's mutex is held for the whole turn and there was
   // nowhere durable to put the words. There is now (`steering.rs`), so they go there.
-  if (anyLiveTurn()) {
+  // Entity drafts retain the previous timeline until first send. Only steer from its conversation.
+  if (mainView === "conversation" && anyLiveTurn()) {
     if (files) {
       const folded = await foldAttachments(text, activeThreadId, files);
       if (folded === null) return;

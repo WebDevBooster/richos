@@ -4825,6 +4825,7 @@ module.exports = [
   {"s":"Rich has your answer","c":"INFORMATIONAL","why":"The durable receiving input has been handed off."},
   {"s":"Rich no longer needs this:","c":"FRAGMENT","why":"Part of the inline question or permission renderer, completed by live content. Dedicated card tests exercise the visible controls."},
   {"s":"Saving your answer…","c":"INFORMATIONAL","why":"The current submission is in progress; duplicate submission is prevented."},
+  {"s":"This job stopped before Rich got your answer.","c":"INFORMATIONAL","why":"The job ended (his Stop, or its second failed delivery try) before any back end took the answer; nothing on this card can send it to that ended job."},
   {"s":"This action is waiting for your permission. You can keep talking to Rich.","c":"ACTIONABLE","control":"#permission-deny","fixture":"permission-pending","why":"The rendered state retains the adjacent retry, answer or recovery control; the fixture exercises the production renderer."},
   {"s":"This conversation was deleted. This answer was not sent:","c":"ACTIONABLE","control":".question-recovery button","fixture":"question-deleted","why":"The rendered state retains the adjacent retry, answer or recovery control; the fixture exercises the production renderer."},
   {"s":"This conversation was deleted. Your answer was not sent. You can copy it below.","c":"ACTIONABLE","control":".question-recovery button","fixture":"question-deleted","why":"The rendered state retains the adjacent retry, answer or recovery control; the fixture exercises the production renderer."},
@@ -4904,5 +4905,4 @@ module.exports = [
   {"s":"· can resume just after","c":"FRAGMENT","why":"A label or interpolated piece of the quota reading, hold status or affected-limit list. It is not an independent instruction."},
   {"s":"Weekly usage reached 99%. Agents will pause at their next step until allowance is confirmed.","c":"ACTIONABLE","control":"#quota-enabled","fixture":null,"why":"The shared automatic-pause switch is present in this weekly state. quota.js checks the weekly fixture and the switch lifecycle."},
   {"s":"Weekly usage reached 99%. Waiting for a confirmed reset and available allowance.","c":"ACTIONABLE","control":"#quota-release","fixture":null,"why":"The weekly hold offers the same explicit release control as a five-hour hold. quota.js checks that this control releases the weekly hold and disables automatic pause."},
-  {"s":"Your team is unavailable","c":"NOT-RENDERED","why":"The question delivery worker logs this when the operator desk is absent. The accepted answer remains in the durable question store and its existing card reports delivery state."},
 ];

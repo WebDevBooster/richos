@@ -18,12 +18,22 @@ public struct QuestionCard: Codable, Equatable, Sendable {
     public var revision: Int
     public var handoff_started: Bool?
     public var waiting_for_turn: Bool?
+    /// Its job ended before any back end took the answer (Rich's ruling on esc-20260927T220629Z-cbc90040).
+    public var ended_before_taken: Bool?
     public var remaining: Int?
     public var set_index: Int?
     public var set_count: Int?
     public var asker: String?
     public var delivered: Bool
     public var withdrawal_reason: String?
+    /// The answered card's state line, from what the Mac published. A phone-side pending line
+    /// (still sending, out of reach) is the view's and replaces this one.
+    public var savedStatus: String {
+        if delivered { return "Rich has your answer" }
+        if ended_before_taken == true { return "This job stopped before Rich got your answer." }
+        if (remaining ?? 0) > 0 { return "Waiting for the remaining answers" }
+        return waiting_for_turn == true ? "It reaches Rich when his current reply ends" : "On its way to Rich"
+    }
     public var answerText: String {
         guard let answer else { return "" }
         return (options.filter { answer.option_ids.contains($0.id) }.map(\.label) + [answer.text]).filter { !$0.isEmpty }.joined(separator: "; ")

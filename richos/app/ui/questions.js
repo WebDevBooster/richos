@@ -38,7 +38,7 @@
         const method={click:"click",keyboard:"keyboard",typed:"typing",spoken:"voice",phone_tap:"tap",phone_typed:"typing",phone_voice:"voice note"}[q.answer.method]||"your words";
         const answerLine=node("p",null,"ask-answer");answerLine.append(node("span","✓","ask-check"),node("span",`You answered: ${labels(q.answer)}`));status.append(answerLine);
         status.append(node("p",`By ${method}, on ${q.answer.surface==="phone"?"your phone":"this Mac"}`,"ask-how"));
-        const stateLine=node("div",null,"ask-state");stateLine.append(node("span",q.delivered?"Rich has your answer":q.remaining>0?"Waiting for the remaining answers":q.waiting_for_turn?"It reaches Rich when his current reply ends":"On its way to Rich"));
+        const stateLine=node("div",null,"ask-state");stateLine.append(node("span",q.delivered?"Rich has your answer":q.ended_before_taken?"This job stopped before Rich got your answer.":q.remaining>0?"Waiting for the remaining answers":q.waiting_for_turn?"It reaches Rich when his current reply ends":"On its way to Rich"));
         if(!q.delivered && !q.handoff_started) {const change=node("button","Change answer","ask-link");change.type="button";change.onclick=()=>{draft.editing=true;selected.clear();for(const id of q.answer.option_ids)selected.add(id);draft.text=q.answer.text;draw();controls.querySelector("button")?.focus();};stateLine.append(change);}
         status.append(stateLine);
         return;

@@ -42,6 +42,54 @@ test('closed enrollment permits only operator-authorized public keys and capacit
   assert.equal(f.tunnels.size,1);
 });
 
+test('closed enrollment: removing a host admission revokes every enable, never disable, until it is re-admitted', async t => {
+  const f=await fixture(t), a=await f.identity();
+  const admit=()=>f.store.statement('INSERT INTO allowed_hosts(id) VALUES(?)',a.id).run();
+  const revoke=()=>f.store.statement('DELETE FROM allowed_hosts WHERE id=?',a.id).run();
+  f.env.ENROLLMENT_OPEN='false'; await admit();
+  assert.equal((await f.send(await a.request('POST','/v1/hosts'))).status,200);
+  // An active host whose admission is removed can neither re-run enable nor stop being turned off.
+  await revoke();
+  let refused=await f.send(await a.request('POST','/v1/hosts'));
+  assert.equal(refused.status,403); assert.deepEqual(await refused.json(),{error:'enrollment_closed'});
+  assert.equal((await f.send(await a.request('DELETE','/v1/host'))).status,200);
+  assert.equal((await f.store.get(a.id)).phase,'disabled'); assert.equal(f.tunnels.size,0); assert.equal(f.dns.size,0);
+  // A disabled host without admission cannot switch itself back on: refused, no provider call, row unchanged.
+  const before=await f.store.get(a.id), calls=f.calls.length;
+  refused=await f.send(await a.request('POST','/v1/hosts'));
+  assert.equal(refused.status,403); assert.deepEqual(await refused.json(),{error:'enrollment_closed'});
+  assert.deepEqual(await f.store.get(a.id),before); assert.equal(f.calls.length,calls); assert.equal(f.tunnels.size,0);
+  await f.reconcile(); assert.deepEqual(await f.store.get(a.id),before); assert.equal(f.tunnels.size,0);
+  // ...and can still disable (signed DELETE needs no admission).
+  assert.equal((await f.send(await a.request('DELETE','/v1/host'))).status,200);
+  assert.equal((await f.store.get(a.id)).phase,'disabled');
+  // Positive control: the re-admitted host enables normally, on a new generation.
+  await admit();
+  const back=await f.send(await a.request('POST','/v1/hosts'));
+  assert.equal(back.status,200); const view=await back.json();
+  assert.equal(view.phase,'active'); assert.equal(view.generation,2); assert.equal(f.tunnels.size,1); assert.equal(f.dns.size,1);
+});
+
+test('enable transition fails closed when the caller does not state open enrollment', async t => {
+  const f=await fixture(t), a=await f.identity();
+  await f.send(await a.request('POST','/v1/hosts')); await f.send(await a.request('DELETE','/v1/host'));
+  const { transition }=await import('../service/connect/lifecycle.mjs');
+  const before=await f.store.get(a.id);
+  await assert.rejects(transition(f.store,f.provider,a.id,'enable','example.com'),/enrollment_closed/);
+  assert.deepEqual(await f.store.get(a.id),before); assert.equal(f.tunnels.size,0);
+  assert.equal((await transition(f.store,f.provider,a.id,'enable','example.com',{open:true})).phase,'active');
+});
+
+test('open enrollment is unchanged: a host with no admission row disables and re-enables', async t => {
+  const f=await fixture(t), a=await f.identity();
+  assert.equal(f.env.ENROLLMENT_OPEN,'true');
+  assert.equal((await f.send(await a.request('POST','/v1/hosts'))).status,200);
+  assert.equal(await f.store.statement('SELECT 1 FROM allowed_hosts WHERE id=?',a.id).first(),null);
+  assert.equal((await f.send(await a.request('DELETE','/v1/host'))).status,200);
+  const again=await f.send(await a.request('POST','/v1/hosts'));
+  assert.equal(again.status,200); assert.equal((await again.json()).generation,2); assert.equal(f.tunnels.size,1);
+});
+
 for(const stage of ['create','configure','dns']) test(`provisioning recovers after lost ${stage} response without duplicate resources`, async t => {
   const f=await fixture(t), a=await f.identity(); f.fail(stage);
   assert.equal((await f.send(await a.request('POST','/v1/hosts'))).status,503);

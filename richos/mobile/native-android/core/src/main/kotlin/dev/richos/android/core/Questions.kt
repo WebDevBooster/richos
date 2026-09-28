@@ -19,6 +19,8 @@ data class QuestionCard(
     val delivered: Boolean,
     @SerialName("handoff_started") val handoffStarted: Boolean = false,
     @SerialName("waiting_for_turn") val waitingForTurn: Boolean = false,
+    /** Its job ended before any back end took the answer (Rich's ruling on esc-20260927T220629Z-cbc90040). */
+    @SerialName("ended_before_taken") val endedBeforeTaken: Boolean = false,
     val remaining: Int = 0,
     @SerialName("set_index") val setIndex: Int = 0,
     @SerialName("set_count") val setCount: Int = 0,
