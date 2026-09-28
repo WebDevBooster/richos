@@ -524,6 +524,28 @@ class Closure(unittest.TestCase):
         with self.assertRaises(inputs.Unsupported):
             inputs.hook_reader(row, reader)
 
+    def test_text_fixture_tools_keep_only_the_toolkit_environment_reader(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        cases = {
+            'scripts/hardware-choice-check.test.sh': ('scripts/hardware-choice-check.py', set()),
+            'scripts/qa-throwaways.test.sh': ('scripts/lib/qa-throwaways.py', {'QA_TOOLKIT_DIR'}),
+            'scripts/provision-claude-md.test.sh': ('scripts/provision-claude-md.sh#identity-fixture', set()),
+        }
+        unrelated = inputs.config_change('CHECK_FAILURE_TYPE=0', 'CHECK_FAILURE_TYPE=1')
+        for unit, (helper, keys) in cases.items():
+            with self.subTest(unit=unit):
+                closure = graph.closure(unit)
+                self.assertEqual(set(closure['keys']), keys)
+                self.assertFalse(closure['whole'] or closure['presence'] or closure['fallback'], closure)
+                self.assertNotIn(unit, graph.config_units(unrelated, [unit]))
+                affected = inputs.config_change('QA_TOOLKIT_DIR=old', 'QA_TOOLKIT_DIR=new')
+                self.assertEqual(unit in graph.config_units(affected, [unit]), bool(keys))
+                old = document['nodes'][helper]['sha256']
+                document['nodes'][helper]['sha256'] = 'changed'
+                self.assertIn(unit, graph.config_units(unrelated, [unit]))
+                document['nodes'][helper]['sha256'] = old
+
     def test_fence_and_ledger_fixtures_keep_only_real_config_transport(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

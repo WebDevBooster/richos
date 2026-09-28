@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "c799be47ccf5228a2743117b1639ae9eed2caa676edac11e34639d0339d32e8b",
+      "sha256": "87d5d1ed93b4e795e134d3d1167f6f2abdf0d013681f38cec846260836d0dff7",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -11514,6 +11514,74 @@
           "to": "scripts/ledger-prune-sandbox.py"
         }
       ]
+    },
+    "scripts/hardware-choice-check.py": {
+      "source": "scripts/hardware-choice-check.py",
+      "sha256": "5c6f5ecf9755491937fd8df47af7eacb5085414e629a435dc8f8d3ca26b8fab5",
+      "evidence": "Reviewed complete standard-library scanner and CLI. Only reads candidate source files under the supplied root; Rust/JS snippets are regex input and never executed.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/hardware-choice-check.test.sh": {
+      "source": "scripts/hardware-choice-check.test.sh",
+      "sha256": "8c4f70d573319a49af1681c2869b5e9dbae0143e7a26629a024a92e569d52759",
+      "evidence": "Every scanner invocation supplies --root pointing at literal private fixture trees; no actual product source execution or orchestration config access.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hardware-choice-check.py"
+        }
+      ]
+    },
+    "scripts/lib/qa-throwaways.py": {
+      "source": "scripts/lib/qa-throwaways.py",
+      "sha256": "1c355bbfaa5bb464c020d4743bf842b8fbbe5a7265caa6ffb2200523064ef9b6",
+      "evidence": "Reviewed full CLI, transcript scan, classification and reporting. Embedded shell commands remain JSON string data. QA_TOOLKIT_DIR is the only config-named environment input and remains declared.",
+      "keys": [
+        "QA_TOOLKIT_DIR"
+      ],
+      "edges": []
+    },
+    "scripts/qa-throwaways.sh": {
+      "source": "scripts/qa-throwaways.sh",
+      "sha256": "8aae87d0f79017b1942bf249d56e6edbd5dce8b90f1f60af1d3eb71ad45e5643",
+      "evidence": "Fixed Python delegate with executable/missing-file checks only.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/qa-throwaways.py"
+        }
+      ]
+    },
+    "scripts/qa-throwaways.test.sh": {
+      "source": "scripts/qa-throwaways.test.sh",
+      "sha256": "dfa16aee1dd771c100714532f71a952c8ab3a0af9ebfbfebff4e8d68e11d690c",
+      "evidence": "Creates literal private JSONL tool transcripts and invokes the real parser. Commands in the transcripts are never launched; the real QA_TOOLKIT_DIR reader remains reachable.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/qa-throwaways.sh"
+        }
+      ]
+    },
+    "scripts/provision-claude-md.sh#identity-fixture": {
+      "source": "scripts/provision-claude-md.sh",
+      "sha256": "31855961f346953cd992129892bbebfdc4582debabc7f53b40a1acc7878154f1",
+      "evidence": "All invocation modes use a literal private --config identity file. Renderer reads VERSION and template as data; it never evaluates rendered Markdown or invokes its mentioned commands. No orchestration.config source.",
+      "keys": [],
+      "edges": [],
+      "nonconfig_eval": "Indirect shell expansion is limited to the explicit CONFIG_KEYS identity list; the only sourced file is the caller-supplied literal private identity fixture."
+    },
+    "scripts/provision-claude-md.test.sh": {
+      "source": "scripts/provision-claude-md.test.sh",
+      "sha256": "29fd69b6622351c6bd98a76b2d82b7446d5998b97b1d435417033a2d05c8e5c4",
+      "evidence": "All provisioner calls explicitly supply private identity, blank or missing config paths and private output paths. Template contents are rendered as data.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/provision-claude-md.sh#identity-fixture"
+        }
+      ]
     }
   },
   "units": {
@@ -11660,7 +11728,10 @@
     "scripts/hooks/ref-transaction-forensics.test.sh": "scripts/hooks/ref-transaction-forensics.test.sh",
     "scripts/hooks/release-land-leases.test.sh": "scripts/hooks/release-land-leases.test.sh",
     "scripts/lib/assert-own-worktree-registered.test.sh": "scripts/lib/assert-own-worktree-registered.test.sh",
-    "scripts/ledger-prune-sandbox.test.sh": "scripts/ledger-prune-sandbox.test.sh"
+    "scripts/ledger-prune-sandbox.test.sh": "scripts/ledger-prune-sandbox.test.sh",
+    "scripts/hardware-choice-check.test.sh": "scripts/hardware-choice-check.test.sh",
+    "scripts/qa-throwaways.test.sh": "scripts/qa-throwaways.test.sh",
+    "scripts/provision-claude-md.test.sh": "scripts/provision-claude-md.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
