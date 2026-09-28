@@ -48,13 +48,45 @@ the CEO's screen, which runs no hook). (Sage's catches 6 and 1.)
 
 A PAUSED AGENT WAITS INSIDE ITS RUN. A background subagent that ends its turn
 ends its run, and a later message starts a new run (Rich, brief addition 1). The
-generated PAUSE therefore tells it to run `agent_hold.py wait`, which returns
-RESUMED only once the hold is released; a held agent's new command waits anyway.
+generated WAIT therefore tells it to run `agent_hold.py wait`, which returns
+RESUMED only once the hold is released.
+
+NO HOLD KEEPS A TOOL ROUND OPEN (2026-09-28). Claude Code hands a queued
+SendMessage to a subagent only when its current tool call returns: measured on
+2.1.283, the message row lands 5 ms after the tool result, never during the call.
+Freezing the running foreground command therefore froze the only delivery point,
+and the WAIT sat undelivered until the agent's own Bash timeout (up to 10 min).
+So, for a subagent:
+  - Every FOREGROUND Bash call runs as a job of its own shell, its output going to
+    a per-call file (wrap()). Unheld, the shell waits, prints the output and exits
+    with the job's status: the agent sees what it always saw. At a hold the job's
+    tree is SIGSTOPped and the shell alone gets SIGUSR1: it prints one fixed WAIT
+    line and exits, so the call returns within a second and the queued WAIT is
+    handed over with it. The job lives on, frozen (measured: a stopped job whose
+    output is redirected survives its shell's exit, the harness's end of the call
+    and the claude process's exit, and after SIGCONT it finishes and writes its
+    output). `agent_hold.py wait` returns RESUMED after release and then prints
+    that command's output and exit status once it ends: the same point, the same
+    result.
+  - A held agent's NEW Bash call is refused at once with the WAIT text; it never
+    suspends itself (Sage's catch B, 2026-09-28: a self-suspended call keeps the
+    round open exactly as a frozen one does).
+  - The wait command itself is exempt from that refusal and is never frozen
+    (Sage's catch A), and its Bash timeout is set to the tool's maximum so it
+    returns STILL WAITING before the harness would move it to the background: a
+    backgrounded call reads to the model as "you will be notified", and a subagent
+    that then ends its turn ends its run (measured, 2026-09-28).
+  - Background (run_in_background) calls are frozen whole, shell included, as
+    before: their round has already returned.
 
 KNOWN LIMITS: held work keeps its file locks (the hold report lists the lock
 files it has open: a Cargo target lock, a worker token, a git index lock), and a
-command started before capture was installed has no record and is not held.
-Timers inside held work keep counting unless they use proc_tree.HeldClock.
+command started before capture was installed has no record and is not held (and
+one started under the previous capture is frozen whole, round included). Timers
+inside held work keep counting unless they use proc_tree.HeldClock. A wrapped
+foreground command's output reaches the harness when it ends, not line by line,
+and stdout and stderr arrive as one stream. Non-Bash tools are not refused while
+held; the WAIT reaches the agent at their return anyway.
 """
 import argparse
 import calendar
@@ -80,6 +112,23 @@ SETTLE_SECONDS = 2.0
 RELEASE_SCANS = 4
 RELEASE_SCAN_GAP = 0.25
 SLOT_FILES = ("guest.lock", "guest-2.lock")
+DETACH_GRACE = 1.5         # a foreground call caught between its hold check and its job's start
+DETACHED_KEEP = 86400.0    # an uncollected frozen command's output is kept this long after it ends
+REFUSED_EXIT = 75          # EX_TEMPFAIL: the command did not run; run it again after RESUME
+
+# The one command a held agent runs. Same text as the generated WAIT (pause_protocol.py).
+WAIT_COMMAND = "python3 ~/.claude/richos-engine/scripts/lib/agent_hold.py wait"
+WAIT_CALL = re.compile(r"\s*(?:python3\s+)?(?:\S*/)?agent_hold\.py\s+wait"
+                       r"(?:\s+--max-seconds\s+\d+(?:\.\d+)?)?\s*(?:2>&1\s*)?\Z")
+TOOL_MAX_TIMEOUT_MS = 600000   # the Bash tool's ceiling unless BASH_MAX_TIMEOUT_MS says otherwise
+WAIT_MARGIN_SECONDS = 15       # the wait returns this long before its call's timeout
+HOW_TO_WAIT = ("To wait, run this command with the Bash timeout 600000, and run it again each time it prints "
+               "STILL WAITING: " + WAIT_COMMAND)
+REFUSED_TEXT = ("WAIT: the orchestrator has told you to wait, so this command did not run. Run it again after "
+                "you are resumed. " + HOW_TO_WAIT)
+DETACHED_TEXT = ("WAIT: the orchestrator has told you to wait while this command was running. The command is "
+                 "frozen, not ended: it continues from the same point when you are resumed. " + HOW_TO_WAIT
+                 + ". When you are resumed, the wait prints this command's output and exit status.")
 
 
 # ---------------------------------------------------------------------------
@@ -136,8 +185,22 @@ def _alive(pid):
     return True
 
 
+CALL_FILES = (".json", ".pid", ".job", ".out", ".status", ".detached")
+
+
+def _unlink_call(stem):
+    for suffix in CALL_FILES:
+        try:
+            os.unlink(stem + suffix)
+        except OSError:
+            pass
+
+
 def _prune(directory, now):
-    """Remove records of calls that ended. Syscalls only: this runs on every Bash call."""
+    """Remove records of calls that ended. Syscalls only: this runs on every Bash call.
+
+    A frozen command's output is kept until the agent's wait collects it, or for
+    DETACHED_KEEP after its job is gone when nobody ever does."""
     try:
         names = os.listdir(directory)
     except OSError:
@@ -150,49 +213,149 @@ def _prune(directory, now):
             age = now - os.stat(stem + ".json").st_mtime
         except OSError:
             continue
+        detached = _read_json(stem + ".detached")
+        if detached is not None:
+            job = detached.get("job")
+            if age > DETACHED_KEEP and not (isinstance(job, int) and _alive(job)):
+                _unlink_call(stem)
+            continue
         pid = _read_pid(stem + ".pid")
         if pid is None:
             dead = age > UNSTARTED_AFTER
         else:
             dead = age > PRUNE_AFTER and not _alive(pid[0])
         if dead:
-            for suffix in (".json", ".pid"):
-                try:
-                    os.unlink(stem + suffix)
-                except OSError:
-                    pass
+            _unlink_call(stem)
 
 
-def capture(payload):
-    """The shell lines that record this call's ownership, or "" when it is not a subagent's call.
+def _wait_bound_seconds():
+    """How long `wait` may block: just under the Bash timeout its call is given."""
+    ceiling = TOOL_MAX_TIMEOUT_MS
+    try:
+        declared = int(os.environ.get("BASH_MAX_TIMEOUT_MS") or 0)
+        if 0 < declared < ceiling:
+            ceiling = declared
+    except ValueError:
+        pass
+    bound = max(5, ceiling // 1000 - WAIT_MARGIN_SECONDS)
+    try:
+        # A declared seam: a shorter bound, so a test can watch a STILL WAITING cycle.
+        asked = float(os.environ.get("RICHOS_AGENT_HOLD_WAIT_SECONDS") or 0)
+        if 0 < asked < bound:
+            bound = asked
+    except ValueError:
+        pass
+    return ceiling, bound
 
-    The lines go after the caller's own prefix and before the command. They fork
-    nothing: a builtin printf of the shell's own PID and parent, and an export.
-    """
-    if not isinstance(payload, dict) or payload.get("tool_name") != "Bash":
-        return ""
+
+def is_wait_call(command):
+    return isinstance(command, str) and bool(WAIT_CALL.match(command))
+
+
+def _record(payload, mode, command):
+    """Writes the call's record; returns (pid path, hold path) or None when it is not a subagent's call."""
     agent_id = payload.get("agent_id")
     session_id = payload.get("session_id")
     tool_use_id = payload.get("tool_use_id")
     if not _valid_ids(agent_id, session_id, tool_use_id):
-        return ""
+        return None
     directory = _shell_dir(session_id, agent_id)
     now = time.time()
     try:
         os.makedirs(directory, mode=0o700, exist_ok=True)
         _prune(directory, now)
         _write_json(os.path.join(directory, tool_use_id + ".json"),
-                    {"at": now, "tool_use_id": tool_use_id, "cwd": str(payload.get("cwd") or "")})
+                    {"at": now, "tool_use_id": tool_use_id, "cwd": str(payload.get("cwd") or ""),
+                     "mode": mode, "command": (command or "")[:300]})
     except OSError:
-        return ""
-    pid_path = os.path.join(directory, tool_use_id + ".pid")
-    # A NEW command of a held agent waits, never refused: after recording itself the
-    # shell suspends itself (builtin kill, no fork) before its command starts, and
-    # release() continues it. The loop re-checks after every continue.
+        return None
+    return os.path.join(directory, tool_use_id), _held_path(session_id, agent_id)
+
+
+def _head(stem, payload):
+    """Record the shell's own PID and parent (builtin printf, no fork) and export the owner tags."""
     return ("printf '%%s %%s\\n' \"$$\" \"$PPID\" > %s 2>/dev/null || :\nexport %s=%s %s=%s\n"
-            "while [ -e %s ]; do kill -STOP $$; done\n"
-            % (shlex.quote(pid_path), TAG, agent_id, SESSION_TAG, session_id,
-               shlex.quote(_held_path(session_id, agent_id))))
+            % (shlex.quote(stem + ".pid"), TAG, payload["agent_id"], SESSION_TAG, payload["session_id"]))
+
+
+def _refuse(held):
+    """A held agent's new command does not run and its call returns at once, carrying the WAIT."""
+    return ("if [ -e %s ]; then printf '%%s\\n' %s; exit %d; fi\n"
+            % (shlex.quote(held), shlex.quote(REFUSED_TEXT), REFUSED_EXIT))
+
+
+def _wrap(stem, command):
+    """The foreground command as a job of its shell, detachable by SIGUSR1 (see the module doc).
+
+    The job keeps the shell's option state (errexit and pipefail from the caller's
+    prefix) inside an inner subshell; the outer one only records the exit status.
+    Unheld, the shell prints the job's output and exits with its status.
+    """
+    q = {s: shlex.quote(stem + s) for s in (".out", ".status", ".job")}
+    return "\n".join([
+        "__richos_detached=%s" % shlex.quote(DETACHED_TEXT),
+        "trap 'printf \"%s\\n\" \"$__richos_detached\"; exit 0' USR1",
+        "__richos_flags=$-",
+        "(",
+        "set +e",
+        "(",
+        "case $__richos_flags in *e*) set -e ;; esac",
+        command,
+        ")",
+        "printf '%%s\\n' \"$?\" > %s" % q[".status"],
+        ") > %s 2>&1 &" % q[".out"],
+        "__richos_job=$!",
+        "printf '%%s\\n' \"$__richos_job\" > %s" % q[".job"],
+        "__richos_w=0",
+        "wait \"$__richos_job\" || __richos_w=$?",
+        "trap '' USR1",
+        "__richos_s=$__richos_w",
+        "read -r __richos_s < %s 2>/dev/null || :" % q[".status"],
+        "cat %s 2>/dev/null || :" % q[".out"],
+        "rm -f %s %s %s" % (q[".out"], q[".status"], q[".job"]),
+        "[ \"$__richos_s\" = 0 ] || exit \"$__richos_s\"",
+    ])
+
+
+def rewrite(payload):
+    """{"command": ..., "input": {...}} for a subagent's Bash call, or None to leave it alone.
+
+    The command goes after the caller's own prefix (shell-evidence.py). "input"
+    carries tool-input changes: the wait command gets the tool's longest timeout.
+    """
+    if not isinstance(payload, dict) or payload.get("tool_name") != "Bash":
+        return None
+    ti = payload.get("tool_input")
+    if not isinstance(ti, dict) or not isinstance(ti.get("command"), str):
+        return None
+    command = ti["command"]
+    mode = "exempt" if is_wait_call(command) else "bg" if ti.get("run_in_background") else "fg"
+    rec = _record(payload, mode, command)
+    if rec is None:
+        return None
+    stem, held = rec
+    head = _head(stem, payload)
+    if mode == "exempt":
+        # The wait runs THIS file, whatever path the agent typed: the code that wrapped its
+        # calls is the code that collects them.
+        ceiling, bound = _wait_bound_seconds()
+        args = command.split("agent_hold.py", 1)[1].replace("2>&1", "").split()
+        return {"command": head + "export RICHOS_AGENT_HOLD_WAIT_SECONDS=%d\n" % bound
+                + " ".join(["python3", shlex.quote(os.path.abspath(__file__))] + [shlex.quote(a) for a in args]),
+                "input": {"timeout": ceiling}}
+    if mode == "bg":
+        return {"command": head + _refuse(held) + command, "input": {}}
+    return {"command": head + _refuse(held) + _wrap(stem, command), "input": {}}
+
+
+def capture(payload):
+    """The ownership and hold-check lines alone (a background call's prefix), or ""."""
+    if not isinstance(payload, dict) or payload.get("tool_name") != "Bash":
+        return ""
+    rec = _record(payload, "bg", str((payload.get("tool_input") or {}).get("command") or ""))
+    if rec is None:
+        return ""
+    return _head(rec[0], payload) + _refuse(rec[1])
 
 
 # ---------------------------------------------------------------------------
@@ -237,14 +400,17 @@ def _read_pid(path):
         return None
 
 
-def owned_shells(session_id, agent_id, table):
-    """[(pid, ppid, registered_at)] of this agent's recorded calls whose shell is still that shell."""
+def calls(session_id, agent_id, table):
+    """[{tid, pid, ppid, at, mode, stem}] of this agent's recorded calls whose shell is still that shell.
+
+    mode is "fg" (a wrapped foreground call), "bg", "exempt" (its wait command) or
+    "" (recorded by the previous capture, which did not wrap)."""
     directory = _shell_dir(session_id, agent_id)
     try:
         names = sorted(os.listdir(directory))
     except OSError:
         return []
-    shells = []
+    out = []
     for name in names:
         if not name.endswith(".pid"):
             continue
@@ -264,8 +430,25 @@ def owned_shells(session_id, agent_id, table):
         # Started after the hook ran and before it wrote its own record: that shell, not a reused PID.
         if not (int(meta["at"]) - BIRTH_SLACK <= row["birth"] <= written + BIRTH_SLACK):
             continue
-        shells.append((pid, ppid, float(meta["at"])))
-    return shells
+        out.append({"tid": name[:-4], "pid": pid, "ppid": ppid, "at": float(meta["at"]),
+                    "mode": str(meta.get("mode") or ""), "stem": stem, "command": str(meta.get("command") or "")})
+    return out
+
+
+def owned_shells(session_id, agent_id, table):
+    """[(pid, ppid, registered_at)] of this agent's recorded calls whose shell is still that shell."""
+    return [(c["pid"], c["ppid"], c["at"]) for c in calls(session_id, agent_id, table)]
+
+
+def _job_of(call, table):
+    """The wrapped call's job pid, when it is alive and still that shell's child."""
+    try:
+        with open(call["stem"] + ".job") as f:
+            job = int(f.read().split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+    row = table.get(job)
+    return job if row and row["ppid"] == call["pid"] else None
 
 
 def _environment(pid, _buf={}):
@@ -456,12 +639,25 @@ def owned_tree(session_id, agent_id, table):
 # hold and release
 # ---------------------------------------------------------------------------
 
+def _detach(call, job, table):
+    """The job's tree is already stopped: record it, then make its shell print the WAIT and exit."""
+    try:
+        _write_json(call["stem"] + ".detached", {"at": time.time(), "job": job, "job_birth": table[job]["birth"],
+                                                 "command": call["command"], "tool_use_id": call["tid"]})
+        os.kill(call["pid"], signal.SIGUSR1)
+        return True
+    except (OSError, KeyError):
+        return False
+
+
 def hold(session_id, agent_id, name="", sample=0.5, session_pid=None):
-    """Suspend the agent's owned processes and make its new commands wait.
+    """Suspend the agent's owned processes, end its foreground round, and refuse its new commands.
 
     The record is written FIRST, even for an idle agent: from that moment every new
-    Bash call of this agent suspends itself before its command starts. Then its
-    running processes are suspended. `session_pid` (the lead's session process) lets
+    Bash call of this agent is refused with the WAIT text. Then its running processes
+    are suspended, except the shell of a wrapped foreground call, which is told to
+    return (its job stays frozen) so the queued WAIT reaches the agent, and its wait
+    command, which is never frozen. `session_pid` (the lead's session process) lets
     release_orphans() tell a dead session from a live one when no shell recorded it.
     Returns the measured result; never raises on process races.
     """
@@ -472,25 +668,71 @@ def hold(session_id, agent_id, name="", sample=0.5, session_pid=None):
     previous = _read_json(path) or {}
     held = {int(k): v for k, v in (previous.get("held") or {}).items()}
     parents = dict(previous.get("parents") or {})
-    excluded, notes = set(), []
+    detached = dict(previous.get("detached") or {})
+    excluded, notes, undetached = set(), [], []
     table = snapshot()
     if isinstance(session_pid, int) and session_pid in table:
         parents[str(session_pid)] = table[session_pid]["birth"]
     at = previous.get("at") or time.time()
     _write_json(path, {"session_id": session_id, "agent_id": agent_id, "name": name, "at": at,
-                       "held": {str(p): b for p, b in held.items()}, "parents": parents})
-    for _round in range(STOP_ROUNDS):
+                       "held": {str(p): b for p, b in held.items()}, "parents": parents, "detached": detached})
+    grace = time.monotonic() + DETACH_GRACE
+    rounds = 0
+    while True:
+        rounds += 1
         owned, excluded, _protected, notes, found_parents = owned_tree(session_id, agent_id, table)
         parents.update({str(k): v for k, v in found_parents.items()})
-        targets = sorted((owned - excluded) - {p for p in held if held[p] == table.get(p, {}).get("birth")})
-        if not targets:
-            break
+        mine = calls(session_id, agent_id, table)
+        # Its wait command runs on; a wrapped foreground shell is told to return, not stopped.
+        running_on = subtree([c["pid"] for c in mine if c["mode"] == "exempt"], table)
+        foreground = [c for c in mine if c["mode"] == "fg" and c["tid"] not in detached]
+        running_on |= {c["pid"] for c in foreground}
+        # A shell already told to return is exiting: stopping it now would keep its round open.
+        running_on |= {d["shell"] for d in detached.values()
+                       if d.get("shell") in table and table[d["shell"]]["birth"] == d.get("shell_birth")}
+        targets = sorted((owned - excluded - running_on)
+                         - {p for p in held if held[p] == table.get(p, {}).get("birth")})
         for pid in targets:
             try:
                 os.kill(pid, signal.SIGSTOP)
                 held[pid] = table[pid]["birth"]
             except (ProcessLookupError, PermissionError):
                 pass
+        pending = []
+        for c in foreground:
+            if "s" not in table[c["pid"]]["stat"]:
+                # Only a session leader's job survives its exit while stopped: otherwise its
+                # group becomes orphaned with a stopped member and the kernel sends it SIGHUP.
+                # Claude Code's Bash shells lead their own session (measured, 2.1.283); a
+                # shell that does not is frozen whole, as before, and said so.
+                pending.append(c)
+                continue
+            job = _job_of(c, table)
+            if job is not None and all(p in held or p in excluded for p in subtree([job], table)):
+                if _detach(c, job, table):
+                    detached[c["tid"]] = {"shell": c["pid"], "shell_birth": table[c["pid"]]["birth"],
+                                          "job": job, "at": time.time()}
+            else:
+                # Between its hold check and its job's start (milliseconds), or its job's tree
+                # not yet stopped: look again after the next snapshot.
+                pending.append(c)
+        if not targets and not pending:
+            break
+        if pending and time.monotonic() >= grace:
+            # Never started its job: stop it as the previous capture did, and say so.
+            for c in pending:
+                try:
+                    os.kill(c["pid"], signal.SIGSTOP)
+                    held[c["pid"]] = table[c["pid"]]["birth"]
+                    undetached.append(c["pid"])
+                except (ProcessLookupError, PermissionError, KeyError):
+                    pass
+            table = snapshot()
+            break
+        if rounds >= STOP_ROUNDS and not pending:
+            break
+        if pending:
+            time.sleep(0.05)
         # A process forked between the snapshot and the signal is caught by the next round.
         table = snapshot()
     held = {p: b for p, b in held.items() if table.get(p, {}).get("birth") == b}
@@ -513,6 +755,7 @@ def hold(session_id, agent_id, name="", sample=0.5, session_pid=None):
               "not_stopped": running, "excluded": sorted(excluded), "notes": notes, "parents": parents,
               "stopped_seconds": round(stopped_seconds, 3), "sample_seconds": sample,
               "cpu_during_sample": cpu_advance, "locks": sorted(locks),
+              "detached": detached, "undetached": undetached,
               "watchdog": previous.get("watchdog")}
     _write_json(path, result)
     # The record exists before the watchdog starts, so its first look finds it.
@@ -616,27 +859,97 @@ def _log(line):
 # wait: a paused agent stays inside its run (Rich, brief addition 1)
 # ---------------------------------------------------------------------------
 
-WAIT_SECONDS = 540     # under the Bash tool's 600 s limit, so the call returns and is repeated
+def _clock():
+    return time.strftime("%H:%M:%SZ", time.gmtime())
 
 
-def wait_resume(max_seconds=WAIT_SECONDS, poll=2.0, out=sys.stdout):
-    """Returns once this agent's hold is released, printing RESUMED; at the bound it
-    prints STILL WAITING so the agent runs it again. Never ends anything."""
+def _detached_calls(session, agent):
+    """[(stem, record)] of this agent's frozen foreground commands not yet collected, oldest first."""
+    directory = _shell_dir(session, agent)
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return []
+    found = []
+    for name in names:
+        if name.endswith(".detached"):
+            rec = _read_json(os.path.join(directory, name))
+            if isinstance(rec, dict):
+                found.append((os.path.join(directory, name[:-len(".detached")]), rec))
+    return sorted(found, key=lambda sr: sr[1].get("at") or 0)
+
+
+def _collect(stem, rec, deadline, poll, out):
+    """Print one frozen command's result once it ends; True when it was collected."""
+    job, birth = rec.get("job"), rec.get("job_birth")
+    what = (rec.get("command") or "").strip().splitlines()[0][:120] if (rec.get("command") or "").strip() else ""
+    label = "The command that was frozen%s" % (" (%s)" % what if what else "")
+    status = None
+    while True:
+        try:
+            with open(stem + ".status") as f:
+                status = f.read().strip()
+        except OSError:
+            status = None
+        if status:
+            break
+        row = snapshot().get(job) if isinstance(job, int) else None
+        if not row or row["birth"] != birth or row["stat"].startswith("Z"):
+            # Ended without recording a status (killed); one last look for a late status.
+            try:
+                with open(stem + ".status") as f:
+                    status = f.read().strip() or None
+            except OSError:
+                status = None
+            break
+        if time.monotonic() >= deadline:
+            out.write("STILL RUNNING at %s: %s is running again and has not finished yet. Run this same "
+                      "command again, with the Bash timeout 600000, to get its output and exit status.\n"
+                      % (_clock(), label))
+            return False
+        time.sleep(poll)
+    try:
+        with open(stem + ".out", "rb") as f:
+            body = f.read()
+    except OSError:
+        body = b""
+    if status is not None:
+        out.write("%s has finished with exit status %s. Its output, exactly as it would have returned:\n"
+                  % (label, status))
+    else:
+        out.write("%s ended without recording an exit status (it was ended from outside). Its output up to "
+                  "then:\n" % label)
+    out.flush()
+    if body:
+        text = body.decode("utf-8", "replace")
+        out.write(text if text.endswith("\n") else text + "\n")
+    _unlink_call(stem)
+    return True
+
+
+def wait_resume(max_seconds=None, poll=2.0, out=sys.stdout):
+    """Returns once this agent's hold is released, printing RESUMED and then the result of
+    any foreground command the hold froze; at the bound it prints STILL WAITING (or STILL
+    RUNNING) so the agent runs it again. Never ends anything."""
     agent, session = os.environ.get(TAG, ""), os.environ.get(SESSION_TAG, "")
     if not _valid_ids(session, agent):
         out.write("PAUSE-WAIT: this shell carries no agent identity (%s, %s), so there is no hold to wait "
                   "for. Only a subagent's Bash call carries it.\n" % (TAG, SESSION_TAG))
         return 2
+    if max_seconds is None:
+        max_seconds = _wait_bound_seconds()[1]
     deadline = time.monotonic() + max_seconds
     path = _held_path(session, agent)
     while os.path.exists(path):
         if time.monotonic() >= deadline:
             out.write("STILL WAITING at %s: run this same command again, with the Bash timeout 600000.\n"
-                      % time.strftime("%H:%M:%SZ", time.gmtime()))
+                      % _clock())
             return 0
         time.sleep(poll)
-    out.write("RESUMED at %s: carry on from where you were.\n"
-              % time.strftime("%H:%M:%SZ", time.gmtime()))
+    out.write("RESUMED at %s: carry on from where you were.\n" % _clock())
+    for stem, rec in _detached_calls(session, agent):
+        if not _collect(stem, rec, deadline, min(poll, 0.5), out):
+            break
     return 0
 
 
@@ -718,8 +1031,16 @@ def describe_hold(result):
         return "HOLD %s: NOT held (%s); its running work was not suspended." % (name, result["why"])
     if not result.get("held"):
         return ("HOLD %s: no running command of it is recorded, so nothing was suspended (idle, or started "
-                "before ownership capture was installed). Its new commands wait until RESUME." % name)
+                "before ownership capture was installed). Its next command returns the WAIT at once, and the "
+                "message reaches it with that result." % name)
     line = "HOLD %s: %d process(es) suspended in %.2f s" % (name, len(result["held"]), result["stopped_seconds"])
+    if result.get("detached"):
+        line += ("; its foreground command is frozen and its tool call returned, so the WAIT reaches it now "
+                 "(%d command(s))" % len(result["detached"]))
+    if result.get("undetached"):
+        line += ("; foreground shell(s) %s could not be told to return (no job started, or not a session "
+                 "leader) and were frozen whole, so the WAIT reaches it only at that call's Bash timeout"
+                 % ", ".join(map(str, result["undetached"])))
     if result.get("cpu_during_sample") is not None:
         line += "; CPU used by them over the next %.1f s: %.2f s" % (result["sample_seconds"], result["cpu_during_sample"])
     if result.get("not_stopped"):
@@ -732,7 +1053,7 @@ def describe_hold(result):
                                                      if len(result["locks"]) > 6 else ""))
     if not result.get("watchdog"):
         line += "; its watchdog did NOT start, so only a SessionStart releases it if the lead dies"
-    return line + ". They, and any new command it starts, continue on RESUME."
+    return line + ". They continue on RESUME; until then its new commands are refused with the WAIT."
 
 
 def describe_release(result):
@@ -759,7 +1080,8 @@ def main(argv=None):
     sub.add_parser("status")
     sub.add_parser("capture", help="print the ownership lines for a hook payload on stdin")
     w = sub.add_parser("wait", help="a paused agent's own call: returns RESUMED once its hold is released")
-    w.add_argument("--max-seconds", type=float, default=WAIT_SECONDS)
+    w.add_argument("--max-seconds", type=float, default=None,
+                   help="default: just under the Bash tool's timeout ceiling")
     a = p.parse_args(argv)
     if a.cmd == "wait":
         return wait_resume(a.max_seconds)

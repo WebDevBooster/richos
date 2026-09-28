@@ -60,12 +60,33 @@ class ShellEvidence(unittest.TestCase):
         out = self.run_hook(self.bash("echo hi", agent_id="afixture1"))
         cmd = out["hookSpecificOutput"]["updatedInput"]["command"]
         self.assertTrue(cmd.startswith(PREFIX), cmd)
-        self.assertTrue(cmd.endswith("\necho hi"), cmd)
+        self.assertIn("\necho hi\n", cmd)
         self.assertIn('"$$" "$PPID"', cmd)
         self.assertIn("export RICHOS_AGENT_OWNER=afixture1", cmd)
-        self.assertIn("kill -STOP $$", cmd)
+        self.assertNotIn("kill -STOP $$", cmd, "a held agent's call is refused, never self-suspended")
+        self.assertIn("USR1", cmd, "a foreground call is detachable")
         record = Path(self.tmp, "hold", "shells", "fixture-session", "afixture1", "toolu_fixture.json")
-        self.assertTrue(record.exists())
+        self.assertEqual(json.loads(record.read_text())["mode"], "fg")
+
+    def test_background_call_is_not_wrapped(self):
+        payload = self.bash("echo hi", agent_id="afixture1")
+        payload["tool_input"]["run_in_background"] = True
+        cmd = self.run_hook(payload)["hookSpecificOutput"]["updatedInput"]["command"]
+        self.assertTrue(cmd.endswith("\necho hi"), cmd)
+        self.assertNotIn("USR1", cmd)
+
+    def test_the_wait_command_gets_the_longest_timeout_and_no_hold_check(self):
+        out = self.run_hook(self.bash("python3 ~/.claude/richos-engine/scripts/lib/agent_hold.py wait",
+                                      agent_id="afixture1"))
+        ui = out["hookSpecificOutput"]["updatedInput"]
+        self.assertEqual(ui["timeout"], 600000)
+        self.assertTrue(ui["command"].endswith("\npython3 %s wait" % (HERE.parent / "lib" / "agent_hold.py")),
+                        "the wait runs the same engine file that wrapped the agent's calls")
+        self.assertNotIn("exit 75", ui["command"])
+        self.assertIn("RICHOS_AGENT_HOLD_WAIT_SECONDS=585", ui["command"])
+        # The lead's own call of the same text is left as it was.
+        lead = self.run_hook(self.bash("python3 ~/.claude/richos-engine/scripts/lib/agent_hold.py wait"))
+        self.assertEqual(lead["hookSpecificOutput"]["updatedInput"]["timeout"], 5000)
 
     def test_rewritten_command_runs_as_before(self):
         out = self.run_hook(self.bash('printf "%s" "$RICHOS_AGENT_OWNER"; exit 3', agent_id="afixture1"))

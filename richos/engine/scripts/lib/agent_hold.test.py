@@ -176,13 +176,26 @@ class Base(unittest.TestCase):
                 "tool_use_id": tuid, "cwd": self.tmp, "tool_input": {"command": "true"}}
 
     def start_call(self, body, tuid="toolu_fixture1", agent=None):
-        """One Bash call, shaped as the harness runs it: its own group, under this process."""
+        """One background-shaped Bash call, as the harness runs it: its own group, under this process."""
         prefix = agent_hold.capture(self.payload(tuid, agent))
         self.assertTrue(prefix, "a subagent's call gets ownership lines")
         p = subprocess.Popen([SHELL, "-c", "set -e -o pipefail\n" + prefix + body], process_group=0,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.procs.append(p)
         return p
+
+    def start_rewritten(self, command, tuid="toolu_fg1", background=False):
+        """One call rewritten exactly as shell-evidence.py does (a foreground call is wrapped),
+        its output captured as the harness captures it."""
+        payload = self.payload(tuid)
+        payload["tool_input"] = {"command": command, "run_in_background": background}
+        got = agent_hold.rewrite(payload)
+        self.assertTrue(got, "a subagent's call is rewritten")
+        # Its own session, as Claude Code starts every Bash shell (ps shows `Ss`).
+        p = subprocess.Popen([SHELL, "-c", "set -e -o pipefail\n" + got["command"]], start_new_session=True,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True)
+        self.procs.append(p)
+        return p, got
 
     def out(self, name):
         return os.path.join(self.tmp, name)
@@ -333,40 +346,40 @@ class RealTree(Base):
         agent_hold.release(self.session, self.agent)
         self.assertFalse(state(call.pid).startswith("T"))
 
-    def test_new_command_of_a_held_agent_waits_then_runs(self):
-        # Rich, 2026-09-27: a held agent kept starting commands until the message reached it.
-        # Its NEW command must start no process until release, then run normally; never refused.
-        self.start_call('%s %s %s %d' % (sys.executable, self.worker, self.out("w"), ROUNDS * 20))
-        self.worker_pid("w")
-        r = agent_hold.hold(self.session, self.agent, "fixture")
-        self.assertTrue(r["ok"], r)
-        marker = self.out("new-command-ran")
-        t_start = time.monotonic()
-        late = self.start_call('%s -c "open(%r, \'w\').write(\'ran\')"' % (sys.executable, marker), tuid="toolu_late")
-        self.assertTrue(wait_for(lambda: state(late.pid).startswith("T"), 5), "the new call suspends itself")
-        waited_at = time.monotonic() - t_start
-        time.sleep(1.0)
-        table = agent_hold.snapshot()
-        self.assertEqual(agent_hold.subtree([late.pid], table), {late.pid}, "no process started under it")
-        self.assertFalse(os.path.exists(marker), "its command has not run")
-        self.assertIsNone(late.poll(), "it waits; it was not refused")
-        rel = agent_hold.release(self.session, self.agent)
-        self.assertIn(late.pid, rel["waited"], rel)
-        self.assertIn("new command(s) that waited", agent_hold.describe_release(rel))
-        self.assertEqual(late.wait(timeout=30), 0, "it runs normally after release")
-        self.assertEqual(Path(marker).read_text(), "ran")
-        sys.stderr.write("\n  measured: a held agent's new call suspended itself %.3f s after launch; "
-                         "started 0 processes while held; exit 0 after release\n" % waited_at)
+    def test_new_command_of_a_held_agent_is_refused_at_once_with_the_wait(self):
+        # Sage's catch B (2026-09-28): a new call that suspended itself kept its tool round
+        # open, so the queued WAIT could not reach the agent. It must return at once, run
+        # nothing, and carry the WAIT itself.
+        for background in (False, True):
+            self.start_call('%s %s %s %d' % (sys.executable, self.worker, self.out("w%d" % background), ROUNDS * 20),
+                            tuid="toolu_bgw%d" % background)
+            self.worker_pid("w%d" % background)
+            r = agent_hold.hold(self.session, self.agent, "fixture")
+            self.assertTrue(r["ok"], r)
+            marker = self.out("new-command-ran")
+            t_start = time.monotonic()
+            late, _got = self.start_rewritten('%s -c "open(%r, \'w\').write(\'ran\')"' % (sys.executable, marker),
+                                              tuid="toolu_late%d" % background, background=background)
+            stdout, _err = late.communicate(timeout=10)
+            took = time.monotonic() - t_start
+            self.assertEqual(late.returncode, agent_hold.REFUSED_EXIT)
+            self.assertEqual(stdout.strip(), agent_hold.REFUSED_TEXT)
+            self.assertIn(agent_hold.WAIT_COMMAND, stdout)
+            self.assertFalse(os.path.exists(marker), "its command did not run")
+            self.assertLess(took, 3.0)
+            agent_hold.release(self.session, self.agent)
+            sys.stderr.write("\n  measured: a held agent's new %s call returned the WAIT in %.3f s and ran nothing\n"
+                             % ("background" if background else "foreground", took))
 
-    def test_idle_held_agent_new_command_waits(self):
+    def test_idle_held_agent_new_command_is_refused(self):
         r = agent_hold.hold(self.session, self.agent, "fixture")
         self.assertEqual(r["held"], {})
-        self.assertIn("new commands wait", agent_hold.describe_hold(r))
-        late = self.start_call("true", tuid="toolu_idle")
-        self.assertTrue(wait_for(lambda: state(late.pid).startswith("T"), 5))
-        rel = agent_hold.release(self.session, self.agent)
-        self.assertEqual(rel["waited"], [late.pid])
-        self.assertEqual(late.wait(timeout=30), 0)
+        self.assertIn("next command returns the WAIT at once", agent_hold.describe_hold(r))
+        late, _got = self.start_rewritten("true", tuid="toolu_idle")
+        self.assertEqual(late.wait(timeout=10), agent_hold.REFUSED_EXIT)
+        agent_hold.release(self.session, self.agent)
+        again, _got = self.start_rewritten("true", tuid="toolu_idle2")
+        self.assertEqual(again.wait(timeout=10), 0, "after release it runs normally")
 
     def test_test_vm_walk_is_left_running(self):
         walk = os.path.join(self.tmp, "walk.py")
@@ -598,16 +611,163 @@ class Wait(Base):
         agent_hold.wait_resume(0.5, 0.05, buf)
         self.assertIn("RESUMED at", buf.getvalue())
 
-    def test_the_agents_wait_command_returns_resumed_only_after_release(self):
+    def test_the_agents_wait_command_runs_while_held_and_returns_resumed_only_after_release(self):
+        # Sage's catch A (2026-09-28): the wait command itself was self-suspended. It must run
+        # (never refused, never frozen by a hold) and return RESUMED only once released.
         agent_hold.hold(self.session, self.agent, "fixture")
-        out = self.out("wait.out")
-        call = self.start_call("%s %s wait > %s" % (sys.executable, HERE / "agent_hold.py", out), tuid="toolu_wait")
-        self.assertTrue(wait_for(lambda: state(call.pid).startswith("T"), 5), "the wait itself waits while held")
+        call, got = self.start_rewritten("python3 %s wait" % (HERE / "agent_hold.py"), tuid="toolu_wait")
+        self.assertEqual(got["input"], {"timeout": agent_hold.TOOL_MAX_TIMEOUT_MS},
+                         "its call gets the tool's longest timeout, so it returns before being backgrounded")
         time.sleep(1.0)
-        self.assertFalse(os.path.exists(out) and Path(out).read_text(), "nothing printed while held")
+        again = agent_hold.hold(self.session, self.agent, "fixture")
+        self.assertNotIn(str(call.pid), again["held"], "a hold never freezes the wait command")
+        time.sleep(1.0)
+        self.assertFalse(state(call.pid).startswith("T"), state(call.pid))
+        self.assertIsNone(call.poll(), "it is still waiting")
         agent_hold.release(self.session, self.agent)
-        self.assertEqual(call.wait(timeout=30), 0)
-        self.assertIn("RESUMED at", Path(out).read_text())
+        stdout, _err = call.communicate(timeout=30)
+        self.assertEqual(call.returncode, 0)
+        self.assertIn("RESUMED at", stdout)
+
+    def test_the_wait_bound_follows_the_tool_ceiling(self):
+        keep = {k: os.environ.get(k) for k in ("BASH_MAX_TIMEOUT_MS", "RICHOS_AGENT_HOLD_WAIT_SECONDS")}
+        try:
+            for k in keep:
+                os.environ.pop(k, None)
+            self.assertEqual(agent_hold._wait_bound_seconds(), (600000, 585))
+            os.environ["BASH_MAX_TIMEOUT_MS"] = "300000"
+            self.assertEqual(agent_hold._wait_bound_seconds(), (300000, 285))
+            os.environ["RICHOS_AGENT_HOLD_WAIT_SECONDS"] = "60"
+            self.assertEqual(agent_hold._wait_bound_seconds(), (300000, 60))
+        finally:
+            for k, v in keep.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def test_the_wait_command_text_is_the_generated_waits(self):
+        import pause_protocol
+        self.assertEqual(agent_hold.WAIT_COMMAND, pause_protocol.WAIT_COMMAND)
+        self.assertIn(pause_protocol.WAIT_COMMAND, pause_protocol.render("manual"))
+        for text in (agent_hold.WAIT_COMMAND, "python3 /x/y/agent_hold.py wait", "agent_hold.py wait 2>&1",
+                     "python3 agent_hold.py wait --max-seconds 30"):
+            self.assertTrue(agent_hold.is_wait_call(text), text)
+        for text in ("agent_hold.py wait; rm -rf x", "echo agent_hold.py wait", "agent_hold.py hold --session s"):
+            self.assertFalse(agent_hold.is_wait_call(text), text)
+
+
+class Foreground(Base):
+    """2026-09-28: the WAIT must reach an agent whose foreground command is running. A hold
+    freezes that command's job and ends its tool call, so the queued message is handed over."""
+
+    def test_an_unheld_wrapped_call_returns_what_it_always_returned(self):
+        cases = [('echo out; echo err >&2; exit 3', 3, "out\nerr\n"),
+                 ('false | cat; echo unreachable', 1, ""),
+                 ('echo a\ncat <<EOF\nheredoc\nEOF\n# a trailing comment', 0, "a\nheredoc\n"),
+                 ('printf "%s" "$RICHOS_AGENT_OWNER"', 0, self.agent),
+                 ('exit 0', 0, "")]
+        for i, (command, code, stdout) in enumerate(cases):
+            call, _got = self.start_rewritten(command, tuid="toolu_plain%d" % i)
+            out, _err = call.communicate(timeout=30)
+            self.assertEqual((call.returncode, out), (code, stdout), command)
+        d = os.path.join(os.environ["RICHOS_AGENT_HOLD_DIR"], "shells", self.session, self.agent)
+        self.assertFalse([n for n in os.listdir(d) if n.endswith((".out", ".status", ".job"))],
+                         "a finished call leaves no output behind")
+
+    def test_hold_returns_the_foreground_call_at_once_and_wait_collects_the_same_result(self):
+        want = expected()
+        command = "\n".join([
+            '%s %s %s %d' % (sys.executable, self.worker, self.out("fg"), ROUNDS),
+            'echo "worker result: $(cat %s)"' % self.out("fg"),
+            'exit 4',
+        ])
+        call, _got = self.start_rewritten(command, tuid="toolu_long")
+        worker = self.worker_pid("fg")
+        self.assertTrue(wait_for(lambda: os.path.exists(self.out("fg") + ".progress")))
+        t0 = time.monotonic()
+        r = agent_hold.hold(self.session, self.agent, "fixture", sample=1.0)
+        stdout, _err = call.communicate(timeout=10)
+        returned = time.monotonic() - t0
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(list(r["detached"]), ["toolu_long"])
+        self.assertEqual((call.returncode, stdout.strip()), (0, agent_hold.DETACHED_TEXT),
+                         "the call returns the WAIT, so the harness hands over the queued message")
+        self.assertIn(agent_hold.WAIT_COMMAND, stdout)
+        self.assertLess(returned, 3.0)
+        self.assertNotIn(str(call.pid), r["held"], "the foreground shell is told to return, not frozen")
+        self.assertIn(str(worker), r["held"])
+        self.assertTrue(state(worker).startswith("T"), state(worker))
+        self.assertEqual(r["cpu_during_sample"], 0.0, r)
+        progress = Path(self.out("fg") + ".progress").read_text()
+        time.sleep(1.0)
+        self.assertEqual(Path(self.out("fg") + ".progress").read_text(), progress, "no progress while held")
+        self.assertIn("its tool call returned, so the WAIT reaches it now", agent_hold.describe_hold(r))
+        # The agent now runs its wait: it waits, then collects the command's own result.
+        waiter, _got = self.start_rewritten("python3 %s wait" % (HERE / "agent_hold.py"), tuid="toolu_wait")
+        time.sleep(1.0)
+        self.assertIsNone(waiter.poll(), "the wait waits while held")
+        rel = agent_hold.release(self.session, self.agent)
+        self.assertIn(worker, rel["continued"])
+        out, _err = waiter.communicate(timeout=120)
+        self.assertEqual(waiter.returncode, 0)
+        self.assertIn("RESUMED at", out)
+        self.assertIn("has finished with exit status 4", out)
+        self.assertIn("worker result: %s" % want, out, "the same process finished from the same point")
+        d = os.path.join(os.environ["RICHOS_AGENT_HOLD_DIR"], "shells", self.session, self.agent)
+        self.assertFalse([n for n in os.listdir(d) if n.startswith("toolu_long.")], "collected output is removed")
+        sys.stderr.write("\n  measured: hold ended the foreground call in %.3f s (%d process(es) frozen); "
+                         "after release the wait printed its exit status and output\n" % (returned, len(r["held"])))
+
+    def test_a_result_still_running_at_the_bound_is_collected_by_the_next_wait(self):
+        command = '%s -c "import time; time.sleep(3); print(\'late result\')"' % sys.executable
+        call, _got = self.start_rewritten(command, tuid="toolu_slow")
+        self.assertTrue(wait_for(lambda: len(agent_hold.subtree([call.pid], agent_hold.snapshot())) > 2, 5))
+        r = agent_hold.hold(self.session, self.agent, "fixture")
+        self.assertEqual(list(r["detached"]), ["toolu_slow"])
+        call.communicate(timeout=10)
+        agent_hold.release(self.session, self.agent)
+        import io
+        os.environ[agent_hold.TAG], os.environ[agent_hold.SESSION_TAG] = self.agent, self.session
+        buf = io.StringIO()
+        agent_hold.wait_resume(0.5, 0.1, buf)
+        self.assertIn("STILL RUNNING", buf.getvalue())
+        buf = io.StringIO()
+        agent_hold.wait_resume(20, 0.1, buf)
+        self.assertIn("has finished with exit status 0", buf.getvalue())
+        self.assertIn("late result", buf.getvalue())
+
+    def test_a_foreground_shell_that_never_starts_its_job_is_frozen_whole_and_said_so(self):
+        payload = self.payload("toolu_stuck")
+        payload["tool_input"] = {"command": "true", "run_in_background": False}
+        stem, _held = agent_hold._record(payload, "fg", "true")
+        # Records itself like a wrapped call, then never writes its job.
+        body = agent_hold._head(stem, payload) + '%s -c "import time; time.sleep(30)"' % sys.executable
+        p = subprocess.Popen([SHELL, "-c", body], process_group=0)
+        self.procs.append(p)
+        self.assertTrue(wait_for(lambda: os.path.exists(stem + ".pid")))
+        t0 = time.monotonic()
+        r = agent_hold.hold(self.session, self.agent, "fixture")
+        self.assertGreaterEqual(time.monotonic() - t0, agent_hold.DETACH_GRACE - 0.1)
+        self.assertEqual(r["undetached"], [p.pid])
+        self.assertTrue(state(p.pid).startswith("T"))
+        self.assertIn("could not be told to return", agent_hold.describe_hold(r))
+        agent_hold.release(self.session, self.agent)
+
+    def test_prune_keeps_a_frozen_commands_output_until_collected(self):
+        d = os.path.join(os.environ["RICHOS_AGENT_HOLD_DIR"], "shells", self.session, self.agent)
+        agent_hold.capture(self.payload("toolu_kept"))
+        Path(d, "toolu_kept.pid").write_text("999999 1\n")
+        Path(d, "toolu_kept.out").write_text("output")
+        Path(d, "toolu_kept.detached").write_text(json.dumps({"job": 999999, "at": time.time()}))
+        old = time.time() - 3600
+        os.utime(os.path.join(d, "toolu_kept.json"), (old, old))
+        agent_hold.capture(self.payload("toolu_next"))
+        self.assertIn("toolu_kept.out", os.listdir(d), "kept for the agent's wait")
+        old = time.time() - agent_hold.DETACHED_KEEP - 60
+        os.utime(os.path.join(d, "toolu_kept.json"), (old, old))
+        agent_hold.capture(self.payload("toolu_last"))
+        self.assertFalse([n for n in os.listdir(d) if n.startswith("toolu_kept.")], "gone after DETACHED_KEEP")
 
 
 if __name__ == "__main__":
