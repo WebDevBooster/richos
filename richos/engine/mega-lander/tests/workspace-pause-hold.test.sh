@@ -116,7 +116,7 @@ if ti.get("run_in_background"):
         stream.write(json.dumps({"type": "user", "sessionId": sid, "agentId": aid,
             "toolUseResult": {"backgroundTaskId": task}, "message": {"content": [{
                 "type": "tool_result", "tool_use_id": tid, "content":
-                "Output is being written to: " + str(native) + ". You will be notified when it completes."}]}}) + "\n")
+                "Command running in background with ID: " + task + ". Output is being written to: " + str(native) + ". You will be notified when it completes."}]}}) + "\n")
     open(rcfile[:-3] + ".native-return", "w").write(str(p.pid))
 rc = p.wait()          # native task completion, separate from the immediate tool return
 out.close()
