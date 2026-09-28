@@ -32,7 +32,7 @@ no security warning, no right-click.
 **You need an Anthropic account.** RichOS installs Claude Code and its own engine itself on first
 run, from a single sheet — you fetch and place nothing.
 
-**Voice does not work yet.** Typing does. Speech needs a model this build does not download for you.
+**Voice needs one more piece, and RichOS fetches it itself.** Typing works out of the box. The first time you ask to talk, RichOS offers to download the speech model it needs, tells you how big it is, and checks what arrives against a hash it was built with. On a Mac that does not have the speech engine installed at all, it says so plainly instead of pretending.
 
 There is no Intel build, and no Windows build.
 
