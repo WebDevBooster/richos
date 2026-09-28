@@ -193,7 +193,10 @@ class Budget:
         t = self._try_free(free) or self.try_acquire()
         if t:
             return t
-        deadline = time.monotonic() + timeout
+        import proc_tree
+        # Active time: a waiter suspended by a pause has not waited (Sage's catch 2).
+        clock = proc_tree.HeldClock()
+        deadline = clock.now() + timeout
         marker = os.path.join(self.dir, "wait-%d" % os.getpid())
         open(marker, "w").close()
         try:
@@ -201,7 +204,7 @@ class Budget:
                 t = self._try_free(free) or self.try_acquire()
                 if t:
                     return t
-                if time.monotonic() >= deadline:
+                if clock.now() >= deadline:
                     raise TimeoutError("worker admission timed out after %gs: %s" % (timeout, self.dir))
                 time.sleep(POLL_SECONDS)
         finally:
@@ -438,9 +441,10 @@ def lease_worker(directory, owner, ready, release, free):
     if free != "-":
         free = os.environ.get("RICHOS_WORKER_BORROW_LOCK", free)
     token = None
-    deadline = time.monotonic() + 1800
+    clock = proc_tree.HeldClock()      # a pause is not time spent waiting (Sage's catch 2)
+    deadline = clock.now() + 1800
     while token is None:
-        if interrupted or proc_tree.identity(owner) != born or time.monotonic() >= deadline:
+        if interrupted or proc_tree.identity(owner) != born or clock.now() >= deadline:
             return 125
         token = budget._try_free(free if free != "-" else None) or budget.try_acquire()
         if token is None:
