@@ -564,6 +564,22 @@ class Evidence(unittest.TestCase):
             self.assertFalse(set(env) & {"BASH_ENV", "PYTHONPATH", "SECRET_TOKEN", "RICHOS_RUNTIME_DIR"})
             self.assertEqual(env["NAMED_INPUT"], "declared value")
             self.assertEqual(Path(env["GIT_CONFIG_GLOBAL"]).read_text(), evidence.GIT_FIXTURE)
+            self.assertEqual((Path(env["CLAUDE_CONFIG_DIR"]) / "state/scratch-ledger.jsonl").read_text(), "")
+            libraries = HERE.parents[1] / "engine/scripts/lib"
+            check = subprocess.run(["bash", "-eu", "-c", '''
+. "$1/record-canary.sh"
+. "$1/scratch.sh"
+baseline="$TMPDIR/record-before"
+rc_baseline "$baseline"
+[ "$RC_HEALTHY" -eq 1 ]
+allocated="$(scratch_new profile-regression)"
+[ -z "$(rc_escaped "$baseline")" ]
+scratch_release "$allocated"
+[ -z "$(rc_escaped "$baseline")" ]
+printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
+[ -n "$(rc_escaped "$baseline")" ]
+''', "profile-check", str(libraries)], env=env, capture_output=True, text=True)
+            self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
             self.assertTrue(Path(env["TMPDIR"]).is_relative_to(directory))
             result = subprocess.check_output(["python3", "-c",
                 "import sys; print(sys.flags.no_site, sys.flags.no_user_site)"], env=env, text=True)

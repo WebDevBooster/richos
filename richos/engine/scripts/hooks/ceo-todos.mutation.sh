@@ -15,10 +15,11 @@
 #   3. the mutation actually applied (a replacement that matched nothing gives a
 #      green run that looks like a green run, which is the same trap again).
 #
-# Every mutant is a throwaway copy of the whole engine subtree. Nothing here
-# touches the real tree.
+# Every mutant has a private predicate fixture. The complete suite still runs
+# once in ceo-todos.test.sh; each mutation proves its own named case, including
+# an unmutated control. Nothing here touches the real tree.
 #
-# Run directly: scripts/hooks/ceo-todos.mutation.sh   (~7 minutes)
+# Run directly: scripts/hooks/ceo-todos.mutation.sh
 # Exit 0 = every property is proven load-bearing.
 
 set -uo pipefail
@@ -66,8 +67,8 @@ PYEOF
 # named" while the case named was in fact the one that had gone red. A harness
 # that cannot attribute a red is a harness that proves nothing.
 # --- concurrency ------------------------------------------------------------
-# Each mutant builds its own sandbox under $SANDBOX/<name> and runs a whole
-# suite against it, so no two mutants share a path and none of them is ordered
+# Each mutant builds its own sandbox under $SANDBOX/<name> and runs its named
+# case against it, so no two mutants share a path and none of them is ordered
 # against another. They ran one at a time only because a `for` loop is what this
 # harness was first written as. mutation-pool.sh bounds the fan-out, keeps the
 # report in declaration order, and counts a KILLED mutant as a failure rather
@@ -83,12 +84,23 @@ _mutant_body() {
     local name="$1" want="$2" rel="$3" old="$4" new="$5" why="$6"
     local dir="$SANDBOX/$name"
     mkdir -p "$dir"
-    # THE WHOLE TREE, not a hand-picked subset. This suite asserts registration
-    # in hooks/hooks.json, in .claude/settings.local.json, in the probe's oracle
-    # and in install.sh's sidecar list; a partial copy would go red for reasons
-    # that have nothing to do with the mutation, and a mutation harness whose
-    # baseline is red proves nothing.
-    cp -R "$ENGINE_ROOT/." "$dir/" 2>/dev/null
+    # The scoped case never runs registration or initializer checks. Those stay
+    # in the complete outer suite. Retain the real guard, predicate and renderers.
+    mkdir -p "$dir/scripts/hooks" "$dir/scripts/lib"
+    cp -R "$ENGINE_ROOT/scripts/lib/." "$dir/scripts/lib/" || return 1
+    cp "$ENGINE_ROOT/scripts/hooks/ceo-todos.test.sh" \
+       "$ENGINE_ROOT/scripts/hooks/guard-ceo-todos-commits.sh" "$dir/scripts/hooks/" || return 1
+    cp "$ENGINE_ROOT/scripts/ceo-todos-lint.sh" \
+       "$ENGINE_ROOT/scripts/ceo-todos-render.sh" "$dir/scripts/" || return 1
+    cp "$ENGINE_ROOT/orchestration.config" "$dir/" || return 1
+
+    bash "$dir/scripts/hooks/ceo-todos.test.sh" --mutation-case "$want" >"$dir/control.txt" 2>&1
+    local control_rc=$?
+    if [ "$control_rc" -ne 3 ] || ! grep -qF "PASS  $want " "$dir/control.txt"; then
+        printf '  FAIL  %s: the unmutated named case was not green (rc=%s)\n' "$name" "$control_rc"
+        tail -15 "$dir/control.txt"
+        return 1
+    fi
 
     if ! python3 "$SANDBOX/mutate.py" "$dir/$rel" "$old" "$new" 2>"$dir/mutate.err"; then
         printf '  FAIL  %s — the mutation did not apply\n' "$name"
@@ -96,9 +108,9 @@ _mutant_body() {
         return 1
     fi
 
-    bash "$dir/scripts/hooks/ceo-todos.test.sh" >"$dir/out.txt" 2>&1
+    bash "$dir/scripts/hooks/ceo-todos.test.sh" --mutation-case "$want" >"$dir/out.txt" 2>&1
     local rc=$?
-    if [ "$rc" -eq 0 ]; then
+    if [ "$rc" -eq 0 ] || [ "$rc" -eq 3 ]; then
         printf '  FAIL  %s — the suite still PASSED without this property.\n' "$name"
         printf '          %s\n' "$why"
         return 1

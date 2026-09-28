@@ -158,6 +158,9 @@ def prepare_environment(item, root, logdir, environment, create=True):
         home.mkdir(parents=True, mode=0o700)
         tmp.mkdir(mode=0o700)
         (home / ".claude/state").mkdir(parents=True)
+        # Allocation appends operational bookkeeping. Seed its file before the
+        # record canary witnesses this directory; protected records stay absent.
+        (home / ".claude/state/scratch-ledger.jsonl").touch(exist_ok=False)
         (home / ".gitconfig").write_text(GIT_FIXTURE)
         (private / "bin").mkdir(mode=0o700)
         (private / "git-template").mkdir(mode=0o700)
@@ -385,7 +388,8 @@ def recipe_identity(root, recipe, environment, snapshot=None):
                  *recipe["environment"], *recipe["external"]}
         values = {name: digest(environment[name].replace(private, "$FIXTURE"))
                   if name in environment else None for name in names}
-        profile = {"name": PRIVATE_PROFILE, "git_fixture": digest(GIT_FIXTURE)}
+        profile = {"name": PRIVATE_PROFILE, "git_fixture": digest(GIT_FIXTURE),
+                   "scratch_ledger_seed": digest("")}
     literal_external = {path: digest(snapshot.path(path)) for path in recipe.get("external_paths", [])}
     return {"contract": digest(recipe), "paths": paths, "tools": tools, "profile": profile,
             "inventories": {path: digest(snapshot.inventory(root / path))

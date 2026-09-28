@@ -2178,29 +2178,7 @@
       "external": [],
       "qualification": "docs/development/verification-input-qualifications.json",
       "isolation": "private-home-v1",
-      "qualification_unit": "engine scripts/hooks/ceo-asks.test.sh",
-      "subset": {
-        "paths": [
-          "richos/app/scripts",
-          "richos/engine/scripts/lib",
-          "richos/engine/scripts/ci-shard.sh",
-          "richos/engine/scripts/ci-units.sh",
-          "richos/engine/scripts/hooks/contract-integrity.test.sh",
-          "richos/engine/orchestration.config",
-          "richos/engine/scripts/hooks/session-start-ceo-ask.sh",
-          "richos/engine/scripts/hooks/guard-ceo-ask-first.sh",
-          "richos/engine/scripts/hooks/ceo-asks.mutation.sh",
-          "richos/engine/scripts/hooks/notice-ceo-asks.sh",
-          "richos/engine/scripts/hooks/ceo-asks.test.sh",
-          "richos/engine/scripts/hooks/notice-ceo-unasked.sh",
-          "richos/engine/scripts/ceo-asks-status.sh",
-          "richos/engine/hooks/hooks.json",
-          "richos/engine/scripts/hooks/dispatch-pretooluse.manifest"
-        ],
-        "inventories": [
-          "richos/engine"
-        ]
-      }
+      "qualification_unit": "engine scripts/hooks/ceo-asks.test.sh"
     },
     "engine scripts/hooks/ceo-inputs.test.sh": {
       "paths": [
@@ -2258,28 +2236,7 @@
       "external": [],
       "qualification": "docs/development/verification-input-qualifications.json",
       "isolation": "private-home-v1",
-      "qualification_unit": "engine scripts/hooks/ceo-inputs.test.sh",
-      "subset": {
-        "paths": [
-          "richos/app/scripts",
-          "richos/engine/scripts/lib",
-          "richos/engine/scripts/ci-shard.sh",
-          "richos/engine/scripts/ci-units.sh",
-          "richos/engine/scripts/hooks/contract-integrity.test.sh",
-          "richos/engine/orchestration.config",
-          "richos/engine/scripts/hooks/notice-ceo-inputs-unheld.sh",
-          "richos/engine/scripts/hooks/ceo-inputs.test.sh",
-          "richos/engine/scripts/hooks/scan-secrets.sh",
-          "richos/engine/scripts/hooks/guard-publication-writes.sh",
-          "richos/engine/scripts/hooks/commit-ceo-inputs.py",
-          "richos/engine/scripts/hooks/commit-ceo-inputs.sh",
-          "richos/engine/hooks/hooks.json",
-          "richos/engine/scripts/hooks/dispatch-pretooluse.manifest"
-        ],
-        "inventories": [
-          "richos/engine"
-        ]
-      }
+      "qualification_unit": "engine scripts/hooks/ceo-inputs.test.sh"
     },
     "engine scripts/hooks/ceo-ruled.test.sh": {
       "paths": [
@@ -2339,27 +2296,7 @@
       ],
       "qualification": "docs/development/verification-input-qualifications.json",
       "isolation": "private-home-v1",
-      "qualification_unit": "engine scripts/hooks/ceo-ruled.test.sh",
-      "subset": {
-        "paths": [
-          "richos/app/scripts",
-          "richos/engine/scripts/lib",
-          "richos/engine/scripts/ci-shard.sh",
-          "richos/engine/scripts/ci-units.sh",
-          "richos/engine/scripts/hooks/contract-integrity.test.sh",
-          "richos/engine/orchestration.config",
-          "richos/engine/scripts/ceo-ruled-exempt.sh",
-          "richos/engine/scripts/hooks/ceo-ruled.test.sh",
-          "richos/engine/scripts/hooks/ceo-ruled.mutation.sh",
-          "richos/engine/scripts/hooks/guard-ceo-ruled-ask.sh",
-          "richos/engine/scripts/hooks/notice-ceo-ruled-prose.sh",
-          "richos/engine/hooks/hooks.json",
-          "richos/engine/scripts/hooks/dispatch-pretooluse.manifest"
-        ],
-        "inventories": [
-          "richos/engine"
-        ]
-      }
+      "qualification_unit": "engine scripts/hooks/ceo-ruled.test.sh"
     },
     "engine scripts/hooks/ceo-todos.test.sh": {
       "paths": [
@@ -2417,29 +2354,7 @@
       "external": [],
       "qualification": "docs/development/verification-input-qualifications.json",
       "isolation": "private-home-v1",
-      "qualification_unit": "engine scripts/hooks/ceo-todos.test.sh",
-      "subset": {
-        "paths": [
-          "richos/app/scripts",
-          "richos/engine/scripts/lib",
-          "richos/engine/scripts/ci-shard.sh",
-          "richos/engine/scripts/ci-units.sh",
-          "richos/engine/scripts/hooks/contract-integrity.test.sh",
-          "richos/engine/orchestration.config",
-          "richos/engine/scripts/ceo-todos-lint.sh",
-          "richos/engine/scripts/ceo-todos-render.sh",
-          "richos/engine/scripts/hooks/ceo-todos.test.sh",
-          "richos/engine/scripts/cold-open.sh",
-          "richos/engine/scripts/ceo-todos-init.sh",
-          "richos/engine/scripts/hooks/guard-ceo-todos-commits.sh",
-          "richos/engine/scripts/hooks/ceo-todos.mutation.sh",
-          "richos/engine/hooks/hooks.json",
-          "richos/engine/scripts/hooks/dispatch-pretooluse.manifest"
-        ],
-        "inventories": [
-          "richos/engine"
-        ]
-      }
+      "qualification_unit": "engine scripts/hooks/ceo-todos.test.sh"
     },
     "engine scripts/hooks/completeness-commits.test.sh": {
       "paths": [
@@ -2497,26 +2412,7 @@
       "external": [],
       "qualification": "docs/development/verification-input-qualifications.json",
       "isolation": "private-home-v1",
-      "qualification_unit": "engine scripts/hooks/completeness-commits.test.sh",
-      "subset": {
-        "paths": [
-          "richos/app/scripts",
-          "richos/engine/scripts/lib",
-          "richos/engine/scripts/ci-shard.sh",
-          "richos/engine/scripts/ci-units.sh",
-          "richos/engine/scripts/hooks/contract-integrity.test.sh",
-          "richos/engine/orchestration.config",
-          "richos/engine/scripts/hooks/completeness-commits.test.sh",
-          "richos/engine/scripts/hooks/guard-completeness-commits.sh",
-          "richos/engine/scripts/publication-completeness.sh",
-          "richos/engine/scripts/publication-completeness.py",
-          "richos/engine/hooks/hooks.json",
-          "richos/engine/scripts/hooks/dispatch-pretooluse.manifest"
-        ],
-        "inventories": [
-          "richos/engine"
-        ]
-      }
+      "qualification_unit": "engine scripts/hooks/completeness-commits.test.sh"
     },
     "engine scripts/hooks/named-persons.test.sh": {
       "paths": [
@@ -2574,26 +2470,7 @@
       "external": [],
       "qualification": "docs/development/verification-input-qualifications.json",
       "isolation": "private-home-v1",
-      "qualification_unit": "engine scripts/hooks/named-persons.test.sh",
-      "subset": {
-        "paths": [
-          "richos/app/scripts",
-          "richos/engine/scripts/lib",
-          "richos/engine/scripts/ci-shard.sh",
-          "richos/engine/scripts/ci-units.sh",
-          "richos/engine/scripts/hooks/contract-integrity.test.sh",
-          "richos/engine/orchestration.config",
-          "richos/engine/scripts/hooks/guard-named-persons-commands.sh",
-          "richos/engine/scripts/hooks/guard-named-persons-writes.sh",
-          "richos/engine/scripts/hooks/named-persons.test.sh",
-          "richos/engine/scripts/named-persons.sh",
-          "richos/engine/hooks/hooks.json",
-          "richos/engine/scripts/hooks/dispatch-pretooluse.manifest"
-        ],
-        "inventories": [
-          "richos/engine"
-        ]
-      }
+      "qualification_unit": "engine scripts/hooks/named-persons.test.sh"
     },
     "engine scripts/hooks/row-currency.test.sh": {
       "paths": [
@@ -2651,27 +2528,7 @@
       "external": [],
       "qualification": "docs/development/verification-input-qualifications.json",
       "isolation": "private-home-v1",
-      "qualification_unit": "engine scripts/hooks/row-currency.test.sh",
-      "subset": {
-        "paths": [
-          "richos/app/scripts",
-          "richos/engine/scripts/lib",
-          "richos/engine/scripts/ci-shard.sh",
-          "richos/engine/scripts/ci-units.sh",
-          "richos/engine/scripts/hooks/contract-integrity.test.sh",
-          "richos/engine/orchestration.config",
-          "richos/engine/scripts/row-headline-verify.sh",
-          "richos/engine/scripts/row-currency-lint.sh",
-          "richos/engine/scripts/hooks/guard-row-currency-commits.sh",
-          "richos/engine/scripts/hooks/guard-row-currency-commits.mutation.sh",
-          "richos/engine/scripts/hooks/row-currency.test.sh",
-          "richos/engine/hooks/hooks.json",
-          "richos/engine/scripts/hooks/dispatch-pretooluse.manifest"
-        ],
-        "inventories": [
-          "richos/engine"
-        ]
-      }
+      "qualification_unit": "engine scripts/hooks/row-currency.test.sh"
     },
     "engine scripts/hooks/unstarted-rows.test.sh": {
       "paths": [
@@ -2729,26 +2586,7 @@
       "external": [],
       "qualification": "docs/development/verification-input-qualifications.json",
       "isolation": "private-home-v1",
-      "qualification_unit": "engine scripts/hooks/unstarted-rows.test.sh",
-      "subset": {
-        "paths": [
-          "richos/app/scripts",
-          "richos/engine/scripts/lib",
-          "richos/engine/scripts/ci-shard.sh",
-          "richos/engine/scripts/ci-units.sh",
-          "richos/engine/scripts/hooks/contract-integrity.test.sh",
-          "richos/engine/orchestration.config",
-          "richos/engine/scripts/unstarted-rows-lint.sh",
-          "richos/engine/scripts/hooks/notice-unstarted-rows.sh",
-          "richos/engine/scripts/hooks/unstarted-rows.test.sh",
-          "richos/engine/scripts/hooks/unstarted-rows.mutation.sh",
-          "richos/engine/hooks/hooks.json",
-          "richos/engine/scripts/hooks/dispatch-pretooluse.manifest"
-        ],
-        "inventories": [
-          "richos/engine"
-        ]
-      }
+      "qualification_unit": "engine scripts/hooks/unstarted-rows.test.sh"
     },
     "make-engine-asset": {
       "paths": [

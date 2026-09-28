@@ -149,7 +149,7 @@ real published-release verification for reuse.
 
 ## Reuse within changed roots
 
-Sixteen fixture-driven hook and record units now declare a reviewed smaller input
+Eight fixture-driven payload hook units now declare a reviewed smaller input
 set. The full declared roots remain the qualification boundary. The identity
 uses the complete named reader/helper closure, shared runner and library bytes,
 production configuration plus every outside input. The entire engine inventory
@@ -164,3 +164,9 @@ and SHA retention, only the previously unrun unit executing, and rejection after
 a declared outside input changes. Separate fixtures require helper/data changes,
 new inventory members, symlink target changes and deliberate known omissions to
 invalidate reuse or refuse qualification.
+
+Record suites retain Tier 1 whole-engine identity: their initializer templates,
+registration surfaces and installer/probe text are additional content inputs
+beyond the R1 executed-reader graph. They are excluded from subset reuse until
+that data closure is independently qualified. No production result was accepted
+under the earlier incomplete record subset declarations.
