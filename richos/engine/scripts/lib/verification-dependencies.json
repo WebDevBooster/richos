@@ -1138,7 +1138,7 @@
     },
     "scripts/install-escalation-protocol.test.sh": {
       "source": "scripts/install-escalation-protocol.test.sh",
-      "sha256": "5baa4d69d4612e4248855fca5767933065cb2458f9e9b6855bd02a22c2c73396",
+      "sha256": "e4eb721f0dd16b4dd5a7b8bd056407dbeb90558d310ec80e7b2a61c1b18b2b90",
       "evidence": "Every installer invocation supplies --repo beneath a private TMPDIR fixture. Canonical protocol text is source data. Generated definitions and missing-input copies do not contain or read real settings.",
       "keys": [],
       "edges": [
