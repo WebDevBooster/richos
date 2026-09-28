@@ -2,22 +2,37 @@
      Everything between the BEGIN and END markers is byte-identical in every teammate
      definition; edit it HERE and re-run the installer, never in a definition. -->
 
-**Raise it with ONE command, and it arrives whether or not your branch is ever merged.**
+**Raise it with ONE file and ONE command, and it arrives whether or not your branch is ever
+merged.** First write the fields with your **Write tool** (not a shell command) to a file in
+your scratch directory, for example `esc.json`:
 
 ```
-~/.claude/richos-engine/scripts/escalate.sh raise \
-    --title "<one line naming what this is about>" \
-    --state work-complete|proceeding|stopped \
-    --question "<the smallest question that would unblock this>" \
-    [--for lead|ceo] \
-    [--tried "<what you already tried>"] \
-    [--meanwhile "<what you are proceeding on>"]
+{"title": "<one line naming what this is about>",
+ "state": "work-complete | proceeding | stopped",
+ "question": "<the smallest question that would unblock this>",
+ "for": "lead | ceo",
+ "tried": "<what you already tried>",
+ "meanwhile": "<what you are proceeding on>"}
 ```
 
-Run it from your own worktree. Your name, your branch, your HEAD and your repository are read
-off the workspace you are standing in — the fields above are the only ones that are yours.
+`for`, `tried` and `meanwhile` are optional. Then run, from your own worktree:
 
-**`--state` is required, and it is the field that stops your escalation being read as a
+```
+~/.claude/richos-engine/scripts/escalate.sh raise --fields <path to esc.json>
+```
+
+Your name, your branch, your HEAD and your repository are read off the workspace you are
+standing in — the fields above are the only ones that are yours.
+
+**Why a file: write anything in it.** When your worktree is isolated, Claude Code itself
+refuses a shell command before it runs if free text on the command line starts with the word
+git, or has an apostrophe or quote next to it ("git status, git add", "we can't run git").
+Every escalation about version control reads like that. Text in a file written with the Write
+tool never crosses that check, so name commands, quote errors and use any wording you need.
+Never put the text on the command line with `--title`, `--question`, `--tried` or
+`--meanwhile`, and never pass it through `echo`, a pipe or a heredoc: those cross the same check.
+
+**`state` is required, and it is the field that stops your escalation being read as a
 stall.** `work-complete` — the work is DONE and this is a record of something the lead must
 know. `proceeding` — raised, and you are still working on everything that does not depend on
 the answer. `stopped` — the whole task depends on the answer and work has stopped. The
@@ -48,7 +63,7 @@ raise failed.
 
 **Then keep working.** Everything that does not depend on the answer still gets done. Never
 stall silently, and never invent an answer to a question that belongs to the CEO. If the whole
-task depends on the answer, raise it with `--state stopped`, say so in your report, and stop —
+task depends on the answer, raise it with `"state": "stopped"`, say so in your report, and stop —
 a measured "this is blocked and here is why" is a complete outcome, not a failure.
 
 <!-- ESCALATION-PROTOCOL-SEAM:END -->

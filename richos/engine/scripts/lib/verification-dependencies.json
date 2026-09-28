@@ -1138,7 +1138,7 @@
     },
     "scripts/install-escalation-protocol.test.sh": {
       "source": "scripts/install-escalation-protocol.test.sh",
-      "sha256": "5baa4d69d4612e4248855fca5767933065cb2458f9e9b6855bd02a22c2c73396",
+      "sha256": "e4eb721f0dd16b4dd5a7b8bd056407dbeb90558d310ec80e7b2a61c1b18b2b90",
       "evidence": "Every installer invocation supplies --repo beneath a private TMPDIR fixture. Canonical protocol text is source data. Generated definitions and missing-input copies do not contain or read real settings.",
       "keys": [],
       "edges": [
@@ -4133,8 +4133,8 @@
     },
     "scripts/lib/escalations.py": {
       "source": "scripts/lib/escalations.py",
-      "sha256": "34c2f41e1c59ebfbd5a049c4bf418e7735d2740a17f924823e0eacaaf1a6a3b2",
-      "evidence": "All commands read/write JSONL ledger rows and render strings using standard-library code. Ledger, actor and session paths come from explicit arguments/environment. No orchestration.config reader, subprocess or engine import.",
+      "sha256": "7a8ccdb4cd4019c96c1db3448bb0e5eb54b9c1325d4975ceb21d43e185153ded",
+      "evidence": "All commands read/write JSONL ledger rows and render strings using standard-library code. Ledger, actor and session paths come from explicit arguments/environment; the fields command reads only the JSON file named by --file. No orchestration.config reader, subprocess or engine import.",
       "keys": [],
       "edges": []
     },
@@ -4431,8 +4431,8 @@
     },
     "scripts/escalate.sh": {
       "source": "scripts/escalate.sh",
-      "sha256": "ead116322891a7e2205dbda200f37c846173973a58d2b745fdb803d6d23fd647",
-      "evidence": "Fixed escalations library/Python calls with argument values; Git reads derive record identity. Output markdown, actor strings and record paths are data. No orchestration config or manifest is read.",
+      "sha256": "dd1d6ce68d71f19531edc6ddadbf52cad069418dd39f52f6058fe5b822ecf1ad",
+      "evidence": "Fixed escalations library/Python calls with argument values; an optional --fields file is validated by escalations.py and each value is assigned through a fixed case statement, never evaluated. Git reads derive record identity. Output markdown, actor strings and record paths are data. No orchestration config or manifest is read.",
       "keys": [],
       "edges": [
         {
@@ -4459,7 +4459,7 @@
     },
     "scripts/hooks/escalations.test.sh": {
       "source": "scripts/hooks/escalations.test.sh",
-      "sha256": "159803e2c8abbba467cb4b71230e64728884a2abab571fc58506545553c0a331",
+      "sha256": "b538adf053f6c499d8d0a0d46e3a54ff62e5ee50b6a65804d4d710c7717cc256",
       "evidence": "Builds a private engine with literal PROTECTED_PATHS config, fixed hooks/libraries and private ledgers. All commands target these copies. Finite inline Python mutations replace a predicate or age buckets and invoke the same hooks. The leak canary reads real Git/file metadata as data; neither real config contents nor hook manifest is read.",
       "keys": [],
       "edges": [
@@ -15442,7 +15442,7 @@
         "scripts/hooks/snapshot-agent-definitions.sh": "51f92567f9daaa9bacd37082d0cd30beba284b3149714c8a45f945738d6ebaff",
         "scripts/hooks/session-start-escalations.sh": "25af57857b1dc4a1e4a61c6848753ede1d217f3a1037379e30cee4e64b206a5f",
         "scripts/lib/escalations.sh": "656be06643a5579cc15e4ef5efe7628bd58e0a134e3677b36885f2060db59db7",
-        "scripts/lib/escalations.py": "34c2f41e1c59ebfbd5a049c4bf418e7735d2740a17f924823e0eacaaf1a6a3b2",
+        "scripts/lib/escalations.py": "7a8ccdb4cd4019c96c1db3448bb0e5eb54b9c1325d4975ceb21d43e185153ded",
         "scripts/hooks/snapshot-enforcing-hooks.sh": "d357c9a97492d4447e5ad83099da89192d877ac9282e41d712804710e6b739d4",
         "scripts/hooks/session-start-ci-surface.sh": "a4f1b332f362a2374ae1dad83d44af14a977d8cfdb753154014bbcc7e74c05a5",
         "scripts/lib/ci_pause.py": "f41e86ea2b1aaa036c92eb44ddcb2fe2a6880724162561a5e31b84d556758693",
@@ -15518,7 +15518,7 @@
         "scripts/hooks/session-start-stdin.test.sh": "8db0addda3984451123e3a9f953a068daefacff5e2165e481e5ef1edf1e115da",
         "scripts/hooks/session-start-escalations.sh": "25af57857b1dc4a1e4a61c6848753ede1d217f3a1037379e30cee4e64b206a5f",
         "scripts/lib/escalations.sh": "656be06643a5579cc15e4ef5efe7628bd58e0a134e3677b36885f2060db59db7",
-        "scripts/lib/escalations.py": "34c2f41e1c59ebfbd5a049c4bf418e7735d2740a17f924823e0eacaaf1a6a3b2",
+        "scripts/lib/escalations.py": "7a8ccdb4cd4019c96c1db3448bb0e5eb54b9c1325d4975ceb21d43e185153ded",
         "scripts/hooks/snapshot-enforcing-hooks.sh": "d357c9a97492d4447e5ad83099da89192d877ac9282e41d712804710e6b739d4",
         "scripts/hooks/session-start-ci-surface.sh": "a4f1b332f362a2374ae1dad83d44af14a977d8cfdb753154014bbcc7e74c05a5",
         "scripts/lib/ci_pause.py": "f41e86ea2b1aaa036c92eb44ddcb2fe2a6880724162561a5e31b84d556758693",
@@ -15725,9 +15725,9 @@
         "owned-systems.declaration": "53055602ea5dddb54a84be7d701a6a072c6b343d573a55af1783f9402d56edde",
         "scripts/ci-status.sh": "f218d5216073ece57a9193c9d9c0ebdf5fa45edbeed615c831b3a3290e5c6dcf",
         "scripts/lib/ci-surface.py": "ac333b6cab58f196cce2da51918724f0457199840d04fc250f66eb2a727e7e53",
-        "scripts/escalate.sh": "ead116322891a7e2205dbda200f37c846173973a58d2b745fdb803d6d23fd647",
+        "scripts/escalate.sh": "dd1d6ce68d71f19531edc6ddadbf52cad069418dd39f52f6058fe5b822ecf1ad",
         "scripts/lib/escalations.sh": "656be06643a5579cc15e4ef5efe7628bd58e0a134e3677b36885f2060db59db7",
-        "scripts/lib/escalations.py": "34c2f41e1c59ebfbd5a049c4bf418e7735d2740a17f924823e0eacaaf1a6a3b2",
+        "scripts/lib/escalations.py": "7a8ccdb4cd4019c96c1db3448bb0e5eb54b9c1325d4975ceb21d43e185153ded",
         "scripts/owned-state-checks/staging-current.sh": "89e075fca4ffc1850be2f2222efe4c322bc1b59b5947791400cd680a064e9e2e",
         "scripts/unlanded-branches-lint.sh": "c65f6be6da126b18127b28f36860c213c9649e843831ae4c0ee1f393cc52971f",
         "scripts/owned-state-checks/registered-executables.py": "8e324db884e02950f56ab3a4616f4acb4a8eea78eab71dd3c40823fae80b6fd9",
@@ -16352,9 +16352,9 @@
         "owned-systems.declaration": "53055602ea5dddb54a84be7d701a6a072c6b343d573a55af1783f9402d56edde",
         "scripts/ci-status.sh": "f218d5216073ece57a9193c9d9c0ebdf5fa45edbeed615c831b3a3290e5c6dcf",
         "scripts/lib/ci-surface.py": "ac333b6cab58f196cce2da51918724f0457199840d04fc250f66eb2a727e7e53",
-        "scripts/escalate.sh": "ead116322891a7e2205dbda200f37c846173973a58d2b745fdb803d6d23fd647",
+        "scripts/escalate.sh": "dd1d6ce68d71f19531edc6ddadbf52cad069418dd39f52f6058fe5b822ecf1ad",
         "scripts/lib/escalations.sh": "656be06643a5579cc15e4ef5efe7628bd58e0a134e3677b36885f2060db59db7",
-        "scripts/lib/escalations.py": "34c2f41e1c59ebfbd5a049c4bf418e7735d2740a17f924823e0eacaaf1a6a3b2",
+        "scripts/lib/escalations.py": "7a8ccdb4cd4019c96c1db3448bb0e5eb54b9c1325d4975ceb21d43e185153ded",
         "scripts/owned-state-checks/staging-current.sh": "89e075fca4ffc1850be2f2222efe4c322bc1b59b5947791400cd680a064e9e2e",
         "scripts/unlanded-branches-lint.sh": "c65f6be6da126b18127b28f36860c213c9649e843831ae4c0ee1f393cc52971f",
         "scripts/lib/unlanded-branches.py": "930bdf49ce982471c4cd4628ac6794c21a0d62af96852027ddd7216d7d753028",
@@ -16639,8 +16639,8 @@
         "scripts/lib/mutation-harness.sh": "9dd839120e0a3b2ae4ef91054e076a8e9ea31c4592dbe0ea3eb80f3f018c88b0",
         "scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
         "scripts/hooks/owned-state.test.sh": "265c0099789c0bd4451cb6a246bb13ebedb3525d07e13f9ada60f11a3ce05b26",
-        "scripts/lib/escalations.py": "34c2f41e1c59ebfbd5a049c4bf418e7735d2740a17f924823e0eacaaf1a6a3b2",
-        "scripts/escalate.sh": "ead116322891a7e2205dbda200f37c846173973a58d2b745fdb803d6d23fd647",
+        "scripts/lib/escalations.py": "7a8ccdb4cd4019c96c1db3448bb0e5eb54b9c1325d4975ceb21d43e185153ded",
+        "scripts/escalate.sh": "dd1d6ce68d71f19531edc6ddadbf52cad069418dd39f52f6058fe5b822ecf1ad",
         "scripts/lib/proc_tree.py": "78ad648204b6e5748a218df45e33b2baec0ead71bda62f0908a83bb5c35bfeb0",
         "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
         "scripts/owned-state-checks/registered-executables.py": "8e324db884e02950f56ab3a4616f4acb4a8eea78eab71dd3c40823fae80b6fd9",
