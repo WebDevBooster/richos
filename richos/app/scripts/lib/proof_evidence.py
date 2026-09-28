@@ -152,6 +152,10 @@ def prepare_environment(item, root, logdir, environment, create=True):
     item.env = {key: value for key, value in item.env.items() if key in base}
 
 
+class UnqualifiedReader(ValueError):
+    """Changed reviewed code must execute fresh until its input review is renewed."""
+
+
 def qualify_recipe(root, recipe):
     """Check the execution recipe against its independently reviewed read contract.
 
@@ -172,14 +176,35 @@ def qualify_recipe(root, recipe):
             or not isinstance(contract.get("requires"), dict)
             or set(contract["requires"]) != fields):
         raise ValueError("invalid reviewed input qualification: " + qualification)
+    if contract.get("isolation") and recipe.get("isolation") != contract["isolation"]:
+        raise ValueError("input qualification requires isolation: " + contract["isolation"])
     review = relative(contract.get("review"))
     if not (root / review).is_file():
         raise ValueError("input review is missing: " + review)
+    unit = recipe.get("qualification_unit")
+    extra = None
+    if unit is not None:
+        extra = contract.get("units", {}).get(unit)
+        if (not isinstance(extra, dict) or not extra.get("review")
+                or not extra.get("sources") or set(extra.get("requires", {})) != fields):
+            raise ValueError("missing reviewed unit qualification: " + str(unit))
+        for source, expected in extra["sources"].items():
+            source = relative(source)
+            if not (root / source).is_file() or file_digest(root / source) != expected:
+                raise UnqualifiedReader("changed unit reader requires qualification: " + source)
     for field in sorted(fields):
         for values in (recipe[field], contract["requires"][field]):
             if not isinstance(values, list) or any(not isinstance(v, str) or not v for v in values):
                 raise ValueError("invalid input list: " + field)
-        required, declared = contract["requires"][field], recipe[field]
+        required = list(contract["requires"][field])
+        if extra is not None:
+            values = extra["requires"][field]
+            if not isinstance(values, list) or any(not isinstance(v, str) or not v for v in values):
+                raise ValueError("invalid unit input list: " + field)
+            required.extend(values)
+            if field == "paths":
+                required.extend(extra["sources"])
+        declared = recipe[field]
         if field == "paths":
             for path in [*required, *declared]:
                 relative(path)
@@ -189,6 +214,17 @@ def qualify_recipe(root, recipe):
             missing = sorted(set(required) - set(declared))
         if missing:
             raise ValueError("input qualification omits " + field + ": " + ", ".join(missing))
+    external_paths = recipe.get("external_paths", [])
+    required_external = contract.get("external_paths", [])
+    if extra is not None:
+        required_external = [*required_external, *extra.get("external_paths", [])]
+    for values in (external_paths, required_external):
+        if (not isinstance(values, list) or any(not isinstance(v, str) or not Path(v).is_absolute()
+                                               or ".." in Path(v).parts for v in values)):
+            raise ValueError("external paths must be absolute literals")
+    missing = sorted(set(required_external) - set(external_paths))
+    if missing:
+        raise ValueError("input qualification omits external_paths: " + ", ".join(missing))
     return [qualification, review]
 
 
@@ -202,11 +238,14 @@ def recipe_identity(root, recipe, environment, snapshot=None):
     if recipe.get("fresh"):
         return {"fresh": recipe["fresh"]}
     required = {"paths", "tools", "environment", "external", "qualification"}
-    if set(recipe) - {"isolation"} != required or not recipe["qualification"]:
+    if set(recipe) - {"isolation", "qualification_unit", "external_paths"} != required or not recipe["qualification"]:
         raise ValueError("incomplete verification input contract")
     root = Path(root).resolve()
     snapshot = snapshot or InputSnapshot()
-    qualification_paths = qualify_recipe(root, recipe)
+    try:
+        qualification_paths = qualify_recipe(root, recipe)
+    except UnqualifiedReader as exc:
+        return {"fresh": str(exc)}
     paths = {}
     for rel in [*recipe["paths"], *qualification_paths]:
         path = root / rel
@@ -241,9 +280,11 @@ def recipe_identity(root, recipe, environment, snapshot=None):
         values = {name: digest(environment[name].replace(private, "$FIXTURE"))
                   if name in environment else None for name in names}
         profile = {"name": PRIVATE_PROFILE, "git_fixture": digest(GIT_FIXTURE)}
+    literal_external = {path: digest(snapshot.path(path)) for path in recipe.get("external_paths", [])}
     return {"contract": digest(recipe), "paths": paths, "tools": tools, "profile": profile,
+            "external_paths": literal_external,
             "environment": values, "external": external,
-            "platform": [platform.system(), platform.release(), platform.machine(), platform.mac_ver()[0]]}
+            "platform": [platform.system(), platform.release(), platform.machine(), platform.mac_ver()[0], os.cpu_count()]}
 
 
 def contract_for(root, label):

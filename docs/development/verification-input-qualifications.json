@@ -46,5 +46,275 @@
     ],
     "environment": [],
     "external": []
-  }
+  },
+  "units": {
+    "engine scripts/hooks/guard-definition-drift.test.sh": {
+      "review": "Each snapshot, agent definition, missing-definition case and acknowledgement log belongs to a generated root. Both snapshot and guard use DEFINITION_DRIFT_ROOT. Timestamps only label generated snapshots/log rows; verdicts compare controlled content hashes and supplied session IDs. No live network, operator record or source-checkout Git history is consulted.",
+      "sources": {
+        "richos/engine/scripts/hooks/guard-definition-drift.sh": "6abe090d1a5eae1c726799e7c6e9bdaad2da332635fec5737ce9ce31f4f05007",
+        "richos/engine/scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "richos/engine/scripts/hooks/guard-definition-drift.test.sh": "ae3616c638a5835284feff2a91a3129e67ca176b71ddd58900405d447c781690",
+        "richos/engine/scripts/hooks/snapshot-agent-definitions.sh": "51f92567f9daaa9bacd37082d0cd30beba284b3149714c8a45f945738d6ebaff",
+        "richos/engine/scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e"
+      },
+      "requires": {
+        "paths": [],
+        "tools": [
+          "/bin/bash",
+          "/bin/sh",
+          "diff",
+          "cmp",
+          "mv",
+          "uniq",
+          "sha256sum",
+          "getconf",
+          "sysctl"
+        ],
+        "environment": [],
+        "external": []
+      }
+    },
+    "engine scripts/hooks/guard-model-ceiling.test.sh": {
+      "review": "Every invocation supplies a generated adopted entity or intentionally unadopted directory. Config/model frontmatter and acknowledgement data are literals. The complete nested mutation driver rebuilds the same fixture. Clock values are log output only; no agents launch or model/network requests run.",
+      "sources": {
+        "richos/engine/scripts/lib/resolve-model.sh": "80d6df68468d7484a4385eb8b1b9ffdf1ea9575776a5e7141bb3fca58ca7ec11",
+        "richos/engine/scripts/lib/mutation-harness.sh": "9dd839120e0a3b2ae4ef91054e076a8e9ea31c4592dbe0ea3eb80f3f018c88b0",
+        "richos/engine/scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
+        "richos/engine/scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
+        "richos/engine/scripts/hooks/guard-model-ceiling.mutation.sh": "69d91e1aba82225d62ecad9e1eec14d96092d385fe926b91af9ae1f231861880",
+        "richos/engine/scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "richos/engine/scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
+        "richos/engine/scripts/hooks/guard-model-ceiling.sh": "5837b9e9d2156487b00f280456da78f88e0bc66d6a4bbc32c6a1a9eeda8c60e3",
+        "richos/engine/scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "richos/engine/scripts/lib/proc_tree.py": "dbd97c9b9758184e960348cd6c81e5089ae9691aee8324977a3ddbc0460a219d",
+        "richos/engine/scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
+        "richos/engine/scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
+        "richos/engine/scripts/hooks/guard-model-ceiling.test.sh": "bd8a4b00e124d820fbe709ecd6cdab24a54919cd93590455703e80d22f61ca4c",
+        "richos/engine/scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "richos/engine/scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
+        "richos/engine/scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "richos/engine/scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
+        "richos/engine/scripts/lib/worker_tokens.py": "8c4cada1e7a4883a65435017ebac01c27307724a9724ea698f0df699898ff6b2",
+        "richos/engine/scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1"
+      },
+      "requires": {
+        "paths": [],
+        "tools": [
+          "/bin/bash",
+          "/bin/sh",
+          "diff",
+          "cmp",
+          "mv",
+          "uniq",
+          "sha256sum",
+          "getconf",
+          "sysctl"
+        ],
+        "environment": [],
+        "external": []
+      }
+    },
+    "engine scripts/hooks/verify-agent-prompt.test.sh": {
+      "review": "All prompt rules run against private repositories and fixed entity/config/team fixtures. Prompt shell commands are text. Inline and nested conceal mutants recreate those same inputs. Optional missing-Python tool links have their underlying commands declared. Timestamps only decorate private audit output; no external QA, device or network command runs.",
+      "sources": {
+        "richos/engine/scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "richos/engine/scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
+        "richos/engine/scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
+        "richos/engine/scripts/hooks/verify-agent-prompt.sh": "108d302d819442877ea6cbf06a5d9bfca9f3ddc01300cb502049b9271be4e738",
+        "richos/engine/scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "richos/engine/scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "richos/engine/scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
+        "richos/engine/scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
+        "richos/engine/scripts/lib/proc_tree.py": "dbd97c9b9758184e960348cd6c81e5089ae9691aee8324977a3ddbc0460a219d",
+        "richos/engine/scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
+        "richos/engine/scripts/lib/worker_tokens.py": "8c4cada1e7a4883a65435017ebac01c27307724a9724ea698f0df699898ff6b2",
+        "richos/engine/scripts/hooks/conceal.mutation.sh": "7fa7938796d9976a2536459fb18e7be05d6a6dbfae4572c65cdc8e2f9115191d",
+        "richos/engine/scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "richos/engine/scripts/hooks/verify-agent-prompt.test.sh": "f174a80517f19b02a6cbdbe578f350f2046cd1db65713bc12b77bed675d58a1f"
+      },
+      "requires": {
+        "paths": [],
+        "tools": [
+          "/bin/bash",
+          "/bin/sh",
+          "diff",
+          "cmp",
+          "mv",
+          "uniq",
+          "sha256sum",
+          "getconf",
+          "sysctl"
+        ],
+        "environment": [],
+        "external": []
+      }
+    },
+    "engine scripts/hooks/guard-reference-ledger.test.sh": {
+      "review": "Ledger, surface declaration, payload and audit-log fixtures are generated beneath the private scratch directory. The nested fixed-source mutants rerun the private fixture. Historical paths and measurement claims are payload strings, never executed. Current time only decorates log output.",
+      "sources": {
+        "richos/engine/scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "richos/engine/scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
+        "richos/engine/scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
+        "richos/engine/scripts/hooks/guard-reference-ledger.sh": "d80ab9294a7ff64b244285f5467ecf728b692701b6a5d526152909335b750874",
+        "richos/engine/scripts/hooks/reference-ledger.mutation.sh": "789284b3994c4b4e81014eb63716dd43fb5b415bc4f4444472c0e3de19bbb7bb",
+        "richos/engine/scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "richos/engine/scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "richos/engine/scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
+        "richos/engine/scripts/lib/proc_tree.py": "dbd97c9b9758184e960348cd6c81e5089ae9691aee8324977a3ddbc0460a219d",
+        "richos/engine/scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
+        "richos/engine/scripts/lib/worker_tokens.py": "8c4cada1e7a4883a65435017ebac01c27307724a9724ea698f0df699898ff6b2",
+        "richos/engine/scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "richos/engine/scripts/hooks/guard-reference-ledger.test.sh": "1e5cdc0e981fc5f8b1b05c45fe75f327fb8b00d4d2fa25a48520c3d9113dc249",
+        "richos/engine/scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
+        "richos/engine/scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7"
+      },
+      "requires": {
+        "paths": [],
+        "tools": [
+          "/bin/bash",
+          "/bin/sh",
+          "diff",
+          "cmp",
+          "mv",
+          "uniq",
+          "sha256sum",
+          "getconf",
+          "sysctl"
+        ],
+        "environment": [],
+        "external": []
+      }
+    },
+    "engine scripts/hooks/guard-no-home-network-phone.test.sh": {
+      "review": "All tested rulings, config, adoption and payload files are generated private fixtures. Historical home-network commands are analyzed as strings and never run. The nested mutation driver reconstructs these fixtures. The acknowledgement log timestamp is output, not a tested clock condition.",
+      "sources": {
+        "richos/engine/scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
+        "richos/engine/scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "richos/engine/scripts/hooks/guard-no-home-network-phone.test.sh": "8dfdc47d5bb07c75e08acb8f1307aef72c8e928fdf4132101152936631c54d3e",
+        "richos/engine/scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
+        "richos/engine/scripts/lib/ceo-ruled.sh": "737879339e074a0c41011974a8dcdc74bbbbf7118ffda2904e2f8da7a0b10e91",
+        "richos/engine/scripts/lib/ceo-asks.sh": "c0d084aef038efba8bae75eea3073bafa01c60132702282743449541abab0021",
+        "richos/engine/scripts/hooks/home-network-phone.mutation.sh": "7e66c0cce8efded4cd1fc19bc8d6dcf2b80f85289cf86124ece30ddf7bd416eb",
+        "richos/engine/scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "richos/engine/scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
+        "richos/engine/scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
+        "richos/engine/scripts/lib/ceo-ruled.py": "e92586fdd79f1c648c2f764613f47a56bc7f2d843061c70053611d7f2e23ce30",
+        "richos/engine/scripts/hooks/guard-no-home-network-phone.sh": "a84bf4506421d5a84ed94cbf75c7678fbc7a2b0b635a7e5a493750d3fddb82c9",
+        "richos/engine/scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "richos/engine/scripts/lib/proc_tree.py": "dbd97c9b9758184e960348cd6c81e5089ae9691aee8324977a3ddbc0460a219d",
+        "richos/engine/scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
+        "richos/engine/scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
+        "richos/engine/scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
+        "richos/engine/scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
+        "richos/engine/scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
+        "richos/engine/scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "richos/engine/scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
+        "richos/engine/scripts/lib/worker_tokens.py": "8c4cada1e7a4883a65435017ebac01c27307724a9724ea698f0df699898ff6b2"
+      },
+      "requires": {
+        "paths": [],
+        "tools": [
+          "/bin/bash",
+          "/bin/sh",
+          "diff",
+          "cmp",
+          "mv",
+          "uniq",
+          "sha256sum",
+          "getconf",
+          "sysctl"
+        ],
+        "environment": [],
+        "external": []
+      }
+    },
+    "engine scripts/lib/git-jurisdiction.test.sh": {
+      "review": "Resolver cases parse command strings. The five executed guards receive private Git targets with literal settings and no publication/TODO/row declarations. Broken helper cases exit before helper use. The source scanner reads the engine inventory as data. Git history used by assertions is generated privately; no live land or agent is observed.",
+      "sources": {
+        "richos/engine/scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
+        "richos/engine/scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "richos/engine/scripts/lib/inflight.py": "7557f1c701858629759472c355a35583e3e2edaa60ab5ea6f1b5e819984a6739",
+        "richos/engine/scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "richos/engine/scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
+        "richos/engine/scripts/hooks/guard-row-currency-commits.sh": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
+        "richos/engine/scripts/lib/teammate-identity.py": "54fed25d0e79b1757690cdc2b63fe3281c985b8324fe27b2d12d7048e27badf2",
+        "richos/engine/scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
+        "richos/engine/scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
+        "richos/engine/scripts/hooks/guard-inflight-notify.sh": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
+        "richos/engine/scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
+        "richos/engine/scripts/hooks/guard-completeness-commits.sh": "bb6d0253b44d251a08dd325e8901399aafcbe4ca6fe4aa4c30c9b41a57cee673",
+        "richos/engine/mega-lander/workspaces.py": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+        "richos/engine/scripts/hooks/guard-ceo-todos-commits.sh": "b5ce1b39ad6985d4d3a52864c389968a474f05de1187baaa430941756ae0c0e0",
+        "richos/engine/scripts/hooks/guard-publication-commits.sh": "180baec98c3f3b0e23e6b12bb8f3e129082ca6f10d49577b56671e102039e9fe",
+        "richos/engine/scripts/lib/publication-boundary.sh": "46366c80e498f6269889d21109cbfe5de696c273aa9229277ecc85d8285fac85",
+        "richos/engine/scripts/lib/row-currency.sh": "6aeb36f33046c910ad654f2c1f8eba96ca2c2a9675d40e9f5abf2c94e139584e",
+        "richos/engine/scripts/lib/inflight.sh": "db5588f3a0093a55befbcab454ee7e1921e1d8f8a049ff0c243da5020e418e43",
+        "richos/engine/scripts/lib/git-jurisdiction.test.sh": "c90214ce50a34b663725e7a4f3020b9ca6f1738c7508fd1fad883742f5439572",
+        "richos/engine/scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "richos/engine/scripts/lib/agent-liveness.py": "f6dc620af5b9a521717d4d3d4c07c24d730af892177970b044ecac81e12b605c"
+      },
+      "requires": {
+        "paths": [],
+        "tools": [
+          "/bin/bash",
+          "/bin/sh",
+          "diff",
+          "cmp",
+          "mv",
+          "uniq",
+          "sha256sum",
+          "getconf",
+          "sysctl"
+        ],
+        "environment": [],
+        "external": []
+      }
+    },
+    "engine scripts/lib/seat-jurisdiction.test.sh": {
+      "review": "Structural registration checks read engine sources. Behavior uses the main-checkout guard and jurisdiction helper with private adopted, stranger and non-Git directories. Broken helper and copied mutant cases cannot execute host actions. All asserted Git metadata is created by this fixture.",
+      "sources": {
+        "richos/engine/scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "richos/engine/scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
+        "richos/engine/scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "richos/engine/scripts/hooks/guard-main-checkout-writes.sh": "15ef50dd54edf557ac14c16ce894b7212cfc692244d5fa19728cf2c6edad35a7",
+        "richos/engine/scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "richos/engine/scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
+        "richos/engine/scripts/lib/seat-jurisdiction.test.sh": "5fc4f2fd5045d06a783867d3d8e22756bf66c69e05d9faff6d08dc70cbb36e76"
+      },
+      "requires": {
+        "paths": [],
+        "tools": [
+          "/bin/bash",
+          "/bin/sh",
+          "diff",
+          "cmp",
+          "mv",
+          "uniq",
+          "sha256sum",
+          "getconf",
+          "sysctl"
+        ],
+        "environment": [],
+        "external": []
+      }
+    },
+    "engine scripts/verification-inputs.test.sh": {
+      "review": "The full parser/dependency suite reads engine sources as data and creates private fixture repositories. The new spawn closure assertion also validates an optional fixed external scope guard by bytes. The private execution profile clears RICHOS_SPAWN_TEST_REAL_PROJECT so the bound literal default is the only external location. HOME-based optional dispatcher lookup is private; fixtures patch HOME for their own cases. External absence is part of identity, never an invented runtime pass.",
+      "sources": {
+        "richos/engine/scripts/verification-inputs.test.sh": "5c1044eb2b8c463aa4667b1f48c68e306157d3e72df91f700220498d97e4ba2e",
+        "richos/engine/scripts/verification-inputs.test.py": "c4d4149feee2a06d487d2bf0641efdf35fc37e39ef692f945d96fc1ec60df436",
+        "richos/engine/scripts/lib/verification_inputs.py": "acd857f66c0058c06114486da9e5bf09d02fc4d1ff51e2c4e57151277e4d3cc6"
+      },
+      "requires": {
+        "paths": [],
+        "tools": [],
+        "environment": [],
+        "external": []
+      },
+      "external_paths": [
+        "/Users/alex/ab/femcboost/scripts/hooks/guard-brief-verification-scope.sh"
+      ]
+    }
+  },
+  "isolation": "private-home-v1"
 }

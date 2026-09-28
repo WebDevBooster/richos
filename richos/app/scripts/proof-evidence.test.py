@@ -38,6 +38,54 @@ class Evidence(unittest.TestCase):
             "review": "qualification.md", "requires": {
                 key: required.get(key, []) for key in ("paths", "tools", "environment", "external")}})
 
+    def test_unit_qualification_binds_reviewed_helpers_and_additional_inputs(self):
+        self.qualification("Common floor", paths=['engine'], tools=['bash'])
+        (self.root / 'engine').mkdir()
+        helper = self.root / 'engine/helper.sh'
+        helper.write_text('exit 0\n')
+        path = self.root / 'qualification.json'
+        contract = json.loads(path.read_text())
+        contract['units'] = {'engine fixture': {'review': 'Reads its helper and a root license.',
+            'sources': {'engine/helper.sh': evidence.file_digest(helper)},
+            'requires': {'paths': ['LICENSE'], 'tools': ['git'],
+                         'environment': ['OPTION'], 'external': ['FIXTURE']}}}
+        path.write_text(json.dumps(contract))
+        recipe = {'paths': ['engine', 'LICENSE'], 'tools': ['bash', 'git'],
+            'environment': ['OPTION'], 'external': ['FIXTURE'],
+            'qualification': 'qualification.json', 'qualification_unit': 'engine fixture'}
+        evidence.qualify_recipe(self.root, recipe)
+        for field, remove in [('paths', 'LICENSE'), ('tools', 'git'), ('environment', 'OPTION'), ('external', 'FIXTURE')]:
+            with self.subTest(field=field):
+                broken = {**recipe, field: [value for value in recipe[field] if value != remove]}
+                with self.assertRaisesRegex(ValueError, 'qualification omits '+field):
+                    evidence.qualify_recipe(self.root, broken)
+        with self.assertRaisesRegex(ValueError, 'missing reviewed unit'):
+            evidence.qualify_recipe(self.root, {**recipe, 'qualification_unit': 'unknown'})
+        helper.write_text('cat ../outside\n')
+        with self.assertRaisesRegex(ValueError, 'changed unit reader'):
+            evidence.qualify_recipe(self.root, recipe)
+        self.assertIn('changed unit reader', evidence.recipe_identity(self.root, recipe, {})['fresh'])
+
+    def test_literal_external_reader_identity_and_omission(self):
+        self.qualification('Reads an optional fixed host guard.')
+        external = Path(self.tmp.name) / 'guard.sh'
+        contract_path = self.root / 'qualification.json'
+        contract = json.loads(contract_path.read_text())
+        contract['external_paths'] = [str(external)]
+        contract_path.write_text(json.dumps(contract))
+        recipe = {'paths': [], 'tools': [], 'environment': [], 'external': [],
+            'external_paths': [str(external)], 'qualification': 'qualification.json'}
+        missing = evidence.recipe_identity(self.root, recipe, {})
+        external.write_text('exit 0\n')
+        present = evidence.recipe_identity(self.root, recipe, {})
+        self.assertNotEqual(missing['external_paths'], present['external_paths'])
+        external.write_text('exit 2\n')
+        self.assertNotEqual(present['external_paths'], evidence.recipe_identity(self.root, recipe, {})['external_paths'])
+        with self.assertRaisesRegex(ValueError, 'omits external_paths'):
+            evidence.recipe_identity(self.root, {**recipe, 'external_paths': []}, {})
+        with self.assertRaisesRegex(ValueError, 'absolute literals'):
+            evidence.recipe_identity(self.root, {**recipe, 'external_paths': ['relative']}, {})
+
     def test_known_omitted_inputs_fail_qualification_before_reuse(self):
         self.qualification("Fixture reads a helper, root license, declared tool and external data.",
             paths=["engine/helper.sh", "LICENSE"], tools=["seq"],
@@ -115,6 +163,17 @@ class Evidence(unittest.TestCase):
         for label, recipe in checks.items():
             with self.subTest(label=label):
                 evidence.qualify_recipe(root, recipe)
+                if recipe.get('isolation'):
+                    with self.assertRaisesRegex(ValueError, 'requires isolation'):
+                        evidence.qualify_recipe(root, {k: v for k, v in recipe.items() if k != 'isolation'})
+                if recipe.get('qualification_unit'):
+                    contract = json.loads((root / recipe['qualification']).read_text())['units'][recipe['qualification_unit']]
+                    for tool in contract['requires']['tools']:
+                        with self.assertRaisesRegex(ValueError, 'qualification omits tools'):
+                            evidence.qualify_recipe(root, {**recipe, 'tools': [t for t in recipe['tools'] if t != tool]})
+                    if contract.get('external_paths'):
+                        with self.assertRaisesRegex(ValueError, 'omits external_paths'):
+                            evidence.qualify_recipe(root, {**recipe, 'external_paths': []})
                 for tool in ("seq", "tee", "rmdir", "ln", "basename"):
                     broken = {**recipe, "tools": [name for name in recipe["tools"] if name != tool]}
                     with self.assertRaisesRegex(ValueError, "qualification omits tools: " + tool):

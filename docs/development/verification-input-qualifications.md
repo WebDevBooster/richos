@@ -77,3 +77,26 @@ is receipt provenance, not an installer behavior input.
 runtime dependency changes, declared external inputs, changed tool bytes, modes,
 directory inventories, changed commands, cross-commit reuse and original receipt
 retention. Qualification never follows from an exit code alone.
+
+## Per-unit production contracts
+
+The adjacent JSON also records reviewed unit contracts for the definition-drift,
+model-ceiling, prompt, reference-ledger, home-network-phone, Git-jurisdiction and
+seat-jurisdiction suites. Each recipe names its contract through
+`qualification_unit`. The contract binds the reviewed test/helper bytes and its
+additional input floor. A changed reader requires renewed qualification before
+its first reusable result; a missing known helper, tool or outside path is refused.
+The per-unit review states which data is generated privately and why timestamps,
+process ownership and mutation admission are operational output/control rather
+than a hidden live verdict input. Full nested mutation coverage remains enabled.
+These recipes retain Tier 1 declared roots. They do not claim Tier 2 subset reuse
+or completed runtime/performance acceptance.
+
+The selector regression suite's reviewed optional external scope guard is an
+explicit absolute input. Its absence, mode, symlink target and bytes participate
+in identity. A declared host input is read for identity only, never executed by
+the identity checker. The private profile clears its root override, so that
+literal path matches the suite's actual lookup. Profile omission is rejected.
+Logical CPU count also participates in platform identity because the mutation
+harness derives its default concurrency from the machine; no worker default is
+changed by this declaration.
