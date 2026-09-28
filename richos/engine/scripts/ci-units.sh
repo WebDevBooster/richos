@@ -195,22 +195,11 @@ _apply_restriction() {
     '
 }
 
-_weight_of() { # <unit-id>
-    local id="$1" w=""
-    if [ -f "$WEIGHTS" ]; then
-        w="$(awk -F'\t' -v want="$id" '$1 == want { print $2; exit }' "$WEIGHTS")"
-    fi
-    case "$w" in
-        ''|*[!0-9.]*) printf '%s\n' "$DEFAULT_WEIGHT" ;;
-        *) printf '%s\n' "$w" ;;
-    esac
-}
-
 # --- the inventory ---------------------------------------------------------
 # One line per unit: id <TAB> kind <TAB> expected-rc <TAB> weight
 # id is the engine-relative suite path, with ":<section>" appended for a
 # scoped section unit. Sortable, greppable, and it names the file it runs.
-emit_units() {
+_emit_unit_ids() {
     local rel sec found=0
     while IFS= read -r rel; do
         [ -n "$rel" ] || continue
@@ -220,7 +209,7 @@ emit_units() {
             while IFS= read -r sec; do
                 [ -n "$sec" ] || continue
                 nsec=$((nsec + 1))
-                printf '%s:%s\tsection\t3\t%s\n' "$rel" "$sec" "$(_weight_of "$rel:$sec")"
+                printf '%s:%s\tsection\t3\n' "$rel" "$sec"
             done < <(_discover_sections)
             if [ "$nsec" -eq 0 ]; then
                 # Not a degradation to a whole-suite unit: a sectioned suite
@@ -234,7 +223,7 @@ emit_units() {
                 exit 2
             fi
         else
-            printf '%s\tsuite\t0\t%s\n' "$rel" "$(_weight_of "$rel")"
+            printf '%s\tsuite\t0\n' "$rel"
         fi
     done < <(_discover_suites)
     if [ "$found" -eq 0 ]; then
@@ -243,6 +232,25 @@ emit_units() {
         echo "       of nothing — a shard plan over zero units is green forever." >&2
         exit 2
     fi
+}
+
+# Read the weight table once, preserving first-row and malformed-value behavior.
+# Spawning awk once per unit made every per-unit runner rebuild expensive metadata.
+emit_units() {
+    _emit_unit_ids | awk -F'\t' -v table="$WEIGHTS" -v fallback="$DEFAULT_WEIGHT" '
+        BEGIN {
+            while ((getline row < table) > 0) {
+                split(row, fields, "\t")
+                if (!(fields[1] in weights)) weights[fields[1]] = fields[2]
+            }
+            close(table)
+        }
+        {
+            w = weights[$1]
+            if (w == "" || w ~ /[^0-9.]/) w = fallback
+            printf "%s\t%s\n", $0, w
+        }
+    '
 }
 
 # --- packing ---------------------------------------------------------------

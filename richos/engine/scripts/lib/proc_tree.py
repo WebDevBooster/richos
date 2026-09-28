@@ -16,11 +16,13 @@ can escape discovery. Deliberate destruction of the supervisor itself also requi
 an external OS boundary. Do not claim isolation against arbitrary untrusted programs.
 """
 import os
+import resource
 import uuid
 import signal
 import subprocess
 import sys
 import time
+import operator_fences
 
 
 def snapshot():
@@ -77,18 +79,23 @@ def _send(pids, groups, sig, table=None):
 
 
 def _alive(pids):
+    pids = set(pids)
+    if not pids:
+        return []
+    # Unreadable native identities are common for other users' processes, not
+    # an exceptional one-PID case. One status snapshot preserves zombie/exit
+    # handling without spawning a ps child for every such process on every tick.
+    result = subprocess.run(["ps", "-o", "pid=,stat=", "-p", ",".join(map(str, sorted(pids)))],
+                            capture_output=True, text=True, timeout=10)
+    if result.returncode not in (0, 1) or (result.returncode == 0 and not result.stdout.strip()):
+        raise RuntimeError("cannot read owned process states")
     left = []
-    for p in pids:
-        try:
-            os.kill(p, 0)
-        except ProcessLookupError:
-            continue
-        except PermissionError:
-            pass
-        # A zombie is dead: it only waits for its parent to read its status.
-        state = subprocess.run(["ps", "-o", "stat=", "-p", str(p)], capture_output=True, text=True).stdout.strip()
-        if state and not state.startswith("Z"):
-            left.append(p)
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) != 2 or not fields[0].isdigit() or int(fields[0]) not in pids:
+            raise RuntimeError("invalid process state snapshot")
+        if not fields[1].startswith("Z"):
+            left.append(int(fields[0]))
     return left
 
 
@@ -113,14 +120,74 @@ def kill_tree(root, grace=3.0):
 SCOPE_ENV = "RICHOS_PROCESS_SCOPE"
 
 
-def command(argv, owner=None):
+def python_command():
+    flags = (["-S"] if sys.flags.no_site else []) + (["-s"] if sys.flags.no_user_site else [])
+    return [sys.executable, *flags]
+
+
+def command(argv, owner=None, verification=None):
     """A separate supervisor survives the caller's SIGKILL and owns normal-exit cleanup too."""
-    return [sys.executable, os.path.abspath(__file__), "run", str(owner or os.getpid()), "--", *map(str, argv)]
+    options = ["--verification", str(verification)] if verification else []
+    return [*python_command(), os.path.abspath(__file__), "run", str(owner or os.getpid()), *options, "--", *map(str, argv)]
 
 
 def identity(pid):
-    result = subprocess.run(["ps", "-p", str(pid), "-o", "lstart="], capture_output=True, text=True)
-    return result.stdout.strip() or None
+    row = operator_fences.proc(pid, precise=True)
+    return row["start"] if row and not row["zombie"] else None
+
+
+def native_processes(pids):
+    """Reconcile native lookup with process exit; retain live unknown identities.
+
+    Both the supervisor and controller use this boundary. A stale ps row is not
+    a live unreadable process, and a status result is never a birth identity.
+    """
+    table = {}
+    unknown = set()
+    for pid in pids:
+        row = operator_fences.proc(pid, precise=True)
+        if row and row["zombie"]:
+            continue
+        if row is None:
+            # libproc can return ESRCH for an unreaped zombie while kill(pid, 0)
+            # still succeeds. Batch the status check for all unreadable rows.
+            unknown.add(pid)
+        table[pid] = row
+    live_unknown = set(_alive(unknown))
+    for pid in unknown - live_unknown:
+        del table[pid]
+    # Native identity and ps status are separate observations. A process can
+    # cross exec while the first native read is unavailable. Use the later
+    # native generation when available; never infer it from PID or status.
+    unresolved = set()
+    for pid in live_unknown:
+        row = operator_fences.proc(pid, precise=True)
+        if row and row["zombie"]:
+            del table[pid]
+        elif row:
+            table[pid] = row
+        else:
+            unresolved.add(pid)
+    # A short-lived process may exit after the status sample but before the
+    # second native read. Confirm only these remaining unknowns once more.
+    # A still-live unreadable process remains unknown and cannot pass cleanup.
+    for pid in unresolved - set(_alive(unresolved)):
+        del table[pid]
+    return table
+
+
+def process_rows():
+    """Topology plus native birth generations, without a subprocess per identity."""
+    result = subprocess.run(["ps", "-ax", "-o", "pid=,ppid=,pgid="],
+                            capture_output=True, text=True, timeout=10, check=True)
+    topology = {}
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) == 3 and all(field.isdigit() for field in fields):
+            pid, parent, group = map(int, fields)
+            topology[pid] = (parent, group, None)
+    return {pid: (row['ppid'], row['pgid'], row['start']) if row else topology[pid]
+            for pid, row in native_processes(topology).items()}
 
 
 def scoped_members(scope):
@@ -149,34 +216,60 @@ class TrackedTree:
     """
     def __init__(self, root, scope):
         self.root, self.scope, self.known = root, scope, {}
+        self.root_birth = identity(root)
+        if self.root_birth is None:
+            raise RuntimeError("cannot establish owned root generation: %s" % root)
         self.groups = {}
+        self.empty_groups = set()
         self.refresh()
 
     def refresh(self, tags=False):
-        result = subprocess.run(["ps", "-ax", "-o", "pid=,ppid=,pgid=,lstart="],
-                                capture_output=True, text=True, timeout=10, check=True)
-        table = {}
-        for line in result.stdout.splitlines():
-            fields = line.split(None, 3)
-            if len(fields) == 4:
-                table[int(fields[0])] = (int(fields[1]), int(fields[2]), fields[3])
-        owned = {pid for pid, birth in self.known.items() if pid in table and table[pid][2] == birth}
-        if not self.known and self.root in table:
-            owned.add(self.root)
-        # A short-lived shell may exit between samples while its background child
-        # retains the original group. Keep that group until empty, rejecting a reused leader PID.
-        self.groups = {g: birth for g, birth in self.groups.items()
-                       if (g not in table or table[g][2] == birth)
-                       and any(row[1] == g for row in table.values())}
-        owned |= {p for p, row in table.items() if row[1] in self.groups}
-        if tags:
-            owned |= scoped_members(self.scope)
+        table = process_rows()
+        tagged = scoped_members(self.scope) if tags else set()
+        deadline = time.monotonic() + 1.0
         while True:
-            groups = {table[p][1] for p in owned if p in table} - {os.getpgrp(), 0, 1}
-            more = {pid for pid, (parent, group, _) in table.items() if parent in owned or group in groups}
-            if more <= owned:
+            owned = {pid for pid, birth in self.known.items()
+                     if pid in table and table[pid][2] == birth}
+            if self.root in table and table[self.root][2] == self.root_birth:
+                owned.add(self.root)
+            # Preserve a group until empty, but reject a reused leader. An
+            # unreadable leader must first be reconciled, never assumed owned.
+            groups = {g: birth for g, birth in self.groups.items()
+                      if g not in table or table[g][2] in (birth, None)}
+            owned |= {p for p, row in table.items() if row[1] in groups}
+            owned |= tagged
+            while True:
+                active_groups = {table[p][1] for p in owned if p in table} - {os.getpgrp(), 0, 1}
+                more = {pid for pid, (parent, group, _) in table.items()
+                        if parent in owned or group in active_groups}
+                if more <= owned:
+                    break
+                owned |= more
+            unknown = {pid for pid in owned | set(self.known) | {self.root}
+                       if pid in table and table[pid][2] is None}
+            if not unknown:
                 break
-            owned |= more
+            # exec/exit can make libproc temporarily unavailable while ps still
+            # sees the process. Hold ownership and permits during this bounded
+            # reconciliation. Neither PID nor ps status establishes a generation.
+            alive = set(_alive(unknown))
+            for pid in unknown:
+                row = operator_fences.proc(pid, precise=True)
+                if row and not row["zombie"]:
+                    table[pid] = (row["ppid"], row["pgid"], row["start"])
+                elif row or pid not in alive:
+                    del table[pid]
+            unresolved = {pid for pid in unknown if pid in table and table[pid][2] is None}
+            if unresolved:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("owned process generation is unreadable: %s" % min(unresolved))
+                time.sleep(0.01)
+            # Recompute ownership with the newly read topology/generation. A
+            # recycled PID with a different parent/group must not join our tree.
+        empty = {g for g in groups if not any(row[1] == g for row in table.values())}
+        self.groups = {g: birth for g, birth in groups.items()
+                       if not (g in empty and g in self.empty_groups)}
+        self.empty_groups = empty
         for pid in owned:
             if pid in table:
                 group = table[pid][1]
@@ -191,18 +284,28 @@ def finish_scope(child, tracker, grace=8.0):
     deadline = time.monotonic() + grace
     killed_at = deadline + 3.0
     initial = True
+    empty = False
     while True:
         child.poll()
         alive = set(_alive(tracker.refresh(tags=True)))
         if not alive:
-            return []
+            # Topology and native identities are two observations. A parent can
+            # fork and exit between them. Confirm absence in a subsequent sample
+            # before releasing the permits that cover its background child.
+            if empty:
+                return []
+            empty = True
+            time.sleep(0.05)
+            continue
+        empty = False
         hard = time.monotonic() >= deadline
         # Signal the original tree once. A shell's EXIT trap may start cleanup
         # commands during the grace period; terminating those immediately defeats
         # cooperative cleanup. Track them and kill any survivors at the deadline.
         for pid in alive if hard or initial else ():
             try:
-                os.kill(pid, signal.SIGKILL if hard else signal.SIGTERM)
+                if identity(pid) == tracker.known.get(pid):
+                    os.kill(pid, signal.SIGKILL if hard else signal.SIGTERM)
             except ProcessLookupError:
                 pass
         initial = False
@@ -211,14 +314,25 @@ def finish_scope(child, tracker, grace=8.0):
         time.sleep(0.05)
 
 
-def supervise(owner, argv):
+def supervise(owner, argv, deadline=None, timeout_marker=None, verification=None):
     # Enroll managed workloads even when invoked by Codex or a nightly without
     # Claude hooks. Fixtures copying just this helper keep working unchanged.
     guard_path = os.path.join(os.path.dirname(__file__), "cpu_guard.py")
-    if os.path.isfile(guard_path):
+    client = None
+    if verification:
+        import cpu_guard
+        client = cpu_guard.VerificationClient(verification)
+    elif os.path.isfile(guard_path):
         import cpu_guard
         import pwd
-        if (os.path.realpath(os.path.expanduser("~")) == pwd.getpwuid(os.getuid()).pw_dir
+        managed = cpu_guard.verification_enabled()
+        inherited_owner = cpu_guard.inherited_verification_owner(os.environ.get('RICHOS_VERIFICATION_OWNER'))
+        if managed and inherited_owner is None:
+            print("proc_tree: REFUSED: managed verification requires a current proof-run plan "
+                  "or its live registered ancestor; an owner environment hint is not admission.", file=sys.stderr)
+            return 75
+        if (not managed and inherited_owner is None
+                and os.path.realpath(os.path.expanduser("~")) == pwd.getpwuid(os.getuid()).pw_dir
                 and not os.environ.get("CLAUDE_CONFIG_DIR") and cpu_guard.healthy()):
             cpu_guard.register(os.getpid(), "managed " + os.path.basename(argv[0]), "session")
     owner_id = identity(owner)
@@ -227,6 +341,8 @@ def supervise(owner, argv):
     scope = uuid.uuid4().hex
     inherited = os.environ.get(SCOPE_ENV, "")
     env = {**os.environ, SCOPE_ENV: (inherited + ":" if inherited else "") + scope}
+    if client:
+        env['RICHOS_VERIFICATION_OWNER'] = '%s:%s' % (client.pid, client.generation)
     interrupted = []
     def stop(signum, _frame):
         interrupted.append(signum)
@@ -241,27 +357,49 @@ def supervise(owner, argv):
                  "try: os.execvpe(argv[0],argv,os.environ)\n"
                  "except OSError as e: print('could not start: '+str(e),file=sys.stderr); sys.exit(127)")
     try:
-        child = subprocess.Popen([sys.executable, "-c", bootstrap, str(read_fd), *argv],
+        child = subprocess.Popen([*python_command(), "-c", bootstrap, str(read_fd), *argv],
                                  env=env, start_new_session=True, pass_fds=(read_fd,))
     except OSError as exc:
         print("could not start: %s" % exc, file=sys.stderr)
         return 127
     os.close(read_fd)
-    tracker = TrackedTree(child.pid, scope)
-    os.write(write_fd, b"1")
-    os.close(write_fd)
+    tracker = None
     rc = 125
+    started = time.monotonic()
+    before = resource.getrusage(resource.RUSAGE_CHILDREN)
     try:
+        tracker = TrackedTree(child.pid, scope)
+        if client:
+            client.start(child.pid)
+        os.write(write_fd, b"1")
+        os.close(write_fd)
+        write_fd = None
         while child.poll() is None:
             tracker.refresh()
+            if client:
+                client.check_health()
             if interrupted or identity(owner) != owner_id:
                 rc = 128 + interrupted[0] if interrupted else 125
+                break
+            if deadline is not None and time.monotonic() - started >= deadline:
+                if timeout_marker:
+                    with open(timeout_marker, "x"):
+                        pass
+                rc = 124
                 break
             time.sleep(0.2)
         else:
             rc = child.returncode
+    except BlockingIOError as exc:
+        print('verification admission refused: %s' % exc, file=sys.stderr)
+        rc = 75
+    except (RuntimeError, ValueError, OSError) as exc:
+        print('verification supervision failed: %s' % exc, file=sys.stderr)
+        rc = 125
     finally:
-        left = finish_scope(child, tracker)
+        if write_fd is not None:
+            os.close(write_fd)  # A child not yet enrolled exits without executing.
+        left = finish_scope(child, tracker) if tracker else []
         if left:
             print("process cleanup failed; owned survivors: %s" % left, file=sys.stderr)
             rc = 125
@@ -269,12 +407,31 @@ def supervise(owner, argv):
             child.wait(timeout=1)
         except subprocess.TimeoutExpired:
             rc = 125
+        if client:
+            after = resource.getrusage(resource.RUSAGE_CHILDREN)
+            client.finish(rc if rc >= 0 else 128 - rc, left,
+                          after.ru_utime + after.ru_stime - before.ru_utime - before.ru_stime)
     return rc if rc >= 0 else 128 - rc
 
 
 def main(argv):
-    if len(argv) >= 4 and argv[0] == "run" and argv[2] == "--":
-        return supervise(int(argv[1]), argv[3:])
+    if len(argv) >= 4 and argv[0] == "run" and "--" in argv:
+        import argparse
+        import math
+        parser = argparse.ArgumentParser(prog="proc_tree.py run")
+        parser.add_argument("owner", type=int)
+        parser.add_argument("--deadline", type=float)
+        parser.add_argument("--timeout-marker")
+        parser.add_argument("--verification")
+        split = argv.index("--")
+        args = parser.parse_args(argv[1:split])
+        if args.deadline is not None and (not math.isfinite(args.deadline) or args.deadline <= 0):
+            parser.error("deadline must be finite and positive")
+        try:
+            return supervise(args.owner, argv[split + 1:], args.deadline, args.timeout_marker, args.verification)
+        except (RuntimeError, ValueError, OSError) as exc:
+            print('process supervision unavailable: %s' % exc, file=sys.stderr)
+            return 125
     if len(argv) >= 2 and argv[0] in ("kill", "members") and argv[1].isdigit():
         root = int(argv[1])
         if argv[0] == "members":

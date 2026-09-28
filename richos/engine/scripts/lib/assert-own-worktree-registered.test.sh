@@ -42,7 +42,7 @@ fi
 # resolve-main-checkout.sh resolves inside the sandbox.
 make_sandbox() {
     local root
-    root="$(mktemp -d -t assert-own-wt.XXXXXX)"
+    root="$(mktemp -d "${TMPDIR:?}/assert-own-wt.XXXXXX")"
     # macOS mktemp returns /var/... which is a symlink to /private/var/...;
     # canonicalize so cwd/pwd comparisons are byte-stable.
     root="$(cd "$root" && pwd)"

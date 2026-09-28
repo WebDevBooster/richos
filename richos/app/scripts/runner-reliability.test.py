@@ -55,6 +55,116 @@ class Reliability(unittest.TestCase):
             time.sleep(.1)
         self.fail('owned child survived: ' + str(pid))
 
+    def test_native_generation_preserves_default_session_identity(self):
+        reader = proc_tree.operator_fences
+        old = reader.proc(os.getpid())
+        precise = reader.proc(os.getpid(), precise=True)
+        self.assertIsInstance(old['start'], int)
+        self.assertIsInstance(precise['start'], str)
+        self.assertEqual(proc_tree.identity(os.getpid()), precise['start'])
+        self.assertEqual(old['ppid'], precise['ppid'])
+        self.assertEqual(old['pgid'], precise['pgid'])
+        if sys.platform == 'darwin':
+            self.assertEqual(int(precise['start'].split(':')[1]), old['start'])
+            self.assertEqual(len(precise['start'].split(':')[2]), 6)
+            native = reader._BSDInfo()
+            self.assertEqual(reader._libproc().proc_pidinfo(os.getpid(), 3, reader.ctypes.c_uint64(0),
+                reader.ctypes.byref(native), reader.ctypes.sizeof(native)), reader.ctypes.sizeof(native))
+            self.assertEqual(precise['start'], 'darwin:%d:%06d' % (native.start_sec, native.start_usec))
+        elif sys.platform == 'linux':
+            raw = Path('/proc/self/stat').read_text()
+            ticks = raw[raw.rindex(')') + 2:].split()[19]
+            self.assertEqual(precise['start'], 'linux:%s:%s' % (
+                Path('/proc/sys/kernel/random/boot_id').read_text().strip(), ticks))
+        self.assertIsNone(reader.proc(2147483647, precise=True))
+
+    def test_recycled_root_in_same_second_is_never_readmitted_after_tree_drains(self):
+        old = 'darwin:1000:000001'
+        new = 'darwin:1000:000002'
+        with patch.object(proc_tree, 'identity', return_value=old), \
+                patch.object(proc_tree, 'process_rows', return_value={100: (1, 100, old)}) as rows:
+            tracker = proc_tree.TrackedTree(100, 'fixture-scope')
+            self.assertEqual(set(tracker.known), {100})
+            rows.return_value = {}
+            self.assertEqual(tracker.refresh(), set())
+            rows.return_value = {100: (1, 100, new), 101: (100, 100, new)}
+            self.assertEqual(tracker.refresh(), set())
+            self.assertEqual(tracker.refresh(), set())
+
+    def test_unreadable_owned_generation_is_not_clean_completion(self):
+        with patch.object(proc_tree, 'identity', return_value='original'), \
+                patch.object(proc_tree, 'process_rows', return_value={100: (1, 100, 'original')}) as rows:
+            tracker = proc_tree.TrackedTree(100, 'fixture-scope')
+            rows.return_value = {100: (1, 100, None)}
+            with patch.object(proc_tree.operator_fences, 'proc', return_value=None), \
+                    patch.object(proc_tree, '_alive', return_value=[100]), \
+                    patch.object(proc_tree.time, 'monotonic', side_effect=[0, 2]), \
+                    self.assertRaisesRegex(RuntimeError, 'unreadable'):
+                tracker.refresh()
+
+    def test_parent_exit_between_samples_retains_group_until_absence_is_confirmed(self):
+        with patch.object(proc_tree, 'identity', return_value='original'), \
+                patch.object(proc_tree, 'process_rows', return_value={100: (1, 100, 'original')}) as rows:
+            tracker = proc_tree.TrackedTree(100, 'fixture-scope')
+            rows.return_value = {}
+            self.assertEqual(tracker.refresh(), set())
+            rows.return_value = {101: (1, 100, 'child')}
+            self.assertEqual(tracker.refresh(), {101})
+            rows.return_value = {}
+            tracker.refresh()
+            tracker.refresh()
+            self.assertEqual(tracker.groups, {})
+
+    def test_exit_between_topology_and_native_read_is_not_unreadable(self):
+        with patch.object(proc_tree.subprocess, 'run', side_effect=[
+                SimpleNamespace(stdout='100 1 100\n', returncode=0),
+                SimpleNamespace(stdout='', returncode=1)]), \
+                patch.object(proc_tree.operator_fences, 'proc', return_value=None):
+            self.assertEqual(proc_tree.process_rows(), {})
+
+    def test_zombie_owner_is_dead_even_before_its_parent_reaps_it(self):
+        zombie = {'pid': 100, 'ppid': 1, 'pgid': 100, 'start': 'old', 'zombie': True}
+        with patch.object(proc_tree.operator_fences, 'proc', return_value=zombie), \
+                patch.object(proc_tree.subprocess, 'run', return_value=SimpleNamespace(stdout='100 1 100\n')):
+            self.assertIsNone(proc_tree.identity(100))
+            self.assertEqual(proc_tree.process_rows(), {})
+
+    def test_native_esrch_on_unreaped_zombie_is_not_unreadable_live_process(self):
+        with patch.object(proc_tree.operator_fences, 'proc', return_value=None), \
+                patch.object(proc_tree.subprocess, 'run', side_effect=[
+                    SimpleNamespace(stdout='100 1 100\n', returncode=0),
+                    SimpleNamespace(stdout='100 Z\n', returncode=0)]):
+            self.assertEqual(proc_tree.process_rows(), {})
+
+    def test_unreadable_states_are_batched_without_hiding_live_unknowns(self):
+        with patch.object(proc_tree.operator_fences, 'proc', return_value=None), \
+                patch.object(proc_tree.subprocess, 'run', side_effect=[
+                    SimpleNamespace(stdout='100 1 100\n101 100 100\n102 100 100\n', returncode=0),
+                    SimpleNamespace(stdout='100 S\n101 Z\n', returncode=0),
+                    SimpleNamespace(stdout='100 S\n', returncode=0)]) as run:
+            self.assertEqual(proc_tree.process_rows(), {100: (1, 100, None)})
+            self.assertEqual(run.call_count, 3)
+            self.assertEqual(run.call_args_list[1].args[0][-1], '100,101,102')
+            self.assertEqual(run.call_args.args[0][-1], '100')
+
+    def test_native_generation_is_rechecked_after_a_live_status_observation(self):
+        for zombie in (False, True):
+            row = {'pid': 100, 'ppid': 2, 'pgid': 90, 'start': 'native-new', 'zombie': zombie}
+            with self.subTest(zombie=zombie), \
+                    patch.object(proc_tree.operator_fences, 'proc', side_effect=[None, row]), \
+                    patch.object(proc_tree.subprocess, 'run', side_effect=[
+                        SimpleNamespace(stdout='100 1 100\n', returncode=0),
+                        SimpleNamespace(stdout='100 S\n', returncode=0)]):
+                self.assertEqual(proc_tree.process_rows(), {} if zombie else {100: (2, 90, 'native-new')})
+
+    def test_unreadable_state_errors_do_not_become_successful_cleanup(self):
+        for result in (SimpleNamespace(stdout='', returncode=2),
+                       SimpleNamespace(stdout='', returncode=0),
+                       SimpleNamespace(stdout='garbage\n', returncode=0)):
+            with self.subTest(result=result), patch.object(proc_tree.subprocess, 'run', return_value=result):
+                with self.assertRaises(RuntimeError):
+                    proc_tree._alive([100])
+
     def test_success_cleans_detached_reparented_child_and_preserves_unrelated(self):
         unrelated = subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(60)'])
         self.children.append(unrelated)
@@ -172,9 +282,9 @@ class Reliability(unittest.TestCase):
             coordinator.wait(timeout=5)
             self.wait_gone(child)
             until = time.monotonic() + 5
-            while worker_tokens.Budget(machine).held() and time.monotonic() < until:
+            while worker_tokens.Budget(machine, shared=False).held() and time.monotonic() < until:
                 time.sleep(.05)
-            self.assertEqual(worker_tokens.Budget(machine).held(), 0)
+            self.assertEqual(worker_tokens.Budget(machine, shared=False).held(), 0)
             self.assertIsNone(sentinel.poll())
         finally:
             # A failing negative control must not itself orphan test processes.
@@ -404,8 +514,8 @@ class Reliability(unittest.TestCase):
         rows = json.loads((logdir / 'progress.json').read_text())
         self.assertEqual([row['state'] for row in rows], ['cancelled', 'cancelled'])
 
-    def test_first_failure_cancels_pending_checks(self):
-        args = SimpleNamespace(capacity=1, sample_every=.1, max_cpu=80, keep_going=False,
+    def test_explicit_fail_fast_cancels_pending_checks(self):
+        args = SimpleNamespace(capacity=1, sample_every=.1, max_cpu=80, fail_fast=True,
                                admission_wait=1, deadline=2, budget=1)
         failed = pr.Item('bad', str(self.path), [sys.executable, '-c', 'raise SystemExit(7)'], weight=2)
         pending = pr.Item('pending', str(self.path), [sys.executable, '-c', 'raise Exception("ran")'], weight=1)

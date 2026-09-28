@@ -74,6 +74,7 @@ def needs_compiler_lane(command):
 
 
 def run(command):
+    cpu_guard.require_managed_ancestor()
     if sys.platform == 'darwin' and not cpu_guard.healthy():
         raise RuntimeError('CPU watchdog is not healthy; native work refused. Run cpu_guard.py status.')
     command = capped(command)
@@ -82,7 +83,7 @@ def run(command):
     directory = worker_tokens.machine_directory()
     lane_dir = Path(directory).parent / 'native-build-v1'
     worker_tokens.init(lane_dir, 1)
-    lane = worker_tokens.Budget(lane_dir, shared=False).acquire() if needs_compiler_lane(command) else None
+    lane = worker_tokens.Budget(lane_dir, shared=False, resource='native-build').acquire() if needs_compiler_lane(command) else None
     token = None
     try:
         # A nested check borrows exactly its parent's slot. Acquiring another

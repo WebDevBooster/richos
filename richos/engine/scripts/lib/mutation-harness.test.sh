@@ -65,7 +65,7 @@ ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 PASS=0
 FAIL=0
-SANDBOX="$(cd "$(mktemp -d -t mutation-harness-test.XXXXXX)" && pwd -P)"
+SANDBOX="$(cd "$(mktemp -d "${TMPDIR:?}/mutation-harness-test.XXXXXX")" && pwd -P)"
 trap 'rm -rf "$SANDBOX"' EXIT
 
 # THE SUITE GETS ITS OWN $TMPDIR, the same shape as

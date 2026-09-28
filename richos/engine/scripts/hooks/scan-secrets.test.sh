@@ -28,7 +28,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # repository, find no adoption marker, stand down — and every case below would
 # pass by never running. Declaring the subject makes the suite independent of
 # ambient session state, and exercises the env-override candidate for free.
-RICHOS_ENTITY_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+SANDBOX="$(mktemp -d "${TMPDIR:?}/scan-secrets-suite.XXXXXX")"
+trap 'rm -rf "$SANDBOX"' EXIT
+RICHOS_ENTITY_ROOT="$SANDBOX/entity"
+mkdir -p "$RICHOS_ENTITY_ROOT"
+# Keep shipped settings as inputs while diagnostics stay in the fixture.
+cp "$SCRIPT_DIR/../../orchestration.config" "$RICHOS_ENTITY_ROOT/orchestration.config"
 export RICHOS_ENTITY_ROOT
 # CLAUDE_PROJECT_DIR is deliberately cleared: leaving the launching session's
 # value in place would leave a second, lower-precedence candidate pointing
@@ -79,16 +84,16 @@ tool, field, value, fp = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 ti = {'file_path': fp}
 ti[field] = value
 print(json.dumps({'tool_name': tool, 'tool_input': ti}))
-" "$1" "$2" "$3" "${4:-/tmp/x.txt}"
+" "$1" "$2" "$3" "${4:-$RICHOS_ENTITY_ROOT/x.txt}"
 }
 
 # json_multiedit <new_string_1> [new_string_2 ...]
 json_multiedit() {
     python3 -c "
 import json, sys
-edits = [{'old_string': 'x', 'new_string': v} for v in sys.argv[1:]]
-print(json.dumps({'tool_name': 'MultiEdit', 'tool_input': {'file_path': '/tmp/x.txt', 'edits': edits}}))
-" "$@"
+edits = [{'old_string': 'x', 'new_string': v} for v in sys.argv[2:]]
+print(json.dumps({'tool_name': 'MultiEdit', 'tool_input': {'file_path': sys.argv[1], 'edits': edits}}))
+" "$RICHOS_ENTITY_ROOT/x.txt" "$@"
 }
 
 # make_fakebin_no_python3 — mirrors the rest of the hook family's own repro.
@@ -109,7 +114,7 @@ echo "=== scan-secrets tests ==="
 
 # --- pass-through: non-Write/Edit tool, missing content, malformed JSON ---
 run_case "non-Write tool (Bash) passes"      0 '{"tool_name":"Bash","tool_input":{"command":"ls"}}'
-run_case "Write with no content field passes" 0 '{"tool_name":"Write","tool_input":{"file_path":"/tmp/x.txt"}}'
+run_case "Write with no content field passes" 0 "$(python3 -c 'import json,sys; print(json.dumps({"tool_name":"Write","tool_input":{"file_path":sys.argv[1]}}))' "$RICHOS_ENTITY_ROOT/x.txt")"
 run_case "malformed JSON fails OPEN (sibling convention)" 0 'this is not json'
 run_case "clean Write content passes"        0 "$(json_write Write content 'hello world, nothing secret here')"
 
@@ -145,7 +150,7 @@ run_case "secret= literal, high entropy" 2 \
 run_case "MultiEdit: secret in one of several edits" 2 \
     "$(json_multiedit 'harmless change' 'AWS_KEY=AKIAABCDEFGHIJKLMNOP' 'another harmless change')"
 run_case "NotebookEdit: secret in new_source" 2 \
-    "$(python3 -c 'import json; print(json.dumps({"tool_name":"NotebookEdit","tool_input":{"notebook_path":"/tmp/x.ipynb","new_source":"key = \"sk-ant-api03-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP\""}}))')"
+    "$(python3 -c 'import json,sys; print(json.dumps({"tool_name":"NotebookEdit","tool_input":{"notebook_path":sys.argv[1],"new_source":"key = \"sk-ant-api03-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP\""}}))' "$RICHOS_ENTITY_ROOT/x.ipynb")"
 
 run_case_msg "block message never echoes the full secret" 'redacted' \
     "$(json_write Write content 'AWS_KEY=AKIAABCDEFGHIJKLMNOP')"

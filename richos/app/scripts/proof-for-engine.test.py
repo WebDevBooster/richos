@@ -52,6 +52,14 @@ class EngineCommands(unittest.TestCase):
         self.assertEqual(row["unit"], "scripts/locate-engine.test.sh")
         self.assertEqual(row["verdict"], "PASS")
 
+    def test_unmapped_engine_executable_refuses_instead_of_becoming_empty_plan(self):
+        path = "richos/engine/scripts/" + "unmapped-" + "selection-fixture-" + "987.sh"
+        result = subprocess.run(["bash", str(SCRIPTS / "proof-for.sh"), "--quiet", "--paths", path],
+                                cwd=ROOT, env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("named by NO suite", result.stderr)
+        self.assertIn("engine selection failed", result.stderr)
+
     def test_section_command_preserves_expected_scoped_verdict(self):
         commands = self.commands("richos/engine/scripts/hooks/contract-integrity.test.sh")
         # Preserve the mapper's entire selection, including indirect consumers.
@@ -70,7 +78,8 @@ class EngineCommands(unittest.TestCase):
         (engine / "scripts/hooks").mkdir()
         for name in ("ci-shard.sh", "ci-units.sh", "lib/ci-receipts.py",
                      "lib/leak-canary.sh", "lib/record-canary.sh", "lib/tree-witness.sh",
-                     "lib/proc_tree.py", "lib/worker_tokens.py"):
+                     "lib/proc_tree.py", "lib/worker_tokens.py", "lib/engine_pass.py",
+                     "lib/operator_fences.py"):
             shutil.copyfile(ENGINE / "scripts" / name, engine / "scripts" / name)
         index = next(i for i, unit in enumerate(units)
                      if unit.startswith("scripts/hooks/contract-integrity.test.sh:"))

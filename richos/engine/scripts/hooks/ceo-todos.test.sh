@@ -57,6 +57,20 @@
 
 set -uo pipefail
 
+# Internal mutation scope: a successful case exits 3, never a whole-suite pass.
+MUTATION_CASE=""
+if [ "$#" -gt 0 ]; then
+    if [ "$#" -ne 2 ] || [ "$1" != --mutation-case ] || [ "${RICHOS_MUTATION_INNER:-}" != 1 ]; then
+        echo "ceo-todos.test.sh: mutation scope requires --mutation-case <case> and the inner harness" >&2
+        exit 2
+    fi
+    case "$2" in
+        p1.|p3.|p4.|p5.|p7.|p10.|p24.|p25.|p26.|p27.|p30.|p31.) MUTATION_CASE="$2" ;;
+        *) echo "ceo-todos.test.sh: unknown mutation case: $2" >&2; exit 2 ;;
+    esac
+fi
+selected() { [ -z "$MUTATION_CASE" ] || [ "$MUTATION_CASE" = "$1" ]; }
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # The registration question has ONE answer in this engine, and it is not a
@@ -180,6 +194,7 @@ run_lint() {
     return 0
 }
 
+if [ -z "$MUTATION_CASE" ]; then
 echo "=== ceo-todos: the predicate, the CLI and the commit guard ==="
 
 # ---------------------------------------------------------------------------
@@ -891,6 +906,8 @@ for f in reference/ceo-todos/ceo-todos.example reference/ceo-todos/open-items.md
     fi
 done
 
+fi
+
 # ---------------------------------------------------------------------------
 # (p) THE DONE-CHECK — an item that can notice it is already finished
 # ---------------------------------------------------------------------------
@@ -912,6 +929,7 @@ DC_ITEM_SATISFIED='### 2.6 READY-FOR-CEO — Supply the app icon artwork
 '
 
 # 1 — SATISFIED, still sitting in the CEO's section.
+if selected p1.; then
 R="$(mk_repo dcsatisfied)"
 printf 'the artwork, made and landed hours ago\n' > "$R/docs/artwork.png"
 write_record "$R" "$DC_ITEM_SATISFIED"
@@ -927,6 +945,9 @@ fi
 
 # 2 — the same item removed. The only two answers the refusal offers are
 #     "close it" and "the check is wrong"; this is the first one.
+fi
+
+if selected p2.; then
 R="$(mk_repo dcremoved)"
 printf 'the artwork, made and landed hours ago\n' > "$R/docs/artwork.png"
 write_record "$R" '_Nothing here._'
@@ -941,6 +962,9 @@ fi
 #     rots quietest: the correct outcome is silence, and silence is also what a
 #     checker that never ran produces. So the assertion is not "it passed" — it
 #     is "it passed AND the census says the evaluator looked at it".
+fi
+
+if selected p3.; then
 R="$(mk_repo dcmanual)"
 write_record "$R" '### 2.1 READY-FOR-CEO — Verify the podcast reference transcript
 
@@ -963,6 +987,9 @@ fi
 #      of failing: a record whose only item declares nothing must NOT report an
 #      evaluation. Without this, case 3 would pass against a census hard-coded
 #      to say a comforting number.
+fi
+
+if selected p4.; then
 R="$(mk_repo dcnocensus)"
 write_record "$R" '### 2.1 READY-FOR-CEO — An item that declares no end state at all
 
@@ -984,6 +1011,9 @@ fi
 # 4 — BROKEN: a check that cannot run is LOUD, and specifically is never
 #     allowed to read as "not done yet". That collapse is the whole failure
 #     class: it turns a typo into a permanently green check.
+fi
+
+if selected p5.; then
 R="$(mk_repo dcbroken)"
 write_record "$R" '### 2.1 READY-FOR-CEO — Its check points at a page that was renamed
 
@@ -1003,9 +1033,12 @@ else
 fi
 
 # --- the four verbs, both answers each -------------------------------------
+fi
+
 dc_case() {
     # dc_case <name> <done-check-expr> <expected: block|pass> <label>
     local name="$1" expr="$2" want="$3" label="$4" repo
+    selected "${label%% *}" || return 0
     repo="$(mk_repo "$name")"
     printf 'RULED: individual enrollment.\n' > "$repo/docs/decided.md"
     printf 'Status: OPEN, nobody has ruled.\n' > "$repo/docs/undecided.md"
@@ -1050,6 +1083,7 @@ dc_case dcdir        '`contains repo/docs/adirectory "x"`'                  bloc
 dc_case dcargs       '`contains repo/docs/decided.md "a" "b"`'              block "p23. contains takes exactly one pattern"
 
 # The refusal for `run` has to explain itself, or the next person writes it again.
+if selected p24.; then
 R="$(mk_repo dcrunwords)"
 write_record "$R" '### 2.1 READY-FOR-CEO — A check that wants to run a program
 
@@ -1067,6 +1101,9 @@ else
 fi
 
 # --- an absent root is SKIPPED and NAMED, exactly as an artifact path is ----
+fi
+
+if selected p25.; then
 R="$(mk_repo dcabsentroot)"
 write_record "$R" '### 2.1 READY-FOR-CEO — Its end state lives in a repository nobody cloned
 
@@ -1090,6 +1127,9 @@ else
 fi
 
 # --- the near-miss key, which is how this mechanism would actually die ------
+fi
+
+if selected p26.; then
 R="$(mk_repo dctypo)"
 printf 'the artwork, made and landed hours ago\n' > "$R/docs/artwork.png"
 write_record "$R" '### 2.6 READY-FOR-CEO — Supply the app icon artwork
@@ -1108,6 +1148,8 @@ else
 fi
 
 # --- DONE_CHECK_REQUIRED — the owner's decision, and a visible one ---------
+fi
+
 DECL_REQUIRED='TODO_RECORD="wiki/open-items.md"
 TODO_VIEW="CEO-TODOs.md"
 ROOT_README="README.md"
@@ -1116,6 +1158,7 @@ PREPARER_SECTION="3"
 ARTIFACT_ROOTS="repo=."
 DONE_CHECK_REQUIRED="1"'
 
+if selected p27.; then
 R="$(mk_repo dcrequired "$DECL_REQUIRED")"
 write_record "$R" '### 2.1 READY-FOR-CEO — An item that declares no end state at all
 
@@ -1131,6 +1174,9 @@ else
     bad "p27. with DONE_CHECK_REQUIRED=1 a missing check should block (rc=$GRC): $GOUT"
 fi
 
+fi
+
+if selected p28.; then
 R="$(mk_repo dcnotrequired)"
 write_record "$R" '### 2.1 READY-FOR-CEO — An item that declares no end state at all
 
@@ -1146,6 +1192,9 @@ else
     bad "p28. the default must not block, and must still say so (rc=$GRC): $GOUT"
 fi
 
+fi
+
+if selected p29.; then
 R="$(mk_repo dcbadflag "$(printf '%s\n' "$DECL_REQUIRED" | sed 's/DONE_CHECK_REQUIRED="1"/DONE_CHECK_REQUIRED="sometimes"/')")"
 write_record "$R" '### 2.1 READY-FOR-CEO — Anything at all
 
@@ -1165,6 +1214,9 @@ fi
 # A guard that hangs blocks every commit in the repository until somebody kills
 # it, and then somebody removes the guard. This case costs the suite the bound
 # itself (a few seconds) and is worth it.
+fi
+
+if selected p30.; then
 R="$(mk_repo dctimeout)"
 python3 -c "open('$R/docs/pathological.md','w').write('a'*40 + 'c')"
 write_record "$R" '### 2.1 READY-FOR-CEO — Its check backtracks forever
@@ -1183,6 +1235,9 @@ else
 fi
 
 # --- the CEO's page says which items can close themselves ------------------
+fi
+
+if selected p31.; then
 R="$(mk_repo dcrender)"
 printf 'Status: OPEN, nobody has ruled.\n' > "$R/docs/undecided.md"
 write_record "$R" '### 2.1 READY-FOR-CEO — One that closes itself
@@ -1214,6 +1269,9 @@ fi
 # guard refuses a view that is not byte-current. If this change had altered the
 # rendering of an item that carries no Done-check, landing the engine would have
 # refused the next commit in every one of those repositories.
+fi
+
+if [ -z "$MUTATION_CASE" ]; then
 R="$(mk_repo dcrendercompat)"
 write_record "$R" '### 2.1 READY-FOR-CEO — An item written before any of this existed
 
@@ -1420,10 +1478,16 @@ if [ -z "${RICHOS_MUTATION_INNER:-}" ]; then
     fi
 fi
 
+fi
+
 echo ""
 TOTAL=$((PASS + FAIL))
 if [ "$FAIL" -eq 0 ]; then
     printf '  %s/%s cases passed\n' "$PASS" "$TOTAL"
+    if [ -n "$MUTATION_CASE" ]; then
+        [ "$PASS" -eq 1 ] || { echo "mutation scope did not prove exactly one case" >&2; exit 2; }
+        exit 3
+    fi
     exit 0
 fi
 printf '  %s/%s cases passed — %s FAILED\n' "$PASS" "$TOTAL" "$FAIL"

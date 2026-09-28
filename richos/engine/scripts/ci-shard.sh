@@ -119,13 +119,12 @@
 # ===========================================================================
 
 set -uo pipefail
+ORIG_ARGS=("$@")
+export PYTHONDONTWRITEBYTECODE=1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-# Direct invocations share the same machine ceiling as proof-run and nightlies.
-if [ -z "${RICHOS_WORKER_TOKENS:-}" ]; then
-    exec python3 "$SCRIPT_DIR/lib/worker_tokens.py" machine -- bash "${BASH_SOURCE[0]}" "$@"
-fi
+export RICHOS_VERIFICATION_CHECKOUT="${RICHOS_VERIFICATION_CHECKOUT:-$ENGINE_ROOT}"
 UNITS_SH="$SCRIPT_DIR/ci-units.sh"
 KNOWN_RED="$ENGINE_ROOT/scripts/lib/ci-known-red.tsv"
 WEIGHTS_TSV="$ENGINE_ROOT/scripts/lib/ci-unit-weights.tsv"
@@ -219,31 +218,13 @@ run_with_deadline() { # <seconds> <logfile> <argv...>
         "$@" >"$_log" 2>&1 </dev/null
         return $?
     fi
-    set -m
-    python3 "$SCRIPT_DIR/lib/proc_tree.py" run $$ -- "$@" >"$_log" 2>&1 </dev/null &
-    local _pid=$! _waited=0 _rc=0
-    set +m
-    while kill -0 "$_pid" 2>/dev/null; do
-        if [ "$_waited" -ge "$_limit" ]; then
-            # A suite that ignores TERM still has to go; three seconds is
-            # enough for a bash trap to run its own cleanup first, which is
-            # what leaves the sandbox removable.
-            kill -TERM "$_pid" 2>/dev/null || true
-            local _cleanup=0
-            while kill -0 "$_pid" 2>/dev/null && [ "$_cleanup" -lt 12 ]; do sleep 1; _cleanup=$((_cleanup + 1)); done
-            if kill -0 "$_pid" 2>/dev/null && ! python3 "$SCRIPT_DIR/lib/proc_tree.py" kill "$_pid" --grace 3 2>>"$_log"; then
-                printf '        a process of this unit survived SIGKILL; see the end of its log\n' >>"$_log"
-            fi
-            # In braces so the shell's own "Terminated: 15" job report for the killed unit
-            # goes nowhere; the verdict line below says what happened.
-            { wait "$_pid"; } 2>/dev/null
-            return 124
-        fi
-        sleep 1
-        _waited=$((_waited + 1))
-    done
-    wait "$_pid"; _rc=$?
-    return "$_rc"
+    # The existing process supervisor already polls and owns tree cleanup.
+    # Giving it the deadline avoids a second shell watcher rounding every
+    # short unit up to a one-second sleep.
+    python3 "$SCRIPT_DIR/lib/proc_tree.py" run "$$" --deadline "$_limit" \
+        --timeout-marker "$_log.deadline" -- "$@" >"$_log" 2>&1 </dev/null
+    return $?
+
 }
 
 # ---------------------------------------------------------------------------
@@ -430,6 +411,7 @@ if [ -n "$VERIFY_DIR" ]; then
     # flag the workflow has to remember. The whole finding they answer is that
     # an opt-in maintenance step does not get opted into.
     RW_ARGS=(--plan "$PLAN_FILE")
+    [ -z "${RICHOS_PROOF_RUN:-}" ] || RW_ARGS+=(--proof-run "$RICHOS_PROOF_RUN")
     [ -f "$WEIGHTS_TSV" ] && RW_ARGS+=(--weights "$WEIGHTS_TSV")
     [ -n "$EMIT_WEIGHTS" ] && RW_ARGS+=(--emit-weights "$EMIT_WEIGHTS")
     find "$VERIFY_DIR" -type f -name '*.jsonl' -print0 2>/dev/null | xargs -0 cat 2>/dev/null \
@@ -503,6 +485,18 @@ if [ "$LIST_ONLY" -eq 1 ]; then
     exit 0
 fi
 
+# Acquire the large-plan slot before any worker permit. Unit admission below
+# releases the worker between units, including direct shard invocations.
+python3 "$SCRIPT_DIR/lib/engine_pass.py" needed "$N_SEL"; PASS_RC=$?
+PASS_ARGS=()
+case "$PASS_RC" in
+    0) ;;
+    10) [ "${RICHOS_WORKER_SLOT_HELD:-}" != 1 ] || die "large engine plan must acquire its slot before a worker; use proof-run's unit dispatch" 75
+        PASS_ARGS=(python3 "$SCRIPT_DIR/lib/engine_pass.py" hold --count "$N_SEL"
+                   --label "ci-shard.sh" --checkout "$ENGINE_ROOT" --) ;;
+    *) die "could not establish large-plan admission" 2 ;;
+esac
+
 # ---------------------------------------------------------------------------
 # the leak canary — same library, same contract as run-all-tests.sh
 # ---------------------------------------------------------------------------
@@ -575,17 +569,40 @@ while IFS= read -r id; do
         ARGV=(env "${RC_SANDBOX_ENV[@]}" "${ARGV[@]}")
     fi
 
-    START="$(python3 -c 'import time; print(time.time())')"
+    export -f run_with_deadline
+    export SCRIPT_DIR
+    TIMING="$LOG_DIR/$i.timing.json"
+    export RICHOS_UNIT_DEADLINE_MARKER="$LOG.deadline"
     if [ "$RECORD_BASE_HEALTHY" -eq 1 ]; then
-        run_with_deadline "$DEADLINE" "$LOG" "${ARGV[@]}"
+        ${PASS_ARGS[@]+"${PASS_ARGS[@]}"} python3 "$SCRIPT_DIR/lib/worker_tokens.py" machine --timing "$TIMING" -- \
+            bash -c 'run_with_deadline "$@"' bash "$DEADLINE" "$LOG" "${ARGV[@]}"
         RC=$?
     else
-        # Never run a unit with the road to the operator's record still open.
-        printf 'ci-shard.sh: NOT RUN — the throwaway home %s could not be built, so this unit would have run against the operator'"'"'s record.\n' "$UNIT_HOME" >"$LOG"
+        printf "ci-shard.sh: NOT RUN: private home unavailable\n" >"$LOG"
         RC=1
     fi
-    END="$(python3 -c 'import time; print(time.time())')"
-    SECS="$(python3 -c "print(round($END - $START, 1))")"
+    SLOT_REFUSED=0
+    [ "$RC" -ne 75 ] || [ -f "$TIMING" ] || SLOT_REFUSED=1
+    # Admission waits do not spend the unit's execution deadline or inflate
+    # the planner's execution weight. Missing timing cannot earn a pass.
+    EXECUTION="infrastructure-error"; SECS=0; QUEUED="unknown"
+    read -r EXECUTION SECS QUEUED < <(python3 - "$TIMING" "$RC" <<'PY'
+import json, math, sys
+try:
+    row = json.load(open(sys.argv[1]))
+    elapsed, queue = row["execution_seconds"], row["admission_seconds"]
+    assert all(type(v) in (int, float) and math.isfinite(v) and v >= 0 for v in (elapsed, queue))
+    assert type(row["admitted"]) is bool and row["exit"] == int(sys.argv[2])
+    outcome = row["outcome"]
+    assert outcome in ("completed", "not-admitted", "infrastructure-error", "timed-out")
+    assert row["admitted"] or outcome in ("not-admitted", "infrastructure-error")
+    print(outcome, round(elapsed, 1), round(queue, 1))
+except (OSError, ValueError, KeyError, TypeError, AssertionError):
+    print("infrastructure-error 0 unknown")
+PY
+)
+    if [ "$SLOT_REFUSED" -eq 1 ]; then EXECUTION="not-admitted"; fi
+    printf '(admission %ss) ' "${QUEUED:-unknown}"
 
     ESCAPED="$(lc_escaped "$CANARY_DIR" "$LOG_DIR")"
     TOUCHED=""
@@ -593,7 +610,11 @@ while IFS= read -r id; do
     rm -rf "$UNIT_HOME" 2>/dev/null || true
 
     VERDICT=""
-    if [ "$RC" -eq 124 ] && [ "${DEADLINE:-0}" -gt 0 ]; then
+    if [ "$EXECUTION" = "not-admitted" ]; then
+        VERDICT="NOT-ADMITTED"
+    elif [ "$EXECUTION" = "infrastructure-error" ] || [ -z "$EXECUTION" ]; then
+        VERDICT="INFRASTRUCTURE-ERROR"
+    elif [ "$EXECUTION" = "timed-out" ]; then
         # FIRST, and ahead of the canary: a unit killed mid-flight has almost
         # certainly left residue, so the leak canary would fire too and the
         # report would name the wrong defect. The hang is the finding.
@@ -627,6 +648,11 @@ while IFS= read -r id; do
     fi
 
     case "$VERDICT" in
+        NOT-ADMITTED|INFRASTRUCTURE-ERROR)
+            printf '%s%s%s %ss (rc=%s)\n' "$C_RED" "$VERDICT" "$C_RESET" "$SECS" "$RC"
+            FAILED=$((FAILED + 1))
+            FAIL_LINES+=("$id — $VERDICT; no completed test verdict, not accepted coverage")
+            ;;
         PASS)
             printf '%sPASS%s %ss\n' "$C_GREEN" "$C_RESET" "$SECS"
             PASSED=$((PASSED + 1))
@@ -701,8 +727,30 @@ while IFS= read -r id; do
 
     if [ -n "$RECEIPT" ]; then
         UNIT_ID="$id" UNIT_RC="$RC" UNIT_EXP="${EXPECT_RC:-0}" UNIT_VERDICT="$VERDICT" \
-        UNIT_SECS="$SECS" UNIT_SHARD="${SHARD:-0}" UNIT_SHARDS="$SHARDS" UNIT_SHA="$SHA" \
+        UNIT_SECS="$SECS" UNIT_ADMISSION="${QUEUED:-}" UNIT_EXECUTION="$EXECUTION" \
+        UNIT_SHARD="${SHARD:-0}" UNIT_SHARDS="$SHARDS" UNIT_SHA="$SHA" \
         python3 "$SCRIPT_DIR/lib/ci-receipts.py" emit >> "$RECEIPT"
+    fi
+    if [ "$SLOT_REFUSED" -eq 1 ]; then
+        printf 'ci-shard: slot admission refused; %s remaining unit(s) were not admitted and remain unrun.\n' "$((N_SEL - i))"
+        break
+    fi
+    # Contamination is independent of the assertion verdict (including a timeout).
+    # Stop this domain even in keep-going mode and notify concurrent sibling shards.
+    if [ "$CANARY_BASE_HEALTHY" -ne 1 ] || [ "$RECORD_BASE_HEALTHY" -ne 1 ] \
+       || [ -n "$TOUCHED" ] || [ -n "$ESCAPED" ]; then
+        if [ -n "${RICHOS_VERIFICATION_CONTAMINATION:-}" ]; then
+            mkdir -p "$RICHOS_VERIFICATION_CONTAMINATION"
+            UNIT_ID="$id" UNIT_VERDICT="$VERDICT" python3 - "$RICHOS_VERIFICATION_CONTAMINATION" <<'PY'
+import json, os, sys, tempfile
+fd, path = tempfile.mkstemp(prefix="unit-", suffix=".json", dir=sys.argv[1])
+with os.fdopen(fd, "w") as out:
+    json.dump({"unit": os.environ["UNIT_ID"], "verdict": os.environ["UNIT_VERDICT"],
+               "reason": "canary reported contamination or could not establish safety"}, out)
+PY
+        fi
+        printf 'ci-shard: contaminated execution domain; remaining units are unrun.\n'
+        break
     fi
     if [ "$FAIL_FAST" -eq 1 ] && [ "$FAILED" -gt 0 ]; then
         printf 'ci-shard: stopping after the first failed unit; unfinished units have no passing receipt.\n'

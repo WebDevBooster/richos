@@ -109,10 +109,12 @@ def _linux_btime():
     return 0
 
 
-def proc(pid):
+def proc(pid, precise=False):
     """{pid, ppid, pgid, start, zombie} for a live pid, else None. `start` is
     whole seconds since the epoch, which is the resolution the platform's own
-    session record (`procStart`) carries."""
+    session record (`procStart`) carries. Verification's `precise=True` returns
+    the kernel generation string instead, without changing session/fence callers.
+    """
     try:
         pid = int(pid)
     except (TypeError, ValueError):
@@ -125,15 +127,21 @@ def proc(pid):
         n = lib.proc_pidinfo(pid, 3, ctypes.c_uint64(0), ctypes.byref(info), ctypes.sizeof(info))
         if n != ctypes.sizeof(info):
             return None
+        start = ("darwin:%d:%06d" % (info.start_sec, info.start_usec)) if precise else int(info.start_sec)
         return {"pid": pid, "ppid": int(info.ppid), "pgid": int(info.pgid),
-                "start": int(info.start_sec), "zombie": int(info.status) == _SZOMB}
+                "start": start, "zombie": int(info.status) == _SZOMB}
     try:
         with open("/proc/%d/stat" % pid) as fh:
             raw = fh.read()
         rest = raw[raw.rindex(")") + 2:].split()
         ticks = os.sysconf("SC_CLK_TCK")
+        if precise:
+            with open("/proc/sys/kernel/random/boot_id") as boot:
+                start = "linux:%s:%s" % (boot.read().strip(), rest[19])
+        else:
+            start = int(_linux_btime() + int(rest[19]) // ticks)
         return {"pid": pid, "ppid": int(rest[1]), "pgid": int(rest[2]),
-                "start": int(_linux_btime() + int(rest[19]) // ticks), "zombie": rest[0] == "Z"}
+                "start": start, "zombie": rest[0] == "Z"}
     except (OSError, ValueError, IndexError):
         return None
 

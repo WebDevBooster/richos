@@ -79,6 +79,8 @@ command -v git     >/dev/null 2>&1 || { echo "ERROR: needs git" >&2; exit 1; }
 
 SANDBOX="$(cd "$(mktemp -d -t unlanded.XXXXXX)" && pwd -P)"
 trap 'rm -rf "$SANDBOX"' EXIT
+export CLAUDE_CONFIG_DIR="$SANDBOX/claude"
+mkdir -p "$CLAUDE_CONFIG_DIR/state"
 
 # THE REGISTRY IS SANDBOXED, AND THAT IS NOT TIDINESS. This suite records an
 # integration branch per fixture repository (point 14, below), and without this
@@ -382,26 +384,19 @@ fi
 
 fresh_notices
 NOPATH="$SANDBOX/nopath"; mkdir -p "$NOPATH"
-for b in git grep cut head sed cat printf mkdir rm date cksum tr; do
+for b in git grep cut head sed cat printf mkdir rm date cksum tr dirname; do
     command -v "$b" >/dev/null 2>&1 && ln -sf "$(command -v "$b")" "$NOPATH/$b"
 done
 mk_payload "Everything is clean and pushed." control > "$SANDBOX/payload.json"
 env RICHOS_ENTITY_ROOT="$SEAT" CLAUDE_PROJECT_DIR="$SEAT" \
     CLAUDE_PLUGIN_ROOT="$ENGINE_ROOT" RICHOS_WORKTREE_LEDGER="$LEDGER" \
-    PATH="$NOPATH:/usr/bin:/bin" \
+    PATH="$NOPATH" \
     /bin/bash "$NOTICE" < "$SANDBOX/payload.json" > "$SANDBOX/out.txt" 2>&1
 P_OUT="$(cat "$SANDBOX/out.txt")"
 if printf '%s' "$P_OUT" | grep -qi 'not running\|NOT RUN'; then
     ok "U17 with the sweep unable to run it announces rather than passing the turn in silence"
 else
-    # /usr/bin is on PATH above so python3 may still be present; then the hook
-    # runs normally and announces the finding, which is also correct. What must
-    # never happen is silence.
-    if [ -n "$P_OUT" ]; then
-        ok "U17 with a stripped PATH it still says something — silence is the one outcome ruled out"
-    else
-        bad "U17 a hook that cannot run says so" "stdout was empty"
-    fi
+    bad "U17 a hook that cannot run says so" "stdout: ${P_OUT:-<empty>}"
 fi
 
 # ===========================================================================
@@ -569,13 +564,26 @@ else
     bad "C07 quoting the failure is not making the claim" "stdout: $RUN_OUT"
 fi
 
-# C7 — the sweep gone, with the claim still made. The one thing that must not
-# happen is the turn passing in the same silence a clean repository produces.
-MOVED="$SANDBOX/moved-sweep.py"
-cp "$SWEEP" "$MOVED" && rm -f "$SWEEP"
-drive "$CLAIMS" "Everything is clean and pushed."
+# C7: remove the sweep only from a private engine. An interrupted test must
+# never leave the source checkout missing a live helper.
+BROKEN_ENGINE="$SANDBOX/missing-sweep-engine"
+mkdir -p "$BROKEN_ENGINE/scripts/hooks" "$BROKEN_ENGINE/scripts/lib" "$BROKEN_ENGINE/mega-lander"
+cp "$CLAIMS" "$SCRIPT_DIR/guard-unresolved-claims.py" "$BROKEN_ENGINE/scripts/hooks/"
+for helper in resolve-roots.sh resolve-main-checkout.sh stop-hook-notice.sh \
+              unevaluated-notice.sh stop-session-recovery.py unlanded-branches.py; do
+    cp "$ENGINE_ROOT/scripts/lib/$helper" "$BROKEN_ENGINE/scripts/lib/" || exit 1
+done
+cp "$ENGINE_ROOT/mega-lander/workspaces.py" "$BROKEN_ENGINE/mega-lander/" || exit 1
+BROKEN_CLAIMS="$BROKEN_ENGINE/scripts/hooks/guard-unresolved-claims.sh"
+drive "$BROKEN_CLAIMS" "Everything is clean and pushed."
+if [ "$RUN_RC" -eq 0 ] && printf '%s' "$RUN_OUT" | grep -q 'YOU CALLED IT DONE'; then
+    ok "FIXTURE-missing-sweep-control the copied engine detects stranded work with its sweep present"
+else
+    bad "FIXTURE-missing-sweep-control the copied engine could not evaluate its positive control" "$RUN_OUT$RUN_ERR"
+fi
+rm -f "$BROKEN_ENGINE/scripts/lib/unlanded-branches.py"
+drive "$BROKEN_CLAIMS" "Everything is clean and pushed."
 C7_OUT="$RUN_OUT$RUN_ERR"
-cp "$MOVED" "$SWEEP"
 if printf '%s' "$C7_OUT" | grep -q 'DID NOT RUN\|WENT OUT UNCHECKED'; then
     ok "C08 with the sweep missing, the claim is reported as UNCHECKED rather than passed"
 else

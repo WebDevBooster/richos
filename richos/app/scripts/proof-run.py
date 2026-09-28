@@ -3,7 +3,10 @@
 
     proof-run.py [proof-for arguments]          e.g.  origin/main..main   |  --working  |  <sha>
     proof-run.py --commands <file>              a saved `proof-for.sh --quiet` output
+    proof-run.py --resume <run-directory>       retry a frozen plan, preserving valid results
     options:
+      --fail-fast          cancel independent unfinished work after a failure (opt-in)
+      --keep-going         compatibility alias for default continuation
       --dry-run            print the plan (items, lanes, expected seconds) and run nothing
       --as-printed         run the printed commands exactly as printed, one after another (the
                            hand-written loop's shape, to measure what the runner saves)
@@ -32,9 +35,9 @@ surviving timeouts and failures that were discovered only after long waits. This
 owns scheduling, admission, logs and cancellation so callers do not reconstruct that protocol.
 
 WHAT IT DOES WITH EACH FAMILY OF COMMAND, and why nothing is dropped:
-  * engine `ci-shard.sh --only-units <u>` lines (one per unit) become ONE units file,
-    packed into shards by the engine's own weight-based planner (`ci-shard.sh --units-file
-    F --shard i/N`, the path the CI affected-gate uses), each shard leaving a receipt; a
+  * engine `ci-shard.sh --only-units <u>` lines retain ONE full units file and the
+    engine planner's shard assignment. Each shard lane admits one exact unit at a time,
+    releasing its worker permit between units. Each unit leaves its own receipt; a
     final `ci-shard.sh --verify-receipts` proves the union of units run equals the set
     selected. A unit that silently did not run fails the land, as it does in CI.
   * `run-tests.sh --only a --only b ...` becomes one `run-tests.sh --only <suite>` per
@@ -117,8 +120,11 @@ import shutil
 import signal
 import subprocess
 import sys
+sys.dont_write_bytecode = True
 import threading
 import time
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.dirname(HERE)
@@ -145,8 +151,11 @@ ROOT = git_root()
 sys.path.insert(0, os.path.join(ROOT, "richos", "engine", "scripts", "lib"))
 import proc_tree  # noqa: E402
 import worker_tokens  # noqa: E402
+import engine_pass  # noqa: E402
+import cpu_guard  # noqa: E402
 sys.path.insert(0, os.path.join(HERE, "lib"))
 import test_results  # noqa: E402  (what names a failing test; one reader for every caller)
+import proof_evidence  # noqa: E402
 import proof_slots  # noqa: E402  (how many proof runs share the Mac at once)
 
 # The run's host-wide slot (main); every check's supervisor holds it too, so a killed runner keeps it
@@ -155,9 +164,10 @@ SLOT = None
 
 
 class Item:
-    def __init__(self, label, cwd, argv, lane=None, weight=60.0, after=()):
+    def __init__(self, label, cwd, argv, lane=None, weight=60.0, after=(), requires=()):
         self.label, self.cwd, self.argv, self.lane = label, cwd, argv, lane
-        self.weight, self.after = weight, set(after)
+        self.weight, self.after = weight, set(after) | set(requires)
+        self.requires = set(requires)
         self.state = "waiting"          # waiting | running | passed | failed | not-admitted
         self.rc = None
         self.admission_wait = 0.0
@@ -171,10 +181,34 @@ class Item:
         self.over_budget = False
         self.results = None             # this check's own per-test results folder (launch)
         self.failing = []               # what failed in it, by name (name_failures)
+        self.slot_wait = 0.0
+        self.wait_times = {}
+        self.wait_reason = "ready"
+        self.queued_at = None
+        self.attempts = []
+        self.reservation = None
+
+    def finish_queue(self):
+        if self.queued_at is not None and self.started is None:
+            self.admission_wait += time.monotonic() - self.queued_at
+            self.queued_at = None
+
+    @property
+    def engine_unit(self):
+        return self.argv[:2] == ["bash", "scripts/ci-shard.sh"] and "--only-units" in self.argv
 
     @property
     def seconds(self):
         return (self.ended - self.started) if (self.started and self.ended) else 0.0
+
+    @property
+    def previous_attempts(self):
+        current = getattr(self, 'verification_result', None) if self.started is not None else None
+        return [attempt for attempt in self.attempts if attempt['supervision'] != current]
+
+    @property
+    def total_seconds(self):
+        return self.seconds + sum(attempt['seconds'] for attempt in self.previous_attempts)
 
 
 # ---------------------------------------------------------------------------------------
@@ -255,8 +289,7 @@ def cargo_key(argv):
 
 
 def supply_runtime(items):
-    """Several suites need RICHOS_RUNTIME_DIR (make-engine-asset.test.sh, and proof-for.test.sh's
-    I1 runs the generated engine command for real). Unset, the runner supplies the one the
+    """Packaging suites need RICHOS_RUNTIME_DIR. Unset, the runner supplies the one the
     nightly uses (<state>/runtime, nightly-local.py `runtime()`) to every check, only after
     verify-runtime.py accepts it against the tracked recipe, exactly as the nightly does. Returns
     the line that says which, printed with the plan."""
@@ -350,14 +383,16 @@ def plan(lines, args, logdir, hist):
         os.makedirs(receipts, exist_ok=True)
         shard_labels = []
         for i in sorted(per, key=int):
-            label = "engine %s/%d" % (i, k)
-            shard_labels.append(label)
-            items.append(Item(label, engine,
-                              ["bash", "scripts/ci-shard.sh", "--units-file", ufile, "--shard", "%s/%d" % (i, k),
-                               "--receipt", os.path.join(receipts, "shard-%s.jsonl" % i)] +
-                              ([] if getattr(args, "keep_going", False) else ["--fail-fast"]),
-                              None, sum(weight.get(u, 60.0) for u in per[i])))
-            items[-1].notes.append("%d unit(s): %s" % (len(per[i]), ", ".join(per[i])))
+            for unit in per[i]:
+                label = "engine " + unit
+                shard_labels.append(label)
+                receipt_name = hashlib.sha256(unit.encode()).hexdigest() + ".jsonl"
+                items.append(Item(label, engine,
+                                  ["bash", "scripts/ci-shard.sh", "--only-units", unit,
+                                   "--receipt", os.path.join(receipts, receipt_name)] +
+                                  (["--fail-fast"] if getattr(args, "fail_fast", False) else []),
+                                  "engine-shard-" + i, weight.get(unit, 60.0)))
+                items[-1].notes.append("shard %s/%d; exact unit admission" % (i, k))
         items.append(Item("engine receipts", engine,
                           ["bash", "scripts/ci-shard.sh", "--verify-receipts", receipts, "--units-file", ufile],
                           None, 1.0, after=shard_labels))
@@ -375,6 +410,133 @@ def slug(label):
     return re.sub(r"[^A-Za-z0-9._-]+", "-", label).strip("-")[:60]
 
 
+def execution_environment(item):
+    if hasattr(item, "private_environment"):
+        return {**item.private_environment, **item.env}
+    # Verification must not rewrite bytecode inside its own declared inputs.
+    env = {**os.environ, **item.env, "PYTHONDONTWRITEBYTECODE": "1"}
+    path = env.get("PATH", "").split(os.pathsep)
+    for extra in (os.path.join(os.path.expanduser("~"), ".cargo", "bin"), "/opt/homebrew/bin", "/usr/local/bin"):
+        if extra not in path:
+            path.append(extra)
+    env["PATH"] = os.pathsep.join(p for p in path if p)
+    return env
+
+
+def input_identity(item, args, logdir, snapshot=None):
+    result = proof_evidence.recipe_identity(ROOT, proof_evidence.contract_for(ROOT, item.label),
+                                            execution_environment(item), snapshot)
+    result["command"] = proof_evidence.command_identity(item, ROOT, logdir)
+    result["settings"] = {key: getattr(args, key, None) for key in (
+        "capacity", "engine_shards", "max_cpu", "budget", "deadline", "fail_fast", "admission_wait", "slot_wait", "engine_slot_wait")}
+    return result
+
+
+def reserve_item(item, n, args, logdir):
+    if not getattr(args, 'managed_verification', False):
+        return
+    evidence = getattr(item, 'evidence', None)
+    identity = evidence.identities[item.label] if evidence else {'fresh': 'unqualified direct command'}
+    inputs = {key: value for key, value in identity.items() if key != 'settings'}
+    if inputs.get('fresh'):
+        inputs['source'] = evidence.source if evidence else source_identity()
+    key = proof_evidence.digest({'check': item.label, 'inputs': inputs,
+        'command': proof_evidence.command_identity(item, ROOT, logdir)})
+    directory = os.path.join(logdir, 'attempts', '%02d-%s' % (n, slug(item.label)))
+    os.makedirs(directory, exist_ok=True)
+    native = proc_tree.identity(os.getpid())
+    context = {'protocol': cpu_guard.VERIFICATION_PROTOCOL, 'input_key': key,
+        'label': item.label, 'priority': 'integration' if engine_pass.is_main_checkout(ROOT) else 'background',
+        'result': os.path.join(directory, 'supervision.json'),
+        'seed': {'pid': os.getpid(), 'generation': native}}
+    if not inputs.get('fresh'):
+        comparison = {name: inputs[name] for name in ('tools', 'profile', 'environment', 'external', 'platform')}
+        comparison.update(command=proof_evidence.command_identity(item, ROOT, logdir),
+                          settings=identity.get('settings', {}), check=item.label, cpu_count=os.cpu_count())
+        context['cost_comparison'] = {'key': proof_evidence.digest(comparison),
+                                      'identity': comparison,
+                                      'predicted_seconds': item.weight, 'check': item.label}
+        context['input_evidence'] = {'source': evidence.source, 'input': identity}
+        previous_cost = cpu_guard.previous_verification_cost(context['cost_comparison']['key'])
+        if previous_cost and previous_cost['status'] in ('growth', 'uncertain-growth'):
+            note = 'previous execution needs cost review (' + previous_cost['status'] + '); investigate before repetition: ' + previous_cost['history']
+            if note not in item.notes:
+                item.notes.append(note)
+                print('proof-run: COST REVIEW ' + item.label + ': ' + note, flush=True)
+    lease = cpu_guard.reserve_verification(context, os.getpid(), native)
+    item.reservation = lease
+    context['reservation'] = {'fd': lease[0], 'id': Path(lease[2]).stem}
+    item.verification_context = os.path.join(directory, 'context.json')
+    item.verification_result = context['result']
+    proof_evidence.atomic(item.verification_context, context)
+
+
+def finish_attempt(item):
+    """A controller intervention cannot become a behavioral failure or a pass."""
+    path = getattr(item, 'verification_result', None)
+    if not path:
+        return False
+    record = cpu_guard.read_json(path)
+    if not record:
+        item.state, item.rc = 'infrastructure-failed', 125
+        item.notes.append('managed verification result is missing')
+        record = {}
+    elif record.get('cleanup') != 'complete':
+        item.state, item.rc = 'cleanup-failed', 125
+        item.notes.append('owned cleanup remains unresolved: ' + path)
+    status = record.get('status')
+    if item.state in ('infrastructure-failed', 'cleanup-failed'):
+        status = None
+    elif status in ('contained', 'resource-envelope-exceeded'):
+        item.state, item.rc = status, 125
+    elif status != 'completed':
+        if item.state not in ('timed-out', 'cancelled'):
+            item.state = 'not-admitted' if item.rc == 75 else 'infrastructure-failed'
+            item.rc = 75 if item.rc == 75 else 125
+    attempt = {'state': item.state, 'exit': item.rc, 'seconds': item.seconds,
+               'queue_seconds': max(0, item.admission_wait - sum(a['queue_seconds'] for a in item.attempts)),
+               'cpu_seconds': record.get('reaped_cpu_seconds'),
+               'log': item.log, 'supervision': path}
+    item.attempts.append(attempt)
+    cost = record.get('cost')
+    if cost:
+        attempt['cost'] = cost
+        if cost.get('status') == 'growth':
+            item.notes.append('material verification cost growth: ' + json.dumps(cost['growth'], sort_keys=True)
+                              + '; compare load and investigate: ' + cost['history'])
+            print('proof-run: COST GROWTH ' + item.label + ': ' + item.notes[-1], flush=True)
+        elif cost.get('status') == 'uncertain-growth':
+            item.notes.append('elapsed cost increased but load is not comparable; investigate: ' + cost['history'])
+            print('proof-run: COST REVIEW ' + item.label + ': ' + item.notes[-1], flush=True)
+    if status not in ('contained', 'resource-envelope-exceeded'):
+        return False
+    recovery = cpu_guard.verification_recovery(record['input_key'])
+    kind = 'containment' if status == 'contained' else 'resource'
+    events = recovery.get(kind, [])
+    if not events or record.get('budget_used') != len(events) or events[-1].get('result') != path:
+        item.state, item.rc = 'infrastructure-failed', 125
+        attempt.update(state=item.state, exit=item.rc)
+        item.notes.append('controller cancellation has no matching durable budget event: ' + path)
+        return False
+    # Preserve the interrupted receipt before its one-unit retry writes a new one.
+    receipt = proof_evidence.receipt_path(item)
+    if receipt and receipt.exists():
+        target = Path(path).parent / 'interrupted-receipt.jsonl'
+        shutil.move(receipt, target)
+        attempt['receipt'] = str(target)
+    if recovery['blocked']:
+        try:
+            policy = cpu_guard.request_verification_recovery(record['input_key'], path)
+        except (BlockingIOError, cpu_guard.RecoveryExhausted) as exc:
+            item.state = 'scheduler-starvation' if status == 'contained' else status
+            item.notes.append(str(exc) + '; evidence: ' + path)
+            return False
+        item.notes.append('recorded exclusive calibration after ' + policy['reason'] + '; evidence: ' + path)
+    else:
+        item.notes.append('pressure-contained attempt preserved; retry after controller recovery: ' + path)
+    return True
+
+
 def launch(item, n, logdir, tokens_dir, reserved):
     item.log = os.path.join(logdir, "%02d-%s.log" % (n, slug(item.label)))
     # Its own per-test results folder, in this run's evidence: run-tests.sh gives each suite a
@@ -387,30 +549,48 @@ def launch(item, n, logdir, tokens_dir, reserved):
     fh.flush()
     # Its own session, so nothing it does can signal this runner; how it is stopped is
     # proc_tree.kill_tree (its whole tree), never a group or a name.
-    env = {**os.environ, **item.env, "RICHOS_WORKER_TOKENS": tokens_dir,
+    env = {**execution_environment(item), "RICHOS_WORKER_TOKENS": tokens_dir,
+           "RICHOS_VERIFICATION_CHECKOUT": ROOT,
            "RICHOS_WORKER_TOKENS_TOOL": os.path.abspath(worker_tokens.__file__),
            "RICHOS_WORKER_TOKENS_RESERVED": str(reserved),
            "RICHOS_MACHINE_WORKERS": item.machine_tokens, "RICHOS_WORKER_SLOT_HELD": "1",
            "RICHOS_WORKER_BORROW_LOCK": item.token.path + ".child", **(SLOT.env() if SLOT else {})}
-    # The toolchains a check calls by name (cargo, the Homebrew tools), found the way the nightly
-    # finds them (nightly-local.py `local_environment`), appended so the caller's own come first.
-    # The third full run died on `cargo` not being on the caller's PATH.
-    path = env.get("PATH", "").split(os.pathsep)
-    for extra in (os.path.join(os.path.expanduser("~"), ".cargo", "bin"), "/opt/homebrew/bin", "/usr/local/bin"):
-        if extra not in path:
-            path.append(extra)
-    env["PATH"] = os.pathsep.join(p for p in path if p)
+    if getattr(item, 'verification_context', None):
+        env['RICHOS_CPU_GUARD_STATE'] = str(cpu_guard.STATE)
+    if os.environ.get(proc_tree.SCOPE_ENV):
+        env[proc_tree.SCOPE_ENV] = os.environ[proc_tree.SCOPE_ENV]
+    if item.engine_unit:
+        env["RICHOS_VERIFICATION_UNIT"] = item.argv[item.argv.index("--only-units") + 1]
+        env["RICHOS_VERIFICATION_RUNNER_WAIT"] = json.dumps(item.wait_times)
+    if item.label == "engine receipts" and getattr(item, "evidence", None):
+        env["RICHOS_PROOF_RUN"] = str(logdir)
     item.state, item.started = "running", time.monotonic()
+    evidence = getattr(item, "evidence", None)
+    if evidence:
+        evidence.save(item, evidence.current_source())
     try:
-        item.proc = subprocess.Popen(proc_tree.command(item.argv), cwd=item.cwd, stdout=fh, stderr=subprocess.STDOUT,
+        command = proc_tree.command(item.argv, verification=getattr(item, 'verification_context', None))
+        if hasattr(item, "private_environment"):
+            command[0] = "python3"  # The recipe's fingerprinted -s -S wrapper also covers supervision.
+        item.proc = subprocess.Popen(command, cwd=item.cwd, stdout=fh, stderr=subprocess.STDOUT,
                                      stdin=subprocess.DEVNULL, start_new_session=True, env=env,
-                                     pass_fds=tuple(item.token.fds) + (SLOT.fds if SLOT else ()))
+                                     pass_fds=(SLOT.fds if SLOT else ()) + tuple(item.token.fds) + tuple(getattr(item, "slot_fds", ()))
+                                     + ((evidence.lease.fd,) if evidence else ())
+                                     + ((item.reservation[0],) if item.reservation else ())
+                                     + ((item.input_owner_fd,) if hasattr(item, "input_owner_fd") else ()))
     except OSError as exc:
         # A check that cannot even start is a FAILED check, named, never a crash of the run
         # that leaves every other check running with nobody to stop it.
         fh.write(("proof-run: could not start: %s\n" % exc).encode())
         item.proc = None
         item.notes.append("could not start: %s" % exc)
+        if item.reservation:
+            cpu_guard.write_json(item.verification_result, {'root_generation': proc_tree.identity(os.getpid()),
+                'cleanup': 'complete', 'status': 'incomplete', 'exit': 127}, durable=True)
+    finally:
+        if item.reservation:
+            os.close(item.reservation[0])  # The supervisor inherited the same kernel lease.
+            item.reservation = None
     fh.close()
 
 
@@ -424,6 +604,29 @@ def admitted(args, sampler):
     """One sample, CEO ruling §77's line and memory rule; (ok, sample). Never skips the CPU line."""
     s = sampler()
     return not reserve._refusal(s, args.max_cpu, 16, cpu_rule=True), s
+
+
+class HostSamples:
+    """Share a complete host measurement for at most one measurement interval.
+
+    Monitor and admission use the same serialized reader. Memory and swap data
+    remain part of every admission decision. A failed refresh invalidates the
+    previous value; neither errors nor old samples permit execution.
+    """
+    def __init__(self, sampler, max_age):
+        self.sampler, self.max_age = sampler, min(1.0, max_age)
+        self.lock = threading.Lock()
+        self.value = None
+        self.measured = 0.0
+
+    def __call__(self):
+        with self.lock:
+            if self.value is None or time.monotonic() - self.measured >= self.max_age:
+                self.value = None
+                value = self.sampler()
+                self.measured = time.monotonic()
+                self.value = value
+            return dict(self.value)
 
 
 class Monitor(threading.Thread):
@@ -468,13 +671,22 @@ def deadline_for(item, args):
     shard: a shard is a list of units run one after another, and ci-shard.sh already stops EACH
     unit at its own deadline, with its whole tree. A deadline on the list as well killed two
     healthy shards in the third full run, at 3 x the shard's stale planned weight."""
-    if item.label.startswith("engine ") and "--shard" in item.argv:
+    if item.label.startswith("engine ") and any(flag in item.argv for flag in ("--shard", "--only-units")):
         return None
     return min(3600.0, max(args.deadline, 3 * item.weight))
 
 
 def run(items, args, logdir, sampler=None):
-    sampler = sampler or (lambda: reserve.host_sample())
+    args.managed_verification = cpu_guard.verification_enabled()
+    remaining = list(items)
+    resolved = set()
+    while remaining:
+        ready = [it for it in remaining if it.after <= resolved]
+        if not ready:
+            raise ValueError("unknown or cyclic check prerequisites: " + ", ".join(it.label for it in remaining))
+        resolved.update(it.label for it in ready)
+        remaining = [it for it in remaining if it not in ready]
+    sampler = HostSamples(sampler or (lambda: reserve.host_sample()), args.sample_every)
     os.makedirs(logdir, exist_ok=True)
     tokens_dir = tempfile.mkdtemp(prefix="worker-tokens-", dir=logdir)
     machine = worker_tokens.machine_directory()
@@ -482,12 +694,30 @@ def run(items, args, logdir, sampler=None):
     for item in items:
         item.machine_tokens = machine
         item.env["RICHOS_TEST_DEVICE_RUN_ID"] = run_id
+        item.env["RICHOS_VERIFICATION_CONTAMINATION"] = os.path.join(logdir, "contamination")
     worker_tokens.init(tokens_dir, args.capacity)
     budget = worker_tokens.Budget(tokens_dir, runner=True, shared=machine)
+    budget.shared.admission = engine_pass.Admission(machine, ROOT)
+    # A worker permit is only the first admission step. Retain integration
+    # intent while eligible checks wait for measured capacity as well.
+    args.integration_intent = (engine_pass.Admission(machine, ROOT)
+                               if budget.shared.admission.main else None)
+    args.integration_episode = (engine_pass.IntegrationPlan(machine,
+        [{"check": it.label, "command": proof_evidence.command_identity(it, ROOT, logdir),
+          "after": sorted(it.after), "requires": sorted(it.requires)} for it in items],
+        os.path.abspath(logdir), limit=engine_pass.INTEGRATION_PLAN_SECONDS)
+        if args.integration_intent else None)
     reserved = reserved_tokens(args.capacity)
-    order = sorted(items, key=lambda it: -it.weight)
+    order = sorted(items, key=lambda it: (not getattr(it, "retry_first", False), -it.weight))
     running = []
+    units = {it.argv[it.argv.index("--only-units") + 1] for it in items if it.engine_unit}
+    args.engine_gate = (engine_pass.PlanGate(len(units), "proof-run", ROOT, sorted(units),
+                                            getattr(args, "engine_slot_wait", None))
+                        if engine_pass.needs_slot(len(units)) and not engine_pass.held_by_ancestor()
+                        else None)
     t0 = time.monotonic()
+    for item in items:
+        item.queued_at = t0
     monitor = Monitor(args.sample_every, budget, sampler)
     monitor.start()
 
@@ -505,8 +735,14 @@ def run(items, args, logdir, sampler=None):
         left = stop_running()
         for it in items:
             if it.state in ("waiting", "running"):
+                was_running = it.state == 'running'
+                it.finish_queue()
                 it.state, it.rc, it.ended = "cancelled", 130, time.monotonic()
+                if was_running:
+                    finish_attempt(it)
         checkpoint(items, logdir)
+        if getattr(args, "pool", None):
+            args.pool.close(items)
         running.clear()
         print("proof-run: interrupted; every check this run started was stopped%s. Logs: %s" % (
             "" if not left else " EXCEPT pids %s, which survived SIGKILL" % left, logdir), flush=True)
@@ -534,6 +770,11 @@ def run(items, args, logdir, sampler=None):
         for it in items:
             if it.token:
                 it.token.release()
+        budget.close()
+        if args.integration_intent:
+            args.integration_intent.close()
+        if args.engine_gate:
+            args.engine_gate.close()
         # The simulator daemon outlives command processes. Finalize only this run's
         # registered devices, after process cleanup and outside the killed trees.
         import testdevices
@@ -545,6 +786,12 @@ def run(items, args, logdir, sampler=None):
             failed.notes.extend(errors)
             items.append(failed)
             print("proof-run: simulator cleanup FAILED: " + "; ".join(errors), flush=True)
+        if args.integration_episode:
+            args.integration_episode.close("over-budget" if args.integration_episode.expired() else "finished")
+            proof_evidence.atomic(os.path.join(logdir, "priority-episode.json"),
+                args.integration_episode.record or {"identity": args.integration_episode.identity,
+                    "status": "not-admitted", "requested": args.integration_episode.requested,
+                    "deadline": args.integration_episode.deadline})
         checkpoint(items, logdir)
     monitor.join(timeout=5)
     args.monitor_lines = monitor.report(args.max_cpu)
@@ -553,9 +800,16 @@ def run(items, args, logdir, sampler=None):
 
 def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, sampler):
     n, next_sample, last_launch = 0, 0.0, 0.0
+    admitted_lanes = set()
+    previous_loop = time.monotonic()
+    backoff_reason = "ready"
     heartbeat = time.monotonic() + 30
     while True:
         now = time.monotonic()
+        interval, previous_loop = now - previous_loop, now
+        for it in order:
+            if it.state == "waiting":
+                it.wait_times[it.wait_reason] = it.wait_times.get(it.wait_reason, 0.0) + interval
         for it in list(running):
             rc = it.proc.poll() if it.proc is not None else 127
             age = now - it.started
@@ -580,23 +834,57 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                     it.notes.append("could not start; see command log")
                 if it.state != "timed-out":
                     it.state = "passed" if rc == 0 else "failed"
+                retry_contained = finish_attempt(it)
                 running.remove(it)
                 it.token.release()
-                print("[%s] %-6s %-40s %6.0f s%s" % (stamp(), {"passed": "PASS", "failed": "FAIL"}.get(it.state, "KILLED"),
+                checkpoint(items, logdir)
+                if getattr(args, "pool", None):
+                    args.pool.finish(it)
+                print("[%s] %-9s %-40s %6.0f s%s" % (stamp(), {"passed": "PASS", "failed": "FAIL", "contained": "CONTAINED",
+                      "resource-envelope-exceeded": "RESOURCE", "not-admitted": "REFUSED",
+                      "infrastructure-failed": "INFRA", "timed-out": "TIMEOUT"}.get(it.state, "KILLED"),
                                                      it.label, it.seconds, "" if rc == 0 else "  (exit %d)" % rc), flush=True)
                 name_failures(it)
                 for name in it.failing[:SHOWN_FAILURES]:
                     print("         failed: %s" % name, flush=True)
-        if not getattr(args, "keep_going", True) and any(it.state in ("failed", "timed-out", "not-admitted") for it in items):
+                if retry_contained:
+                    it.state, it.rc = 'waiting', None
+                    it.started = it.ended = it.first_wait = None
+                    it.queued_at = time.monotonic()
+                    it.wait_reason = 'controller-recovery'
+                    it.retry_first = True
+                    order.remove(it)
+                    order.insert(0, it)
+        contamination = os.path.join(logdir, "contamination")
+        record = getattr(args, "evidence", None)
+        if record and record.source_invalidated:
+            os.makedirs(contamination, exist_ok=True)
+            proof_evidence.atomic(os.path.join(contamination, "source.json"),
+                                  {"reason": "source changed during verification"})
+        unsafe = os.path.isdir(contamination) and bool(os.listdir(contamination))
+        fail_fast = getattr(args, "fail_fast", False) and any(
+            it.state in ("failed", "timed-out", "not-admitted") for it in items)
+        if unsafe or fail_fast:
+            if unsafe:
+                finding = Item("execution domain contaminated", ROOT, [])
+                finding.state, finding.rc = "failed", 1
+                finding.notes.append("canary evidence: " + contamination)
+                items.append(finding)
             for it in running:
                 stop_item(it)
                 it.state, it.rc, it.ended = "cancelled", 125, time.monotonic()
+                finish_attempt(it)
+                it.notes.append("execution domain contaminated" if unsafe else "explicit fail-fast")
                 it.token.release()
             running.clear()
             for it in items:
                 if it.state == "waiting":
-                    it.state = "cancelled"
-            print("proof-run: stopping after the first failure; unfinished checks are CANCELLED", flush=True)
+                    it.finish_queue()
+                    it.state, it.rc = "cancelled", 125
+                    it.notes.append("execution domain contaminated" if unsafe else "explicit fail-fast")
+            print("proof-run: %s; unfinished checks are CANCELLED" % (
+                "execution domain contaminated" if unsafe else "stopping after the first failure"), flush=True)
+            checkpoint(items, logdir)
             break
         if time.monotonic() >= heartbeat:
             print("[%s] progress: %d finished; running %s; logs %s" % (
@@ -607,14 +895,119 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
         waiting = [it for it in order if it.state == "waiting"]
         if not waiting and not running:
             break
+        episode = getattr(args, "integration_episode", None)
+        if episode and episode.expired():
+            # Stop all owned domains concurrently so the cleanup allowance is
+            # shared by the plan, rather than multiplied by its worker count.
+            args.integration_intent.close()
+            budget.shared.admission.close()
+            with ThreadPoolExecutor(max_workers=max(1, len(running))) as cleanup:
+                survivors = list(cleanup.map(stop_item, running))
+            for it, left in zip(running, survivors):
+                it.state, it.rc, it.ended = "cancelled", 125, time.monotonic()
+                finish_attempt(it)
+                if left:
+                    it.state = "cleanup-failed"
+                it.notes.append("fixed integration priority episode expired; owned cleanup " +
+                                ("incomplete: %s" % left if left else "complete"))
+                it.token.release()
+            running.clear()
+            for it in waiting:
+                it.finish_queue()
+                it.state, it.rc = "not-admitted", 75
+                it.notes.append("fixed integration episode expired before admission")
+            finding = Item("integration priority exhausted", ROOT, [])
+            finding.state, finding.rc = "scheduler-starvation", 75
+            finding.notes.append("600-second fixed plan bound; completed evidence retained; "
+                                 "owned work stopped and capacity released. Evidence: " + logdir)
+            items.append(finding)
+            checkpoint(items, logdir)
+            print("proof-run: integration episode exhausted; retained completed evidence, stopped owned "
+                  "work and released priority. Unfinished obligations remain unresolved.", flush=True)
+            break
+        if episode and not episode.enter():
+            for it in waiting:
+                it.wait_reason = "integration-episode"
+            time.sleep(0.2)
+            continue
         busy_lanes = {it.lane for it in running if it.lane}
         done = {it.label for it in items if it.state not in ("waiting", "running")}
+        passed = {it.label for it in items if it.state == "passed"}
+        for it in waiting:
+            if it.requires <= done and not it.requires <= passed:
+                it.finish_queue()
+                it.state = "blocked"
+                it.notes.append("unsuccessful prerequisites: " + ", ".join(sorted(it.requires - passed)))
+        waiting = [it for it in waiting if it.state == "waiting"]
         ready = [it for it in waiting if (not it.lane or it.lane not in busy_lanes) and it.after <= done]
-        # A check whose prerequisites failed still runs: the receipts check is what NAMES a
-        # shard that did not finish, so it is never skipped. Nested workers never take the
+        for it in waiting:
+            it.wait_reason = ("dependency" if not it.after <= done else
+                              "lane" if it.lane and it.lane in busy_lanes else "ready")
+        pool = getattr(args, "pool", None)
+        if pool:
+            owned = []
+            for it in ready:
+                if it.first_wait is None:
+                    it.first_wait = now
+                if pool.claim(it):
+                    owned.append(it)
+                elif it.state == "waiting":
+                    it.wait_reason = "identical-owner"
+                    if now - it.first_wait >= args.admission_wait:
+                        it.finish_queue()
+                        it.state, it.rc = "not-admitted", 75
+                        it.notes.append("identical owner did not finish within the admission wait")
+            ready = owned
+        gate = getattr(args, "engine_gate", None)
+        if gate:
+            engine_running = any(it.engine_unit for it in running)
+            engine_ready = [it for it in ready if it.engine_unit]
+            if not any(it.engine_unit for it in waiting) and not engine_running:
+                gate.close()
+            elif engine_ready:
+                try:
+                    allowed = gate.ready(engine_running)
+                except engine_pass.Refused as exc:
+                    allowed = False
+                    for it in waiting:
+                        if it.engine_unit:
+                            it.finish_queue()
+                            it.state, it.rc = "not-admitted", engine_pass.REFUSED
+                            it.notes.append(exc.message())
+                if not allowed:
+                    for it in engine_ready:
+                        it.slot_wait += interval
+                        it.wait_reason = "engine-slot"
+                    ready = [it for it in ready if not it.engine_unit]
+        intent = getattr(args, 'integration_intent', None)
+        if intent:
+            if ready:
+                intent.begin()
+            else:
+                intent.close()
+        for it in ready:
+            if it.first_wait is None:
+                it.first_wait = now
+        # Ordering-only dependencies still run diagnostics after failure. Explicit success
+        # prerequisites block dependent execution. Nested workers never take the
         # reserved tokens (worker_tokens.py), so a check not yet started always gets one.
-        if ready and now >= next_sample and now - last_launch >= (SETTLE_SECONDS if running else 0):
-            it = ready[0]
+        # Keep gradual ramp-up into additional lanes. A replacement in an
+        # already admitted lane does not increase the established concurrency;
+        # it still needs a fresh host sample and a real worker permit.
+        eligible = [it for it in ready if not running or
+                    (it.lane is not None and it.lane in admitted_lanes) or
+                    now - last_launch >= SETTLE_SECONDS]
+        for it in ready:
+            if it not in eligible:
+                it.wait_reason = "ramp"
+        if now < next_sample:
+            for it in eligible:
+                it.wait_reason = backoff_reason
+        if eligible and now >= next_sample:
+            if record and record.current_source() != record.source:
+                record.source_invalidated = True
+                continue
+            it = eligible[0]
             if it.first_wait is None:
                 it.first_wait = now
             token = budget.try_acquire()
@@ -628,26 +1021,74 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 if not ok:
                     token.release()
             if ok:
+                admitted_item = None
+                for candidate in eligible:
+                    try:
+                        reserve_item(candidate, n + 1, args, logdir)
+                    except cpu_guard.RecoveryExhausted as exc:
+                        candidate.finish_queue()
+                        candidate.rc = 75
+                        candidate.state = ('scheduler-starvation' if 'scheduler-starvation' in str(exc)
+                                           else 'resource-recovery-exhausted')
+                        candidate.notes.append(str(exc))
+                        continue
+                    except BlockingIOError as exc:
+                        candidate.wait_reason = 'resource-envelope'
+                        candidate.resource_refusal = str(exc)
+                        continue
+                    admitted_item = candidate
+                    break
+                if admitted_item is None:
+                    token.release()
+                    eligible = [candidate for candidate in eligible if candidate.state == 'waiting']
+                    if not eligible:
+                        checkpoint(items, logdir)
+                        continue
+                    it = eligible[0]
+                    ok = False
+                    s = None
+                else:
+                    it = admitted_item
+            if ok:
                 STALL.over()
-                it.admission_wait, it.token = now - it.first_wait, token
+                it.finish_queue()
+                it.token = token
                 n += 1
                 running.append(it)
+                if gate and it.engine_unit and gate.slot:
+                    it.slot_fds = (gate.slot.fd,)
+                if episode and episode.fd is not None:
+                    it.slot_fds = tuple(getattr(it, "slot_fds", ())) + (episode.fd,)
                 launch(it, n, logdir, tokens_dir, reserved)
-                last_launch = time.monotonic()
+                checkpoint(items, logdir)
+                if it.lane is None or it.lane not in admitted_lanes:
+                    last_launch = time.monotonic()
+                if it.lane is not None:
+                    admitted_lanes.add(it.lane)
                 print("[%s] start  %-40s %s" % (stamp(), it.label,
-                                                "(waited %.0f s for admission)" % it.admission_wait if it.admission_wait >= 1 else ""),
+                                                "(queued %.0f s before launch)" % it.admission_wait if it.admission_wait >= 1 else ""),
                       flush=True)
             else:
+                resource_blocked = token is not None and s is None and any(
+                    queued.wait_reason == 'resource-envelope' for queued in eligible)
+                refusal_kind = ('resource-envelope' if resource_blocked else
+                                'host' if s is not None else 'worker')
+                for queued in eligible:
+                    queued.wait_reason = refusal_kind
                 # Refused by the CPU line or the memory rule (not merely waiting for a token).
                 waited = now - it.first_wait
                 if waited >= args.admission_wait:
                     STALL.over()
-                    it.state, it.admission_wait = "not-admitted", waited
-                    it.notes.append("not admitted after %.0f s: %s" % (waited, (reserve.describe(s) if s is not None else "worker budget is full")))
+                    it.finish_queue()
+                    it.state, it.rc = "not-admitted", 75
+                    reason = (reserve.describe(s) if s is not None else getattr(it, 'resource_refusal', None)
+                              or getattr(budget.shared or budget, 'refusal', None) or "worker budget is full")
+                    it.notes.append("not admitted after %.0f s: %s" % (waited, reason))
                     print("[%s] REFUSED %-39s not admitted after %.0f s (%s)" % (stamp(), it.label, waited,
-                                                                                 (reserve.describe(s) if s is not None else "worker budget is full")), flush=True)
+                                                                                 reason), flush=True)
                 else:
                     next_sample = now + (reserve.MIN_RETRY_SECONDS if s is not None else 0.2)
+                    backoff_reason = refusal_kind
                     if not running and s is not None:
                         STALL.refused("proof-run: %s not admitted: %s" % (it.label, reserve.describe(s)))
                     else:
@@ -737,9 +1178,13 @@ def stop_item(it):
 
 
 def checkpoint(items, logdir):
+    records = {getattr(item, "evidence", None) for item in items} - {None}
+    for record in records:
+        record.checkpoint(items)
     path = os.path.join(logdir, "progress.json")
     with open(path + ".new", "w") as out:
-        json.dump([{"check": i.label, "state": i.state, "exit": i.rc, "log": i.log} for i in items], out)
+        json.dump([{"check": i.label, "state": i.state, "exit": i.rc, "log": i.log,
+                    "notes": i.notes} for i in items], out)
     os.replace(path + ".new", path)
 
 
@@ -766,7 +1211,8 @@ def notes_from_logs(items):
         if not it.log:
             continue
         try:
-            text = open(it.log, errors="replace").read()
+            with open(it.log, errors="replace") as source:
+                text = source.read()
         except OSError:
             continue
         for line in text.splitlines():
@@ -775,19 +1221,19 @@ def notes_from_logs(items):
 
 
 def summarize(items, wall, logdir, budget_seconds=600, monitor_lines=()):
-    serial = sum(it.seconds for it in items)
+    serial = sum(it.total_seconds for it in items)
     print("")
-    print("proof-run: %d check(s), wall %.0f s (%.1f min); the same checks one after another: %.0f s" %
+    print("proof-run: %d check(s), wall %.0f s (%.1f min); sum of check execution times: %.0f s" %
           (len(items), wall, wall / 60, serial))
     for line in monitor_lines:
         print("  " + line)
-    print("  %-40s %-12s %8s %10s  %s" % ("check", "result", "seconds", "admission", "log"))
+    print("  %-40s %-12s %8s %10s  %s" % ("check", "result", "seconds", "queue", "log"))
     rows = []
-    for it in sorted(items, key=lambda i: -(i.seconds)):
-        print("  %-40s %-12s %8.0f %9.0fs  %s" % (it.label, it.state.upper(), it.seconds, it.admission_wait,
+    for it in sorted(items, key=lambda i: -(i.total_seconds)):
+        print("  %-40s %-12s %8.0f %9.0fs  %s" % (it.label, it.state.upper(), it.total_seconds, it.admission_wait,
                                                  os.path.basename(it.log or "-")))
-        if it.seconds > budget_seconds:
-            print("      OVER BUDGET: %.0f s is past the %.0f s budget one check may take" % (it.seconds, budget_seconds))
+        if it.total_seconds > budget_seconds:
+            print("      OVER BUDGET: %.0f s is past the %.0f s budget one check may take" % (it.total_seconds, budget_seconds))
         for note in it.notes[:6]:
             print("      %s" % note)
         # Beside the check, what failed in it, by name, and where its result files are kept.
@@ -798,8 +1244,18 @@ def summarize(items, wall, logdir, budget_seconds=600, monitor_lines=()):
         kept = it.results if it.results and os.path.isdir(it.results) and os.listdir(it.results) else None
         if kept and it.state != "passed":
             print("      per-test results: %s" % kept)
-        rows.append({"check": it.label, "result": it.state, "seconds": round(it.seconds, 1),
-                     "admission_wait": round(it.admission_wait, 1), "exit": it.rc, "log": it.log,
+        rows.append({"check": it.label, "result": it.state, "seconds": round(it.total_seconds, 1),
+                     "last_attempt_seconds": round(it.seconds, 1),
+                     "admission_wait": round(it.admission_wait, 1),  # legacy field: total queue
+                     "total_queue_seconds": round(it.admission_wait, 1),
+                     "engine_slot_wait": round(it.slot_wait, 1),
+                     "wait_seconds_by_reason": {k: round(v, 3) for k, v in it.wait_times.items()},
+                     "exit": it.rc, "log": it.log,
+                     "reused_from": getattr(it, "reused_from", None),
+                     "attempts": it.attempts,
+                     "repeated_seconds": sum(a['seconds'] for a in it.previous_attempts),
+                     "cpu_seconds": attempt_cpu(it.attempts),
+                     "repeated_cpu_seconds": attempt_cpu(it.previous_attempts),
                      "failing_tests": list(it.failing), "results": kept,
                      "command": "cd %s && %s" % (os.path.relpath(it.cwd, ROOT), " ".join(shlex.quote(a) for a in it.argv))})
     with open(os.path.join(logdir, "summary.json"), "w") as fh:
@@ -816,9 +1272,16 @@ def summarize(items, wall, logdir, budget_seconds=600, monitor_lines=()):
                                                                         ", ".join("%s (%s)" % (b.label, b.state) for b in bad)))
         print("    logs: %s" % logdir)
         return 1
-    print("=== proof-run: all %d check(s) passed in %.0f s ===" % (len(items), wall))
+    reused = sum(bool(getattr(it, "reused_from", None)) for it in items)
+    print("=== proof-run: all %d check(s) passed in %.0f s%s ===" % (
+        len(items), wall, "; reconciled with %d reused result(s)" % reused if reused else ""))
     print("    logs: %s" % logdir)
     return 0
+
+
+def attempt_cpu(attempts):
+    values = [attempt.get('cpu_seconds') for attempt in attempts]
+    return sum(values) if values and all(value is not None for value in values) else None
 
 
 def default_logdir():
@@ -848,18 +1311,35 @@ def rotate(parent):
         except (OSError, ValueError, KeyError, TypeError):
             continue
     for d in successful[:-KEEP_RUNS]:
-        shutil.rmtree(os.path.join(parent, d), ignore_errors=True)
+        path = os.path.join(parent, d)
+        if os.path.exists(os.path.join(path, "retain")):
+            continue
+        try:
+            lease = proof_evidence.Lease(path)
+        except (OSError, ValueError):
+            continue
+        try:
+            shutil.rmtree(path, ignore_errors=True)
+        finally:
+            lease.close()
 
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
                                 usage="proof-run.py [options] [proof-for arguments]")
     p.add_argument("--commands")
-    p.add_argument("--keep-going", action="store_true", help="finish other checks after a failure (default: cancel them)")
+    p.add_argument("--resume", help="retry the exact saved plan and validate reusable evidence")
+    p.add_argument("--reuse", action="append", default=[],
+                   help="validate prior evidence against the newly selected target plan and inputs")
+    p.add_argument("--retry-reason", help="diagnosis authorizing the one retry of unchanged failed inputs")
+    failure_mode = p.add_mutually_exclusive_group()
+    failure_mode.add_argument("--keep-going", action="store_true", help="continue independent checks (the default)")
+    failure_mode.add_argument("--fail-fast", action="store_true", help="cancel unfinished checks after an ordinary failure")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--as-printed", action="store_true")
     p.add_argument("--capacity", type=int, default=max(2, int((os.cpu_count() or 4) * 0.8)))
     p.add_argument("--engine-shards", type=int, default=max(1, (os.cpu_count() or 4) // 2))
+    p.add_argument("--engine-slot-wait", type=float, help="bounded wait for the existing large engine-plan slot")
     p.add_argument("--admission-wait", type=float, default=1800)
     p.add_argument("--slot-wait", type=float, default=proof_slots.DEFAULT_WAIT_SECONDS)
     p.add_argument("--max-cpu", type=float, default=reserve.DEFAULT_MAX_CPU)
@@ -869,6 +1349,8 @@ def main(argv=None):
     p.add_argument("--log-dir")
     args, rest = p.parse_known_args(argv)
     args.proof_for_args = rest
+    if args.resume and (args.commands or rest or args.as_printed or args.reuse):
+        p.error("--resume takes its frozen plan from the saved run; no new selection is allowed")
     if args.capacity < 1 or args.engine_shards < 1:
         p.error("--capacity and --engine-shards must be at least 1")
     for name in ("admission_wait", "slot_wait", "max_cpu", "budget", "deadline", "sample_every"):
@@ -877,6 +1359,8 @@ def main(argv=None):
             p.error("--" + name.replace("_", "-") + " must be finite and positive")
     if args.max_cpu > 100:
         p.error("--max-cpu must be at most 100")
+    if args.engine_slot_wait is not None and (not math.isfinite(args.engine_slot_wait) or args.engine_slot_wait < 0):
+        p.error("--engine-slot-wait must be finite and nonnegative")
     parent = args.log_dir or default_logdir()
     run_id = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     logdir = os.path.join(parent, run_id if not args.log_dir else "")
@@ -888,8 +1372,20 @@ def main(argv=None):
         os.makedirs(parent, exist_ok=True)
         logdir = tempfile.mkdtemp(prefix=run_id + "-", dir=parent)
     hist_dir = default_logdir()
-    lines = selection(args)
-    items = as_printed(lines) if args.as_printed else plan(lines, args, logdir, history_weights(hist_dir))
+    if args.resume:
+        saved = proof_evidence.read_plan(args.resume)
+        if saved["root"] != ROOT:
+            p.error("--resume requires the original checkout")
+        items = [proof_evidence.decode_item(row, Item, ROOT, logdir) for row in saved["items"]]
+        units = [item.argv[item.argv.index("--only-units") + 1] for item in items if item.engine_unit]
+        if units:
+            os.makedirs(os.path.join(logdir, "engine-receipts"), exist_ok=True)
+            with open(os.path.join(logdir, "engine-units.txt"), "w") as stream:
+                stream.write("\n".join(units) + "\n")
+        lines = saved["items"]
+    else:
+        lines = selection(args)
+        items = as_printed(lines) if args.as_printed else plan(lines, args, logdir, history_weights(hist_dir))
     if not items:
         print("proof-run: the selection is empty — nothing to run. (For a documentation-only change that is"
               " the right answer; proof-for.sh says so without --quiet.)")
@@ -920,7 +1416,39 @@ def main(argv=None):
         before = source_identity()
         with open(os.path.join(logdir, "source.json"), "w") as out:
             json.dump(before, out, indent=2)
-        wall = run(items, args, logdir)
+        for item in items:
+            proof_evidence.prepare_environment(item, ROOT, logdir, execution_environment(item))
+        def identity(item):
+            return input_identity(item, args, logdir)
+
+        def identities(selected):
+            snapshot = proof_evidence.InputSnapshot()
+            return {item.label: input_identity(item, args, logdir, snapshot) for item in selected}
+
+        args.evidence = proof_evidence.Record(ROOT, logdir, items, before,
+            identities(items), args.resume, source_identity, identity, identities)
+        args.pool = proof_evidence.Pool(proof_evidence.pool_directory(ROOT, hist_dir), args.evidence,
+                                        args.retry_reason)
+        started = time.monotonic()
+        try:
+            if args.resume:
+                lease = proof_evidence.Lease(args.resume)
+                try:
+                    proof_evidence.reuse(args.resume, items, args.evidence)
+                finally:
+                    lease.close()
+            for previous in args.reuse:
+                lease = proof_evidence.Lease(previous)
+                try:
+                    proof_evidence.reuse(previous, items, args.evidence, exact=False)
+                finally:
+                    lease.close()
+            run(items, args, logdir)
+            args.evidence.finalize(items)
+        finally:
+            args.pool.close(items)
+            args.evidence.close()
+        wall = time.monotonic() - started
         if source_identity() != before:
             changed = Item("source changed during verification", ROOT, [])
             changed.state, changed.rc = "failed", 1
@@ -957,7 +1485,7 @@ def record_weights(state, items):
     os.makedirs(state, exist_ok=True)
     w = history_weights(state)
     for it in items:
-        if it.state == "passed" and not it.label.startswith("engine "):
+        if it.state == "passed" and not it.label.startswith("engine ") and not getattr(it, "reused_from", None):
             w[it.label] = round(it.seconds, 1)
     with open(os.path.join(state, "weights.tsv"), "w") as fh:
         for k in sorted(w):

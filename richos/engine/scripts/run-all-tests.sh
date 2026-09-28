@@ -230,9 +230,11 @@
 #      report a green fraction over an inventory of nothing
 
 set -uo pipefail
+export PYTHONDONTWRITEBYTECODE=1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ORIG_ARGS=("$@")
 
 VERBOSE=0
 LIST_ONLY=0
@@ -282,6 +284,25 @@ if [ "$LIST_ONLY" -eq 1 ]; then
     printf '%s suite(s) discovered under %s\n' "$TOTAL" "$ENGINE_ROOT" >&2
     exit 0
 fi
+
+WORKER_TOOL="$ENGINE_ROOT/scripts/lib/worker_tokens.py"
+PASS_TOOL="$ENGINE_ROOT/scripts/lib/engine_pass.py"
+for tool in "$WORKER_TOOL" "$PASS_TOOL"; do
+    [ -f "$tool" ] || { echo "ERROR: missing verification admission helper: $tool" >&2; exit 2; }
+done
+export RICHOS_VERIFICATION_CHECKOUT="${RICHOS_VERIFICATION_CHECKOUT:-$ENGINE_ROOT}"
+python3 "$PASS_TOOL" needed "$TOTAL"; PASS_RC=$?
+PASS_ARGS=()
+case "$PASS_RC" in
+    0) ;;
+    10) if [ "${RICHOS_WORKER_SLOT_HELD:-}" = 1 ]; then
+            echo "ERROR: large engine plan must acquire its slot before a worker; use proof-run's unit dispatch" >&2
+            exit 75
+        fi
+        PASS_ARGS=(python3 "$PASS_TOOL" hold --count "$TOTAL" --label "run-all-tests.sh"
+                   --checkout "$ENGINE_ROOT" --) ;;
+    *) echo "ERROR: could not establish large-plan admission" >&2; exit 2 ;;
+esac
 
 C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_BOLD=$'\033[1m'; C_RESET=$'\033[0m'
 
@@ -337,8 +358,8 @@ fi
 printf '  leak canary: watching %s root(s); witness is contents%s\n' \
     "$CANARY_ROOTS_N" \
     "$(tw_mtime_available && printf ' and a proven sub-second mtime' || printf ' ALONE (no sub-second mtime format proved itself here)')"
-printf '  record canary: watching the record inside each suite'"'"'s own throwaway home (HOME moved there, every variable pointing into the operator'"'"'s record removed; ledger rows except `finished`, the fallback event log, the team directory entries); the operator'"'"'s own is %s\n' "$RC_LIVE_CFG"
-printf '  timing: per suite, clock=%s%s\n' \
+printf '  record canary: watching the record inside each suite'"'"'s own throwaway home (HOME moved there, every variable pointing into the operator'"'"'s record removed; all ledger rows, the fallback event log, the team directory entries); the operator'"'"'s own is %s\n' "$RC_LIVE_CFG"
+printf '  timing: per suite, clock=python-monotonic; run clock=%s%s\n' \
     "$SW_METHOD" \
     "$([ -n "$TIMING_TSV" ] && printf ', TSV -> %s' "$TIMING_TSV")"
 
@@ -382,27 +403,50 @@ for t in "${SUITES[@]}"; do
     # takes arguments. Output is captured so a green run stays readable and a
     # red one can print EVERYTHING the failing suite said — a truncated failure
     # is a failure somebody has to reproduce by hand.
-    # The clock brackets the suite ONLY — not the canary baseline or diff around
-    # it. A timing table whose rows silently include the instrument's own two
-    # `git status` calls would attribute ~0.3s of runner overhead to every suite
-    # and make the 40 fast suites look twice their real cost.
-    SUITE_T0="$(sw_now_ms)"
+    # Execution includes owned supervision/cleanup but excludes admission and
+    # the canary baseline/diff. Queueing must not inflate execution weights.
+    TIMING="$LOG_DIR/$i.timing.json"
+    # This serial wrapper imposes no suite execution deadline.
+    export RICHOS_UNIT_DEADLINE_MARKER=""
     if [ "$RECORD_BASE_HEALTHY" -eq 1 ]; then
-        env "${RC_SANDBOX_ENV[@]}" bash "$t" >"$LOG" 2>&1
+        ${PASS_ARGS[@]+"${PASS_ARGS[@]}"} python3 "$WORKER_TOOL" machine --timing "$TIMING" -- env "${RC_SANDBOX_ENV[@]}" bash "$t" >"$LOG" 2>&1
         RC=$?
     else
-        # Never run a suite with the road to the operator's record still open;
-        # the canary-blind branch below reports it.
-        printf 'run-all-tests.sh: NOT RUN — the throwaway home %s could not be built.\n' "$SUITE_HOME" >"$LOG"
-        RC=0
+        printf "run-all-tests.sh: NOT RUN: private home unavailable\n" >"$LOG"
+        RC=1
     fi
-    SUITE_MS=$(( $(sw_now_ms) - SUITE_T0 ))
+    SLOT_REFUSED=0
+    [ "$RC" -ne 75 ] || [ -f "$TIMING" ] || SLOT_REFUSED=1
+    read -r EXECUTION SUITE_MS QUEUED < <(python3 - "$TIMING" "$RC" <<'STATUS'
+import json, math, sys
+try:
+    row = json.load(open(sys.argv[1]))
+    elapsed, queue = row["execution_seconds"], row["admission_seconds"]
+    assert all(type(v) in (int, float) and math.isfinite(v) and v >= 0 for v in (elapsed, queue))
+    assert type(row["admitted"]) is bool and row["exit"] == int(sys.argv[2])
+    outcome = row["outcome"]
+    assert outcome in ("completed", "not-admitted", "infrastructure-error", "timed-out")
+    assert row["admitted"] or outcome in ("not-admitted", "infrastructure-error")
+    print(outcome, round(elapsed * 1000), round(queue, 1))
+except (OSError, ValueError, KeyError, TypeError, AssertionError):
+    print("infrastructure-error 0 unknown")
+STATUS
+)
+    if [ "$SLOT_REFUSED" -eq 1 ]; then EXECUTION="not-admitted"; fi
+    [ -n "$SUITE_MS" ] || SUITE_MS=0
+    printf '(admission %ss) ' "${QUEUED:-unknown}"
     TIMES_MS+=("$SUITE_MS")
     ESCAPED="$(lc_escaped "$CANARY_DIR" "$LOG_DIR")"
     TOUCHED=""
     [ "$RECORD_BASE_HEALTHY" -eq 1 ] && TOUCHED="$(rc_escaped "$CANARY_DIR/record.txt")"
     rm -rf "$SUITE_HOME" 2>/dev/null || true
-    if [ "$RC" -ne 0 ]; then
+    if [ "$EXECUTION" != "completed" ]; then
+        VERDICT="$(printf '%s' "${EXECUTION:-infrastructure-error}" | tr '[:lower:]' '[:upper:]')"
+        printf '%s%s%s (rc=%s) %s\n' "$C_RED" "$VERDICT" "$C_RESET" "$RC" "$(sw_fmt "$SUITE_MS")"
+        FAILED_NAMES+=("$REL ($VERDICT, rc=$RC)")
+        TIMES_VERDICT+=("$VERDICT")
+        sed 's/^/        /' "$LOG"
+    elif [ "$RC" -ne 0 ]; then
         printf '%sFAIL%s (rc=%s) %s\n' "$C_RED" "$C_RESET" "$RC" "$(sw_fmt "$SUITE_MS")"
         FAILED_NAMES+=("$REL (rc=$RC)")
         TIMES_VERDICT+=("FAIL")
@@ -436,7 +480,26 @@ for t in "${SUITES[@]}"; do
         [ "$VERBOSE" -eq 1 ] && sed 's/^/        /' "$LOG"
     fi
     if [ -n "$TIMING_TSV" ]; then
-        printf '%s\t%s\t%s\t%s\n' "$REL" "$SUITE_MS" "${TIMES_VERDICT[$((i - 1))]}" "$SW_METHOD" >>"$TIMING_TSV"
+        printf '%s\t%s\t%s\t%s\n' "$REL" "$SUITE_MS" "${TIMES_VERDICT[$((i - 1))]}" "python-monotonic" >>"$TIMING_TSV"
+    fi
+    if [ "$SLOT_REFUSED" -eq 1 ]; then
+        printf '  Slot admission refused; %s remaining suite(s) were not admitted and remain unrun.\n' "$((TOTAL - i))"
+        break
+    fi
+    # Do not reset the baseline and earn later passes on contaminated inputs.
+    if [ "$CANARY_BASE_HEALTHY" -ne 1 ] || [ "$RECORD_BASE_HEALTHY" -ne 1 ] \
+       || [ -n "$TOUCHED" ] || [ -n "$ESCAPED" ]; then
+        if [ -n "${RICHOS_VERIFICATION_CONTAMINATION:-}" ]; then
+            mkdir -p "$RICHOS_VERIFICATION_CONTAMINATION"
+            python3 - "$RICHOS_VERIFICATION_CONTAMINATION" "$REL" <<'PY'
+import json, os, sys, tempfile
+fd, path = tempfile.mkstemp(prefix="suite-", suffix=".json", dir=sys.argv[1])
+with os.fdopen(fd, "w") as out:
+    json.dump({"unit": sys.argv[2], "reason": "contaminated or unwitnessed execution inputs"}, out)
+PY
+        fi
+        printf '  QUARANTINED: %s remaining suite(s) were not run after contamination.\n' "$((TOTAL - i))"
+        break
     fi
 done
 RUN_MS=$(( $(sw_now_ms) - RUN_T0 ))
@@ -449,7 +512,7 @@ RUN_MS=$(( $(sw_now_ms) - RUN_T0 ))
 # suite's shape instead of reading a number the run already knew.
 echo ""
 printf '%s--- timing: %s suite(s) in %s (clock=%s) ---%s\n' \
-    "$C_BOLD" "$TOTAL" "$(sw_fmt "$RUN_MS")" "$SW_METHOD" "$C_RESET"
+    "$C_BOLD" "$i" "$(sw_fmt "$RUN_MS")" "$SW_METHOD" "$C_RESET"
 TAIL_N="${RICHOS_TIMING_TAIL:-10}"
 case "$TAIL_N" in ''|*[!0-9]*) TAIL_N=10 ;; esac
 if [ "$TAIL_N" -gt 0 ]; then
@@ -457,13 +520,13 @@ if [ "$TAIL_N" -gt 0 ]; then
     TIMING_RAW="$LOG_DIR/timing.raw"
     : >"$TIMING_RAW"
     j=0
-    while [ "$j" -lt "$TOTAL" ]; do
+    while [ "$j" -lt "$i" ]; do
         SUM_MS=$(( SUM_MS + ${TIMES_MS[$j]} ))
         printf '%012d\t%s\t%s\n' "${TIMES_MS[$j]}" "${SUITES[$j]#"$ENGINE_ROOT"/}" "${TIMES_VERDICT[$j]}" >>"$TIMING_RAW"
         j=$(( j + 1 ))
     done
-    printf '  slowest %s of %s (suite time only; the run total above also carries the canary):\n' \
-        "$TAIL_N" "$TOTAL"
+    printf '  slowest %s of %s (admitted execution; run total also includes queueing and canaries):\n' \
+        "$TAIL_N" "$i"
     LC_ALL=C sort -rn "$TIMING_RAW" | head -n "$TAIL_N" | while IFS="$(printf '\t')" read -r ms rel verdict; do
         # Share of the summed SUITE time, not of the run: the two differ by the
         # canary, and a percentage that does not sum to 100 invites the reader
@@ -472,8 +535,8 @@ if [ "$TAIL_N" -gt 0 ]; then
         [ "$SUM_MS" -gt 0 ] && pct=$(( (10#$ms * 100) / SUM_MS ))
         printf '    %9s  %3s%%  %-58s %s\n' "$(sw_fmt "$((10#$ms))")" "$pct" "$rel" "$verdict"
     done
-    printf '  summed suite time %s across %s suite(s); runner overhead (canary etc.) %s\n' \
-        "$(sw_fmt "$SUM_MS")" "$TOTAL" "$(sw_fmt "$(( RUN_MS - SUM_MS ))")"
+    printf '  summed execution time %s across %s suite(s); queueing and runner overhead %s\n' \
+        "$(sw_fmt "$SUM_MS")" "$i" "$(sw_fmt "$(( RUN_MS - SUM_MS ))")"
 fi
 
 echo ""

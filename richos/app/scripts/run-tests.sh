@@ -274,8 +274,10 @@ WORKER_TOOL="$DIR/../../engine/scripts/lib/worker_tokens.py"
 # `--list` starts nothing, so it must not wait for a machine worker token to say so.
 LISTING=""
 for _arg in "$@"; do [ "$_arg" = "--list" ] && LISTING=1; done
-if [ -z "$LISTING" ] && [ -z "${RICHOS_WORKER_TOKENS:-}" ] && [ -f "$WORKER_TOOL" ]; then
-  exec python3 "$WORKER_TOOL" machine -- bash "${BASH_SOURCE[0]}" "$@"
+if [ -z "$LISTING" ] && [ -f "$WORKER_TOOL" ]; then
+  if ! python3 "$WORKER_TOOL" inherited-admission; then
+    exec python3 "$WORKER_TOOL" machine -- bash "${BASH_SOURCE[0]}" "$@"
+  fi
 fi
 
 JOBS=""
