@@ -157,7 +157,9 @@ class Closure(unittest.TestCase):
         graph = inputs.Dependencies(HERE.parent, document)
         unit = 'scripts/hooks/failure-type.test.sh'
         closure = graph.closure(unit)
-        self.assertFalse(any(closure.values()), closure)
+        self.assertFalse(closure['keys'] or closure['whole'] or closure['fallback'], closure)
+        self.assertTrue(closure['presence'], closure)
+        self.assertIn(unit, graph.config_units(inputs.config_change('CHECK_FAILURE_TYPE=1', None), [unit]))
         change = inputs.config_change('CHECK_FAILURE_TYPE=1\nFAILURE_TYPE_REGISTER=old',
                                       'CHECK_FAILURE_TYPE=0\nFAILURE_TYPE_REGISTER=new')
         self.assertFalse(graph.config_units(change, [unit]))

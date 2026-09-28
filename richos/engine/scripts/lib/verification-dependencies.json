@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "a5c5d19c43128b9e54b8e8fceb18a177e3cae930700e3abfc622f274a5c1ff8b",
+      "sha256": "226bdd1bd7b9dec83d22f6bfd5f26e68a6a613611fb2d550798c72e9a436811b",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
