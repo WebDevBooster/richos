@@ -12,7 +12,7 @@ import subprocess
 import sys
 
 from verification_inputs import (Dependencies, Snapshot, Unsupported, config, config_change,
-                                 hook_command_path, hook_reader, hooks_change, revisions)
+                                 hook_command_path, hook_entries, hook_reader, hooks_change, revisions)
 
 SECTIONED = "scripts/hooks/contract-integrity.test.sh"
 GLOBAL_CONFIG = "scripts/verification-config.test.sh"
@@ -89,11 +89,50 @@ class Selection:
             # Missing, malformed or unknown documents retain the old selection.
             if any(not isinstance(json.loads(text), dict) for text in (before, after)):
                 return False
+            if 'seated_dispatch_reader' in row:
+                if row['seated_dispatch_reader'] is not True:
+                    return False
+                # The registration helper searches all events for dispatcher
+                # commands. Keep every argument/dispatch-key change visible.
+                def dispatchers(text):
+                    return sorted(entry['command'] for entry in hook_entries(text, settings=True).values()
+                                  if 'dispatch-pretooluse' in entry['command'])
+                if dispatchers(before) != dispatchers(after):
+                    return False
         except (Unsupported, ValueError):
             return False
         return all([line for line in before.splitlines() if needle in line] ==
                    [line for line in after.splitlines() if needle in line]
                    for needle in needles)
+
+    def unchanged_probe_reader(self, suite, before, after):
+        """Ignore only unrelated literal oracle rows for qualified text readers."""
+        row = self.declaration.get('hook_readers', {}).get(suite)
+        if not isinstance(row, dict) or 'probe_registration_needles' not in row:
+            return False
+        needles = row['probe_registration_needles']
+        if (not isinstance(needles, list) or not needles
+                or any(not isinstance(n, str) or not re.fullmatch(r'[A-Za-z0-9_-]+', n) for n in needles)
+                or not isinstance(before, str) or not isinstance(after, str)):
+            return False
+        try:
+            hook_reader(row, self.read)
+            if suite not in row['sources']:
+                return False
+            def observed(text):
+                blocks = list(re.finditer(r'(?m)^    BR_EXPECTED="\\\n([^"]*)"', text))
+                if len(blocks) != 1:
+                    raise Unsupported('ambiguous probe registration oracle')
+                block = blocks[0]
+                lines = block[1].splitlines(keepends=True)
+                if not lines or any(not re.fullmatch(r'[A-Za-z0-9_.-]+\.sh\|[A-Za-z][A-Za-z0-9]*\n?', line)
+                                    for line in lines):
+                    raise Unsupported('nonliteral probe registration oracle')
+                retained = ''.join(line for line in lines if any(n in line for n in needles))
+                return text[:block.start(1)] + retained + text[block.end(1):]
+            return observed(before) == observed(after)
+        except Unsupported:
+            return False
 
     def ordinary(self, path, before=None, after=None):
         prior_count = sum(len(reasons) for reasons in self.selected.values())
@@ -108,6 +147,8 @@ class Selection:
         for suite, text in self.suites.items():
             if basename in text:
                 if path == '.claude/settings.local.json' and self.unchanged_seated_reader(suite, before, after):
+                    continue
+                if path == 'scripts/hooks/contract-integrity-probe.sh' and self.unchanged_probe_reader(suite, before, after):
                     continue
                 self.suite(suite, path, "basename dependency (conservative)")
         matched = sum(len(reasons) for reasons in self.selected.values()) > prior_count
@@ -253,7 +294,7 @@ def main(argv=None):
             elif relative == 'hooks/hooks.json':
                 before = Snapshot(root, old).read(path) if old else None
                 selection.hooks(before, read(relative), unknown=old is None)
-            elif relative == '.claude/settings.local.json':
+            elif relative in ('.claude/settings.local.json', 'scripts/hooks/contract-integrity-probe.sh'):
                 before = Snapshot(root, old).read(path) if old else None
                 selection.ordinary(relative, before, read(relative))
             else:

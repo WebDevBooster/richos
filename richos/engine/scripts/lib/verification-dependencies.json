@@ -617,18 +617,18 @@
     },
     "scripts/lib/verification_inputs.py#config": {
       "source": "scripts/lib/verification_inputs.py",
-      "sha256": "acd857f66c0058c06114486da9e5bf09d02fc4d1ff51e2c4e57151277e4d3cc6",
+      "sha256": "cc7a5c552055f7ee2c8c076d0d3b29fd5cf1b33ab641028790127610df71cfb0",
       "evidence": "The config parser accepts assignment text as data, preserving key references and rejecting unsupported executable syntax. No selected hook or suite is invoked.",
       "keys": [],
       "edges": [],
       "region": [
         "ENVIRONMENT =",
-        "def hook_entries(text):"
+        "def hook_entries(text, settings=False):"
       ]
     },
     "scripts/lib/affected_units.py#validate-config": {
       "source": "scripts/lib/affected_units.py",
-      "sha256": "b4659cccdf27b67c0f4e53c527c32bbfb8d9ca2b60a5fd5c7fdec4ab1304c554",
+      "sha256": "9ddc3da1060a2d1fd6e9a875f7d6045208128d0c7934c3482580fbfdef79a430",
       "evidence": "validate_config reads the real config and its declared key registry, rejecting unsupported syntax and unknown keys.",
       "keys": [],
       "edges": [
@@ -1046,14 +1046,14 @@
     },
     "scripts/lib/verification_inputs.py": {
       "source": "scripts/lib/verification_inputs.py",
-      "sha256": "acd857f66c0058c06114486da9e5bf09d02fc4d1ff51e2c4e57151277e4d3cc6",
+      "sha256": "cc7a5c552055f7ee2c8c076d0d3b29fd5cf1b33ab641028790127610df71cfb0",
       "evidence": "Parser and dependency APIs read supplied text/paths. Snapshot executes only Git reads. It never executes a sourced configuration or a selected hook command.",
       "keys": [],
       "edges": []
     },
     "scripts/lib/affected_units.py": {
       "source": "scripts/lib/affected_units.py",
-      "sha256": "b4659cccdf27b67c0f4e53c527c32bbfb8d9ca2b60a5fd5c7fdec4ab1304c554",
+      "sha256": "9ddc3da1060a2d1fd6e9a875f7d6045208128d0c7934c3482580fbfdef79a430",
       "evidence": "The selector can validate a supplied engine configuration and can compute config/hook/ordinary selections from supplied snapshots. Its only subprocesses are read-only Git operations.",
       "keys": [],
       "edges": [
@@ -13013,7 +13013,13 @@
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7"
       },
-      "evidence": "G1 counts each of the four literal registrations. Other wiring assertions read probe/installer source data. The finite nested mutants execute this same registration block; they do not run the full hook inventory."
+      "evidence": "G1 counts each of the four literal registrations. Other wiring assertions read probe/installer source data. The finite nested mutants execute this same registration block; they do not run the full hook inventory. Probe is inspected as source only: named registration grep and, where present, rootless-block source assertions. Only unrelated literal BR_EXPECTED rows may differ; all other probe bytes are preserved.",
+      "probe_registration_needles": [
+        "notice-ceo-asks",
+        "guard-ceo-ask-first",
+        "notice-ceo-unasked",
+        "session-start-ceo-ask"
+      ]
     },
     "scripts/hooks/ceo-ruled.test.sh": {
       "commands": [
@@ -13508,6 +13514,7 @@
     },
     "scripts/hooks/row-currency.test.sh": {
       "commands": [
+        "scripts/hooks/dispatch-pretooluse.sh",
         "scripts/hooks/guard-row-currency-commits.sh"
       ],
       "sources": {
@@ -13537,12 +13544,24 @@
         "scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
-        "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1"
+        "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
+        "scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
       },
-      "evidence": "Full outer registration assertions resolve the row guard through real plugin and seated surfaces using registered-hooks. Inner mutation groups now omit registration and retain the same guard call surface. Probe and installer checks remain source-data scans in the outer suite, not dynamic inventory execution."
+      "evidence": "Full outer registration assertions resolve the row guard through real plugin and seated surfaces using registered-hooks. Inner mutation groups now omit registration and retain the same guard call surface. Probe and installer checks remain source-data scans in the outer suite, not dynamic inventory execution. Seated observation compares every raw line containing a named guard prefix plus every parsed dispatcher command across all events; this covers the helper direct grep and dispatcher-key lookup without approximating its verdict. The dispatcher manifest is bound as an additional input. Probe is inspected as source only: named registration grep and, where present, rootless-block source assertions. Only unrelated literal BR_EXPECTED rows may differ; all other probe bytes are preserved.",
+      "seated_text_needles": [
+        "guard-row-currency-commits"
+      ],
+      "seated_dispatch_reader": true,
+      "text_needles": [
+        "guard-row-currency-commits"
+      ],
+      "probe_registration_needles": [
+        "guard-row-currency-commits"
+      ]
     },
     "scripts/hooks/completeness-commits.test.sh": {
       "commands": [
+        "scripts/hooks/dispatch-pretooluse.sh",
         "scripts/hooks/guard-completeness-commits.sh"
       ],
       "sources": {
@@ -13557,9 +13576,20 @@
         "scripts/lib/publication-boundary.sh": "46366c80e498f6269889d21109cbfe5de696c273aa9229277ecc85d8285fac85",
         "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
         "scripts/publication-completeness.sh": "54b22bd10dd4d1e70ee41077d2cd6c21dbefe4d835d8a19a5438513faf7b60b0",
-        "scripts/publication-completeness.py": "6ceadb3516b84fa0e5d61ad0423b35e1649714b4a74aa7f17d4ae3370b66a6b0"
+        "scripts/publication-completeness.py": "6ceadb3516b84fa0e5d61ad0423b35e1649714b4a74aa7f17d4ae3370b66a6b0",
+        "scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
       },
-      "evidence": "Only the fixed guard registration is resolved through both real surfaces."
+      "evidence": "Only the fixed guard registration is resolved through both real surfaces. Seated observation compares every raw line containing a named guard prefix plus every parsed dispatcher command across all events; this covers the helper direct grep and dispatcher-key lookup without approximating its verdict. The dispatcher manifest is bound as an additional input. Probe is inspected as source only: named registration grep and, where present, rootless-block source assertions. Only unrelated literal BR_EXPECTED rows may differ; all other probe bytes are preserved.",
+      "seated_text_needles": [
+        "guard-completeness-commits"
+      ],
+      "seated_dispatch_reader": true,
+      "text_needles": [
+        "guard-completeness-commits"
+      ],
+      "probe_registration_needles": [
+        "guard-completeness-commits"
+      ]
     },
     "scripts/publication-completeness.test.sh": {
       "commands": [],
@@ -13578,8 +13608,9 @@
     },
     "scripts/hooks/named-persons.test.sh": {
       "commands": [
-        "scripts/hooks/guard-named-persons-writes.sh",
-        "scripts/hooks/guard-named-persons-commands.sh"
+        "scripts/hooks/dispatch-pretooluse.sh",
+        "scripts/hooks/guard-named-persons-commands.sh",
+        "scripts/hooks/guard-named-persons-writes.sh"
       ],
       "sources": {
         "scripts/hooks/named-persons.test.sh": "effbfab0fbc380662d3dc1a21d3889c45d63a368fc319c78ebf7c1ac97a63b34",
@@ -13595,9 +13626,23 @@
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
         "scripts/hooks/guard-named-persons-commands.sh": "56891e30dde5774e5430c9459cee10dc61bb683888f76917219d97c9e9cce825",
         "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
-        "scripts/named-persons.sh": "0c672c2e9cc4b61f9c0262df9c251692a30d1f110a335c718365c5a69cd126ca"
+        "scripts/named-persons.sh": "0c672c2e9cc4b61f9c0262df9c251692a30d1f110a335c718365c5a69cd126ca",
+        "scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
       },
-      "evidence": "Only these two registrations are resolved against plugin and seated surfaces; source oracle/bootstrap checks do not execute the probe or any other hook."
+      "evidence": "Only these two registrations are resolved against plugin and seated surfaces; source oracle/bootstrap checks do not execute the probe or any other hook. Seated observation compares every raw line containing a named guard prefix plus every parsed dispatcher command across all events; this covers the helper direct grep and dispatcher-key lookup without approximating its verdict. The dispatcher manifest is bound as an additional input. Probe is inspected as source only: named registration grep and, where present, rootless-block source assertions. Only unrelated literal BR_EXPECTED rows may differ; all other probe bytes are preserved.",
+      "seated_text_needles": [
+        "guard-named-persons-writes",
+        "guard-named-persons-commands"
+      ],
+      "seated_dispatch_reader": true,
+      "text_needles": [
+        "guard-named-persons-commands",
+        "guard-named-persons-writes"
+      ],
+      "probe_registration_needles": [
+        "guard-named-persons-writes",
+        "guard-named-persons-commands"
+      ]
     },
     "scripts/hooks/dispatch-pretooluse.test.sh": {
       "commands": [],
@@ -13734,6 +13779,7 @@
     },
     "scripts/hooks/guard-vendoring-commits.test.sh": {
       "commands": [
+        "scripts/hooks/dispatch-pretooluse.sh",
         "scripts/hooks/guard-vendoring-commits.sh"
       ],
       "sources": {
@@ -13758,14 +13804,26 @@
         "scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
-        "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1"
+        "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
+        "scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
       },
-      "evidence": "Only this guard registration is resolved on plugin and seated surfaces. Probe, installer and declaration-resolver source assertions are text data; no other hook registration is executed."
+      "evidence": "Only this guard registration is resolved on plugin and seated surfaces. Probe, installer and declaration-resolver source assertions are text data; no other hook registration is executed. Seated observation compares every raw line containing a named guard prefix plus every parsed dispatcher command across all events; this covers the helper direct grep and dispatcher-key lookup without approximating its verdict. The dispatcher manifest is bound as an additional input. Probe is inspected as source only: named registration grep and, where present, rootless-block source assertions. Only unrelated literal BR_EXPECTED rows may differ; all other probe bytes are preserved.",
+      "seated_text_needles": [
+        "guard-vendoring-commits"
+      ],
+      "seated_dispatch_reader": true,
+      "text_needles": [
+        "guard-vendoring-commits"
+      ],
+      "probe_registration_needles": [
+        "guard-vendoring-commits"
+      ]
     },
     "scripts/hooks/publication-boundary.test.sh": {
       "commands": [
-        "scripts/hooks/guard-publication-writes.sh",
-        "scripts/hooks/guard-publication-commits.sh"
+        "scripts/hooks/dispatch-pretooluse.sh",
+        "scripts/hooks/guard-publication-commits.sh",
+        "scripts/hooks/guard-publication-writes.sh"
       ],
       "sources": {
         "scripts/hooks/publication-boundary.test.sh": "140b288e44c4805083ee9df0c3f9fc7bc9fc5f7e7558f59b9568da4c26c3ff78",
@@ -13779,9 +13837,23 @@
         "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
         "scripts/lib/publication-boundary.py": "e2caa3ecd680024f51aa49a4f2318db7e6298315712e706841f3d86b441c6735",
         "scripts/hooks/guard-publication-commits.sh": "180baec98c3f3b0e23e6b12bb8f3e129082ca6f10d49577b56671e102039e9fe",
-        "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23"
+        "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
+        "scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
       },
-      "evidence": "Only the two publication guard registrations are queried on plugin and seated surfaces. Probe and installer source are assertion data."
+      "evidence": "Only the two publication guard registrations are queried on plugin and seated surfaces. Probe and installer source are assertion data. Seated observation compares every raw line containing a named guard prefix plus every parsed dispatcher command across all events; this covers the helper direct grep and dispatcher-key lookup without approximating its verdict. The dispatcher manifest is bound as an additional input. Probe is inspected as source only: named registration grep and, where present, rootless-block source assertions. Only unrelated literal BR_EXPECTED rows may differ; all other probe bytes are preserved.",
+      "seated_text_needles": [
+        "guard-publication-writes",
+        "guard-publication-commits"
+      ],
+      "seated_dispatch_reader": true,
+      "text_needles": [
+        "guard-publication-commits",
+        "guard-publication-writes"
+      ],
+      "probe_registration_needles": [
+        "guard-publication-writes",
+        "guard-publication-commits"
+      ]
     },
     "scripts/hooks/operator-leads.test.sh": {
       "commands": [
@@ -14252,6 +14324,85 @@
         "scripts/lib/ci_pause.py": "f41e86ea2b1aaa036c92eb44ddcb2fe2a6880724162561a5e31b84d556758693"
       },
       "evidence": "Registered-executables is invoked only with explicit private engine/entity/launch-agent roots and a literal fixture manifest. Other executed owned-system rows are literal bash fixtures and the bound escalations declaration row running escalate.sh list. Shared mutation transport copies manifests but nested suite recreates its private manifest. No reached reader observes the real plugin manifest; every existing reviewed helper/declaration source is bound."
+    },
+    "scripts/hooks/guard-dialect.test.sh": {
+      "commands": [
+        "scripts/hooks/dispatch-pretooluse.sh",
+        "scripts/hooks/guard-dialect.sh"
+      ],
+      "sources": {
+        "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
+        "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
+        "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
+        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
+        "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
+        "scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
+        "scripts/hooks/guard-dialect.mutation.sh": "5c52c3a606fa605829d8ad923ba77f196518814004fbcb877eed8dab7982c2c5",
+        "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "scripts/hooks/guard-dialect.sh": "2a19b37f44f5805b9b57c613f1cc7eae0cd1ef806dd36db2b4b10bfed990a58e",
+        "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
+        "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
+        "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
+        "scripts/lib/vendored-material.sh": "630fc9746255b5e2c6cf24be71ba0b9780a5d673f98559db3099b44f47fa3c92",
+        "scripts/lib/proc_tree.py": "78ad648204b6e5748a218df45e33b2baec0ead71bda62f0908a83bb5c35bfeb0",
+        "scripts/hooks/guard-dialect.test.sh": "152912710783f62d961ea0f768091953ad6c435143c2353b9af55ee4f742ccba",
+        "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
+      },
+      "evidence": "Outer registration assertions query only the named guard through hook_enforced_on_surface. Nested behavior fixtures do not execute a hook inventory or the probe. Every existing reviewed helper is bound. Seated observation compares every raw line containing a named guard prefix plus every parsed dispatcher command across all events; this covers the helper direct grep and dispatcher-key lookup without approximating its verdict. The dispatcher manifest is bound as an additional input.",
+      "seated_text_needles": [
+        "guard-dialect"
+      ],
+      "seated_dispatch_reader": true,
+      "text_needles": [
+        "guard-dialect"
+      ]
+    },
+    "scripts/hooks/ceo-todos.test.sh": {
+      "commands": [
+        "scripts/hooks/dispatch-pretooluse.sh",
+        "scripts/hooks/guard-ceo-todos-commits.sh"
+      ],
+      "sources": {
+        "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
+        "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
+        "scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
+        "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
+        "scripts/ceo-todos-init.sh": "a98539a81ad89d378ab1cb43462fb7056e01988e6696c1b3dddae8535591fec6",
+        "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
+        "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
+        "scripts/hooks/guard-ceo-todos-commits.sh": "b5ce1b39ad6985d4d3a52864c389968a474f05de1187baaa430941756ae0c0e0",
+        "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
+        "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
+        "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
+        "scripts/hooks/ceo-todos.mutation.sh": "a918552413245b809ace2d74b9f60633132837dbfe5b0df06a27678f468c607c",
+        "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
+        "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
+        "scripts/hooks/ceo-todos.test.sh": "4d91ab231d415a9daeaf3c63a0e670e6330a6443ac54efea6c4c0f2d98603250",
+        "scripts/ceo-todos-render.sh": "63b00d5fde2eb129df925749ae9967521d9251936f5f19db627bded6049fddc3",
+        "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
+        "scripts/lib/proc_tree.py": "78ad648204b6e5748a218df45e33b2baec0ead71bda62f0908a83bb5c35bfeb0",
+        "scripts/cold-open.sh": "fddf01eaf727eacba9ff6cd108ac5eabbf5479249c2d5ffeb7d4edef40d1cdd9",
+        "scripts/ceo-todos-lint.sh": "cec21eee8a4d92b52d91d67df77ca120cc42fd33c686e3a3d79775c76ee91619",
+        "scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
+      },
+      "evidence": "Outer registration assertions query only the named guard through hook_enforced_on_surface. Nested behavior fixtures do not execute a hook inventory or the probe. Every existing reviewed helper is bound. Seated observation compares every raw line containing a named guard prefix plus every parsed dispatcher command across all events; this covers the helper direct grep and dispatcher-key lookup without approximating its verdict. The dispatcher manifest is bound as an additional input. Probe is inspected as source only: named registration grep and, where present, rootless-block source assertions. Only unrelated literal BR_EXPECTED rows may differ; all other probe bytes are preserved.",
+      "seated_text_needles": [
+        "guard-ceo-todos-commits"
+      ],
+      "seated_dispatch_reader": true,
+      "text_needles": [
+        "guard-ceo-todos-commits"
+      ],
+      "probe_registration_needles": [
+        "guard-ceo-todos-commits"
+      ]
     }
   }
 }
