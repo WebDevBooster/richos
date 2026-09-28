@@ -152,6 +152,40 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_scoped_contract_sections_keep_their_own_nested_readers(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        prefix = 'scripts/hooks/contract-integrity.test.sh:'
+        units = [prefix + section for section in ('CL', 'RI', 'WTR', 'MC6', 'SCR')]
+        for unit in units:
+            closure = graph.closure(document['units'][unit])
+            self.assertFalse(closure['fallback'] or closure['whole'], (unit, closure))
+        changes = {
+            'SHOW_TURN_MANIFEST': set(),
+            'SESSION_TEAMS_DIR': {prefix + 'RI'},
+            'APP_TEST_INSTANCE_BUNDLE_ID': {prefix + 'RI'},
+            'SCRATCH_NIGHTLY_KEEP': {prefix + 'SCR'},
+            'MODEL_CEILING': set(),
+        }
+        for key, expected in changes.items():
+            change = inputs.config_change(key + '=old', key + '=new')
+            self.assertEqual(set(graph.config_units(change, units)), expected, key)
+        deleted = inputs.config_change('PROTECTED_PATHS=app', None)
+        self.assertTrue(set(units[1:]) <= set(graph.config_units(deleted, units)))
+        unrelated = inputs.config_change('SHOW_TURN_MANIFEST=0', 'SHOW_TURN_MANIFEST=1')
+        for section, helper in (
+                ('CL', 'scripts/hooks/claim-roles.mutation.sh'),
+                ('RI', 'scripts/hooks/inflight-notify.mutation.sh'),
+                ('WTR', 'scripts/hooks/guard-worktree-removal.mutation.sh'),
+                ('MC6', 'scripts/hooks/guard-model-ceiling.mutation.sh'),
+                ('SCR', 'scripts/lib/scratch-reaper.py#required-setting-names')):
+            previous = document['nodes'].pop(helper)
+            self.assertIn(prefix + section, graph.config_units(unrelated, units))
+            document['nodes'][helper] = previous
+        reader = inputs.hook_reader(document['hook_readers'][prefix[:-1]],
+                                    lambda path: (HERE.parent / path).read_text())
+        self.assertTrue(reader['all_events'])
+
     def test_failure_type_mutants_rebuild_private_register_configuration(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)
