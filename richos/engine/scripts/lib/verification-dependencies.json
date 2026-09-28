@@ -3103,6 +3103,98 @@
           "to": "scripts/hooks/unlanded-branches.test.sh"
         }
       ]
+    },
+    "scripts/collect-worktree-artifacts.sh": {
+      "source": "scripts/collect-worktree-artifacts.sh",
+      "sha256": "fca2e90d19e2efe2d49ed3d45afda624da632d611f26e7880a9fa7c7e55c74f6",
+      "evidence": "Resolves the governed entity and sources only its config to obtain the two artifact directory lists. Collection uses git and rsync without executing collected files.",
+      "keys": [
+        "ARTIFACT_MERGE_DIRS",
+        "ARTIFACT_REPLACE_DIRS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        }
+      ],
+      "presence": "Requires the resolved entity config before collection."
+    },
+    "scripts/collect-worktree-artifacts.test.sh": {
+      "source": "scripts/collect-worktree-artifacts.test.sh",
+      "sha256": "e19a5b53ce3ae0bf2d146e2fb348ce251966b3047d7b8c55aed45bec54ddf546",
+      "evidence": "make_engine and make_entity write literal directory-list configs; run_collector scrubs ambient root identity. Every original and finite inline mutant runs a copied collector against those private entities. Copied lib files are transported; only root resolution executes.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/collect-worktree-artifacts.sh",
+          "fixture": true
+        }
+      ],
+      "literal_keys": {
+        "ARTIFACT_MERGE_DIRS": "Single-quoted source mutation operands; the executed collector reads a newly written fixture config.",
+        "ARTIFACT_REPLACE_DIRS": "Single-quoted source mutation operands; the executed collector reads a newly written fixture config."
+      }
+    },
+    "scripts/hooks/turn-manifest.py": {
+      "source": "scripts/hooks/turn-manifest.py",
+      "sha256": "f7846899fa05c44ed325cffa18c6304c3177b46901923bd26d829e226d87665b",
+      "evidence": "Imports only json, os and sys. Reads the supplied transcript and writes a manifest ledger under the supplied entity root; neither operation reads config or executes transcript content.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/hooks/turn-manifest.sh": {
+      "source": "scripts/hooks/turn-manifest.sh",
+      "sha256": "f5e92311f9896874e5294533673dd08160f3e4cfba4a262e161ae96e377331ae",
+      "evidence": "Normal Stop invocation resolves the entity, sources its config and reads SHOW_TURN_MANIFEST. Calls fixed notice helpers and the sibling renderer. Self-test dispatch is represented by the suite and its mutation cycle.",
+      "keys": [
+        "SHOW_TURN_MANIFEST"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/hooks/turn-manifest.py"
+        }
+      ]
+    },
+    "scripts/hooks/turn-manifest.test.sh": {
+      "source": "scripts/hooks/turn-manifest.test.sh",
+      "sha256": "4d0fea059a0479cd1867e62f8362d7890385179ced084fd1dde25b43371e2f46",
+      "evidence": "All hook payloads target generated transcripts and private entities with empty or literal SHOW_TURN_MANIFEST configs. Missing-root and missing-helper copies never reach production settings. Nested mutants rerun this same constructor.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/turn-manifest.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/turn-manifest.mutation.sh"
+        }
+      ]
+    },
+    "scripts/hooks/turn-manifest.mutation.sh": {
+      "source": "scripts/hooks/turn-manifest.mutation.sh",
+      "sha256": "2bac687880e5e4bbf7e0733393206f25b907ef1e28992dd2ee216f11a1e65994",
+      "evidence": "Copies the fixed hook, renderer, suite and root/notice helpers, applies seven finite literal replacements then executes the copied suite with nested mutation disabled. That suite regenerates all entity configs; no production config is copied.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/stopwatch.sh"
+        },
+        {
+          "to": "scripts/lib/mutation-pool.sh"
+        },
+        {
+          "to": "scripts/hooks/turn-manifest.test.sh"
+        }
+      ]
     }
   },
   "units": {
@@ -3160,7 +3252,9 @@
     "scripts/scratch-reaper.test.sh": "scripts/scratch-reaper.test.sh",
     "scripts/hooks/guard-unresolved-claims.test.sh": "scripts/hooks/guard-unresolved-claims.test.sh",
     "scripts/hooks/guard-ci-turn-gate.test.sh": "scripts/hooks/guard-ci-turn-gate.test.sh",
-    "scripts/hooks/unlanded-branches.test.sh": "scripts/hooks/unlanded-branches.test.sh"
+    "scripts/hooks/unlanded-branches.test.sh": "scripts/hooks/unlanded-branches.test.sh",
+    "scripts/collect-worktree-artifacts.test.sh": "scripts/collect-worktree-artifacts.test.sh",
+    "scripts/hooks/turn-manifest.test.sh": "scripts/hooks/turn-manifest.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {

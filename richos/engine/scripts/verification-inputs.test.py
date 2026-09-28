@@ -152,6 +152,35 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_artifact_and_manifest_fixtures_do_not_consume_production_settings(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        units = ['scripts/collect-worktree-artifacts.test.sh',
+                 'scripts/hooks/turn-manifest.test.sh']
+        for unit in units:
+            self.assertEqual(graph.closure(unit),
+                             {'keys': {}, 'whole': [], 'presence': [], 'fallback': []})
+        for key in ('ARTIFACT_MERGE_DIRS', 'ARTIFACT_REPLACE_DIRS', 'SHOW_TURN_MANIFEST'):
+            change = inputs.config_change(key+'=old', key+'=new')
+            self.assertEqual(graph.config_units(change, units), {})
+        self.assertEqual(graph.config_units(inputs.config_change(None, 'SHOW_TURN_MANIFEST=1'), units), {})
+        self.assertEqual(set(graph.closure('scripts/collect-worktree-artifacts.sh')['keys']),
+                         {'ARTIFACT_MERGE_DIRS', 'ARTIFACT_REPLACE_DIRS'})
+        self.assertEqual(set(graph.closure('scripts/hooks/turn-manifest.sh')['keys']),
+                         {'SHOW_TURN_MANIFEST'})
+        # Fixture replacement may remove value dependencies, never uncertainty
+        # about a helper or the constructor used by the nested mutation run.
+        for helper, affected in (
+                ('scripts/lib/resolve-roots.sh#roots', units),
+                ('scripts/hooks/turn-manifest.py', units[1:]),
+                ('scripts/hooks/turn-manifest.mutation.sh', units[1:]),
+                ('scripts/collect-worktree-artifacts.sh', units[:1])):
+            with self.subTest(helper=helper):
+                old = document['nodes'][helper]['sha256']
+                document['nodes'][helper]['sha256'] = 'changed'
+                self.assertEqual(set(graph.config_units(change, units)), set(affected))
+                document['nodes'][helper]['sha256'] = old
+
     def test_unlanded_fixture_copy_and_mutants_preserve_entity_config_origin(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

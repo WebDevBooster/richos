@@ -165,6 +165,26 @@ class Planner(unittest.TestCase):
         # JSON escapes in the description remain outside these registration needles.
         self.assertEqual(set(plan.selected), {'scripts/check-census.test.sh'})
 
+    def test_real_fixture_suites_skip_config_changes_but_keep_source_changes(self):
+        root = HERE.parent
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        suites = ['scripts/collect-worktree-artifacts.test.sh',
+                  'scripts/hooks/turn-manifest.test.sh', GLOBAL_CONFIG]
+        def read(path):
+            file = root / path
+            return file.read_text() if file.is_file() else None
+        for before, after in (('SHOW_TURN_MANIFEST=1', 'SHOW_TURN_MANIFEST=0'),
+                              ('ARTIFACT_MERGE_DIRS=a', 'ARTIFACT_MERGE_DIRS=b')):
+            plan = Selection(root, suites, read, document)
+            plan.configuration(before, after)
+            self.assertEqual(set(plan.selected), {GLOBAL_CONFIG})
+        for source, unit in (('scripts/collect-worktree-artifacts.sh', suites[0]),
+                             ('scripts/hooks/turn-manifest.sh', suites[1]),
+                             ('scripts/hooks/turn-manifest.py', suites[1])):
+            plan = Selection(root, suites, read, document)
+            plan.ordinary(source)
+            self.assertIn(unit, plan.selected)
+
 
 class SnapshotCLI(unittest.TestCase):
     def test_real_cli_distinguishes_commit_index_and_worktree_without_execution(self):
