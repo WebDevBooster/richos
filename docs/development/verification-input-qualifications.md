@@ -100,3 +100,13 @@ literal path matches the suite's actual lookup. Profile omission is rejected.
 Logical CPU count also participates in platform identity because the mutation
 harness derives its default concurrency from the machine; no worker default is
 changed by this declaration.
+
+Fourteen contract sections now use the same per-unit floor: M, shim, manifest,
+worktree, N, python3, config, K, P, S, MT, MC, IP and MC6. Their private Git template,
+literal settings, managed-script inventory and canary helper closure were reviewed.
+Each JSON row records its specific axis. The hook and dispatcher inventories are
+also bound because an inventory change can introduce new executed readers.
+Registration mutation, absent executable and sidecar assertions stay enabled.
+No current-time value, operator registry or external repository determines these
+sections' verdicts under the private recipe. Operational worker admission,
+owned-process cleanup and source canaries remain required during execution.
