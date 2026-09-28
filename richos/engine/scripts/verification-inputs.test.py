@@ -165,6 +165,64 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_fixture_and_event_observers_preserve_readers_and_conservative_fallback(self):
+        import copy
+        from affected_units import Selection
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        read = lambda path: (HERE.parent / path).read_text()
+        spawn = 'scripts/spawn.test.sh'
+        resume = 'scripts/hooks/guard-resume-isolation.test.sh'
+        ci = 'scripts/ci-verify.test.sh'
+        settings = '.claude/settings.local.json'
+        probe = 'scripts/hooks/contract-integrity-probe.sh'
+        def selected(unit, path, before, after, declaration=document, reader=read):
+            selection = Selection(HERE.parent, [unit], reader, declaration)
+            selection.ordinary(path, before, after)
+            return unit in selection.selected
+        command = {'type': 'command', 'command': 'bash own.sh', 'timeout': 20}
+        group = {'matcher': 'Agent', 'hooks': [command]}
+        old = {'hooks': {'PreToolUse': [group]}}
+        new = copy.deepcopy(old)
+        new['hooks']['Stop'] = [{'hooks': [{'type': 'command', 'command': 'bash unrelated.sh'}]}]
+        before, after = json.dumps(old), json.dumps(new)
+        for unit in (spawn, resume):
+            self.assertFalse(selected(unit, settings, before, after))
+            for bad in (None, 'bad json', '{"hooks":{},"hooks":{}}', '{"hooks":{"Stop":{}}}'):
+                self.assertTrue(selected(unit, settings, before, bad))
+        for mutation in ('command', 'matcher', 'timeout', 'order', 'legacy', 'missing'):
+            changed = copy.deepcopy(new)
+            if mutation == 'command': changed['hooks']['PreToolUse'][0]['hooks'][0]['command'] = 'bash changed.sh'
+            elif mutation == 'matcher': changed['hooks']['PreToolUse'][0]['matcher'] = 'Bash'
+            elif mutation == 'timeout': changed['hooks']['PreToolUse'][0]['hooks'][0]['timeout'] = 99
+            elif mutation == 'order': changed['hooks']['PreToolUse'].insert(0, {'hooks': []})
+            elif mutation == 'legacy': changed['PreToolUse'] = [group]
+            else: changed['hooks'].pop('PreToolUse')
+            self.assertTrue(selected(spawn, settings, before, json.dumps(changed)), mutation)
+            self.assertFalse(selected(resume, settings, before, json.dumps(changed)), mutation)
+        before_probe = read(probe)
+        anchor = '    BR_EXPECTED="\\\n'
+        self.assertIn(anchor, before_probe)
+        after_probe = before_probe.replace(anchor, anchor + 'unrelated-fixture.sh|Stop\n', 1)
+        self.assertFalse(selected(ci, probe, before_probe, after_probe))
+        self.assertTrue(selected(ci, probe, before_probe, after_probe + '\n# non-oracle change\n'))
+        self.assertTrue(selected(ci, probe, before_probe, None))
+        for unit, path, old_text, new_text in ((spawn, settings, before, after),
+                                              (resume, settings, before, after),
+                                              (ci, probe, before_probe, after_probe)):
+            for source in document['hook_readers'][unit]['sources']:
+                with self.subTest(unit=unit, source=source):
+                    changed = lambda p: read(p) + '\n# changed reader\n' if p == source else read(p)
+                    self.assertTrue(selected(unit, path, old_text, new_text, reader=changed))
+            self.assertTrue(selected(unit, unit, None, None))
+        for unit, field, path, old_text, new_text in (
+                (spawn, 'seated_events', settings, before, after),
+                (resume, 'seated_reads_nothing', settings, before, after),
+                (ci, 'probe_registration_reads_nothing', probe, before_probe, after_probe)):
+            for invalid in ([], '', 1, None):
+                changed = copy.deepcopy(document)
+                changed['hook_readers'][unit][field] = invalid
+                self.assertTrue(selected(unit, path, old_text, new_text, declaration=changed))
+
     def test_loro_component_has_no_config_input_and_binds_every_reader(self):
         from affected_units import Selection
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())

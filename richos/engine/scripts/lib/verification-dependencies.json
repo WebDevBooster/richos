@@ -628,7 +628,7 @@
     },
     "scripts/lib/affected_units.py#validate-config": {
       "source": "scripts/lib/affected_units.py",
-      "sha256": "9ddc3da1060a2d1fd6e9a875f7d6045208128d0c7934c3482580fbfdef79a430",
+      "sha256": "ce785bd14551bd4de13985e49b82f074da30491133a8fdc393a4f9b3f1934b56",
       "evidence": "validate_config reads the real config and its declared key registry, rejecting unsupported syntax and unknown keys.",
       "keys": [],
       "edges": [
@@ -1053,7 +1053,7 @@
     },
     "scripts/lib/affected_units.py": {
       "source": "scripts/lib/affected_units.py",
-      "sha256": "9ddc3da1060a2d1fd6e9a875f7d6045208128d0c7934c3482580fbfdef79a430",
+      "sha256": "ce785bd14551bd4de13985e49b82f074da30491133a8fdc393a4f9b3f1934b56",
       "evidence": "The selector can validate a supplied engine configuration and can compute config/hook/ordinary selections from supplied snapshots. Its only subprocesses are read-only Git operations.",
       "keys": [],
       "edges": [
@@ -14733,7 +14733,7 @@
       "evidence": "Suite and probe audit every event, ordering, registration count and expanded dispatcher manifest. Hook inventory edits select this whole unit."
     },
     "scripts/spawn.test.sh": {
-      "evidence": "Real-surface collector reads PreToolUse Agent and matcherless groups; commands are collected as strings and never executed by this part. Other spawn calls use private literal hook JSON. The suite explicitly asserts the sealed-worktree matcherless entry.",
+      "evidence": "Real-surface collector reads PreToolUse Agent and matcherless groups; commands are collected as strings and never executed by this part. Other spawn calls use private literal hook JSON. The suite explicitly asserts the sealed-worktree matcherless entry. Seated settings are consumed only by collect_guards and the real-surface PreToolUse precondition; compare complete PreToolUse groups and its legacy top-level fallback. Other spawn calls use explicit private hook sources. All qualified transitive helpers are bound.",
       "events": [
         "PreToolUse"
       ],
@@ -14742,8 +14742,32 @@
       ],
       "sources": {
         "scripts/spawn.test.sh": "a73f04c42df5c4ab4eae2dc106bb9406e3e3f7010a55e8e51a9f0b9ec2a9f06a",
-        "scripts/lib/spawn.py": "03c671b261b680d8767a346540234ca8dc24ab62df1a48f08f6c018ab9ed1e9e"
-      }
+        "scripts/lib/spawn.py": "03c671b261b680d8767a346540234ca8dc24ab62df1a48f08f6c018ab9ed1e9e",
+        "ass-kicker/brief-provenance.py": "78b82b175a6d2e59032bcffd9ca49928023f4742bd8866275c581e7afb6d4a10",
+        "ass-kicker/brief-scope.py": "ace5be7e9031e6fd5b0ea0a9f0d7a00ceaa2c490822e0b77c4ec45d81dc324d8",
+        "mega-lander/create-teammate-worktree.sh": "189e5e613e20454aeab4a5d7b66d635ed876c165d3fa18884b7e1f9fcd59c963",
+        "mega-lander/workspaces.py": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+        "scripts/hooks/guard-worktree-isolation.sh": "c200f7a5b48835054ce460b95053abca44ac6dbaf677289940c23fc196917025",
+        "scripts/lib/agent_hold.py": "7ec72de051bf0fd7681324ced1ec804e51238f704bd40ec6d76c6bae1c363f38",
+        "scripts/lib/appinstances.py": "e30b7e3522111d099a20bc2d5af49bff1d5b9a4245d5c2147306ef065596efca",
+        "scripts/lib/containers.py": "957965ce69a27ad94066c9a20c92956e715cb5bdd234080b92024c8e9f0f08c9",
+        "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
+        "scripts/lib/pause_protocol.py": "01bea3772a0c1468f6a0e2337d00e96ebf77c9e6cf7d0af19b2cce6c24097ba7",
+        "scripts/lib/qa-toolkit.py": "f490cd7a72bacf99bef3eef47cc059d99cac5f3878b0d2399eea06dae55a24c0",
+        "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "scripts/lib/resolve-model.sh": "80d6df68468d7484a4385eb8b1b9ffdf1ea9575776a5e7141bb3fca58ca7ec11",
+        "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "scripts/lib/spawn-guard-audience.py": "0f29e5f4d8b857670e6566646e5ba1691b8b49e55b599b7e2d9d8a4782ccc0f9",
+        "scripts/lib/teammate-name.sh": "fd4f49d710bb208948d60cb7c92ccfcfce1e9db209975c53234f161a330a34a2",
+        "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
+        "scripts/lib/testdevices.py": "7317a16a8075947446dd7602c1715694e4f5dcce5ea0795d9dd9cb75ed665cdd",
+        "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "scripts/prepare-agent-spawn.py": "67d78fa20c52b44fa56b70d36cb8e22a432a37563105a191cd81e6471fec9dfe",
+        "scripts/spawn.sh": "62d22409afdd7ca9bb9b534ccba51794977bfc371d9d153655659f38f64ac817"
+      },
+      "seated_events": [
+        "PreToolUse"
+      ]
     },
     "mega-lander/tests/workspace-spec-fourteen.test.sh": {
       "commands": [],
@@ -14901,6 +14925,36 @@
       "probe_registration_needles": [
         "guard-ceo-todos-commits"
       ]
+    },
+    "scripts/hooks/guard-resume-isolation.test.sh": {
+      "commands": [],
+      "sources": {
+        "mega-lander/workspaces.py": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+        "scripts/hooks/guard-resume-isolation.sh": "2366c33e6d87e0b53a7c1e18a6b153b72652ac86532f88e145fd66539e373f56",
+        "scripts/hooks/guard-resume-isolation.test.sh": "8ae7ff8931733948b030736169ed956efdededac982f44e1973bc10374227908",
+        "scripts/lib/agent-liveness.py": "f6dc620af5b9a521717d4d3d4c07c24d730af892177970b044ecac81e12b605c",
+        "scripts/lib/agent_hold.py": "7ec72de051bf0fd7681324ced1ec804e51238f704bd40ec6d76c6bae1c363f38",
+        "scripts/lib/appinstances.py": "e30b7e3522111d099a20bc2d5af49bff1d5b9a4245d5c2147306ef065596efca",
+        "scripts/lib/containers.py": "957965ce69a27ad94066c9a20c92956e715cb5bdd234080b92024c8e9f0f08c9",
+        "scripts/lib/pause_protocol.py": "01bea3772a0c1468f6a0e2337d00e96ebf77c9e6cf7d0af19b2cce6c24097ba7",
+        "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "scripts/lib/teammate-identity.py": "54fed25d0e79b1757690cdc2b63fe3281c985b8324fe27b2d12d7048e27badf2",
+        "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
+        "scripts/lib/testdevices.py": "7317a16a8075947446dd7602c1715694e4f5dcce5ea0795d9dd9cb75ed665cdd"
+      },
+      "evidence": "settings.local.json is named only in the duplicate-delivery explanatory comment. The suite invokes the actual guard directly with literal payloads, private team/registry facts and the already qualified helper closure. No reader consumes a registration surface. This does not qualify or alter WAIT/pause behavior.",
+      "seated_reads_nothing": true
+    },
+    "scripts/ci-verify.test.sh": {
+      "commands": [],
+      "sources": {
+        "scripts/ci-verify.sh": "40aa376d6bb316939af6bbf4dfd05f452585245b37d9e0439fb30b73922b5574",
+        "scripts/ci-verify.test.sh": "cac5d233c7ac7292b8e73ab95f98b12c6050ed5b79c2fde0581282210fcc82da"
+      },
+      "evidence": "The real CI script is read and invoked only with --list-steps. All execution steps are literal fixture stubs, including contract-integrity-probe.sh. No real probe oracle is read. Conservatively retain every non-oracle byte and bind both suite and CI orchestrator.",
+      "probe_registration_needles": [],
+      "probe_registration_reads_nothing": true
     }
   }
 }

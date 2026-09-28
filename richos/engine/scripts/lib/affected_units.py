@@ -73,27 +73,42 @@ class Selection:
             self.add(suite, path + ": " + reason)
 
     def unchanged_seated_reader(self, suite, before, after):
-        """Only a reviewed raw-text observer can ignore unrelated settings lines."""
+        """Compare only source-bound registration observations of this suite."""
         row = self.declaration.get('hook_readers', {}).get(suite)
-        if not isinstance(row, dict) or 'seated_text_needles' not in row:
+        if not isinstance(row, dict):
             return False
-        needles = row['seated_text_needles']
-        if (not isinstance(needles, list) or not needles
-                or any(not isinstance(needle, str) or not needle or '\n' in needle for needle in needles)
+        needles = row.get('seated_text_needles', [])
+        events = row.get('seated_events', [])
+        no_reads = row.get('seated_reads_nothing', False)
+        if (not isinstance(needles, list) or not isinstance(events, list)
+                or type(no_reads) is not bool
+                or any(not isinstance(n, str) or not n or '\n' in n for n in needles)
+                or any(not isinstance(e, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9]*', e) for e in events)
+                or not (needles or events or no_reads)
+                or no_reads and (needles or events or 'seated_dispatch_reader' in row)
                 or not isinstance(before, str) or not isinstance(after, str)):
             return False
         try:
             hook_reader(row, self.read)
             if suite not in row['sources']:
                 return False
-            # Missing, malformed or unknown documents retain the old selection.
-            if any(not isinstance(json.loads(text), dict) for text in (before, after)):
+            documents = [json.loads(text) for text in (before, after)]
+            if any(not isinstance(document, dict) for document in documents):
                 return False
+            if events or no_reads:
+                for text in (before, after):
+                    hook_entries(text, settings=True)
+                # Preserve complete groups, ordering and metadata. Also retain
+                # legacy top-level event data consumed by the spawn collector.
+                for event in events:
+                    def observation(document):
+                        return (event in document['hooks'], document['hooks'].get(event),
+                                event in document, document.get(event))
+                    if observation(documents[0]) != observation(documents[1]):
+                        return False
             if 'seated_dispatch_reader' in row:
                 if row['seated_dispatch_reader'] is not True:
                     return False
-                # The registration helper searches all events for dispatcher
-                # commands. Keep every argument/dispatch-key change visible.
                 def dispatchers(text):
                     return sorted(entry['command'] for entry in hook_entries(text, settings=True).values()
                                   if 'dispatch-pretooluse' in entry['command'])
@@ -111,7 +126,9 @@ class Selection:
         if not isinstance(row, dict) or 'probe_registration_needles' not in row:
             return False
         needles = row['probe_registration_needles']
-        if (not isinstance(needles, list) or not needles
+        no_reads = row.get('probe_registration_reads_nothing', False)
+        if (not isinstance(needles, list) or type(no_reads) is not bool
+                or not (needles or no_reads) or no_reads and needles
                 or any(not isinstance(n, str) or not re.fullmatch(r'[A-Za-z0-9_-]+', n) for n in needles)
                 or not isinstance(before, str) or not isinstance(after, str)):
             return False
