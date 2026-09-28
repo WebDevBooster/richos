@@ -152,6 +152,22 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_failure_type_mutants_rebuild_private_register_configuration(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/failure-type.test.sh'
+        closure = graph.closure(unit)
+        self.assertFalse(any(closure.values()), closure)
+        change = inputs.config_change('CHECK_FAILURE_TYPE=1\nFAILURE_TYPE_REGISTER=old',
+                                      'CHECK_FAILURE_TYPE=0\nFAILURE_TYPE_REGISTER=new')
+        self.assertFalse(graph.config_units(change, [unit]))
+        for helper in ('scripts/lib/left-off.py#human-classifier',
+                       'scripts/hooks/failure-type.mutation.sh',
+                       'scripts/lib/stop-session-recovery.py'):
+            previous = document['nodes'].pop(helper)
+            self.assertIn(unit, graph.config_units(change, [unit]))
+            document['nodes'][helper] = previous
+
     def test_private_alert_settings_do_not_select_real_config_changes(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

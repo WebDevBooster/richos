@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "df48d04cc1da31705b95e8c895d2f58dafda12123bfd3755f5207b9f466d7b3e",
+      "sha256": "a5c5d19c43128b9e54b8e8fceb18a177e3cae930700e3abfc622f274a5c1ff8b",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -4532,6 +4532,114 @@
           "fixture": true
         }
       ]
+    },
+    "scripts/lib/left-off.py#human-classifier": {
+      "source": "scripts/lib/left-off.py",
+      "sha256": "f86b8a7767d1c0c4af0db1358eeaf4ce98d4e8524f7c0a2f7944a307b500e4db",
+      "evidence": "Import only installs constants/functions. Failure-type calls is_human and text_of plus reads MACHINE_ENVELOPES. Both functions classify supplied record values without files, commands or config. Other report/CLI helpers are not invoked.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/failure-type.py": {
+      "source": "scripts/lib/failure-type.py",
+      "sha256": "291919a605c334a51fc5cc1e2228ddaefdcd2e8bd4542a1cd3cc77e7e50849e7",
+      "evidence": "Complete reviewed analyzer reads supplied register/transcript/corpus and fixed Git metadata; payload commands are inspected as strings, never executed. Configuration reaches it only as explicit RICHOS_FT_* wrapper arguments. The fixed left-off import uses just its human classifiers.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/left-off.py#human-classifier"
+        }
+      ]
+    },
+    "scripts/hooks/failure-type-lookup.sh": {
+      "source": "scripts/hooks/failure-type-lookup.sh",
+      "sha256": "8e77ae84f95d79e11fd2f168a2fbb39c5f9548a8eec3ffcd0af5e4496e8cffd1",
+      "evidence": "Resolves entity adoption and sources its config, reads only CHECK_FAILURE_TYPE and FAILURE_TYPE_REGISTER, then calls fixed failure-type.py. Self-test forwards only to the qualified suite. Payload and register contents remain data.",
+      "keys": [
+        "CHECK_FAILURE_TYPE",
+        "FAILURE_TYPE_REGISTER"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/failure-type.py"
+        },
+        {
+          "to": "scripts/hooks/failure-type.test.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-failure-type-answer.sh": {
+      "source": "scripts/hooks/guard-failure-type-answer.sh",
+      "sha256": "9178339b1342a751b3de2fa743b2d65df019af3eb4af10e7447a82ad805895aa",
+      "evidence": "Resolves recovery/entity state, sources entity config and sends payload to fixed analyzer. Literal self-test forwards to the suite. Stop notice helpers read no config values. The configured register is data, not executable.",
+      "keys": [
+        "CHECK_FAILURE_TYPE",
+        "FAILURE_TYPE_REGISTER"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/stop-session-recovery.py"
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/failure-type.py"
+        },
+        {
+          "to": "scripts/hooks/failure-type.test.sh"
+        }
+      ]
+    },
+    "scripts/hooks/failure-type.mutation.sh": {
+      "source": "scripts/hooks/failure-type.mutation.sh",
+      "sha256": "1a8078c78f3a6cd5401d65af03c0b912cb5969f4dda18a15f45e3afbe17f4fdb",
+      "evidence": "Fixed mutation-harness driver executes only failure-type.test.sh after literal edits to analyzer or two hooks. That suite reconstructs private register/config fixtures. Copied engine config is never substituted for its private seat.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/hooks/failure-type.test.sh"
+        }
+      ],
+      "literal_keys": {
+        "CHECK_FAILURE_TYPE": "The reference occurs only inside the single-quoted silent-standdown replacement target. The driver does not expand or read that key; its nested test supplies literal private config."
+      }
+    },
+    "scripts/hooks/failure-type.test.sh": {
+      "source": "scripts/hooks/failure-type.test.sh",
+      "sha256": "dfc89e12ad217ebbae8c078619a7264cf1cf297985d709865178ed80afa9b781",
+      "evidence": "Builds private seat and record repositories, literal FAILURE_TYPE_REGISTER/CHECK_FAILURE_TYPE configuration and private transcripts. Hook calls always use that entity root; direct analyzer calls classify corpus data. The finite nested mutation suite reconstructs these fixtures. No real hook manifest or config contents are read. Optional external corpus remains a data/runtime input, not a reuse grant.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/failure-type-lookup.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-failure-type-answer.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/failure-type.py",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/failure-type.mutation.sh"
+        }
+      ],
+      "nonconfig_eval": "json_field evaluates fixed d.get expressions over parsed hook JSON; no config key or arbitrary payload expression is evaluated."
     }
   },
   "units": {
@@ -4609,7 +4717,8 @@
     "scripts/hooks/session-start-stdin.test.sh": "scripts/hooks/session-start-stdin.test.sh",
     "scripts/hooks/root-contract.test.sh": "scripts/hooks/root-contract.test.sh",
     "scripts/hooks/escalations.test.sh": "scripts/hooks/escalations.test.sh",
-    "scripts/hooks/notice-disk-alert.test.sh": "scripts/hooks/notice-disk-alert.test.sh"
+    "scripts/hooks/notice-disk-alert.test.sh": "scripts/hooks/notice-disk-alert.test.sh",
+    "scripts/hooks/failure-type.test.sh": "scripts/hooks/failure-type.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
