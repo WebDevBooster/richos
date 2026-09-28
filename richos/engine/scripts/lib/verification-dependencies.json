@@ -13007,6 +13007,344 @@
           "to": "scripts/stop.mutation.sh"
         }
       ]
+    },
+    "loro/lib/compile.js": {
+      "source": "loro/lib/compile.js",
+      "sha256": "14e59da58a7dd25cebc59352f37632d8ae1f9e4739c7e75d49a7834dc2ac6aa5",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/lib/coverage.js": {
+      "source": "loro/lib/coverage.js",
+      "sha256": "b8eebb0f6c7b77f930fcd02f275f6fa820ba88f6925546aa0343c8857267cec6",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/lib/frontmatter.js": {
+      "source": "loro/lib/frontmatter.js",
+      "sha256": "8b6b70d07d598d6dbfcd109aaa47eda4f3d9a7c6a9a2424ebb9661ed892c0859",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/lib/layout.js": {
+      "source": "loro/lib/layout.js",
+      "sha256": "baca6f6ff359109ee3f78d3756e6b087db2f3f8f8452687cdbf7e6acc423c571",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/lib/partition.js": {
+      "source": "loro/lib/partition.js",
+      "sha256": "4efebaaef7c9df6ebf21d33b3c83444f1426f6d4f1cbbcdc49677658aa64ae11",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/lib/privacy.js": {
+      "source": "loro/lib/privacy.js",
+      "sha256": "44a9d0d87cc2fe92f31f82563cddefa919ff62d86f513017146bf447307d51b0",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/lib/read-storage.js": {
+      "source": "loro/lib/read-storage.js",
+      "sha256": "30a59eb541641f8637854597bda49ed96c0f03db8e6009e4ca889442eb928eab",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/lib/record.js": {
+      "source": "loro/lib/record.js",
+      "sha256": "8f83a52af266b4a4758f867109ea33a995c1fe5c07aa9ca4800aada0f85448a5",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/lib/relevance.js": {
+      "source": "loro/lib/relevance.js",
+      "sha256": "ec0513500a5a70e37d2a19420a9e153be76711173a842e4b44e02c62b41a580b",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/lib/sources.js": {
+      "source": "loro/lib/sources.js",
+      "sha256": "197c8a661117113355255854a3feb8bc91197270f66f81f639aa5dd20fe43256",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/lib/store.js": {
+      "source": "loro/lib/store.js",
+      "sha256": "1298bd8a701fc970bed673bacfe3d472922e80bbe3b6db4034a8020547d10d76",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/writer/coverage-write.js": {
+      "source": "loro/writer/coverage-write.js",
+      "sha256": "5b83bedcabb4962079032f52862695f6b35e10e7023e5b46dc932c5b1bf02d92",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/writer/storage.js": {
+      "source": "loro/writer/storage.js",
+      "sha256": "783a55cfda8ccd9cd7feb22cc84ba1794b22b60dd871e2fb776a4de74c7f9179",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/writer/writer.js": {
+      "source": "loro/writer/writer.js",
+      "sha256": "78b9bb7833e97216ab7d79355abfb969b25f8bf3a9f072dbed4f43846cd82e10",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/bin/loro-context.mjs": {
+      "source": "loro/bin/loro-context.mjs",
+      "sha256": "0fe3727206132cd1029de655c44d954a6d191cd8f7d726b51ad858f3a9bf559d",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/bin/loro-coverage.mjs": {
+      "source": "loro/bin/loro-coverage.mjs",
+      "sha256": "fdbb4a9d0d80583c3374039b81feb3831be009951ea6a2f4c385682adc63d752",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/bin/loro-write.mjs": {
+      "source": "loro/bin/loro-write.mjs",
+      "sha256": "5204af891313772a772be7ccf9e7b2f101de9e6ceb8f286ac4c82c2ea8d946db",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/tests/fixtures/acme/loro/entities.json": {
+      "source": "loro/tests/fixtures/acme/loro/entities.json",
+      "sha256": "a328b3ea4956979f6c4a446dba673056a6729abe27a02b777863080ef1782f17",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/tests/fixtures/acme/loro/memory/company.jsonl": {
+      "source": "loro/tests/fixtures/acme/loro/memory/company.jsonl",
+      "sha256": "0dd4225724038307bcb2e6dd16742c5e221d5708f6cd90f8c9fee83b806fce02",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/tests/fixtures/acme/wiki/operations.md": {
+      "source": "loro/tests/fixtures/acme/wiki/operations.md",
+      "sha256": "c50a6720035388053acc3ff4e423ea8d4e80c5d0acb9d7a8aff41d0bbab59fb6",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/tests/fixtures/acme/wiki/pricing.md": {
+      "source": "loro/tests/fixtures/acme/wiki/pricing.md",
+      "sha256": "1486cb8dbbcfaf878247617d23866c74052e5aa95fb685341e092c4de1e3a710",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/tests/fixtures/acme/wiki/raw/raw-call-note.md": {
+      "source": "loro/tests/fixtures/acme/wiki/raw/raw-call-note.md",
+      "sha256": "cae5d01a4f908554277c24ad280b609b36add82dfef05569d7959c01b1a934ec",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/tests/fixtures/customer/engine/ceo-wiki/wiki/000_index.md": {
+      "source": "loro/tests/fixtures/customer/engine/ceo-wiki/wiki/000_index.md",
+      "sha256": "5de3e2f856d2f7ec0d086507aca15dec2ed6b47c572ecb15b91dfb34c6bf0ed1",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/tests/fixtures/customer/engine/ceo-wiki/wiki/positioning.md": {
+      "source": "loro/tests/fixtures/customer/engine/ceo-wiki/wiki/positioning.md",
+      "sha256": "2af8c24dc19367d0ba66909d978ab047b18bc1c5cda235e05074278c4ad9d7ac",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/tests/fixtures/customer/loro/.gitkeep": {
+      "source": "loro/tests/fixtures/customer/loro/.gitkeep",
+      "sha256": "ef18f03d91d22165d5c4599169cabf06af2f0327a6a48bbebb67e81100064fe9",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/tests/fixtures/empty/loro/.gitkeep": {
+      "source": "loro/tests/fixtures/empty/loro/.gitkeep",
+      "sha256": "eb2b1b127b99009a0b766df8bdd828b3229bd2253009e8315a2459ac1a4bd791",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/package.json": {
+      "source": "loro/package.json",
+      "sha256": "e8ee5e4dc1365a75441ca84ea88620fa86665fdefd2b70eb62741b38ee584198",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/tests/run.js": {
+      "source": "loro/tests/run.js",
+      "sha256": "8d2176eb1e0c7b05ab6c265aac83e9b54713d60129f5c159b74df3689af71720",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/tests/relocation.js": {
+      "source": "loro/tests/relocation.js",
+      "sha256": "49efe1af878bf54d0af762da845a7a80cd13d88f3cc1719ed71dc8536b65ad12",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/tests/write-boundary.js": {
+      "source": "loro/tests/write-boundary.js",
+      "sha256": "203757a98f3e9f09083479c7d202e92cd1e3fc7041131745b1473bcde5000121",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/tests/read-boundary.js": {
+      "source": "loro/tests/read-boundary.js",
+      "sha256": "835d5267f38d503aa63d6db5c3735a0d010dbadd39ae16faa2e906759c8ea8ee",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/tests/concurrent-writers.mjs": {
+      "source": "loro/tests/concurrent-writers.mjs",
+      "sha256": "3aed02309a1a4d7d074bfe5e9f617b2939ead11bede402076dc2c0e3b477a737",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/tests/scale-corpus.js": {
+      "source": "loro/tests/scale-corpus.js",
+      "sha256": "c38b6b8f0c67b2031942bc0a600d59ff030e980229285eaa3a3e700408a739f0",
+      "evidence": "Bound member of the reviewed Loro fixture component: fixed local modules and Node builtins only. Corpus data is parsed as Markdown/JSON/YAML; source-scan inputs are read as text. No orchestration setting or shell execution. The suite binds the complete transitive component set.",
+      "keys": [],
+      "edges": []
+    },
+    "loro/tests/run.test.sh": {
+      "source": "loro/tests/run.test.sh",
+      "sha256": "53627838d6922b7f71fd1234091545ab88343a4a09f73a1ae9dbec93e5725636",
+      "evidence": "Five fixed Node entrypoints plus scale fixture import. Subprocesses execute only the three fixed Loro CLIs or the concurrent-writer entrypoint; its dynamic import is exactly loro-write.mjs. Bind every transitive reader, package declaration and shipped fixture. Corpus paths are explicit private fixtures, with no orchestration config dependency. Recursive JS checks classify text without execution.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "loro/lib/compile.js"
+        },
+        {
+          "to": "loro/lib/coverage.js"
+        },
+        {
+          "to": "loro/lib/frontmatter.js"
+        },
+        {
+          "to": "loro/lib/layout.js"
+        },
+        {
+          "to": "loro/lib/partition.js"
+        },
+        {
+          "to": "loro/lib/privacy.js"
+        },
+        {
+          "to": "loro/lib/read-storage.js"
+        },
+        {
+          "to": "loro/lib/record.js"
+        },
+        {
+          "to": "loro/lib/relevance.js"
+        },
+        {
+          "to": "loro/lib/sources.js"
+        },
+        {
+          "to": "loro/lib/store.js"
+        },
+        {
+          "to": "loro/writer/coverage-write.js"
+        },
+        {
+          "to": "loro/writer/storage.js"
+        },
+        {
+          "to": "loro/writer/writer.js"
+        },
+        {
+          "to": "loro/bin/loro-context.mjs"
+        },
+        {
+          "to": "loro/bin/loro-coverage.mjs"
+        },
+        {
+          "to": "loro/bin/loro-write.mjs"
+        },
+        {
+          "to": "loro/tests/fixtures/acme/loro/entities.json"
+        },
+        {
+          "to": "loro/tests/fixtures/acme/loro/memory/company.jsonl"
+        },
+        {
+          "to": "loro/tests/fixtures/acme/wiki/operations.md"
+        },
+        {
+          "to": "loro/tests/fixtures/acme/wiki/pricing.md"
+        },
+        {
+          "to": "loro/tests/fixtures/acme/wiki/raw/raw-call-note.md"
+        },
+        {
+          "to": "loro/tests/fixtures/customer/engine/ceo-wiki/wiki/000_index.md"
+        },
+        {
+          "to": "loro/tests/fixtures/customer/engine/ceo-wiki/wiki/positioning.md"
+        },
+        {
+          "to": "loro/tests/fixtures/customer/loro/.gitkeep"
+        },
+        {
+          "to": "loro/tests/fixtures/empty/loro/.gitkeep"
+        },
+        {
+          "to": "loro/package.json"
+        },
+        {
+          "to": "loro/tests/run.js"
+        },
+        {
+          "to": "loro/tests/relocation.js"
+        },
+        {
+          "to": "loro/tests/write-boundary.js"
+        },
+        {
+          "to": "loro/tests/read-boundary.js"
+        },
+        {
+          "to": "loro/tests/concurrent-writers.mjs"
+        },
+        {
+          "to": "loro/tests/scale-corpus.js"
+        }
+      ]
     }
   },
   "units": {
@@ -13167,7 +13505,8 @@
     "scripts/lib/appinstances.test.sh": "scripts/lib/appinstances.test.sh",
     "scripts/lib/testdevices.test.sh": "scripts/lib/testdevices.test.sh",
     "scripts/prepare-agent-spawn.test.sh": "scripts/prepare-agent-spawn.test.sh",
-    "scripts/stop.test.sh": "scripts/stop.test.sh"
+    "scripts/stop.test.sh": "scripts/stop.test.sh",
+    "loro/tests/run.test.sh": "loro/tests/run.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {

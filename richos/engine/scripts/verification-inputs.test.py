@@ -165,6 +165,29 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_loro_component_has_no_config_input_and_binds_every_reader(self):
+        from affected_units import Selection
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        read = lambda path: (HERE.parent / path).read_text()
+        unit = 'loro/tests/run.test.sh'
+        graph = inputs.Dependencies(HERE.parent, document, read=read)
+        for kind in ('keys', 'whole', 'presence', 'fallback'):
+            self.assertFalse(graph.closure(unit)[kind])
+        for before, after in (('CHECK_FAILURE_TYPE=0', 'CHECK_FAILURE_TYPE=1'),
+                              (None, 'FAILURE_TYPE_REGISTER=x'), ('A=one', 'A=$(bad)')):
+            self.assertFalse(graph.config_units(inputs.config_change(before, after), [unit]))
+        self.assertIn('scripts/verification-config.test.sh', graph.config_units(
+            inputs.config_change('A=one', 'A=$(bad)'), ['scripts/verification-config.test.sh']))
+        sources = {unit} | {e['to'] for e in document['nodes'][unit]['edges']}
+        for source in sources:
+            with self.subTest(source=source):
+                changed = lambda p: read(p) + '\nchanged reader\n' if p == source else read(p)
+                self.assertIn(unit, inputs.Dependencies(HERE.parent, document, read=changed).config_units(
+                    inputs.config_change('CHECK_FAILURE_TYPE=0', 'CHECK_FAILURE_TYPE=1'), [unit]))
+        selection = Selection(HERE.parent, [unit], read, document)
+        selection.ordinary('loro/tests/run.js')
+        self.assertIn(unit, selection.selected)
+
     def test_spawn_preparation_and_stop_fixtures_bind_complete_readers(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         read = lambda path: (HERE.parent / path).read_text()
