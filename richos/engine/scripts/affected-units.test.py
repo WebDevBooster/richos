@@ -17,6 +17,27 @@ from verification_inputs import Unsupported
 
 
 class Planner(unittest.TestCase):
+    def test_private_todo_and_removal_suites_keep_adoption_and_source_obligations(self):
+        root = HERE.parent
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        suites = ['scripts/hooks/guard-worktree-removal.test.sh',
+                  'scripts/cold-open.test.sh', 'scripts/hooks/ceo-todos.test.sh', GLOBAL_CONFIG]
+        def read(path):
+            file = root / path
+            return file.read_text() if file.is_file() else None
+        plan = Selection(root, suites, read, document)
+        plan.configuration('PROTECTED_PATHS=old', 'PROTECTED_PATHS=new')
+        self.assertEqual(set(plan.selected), {GLOBAL_CONFIG})
+        plan = Selection(root, suites, read, document)
+        plan.configuration(None, 'PROTECTED_PATHS=new')
+        self.assertEqual(set(plan.selected), {GLOBAL_CONFIG, suites[2]})
+        for source, unit in (('scripts/hooks/guard-worktree-removal.sh', suites[0]),
+                             ('scripts/cold-open.sh', suites[1]),
+                             ('scripts/lib/ceo-todos.py', suites[2])):
+            plan = Selection(root, suites, read, document)
+            plan.ordinary(source)
+            self.assertIn(unit, plan.selected)
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="affected-inputs.")
         self.addCleanup(self.temporary.cleanup)

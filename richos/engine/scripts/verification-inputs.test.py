@@ -152,6 +152,45 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_todo_records_and_cold_readers_are_fixtures_but_adoption_still_matters(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        units = ['scripts/cold-open.test.sh', 'scripts/hooks/ceo-todos.test.sh']
+        for unit in units:
+            closure = graph.closure(unit)
+            self.assertEqual(closure['keys'], {}, closure)
+            self.assertEqual(closure['whole'], [], closure)
+            self.assertEqual(closure['fallback'], [], closure)
+        change = inputs.config_change('SCRATCH_DEFAULT_TTL_MINUTES=360', 'SCRATCH_DEFAULT_TTL_MINUTES=300')
+        self.assertEqual(graph.config_units(change, units), {})
+        self.assertEqual(set(graph.config_units(inputs.config_change(None, 'PROTECTED_PATHS=src'), units)),
+                         {units[1]})
+        for helper, affected in (
+                ('scripts/lib/ceo-todos.py#fixture-records', units),
+                ('scripts/cold-open.sh#fixture-reader', units),
+                ('scripts/hooks/ceo-todos.mutation.sh', units[1:]),
+                ('scripts/ceo-todos-init.sh#no-cold-open', units[1:])):
+            with self.subTest(helper=helper):
+                original = document['nodes'][helper]['sha256']
+                document['nodes'][helper]['sha256'] = 'changed'
+                self.assertEqual(set(graph.config_units(change, units)), set(affected))
+                document['nodes'][helper]['sha256'] = original
+
+    def test_worktree_removal_reads_private_adoption_and_registry_only(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/guard-worktree-removal.test.sh'
+        self.assertEqual(graph.closure(unit),
+                         {'keys': {}, 'whole': [], 'presence': [], 'fallback': []})
+        change = inputs.config_change('PROTECTED_PATHS=old', 'PROTECTED_PATHS=new')
+        self.assertEqual(graph.config_units(change, [unit]), {})
+        for helper in ('mega-lander/workspaces.py#integration',
+                       'scripts/hooks/guard-worktree-removal.sh'):
+            with self.subTest(helper=helper):
+                original = document['nodes'].pop(helper)
+                self.assertEqual(set(graph.config_units(change, [unit])), {unit})
+                document['nodes'][helper] = original
+
     def test_artifact_and_manifest_fixtures_do_not_consume_production_settings(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

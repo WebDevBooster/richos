@@ -2876,7 +2876,7 @@
     "mega-lander/workspaces.py#integration": {
       "source": "mega-lander/workspaces.py",
       "sha256": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
-      "evidence": "integration_for/integration_target and record_integration use a finite local closure: integration record/file/path/work lookup, branch_tip/main_checkout/git, _write_integration/Lock/write_json/event and path/time helpers. Only registry JSON and git metadata are consumed; no config read or engine import.",
+      "evidence": "integration_for/integration_target and record_integration use a finite local closure: integration record/file/path/work lookup, branch_tip/main_checkout/git, _write_integration/Lock/write_json/event and path/time helpers. Only registry JSON and git metadata are consumed; no config read or engine import. all_bodies_of_work uses the same _integration_file reader and returns its works mapping without executing lifecycle actions.",
       "keys": [],
       "edges": []
     },
@@ -3195,6 +3195,201 @@
           "to": "scripts/hooks/turn-manifest.test.sh"
         }
       ]
+    },
+    "scripts/hooks/guard-worktree-removal.sh": {
+      "source": "scripts/hooks/guard-worktree-removal.sh",
+      "sha256": "b39ff96220cb74cf9f94acc3d6210f3207b57bdf50cb33ffdd29882e536a5f37",
+      "evidence": "Resolves adoption, parses command text without executing it, reads git metadata and all_bodies_of_work from the workspace registry. Only the generated acknowledgement ledger is written. No orchestration setting is sourced; printed helper paths are remediation text.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "mega-lander/workspaces.py#integration"
+        }
+      ]
+    },
+    "scripts/hooks/guard-worktree-removal.test.sh": {
+      "source": "scripts/hooks/guard-worktree-removal.test.sh",
+      "sha256": "b4e717bbb5ff0089902e69e286e3e845a502121a898259534f04c370048f58e5",
+      "evidence": "Copies the guard and root resolver into a private engine with literal PROTECTED_PATHS config. Classification payloads are data, not executed commands. Private git repositories and the private workspace registry supply the integration-record cases; only the integration CLI is executed.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-worktree-removal.sh",
+          "fixture": true
+        },
+        {
+          "to": "mega-lander/workspaces.py#integration"
+        }
+      ]
+    },
+    "scripts/lib/ceo-todos.py#fixture-records": {
+      "source": "scripts/lib/ceo-todos.py",
+      "sha256": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
+      "evidence": "Lint/render receive generated jobs from the fixed test records. File reads are the job, private artifact/done-check paths and supplied Markdown; git check-ignore is the only child command. No repository code is imported or record command executed. The suite constructs all artifact roots; orchestration.config is not a fixture predicate target.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/ceo-todos.sh#fixture-records": {
+      "source": "scripts/lib/ceo-todos.sh",
+      "sha256": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
+      "evidence": "ct_load_declaration parses the separate .ceo-todos or legacy .ceo-queue as literal fields, never sources it. ct_build_job reads the supplied private records, entry points and cold-open transcripts; ct_lint_file/ct_render invoke the fixed Python predicate. These callers generate the records and artifact roots, including nested mutants.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-main-checkout.sh"
+        },
+        {
+          "to": "scripts/lib/ceo-todos.py#fixture-records"
+        }
+      ]
+    },
+    "scripts/ceo-todos-render.sh#fixture-records": {
+      "source": "scripts/ceo-todos-render.sh",
+      "sha256": "63b00d5fde2eb129df925749ae9967521d9251936f5f19db627bded6049fddc3",
+      "evidence": "Loads only the separate TODO declaration and renders the supplied fixture record through ct_render. No orchestration config is sourced.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/ceo-todos.sh#fixture-records"
+        }
+      ]
+    },
+    "scripts/ceo-todos-lint.sh#fixture-records": {
+      "source": "scripts/ceo-todos-lint.sh",
+      "sha256": "cec21eee8a4d92b52d91d67df77ca120cc42fd33c686e3a3d79775c76ee91619",
+      "evidence": "Loads only the separate TODO declaration and checks the supplied fixture record through ct_lint_file. No orchestration config is sourced.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/ceo-todos.sh#fixture-records"
+        }
+      ]
+    },
+    "scripts/cold-open.sh#fixture-reader": {
+      "source": "scripts/cold-open.sh",
+      "sha256": "fddf01eaf727eacba9ff6cd108ac5eabbf5479249c2d5ffeb7d4edef40d1cdd9",
+      "evidence": "The cold-open suite always supplies its generated shell reader stub for --run; the TODO suite uses --record with a generated answer. Other tested modes are --brief and --check. The default external reader is inspected as source text, never executed by these callers.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/ceo-todos.sh#fixture-records"
+        },
+        {
+          "to": "scripts/ceo-todos-render.sh#fixture-records"
+        }
+      ],
+      "nonconfig_eval": "eval executes only the explicit stub created by cold-open.test.sh. Other qualified callers use modes that never evaluate READER_CMD; caller source identity is bound in the same closure."
+    },
+    "scripts/ceo-todos-init.sh#no-cold-open": {
+      "source": "scripts/ceo-todos-init.sh",
+      "sha256": "a98539a81ad89d378ab1cb43462fb7056e01988e6696c1b3dddae8535591fec6",
+      "evidence": "The suite invokes the installer only on private repos with --no-cold-open or an existing legacy declaration that refuses before installation. Templates are read as literal data and the resulting private records go through render/lint. No external reader runs.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/ceo-todos.sh#fixture-records"
+        },
+        {
+          "to": "scripts/ceo-todos-render.sh#fixture-records"
+        },
+        {
+          "to": "scripts/ceo-todos-lint.sh#fixture-records"
+        }
+      ]
+    },
+    "scripts/hooks/guard-ceo-todos-commits.sh#fixture-records": {
+      "source": "scripts/hooks/guard-ceo-todos-commits.sh",
+      "sha256": "b5ce1b39ad6985d4d3a52864c389968a474f05de1187baaa430941756ae0c0e0",
+      "evidence": "Resolves seat adoption by presence but reads TODO governance from the payload target. Fixtures supply that target and all records, staged blobs and artifacts. Calls root/jurisdiction/payload helpers and the TODO predicate, never sources orchestration settings.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/ceo-todos.sh#fixture-records"
+        }
+      ]
+    },
+    "scripts/cold-open.test.sh": {
+      "source": "scripts/cold-open.test.sh",
+      "sha256": "3df10bcb9db6a0eca0f7e62d17f4f5ecb37ef5a07429361f4d4398b6491592a9",
+      "evidence": "Constructs private TODO declarations, records, artifacts and shell reader stubs. Every --run supplies its stub explicitly; remaining external-reader flags are grep assertions only. The temporary missing-prompt copy refuses before a reader could run.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/cold-open.sh#fixture-reader"
+        },
+        {
+          "to": "scripts/ceo-todos-render.sh#fixture-records"
+        }
+      ]
+    },
+    "scripts/hooks/ceo-todos.test.sh": {
+      "source": "scripts/hooks/ceo-todos.test.sh",
+      "sha256": "631138488b553a48d3b629cf02f13fba0e2fb7223cd9fa07aeee80ab16712556",
+      "evidence": "mk_repo and write_record construct every TODO declaration, record and artifact. The real engine is only the adoption seat and source of registration data; it supplies no config values. Cold-open calls are --record, init calls skip cold reading and nested mutants rerun these same fixed constructors.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/registered-hooks.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-ceo-todos-commits.sh#fixture-records"
+        },
+        {
+          "to": "scripts/ceo-todos-lint.sh#fixture-records"
+        },
+        {
+          "to": "scripts/ceo-todos-render.sh#fixture-records"
+        },
+        {
+          "to": "scripts/cold-open.sh#fixture-reader"
+        },
+        {
+          "to": "scripts/ceo-todos-init.sh#no-cold-open"
+        },
+        {
+          "to": "scripts/hooks/ceo-todos.mutation.sh"
+        }
+      ]
+    },
+    "scripts/hooks/ceo-todos.mutation.sh": {
+      "source": "scripts/hooks/ceo-todos.mutation.sh",
+      "sha256": "72a64c2c5d614194341ddcdceef4f472740743c2d19deeb1d12f665e7ac344cf",
+      "evidence": "The complete engine copy transports config for adoption only. All twelve mutants alter the fixed Python predicate and execute ceo-todos.test.sh with nested mutation disabled; that suite constructs the records and no code sources the transported config. Scratch allocation uses caller/environment TTL without loading config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/scratch.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stopwatch.sh"
+        },
+        {
+          "to": "scripts/lib/mutation-pool.sh"
+        },
+        {
+          "to": "scripts/hooks/ceo-todos.test.sh"
+        }
+      ],
+      "presence": "The copied engine config remains an adoption marker in nested suites."
     }
   },
   "units": {
@@ -3254,7 +3449,10 @@
     "scripts/hooks/guard-ci-turn-gate.test.sh": "scripts/hooks/guard-ci-turn-gate.test.sh",
     "scripts/hooks/unlanded-branches.test.sh": "scripts/hooks/unlanded-branches.test.sh",
     "scripts/collect-worktree-artifacts.test.sh": "scripts/collect-worktree-artifacts.test.sh",
-    "scripts/hooks/turn-manifest.test.sh": "scripts/hooks/turn-manifest.test.sh"
+    "scripts/hooks/turn-manifest.test.sh": "scripts/hooks/turn-manifest.test.sh",
+    "scripts/hooks/guard-worktree-removal.test.sh": "scripts/hooks/guard-worktree-removal.test.sh",
+    "scripts/cold-open.test.sh": "scripts/cold-open.test.sh",
+    "scripts/hooks/ceo-todos.test.sh": "scripts/hooks/ceo-todos.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
