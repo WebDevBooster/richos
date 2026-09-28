@@ -72,8 +72,31 @@ class Selection:
         else:
             self.add(suite, path + ": " + reason)
 
-    def ordinary(self, path):
-        before = sum(len(reasons) for reasons in self.selected.values())
+    def unchanged_seated_reader(self, suite, before, after):
+        """Only a reviewed raw-text observer can ignore unrelated settings lines."""
+        row = self.declaration.get('hook_readers', {}).get(suite)
+        if not isinstance(row, dict) or 'seated_text_needles' not in row:
+            return False
+        needles = row['seated_text_needles']
+        if (not isinstance(needles, list) or not needles
+                or any(not isinstance(needle, str) or not needle or '\n' in needle for needle in needles)
+                or not isinstance(before, str) or not isinstance(after, str)):
+            return False
+        try:
+            hook_reader(row, self.read)
+            if suite not in row['sources']:
+                return False
+            # Missing, malformed or unknown documents retain the old selection.
+            if any(not isinstance(json.loads(text), dict) for text in (before, after)):
+                return False
+        except (Unsupported, ValueError):
+            return False
+        return all([line for line in before.splitlines() if needle in line] ==
+                   [line for line in after.splitlines() if needle in line]
+                   for needle in needles)
+
+    def ordinary(self, path, before=None, after=None):
+        prior_count = sum(len(reasons) for reasons in self.selected.values())
         basename, stem = Path(path).name, str(Path(path).with_suffix(""))
         if path.startswith("voice/") and Path(path).suffix in (".js", ".mjs", ".json", ".sh"):
             self.suite("voice/tests/run.test.sh", path, "voice component inputs")
@@ -84,8 +107,10 @@ class Selection:
                 self.suite(sibling, path, "sibling suite")
         for suite, text in self.suites.items():
             if basename in text:
+                if path == '.claude/settings.local.json' and self.unchanged_seated_reader(suite, before, after):
+                    continue
                 self.suite(suite, path, "basename dependency (conservative)")
-        matched = sum(len(reasons) for reasons in self.selected.values()) > before
+        matched = sum(len(reasons) for reasons in self.selected.values()) > prior_count
         if not matched and (Path(path).suffix in (".sh", ".py", ".bash") or (self.read(path) or "").startswith("#!")):
             self.unmapped.append(path)
 
@@ -228,6 +253,9 @@ def main(argv=None):
             elif relative == 'hooks/hooks.json':
                 before = Snapshot(root, old).read(path) if old else None
                 selection.hooks(before, read(relative), unknown=old is None)
+            elif relative == '.claude/settings.local.json':
+                before = Snapshot(root, old).read(path) if old else None
+                selection.ordinary(relative, before, read(relative))
             else:
                 selection.ordinary(relative)
         for unit, reasons in sorted(selection.selected.items()):

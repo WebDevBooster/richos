@@ -153,6 +153,79 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_seated_text_reader_retains_own_registration_and_source_controls(self):
+        from affected_units import Selection
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        read = lambda path: (HERE.parent / path).read_text()
+        unit = 'scripts/hooks/stale-staging.test.sh'
+        path = '.claude/settings.local.json'
+        before = '{\n"guard": "guard-stale-staging.sh",\n"other": "old"\n}\n'
+        after = before.replace('"old"', '"new"')
+        def selected(old=before, new=after, source=read, declaration=document):
+            selection = Selection(HERE.parent, [unit], source, declaration)
+            selection.ordinary(path, old, new)
+            return selection.selected
+        self.assertFalse(selected())
+        for old, new in ((None, after), (before, None), (before, '{'),
+                         (before, before.replace('guard-stale-staging.sh', 'removed')),
+                         (before, before.replace('guard-stale-staging.sh', 'guard-stale-stagingXsh'))):
+            with self.subTest(old=old, new=new):
+                self.assertIn(unit, selected(old, new))
+        for source in document['hook_readers'][unit]['sources']:
+            with self.subTest(changed_reader=source):
+                changed = lambda p: read(p) + '\n# changed reader\n' if p == source else read(p)
+                self.assertIn(unit, selected(source=changed))
+        for needles in ([], '', [None], [''], ['bad\nneedle']):
+            modified = json.loads(json.dumps(document))
+            modified['hook_readers'][unit]['seated_text_needles'] = needles
+            self.assertIn(unit, selected(declaration=modified))
+        modified = json.loads(json.dumps(document))
+        del modified['hook_readers'][unit]
+        self.assertIn(unit, selected(declaration=modified))
+        selection = Selection(HERE.parent, [unit], read, document)
+        selection.ordinary(unit, before, after)
+        self.assertIn(unit, selection.selected)
+
+    def test_seated_reader_cli_uses_commit_index_and_working_bytes(self):
+        with tempfile.TemporaryDirectory(prefix='seated-reader-cli.') as directory:
+            root = Path(directory)
+            library = root / 'scripts/lib'
+            library.mkdir(parents=True)
+            for name in ('affected_units.py', 'verification_inputs.py'):
+                (library / name).write_bytes((HERE / 'lib' / name).read_bytes())
+            unit = 'scripts/fixture.test.sh'
+            source = '# observes settings.local.json for guard-stale-staging\n'
+            (root / unit).write_text(source)
+            settings = root / '.claude/settings.local.json'
+            settings.parent.mkdir()
+            before = '{\n"guard":"guard-stale-staging.sh",\n"other":1\n}\n'
+            settings.write_text(before)
+            document = {'schema': 1, 'config_keys': [], 'nodes': {}, 'units': {},
+                        'hook_readers': {unit: {'commands': [], 'seated_text_needles': ['guard-stale-staging'],
+                         'sources': {unit: hashlib.sha256(source.encode()).hexdigest()},
+                         'evidence': 'Fixture observes its guard text only.'}}}
+            (library / 'verification-dependencies.json').write_text(json.dumps(document))
+            env = {**os.environ, 'GIT_CONFIG_GLOBAL': os.devnull, 'GIT_CONFIG_SYSTEM': os.devnull,
+                   'GIT_AUTHOR_NAME': 'fixture', 'GIT_AUTHOR_EMAIL': 'fixture@example.invalid',
+                   'GIT_COMMITTER_NAME': 'fixture', 'GIT_COMMITTER_EMAIL': 'fixture@example.invalid'}
+            def git(*args):
+                return subprocess.check_output(['git', '-C', directory, *args], env=env, text=True)
+            def selection(*args):
+                return subprocess.check_output([sys.executable, '-B', str(library / 'affected_units.py'),
+                                                *args], env=env, text=True, stderr=subprocess.PIPE)
+            git('init', '-q')
+            git('config', 'core.excludesFile', os.devnull)
+            git('add', '.')
+            git('commit', '-q', '-m', 'fixture')
+            settings.write_text(before.replace('1', '2'))
+            git('add', '.claude/settings.local.json')
+            settings.write_text(before.replace('guard-stale-staging', 'removed'))
+            self.assertEqual(selection('--staged'), '')
+            self.assertIn(unit, selection('--working'))
+            self.assertIn(unit, selection('--paths', '.claude/settings.local.json'))
+            git('commit', '-q', '-m', 'unrelated setting')
+            self.assertEqual(selection('--range', 'HEAD^..HEAD'), '')
+
     def test_workspace_behavior_suites_do_not_read_manifest_comments(self):
         from affected_units import Selection, GLOBAL_CONFIG
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
