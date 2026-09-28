@@ -28,8 +28,26 @@
 # the record; the ledger row is the delivery.
 #
 # ===========================================================================
-# USAGE — the teammate's half is one command
+# USAGE — the teammate's half is one file and one command
 # ===========================================================================
+#   1. Write the fields with your WRITE TOOL (not a shell command) to a file in
+#      your scratch directory, e.g. esc.json:
+#        {"title": "<one line>",
+#         "state": "work-complete|proceeding|stopped",
+#         "question": "<the smallest question that would unblock>",
+#         "for": "lead|ceo",                          (optional, default lead)
+#         "tried": "<what you already tried>",        (optional)
+#         "meanwhile": "<what you are proceeding on>"} (optional)
+#   2. escalate.sh raise --fields <path to esc.json>
+#
+#   WHY A FILE: a worktree-isolated agent's Bash call is refused by Claude
+#   Code itself, before this script runs, when free text on the command line
+#   starts with the word `git` or carries a quote or apostrophe next to it
+#   ("git status, git add", "we can't run git"). Text in a file written with the
+#   Write tool never crosses that check. Measured 2026-09-28; the reasoning is
+#   at FIELD_VARS in scripts/lib/escalations.py.
+#
+#   The options still work, and are fine for the lead's own session:
 #   escalate.sh raise --title "<one line>" \
 #                     --state work-complete|proceeding|stopped \
 #                     --question "<the smallest question that would unblock>" \
@@ -37,6 +55,7 @@
 #                     [--tried "<what you already tried>"] \
 #                     [--meanwhile "<what you are proceeding on>"] \
 #                     [--worktree <path>] [--teammate <name>] [--no-record]
+#   A field may come from the file or from an option, never both.
 #
 #       --state IS REQUIRED, and it is the field that keeps this channel alive:
 #         work-complete  the work is DONE; this is a record, NOT a stall
@@ -55,6 +74,8 @@
 #   escalate.sh show <id>            one, with its acknowledgements
 #   escalate.sh ack <id> --disposition "<what you decided or did>"
 #                        [--until <ISO date>]
+#   escalate.sh ack <id> --fields <file>   (a file holding "disposition", and
+#                                           optionally "until")
 #
 #       `ack` APPENDS; nothing is ever deleted. The disposition must be at
 #       least 30 characters, because an ack with no disposition is a dismissal
@@ -100,18 +121,20 @@ esac
 
 TITLE=""; STATE=""; AUDIENCE="lead"; QUESTION=""; TRIED=""; MEANWHILE=""
 WT=""; TEAMMATE=""; DISPOSITION=""; TARGET=""; NO_RECORD=0; FORMAT="text"; UNTIL=""
+FIELDS=""; GIVEN=""
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --title)       TITLE="${2:-}"; shift 2 ;;
-        --state)       STATE="${2:-}"; shift 2 ;;
-        --for)         AUDIENCE="${2:-}"; shift 2 ;;
-        --question)    QUESTION="${2:-}"; shift 2 ;;
-        --tried)       TRIED="${2:-}"; shift 2 ;;
-        --meanwhile)   MEANWHILE="${2:-}"; shift 2 ;;
-        --worktree)    WT="${2:-}"; shift 2 ;;
-        --teammate)    TEAMMATE="${2:-}"; shift 2 ;;
-        --disposition) DISPOSITION="${2:-}"; shift 2 ;;
-        --until)       UNTIL="${2:-}"; shift 2 ;;
+        --title)       TITLE="${2:-}"; GIVEN="$GIVEN title"; shift 2 ;;
+        --state)       STATE="${2:-}"; GIVEN="$GIVEN state"; shift 2 ;;
+        --for)         AUDIENCE="${2:-}"; GIVEN="$GIVEN for"; shift 2 ;;
+        --question)    QUESTION="${2:-}"; GIVEN="$GIVEN question"; shift 2 ;;
+        --tried)       TRIED="${2:-}"; GIVEN="$GIVEN tried"; shift 2 ;;
+        --meanwhile)   MEANWHILE="${2:-}"; GIVEN="$GIVEN meanwhile"; shift 2 ;;
+        --worktree)    WT="${2:-}"; GIVEN="$GIVEN worktree"; shift 2 ;;
+        --teammate)    TEAMMATE="${2:-}"; GIVEN="$GIVEN teammate"; shift 2 ;;
+        --disposition) DISPOSITION="${2:-}"; GIVEN="$GIVEN disposition"; shift 2 ;;
+        --until)       UNTIL="${2:-}"; GIVEN="$GIVEN until"; shift 2 ;;
+        --fields)      FIELDS="${2:-}"; [ -n "$FIELDS" ] || { echo "escalate.sh: --fields needs a file path" >&2; exit 2; }; shift 2 ;;
         --format)      FORMAT="${2:-}"; shift 2 ;;
         --no-record)   NO_RECORD=1; shift ;;
         -h|--help)     usage; exit 0 ;;
@@ -127,6 +150,33 @@ escalations_require || {
     echo "  your commit message, and say that this command could not run." >&2
     exit 2
 }
+
+# The fields file (see USAGE): free text read from a file, so none of it has to
+# cross the command line. escalations.py validates the file and names the fields
+# present; each value is read on its own and assigned through the fixed case
+# below, so nothing from the file is ever evaluated. The trailing "." it prints
+# keeps a value's own trailing newlines from being stripped by $(...).
+if [ -n "$FIELDS" ]; then
+    FIELD_FAIL="escalate.sh: nothing was raised or acknowledged; fix the fields file and run it again."
+    FIELD_KEYS="$(python3 "$ESCALATIONS_PY" fields --file "$FIELDS" --given "$GIVEN")" || { echo "$FIELD_FAIL" >&2; exit 2; }
+    for FIELD_KEY in $FIELD_KEYS; do
+        FIELD_VAL="$(python3 "$ESCALATIONS_PY" fields --file "$FIELDS" --get "$FIELD_KEY")" || { echo "$FIELD_FAIL" >&2; exit 2; }
+        FIELD_VAL="${FIELD_VAL%.}"
+        case "$FIELD_KEY" in
+            title)       TITLE="$FIELD_VAL" ;;
+            state)       STATE="$FIELD_VAL" ;;
+            for)         AUDIENCE="$FIELD_VAL" ;;
+            question)    QUESTION="$FIELD_VAL" ;;
+            tried)       TRIED="$FIELD_VAL" ;;
+            meanwhile)   MEANWHILE="$FIELD_VAL" ;;
+            teammate)    TEAMMATE="$FIELD_VAL" ;;
+            worktree)    WT="$FIELD_VAL" ;;
+            disposition) DISPOSITION="$FIELD_VAL" ;;
+            until)       UNTIL="$FIELD_VAL" ;;
+            *) echo "escalate.sh: the fields file named '$FIELD_KEY', which this script does not know." >&2; exit 2 ;;
+        esac
+    done
+fi
 
 case "$CMD" in
     list)

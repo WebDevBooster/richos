@@ -816,6 +816,111 @@ case "$OUT" in
 esac
 
 # ===========================================================================
+# 18. FREE TEXT FROM A FILE — ANY WORDING ARRIVES, AND NONE OF IT IS ON THE
+#     COMMAND LINE. (Numbered 18 but run here, so case 17's canary watches it.)
+#
+# Measured 2026-09-28 on Claude Code 2.1.283: for a worktree-isolated agent the
+# host refuses, before escalate.sh ever runs, a command whose free-text argument
+# starts with the word git or carries an apostrophe next to it. The teammate
+# esctest1 was refused raising "--tried 'git status, git add, git commit ...'".
+# That check cannot be reached from a suite, so this proves the other half: the
+# SAME wording, written to a file, arrives byte for byte, and the command line
+# that carries it holds nothing but a path.
+# ===========================================================================
+L18="$SANDBOX/state/fields.jsonl"
+# Its own worktree: case 3 deleted $WT on purpose (the unmerged, removed branch).
+WT18="$SANDBOX/wt18"
+mkdir -p "$WT18/docs"
+F18="$SANDBOX/esc18.json"
+cat > "$F18" <<'JSON'
+{"title": "git commit refused in the richos-hq workspace (can't run git)",
+ "state": "proceeding",
+ "for": "lead",
+ "question": "git status works; why can't I run \"git commit\" there? It's a digit-free $HOME `question`\nwith a second line.",
+ "tried": "git status, git add, git commit in the richos-hq workspace; sh -c 'git log'",
+ "meanwhile": "git-free work only: we're writing the tests"}
+JSON
+OUT="$(RICHOS_ESCALATION_LEDGER="$L18" "$ESCALATE" raise --fields "$F18" \
+        --worktree "$WT18" --teammate zach-opus-e1fields 2>&1)"
+RC=$?
+say "18 fields raise" "$OUT"
+if [ "$RC" -eq 0 ]; then ok "18a raise --fields with git wording, quotes, \$, a backtick and a newline in every field exits 0"
+else bad "18a raise --fields" "rc=$RC: $OUT"; fi
+ID18="$(printf '%s\n' "$OUT" | sed -n 's/^escalation RAISED: //p' | head -1)"
+case "$ID18" in
+    esc-*) ok "18b and it returns an id ($ID18)" ;;
+    *)     bad "18b id" "got '$ID18'" ;;
+esac
+# Byte for byte: every field in the ledger row equals the file's value.
+CHECK18="$(python3 - "$F18" "$L18" <<'PY'
+import json, sys
+want = json.load(open(sys.argv[1]))
+rows = [json.loads(l) for l in open(sys.argv[2]) if l.strip()]
+row = [r for r in rows if r.get("event") == "Escalation"][-1]
+bad = [k for k in ("title", "state", "for", "question", "tried", "meanwhile") if row.get(k) != want[k]]
+print("MISMATCH " + " ".join(bad) if bad else "EXACT")
+PY
+)"
+if [ "$CHECK18" = "EXACT" ]; then ok "18c the ledger row carries all six fields exactly as written in the file"
+else bad "18c fields arrive verbatim" "$CHECK18 (ledger $L18)"; fi
+REC18="$(find "$WT18/docs/verification/escalations" -name '*zach-opus-e1fields*' 2>/dev/null | head -1)"
+if [ -n "$REC18" ] && grep -qF "git status, git add, git commit in the richos-hq workspace" "$REC18"; then
+    ok "18d the record file carries the same wording"
+else bad "18d record wording" "record '$REC18' lacks the tried text"; fi
+
+rows18() { [ -f "$L18" ] && grep -c . "$L18" || printf '0'; }
+N18="$(rows18)"
+# A field from both places is refused: which one wins would be a guess.
+OUT="$(RICHOS_ESCALATION_LEDGER="$L18" "$ESCALATE" raise --fields "$F18" --state stopped \
+        --worktree "$WT18" --teammate zach-opus-e1fields 2>&1)"
+RC=$?
+if [ "$RC" -eq 2 ] && [ "$(rows18)" = "$N18" ] && printf '%s' "$OUT" | grep -q "given both"; then
+    ok "18e a field given in the file AND as an option is refused (exit 2), nothing appended"
+else bad "18e both places refused" "rc=$RC rows $N18 -> $(rows18): $OUT"; fi
+# Unknown key, non-string value, not JSON, no such file: each refused, none appends.
+printf '{"title": "t", "state": "proceeding", "question": "q", "questions": "typo"}' > "$SANDBOX/esc18-unknown.json"
+printf '{"title": "t", "state": "proceeding", "question": ["q"]}' > "$SANDBOX/esc18-list.json"
+printf 'title: not json\n' > "$SANDBOX/esc18-text.json"
+for pair in "esc18-unknown.json:unknown field 'questions'" "esc18-list.json:must be a string" \
+            "esc18-text.json:not a JSON object" "esc18-missing.json:cannot read"; do
+    f="${pair%%:*}"; want="${pair#*:}"
+    OUT="$(RICHOS_ESCALATION_LEDGER="$L18" "$ESCALATE" raise --fields "$SANDBOX/$f" \
+            --worktree "$WT18" --teammate zach-opus-e1fields 2>&1)"
+    RC=$?
+    if [ "$RC" -eq 2 ] && [ "$(rows18)" = "$N18" ] && printf '%s' "$OUT" | grep -qF "$want"; then
+        ok "18f $f is refused with '$want', nothing appended"
+    else bad "18f $f refused" "rc=$RC rows $N18 -> $(rows18): $OUT"; fi
+done
+# The values are data. A value built to break out of shell quoting runs nothing.
+P18="$SANDBOX/pwned18"
+python3 - "$SANDBOX/esc18-inject.json" "$P18" <<'PY'
+import json, sys
+p = sys.argv[2]
+json.dump({"title": "inject '; touch %s; '" % p, "state": "proceeding",
+           "question": "$(touch %s) `touch %s`" % (p, p), "tried": "\"; touch %s; \"" % p},
+          open(sys.argv[1], "w"))
+PY
+OUT="$(RICHOS_ESCALATION_LEDGER="$L18" "$ESCALATE" raise --fields "$SANDBOX/esc18-inject.json" \
+        --worktree "$WT18" --teammate zach-opus-e1fields --no-record 2>&1)"
+RC=$?
+if [ "$RC" -eq 0 ] && [ ! -e "$P18" ]; then
+    ok "18g quote-breaking and substitution text in a field is stored, never run"
+else bad "18g values are data" "rc=$RC, $P18 exists: $([ -e "$P18" ] && echo yes || echo no): $OUT"; fi
+# The lead's half takes a file too.
+printf '{"disposition": "answered: git commit works from the plain command; we can'"'"'t fix the host"}' > "$SANDBOX/esc18-ack.json"
+OUT="$(RICHOS_ESCALATION_LEDGER="$L18" "$ESCALATE" ack "$ID18" --fields "$SANDBOX/esc18-ack.json" 2>&1)"
+RC=$?
+if [ "$RC" -eq 0 ] && grep -qF "we can't fix the host" "$L18"; then
+    ok "18h ack --fields records the disposition verbatim"
+else bad "18h ack --fields" "rc=$RC: $OUT"; fi
+# A teammate who reads the help finds the file form first.
+OUT="$("$ESCALATE" --help 2>&1)"
+case "$OUT" in
+    *"raise --fields"*"Write tool"*|*"WRITE TOOL"*"raise --fields"*) ok "18i --help teaches the file form and why" ;;
+    *) bad "18i help teaches --fields" "help text does not show 'raise --fields' with the Write tool" ;;
+esac
+
+# ===========================================================================
 # 16. SOURCE MUTATION — is the LOUDNESS carried by the age buckets, or by luck?
 #
 # Case 6 shows an aged escalation speaking again. That is worth nothing until
