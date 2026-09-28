@@ -152,6 +152,25 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_idle_land_contract_and_mutants_use_private_settings(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        units = ('scripts/hooks/guard-idle-land.test.sh',
+                 'scripts/hooks/contract-integrity.test.sh:IL')
+        for unit in units:
+            closure = graph.closure(document['units'][unit])
+            self.assertFalse(any(closure.values()), (unit, closure))
+        for change in (inputs.config_change('CHECK_IDLE_LAND=1', 'CHECK_IDLE_LAND=0'),
+                       inputs.config_change('PROTECTED_PATHS=app', None)):
+            self.assertFalse(graph.config_units(change, units))
+        unrelated = inputs.config_change('SHOW_TURN_MANIFEST=0', 'SHOW_TURN_MANIFEST=1')
+        for helper, affected in (('scripts/hooks/idle-land.mutation.sh', units[1:]),
+                                 ('scripts/hooks/guard-idle-land.py', units),
+                                 ('scripts/lib/stop-session-recovery.py', units)):
+            previous = document['nodes'].pop(helper)
+            self.assertEqual(set(graph.config_units(unrelated, units)), set(affected))
+            document['nodes'][helper] = previous
+
     def test_unstarted_and_stated_actions_rebuild_private_configuration(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

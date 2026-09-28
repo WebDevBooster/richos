@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "9122b1a5c7190c327d72197679f95f753b5bc72c5d7c6a4fcb80b1773d344fdc",
+      "sha256": "878e1215f92ea00b159acd2fc3b0443933ed500ae9c3f809312cd0c967b2eda5",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -5734,6 +5734,64 @@
         "if _section SA; then",
         "fi  # _section — SA\n"
       ]
+    },
+    "scripts/hooks/guard-idle-land.test.sh": {
+      "source": "scripts/hooks/guard-idle-land.test.sh",
+      "sha256": "8b88552358c1f3ffbb7e95022c6a6b68925dcfd751cc92b09b3f268e387df987",
+      "evidence": "Every hook invocation uses a private generated entity config, transcript and record. Git branches and the bare remote are created within the sandbox. Direct Python imports invoke only the fixed idle-land record parser. The suite never calls its mutation harness.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-idle-land.sh#hook",
+          "fixture": true
+        }
+      ]
+    },
+    "scripts/hooks/idle-land.mutation.sh": {
+      "source": "scripts/hooks/idle-land.mutation.sh",
+      "sha256": "b2be7c34811448327fec6445453e142f7a72c0b191453b1d65d03d36c0f353ac",
+      "evidence": "The finite mutations copy fixed guard, analyzer, test and root/notice helpers. The copied test recreates all entity configuration and Git records. The one added transcript read consumes a generated test file. No shipped config is transported.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/stopwatch.sh"
+        },
+        {
+          "to": "scripts/lib/mutation-pool.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-idle-land.test.sh"
+        }
+      ]
+    },
+    "scripts/hooks/contract-integrity.test.sh#IL": {
+      "source": "scripts/hooks/contract-integrity.test.sh",
+      "sha256": "367fc70f5ccbc66e5be5f1414d821f4c11c69916829c9ca27aa2ddfb1b5638d2",
+      "evidence": "IL runs the seated probe and literal private hook mutations, then the fixed idle-land suite and mutation driver. Both nested calls recreate private entity configuration and Git fixtures.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/contract-integrity.test.sh#prelude"
+        },
+        {
+          "to": "scripts/hooks/contract-integrity-probe.sh#seated-fixture",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/install.sh#private-config-dir",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-idle-land.test.sh"
+        },
+        {
+          "to": "scripts/hooks/idle-land.mutation.sh"
+        }
+      ],
+      "region": [
+        "if _section IL; then",
+        "fi  # _section — IL\n"
+      ]
     }
   },
   "units": {
@@ -5835,7 +5893,9 @@
     "scripts/hooks/contract-integrity.test.sh:MF": "scripts/hooks/contract-integrity.test.sh#MF",
     "scripts/hooks/unstarted-rows.test.sh": "scripts/hooks/unstarted-rows.test.sh",
     "ass-kicker/tests/guard-stated-actions.test.sh": "ass-kicker/tests/guard-stated-actions.test.sh",
-    "scripts/hooks/contract-integrity.test.sh:SA": "scripts/hooks/contract-integrity.test.sh#SA"
+    "scripts/hooks/contract-integrity.test.sh:SA": "scripts/hooks/contract-integrity.test.sh#SA",
+    "scripts/hooks/guard-idle-land.test.sh": "scripts/hooks/guard-idle-land.test.sh",
+    "scripts/hooks/contract-integrity.test.sh:IL": "scripts/hooks/contract-integrity.test.sh#IL"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
@@ -6116,6 +6176,7 @@
         "scripts/hooks/guard-dialect.sh": "2a19b37f44f5805b9b57c613f1cc7eae0cd1ef806dd36db2b4b10bfed990a58e",
         "scripts/hooks/guard-idle-land.py": "6f86233ebe1e642b9bee0eb55b5467bc8b6f2d1261a381bcaf62589291e8efd0",
         "scripts/hooks/guard-idle-land.sh": "c65ff6beb940c15ff20cf5a7e54e2f8453c4f6594d2ed2a8d32cda662dc3efae",
+        "scripts/hooks/guard-idle-land.test.sh": "8b88552358c1f3ffbb7e95022c6a6b68925dcfd751cc92b09b3f268e387df987",
         "scripts/hooks/guard-inflight-notify.sh": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
         "scripts/hooks/guard-interactive-prompt.sh": "006331257e3424466c9bd8f5f49d895362f0602063cb25d98dcef32b18fbd8c8",
         "scripts/hooks/guard-interactive-prompt.test.sh": "6a803a02cd2e3cb4ab18d5e08f1698bc890e97d87e6c028e4c73a4cdfb2907d3",
@@ -6137,6 +6198,7 @@
         "scripts/hooks/guard-worktree-removal.mutation.sh": "05aff533ec292eba45dc2d4a822359b880c90bc7d08d46f7a6bf39416b061030",
         "scripts/hooks/guard-worktree-removal.sh": "b39ff96220cb74cf9f94acc3d6210f3207b57bdf50cb33ffdd29882e536a5f37",
         "scripts/hooks/guard-worktree-removal.test.sh": "b4e717bbb5ff0089902e69e286e3e845a502121a898259534f04c370048f58e5",
+        "scripts/hooks/idle-land.mutation.sh": "b2be7c34811448327fec6445453e142f7a72c0b191453b1d65d03d36c0f353ac",
         "scripts/hooks/inflight-notify.mutation.sh": "690be0bc4f534e0ceb6bd924e39f113e6c90bb8ead7b7619a9a8d81ca30fd867",
         "scripts/hooks/inflight-notify.test.sh": "53bd65350d9690f1110d968e730c1f1596f3afb80e87a552dd07b91ccc263e78",
         "scripts/hooks/install.sh": "7b80a4c9660fbab047d9e025bade584212504bfd8585e7a91cb38411f1fc88c2",
