@@ -225,7 +225,8 @@ class Planner(unittest.TestCase):
     def test_real_fixed_readers_exclude_unrelated_hook_without_losing_inventory(self):
         root = HERE.parent
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
-        suites = sorted(document['hook_readers']) + ['scripts/check-census.test.sh']
+        suites = sorted(unit for unit, row in document['hook_readers'].items()
+                        if not row.get('all_events')) + ['scripts/check-census.test.sh']
         old = (root / 'hooks/hooks.json').read_text()
         changed = json.loads(old)
         group = changed['hooks']['Stop'][-1]
@@ -234,6 +235,37 @@ class Planner(unittest.TestCase):
         plan.hooks(old, json.dumps(changed, indent=2))
         # JSON escapes in the description remain outside these registration needles.
         self.assertEqual(set(plan.selected), {'scripts/check-census.test.sh'})
+
+    def test_session_start_inventory_keeps_new_events_and_reader_invalidation(self):
+        root = HERE.parent
+        document = json.loads((root / 'scripts/lib/verification-dependencies.json').read_text())
+        unit = 'scripts/hooks/session-start-stdin.test.sh'
+        sources = {}
+        def read(path):
+            file = root / path
+            return sources.get(path, file.read_text() if file.is_file() else None)
+        before = read('hooks/hooks.json')
+        after = json.loads(before)
+        after['hooks']['FutureEvent'] = [{'hooks': [
+            {'type': 'command', 'command': 'bash ${CLAUDE_PLUGIN_ROOT}/new-fixture-hook.sh'}]}]
+        plan = Selection(root, [unit], read, document)
+        plan.hooks(before, json.dumps(after))
+        self.assertEqual(set(plan.selected), {unit})
+        self.assertIn('FutureEvent', ' '.join(plan.selected[unit]))
+        after = json.loads(before)
+        after['description'] = 'description only'
+        plan = Selection(root, [unit], read, document)
+        plan.hooks(before, json.dumps(after))
+        self.assertEqual(plan.selected, {})
+        sources['scripts/lib/registered-hooks.sh'] = read('scripts/lib/registered-hooks.sh') + '\n# drift\n'
+        plan = Selection(root, [unit], read, document)
+        plan.hooks(before, json.dumps(after))
+        self.assertEqual(set(plan.selected), {unit})
+        sources.clear()
+        document['hook_readers'][unit]['all_events'] = 'yes'
+        plan = Selection(root, [unit], read, document)
+        plan.hooks(before, json.dumps(after))
+        self.assertIn('inventory scope', ' '.join(plan.selected[unit]))
 
     def test_registration_fixture_skips_real_manifest_but_binds_its_readers(self):
         root = HERE.parent

@@ -139,7 +139,8 @@ class Selection:
                 self.suite(suite, 'hooks/hooks.json', str(exc))
                 continue
             affected = paths & set(row['commands'])
-            events = set(change['events']) & set(row.get('events', []))
+            events = (set(change['events']) if row.get('all_events')
+                      else set(change['events']) & set(row.get('events', [])))
             # Existing grep-based registration assertions also inspect raw
             # text. Preserve their behavior on duplicate lines, formatting and
             # description edits, even when parsed hook semantics are unchanged.

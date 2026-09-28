@@ -617,7 +617,7 @@
     },
     "scripts/lib/verification_inputs.py#config": {
       "source": "scripts/lib/verification_inputs.py",
-      "sha256": "b3284354081545141594be9b666d692006d808dd7f47868b1f8746ffbd5bef08",
+      "sha256": "bc61d9d257fbe97caf40090dafe988b1e84504a5235a745af86690dc0feede48",
       "evidence": "The config parser accepts assignment text as data, preserving key references and rejecting unsupported executable syntax. No selected hook or suite is invoked.",
       "keys": [],
       "edges": [],
@@ -628,7 +628,7 @@
     },
     "scripts/lib/affected_units.py#validate-config": {
       "source": "scripts/lib/affected_units.py",
-      "sha256": "67d4c6bff62f88e32261fc0e087c3c0742e8720728b69b0d3a771a366647c678",
+      "sha256": "1dec1b97ce53bcb10d5ce740fc92d6ce89db0f8c2c44b980a7652dc180b964f8",
       "evidence": "validate_config reads the real config and its declared key registry, rejecting unsupported syntax and unknown keys.",
       "keys": [],
       "edges": [
@@ -1046,14 +1046,14 @@
     },
     "scripts/lib/verification_inputs.py": {
       "source": "scripts/lib/verification_inputs.py",
-      "sha256": "b3284354081545141594be9b666d692006d808dd7f47868b1f8746ffbd5bef08",
+      "sha256": "bc61d9d257fbe97caf40090dafe988b1e84504a5235a745af86690dc0feede48",
       "evidence": "Parser and dependency APIs read supplied text/paths. Snapshot executes only Git reads. It never executes a sourced configuration or a selected hook command.",
       "keys": [],
       "edges": []
     },
     "scripts/lib/affected_units.py": {
       "source": "scripts/lib/affected_units.py",
-      "sha256": "67d4c6bff62f88e32261fc0e087c3c0742e8720728b69b0d3a771a366647c678",
+      "sha256": "1dec1b97ce53bcb10d5ce740fc92d6ce89db0f8c2c44b980a7652dc180b964f8",
       "evidence": "The selector can validate a supplied engine configuration and can compute config/hook/ordinary selections from supplied snapshots. Its only subprocesses are read-only Git operations.",
       "keys": [],
       "edges": [
@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "957432dc86a4ab11cdcfe24bfdd125888bd11ba416823611f651e5a95faa060e",
+      "sha256": "0172146c6a331aa7538f342f980755a7a9a75b1978058d09698feb1a56dc5007",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -1078,7 +1078,7 @@
     },
     "scripts/affected-units.test.py": {
       "source": "scripts/affected-units.test.py",
-      "sha256": "c2805ae2fa1b3416474f9564fcfa225f54b989c5ce126445ef0200b733470eaa",
+      "sha256": "049767c79e34f814f9087ef2b06cc6f5898240f5c879ddf3e8a2b1e50adbfd57",
       "evidence": "All config reads use newly written fixture files or literal before/after text. The real-file planning case reads only hooks.json and source-bound registration declarations. Nested CLI invocations use a newly created Git repository, and selected commands are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -4120,6 +4120,239 @@
           "to": "scripts/lib/pause_protocol.py"
         }
       ]
+    },
+    "scripts/lib/escalations.py": {
+      "source": "scripts/lib/escalations.py",
+      "sha256": "34c2f41e1c59ebfbd5a049c4bf418e7735d2740a17f924823e0eacaaf1a6a3b2",
+      "evidence": "All commands read/write JSONL ledger rows and render strings using standard-library code. Ledger, actor and session paths come from explicit arguments/environment. No orchestration.config reader, subprocess or engine import.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/escalations.sh": {
+      "source": "scripts/lib/escalations.sh",
+      "sha256": "656be06643a5579cc15e4ef5efe7628bd58e0a134e3677b36885f2060db59db7",
+      "evidence": "Resolves the fixed adjacent Python helper, checks availability and calls its list command. Ledger override is an environment path; no orchestration settings are sourced.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/escalations.py"
+        }
+      ]
+    },
+    "scripts/hooks/session-start-escalations.sh": {
+      "source": "scripts/hooks/session-start-escalations.sh",
+      "sha256": "25af57857b1dc4a1e4a61c6848753ede1d217f3a1037379e30cee4e64b206a5f",
+      "evidence": "Resolves entity adoption then calls the fixed escalation ledger list/session-context helper. Output is JSON/string rendering. It does not source entity settings.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/escalations.sh"
+        }
+      ]
+    },
+    "scripts/lib/foreign_app_data.py": {
+      "source": "scripts/lib/foreign_app_data.py",
+      "sha256": "9fcafeaae9e177df0c15fc93b547b2aa08710f94f723e393d51239861859b00b",
+      "evidence": "Fixed path boundaries and regex classifiers over supplied strings and HOME. Source scan reads file contents as data; the watchdog only calls entering. No orchestration.config execution, subprocess or engine import.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/disk-watchdog.py#alert": {
+      "source": "scripts/lib/disk-watchdog.py",
+      "sha256": "e9e7ca4981c480b8fb3598f1feb7302dd617f8b040c2db4e4a661306cddd03ed",
+      "evidence": "Reviewed alert path through main and env/env_num/expand/state_base/read_volume/measurable/read_state/human/_age_of/_short_age. Reads live statvfs, saved JSON states, plist presence and the listed literal config variables. Alert does not invoke scheduled device collection, status-only reaper, du/consumer walks, notifications or writes. Fixed foreign_app_data import only classifies candidate paths.",
+      "keys": [
+        "APP_INSTANCE_FAILURES_STATE",
+        "DISK_CEO_NOTIFY_GB",
+        "DISK_CEO_REPEAT_HOURS",
+        "DISK_CEO_URGENT_GB",
+        "DISK_CONSUMER_CANDIDATES",
+        "DISK_DROP_ALERT_GB",
+        "DISK_DROP_ALERT_GB_PER_HOUR",
+        "DISK_DROP_MAX_GAP_INTERVALS",
+        "DISK_DROP_MIN_GAP_SECONDS",
+        "DISK_EXTRA_VOLUMES",
+        "DISK_PRIMARY_VOLUME",
+        "DISK_RICH_ALERT_GB",
+        "DISK_SCALE_EXTRA_VOLUMES",
+        "DISK_WATCHDOG_MINUTES",
+        "SCRATCH_FAILURES_STATE",
+        "SCRATCH_REAPER_STATE",
+        "SCRATCH_REAPER_STATE_MAX_AGE_HOURS",
+        "SCRATCH_SKIPPED_NOTICE_BYTES",
+        "SCRATCH_UNDECIDABLE_NOTICE_BYTES",
+        "TEST_DEVICE_FAILURES_STATE"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/foreign_app_data.py"
+        }
+      ]
+    },
+    "scripts/disk-watchdog.sh#alert": {
+      "source": "scripts/disk-watchdog.sh",
+      "sha256": "5168a316708d2fc3dc19e76604942e7377a6b8529d267052be2fa16f6f90cea5",
+      "evidence": "Caller supplies --alert. Wrapper sources selected engine config, computes state/log paths and exports finite DISK/SCRATCH/APP/TEST_DEVICE families to fixed Python. Install/uninstall and scheduling branches are unreachable; enable cannot disable alert. Actual value readers are the alert Python closure.",
+      "keys": [
+        "DISK_STATE_JSON",
+        "DISK_WATCHDOG_ENABLE",
+        "DISK_WATCHDOG_LOG",
+        "DISK_WATCHDOG_MINUTES"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/disk-watchdog.py#alert"
+        }
+      ],
+      "presence": "The alert wrapper refuses if its selected configuration file is absent."
+    },
+    "scripts/hooks/notice-disk-alert.sh": {
+      "source": "scripts/hooks/notice-disk-alert.sh",
+      "sha256": "71ef888a95290d2267aff524e0683b6e5bc9decddfdfaef5e5e027523cbc8ffd",
+      "evidence": "Calls disk-watchdog.sh --alert, then renders SessionStart JSON or Stop summary. Stop-only notice helper reads state. Returned kill/cleanup instructions are output strings, never executed.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/disk-watchdog.sh#alert"
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        }
+      ]
+    },
+    "scripts/lib/operator-mode.sh": {
+      "source": "scripts/lib/operator-mode.sh",
+      "sha256": "c9b25dd5eaef11ac02dc34ac11a6997404966ddb0dcd14cf019d83065b71ba6e",
+      "evidence": "Reads only the fixed operator launcher marker and on/off field in the supplied repository Git hooks file. No orchestration setting or command execution.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/operator_fences.py#claim-readers": {
+      "source": "scripts/lib/operator_fences.py",
+      "sha256": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+      "evidence": "Reviewed sessions_dir, launcher_for/fenced, claude_session, alive, iso and JSON read/write helpers reached by claim-start. Local closure adds ancestors/lstart_epoch, repo_paths/git and read_launcher. Git calls read metadata; launcher content is parsed as data, never sourced. Native process identity is shared with the existing proc closure. No orchestration configuration.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/operator_fences.py#proc"
+        }
+      ]
+    },
+    "scripts/lib/operator_leads.py#claim-start": {
+      "source": "scripts/lib/operator_leads.py",
+      "sha256": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
+      "evidence": "Reviewed cmd_claim_start and complete local closure including claim lock/state, native identity, entity/operator switch and JSON output. Only engine import is operator_fences for these readers and atomic claim writes; workspaces import belongs to the uncalled live-names verb. CLI receives literal claim-start and parses stdin as data.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/operator_fences.py#claim-readers"
+        }
+      ]
+    },
+    "scripts/hooks/operator-claim.sh": {
+      "source": "scripts/hooks/operator-claim.sh",
+      "sha256": "e157c7c28b11bb7a1d9965e5207bf9b52d521ff04f38a207d0ff8211136bb03f",
+      "evidence": "Bounded payload read, root resolution and fixed operator switch predicate followed only by operator_leads.py claim-start. No config value read and no dispatch of model agents.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/operator-mode.sh"
+        },
+        {
+          "to": "scripts/lib/operator_leads.py#claim-start"
+        }
+      ]
+    },
+    "scripts/hooks/left-off-report.sh#no-transcript": {
+      "source": "scripts/hooks/left-off-report.sh",
+      "sha256": "d14ee9ceac38d7de2c7d04ba85eb11a4ab7d6610f3bc0d066db606dbc9090dee",
+      "evidence": "The SessionStart stdin fixture passes --event SessionStart with no transcript/session args and creates an empty private projects directory. This reaches root/config checks then returns before analyzer invocation because no transcript exists. No preceding hook writes a project transcript. --self-test is not passed. Full source binds the continuation as well as the reviewed early path.",
+      "keys": [
+        "CHECK_LEFT_OFF",
+        "LEFT_OFF_GAP_MINUTES"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        }
+      ],
+      "region": [
+        "set -o pipefail",
+        "[ -n \"$TRANSCRIPT\" ] && [ -f \"$TRANSCRIPT\" ] || _silent"
+      ]
+    },
+    "scripts/hooks/workspace-lifecycle.sh": {
+      "source": "scripts/hooks/workspace-lifecycle.sh",
+      "sha256": "e8a6bd193fe910eb22f76da44c81b04feaa04e2a7429b055823ea8efc8df72e8",
+      "evidence": "Bounded hook payload, entity adoption and fixed workspaces.py hook CLI. Captures and renders stderr with standard utilities. No settings sourced by the wrapper; downstream lifecycle cleanup retains its engine inputs.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "mega-lander/workspaces.py#lifecycle-fixtures"
+        }
+      ]
+    },
+    "scripts/hooks/session-start-stdin.test.sh": {
+      "source": "scripts/hooks/session-start-stdin.test.sh",
+      "sha256": "8db0addda3984451123e3a9f953a068daefacff5e2165e481e5ef1edf1e115da",
+      "evidence": "Copies the real engine config and scripts, so engine-relative disk/scratch and workspace cleanup readers remain real dependencies. Session entity settings are generated literals; CEO-ask, quota and no-transcript left-off paths consume those literals. Thirteen fixed SessionStart invocations run under private HOME/records; real manifest is read for registration coverage and an explicit snapshot. No registered command is dynamically executed from that manifest.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/engine-status.sh"
+        },
+        {
+          "to": "scripts/hooks/workspace-lifecycle.sh"
+        },
+        {
+          "to": "scripts/hooks/snapshot-agent-definitions.sh"
+        },
+        {
+          "to": "scripts/hooks/session-start-escalations.sh"
+        },
+        {
+          "to": "scripts/hooks/snapshot-enforcing-hooks.sh"
+        },
+        {
+          "to": "scripts/hooks/session-start-ci-surface.sh"
+        },
+        {
+          "to": "scripts/hooks/notice-disk-alert.sh"
+        },
+        {
+          "to": "scripts/hooks/session-start-scratch.sh"
+        },
+        {
+          "to": "scripts/hooks/operator-claim.sh"
+        },
+        {
+          "to": "scripts/lib/record-canary.sh"
+        },
+        {
+          "to": "scripts/hooks/session-start-ceo-ask.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/session-start-quota.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/left-off-report.sh#no-transcript",
+          "fixture": true
+        }
+      ]
     }
   },
   "units": {
@@ -4193,7 +4426,8 @@
     "scripts/lib/git-jurisdiction.test.sh": "scripts/lib/git-jurisdiction.test.sh",
     "scripts/hook-registration-completeness.test.sh": "scripts/hook-registration-completeness.test.sh",
     "scripts/hooks/guard-worktree-isolation.test.sh": "scripts/hooks/guard-worktree-isolation.test.sh",
-    "scripts/hooks/guard-resume-isolation.test.sh": "scripts/hooks/guard-resume-isolation.test.sh"
+    "scripts/hooks/guard-resume-isolation.test.sh": "scripts/hooks/guard-resume-isolation.test.sh",
+    "scripts/hooks/session-start-stdin.test.sh": "scripts/hooks/session-start-stdin.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
@@ -4326,6 +4560,56 @@
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631"
+      }
+    },
+    "scripts/hooks/session-start-stdin.test.sh": {
+      "commands": [],
+      "text_needles": [],
+      "all_events": true,
+      "evidence": "Reads real hooks.json for SessionStart coverage and explicitly snapshots all registration rows through registered-hooks.sh. New event names affect that snapshot too. Registered command strings are parsed as data; top-level description text is not inspected. All reached script readers remain content-bound.",
+      "sources": {
+        "scripts/hooks/session-start-stdin.test.sh": "8db0addda3984451123e3a9f953a068daefacff5e2165e481e5ef1edf1e115da",
+        "scripts/hooks/engine-status.sh": "c1ea99017ada713a0a68a56fe7f23dfab11b027ed53ea3a7846d4e51b8e467b0",
+        "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
+        "scripts/hooks/workspace-lifecycle.sh": "e8a6bd193fe910eb22f76da44c81b04feaa04e2a7429b055823ea8efc8df72e8",
+        "mega-lander/workspaces.py": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+        "scripts/lib/appinstances.py": "e30b7e3522111d099a20bc2d5af49bff1d5b9a4245d5c2147306ef065596efca",
+        "scripts/lib/testdevices.py": "7317a16a8075947446dd7602c1715694e4f5dcce5ea0795d9dd9cb75ed665cdd",
+        "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
+        "scripts/lib/containers.py": "957965ce69a27ad94066c9a20c92956e715cb5bdd234080b92024c8e9f0f08c9",
+        "scripts/hooks/snapshot-agent-definitions.sh": "51f92567f9daaa9bacd37082d0cd30beba284b3149714c8a45f945738d6ebaff",
+        "scripts/hooks/session-start-escalations.sh": "25af57857b1dc4a1e4a61c6848753ede1d217f3a1037379e30cee4e64b206a5f",
+        "scripts/lib/escalations.sh": "656be06643a5579cc15e4ef5efe7628bd58e0a134e3677b36885f2060db59db7",
+        "scripts/lib/escalations.py": "34c2f41e1c59ebfbd5a049c4bf418e7735d2740a17f924823e0eacaaf1a6a3b2",
+        "scripts/hooks/snapshot-enforcing-hooks.sh": "d357c9a97492d4447e5ad83099da89192d877ac9282e41d712804710e6b739d4",
+        "scripts/hooks/session-start-ci-surface.sh": "a4f1b332f362a2374ae1dad83d44af14a977d8cfdb753154014bbcc7e74c05a5",
+        "scripts/lib/ci_pause.py": "f41e86ea2b1aaa036c92eb44ddcb2fe2a6880724162561a5e31b84d556758693",
+        "scripts/hooks/notice-disk-alert.sh": "71ef888a95290d2267aff524e0683b6e5bc9decddfdfaef5e5e027523cbc8ffd",
+        "scripts/disk-watchdog.sh": "5168a316708d2fc3dc19e76604942e7377a6b8529d267052be2fa16f6f90cea5",
+        "scripts/lib/disk-watchdog.py": "e9e7ca4981c480b8fb3598f1feb7302dd617f8b040c2db4e4a661306cddd03ed",
+        "scripts/lib/foreign_app_data.py": "9fcafeaae9e177df0c15fc93b547b2aa08710f94f723e393d51239861859b00b",
+        "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
+        "scripts/hooks/session-start-scratch.sh": "f78039d4b89732e00fdfec13abd6622f4c9c8f4badb9bca26c4b0a758068d485",
+        "scripts/scratch-reaper.sh": "1cdefb018a15be05c60b6dd257678573d2135230ceb58cfaef0fcd9c835975b1",
+        "scripts/lib/scratch-reaper.py": "f5c852252ad28b38893f13794a05d126312fe91249505070a228ade3fb90ba19",
+        "scripts/hooks/operator-claim.sh": "e157c7c28b11bb7a1d9965e5207bf9b52d521ff04f38a207d0ff8211136bb03f",
+        "scripts/lib/operator-mode.sh": "c9b25dd5eaef11ac02dc34ac11a6997404966ddb0dcd14cf019d83065b71ba6e",
+        "scripts/lib/operator_leads.py": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
+        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/record-canary.sh": "702d0b4a21b5ede39f15bd390b81a649956914f303da2f4f74eeeedd601b716e",
+        "scripts/hooks/session-start-ceo-ask.sh": "3b0b8396d0e50a6145401df798bde92e7bc59ffd55a7260f160f7b1b8d72ec69",
+        "scripts/lib/ceo-asks.sh": "c0d084aef038efba8bae75eea3073bafa01c60132702282743449541abab0021",
+        "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
+        "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
+        "scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
+        "scripts/hooks/session-start-quota.sh": "720bdd6c4c0e392f2be9f37368f0862e92d1504a2eb56851af8a4e083f817cf1",
+        "scripts/quota-watch.sh": "70ce3fdbd3a372f727086df522819fae6b3dab759838209563ba9414805d0d10",
+        "scripts/lib/quota_watch.py": "aaa78a25c45c5501335543cdd78f6c343d9f0470733da6c32bd700448411a19d",
+        "scripts/lib/pause_protocol.py": "e1fd9b925db513fc58c45eddb1eb04b2f5468a3f5b150a90a079f3f991b45535",
+        "scripts/lib/quota_weekly.py": "9bd2e65fa1318ff43a0d0dbf96ff9abe8df363055e58c556b363f216733b51a1",
+        "scripts/hooks/left-off-report.sh": "d14ee9ceac38d7de2c7d04ba85eb11a4ab7d6610f3bc0d066db606dbc9090dee"
       }
     }
   }

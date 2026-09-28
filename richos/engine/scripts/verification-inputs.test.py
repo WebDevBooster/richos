@@ -152,6 +152,30 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_session_start_fixtures_retain_real_engine_resource_readers(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/session-start-stdin.test.sh'
+        closure = graph.closure(unit)
+        self.assertFalse(closure['whole'] or closure['fallback'], closure)
+        self.assertTrue(closure['presence'], closure)
+        real = {'DISK_PRIMARY_VOLUME', 'DISK_RICH_ALERT_GB', 'DISK_STATE_JSON',
+                'SCRATCH_REAPER_ENABLE', 'SCRATCH_CLAUDE_ROOTS', 'SCRATCH_FAILURES_STATE',
+                'APP_TEST_INSTANCE_BUNDLE_ID', 'TEST_DEVICE_FAILURES_STATE'}
+        literal = {'CHECK_LEFT_OFF', 'LEFT_OFF_GAP_MINUTES', 'QUOTA_PAUSE_PERCENT',
+                   'PROTECTED_PATHS', 'ALLOWED_MODELS', 'SHOW_TURN_MANIFEST'}
+        for key in real | literal:
+            self.assertEqual(bool(graph.config_units(inputs.config_change(key+'=old', key+'=new'), [unit])),
+                             key in real, key)
+        change = inputs.config_change('SHOW_TURN_MANIFEST=0', 'SHOW_TURN_MANIFEST=1')
+        for helper in ('scripts/lib/disk-watchdog.py#alert', 'scripts/lib/foreign_app_data.py',
+                       'scripts/lib/operator_leads.py#claim-start', 'scripts/lib/escalations.py',
+                       'scripts/hooks/left-off-report.sh#no-transcript', 'scripts/lib/scratch-reaper.py'):
+            with self.subTest(helper=helper):
+                previous = document['nodes'].pop(helper)
+                self.assertIn(unit, graph.config_units(change, [unit]))
+                document['nodes'][helper] = previous
+
     def test_resume_registry_read_retains_reached_cleanup_dependencies(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

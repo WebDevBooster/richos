@@ -298,6 +298,8 @@ def hook_reader(row, read):
     if (not isinstance(row, dict) or not row.get('evidence') or not row.get('sources')
             or not isinstance(row.get('commands'), list)):
         raise Unsupported('hook reader has no qualified command/input contract')
+    if 'all_events' in row and type(row['all_events']) is not bool:
+        raise Unsupported('hook inventory scope must be a boolean')
     for path, digest in row['sources'].items():
         if Path(path).is_absolute() or '..' in Path(path).parts:
             raise Unsupported('non-relative hook reader: ' + path)
