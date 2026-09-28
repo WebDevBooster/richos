@@ -249,9 +249,26 @@ rc_require_ceo_todos_lib() {
 #
 # Sets: RC_MODE RC_PEER_SPEC RC_ROW_SECTIONS RC_STATUS_TOKENS
 #       RC_TERMINAL_TOKENS RC_DECLARATION_FILE RC_BROKEN_REASON
+#       RC_RECORD_OWNER RC_RECORD_OWNER_MEMORY
+#
+# THE OWNER LINE (daily-driver plan step 8; two-installs spec points 25-27).
+#
+#   ROW_RECORD_OWNER="app <his memory directory>"
+#
+# Present: the RichOS app owns this record and the named memory directory, and
+# his plain terminal is refused a landing here (guard-row-currency-commits.sh)
+# and a write into that directory (guard-record-owner-memory.sh). Absent: the
+# terminal owns both and nothing changes, which is the state until cut-over.
+# ONE LINE, so deleting it reverses everything it does; `record-owner.sh`
+# writes and removes it. Only "app" is a value: a typo must be BROKEN, never a
+# quiet "terminal". Only the RECORD form may carry it, because who owns the
+# record is the record's fact and a second copy in a peer is drift.
 rc_load_declaration() {
     local root="${1:-}" f line key val
     RC_MODE=""
+    RC_RECORD_OWNER="terminal"
+    RC_RECORD_OWNER_MEMORY=""
+    local _rc_owner_raw=""
     RC_PEER_SPEC=""
     RC_HEADLINE_SECTIONS=""
     RC_HEADLINE_REQUIRED="0"
@@ -302,11 +319,40 @@ rc_load_declaration() {
             ROW_STATUS_TOKENS)  RC_STATUS_TOKENS="$val" ;;
             ROW_TERMINAL_TOKENS) RC_TERMINAL_TOKENS="$val" ;;
             ROW_CLAIM_WORDS)    RC_CLAIM_WORDS="$val" ;;
+            ROW_RECORD_OWNER)
+                if [ -n "$_rc_owner_raw" ]; then
+                    RC_BROKEN_REASON="$ROW_CURRENCY_DECLARATION declares ROW_RECORD_OWNER twice. Who owns the record is one fact; two lines are a disagreement nobody can see."
+                    return 2
+                fi
+                _rc_owner_raw="$val" ;;
             *)
                 RC_BROKEN_REASON="unknown key '$key' in $ROW_CURRENCY_DECLARATION. A key nobody reads is a setting somebody believes is in force; the declaration refuses rather than ignoring it."
                 return 2 ;;
         esac
     done < "$f"
+
+    if [ -n "$_rc_owner_raw" ]; then
+        local _rc_owner_word="${_rc_owner_raw%%[[:space:]]*}"
+        local _rc_owner_mem=""
+        [ "$_rc_owner_word" != "$_rc_owner_raw" ] && _rc_owner_mem="${_rc_owner_raw#*[[:space:]]}"
+        _rc_owner_mem="$(printf '%s' "$_rc_owner_mem" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+        if [ -n "$RC_PEER_SPEC" ]; then
+            RC_BROKEN_REASON="$ROW_CURRENCY_DECLARATION declares ROW_RECORD_OWNER in the peer form. Who owns the record is the RECORD's declaration to make (its own $ROW_CURRENCY_DECLARATION); a second copy here is the drift this engine keeps finding in itself."
+            return 2
+        fi
+        if [ "$_rc_owner_word" != "app" ]; then
+            RC_BROKEN_REASON="ROW_RECORD_OWNER in $ROW_CURRENCY_DECLARATION is '$_rc_owner_raw'. The only value is 'app <his memory directory>'; the terminal owns the record when the line is absent. A value nobody recognizes must not quietly mean 'the terminal'."
+            return 2
+        fi
+        case "$_rc_owner_mem" in
+            /*|"~/"*) ;;
+            *)
+                RC_BROKEN_REASON="ROW_RECORD_OWNER in $ROW_CURRENCY_DECLARATION names no memory directory ('$_rc_owner_raw'). Write it as: ROW_RECORD_OWNER=\"app ~/.claude/projects/<project>/memory\". An owner line that names no memory leaves his memory unguarded while it reads as switched on."
+                return 2 ;;
+        esac
+        RC_RECORD_OWNER="app"
+        RC_RECORD_OWNER_MEMORY="$_rc_owner_mem"
+    fi
 
     if [ -n "$RC_PEER_SPEC" ] && [ -n "$RC_ROW_SECTIONS" ]; then
         RC_BROKEN_REASON="$ROW_CURRENCY_DECLARATION declares BOTH ROW_RECORD_REPO (the peer form: the record is somewhere else) and ROW_SECTIONS (the record form: the record is here). One repository cannot be both, and guessing which was meant is how the wrong one stays live."
@@ -329,6 +375,65 @@ rc_load_declaration() {
     fi
     RC_BROKEN_REASON="$ROW_CURRENCY_DECLARATION names neither ROW_SECTIONS (this repository owns the record) nor ROW_RECORD_REPO (the record is in a sibling repository). An empty declaration switches a guard on over nothing."
     return 2
+}
+
+# ---------------------------------------------------------------------------
+# rc_record_owner <root>
+# ---------------------------------------------------------------------------
+# Who owns the record that <root> is governed by: the record itself (record
+# form) or the record its peer declaration points at (peer form). Always read
+# from the record's MAIN checkout, because the owner line is a fact about the
+# record as it stands, not about a proposal branch in a linked worktree.
+#
+#   rc 0  resolved   -> RC_OWNER ("app" | "terminal"), RC_OWNER_MEMORY,
+#                       RC_OWNER_RECORD (main checkout), RC_OWNER_DECL (file read)
+#   rc 1  no contract here, or the peer's record is not on this machine
+#   rc 2  BROKEN     -> RC_BROKEN_REASON
+rc_record_owner() {
+    local root="${1:-}" main spec abs rrc=0
+    RC_OWNER="terminal"
+    RC_OWNER_MEMORY=""
+    RC_OWNER_RECORD=""
+    RC_OWNER_DECL=""
+    [ -n "$root" ] || return 1
+    rc_load_declaration "$root" || rrc=$?
+    case "$rrc" in 0) ;; 1) return 1 ;; *) return 2 ;; esac
+    rc_require_ceo_todos_lib || return 2
+    main="$(ct_main_checkout "$root")"
+    if [ "$RC_MODE" = "peer" ]; then
+        spec="$RC_PEER_SPEC"
+        case "$spec" in
+            /*) abs="$spec" ;;
+            *)  abs="$main/$spec" ;;
+        esac
+        [ -d "$abs" ] || return 1
+        RC_OWNER_RECORD="$(ct_repo_root "$abs")" || {
+            RC_BROKEN_REASON="'$spec' resolves to $abs, which is not inside a repository."
+            return 2
+        }
+        RC_OWNER_RECORD="$(ct_main_checkout "$RC_OWNER_RECORD")"
+    else
+        RC_OWNER_RECORD="$main"
+    fi
+    if [ "$RC_MODE" = "peer" ] || [ "$(ct_physical "$root")" != "$RC_OWNER_RECORD" ]; then
+        rrc=0
+        rc_load_declaration "$RC_OWNER_RECORD" || rrc=$?
+        case "$rrc" in
+            0) ;;
+            1)
+                RC_BROKEN_REASON="$RC_OWNER_RECORD was named as the record and carries no $ROW_CURRENCY_DECLARATION of its own."
+                return 2 ;;
+            *) return 2 ;;
+        esac
+        if [ "$RC_MODE" != "record" ]; then
+            RC_BROKEN_REASON="$RC_OWNER_RECORD was named as the record and its own $ROW_CURRENCY_DECLARATION is not in the record form."
+            return 2
+        fi
+    fi
+    RC_OWNER="$RC_RECORD_OWNER"
+    RC_OWNER_MEMORY="$RC_RECORD_OWNER_MEMORY"
+    RC_OWNER_DECL="$RC_DECLARATION_FILE"
+    return 0
 }
 
 # ---------------------------------------------------------------------------

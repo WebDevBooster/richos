@@ -528,6 +528,49 @@ esac
 # SCOPE, not a skipped check. See the header.
 rc_is_landing "$REPO" || exit 0
 
+# --- THE OWNER LINE: ONE WRITER AT CUT-OVER --------------------------------
+# Daily-driver plan step 8, two-installs spec point 27. When the record's own
+# declaration carries ROW_RECORD_OWNER="app ...", the RichOS app owns this
+# record and a landing here from his plain terminal is refused. Absent (the
+# state until cut-over), this block does nothing at all. Only the RECORD form
+# is judged: a landing in a peer repository is not a record commit.
+#
+# WHO IS CALLING is scripts/lib/record_owner.py's answer (the platform's own
+# session record, by ancestry, pid plus kernel start time), never a guess from
+# a name: the app's operator lead runs these same hooks and must pass. A caller
+# that cannot be identified is refused, because the owner line has been set and
+# "could not tell" must not read as "allowed".
+#
+# `git cherry-pick`, `am`, `rebase` and `revert` are not matched here, the gap
+# the header states for the whole guard; and a commit typed at a shell outside
+# Claude Code never reaches a PreToolUse hook at all (spec point 27).
+if [ "$RC_MODE" = "record" ] && [ "${RC_RECORD_OWNER:-terminal}" = "app" ]; then
+    _RC_TAB=$'\t'
+    _RC_SIDE="$(python3 "$SCRIPT_DIR/../lib/record_owner.py" caller 2>/dev/null)" \
+        || _RC_SIDE="unknown${_RC_TAB}the identity check could not run"
+    _RC_WHO="${_RC_SIDE%%"$_RC_TAB"*}"
+    _RC_WHY="${_RC_SIDE#*"$_RC_TAB"}"
+    if [ "$_RC_WHO" != "app" ]; then
+        {
+            echo "=== THE RICHOS APP OWNS THIS RECORD — REFUSING THIS $(printf '%s' "$ACTION" | tr '[:lower:]' '[:upper:]') ==="
+            echo "  repository : $REPO"
+            echo "  owner line : ROW_RECORD_OWNER in ${RC_DECLARATION_FILE}"
+            if [ "$_RC_WHO" = "terminal" ]; then
+                echo "  caller     : this terminal ($_RC_WHY)"
+            else
+                echo "  caller     : could not be identified ($_RC_WHY)"
+            fi
+            echo ""
+            echo "  Since the cut-over the app writes and lands his record, and the"
+            echo "  terminal does not. Make the change in the app."
+            echo "  To give the record back to the terminal, run record-owner.sh off"
+            echo "  (or delete that one line); this landing then goes through."
+            echo "(hook: scripts/hooks/guard-row-currency-commits.sh)"
+        } >&2
+        exit 2
+    fi
+fi
+
 RES_RC=0
 rc_resolve_record "$REPO" || RES_RC=$?
 case "$RES_RC" in
