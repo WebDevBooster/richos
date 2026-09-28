@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "ea3638431669d5b092167864f5076f94b3891e9b3fdefbf1a01bac6f5df72c27",
+      "sha256": "979f8b5a785e3d9aebfb7509f9f3f5febfeebce56935ca94ce8d8570aaf8f92f",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -1677,7 +1677,7 @@
     "scripts/hooks/install.sh#private-home": {
       "source": "scripts/hooks/install.sh",
       "sha256": "7b80a4c9660fbab047d9e025bade584212504bfd8585e7a91cb38411f1fc88c2",
-      "evidence": "The private-HOME fixture runs settings migration, registration-derived sidecar hashing and retired-plist removal. The only sourced helper is registered-hooks. Config is not loaded; hash targets are data. Private HOME or explicit LaunchAgents redirect leaves LAUNCHD_TOUCHABLE=0, so watchdog/reaper installers cannot execute. The same no-launchd branch applies when every invocation supplies a private CLAUDE_CONFIG_DIR distinct from HOME/.claude, as in locate-engine.test.sh; copied engines omit orchestration.config.",
+      "evidence": "The caller supplies a newly created HOME, distinct from pwd.getpwuid(uid).pw_dir, and a copied engine. The redirected-HOME condition keeps LAUNCHD_TOUCHABLE false even with CLAUDE_CONFIG_DIR equal to HOME/.claude. Only registration generation, file hashing and the private engine pointer run; no watchdog/reaper installer or orchestration config reader executes.",
       "keys": [],
       "edges": [
         {
@@ -4229,7 +4229,7 @@
     "scripts/lib/operator-mode.sh": {
       "source": "scripts/lib/operator-mode.sh",
       "sha256": "c9b25dd5eaef11ac02dc34ac11a6997404966ddb0dcd14cf019d83065b71ba6e",
-      "evidence": "Reads only the fixed operator launcher marker and on/off field in the supplied repository Git hooks file. No orchestration setting or command execution.",
+      "evidence": "Reads only the entity Git reference-transaction launcher as text using shell builtins; no orchestration config or Python process.",
       "keys": [],
       "edges": []
     },
@@ -6165,6 +6165,724 @@
         "if [ -n \"${_SEAT_JURISDICTION_SH_SOURCED:-}\" ]; then",
         "richos_physical() {"
       ]
+    },
+    "scripts/lib/publication-boundary.sh#load": {
+      "source": "scripts/lib/publication-boundary.sh",
+      "sha256": "46366c80e498f6269889d21109cbfe5de696c273aa9229277ecc85d8285fac85",
+      "evidence": "Module initialization only. Defines fixed paths and functions; no declaration, record, roster or configuration file is read and no predicate subprocess runs.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/declaration-path.sh"
+        }
+      ],
+      "region": [
+        "if [ -n \"${_PUBLICATION_BOUNDARY_SH_SOURCED:-}\" ]; then",
+        "pb_physical() {"
+      ]
+    },
+    "scripts/lib/vendored-material.sh#load": {
+      "source": "scripts/lib/vendored-material.sh",
+      "sha256": "630fc9746255b5e2c6cf24be71ba0b9780a5d673f98559db3099b44f47fa3c92",
+      "evidence": "Module initialization only. Defines fixed paths and functions; no declaration, record, roster or configuration file is read and no predicate subprocess runs.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/declaration-path.sh"
+        }
+      ],
+      "region": [
+        "if [ -n \"${_VENDORED_MATERIAL_SH_SOURCED:-}\" ]; then",
+        "vm_load() {"
+      ]
+    },
+    "scripts/lib/row-currency.sh#load": {
+      "source": "scripts/lib/row-currency.sh",
+      "sha256": "6aeb36f33046c910ad654f2c1f8eba96ca2c2a9675d40e9f5abf2c94e139584e",
+      "evidence": "Module initialization only. Defines fixed paths and functions; no declaration, record, roster or configuration file is read and no predicate subprocess runs.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/declaration-path.sh"
+        }
+      ],
+      "region": [
+        ": \"${ROW_CURRENCY_DECLARATION:=.row-currency}\"",
+        "rc_require_ceo_todos_lib() {"
+      ]
+    },
+    "scripts/lib/ceo-todos.sh#load": {
+      "source": "scripts/lib/ceo-todos.sh",
+      "sha256": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
+      "evidence": "Module initialization only. Defines fixed paths and functions; no declaration, record, roster or configuration file is read and no predicate subprocess runs.",
+      "keys": [],
+      "edges": [],
+      "region": [
+        "if [ -n \"${_CEO_TODOS_SH_SOURCED:-}\" ]; then",
+        "ct_physical() {"
+      ]
+    },
+    "scripts/lib/named-persons.sh#load": {
+      "source": "scripts/lib/named-persons.sh",
+      "sha256": "2c28d15414eed56676bd2c5588d66fe88f30c03dfb78e5e2752ffc5de17fffc3",
+      "evidence": "Module initialization only. Defines fixed paths and functions; no declaration, record, roster or configuration file is read and no predicate subprocess runs.",
+      "keys": [],
+      "edges": [],
+      "region": [
+        "if [ -n \"${_NAMED_PERSONS_SH_SOURCED:-}\" ]; then",
+        "np_list_path() {"
+      ]
+    },
+    "scripts/hooks/guard-publication-commits.sh#benign-bash": {
+      "source": "scripts/hooks/guard-publication-commits.sh",
+      "sha256": "180baec98c3f3b0e23e6b12bb8f3e129082ca6f10d49577b56671e102039e9fe",
+      "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "STAGE_ALL=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-vendoring-commits.sh#benign-bash": {
+      "source": "scripts/hooks/guard-vendoring-commits.sh",
+      "sha256": "88f0eef0c45b61a143ce0ebd0cba1b8ceda9f908d0cfed09994a9acc30da1208",
+      "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/vendored-material.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "AMEND=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-ci-red-lands.sh#benign-bash": {
+      "source": "scripts/hooks/guard-ci-red-lands.sh",
+      "sha256": "64d83f115beb4a9db8c3cfe52438b72951d2a9e2ce5becee5f9344b9fb3eb6b0",
+      "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#engine-only"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "VERB=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-ceo-todos-commits.sh#benign-bash": {
+      "source": "scripts/hooks/guard-ceo-todos-commits.sh",
+      "sha256": "b5ce1b39ad6985d4d3a52864c389968a474f05de1187baaa430941756ae0c0e0",
+      "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/ceo-todos.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "STAGE_ALL=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-completeness-commits.sh#benign-bash": {
+      "source": "scripts/hooks/guard-completeness-commits.sh",
+      "sha256": "bb6d0253b44d251a08dd325e8901399aafcbe4ca6fe4aa4c30c9b41a57cee673",
+      "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "_CC_GJ="
+      ]
+    },
+    "scripts/hooks/guard-row-currency-commits.sh#benign-bash": {
+      "source": "scripts/hooks/guard-row-currency-commits.sh",
+      "sha256": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
+      "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/row-currency.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "ACTION=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-hook-registration-commits.sh#benign-bash": {
+      "source": "scripts/hooks/guard-hook-registration-commits.sh",
+      "sha256": "0e684c61c9c4d2bd3a724b6f4693090812cff645911916e4b4cb035b90790393",
+      "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#engine-only"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "IFS= read -r -d '' _HR_CLASSIFIER"
+      ]
+    },
+    "scripts/hooks/guard-publication-writes.sh#benign-bash": {
+      "source": "scripts/hooks/guard-publication-writes.sh",
+      "sha256": "c69db813e7aab086ff3f6257d3429eca9e7091c9fc985d17f91829ce943a580b",
+      "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "FILE_PATH=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-named-persons-writes.sh#benign-bash": {
+      "source": "scripts/hooks/guard-named-persons-writes.sh",
+      "sha256": "95095c3eee1ac1f3f7f156dfc2fcb0b039868c63c1d10d45d043fdd7d86ad3ce",
+      "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#engine-only"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh#notice-once"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#load"
+        },
+        {
+          "to": "scripts/lib/named-persons.sh#load"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "FILE_PATH=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-named-persons-commands.sh#benign-bash": {
+      "source": "scripts/hooks/guard-named-persons-commands.sh",
+      "sha256": "56891e30dde5774e5430c9459cee10dc61bb683888f76917219d97c9e9cce825",
+      "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#engine-only"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh#notice-once"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#load"
+        },
+        {
+          "to": "scripts/lib/named-persons.sh#load"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "NP_ANCHOR=\"$(richos_git_anchor"
+      ]
+    },
+    "scripts/hooks/guard-main-checkout-writes.sh#benign-bash": {
+      "source": "scripts/hooks/guard-main-checkout-writes.sh",
+      "sha256": "15ef50dd54edf557ac14c16ce894b7212cfc692244d5fa19728cf2c6edad35a7",
+      "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
+      "keys": [
+        "PROTECTED_PATHS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "FILE_PATH=\"$(printf"
+      ]
+    },
+    "scripts/hooks/scan-secrets.sh#benign-bash": {
+      "source": "scripts/hooks/scan-secrets.sh",
+      "sha256": "d23d1d44376e0557597f8a0add40a0226049d801769af48d81095002477e0c73",
+      "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
+      "keys": [
+        "SECRET_SCAN_MIN_LENGTH",
+        "SECRET_SCAN_MIN_ENTROPY",
+        "SECRET_SCAN_ALLOWLIST",
+        "SECRET_SCAN_CODE_AWARE"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "FILE_PATH=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-dialect.sh#benign-bash": {
+      "source": "scripts/hooks/guard-dialect.sh",
+      "sha256": "2a19b37f44f5805b9b57c613f1cc7eae0cd1ef806dd36db2b4b10bfed990a58e",
+      "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
+      "keys": [
+        "DIALECT_TARGET",
+        "DIALECT_SCAN_ALLOWLIST",
+        "DIALECT_EXEMPT_PATHS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "FILE_PATH=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-no-home-network-phone.sh#benign-bash": {
+      "source": "scripts/hooks/guard-no-home-network-phone.sh",
+      "sha256": "a84bf4506421d5a84ed94cbf75c7678fbc7a2b0b635a7e5a493750d3fddb82c9",
+      "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
+      "keys": [
+        "HOME_NETWORK_PHONE_GUARD"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "FILE_PATH=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-host-display-power.sh#benign-bash": {
+      "source": "scripts/hooks/guard-host-display-power.sh",
+      "sha256": "a6b99e74c251343564a32b52dbdafbf5a00ae84268853dfa7f622d032e79dc45",
+      "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
+      "keys": [
+        "HOST_DISPLAY_POWER_GUARD"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "SESSION_ID=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-public-record-repo.sh#benign-bash": {
+      "source": "scripts/hooks/guard-public-record-repo.sh",
+      "sha256": "49a6e6c29e59a604b4d91e847e1e6d6060035f41f703bc95ffc8275778fec3d7",
+      "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
+      "keys": [
+        "PUBLIC_RECORD_REPO_GUARD"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "    _GJ=\"$(richos_git_anchor"
+      ]
+    },
+    "scripts/hooks/guard-operator-claim.sh#benign-bash": {
+      "source": "scripts/hooks/guard-operator-claim.sh",
+      "sha256": "06ded03dc7f1dc6825df5e952619dcaae26c24f0bcda7ba017c935ed20c5663b",
+      "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/operator-mode.sh"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"",
+        "_goc_py="
+      ]
+    },
+    "scripts/hooks/guard-shared-writes.sh#benign-bash": {
+      "source": "scripts/hooks/guard-shared-writes.sh",
+      "sha256": "8c93495c7a2fd02ef98b701af51fff16859fa0e11295eb9706d639a62148784a",
+      "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/operator-mode.sh"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"",
+        "_gsw_py="
+      ]
+    },
+    "scripts/hooks/guard-land-lease-commands.sh#benign-bash": {
+      "source": "scripts/hooks/guard-land-lease-commands.sh",
+      "sha256": "e3fb182d2571b84f9a84599fd50f404bb53aee051f6a9bbf52f0f78e01b60078",
+      "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "_gllc_in=\"$(cat)\"",
+        "_gllc_py="
+      ]
+    },
+    "scripts/hooks/guard-foreign-app-data.sh#benign-bash": {
+      "source": "scripts/hooks/guard-foreign-app-data.sh",
+      "sha256": "4360ace16a692e3cf5c7dd100dc206c496f0960b4584d66f76ff240bda3ee42c",
+      "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "_gfad_in=\"$(cat)\"",
+        "_gfad_py="
+      ]
+    },
+    "scripts/hooks/dispatch-pretooluse.sh#stub-modules": {
+      "source": "scripts/hooks/dispatch-pretooluse.sh",
+      "sha256": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
+      "evidence": "Dispatcher chassis with literal private stub modules and manifest from its content-bound suite. Root memo and payload memo run; fixed stubs only consume stdin or emit literal values.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ]
+    },
+    "scripts/hooks/dispatch-pretooluse.manifest": {
+      "source": "scripts/hooks/dispatch-pretooluse.manifest",
+      "sha256": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7",
+      "evidence": "Finite shipped module inventory read by the dispatcher test; all modules are bound by the suite edges below.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/hooks/dispatch-pretooluse.test.sh": {
+      "source": "scripts/hooks/dispatch-pretooluse.test.sh",
+      "sha256": "dd8225c1e9a845bb28635d878d3d073099840ebf0b7be434c6c16628b0d00511",
+      "evidence": "Full suite review: private literal dispatcher stubs; real config copied for root/adoption and D21 benign standalone modules. D21b installs only into a new HOME. D18-D20 inspect shipped manifest and all hook events. Fixed nested mutants change chassis/memo decisions without replacing the D21 payload or adding executable targets.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/dispatch-pretooluse.sh#stub-modules"
+        },
+        {
+          "to": "scripts/hooks/dispatch-pretooluse.manifest"
+        },
+        {
+          "to": "scripts/hooks/install.sh#private-home"
+        },
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/hooks/dispatch-pretooluse.mutation.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-bash-main-writes.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-ceo-todos-commits.sh#benign-bash"
+        },
+        {
+          "to": "scripts/hooks/guard-ci-red-lands.sh#benign-bash"
+        },
+        {
+          "to": "scripts/hooks/guard-completeness-commits.sh#benign-bash"
+        },
+        {
+          "to": "scripts/hooks/guard-dialect.sh#benign-bash"
+        },
+        {
+          "to": "scripts/hooks/guard-foreign-app-data.sh#benign-bash"
+        },
+        {
+          "to": "scripts/hooks/guard-hook-registration-commits.sh#benign-bash"
+        },
+        {
+          "to": "scripts/hooks/guard-host-display-power.sh#benign-bash"
+        },
+        {
+          "to": "scripts/hooks/guard-inflight-notify.sh#benign-bash"
+        },
+        {
+          "to": "scripts/hooks/guard-interactive-prompt.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-land-lease-commands.sh#benign-bash"
+        },
+        {
+          "to": "scripts/hooks/guard-main-checkout-writes.sh#benign-bash"
+        },
+        {
+          "to": "scripts/hooks/guard-named-persons-commands.sh#benign-bash"
+        },
+        {
+          "to": "scripts/hooks/guard-named-persons-writes.sh#benign-bash"
+        },
+        {
+          "to": "scripts/hooks/guard-no-home-network-phone.sh#benign-bash"
+        },
+        {
+          "to": "scripts/hooks/guard-operator-claim.sh#benign-bash"
+        },
+        {
+          "to": "scripts/hooks/guard-public-record-repo.sh#benign-bash"
+        },
+        {
+          "to": "scripts/hooks/guard-publication-commits.sh#benign-bash"
+        },
+        {
+          "to": "scripts/hooks/guard-publication-writes.sh#benign-bash"
+        },
+        {
+          "to": "scripts/hooks/guard-row-currency-commits.sh#benign-bash"
+        },
+        {
+          "to": "scripts/hooks/guard-shared-writes.sh#benign-bash"
+        },
+        {
+          "to": "scripts/hooks/guard-vendoring-commits.sh#benign-bash"
+        },
+        {
+          "to": "scripts/hooks/guard-worktree-removal.sh"
+        },
+        {
+          "to": "scripts/hooks/scan-secrets.sh#benign-bash"
+        }
+      ],
+      "presence": "Copies real orchestration.config into private root fixtures."
+    },
+    "scripts/hooks/dispatch-pretooluse.mutation.sh": {
+      "source": "scripts/hooks/dispatch-pretooluse.mutation.sh",
+      "sha256": "3d91fabf4c81c056bf785cb6d56a3e12b49d26b618eb3fcabc74d547530510f8",
+      "evidence": "Reviewed finite literal chassis/root/payload memo mutants. Runs the same suite with INNER=1, so recursion terminates and the D21 module/installer obligations remain.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/hooks/dispatch-pretooluse.test.sh"
+        }
+      ]
+    },
+    "scripts/lib/inflight.sh#load": {
+      "source": "scripts/lib/inflight.sh",
+      "sha256": "db5588f3a0093a55befbcab454ee7e1921e1d8f8a049ff0c243da5020e418e43",
+      "evidence": "Module initialization sets three source-relative helper paths. No timeout config, teammate identity or in-flight predicate is read until a function is called.",
+      "keys": [],
+      "edges": [],
+      "region": [
+        "if [ -n \"${_INFLIGHT_SH_SOURCED:-}\" ]; then",
+        "inflight_require() {"
+      ]
+    },
+    "scripts/hooks/guard-inflight-notify.sh#benign-bash": {
+      "source": "scripts/hooks/guard-inflight-notify.sh",
+      "sha256": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
+      "evidence": "Fixed Bash echo hello fixture exits at the literal command classifier before the push-only path can resolve teams, read INFLIGHT_ACK_TIMEOUT_MIN or call the predicate.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/inflight.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "SESSION_ID=\"$(printf"
+      ]
     }
   },
   "units": {
@@ -6273,7 +6991,8 @@
     "scripts/hooks/row-currency.test.sh": "scripts/hooks/row-currency.test.sh",
     "scripts/hooks/completeness-commits.test.sh": "scripts/hooks/completeness-commits.test.sh",
     "scripts/publication-completeness.test.sh": "scripts/publication-completeness.test.sh",
-    "scripts/hooks/named-persons.test.sh": "scripts/hooks/named-persons.test.sh"
+    "scripts/hooks/named-persons.test.sh": "scripts/hooks/named-persons.test.sh",
+    "scripts/hooks/dispatch-pretooluse.test.sh": "scripts/hooks/dispatch-pretooluse.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
@@ -6769,6 +7488,69 @@
         "scripts/named-persons.sh": "0c672c2e9cc4b61f9c0262df9c251692a30d1f110a335c718365c5a69cd126ca"
       },
       "evidence": "Only these two registrations are resolved against plugin and seated surfaces; source oracle/bootstrap checks do not execute the probe or any other hook."
+    },
+    "scripts/hooks/dispatch-pretooluse.test.sh": {
+      "commands": [],
+      "all_events": true,
+      "evidence": "D19 scans registrations across all events for dispatcher overlap. D20 checks PreToolUse chain keys. Installer derives and validates full registration inventory. Content-bound manifest, every D21 module and all reached helpers are retained.",
+      "sources": {
+        "scripts/hooks/dispatch-pretooluse.test.sh": "dd8225c1e9a845bb28635d878d3d073099840ebf0b7be434c6c16628b0d00511",
+        "scripts/hooks/dispatch-pretooluse.sh": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
+        "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7",
+        "scripts/hooks/install.sh": "7b80a4c9660fbab047d9e025bade584212504bfd8585e7a91cb38411f1fc88c2",
+        "scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
+        "scripts/hooks/dispatch-pretooluse.mutation.sh": "3d91fabf4c81c056bf785cb6d56a3e12b49d26b618eb3fcabc74d547530510f8",
+        "scripts/lib/mutation-harness.sh": "9dd839120e0a3b2ae4ef91054e076a8e9ea31c4592dbe0ea3eb80f3f018c88b0",
+        "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
+        "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
+        "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
+        "scripts/lib/worker_tokens.py": "8c4cada1e7a4883a65435017ebac01c27307724a9724ea698f0df699898ff6b2",
+        "scripts/lib/proc_tree.py": "dbd97c9b9758184e960348cd6c81e5089ae9691aee8324977a3ddbc0460a219d",
+        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
+        "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
+        "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
+        "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
+        "scripts/hooks/guard-bash-main-writes.sh": "103465d3f2a5744282c5147b4cf45db5f484318b6635412f9d6b3ea368e4033f",
+        "scripts/hooks/guard-ceo-todos-commits.sh": "b5ce1b39ad6985d4d3a52864c389968a474f05de1187baaa430941756ae0c0e0",
+        "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
+        "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
+        "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
+        "scripts/hooks/guard-ci-red-lands.sh": "64d83f115beb4a9db8c3cfe52438b72951d2a9e2ce5becee5f9344b9fb3eb6b0",
+        "scripts/hooks/guard-completeness-commits.sh": "bb6d0253b44d251a08dd325e8901399aafcbe4ca6fe4aa4c30c9b41a57cee673",
+        "scripts/lib/publication-boundary.sh": "46366c80e498f6269889d21109cbfe5de696c273aa9229277ecc85d8285fac85",
+        "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
+        "scripts/hooks/guard-dialect.sh": "2a19b37f44f5805b9b57c613f1cc7eae0cd1ef806dd36db2b4b10bfed990a58e",
+        "scripts/hooks/guard-foreign-app-data.sh": "4360ace16a692e3cf5c7dd100dc206c496f0960b4584d66f76ff240bda3ee42c",
+        "scripts/hooks/guard-hook-registration-commits.sh": "0e684c61c9c4d2bd3a724b6f4693090812cff645911916e4b4cb035b90790393",
+        "scripts/hooks/guard-host-display-power.sh": "a6b99e74c251343564a32b52dbdafbf5a00ae84268853dfa7f622d032e79dc45",
+        "scripts/hooks/guard-inflight-notify.sh": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
+        "scripts/lib/inflight.sh": "db5588f3a0093a55befbcab454ee7e1921e1d8f8a049ff0c243da5020e418e43",
+        "scripts/hooks/guard-interactive-prompt.sh": "006331257e3424466c9bd8f5f49d895362f0602063cb25d98dcef32b18fbd8c8",
+        "scripts/lib/interactive-prompt.py": "911722b466b6c56a712c44a3f6f268608c5d10ab0bff75d9b59e5492c36c0e4f",
+        "scripts/hooks/guard-land-lease-commands.sh": "e3fb182d2571b84f9a84599fd50f404bb53aee051f6a9bbf52f0f78e01b60078",
+        "scripts/hooks/guard-main-checkout-writes.sh": "15ef50dd54edf557ac14c16ce894b7212cfc692244d5fa19728cf2c6edad35a7",
+        "scripts/hooks/guard-named-persons-commands.sh": "56891e30dde5774e5430c9459cee10dc61bb683888f76917219d97c9e9cce825",
+        "scripts/lib/named-persons.sh": "2c28d15414eed56676bd2c5588d66fe88f30c03dfb78e5e2752ffc5de17fffc3",
+        "scripts/hooks/guard-named-persons-writes.sh": "95095c3eee1ac1f3f7f156dfc2fcb0b039868c63c1d10d45d043fdd7d86ad3ce",
+        "scripts/hooks/guard-no-home-network-phone.sh": "a84bf4506421d5a84ed94cbf75c7678fbc7a2b0b635a7e5a493750d3fddb82c9",
+        "scripts/hooks/guard-operator-claim.sh": "06ded03dc7f1dc6825df5e952619dcaae26c24f0bcda7ba017c935ed20c5663b",
+        "scripts/lib/operator-mode.sh": "c9b25dd5eaef11ac02dc34ac11a6997404966ddb0dcd14cf019d83065b71ba6e",
+        "scripts/hooks/guard-public-record-repo.sh": "49a6e6c29e59a604b4d91e847e1e6d6060035f41f703bc95ffc8275778fec3d7",
+        "scripts/hooks/guard-publication-commits.sh": "180baec98c3f3b0e23e6b12bb8f3e129082ca6f10d49577b56671e102039e9fe",
+        "scripts/hooks/guard-publication-writes.sh": "c69db813e7aab086ff3f6257d3429eca9e7091c9fc985d17f91829ce943a580b",
+        "scripts/hooks/guard-row-currency-commits.sh": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
+        "scripts/lib/row-currency.sh": "6aeb36f33046c910ad654f2c1f8eba96ca2c2a9675d40e9f5abf2c94e139584e",
+        "scripts/hooks/guard-shared-writes.sh": "8c93495c7a2fd02ef98b701af51fff16859fa0e11295eb9706d639a62148784a",
+        "scripts/hooks/guard-vendoring-commits.sh": "88f0eef0c45b61a143ce0ebd0cba1b8ceda9f908d0cfed09994a9acc30da1208",
+        "scripts/lib/vendored-material.sh": "630fc9746255b5e2c6cf24be71ba0b9780a5d673f98559db3099b44f47fa3c92",
+        "scripts/hooks/guard-worktree-removal.sh": "b39ff96220cb74cf9f94acc3d6210f3207b57bdf50cb33ffdd29882e536a5f37",
+        "mega-lander/workspaces.py": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+        "scripts/hooks/scan-secrets.sh": "d23d1d44376e0557597f8a0add40a0226049d801769af48d81095002477e0c73"
+      }
     }
   }
 }

@@ -152,6 +152,36 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_dispatcher_binds_all_modules_and_keeps_preclassification_settings(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/dispatch-pretooluse.test.sh'
+        closure = graph.closure(unit)
+        self.assertFalse(closure['whole'] or closure['fallback'], closure)
+        expected = {'PROTECTED_PATHS', 'SECRET_SCAN_MIN_LENGTH', 'SECRET_SCAN_MIN_ENTROPY',
+                    'SECRET_SCAN_ALLOWLIST', 'SECRET_SCAN_CODE_AWARE', 'DIALECT_TARGET',
+                    'DIALECT_SCAN_ALLOWLIST', 'DIALECT_EXEMPT_PATHS',
+                    'HOME_NETWORK_PHONE_GUARD', 'HOST_DISPLAY_POWER_GUARD', 'PUBLIC_RECORD_REPO_GUARD'}
+        self.assertEqual(set(closure['keys']), expected)
+        self.assertTrue(closure['presence'])
+        unrelated = inputs.config_change('MODEL_TIERS=one', 'MODEL_TIERS=two')
+        self.assertFalse(graph.config_units(unrelated, [unit]))
+        for key in expected:
+            self.assertIn(unit, graph.config_units(inputs.config_change(key+'=one', key+'=two'), [unit]), key)
+        self.assertIn(unit, graph.config_units(inputs.config_change('MODEL_TIERS=one', None), [unit]))
+        for helper in ('scripts/hooks/dispatch-pretooluse.manifest',
+                       'scripts/hooks/guard-ci-red-lands.sh#benign-bash',
+                       'scripts/hooks/install.sh#private-home', 'scripts/lib/operator-mode.sh'):
+            old = document['nodes'].pop(helper)
+            self.assertIn(unit, graph.config_units(unrelated, [unit]), helper)
+            document['nodes'][helper] = old
+        reader = inputs.hook_reader(document['hook_readers'][unit],
+                                    lambda path: (HERE.parent / path).read_text())
+        self.assertTrue(reader['all_events'])
+        modules = {line.split('|')[1] for line in (HERE / 'hooks/dispatch-pretooluse.manifest').read_text().splitlines()
+                   if line and not line.startswith('#')}
+        self.assertTrue({'scripts/hooks/'+module for module in modules} <= set(reader['sources']))
+
     def test_named_person_fixtures_do_not_read_shipped_config_or_real_rosters(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)
