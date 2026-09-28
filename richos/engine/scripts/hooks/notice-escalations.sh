@@ -24,13 +24,34 @@
 # turn ends here, and a turn that ends with an unacknowledged escalation says so.
 #
 # ===========================================================================
-# WHY IT REPORTS AND DOES NOT BLOCK
+# TWO AUDIENCES, AND UNTIL 2026-09-28 ONLY ONE OF THEM WAS REACHED
 # ===========================================================================
 # The standing bar in this engine is that a deliverable which only reports has
 # failed unless the report IS the mechanism. Here it is. Nothing was ever
 # missing except the reading: both escalations existed, in git, in full, for two
-# days. The artifact that changes the outcome is the ARRIVAL, on the one channel
-# measured to reach the operator, in the turn after it is raised.
+# days. The artifact that changes the outcome is the ARRIVAL, in the turn after
+# it is raised — to the operator AND to the lead's model.
+#
+# For its first three weeks this hook spoke only `systemMessage`, and a Stop
+# hook's systemMessage reaches the PERSON and never the model (the channel
+# table below; the hooks reference says "Warning message shown to the user").
+# Measured 2026-09-28 in the lead's own session: a teammate's escalation was in
+# the ledger at 13:49Z, this hook fired four times after it, and every firing
+# sat in the transcript as `hook_success` with `content: ""`. The lead learned
+# of it only at the next session start. So the operator's line is now joined,
+# in the same JSON object, by `hookSpecificOutput.additionalContext` carrying
+# every NEW escalation in the teammate's own words — the Stop field that does
+# reach the model. What counts as new, and why that memory is per session and
+# not in the ledger, is argued under "DELIVERY" in scripts/lib/escalations.py.
+#
+# additionalContext ON Stop CONTINUES THE CONVERSATION, and that is not the
+# blocking refused below. The hooks reference: "Non-error feedback for Claude.
+# The conversation continues so Claude can act on it, but unlike
+# decision: block it is shown in the transcript as hook feedback rather than a
+# hook error." Nothing has to be answered or acknowledged for the turn to end;
+# each escalation is delivered ONCE per session, so the next turn end has
+# nothing new and the lead stops. Raising an escalation costs the lead one
+# extra model call, once — which is the arrival this file exists for.
 #
 # Blocking would be the wrong instrument, for the reason guard-inflight-notify.sh
 # gives one event over: it would refuse the LEAD's turn until a third party's
@@ -74,13 +95,17 @@
 # would hide the common case. It stands down only where the engine is not
 # adopted at all, because the plugin loads in every directory on the machine.
 #
-# NOTE: hooks are snapshotted at session start. This one is INERT until the
-# next session — it assumes nothing about being live in the session that adds it.
+# NOTE: hook REGISTRATIONS are snapshotted at session start; the script a
+# registration names is read from disk at every firing. The model delivery
+# added on 2026-09-28 changed no registration (still Stop), so it is live in a
+# running session as soon as the installed copy is updated.
 #
 # UNEVALUATED-PAYLOAD-EXEMPT: payload-independent — the predicate is the escalation ledger, and this hook already
 # announces when that predicate is unavailable — 'ESCALATION WATCH IS OFF' and
 # 'ESCALATION WATCH PRODUCED NOTHING'. That is this same property implemented
-# for a different input.
+# for a different input. The payload's session id and transcript path decide
+# only WHICH escalations this session has already been told about; with none,
+# every outstanding escalation is new once, and the text is the same text.
 #
 # WHY THIS ONE NEEDS A DECLARATION WHERE THE OTHER EXEMPT HOOKS DO NOT.
 # scripts/hooks/unevaluated-payload.test.sh derives every registered PreToolUse
@@ -221,5 +246,27 @@ if [ "$KEY" = "clear" ]; then
     exit 0
 fi
 
-stop_notice_abnormal "$KEY" "$LINE"
+# TWO AUDIENCES, ONE JSON OBJECT. The operator's line comes from the notice
+# ledger exactly as before (de-duplicated, louder with age). The MODEL's half —
+# every NEW escalation, by id, teammate, title, state and question — is added by
+# the predicate as hookSpecificOutput.additionalContext, the one Stop field that
+# reaches the lead's context. See "DELIVERY" in scripts/lib/escalations.py.
+OPERATOR_JSON="$(stop_notice_abnormal "$KEY" "$LINE")"
+
+set +e
+FINAL="$(printf '%s' "$INPUT" \
+    | ESCALATIONS_OPERATOR_JSON="$OPERATOR_JSON" \
+      escalations_deliver "$ENTITY_ROOT/.claude/state/stop-hook-notices" 2>/dev/null)"
+DRC=$?
+set -e
+
+if [ "$DRC" -eq 0 ]; then
+    [ -z "$FINAL" ] || printf '%s\n' "$FINAL"
+    exit 0
+fi
+
+# DELIVERY BROKE. The operator still gets his line, and is told — every turn,
+# because there is no memory to de-duplicate a failure against — that the lead
+# was NOT told. Silence here would be the 2026-09-28 defect again.
+_shn_emit "$LINE | ESCALATION DELIVERY TO THE LEAD FAILED (exit $DRC): the model was not told about any new escalation this turn — run escalate.sh list."
 exit 0
