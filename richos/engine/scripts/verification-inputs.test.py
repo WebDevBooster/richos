@@ -152,6 +152,27 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_stop_visibility_preserves_real_disk_reader_and_dynamic_inventory(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/stop-hook-visibility.test.sh'
+        closure = graph.closure(unit)
+        self.assertFalse(closure['whole'] or closure['fallback'], closure['fallback'])
+        self.assertEqual(set(closure['keys']), set(graph.closure('scripts/disk-watchdog.sh#alert')['keys']))
+        unrelated = inputs.config_change('SHOW_TURN_MANIFEST=1', 'SHOW_TURN_MANIFEST=0')
+        self.assertFalse(graph.config_units(unrelated, [unit]))
+        self.assertIn(unit, graph.config_units(inputs.config_change('DISK_RICH_ALERT_GB=10', 'DISK_RICH_ALERT_GB=20'), [unit]))
+        self.assertIn(unit, graph.config_units(inputs.config_change('DISK_RICH_ALERT_GB=10', None), [unit]))
+        for helper in ('hooks/hooks.json#stop-visibility-inventory',
+                       'scripts/hooks/release-land-leases.sh#unadopted-stop',
+                       'scripts/lib/stop-session-recovery.py', 'scripts/lib/escalations.sh#load'):
+            old = document['nodes'].pop(helper)
+            self.assertIn(unit, graph.config_units(unrelated, [unit]), helper)
+            document['nodes'][helper] = old
+        reader = inputs.hook_reader(document['hook_readers'][unit],
+                                    lambda path: (HERE.parent / path).read_text())
+        self.assertEqual(reader['events'], ['Stop'])
+
     def test_dispatcher_binds_all_modules_and_keeps_preclassification_settings(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

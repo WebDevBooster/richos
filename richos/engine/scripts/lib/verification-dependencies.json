@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "979f8b5a785e3d9aebfb7509f9f3f5febfeebce56935ca94ce8d8570aaf8f92f",
+      "sha256": "de374f37e0c69c12c38ea1b01e6b346a30b7615ae1f65f70434dfed2424ea66e",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -6883,6 +6883,528 @@
         "set -eo pipefail",
         "SESSION_ID=\"$(printf"
       ]
+    },
+    "scripts/lib/escalations.sh#load": {
+      "source": "scripts/lib/escalations.sh",
+      "sha256": "656be06643a5579cc15e4ef5efe7628bd58e0a134e3677b36885f2060db59db7",
+      "evidence": "Only module initialization runs; fixed adjacent Python path is assigned, no ledger or predicate is read.",
+      "keys": [],
+      "edges": [],
+      "region": [
+        "if [ -n \"${_ESCALATIONS_SH_SOURCED:-}\" ]; then",
+        "escalations_require() {"
+      ]
+    },
+    "hooks/hooks.json#stop-visibility-inventory": {
+      "source": "hooks/hooks.json",
+      "sha256": "c75215e22ece4acfbf861225e37537dec1671e0b196fc57a8f718a054a51e0d2",
+      "evidence": "Binds the dynamically enumerated Stop script inventory for config selection. A new or changed manifest needs requalification before these fixture closures can exclude a config change.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/hooks/guard-agent-state-claims.sh#unadopted-stop": {
+      "source": "scripts/hooks/guard-agent-state-claims.sh",
+      "sha256": "b7a14acc4ff57cdec91821f6fd74b3c745deb18a0bd256ac7d60a3e7dd35dd7e",
+      "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/stop-session-recovery.py"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "CONFIG=\"$ENTITY_ROOT/orchestration.config\""
+      ]
+    },
+    "scripts/hooks/guard-ci-turn-gate.sh#unadopted-stop": {
+      "source": "scripts/hooks/guard-ci-turn-gate.sh",
+      "sha256": "d5982f5f16da84d753d275669128b20c453782674189d9b8b2b7ac0dae39c324",
+      "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/stop-session-recovery.py"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "stop_notice_init \"guard-ci-turn-gate.sh\" \"$ENTITY_ROOT\" \"$INPUT\""
+      ]
+    },
+    "scripts/hooks/guard-failure-type-answer.sh#unadopted-stop": {
+      "source": "scripts/hooks/guard-failure-type-answer.sh",
+      "sha256": "9178339b1342a751b3de2fa743b2d65df019af3eb4af10e7447a82ad805895aa",
+      "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/stop-session-recovery.py"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "CONFIG=\"$ENTITY_ROOT/orchestration.config\""
+      ]
+    },
+    "scripts/hooks/guard-idle-land.sh#unadopted-stop": {
+      "source": "scripts/hooks/guard-idle-land.sh",
+      "sha256": "c65ff6beb940c15ff20cf5a7e54e2f8453c4f6594d2ed2a8d32cda662dc3efae",
+      "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/stop-session-recovery.py"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "CONFIG=\"$ENTITY_ROOT/orchestration.config\""
+      ]
+    },
+    "scripts/hooks/guard-stated-actions.sh#unadopted-stop": {
+      "source": "scripts/hooks/guard-stated-actions.sh",
+      "sha256": "21ba110b91c10046b34ae46153ef9a42b140f5833e53217bfdb7e1b656862a27",
+      "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/stop-session-recovery.py"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "CONFIG=\"$ENTITY_ROOT/orchestration.config\""
+      ]
+    },
+    "scripts/hooks/guard-unresolved-claims.sh#unadopted-stop": {
+      "source": "scripts/hooks/guard-unresolved-claims.sh",
+      "sha256": "88db28246b8e79d1d623d26e366fcc3c8bf1811e3bb464fc04d484761ead14d2",
+      "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/stop-session-recovery.py"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "CONFIG=\"$ENTITY_ROOT/orchestration.config\""
+      ]
+    },
+    "scripts/hooks/guard-workspace-gate.sh#unadopted-stop": {
+      "source": "scripts/hooks/guard-workspace-gate.sh",
+      "sha256": "704f1516e9337a8dcdf4589fd5b74473bffffcb694c1460fa16bb43a4a2b802f",
+      "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "stop_notice_init \"guard-workspace-gate.sh\" \"$ENTITY_ROOT\" \"$INPUT\""
+      ]
+    },
+    "scripts/hooks/notice-ceo-inputs-unheld.sh#unadopted-stop": {
+      "source": "scripts/hooks/notice-ceo-inputs-unheld.sh",
+      "sha256": "22df89c10271652f710eb04caba653cdc138eda6bc4eeb1971f9b0e83adf2fc7",
+      "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "CONFIG=\"$ENTITY_ROOT/orchestration.config\""
+      ]
+    },
+    "scripts/hooks/notice-ceo-ruled-prose.sh#unadopted-stop": {
+      "source": "scripts/hooks/notice-ceo-ruled-prose.sh",
+      "sha256": "b6aa4600524c27077232a5a83feab3cfe603436ae8dcaaaa0bcc9ed725c0c1b5",
+      "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "stop_notice_init \"notice-ceo-ruled-prose.sh\" \"$ENTITY_ROOT\" \"$INPUT\""
+      ]
+    },
+    "scripts/hooks/notice-ceo-unasked.sh#unadopted-stop": {
+      "source": "scripts/hooks/notice-ceo-unasked.sh",
+      "sha256": "3eac14e8c4bb2fd3f73651e11cc703f5a121a2c6e9b7e752a11d66cb50d98daa",
+      "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "stop_notice_init \"notice-ceo-unasked.sh\" \"$ENTITY_ROOT\" \"$INPUT\""
+      ]
+    },
+    "scripts/hooks/notice-escalations.sh#unadopted-stop": {
+      "source": "scripts/hooks/notice-escalations.sh",
+      "sha256": "d26e14d802bad45e2f6528722d38eb91076c25e1d3e32ee2228a66e138e963da",
+      "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/escalations.sh#load"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "stop_notice_init \"notice-escalations.sh\" \"$ENTITY_ROOT\" \"$INPUT\""
+      ]
+    },
+    "scripts/hooks/notice-hook-staleness.sh#unadopted-stop": {
+      "source": "scripts/hooks/notice-hook-staleness.sh",
+      "sha256": "360fd629986741403adc2337a84ae2dd2645b517f275f7cbb3af331cae48460b",
+      "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "STATE_DIR=\"$ENTITY_ROOT/.claude/state\""
+      ]
+    },
+    "scripts/hooks/notice-inflight-acks.sh#unadopted-stop": {
+      "source": "scripts/hooks/notice-inflight-acks.sh",
+      "sha256": "09f3b2a22cbdbc9334d978a7899a3e64380b9edb386a255a4fe4f370897d1a1b",
+      "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/inflight.sh#load"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "stop_notice_init \"notice-inflight-acks.sh\" \"$ENTITY_ROOT\" \"$INPUT\""
+      ]
+    },
+    "scripts/hooks/notice-mechanical-findings.sh#unadopted-stop": {
+      "source": "scripts/hooks/notice-mechanical-findings.sh",
+      "sha256": "f2c24f99590165f5451c6a38cc8145c757e528dfb5a0528c6ddb0bb9efb46f9f",
+      "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "stop_notice_init \"notice-mechanical-findings.sh\" \"$ENTITY_ROOT\" \"$INPUT\""
+      ]
+    },
+    "scripts/hooks/notice-protected-ref-moves.sh#unadopted-stop": {
+      "source": "scripts/hooks/notice-protected-ref-moves.sh",
+      "sha256": "15ea383b87181c6924a00f8b5f656f72f2319e9680947674f68972fbcd6c2c43",
+      "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "stop_notice_init \"notice-protected-ref-moves.sh\" \"$ENTITY_ROOT\" \"$INPUT\""
+      ]
+    },
+    "scripts/hooks/notice-unasked-deferral.sh#unadopted-stop": {
+      "source": "scripts/hooks/notice-unasked-deferral.sh",
+      "sha256": "01c58a8e0c3f279efe85cadb579c6e01f24c002c8d2b8789520285456af5fcc9",
+      "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "CONFIG=\"$ENTITY_ROOT/orchestration.config\""
+      ]
+    },
+    "scripts/hooks/notice-unlanded-branches.sh#unadopted-stop": {
+      "source": "scripts/hooks/notice-unlanded-branches.sh",
+      "sha256": "3a1222731913dc06aecd5a9703403ae27b7d61a6f28c7fad00223c4ac6c5a90d",
+      "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "CONFIG=\"$ENTITY_ROOT/orchestration.config\""
+      ]
+    },
+    "scripts/hooks/notice-unstarted-rows.sh#unadopted-stop": {
+      "source": "scripts/hooks/notice-unstarted-rows.sh",
+      "sha256": "1bfd646f55b220671bdf92e393491341ab74b06b7f04553ffd33c48d625955d1",
+      "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "stop_notice_init \"notice-unstarted-rows.sh\" \"$ENTITY_ROOT\" \"$INPUT\""
+      ]
+    },
+    "scripts/hooks/notice-waiver-repetition.sh#unadopted-stop": {
+      "source": "scripts/hooks/notice-waiver-repetition.sh",
+      "sha256": "ca6cf1b169ee2ba5717af73ff23062ad3c71a935c380aff91822c3e232780ea4",
+      "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "stop_notice_init \"notice-waiver-repetition.sh\" \"$ENTITY_ROOT\" \"$INPUT\""
+      ]
+    },
+    "scripts/hooks/release-land-leases.sh#unadopted-stop": {
+      "source": "scripts/hooks/release-land-leases.sh",
+      "sha256": "9b933f62a43f2ef058654297789951667b27f6a116d9e4c4c1895e9c549dceb8",
+      "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "stop_notice_init \"release-land-leases.sh\" \"$ENTITY_ROOT\" \"$INPUT\""
+      ]
+    },
+    "scripts/hooks/turn-manifest.sh#unadopted-stop": {
+      "source": "scripts/hooks/turn-manifest.sh",
+      "sha256": "f5e92311f9896874e5294533673dd08160f3e4cfba4a262e161ae96e377331ae",
+      "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        }
+      ],
+      "region": [
+        "SCRIPT_DIR=\"$(cd",
+        "CONFIG=\"$ENTITY_ROOT/orchestration.config\""
+      ]
+    },
+    "scripts/hooks/stop-hook-visibility.test.sh": {
+      "source": "scripts/hooks/stop-hook-visibility.test.sh",
+      "sha256": "108d61605f10abd887fe42c913188d5ef1385f0ee67c2f15d8c87face13eeb8c",
+      "evidence": "Reviewed full suite: derives Stop inventory from actual hooks JSON and compares seated settings, runs each fixed hook over fresh unadopted root fixtures, mutates one notice call then exercises the notice helper with literal commands. Disk alert is exceptional: the first loop still reads real selected watchdog config; only the noise-control loop replaces it.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/registered-hooks.sh"
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "hooks/hooks.json#stop-visibility-inventory"
+        },
+        {
+          "to": "scripts/hooks/guard-agent-state-claims.sh#unadopted-stop"
+        },
+        {
+          "to": "scripts/hooks/guard-ci-turn-gate.sh#unadopted-stop"
+        },
+        {
+          "to": "scripts/hooks/guard-failure-type-answer.sh#unadopted-stop"
+        },
+        {
+          "to": "scripts/hooks/guard-idle-land.sh#unadopted-stop"
+        },
+        {
+          "to": "scripts/hooks/guard-stated-actions.sh#unadopted-stop"
+        },
+        {
+          "to": "scripts/hooks/guard-unresolved-claims.sh#unadopted-stop"
+        },
+        {
+          "to": "scripts/hooks/guard-workspace-gate.sh#unadopted-stop"
+        },
+        {
+          "to": "scripts/hooks/notice-ceo-inputs-unheld.sh#unadopted-stop"
+        },
+        {
+          "to": "scripts/hooks/notice-ceo-ruled-prose.sh#unadopted-stop"
+        },
+        {
+          "to": "scripts/hooks/notice-ceo-unasked.sh#unadopted-stop"
+        },
+        {
+          "to": "scripts/hooks/notice-disk-alert.sh"
+        },
+        {
+          "to": "scripts/hooks/notice-escalations.sh#unadopted-stop"
+        },
+        {
+          "to": "scripts/hooks/notice-hook-staleness.sh#unadopted-stop"
+        },
+        {
+          "to": "scripts/hooks/notice-inflight-acks.sh#unadopted-stop"
+        },
+        {
+          "to": "scripts/hooks/notice-mechanical-findings.sh#unadopted-stop"
+        },
+        {
+          "to": "scripts/hooks/notice-protected-ref-moves.sh#unadopted-stop"
+        },
+        {
+          "to": "scripts/hooks/notice-unasked-deferral.sh#unadopted-stop"
+        },
+        {
+          "to": "scripts/hooks/notice-unlanded-branches.sh#unadopted-stop"
+        },
+        {
+          "to": "scripts/hooks/notice-unstarted-rows.sh#unadopted-stop"
+        },
+        {
+          "to": "scripts/hooks/notice-waiver-repetition.sh#unadopted-stop"
+        },
+        {
+          "to": "scripts/hooks/release-land-leases.sh#unadopted-stop"
+        },
+        {
+          "to": "scripts/hooks/turn-manifest.sh#unadopted-stop"
+        }
+      ],
+      "nonconfig_eval": "drive evaluates only literal test calls to stop_notice_init/normal/abnormal/abnormal_recurring, with private paths and fixed session strings."
     }
   },
   "units": {
@@ -6992,7 +7514,8 @@
     "scripts/hooks/completeness-commits.test.sh": "scripts/hooks/completeness-commits.test.sh",
     "scripts/publication-completeness.test.sh": "scripts/publication-completeness.test.sh",
     "scripts/hooks/named-persons.test.sh": "scripts/hooks/named-persons.test.sh",
-    "scripts/hooks/dispatch-pretooluse.test.sh": "scripts/hooks/dispatch-pretooluse.test.sh"
+    "scripts/hooks/dispatch-pretooluse.test.sh": "scripts/hooks/dispatch-pretooluse.test.sh",
+    "scripts/hooks/stop-hook-visibility.test.sh": "scripts/hooks/stop-hook-visibility.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
@@ -7550,6 +8073,49 @@
         "scripts/hooks/guard-worktree-removal.sh": "b39ff96220cb74cf9f94acc3d6210f3207b57bdf50cb33ffdd29882e536a5f37",
         "mega-lander/workspaces.py": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
         "scripts/hooks/scan-secrets.sh": "d23d1d44376e0557597f8a0add40a0226049d801769af48d81095002477e0c73"
+      }
+    },
+    "scripts/hooks/stop-hook-visibility.test.sh": {
+      "commands": [],
+      "events": [
+        "Stop"
+      ],
+      "evidence": "Enumerates, executes and compares every Stop registration on both surfaces. Duplicate-key validation inspects all JSON objects, so parser metadata failures remain conservative. Actual Stop command changes select this suite; non-Stop commands do not change the enumerated set.",
+      "sources": {
+        "scripts/hooks/stop-hook-visibility.test.sh": "108d61605f10abd887fe42c913188d5ef1385f0ee67c2f15d8c87face13eeb8c",
+        "scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
+        "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
+        "scripts/hooks/guard-agent-state-claims.sh": "b7a14acc4ff57cdec91821f6fd74b3c745deb18a0bd256ac7d60a3e7dd35dd7e",
+        "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "scripts/lib/stop-session-recovery.py": "7f73be10acfee2d62a9f05115a20d8c64bfd63764a4fffb084675ca14a4d7ed2",
+        "mega-lander/workspaces.py": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+        "scripts/hooks/guard-ci-turn-gate.sh": "d5982f5f16da84d753d275669128b20c453782674189d9b8b2b7ac0dae39c324",
+        "scripts/hooks/guard-failure-type-answer.sh": "9178339b1342a751b3de2fa743b2d65df019af3eb4af10e7447a82ad805895aa",
+        "scripts/hooks/guard-idle-land.sh": "c65ff6beb940c15ff20cf5a7e54e2f8453c4f6594d2ed2a8d32cda662dc3efae",
+        "scripts/hooks/guard-stated-actions.sh": "21ba110b91c10046b34ae46153ef9a42b140f5833e53217bfdb7e1b656862a27",
+        "scripts/hooks/guard-unresolved-claims.sh": "88db28246b8e79d1d623d26e366fcc3c8bf1811e3bb464fc04d484761ead14d2",
+        "scripts/hooks/guard-workspace-gate.sh": "704f1516e9337a8dcdf4589fd5b74473bffffcb694c1460fa16bb43a4a2b802f",
+        "scripts/hooks/notice-ceo-inputs-unheld.sh": "22df89c10271652f710eb04caba653cdc138eda6bc4eeb1971f9b0e83adf2fc7",
+        "scripts/hooks/notice-ceo-ruled-prose.sh": "b6aa4600524c27077232a5a83feab3cfe603436ae8dcaaaa0bcc9ed725c0c1b5",
+        "scripts/hooks/notice-ceo-unasked.sh": "3eac14e8c4bb2fd3f73651e11cc703f5a121a2c6e9b7e752a11d66cb50d98daa",
+        "scripts/hooks/notice-disk-alert.sh": "71ef888a95290d2267aff524e0683b6e5bc9decddfdfaef5e5e027523cbc8ffd",
+        "scripts/disk-watchdog.sh": "5168a316708d2fc3dc19e76604942e7377a6b8529d267052be2fa16f6f90cea5",
+        "scripts/lib/disk-watchdog.py": "e9e7ca4981c480b8fb3598f1feb7302dd617f8b040c2db4e4a661306cddd03ed",
+        "scripts/lib/foreign_app_data.py": "9fcafeaae9e177df0c15fc93b547b2aa08710f94f723e393d51239861859b00b",
+        "scripts/hooks/notice-escalations.sh": "d26e14d802bad45e2f6528722d38eb91076c25e1d3e32ee2228a66e138e963da",
+        "scripts/lib/escalations.sh": "656be06643a5579cc15e4ef5efe7628bd58e0a134e3677b36885f2060db59db7",
+        "scripts/hooks/notice-hook-staleness.sh": "360fd629986741403adc2337a84ae2dd2645b517f275f7cbb3af331cae48460b",
+        "scripts/hooks/notice-inflight-acks.sh": "09f3b2a22cbdbc9334d978a7899a3e64380b9edb386a255a4fe4f370897d1a1b",
+        "scripts/lib/inflight.sh": "db5588f3a0093a55befbcab454ee7e1921e1d8f8a049ff0c243da5020e418e43",
+        "scripts/hooks/notice-mechanical-findings.sh": "f2c24f99590165f5451c6a38cc8145c757e528dfb5a0528c6ddb0bb9efb46f9f",
+        "scripts/hooks/notice-protected-ref-moves.sh": "15ea383b87181c6924a00f8b5f656f72f2319e9680947674f68972fbcd6c2c43",
+        "scripts/hooks/notice-unasked-deferral.sh": "01c58a8e0c3f279efe85cadb579c6e01f24c002c8d2b8789520285456af5fcc9",
+        "scripts/hooks/notice-unlanded-branches.sh": "3a1222731913dc06aecd5a9703403ae27b7d61a6f28c7fad00223c4ac6c5a90d",
+        "scripts/hooks/notice-unstarted-rows.sh": "1bfd646f55b220671bdf92e393491341ab74b06b7f04553ffd33c48d625955d1",
+        "scripts/hooks/notice-waiver-repetition.sh": "ca6cf1b169ee2ba5717af73ff23062ad3c71a935c380aff91822c3e232780ea4",
+        "scripts/hooks/release-land-leases.sh": "9b933f62a43f2ef058654297789951667b27f6a116d9e4c4c1895e9c549dceb8",
+        "scripts/hooks/turn-manifest.sh": "f5e92311f9896874e5294533673dd08160f3e4cfba4a262e161ae96e377331ae"
       }
     }
   }
