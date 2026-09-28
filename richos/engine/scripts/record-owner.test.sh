@@ -279,8 +279,12 @@ if want M4; then
     git -C "$ENT" worktree add -q "$WT" -b m4-branch >/dev/null 2>&1
     write_payload m4 Write "$WT" "$MEM/note.md"
     hook term "$MGUARD" m4 "$WT" "$WT"; rc=$?
+    # The hook's seat is resolved to the main checkout before the library sees
+    # it, so the library's own rule (read the peer pointer from the MAIN
+    # checkout) is asked directly as well, with the worktree as the root.
+    lib="$(bash -c '. "$1/scripts/lib/row-currency.sh"; rc_record_owner "$2"; printf "%s|%s" "$?" "$RC_OWNER"' _ "$ENGINE_ROOT" "$WT")"
     check "M4 a seat in a linked worktree of the entity still finds the record's line" \
-        "$([ "$rc" = 2 ]; echo $?)" "rc=$rc $OFX_OUT"
+        "$([ "$rc" = 2 ] && [ "$lib" = "0|app" ]; echo $?)" "rc=$rc lib=[$lib] $OFX_OUT"
 fi
 if want M5; then
     make_pair m5; line_on "$REC"
