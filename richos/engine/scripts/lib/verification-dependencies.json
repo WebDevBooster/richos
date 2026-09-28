@@ -11793,6 +11793,90 @@
       "evidence": "emit and verify without --proof-run: stdlib JSON/environment receipt serialization, coverage validation and numeric TSV weight reporting. No config read or engine import in these entrypoints. The optional proof-run provenance import is outside this fixture entrypoint.",
       "keys": [],
       "edges": []
+    },
+    "ass-kicker/brief-scope.py#fixture-cli": {
+      "source": "ass-kicker/brief-scope.py",
+      "sha256": "ace5be7e9031e6fd5b0ea0a9f0d7a00ceaa2c490822e0b77c4ec45d81dc324d8",
+      "evidence": "Reviewed check/annotate plus record-spec and verdict entrypoints. Input paths resolve to caller supplied text and private integration/spec/verdict/history JSON. Writes use W.write_json; reads use W.integration_record/read_json/realpath/main_checkout and Git. These are the existing finite integration closure; no lifecycle action, config evaluation or additional engine import. Brief text remains data.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#integration"
+        }
+      ]
+    },
+    "ass-kicker/tests/brief-scope.test.sh": {
+      "source": "ass-kicker/tests/brief-scope.test.sh",
+      "sha256": "86767e36faa9f22a2cabb50790bb7ddc6d02738be85dd602db71bae7973b3701",
+      "evidence": "Full suite fixture: private Git repository and workspace integration record, literal spec/verdict/payloads plus hash-checked historical brief text. Calls brief-scope check/annotate/record-spec/verdict and guard-brief-scope. Optional cross-repository brief is compared as bytes, never executed. Nested mutants use same private fixture; copied orchestration values are never sourced.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ass-kicker/brief-scope.py#fixture-cli"
+        },
+        {
+          "to": "scripts/hooks/guard-brief-scope.sh"
+        },
+        {
+          "to": "ass-kicker/tests/brief-scope.mutation.sh"
+        }
+      ]
+    },
+    "ass-kicker/tests/brief-scope.mutation.sh": {
+      "source": "ass-kicker/tests/brief-scope.mutation.sh",
+      "sha256": "29425a1bfc996f7b627be2833487639c3302cf04167223ea9428e25ddb0e12f9",
+      "evidence": "Every mutation operand is brief-scope.py; shared harness executes the same synthetic suite. Retains shared copy presence and helper bindings.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "ass-kicker/tests/brief-scope.test.sh"
+        }
+      ]
+    },
+    "scripts/lib/worktree-ledger.py#cli": {
+      "source": "scripts/lib/worktree-ledger.py",
+      "sha256": "38f6cc15cd69ccd6aae90232db8b1b078866b6676b3f4795bdfe13212e1cb8ce",
+      "evidence": "Full CLI input/call review: ledger/roster/transcript JSON, Git worktree metadata and native process liveness. The only dynamic modules are agent-liveness and workspaces key_for_id/load_agent in assignment resolution. No orchestration.config read, shell evaluation of records or lifecycle cleanup execution.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/worktree-ledger.py#append"
+        },
+        {
+          "to": "scripts/lib/agent-liveness.py"
+        }
+      ]
+    },
+    "scripts/lib/worktree-ledger.test.sh": {
+      "source": "scripts/lib/worktree-ledger.test.sh",
+      "sha256": "a2a9e90e71646b9109a4d730d6d5b28f4dc1b4f96ff093501f9b073445bc724f",
+      "evidence": "Full suite calls ledger CLI with private ledger, generated transcript/team/lock records and private Git worktrees. Inline Python generates or inspects JSON and native liveness fixtures. Nested mutation suite has the identical read/call closure; no orchestration config value is consumed.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/worktree-ledger.py#cli"
+        },
+        {
+          "to": "scripts/lib/worktree-ledger.mutation.sh"
+        }
+      ]
+    },
+    "scripts/lib/worktree-ledger.mutation.sh": {
+      "source": "scripts/lib/worktree-ledger.mutation.sh",
+      "sha256": "48ef1ced63d9fca91daf5cb541991ff1ae4a346a66479437506d2b30f0bd5ff1",
+      "evidence": "Every mutant changes worktree-ledger.py and invokes the same ledger suite through shared mutation transport. Config bytes are transported, not sourced.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/lib/worktree-ledger.test.sh"
+        }
+      ]
     }
   },
   "units": {
@@ -11946,7 +12030,9 @@
     "scripts/lib/bulk-record-transport.test.sh": "scripts/lib/bulk-record-transport.test.sh",
     "scripts/hooks/payload-transport.test.sh": "scripts/hooks/payload-transport.test.sh",
     "mega-lander/tests/workspace-probes.test.sh": "mega-lander/tests/workspace-probes.test.sh",
-    "scripts/ci-shard.test.sh": "scripts/ci-shard.test.sh"
+    "scripts/ci-shard.test.sh": "scripts/ci-shard.test.sh",
+    "ass-kicker/tests/brief-scope.test.sh": "ass-kicker/tests/brief-scope.test.sh",
+    "scripts/lib/worktree-ledger.test.sh": "scripts/lib/worktree-ledger.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
