@@ -12360,6 +12360,276 @@
           "to": "scripts/lib/dialect/dialect-table.test.py"
         }
       ]
+    },
+    "ecs/core/ecs_core.py": {
+      "source": "ecs/core/ecs_core.py",
+      "sha256": "a8ac81f7fb6c7a57f60c2eb20a968eee9db061d03a0a0fb44d1128b72ca91a59",
+      "evidence": "Stdlib store/parser/renderer: explicit SQLite/JSON and text inputs, fixed SQL migrations, no shell execution, engine config read or imports beyond the bound ECS core modules.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/core/ecs_checkpoint.py"
+        },
+        {
+          "to": "ecs/core/ecs_brief.py"
+        }
+      ]
+    },
+    "ecs/core/ecs_checkpoint.py": {
+      "source": "ecs/core/ecs_checkpoint.py",
+      "sha256": "1ac18c29388049cc9b1a911ae44bcbb96d730c66fc9362f92869a6c06fbdb77e",
+      "evidence": "Stdlib store/parser/renderer: explicit SQLite/JSON and text inputs, fixed SQL migrations, no shell execution, engine config read or imports beyond the bound ECS core modules.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/core/ecs_core.py"
+        },
+        {
+          "to": "ecs/core/ecs_extract.py"
+        }
+      ]
+    },
+    "ecs/core/ecs_extract.py": {
+      "source": "ecs/core/ecs_extract.py",
+      "sha256": "66cd23c5eb8c742aa80e7081ed30b7bd7e8a4cc5d374fb3718effe80e21caef2",
+      "evidence": "Stdlib store/parser/renderer: explicit SQLite/JSON and text inputs, fixed SQL migrations, no shell execution, engine config read or imports beyond the bound ECS core modules.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/core/ecs_core.py"
+        }
+      ]
+    },
+    "ecs/core/ecs_inspect.py": {
+      "source": "ecs/core/ecs_inspect.py",
+      "sha256": "9987e141ac6b4c2a445f72eef76454053dd849cf1252b3ea2002a9decd24293c",
+      "evidence": "Stdlib store/parser/renderer: explicit SQLite/JSON and text inputs, fixed SQL migrations, no shell execution, engine config read or imports beyond the bound ECS core modules.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/core/ecs_core.py"
+        }
+      ]
+    },
+    "ecs/core/ecs_brief.py": {
+      "source": "ecs/core/ecs_brief.py",
+      "sha256": "70ad008f1d27621b06bb98ab8146110b421154b4cd42816ab096fcb250b15871",
+      "evidence": "Stdlib store/parser/renderer: explicit SQLite/JSON and text inputs, fixed SQL migrations, no shell execution, engine config read or imports beyond the bound ECS core modules.",
+      "keys": [],
+      "edges": []
+    },
+    "ecs/adapters/app.py#answer-operator-fixture": {
+      "source": "ecs/adapters/app.py",
+      "sha256": "807c59f61d562b4f3a89fb79b036b8c173e7be9e5f208ac9b1ec7c5515b3a4d7",
+      "evidence": "Only bind/checkpoint/observe(started)/hello/answer-complete/operator-complete from named completion fixtures. Git ancestry uses fixed git commands. Does not enter complete-obligation or verified-work, the only dynamic Mega Lander imports. No config lookup.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/core/ecs_core.py"
+        },
+        {
+          "to": "ecs/core/ecs_checkpoint.py"
+        },
+        {
+          "to": "ecs/core/ecs_inspect.py"
+        }
+      ]
+    },
+    "ecs/bin/ecs#answer-operator-fixture": {
+      "source": "ecs/bin/ecs",
+      "sha256": "11a8455cb410e8de5cae5fa02a5275183b347be4ccd709be962bc35c96ad825f",
+      "evidence": "Fixed CLI parses bounded JSON and dispatches to app adapter. Named fixture supplies private state root and only qualified commands.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/adapters/app.py#answer-operator-fixture"
+        }
+      ]
+    },
+    "ecs/adapters/mcp.py#reject-host-verbs": {
+      "source": "ecs/adapters/mcp.py",
+      "sha256": "ec6a74e89a2e99f25f7b43fb5f34dad33303ee134f62ac90518892e49c41a67e",
+      "evidence": "Initialization imports app adapter; fixture calls answer/operator-complete which are refused as unknown tools before execute. Scope JSON is read as data.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/adapters/app.py#answer-operator-fixture"
+        }
+      ]
+    },
+    "ecs/tests/test_app.py#answer-operator": {
+      "source": "ecs/tests/test_app.py",
+      "sha256": "9530b18e72174d9e82d387c9e083595f34e62fc20d6cd8bedaaafbdf2b30aa09",
+      "evidence": "Only AnswerCompleteTests/OperatorCompleteTests and inherited WorkSeatTests call/bind/rows/observe helpers run. Private SQLite and Git fixtures, fixed CLI requests, host-only MCP refusal controls. No complete-obligation/verified-work command or other test class runs.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/bin/ecs#answer-operator-fixture"
+        },
+        {
+          "to": "ecs/core/ecs_core.py"
+        },
+        {
+          "to": "ecs/adapters/mcp.py#reject-host-verbs"
+        }
+      ]
+    },
+    "ecs/tests/answer-complete.test.sh": {
+      "source": "ecs/tests/answer-complete.test.sh",
+      "sha256": "fa2352cb15a708e4949e478bfcfae273e7d55e9fa9ca9b6d68fbf9bce136298b",
+      "evidence": "Imports test_app and explicitly enumerates only AnswerCompleteTests test_A methods.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/tests/test_app.py#answer-operator"
+        }
+      ]
+    },
+    "ecs/tests/operator-complete.test.sh": {
+      "source": "ecs/tests/operator-complete.test.sh",
+      "sha256": "9a2db7e45d8a391466235ce6bcddb2f44e3e61238c88b9801e484cc5ad46b1a3",
+      "evidence": "Imports test_app and explicitly enumerates only OperatorCompleteTests test_O methods, then shared mutation driver.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ecs/tests/test_app.py#answer-operator"
+        },
+        {
+          "to": "ecs/tests/operator-complete.mutation.sh"
+        }
+      ]
+    },
+    "ecs/tests/operator-complete.mutation.sh": {
+      "source": "ecs/tests/operator-complete.mutation.sh",
+      "sha256": "eb47891ef1c2f151e57dd2c5c876462cf430f25542b027a9dcdbbf980c888e24",
+      "evidence": "Eight literal adapter predicate mutants execute only operator-complete fixture via shared mutation transport, retaining config presence.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "ecs/tests/operator-complete.test.sh"
+        }
+      ]
+    },
+    "voice/tests/run.test.sh": {
+      "source": "voice/tests/run.test.sh",
+      "sha256": "966bd0a75eda790c9d4023f72827aff20f38098451b697390b03ad4eb6c15eb5",
+      "evidence": "Reviewed static module/call closure for voice core tests: Node builtins, fixed model modules, pins JSON as data and private loopback-server/filesystem fixtures. No orchestration settings, subprocess, model code execution, dynamic module load or consumer/build suite.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "voice/tests/run.mjs"
+        }
+      ]
+    },
+    "voice/tests/run.mjs": {
+      "source": "voice/tests/run.mjs",
+      "sha256": "81674da73960594c74b3de2331a0c193e7434a5a0bec87be2eb6b3cec2e64610",
+      "evidence": "Reviewed static module/call closure for voice core tests: Node builtins, fixed model modules, pins JSON as data and private loopback-server/filesystem fixtures. No orchestration settings, subprocess, model code execution, dynamic module load or consumer/build suite.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "voice/tests/models.test.mjs"
+        },
+        {
+          "to": "voice/tests/fetch.test.mjs"
+        },
+        {
+          "to": "voice/tests/support/harness.mjs"
+        }
+      ]
+    },
+    "voice/tests/models.test.mjs": {
+      "source": "voice/tests/models.test.mjs",
+      "sha256": "83a6dc88d1e029afab534a06410c60dd9727befa307610c7cd8a62d196bb8eee",
+      "evidence": "Reviewed static module/call closure for voice core tests: Node builtins, fixed model modules, pins JSON as data and private loopback-server/filesystem fixtures. No orchestration settings, subprocess, model code execution, dynamic module load or consumer/build suite.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "voice/tests/support/harness.mjs"
+        },
+        {
+          "to": "voice/tests/support/models.mjs"
+        },
+        {
+          "to": "voice/provisioning/model-catalog.js"
+        },
+        {
+          "to": "voice/provisioning/model-integrity.js"
+        }
+      ]
+    },
+    "voice/tests/fetch.test.mjs": {
+      "source": "voice/tests/fetch.test.mjs",
+      "sha256": "595b0b9674ced3bffcbf5443b56503ffaff379909a6bb5d07bf78afff6c3b885",
+      "evidence": "Reviewed static module/call closure for voice core tests: Node builtins, fixed model modules, pins JSON as data and private loopback-server/filesystem fixtures. No orchestration settings, subprocess, model code execution, dynamic module load or consumer/build suite.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "voice/tests/support/harness.mjs"
+        },
+        {
+          "to": "voice/tests/support/models.mjs"
+        },
+        {
+          "to": "voice/provisioning/model-integrity.js"
+        },
+        {
+          "to": "voice/provisioning/model-fetch.js"
+        }
+      ]
+    },
+    "voice/tests/support/harness.mjs": {
+      "source": "voice/tests/support/harness.mjs",
+      "sha256": "330b08085e188e5d6bdb62b283bd4cd6b52ec0837efa6837b57a871d5e0e7a09",
+      "evidence": "Reviewed static module/call closure for voice core tests: Node builtins, fixed model modules, pins JSON as data and private loopback-server/filesystem fixtures. No orchestration settings, subprocess, model code execution, dynamic module load or consumer/build suite.",
+      "keys": [],
+      "edges": []
+    },
+    "voice/tests/support/models.mjs": {
+      "source": "voice/tests/support/models.mjs",
+      "sha256": "90175a1b117b57ff59125c8f756f45af4253b4331257ca847b3be2db724c8de1",
+      "evidence": "Reviewed static module/call closure for voice core tests: Node builtins, fixed model modules, pins JSON as data and private loopback-server/filesystem fixtures. No orchestration settings, subprocess, model code execution, dynamic module load or consumer/build suite.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "voice/provisioning/model-catalog.js"
+        }
+      ]
+    },
+    "voice/provisioning/model-catalog.js": {
+      "source": "voice/provisioning/model-catalog.js",
+      "sha256": "acbed1357dbf39b8aea02c65354e51a603227816e150cfabae3c665a976270a2",
+      "evidence": "Reviewed static module/call closure for voice core tests: Node builtins, fixed model modules, pins JSON as data and private loopback-server/filesystem fixtures. No orchestration settings, subprocess, model code execution, dynamic module load or consumer/build suite.",
+      "keys": [],
+      "edges": []
+    },
+    "voice/provisioning/model-integrity.js": {
+      "source": "voice/provisioning/model-integrity.js",
+      "sha256": "15694c852f5d5cc91b51e36f06c4e3766c2932398af77540ebeb616f5f878cbf",
+      "evidence": "Reviewed static module/call closure for voice core tests: Node builtins, fixed model modules, pins JSON as data and private loopback-server/filesystem fixtures. No orchestration settings, subprocess, model code execution, dynamic module load or consumer/build suite.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "voice/provisioning/model-catalog.js"
+        }
+      ]
+    },
+    "voice/provisioning/model-fetch.js": {
+      "source": "voice/provisioning/model-fetch.js",
+      "sha256": "bc978aee452ca57dae194b81b9f3a8778c6754a985ebf9803bf8f8bec88940b7",
+      "evidence": "Reviewed static module/call closure for voice core tests: Node builtins, fixed model modules, pins JSON as data and private loopback-server/filesystem fixtures. No orchestration settings, subprocess, model code execution, dynamic module load or consumer/build suite.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "voice/provisioning/model-catalog.js"
+        },
+        {
+          "to": "voice/provisioning/model-integrity.js"
+        }
+      ]
     }
   },
   "units": {
