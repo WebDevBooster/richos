@@ -19,6 +19,7 @@ import os
 from pathlib import Path
 import platform
 import re
+import select
 import shlex
 import shutil
 import signal
@@ -410,15 +411,24 @@ class TimestampedLog:
 
     Undecodable bytes are replaced rather than raised: a reader thread that dies takes the
     log with it and leaves the build writing into a full pipe until it blocks forever.
+
+    A PROCESS CAN OUTLIVE THE COMMAND THAT STARTED IT and keep the pipe's write end, so
+    close() cannot always wait for end of file. It used to close a buffered reader while
+    the pump thread was inside it: close() then waited for that process to write or exit,
+    and Python 3.14 raised `PyMemoryView_FromBuffer(): info->buf must not be NULL` in the
+    pump (run 20260928T143332Z-1f0e1b3a). The pump now reads the raw descriptor with a
+    short select() and stops when told; the descriptor is closed only after it has.
     """
 
     SENTINEL = "richos-nightly-log-sync-"
+    # How long close() waits for end of file before it stops reading, and says so.
+    CLOSE_WAIT_SECONDS = 30
 
     def __init__(self, path, milestones=()):
         self.path = Path(path)
         self.file = self.path.open("w")
-        read_fd, self._write_fd = os.pipe()
-        self._reader = os.fdopen(read_fd, "rb")
+        self._read_fd, self._write_fd = os.pipe()
+        self._stop = threading.Event()
         self._milestones = list(milestones)
         self._next = 0
         self._armed = False
@@ -431,22 +441,36 @@ class TimestampedLog:
         self._thread.start()
 
     def _pump(self):
-        for raw in self._reader:
-            now = time.time()
-            line = raw.decode("utf-8", "replace").rstrip("\n")
-            with self._lock:
-                if line == self._awaited:
-                    self._synced.set()
-                    continue
-                if self._armed and self._next < len(self._milestones):
-                    name, pattern = self._milestones[self._next]
-                    if re.search(pattern, line):
-                        self.seen.append((name, now))
-                        self._next += 1
-            with self._file_lock:
-                self.file.write(f"{stamp(now)} {line}\n")
+        pending = b""
+        while not self._stop.is_set():
+            ready, _, _ = select.select([self._read_fd], [], [], 0.2)
+            if not ready:
+                continue
+            chunk = os.read(self._read_fd, 65536)
+            if not chunk:
+                break
+            *lines, pending = (pending + chunk).split(b"\n")
+            for raw in lines:
+                self._take(raw)
+        if pending:
+            self._take(pending)
         with self._file_lock:
             self.file.flush()
+
+    def _take(self, raw):
+        now = time.time()
+        line = raw.decode("utf-8", "replace")
+        with self._lock:
+            if line == self._awaited:
+                self._synced.set()
+                return
+            if self._armed and self._next < len(self._milestones):
+                name, pattern = self._milestones[self._next]
+                if re.search(pattern, line):
+                    self.seen.append((name, now))
+                    self._next += 1
+        with self._file_lock:
+            self.file.write(f"{stamp(now)} {line}\n")
 
     def fileno(self):
         """Every existing `stdout=self.log` / `stderr=self.log` call site keeps working."""
@@ -498,8 +522,16 @@ class TimestampedLog:
 
     def close(self):
         os.close(self._write_fd)
-        self._thread.join(timeout=30)
-        self._reader.close()
+        self._thread.join(timeout=self.CLOSE_WAIT_SECONDS)
+        if self._thread.is_alive():
+            self._stop.set()
+            self._thread.join()
+            with self._file_lock:
+                self.file.write(
+                    f"{stamp(time.time())} [log] stopped reading {self.CLOSE_WAIT_SECONDS} s after "
+                    "the last command ended: a process it started still holds this log's pipe, "
+                    "and nothing it writes from here on is recorded\n")
+        os.close(self._read_fd)
         self.file.close()
 
     def __enter__(self):

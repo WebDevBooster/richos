@@ -148,7 +148,10 @@
     "engine scripts/verification-inputs.test.sh": {
       "paths": [
         "richos/engine",
-        "richos/app/scripts"
+        "richos/app/scripts",
+        "richos/mobile/native-ios/bin/rios",
+        "richos/mobile/native-android/bin/randroid",
+        "richos/mobile/native-ios/Release/simulator-tests.sh"
       ],
       "tools": [
         "bash",

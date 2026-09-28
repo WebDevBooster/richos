@@ -38,6 +38,11 @@ KEEPER="$DIR/lib/test_results.py"
 TMP="$(mktemp -d -t test-results-test.XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
 unset RICHOS_TEST_RESULTS_ROOT RICHOS_TEST_RESULTS_DIR
+# The fixture harness has two suites, so a gap the calling build declares (the nightly's
+# script-suites gate declares front-door.test.sh) names a suite it does not have, and its
+# run-tests.sh exits 2 on the stale declaration: P1's passing suite then "failed".
+# run-tests.test.sh empties it for its fixtures the same way.
+unset RUN_TESTS_DECLARED_GAPS
 export RUN_TESTS_JOBS=1
 
 PASS=0; FAIL=0

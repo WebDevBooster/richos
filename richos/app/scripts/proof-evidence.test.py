@@ -22,10 +22,34 @@ spec = importlib.util.spec_from_file_location("proof_run", HERE / "proof-run.py"
 runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
 
+IDLE_SAMPLE = {"cpu_user_percent": 5.0, "cpu_system_percent": 2.0, "cpu_idle_percent": 93.0,
+               "swapout_mb_per_s": 0.0, "memory_pressure": "normal", "memory_free_percent": 80,
+               "swap_used_mb": 0.0}
+
+
+def idle_proof_run(script):
+    """A command line for `script` (a proof-run.py) whose admission sample is fixed and idle.
+
+    These fixtures prove evidence reuse and joining, not CPU admission, which proof-run.test.py
+    covers. The nightly runs this suite beside every other gate on a Mac at up to 100% busy,
+    where the real sample held a fixture's one-line check past its 45 s and 20 s deadlines.
+    Same bootstrap as proof-run.test.py P8 and test-results.test.sh P1.
+    """
+    testvm = str(Path(script).parent / "testvm")
+    bootstrap = ("import runpy,sys; sys.path.insert(0," + repr(testvm) + "); "
+                 "import reserve; reserve.host_sample=lambda *a, **k: " + repr(IDLE_SAMPLE) + "; "
+                 "sys.argv=[" + repr(str(script)) + "]+sys.argv[1:]; "
+                 "runpy.run_path(sys.argv[0],run_name='__main__')")
+    return [sys.executable, "-B", "-c", bootstrap]
+
 
 class Evidence(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="proof-evidence.")
+        # The runner resolves its log and root paths. macOS's default TMPDIR is under /var,
+        # a link to /private/var, so an unresolved fixture root compared as a different
+        # path and every resume, profile and snapshot case failed on a stock shell.
+        self.tmp = tempfile.TemporaryDirectory(prefix="proof-evidence.",
+                                               dir=os.path.realpath(tempfile.gettempdir()))
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name) / "repo"
         self.root.mkdir()
@@ -501,6 +525,9 @@ class Evidence(unittest.TestCase):
         env.update(RICHOS_MACHINE_WORKERS=str(Path(self.tmp.name) / "machine"),
             RICHOS_ENGINE_PASS_DIR=str(Path(self.tmp.name) / "slot"),
             RICHOS_PROOF_RUN_DIR=str(Path(self.tmp.name) / "history"),
+            # A private proof-run slot: the host's is shared with real runs, so a fixture
+            # waited behind them and wrote holder records into ~/.richos-nightly.
+            RICHOS_PROOF_RUN_SLOTS_DIR=str(Path(self.tmp.name) / "proof-slots"),
             CLAUDE_CONFIG_DIR=str(Path(self.tmp.name) / "config"),
             FIXTURE_COUNTER=str(counter), PYTHONDONTWRITEBYTECODE="1")
         # Exercise a normal caller without the test wrapper's bytecode setting.
@@ -509,7 +536,7 @@ class Evidence(unittest.TestCase):
         def invoke(name, units, *options):
             commands.write_text("cd richos/engine && bash scripts/ci-shard.sh --only-units " + units + "\n")
             directory = Path(self.tmp.name) / name
-            result = subprocess.run([sys.executable, "-B", str(app / "proof-run.py"),
+            result = subprocess.run([*idle_proof_run(app / "proof-run.py"),
                 "--commands", str(commands), "--log-dir", str(directory), *options],
                 cwd=self.root, env=env, text=True, capture_output=True, timeout=45)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr + "\n" +
@@ -723,7 +750,16 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
             "external": [], "qualification": "qualification.json", "isolation": evidence.PRIVATE_PROFILE}
         evidence.atomic(app / "proof-inputs.json", {"schema": 1,
             "checks": {label: recipe for label in ("joined", "independent")}})
-        (app / "proof-inputs.json").chmod(0o644)  # Match Git's checkout mode for this source file.
+        # Give every fixture file the mode a Git checkout writes, so the second worktree's
+        # identical bytes are identical inputs. A checkout follows the umask (0644 under 022,
+        # 0600 under the nightly's 077), while atomic() writes 0600 and copy2 keeps the
+        # source checkout's modes.
+        umask = os.umask(0)
+        os.umask(umask)
+        for written in self.root.rglob("*"):
+            if written.is_file() and not written.is_symlink():
+                executable = written.stat().st_mode & 0o100
+                written.chmod((0o777 if executable else 0o666) & ~umask)
         def git(*args, cwd=None):
             return subprocess.check_output(["git", "-c", "core.hooksPath=/dev/null", "-c", "user.name=fixture",
                 "-c", "user.email=fixture@example.invalid", *args], cwd=cwd or self.root,
@@ -747,15 +783,20 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
         env = {k: v for k, v in os.environ.items() if not k.startswith("RICHOS_")}
         env.update(RICHOS_MACHINE_WORKERS=str(temporary / "machine"),
             RICHOS_ENGINE_PASS_DIR=str(temporary / "slot"), RICHOS_PROOF_RUN_DIR=str(temporary / "history"),
+            RICHOS_PROOF_RUN_SLOTS_DIR=str(temporary / "proof-slots"),
             CLAUDE_CONFIG_DIR=str(temporary / "config"), COUNTER=str(temporary / "counter"),
             RELEASE=str(temporary / "release"), PYTHONDONTWRITEBYTECODE="1")
+        # Two runs must be inside at once for the target to join the author. The measured
+        # default on this Mac is one run at a time, so the private slot says two.
+        (temporary / "proof-slots").mkdir(mode=0o700)
+        (temporary / "proof-slots/limit").write_text("2\n")
         processes = []
         def start(root, name, labels):
             commands = temporary / (name + ".commands")
             commands.write_text("".join("cd . && bash " + label + ".test.sh\n" for label in labels))
             log = (temporary / (name + ".log")).open("w")
             self.addCleanup(log.close)
-            process = subprocess.Popen([sys.executable, "-B", str(root / "richos/app/scripts/proof-run.py"),
+            process = subprocess.Popen([*idle_proof_run(root / "richos/app/scripts/proof-run.py"),
                 "--commands", str(commands), "--log-dir", str(temporary / name)],
                 cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT)
             processes.append(process)
