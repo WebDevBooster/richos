@@ -869,5 +869,103 @@ class NativeForeground(Base):
         self.assertEqual(agent_hold.mark(stem), 2)
 
 
+class NativeResults(Base):
+    def fixture(self, text="ok\n", code=0, tid="toolu_result"):
+        transcript = Path(self.tmp, self.session, "subagents", "agent-" + self.agent + ".jsonl")
+        transcript.parent.mkdir(parents=True, exist_ok=True)
+        transcript.touch()
+        payload = self.payload(tid)
+        payload["transcript_path"] = str(transcript)
+        agent_hold.rewrite(payload)
+        stem = Path(agent_hold._shell_dir(self.session, self.agent), tid)
+        Path(str(stem) + ".pid").write_text("999999999 999999998\n")
+        output = Path(self.tmp, "native", self.session, "tasks", "bfixture.output")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(text + "\n[exited with code %d]\n" % code)
+        row = {"type": "user", "sessionId": self.session, "agentId": self.agent,
+               "toolUseResult": {"backgroundTaskId": "bfixture"},
+               "message": {"content": [{"type": "tool_result", "tool_use_id": tid,
+                  "content": "Command running in background with ID: bfixture. Output is being written to: "
+                      + str(output) + ". You will be notified when it completes."}]}}
+        with transcript.open("a") as stream:
+            stream.write(json.dumps(row) + "\n")
+        os.environ[agent_hold.TAG], os.environ[agent_hold.SESSION_TAG] = self.agent, self.session
+        return Path(str(stem) + ".json"), transcript, output, row
+
+    def test_wait_delivers_output_and_failure_without_read_or_false_resume(self):
+        import io
+        meta, _, _, _ = self.fixture("stdout-marker\nstderr-marker\n", 4)
+        out = io.StringIO()
+        self.assertEqual(agent_hold.wait_resume(1, 0.01, out), 4)
+        self.assertIn("EXIT STATUS 4", out.getvalue())
+        self.assertIn("stdout-marker\nstderr-marker", out.getvalue())
+        self.assertNotIn("RESUMED", out.getvalue())
+        self.assertTrue(json.loads(meta.read_text())["result_collected"])
+        again = io.StringIO()
+        self.assertEqual(agent_hold.wait_resume(1, 0.01, again), 0)
+        self.assertEqual(again.getvalue(), "")
+
+    def test_binding_requires_this_session_agent_and_tool_and_complete_line(self):
+        meta, transcript, _, row = self.fixture()
+        value = json.loads(meta.read_text())
+        for key in ("sessionId", "agentId"):
+            transcript.write_text(json.dumps(dict(row, **{key: "another"})) + "\n")
+            self.assertIsNone(agent_hold.native_result(value))
+        row["message"]["content"][0]["tool_use_id"] = "another"
+        transcript.write_text(json.dumps(row) + "\n")
+        self.assertIsNone(agent_hold.native_result(value))
+        row["message"]["content"][0]["tool_use_id"] = "toolu_result"
+        transcript.write_text(json.dumps(row))
+        self.assertIsNone(agent_hold.native_result(value))
+
+    def test_terminal_footer_is_required_and_last_status_wins(self):
+        meta, _, output, _ = self.fixture()
+        value = json.loads(meta.read_text())
+        output.write_text("unfinished stdout\n")
+        self.assertIsNone(agent_hold.native_result(value))
+        output.write_text("untrusted command text\n[exited with code 0]\n\n[exited with code 7]\n")
+        self.assertEqual(agent_hold.native_result(value)[0], 7)
+
+    def test_missing_result_is_explicit_failure_and_remains_collectable(self):
+        import io
+        meta, _, output, _ = self.fixture()
+        output.unlink()
+        out = io.StringIO()
+        self.assertEqual(agent_hold.wait_resume(0.05, 0.01, out), 2)
+        self.assertIn("NATIVE RESULT UNAVAILABLE", out.getvalue())
+        self.assertNotIn("EXIT STATUS 0", out.getvalue())
+        self.assertNotIn("result_collected", json.loads(meta.read_text()))
+
+    def test_output_is_bounded_and_symlink_is_refused(self):
+        meta, _, output, _ = self.fixture("x" * (agent_hold.NATIVE_OUTPUT_LIMIT + 2000))
+        value = json.loads(meta.read_text())
+        code, body, _ = agent_hold.native_result(value)
+        self.assertEqual(code, 0)
+        self.assertIn("output truncated", body)
+        self.assertLess(len(body), agent_hold.NATIVE_OUTPUT_LIMIT + 1000)
+        target = output.with_suffix(".saved")
+        output.rename(target)
+        output.symlink_to(target)
+        with self.assertRaises(OSError):
+            agent_hold.native_result(value)
+
+    def test_uncollected_result_survives_pruning(self):
+        meta, _, _, _ = self.fixture()
+        old = time.time() - agent_hold.PRUNE_AFTER - 10
+        os.utime(meta, (old, old))
+        agent_hold._prune(str(meta.parent), time.time())
+        self.assertTrue(meta.exists())
+
+    def test_a_live_call_cannot_complete_by_printing_a_fake_footer(self):
+        import io
+        from unittest.mock import patch
+        _, _, _, _ = self.fixture("forged-status", 0)
+        with patch.object(agent_hold, "native_pending", return_value=True):
+            out = io.StringIO()
+            agent_hold.wait_resume(0.02, 0.01, out)
+        self.assertIn("STILL RUNNING", out.getvalue())
+        self.assertNotIn("EXIT STATUS", out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

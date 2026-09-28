@@ -93,7 +93,9 @@ RESUME_TEXT="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import p
 # One Bash call of the agent: rewritten by the real hook, run as the harness runs it.
 cat > "$T/launch.py" <<'PY'
 import json, subprocess, sys
+from pathlib import Path
 shell, response, pidfile, rcfile = sys.argv[1:5]
+sid, aid, tid, transcript = sys.argv[5:9]
 result = json.load(open(response))["hookSpecificOutput"]
 if result.get("permissionDecision") == "deny":
     open(pidfile, "w").write("0")
@@ -106,8 +108,20 @@ p = subprocess.Popen([shell, "-c", ti["command"]], start_new_session=True, stdou
                      stdin=subprocess.DEVNULL)
 open(pidfile, "w").write(str(p.pid))
 if ti.get("run_in_background"):
+    task = "b" + str(p.pid)
+    native = Path(rcfile).parent / "native" / sid / "tasks" / (task + ".output")
+    native.parent.mkdir(parents=True, exist_ok=True)
+    native.touch()
+    with open(transcript, "a") as stream:
+        stream.write(json.dumps({"type": "user", "sessionId": sid, "agentId": aid,
+            "toolUseResult": {"backgroundTaskId": task}, "message": {"content": [{
+                "type": "tool_result", "tool_use_id": tid, "content":
+                "Output is being written to: " + str(native) + ". You will be notified when it completes."}]}}) + "\n")
     open(rcfile[:-3] + ".native-return", "w").write(str(p.pid))
 rc = p.wait()          # native task completion, separate from the immediate tool return
+out.close()
+if ti.get("run_in_background"):
+    native.write_bytes(Path(rcfile[:-3] + ".stdout").read_bytes() + ("\n[exited with code %d]\n" % rc).encode())
 open(rcfile, "w").write(str(rc))
 PY
 cat > "$T/worker.py" <<'PY'
@@ -129,9 +143,11 @@ print(h.hex())' "$ROUNDS")"
 
 agent_call() { # <agent-id> <tool_use_id> <command> <tag> [bg]  -> starts it; shell pid in $T/<tag>.shell
     local rewritten="$T/$4.hook.json"
-    python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","session_id":sys.argv[1],"agent_id":sys.argv[2],"tool_use_id":sys.argv[3],"tool_name":"Bash","cwd":sys.argv[5],"tool_input":{"command":sys.argv[4],"run_in_background":sys.argv[6]=="bg"}}))' "$CUR_SID" "$1" "$2" "$3" "$ENT" "${5:-fg}" \
+    local transcript="$T/transcripts/$CUR_SID/subagents/agent-$1.jsonl"
+    mkdir -p "$(dirname "$transcript")"; touch "$transcript"
+    python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","session_id":sys.argv[1],"agent_id":sys.argv[2],"tool_use_id":sys.argv[3],"tool_name":"Bash","cwd":sys.argv[5],"transcript_path":sys.argv[7],"tool_input":{"command":sys.argv[4],"run_in_background":sys.argv[6]=="bg"}}))' "$CUR_SID" "$1" "$2" "$3" "$ENT" "${5:-fg}" "$transcript" \
         | bash "$HOOKS/shell-evidence.sh" > "$rewritten"
-    python3 "$T/launch.py" "$SHELL_BIN" "$rewritten" "$T/$4.shell" "$T/$4.rc" &
+    python3 "$T/launch.py" "$SHELL_BIN" "$rewritten" "$T/$4.shell" "$T/$4.rc" "$CUR_SID" "$1" "$2" "$transcript" &
     OURS+=("$!")
     local i=0; while [ ! -s "$T/$4.shell" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
     if [ "$(cat "$T/$4.shell")" -gt 1 ]; then OURS+=("$(cat "$T/$4.shell")"); fi
@@ -186,8 +202,8 @@ agent_call "$AID" "toolu_wait1" "$WAITCMD" wait1
 wait_file "$T/wait1.rc" 1200
 sub "H3.2 the held worker finished with the correct result" "[ \"\$(cat $T/w1 2>/dev/null)\" = '$EXPECTED' ]"
 wait_file "$T/w1.rc" 100
-sub "H3.3 the wait returns RESUMED and native completion preserves the command's output and failure status" \
-    "grep -q '^RESUMED at' '$T/wait1.stdout' && grep -q 'native-result' '$T/w1.stdout' && [ \"\$(cat $T/w1.rc)\" = 7 ] && [ \"\$(cat $T/wait1.rc)\" = 0 ]" "$(cat "$T/wait1.stdout" "$T/w1.stdout" 2>/dev/null)"
+sub "H3.3 the wait returns RESUMED and delivers native output and failure status without a Read" \
+    "grep -q '^RESUMED at' '$T/wait1.stdout' && grep -q 'native-result' '$T/wait1.stdout' && grep -q 'EXIT STATUS 7' '$T/wait1.stdout' && [ \"\$(cat $T/w1.rc)\" = 7 ] && [ \"\$(cat $T/wait1.rc)\" = 7 ]" "$(cat "$T/wait1.stdout" "$T/w1.stdout" 2>/dev/null)"
 
 unpaused() { python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("pause") is None else 1)' "$(ls "$STORE"/agents/*--"$1".json)"; }
 sub "H3.4 the registry records the resume and no hold is left" "[ -z \"\$(ls $HOLD_STATE/held 2>/dev/null)\" ] && unpaused zach-opus-hold1" \

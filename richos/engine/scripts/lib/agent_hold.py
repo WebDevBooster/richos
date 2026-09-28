@@ -62,8 +62,11 @@ The agent waits with this module's foreground `wait` command, which checks for
 new holds every half second. A hold freezes the native task's entire owned tree;
 the wait returns promptly so the queued WAIT message reaches the agent. The next
 wait stays inside the same run until release, returning at most every 270 s to
-retain the prompt cache. Native task completion retains the original stdout,
-stderr and exit status. The wait's success is never the task's success.
+retain the prompt cache. Native task completion retains the original output and
+exit status. The wait binds the exact tool result in this agent's transcript to
+the host's output file and returns its output/status, so no extra Read is needed
+for ordinary results. A nonzero task makes that wait nonzero too. A missing
+native result is explicitly unavailable, never inferred to be successful.
 
 A held agent's new Bash calls are denied by the hook. The mark helper checks the
 hold again at execution to close the hook-to-spawn race. Wait calls are exempt
@@ -87,6 +90,7 @@ import os
 import re
 import shlex
 import signal
+import stat
 import struct
 import subprocess
 import sys
@@ -118,7 +122,7 @@ WAIT_MARGIN_SECONDS = 15       # the wait returns this long before its call's ti
 # was written again (5,244 tokens rewritten, only the shared 11,430-token prefix still read).
 # Returning inside the cache's lifetime keeps each turn a cache read: about 6x cheaper per hour held.
 WAIT_CACHE_SECONDS = 270
-HOW_TO_WAIT = ("To wait, run this command with the Bash timeout 600000, and run it again each time it prints "
+HOW_TO_WAIT = ("To wait, run this command with the Bash tool's timeout input set to 600000 (do not type a shell timeout prefix), and run it again each time it prints "
                "STILL WAITING: " + WAIT_COMMAND)
 REFUSED_TEXT = ("WAIT: the orchestrator has told you to wait, so this command did not run. Run it again after "
                 "you are resumed. " + HOW_TO_WAIT)
@@ -223,6 +227,8 @@ def _prune(directory, now):
             dead = age > PRUNE_AFTER and not _alive(pid[0])
         if dead:
             meta = _read_json(stem + ".json") or {}
+            if meta.get("result_source") and not meta.get("result_collected") and age < DETACHED_KEEP:
+                continue
             if meta.get("identity"):
                 if prune_table is None:
                     prune_table = snapshot()
@@ -268,9 +274,20 @@ def _record(payload, mode, command):
     try:
         os.makedirs(directory, mode=0o700, exist_ok=True)
         _prune(directory, now)
-        _write_json(os.path.join(directory, tool_use_id + ".json"),
-                    {"at": now, "tool_use_id": tool_use_id, "cwd": str(payload.get("cwd") or ""),
-                     "mode": mode, "command": (command or "")[:300]})
+        meta = {"at": now, "tool_use_id": tool_use_id, "cwd": str(payload.get("cwd") or ""),
+                "mode": mode, "command": (command or "")[:300]}
+        transcript = payload.get("transcript_path")
+        if mode == "native" and isinstance(transcript, str) and os.path.isabs(transcript):
+            if os.path.basename(transcript) == session_id + ".jsonl":
+                transcript = os.path.join(os.path.dirname(transcript), session_id, "subagents", "agent-" + agent_id + ".jsonl")
+            if os.path.basename(transcript) == "agent-" + agent_id + ".jsonl":
+                try:
+                    offset = os.path.getsize(transcript)
+                except OSError:
+                    offset = 0
+                meta["result_source"] = {"transcript": transcript, "offset": offset,
+                                         "session": session_id, "agent": agent_id}
+        _write_json(os.path.join(directory, tool_use_id + ".json"), meta)
     except OSError:
         return None
     return os.path.join(directory, tool_use_id), _held_path(session_id, agent_id)
@@ -388,14 +405,16 @@ def rewrite(payload):
                 + " ".join(["python3", shlex.quote(os.path.abspath(__file__))] + [shlex.quote(a) for a in args]),
                 "input": {"timeout": ceiling, "run_in_background": False}}
     if os.path.exists(held):
+        _unlink_call(stem)  # the hook refuses this call, so no native task can start
         return {"command": command, "input": {}, "deny": REFUSED_TEXT}
     return {"command": head + command, "input": {"run_in_background": True},
             "context": ("This command runs as a native background task so WAIT can freeze it immediately. "
             "Before dependent work or your final reply, run " + WAIT_COMMAND +
-            " with Bash timeout 600000 to wait for the task. Repeat on STILL RUNNING or STILL WAITING. "
+            " and set the Bash tool's timeout input to 600000; do not add a shell timeout prefix. "
+            "That wait returns this command's output and exit status; no separate Read is needed for ordinary output. "
+            "Repeat on STILL RUNNING or STILL WAITING. "
             "The wait returns promptly when a new hold starts; follow its WAIT instructions. "
-            "Read the native task's completion notification and output file for its actual output and exit status. "
-            "A successful wait means only that waiting succeeded, not that the task passed." if mode == "native" else "")}
+            "The wait labels each task's exit status; a missing result is never a task pass." if mode == "native" else "")}
 
 
 def capture(payload):
@@ -1017,6 +1036,134 @@ def native_pending(session, agent):
     return False
 
 
+NATIVE_OUTPUT_LIMIT = 64000
+NATIVE_TRANSCRIPT_LIMIT = 4 * 1024 * 1024
+NATIVE_FOOTER = re.compile(rb"\n\[(?:exited with code ([0-9]+)|killed)\]\n\Z")
+
+
+def native_result(meta):
+    """Read this call's host-owned result, never a guessed task directory.
+
+    Claude Code 2.1.283 records the task id and output path in the subagent's
+    tool result and appends a terminal status to that file. Bind only the exact
+    session/agent/tool id captured before the call. The caller first waits for
+    the owned shell to end: command output resembling a footer is not completion
+    while that shell is running. Missing or changed host formats are not passes.
+    """
+    source = meta["result_source"]
+    binding = meta.get("native_result")
+    if not binding:
+        with open(source["transcript"], "rb") as stream:
+            stream.seek(source["offset"])
+            raw = stream.read(NATIVE_TRANSCRIPT_LIMIT)
+        # Ignore a trailing partial line; the host may still be appending it.
+        for line in raw.split(b"\n")[:-1]:
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if (not isinstance(row, dict) or row.get("type") != "user" or
+                    row.get("agentId") != source["agent"] or row.get("sessionId") != source["session"]):
+                continue
+            content = row.get("message", {}).get("content")
+            if not isinstance(content, list):
+                continue
+            response = row.get("toolUseResult") or {}
+            task = response.get("backgroundTaskId") if isinstance(response, dict) else None
+            for item in content:
+                if not isinstance(item, dict) or item.get("type") != "tool_result" or item.get("tool_use_id") != meta["tool_use_id"]:
+                    continue
+                text = item.get("content")
+                if not isinstance(text, str):
+                    continue
+                if item.get("is_error"):
+                    return (2, "Host refused or failed this call:\n" + text, None)
+                match = re.search(r"Output is being written to: (.+?\.output)(?:\. |\n|$)", text)
+                if not _valid_ids(task) or not match:
+                    continue
+                path = match[1]
+                if (not os.path.isabs(path) or os.path.basename(path) != task + ".output" or
+                        os.path.basename(os.path.dirname(path)) != "tasks" or
+                        os.path.basename(os.path.dirname(os.path.dirname(path))) != source["session"]):
+                    continue
+                binding = meta["native_result"] = {"task": task, "path": path}
+        if not binding:
+            return None
+    fd = os.open(binding["path"], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as stream:
+        before = os.fstat(stream.fileno())
+        if not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid():
+            raise ValueError("native output is not a regular file owned by this user")
+        stream.seek(max(0, before.st_size - 256))
+        tail = stream.read(256)
+        footer = NATIVE_FOOTER.search(tail)
+        if not footer:
+            return None
+        body_size = before.st_size - len(tail) + footer.start()
+        stream.seek(0)
+        body = stream.read(min(body_size, NATIVE_OUTPUT_LIMIT)).decode("utf-8", "replace")
+        after = os.fstat(stream.fileno())
+        if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+            return None
+    code = int(footer[1]) if footer[1] is not None else 137
+    if not 0 <= code <= 255:
+        raise ValueError("unknown native exit status")
+    if body_size > NATIVE_OUTPUT_LIMIT:
+        body += "\n[output truncated; full native output: %s]\n" % binding["path"]
+    if footer[1] is None:
+        body += "\n[host reports task killed; collector returns 137]\n"
+    return code, body, binding["task"]
+
+
+def collect_native(session, agent, deadline, out):
+    """Return native results in the wait call, retaining ownership after delivery."""
+    directory = _shell_dir(session, agent)
+    try:
+        records = [(os.path.join(directory, n), _read_json(os.path.join(directory, n)) or {})
+                   for n in os.listdir(directory) if n.endswith(".json")]
+    except OSError:
+        return 0
+    result_code = 0
+    for path, meta in sorted(records, key=lambda row: row[1].get("at", 0)):
+        if meta.get("mode") != "native" or meta.get("result_collected"):
+            continue
+        if not meta.get("result_source"):
+            out.write("NATIVE RESULT UNAVAILABLE for %s: this older or non-host call has no transcript binding. "
+                      "Use its native completion notification and output file.\n" % meta["tool_use_id"])
+            result_code = result_code or 2
+            continue
+        result = None
+        bound = min(deadline, time.monotonic() + 2)
+        while True:
+            if os.path.exists(_held_path(session, agent)):
+                notice_hold(session, agent)
+                out.write("WAIT: running work is held. " + HOW_TO_WAIT + "\n")
+                return result_code
+            try:
+                result = native_result(meta)
+            except (OSError, ValueError, TypeError) as error:
+                reason = type(error).__name__
+            else:
+                reason = "host task binding or terminal output is not available"
+            if result is not None or time.monotonic() >= bound:
+                break
+            time.sleep(0.05)
+        if result is None:
+            out.write("NATIVE RESULT UNAVAILABLE for %s: %s. No task success is established; "
+                      "check its native completion notification.\n" % (meta["tool_use_id"], reason))
+            result_code = result_code or 2
+            continue
+        code, body, task = result
+        out.write("TASK %s (tool %s) EXIT STATUS %d\n" % (task or "refused", meta["tool_use_id"], code))
+        if body:
+            out.write(body if body.endswith("\n") else body + "\n")
+        out.flush()
+        meta["result_collected"] = True
+        _write_json(path, meta)
+        result_code = result_code or code
+    return result_code
+
+
 def notice_hold(session, agent):
     """Return once for each hold before waiting, including a hold that predates
     this call. That tool boundary lets the harness deliver the queued message.
@@ -1034,7 +1181,8 @@ def notice_hold(session, agent):
 def wait_resume(max_seconds=None, poll=2.0, out=sys.stdout):
     """Returns once this agent's hold is released, printing RESUMED and then the result of
     any foreground command the hold froze; at the bound it prints STILL WAITING (or STILL
-    RUNNING) so the agent runs it again. Never ends anything."""
+    RUNNING) so the agent runs it again. Native task output and exit status are
+    delivered here even when no pause happened. Never ends anything."""
     agent, session = os.environ.get(TAG, ""), os.environ.get(SESSION_TAG, "")
     if not _valid_ids(session, agent):
         out.write("PAUSE-WAIT: this shell carries no agent identity (%s, %s), so there is no hold to wait "
@@ -1053,7 +1201,11 @@ def wait_resume(max_seconds=None, poll=2.0, out=sys.stdout):
                       % _clock())
             return 0
         time.sleep(poll)
-    out.write("RESUMED at %s: carry on from where you were.\n" % _clock())
+    notice_path = os.path.join(state_dir(), "wait-notices", "%s__%s.json" % (session, agent))
+    notice = _read_json(notice_path)
+    if notice and not notice.get("resumed"):
+        out.write("RESUMED at %s: carry on from where you were.\n" % _clock())
+        _write_json(notice_path, dict(notice, resumed=True))
     # Native tasks keep their output/status in the harness. Keep this agent's
     # run active while it waits, but return as soon as a new hold appears so a
     # queued SendMessage can be delivered at this tool boundary.
@@ -1069,7 +1221,7 @@ def wait_resume(max_seconds=None, poll=2.0, out=sys.stdout):
     for stem, rec in _detached_calls(session, agent):
         if not _collect(stem, rec, deadline, min(poll, 0.5), out):
             break
-    return 0
+    return collect_native(session, agent, deadline, out)
 
 
 def release(session_id, agent_id):
