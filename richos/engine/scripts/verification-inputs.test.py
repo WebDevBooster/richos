@@ -152,6 +152,28 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_resume_registry_read_retains_reached_cleanup_dependencies(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/guard-resume-isolation.test.sh'
+        expected = {'SESSION_TEAMS_DIR', 'APP_TEST_INSTANCE_PROCESS_NAMES',
+                    'APP_TEST_INSTANCE_BUNDLE_ID', 'APP_TEST_INSTANCE_REAL_HOME_PATHS',
+                    'APP_TEST_INSTANCE_QUIT_GRACE_SECONDS', 'APP_TEST_INSTANCE_KILL_GRACE_SECONDS'}
+        closure = graph.closure(unit)
+        self.assertEqual(set(closure['keys']), expected)
+        self.assertFalse(closure['whole'] or closure['fallback'], closure)
+        for key in expected | {'PROTECTED_PATHS', 'MODEL_TIERS'}:
+            self.assertEqual(bool(graph.config_units(inputs.config_change(key+'=old', key+'=new'), [unit])),
+                             key in expected, key)
+        change = inputs.config_change('MODEL_TIERS=old', 'MODEL_TIERS=new')
+        for helper in ('mega-lander/workspaces.py#recipient', 'scripts/lib/agent-liveness.py',
+                       'scripts/lib/teammate-identity.py', 'scripts/lib/pause_protocol.py',
+                       'scripts/lib/appinstances.py#workspace-cleanup'):
+            with self.subTest(helper=helper):
+                previous = document['nodes'].pop(helper)
+                self.assertIn(unit, graph.config_units(change, [unit]))
+                document['nodes'][helper] = previous
+
     def test_isolation_registration_retains_model_and_cleanup_inputs(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

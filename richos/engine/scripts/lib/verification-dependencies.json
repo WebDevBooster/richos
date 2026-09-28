@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "c5ffa842897364b01233e7d0fcc6c2913694c4244ff012bd7b69c3123d78f5ca",
+      "sha256": "957432dc86a4ab11cdcfe24bfdd125888bd11ba416823611f651e5a95faa060e",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -4067,6 +4067,59 @@
           "to": "mega-lander/workspaces.py#isolation-registration"
         }
       ]
+    },
+    "mega-lander/workspaces.py#recipient": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+      "evidence": "The recipient CLI calls recipient_state, which loads its named record then observe_platform_end and finished_state. Only recipient_state is new beyond the reviewed lifecycle closure; all its callees are already covered there. Its cleanup remains bound to actual engine app-instance settings. Explicit --session avoids ambient current_session.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#lifecycle-fixtures"
+        }
+      ]
+    },
+    "scripts/hooks/guard-resume-isolation.sh": {
+      "source": "scripts/hooks/guard-resume-isolation.sh",
+      "sha256": "2366c33e6d87e0b53a7c1e18a6b153b72652ac86532f88e145fd66539e373f56",
+      "evidence": "Sources entity config, validates fixed pause syntax, checks the workspace recipient and parses roster/transcript/lock evidence with fixed agent-liveness and teammate-identity imports. Message strings are data, never sent or executed. Resume acknowledgement appends a log and returns. No dynamic commands from settings.",
+      "keys": [
+        "SESSION_TEAMS_DIR"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/pause_protocol.py"
+        },
+        {
+          "to": "mega-lander/workspaces.py#recipient"
+        },
+        {
+          "to": "scripts/lib/agent-liveness.py"
+        },
+        {
+          "to": "scripts/lib/teammate-identity.py"
+        }
+      ]
+    },
+    "scripts/hooks/guard-resume-isolation.test.sh": {
+      "source": "scripts/hooks/guard-resume-isolation.test.sh",
+      "sha256": "8ae7ff8931733948b030736169ed956efdededac982f44e1973bc10374227908",
+      "evidence": "Real guard first resolves the real engine and sources its config. Additional copied-guard cases use literal SESSION_TEAMS_DIR fixtures. Real workspaces CLI calls integration/register-spawn/hook/pause and the guard queries recipient; private registry and Git worktrees do not replace engine cleanup settings. The finite pause/identity/liveness helpers are included and no nested suite or model agent is invoked.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-resume-isolation.sh"
+        },
+        {
+          "to": "mega-lander/workspaces.py#lifecycle-fixtures"
+        },
+        {
+          "to": "scripts/lib/pause_protocol.py"
+        }
+      ]
     }
   },
   "units": {
@@ -4139,7 +4192,8 @@
     "scripts/hooks/inflight-ack-durability.test.sh": "scripts/hooks/inflight-ack-durability.test.sh",
     "scripts/lib/git-jurisdiction.test.sh": "scripts/lib/git-jurisdiction.test.sh",
     "scripts/hook-registration-completeness.test.sh": "scripts/hook-registration-completeness.test.sh",
-    "scripts/hooks/guard-worktree-isolation.test.sh": "scripts/hooks/guard-worktree-isolation.test.sh"
+    "scripts/hooks/guard-worktree-isolation.test.sh": "scripts/hooks/guard-worktree-isolation.test.sh",
+    "scripts/hooks/guard-resume-isolation.test.sh": "scripts/hooks/guard-resume-isolation.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
