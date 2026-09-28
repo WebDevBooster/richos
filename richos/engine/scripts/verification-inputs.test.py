@@ -152,6 +152,20 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_protected_ref_notice_has_no_real_config_reader(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/protected-ref-moves.test.sh'
+        self.assertFalse(any(graph.closure(unit).values()))
+        change = inputs.config_change('PROTECTED_PATHS=one', 'PROTECTED_PATHS=two')
+        self.assertFalse(graph.config_units(change, [unit]))
+        self.assertFalse(graph.config_units(inputs.config_change('PROTECTED_PATHS=one', None), [unit]))
+        for helper in ('scripts/lib/protected-ref-moves.py', 'mega-lander/workspaces.py#event-store',
+                       'scripts/lib/stop-hook-notice.sh'):
+            old = document['nodes'].pop(helper)
+            self.assertIn(unit, graph.config_units(change, [unit]), helper)
+            document['nodes'][helper] = old
+
     def test_worker_lifecycle_preserves_real_registry_cleanup_settings(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

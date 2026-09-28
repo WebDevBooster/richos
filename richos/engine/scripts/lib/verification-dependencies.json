@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "35f2352bf6482ba8df727364e7ac5d4f3ddab90da3ec87045a513a27566fe5b5",
+      "sha256": "808f0095573081eabf5cb15d6ff7f35b8ae607757d5b6ae6c8ecbea6312ae464",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -7614,6 +7614,59 @@
           "to": "scripts/hooks/worker-ended-handoff.sh"
         }
       ]
+    },
+    "mega-lander/workspaces.py#event-store": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+      "evidence": "Reviewed state_dir, event, _p, iso and now only: resolves the workspace store and appends a timestamped JSON row, without config or dynamic helper calls.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/protected-ref-moves.py": {
+      "source": "scripts/lib/protected-ref-moves.py",
+      "sha256": "3997dcd8c049c908e3a13aee5fe822ac255b5e70d5b001d1432db518b2d0757b",
+      "evidence": "Full predicate reads the event store, invokes fixed read-only Git commands over named repos and writes explicit review rows through workspaces.event. Wall clock controls age wording/rungs. No config is read and no source text or command in a record is evaluated.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#event-store"
+        }
+      ]
+    },
+    "scripts/hooks/notice-protected-ref-moves.sh": {
+      "source": "scripts/hooks/notice-protected-ref-moves.sh",
+      "sha256": "15ea383b87181c6924a00f8b5f656f72f2319e9680947674f68972fbcd6c2c43",
+      "evidence": "Normal hook resolves entity adoption and shared notice storage, then invokes the fixed protected-ref predicate. No config values are sourced. The self-test entry names the same fixed suite and is retained as a finite cycle.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/protected-ref-moves.py"
+        },
+        {
+          "to": "scripts/hooks/protected-ref-moves.test.sh"
+        }
+      ]
+    },
+    "scripts/hooks/protected-ref-moves.test.sh": {
+      "source": "scripts/hooks/protected-ref-moves.test.sh",
+      "sha256": "c51aae48a3bf49ac3215c998580766f428f4bf66a24dbd94c7b999d3ddc3413e",
+      "evidence": "Full suite creates private adopted Git repositories, empty literal config, event store and finite notice mutants. Copies never transport real config. observe-created-refs is inspected as text only. Fixed predicate list/review and the normal notice are the only executed engine commands.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/notice-protected-ref-moves.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/protected-ref-moves.py"
+        }
+      ]
     }
   },
   "units": {
@@ -7727,7 +7780,8 @@
     "scripts/hooks/stop-hook-visibility.test.sh": "scripts/hooks/stop-hook-visibility.test.sh",
     "scripts/hooks/waiver-repetition.test.sh": "scripts/hooks/waiver-repetition.test.sh",
     "scripts/hooks/verify-agent-prompt.test.sh": "scripts/hooks/verify-agent-prompt.test.sh",
-    "scripts/hooks/worker-lifecycle.test.sh": "scripts/hooks/worker-lifecycle.test.sh"
+    "scripts/hooks/worker-lifecycle.test.sh": "scripts/hooks/worker-lifecycle.test.sh",
+    "scripts/hooks/protected-ref-moves.test.sh": "scripts/hooks/protected-ref-moves.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
