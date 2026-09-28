@@ -152,6 +152,29 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_root_mutations_retain_nested_session_and_engine_settings(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/root-contract.test.sh'
+        closure = graph.closure(unit)
+        self.assertFalse(closure['whole'] or closure['fallback'], closure)
+        expected = {'PROTECTED_PATHS', 'ALLOWED_MODELS', 'MODEL_TIERS',
+                    'AGENT_NAMESPACE_ROOTS', 'SECRET_SCAN_MIN_LENGTH',
+                    'APP_TEST_INSTANCE_BUNDLE_ID', 'DISK_PRIMARY_VOLUME',
+                    'SCRATCH_REAPER_ENABLE'}
+        for key in expected | {'SHOW_TURN_MANIFEST', 'QUOTA_PAUSE_PERCENT'}:
+            self.assertEqual(bool(graph.config_units(inputs.config_change(key+'=old', key+'=new'), [unit])),
+                             key in expected, key)
+        change = inputs.config_change('SHOW_TURN_MANIFEST=0', 'SHOW_TURN_MANIFEST=1')
+        for helper in ('scripts/hooks/root-contract.mutation.sh',
+                       'scripts/hooks/session-start-stdin.test.sh',
+                       'scripts/hooks/guard-worktree-isolation.sh',
+                       'scripts/hooks/notice-disk-alert.sh', 'scripts/lib/resolve-roots.test.sh'):
+            with self.subTest(helper=helper):
+                previous = document['nodes'].pop(helper)
+                self.assertIn(unit, graph.config_units(change, [unit]))
+                document['nodes'][helper] = previous
+
     def test_session_start_fixtures_retain_real_engine_resource_readers(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

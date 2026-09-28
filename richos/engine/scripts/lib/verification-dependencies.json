@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "0172146c6a331aa7538f342f980755a7a9a75b1978058d09698feb1a56dc5007",
+      "sha256": "9df7eb0b8450b0152d34adaeb0a9e87bd9305ecb90fac212c26b2b71119aadf0",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -4353,6 +4353,71 @@
           "fixture": true
         }
       ]
+    },
+    "scripts/hooks/root-contract.mutation.sh": {
+      "source": "scripts/hooks/root-contract.mutation.sh",
+      "sha256": "62a7bb1ad25830e09b8faca63f5a7ba9fa45e533275faa4217de69dbab297b50",
+      "evidence": "Finite literal source mutations execute only root-contract.test.sh, resolve-roots.test.sh and session-start-stdin.test.sh. Config is copied unchanged. M1 deliberately redirects entity reads to the copied real engine config, so root-contract real key dependencies cannot be masked as fixtures. M10 reaches the SessionStart disk/scratch readers. Scratch allocation occurs without sourcing config in this driver. Payloads and mutation replacement strings are data.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/lib/scratch.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/root-contract.test.sh"
+        },
+        {
+          "to": "scripts/lib/resolve-roots.test.sh"
+        },
+        {
+          "to": "scripts/hooks/session-start-stdin.test.sh"
+        }
+      ]
+    },
+    "scripts/hooks/root-contract.test.sh": {
+      "source": "scripts/hooks/root-contract.test.sh",
+      "sha256": "3f529198ae5b26fa3f0243d7b9d42b83aa0322236ca262387aec1b3fd7d8f43b",
+      "evidence": "Copies real engine config and a separate literal session config, then invokes fixed main-write/bash-write/isolation, definition/snapshot, lifecycle, status and secret-scanner hooks. The nested root mutation forces engine-root reads and runs SessionStart stdin coverage, so both real model/protection settings and downstream resource settings remain dependencies. Private HOME/registry prevents record contamination but does not replace copied engine values. No model agent is dispatched.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/record-canary.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-main-checkout-writes.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-bash-main-writes.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-worktree-isolation.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-definition-drift.sh"
+        },
+        {
+          "to": "scripts/hooks/snapshot-agent-definitions.sh"
+        },
+        {
+          "to": "scripts/hooks/workspace-lifecycle.sh"
+        },
+        {
+          "to": "scripts/hooks/engine-status.sh"
+        },
+        {
+          "to": "scripts/hooks/scan-secrets.sh"
+        },
+        {
+          "to": "mega-lander/workspaces.py#integration"
+        },
+        {
+          "to": "scripts/hooks/root-contract.mutation.sh"
+        }
+      ]
     }
   },
   "units": {
@@ -4427,7 +4492,8 @@
     "scripts/hook-registration-completeness.test.sh": "scripts/hook-registration-completeness.test.sh",
     "scripts/hooks/guard-worktree-isolation.test.sh": "scripts/hooks/guard-worktree-isolation.test.sh",
     "scripts/hooks/guard-resume-isolation.test.sh": "scripts/hooks/guard-resume-isolation.test.sh",
-    "scripts/hooks/session-start-stdin.test.sh": "scripts/hooks/session-start-stdin.test.sh"
+    "scripts/hooks/session-start-stdin.test.sh": "scripts/hooks/session-start-stdin.test.sh",
+    "scripts/hooks/root-contract.test.sh": "scripts/hooks/root-contract.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
@@ -4599,6 +4665,79 @@
         "scripts/lib/operator_leads.py": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
         "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
         "scripts/lib/record-canary.sh": "702d0b4a21b5ede39f15bd390b81a649956914f303da2f4f74eeeedd601b716e",
+        "scripts/hooks/session-start-ceo-ask.sh": "3b0b8396d0e50a6145401df798bde92e7bc59ffd55a7260f160f7b1b8d72ec69",
+        "scripts/lib/ceo-asks.sh": "c0d084aef038efba8bae75eea3073bafa01c60132702282743449541abab0021",
+        "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
+        "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
+        "scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
+        "scripts/hooks/session-start-quota.sh": "720bdd6c4c0e392f2be9f37368f0862e92d1504a2eb56851af8a4e083f817cf1",
+        "scripts/quota-watch.sh": "70ce3fdbd3a372f727086df522819fae6b3dab759838209563ba9414805d0d10",
+        "scripts/lib/quota_watch.py": "aaa78a25c45c5501335543cdd78f6c343d9f0470733da6c32bd700448411a19d",
+        "scripts/lib/pause_protocol.py": "e1fd9b925db513fc58c45eddb1eb04b2f5468a3f5b150a90a079f3f991b45535",
+        "scripts/lib/quota_weekly.py": "9bd2e65fa1318ff43a0d0dbf96ff9abe8df363055e58c556b363f216733b51a1",
+        "scripts/hooks/left-off-report.sh": "d14ee9ceac38d7de2c7d04ba85eb11a4ab7d6610f3bc0d066db606dbc9090dee"
+      }
+    },
+    "scripts/hooks/root-contract.test.sh": {
+      "commands": [],
+      "text_needles": [],
+      "all_events": true,
+      "evidence": "Nested SessionStart stdin suite explicitly snapshots real manifest registration rows across all events. Engine-status also reads the copied registration inventory. No manifest command is executed dynamically. All nested test and library sources are bound, including the finite mutation driver.",
+      "sources": {
+        "scripts/hooks/root-contract.test.sh": "3f529198ae5b26fa3f0243d7b9d42b83aa0322236ca262387aec1b3fd7d8f43b",
+        "scripts/lib/record-canary.sh": "702d0b4a21b5ede39f15bd390b81a649956914f303da2f4f74eeeedd601b716e",
+        "scripts/hooks/guard-main-checkout-writes.sh": "15ef50dd54edf557ac14c16ce894b7212cfc692244d5fa19728cf2c6edad35a7",
+        "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
+        "scripts/hooks/guard-bash-main-writes.sh": "103465d3f2a5744282c5147b4cf45db5f484318b6635412f9d6b3ea368e4033f",
+        "scripts/hooks/guard-worktree-isolation.sh": "c200f7a5b48835054ce460b95053abca44ac6dbaf677289940c23fc196917025",
+        "scripts/lib/resolve-model.sh": "80d6df68468d7484a4385eb8b1b9ffdf1ea9575776a5e7141bb3fca58ca7ec11",
+        "scripts/lib/teammate-name.sh": "fd4f49d710bb208948d60cb7c92ccfcfce1e9db209975c53234f161a330a34a2",
+        "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
+        "mega-lander/workspaces.py": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+        "scripts/lib/appinstances.py": "e30b7e3522111d099a20bc2d5af49bff1d5b9a4245d5c2147306ef065596efca",
+        "scripts/lib/testdevices.py": "7317a16a8075947446dd7602c1715694e4f5dcce5ea0795d9dd9cb75ed665cdd",
+        "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
+        "scripts/lib/containers.py": "957965ce69a27ad94066c9a20c92956e715cb5bdd234080b92024c8e9f0f08c9",
+        "scripts/hooks/guard-definition-drift.sh": "6abe090d1a5eae1c726799e7c6e9bdaad2da332635fec5737ce9ce31f4f05007",
+        "scripts/hooks/snapshot-agent-definitions.sh": "51f92567f9daaa9bacd37082d0cd30beba284b3149714c8a45f945738d6ebaff",
+        "scripts/hooks/workspace-lifecycle.sh": "e8a6bd193fe910eb22f76da44c81b04feaa04e2a7429b055823ea8efc8df72e8",
+        "scripts/hooks/engine-status.sh": "c1ea99017ada713a0a68a56fe7f23dfab11b027ed53ea3a7846d4e51b8e467b0",
+        "scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
+        "scripts/hooks/scan-secrets.sh": "d23d1d44376e0557597f8a0add40a0226049d801769af48d81095002477e0c73",
+        "scripts/hooks/root-contract.mutation.sh": "62a7bb1ad25830e09b8faca63f5a7ba9fa45e533275faa4217de69dbab297b50",
+        "scripts/lib/mutation-harness.sh": "9dd839120e0a3b2ae4ef91054e076a8e9ea31c4592dbe0ea3eb80f3f018c88b0",
+        "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
+        "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
+        "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
+        "scripts/lib/worker_tokens.py": "8c4cada1e7a4883a65435017ebac01c27307724a9724ea698f0df699898ff6b2",
+        "scripts/lib/proc_tree.py": "dbd97c9b9758184e960348cd6c81e5089ae9691aee8324977a3ddbc0460a219d",
+        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
+        "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
+        "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
+        "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
+        "scripts/lib/resolve-roots.test.sh": "d5d4f7b6dc49da7d8dbc216bd244cd41028297b4141b18586323c8f4bb5a02c8",
+        "scripts/hooks/session-start-stdin.test.sh": "8db0addda3984451123e3a9f953a068daefacff5e2165e481e5ef1edf1e115da",
+        "scripts/hooks/session-start-escalations.sh": "25af57857b1dc4a1e4a61c6848753ede1d217f3a1037379e30cee4e64b206a5f",
+        "scripts/lib/escalations.sh": "656be06643a5579cc15e4ef5efe7628bd58e0a134e3677b36885f2060db59db7",
+        "scripts/lib/escalations.py": "34c2f41e1c59ebfbd5a049c4bf418e7735d2740a17f924823e0eacaaf1a6a3b2",
+        "scripts/hooks/snapshot-enforcing-hooks.sh": "d357c9a97492d4447e5ad83099da89192d877ac9282e41d712804710e6b739d4",
+        "scripts/hooks/session-start-ci-surface.sh": "a4f1b332f362a2374ae1dad83d44af14a977d8cfdb753154014bbcc7e74c05a5",
+        "scripts/lib/ci_pause.py": "f41e86ea2b1aaa036c92eb44ddcb2fe2a6880724162561a5e31b84d556758693",
+        "scripts/hooks/notice-disk-alert.sh": "71ef888a95290d2267aff524e0683b6e5bc9decddfdfaef5e5e027523cbc8ffd",
+        "scripts/disk-watchdog.sh": "5168a316708d2fc3dc19e76604942e7377a6b8529d267052be2fa16f6f90cea5",
+        "scripts/lib/disk-watchdog.py": "e9e7ca4981c480b8fb3598f1feb7302dd617f8b040c2db4e4a661306cddd03ed",
+        "scripts/lib/foreign_app_data.py": "9fcafeaae9e177df0c15fc93b547b2aa08710f94f723e393d51239861859b00b",
+        "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
+        "scripts/hooks/session-start-scratch.sh": "f78039d4b89732e00fdfec13abd6622f4c9c8f4badb9bca26c4b0a758068d485",
+        "scripts/scratch-reaper.sh": "1cdefb018a15be05c60b6dd257678573d2135230ceb58cfaef0fcd9c835975b1",
+        "scripts/lib/scratch-reaper.py": "f5c852252ad28b38893f13794a05d126312fe91249505070a228ade3fb90ba19",
+        "scripts/hooks/operator-claim.sh": "e157c7c28b11bb7a1d9965e5207bf9b52d521ff04f38a207d0ff8211136bb03f",
+        "scripts/lib/operator-mode.sh": "c9b25dd5eaef11ac02dc34ac11a6997404966ddb0dcd14cf019d83065b71ba6e",
+        "scripts/lib/operator_leads.py": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
         "scripts/hooks/session-start-ceo-ask.sh": "3b0b8396d0e50a6145401df798bde92e7bc59ffd55a7260f160f7b1b8d72ec69",
         "scripts/lib/ceo-asks.sh": "c0d084aef038efba8bae75eea3073bafa01c60132702282743449541abab0021",
         "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
