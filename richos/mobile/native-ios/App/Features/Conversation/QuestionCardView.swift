@@ -18,10 +18,7 @@ struct QuestionCardView: View {
     private var canEdit: Bool { !question.delivered && question.handoff_started != true && (pending == nil || canEditLocal) }
     private var active: Bool { (pending == nil && question.state == "open") || editing && canEdit }
     private var savedStatus: String {
-        if let pending { return pending }
-        if question.delivered { return "Rich has your answer" }
-        if (question.remaining ?? 0) > 0 { return "Waiting for the remaining answers" }
-        return question.waiting_for_turn == true ? "It reaches Rich when his current reply ends" : "On its way to Rich"
+        pending ?? question.savedStatus
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {

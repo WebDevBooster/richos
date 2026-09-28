@@ -155,19 +155,26 @@ pub fn taken(root: &Path, ids: &[String], session: &str) -> Result<(), String> {
 }
 
 /// **Let go of this asker's answers because its assignment ended** — the cleanup, and his
-/// Stop. It is not "taken", and nothing is told to a back end after it.
+/// Stop. It is not "taken", and nothing is told to a back end after it. An answer no back end
+/// had taken (`handed == false`) marks its card: the job stopped before Rich got it.
 pub fn discard(root: &Path, entity: &str, thread: &str, asker: &str) -> Result<(), String> {
+    let mut untaken = Vec::new();
     for mut input in all(root)? {
         let d = &input.delivery;
         if d.entity_id != entity || d.thread_id != thread || d.asker != asker || input.discarded {
             continue;
         }
         let path = path(root, &d.id);
+        if !input.handed {
+            untaken.extend(d.set_id.clone());
+        }
         input.handed = true;
         input.discarded = true;
         write(&path, &input)?;
     }
-    Ok(())
+    // Same lock order as `taken` -> `taker_has`: the store lock is taken here, after every
+    // inbox write, and never under the store lock or a work back end's `inner`.
+    crate::questions::Store::new(root).ended_before_taken(&untaken)
 }
 
 /// Is this answer sitting in the inbox, not yet taken? The question store asks, inside the

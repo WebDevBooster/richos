@@ -4825,6 +4825,7 @@ module.exports = [
   {"s":"Rich has your answer","c":"INFORMATIONAL","why":"The durable receiving input has been handed off."},
   {"s":"Rich no longer needs this:","c":"FRAGMENT","why":"Part of the inline question or permission renderer, completed by live content. Dedicated card tests exercise the visible controls."},
   {"s":"Saving your answer…","c":"INFORMATIONAL","why":"The current submission is in progress; duplicate submission is prevented."},
+  {"s":"This job stopped before Rich got your answer.","c":"INFORMATIONAL","why":"The job ended (his Stop, or its second failed delivery try) before any back end took the answer; nothing on this card can send it to that ended job."},
   {"s":"This action is waiting for your permission. You can keep talking to Rich.","c":"ACTIONABLE","control":"#permission-deny","fixture":"permission-pending","why":"The rendered state retains the adjacent retry, answer or recovery control; the fixture exercises the production renderer."},
   {"s":"This conversation was deleted. This answer was not sent:","c":"ACTIONABLE","control":".question-recovery button","fixture":"question-deleted","why":"The rendered state retains the adjacent retry, answer or recovery control; the fixture exercises the production renderer."},
   {"s":"This conversation was deleted. Your answer was not sent. You can copy it below.","c":"ACTIONABLE","control":".question-recovery button","fixture":"question-deleted","why":"The rendered state retains the adjacent retry, answer or recovery control; the fixture exercises the production renderer."},

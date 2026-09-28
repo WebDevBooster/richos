@@ -87,6 +87,14 @@ pub struct Question {
     /// it is said.
     #[serde(default)]
     pub awaiting_taker: bool,
+    /// **Its job ended while the answer was still untaken** (his Stop, or the second failed
+    /// delivery try; Rich's ruling on escalation esc-20260927T220629Z-cbc90040). Set by
+    /// [`crate::question_work::discard`] for an input no back end had taken, only while
+    /// `awaiting_taker` holds, and cleared with it if a taker did have it after all. The card
+    /// then says "This job stopped before Rich got your answer." instead of "On its way to Rich",
+    /// which would never again be true.
+    #[serde(default)]
+    pub ended_before_taken: bool,
     #[serde(default)]
     pub handoff_started: bool,
     #[serde(default)]
@@ -315,6 +323,7 @@ impl Store {
                         revision: 0,
                         delivered: false,
                         awaiting_taker: false,
+                        ended_before_taken: false,
                         handoff_started: false,
                         waiting_for_turn: false,
                         remaining,
@@ -741,6 +750,25 @@ impl Store {
         self.transaction(true, |d| {
             for q in d.questions.iter_mut().filter(|q| q.awaiting_taker && sets.contains(&q.set_id)) {
                 q.awaiting_taker = false;
+                q.ended_before_taken = false;
+                q.updated_at = now();
+            }
+            Ok(())
+        })
+    }
+    /// **These sets' job ended before any back end took their answers** (Rich's ruling on
+    /// esc-20260927T220629Z-cbc90040): the card must stop saying "On its way to Rich". Only a
+    /// question still awaiting its taker is marked. Same lock rule as [`Self::taker_has`]: never
+    /// called under this store's lock or a work back end's `inner`.
+    pub fn ended_before_taken(&self, sets: &[String]) -> Result<()> {
+        if sets.is_empty() {
+            return Ok(());
+        }
+        self.transaction(true, |d| {
+            for q in d.questions.iter_mut().filter(|q| {
+                q.awaiting_taker && !q.ended_before_taken && sets.contains(&q.set_id)
+            }) {
+                q.ended_before_taken = true;
                 q.updated_at = now();
             }
             Ok(())
@@ -927,7 +955,7 @@ impl Question {
         }
     }
     pub fn public_value(&self) -> Value {
-        json!({"id":self.id,"set_id":self.set_id,"thread_id":self.thread_id,"text":self.text,"options":self.options,"multiple":self.multiple,"free_answer":self.free_answer,"recommended":self.recommended,"state":self.state,"answer":self.answer,"revision":self.revision,"delivered":self.delivered && !self.awaiting_taker,"handoff_started":self.handoff_started,"waiting_for_turn":self.waiting_for_turn,"remaining":self.remaining,"set_index":self.set_index,"set_count":self.set_count,"asker":if self.asker=="front_desk"{"Rich"}else{"Your team"},"withdrawal_reason":self.withdrawal_reason})
+        json!({"id":self.id,"set_id":self.set_id,"thread_id":self.thread_id,"text":self.text,"options":self.options,"multiple":self.multiple,"free_answer":self.free_answer,"recommended":self.recommended,"state":self.state,"answer":self.answer,"revision":self.revision,"delivered":self.delivered && !self.awaiting_taker,"ended_before_taken":self.ended_before_taken && self.awaiting_taker,"handoff_started":self.handoff_started,"waiting_for_turn":self.waiting_for_turn,"remaining":self.remaining,"set_index":self.set_index,"set_count":self.set_count,"asker":if self.asker=="front_desk"{"Rich"}else{"Your team"},"withdrawal_reason":self.withdrawal_reason})
     }
     pub fn item(&self, revision: u64) -> Value {
         json!({"kind":"question","id":self.id,"entityId":self.entity_id,"threadId":self.thread_id,"turnId":self.turn_id,"bindingRevision":revision,

@@ -86,9 +86,16 @@ mutant pause-message-without-pause-until "E02" "$L" \
     "The pause message would read correctly and record nothing, and every paused agent would be finished at its first SubagentStop."
 
 mutant resume-message-re-pauses "E09" "$L" \
-    'Continue exactly where you stopped."' \
-    'Continue exactly where you stopped.\npause-until: later"' \
+    'return pause_protocol.render_resume(reason="quota")' \
+    'return pause_protocol.render_resume(reason="quota") + "\npause-until: later"' \
     "The resume message would re-pause the agent it was meant to wake."
+
+# Sage's catch 3: a generated pause ends only on the generated RESUME, so a
+# handwritten wake leaves the agent waiting, which is what E09 would show.
+mutant resume-message-handwritten "E09" "$L" \
+    'return pause_protocol.render_resume(reason="quota")' \
+    'return "RESUME: the five-hour quota window reset. Continue exactly where you stopped."' \
+    "A handwritten wake would read like a resume and leave the agent waiting."
 
 # 6. WAKE THE LEAD ONLY WHEN THERE IS SOMETHING TO DO.
 mutant fires-with-nothing-working "W03" "$L" \

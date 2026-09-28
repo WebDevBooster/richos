@@ -118,6 +118,34 @@ async function main(){
   }
   return measurements.join("; ");
  });
+ await run.check("a job that stopped before Rich got the answer says so, and only then",async()=>{
+  // Rich's ruling on esc-20260927T220629Z-cbc90040. Runs after the round 13 check, which
+  // installed window.__contrastMath. The line keeps the "On its way" styling (.ask-state).
+  const STOPPED="This job stopped before Rich got your answer.",ON_ITS_WAY="On its way to Rich";
+  const measurements=[];
+  for(const theme of ["dark","light"]){
+   for(const ended of [false,true]){
+    const line=await page.evaluate(([theme,ended])=>{
+     document.documentElement.dataset.theme=theme;
+     document.querySelectorAll(".question-row").forEach(n=>n.remove());
+     const q={id:crypto.randomUUID(),thread_id:"general",set_id:"set",text:"When should the release ship?",options:[{id:"today",label:"Ship today",description:"Earlier fixes"},{id:"tomorrow",label:"Ship tomorrow",description:"More testing"}],multiple:false,free_answer:true,recommended:"tomorrow",state:"answered",revision:1,delivered:false,handoff_started:true,remaining:0,ended_before_taken:ended,answer:{option_ids:["today"],text:"",method:"click",surface:"mac"}};
+     document.getElementById("messages").appendChild(window.RichQuestions.render({threadId:"general",question:q}));
+     const span=document.querySelector(".question-card.ask .ask-state span");
+     const M=window.__contrastMath;let bg={r:255,g:255,b:255,a:1};const chain=[];for(let e=span;e;e=e.parentElement)chain.unshift(e);
+     for(const e of chain){const c=M.parseCssColor(getComputedStyle(e).backgroundColor);if(c)bg=M.compositeOver(c,bg);}
+     const cs=getComputedStyle(span);
+     return {text:span.textContent,ratio:M.contrastRatio(M.compositeOver(M.parseCssColor(cs.color),bg),bg),size:parseFloat(cs.fontSize),change:!!document.querySelector(".question-card.ask .ask-link")};
+    },[theme,ended]);
+    assertEqual(line.text,ended?STOPPED:ON_ITS_WAY,theme+" state line with ended_before_taken="+ended);
+    assertEqual(line.change,false,theme+" a handed-off answer offered Change answer");
+    if(ended){
+     assert(line.ratio>=4.5,theme+" stopped line contrast: "+JSON.stringify(line));assert(line.size>=16,theme+" stopped line below 16px: "+JSON.stringify(line));
+     measurements.push(theme+" "+line.ratio.toFixed(2)+":1 at "+line.size+"px");
+    }
+   }
+  }
+  return "stopped line only when flagged; "+measurements.join("; ");
+ });
  assertEqual(errors,[],"renderer errors");await browser.close();process.exit(run.report()?1:0);
 }
 main().catch(e=>{console.error(e);process.exit(1);});
