@@ -152,6 +152,30 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_completeness_uses_private_trees_but_keeps_real_surface_obligations(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        guard = 'scripts/hooks/completeness-commits.test.sh'
+        checker = 'scripts/publication-completeness.test.sh'
+        units = [guard, checker]
+        change = inputs.config_change('PUBLICATION_DECLARATION=old', 'PUBLICATION_DECLARATION=new')
+        for unit in units:
+            closure = graph.closure(document['units'][unit])
+            self.assertFalse(closure['keys'] or closure['whole'] or closure['fallback'], closure)
+        self.assertFalse(graph.config_units(change, units))
+        self.assertEqual(set(graph.config_units(inputs.config_change('PUBLICATION_DECLARATION=old', None), units)), {guard})
+        for helper in ('scripts/publication-completeness.py#fixture-trees',
+                       'scripts/lib/publication-boundary.sh#declaration-and-sources'):
+            old = document['nodes'].pop(helper)
+            self.assertEqual(set(graph.config_units(change, units)), set(units))
+            document['nodes'][helper] = old
+        for unit in units:
+            reader = inputs.hook_reader(document['hook_readers'][unit],
+                                        lambda path: (HERE.parent / path).read_text())
+            self.assertFalse(reader.get('all_events'))
+        self.assertEqual(document['hook_readers'][guard]['commands'], ['scripts/hooks/guard-completeness-commits.sh'])
+        self.assertEqual(document['hook_readers'][checker]['text_needles'], ['publication-completeness'])
+
     def test_row_currency_keeps_adoption_and_registration_without_config_values(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

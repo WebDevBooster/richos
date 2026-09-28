@@ -432,7 +432,7 @@
     "scripts/ceo-asks-status.sh": {
       "source": "scripts/ceo-asks-status.sh",
       "sha256": "ee087fd11e7a3a9507845240dd367c3528935f31d85c1ba7bb9eca004de2f7cf",
-      "evidence": "Uses the supplied entity-root argument, delegates config access to ca_resolve and reads that root\u2019s ask ledger.",
+      "evidence": "Uses the supplied entity-root argument, delegates config access to ca_resolve and reads that root’s ask ledger.",
       "keys": [],
       "edges": [
         {
@@ -489,7 +489,7 @@
     "scripts/lib/proc_tree.py": {
       "source": "scripts/lib/proc_tree.py",
       "sha256": "dbd97c9b9758184e960348cd6c81e5089ae9691aee8324977a3ddbc0460a219d",
-      "evidence": "Supervises the caller\u2019s command and samples owned processes. Its own inputs are environment, process identity and controller state, never orchestration settings.",
+      "evidence": "Supervises the caller’s command and samples owned processes. Its own inputs are environment, process identity and controller state, never orchestration settings.",
       "keys": [],
       "edges": [
         {
@@ -517,7 +517,7 @@
     "scripts/lib/worker_tokens.py": {
       "source": "scripts/lib/worker_tokens.py",
       "sha256": "8c4cada1e7a4883a65435017ebac01c27307724a9724ea698f0df699898ff6b2",
-      "evidence": "Worker leases read their budget files, bind held inodes to native process generations and invoke the caller\u2019s separately declared command through process supervision and admission policy. Borrow validation follows a finite native ancestry and permit chain, never orchestration settings. Named native/compiler and simulator locks use the same kernel locks but do not grant worker capacity; their canonical paths remain governed.",
+      "evidence": "Worker leases read their budget files, bind held inodes to native process generations and invoke the caller’s separately declared command through process supervision and admission policy. Borrow validation follows a finite native ancestry and permit chain, never orchestration settings. Named native/compiler and simulator locks use the same kernel locks but do not grant worker capacity; their canonical paths remain governed.",
       "keys": [],
       "edges": [
         {
@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "e0b9ed296e9a19b2707edcddd659752bbaa69005cd49a8732d58195603ae7342",
+      "sha256": "821501232ec54ec5503099f4baca8bfe27f50c506248d6ef40b57858b727d97d",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -4780,7 +4780,7 @@
       ],
       "region": [
         "if _section CL; then",
-        "fi  # _section \u2014 CL"
+        "fi  # _section — CL"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#RI": {
@@ -4804,7 +4804,7 @@
       ],
       "region": [
         "if _section RI; then",
-        "fi  # _section \u2014 RI"
+        "fi  # _section — RI"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#WTR": {
@@ -4822,7 +4822,7 @@
       ],
       "region": [
         "if _section WTR; then",
-        "fi  # _section \u2014 WTR"
+        "fi  # _section — WTR"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#MC6": {
@@ -4840,7 +4840,7 @@
       ],
       "region": [
         "if _section MC6; then",
-        "fi  # _section \u2014 MC6"
+        "fi  # _section — MC6"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#SCR": {
@@ -4869,7 +4869,7 @@
       ],
       "region": [
         "if _section SCR; then",
-        "fi  # _section \u2014 SCR"
+        "fi  # _section — SCR"
       ],
       "presence": "SCR2 directly opens the real config to check required assignment names."
     },
@@ -5096,7 +5096,7 @@
       ],
       "region": [
         "if _section M; then",
-        "fi  # _section \u2014 M\n"
+        "fi  # _section — M\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#shim": {
@@ -5119,7 +5119,7 @@
       ],
       "region": [
         "if _section shim; then",
-        "fi  # _section \u2014 shim\n"
+        "fi  # _section — shim\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#manifest": {
@@ -5142,7 +5142,7 @@
       ],
       "region": [
         "if _section manifest; then",
-        "fi  # _section \u2014 manifest\n"
+        "fi  # _section — manifest\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#worktree": {
@@ -5165,7 +5165,7 @@
       ],
       "region": [
         "if _section worktree; then",
-        "fi  # _section \u2014 worktree\n"
+        "fi  # _section — worktree\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#N": {
@@ -5188,7 +5188,7 @@
       ],
       "region": [
         "if _section N; then",
-        "fi  # _section \u2014 N\n"
+        "fi  # _section — N\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#python3": {
@@ -5211,7 +5211,7 @@
       ],
       "region": [
         "if _section python3; then",
-        "fi  # _section \u2014 python3\n"
+        "fi  # _section — python3\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#config": {
@@ -5234,7 +5234,7 @@
       ],
       "region": [
         "if _section config; then",
-        "fi  # _section \u2014 config\n"
+        "fi  # _section — config\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#K": {
@@ -5257,7 +5257,7 @@
       ],
       "region": [
         "if _section K; then",
-        "fi  # _section \u2014 K\n"
+        "fi  # _section — K\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#P": {
@@ -5283,7 +5283,7 @@
       ],
       "region": [
         "if _section P; then",
-        "fi  # _section \u2014 P\n"
+        "fi  # _section — P\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#S": {
@@ -5306,7 +5306,7 @@
       ],
       "region": [
         "if _section S; then",
-        "fi  # _section \u2014 S\n"
+        "fi  # _section — S\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#MT": {
@@ -5329,7 +5329,7 @@
       ],
       "region": [
         "if _section MT; then",
-        "fi  # _section \u2014 MT\n"
+        "fi  # _section — MT\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#MC": {
@@ -5352,7 +5352,7 @@
       ],
       "region": [
         "if _section MC; then",
-        "fi  # _section \u2014 MC\n"
+        "fi  # _section — MC\n"
       ]
     },
     "scripts/hooks/interactive-prompt.mutation.sh": {
@@ -5399,7 +5399,7 @@
       ],
       "region": [
         "if _section IP; then",
-        "fi  # _section \u2014 IP\n"
+        "fi  # _section — IP\n"
       ]
     },
     "scripts/lib/row-currency.py#fixture-records": {
@@ -5582,7 +5582,7 @@
       ],
       "region": [
         "if _section MF; then",
-        "fi  # _section \u2014 MF\n"
+        "fi  # _section — MF\n"
       ]
     },
     "scripts/hooks/notice-unstarted-rows.sh#fixture-records": {
@@ -5732,7 +5732,7 @@
       ],
       "region": [
         "if _section SA; then",
-        "fi  # _section \u2014 SA\n"
+        "fi  # _section — SA\n"
       ]
     },
     "scripts/hooks/guard-idle-land.test.sh": {
@@ -5790,7 +5790,7 @@
       ],
       "region": [
         "if _section IL; then",
-        "fi  # _section \u2014 IL\n"
+        "fi  # _section — IL\n"
       ]
     },
     "scripts/hooks/guard-worktree-isolation.mutation.sh": {
@@ -5845,7 +5845,7 @@
       ],
       "region": [
         "if _section WTI; then",
-        "fi  # _section \u2014 WTI\n"
+        "fi  # _section — WTI\n"
       ]
     },
     "scripts/hooks/guard-row-currency-commits.sh#fixture-records": {
@@ -5916,6 +5916,102 @@
         },
         {
           "to": "scripts/hooks/row-currency.test.sh"
+        }
+      ]
+    },
+    "scripts/lib/publication-boundary.sh#declaration-and-sources": {
+      "source": "scripts/lib/publication-boundary.sh",
+      "sha256": "46366c80e498f6269889d21109cbfe5de696c273aa9229277ecc85d8285fac85",
+      "evidence": "Bounded closure: module initialization, physical/repository resolution, declaration parsing, pb_resolve_sources and broken banners. PRIVATE_SOURCES points only to caller-generated fixture directories. No corpus predicate or content scanner executes on this path. No declaration content is evaluated as shell.",
+      "keys": [
+        "PUBLICATION_DECLARATION"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/declaration-path.sh"
+        },
+        {
+          "to": "scripts/lib/resolve-main-checkout.sh"
+        }
+      ]
+    },
+    "scripts/publication-completeness.py#fixture-trees": {
+      "source": "scripts/publication-completeness.py",
+      "sha256": "6ceadb3516b84fa0e5d61ad0423b35e1649714b4a74aa7f17d4ae3370b66a6b0",
+      "evidence": "AST import/call inventory and all I/O boundaries reviewed: only stdlib, stdin JSON, supplied tree files/private roots, fixed Git ls-files and check-ignore. Scans source and workflow text as data, never executes extracted commands or imports scanned modules. These callers generate all public/private trees.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/publication-completeness.sh#fixture-trees": {
+      "source": "scripts/publication-completeness.sh",
+      "sha256": "54b22bd10dd4d1e70ee41077d2cd6c21dbefe4d835d8a19a5438513faf7b60b0",
+      "evidence": "Full wrapper reviewed: resolves explicit fixture root and publication declaration, parses literal completeness exemptions, resolves fixture private roots and runs the fixed JSON analyzer. No orchestration config is sourced; no scanned hook or workflow is executed.",
+      "keys": [
+        "PUBLICATION_DECLARATION"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/publication-boundary.sh#declaration-and-sources"
+        },
+        {
+          "to": "scripts/lib/resolve-main-checkout.sh"
+        },
+        {
+          "to": "scripts/publication-completeness.py#fixture-trees"
+        }
+      ]
+    },
+    "scripts/hooks/guard-completeness-commits.sh#fixture-trees": {
+      "source": "scripts/hooks/guard-completeness-commits.sh",
+      "sha256": "bb6d0253b44d251a08dd325e8901399aafcbe4ca6fe4aa4c30c9b41a57cee673",
+      "evidence": "Full guard reviewed: real seat adoption and fixed jurisdiction helpers parse the supplied payload; all audited targets are generated repositories. The declaration/checker use those fixture roots with fixed declaration defaults, not shipped config values. The staging arm copies the fixture index and only stages its intent-to-add view.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/publication-boundary.sh#declaration-and-sources",
+          "fixture": true
+        },
+        {
+          "to": "scripts/publication-completeness.sh#fixture-trees",
+          "fixture": true
+        }
+      ]
+    },
+    "scripts/hooks/completeness-commits.test.sh": {
+      "source": "scripts/hooks/completeness-commits.test.sh",
+      "sha256": "02400cc882eacb7d5646b92c01ac2246428c2f577c979692f3b4df4d491a8f83",
+      "evidence": "All guard targets are literal private Git fixtures and publication declarations. The engine seat remains real and a broken-install copy transports real config presence, never sources values. Invokes the fixed guard only, with no nested mutation suite. Surface checks resolve its actual registration; probe and sibling bootstrap are scanned as source data.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/registered-hooks.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-completeness-commits.sh#fixture-trees"
+        }
+      ]
+    },
+    "scripts/publication-completeness.test.sh": {
+      "source": "scripts/publication-completeness.test.sh",
+      "sha256": "d7a19a1f577e51106f682d2f66b07b1eb137403347ac09bf79ce232faced273c",
+      "evidence": "Creates all public/private trees, declarations, fake hooks, workflows and histories. Only the fixed checker runs; source/workflow text is input data. Broken-install copy invokes the same wrapper without its resolver. One raw hooks.json assertion forbids the publication-completeness text; no nested runtime suite.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/publication-completeness.sh#fixture-trees",
+          "fixture": true
         }
       ]
     }
@@ -6023,7 +6119,9 @@
     "scripts/hooks/guard-idle-land.test.sh": "scripts/hooks/guard-idle-land.test.sh",
     "scripts/hooks/contract-integrity.test.sh:IL": "scripts/hooks/contract-integrity.test.sh#IL",
     "scripts/hooks/contract-integrity.test.sh:WTI": "scripts/hooks/contract-integrity.test.sh#WTI",
-    "scripts/hooks/row-currency.test.sh": "scripts/hooks/row-currency.test.sh"
+    "scripts/hooks/row-currency.test.sh": "scripts/hooks/row-currency.test.sh",
+    "scripts/hooks/completeness-commits.test.sh": "scripts/hooks/completeness-commits.test.sh",
+    "scripts/publication-completeness.test.sh": "scripts/publication-completeness.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
@@ -6461,6 +6559,41 @@
         "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1"
       },
       "evidence": "The registration assertions resolve this one guard through the real plugin and seated surfaces using registered-hooks. Nested mutants execute the same assertions. Probe and installer checks are source-data scans, not dynamic inventory execution."
+    },
+    "scripts/hooks/completeness-commits.test.sh": {
+      "commands": [
+        "scripts/hooks/guard-completeness-commits.sh"
+      ],
+      "sources": {
+        "scripts/hooks/completeness-commits.test.sh": "02400cc882eacb7d5646b92c01ac2246428c2f577c979692f3b4df4d491a8f83",
+        "scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
+        "scripts/hooks/guard-completeness-commits.sh": "bb6d0253b44d251a08dd325e8901399aafcbe4ca6fe4aa4c30c9b41a57cee673",
+        "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
+        "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
+        "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "scripts/lib/publication-boundary.sh": "46366c80e498f6269889d21109cbfe5de696c273aa9229277ecc85d8285fac85",
+        "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
+        "scripts/publication-completeness.sh": "54b22bd10dd4d1e70ee41077d2cd6c21dbefe4d835d8a19a5438513faf7b60b0",
+        "scripts/publication-completeness.py": "6ceadb3516b84fa0e5d61ad0423b35e1649714b4a74aa7f17d4ae3370b66a6b0"
+      },
+      "evidence": "Only the fixed guard registration is resolved through both real surfaces."
+    },
+    "scripts/publication-completeness.test.sh": {
+      "commands": [],
+      "sources": {
+        "scripts/publication-completeness.test.sh": "d7a19a1f577e51106f682d2f66b07b1eb137403347ac09bf79ce232faced273c",
+        "scripts/publication-completeness.sh": "54b22bd10dd4d1e70ee41077d2cd6c21dbefe4d835d8a19a5438513faf7b60b0",
+        "scripts/lib/publication-boundary.sh": "46366c80e498f6269889d21109cbfe5de696c273aa9229277ecc85d8285fac85",
+        "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
+        "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "scripts/publication-completeness.py": "6ceadb3516b84fa0e5d61ad0423b35e1649714b4a74aa7f17d4ae3370b66a6b0"
+      },
+      "evidence": "The only real-manifest assertion forbids a raw publication-completeness substring. Fixture workflow and hook contents are never executed.",
+      "text_needles": [
+        "publication-completeness"
+      ]
     }
   }
 }
