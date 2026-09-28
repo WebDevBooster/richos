@@ -152,6 +152,22 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_agent_prompt_fixture_keeps_nested_copy_and_helper_bindings(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/verify-agent-prompt.test.sh'
+        closure = graph.closure(unit)
+        self.assertFalse(closure['keys'] or closure['whole'] or closure['fallback'], closure)
+        self.assertTrue(closure['presence'])
+        change = inputs.config_change('QA_ROLE_AGENTS=one', 'QA_ROLE_AGENTS=two')
+        self.assertFalse(graph.config_units(change, [unit]))
+        self.assertIn(unit, graph.config_units(inputs.config_change('QA_ROLE_AGENTS=one', None), [unit]))
+        for helper in ('scripts/hooks/conceal.mutation.sh', 'scripts/lib/resolve-roots.sh',
+                       'scripts/lib/unevaluated-notice.sh', 'scripts/lib/mutation-pool.sh'):
+            old = document['nodes'].pop(helper)
+            self.assertIn(unit, graph.config_units(change, [unit]), helper)
+            document['nodes'][helper] = old
+
     def test_waiver_fixtures_keep_source_discovery_and_nested_mutation_bound(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

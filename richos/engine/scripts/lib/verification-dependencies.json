@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "9efc85ec58feed386a2bfc42c9b199ff530f11a7ca392bae842e1c3fee2fe103",
+      "sha256": "94c769a3774663d25971a5f7da550d965f57dc4055fe4e05e0d51b55a21adbd5",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -7478,6 +7478,61 @@
           "to": "scripts/hooks/waiver-repetition.mutation.sh"
         }
       ]
+    },
+    "scripts/hooks/verify-agent-prompt.sh": {
+      "source": "scripts/hooks/verify-agent-prompt.sh",
+      "sha256": "108d302d819442877ea6cbf06a5d9bfca9f3ddc01300cb502049b9271be4e738",
+      "evidence": "Full gate reads entity config, private team JSON and agent-definition data; generated Python strips or classifies literal prompt text. resolve_agent_def reads namespace values already in the caller, never a second config. Refusal advice only prints spawn/prepare commands.",
+      "keys": [
+        "CREATOR_TEAMMATE",
+        "ENABLE_QA_INSTALL_FRESH_GATE",
+        "INSTALL_FRESH_SCRIPTS",
+        "QA_TRIGGER_RE",
+        "LOCAL_APP_CONTEXT_RE",
+        "APP_RUNTIME_RE",
+        "QA_ROLE_AGENTS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ]
+    },
+    "scripts/hooks/conceal.mutation.sh": {
+      "source": "scripts/hooks/conceal.mutation.sh",
+      "sha256": "7fa7938796d9976a2536459fb18e7be05d6a6dbfae4572c65cdc8e2f9115191d",
+      "evidence": "Full fixed driver copies minimal engine sources and real config, then runs finite literal matcher/ack mutants through the same suite with INNER=1. Every hook call uses the suite-created literal entity config; the copied engine config is only required to exist.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/verify-agent-prompt.test.sh"
+        },
+        {
+          "to": "scripts/lib/stopwatch.sh"
+        },
+        {
+          "to": "scripts/lib/mutation-pool.sh"
+        }
+      ],
+      "presence": "Copies real orchestration.config into each minimal engine."
+    },
+    "scripts/hooks/verify-agent-prompt.test.sh": {
+      "source": "scripts/hooks/verify-agent-prompt.test.sh",
+      "sha256": "f174a80517f19b02a6cbdbe578f350f2046cd1db65713bc12b77bed675d58a1f",
+      "evidence": "Full suite and inline mutants route every hook call through VERIFY_REPO_ROOT_OVERRIDE to a private adopted Git fixture with literal config and private teams. Prompt command strings are data, never executed. Nested conceal driver has the same fixed call surface.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/verify-agent-prompt.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/conceal.mutation.sh"
+        }
+      ]
     }
   },
   "units": {
@@ -7589,7 +7644,8 @@
     "scripts/hooks/named-persons.test.sh": "scripts/hooks/named-persons.test.sh",
     "scripts/hooks/dispatch-pretooluse.test.sh": "scripts/hooks/dispatch-pretooluse.test.sh",
     "scripts/hooks/stop-hook-visibility.test.sh": "scripts/hooks/stop-hook-visibility.test.sh",
-    "scripts/hooks/waiver-repetition.test.sh": "scripts/hooks/waiver-repetition.test.sh"
+    "scripts/hooks/waiver-repetition.test.sh": "scripts/hooks/waiver-repetition.test.sh",
+    "scripts/hooks/verify-agent-prompt.test.sh": "scripts/hooks/verify-agent-prompt.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
