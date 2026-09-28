@@ -369,11 +369,23 @@ class Dependencies:
                 raise Unsupported("changed config command binding: " + key)
         for external in row.get("external", []):
             relative = Path(external.get("path", ""))
-            if (external.get("root") != "HOME" or relative.is_absolute()
+            if (external.get("root") not in ("HOME", "environment") or relative.is_absolute()
                     or ".." in relative.parts or not relative.parts
                     or not external.get("evidence")):
                 raise Unsupported("invalid external reader binding: " + name)
-            path = Path.home() / relative
+            if external["root"] == "HOME":
+                base = Path.home()
+            else:
+                variable = external.get("variable", "")
+                default = external.get("default", "")
+                if not NAME.fullmatch(variable) or not isinstance(default, str):
+                    raise Unsupported("invalid external environment binding: " + name)
+                base = Path(os.environ.get(variable) or default)
+                if not base.is_absolute():
+                    raise Unsupported("relative external environment binding: " + name)
+            path = base / relative
+            if external.get("optional_file") and not path.is_file():
+                continue
             # The reviewed fixture takes its literal fallback when this exact
             # optional executable is unavailable. Otherwise bind its bytes.
             if external.get("optional_executable") and not os.access(path, os.X_OK):
@@ -381,9 +393,9 @@ class Dependencies:
             try:
                 digest = hashlib.sha256(path.read_bytes()).hexdigest()
             except OSError:
-                raise Unsupported("missing external reader: HOME/" + str(relative)) from None
+                raise Unsupported("missing external reader: " + str(path)) from None
             if digest != external.get("sha256"):
-                raise Unsupported("changed external reader: HOME/" + str(relative))
+                raise Unsupported("changed external reader: " + str(path))
         # Known direct parameter accesses cannot be omitted from the contract.
         # This check is a floor, not a claim of arbitrary shell interpretation.
         text = "\n".join(line for line in content.decode().splitlines() if not line.lstrip().startswith("#"))

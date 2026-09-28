@@ -153,6 +153,56 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_external_guard_follows_environment_root_and_file_presence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'fixture.sh').write_text('exit 0\n')
+            guard = root / 'guard.sh'
+            reviewed = b'exit 2\n'
+            row = {'source': 'fixture.sh', 'sha256': hashlib.sha256(b'exit 0\n').hexdigest(),
+                'evidence': 'A fixture invokes an optional external guard through bash.',
+                'external': [{'root': 'environment', 'variable': 'SELECTION_TEST_GUARD_ROOT',
+                    'default': directory, 'path': 'guard.sh', 'optional_file': True,
+                    'sha256': hashlib.sha256(reviewed).hexdigest(), 'evidence': 'Reviewed guard.'}]}
+            document = {'schema': 1, 'config_keys': [], 'units': {}, 'nodes': {'fixture': row}}
+            def fallback():
+                return inputs.Dependencies(root, document).closure('fixture')['fallback']
+            with patch.dict(os.environ, {'SELECTION_TEST_GUARD_ROOT': ''}):
+                self.assertFalse(fallback())
+                guard.write_bytes(reviewed)
+                guard.chmod(0o600)  # bash does not require executable mode.
+                self.assertFalse(fallback())
+                guard.write_text('unreviewed')
+                self.assertTrue(fallback())
+                alternative = root / 'alternative'
+                alternative.mkdir()
+                (alternative / 'guard.sh').write_bytes(reviewed)
+                with patch.dict(os.environ, {'SELECTION_TEST_GUARD_ROOT': str(alternative)}):
+                    self.assertFalse(fallback())
+                    (alternative / 'guard.sh').write_text('changed')
+                    self.assertTrue(fallback())
+                with patch.dict(os.environ, {'SELECTION_TEST_GUARD_ROOT': 'relative'}):
+                    self.assertTrue(fallback())
+
+    def test_spawn_retains_real_model_toolkit_and_external_dependencies(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        unit = 'scripts/spawn.test.sh'
+        graph = inputs.Dependencies(HERE.parent, document)
+        closure = graph.closure(unit)
+        self.assertFalse(closure['whole'] or closure['fallback'], closure)
+        for key in ('ALLOWED_MODELS', 'MODEL_TIERS', 'QA_TOOLKIT_DIR', 'QA_TOOLKIT_AGENTS', 'LOCAL_APP_CONTEXT_RE'):
+            self.assertIn(key, closure['keys'])
+        unrelated = inputs.config_change('SHOW_TURN_MANIFEST=a', 'SHOW_TURN_MANIFEST=b')
+        self.assertNotIn(unit, graph.config_units(unrelated, [unit]))
+        document['nodes']['scripts/spawn.test.sh']['external'][0]['sha256'] = 'changed'
+        with tempfile.TemporaryDirectory() as directory:
+            guard = Path(directory) / 'scripts/hooks/guard-brief-verification-scope.sh'
+            guard.parent.mkdir(parents=True)
+            guard.write_text('unreviewed')
+            with patch.dict(os.environ, {'RICHOS_SPAWN_TEST_REAL_PROJECT': directory}):
+                self.assertIn(unit, graph.config_units(unrelated, [unit]))
+        inputs.hook_reader(document['hook_readers'][unit], lambda path: (HERE.parent / path).read_text())
+
     def test_by_reference_keeps_copied_engine_config_for_seated_control(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

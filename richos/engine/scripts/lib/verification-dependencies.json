@@ -617,7 +617,7 @@
     },
     "scripts/lib/verification_inputs.py#config": {
       "source": "scripts/lib/verification_inputs.py",
-      "sha256": "ab0109585943dc6b24baafdafd008c2f9cc12b39c9be2ab0dd9679802bbc5caf",
+      "sha256": "acd857f66c0058c06114486da9e5bf09d02fc4d1ff51e2c4e57151277e4d3cc6",
       "evidence": "The config parser accepts assignment text as data, preserving key references and rejecting unsupported executable syntax. No selected hook or suite is invoked.",
       "keys": [],
       "edges": [],
@@ -1046,7 +1046,7 @@
     },
     "scripts/lib/verification_inputs.py": {
       "source": "scripts/lib/verification_inputs.py",
-      "sha256": "ab0109585943dc6b24baafdafd008c2f9cc12b39c9be2ab0dd9679802bbc5caf",
+      "sha256": "acd857f66c0058c06114486da9e5bf09d02fc4d1ff51e2c4e57151277e4d3cc6",
       "evidence": "Parser and dependency APIs read supplied text/paths. Snapshot executes only Git reads. It never executes a sourced configuration or a selected hook command.",
       "keys": [],
       "edges": []
@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "0048b22e2148986d8d02c0f47a79c9c210dc9d5406c508f5bc76efa7652f8a6b",
+      "sha256": "c4d4149feee2a06d487d2bf0641efdf35fc37e39ef692f945d96fc1ec60df436",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -11079,6 +11079,135 @@
           "to": "scripts/hooks/notice-unlanded-branches.sh#root-donor"
         }
       ]
+    },
+    "scripts/prepare-agent-spawn.py": {
+      "source": "scripts/prepare-agent-spawn.py",
+      "sha256": "67d78fa20c52b44fa56b70d36cb8e22a432a37563105a191cd81e6471fec9dfe",
+      "evidence": "Full prepare module reviewed: literal JSON validation and acknowledgement text construction. No command in the prepared prompt is executed.",
+      "keys": [],
+      "edges": []
+    },
+    "ass-kicker/brief-provenance.py#annotate": {
+      "source": "ass-kicker/brief-provenance.py",
+      "sha256": "78b82b175a6d2e59032bcffd9ca49928023f4742bd8866275c581e7afb6d4a10",
+      "evidence": "All import and I/O sites reviewed. annotate/review parse prompt text and read cited files as text for quotation checks. No configuration is sourced and no command or imported engine helper is executed.",
+      "keys": [],
+      "edges": []
+    },
+    "ass-kicker/brief-scope.py#annotate": {
+      "source": "ass-kicker/brief-scope.py",
+      "sha256": "ace5be7e9031e6fd5b0ea0a9f0d7a00ceaa2c490822e0b77c4ec45d81dc324d8",
+      "evidence": "Full annotate/counterstamp closure reviewed: integration record and verdict history JSON readers plus pure prompt classification. Only fixed workspaces import; no engine configuration.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#integration"
+        }
+      ]
+    },
+    "scripts/lib/qa-toolkit.py#annotate": {
+      "source": "scripts/lib/qa-toolkit.py",
+      "sha256": "f490cd7a72bacf99bef3eef47cc059d99cac5f3878b0d2399eea06dae55a24c0",
+      "evidence": "Complete module reviewed: appinstances declared data reader consumes toolkit agents and directory; toolkit discovery reads README text and git log. It never executes toolkit commands.",
+      "keys": [
+        "QA_TOOLKIT_AGENTS",
+        "QA_TOOLKIT_DIR"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/appinstances.py#declared-reader"
+        }
+      ]
+    },
+    "mega-lander/workspaces.py#spawn-fixtures": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+      "evidence": "Spawn reaches integration, registration, native session, Git and registry readers plus withdraw_cc. known_repos/all_integration_records read private JSON. withdraw_cc delegates to the reviewed lifecycle deletion path and retains engine cleanup configuration; no land CLI sweep is invoked.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#integration"
+        },
+        {
+          "to": "mega-lander/workspaces.py#isolation-registration"
+        },
+        {
+          "to": "mega-lander/workspaces.py#quota-fixture"
+        }
+      ]
+    },
+    "scripts/lib/spawn.py#fixture-guards": {
+      "source": "scripts/lib/spawn.py",
+      "sha256": "03c671b261b680d8767a346540234ca8dc24ab62df1a48f08f6c018ab9ed1e9e",
+      "evidence": "All import/execution sites and full main/rollback reviewed. Fixture calls pin hook sources to literal verdict scripts plus real isolation guard. Real-surface collector calls only read hook JSON without execution. Creator runs only on plain private repositories. Prompt annotators produce data, never spawn model agents.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#spawn-fixtures"
+        },
+        {
+          "to": "scripts/prepare-agent-spawn.py"
+        },
+        {
+          "to": "ass-kicker/brief-provenance.py#annotate"
+        },
+        {
+          "to": "ass-kicker/brief-scope.py#annotate"
+        },
+        {
+          "to": "scripts/lib/spawn-guard-audience.py"
+        },
+        {
+          "to": "scripts/lib/qa-toolkit.py#annotate"
+        },
+        {
+          "to": "mega-lander/create-teammate-worktree.sh#plain-fixture-repos"
+        },
+        {
+          "to": "scripts/hooks/guard-worktree-isolation.sh"
+        }
+      ]
+    },
+    "scripts/spawn.sh#fixture-guards": {
+      "source": "scripts/spawn.sh",
+      "sha256": "62d22409afdd7ca9bb9b534ccba51794977bfc371d9d153655659f38f64ac817",
+      "evidence": "Full shell wrapper executes the adjacent fixed spawn library only.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/spawn.py#fixture-guards"
+        }
+      ]
+    },
+    "scripts/spawn.test.sh": {
+      "source": "scripts/spawn.test.sh",
+      "sha256": "a73f04c42df5c4ab4eae2dc106bb9406e3e3f7010a55e8e51a9f0b9ec2a9f06a",
+      "evidence": "Full suite reviewed: private repositories copy actual engine config, execute spawn with pinned guard fixtures and retain real model, toolkit and cleanup readers. Real surfaces collect registration as data; only the separately content-bound external scope guard executes. Direct LOCAL_APP_CONTEXT_RE config read remains. Literal QA directory override applies to just one case; other cases keep its actual key.",
+      "keys": [
+        "LOCAL_APP_CONTEXT_RE"
+      ],
+      "edges": [
+        {
+          "to": "scripts/spawn.sh#fixture-guards"
+        },
+        {
+          "to": "mega-lander/workspaces.py#spawn-fixtures"
+        },
+        {
+          "to": "scripts/lib/qa-toolkit.py#annotate"
+        }
+      ],
+      "external": [
+        {
+          "root": "environment",
+          "variable": "RICHOS_SPAWN_TEST_REAL_PROJECT",
+          "default": "/Users/alex/ab/femcboost",
+          "path": "scripts/hooks/guard-brief-verification-scope.sh",
+          "optional_file": true,
+          "sha256": "5fb427d47356c823896d072fc1c1995ac9a83261b1868ad91db6265af8360d7e",
+          "evidence": "Full external guard reviewed: parses a literal Agent prompt through stdlib Python and grep, no config/import/source. The fixed test prompt has no full-suite-ack so no state write. Changed bytes require review; absent file is an explicit skipped case, not a pass."
+        }
+      ]
     }
   },
   "units": {
@@ -11211,7 +11340,8 @@
     "scripts/hooks/guard-land-lease-commands.test.sh": "scripts/hooks/guard-land-lease-commands.test.sh",
     "scripts/hooks/unevaluated-payload.test.sh": "scripts/hooks/unevaluated-payload.test.sh",
     "scripts/hooks/contract-integrity.test.sh:base": "scripts/hooks/contract-integrity.test.sh#base",
-    "scripts/hooks/by-reference.test.sh": "scripts/hooks/by-reference.test.sh"
+    "scripts/hooks/by-reference.test.sh": "scripts/hooks/by-reference.test.sh",
+    "scripts/spawn.test.sh": "scripts/spawn.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
@@ -12354,6 +12484,19 @@
         "scripts/hooks/notice-unlanded-branches.sh": "3a1222731913dc06aecd5a9703403ae27b7d61a6f28c7fad00223c4ac6c5a90d"
       },
       "evidence": "Suite and probe audit every event, ordering, registration count and expanded dispatcher manifest. Hook inventory edits select this whole unit."
+    },
+    "scripts/spawn.test.sh": {
+      "evidence": "Real-surface collector reads PreToolUse Agent and matcherless groups; commands are collected as strings and never executed by this part. Other spawn calls use private literal hook JSON. The suite explicitly asserts the sealed-worktree matcherless entry.",
+      "events": [
+        "PreToolUse"
+      ],
+      "commands": [
+        "scripts/hooks/guard-sealed-worktree.sh"
+      ],
+      "sources": {
+        "scripts/spawn.test.sh": "a73f04c42df5c4ab4eae2dc106bb9406e3e3f7010a55e8e51a9f0b9ec2a9f06a",
+        "scripts/lib/spawn.py": "03c671b261b680d8767a346540234ca8dc24ab62df1a48f08f6c018ab9ed1e9e"
+      }
     }
   }
 }
