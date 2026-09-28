@@ -287,6 +287,11 @@ private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEven
     val scope = rememberCoroutineScope()
     var headerPx by remember { mutableIntStateOf(0) }
     var zonePx by remember { mutableIntStateOf(0) }
+    // The composer's own row and the drawn keyboard: measured so the notes region above them can
+    // give way to the header instead of drawing over it (D05, Honor, 2026-09-28). Neither depends
+    // on the notes region's own height, so this settles in the next frame, same as headerPx/zonePx.
+    var composerRowPx by remember { mutableIntStateOf(0) }
+    var keyboardPx by remember { mutableIntStateOf(0) }
     // A reference chip jumps back to what was sent, which glows once (attachments NOTES).
     var glowId by remember { mutableStateOf<String?>(null) }
     val thread = remember(projected, glowId) { if (glowId == null) projected else projected.map { if (it.id == glowId) it.copy(focused = true) else it } }
@@ -311,9 +316,17 @@ private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEven
         onEvent(e)
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val maxAbove = maxHeight * 0.4f
         val headerDp = with(density) { headerPx.toDp() }
         val zoneDp = with(density) { zonePx.toDp() }
+        val composerRowDp = with(density) { composerRowPx.toDp() }
+        val keyboardDp = with(density) { keyboardPx.toDp() }
+        // The header keeps its whole height and the composer keeps its place (D05, I02 in spirit):
+        // the notes region above the composer gives way, capped to whatever room is actually left
+        // below the header once the composer's own row and a drawn keyboard have theirs. Before the
+        // first measurement (headerPx/composerRowPx/keyboardPx still 0) this is the old flat 40%,
+        // settling to the header-aware bound the next frame, same lag already tolerated for headerPx
+        // and zonePx below.
+        val maxAbove = (maxHeight - headerDp - composerRowDp - keyboardDp - 16.dp).coerceIn(0.dp, maxHeight * 0.4f)
         if (thread.isEmpty() && model.historyEdge != HistoryEdge.LOADING_OLDER) {
             // Bottom-padded by the composer zone's own measured height (as Thread's scroll is,
             // line below): at the smallest phone and the largest text the added voice-message
@@ -438,11 +451,12 @@ private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEven
                     voiceAvailable = model.voiceAvailable,
                     onEvent = onEvent,
                     onSent = sent,
+                    modifier = Modifier.onSizeChanged { composerRowPx = it.height },
                     pending = model.attach.pending,
                     menuOpen = menuOpen,
                 )
             }
-            if (model.keyboardDrawn) KeyboardDrawing()
+            if (model.keyboardDrawn) KeyboardDrawing(Modifier.onSizeChanged { keyboardPx = it.height })
         }
         if (menuOpen) AttachMenu(onEvent, Modifier.align(Alignment.BottomStart).padding(start = 10.dp, bottom = zoneDp + 6.dp))
     }
