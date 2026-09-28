@@ -807,7 +807,8 @@ if [ "$CODE" = 0 ] && [ "$(printf '%s' "$OUT" | python3 -c 'import json,sys; pri
   ok "V4 mac reads the lab's origin, CA (DER hash) and registered key: the same words compute gives"
 else bad "V4 mac from the lab's own files" "wanted '$WANT'; exit $CODE: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-240)"; fi
 
-set -- $WANT
+read -r -a want_words <<<"$WANT"
+set -- "${want_words[@]}"
 {
   echo 'PHONE_STEP {"i": 5, "do": "wait", "ok": true, "detail": {"label": "Word 1: '"$1"'"}}'
   echo 'PHONE_STEP {"i": 6, "do": "wait", "ok": true, "detail": {"label": "Word 2: '"$2"'"}}'
