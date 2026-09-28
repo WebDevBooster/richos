@@ -1320,6 +1320,351 @@
         "environment": [],
         "external": []
       }
+    },
+    "engine scripts/hooks/ceo-asks.test.sh": {
+      "review": "Private TODO/ruling files, literal entity settings and supplied session IDs drive every AskUserQuestion/Agent/Stop case. Nested mutations rebuild the same fixture. Audit timestamps are output; no live clock threshold, host process or network verdict is asserted.",
+      "sources": {
+        "richos/engine/scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
+        "richos/engine/scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "richos/engine/scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
+        "richos/engine/scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
+        "richos/engine/scripts/lib/worker_tokens.py": "8c4cada1e7a4883a65435017ebac01c27307724a9724ea698f0df699898ff6b2",
+        "richos/engine/scripts/hooks/session-start-ceo-ask.sh": "3b0b8396d0e50a6145401df798bde92e7bc59ffd55a7260f160f7b1b8d72ec69",
+        "richos/engine/scripts/hooks/guard-ceo-ask-first.sh": "4dc92ca5c60ff39ed949fc88a8a4955264ece2d17bc689f9c2a2eb8b1bae0728",
+        "richos/engine/scripts/hooks/ceo-asks.mutation.sh": "908c02341f2aca89d83df3ea9b59e967ad30be0a9e9133e25f35bb146c5abb44",
+        "richos/engine/scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
+        "richos/engine/scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
+        "richos/engine/scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
+        "richos/engine/scripts/lib/proc_tree.py": "dbd97c9b9758184e960348cd6c81e5089ae9691aee8324977a3ddbc0460a219d",
+        "richos/engine/scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "richos/engine/scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "richos/engine/scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
+        "richos/engine/scripts/hooks/notice-ceo-asks.sh": "c1982944fcb496bd016248b31063838f2ce0806418eeb41cddd335da9687bf01",
+        "richos/engine/scripts/lib/ceo-asks.sh": "c0d084aef038efba8bae75eea3073bafa01c60132702282743449541abab0021",
+        "richos/engine/scripts/hooks/ceo-asks.test.sh": "935e2e04320b79a9ed7e1054aaad40b8f207330f5aa4b9749aec0916a811a87b",
+        "richos/engine/scripts/hooks/notice-ceo-unasked.sh": "3eac14e8c4bb2fd3f73651e11cc703f5a121a2c6e9b7e752a11d66cb50d98daa",
+        "richos/engine/scripts/ceo-asks-status.sh": "ee087fd11e7a3a9507845240dd367c3528935f31d85c1ba7bb9eca004de2f7cf",
+        "richos/engine/scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
+        "richos/engine/scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
+        "richos/engine/hooks/hooks.json": "c75215e22ece4acfbf861225e37537dec1671e0b196fc57a8f718a054a51e0d2",
+        "richos/engine/scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
+      },
+      "requires": {
+        "paths": [],
+        "tools": [
+          "/bin/bash",
+          "/bin/sh",
+          "diff",
+          "cmp",
+          "mv",
+          "uniq",
+          "sha256sum",
+          "getconf",
+          "sysctl"
+        ],
+        "environment": [],
+        "external": []
+      }
+    },
+    "engine scripts/hooks/ceo-inputs.test.sh": {
+      "review": "Private Git histories, indexes, untracked input files and literal entity settings drive commit behavior. Both source and target repositories are generated. Commit timestamps vary but assertions concern content, paths, parentage and index preservation. No external operator file is opened or committed.",
+      "sources": {
+        "richos/engine/scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "richos/engine/scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
+        "richos/engine/scripts/hooks/notice-ceo-inputs-unheld.sh": "22df89c10271652f710eb04caba653cdc138eda6bc4eeb1971f9b0e83adf2fc7",
+        "richos/engine/scripts/hooks/ceo-inputs.test.sh": "bc1e0b23e806cb16505108f56c55fdb80125317b43170b7df25f1e074c20e4a3",
+        "richos/engine/scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
+        "richos/engine/scripts/hooks/scan-secrets.sh": "d23d1d44376e0557597f8a0add40a0226049d801769af48d81095002477e0c73",
+        "richos/engine/scripts/hooks/guard-publication-writes.sh": "c69db813e7aab086ff3f6257d3429eca9e7091c9fc985d17f91829ce943a580b",
+        "richos/engine/scripts/hooks/commit-ceo-inputs.py": "53a222d02892523e81e3f3dc355a010e1b140d0ac628b3649b16be36ce87a500",
+        "richos/engine/scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "richos/engine/scripts/hooks/commit-ceo-inputs.sh": "9e4a0af9cd1ea89110261baacdae395dc40543061a4f17740467c5a492598962",
+        "richos/engine/scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "richos/engine/scripts/lib/publication-boundary.sh": "46366c80e498f6269889d21109cbfe5de696c273aa9229277ecc85d8285fac85",
+        "richos/engine/scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
+        "richos/engine/hooks/hooks.json": "c75215e22ece4acfbf861225e37537dec1671e0b196fc57a8f718a054a51e0d2",
+        "richos/engine/scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
+      },
+      "requires": {
+        "paths": [],
+        "tools": [
+          "/bin/bash",
+          "/bin/sh",
+          "diff",
+          "cmp",
+          "mv",
+          "uniq",
+          "sha256sum",
+          "getconf",
+          "sysctl"
+        ],
+        "environment": [],
+        "external": []
+      }
+    },
+    "engine scripts/hooks/ceo-ruled.test.sh": {
+      "review": "Private ruling text, generated entity settings and supplied session IDs drive the standard and mutation cases. The optional CEO_RULED_LIVE_DIR explicitly preserves and fingerprints the supplied directory; absent override uses the suite-generated HQ fixture. Citation checks read text, never execute a quoted command. Timestamps are audit output.",
+      "sources": {
+        "richos/engine/scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
+        "richos/engine/scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "richos/engine/scripts/lib/premise-ask.py": "2a6a079fbc0fab7937f90967c29c19e7ab2747a7286ec9923ec1dd685aa63e0a",
+        "richos/engine/scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
+        "richos/engine/scripts/lib/ceo-ruled.py": "e92586fdd79f1c648c2f764613f47a56bc7f2d843061c70053611d7f2e23ce30",
+        "richos/engine/scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
+        "richos/engine/scripts/lib/worker_tokens.py": "8c4cada1e7a4883a65435017ebac01c27307724a9724ea698f0df699898ff6b2",
+        "richos/engine/scripts/lib/ceo-ruled.sh": "737879339e074a0c41011974a8dcdc74bbbbf7118ffda2904e2f8da7a0b10e91",
+        "richos/engine/scripts/ceo-ruled-exempt.sh": "d763157b150db58cf30e87a25c6215e869e29eada3760b8b44295553657cab09",
+        "richos/engine/scripts/hooks/ceo-ruled.test.sh": "e135b5b7c3ad3cf859acaa38ced4c58e973e5df651315f1147fd4483f1e30c0d",
+        "richos/engine/scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "richos/engine/scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
+        "richos/engine/scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
+        "richos/engine/scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
+        "richos/engine/scripts/lib/proc_tree.py": "dbd97c9b9758184e960348cd6c81e5089ae9691aee8324977a3ddbc0460a219d",
+        "richos/engine/scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "richos/engine/scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "richos/engine/scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
+        "richos/engine/scripts/lib/premise-ask.sh": "54ed7bab6c1f1632458c6dbabc05f13dcec91f6ab262bfe3c5c2ae20b4b91080",
+        "richos/engine/scripts/lib/ceo-asks.sh": "c0d084aef038efba8bae75eea3073bafa01c60132702282743449541abab0021",
+        "richos/engine/scripts/hooks/ceo-ruled.mutation.sh": "e588e55b697a3823af50eb46ea9b76a0e30f9f12a5e5fb787a9424fa24c8a109",
+        "richos/engine/scripts/hooks/guard-ceo-ruled-ask.sh": "33a726eed8e0502107d5987e89cfbe4a287861c952c0026e855cd15c0712710a",
+        "richos/engine/scripts/hooks/notice-ceo-ruled-prose.sh": "b6aa4600524c27077232a5a83feab3cfe603436ae8dcaaaa0bcc9ed725c0c1b5",
+        "richos/engine/scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
+        "richos/engine/scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
+        "richos/engine/hooks/hooks.json": "c75215e22ece4acfbf861225e37537dec1671e0b196fc57a8f718a054a51e0d2",
+        "richos/engine/scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
+      },
+      "requires": {
+        "paths": [],
+        "tools": [
+          "/bin/bash",
+          "/bin/sh",
+          "diff",
+          "cmp",
+          "mv",
+          "uniq",
+          "sha256sum",
+          "getconf",
+          "sysctl"
+        ],
+        "environment": [],
+        "external": [
+          "CEO_RULED_LIVE_DIR"
+        ]
+      }
+    },
+    "engine scripts/hooks/ceo-todos.test.sh": {
+      "review": "Every declaration, record, artifact tree, front-door transcript and Git history is generated privately. The real engine is an adoption marker/source inventory only. Cold-open --record reads the private front door, and init skips the live cold-open reader. Nested mutation cases reconstruct the same fixtures. No network, operator record or live-clock predicate.",
+      "sources": {
+        "richos/engine/scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
+        "richos/engine/scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "richos/engine/scripts/ceo-todos-lint.sh": "cec21eee8a4d92b52d91d67df77ca120cc42fd33c686e3a3d79775c76ee91619",
+        "richos/engine/scripts/ceo-todos-render.sh": "63b00d5fde2eb129df925749ae9967521d9251936f5f19db627bded6049fddc3",
+        "richos/engine/scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
+        "richos/engine/scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
+        "richos/engine/scripts/lib/worker_tokens.py": "8c4cada1e7a4883a65435017ebac01c27307724a9724ea698f0df699898ff6b2",
+        "richos/engine/scripts/hooks/ceo-todos.test.sh": "631138488b553a48d3b629cf02f13fba0e2fb7223cd9fa07aeee80ab16712556",
+        "richos/engine/scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
+        "richos/engine/scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "richos/engine/scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
+        "richos/engine/scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
+        "richos/engine/scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
+        "richos/engine/scripts/cold-open.sh": "fddf01eaf727eacba9ff6cd108ac5eabbf5479249c2d5ffeb7d4edef40d1cdd9",
+        "richos/engine/scripts/lib/proc_tree.py": "dbd97c9b9758184e960348cd6c81e5089ae9691aee8324977a3ddbc0460a219d",
+        "richos/engine/scripts/ceo-todos-init.sh": "a98539a81ad89d378ab1cb43462fb7056e01988e6696c1b3dddae8535591fec6",
+        "richos/engine/scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
+        "richos/engine/scripts/hooks/guard-ceo-todos-commits.sh": "b5ce1b39ad6985d4d3a52864c389968a474f05de1187baaa430941756ae0c0e0",
+        "richos/engine/scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "richos/engine/scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "richos/engine/scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
+        "richos/engine/scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
+        "richos/engine/scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
+        "richos/engine/scripts/hooks/ceo-todos.mutation.sh": "72a64c2c5d614194341ddcdceef4f472740743c2d19deeb1d12f665e7ac344cf",
+        "richos/engine/hooks/hooks.json": "c75215e22ece4acfbf861225e37537dec1671e0b196fc57a8f718a054a51e0d2",
+        "richos/engine/scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
+      },
+      "requires": {
+        "paths": [],
+        "tools": [
+          "/bin/bash",
+          "/bin/sh",
+          "diff",
+          "cmp",
+          "mv",
+          "uniq",
+          "sha256sum",
+          "getconf",
+          "sysctl"
+        ],
+        "environment": [],
+        "external": []
+      }
+    },
+    "engine scripts/hooks/completeness-commits.test.sh": {
+      "review": "All publication targets, artifact requirements and Git histories are private literal fixtures. Actual registration/probe text is read as source data. No nested driver or external publication command runs. Completeness predicates inspect private tree contents, not host/network state.",
+      "sources": {
+        "richos/engine/scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "richos/engine/scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
+        "richos/engine/scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
+        "richos/engine/scripts/hooks/completeness-commits.test.sh": "02400cc882eacb7d5646b92c01ac2246428c2f577c979692f3b4df4d491a8f83",
+        "richos/engine/scripts/hooks/guard-completeness-commits.sh": "bb6d0253b44d251a08dd325e8901399aafcbe4ca6fe4aa4c30c9b41a57cee673",
+        "richos/engine/scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
+        "richos/engine/scripts/publication-completeness.sh": "54b22bd10dd4d1e70ee41077d2cd6c21dbefe4d835d8a19a5438513faf7b60b0",
+        "richos/engine/scripts/lib/publication-boundary.sh": "46366c80e498f6269889d21109cbfe5de696c273aa9229277ecc85d8285fac85",
+        "richos/engine/scripts/publication-completeness.py": "6ceadb3516b84fa0e5d61ad0423b35e1649714b4a74aa7f17d4ae3370b66a6b0",
+        "richos/engine/scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "richos/engine/scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "richos/engine/scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
+        "richos/engine/hooks/hooks.json": "c75215e22ece4acfbf861225e37537dec1671e0b196fc57a8f718a054a51e0d2",
+        "richos/engine/scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
+      },
+      "requires": {
+        "paths": [],
+        "tools": [
+          "/bin/bash",
+          "/bin/sh",
+          "diff",
+          "cmp",
+          "mv",
+          "uniq",
+          "sha256sum",
+          "getconf",
+          "sysctl"
+        ],
+        "environment": [],
+        "external": []
+      }
+    },
+    "engine scripts/hooks/named-persons.test.sh": {
+      "review": "Private roster, target, seed, HQ and worktree fixtures drive every case. RICHOS_NAMED_PERSONS_FILE is supplied for each roster path. Real registration/probe data stays inside the engine. No external roster, network, clock or host process contributes to a verdict.",
+      "sources": {
+        "richos/engine/scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "richos/engine/scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
+        "richos/engine/scripts/lib/named-persons.sh": "2c28d15414eed56676bd2c5588d66fe88f30c03dfb78e5e2752ffc5de17fffc3",
+        "richos/engine/scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
+        "richos/engine/scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
+        "richos/engine/scripts/hooks/guard-named-persons-commands.sh": "56891e30dde5774e5430c9459cee10dc61bb683888f76917219d97c9e9cce825",
+        "richos/engine/scripts/lib/publication-boundary.sh": "46366c80e498f6269889d21109cbfe5de696c273aa9229277ecc85d8285fac85",
+        "richos/engine/scripts/lib/named-persons.py": "9b37ff785ef195ec844190c4b4c6e678432d3b0d9d70aac0feba9ed2303a1af2",
+        "richos/engine/scripts/hooks/guard-named-persons-writes.sh": "95095c3eee1ac1f3f7f156dfc2fcb0b039868c63c1d10d45d043fdd7d86ad3ce",
+        "richos/engine/scripts/hooks/named-persons.test.sh": "effbfab0fbc380662d3dc1a21d3889c45d63a368fc319c78ebf7c1ac97a63b34",
+        "richos/engine/scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "richos/engine/scripts/named-persons.sh": "0c672c2e9cc4b61f9c0262df9c251692a30d1f110a335c718365c5a69cd126ca",
+        "richos/engine/scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
+        "richos/engine/scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "richos/engine/hooks/hooks.json": "c75215e22ece4acfbf861225e37537dec1671e0b196fc57a8f718a054a51e0d2",
+        "richos/engine/scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
+      },
+      "requires": {
+        "paths": [],
+        "tools": [
+          "/bin/bash",
+          "/bin/sh",
+          "diff",
+          "cmp",
+          "mv",
+          "uniq",
+          "sha256sum",
+          "getconf",
+          "sysctl"
+        ],
+        "environment": [],
+        "external": []
+      }
+    },
+    "engine scripts/hooks/row-currency.test.sh": {
+      "review": "Private record, artifact, declaration and Git-history fixtures drive guard, lint and headline verification. The entire mutation driver recreates these inputs. The real engine only supplies registration/adoption and source data. No live operator record, network or current-time predicate is consumed.",
+      "sources": {
+        "richos/engine/scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
+        "richos/engine/scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "richos/engine/scripts/row-headline-verify.sh": "43a2d2fb4cbcaf02457ca0966ed26d7a7ba5fa63b33b3dca2add129075754f8f",
+        "richos/engine/scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
+        "richos/engine/scripts/lib/mutation-harness.sh": "9dd839120e0a3b2ae4ef91054e076a8e9ea31c4592dbe0ea3eb80f3f018c88b0",
+        "richos/engine/scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
+        "richos/engine/scripts/lib/worker_tokens.py": "8c4cada1e7a4883a65435017ebac01c27307724a9724ea698f0df699898ff6b2",
+        "richos/engine/scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
+        "richos/engine/scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
+        "richos/engine/scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "richos/engine/scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
+        "richos/engine/scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
+        "richos/engine/scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
+        "richos/engine/scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
+        "richos/engine/scripts/lib/row-currency.sh": "6aeb36f33046c910ad654f2c1f8eba96ca2c2a9675d40e9f5abf2c94e139584e",
+        "richos/engine/scripts/row-currency-lint.sh": "47b26a433c2a96e69844fdca03b263c37bd0f80bbbbeeacd87dd4117feef1167",
+        "richos/engine/scripts/lib/proc_tree.py": "dbd97c9b9758184e960348cd6c81e5089ae9691aee8324977a3ddbc0460a219d",
+        "richos/engine/scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
+        "richos/engine/scripts/hooks/guard-row-currency-commits.sh": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
+        "richos/engine/scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "richos/engine/scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "richos/engine/scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
+        "richos/engine/scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
+        "richos/engine/scripts/lib/row-currency.py": "484404c6143d1a5b94182321e6fa0f6250b298b27a7d3b59ba26d5ed648db677",
+        "richos/engine/scripts/hooks/guard-row-currency-commits.mutation.sh": "505a51ac99a12d2455ee79114cbc022639d4e0f2f6ed430f36828a45f00b8728",
+        "richos/engine/scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
+        "richos/engine/scripts/hooks/row-currency.test.sh": "0f55dbf5305a15d6368695e1060793c31f9e7f93f9ea9a7ea5c6ba90d8b23c0c",
+        "richos/engine/hooks/hooks.json": "c75215e22ece4acfbf861225e37537dec1671e0b196fc57a8f718a054a51e0d2",
+        "richos/engine/scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
+      },
+      "requires": {
+        "paths": [],
+        "tools": [
+          "/bin/bash",
+          "/bin/sh",
+          "diff",
+          "cmp",
+          "mv",
+          "uniq",
+          "sha256sum",
+          "getconf",
+          "sysctl"
+        ],
+        "environment": [],
+        "external": []
+      }
+    },
+    "engine scripts/hooks/unstarted-rows.test.sh": {
+      "review": "Private Git branches/worktrees, queues, records and declarations define claimed and unclaimed rows. Renaming a generated branch controls the claim verdict without relying on a live agent. The complete mutation driver recreates these inputs. Audit timestamps are output; no external process, network or operator record is consulted.",
+      "sources": {
+        "richos/engine/scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
+        "richos/engine/scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "richos/engine/scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
+        "richos/engine/scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
+        "richos/engine/scripts/lib/worker_tokens.py": "8c4cada1e7a4883a65435017ebac01c27307724a9724ea698f0df699898ff6b2",
+        "richos/engine/scripts/unstarted-rows-lint.sh": "4b654eefa4fb775ba218fbee15595b415684c7a90e2168eedf864c07f142e58e",
+        "richos/engine/scripts/hooks/notice-unstarted-rows.sh": "1bfd646f55b220671bdf92e393491341ab74b06b7f04553ffd33c48d625955d1",
+        "richos/engine/scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
+        "richos/engine/scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
+        "richos/engine/scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
+        "richos/engine/scripts/lib/unstarted-rows.py": "d91c6bf610104fbb5f6e550d70b922d718b5027f23271aa721a7be9293a1d1d6",
+        "richos/engine/scripts/lib/row-currency.sh": "6aeb36f33046c910ad654f2c1f8eba96ca2c2a9675d40e9f5abf2c94e139584e",
+        "richos/engine/scripts/hooks/unstarted-rows.test.sh": "f1782db977ff86d8527b9942c6e92412fa0e0c42e503eb5254b6fb4c1afb457b",
+        "richos/engine/scripts/lib/proc_tree.py": "dbd97c9b9758184e960348cd6c81e5089ae9691aee8324977a3ddbc0460a219d",
+        "richos/engine/scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "richos/engine/scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "richos/engine/scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
+        "richos/engine/scripts/lib/unstarted-rows.sh": "b0586a85d0e2d0a1a3f494377a3e24d0c5505a0625a9a0b14e9da41d069bd7e8",
+        "richos/engine/scripts/hooks/unstarted-rows.mutation.sh": "bdab1a4acab1d764e4d97e74e25883287c2595f7ac4d1a0c293218a6977b4af0",
+        "richos/engine/scripts/lib/row-currency.py": "484404c6143d1a5b94182321e6fa0f6250b298b27a7d3b59ba26d5ed648db677",
+        "richos/engine/scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
+        "richos/engine/scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
+        "richos/engine/hooks/hooks.json": "c75215e22ece4acfbf861225e37537dec1671e0b196fc57a8f718a054a51e0d2",
+        "richos/engine/scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
+      },
+      "requires": {
+        "paths": [],
+        "tools": [
+          "/bin/bash",
+          "/bin/sh",
+          "diff",
+          "cmp",
+          "mv",
+          "uniq",
+          "sha256sum",
+          "getconf",
+          "sysctl"
+        ],
+        "environment": [],
+        "external": []
+      }
     }
   },
   "isolation": "private-home-v1"

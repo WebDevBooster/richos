@@ -110,3 +110,11 @@ Registration mutation, absent executable and sidecar assertions stay enabled.
 No current-time value, operator registry or external repository determines these
 sections' verdicts under the private recipe. Operational worker admission,
 owned-process cleanup and source canaries remain required during execution.
+
+Eight record suites have reviewed production recipes: CEO asks, inputs, rulings
+and TODOs, completeness commits, named persons, row currency and unstarted rows.
+Their records, worktrees and Git histories are generated fixtures. The optional
+`CEO_RULED_LIVE_DIR` audit is preserved as a named external directory input,
+including its inventory and contents. Its omission is rejected by the unit floor.
+The per-unit rows describe each fixture boundary; these are not blanket grants
+for other record suites with live clock, process or transcript inputs.
