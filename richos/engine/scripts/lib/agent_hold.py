@@ -19,17 +19,42 @@ fails that test. Names, paths and working directories never choose a process.
 THE OWNED TREE is those shells, their descendants, the members of process groups
 an owned process leads, and processes carrying this agent's own inherited tag
 (detached and reparented children). Never pid 1, never the session process, never
-this process or its ancestors, never a cpu_guard session root.
+this process or its ancestors. A proc_tree.py supervisor inside the tree IS held
+with its check (it registers as a cpu_guard "session" root, which protects it from
+cpu_guard's CPU kills, not from a pause): left running, it watched a frozen check
+and its bounds expired (Sage's catch 2).
+
+SHARED DAEMONS ARE LEFT RUNNING. A tagged process that was reparented to launchd
+and leads its own session is a daemon the agent started for everyone (an adb
+server, a Gradle daemon): other agents' work talks to it, so freezing it would
+hold their work too. It is named in the report. (Sage's catch 5.)
 
 THE TEST VM GUEST IS LEFT RUNNING. A walk that holds a guest slot (its holder
 record is validated against the holder's start time) keeps running with
-everything under it, and so does every recorded VM process. Freezing the guest
-would keep a shared slot locked for the whole pause and make the walk's own time
-bound expire on resume. The walk ends by itself and releases its slot.
+everything under it, and so does every recorded VM process and the run's login
+keeper, which run.sh detaches (so neither is under the walk by parent link).
+Freezing them would keep a shared slot locked for the whole pause and fail the
+walk's own cleanup. The walk ends by itself and releases its slot; its boot,
+push and cleanup steps are bounded (480, 120 and 120 s) but its scenario step is
+not, and during a quota pause the guest keeps using the quota until it ends.
+(Sage's catches 4 and 7.)
 
-KNOWN LIMITS: timers inside held work keep counting (a monotonic deadline passes
-during the pause); held work keeps its file locks; a command started before
-capture was installed has no record and is not held.
+NOTHING STAYS FROZEN AFTER ITS LEAD. Every hold starts a watchdog, a detached
+process outside every agent's tree. It releases the hold on its own when every
+recorded session process is gone (a lead that crashed without SessionEnd: each
+Bash shell is a session leader under `claude`, so the kernel never continues its
+stopped group) or when the registry records the agent finished (a stop made from
+the CEO's screen, which runs no hook). (Sage's catches 6 and 1.)
+
+A PAUSED AGENT WAITS INSIDE ITS RUN. A background subagent that ends its turn
+ends its run, and a later message starts a new run (Rich, brief addition 1). The
+generated PAUSE therefore tells it to run `agent_hold.py wait`, which returns
+RESUMED only once the hold is released; a held agent's new command waits anyway.
+
+KNOWN LIMITS: held work keeps its file locks (the hold report lists the lock
+files it has open: a Cargo target lock, a worker token, a git index lock), and a
+command started before capture was installed has no record and is not held.
+Timers inside held work keep counting unless they use proc_tree.HeldClock.
 """
 import argparse
 import calendar
@@ -39,11 +64,13 @@ import os
 import re
 import shlex
 import signal
+import struct
 import subprocess
 import sys
 import time
 
 TAG = "RICHOS_AGENT_OWNER"
+SESSION_TAG = "RICHOS_AGENT_SESSION"
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 BIRTH_SLACK = 1.0          # `ps -o lstart` has one-second resolution
 PRUNE_AFTER = 60.0         # a finished call's record is removed after this long
@@ -162,9 +189,10 @@ def capture(payload):
     # A NEW command of a held agent waits, never refused: after recording itself the
     # shell suspends itself (builtin kill, no fork) before its command starts, and
     # release() continues it. The loop re-checks after every continue.
-    return ("printf '%%s %%s\\n' \"$$\" \"$PPID\" > %s 2>/dev/null || :\nexport %s=%s\n"
+    return ("printf '%%s %%s\\n' \"$$\" \"$PPID\" > %s 2>/dev/null || :\nexport %s=%s %s=%s\n"
             "while [ -e %s ]; do kill -STOP $$; done\n"
-            % (shlex.quote(pid_path), TAG, agent_id, shlex.quote(_held_path(session_id, agent_id))))
+            % (shlex.quote(pid_path), TAG, agent_id, SESSION_TAG, session_id,
+               shlex.quote(_held_path(session_id, agent_id))))
 
 
 # ---------------------------------------------------------------------------
@@ -313,23 +341,30 @@ def _ancestors(table):
     return keep
 
 
-def _session_roots(table):
-    root = os.environ.get("RICHOS_CPU_GUARD_STATE", "/Volumes/E1TB/state/richos/cpu-guard")
-    keep = set()
+def daemons(owned, shells, table):
+    """Owned processes that daemonized: reparented to launchd and leading their own session.
+
+    An adb server or a Gradle daemon started by this agent serves every agent's
+    work; freezing it would hold theirs too. The agent's own recorded shells are
+    never daemons, even after their session process died.
+    """
+    return {p for p in owned if p not in shells and table[p]["ppid"] == 1 and "s" in table[p]["stat"]}
+
+
+def _recorded_pid(path, table, slack=5.0):
+    """A pid a launcher wrote right after starting it (`echo $! > file`), still that process."""
     try:
-        names = os.listdir(os.path.join(root, "roots"))
-    except OSError:
-        return keep
-    for name in names:
-        rec = _read_json(os.path.join(root, "roots", name)) or {}
-        pid = rec.get("pid")
-        if rec.get("role") == "session" and pid in table and " ".join(table[pid]["lstart"].split()) == rec.get("birth"):
-            keep.add(pid)
-    return keep
+        with open(path) as f:
+            pid = int(f.read().strip())
+        written = os.stat(path).st_mtime
+    except (OSError, ValueError):
+        return None
+    return pid if pid in table and abs(table[pid]["birth"] - written) <= slack else None
 
 
 def testvm_exclusions(table):
-    """Roots the hold never freezes: validated guest-slot holders and recorded VM processes."""
+    """Roots the hold never freezes: validated guest-slot holders, recorded VM processes
+    and each run's login keeper (both detached by run.sh, so not under the walk)."""
     root = os.environ.get("TESTVM_ROOT") or os.path.join(os.path.expanduser("~"), ".richos-testvm")
     roots, notes = set(), []
     for name in SLOT_FILES:
@@ -339,25 +374,61 @@ def testvm_exclusions(table):
         if isinstance(pid, int) and isinstance(since, (int, float)) and pid in table \
                 and table[pid]["birth"] <= since + BIRTH_SLACK:
             roots.add(pid)
-            notes.append("test VM walk pid %d (slot %s) left running to its own end" % (pid, name))
+            notes.append("test VM walk pid %d (slot %s) left running to its own end (its scenario step "
+                         "has no time bound; a guest keeps using the quota until it ends)" % (pid, name))
     run = os.path.join(root, "run")
     try:
         guests = sorted(os.listdir(run))
     except OSError:
         guests = []
     for guest in guests:
-        path = os.path.join(run, guest, "vm.pid")
-        try:
-            with open(path) as f:
-                pid = int(f.read().strip())
-            written = os.stat(path).st_mtime
-        except (OSError, ValueError):
-            continue
-        # `echo $! > vm.pid` runs right after the launch.
-        if pid in table and abs(table[pid]["birth"] - written) <= 5:
-            roots.add(pid)
-            notes.append("test VM guest pid %d (%s) left running" % (pid, guest))
+        # run.sh writes `echo $! > vm.pid` and `> claude-keep.pid` right after each launch.
+        for leaf, what in (("vm.pid", "test VM guest"), ("claude-keep.pid", "test VM login keeper")):
+            pid = _recorded_pid(os.path.join(run, guest, leaf), table)
+            if pid is not None:
+                roots.add(pid)
+                notes.append("%s pid %d (%s) left running" % (what, pid, guest))
     return roots, notes
+
+
+LOCK_NAME = re.compile(r"(?:\.lock|-lock|/token-\d+)\Z")
+
+
+def lock_files(pids):
+    """{path: [pid, ...]}: lock files the held processes have open. Reported, never acted on.
+
+    Held work keeps every lock it holds (Sage's catch 5): a Cargo target lock, a
+    machine worker token, a git index lock. Nothing but ending the work can drop
+    another process's lock, so the lead is told which ones a pause is keeping.
+    Read through libproc (no lsof); any failure reports nothing.
+    """
+    if sys.platform != "darwin":
+        return {}
+    try:
+        libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+    except OSError:
+        return {}
+    found = {}
+    for pid in sorted(pids):
+        try:
+            size = libproc.proc_pidinfo(pid, 1, 0, None, 0)          # PROC_PIDLISTFDS
+            if size <= 0:
+                continue
+            buf = ctypes.create_string_buffer(size)
+            size = libproc.proc_pidinfo(pid, 1, 0, buf, size)
+            for i in range(max(0, size) // 8):                       # struct proc_fdinfo
+                fd, kind = struct.unpack_from("iI", buf.raw, i * 8)
+                if kind != 1:                                        # PROX_FDTYPE_VNODE
+                    continue
+                info = ctypes.create_string_buffer(1200)             # vnode_fdinfowithpath
+                if libproc.proc_pidfdinfo(pid, fd, 2, info, 1200) <= 0:
+                    continue
+                path = info.raw[176:1200].split(b"\0", 1)[0].decode("utf-8", "replace")
+                if path and LOCK_NAME.search(path):
+                    found.setdefault(path, []).append(pid)
+        except (OSError, ValueError, struct.error):
+            continue
+    return found
 
 
 def owned_tree(session_id, agent_id, table):
@@ -368,12 +439,17 @@ def owned_tree(session_id, agent_id, table):
     parents = {ppid: table[ppid]["birth"] for _p, ppid, _a in shells if ppid in table}
     since = min(at for _p, _pp, at in shells)
     owned = subtree([p for p, _pp, _a in shells] + sorted(tagged(agent_id, table, since)), table)
-    protected = {1} | set(parents) | _ancestors(table) | _session_roots(table)
-    vm_roots, notes = testvm_exclusions(table)
+    protected = {1} | set(parents) | _ancestors(table)
+    owned -= protected
+    vm_roots, vm_notes = testvm_exclusions(table)
     excluded = subtree(vm_roots, table) & owned
-    if not excluded:
-        notes = []
-    return owned - protected, excluded, protected, notes, parents
+    notes = vm_notes if excluded else []
+    shared = daemons(owned - excluded, {p for p, _pp, _a in shells}, table)
+    if shared:
+        excluded |= subtree(shared, table) & owned
+        notes.append("shared daemon(s) it started left running for other agents' work: pid %s"
+                     % ", ".join(map(str, sorted(shared))))
+    return owned, excluded, protected, notes, parents
 
 
 # ---------------------------------------------------------------------------
@@ -431,13 +507,137 @@ def hold(session_id, agent_id, name="", sample=0.5, session_pid=None):
         time.sleep(sample)
         after = snapshot()
         cpu_advance = round(sum(max(0.0, after[p]["cpu"] - c) for p, c in before.items() if p in after), 2)
+    locks = lock_files(held)
     result = {"ok": not running, "session_id": session_id, "agent_id": agent_id, "name": name,
               "at": at, "held": {str(p): b for p, b in sorted(held.items())},
               "not_stopped": running, "excluded": sorted(excluded), "notes": notes, "parents": parents,
               "stopped_seconds": round(stopped_seconds, 3), "sample_seconds": sample,
-              "cpu_during_sample": cpu_advance}
+              "cpu_during_sample": cpu_advance, "locks": sorted(locks),
+              "watchdog": previous.get("watchdog")}
+    _write_json(path, result)
+    # The record exists before the watchdog starts, so its first look finds it.
+    result["watchdog"] = ensure_watchdog(session_id, agent_id, result.get("watchdog"))
     _write_json(path, result)
     return result
+
+
+# ---------------------------------------------------------------------------
+# the watchdog: no hold outlives its lead (Sage's catch 6) or its agent (catch 1)
+# ---------------------------------------------------------------------------
+
+def _watch_seconds():
+    try:
+        return max(0.2, float(os.environ.get("RICHOS_AGENT_HOLD_WATCH_SECONDS") or 5))
+    except ValueError:
+        return 5.0
+
+
+def ensure_watchdog(session_id, agent_id, current=None):
+    """{pid, birth} of this hold's watchdog, started unless the recorded one still runs.
+
+    Detached (its own session, reparented to launchd once the hook exits) and
+    without this agent's tags, so no hold ever freezes it.
+    """
+    if isinstance(current, dict) and isinstance(current.get("pid"), int):
+        row = snapshot().get(current["pid"])
+        if row and row["birth"] == current.get("birth"):
+            return current
+    env = {k: v for k, v in os.environ.items() if k not in (TAG, SESSION_TAG)}
+    env["RICHOS_AGENT_HOLD_DIR"] = state_dir()
+    try:
+        p = subprocess.Popen([sys.executable, os.path.abspath(__file__), "watch",
+                              "--session", session_id, "--agent", agent_id],
+                             env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True)
+    except OSError:
+        return None
+    row = None
+    for _ in range(20):
+        row = snapshot().get(p.pid)
+        if row:
+            break
+        time.sleep(0.05)
+    return {"pid": p.pid, "birth": row["birth"] if row else None}
+
+
+def _registry_finished(rec):
+    """True when the workspace registry records this agent finished (stopped, disposed of,
+    its session ended). A stop made from the CEO's screen runs no hook; this sees it."""
+    name = rec.get("name") or ""
+    if not ID.fullmatch(name or "-"):
+        return False
+    # RICHOS_AGENT_HOLD_REGISTRY: a declared test seam naming a workspaces.py stand-in.
+    ws = (os.environ.get("RICHOS_AGENT_HOLD_REGISTRY") or "").strip() or os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "mega-lander", "workspaces.py")
+    if not os.path.isfile(ws):
+        return False
+    try:
+        out = subprocess.run([sys.executable, ws, "--session", rec["session_id"], "recipient", "--name", name],
+                             capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return out.split("\t", 1)[0].strip() == "finished"
+
+
+def watch(session_id, agent_id, registry_every=6):
+    """Poll until this hold is released by anyone; release it ourselves when every
+    recorded session process is gone or the registry records the agent finished."""
+    polls = 0
+    path = _held_path(session_id, agent_id)
+    while True:
+        rec = _read_json(path)
+        if not rec:
+            return 0
+        parents = rec.get("parents") or {}
+        if parents:
+            table = snapshot()
+            if not any(table.get(int(p), {}).get("birth") == b for p, b in parents.items()):
+                _log("watchdog released %s: its session process is gone" % (rec.get("name") or agent_id))
+                release(session_id, agent_id)
+                return 0
+        polls += 1
+        if polls % registry_every == 0 and _registry_finished(rec):
+            _log("watchdog released %s: the registry records it finished" % (rec.get("name") or agent_id))
+            release(session_id, agent_id)
+            return 0
+        time.sleep(_watch_seconds())
+
+
+def _log(line):
+    try:
+        os.makedirs(state_dir(), mode=0o700, exist_ok=True)
+        with open(os.path.join(state_dir(), "watchdog.log"), "a") as out:
+            out.write("%s %s\n" % (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), line))
+    except OSError:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# wait: a paused agent stays inside its run (Rich, brief addition 1)
+# ---------------------------------------------------------------------------
+
+WAIT_SECONDS = 540     # under the Bash tool's 600 s limit, so the call returns and is repeated
+
+
+def wait_resume(max_seconds=WAIT_SECONDS, poll=2.0, out=sys.stdout):
+    """Returns once this agent's hold is released, printing RESUMED; at the bound it
+    prints STILL PAUSED so the agent runs it again. Never ends anything."""
+    agent, session = os.environ.get(TAG, ""), os.environ.get(SESSION_TAG, "")
+    if not _valid_ids(session, agent):
+        out.write("PAUSE-WAIT: this shell carries no agent identity (%s, %s), so there is no hold to wait "
+                  "for. Only a subagent's Bash call carries it.\n" % (TAG, SESSION_TAG))
+        return 2
+    deadline = time.monotonic() + max_seconds
+    path = _held_path(session, agent)
+    while os.path.exists(path):
+        if time.monotonic() >= deadline:
+            out.write("STILL PAUSED at %s: run this same command again, with the Bash timeout 600000.\n"
+                      % time.strftime("%H:%M:%SZ", time.gmtime()))
+            return 0
+        time.sleep(poll)
+    out.write("RESUMED at %s: continue the same work from where it was held.\n"
+              % time.strftime("%H:%M:%SZ", time.gmtime()))
+    return 0
 
 
 def release(session_id, agent_id):
@@ -526,6 +726,12 @@ def describe_hold(result):
         line += "; NOT confirmed stopped: %s" % ", ".join(map(str, result["not_stopped"]))
     for note in result.get("notes") or []:
         line += "; " + note
+    if result.get("locks"):
+        line += ("; they keep these locks until RESUME, so work elsewhere that needs one waits: %s"
+                 % ", ".join(result["locks"][:6]) + (" and %d more" % (len(result["locks"]) - 6)
+                                                     if len(result["locks"]) > 6 else ""))
+    if not result.get("watchdog"):
+        line += "; its watchdog did NOT start, so only a SessionStart releases it if the lead dies"
     return line + ". They, and any new command it starts, continue on RESUME."
 
 
@@ -545,14 +751,20 @@ def describe_release(result):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
-    for cmd in ("hold", "release"):
+    for cmd in ("hold", "release", "watch"):
         s = sub.add_parser(cmd)
         s.add_argument("--session", required=True)
         s.add_argument("--agent", required=True, help="the agent id recorded by the registry")
         s.add_argument("--name", default="")
     sub.add_parser("status")
     sub.add_parser("capture", help="print the ownership lines for a hook payload on stdin")
+    w = sub.add_parser("wait", help="a paused agent's own call: returns RESUMED once its hold is released")
+    w.add_argument("--max-seconds", type=float, default=WAIT_SECONDS)
     a = p.parse_args(argv)
+    if a.cmd == "wait":
+        return wait_resume(a.max_seconds)
+    if a.cmd == "watch":
+        return watch(a.session, a.agent)
     if a.cmd == "hold":
         r = hold(a.session, a.agent, a.name)
         print(json.dumps(r, sort_keys=True))

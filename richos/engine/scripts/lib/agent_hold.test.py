@@ -62,6 +62,45 @@ child.wait()
 '''
 
 
+REGISTRY = r'''
+import os, sys
+name = sys.argv[sys.argv.index("--name") + 1]
+done = os.path.join(os.path.dirname(os.path.abspath(__file__)), "finished-" + name)
+print(("finished\tstopped from the screen" if os.path.exists(done) else "active\t") )
+'''
+
+# A daemon as adb starts one: fork, the parent exits, the child leads its own session.
+DAEMON = r'''
+import os, sys, time
+out = sys.argv[1]
+if os.fork():
+    sys.exit(0)
+os.setsid()
+open(out + ".pid", "w").write(str(os.getpid()))
+while True:
+    time.sleep(0.05)
+'''
+
+# run.sh's login keeper: `nohup claude-login.sh keep ... &` then `echo $! > claude-keep.pid`,
+# after which run.sh exits and the keeper is reparented.
+KEEPER = r'''
+import os, sys, subprocess, time
+pidfile = sys.argv[1]
+p = subprocess.Popen([sys.executable, "-c", "import time\nwhile True: time.sleep(0.05)"])
+open(pidfile, "w").write(str(p.pid))
+'''
+
+# Holds a Cargo-style target lock for as long as it runs.
+LOCKER = r'''
+import fcntl, os, sys, time
+lock = open(sys.argv[1], "w")
+fcntl.flock(lock, fcntl.LOCK_EX)
+open(sys.argv[2], "w").write(str(os.getpid()))
+while True:
+    time.sleep(0.05)
+'''
+
+
 def expected():
     h = b"richos"
     for _ in range(ROUNDS):
@@ -86,10 +125,17 @@ def state(pid):
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="agent-hold-test.")
-        self.env_before = {k: os.environ.get(k) for k in ("RICHOS_AGENT_HOLD_DIR", "TESTVM_ROOT", "RICHOS_CPU_GUARD_STATE")}
+        self.env_before = {k: os.environ.get(k) for k in (
+            "RICHOS_AGENT_HOLD_DIR", "TESTVM_ROOT", "RICHOS_CPU_GUARD_STATE", "RICHOS_AGENT_HOLD_WATCH_SECONDS",
+            "RICHOS_AGENT_HOLD_REGISTRY", agent_hold.TAG, agent_hold.SESSION_TAG)}
         os.environ["RICHOS_AGENT_HOLD_DIR"] = os.path.join(self.tmp, "hold")
         os.environ["TESTVM_ROOT"] = os.path.join(self.tmp, "testvm")
         os.environ["RICHOS_CPU_GUARD_STATE"] = os.path.join(self.tmp, "cpu-guard")
+        os.environ["RICHOS_AGENT_HOLD_WATCH_SECONDS"] = "0.2"
+        # The registry the watchdog asks is a stand-in: "finished" once finished-<name> exists.
+        registry = os.path.join(self.tmp, "registry.py")
+        Path(registry).write_text(REGISTRY)
+        os.environ["RICHOS_AGENT_HOLD_REGISTRY"] = registry
         os.makedirs(os.environ["TESTVM_ROOT"])
         self.session = "fixture-session-%d" % os.getpid()
         self.agent = "a%dfixture" % os.getpid()
@@ -99,6 +145,11 @@ class Base(unittest.TestCase):
 
     def tearDown(self):
         # Only processes this test started and recorded: continue, then kill them.
+        table = agent_hold.snapshot()
+        for r in agent_hold.records():
+            wd = r.get("watchdog") or {}
+            if wd.get("pid") in table and table[wd["pid"]]["birth"] == wd.get("birth"):
+                self.pids.add(wd["pid"])
         for pid in sorted(self.pids):
             for sig in (signal.SIGCONT, signal.SIGKILL):
                 try:
@@ -356,6 +407,11 @@ class RealTree(Base):
         self.assertTrue(state(pid).startswith("T"))
         path = agent_hold._held_path(self.session, self.agent)
         rec = json.loads(Path(path).read_text())
+        # The backstop for a watchdog that itself died: end ours (we started it), then the
+        # next SessionStart's release_orphans() must still find the dead session.
+        wd = rec["watchdog"]["pid"]
+        os.kill(wd, signal.SIGKILL)
+        self.assertTrue(wait_for(lambda: not state(wd) or state(wd).startswith("Z")))
         rec["parents"] = {"999999": 0}
         Path(path).write_text(json.dumps(rec))
         self.assertEqual(len(agent_hold.release_orphans()), 1)
@@ -377,6 +433,181 @@ class RealTree(Base):
         self.assertIn(pid, rel["gone"])
         self.assertEqual(rel["continued"], [], rel)
         self.assertTrue(state(pid).startswith("T"), "a process that fails the start-time check is not signaled")
+
+
+class Catches(Base):
+    """Sage's catches on the first design (sage-opus-pauseplan1), each as a failing case first."""
+
+    def script(self, name, text):
+        path = os.path.join(self.tmp, name)
+        Path(path).write_text(text)
+        return path
+
+    def pid_from(self, path):
+        self.assertTrue(wait_for(lambda: os.path.exists(path) and Path(path).read_text().strip()), path)
+        pid = int(Path(path).read_text().split()[0])
+        self.pids.add(pid)
+        return pid
+
+    def test_catch2_a_supervisor_registered_as_a_cpu_guard_session_root_is_held_with_its_check(self):
+        # proc_tree.py registers its supervisor as a cpu_guard "session" root; left running
+        # while its check was frozen, its own bounds expired and it killed the check.
+        sup = self.script("sup.py", "import os, subprocess, sys, time\n"
+                          "open(sys.argv[1], 'w').write(str(os.getpid()))\n"
+                          "subprocess.run([sys.executable, sys.argv[2], sys.argv[3], sys.argv[4]])\n")
+        self.start_call("%s %s %s %s %s %d" % (sys.executable, sup, self.out("sup.pid"), self.worker,
+                                               self.out("w"), ROUNDS * 20))
+        sup_pid = self.pid_from(self.out("sup.pid"))
+        self.worker_pid("w")
+        roots = os.path.join(os.environ["RICHOS_CPU_GUARD_STATE"], "roots")
+        os.makedirs(roots)
+        lstart = agent_hold.snapshot()[sup_pid]["lstart"]
+        Path(roots, "%d.json" % sup_pid).write_text(json.dumps(
+            {"pid": sup_pid, "birth": " ".join(lstart.split()), "label": "managed python3", "role": "session"}))
+        r = agent_hold.hold(self.session, self.agent, "fixture")
+        self.assertIn(str(sup_pid), r["held"], r)
+        self.assertTrue(state(sup_pid).startswith("T"))
+        agent_hold.release(self.session, self.agent)
+
+    def test_catch4_the_test_vm_login_keeper_is_left_running(self):
+        guest = os.path.join(os.environ["TESTVM_ROOT"], "run", "walk-fixture")
+        os.makedirs(guest)
+        keeper_pidfile = os.path.join(guest, "claude-keep.pid")
+        keeper = self.script("keeper.py", KEEPER)
+        self.start_call("%s %s %s\n%s %s %s %d" % (sys.executable, keeper, keeper_pidfile,
+                                                   sys.executable, self.worker, self.out("w"), ROUNDS * 20))
+        kpid = self.pid_from(keeper_pidfile)
+        worker = self.worker_pid("w")
+        self.assertTrue(wait_for(lambda: agent_hold.snapshot().get(kpid, {}).get("ppid") == 1), "reparented")
+        r = agent_hold.hold(self.session, self.agent, "fixture")
+        self.assertIn(str(worker), r["held"])
+        self.assertNotIn(str(kpid), r["held"], "the keeper carries the tag but is the walk's, not frozen")
+        self.assertFalse(state(kpid).startswith("T"))
+        self.assertIn("login keeper pid %d" % kpid, agent_hold.describe_hold(r))
+        agent_hold.release(self.session, self.agent)
+
+    def test_catch7_a_left_running_walk_says_its_scenario_has_no_bound(self):
+        Path(os.environ["TESTVM_ROOT"], "guest.lock").write_text("")
+        walk = self.script("walk.py", WALK)
+        self.start_call("%s %s %s %s &\n%s %s %s %d\nwait" % (
+            sys.executable, walk, os.path.join(os.environ["TESTVM_ROOT"], "guest.lock"), self.out("walk"),
+            sys.executable, self.worker, self.out("w"), ROUNDS * 20))
+        self.worker_pid("w")
+        self.assertTrue(wait_for(lambda: os.path.exists(self.out("walk") + ".pid")))
+        self.pids |= set(map(int, Path(self.out("walk") + ".pid").read_text().split()))
+        r = agent_hold.hold(self.session, self.agent, "fixture")
+        self.assertIn("scenario step has no time bound", agent_hold.describe_hold(r))
+        agent_hold.release(self.session, self.agent)
+
+    def test_catch5_a_shared_daemon_it_started_is_left_running_and_named(self):
+        daemon = self.script("daemon.py", DAEMON)
+        self.start_call("%s %s %s\n%s %s %s %d" % (sys.executable, daemon, self.out("d"),
+                                                   sys.executable, self.worker, self.out("w"), ROUNDS * 20))
+        dpid = self.pid_from(self.out("d") + ".pid")
+        worker = self.worker_pid("w")
+        self.assertTrue(wait_for(lambda: agent_hold.snapshot().get(dpid, {}).get("ppid") == 1))
+        r = agent_hold.hold(self.session, self.agent, "fixture")
+        self.assertIn(str(worker), r["held"])
+        self.assertNotIn(str(dpid), r["held"])
+        self.assertFalse(state(dpid).startswith("T"))
+        self.assertIn("shared daemon(s) it started left running for other agents' work: pid %d" % dpid,
+                      agent_hold.describe_hold(r))
+        agent_hold.release(self.session, self.agent)
+
+    def test_catch5_the_locks_held_work_keeps_are_named(self):
+        lock = os.path.join(self.tmp, "cargo-target", "debug", ".cargo-lock")
+        os.makedirs(os.path.dirname(lock))
+        locker = self.script("locker.py", LOCKER)
+        self.start_call("%s %s %s %s" % (sys.executable, locker, lock, self.out("locker.pid")))
+        self.pid_from(self.out("locker.pid"))
+        r = agent_hold.hold(self.session, self.agent, "fixture")
+        self.assertIn(os.path.realpath(lock), [os.path.realpath(p) for p in r["locks"]], r["locks"])
+        self.assertIn("they keep these locks until RESUME", agent_hold.describe_hold(r))
+        agent_hold.release(self.session, self.agent)
+
+    def watchdog_of(self, r):
+        wd = r.get("watchdog") or {}
+        self.assertIsInstance(wd.get("pid"), int, r)
+        self.pids.add(wd["pid"])
+        return wd["pid"]
+
+    def gone(self, pid):
+        return not state(pid) or state(pid).startswith("Z")
+
+    def test_catch6_a_lead_that_dies_without_session_end_never_leaves_work_frozen(self):
+        lead = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        self.procs.append(lead)
+        self.start_call("%s %s %s %d" % (sys.executable, self.worker, self.out("w"), ROUNDS * 20))
+        worker = self.worker_pid("w")
+        r = agent_hold.hold(self.session, self.agent, "fixture", session_pid=lead.pid)
+        wd = self.watchdog_of(r)
+        # The shells' recorded parent is this test process, so it counts as a session process too.
+        rec = json.loads(Path(agent_hold._held_path(self.session, self.agent)).read_text())
+        rec["parents"] = {str(lead.pid): rec["parents"][str(lead.pid)]}
+        Path(agent_hold._held_path(self.session, self.agent)).write_text(json.dumps(rec))
+        time.sleep(1.0)
+        self.assertTrue(state(worker).startswith("T"), "held while its lead lives")
+        t0 = time.monotonic()
+        lead.kill()
+        lead.wait()
+        self.assertTrue(wait_for(lambda: not state(worker).startswith("T"), 10), "the watchdog continued it")
+        took = time.monotonic() - t0
+        self.assertEqual(agent_hold.records(), [])
+        self.assertTrue(wait_for(lambda: self.gone(wd), 10), "the watchdog exits once it has released")
+        sys.stderr.write("\n  measured: lead killed; its held work continued %.2f s later, with no hook\n" % took)
+
+    def test_catch1_an_agent_stopped_from_the_screen_is_released_by_the_watchdog(self):
+        self.start_call("%s %s %s %d" % (sys.executable, self.worker, self.out("w"), ROUNDS * 20))
+        worker = self.worker_pid("w")
+        r = agent_hold.hold(self.session, self.agent, "fixture-agent")
+        self.watchdog_of(r)
+        self.assertTrue(state(worker).startswith("T"))
+        Path(self.tmp, "finished-fixture-agent").write_text("")      # the registry now says finished
+        self.assertTrue(wait_for(lambda: not state(worker).startswith("T"), 15), "continued so its stop lands")
+        self.assertEqual(agent_hold.records(), [])
+
+    def test_the_watchdog_ends_with_a_normal_release(self):
+        r = agent_hold.hold(self.session, self.agent, "fixture")
+        wd = self.watchdog_of(r)
+        self.assertFalse(self.gone(wd), "a hold has a live watchdog, even for an idle agent")
+        self.assertEqual(agent_hold.hold(self.session, self.agent, "fixture")["watchdog"]["pid"], wd,
+                         "a repeated hold keeps the same watchdog")
+        agent_hold.release(self.session, self.agent)
+        self.assertTrue(wait_for(lambda: self.gone(wd), 10))
+
+
+class Wait(Base):
+    """Rich's brief addition 1: a paused agent stays inside its run, in a wait that ends at RESUME."""
+
+    def test_wait_needs_an_agents_identity(self):
+        import io
+        os.environ.pop(agent_hold.TAG, None)
+        buf = io.StringIO()
+        self.assertEqual(agent_hold.wait_resume(1, 0.05, buf), 2)
+        self.assertIn("no agent identity", buf.getvalue())
+
+    def test_wait_reports_still_paused_at_its_bound_then_resumed(self):
+        import io
+        os.environ[agent_hold.TAG], os.environ[agent_hold.SESSION_TAG] = self.agent, self.session
+        agent_hold.hold(self.session, self.agent, "fixture")
+        buf = io.StringIO()
+        self.assertEqual(agent_hold.wait_resume(0.5, 0.05, buf), 0)
+        self.assertIn("STILL PAUSED", buf.getvalue())
+        agent_hold.release(self.session, self.agent)
+        buf = io.StringIO()
+        agent_hold.wait_resume(0.5, 0.05, buf)
+        self.assertIn("RESUMED at", buf.getvalue())
+
+    def test_the_agents_wait_command_returns_resumed_only_after_release(self):
+        agent_hold.hold(self.session, self.agent, "fixture")
+        out = self.out("wait.out")
+        call = self.start_call("%s %s wait > %s" % (sys.executable, HERE / "agent_hold.py", out), tuid="toolu_wait")
+        self.assertTrue(wait_for(lambda: state(call.pid).startswith("T"), 5), "the wait itself waits while held")
+        time.sleep(1.0)
+        self.assertFalse(os.path.exists(out) and Path(out).read_text(), "nothing printed while held")
+        agent_hold.release(self.session, self.agent)
+        self.assertEqual(call.wait(timeout=30), 0)
+        self.assertIn("RESUMED at", Path(out).read_text())
 
 
 if __name__ == "__main__":
