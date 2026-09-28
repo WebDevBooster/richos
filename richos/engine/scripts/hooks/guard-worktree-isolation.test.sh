@@ -112,6 +112,9 @@ HOOK="$SCRIPT_DIR/guard-worktree-isolation.sh"
 # the identity of the session that happens to be running this suite.
 TX_SANDBOX="$(cd "$(mktemp -d -t guard-isolation-tx.XXXXXX)" && pwd -P)"
 export RICHOS_WORKSPACES_DIR="$TX_SANDBOX/workspaces"
+# Land-record lookups create their directory even when no land is performed.
+# Keep it beside the private registry, outside both the caller HOME and registry.
+export RICHOS_LAND_LOCKS_DIR="$TX_SANDBOX/land-locks"
 RICHOS_SESSION_PID="$(sh -c 'sleep 3600 >/dev/null 2>&1 & echo $!')"
 export RICHOS_SESSION_PID
 trap 'kill "$RICHOS_SESSION_PID" 2>/dev/null || true' EXIT
