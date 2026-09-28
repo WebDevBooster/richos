@@ -91,7 +91,7 @@ ENG="$MUT_SANDBOX_ENGINE"
 GUARD="$ENG/scripts/hooks/guard-worktree-isolation.sh"
 SUITE="$ENG/scripts/hooks/guard-worktree-isolation.test.sh"
 # THE PRISTINE REFERENCE SANDBOX, NEVER MUTATED. It exists for two jobs only:
-# the M0 baseline below, and the final md5 assertion that nothing wrote to it.
+# the M0 baseline, scoped positive controls and the final unchanged-guard check.
 # Each mutant builds its OWN copy -- see _mut_worker_sandbox.
 #
 # `restore` USED TO PUT THIS ONE BACK BETWEEN MUTANTS, and that is exactly what
@@ -213,9 +213,16 @@ check() {
             "$id" "$desc" "$prered"
         MUT_SCORE=unproven; return
     fi
-    out="$("$SUITE" 2>&1)"; rc=$?
-    if [ "$rc" -eq 0 ]; then
-        printf 'UNPROVEN  %-4s %s  <- suite still GREEN\n' "$id" "$desc"
+    # A pruned fixture must pass against pristine source before its mutant
+    # can score. The normal M0 above still exercises every outer assertion.
+    out="$(RICHOS_MUTATION_INNER=1 "$MUT_SANDBOX_ENGINE/scripts/hooks/guard-worktree-isolation.test.sh" --mutation-case "$id" "$@" 2>&1)"; rc=$?
+    if [ "$rc" -ne 3 ]; then
+        printf 'UNPROVEN  %-4s %s  <- scoped positive control failed (rc=%s)\n%s\n' "$id" "$desc" "$rc" "$out"
+        MUT_SCORE=unproven; return
+    fi
+    out="$(RICHOS_MUTATION_INNER=1 "$SUITE" --mutation-case "$id" "$@" 2>&1)"; rc=$?
+    if [ "$rc" -ne 1 ]; then
+        printf 'UNPROVEN  %-4s %s  <- witness did not report assertion failure (rc=%s)\n%s\n' "$id" "$desc" "$rc" "$out"
         MUT_SCORE=unproven; return
     fi
     # CASE DETECTION — deliberately NOT `printf '%s' "$out" | grep -q ...`, and
@@ -309,6 +316,7 @@ M0_OUT="$("$SUITE" 2>&1)"; M0_RC=$?
 printf '%s\n' "$M0_OUT" | grep '^  FAIL  ' | sed 's/^  FAIL  //' > "$BASELINE_FAILS"
 if [ "$M0_RC" -eq 0 ]; then
     printf 'PROVEN    %-4s %s\n' "M0" "the UNMUTATED sandbox suite is GREEN — every red below is a mutation's doing, not the sandbox's"
+    printf '%s\n' "$M0_OUT" | tail -n 1
     PROVEN=$((PROVEN+1))
 else
     printf 'NOTE      %-4s the UNMUTATED sandbox suite is already RED (rc=%s) at %s case(s) BEFORE any mutation.\n' \

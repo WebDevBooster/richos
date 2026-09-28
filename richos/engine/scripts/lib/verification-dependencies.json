@@ -4056,8 +4056,8 @@
     },
     "scripts/hooks/guard-worktree-isolation.test.sh": {
       "source": "scripts/hooks/guard-worktree-isolation.test.sh",
-      "sha256": "00ebfd1171073a8bea5c53de7cc8a71cefa6db713946019a25a0aae02f9f2a04",
-      "evidence": "Calls the real guard against the real engine adoption/config/model roster before additional literal private-config cases. Other cases copy real configuration unchanged, so private directories do not remove these dependencies. Private Git worktrees and registry records exercise register-cc/confirm-cc, integration, hook and discard; their real engine cleanup settings remain dependencies. Copies of lifecycle/sealed-worktree are inspected for presence/mode only. No model agents are launched and no nested mutation suite is run.",
+      "sha256": "a32e6faf0e7f2b05fcf4f1f3480df69ffd45e660c4d1bb04300df0a4f7977748",
+      "evidence": "Calls the real guard against the real engine adoption/config/model roster before additional literal private-config cases. Other cases copy real configuration unchanged, so private directories do not remove these dependencies. Private Git worktrees and registry records exercise register-cc/confirm-cc, integration, hook and discard; their real engine cleanup settings remain dependencies. Copies of lifecycle/sealed-worktree are inspected for presence/mode only. No model agents are launched and no nested mutation suite is run. Internal mutation scopes select existing assertions with their prerequisite fixture groups; the no-argument invocation still executes the complete suite.",
       "keys": [],
       "edges": [
         {
@@ -5795,7 +5795,7 @@
     },
     "scripts/hooks/guard-worktree-isolation.mutation.sh": {
       "source": "scripts/hooks/guard-worktree-isolation.mutation.sh",
-      "sha256": "ad66612be509814f19271a71594b7c726380465c152fbb30fc39728882377b10",
+      "sha256": "98c17223d2ee2503b1a6fa8da33da1949b553d8186e4626b668a4c1afb5cb444",
       "evidence": "The baseline and 24 finite mutants execute the fixed copied isolation test, retaining its shipped configuration readers. Each alive control also executes the copied real guard with that config. The harness shell never sources config before scratch allocation. Finite Python patches only rewrite the named guard; model-setting strings in those patches are data.",
       "keys": [],
       "edges": [
