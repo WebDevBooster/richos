@@ -702,6 +702,18 @@ class Closure(unittest.TestCase):
         self.assertTrue(graph.closure(slot)["presence"])
         change = inputs.config_change("BAN_WORKFLOW_TOOL=1", "BAN_WORKFLOW_TOOL=0")
         self.assertEqual(graph.config_units(change, [slot, priority, pause]), {})
+        # A valid captured pause now continues past syntax validation. Its
+        # recipient lookup and identity readers cannot be omitted or stale.
+        for helper in ("scripts/lib/teammate-identity.py",
+                       "mega-lander/workspaces.py#empty-recipient-fixture"):
+            previous = document["nodes"][helper]["sha256"]
+            document["nodes"][helper]["sha256"] = "changed"
+            self.assertIn(pause, graph.config_units(change, [pause]))
+            document["nodes"][helper]["sha256"] = previous
+        fixture_sha = document["nodes"]["scripts/lib/verification-fixture.sh"]["sha256"]
+        document["nodes"]["scripts/lib/verification-fixture.sh"]["sha256"] = "changed"
+        self.assertEqual(set(graph.config_units(change, [slot, priority, pause])), {slot, priority})
+        document["nodes"]["scripts/lib/verification-fixture.sh"]["sha256"] = fixture_sha
         document["nodes"]["scripts/lib/worker_tokens.py"]["sha256"] = "changed"
         self.assertIn(priority, graph.config_units(change, [priority]))
 

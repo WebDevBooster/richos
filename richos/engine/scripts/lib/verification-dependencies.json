@@ -14,6 +14,7 @@
     "ARTIFACT_MERGE_DIRS",
     "ARTIFACT_REPLACE_DIRS",
     "BAN_WORKFLOW_TOOL",
+    "CHECK_FAILURE_TYPE",
     "CHECK_LAND_COMPLETENESS",
     "CHECK_LEFT_OFF",
     "CREATOR_TEAMMATE",
@@ -37,6 +38,7 @@
     "DISK_WATCHDOG_MINUTES",
     "ENABLE_QA_INSTALL_FRESH_GATE",
     "ENTRYPOINTS",
+    "FAILURE_TYPE_REGISTER",
     "GENERIC_AGENT_TYPES",
     "HARNESS_UTILITY_TYPES",
     "INFLIGHT_ACK_TIMEOUT_MIN",
@@ -159,8 +161,8 @@
     },
     "scripts/hooks/contract-integrity-probe.sh#workspace-copy": {
       "source": "scripts/hooks/contract-integrity-probe.sh",
-      "sha256": "58d72fc35d95ccb67af1aae5006162c4151fea0e100463205b572da01c9661c2",
-      "evidence": "Q copies the governed config into Q_ENT before q_env executes the workspace guards. The enclosing Q consumer must follow those executed guards.",
+      "sha256": "52a95b7eabe7c8d4142d4f64fe5337064480f99ed2a7cdb56bf78e42ab08d3a6",
+      "evidence": "Q copies the governed config into Q_ENT before q_env executes the workspace guards. The enclosing Q consumer must follow those executed guards. The main change adds only two registration inventory literals outside the Q copy region.",
       "keys": [],
       "edges": [],
       "region": [
@@ -370,8 +372,8 @@
     },
     "scripts/hooks/notice-ceo-asks.sh": {
       "source": "scripts/hooks/notice-ceo-asks.sh",
-      "sha256": "709e0a75bbb4538c3e1a7a7b36fc2c8e8005cd3a590b173fc44972d66ae909c9",
-      "evidence": "Resolves the governed root then delegates config access to ca_resolve. Its other inputs are the hook payload and per-session ledger.",
+      "sha256": "c1982944fcb496bd016248b31063838f2ce0806418eeb41cddd335da9687bf01",
+      "evidence": "Resolves the governed root then delegates config access to ca_resolve. Its other inputs are the hook payload and per-session ledger. The app receipt extension reads payload identity and de-duplicates the same session ledger under a file lock; it introduces no other config reader or helper.",
       "keys": [],
       "edges": [
         {
@@ -583,8 +585,8 @@
     },
     "scripts/hooks/ceo-asks.mutation.sh": {
       "source": "scripts/hooks/ceo-asks.mutation.sh",
-      "sha256": "4eaca1732fe8d951516e63b2531a7a96831cb9953f3c678eb878ca74a76104d0",
-      "evidence": "Copies a finite hook/helper list, never the real configuration. Thirteen literal mutations change matching, gating and reporting, not config provenance. Nested ceo-asks.test.sh reconstructs private configs before execution.",
+      "sha256": "908c02341f2aca89d83df3ea9b59e967ad30be0a9e9133e25f35bb146c5abb44",
+      "evidence": "Copies a finite hook/helper list, never the real configuration. Thirteen literal mutations change matching, gating and reporting, not config provenance. Nested ceo-asks.test.sh reconstructs private configs before execution. The ledger mutation needle now matches append/read mode, without changing executed helpers or settings provenance.",
       "keys": [],
       "edges": [
         {
@@ -1063,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "9ff2dcded64ae639801af77bfca62654528f7acf8336d233080208097ff0f7f4",
+      "sha256": "4e6a1a37fde2dad79d12d501986d64ca1aec3ae56f7a7d64208c84984f16ccc3",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -1165,8 +1167,8 @@
     },
     "scripts/lib/pause_protocol.py": {
       "source": "scripts/lib/pause_protocol.py",
-      "sha256": "fd5bbfe5320aed4a2e9d44ba2558eeb8e22c6bb7047412ae7b60e64c220efa5d",
-      "evidence": "Renders and validates strings using arguments and standard-library modules. No settings, filesystem or subprocess read occurs.",
+      "sha256": "e1fd9b925db513fc58c45eddb1eb04b2f5468a3f5b150a90a079f3f991b45535",
+      "evidence": "Renders and validates strings using arguments and standard-library modules. No settings, filesystem or subprocess read occurs. Preview validation only compares strings and lengths.",
       "keys": [],
       "edges": []
     },
@@ -1183,8 +1185,8 @@
     },
     "scripts/lib/quota_watch.py#weekly-fixture": {
       "source": "scripts/lib/quota_watch.py",
-      "sha256": "18047f7a75a35c3c2a169b8f93afa8bfc4f1ac8094fc96ef25ff002312b2517e",
-      "evidence": "The weekly suite calls _parse_reset and mode_watch with literal threshold/config arguments. mode_watch patches read_source, workers, time.time and weekly.reset_tick. Each reading triggers the weekly event before any sleep or five-hour path. No CLI wrapper, real config, usage API or registry code executes.",
+      "sha256": "aaa78a25c45c5501335543cdd78f6c343d9f0470733da6c32bd700448411a19d",
+      "evidence": "The weekly suite calls _parse_reset and mode_watch with literal threshold/config arguments. mode_watch patches read_source, workers, time.time and weekly.reset_tick. Each reading triggers the weekly event before any sleep or five-hour path. No CLI wrapper, real config, usage API or registry code executes. The added login-alarm subprocess is reachable only through read_source, which none of this declared entry-point closure executes (weekly fixtures replace it).",
       "keys": [],
       "edges": [
         {
@@ -1258,8 +1260,8 @@
     },
     "scripts/lib/engine_pass.test.sh": {
       "source": "scripts/lib/engine_pass.test.sh",
-      "sha256": "a59967851e01c0b27fdcb3333b20071d08ae57c395bf3740915e099315627887",
-      "evidence": "Runs the Python slot fixture and its focused mutations. Nested mutation execution is guarded by RICHOS_MUTATION_INNER.",
+      "sha256": "f3fafff05d398ab5a5b3a6ba499830e48e54dedaffe18e15e48311c3d7391447",
+      "evidence": "Runs the Python slot fixture and its focused mutations. Nested mutation execution is guarded by RICHOS_MUTATION_INNER. Sources the fixed private verification environment before its existing Python/mutation entry points.",
       "keys": [],
       "edges": [
         {
@@ -1267,6 +1269,9 @@
         },
         {
           "to": "scripts/engine_pass.mutation.sh"
+        },
+        {
+          "to": "scripts/lib/verification-fixture.sh"
         }
       ]
     },
@@ -1286,12 +1291,15 @@
     },
     "scripts/lib/worker-priority.test.sh": {
       "source": "scripts/lib/worker-priority.test.sh",
-      "sha256": "dddd0f49c550091f133252b522756afdac80d73db8b5a363d5285d4ec25c03fa",
-      "evidence": "Executes only the adjacent Python priority fixture.",
+      "sha256": "3d437db5948a1c5b2eea067284d1ed8fe3077430a111ea70cd67819f3f7b6c47",
+      "evidence": "Executes only the adjacent Python priority fixture. Sources the fixed private verification environment before its existing Python/mutation entry points.",
       "keys": [],
       "edges": [
         {
           "to": "scripts/lib/worker-priority.test.py"
+        },
+        {
+          "to": "scripts/lib/verification-fixture.sh"
         }
       ]
     },
@@ -1332,8 +1340,8 @@
     },
     "scripts/lib/quota_watch.py#message-fixture": {
       "source": "scripts/lib/quota_watch.py",
-      "sha256": "18047f7a75a35c3c2a169b8f93afa8bfc4f1ac8094fc96ef25ff002312b2517e",
-      "evidence": "The fixture calls only pause_message, resume_message and release_message with literal reset timestamps. hhmm uses UTC conversion, pause text uses pause_protocol; no config/source/watch/reset operation runs.",
+      "sha256": "aaa78a25c45c5501335543cdd78f6c343d9f0470733da6c32bd700448411a19d",
+      "evidence": "The fixture calls only pause_message, resume_message and release_message with literal reset timestamps. hhmm uses UTC conversion, pause text uses pause_protocol; no config/source/watch/reset operation runs. The added login-alarm subprocess is reachable only through read_source, which none of this declared entry-point closure executes (weekly fixtures replace it).",
       "keys": [],
       "edges": [
         {
@@ -1346,8 +1354,8 @@
     },
     "scripts/lib/pause_protocol.test.py": {
       "source": "scripts/lib/pause_protocol.test.py",
-      "sha256": "95495204070cc7716391ff9629c2207fcb678cd4586ce11f0e7a7502c070866a",
-      "evidence": "Standard-message fixtures invoke pause_protocol, literal-time watcher message formatting, terminal early rejection and desktop early rejection. Real guard/template source assertions read code, not config values.",
+      "sha256": "2d15ac0affe4386db4c021c88a280c3498bb2454cab604ade40b781b38e6204e",
+      "evidence": "Standard-message fixtures invoke pause_protocol, literal-time watcher message formatting, terminal early rejection and desktop early rejection. Real guard/template source assertions read code, not config values. Captured accepted terminal payloads continue through recipient/identity handling with an explicitly private empty registry; that expanded call closure is declared separately.",
       "keys": [],
       "edges": [
         {
@@ -1357,7 +1365,7 @@
           "to": "scripts/lib/quota_watch.py#message-fixture"
         },
         {
-          "to": "scripts/hooks/guard-resume-isolation.sh#pause-rejection"
+          "to": "scripts/hooks/guard-resume-isolation.sh#pause-terminal-fixture"
         },
         {
           "to": "scripts/app-engine-hook.py#pause-rejection"
@@ -1564,8 +1572,8 @@
     },
     "scripts/hooks/host-display-power.mutation.sh": {
       "source": "scripts/hooks/host-display-power.mutation.sh",
-      "sha256": "493a4e0c002b541e43d626a0a2cc1666eb784bc0bf717c55be2503cd091a5190",
-      "evidence": "Finite guard-source mutations copy config and registration files as fixture transports, then execute the nested suite which creates its own entity settings. Pool and stopwatch run without sourcing the real config. Copied hook-registration files are not read by the nested suite.",
+      "sha256": "5b8cf6a95d65f37f2f472e37a82b4d197ac462a5de757fb2171690c0e510200d",
+      "evidence": "Finite guard-source mutations copy config and registration files as fixture transports, then execute the nested suite which creates its own entity settings. Pool and stopwatch run without sourcing the real config. Copied hook-registration files are not read by the nested suite. The scratch allocator is now sourced before copying; the caller never sources the transported config and passes only environment/default TTL, so this edge consumes no shipped config values.",
       "keys": [],
       "edges": [
         {
@@ -1576,6 +1584,10 @@
         },
         {
           "to": "scripts/hooks/guard-host-display-power.test.sh"
+        },
+        {
+          "to": "scripts/lib/scratch.sh",
+          "fixture": true
         }
       ],
       "presence": "The fixture copy requires orchestration.config to exist."
@@ -1619,8 +1631,8 @@
     },
     "scripts/hooks/home-network-phone.mutation.sh": {
       "source": "scripts/hooks/home-network-phone.mutation.sh",
-      "sha256": "22acc5fa7f7608aa23b75337ee3903972263cea89ad64f6220d7105dd25c578d",
-      "evidence": "Finite guard-source mutations copy config and registration files as fixture transports, then execute the nested suite which creates its own entity settings. Pool and stopwatch run without sourcing the real config. Copied hook-registration files are not read by the nested suite.",
+      "sha256": "7e66c0cce8efded4cd1fc19bc8d6dcf2b80f85289cf86124ece30ddf7bd416eb",
+      "evidence": "Finite guard-source mutations copy config and registration files as fixture transports, then execute the nested suite which creates its own entity settings. Pool and stopwatch run without sourcing the real config. Copied hook-registration files are not read by the nested suite. The scratch allocator is now sourced before copying; the caller never sources the transported config and passes only environment/default TTL, so this edge consumes no shipped config values.",
       "keys": [],
       "edges": [
         {
@@ -1631,6 +1643,10 @@
         },
         {
           "to": "scripts/hooks/guard-no-home-network-phone.test.sh"
+        },
+        {
+          "to": "scripts/lib/scratch.sh",
+          "fixture": true
         }
       ],
       "presence": "The fixture copy requires orchestration.config to exist."
@@ -1682,8 +1698,8 @@
     },
     "scripts/lib/quota_watch.py#notice": {
       "source": "scripts/lib/quota_watch.py",
-      "sha256": "18047f7a75a35c3c2a169b8f93afa8bfc4f1ac8094fc96ef25ff002312b2517e",
-      "evidence": "The main --notice path parses arguments and reads the explicitly supplied payload file and timestamp. It never invokes get_usage, reset_tick, workers or the watch loop. Module imports pause_protocol and quota_weekly, neither reading config.",
+      "sha256": "aaa78a25c45c5501335543cdd78f6c343d9f0470733da6c32bd700448411a19d",
+      "evidence": "The main --notice path parses arguments and reads the explicitly supplied payload file and timestamp. It never invokes get_usage, reset_tick, workers or the watch loop. Module imports pause_protocol and quota_weekly, neither reading config. The added login-alarm subprocess is reachable only through read_source, which none of this declared entry-point closure executes (weekly fixtures replace it).",
       "keys": [],
       "edges": [
         {
@@ -1864,8 +1880,8 @@
     },
     "scripts/hooks/guard-dialect.sh": {
       "source": "scripts/hooks/guard-dialect.sh",
-      "sha256": "831d0c118d6004aa300b5ded0b3f9aec1bddd1dd22cdc9118104123df1a3e5ca",
-      "evidence": "Payload-only scanner consumes the three dialect keys. Governing-root overrides use the same finite keys. Vendoring ownership comes through its declared helper. Root resolution does not invoke agent/namespace lookup. Dictionary and generated scanner are data/local code; supplied payload commands never execute.",
+      "sha256": "2a19b37f44f5805b9b57c613f1cc7eae0cd1ef806dd36db2b4b10bfed990a58e",
+      "evidence": "Payload-only scanner consumes the three dialect keys. Governing-root overrides use the same finite keys. Vendoring ownership comes through its declared helper. Root resolution does not invoke agent/namespace lookup. Dictionary and generated scanner are data/local code; supplied payload commands never execute. Generated vocabulary basenames extend the exemption tuple, without reading generated data or introducing config keys.",
       "keys": [
         "DIALECT_TARGET",
         "DIALECT_SCAN_ALLOWLIST",
@@ -1888,8 +1904,8 @@
     },
     "scripts/hooks/guard-dialect.test.sh": {
       "source": "scripts/hooks/guard-dialect.test.sh",
-      "sha256": "ef7035026622f25ad41f27e3463d4bd16e54e5254abc11472ade16bd1212c6ab",
-      "evidence": "The default seat is the real engine, so its four downstream config reads remain dependencies. Later entity fixtures override dialect values without removing the default-seat coverage. Registration, installer and vocabulary inventory assertions read source/data. V8-V12 use the parent vendoring registry as data. The finite mutation driver executes the same suite in a copied engine.",
+      "sha256": "152912710783f62d961ea0f768091953ad6c435143c2353b9af55ee4f742ccba",
+      "evidence": "The default seat is the real engine, so its four downstream config reads remain dependencies. Later entity fixtures override dialect values without removing the default-seat coverage. Registration, installer and vocabulary inventory assertions read source/data. V8-V12 use the parent vendoring registry as data. The finite mutation driver executes the same suite in a copied engine. Added cases pass vocabulary paths as payload data and the source inventory excludes two exact generated fixture paths; no new executable reader.",
       "keys": [],
       "edges": [
         {
@@ -1955,8 +1971,8 @@
     },
     "scripts/hooks/reference-ledger.mutation.sh": {
       "source": "scripts/hooks/reference-ledger.mutation.sh",
-      "sha256": "0c6b079eb39d2929a03d4e7b9b54453decf01f379e7fc4cebd4ae52cd15785c6",
-      "evidence": "Thirteen literal replacements change the scanner, citation predicates or verdict. The copied orchestration file is an engine transport; the nested suite supplies freshly generated entity settings on every guard call. Copied library files not reached by that suite are not executed.",
+      "sha256": "789284b3994c4b4e81014eb63716dd43fb5b415bc4f4444472c0e3de19bbb7bb",
+      "evidence": "Thirteen literal replacements change the scanner, citation predicates or verdict. The copied orchestration file is an engine transport; the nested suite supplies freshly generated entity settings on every guard call. Copied library files not reached by that suite are not executed. The scratch allocator is now sourced before copying; the caller never sources the transported config and passes only environment/default TTL, so this edge consumes no shipped config values.",
       "keys": [],
       "edges": [
         {
@@ -1967,6 +1983,10 @@
         },
         {
           "to": "scripts/hooks/guard-reference-ledger.test.sh"
+        },
+        {
+          "to": "scripts/lib/scratch.sh",
+          "fixture": true
         }
       ],
       "presence": "Copies orchestration.config to the mutant engine; private entity readers do not consume its values."
@@ -2657,8 +2677,8 @@
     },
     "scripts/hooks/public-record-repo.mutation.sh": {
       "source": "scripts/hooks/public-record-repo.mutation.sh",
-      "sha256": "1ac85bd5715e416a0899c7b9487b37aeb84ced708d173d7d5ddfd14064fee0aa",
-      "evidence": "Ten literal source-needle mutants copy the hook, test, libraries and config; only the named test executes. That test creates replacement entity settings before reading configuration. Copying the engine config does not add value dependencies.",
+      "sha256": "c558a2169bf576edcbfd881e012c7dd3f1e45555771cb38ab2d9b7077a5b10a9",
+      "evidence": "Ten literal source-needle mutants copy the hook, test, libraries and config; only the named test executes. That test creates replacement entity settings before reading configuration. Copying the engine config does not add value dependencies. The scratch allocator is now sourced before copying; the caller never sources the transported config and passes only environment/default TTL, so this edge consumes no shipped config values.",
       "keys": [],
       "edges": [
         {
@@ -2669,6 +2689,10 @@
         },
         {
           "to": "scripts/hooks/guard-public-record-repo.test.sh"
+        },
+        {
+          "to": "scripts/lib/scratch.sh",
+          "fixture": true
         }
       ]
     },
@@ -2692,8 +2716,8 @@
     },
     "scripts/hooks/engine-status.test.sh": {
       "source": "scripts/hooks/engine-status.test.sh",
-      "sha256": "7811a52a41f2c3d17f3145eadd8aa2dd2fb84c5bdeda89aea18c543077a2c56d",
-      "evidence": "Copied engine settings are transport only: engine-status consumes adoption presence, not values. The entity has a literal config. Inline mutations edit registration/inventory or the rendered instruction. A missing-Python path enumerates command links but executes only the banner and its fixed libraries.",
+      "sha256": "c3d72d2b1fd3d7e5eef741013af9a91adae886efd35d90ed12be80ce5a8b16d8",
+      "evidence": "Copied engine settings are transport only: engine-status consumes adoption presence, not values. The entity has a literal config. Inline mutations edit registration/inventory or the rendered instruction. A missing-Python path enumerates command links but executes only the banner and its fixed libraries. The inventory adds the two failure-type hook basenames as data; those hooks are never executed by this suite.",
       "keys": [],
       "edges": [
         {
@@ -3547,6 +3571,56 @@
           "fixture": true
         }
       ]
+    },
+    "scripts/lib/verification-fixture.sh": {
+      "source": "scripts/lib/verification-fixture.sh",
+      "sha256": "c6f5d11cba98b6b24869b4ca20fb480bf971505550c53571da11e4444f936b2e",
+      "evidence": "Creates one private directory, exports literal fixture mode and private HOME/config/worker paths, clears inherited permits and removes its directory on exit. No orchestration file, hook or helper executes.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/teammate-identity.py": {
+      "source": "scripts/lib/teammate-identity.py",
+      "sha256": "54fed25d0e79b1757690cdc2b63fe3281c985b8324fe27b2d12d7048e27badf2",
+      "evidence": "Reads supplied team JSONL, roster names and transcript files. The only dynamic import is the fixed adjacent agent-liveness.py name-to-id reader. Paths come from supplied arguments/environment, never orchestration.config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/agent-liveness.py"
+        }
+      ]
+    },
+    "mega-lander/workspaces.py#empty-recipient-fixture": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+      "evidence": "The pause fixture explicitly supplies a newly created private RICHOS_WORKSPACES_DIR with no agent/done records. The recipient CLI reads load_agent(named_key(session,name)) and returns unregistered before observe_platform_end or any lifecycle operation. CLI preparation resolves entity via cwd Git metadata. Reached helpers are state_dir/_p/_key_segment, agent_path/done_path/read_json, named_key, realpath and main_checkout/git/_git_env; none consumes config. The caller test hash binds this empty-registry precondition.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/hooks/guard-resume-isolation.sh#pause-terminal-fixture": {
+      "source": "scripts/hooks/guard-resume-isolation.sh",
+      "sha256": "2366c33e6d87e0b53a7c1e18a6b153b72652ac86532f88e145fd66539e373f56",
+      "evidence": "The pause fixture now passes a valid message as well as an invalid one. It sources the engine config (SESSION_TEAMS_DIR), resolves roots, checks pause syntax and queries its explicitly empty private workspace registry. On unregistered recipient it reads roster and identity data, with fixed agent-liveness and teammate-identity imports. The generated payload has no resume acknowledgement and never executes a message or lifecycle command.",
+      "keys": [
+        "SESSION_TEAMS_DIR"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/pause_protocol.py"
+        },
+        {
+          "to": "mega-lander/workspaces.py#empty-recipient-fixture"
+        },
+        {
+          "to": "scripts/lib/agent-liveness.py"
+        },
+        {
+          "to": "scripts/lib/teammate-identity.py"
+        }
+      ]
     }
   },
   "units": {
@@ -3631,7 +3705,7 @@
       ],
       "sources": {
         "scripts/hooks/ceo-asks.test.sh": "935e2e04320b79a9ed7e1054aaad40b8f207330f5aa4b9749aec0916a811a87b",
-        "scripts/hooks/notice-ceo-asks.sh": "709e0a75bbb4538c3e1a7a7b36fc2c8e8005cd3a590b173fc44972d66ae909c9",
+        "scripts/hooks/notice-ceo-asks.sh": "c1982944fcb496bd016248b31063838f2ce0806418eeb41cddd335da9687bf01",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/ceo-asks.sh": "c0d084aef038efba8bae75eea3073bafa01c60132702282743449541abab0021",
@@ -3643,15 +3717,15 @@
         "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
         "scripts/hooks/session-start-ceo-ask.sh": "3b0b8396d0e50a6145401df798bde92e7bc59ffd55a7260f160f7b1b8d72ec69",
         "scripts/ceo-asks-status.sh": "ee087fd11e7a3a9507845240dd367c3528935f31d85c1ba7bb9eca004de2f7cf",
-        "scripts/hooks/ceo-asks.mutation.sh": "4eaca1732fe8d951516e63b2531a7a96831cb9953f3c678eb878ca74a76104d0",
+        "scripts/hooks/ceo-asks.mutation.sh": "908c02341f2aca89d83df3ea9b59e967ad30be0a9e9133e25f35bb146c5abb44",
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
         "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
-        "scripts/lib/worker_tokens.py": "3415b0824a9d2acd13be390200f98b3dee4a6f7cfc26d8ee2f7eee2bee6418d7",
-        "scripts/lib/proc_tree.py": "7a20994fa3ef9aae29271dc12bc92db81c46c5fa184cae615c7245e4fc06cb8b",
+        "scripts/lib/worker_tokens.py": "8c4cada1e7a4883a65435017ebac01c27307724a9724ea698f0df699898ff6b2",
+        "scripts/lib/proc_tree.py": "dbd97c9b9758184e960348cd6c81e5089ae9691aee8324977a3ddbc0460a219d",
         "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
-        "scripts/lib/cpu_guard.py": "04fa61d00bf7ef0e65868861428b6c5e119512faf09319129dd3db8decce4d5a",
+        "scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
-        "scripts/lib/engine_pass.py": "ec43e17edc9d741bfa6e6d1a435550658f6b8b813c773cf6214aac45a15c9625"
+        "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7"
       },
       "evidence": "G1 counts each of the four literal registrations. Other wiring assertions read probe/installer source data. The finite nested mutants execute this same registration block; they do not run the full hook inventory."
     },
@@ -3684,12 +3758,12 @@
         "scripts/hooks/ceo-ruled.mutation.sh": "e588e55b697a3823af50eb46ea9b76a0e30f9f12a5e5fb787a9424fa24c8a109",
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
         "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
-        "scripts/lib/worker_tokens.py": "3415b0824a9d2acd13be390200f98b3dee4a6f7cfc26d8ee2f7eee2bee6418d7",
-        "scripts/lib/proc_tree.py": "7a20994fa3ef9aae29271dc12bc92db81c46c5fa184cae615c7245e4fc06cb8b",
+        "scripts/lib/worker_tokens.py": "8c4cada1e7a4883a65435017ebac01c27307724a9724ea698f0df699898ff6b2",
+        "scripts/lib/proc_tree.py": "dbd97c9b9758184e960348cd6c81e5089ae9691aee8324977a3ddbc0460a219d",
         "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
-        "scripts/lib/cpu_guard.py": "04fa61d00bf7ef0e65868861428b6c5e119512faf09319129dd3db8decce4d5a",
+        "scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
-        "scripts/lib/engine_pass.py": "ec43e17edc9d741bfa6e6d1a435550658f6b8b813c773cf6214aac45a15c9625"
+        "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7"
       },
       "evidence": "9a checks guard-ceo-ruled-ask in the first AskUserQuestion group, 9b checks notice-ceo-ruled-prose presence. Six nested predicate mutants and drift runs use this same block. Group-index changes affecting the registered commands are retained by semantic entry diff. The first matching group assertion observes all PreToolUse matcher/group ordering, not only the guard command.",
       "events": [
