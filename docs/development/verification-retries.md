@@ -27,6 +27,14 @@ that the test code failed or that the machine is inherently slow. Inspect the
 recorded admission reason, CPU samples, worker leases and owned processes before
 choosing a remedy. Preserve CPU limits, shared worker budgets and build locks.
 
+The proof runner also takes the host-wide proof-run slot, which defaults to one
+run at a time. `--slot-wait` bounds that admission wait. The separate
+`--engine-slot-wait` bounds the large engine-plan slot wait; leaving it unset
+preserves that gate's default. Neither option changes execution deadlines.
+The runner and receipt verifier suppress Python bytecode writes so verification
+does not alter its own declared source inputs. Existing bytecode remains part
+of the input identity and changed inputs still invalidate evidence.
+
 ## 2. Before any retry
 
 Run failed, timed-out, refused or previously unrun units before repeating
