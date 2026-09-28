@@ -287,6 +287,63 @@ class GuardTests(unittest.TestCase):
             chosen,_,_=watch.sample({10:self.row(),20:self.row(10,now)},now,host_busy=99.5)
         self.assertEqual(chosen,[])
 
+    def test_release_build_compiler_keeps_its_cores_but_a_runaway_is_still_stopped(self):
+        # Run 20260928T190111Z-40a16163: every gate passed, then rustc compiling the app
+        # binary under the nightly's build supervisor ran at 4.52 cores and was stopped
+        # after 10 s. 10 is that supervisor (release-build root), 20 cargo, 30 rustc. 40/50
+        # is the same load under an ordinary session: its rule must not change.
+        self.root(10, 'release-build')
+        self.root(40, 'session')
+        watch = G.Watch()
+        stopped, rates, protected = {}, {}, set()
+        for now in range(0, 604, 2):
+            rows = {10: self.row(), 20: self.row(10), 30: self.row(20, now * 4.5, name='rustc'),
+                    40: self.row(), 50: self.row(40, now * 4.5, name='rustc')}
+            chosen, rates, protected = watch.sample(rows, now)
+            for pid in chosen:
+                stopped.setdefault(pid, now)
+        self.assertEqual(stopped.get(50), 12)                # outside a build: 10 s, as before
+        self.assertEqual(stopped.get(30), 602)               # inside: 600 s, and still stopped
+        self.assertEqual((G.BUILD_ROLE, G.BUILD_WINDOW), ('release-build', 600.0))
+        self.assertIn(10, protected)                         # the build's supervisor is never the target
+        rows = {pid: {**row, 'generation': 'native:%s' % pid} for pid, row in rows.items()}
+        with patch.object(G, 'processes', return_value=rows), patch.object(os, 'kill'):
+            watch.stop(30, rows, protected, rates)
+        self.assertEqual(G.read_json(G.STATE / 'alert.json')['sustained_seconds'], G.BUILD_WINDOW)
+
+    def test_a_process_that_leaves_the_build_tree_is_judged_by_the_ordinary_window(self):
+        self.root(10, 'release-build')
+        watch = G.Watch()
+        for now in range(0, 14, 2):
+            # Observed under the build once, then reparented to launchd: still owned,
+            # but no longer a compile step of the registered build.
+            chosen, _, _ = watch.sample({10: self.row(), 30: self.row(10 if now == 0 else 1, now * 4.5)}, now)
+        self.assertEqual(chosen, [30])
+
+    def test_the_build_supervisor_registers_with_the_role_it_was_given(self):
+        import proc_tree
+        import pwd
+        # supervise() installs its own handlers before it starts the child; put ours back.
+        saved = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+        self.addCleanup(lambda: [signal.signal(sig, handler) for sig, handler in saved.items()])
+        home = pwd.getpwuid(os.getuid()).pw_dir
+        env = {k: v for k, v in os.environ.items() if k != 'CLAUDE_CONFIG_DIR'}
+        with patch.dict(os.environ, {**env, 'HOME': home}, clear=True), \
+                patch.object(G, 'verification_enabled', return_value=False), \
+                patch.object(G, 'inherited_verification_owner', return_value=None), \
+                patch.object(G, 'healthy', return_value=True), \
+                patch.object(G, 'register') as register, \
+                patch.object(proc_tree.subprocess, 'Popen', side_effect=OSError('fixture stops here')):
+            self.assertEqual(proc_tree.supervise(os.getpid(), ['true'], guard_role='release-build'), 127)
+            register.assert_called_once_with(os.getpid(), 'managed true', 'release-build')
+        with patch.object(proc_tree, 'supervise', return_value=0) as supervise:
+            proc_tree.main(['run', '1', '--guard-role', 'release-build', '--', 'true'])
+            self.assertEqual(supervise.call_args.args[-1], 'release-build')
+            proc_tree.main(['run', '1', '--', 'true'])
+            self.assertEqual(supervise.call_args.args[-1], 'session')
+        with self.assertRaises(ValueError):
+            proc_tree.supervise(os.getpid(), ['true'], guard_role='anything-else')
+
     def test_caps_cannot_be_overridden(self):
         gradle=N.capped(['./gradlew','test'])
         self.assertIn('--max-workers=1',gradle)
