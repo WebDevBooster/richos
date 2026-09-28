@@ -153,6 +153,37 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_workspace_behavior_suites_do_not_read_manifest_comments(self):
+        from affected_units import Selection, GLOBAL_CONFIG
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        read = lambda path: (HERE.parent / path).read_text()
+        before = json.dumps({'hooks': {}})
+        def manifest(path):
+            return json.dumps({'hooks': {'UserPromptSubmit': [{'hooks': [
+                {'type': 'command', 'command': 'bash ${CLAUDE_PLUGIN_ROOT}/' + path}]}]}})
+        after = manifest('scripts/hooks/failure-type-lookup.sh')
+        for unit in ('mega-lander/tests/workspace-spec-fourteen.test.sh',
+                     'mega-lander/tests/workspaces-e2e.test.sh'):
+            reader = inputs.hook_reader(document['hook_readers'][unit], read)
+            self.assertFalse(reader['commands'] or reader.get('events') or reader.get('all_events'))
+            selection = Selection(HERE.parent, [unit], read, document)
+            selection.hooks(before, after)
+            self.assertFalse(selection.selected)
+            selection.hooks(before, manifest('scripts/hooks/workspace-lifecycle.sh'))
+            self.assertIn(unit, selection.selected)
+            for source in reader['sources']:
+                with self.subTest(unit=unit, changed_source=source):
+                    changed_read = lambda path: read(path) + ('\n# changed\n' if path == source else '')
+                    changed = Selection(HERE.parent, [unit], changed_read, document)
+                    changed.hooks(before, after)
+                    self.assertIn(unit, changed.selected)
+            malformed = Selection(HERE.parent, [unit], read, document)
+            malformed.hooks(before, '{unknown')
+            self.assertIn(unit, malformed.selected)
+            config = Selection(HERE.parent, [unit, GLOBAL_CONFIG], read, document)
+            config.configuration('ALLOWED_MODELS=old\n', 'ALLOWED_MODELS=new\n')
+            self.assertIn(unit, config.selected)
+
     def test_provenance_provider_and_run_records_exclude_live_config(self):
         from affected_units import Selection, GLOBAL_CONFIG
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
