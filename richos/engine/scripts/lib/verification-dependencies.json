@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "25f3bba1de42c257e3ac1e5a81bf7407c5b56193809a8ab78b714cd19dfcf600",
+      "sha256": "c5ffa842897364b01233e7d0fcc6c2913694c4244ff012bd7b69c3123d78f5ca",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -4000,6 +4000,73 @@
           "fixture": true
         }
       ]
+    },
+    "scripts/lib/teammate-name.sh": {
+      "source": "scripts/lib/teammate-name.sh",
+      "sha256": "fd4f49d710bb208948d60cb7c92ccfcfce1e9db209975c53234f161a330a34a2",
+      "evidence": "Pure name-shape functions consume caller arguments. The separately defined creator helper reads only ALLOWED_MODELS with sed from its explicit engine root; no other helper execution.",
+      "keys": [
+        "ALLOWED_MODELS"
+      ],
+      "edges": []
+    },
+    "mega-lander/workspaces.py#isolation-registration": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+      "evidence": "Reviewed CLI register-readonly/register-cc/confirm-cc and check-spawn. Only register_readonly, register_cc and confirm_cc add local functions beyond the reviewed lifecycle/discard closure; they use the same registry, native identity and Git helpers, with no new dynamic import or config read. check-spawn calls register_spawn with dry=True. Also retains hook, integration and discard used directly by the isolation suite. Explicit --session bypasses ambient current_session for the non-payload fixture calls.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#discard"
+        }
+      ]
+    },
+    "scripts/hooks/guard-worktree-isolation.sh": {
+      "source": "scripts/hooks/guard-worktree-isolation.sh",
+      "sha256": "c200f7a5b48835054ce460b95053abca44ac6dbaf677289940c23fc196917025",
+      "evidence": "Sources governed entity settings, checks model/name/isolation against fixed helper calls and reads session team records. Agent payload text is parsed as data, never dispatched. CLI register-readonly/register-spawn/check-spawn share reviewed workspace registration. Lifecycle and sealed-worktree scripts are checked for existence/mode only, not executed here.",
+      "keys": [
+        "READONLY_ALLOWLIST",
+        "HARNESS_UTILITY_TYPES",
+        "GENERIC_AGENT_TYPES",
+        "SESSION_TEAMS_DIR",
+        "ALLOWED_MODELS",
+        "MODEL_TIERS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/resolve-model.sh"
+        },
+        {
+          "to": "scripts/lib/teammate-name.sh"
+        },
+        {
+          "to": "scripts/lib/model-tiers.sh"
+        },
+        {
+          "to": "mega-lander/workspaces.py#isolation-registration"
+        }
+      ]
+    },
+    "scripts/hooks/guard-worktree-isolation.test.sh": {
+      "source": "scripts/hooks/guard-worktree-isolation.test.sh",
+      "sha256": "00ebfd1171073a8bea5c53de7cc8a71cefa6db713946019a25a0aae02f9f2a04",
+      "evidence": "Calls the real guard against the real engine adoption/config/model roster before additional literal private-config cases. Other cases copy real configuration unchanged, so private directories do not remove these dependencies. Private Git worktrees and registry records exercise register-cc/confirm-cc, integration, hook and discard; their real engine cleanup settings remain dependencies. Copies of lifecycle/sealed-worktree are inspected for presence/mode only. No model agents are launched and no nested mutation suite is run.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-worktree-isolation.sh"
+        },
+        {
+          "to": "mega-lander/workspaces.py#isolation-registration"
+        }
+      ]
     }
   },
   "units": {
@@ -4071,7 +4138,8 @@
     "scripts/hooks/inflight-notify.test.sh": "scripts/hooks/inflight-notify.test.sh",
     "scripts/hooks/inflight-ack-durability.test.sh": "scripts/hooks/inflight-ack-durability.test.sh",
     "scripts/lib/git-jurisdiction.test.sh": "scripts/lib/git-jurisdiction.test.sh",
-    "scripts/hook-registration-completeness.test.sh": "scripts/hook-registration-completeness.test.sh"
+    "scripts/hook-registration-completeness.test.sh": "scripts/hook-registration-completeness.test.sh",
+    "scripts/hooks/guard-worktree-isolation.test.sh": "scripts/hooks/guard-worktree-isolation.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {

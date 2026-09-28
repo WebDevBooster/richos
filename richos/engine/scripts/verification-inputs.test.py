@@ -152,6 +152,32 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_isolation_registration_retains_model_and_cleanup_inputs(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/guard-worktree-isolation.test.sh'
+        expected = {'READONLY_ALLOWLIST', 'HARNESS_UTILITY_TYPES', 'GENERIC_AGENT_TYPES',
+                    'SESSION_TEAMS_DIR', 'ALLOWED_MODELS', 'MODEL_TIERS',
+                    'AGENT_NAMESPACE_ROOTS', 'APP_TEST_INSTANCE_PROCESS_NAMES',
+                    'APP_TEST_INSTANCE_BUNDLE_ID', 'APP_TEST_INSTANCE_REAL_HOME_PATHS',
+                    'APP_TEST_INSTANCE_QUIT_GRACE_SECONDS', 'APP_TEST_INSTANCE_KILL_GRACE_SECONDS'}
+        closure = graph.closure(unit)
+        self.assertEqual(set(closure['keys']), expected)
+        self.assertFalse(closure['whole'] or closure['fallback'], closure)
+        for key in expected | {'PROTECTED_PATHS', 'SHOW_TURN_MANIFEST'}:
+            change = inputs.config_change(key+'=old', key+'=new')
+            self.assertEqual(bool(graph.config_units(change, [unit])), key in expected, key)
+        self.assertIn(unit, graph.config_units(inputs.config_change(None, 'ALLOWED_MODELS=opus'), [unit]))
+        change = inputs.config_change('SHOW_TURN_MANIFEST=0', 'SHOW_TURN_MANIFEST=1')
+        for helper in ('scripts/lib/teammate-name.sh', 'scripts/lib/model-tiers.sh',
+                       'scripts/lib/resolve-roots.sh', 'scripts/lib/resolve-model.sh',
+                       'mega-lander/workspaces.py#isolation-registration',
+                       'scripts/lib/appinstances.py#workspace-cleanup'):
+            with self.subTest(helper=helper):
+                previous = document['nodes'].pop(helper)
+                self.assertIn(unit, graph.config_units(change, [unit]))
+                document['nodes'][helper] = previous
+
     def test_git_jurisdiction_binds_undeclared_target_guard_paths(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)
