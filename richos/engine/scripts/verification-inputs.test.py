@@ -152,6 +152,27 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_contract_workspace_sections_keep_their_distinct_nested_readers(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        prefix = 'scripts/hooks/contract-integrity.test.sh'
+        units = [prefix+':Q', prefix+':Qscope']
+        for unit in units:
+            closure = graph.closure(document['units'][unit])
+            self.assertEqual(closure['fallback'], [])
+            self.assertFalse(closure['whole'])
+            self.assertIn('APP_TEST_INSTANCE_BUNDLE_ID', closure['keys'])
+            self.assertIn('QA_TOOLKIT_AGENTS', closure['keys'])
+        for key in ('SCRATCH_REAPER_ENABLE', 'ALLOWED_MODELS', 'SEAL_WAIT_SECONDS'):
+            self.assertEqual(set(graph.config_units(inputs.config_change(key+'=a', key+'=b'), units)), {units[1]})
+        self.assertFalse(graph.config_units(inputs.config_change('QUOTA_PAUSE_PERCENT=a', 'QUOTA_PAUSE_PERCENT=b'), units))
+        for unit, helper in zip(units, ('mega-lander/tests/workspaces.test.py', 'mega-lander/tests/workspaces-e2e.test.sh')):
+            old = document['nodes'].pop(helper)
+            self.assertIn(unit, graph.config_units(inputs.config_change('MODEL_CEILING=a', 'MODEL_CEILING=b'), [unit]))
+            document['nodes'][helper] = old
+        reader = inputs.hook_reader(document['hook_readers'][prefix], lambda path: (HERE.parent/path).read_text())
+        self.assertTrue(reader['all_events'])
+
     def test_fourteen_workspace_checks_keep_real_land_and_copied_policy(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

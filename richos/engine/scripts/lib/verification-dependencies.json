@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "e5222de236ff3839c50b0e27fceb1f752bb692d8ff3fee16e5961c5650855abf",
+      "sha256": "797c43a0e63a7fb930267f9fcc494ebeec6edc1913e5b57a85f8dec262ea3bd0",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -8624,6 +8624,54 @@
         }
       ],
       "nonconfig_eval": "All sub assertions are finite literal tests, Git queries and fixed fixture helper calls. No config value is evaluated as command text."
+    },
+    "scripts/hooks/contract-integrity.test.sh#Q": {
+      "source": "scripts/hooks/contract-integrity.test.sh",
+      "sha256": "367fc70f5ccbc66e5be5f1414d821f4c11c69916829c9ca27aa2ddfb1b5638d2",
+      "evidence": "Reviewed complete Q section. Seated probe/installer use literal template settings and finite wiring, hash and registry mutations. Hostile Git hook is a literal exit-1 fixture. Nested workspace Python suite is run with mutation recursion disabled and retains real cleanup/QA settings.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/contract-integrity.test.sh#prelude"
+        },
+        {
+          "to": "scripts/hooks/contract-integrity-probe.sh#seated-fixture",
+          "fixture": true
+        },
+        {
+          "to": "mega-lander/tests/workspaces.test.py"
+        },
+        {
+          "to": "scripts/hooks/install.sh#private-config-dir",
+          "fixture": true
+        }
+      ],
+      "region": [
+        "if _section Q; then",
+        "fi  # _section — Q\n"
+      ]
+    },
+    "scripts/hooks/contract-integrity.test.sh#Qscope": {
+      "source": "scripts/hooks/contract-integrity.test.sh",
+      "sha256": "367fc70f5ccbc66e5be5f1414d821f4c11c69916829c9ca27aa2ddfb1b5638d2",
+      "evidence": "Reviewed complete Qscope section. Seated probe/installer use literal template settings and finite wiring, hash and registry mutations. Revived hooks are literal exit-0 files. Nested workspace end-to-end suite retains copied real policy and actual land-time scratch readers.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/contract-integrity.test.sh#prelude"
+        },
+        {
+          "to": "scripts/hooks/contract-integrity-probe.sh#seated-fixture",
+          "fixture": true
+        },
+        {
+          "to": "mega-lander/tests/workspaces-e2e.test.sh"
+        }
+      ],
+      "region": [
+        "if _section Qscope; then",
+        "fi  # _section — Qscope\n"
+      ]
     }
   },
   "units": {
@@ -8747,7 +8795,9 @@
     "mega-lander/tests/workspace-stopped-ending.test.sh": "mega-lander/tests/workspace-stopped-ending.test.sh",
     "mega-lander/tests/workspaces-e2e.test.sh": "mega-lander/tests/workspaces-e2e.test.sh",
     "mega-lander/tests/workspaces.test.sh": "mega-lander/tests/workspaces.test.sh",
-    "mega-lander/tests/workspace-spec-fourteen.test.sh": "mega-lander/tests/workspace-spec-fourteen.test.sh"
+    "mega-lander/tests/workspace-spec-fourteen.test.sh": "mega-lander/tests/workspace-spec-fourteen.test.sh",
+    "scripts/hooks/contract-integrity.test.sh:Q": "scripts/hooks/contract-integrity.test.sh#Q",
+    "scripts/hooks/contract-integrity.test.sh:Qscope": "scripts/hooks/contract-integrity.test.sh#Qscope"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
@@ -9014,6 +9064,9 @@
         "ass-kicker/guard-stated-actions.py": "e18787c25137c401eabdb34cfe833612c7d569a1aa790e9dfcd7955470697fc4",
         "ass-kicker/tests/guard-stated-actions.test.sh": "2d60f14e7fbc4cb65f11873f119fa1a8b6920552b54ca434418d63a5099e25e6",
         "ass-kicker/tests/stated-actions.mutation.sh": "6ee77e488fc4d2b872d0e94b5a1d0ede7f8212c04036d914a80fa82e375e3c89",
+        "mega-lander/create-teammate-worktree.sh": "189e5e613e20454aeab4a5d7b66d635ed876c165d3fa18884b7e1f9fcd59c963",
+        "mega-lander/tests/workspaces-e2e.test.sh": "98ab5258ff74f8c554ace58ffffdf3ea3456705b22e46684a1e9e876f55a49a2",
+        "mega-lander/tests/workspaces.test.py": "17448b12acb2fb453764f631876bc29b891343402fc64531f9157ef701037ba2",
         "mega-lander/workspaces.py": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
         "mega-lander/workspaces.sh": "93b86b885516641e69a7cd84105260ee94d52300f0099362c7ed9b475855764e",
         "scripts/entrypoint-currency-lint.sh": "09d95bf0ae992caa52ab7eeaec9613a0cb6ca23933a4f8450c52aba36d8f7486",
@@ -9022,10 +9075,13 @@
         "scripts/hooks/contract-integrity-probe.sh": "52a95b7eabe7c8d4142d4f64fe5337064480f99ed2a7cdb56bf78e42ab08d3a6",
         "scripts/hooks/contract-integrity.test.sh": "367fc70f5ccbc66e5be5f1414d821f4c11c69916829c9ca27aa2ddfb1b5638d2",
         "scripts/hooks/engine-status.sh": "c1ea99017ada713a0a68a56fe7f23dfab11b027ed53ea3a7846d4e51b8e467b0",
+        "scripts/hooks/guard-agent-state-claims.sh": "b7a14acc4ff57cdec91821f6fd74b3c745deb18a0bd256ac7d60a3e7dd35dd7e",
         "scripts/hooks/guard-bash-main-writes.sh": "103465d3f2a5744282c5147b4cf45db5f484318b6635412f9d6b3ea368e4033f",
+        "scripts/hooks/guard-ci-turn-gate.sh": "d5982f5f16da84d753d275669128b20c453782674189d9b8b2b7ac0dae39c324",
         "scripts/hooks/guard-definition-drift.sh": "6abe090d1a5eae1c726799e7c6e9bdaad2da332635fec5737ce9ce31f4f05007",
         "scripts/hooks/guard-definition-drift.test.sh": "ae3616c638a5835284feff2a91a3129e67ca176b71ddd58900405d447c781690",
         "scripts/hooks/guard-dialect.sh": "2a19b37f44f5805b9b57c613f1cc7eae0cd1ef806dd36db2b4b10bfed990a58e",
+        "scripts/hooks/guard-failure-type-answer.sh": "9178339b1342a751b3de2fa743b2d65df019af3eb4af10e7447a82ad805895aa",
         "scripts/hooks/guard-idle-land.py": "6f86233ebe1e642b9bee0eb55b5467bc8b6f2d1261a381bcaf62589291e8efd0",
         "scripts/hooks/guard-idle-land.sh": "c65ff6beb940c15ff20cf5a7e54e2f8453c4f6594d2ed2a8d32cda662dc3efae",
         "scripts/hooks/guard-idle-land.test.sh": "8b88552358c1f3ffbb7e95022c6a6b68925dcfd751cc92b09b3f268e387df987",
@@ -9062,6 +9118,7 @@
         "scripts/hooks/notice-inflight-acks.sh": "09f3b2a22cbdbc9334d978a7899a3e64380b9edb386a255a4fe4f370897d1a1b",
         "scripts/hooks/notice-inflight-sends.sh": "b5120d7d24070d1e306ed38fd96345bfee3c7d2538e1bde72c4bde155a4e0af4",
         "scripts/hooks/notice-mechanical-findings.sh": "f2c24f99590165f5451c6a38cc8145c757e528dfb5a0528c6ddb0bb9efb46f9f",
+        "scripts/hooks/observe-created-refs.sh": "6c1bcc7fc86608dace9465fdaef957468872b82906e4134382a98b5ab8085202",
         "scripts/hooks/scan-secrets.sh": "d23d1d44376e0557597f8a0add40a0226049d801769af48d81095002477e0c73",
         "scripts/hooks/snapshot-agent-definitions.sh": "51f92567f9daaa9bacd37082d0cd30beba284b3149714c8a45f945738d6ebaff",
         "scripts/hooks/turn-manifest.py": "f7846899fa05c44ed325cffa18c6304c3177b46901923bd26d829e226d87665b",
@@ -9093,6 +9150,8 @@
         "scripts/lib/operator_fences_admin.py": "924d3bf06082e5d54a7caf7f1ea88a2124cd6a52454c094a11a8ad51b2e5e035",
         "scripts/lib/pause_protocol.py": "e1fd9b925db513fc58c45eddb1eb04b2f5468a3f5b150a90a079f3f991b45535",
         "scripts/lib/proc_tree.py": "dbd97c9b9758184e960348cd6c81e5089ae9691aee8324977a3ddbc0460a219d",
+        "scripts/lib/qa-throwaways.py": "1c355bbfaa5bb464c020d4743bf842b8fbbe5a7265caa6ffb2200523064ef9b6",
+        "scripts/lib/qa-toolkit.py": "f490cd7a72bacf99bef3eef47cc059d99cac5f3878b0d2399eea06dae55a24c0",
         "scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/resolve-model.sh": "80d6df68468d7484a4385eb8b1b9ffdf1ea9575776a5e7141bb3fca58ca7ec11",
@@ -9124,6 +9183,7 @@
         "scripts/scratch-reaper.mutation.sh": "149890cea01df08dc0be116c8b3e06f897a3d27d6935f83f4c9728c9347e2643",
         "scripts/scratch-reaper.sh": "1cdefb018a15be05c60b6dd257678573d2135230ceb58cfaef0fcd9c835975b1",
         "scripts/scratch-reaper.test.sh": "3987ec7472048506ed539f672f067a601308085aa0ce4e45da2ef44c714fb16a",
+        "scripts/scratch-sweep.sh": "98804cde04a632171f4323a43164e18871412d44e41ec36b2e535a2e43554297",
         "scripts/unstarted-rows-lint.sh": "4b654eefa4fb775ba218fbee15595b415684c7a90e2168eedf864c07f142e58e"
       }
     },
