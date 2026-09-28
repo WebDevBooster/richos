@@ -266,6 +266,9 @@ agent_call "$AID4" "toolu_work8" "python3 $T/worker.py $T/w8 $((ROUNDS * 50))" w
 wait_file "$T/w8.progress"; W8="$(cat "$T/w8.pid")"; OURS+=("$W8")
 send "zach-opus-hold4" "$PAUSE_TEXT" "$T/pause8.out"
 WAITCMD="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import pause_protocol as p; print(p.WAIT_COMMAND.replace("~/.claude/richos-engine", sys.argv[2]))' "$LIB" "$ENGINE")"
+agent_call "$AID4" "toolu_notice8" "$WAITCMD" notice8
+wait_file "$T/notice8.rc" 100
+sub "H8.0 a hold that predates the wait gets an immediate WAIT result" "grep -q '^WAIT:' '$T/notice8.stdout'"
 agent_call "$AID4" "toolu_wait8" "$WAITCMD" wait8
 SHW="$(cat "$T/wait8.shell")"
 sleep 1

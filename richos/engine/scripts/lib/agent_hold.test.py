@@ -603,6 +603,11 @@ class Wait(Base):
         import io
         os.environ[agent_hold.TAG], os.environ[agent_hold.SESSION_TAG] = self.agent, self.session
         agent_hold.hold(self.session, self.agent, "fixture")
+        notice = io.StringIO()
+        start = time.monotonic()
+        self.assertEqual(agent_hold.wait_resume(10, 0.05, notice), 0)
+        self.assertIn("WAIT:", notice.getvalue())
+        self.assertLess(time.monotonic() - start, 1)
         buf = io.StringIO()
         self.assertEqual(agent_hold.wait_resume(0.5, 0.05, buf), 0)
         self.assertIn("STILL WAITING", buf.getvalue())
@@ -615,6 +620,9 @@ class Wait(Base):
         # Sage's catch A (2026-09-28): the wait command itself was self-suspended. It must run
         # (never refused, never frozen by a hold) and return RESUMED only once released.
         agent_hold.hold(self.session, self.agent, "fixture")
+        first, _ = self.start_rewritten(agent_hold.WAIT_COMMAND, tuid="toolu_notice")
+        text, _ = first.communicate(timeout=3)
+        self.assertIn("WAIT:", text)
         call, got = self.start_rewritten("python3 %s wait" % (HERE / "agent_hold.py"), tuid="toolu_wait")
         self.assertEqual(got["input"], {"timeout": agent_hold.TOOL_MAX_TIMEOUT_MS, "run_in_background": False},
                          "its call gets the tool's longest timeout, so it returns before being backgrounded")
@@ -715,7 +723,10 @@ class LegacyForeground(Base):
         time.sleep(1.0)
         self.assertEqual(Path(self.out("fg") + ".progress").read_text(), progress, "no progress while held")
         self.assertIn("its tool call returned, so the WAIT reaches it now", agent_hold.describe_hold(r))
-        # The agent now runs its wait: it waits, then collects the command's own result.
+        # The first wait confirms the hold; the next waits and collects the old result.
+        first, _ = self.start_rewritten(agent_hold.WAIT_COMMAND, tuid="toolu_legacy_notice")
+        notice, _ = first.communicate(timeout=3)
+        self.assertIn("WAIT:", notice)
         waiter, _got = self.start_rewritten("python3 %s wait" % (HERE / "agent_hold.py"), tuid="toolu_wait")
         time.sleep(1.0)
         self.assertIsNone(waiter.poll(), "the wait waits while held")

@@ -1017,6 +1017,20 @@ def native_pending(session, agent):
     return False
 
 
+def notice_hold(session, agent):
+    """Return once for each hold before waiting, including a hold that predates
+    this call. That tool boundary lets the harness deliver the queued message.
+    """
+    held = _read_json(_held_path(session, agent))
+    if not isinstance(held, dict) or not isinstance(held.get("at"), (int, float)):
+        return False
+    path = os.path.join(state_dir(), "wait-notices", "%s__%s.json" % (session, agent))
+    if (_read_json(path) or {}).get("at") == held["at"]:
+        return False
+    _write_json(path, {"at": held["at"]})
+    return True
+
+
 def wait_resume(max_seconds=None, poll=2.0, out=sys.stdout):
     """Returns once this agent's hold is released, printing RESUMED and then the result of
     any foreground command the hold froze; at the bound it prints STILL WAITING (or STILL
@@ -1031,6 +1045,9 @@ def wait_resume(max_seconds=None, poll=2.0, out=sys.stdout):
     deadline = time.monotonic() + max_seconds
     path = _held_path(session, agent)
     while os.path.exists(path):
+        if notice_hold(session, agent):
+            out.write("WAIT: running work is held. " + HOW_TO_WAIT + "\n")
+            return 0
         if time.monotonic() >= deadline:
             out.write("STILL WAITING at %s: run this same command again, with the Bash timeout 600000.\n"
                       % _clock())
@@ -1042,6 +1059,7 @@ def wait_resume(max_seconds=None, poll=2.0, out=sys.stdout):
     # queued SendMessage can be delivered at this tool boundary.
     while native_pending(session, agent):
         if os.path.exists(path):
+            notice_hold(session, agent)
             out.write("WAIT: running work is held. " + HOW_TO_WAIT + "\n")
             return 0
         if time.monotonic() >= deadline:
