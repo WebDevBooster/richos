@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "8ee19b1ff78d16c469a2d89bae9605aaffdc67e5a3acbfd91d7867b9834bf8a8",
+      "sha256": "e5222de236ff3839c50b0e27fceb1f752bb692d8ff3fee16e5961c5650855abf",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -8541,6 +8541,89 @@
           "to": "mega-lander/tests/workspaces.mutation.sh"
         }
       ]
+    },
+    "mega-lander/workspaces.py#fourteen-cli": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+      "evidence": "Reviewed suite CLI calls: register-cc, integration, status, retry, pause, stop, wait, discard and land, plus _turn_started_by_person import. All use the previously reviewed local library call closure. Land includes its real QA and scratch sweep. Printed command/payload text is never executed by this module.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#unit-fixtures"
+        },
+        {
+          "to": "mega-lander/workspaces.py#land-cli-fixtures"
+        }
+      ]
+    },
+    "mega-lander/workspaces.sh#fourteen-cli": {
+      "source": "mega-lander/workspaces.sh",
+      "sha256": "93b86b885516641e69a7cd84105260ee94d52300f0099362c7ed9b475855764e",
+      "evidence": "Fixed wrapper forwards the fourteen-suite command set to workspaces.py.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#fourteen-cli"
+        }
+      ]
+    },
+    "mega-lander/tests/workspace-spec-fourteen.mutation.sh": {
+      "source": "mega-lander/tests/workspace-spec-fourteen.mutation.sh",
+      "sha256": "bf6792427093c7ffab3d853360c0e4ded7d95f2835ec5e7d049dd4722b158b45",
+      "evidence": "Reviewed all finite mutation source operands in workspaces.py, removal guard, creator and integration readers. They change local predicates and fixed Git operations without adding dynamic configuration/executable inputs. Optional nightly driver uses the same suite and copied configuration transport.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "mega-lander/tests/workspace-spec-fourteen.test.sh"
+        }
+      ]
+    },
+    "mega-lander/tests/workspace-spec-fourteen.test.sh": {
+      "source": "mega-lander/tests/workspace-spec-fourteen.test.sh",
+      "sha256": "37c1150ae3314bb3f198b5a9bd8e347b599cc47d6fbc0e3be6931cb535d06455",
+      "evidence": "Reviewed suite fixture constructors, complete executable call sites, inline Python and finite eval assertions. Private adopted repository copies real config; settings are retained. Agent/lifecycle events are literal JSON, not actual model dispatch. Creator repositories have no setup hooks. Land invokes the actual scratch sweep. Direct unsourced integration consumers read only environment defaults, while hook children source the copied config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/workspace-lifecycle.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-worktree-isolation.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-sealed-worktree.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-worktree-removal.sh"
+        },
+        {
+          "to": "scripts/hooks/observe-created-refs.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-workspace-gate.sh"
+        },
+        {
+          "to": "mega-lander/create-teammate-worktree.sh#plain-fixture-repos"
+        },
+        {
+          "to": "mega-lander/workspaces.sh#fourteen-cli"
+        },
+        {
+          "to": "scripts/unlanded-branches-lint.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-unresolved-claims.py",
+          "fixture": true
+        },
+        {
+          "to": "mega-lander/tests/workspace-spec-fourteen.mutation.sh"
+        }
+      ],
+      "nonconfig_eval": "All sub assertions are finite literal tests, Git queries and fixed fixture helper calls. No config value is evaluated as command text."
     }
   },
   "units": {
@@ -8663,7 +8746,8 @@
     "scripts/disk-watchdog.test.sh": "scripts/disk-watchdog.test.sh",
     "mega-lander/tests/workspace-stopped-ending.test.sh": "mega-lander/tests/workspace-stopped-ending.test.sh",
     "mega-lander/tests/workspaces-e2e.test.sh": "mega-lander/tests/workspaces-e2e.test.sh",
-    "mega-lander/tests/workspaces.test.sh": "mega-lander/tests/workspaces.test.sh"
+    "mega-lander/tests/workspaces.test.sh": "mega-lander/tests/workspaces.test.sh",
+    "mega-lander/tests/workspace-spec-fourteen.test.sh": "mega-lander/tests/workspace-spec-fourteen.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {

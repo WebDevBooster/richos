@@ -152,6 +152,26 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_fourteen_workspace_checks_keep_real_land_and_copied_policy(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'mega-lander/tests/workspace-spec-fourteen.test.sh'
+        closure = graph.closure(unit)
+        self.assertEqual(closure['fallback'], [])
+        self.assertFalse(closure['whole'])
+        self.assertTrue(closure['presence'])
+        for key in ('ALLOWED_MODELS', 'SEAL_WAIT_SECONDS', 'READONLY_ALLOWLIST', 'APP_TEST_INSTANCE_BUNDLE_ID',
+                    'SCRATCH_REAPER_ENABLE', 'SCRATCH_DOCKER_PRUNE', 'QA_TOOLKIT_AGENTS'):
+            self.assertIn(unit, graph.config_units(inputs.config_change(key+'=a', key+'=b'), [unit]), key)
+        for key in ('UNLANDED_BRANCHES_EXTRA_REPOS', 'QA_TOOLKIT_DIR', 'QUOTA_PAUSE_PERCENT'):
+            self.assertNotIn(unit, graph.config_units(inputs.config_change(key+'=a', key+'=b'), [unit]), key)
+        for helper in ('mega-lander/tests/workspace-spec-fourteen.mutation.sh', 'scripts/hooks/guard-worktree-removal.sh',
+                       'scripts/unlanded-branches-lint.sh', 'scripts/hooks/guard-unresolved-claims.py',
+                       'scripts/scratch-sweep.sh'):
+            old = document['nodes'].pop(helper)
+            self.assertIn(unit, graph.config_units(inputs.config_change('MODEL_CEILING=a', 'MODEL_CEILING=b'), [unit]))
+            document['nodes'][helper] = old
+
     def test_workspace_unit_masks_only_the_explicitly_disabled_sweep(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)
