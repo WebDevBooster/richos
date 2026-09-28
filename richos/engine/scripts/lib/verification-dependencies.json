@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "c4d4149feee2a06d487d2bf0641efdf35fc37e39ef692f945d96fc1ec60df436",
+      "sha256": "98cb1917bcec0ed5ec366e54c4f1032d494ae24ccfe959231ce6cd46588e838d",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -11233,6 +11233,178 @@
         "SCRIPT_DIR=\"$(cd",
         "if resolve_entity_root \"$INPUT\"; then"
       ]
+    },
+    "scripts/lib/login_alarm.py#suite-fixture": {
+      "source": "scripts/lib/login_alarm.py",
+      "sha256": "121de3803351aa98c57eeb3810c638ecd0dfa8a1d7faf26c9cc009f29b93b7e2",
+      "evidence": "Reviewed scan, report, episode renewal and notification retry paths. The suite supplies private transcript/state/ledger paths and literal security/notification recorder executables. Escalation helpers are the only engine import. No orchestration.config read, model call or dynamic engine import.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/escalations.py"
+        }
+      ]
+    },
+    "scripts/login-alarm.sh#suite-fixture": {
+      "source": "scripts/login-alarm.sh",
+      "sha256": "4e1ab541da85a9bdb1330d1a033a3df30801effa8b1f6c85c86627f6b91fb278",
+      "evidence": "The suite exercises scan/report plus print-plist/install/installed. RICHOS_LAUNCH_AGENTS_DIR is always set to its sandbox, suppressing launchctl; plist text is output, never executed. The fixed Python sibling handles scans. Neither branch sources orchestration.config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/login_alarm.py#suite-fixture"
+        }
+      ]
+    },
+    "scripts/login-alarm.mutation.sh": {
+      "source": "scripts/login-alarm.mutation.sh",
+      "sha256": "889f8b299b110c0762d8f97cb7d6673a3b86cbfa55a567092007c050bb6879fe",
+      "evidence": "All eight mutations patch finite literal Python operands and run the login-alarm fixture suite. Shared harness config copying is transport, not a value read; the nested suite preserves its private seams.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/login-alarm.test.sh"
+        }
+      ]
+    },
+    "scripts/login-alarm.test.sh": {
+      "source": "scripts/login-alarm.test.sh",
+      "sha256": "01932b697f8888280da1b6682371b2b8f1d7dae38f8e7c5256558153eef46a5f",
+      "evidence": "Reviewed all L01-L13 assertions and nested mutation invocation. Transcripts, keychain attributes, notifications, episode state, escalation ledger and launchd directory are private fixture data/recorders. Clock values are supplied to scan calls. Neither this suite nor the shell wrapper sources orchestration.config. Scratch receives only caller/environment defaults.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/scratch.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/login-alarm.sh#suite-fixture"
+        },
+        {
+          "to": "scripts/login-alarm.mutation.sh"
+        }
+      ]
+    },
+    "scripts/ci-units.sh": {
+      "source": "scripts/ci-units.sh",
+      "sha256": "48f66e45e4621c220c0fb390337bf2c367b59f76bddc67be2a32c0980f980d36",
+      "evidence": "Reviewed every command: discovers test paths and section markers, reads numeric TSV weights and prints units, commands or schedules. Inline Python packs parsed rows. It never executes discovered suites or sources configuration.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/run-all-tests.sh#list": {
+      "source": "scripts/run-all-tests.sh",
+      "sha256": "e70d96bab5eabf9729a1c05ad92916d5f9ab19bf48a5ed7b68b966a4f835b106",
+      "evidence": "ci-units.test.sh invokes only --list. Argument parsing and filename discovery exit before worker tools, witnesses or test execution. The full source hash binds this early exit; files are names, not executed content.",
+      "keys": [],
+      "edges": [],
+      "region": [
+        "set -uo pipefail",
+        "WORKER_TOOL=\"$ENGINE_ROOT/scripts/lib/worker_tokens.py\""
+      ]
+    },
+    "scripts/hooks/contract-integrity.test.sh#list": {
+      "source": "scripts/hooks/contract-integrity.test.sh",
+      "sha256": "367fc70f5ccbc66e5be5f1414d821f4c11c69916829c9ca27aa2ddfb1b5638d2",
+      "evidence": "ci-units.test.sh invokes only --list. It scans its own section/case markers with awk and exits before the shared fixture prelude, probe or nested tests. Config text elsewhere in the source is not executed on this path.",
+      "keys": [],
+      "edges": [],
+      "region": [
+        "set -o pipefail",
+        "if [ -n \"$_SCOPE_ARGS\" ]; then"
+      ]
+    },
+    "scripts/lib/scratch.test.sh": {
+      "source": "scripts/lib/scratch.test.sh",
+      "sha256": "80231840b9e2318f63cead3f47723aa488c6d7dc088537732f806ba2e12daddd",
+      "evidence": "Exercises allocator functions with private TMPDIR and ledger. Its inline Python only parses emitted JSON. The child bash sources the allocator with explicit sandbox paths; no caller sources orchestration config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/scratch.sh",
+          "fixture": true
+        }
+      ]
+    },
+    "scripts/lib/stopwatch.test.sh": {
+      "source": "scripts/lib/stopwatch.test.sh",
+      "sha256": "dea9874b1333a0f277ea852ad33d6c0025aabbe80343eb2b30295b03d47bf70d",
+      "evidence": "Exercises clock arithmetic and one bounded sleep. Only stopwatch.sh is sourced. Date/Perl/Python clock alternatives and string fixtures do not read orchestration settings.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/stopwatch.sh"
+        }
+      ]
+    },
+    "scripts/lib/leak-canary.test.sh": {
+      "source": "scripts/lib/leak-canary.test.sh",
+      "sha256": "34beb23ef954a75701bead30455f0f0b3282d29083397e528851d13ae6e246cd",
+      "evidence": "All witness roots are private Git or plain-directory fixtures. Sourced canary/tree helpers read supplied files as data. Fixed inline Git commits and merges do not execute engine hooks; no real config file is copied or read.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/leak-canary.sh"
+        },
+        {
+          "to": "scripts/lib/tree-witness.sh"
+        }
+      ]
+    },
+    "scripts/lib/record-canary.test.sh": {
+      "source": "scripts/lib/record-canary.test.sh",
+      "sha256": "0c5dc2194ae75d0a1f60f3071e3dec95fbca389616f257d96760da7b61a9243a",
+      "evidence": "All record paths are beneath a private CLAUDE_CONFIG_DIR. Calls record-canary functions and literal Python/bash writers for deliberate fixture contamination. Detached restoration executes only its literal inline program. No orchestration settings are sourced or read.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/record-canary.sh"
+        }
+      ]
+    },
+    "scripts/lib/mutation-pool.test.sh": {
+      "source": "scripts/lib/mutation-pool.test.sh",
+      "sha256": "0a66e9ee28100ac5d6da3dbfb4b1a13ab34cc535fb79f7bd6c1f14d0dd95ac03",
+      "evidence": "All pool callbacks are defined literal sleep/printf functions in this suite. The worker-token CLI is fixed to the shipped sibling and uses a private token directory. Only operational environment controls vary; no nested production suite or orchestration reader executes.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-pool.sh"
+        },
+        {
+          "to": "scripts/lib/stopwatch.sh"
+        },
+        {
+          "to": "scripts/lib/worker_tokens.py"
+        }
+      ]
+    },
+    "scripts/mutation-inventory.test.sh": {
+      "source": "scripts/mutation-inventory.test.sh",
+      "sha256": "5035e66d0fe58f4b0362be5eff42b4c435c7d8f36def4ed9271430fe35c800c3",
+      "evidence": "Discovers mutation filenames and scans only sh/yml/yaml text for invocation mentions. Generated negative-control scripts are inspected as text and never executed. orchestration.config is neither in the scan extensions nor an execution input.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/ci-units.test.sh": {
+      "source": "scripts/ci-units.test.sh",
+      "sha256": "79f4ca1f92d23d7033d65353136444581f33e09fd7e0f84b29b709eb8423c654",
+      "evidence": "Calls planner inventory/packing commands, run-all-tests --list and contract-integrity --list. The only copied executable is ci-units.sh; generated test scripts are marker data and printed command operands, never run. Numeric weight fixtures and source section markers cannot execute configuration.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/ci-units.sh"
+        },
+        {
+          "to": "scripts/run-all-tests.sh#list"
+        },
+        {
+          "to": "scripts/hooks/contract-integrity.test.sh#list"
+        }
+      ]
     }
   },
   "units": {
@@ -11366,7 +11538,15 @@
     "scripts/hooks/unevaluated-payload.test.sh": "scripts/hooks/unevaluated-payload.test.sh",
     "scripts/hooks/contract-integrity.test.sh:base": "scripts/hooks/contract-integrity.test.sh#base",
     "scripts/hooks/by-reference.test.sh": "scripts/hooks/by-reference.test.sh",
-    "scripts/spawn.test.sh": "scripts/spawn.test.sh"
+    "scripts/spawn.test.sh": "scripts/spawn.test.sh",
+    "scripts/login-alarm.test.sh": "scripts/login-alarm.test.sh",
+    "scripts/lib/scratch.test.sh": "scripts/lib/scratch.test.sh",
+    "scripts/lib/stopwatch.test.sh": "scripts/lib/stopwatch.test.sh",
+    "scripts/lib/leak-canary.test.sh": "scripts/lib/leak-canary.test.sh",
+    "scripts/lib/record-canary.test.sh": "scripts/lib/record-canary.test.sh",
+    "scripts/lib/mutation-pool.test.sh": "scripts/lib/mutation-pool.test.sh",
+    "scripts/mutation-inventory.test.sh": "scripts/mutation-inventory.test.sh",
+    "scripts/ci-units.test.sh": "scripts/ci-units.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
