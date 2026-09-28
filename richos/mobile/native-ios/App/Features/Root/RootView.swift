@@ -170,15 +170,10 @@ struct ScreenView: View {
             }
             VStack(spacing: 0) {
                 // The out-of-reach line belongs to the header's measured block, so the list starts
-                // below it and it is never drawn under the header's fade (I02).
-                VStack(spacing: 8) {
-                    ConversationHeader(connection: model.connection, send: send)
-                    if model.thread.cached, !model.thread.isEmpty {
-                        OutOfReachLine()
-                            .padding(.horizontal, 14)
-                            .transition(.opacity)
-                    }
-                }
+                // below it and it is never drawn under the header's fade (I02). The header holds it, so
+                // when the block is taller than the room left, it scrolls with the connection line.
+                ConversationHeader(connection: model.connection,
+                                   outOfReach: model.thread.cached && !model.thread.isEmpty, send: send)
                 .background(GeometryReader { p in
                     Color.clear.onAppear { headerBottom = p.frame(in: .global).maxY }
                         .onChange(of: p.frame(in: .global).maxY) { _, y in headerBottom = y }

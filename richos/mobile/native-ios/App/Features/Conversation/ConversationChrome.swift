@@ -5,6 +5,9 @@ import SwiftUI
 /// interruption (PRD §5 CEO experience gate; round-12 `conn-*`).
 struct ConversationHeader: View {
     let connection: ScreenModel.ConnectionLine?
+    /// The out-of-reach line (I02): part of the header's block, so the list starts below it and it is
+    /// never drawn under the header's fade.
+    var outOfReach = false
     let send: (Intent) -> Void
     @Environment(\.palette) private var palette
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -15,15 +18,13 @@ struct ConversationHeader: View {
         // top edge and "phone." fell under the next card). The first arrangement whose whole height fits is
         // the one drawn: the sentence in the nameplate; then, as at the accessibility sizes, on its own
         // full-width line (accessibility audit F3: it never breaks inside words in a narrow column);
-        // and only when even that is taller than the room the composer leaves, that line scrolls inside
-        // its card, every word still there.
+        // and only when even that is taller than the room the composer leaves, the notes below the
+        // nameplate (that line, the out-of-reach line) scroll together under it, every word still there.
         let alwaysBelow = dynamicTypeSize.isAccessibilitySize
         ViewThatFits(in: .vertical) {
             arrangement(lineBelow: alwaysBelow, scrolls: false)
-            if connection != nil {
-                if !alwaysBelow { arrangement(lineBelow: true, scrolls: false) }
-                arrangement(lineBelow: true, scrolls: true)
-            }
+            if connection != nil, !alwaysBelow { arrangement(lineBelow: true, scrolls: false) }
+            if connection != nil || outOfReach { arrangement(lineBelow: true, scrolls: true) }
         }
         .dynamicTypeSize(...DynamicTypeSize.accessibility3)
     }
@@ -35,25 +36,38 @@ struct ConversationHeader: View {
                 Spacer(minLength: 0)
                 RoundButton(icon: .settings, label: "Settings", identifier: "header.settings") { send(.openSettings) }
             }
+            .padding(.horizontal, 14)
+            if (lineBelow && connection != nil) || outOfReach {
+                if scrolls {
+                    // Inset inside the scroll, so the cards' shadows are not cut at its sides.
+                    ScrollView { notes(lineBelow: lineBelow).padding(.bottom, 6) }
+                        .scrollBounceBehavior(.basedOnSize)
+                        .accessibilityIdentifier("connection.scroll")
+                } else {
+                    notes(lineBelow: lineBelow)
+                }
+            }
+        }
+        .padding(.top, 8)
+    }
+
+    /// What sits under the nameplate: the connection line on its own full-width card, then the
+    /// out-of-reach line.
+    private func notes(lineBelow: Bool) -> some View {
+        VStack(spacing: 8) {
             if lineBelow, let connection {
-                let line = ConnectionText(line: connection)
+                ConnectionText(line: connection)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 14).padding(.vertical, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Group {
-                    if scrolls {
-                        ScrollView { line }
-                            .scrollBounceBehavior(.basedOnSize)
-                            .accessibilityIdentifier("connection.scroll")
-                    } else {
-                        line
-                    }
-                }
-                .floatingSurface(palette, radius: 18)
+                    .floatingSurface(palette, radius: 18)
+            }
+            if outOfReach {
+                OutOfReachLine()
+                    .transition(.opacity)
             }
         }
         .padding(.horizontal, 14)
-        .padding(.top, 8)
     }
 
     private func nameplate(showLine: Bool) -> some View {

@@ -185,20 +185,26 @@ final class AccessibilityLayoutTests: XCTestCase {
     /// The SE fit (the real iPhone SE, 2026-09-28, D05 right after Send with Tailscale off): between
     /// the status bar and the keyboard, the "Waiting to send" card and the composer, the nameplate was
     /// given less than its own height, so "Rich" crossed its top edge and "phone." fell under the card;
-    /// at the accessibility sizes the line was cut short ("Tailscale on…"). With the longest line the
-    /// header can say (D05's; the headless part proves no line is longer), in both appearances, at the
-    /// default size, the largest standard size and three accessibility sizes, keyboard down and up:
-    /// the header is inside the window and clear of the card and the composer, which stays touchable;
-    /// its line keeps its whole height, as tall with the keyboard up as with it down, or, where even
-    /// its own full-width line cannot fit, scrolls inside its card to its last word.
+    /// at the accessibility sizes the line was cut short ("Tailscale on…"); and with the out-of-reach
+    /// line under it (relaunched while off), the line's card kept one line. With the longest line the
+    /// header can say (D05's; the headless part proves no line is longer) and with the tallest block it
+    /// can hold (a line and the out-of-reach line, conn-cached), at the default size, the largest
+    /// standard size and three accessibility sizes, keyboard down and up, in both appearances: the
+    /// header is inside the window and clear of the card and the composer, which stays touchable; its
+    /// line keeps its whole height, as tall with the keyboard up as with it down, or, where the notes
+    /// under the nameplate cannot fit, they scroll there, each to its last word.
     func testTheHeaderHoldsTheLongestLineWithTheKeyboardAndACard() {
         let sizes: [String?] = [nil, "UICTContentSizeCategoryXXXL", "UICTContentSizeCategoryAccessibilityM",
                                 "UICTContentSizeCategoryAccessibilityXL", Self.largest]
-        for appearance in ["light", "dark"] {
-            for size in sizes {
+        var cases: [(String, String, String?)] = []
+        for appearance in ["light", "dark"] { for size in sizes { cases.append(("conn-tailscale-off", appearance, size)) } }
+        for size in sizes { cases.append(("conn-cached", "light", size)) }
+        cases += [("conn-cached", "dark", nil), ("conn-cached", "dark", Self.largest)]
+        for (id, appearance, size) in cases {
+            do {
                 let sizeName = size?.replacingOccurrences(of: "UICTContentSizeCategory", with: "") ?? "default"
-                let what = "\(appearance) \(sizeName)"
-                let app = Screen.launch("conn-tailscale-off", appearance: appearance, textSize: size)
+                let what = "\(id) \(appearance) \(sizeName)"
+                let app = Screen.launch(id, appearance: appearance, textSize: size)
                 XCTAssertTrue(app.descendants(matching: .any)["header.nameplate"].waitForExistence(timeout: 5), "\(what): the nameplate is missing")
                 Thread.sleep(forTimeInterval: 0.6)
                 let down = assertHeaderClear(app, "\(what), keyboard down")
@@ -217,13 +223,13 @@ final class AccessibilityLayoutTests: XCTestCase {
                 default:
                     break // The line left the nameplate for its own line, where its height is checked.
                 }
-                keepScreenshot(app, name: "sefit-\(appearance)-\(sizeName)")
+                keepScreenshot(app, name: "sefit-\(id)-\(appearance)-\(sizeName)")
             }
         }
     }
 
     /// Where the header's parts are, after checking that it is inside the window, clear of what is
-    /// below it (the card, the composer), and, when its line scrolls, that it scrolls to its last word.
+    /// below it (the card, the composer), and, when its notes scroll, that each scrolls to its last word.
     private func assertHeaderClear(_ app: XCUIApplication, _ what: String,
                                    file: StaticString = #filePath, line: UInt = #line) -> (nameplate: CGRect, line: CGRect?) {
         let window = app.windows.firstMatch.frame
@@ -231,19 +237,24 @@ final class AccessibilityLayoutTests: XCTestCase {
         let nameplate = nameplateElement.frame
         let settings = app.buttons["header.settings"].frame
         let textElement = app.descendants(matching: .any)["connection.line"]
+        let noticeElement = app.descendants(matching: .any)["conversation.cachedNotice"]
         let scroll = app.descendants(matching: .any)["connection.scroll"]
         let text: CGRect? = textElement.exists ? textElement.frame : nil
-        // What is drawn of the line: all of it, or the part its scrolling card shows.
-        let shown: CGRect? = scroll.exists ? scroll.frame : text
         XCTAssertTrue(nameplateElement.label.contains("Messages stay on this phone.") || text != nil,
                       "\(what): the line is neither in the nameplate nor on its own line", file: file, line: line)
+        // What is drawn under the nameplate: the region its notes scroll in, or each note whole.
         var parts: [(String, CGRect)] = [("the nameplate", nameplate), ("Settings", settings)]
-        if let shown { parts.append(("the line", shown)) }
+        if scroll.exists {
+            parts.append(("the notes region", scroll.frame))
+        } else {
+            if let text { parts.append(("the line", text)) }
+            if noticeElement.exists { parts.append(("the out-of-reach line", noticeElement.frame)) }
+        }
         for (part, frame) in parts {
             XCTAssertTrue(window.insetBy(dx: -0.5, dy: -0.5).contains(frame), "\(what): \(part) at \(frame) is outside the window \(window)",
                           file: file, line: line)
         }
-        let bottom = max(nameplate.maxY, settings.maxY, shown?.maxY ?? 0)
+        let bottom = parts.map(\.1.maxY).max() ?? 0
         var below: [(String, CGRect)] = [("the message field", messageField(app).frame),
                                          ("the record control", app.descendants(matching: .any)["composer.mic"].frame)]
         let card = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "isn’t reachable from here")).firstMatch
@@ -253,15 +264,17 @@ final class AccessibilityLayoutTests: XCTestCase {
                                         file: file, line: line)
         }
         assertOnScreenAndHittable(app.descendants(matching: .any)["composer.mic"], in: app, "\(what): the record control", file: file, line: line)
-        if scroll.exists, text != nil {
-            // Every word is reachable: the line scrolls until its end is inside its card.
-            var swipes = 0
-            while textElement.frame.maxY > scroll.frame.maxY + 1, swipes < 6 {
-                scroll.swipeUp()
-                swipes += 1
+        if scroll.exists {
+            // Every word is reachable: the notes scroll until each one's end is inside the region.
+            for (part, element) in [("the line", textElement), ("the out-of-reach line", noticeElement)] where element.exists {
+                var swipes = 0
+                while element.frame.maxY > scroll.frame.maxY + 1, swipes < 6 {
+                    scroll.swipeUp()
+                    swipes += 1
+                }
+                XCTAssertLessThanOrEqual(element.frame.maxY, scroll.frame.maxY + 1,
+                                         "\(what): \(part)'s last word is still below the region after \(swipes) swipes", file: file, line: line)
             }
-            XCTAssertLessThanOrEqual(textElement.frame.maxY, scroll.frame.maxY + 1,
-                                     "\(what): the line's last word is still below its card after \(swipes) swipes", file: file, line: line)
             scroll.swipeDown()
         }
         return (nameplate, text)
