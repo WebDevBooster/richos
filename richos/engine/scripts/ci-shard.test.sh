@@ -63,6 +63,9 @@
 #        PASSES while another process writes the live record during it (S15e).
 #        The unit gets no road back (S15f), keeps a git identity (S15g), and a
 #        unit that builds a world of its own keeps the resolution it chose (S15h).
+#        Codex's reproduction 337: a unit whose only act is scratch_new/release
+#        creates its first scratch ledger in its own home, never in the
+#        operator's config/state (S15i).
 #
 # Exit 0 = all cases pass; exit 1 = at least one failure.
 
@@ -548,6 +551,47 @@ else
     bad "S15h rc=$RC — the runner overrode a unit's own world"; sed 's/^/          /' "$SANDBOX/out"
 fi
 rm -f "$E/scripts/lib/ownworld.test.sh"
+
+# S15i — Codex's reproduction 337 (2026-09-27): a unit that does nothing but
+# allocate and release engine scratch. The FIRST scratch_new creates
+# <config>/state/scratch-ledger.jsonl, because the allocator resolves its ledger
+# from ${CLAUDE_CONFIG_DIR:-$HOME/.claude} before a fixture (ofx_init) has
+# redirected anything. Run as the operator, that created a file in the
+# operator's config/state, which a stricter witness of the whole directory
+# (Codex's wrapper, run 336) reported as a change to an isolated record. The
+# per-unit home must absorb it: the unit PASSES, and the operator's config is
+# byte for byte what it was, with no scratch ledger in it. The positive control
+# beside it is S15b: a worktree-ledger row is still red.
+cp "$ENGINE_ROOT/scripts/lib/scratch.sh" "$E/scripts/lib/scratch.sh"
+mkdir -p "$SANDBOX/unit-tmp"
+cat > "$E/scripts/lib/scratchonly.test.sh" <<SCRATCHONLY
+#!/usr/bin/env bash
+export TMPDIR="$SANDBOX/unit-tmp"
+. "$E/scripts/lib/scratch.sh"
+d="\$(scratch_new record-canary-337)" || { echo "scratch_new failed" >&2; exit 8; }
+scratch_release "\$d" || { echo "scratch_release failed" >&2; exit 9; }
+printf '%s\n' "\$(scratch_ledger)" > "$FLAGS/scratch-ledger-path.txt"
+exit 0
+SCRATCHONLY
+chmod +x "$E/scripts/lib/scratchonly.test.sh"
+op_record_state() { # every path under the operator's config, and every file's hash
+    ( cd "$OPCFG" && find . -print | LC_ALL=C sort && find . -type f -exec shasum -a 256 {} + | LC_ALL=C sort )
+}
+rm -f "$OPCFG/state/scratch-ledger.jsonl"
+OP_BEFORE="$(op_record_state)"
+RC="$(op_shard --only-units scripts/lib/scratchonly.test.sh)"
+OP_AFTER="$(op_record_state)"
+UNIT_LEDGER="$(cat "$FLAGS/scratch-ledger-path.txt" 2>/dev/null || true)"
+if [ "$RC" = "0" ] && [ -n "$UNIT_LEDGER" ] && [ "$OP_BEFORE" = "$OP_AFTER" ] \
+   && [ ! -e "$OPCFG/state/scratch-ledger.jsonl" ] \
+   && case "$UNIT_LEDGER" in "$OPHOME"/*) false ;; *) true ;; esac; then
+    ok "S15i Codex 337: a unit that only allocates and releases scratch PASSES, its first scratch ledger is created in its own home ($UNIT_LEDGER), and the operator's config is unchanged"
+else
+    bad "S15i rc=$RC — the first scratch_new reached the operator's config (unit's ledger: ${UNIT_LEDGER:-none})"
+    diff <(printf '%s\n' "$OP_BEFORE") <(printf '%s\n' "$OP_AFTER") | sed 's/^/          /'
+    sed 's/^/          /' "$SANDBOX/out"
+fi
+rm -f "$E/scripts/lib/scratchonly.test.sh" "$OPCFG/state/scratch-ledger.jsonl"
 
 # --- S16 / S17: the restricted plan ---------------------------------------
 SUBSET="$SANDBOX/subset.txt"
