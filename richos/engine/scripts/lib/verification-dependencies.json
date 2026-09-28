@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "ab50497eac1b297a8e471b1b7a5871829a81dd92b618df05ee3d8530e68d1dcf",
+      "sha256": "0048b22e2148986d8d02c0f47a79c9c210dc9d5406c508f5bc76efa7652f8a6b",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -10966,6 +10966,119 @@
         "if _section base; then",
         "fi  # _section — base\n"
       ]
+    },
+    "scripts/hooks/contract-integrity-probe.sh#by-reference-fixtures": {
+      "source": "scripts/hooks/contract-integrity-probe.sh",
+      "sha256": "52a95b7eabe7c8d4142d4f64fe5337064480f99ed2a7cdb56bf78e42ab08d3a6",
+      "evidence": "Entire by-reference branch and shared R/AL/MT/MC functions reviewed. Plugin/role/marketplace/registration rows are inspected as data. Actual execution is engine-status, the fixed BR9 worktree-isolation canary and the shared model/liveness canaries. Literal fixture shims introduce no additional reader. The shared whole-source contract retains the seated helper floor, but the branch returns before seated runtime checks.",
+      "keys": [
+        "PROTECTED_PATHS",
+        "ALLOWED_MODELS",
+        "MODEL_TIERS",
+        "MODEL_CEILING",
+        "DIALECT_TARGET",
+        "OPERATOR_FENCES",
+        "OPERATOR_FENCES_REPOS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/registered-hooks.sh"
+        },
+        {
+          "to": "scripts/lib/model-tiers.sh"
+        },
+        {
+          "to": "scripts/lib/agent-liveness.py"
+        },
+        {
+          "to": "scripts/hooks/guard-model-ceiling.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-worktree-isolation.sh"
+        },
+        {
+          "to": "mega-lander/workspaces.py#lifecycle-fixtures"
+        },
+        {
+          "to": "scripts/hooks/guard-main-checkout-writes.sh"
+        },
+        {
+          "to": "scripts/hooks/scan-secrets.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-dialect.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-idle-land.sh#hook"
+        },
+        {
+          "to": "scripts/hooks/guard-resume-isolation.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-bash-main-writes.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-interactive-prompt.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-definition-drift.sh"
+        },
+        {
+          "to": "scripts/hooks/snapshot-agent-definitions.sh"
+        },
+        {
+          "to": "scripts/hooks/workspace-lifecycle.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-workspace-gate.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-sealed-worktree.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-worktree-removal.sh"
+        },
+        {
+          "to": "scripts/operator-fences.sh#status"
+        },
+        {
+          "to": "scripts/hooks/contract-integrity-layer-ep.sh"
+        },
+        {
+          "to": "scripts/hooks/engine-status.sh"
+        }
+      ],
+      "presence": "The probe sources the selected entity config when present and Q copies it into its nested fixture.",
+      "nonconfig_eval": "The only ${! expansion enumerates numeric indices of CANONICAL_AGENT_CHAIN; it does not resolve a config variable name or evaluate a command.",
+      "whole": "BR9 explicitly checks that the selected entity configuration executes successfully. The caller supplies a literal private entity config."
+    },
+    "scripts/hooks/by-reference.test.sh": {
+      "source": "scripts/hooks/by-reference.test.sh",
+      "sha256": "ec0a5d73bd87902773018512e75cee27c40ca5fc784c29a5a910d048b134ef32",
+      "evidence": "Full suite reviewed: copies the real engine config into a private engine, creates separate literal entity settings and private plugin registration, then runs by-reference probes plus one seated probe against that copied engine. The seated route and installer retain real config dependencies; only the distinct entity route is fixture-masked. Root donor and all source mutations are finite.",
+      "keys": [],
+      "presence": "Copies the original orchestration.config into every engine sandbox.",
+      "edges": [
+        {
+          "to": "scripts/lib/global-state-witness.sh"
+        },
+        {
+          "to": "scripts/hooks/install.sh#private-config-dir"
+        },
+        {
+          "to": "scripts/hooks/contract-integrity-probe.sh#by-reference-fixtures",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/contract-integrity-probe.sh#seated-fixture"
+        },
+        {
+          "to": "scripts/hooks/notice-unlanded-branches.sh#root-donor"
+        }
+      ]
     }
   },
   "units": {
@@ -11097,7 +11210,8 @@
     "scripts/operator-fences.test.sh": "scripts/operator-fences.test.sh",
     "scripts/hooks/guard-land-lease-commands.test.sh": "scripts/hooks/guard-land-lease-commands.test.sh",
     "scripts/hooks/unevaluated-payload.test.sh": "scripts/hooks/unevaluated-payload.test.sh",
-    "scripts/hooks/contract-integrity.test.sh:base": "scripts/hooks/contract-integrity.test.sh#base"
+    "scripts/hooks/contract-integrity.test.sh:base": "scripts/hooks/contract-integrity.test.sh#base",
+    "scripts/hooks/by-reference.test.sh": "scripts/hooks/by-reference.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
@@ -12184,6 +12298,62 @@
         "scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
       },
       "evidence": "Enumerates PreToolUse/Stop registrations and matcher payloads; boundary assertion classifies every event. Full dynamic helper inventory is source-bound."
+    },
+    "scripts/hooks/by-reference.test.sh": {
+      "commands": [],
+      "all_events": true,
+      "sources": {
+        "scripts/hooks/by-reference.test.sh": "ec0a5d73bd87902773018512e75cee27c40ca5fc784c29a5a910d048b134ef32",
+        "scripts/lib/global-state-witness.sh": "043848eeb2641037b1e56bce858035e05a80cce775098c7dfa36386f6f048f73",
+        "scripts/hooks/install.sh": "7b80a4c9660fbab047d9e025bade584212504bfd8585e7a91cb38411f1fc88c2",
+        "scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
+        "scripts/hooks/contract-integrity-probe.sh": "52a95b7eabe7c8d4142d4f64fe5337064480f99ed2a7cdb56bf78e42ab08d3a6",
+        "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
+        "scripts/lib/agent-liveness.py": "f6dc620af5b9a521717d4d3d4c07c24d730af892177970b044ecac81e12b605c",
+        "mega-lander/workspaces.py": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+        "scripts/hooks/guard-model-ceiling.sh": "5837b9e9d2156487b00f280456da78f88e0bc66d6a4bbc32c6a1a9eeda8c60e3",
+        "scripts/lib/resolve-model.sh": "80d6df68468d7484a4385eb8b1b9ffdf1ea9575776a5e7141bb3fca58ca7ec11",
+        "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "scripts/hooks/guard-worktree-isolation.sh": "c200f7a5b48835054ce460b95053abca44ac6dbaf677289940c23fc196917025",
+        "scripts/lib/teammate-name.sh": "fd4f49d710bb208948d60cb7c92ccfcfce1e9db209975c53234f161a330a34a2",
+        "scripts/lib/appinstances.py": "e30b7e3522111d099a20bc2d5af49bff1d5b9a4245d5c2147306ef065596efca",
+        "scripts/lib/testdevices.py": "7317a16a8075947446dd7602c1715694e4f5dcce5ea0795d9dd9cb75ed665cdd",
+        "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
+        "scripts/lib/containers.py": "957965ce69a27ad94066c9a20c92956e715cb5bdd234080b92024c8e9f0f08c9",
+        "scripts/hooks/guard-main-checkout-writes.sh": "15ef50dd54edf557ac14c16ce894b7212cfc692244d5fa19728cf2c6edad35a7",
+        "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
+        "scripts/hooks/scan-secrets.sh": "d23d1d44376e0557597f8a0add40a0226049d801769af48d81095002477e0c73",
+        "scripts/hooks/guard-dialect.sh": "2a19b37f44f5805b9b57c613f1cc7eae0cd1ef806dd36db2b4b10bfed990a58e",
+        "scripts/lib/vendored-material.sh": "630fc9746255b5e2c6cf24be71ba0b9780a5d673f98559db3099b44f47fa3c92",
+        "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
+        "scripts/hooks/guard-idle-land.sh": "c65ff6beb940c15ff20cf5a7e54e2f8453c4f6594d2ed2a8d32cda662dc3efae",
+        "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
+        "scripts/lib/stop-session-recovery.py": "7f73be10acfee2d62a9f05115a20d8c64bfd63764a4fffb084675ca14a4d7ed2",
+        "scripts/hooks/guard-idle-land.py": "6f86233ebe1e642b9bee0eb55b5467bc8b6f2d1261a381bcaf62589291e8efd0",
+        "scripts/hooks/guard-resume-isolation.sh": "2366c33e6d87e0b53a7c1e18a6b153b72652ac86532f88e145fd66539e373f56",
+        "scripts/lib/pause_protocol.py": "e1fd9b925db513fc58c45eddb1eb04b2f5468a3f5b150a90a079f3f991b45535",
+        "scripts/lib/teammate-identity.py": "54fed25d0e79b1757690cdc2b63fe3281c985b8324fe27b2d12d7048e27badf2",
+        "scripts/hooks/guard-bash-main-writes.sh": "103465d3f2a5744282c5147b4cf45db5f484318b6635412f9d6b3ea368e4033f",
+        "scripts/hooks/guard-interactive-prompt.sh": "006331257e3424466c9bd8f5f49d895362f0602063cb25d98dcef32b18fbd8c8",
+        "scripts/lib/interactive-prompt.py": "911722b466b6c56a712c44a3f6f268608c5d10ab0bff75d9b59e5492c36c0e4f",
+        "scripts/hooks/guard-definition-drift.sh": "6abe090d1a5eae1c726799e7c6e9bdaad2da332635fec5737ce9ce31f4f05007",
+        "scripts/hooks/snapshot-agent-definitions.sh": "51f92567f9daaa9bacd37082d0cd30beba284b3149714c8a45f945738d6ebaff",
+        "scripts/hooks/workspace-lifecycle.sh": "e8a6bd193fe910eb22f76da44c81b04feaa04e2a7429b055823ea8efc8df72e8",
+        "scripts/hooks/guard-workspace-gate.sh": "704f1516e9337a8dcdf4589fd5b74473bffffcb694c1460fa16bb43a4a2b802f",
+        "scripts/hooks/guard-sealed-worktree.sh": "5fdfedcb7ff7a83f4411eb5a90919ab1fc5d037a6362221551f75db8621d0f93",
+        "scripts/hooks/guard-worktree-removal.sh": "b39ff96220cb74cf9f94acc3d6210f3207b57bdf50cb33ffdd29882e536a5f37",
+        "scripts/operator-fences.sh": "057c5d9cb36f1563366bcacfc2a295a5bd62aded90860f8208865ee86de8e217",
+        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/operator_fences_admin.py": "924d3bf06082e5d54a7caf7f1ea88a2124cd6a52454c094a11a8ad51b2e5e035",
+        "scripts/hooks/contract-integrity-layer-ep.sh": "d94c802f86a8862bfe166f522d6e0a309a54b850cfdc8818d3e7057e7b6ac976",
+        "scripts/lib/entrypoints.sh": "ca4d90b9bc460ead00bc7e4cd85c523abad1b0d6077408dbc7c27393f1df8659",
+        "scripts/entrypoint-currency-lint.sh": "09d95bf0ae992caa52ab7eeaec9613a0cb6ca23933a4f8450c52aba36d8f7486",
+        "scripts/hooks/engine-status.sh": "c1ea99017ada713a0a68a56fe7f23dfab11b027ed53ea3a7846d4e51b8e467b0",
+        "scripts/hooks/notice-unlanded-branches.sh": "3a1222731913dc06aecd5a9703403ae27b7d61a6f28c7fad00223c4ac6c5a90d"
+      },
+      "evidence": "Suite and probe audit every event, ordering, registration count and expanded dispatcher manifest. Hook inventory edits select this whole unit."
     }
   }
 }

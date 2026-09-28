@@ -153,6 +153,20 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_by_reference_keeps_copied_engine_config_for_seated_control(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/by-reference.test.sh'
+        closure = graph.closure(unit)
+        self.assertFalse(closure['whole'] or closure['fallback'], closure)
+        self.assertTrue(closure['presence'])
+        self.assertIn('MODEL_CEILING', closure['keys'])
+        self.assertIn(unit, graph.config_units(inputs.config_change('MODEL_CEILING=a', 'MODEL_CEILING=b'), [unit]))
+        self.assertNotIn(unit, graph.config_units(inputs.config_change('SHOW_TURN_MANIFEST=a', 'SHOW_TURN_MANIFEST=b'), [unit]))
+        document['nodes']['scripts/hooks/contract-integrity-probe.sh#by-reference-fixtures']['sha256'] = 'changed'
+        self.assertIn(unit, graph.config_units(inputs.config_change('SHOW_TURN_MANIFEST=a', 'SHOW_TURN_MANIFEST=b'), [unit]))
+        inputs.hook_reader(document['hook_readers'][unit], lambda path: (HERE.parent / path).read_text())
+
     def test_contract_base_binds_complete_sandbox_inventory(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)
