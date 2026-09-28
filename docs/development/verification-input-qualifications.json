@@ -168,9 +168,9 @@
         "richos/engine/scripts/lib/proc_tree.py": "dbd97c9b9758184e960348cd6c81e5089ae9691aee8324977a3ddbc0460a219d",
         "richos/engine/scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
         "richos/engine/scripts/lib/worker_tokens.py": "8c4cada1e7a4883a65435017ebac01c27307724a9724ea698f0df699898ff6b2",
-        "richos/engine/scripts/hooks/conceal.mutation.sh": "7fa7938796d9976a2536459fb18e7be05d6a6dbfae4572c65cdc8e2f9115191d",
+        "richos/engine/scripts/hooks/conceal.mutation.sh": "da62bf7ab6bb8ae6b8778a1485098859323ffe680d24f8d68388000521527d6f",
         "richos/engine/scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
-        "richos/engine/scripts/hooks/verify-agent-prompt.test.sh": "f174a80517f19b02a6cbdbe578f350f2046cd1db65713bc12b77bed675d58a1f"
+        "richos/engine/scripts/hooks/verify-agent-prompt.test.sh": "96439675f0f6f8a8fe12afe6837283c0b9da62aa40022aabd3414a4af4a238b2"
       },
       "requires": {
         "paths": [],

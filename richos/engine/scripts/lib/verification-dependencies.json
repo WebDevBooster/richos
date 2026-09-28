@@ -432,7 +432,7 @@
     "scripts/ceo-asks-status.sh": {
       "source": "scripts/ceo-asks-status.sh",
       "sha256": "ee087fd11e7a3a9507845240dd367c3528935f31d85c1ba7bb9eca004de2f7cf",
-      "evidence": "Uses the supplied entity-root argument, delegates config access to ca_resolve and reads that root’s ask ledger.",
+      "evidence": "Uses the supplied entity-root argument, delegates config access to ca_resolve and reads that root\u2019s ask ledger.",
       "keys": [],
       "edges": [
         {
@@ -489,7 +489,7 @@
     "scripts/lib/proc_tree.py": {
       "source": "scripts/lib/proc_tree.py",
       "sha256": "dbd97c9b9758184e960348cd6c81e5089ae9691aee8324977a3ddbc0460a219d",
-      "evidence": "Supervises the caller’s command and samples owned processes. Its own inputs are environment, process identity and controller state, never orchestration settings.",
+      "evidence": "Supervises the caller\u2019s command and samples owned processes. Its own inputs are environment, process identity and controller state, never orchestration settings.",
       "keys": [],
       "edges": [
         {
@@ -517,7 +517,7 @@
     "scripts/lib/worker_tokens.py": {
       "source": "scripts/lib/worker_tokens.py",
       "sha256": "8c4cada1e7a4883a65435017ebac01c27307724a9724ea698f0df699898ff6b2",
-      "evidence": "Worker leases read their budget files, bind held inodes to native process generations and invoke the caller’s separately declared command through process supervision and admission policy. Borrow validation follows a finite native ancestry and permit chain, never orchestration settings. Named native/compiler and simulator locks use the same kernel locks but do not grant worker capacity; their canonical paths remain governed.",
+      "evidence": "Worker leases read their budget files, bind held inodes to native process generations and invoke the caller\u2019s separately declared command through process supervision and admission policy. Borrow validation follows a finite native ancestry and permit chain, never orchestration settings. Named native/compiler and simulator locks use the same kernel locks but do not grant worker capacity; their canonical paths remain governed.",
       "keys": [],
       "edges": [
         {
@@ -4780,7 +4780,7 @@
       ],
       "region": [
         "if _section CL; then",
-        "fi  # _section — CL"
+        "fi  # _section \u2014 CL"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#RI": {
@@ -4804,7 +4804,7 @@
       ],
       "region": [
         "if _section RI; then",
-        "fi  # _section — RI"
+        "fi  # _section \u2014 RI"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#WTR": {
@@ -4822,7 +4822,7 @@
       ],
       "region": [
         "if _section WTR; then",
-        "fi  # _section — WTR"
+        "fi  # _section \u2014 WTR"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#MC6": {
@@ -4840,7 +4840,7 @@
       ],
       "region": [
         "if _section MC6; then",
-        "fi  # _section — MC6"
+        "fi  # _section \u2014 MC6"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#SCR": {
@@ -4869,7 +4869,7 @@
       ],
       "region": [
         "if _section SCR; then",
-        "fi  # _section — SCR"
+        "fi  # _section \u2014 SCR"
       ],
       "presence": "SCR2 directly opens the real config to check required assignment names."
     },
@@ -5096,7 +5096,7 @@
       ],
       "region": [
         "if _section M; then",
-        "fi  # _section — M\n"
+        "fi  # _section \u2014 M\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#shim": {
@@ -5119,7 +5119,7 @@
       ],
       "region": [
         "if _section shim; then",
-        "fi  # _section — shim\n"
+        "fi  # _section \u2014 shim\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#manifest": {
@@ -5142,7 +5142,7 @@
       ],
       "region": [
         "if _section manifest; then",
-        "fi  # _section — manifest\n"
+        "fi  # _section \u2014 manifest\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#worktree": {
@@ -5165,7 +5165,7 @@
       ],
       "region": [
         "if _section worktree; then",
-        "fi  # _section — worktree\n"
+        "fi  # _section \u2014 worktree\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#N": {
@@ -5188,7 +5188,7 @@
       ],
       "region": [
         "if _section N; then",
-        "fi  # _section — N\n"
+        "fi  # _section \u2014 N\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#python3": {
@@ -5211,7 +5211,7 @@
       ],
       "region": [
         "if _section python3; then",
-        "fi  # _section — python3\n"
+        "fi  # _section \u2014 python3\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#config": {
@@ -5234,7 +5234,7 @@
       ],
       "region": [
         "if _section config; then",
-        "fi  # _section — config\n"
+        "fi  # _section \u2014 config\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#K": {
@@ -5257,7 +5257,7 @@
       ],
       "region": [
         "if _section K; then",
-        "fi  # _section — K\n"
+        "fi  # _section \u2014 K\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#P": {
@@ -5283,7 +5283,7 @@
       ],
       "region": [
         "if _section P; then",
-        "fi  # _section — P\n"
+        "fi  # _section \u2014 P\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#S": {
@@ -5306,7 +5306,7 @@
       ],
       "region": [
         "if _section S; then",
-        "fi  # _section — S\n"
+        "fi  # _section \u2014 S\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#MT": {
@@ -5329,7 +5329,7 @@
       ],
       "region": [
         "if _section MT; then",
-        "fi  # _section — MT\n"
+        "fi  # _section \u2014 MT\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#MC": {
@@ -5352,7 +5352,7 @@
       ],
       "region": [
         "if _section MC; then",
-        "fi  # _section — MC\n"
+        "fi  # _section \u2014 MC\n"
       ]
     },
     "scripts/hooks/interactive-prompt.mutation.sh": {
@@ -5399,7 +5399,7 @@
       ],
       "region": [
         "if _section IP; then",
-        "fi  # _section — IP\n"
+        "fi  # _section \u2014 IP\n"
       ]
     },
     "scripts/lib/row-currency.py#fixture-records": {
@@ -5582,7 +5582,7 @@
       ],
       "region": [
         "if _section MF; then",
-        "fi  # _section — MF\n"
+        "fi  # _section \u2014 MF\n"
       ]
     },
     "scripts/hooks/notice-unstarted-rows.sh#fixture-records": {
@@ -5732,7 +5732,7 @@
       ],
       "region": [
         "if _section SA; then",
-        "fi  # _section — SA\n"
+        "fi  # _section \u2014 SA\n"
       ]
     },
     "scripts/hooks/guard-idle-land.test.sh": {
@@ -5790,7 +5790,7 @@
       ],
       "region": [
         "if _section IL; then",
-        "fi  # _section — IL\n"
+        "fi  # _section \u2014 IL\n"
       ]
     },
     "scripts/hooks/guard-worktree-isolation.mutation.sh": {
@@ -5845,7 +5845,7 @@
       ],
       "region": [
         "if _section WTI; then",
-        "fi  # _section — WTI\n"
+        "fi  # _section \u2014 WTI\n"
       ]
     },
     "scripts/hooks/guard-row-currency-commits.sh#fixture-records": {
@@ -7503,8 +7503,8 @@
     },
     "scripts/hooks/conceal.mutation.sh": {
       "source": "scripts/hooks/conceal.mutation.sh",
-      "sha256": "7fa7938796d9976a2536459fb18e7be05d6a6dbfae4572c65cdc8e2f9115191d",
-      "evidence": "Full fixed driver copies minimal engine sources and real config, then runs finite literal matcher/ack mutants through the same suite with INNER=1. Every hook call uses the suite-created literal entity config; the copied engine config is only required to exist.",
+      "sha256": "da62bf7ab6bb8ae6b8778a1485098859323ffe680d24f8d68388000521527d6f",
+      "evidence": "Fixed driver copies minimal engine sources and real config, then runs each literal matcher/ack mutant against its named case with an unmutated positive control. Full outer suite retains every assertion. Hook calls use suite-created literal entity config; copied engine config is only required to exist.",
       "keys": [],
       "edges": [
         {
@@ -7521,8 +7521,8 @@
     },
     "scripts/hooks/verify-agent-prompt.test.sh": {
       "source": "scripts/hooks/verify-agent-prompt.test.sh",
-      "sha256": "f174a80517f19b02a6cbdbe578f350f2046cd1db65713bc12b77bed675d58a1f",
-      "evidence": "Full suite and inline mutants route every hook call through VERIFY_REPO_ROOT_OVERRIDE to a private adopted Git fixture with literal config and private teams. Prompt command strings are data, never executed. Nested conceal driver has the same fixed call surface.",
+      "sha256": "96439675f0f6f8a8fe12afe6837283c0b9da62aa40022aabd3414a4af4a238b2",
+      "evidence": "Full suite and inline mutants route hook calls through VERIFY_REPO_ROOT_OVERRIDE to private adopted Git fixtures with literal config and private teams. Inner-only named scopes return 3 on success, require exactly one assertion and retain ack setup dependencies. Prompt commands remain inert data.",
       "keys": [],
       "edges": [
         {
@@ -8651,7 +8651,7 @@
       ],
       "region": [
         "if _section Q; then",
-        "fi  # _section — Q\n"
+        "fi  # _section \u2014 Q\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#Qscope": {
@@ -8673,7 +8673,7 @@
       ],
       "region": [
         "if _section Qscope; then",
-        "fi  # _section — Qscope\n"
+        "fi  # _section \u2014 Qscope\n"
       ]
     },
     "scripts/lib/publication-boundary.py": {
@@ -10967,7 +10967,7 @@
       ],
       "region": [
         "if _section base; then",
-        "fi  # _section — base\n"
+        "fi  # _section \u2014 base\n"
       ]
     },
     "scripts/hooks/contract-integrity-probe.sh#by-reference-fixtures": {
