@@ -163,7 +163,12 @@ THE BRIEF'S DECLARATION, which is the only thing asked of the lead:
     serves: point 9 - a finished agent's Write is refused
 
 `serves:` lines are the anchor. `scope:` is optional and only cross-checked when
-present. Everything else in the brief is untouched and unread.
+present. Everything else in the brief is untouched and unread BY THIS FILE.
+
+The same hook also runs brief-done.py (`check_payload` below): work the brief names
+that main already carries, and quoted evidence the command itself contradicts. That
+file reads the brief for item IDs and quoted commands; its header says why that is a
+question with a factual answer and not a judgment of prose.
 """
 
 import hashlib
@@ -884,20 +889,39 @@ def targets(payload):
     return out, prompt
 
 
+def _load_done():
+    """brief-done.py: is the work this brief names already on main, and does the evidence
+    it quotes say what the brief says it says. Same question as SPEC-SATISFIED above -
+    does this dispatch have anything left to do - asked of git history instead of a
+    recorded verdict, so it rides the same guard rather than a second one."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("richos_brief_done_bs",
+                                                  os.path.join(HERE, "brief-done.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def check_payload(payload, repo_override=None):
     if (payload.get("tool_name") or "") != "Agent":
         return 0, []
     repos, prompt = targets(payload)
     if repo_override:
         repos = [W.realpath(repo_override)]
-    notes = []
+    notes, refused = [], []
     for repo in repos:
         try:
             notes += decide(repo, prompt)
         except Refusal as r:
-            return 2, ["guard-brief-scope REFUSES this spawn  (%s, %s)" % (r.code, repo),
+            refused = ["guard-brief-scope REFUSES this spawn  (%s, %s)" % (r.code, repo),
                        ""] + r.lines
-    return 0, notes
+            break
+    # Both refusals are reported together: a brief that breaks two rules is fixed once.
+    done_rc, done_lines = _load_done().check_payload(payload)
+    if refused or done_rc == 2:
+        return 2, refused + ([""] if refused and done_rc == 2 else []) + (
+            done_lines if done_rc == 2 else [])
+    return 0, notes + done_lines
 
 
 def main(argv):

@@ -48,6 +48,17 @@
 #                     clean way out of a spec's reach, so it is refused here and
 #                     becomes the CEO's to start.
 #
+# AND, FOR EVERY DISPATCH WHETHER OR NOT A SPEC IS RECORDED (ass-kicker/brief-done.py,
+# added 2026-09-28 after andy-opus-dfix1 spent 75 minutes and 389k tokens on three
+# defects main had carried fixes for since 2026-09-24):
+#   ALREADY-DONE      the brief names items (D02, I05, 3.41) or a teammate the
+#                     work was "routed to", and the main branch already has
+#                     commits naming them that change more than records.
+#   CONTRADICTED      the brief says a quoted read-only command shows nothing,
+#                     and run now it prints lines (or cannot run at all).
+#   Escape: one `already-done-ack: <reason>` line, logged to
+#   .claude/state/already-done-acks.log on a live spawn.
+#
 # ===========================================================================
 # WHO THIS BLOCKS, AND WHAT IT COSTS EVERYONE ELSE
 # ===========================================================================
