@@ -14325,41 +14325,6 @@
       },
       "evidence": "Registered-executables is invoked only with explicit private engine/entity/launch-agent roots and a literal fixture manifest. Other executed owned-system rows are literal bash fixtures and the bound escalations declaration row running escalate.sh list. Shared mutation transport copies manifests but nested suite recreates its private manifest. No reached reader observes the real plugin manifest; every existing reviewed helper/declaration source is bound."
     },
-    "scripts/hooks/guard-dialect.test.sh": {
-      "commands": [
-        "scripts/hooks/dispatch-pretooluse.sh",
-        "scripts/hooks/guard-dialect.sh"
-      ],
-      "sources": {
-        "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
-        "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
-        "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
-        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
-        "scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
-        "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
-        "scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
-        "scripts/hooks/guard-dialect.mutation.sh": "5c52c3a606fa605829d8ad923ba77f196518814004fbcb877eed8dab7982c2c5",
-        "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
-        "scripts/hooks/guard-dialect.sh": "2a19b37f44f5805b9b57c613f1cc7eae0cd1ef806dd36db2b4b10bfed990a58e",
-        "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
-        "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
-        "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
-        "scripts/lib/vendored-material.sh": "630fc9746255b5e2c6cf24be71ba0b9780a5d673f98559db3099b44f47fa3c92",
-        "scripts/lib/proc_tree.py": "78ad648204b6e5748a218df45e33b2baec0ead71bda62f0908a83bb5c35bfeb0",
-        "scripts/hooks/guard-dialect.test.sh": "152912710783f62d961ea0f768091953ad6c435143c2353b9af55ee4f742ccba",
-        "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
-        "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
-        "scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
-      },
-      "evidence": "Outer registration assertions query only the named guard through hook_enforced_on_surface. Nested behavior fixtures do not execute a hook inventory or the probe. Every existing reviewed helper is bound. Seated observation compares every raw line containing a named guard prefix plus every parsed dispatcher command across all events; this covers the helper direct grep and dispatcher-key lookup without approximating its verdict. The dispatcher manifest is bound as an additional input.",
-      "seated_text_needles": [
-        "guard-dialect"
-      ],
-      "seated_dispatch_reader": true,
-      "text_needles": [
-        "guard-dialect"
-      ]
-    },
     "scripts/hooks/ceo-todos.test.sh": {
       "commands": [
         "scripts/hooks/dispatch-pretooluse.sh",
