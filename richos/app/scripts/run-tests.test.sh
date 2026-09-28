@@ -46,7 +46,7 @@
 # scanner exempt from its own rule is a rule with a hole exactly where somebody clever would
 # put something.
 # run-tests: no-host-screen: its matches are its own S6 search pattern and the fake suites S1 writes under mktemp
-# run-tests: inputs richos/app/scripts/run-tests.test.sh richos/app/scripts/run-tests.sh richos/app/scripts/lib/worktree-resource.sh richos/app/scripts/lib/test_results.py richos/app/scripts/lib/gui-launch.sh richos/app/scripts/testvm richos/app/scripts/phone-app-suites.tsv
+# run-tests: inputs richos/app/scripts/run-tests.test.sh richos/app/scripts/run-tests.sh richos/app/scripts/lib/worktree-resource.sh richos/app/scripts/lib/test_results.py richos/app/scripts/lib/proof_declarations.py richos/app/scripts/lib/gui-launch.sh richos/app/scripts/testvm richos/app/scripts/phone-app-suites.tsv
 # run-tests: covers richos/app/scripts/run-tests.sh richos/app/scripts/lib/worktree-resource.sh richos/app/scripts/lib/gui-launch.sh
 set -uo pipefail
 
@@ -62,6 +62,7 @@ install_harness() {  # install_harness <box directory>
   cp "$HARNESS" "$1/run-tests.sh"
   cp "$DIR/lib/worktree-resource.sh" "$1/lib/worktree-resource.sh"
   cp "$DIR/lib/test_results.py" "$1/lib/test_results.py"
+  cp "$DIR/lib/proof_declarations.py" "$1/lib/proof_declarations.py"
 }
 
 TMP="$(mktemp -d -t run-tests-test.XXXXXX)"
@@ -513,6 +514,40 @@ for mode in 0 1 1; do
     bad "K6 native-ios-app is never skipped when A8 is asked for" "$OUT"
   fi
 done
+
+# K7 (2026-09-28): a suite that checks reviewed reader pins is never skipped over a changed
+# pinned reader, although its inputs line does not name the reader. `# run-tests: pins` adds
+# every reader the pin file binds to the digest, read from the file (lib/proof_declarations.py).
+mkdir -p "$KREPO/pins" "$KREPO/reader"
+printf 'reader one\n' > "$KREPO/reader/r.sh"
+printf '%s\n' '{"units": {"u": {"sources": {"reader/r.sh": "pinned"}}}}' > "$KREPO/pins/q.json"
+printf '%s\n' \
+  '# run-tests: inputs inputs' \
+  '# run-tests: pins pins/q.json' \
+  'echo "=== pinned tests: all 1 passed ==="' \
+  'exit 0' > "$KREPO/scripts/pinned.test.sh"
+kcommit pinned-suite
+kpinned() {  # kpinned <run-id>
+  harness RUN_TESTS_DECLARED_GAPS= RUN_TESTS_SKIP_UNCHANGED=1 "RUN_TESTS_STATE=$KSTATE" \
+    "RICHOS_NIGHTLY_RUN_ID=$1" RICHOS_RUNTIME_DIR= -- "$KREPO/scripts/run-tests.sh" --only pinned.test.sh
+}
+kpinned pinned-first
+kpinned pinned-second
+if [ "$CODE" != 0 ] || ! says "SKIPPED: pinned.test.sh"; then
+  bad "K7a a proven pin-checking suite is skipped over unchanged readers" \
+      "exit $CODE; the skip was never reachable, so K7b would assert nothing: $(printf '%s' "$OUT" | tail -3 | tr '\n' ' ')"
+else
+  ok "K7a a proven pin-checking suite is skipped over unchanged readers"
+  printf 'reader two\n' > "$KREPO/reader/r.sh"
+  kcommit pinned-reader-change
+  kpinned pinned-third
+  if says "SKIPPED: pinned.test.sh"; then
+    bad "K7b a changed pinned reader makes the pin-checking suite run again" \
+        "reader/r.sh changed and the suite that checks its pin was skipped: a stale pin would pass the build"
+  else
+    ok "K7b a changed pinned reader makes the pin-checking suite run again"
+  fi
+fi
 
 # =========================================================================================
 # S. `--no-host-screen` — the promise that nothing reaches the operator's screen

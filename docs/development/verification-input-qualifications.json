@@ -2071,7 +2071,7 @@
       "review": "The suite scans exactly the shipped app source, crates, UI, scripts and tools trees as text. Positive refusal and acceptance cases are generated under TMPDIR. It does not execute scanned code or inspect application data. The shared run-tests wrapper discovers suites and reads its tracked declarations but the exact --only selection executes this suite alone. Private HOME clears skip-unchanged state and inherited host-screen overrides; worker admission and result preservation remain active. No host process, live clock predicate, network or operator record determines the scanner verdict.",
       "sources": {
         "richos/app/scripts/no-foreign-app-data.test.sh": "fe13a6a9ff4d70d4d9558d671b3a8e23114ed5f8418538d0e6934db545eeb732",
-        "richos/app/scripts/run-tests.sh": "ed2e06fa54198e6ac816979cef5b52096f11082b10059062f2faea932b702e67",
+        "richos/app/scripts/run-tests.sh": "64ed08e92801c253acad321ccb7931b0a557d6a1859fbb078869cb85095594a9",
         "richos/app/scripts/lib/worktree-resource.sh": "f3ce44d7c52f97f4545e4c79636e8ad19cba994db5168d9f1b8104b57793a1c7",
         "richos/app/scripts/lib/test_results.py": "9790f38172be11848fbc50fc5fc387831f25a5bda49e877e1ed4aa59fb6fa0e2",
         "richos/engine/scripts/lib/foreign_app_data.py": "9fcafeaae9e177df0c15fc93b547b2aa08710f94f723e393d51239861859b00b"
