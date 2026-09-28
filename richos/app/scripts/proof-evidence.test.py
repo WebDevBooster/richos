@@ -86,6 +86,56 @@ class Evidence(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'absolute literals'):
             evidence.recipe_identity(self.root, {**recipe, 'external_paths': ['relative']}, {})
 
+    def test_subset_ignores_unread_bytes_but_binds_helpers_data_and_inventory(self):
+        self.qualification('Fixture reads one helper and data; discovers names.', paths=['engine'])
+        (self.root / 'engine').mkdir()
+        for name in ('helper', 'data', 'unrelated'):
+            (self.root / 'engine' / name).write_text(name)
+        contract_path = self.root / 'qualification.json'
+        contract = json.loads(contract_path.read_text())
+        floor = {'paths': ['engine/data'], 'inventories': ['engine']}
+        contract['subset_requires'] = floor
+        contract['units'] = {'fixture': {'review': 'Controlled helper.',
+            'sources': {'engine/helper': evidence.file_digest(self.root / 'engine/helper')},
+            'requires': {'paths': [], 'tools': [], 'environment': [], 'external': []},
+            'subset': {'review': 'Only helper and data contents are read.',
+                       'requires': {'paths': [], 'inventories': []}}}}
+        contract_path.write_text(json.dumps(contract))
+        subset = {'paths': ['engine/helper', 'engine/data'], 'inventories': ['engine']}
+        recipe = {'paths': ['engine'], 'tools': [], 'environment': [], 'external': [],
+            'qualification': 'qualification.json', 'qualification_unit': 'fixture', 'subset': subset}
+        identity = lambda: evidence.recipe_identity(self.root, recipe, {})
+        baseline = identity()
+        (self.root / 'engine/unrelated').write_text('unread change')
+        self.assertEqual(baseline, identity())
+        data = self.root / 'engine/data'
+        data.write_text('changed fixture')
+        self.assertNotEqual(baseline, identity())
+        data.write_text('data')
+        self.assertEqual(baseline, identity())
+        added = self.root / 'engine/untracked'
+        added.write_text('new discovered file')
+        self.assertNotEqual(baseline, identity())
+        added.unlink()
+        link = self.root / 'engine/link'
+        link.symlink_to(data)
+        linked = identity()
+        data.write_text('new link target')
+        self.assertNotEqual(linked, identity())
+        link.unlink()
+        data.write_text('data')
+        for field, value in (('paths', 'engine/helper'), ('paths', 'engine/data'),
+                             ('inventories', 'engine')):
+            with self.subTest(field=field, value=value):
+                broken = {**subset, field: [p for p in subset[field] if p != value]}
+                with self.assertRaisesRegex(ValueError, 'subset qualification omits'):
+                    evidence.recipe_identity(self.root, {**recipe, 'subset': broken}, {})
+        with self.assertRaisesRegex(ValueError, 'outside declared roots'):
+            evidence.recipe_identity(self.root, {**recipe,
+                'subset': {**subset, 'paths': subset['paths'] + ['outside']}}, {})
+        (self.root / 'engine/helper').write_text('new reader')
+        self.assertIn('changed unit reader', identity()['fresh'])
+
     def test_known_omitted_inputs_fail_qualification_before_reuse(self):
         self.qualification("Fixture reads a helper, root license, declared tool and external data.",
             paths=["engine/helper.sh", "LICENSE"], tools=["seq"],
@@ -216,6 +266,13 @@ class Evidence(unittest.TestCase):
         for label, recipe in checks.items():
             with self.subTest(label=label):
                 evidence.qualify_recipe(root, recipe)
+                if recipe.get('subset'):
+                    for field, values in recipe['subset'].items():
+                        for value in values:
+                            broken = {**recipe, 'subset': {**recipe['subset'],
+                                field: [p for p in values if p != value]}}
+                            with self.assertRaisesRegex(ValueError, 'subset qualification omits ' + field):
+                                evidence.qualify_recipe(root, broken)
                 if recipe.get('isolation'):
                     with self.assertRaisesRegex(ValueError, 'requires isolation'):
                         evidence.qualify_recipe(root, {k: v for k, v in recipe.items() if k != 'isolation'})
@@ -394,7 +451,14 @@ class Evidence(unittest.TestCase):
         return app, engine
 
     def test_actual_cross_commit_coverage_rechecks_inputs_and_keeps_original_sha(self):
+        self.cross_commit_coverage()
+
+    def test_actual_subset_reuse_within_changed_root_preserves_coverage_and_receipts(self):
+        self.cross_commit_coverage(subset=True)
+
+    def cross_commit_coverage(self, subset=False):
         app, engine = self.copy_runner_fixture()
+        (engine / 'unrelated.md').write_text('Unrelated initial text.\n')
         (self.root / "LICENSE").write_text("fixture license\n")
         for name in ("alpha", "beta"):
             path = engine / "scripts" / (name + ".test.sh")
@@ -406,8 +470,25 @@ class Evidence(unittest.TestCase):
         recipe = {"paths": ["richos/engine", "richos/app/scripts", "LICENSE"], "tools": ["bash", "python3", "git"],
             "environment": ["FIXTURE_COUNTER"], "external": [], "qualification": "qualification.json",
             "isolation": evidence.PRIVATE_PROFILE}
-        evidence.atomic(app / "proof-inputs.json", {"schema": 1,
-            "checks": {"engine scripts/" + name + ".test.sh": recipe for name in ("alpha", "beta")}})
+        checks = {"engine scripts/" + name + ".test.sh": dict(recipe) for name in ("alpha", "beta")}
+        if subset:
+            floor = {'paths': ['richos/app/scripts', 'richos/engine/scripts/lib',
+                'richos/engine/scripts/ci-units.sh', 'richos/engine/scripts/ci-shard.sh', 'LICENSE'],
+                'inventories': ['richos/engine']}
+            contract_path = self.root / 'qualification.json'
+            contract = json.loads(contract_path.read_text())
+            contract.update(subset_requires=floor, units={})
+            for label, row in checks.items():
+                source = 'richos/engine/' + label.removeprefix('engine ')
+                row.update(qualification_unit=label, subset={
+                    'paths': floor['paths'] + [source], 'inventories': floor['inventories']})
+                contract['units'][label] = {'review': 'Counter fixture.',
+                    'sources': {source: evidence.file_digest(self.root / source)},
+                    'requires': {k: [] for k in ('paths', 'tools', 'environment', 'external')},
+                    'subset': {'review': 'Reads only the counter fixture and runner.',
+                               'requires': {'paths': [], 'inventories': []}}}
+            evidence.atomic(contract_path, contract)
+        evidence.atomic(app / "proof-inputs.json", {"schema": 1, "checks": checks})
         def git(*args):
             return subprocess.check_output(["git", "-c", "core.hooksPath=/dev/null", "-c", "user.name=fixture",
                 "-c", "user.email=fixture@example.invalid", *args], cwd=self.root, text=True, stderr=subprocess.PIPE).strip()
@@ -434,8 +515,9 @@ class Evidence(unittest.TestCase):
             return directory
         author = invoke("author", "scripts/alpha.test.sh")
         before = next((author / "engine-receipts").glob("*.jsonl")).read_bytes()
-        (self.root / "unrelated.md").write_text("An unrelated target commit.\n")
-        git("add", "unrelated.md")
+        unrelated = 'richos/engine/unrelated.md' if subset else 'unrelated.md'
+        (self.root / unrelated).write_text("An unrelated target commit.\n")
+        git("add", unrelated)
         git("commit", "-qm", "unrelated documentation")
         target = invoke("target", "scripts/alpha.test.sh,scripts/beta.test.sh", "--reuse", str(author))
         self.assertEqual(counter.read_text().splitlines(), ["alpha", "beta"])

@@ -72,6 +72,19 @@
         ],
         "environment": [],
         "external": []
+      },
+      "subset": {
+        "review": "The R1 transitive reader closure listed in sources supplies all executed test/helper bytes. Config and records used by the cases are generated fixtures as detailed in this unit review. Bind all shared runner/library bytes and the entire engine name/type/mode inventory for ci-units discovery. No unread hook content is used as a verdict input. Keep every separately declared outside path and external input.",
+        "requires": {
+          "paths": [
+            "richos/engine/scripts/hooks/guard-definition-drift.sh",
+            "richos/engine/scripts/lib/resolve-main-checkout.sh",
+            "richos/engine/scripts/hooks/guard-definition-drift.test.sh",
+            "richos/engine/scripts/hooks/snapshot-agent-definitions.sh",
+            "richos/engine/scripts/lib/resolve-roots.sh"
+          ],
+          "inventories": []
+        }
       }
     },
     "engine scripts/hooks/guard-model-ceiling.test.sh": {
@@ -112,6 +125,33 @@
         ],
         "environment": [],
         "external": []
+      },
+      "subset": {
+        "review": "The R1 transitive reader closure listed in sources supplies all executed test/helper bytes. Config and records used by the cases are generated fixtures as detailed in this unit review. Bind all shared runner/library bytes and the entire engine name/type/mode inventory for ci-units discovery. No unread hook content is used as a verdict input. Keep every separately declared outside path and external input.",
+        "requires": {
+          "paths": [
+            "richos/engine/scripts/lib/resolve-model.sh",
+            "richos/engine/scripts/lib/mutation-harness.sh",
+            "richos/engine/scripts/lib/stopwatch.sh",
+            "richos/engine/scripts/lib/mutation-pool.sh",
+            "richos/engine/scripts/hooks/guard-model-ceiling.mutation.sh",
+            "richos/engine/scripts/lib/resolve-main-checkout.sh",
+            "richos/engine/scripts/lib/cpu_policy.py",
+            "richos/engine/scripts/hooks/guard-model-ceiling.sh",
+            "richos/engine/scripts/lib/operator_fences.py",
+            "richos/engine/scripts/lib/proc_tree.py",
+            "richos/engine/scripts/lib/cpu_guard.py",
+            "richos/engine/scripts/lib/scratch.sh",
+            "richos/engine/scripts/hooks/guard-model-ceiling.test.sh",
+            "richos/engine/scripts/lib/resolve-roots.sh",
+            "richos/engine/scripts/lib/engine_pass.py",
+            "richos/engine/scripts/lib/unevaluated-notice.sh",
+            "richos/engine/scripts/lib/model-tiers.sh",
+            "richos/engine/scripts/lib/worker_tokens.py",
+            "richos/engine/scripts/lib/stop-at-line.py"
+          ],
+          "inventories": []
+        }
       }
     },
     "engine scripts/hooks/verify-agent-prompt.test.sh": {
@@ -147,6 +187,28 @@
         ],
         "environment": [],
         "external": []
+      },
+      "subset": {
+        "review": "The R1 transitive reader closure listed in sources supplies all executed test/helper bytes. Config and records used by the cases are generated fixtures as detailed in this unit review. Bind all shared runner/library bytes and the entire engine name/type/mode inventory for ci-units discovery. No unread hook content is used as a verdict input. Keep every separately declared outside path and external input.",
+        "requires": {
+          "paths": [
+            "richos/engine/scripts/lib/resolve-main-checkout.sh",
+            "richos/engine/scripts/lib/cpu_guard.py",
+            "richos/engine/scripts/lib/cpu_policy.py",
+            "richos/engine/scripts/hooks/verify-agent-prompt.sh",
+            "richos/engine/scripts/lib/unevaluated-notice.sh",
+            "richos/engine/scripts/lib/operator_fences.py",
+            "richos/engine/scripts/lib/stopwatch.sh",
+            "richos/engine/scripts/lib/mutation-pool.sh",
+            "richos/engine/scripts/lib/proc_tree.py",
+            "richos/engine/scripts/lib/engine_pass.py",
+            "richos/engine/scripts/lib/worker_tokens.py",
+            "richos/engine/scripts/hooks/conceal.mutation.sh",
+            "richos/engine/scripts/lib/resolve-roots.sh",
+            "richos/engine/scripts/hooks/verify-agent-prompt.test.sh"
+          ],
+          "inventories": []
+        }
       }
     },
     "engine scripts/hooks/guard-reference-ledger.test.sh": {
@@ -183,6 +245,29 @@
         ],
         "environment": [],
         "external": []
+      },
+      "subset": {
+        "review": "The R1 transitive reader closure listed in sources supplies all executed test/helper bytes. Config and records used by the cases are generated fixtures as detailed in this unit review. Bind all shared runner/library bytes and the entire engine name/type/mode inventory for ci-units discovery. No unread hook content is used as a verdict input. Keep every separately declared outside path and external input.",
+        "requires": {
+          "paths": [
+            "richos/engine/scripts/lib/resolve-main-checkout.sh",
+            "richos/engine/scripts/lib/cpu_guard.py",
+            "richos/engine/scripts/lib/cpu_policy.py",
+            "richos/engine/scripts/hooks/guard-reference-ledger.sh",
+            "richos/engine/scripts/hooks/reference-ledger.mutation.sh",
+            "richos/engine/scripts/lib/unevaluated-notice.sh",
+            "richos/engine/scripts/lib/operator_fences.py",
+            "richos/engine/scripts/lib/stopwatch.sh",
+            "richos/engine/scripts/lib/proc_tree.py",
+            "richos/engine/scripts/lib/scratch.sh",
+            "richos/engine/scripts/lib/worker_tokens.py",
+            "richos/engine/scripts/lib/resolve-roots.sh",
+            "richos/engine/scripts/hooks/guard-reference-ledger.test.sh",
+            "richos/engine/scripts/lib/mutation-pool.sh",
+            "richos/engine/scripts/lib/engine_pass.py"
+          ],
+          "inventories": []
+        }
       }
     },
     "engine scripts/hooks/guard-no-home-network-phone.test.sh": {
@@ -226,6 +311,36 @@
         ],
         "environment": [],
         "external": []
+      },
+      "subset": {
+        "review": "The R1 transitive reader closure listed in sources supplies all executed test/helper bytes. Config and records used by the cases are generated fixtures as detailed in this unit review. Bind all shared runner/library bytes and the entire engine name/type/mode inventory for ci-units discovery. No unread hook content is used as a verdict input. Keep every separately declared outside path and external input.",
+        "requires": {
+          "paths": [
+            "richos/engine/scripts/lib/stopwatch.sh",
+            "richos/engine/scripts/lib/resolve-roots.sh",
+            "richos/engine/scripts/hooks/guard-no-home-network-phone.test.sh",
+            "richos/engine/scripts/lib/mutation-pool.sh",
+            "richos/engine/scripts/lib/ceo-ruled.sh",
+            "richos/engine/scripts/lib/ceo-asks.sh",
+            "richos/engine/scripts/hooks/home-network-phone.mutation.sh",
+            "richos/engine/scripts/lib/resolve-main-checkout.sh",
+            "richos/engine/scripts/lib/cpu_policy.py",
+            "richos/engine/scripts/lib/seat-jurisdiction.sh",
+            "richos/engine/scripts/lib/ceo-ruled.py",
+            "richos/engine/scripts/hooks/guard-no-home-network-phone.sh",
+            "richos/engine/scripts/lib/operator_fences.py",
+            "richos/engine/scripts/lib/proc_tree.py",
+            "richos/engine/scripts/lib/cpu_guard.py",
+            "richos/engine/scripts/lib/scratch.sh",
+            "richos/engine/scripts/lib/engine_pass.py",
+            "richos/engine/scripts/lib/ceo-asks.py",
+            "richos/engine/scripts/lib/ceo-todos.py",
+            "richos/engine/scripts/lib/unevaluated-notice.sh",
+            "richos/engine/scripts/lib/ceo-todos.sh",
+            "richos/engine/scripts/lib/worker_tokens.py"
+          ],
+          "inventories": []
+        }
       }
     },
     "engine scripts/lib/git-jurisdiction.test.sh": {
@@ -1364,6 +1479,38 @@
         ],
         "environment": [],
         "external": []
+      },
+      "subset": {
+        "review": "The R1 transitive reader closure listed in sources supplies all executed test/helper bytes. Config and records used by the cases are generated fixtures as detailed in this unit review. Bind all shared runner/library bytes and the entire engine name/type/mode inventory for ci-units discovery. No unread hook content is used as a verdict input. Keep every separately declared outside path and external input.",
+        "requires": {
+          "paths": [
+            "richos/engine/scripts/lib/engine_pass.py",
+            "richos/engine/scripts/lib/resolve-main-checkout.sh",
+            "richos/engine/scripts/lib/ceo-todos.sh",
+            "richos/engine/scripts/lib/ceo-todos.py",
+            "richos/engine/scripts/lib/worker_tokens.py",
+            "richos/engine/scripts/hooks/session-start-ceo-ask.sh",
+            "richos/engine/scripts/hooks/guard-ceo-ask-first.sh",
+            "richos/engine/scripts/hooks/ceo-asks.mutation.sh",
+            "richos/engine/scripts/lib/stopwatch.sh",
+            "richos/engine/scripts/lib/ceo-asks.py",
+            "richos/engine/scripts/lib/cpu_guard.py",
+            "richos/engine/scripts/lib/proc_tree.py",
+            "richos/engine/scripts/lib/operator_fences.py",
+            "richos/engine/scripts/lib/resolve-roots.sh",
+            "richos/engine/scripts/lib/mutation-pool.sh",
+            "richos/engine/scripts/hooks/notice-ceo-asks.sh",
+            "richos/engine/scripts/lib/ceo-asks.sh",
+            "richos/engine/scripts/hooks/ceo-asks.test.sh",
+            "richos/engine/scripts/hooks/notice-ceo-unasked.sh",
+            "richos/engine/scripts/ceo-asks-status.sh",
+            "richos/engine/scripts/lib/cpu_policy.py",
+            "richos/engine/scripts/lib/stop-hook-notice.sh",
+            "richos/engine/hooks/hooks.json",
+            "richos/engine/scripts/hooks/dispatch-pretooluse.manifest"
+          ],
+          "inventories": []
+        }
       }
     },
     "engine scripts/hooks/ceo-inputs.test.sh": {
@@ -1400,6 +1547,29 @@
         ],
         "environment": [],
         "external": []
+      },
+      "subset": {
+        "review": "The R1 transitive reader closure listed in sources supplies all executed test/helper bytes. Config and records used by the cases are generated fixtures as detailed in this unit review. Bind all shared runner/library bytes and the entire engine name/type/mode inventory for ci-units discovery. No unread hook content is used as a verdict input. Keep every separately declared outside path and external input.",
+        "requires": {
+          "paths": [
+            "richos/engine/scripts/lib/resolve-main-checkout.sh",
+            "richos/engine/scripts/lib/seat-jurisdiction.sh",
+            "richos/engine/scripts/hooks/notice-ceo-inputs-unheld.sh",
+            "richos/engine/scripts/hooks/ceo-inputs.test.sh",
+            "richos/engine/scripts/lib/declaration-path.sh",
+            "richos/engine/scripts/hooks/scan-secrets.sh",
+            "richos/engine/scripts/hooks/guard-publication-writes.sh",
+            "richos/engine/scripts/hooks/commit-ceo-inputs.py",
+            "richos/engine/scripts/lib/resolve-roots.sh",
+            "richos/engine/scripts/hooks/commit-ceo-inputs.sh",
+            "richos/engine/scripts/lib/unevaluated-notice.sh",
+            "richos/engine/scripts/lib/publication-boundary.sh",
+            "richos/engine/scripts/lib/stop-hook-notice.sh",
+            "richos/engine/hooks/hooks.json",
+            "richos/engine/scripts/hooks/dispatch-pretooluse.manifest"
+          ],
+          "inventories": []
+        }
       }
     },
     "engine scripts/hooks/ceo-ruled.test.sh": {
@@ -1450,6 +1620,41 @@
         "external": [
           "CEO_RULED_LIVE_DIR"
         ]
+      },
+      "subset": {
+        "review": "The R1 transitive reader closure listed in sources supplies all executed test/helper bytes. Config and records used by the cases are generated fixtures as detailed in this unit review. Bind all shared runner/library bytes and the entire engine name/type/mode inventory for ci-units discovery. No unread hook content is used as a verdict input. Keep every separately declared outside path and external input.",
+        "requires": {
+          "paths": [
+            "richos/engine/scripts/lib/engine_pass.py",
+            "richos/engine/scripts/lib/resolve-main-checkout.sh",
+            "richos/engine/scripts/lib/premise-ask.py",
+            "richos/engine/scripts/lib/ceo-todos.sh",
+            "richos/engine/scripts/lib/ceo-ruled.py",
+            "richos/engine/scripts/lib/ceo-todos.py",
+            "richos/engine/scripts/lib/worker_tokens.py",
+            "richos/engine/scripts/lib/ceo-ruled.sh",
+            "richos/engine/scripts/ceo-ruled-exempt.sh",
+            "richos/engine/scripts/hooks/ceo-ruled.test.sh",
+            "richos/engine/scripts/lib/unevaluated-notice.sh",
+            "richos/engine/scripts/lib/stopwatch.sh",
+            "richos/engine/scripts/lib/ceo-asks.py",
+            "richos/engine/scripts/lib/cpu_guard.py",
+            "richos/engine/scripts/lib/proc_tree.py",
+            "richos/engine/scripts/lib/resolve-roots.sh",
+            "richos/engine/scripts/lib/operator_fences.py",
+            "richos/engine/scripts/lib/mutation-pool.sh",
+            "richos/engine/scripts/lib/premise-ask.sh",
+            "richos/engine/scripts/lib/ceo-asks.sh",
+            "richos/engine/scripts/hooks/ceo-ruled.mutation.sh",
+            "richos/engine/scripts/hooks/guard-ceo-ruled-ask.sh",
+            "richos/engine/scripts/hooks/notice-ceo-ruled-prose.sh",
+            "richos/engine/scripts/lib/cpu_policy.py",
+            "richos/engine/scripts/lib/stop-hook-notice.sh",
+            "richos/engine/hooks/hooks.json",
+            "richos/engine/scripts/hooks/dispatch-pretooluse.manifest"
+          ],
+          "inventories": []
+        }
       }
     },
     "engine scripts/hooks/ceo-todos.test.sh": {
@@ -1497,6 +1702,40 @@
         ],
         "environment": [],
         "external": []
+      },
+      "subset": {
+        "review": "The R1 transitive reader closure listed in sources supplies all executed test/helper bytes. Config and records used by the cases are generated fixtures as detailed in this unit review. Bind all shared runner/library bytes and the entire engine name/type/mode inventory for ci-units discovery. No unread hook content is used as a verdict input. Keep every separately declared outside path and external input.",
+        "requires": {
+          "paths": [
+            "richos/engine/scripts/lib/ceo-todos.sh",
+            "richos/engine/scripts/lib/resolve-main-checkout.sh",
+            "richos/engine/scripts/ceo-todos-lint.sh",
+            "richos/engine/scripts/ceo-todos-render.sh",
+            "richos/engine/scripts/lib/engine_pass.py",
+            "richos/engine/scripts/lib/ceo-todos.py",
+            "richos/engine/scripts/lib/worker_tokens.py",
+            "richos/engine/scripts/hooks/ceo-todos.test.sh",
+            "richos/engine/scripts/lib/registered-hooks.sh",
+            "richos/engine/scripts/lib/unevaluated-notice.sh",
+            "richos/engine/scripts/lib/stopwatch.sh",
+            "richos/engine/scripts/lib/cpu_guard.py",
+            "richos/engine/scripts/lib/seat-jurisdiction.sh",
+            "richos/engine/scripts/cold-open.sh",
+            "richos/engine/scripts/lib/proc_tree.py",
+            "richos/engine/scripts/ceo-todos-init.sh",
+            "richos/engine/scripts/lib/scratch.sh",
+            "richos/engine/scripts/hooks/guard-ceo-todos-commits.sh",
+            "richos/engine/scripts/lib/resolve-roots.sh",
+            "richos/engine/scripts/lib/operator_fences.py",
+            "richos/engine/scripts/lib/mutation-pool.sh",
+            "richos/engine/scripts/lib/git-jurisdiction.sh",
+            "richos/engine/scripts/lib/cpu_policy.py",
+            "richos/engine/scripts/hooks/ceo-todos.mutation.sh",
+            "richos/engine/hooks/hooks.json",
+            "richos/engine/scripts/hooks/dispatch-pretooluse.manifest"
+          ],
+          "inventories": []
+        }
       }
     },
     "engine scripts/hooks/completeness-commits.test.sh": {
@@ -1532,6 +1771,28 @@
         ],
         "environment": [],
         "external": []
+      },
+      "subset": {
+        "review": "The R1 transitive reader closure listed in sources supplies all executed test/helper bytes. Config and records used by the cases are generated fixtures as detailed in this unit review. Bind all shared runner/library bytes and the entire engine name/type/mode inventory for ci-units discovery. No unread hook content is used as a verdict input. Keep every separately declared outside path and external input.",
+        "requires": {
+          "paths": [
+            "richos/engine/scripts/lib/resolve-main-checkout.sh",
+            "richos/engine/scripts/lib/seat-jurisdiction.sh",
+            "richos/engine/scripts/lib/declaration-path.sh",
+            "richos/engine/scripts/hooks/completeness-commits.test.sh",
+            "richos/engine/scripts/hooks/guard-completeness-commits.sh",
+            "richos/engine/scripts/lib/git-jurisdiction.sh",
+            "richos/engine/scripts/publication-completeness.sh",
+            "richos/engine/scripts/lib/publication-boundary.sh",
+            "richos/engine/scripts/publication-completeness.py",
+            "richos/engine/scripts/lib/resolve-roots.sh",
+            "richos/engine/scripts/lib/unevaluated-notice.sh",
+            "richos/engine/scripts/lib/registered-hooks.sh",
+            "richos/engine/hooks/hooks.json",
+            "richos/engine/scripts/hooks/dispatch-pretooluse.manifest"
+          ],
+          "inventories": []
+        }
       }
     },
     "engine scripts/hooks/named-persons.test.sh": {
@@ -1569,6 +1830,30 @@
         ],
         "environment": [],
         "external": []
+      },
+      "subset": {
+        "review": "The R1 transitive reader closure listed in sources supplies all executed test/helper bytes. Config and records used by the cases are generated fixtures as detailed in this unit review. Bind all shared runner/library bytes and the entire engine name/type/mode inventory for ci-units discovery. No unread hook content is used as a verdict input. Keep every separately declared outside path and external input.",
+        "requires": {
+          "paths": [
+            "richos/engine/scripts/lib/resolve-main-checkout.sh",
+            "richos/engine/scripts/lib/seat-jurisdiction.sh",
+            "richos/engine/scripts/lib/named-persons.sh",
+            "richos/engine/scripts/lib/declaration-path.sh",
+            "richos/engine/scripts/lib/git-jurisdiction.sh",
+            "richos/engine/scripts/hooks/guard-named-persons-commands.sh",
+            "richos/engine/scripts/lib/publication-boundary.sh",
+            "richos/engine/scripts/lib/named-persons.py",
+            "richos/engine/scripts/hooks/guard-named-persons-writes.sh",
+            "richos/engine/scripts/hooks/named-persons.test.sh",
+            "richos/engine/scripts/lib/unevaluated-notice.sh",
+            "richos/engine/scripts/named-persons.sh",
+            "richos/engine/scripts/lib/registered-hooks.sh",
+            "richos/engine/scripts/lib/resolve-roots.sh",
+            "richos/engine/hooks/hooks.json",
+            "richos/engine/scripts/hooks/dispatch-pretooluse.manifest"
+          ],
+          "inventories": []
+        }
       }
     },
     "engine scripts/hooks/row-currency.test.sh": {
@@ -1619,6 +1904,43 @@
         ],
         "environment": [],
         "external": []
+      },
+      "subset": {
+        "review": "The R1 transitive reader closure listed in sources supplies all executed test/helper bytes. Config and records used by the cases are generated fixtures as detailed in this unit review. Bind all shared runner/library bytes and the entire engine name/type/mode inventory for ci-units discovery. No unread hook content is used as a verdict input. Keep every separately declared outside path and external input.",
+        "requires": {
+          "paths": [
+            "richos/engine/scripts/lib/ceo-todos.sh",
+            "richos/engine/scripts/lib/resolve-main-checkout.sh",
+            "richos/engine/scripts/row-headline-verify.sh",
+            "richos/engine/scripts/lib/engine_pass.py",
+            "richos/engine/scripts/lib/mutation-harness.sh",
+            "richos/engine/scripts/lib/ceo-todos.py",
+            "richos/engine/scripts/lib/worker_tokens.py",
+            "richos/engine/scripts/lib/registered-hooks.sh",
+            "richos/engine/scripts/lib/declaration-path.sh",
+            "richos/engine/scripts/lib/unevaluated-notice.sh",
+            "richos/engine/scripts/lib/stopwatch.sh",
+            "richos/engine/scripts/lib/stop-at-line.py",
+            "richos/engine/scripts/lib/cpu_guard.py",
+            "richos/engine/scripts/lib/seat-jurisdiction.sh",
+            "richos/engine/scripts/lib/row-currency.sh",
+            "richos/engine/scripts/row-currency-lint.sh",
+            "richos/engine/scripts/lib/proc_tree.py",
+            "richos/engine/scripts/lib/scratch.sh",
+            "richos/engine/scripts/hooks/guard-row-currency-commits.sh",
+            "richos/engine/scripts/lib/resolve-roots.sh",
+            "richos/engine/scripts/lib/operator_fences.py",
+            "richos/engine/scripts/lib/mutation-pool.sh",
+            "richos/engine/scripts/lib/git-jurisdiction.sh",
+            "richos/engine/scripts/lib/row-currency.py",
+            "richos/engine/scripts/hooks/guard-row-currency-commits.mutation.sh",
+            "richos/engine/scripts/lib/cpu_policy.py",
+            "richos/engine/scripts/hooks/row-currency.test.sh",
+            "richos/engine/hooks/hooks.json",
+            "richos/engine/scripts/hooks/dispatch-pretooluse.manifest"
+          ],
+          "inventories": []
+        }
       }
     },
     "engine scripts/hooks/unstarted-rows.test.sh": {
@@ -1664,6 +1986,38 @@
         ],
         "environment": [],
         "external": []
+      },
+      "subset": {
+        "review": "The R1 transitive reader closure listed in sources supplies all executed test/helper bytes. Config and records used by the cases are generated fixtures as detailed in this unit review. Bind all shared runner/library bytes and the entire engine name/type/mode inventory for ci-units discovery. No unread hook content is used as a verdict input. Keep every separately declared outside path and external input.",
+        "requires": {
+          "paths": [
+            "richos/engine/scripts/lib/ceo-todos.sh",
+            "richos/engine/scripts/lib/resolve-main-checkout.sh",
+            "richos/engine/scripts/lib/engine_pass.py",
+            "richos/engine/scripts/lib/ceo-todos.py",
+            "richos/engine/scripts/lib/worker_tokens.py",
+            "richos/engine/scripts/unstarted-rows-lint.sh",
+            "richos/engine/scripts/hooks/notice-unstarted-rows.sh",
+            "richos/engine/scripts/lib/declaration-path.sh",
+            "richos/engine/scripts/lib/stopwatch.sh",
+            "richos/engine/scripts/lib/cpu_guard.py",
+            "richos/engine/scripts/lib/unstarted-rows.py",
+            "richos/engine/scripts/lib/row-currency.sh",
+            "richos/engine/scripts/hooks/unstarted-rows.test.sh",
+            "richos/engine/scripts/lib/proc_tree.py",
+            "richos/engine/scripts/lib/operator_fences.py",
+            "richos/engine/scripts/lib/resolve-roots.sh",
+            "richos/engine/scripts/lib/mutation-pool.sh",
+            "richos/engine/scripts/lib/unstarted-rows.sh",
+            "richos/engine/scripts/hooks/unstarted-rows.mutation.sh",
+            "richos/engine/scripts/lib/row-currency.py",
+            "richos/engine/scripts/lib/cpu_policy.py",
+            "richos/engine/scripts/lib/stop-hook-notice.sh",
+            "richos/engine/hooks/hooks.json",
+            "richos/engine/scripts/hooks/dispatch-pretooluse.manifest"
+          ],
+          "inventories": []
+        }
       }
     },
     "make-engine-asset": {
@@ -1755,6 +2109,36 @@
         ],
         "environment": [],
         "external": []
+      },
+      "subset": {
+        "review": "The R1 transitive reader closure listed in sources supplies all executed test/helper bytes. Config and records used by the cases are generated fixtures as detailed in this unit review. Bind all shared runner/library bytes and the entire engine name/type/mode inventory for ci-units discovery. No unread hook content is used as a verdict input. Keep every separately declared outside path and external input.",
+        "requires": {
+          "paths": [
+            "richos/engine/scripts/hooks/guard-host-display-power.test.sh",
+            "richos/engine/scripts/hooks/host-display-power.mutation.sh",
+            "richos/engine/scripts/lib/scratch.sh",
+            "richos/engine/scripts/lib/mutation-pool.sh",
+            "richos/engine/scripts/lib/stopwatch.sh",
+            "richos/engine/scripts/lib/worker_tokens.py",
+            "richos/engine/scripts/lib/operator_fences.py",
+            "richos/engine/scripts/lib/cpu_guard.py",
+            "richos/engine/scripts/lib/proc_tree.py",
+            "richos/engine/scripts/lib/cpu_policy.py",
+            "richos/engine/scripts/lib/engine_pass.py",
+            "richos/engine/scripts/hooks/guard-host-display-power.sh",
+            "richos/engine/scripts/lib/ceo-ruled.sh",
+            "richos/engine/scripts/lib/ceo-ruled.py",
+            "richos/engine/scripts/lib/ceo-asks.py",
+            "richos/engine/scripts/lib/ceo-asks.sh",
+            "richos/engine/scripts/lib/ceo-todos.sh",
+            "richos/engine/scripts/lib/ceo-todos.py",
+            "richos/engine/scripts/lib/resolve-main-checkout.sh",
+            "richos/engine/scripts/lib/unevaluated-notice.sh",
+            "richos/engine/scripts/lib/seat-jurisdiction.sh",
+            "richos/engine/scripts/lib/resolve-roots.sh"
+          ],
+          "inventories": []
+        }
       }
     },
     "engine scripts/hooks/guard-public-record-repo.test.sh": {
@@ -1798,7 +2182,34 @@
       },
       "external_paths": [
         "/nowhere"
-      ]
+      ],
+      "subset": {
+        "review": "The R1 transitive reader closure listed in sources supplies all executed test/helper bytes. Config and records used by the cases are generated fixtures as detailed in this unit review. Bind all shared runner/library bytes and the entire engine name/type/mode inventory for ci-units discovery. No unread hook content is used as a verdict input. Keep every separately declared outside path and external input.",
+        "requires": {
+          "paths": [
+            "richos/engine/scripts/hooks/guard-public-record-repo.test.sh",
+            "richos/engine/scripts/hooks/public-record-repo.mutation.sh",
+            "richos/engine/scripts/lib/scratch.sh",
+            "richos/engine/scripts/lib/mutation-pool.sh",
+            "richos/engine/scripts/lib/stopwatch.sh",
+            "richos/engine/scripts/lib/worker_tokens.py",
+            "richos/engine/scripts/lib/operator_fences.py",
+            "richos/engine/scripts/lib/cpu_guard.py",
+            "richos/engine/scripts/lib/proc_tree.py",
+            "richos/engine/scripts/lib/cpu_policy.py",
+            "richos/engine/scripts/lib/engine_pass.py",
+            "richos/engine/scripts/hooks/guard-public-record-repo.sh",
+            "richos/engine/scripts/lib/git-jurisdiction.sh",
+            "richos/engine/scripts/lib/publication-boundary.sh",
+            "richos/engine/scripts/lib/declaration-path.sh",
+            "richos/engine/scripts/lib/unevaluated-notice.sh",
+            "richos/engine/scripts/lib/seat-jurisdiction.sh",
+            "richos/engine/scripts/lib/resolve-main-checkout.sh",
+            "richos/engine/scripts/lib/resolve-roots.sh"
+          ],
+          "inventories": []
+        }
+      }
     },
     "engine scripts/hooks/guard-bash-main-writes.test.sh": {
       "review": "The real engine config supplies protected path strings. The guard classifies supplied command text without executing it or reading target file contents. All payload cwd and worktree cases are strings; the default declared entity uses the engine adoption marker. Missing-Python links are private. No live clock, network, process assertion or host Git history determines the verdict.",
@@ -1825,6 +2236,20 @@
         ],
         "environment": [],
         "external": []
+      },
+      "subset": {
+        "review": "The R1 transitive reader closure listed in sources supplies all executed test/helper bytes. Config and records used by the cases are generated fixtures as detailed in this unit review. Bind all shared runner/library bytes and the entire engine name/type/mode inventory for ci-units discovery. No unread hook content is used as a verdict input. Keep every separately declared outside path and external input.",
+        "requires": {
+          "paths": [
+            "richos/engine/scripts/hooks/guard-bash-main-writes.test.sh",
+            "richos/engine/scripts/hooks/guard-bash-main-writes.sh",
+            "richos/engine/scripts/lib/unevaluated-notice.sh",
+            "richos/engine/scripts/lib/resolve-roots.sh",
+            "richos/engine/scripts/lib/resolve-main-checkout.sh",
+            "richos/engine/orchestration.config"
+          ],
+          "inventories": []
+        }
       }
     },
     "engine scripts/hooks/turn-manifest.test.sh": {
@@ -2321,5 +2746,18 @@
       }
     }
   },
-  "isolation": "private-home-v1"
+  "isolation": "private-home-v1",
+  "subset_requires": {
+    "paths": [
+      "richos/app/scripts",
+      "richos/engine/scripts/lib",
+      "richos/engine/scripts/ci-shard.sh",
+      "richos/engine/scripts/ci-units.sh",
+      "richos/engine/scripts/hooks/contract-integrity.test.sh",
+      "richos/engine/orchestration.config"
+    ],
+    "inventories": [
+      "richos/engine"
+    ]
+  }
 }

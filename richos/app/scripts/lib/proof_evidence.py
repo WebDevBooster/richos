@@ -65,6 +65,26 @@ def path_identity(path, ancestors=()):
     raise ValueError(f"unsupported input type: {path}")
 
 
+def inventory_identity(path):
+    """Bind discovery and existence without hashing unrelated regular-file bytes.
+
+    Links retain their target contents because a reader may traverse them. This
+    conservative exception also rejects cycles through the normal path reader.
+    """
+    path = Path(path)
+    if path.is_symlink():
+        return {"link": path_identity(path)}
+    if not path.exists():
+        return {"absent": True}
+    mode = path.stat().st_mode & 0o777
+    if path.is_dir():
+        return {"mode": mode, "directory": {
+            p.name: inventory_identity(p) for p in sorted(path.iterdir())}}
+    if path.is_file():
+        return {"file": True, "mode": mode}
+    raise ValueError(f"unsupported inventory input: {path}")
+
+
 PRIVATE_PROFILE = "private-home-v1"
 GIT_FIXTURE = '[user]\n\tname = Verification Fixture\n\temail = verification@example.invalid\n'
 
@@ -102,6 +122,7 @@ class InputSnapshot:
     def __init__(self):
         self.paths = {}
         self.runtimes = {}
+        self.inventories = {}
 
     def path(self, path):
         key = str(Path(path).absolute())
@@ -113,6 +134,12 @@ class InputSnapshot:
         if executable not in self.runtimes:
             self.runtimes[executable] = python_runtime(executable)
         return self.runtimes[executable]
+
+    def inventory(self, path):
+        key = str(Path(path).absolute())
+        if key not in self.inventories:
+            self.inventories[key] = inventory_identity(path)
+        return self.inventories[key]
 
 
 def prepare_environment(item, root, logdir, environment, create=True):
@@ -244,6 +271,35 @@ def qualify_recipe(root, recipe):
                 raise ValueError("input qualification omits git_inputs " + kind + ": " + ", ".join(missing))
     if git_inputs and "git" not in recipe["tools"]:
         raise ValueError("Git inputs require the git tool identity")
+    if "subset" in recipe:
+        subset = recipe["subset"]
+        reviewed = extra.get("subset") if extra else None
+        common = contract.get("subset_requires")
+        if (not isinstance(reviewed, dict) or not reviewed.get("review")
+                or not isinstance(common, dict)):
+            raise ValueError("missing reviewed subset qualification")
+        for declaration in (subset, common, reviewed.get("requires")):
+            if not isinstance(declaration, dict) or set(declaration) != {"paths", "inventories"}:
+                raise ValueError("invalid subset input declaration")
+            for values in declaration.values():
+                if not isinstance(values, list):
+                    raise ValueError("invalid subset input list")
+                for value in values:
+                    relative(value)
+        for field in ("paths", "inventories"):
+            floor = [*common[field], *reviewed["requires"][field]]
+            if field == "paths":
+                floor.extend(extra["sources"])
+                floor.extend(extra["requires"]["paths"])
+            missing = [p for p in floor if not any(
+                Path(p).is_relative_to(parent) for parent in subset[field])]
+            if missing:
+                raise ValueError("subset qualification omits " + field + ": " + ", ".join(missing))
+        # A subset cannot secretly introduce a new outside-root input while
+        # claiming that its Tier 1 parent declaration already covered it.
+        for path in [*subset["paths"], *subset["inventories"]]:
+            if not any(Path(path).is_relative_to(parent) for parent in recipe["paths"]):
+                raise ValueError("subset input is outside declared roots: " + path)
     return [qualification, review]
 
 
@@ -287,7 +343,7 @@ def recipe_identity(root, recipe, environment, snapshot=None):
     if recipe.get("fresh"):
         return {"fresh": recipe["fresh"]}
     required = {"paths", "tools", "environment", "external", "qualification"}
-    if set(recipe) - {"isolation", "qualification_unit", "external_paths", "git_inputs"} != required or not recipe["qualification"]:
+    if set(recipe) - {"isolation", "qualification_unit", "external_paths", "git_inputs", "subset"} != required or not recipe["qualification"]:
         raise ValueError("incomplete verification input contract")
     root = Path(root).resolve()
     snapshot = snapshot or InputSnapshot()
@@ -296,7 +352,8 @@ def recipe_identity(root, recipe, environment, snapshot=None):
     except UnqualifiedReader as exc:
         return {"fresh": str(exc)}
     paths = {}
-    for rel in [*recipe["paths"], *qualification_paths]:
+    selected_paths = recipe.get("subset", {}).get("paths", recipe["paths"])
+    for rel in [*selected_paths, *qualification_paths]:
         path = root / rel
         if Path(rel).is_absolute() or ".." in Path(rel).parts:
             raise ValueError(f"input must be repository-relative: {rel}")
@@ -331,6 +388,8 @@ def recipe_identity(root, recipe, environment, snapshot=None):
         profile = {"name": PRIVATE_PROFILE, "git_fixture": digest(GIT_FIXTURE)}
     literal_external = {path: digest(snapshot.path(path)) for path in recipe.get("external_paths", [])}
     return {"contract": digest(recipe), "paths": paths, "tools": tools, "profile": profile,
+            "inventories": {path: digest(snapshot.inventory(root / path))
+                            for path in recipe.get("subset", {}).get("inventories", [])},
             "external_paths": literal_external,
             "git_inputs": git_input_identity(root, recipe.get("git_inputs"), environment),
             "environment": values, "external": external,

@@ -146,3 +146,21 @@ fixture, real names gate and owned loopback server. It binds the app version and
 updater configuration outside the shared roots. Signing, compilation and public
 release operations are never reached by these cases. This does not qualify a
 real published-release verification for reuse.
+
+## Reuse within changed roots
+
+Sixteen fixture-driven hook and record units now declare a reviewed smaller input
+set. The full declared roots remain the qualification boundary. The identity
+uses the complete named reader/helper closure, shared runner and library bytes,
+production configuration plus every outside input. The entire engine inventory
+binds names, types, permissions and symlink targets for discovery. Adding or
+removing an untracked file invalidates evidence; editing an unread regular file
+does not. File inventories never substitute for the contents of a declared reader
+or fixture. Units without this explicit review retain whole-root comparison.
+
+The regression runs the actual runner and coverage verifier across a commit that
+changes an unread file inside the engine root. It requires original receipt bytes
+and SHA retention, only the previously unrun unit executing, and rejection after
+a declared outside input changes. Separate fixtures require helper/data changes,
+new inventory members, symlink target changes and deliberate known omissions to
+invalidate reuse or refuse qualification.
