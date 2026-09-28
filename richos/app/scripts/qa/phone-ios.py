@@ -11,8 +11,12 @@
                                                    (about two minutes saved per run) and refuses unless
                                                    the app still hashes to STAMP.json (perf.py stamp)
     phone-ios.py parse-log TEST.log                the PHONE_STEP lines of a finished run
-    phone-ios.py pair-steps MAC-TEST-CONFIG.json   the real-control pairing steps for a lab's current
-                                                   link, with all six words checked before They match
+    phone-ios.py pair-steps MAC-TEST-CONFIG.json [--v2-hold S]
+                                                   the real-control pairing steps for a lab's current
+                                                   link, with all six words checked before They match;
+                                                   --v2-hold (pairing v2) waits for each word by label
+                                                   and holds S seconds before the press, for
+                                                   `pair-words.py check` (see that tool)
     phone-ios.py procs [--name NAME]               the phone's processes whose executable ends in
                                                    NAME (default RichOSNative): pid and path only
     phone-ios.py apps                              which RichConnect builds and test runners are installed
@@ -158,20 +162,33 @@ def parse_log(text):
     return unique
 
 
-def pair_steps(config_path):
+def pair_steps(config_path, v2_hold=None):
     """The real-control pairing a person does, from the lab's own mac-test-config.json: open the
-    link field, enter the link, check all six words BEFORE pressing They match, then the consent."""
+    link field, enter the link, check all six words BEFORE pressing They match, then the consent.
+
+    Pairing v2 (`v2_hold` seconds): the Mac's words depend on the key the phone registers, so the
+    config's words (v1) are not the ones to count. Each "Word n:" is waited for by label instead,
+    which puts the phone's six words in its PHONE_STEP log, and the press waits `v2_hold` seconds
+    while the walker runs `pair-words.py check` and stops the run if it does not exit 0."""
     try:
         config = json.loads(Path(config_path).read_text())
     except (FileNotFoundError, json.JSONDecodeError) as error:
         raise CannotAnswer(f"cannot read the lab configuration {config_path}: {error}")
     link, words = config.get("pairLink"), str(config.get("words", "")).split()
-    if not (isinstance(link, str) and link.startswith("https://") and "#pair=" in link) or len(words) != 6:
+    if not (isinstance(link, str) and link.startswith("https://") and "#pair=" in link):
+        raise CannotAnswer("the lab configuration has no current HTTPS pairing link")
+    if v2_hold is None and len(words) != 6:
         raise CannotAnswer("the lab configuration has no current HTTPS pairing link and six words")
+    if v2_hold is not None and not 20 <= v2_hold <= 300:
+        raise CannotAnswer("--v2-hold must be 20 to 300 seconds: long enough to check, short enough to stay inside the code's five minutes")
     steps = [{"do": "launch"}, {"do": "tap", "id": "pair.link", "timeout": 10},
              {"do": "type", "id": "pairlink.field", "text": link}, {"do": "tap", "id": "pairlink.submit"},
              {"do": "wait", "id": "pair.match", "timeout": 20}]
-    steps += [{"do": "count", "label": f"Word {n}: {word}", "equals": 1} for n, word in enumerate(words, 1)]
+    if v2_hold is None:
+        steps += [{"do": "count", "label": f"Word {n}: {word}", "equals": 1} for n, word in enumerate(words, 1)]
+    else:
+        steps += [{"do": "wait", "label": f"Word {n}: ", "timeout": 5} for n in range(1, 7)]
+        steps += [{"do": "mark", "label": "compare the words now: pair-words.py check"}, {"do": "sleep", "seconds": v2_hold}]
     steps += [{"do": "tap", "id": "pair.match"}, {"do": "tap", "id": "consent.continue", "timeout": 4, "optional": True},
               {"do": "wait", "id": "composer.field", "timeout": 20}]
     return validate(steps)
@@ -353,7 +370,9 @@ def main(argv):
     r.add_argument("--prebuilt", action="store_true")
     r.add_argument("--stamp")
     sub.add_parser("parse-log").add_argument("log")
-    sub.add_parser("pair-steps").add_argument("config")
+    ps = sub.add_parser("pair-steps")
+    ps.add_argument("config")
+    ps.add_argument("--v2-hold", type=int, default=None)
     for name in ("procs", "apps", "lock", "battery", "syslog"):
         s = sub.add_parser(name)
         s.add_argument("--device", required=True)
@@ -370,7 +389,7 @@ def main(argv):
         if args.command == "check":
             return emit({"valid": True, "steps": len(load_steps(args.steps))})
         if args.command == "pair-steps":
-            print(json.dumps(pair_steps(args.config), indent=1))
+            print(json.dumps(pair_steps(args.config, args.v2_hold), indent=1))
             return 0
         if args.command == "parse-log":
             try:
