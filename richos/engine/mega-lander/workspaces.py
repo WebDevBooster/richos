@@ -1938,6 +1938,12 @@ def _record_for_agent(session_id, agent_id, name=""):
 
 def record_end(session_id, agent_id, signal_name, detail=""):
     """The platform's own end-of-run signal, recorded automatically."""
+    if signal_name == "stopped":
+        # A stopped agent's suspended processes would hold their termination forever.
+        # Released by the ids the stop names, BEFORE any early return below: an agent
+        # already disposed of, or one the registry never knew, is still released
+        # (Sage's catch 1).
+        release_held_ids(session_id, agent_id)
     with Lock():
         rec = _record_for_agent(session_id, agent_id)
         if not rec:
@@ -1953,9 +1959,6 @@ def record_end(session_id, agent_id, signal_name, detail=""):
         if signal_name == "stopped":
             rec["pause"] = None
         save_agent(rec)
-    if signal_name == "stopped":
-        # A stopped agent's suspended processes would hold their termination forever.
-        release_held_work(rec)
     # The end-of-run signal carries the agent's id too, so it is the last
     # observation: a ref created in its LAST call is still its own, even if that
     # call's PostToolUse never arrived. It CONSUMES EVERY window still open —
@@ -2278,6 +2281,16 @@ def _agent_hold():
     return agent_hold
 
 
+def _generated(kind, text):
+    """Is `text` the unchanged generated pause (kind "pause") or RESUME (kind "resume")?"""
+    try:
+        _agent_hold()                  # puts scripts/lib on the path
+        import pause_protocol
+        return (pause_protocol.is_generated_pause if kind == "pause" else pause_protocol.is_generated_resume)(text)
+    except Exception:
+        return False
+
+
 def hold_running_work(rec, notes=None):
     """A pause takes effect at once: the agent's running commands are suspended and its
     new ones wait (agent_hold.py). The message alone reaches it only at its next tool
@@ -2305,17 +2318,24 @@ def hold_running_work(rec, notes=None):
 def release_held_work(rec, notes=None):
     """RESUME, a stop and every other end of a pause continue what the hold suspended.
     Never raises; a release that fails is reported."""
+    return release_held_ids(str(rec.get("session_id") or ""), str(rec.get("agent_id") or ""),
+                            rec.get("name") or "", rec.get("key"), notes)
+
+
+def release_held_ids(session_id, agent_id, name="", key=None, notes=None):
+    """The same release, by the ids alone: a stop names an agent id whether or not the
+    registry still holds a live record for it (Sage's catch 1)."""
     try:
         ah = _agent_hold()
-        res = ah.release(str(rec.get("session_id") or ""), str(rec.get("agent_id") or ""))
+        res = ah.release(str(session_id or ""), str(agent_id or ""))
         line = ah.describe_release(res)
         if line:
-            event("release", key=rec["key"], continued=len(res.get("continued") or []),
+            event("release", key=key, agent_id=agent_id, continued=len(res.get("continued") or []),
                   waited=len(res.get("waited") or []), gone=len(res.get("gone") or []))
     except Exception as e:
         line = "RELEASE %s: FAILED (%s); its held work may still be suspended: agent_hold.py status." % (
-            rec.get("name") or "?", str(e)[:200])
-        event("release-failed", key=rec.get("key"), why=str(e)[:200])
+            name or agent_id or "?", str(e)[:200])
+        event("release-failed", key=key, agent_id=agent_id, why=str(e)[:200])
     if notes is not None and line:
         notes.append(line)
     return line
@@ -2342,15 +2362,18 @@ def release_session_holds(session_id, notes=None):
             notes.append("RELEASE after a session ended FAILED (%s): agent_hold.py status." % str(e)[:200])
 
 
-def pause(ref, until, session_id="", notes=None):
+def pause(ref, until, session_id="", notes=None, control=False):
+    """`control`: the pause came as the unchanged generated message (pause_protocol.py).
+    Only the generated RESUME, a resume command, a stop or the session's end ends
+    such a pause; any other message leaves it waiting (Sage's catch 3)."""
     with Lock():
         rec = _resolve(ref, session_id)
         fin, _p_, why = finished_state(rec)
         if fin:
             raise SpecError("%s is already finished (%s); a finished agent is not paused" % (rec["name"], why))
-        rec["pause"] = {"at": now(), "until": (until or "").strip()}
+        rec["pause"] = {"at": now(), "until": (until or "").strip(), "control": bool(control)}
         save_agent(rec)
-    event("pause", key=rec["key"], until=until)
+    event("pause", key=rec["key"], until=until, control=bool(control))
     hold_running_work(rec, notes)
     return rec
 
@@ -5169,12 +5192,21 @@ def lifecycle(payload, entity):
                     until = prompt_lines(text, "pause-until")
                     if prompt_lines(text, "pause-until") or re.search(r"(?m)^\s*pause-until:\s*$", text):
                         try:
-                            pause(rec["key"], until[0] if until else "", sid, notices)
+                            pause(rec["key"], until[0] if until else "", sid, notices,
+                                  control=_generated("pause", text))
                         except SpecError as e:
                             notices.append(str(e))
                     else:
                         st = finished_state(rec)
-                        if st[1]:
+                        if st[1] and (rec.get("pause") or {}).get("control") and not _generated("resume", text):
+                            # Sage's catch 3: a land's in-flight notice or any other message
+                            # must not thaw a generated pause. The agent reads it when it wakes.
+                            event("pause-kept", key=rec["key"])
+                            notices.append(
+                                "%s is WAITING under the generated pause: this message did not resume it. Its "
+                                "work stays frozen and its new commands wait until you send the generated RESUME: "
+                                "pause_protocol.py --resume --to %s" % (rec["name"], rec["name"]))
+                        elif st[1]:
                             resume(rec["key"], sid, notices)
         elif tool == "Bash":
             cmd = str(ti.get("command") or "")
@@ -5429,7 +5461,7 @@ def main(argv):
             if notices:
                 out["systemMessage"] = "\n".join(notices)
             # The measured hold/release result is also context for the lead, who reports it.
-            held = [n for n in notices if n.startswith(("HOLD ", "RELEASE "))]
+            held = [n for n in notices if n.startswith(("HOLD ", "RELEASE ")) or "is WAITING under the generated pause" in n]
             if held and payload.get("hook_event_name") == "PostToolUse":
                 out["hookSpecificOutput"] = {"hookEventName": "PostToolUse", "additionalContext": "\n".join(held)}
             if out:

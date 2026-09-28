@@ -51,6 +51,7 @@ printf '[user]\n\tname = hold\n\temail = hold@example.invalid\n[init]\n\tdefault
 unset RICHOS_WORKSPACES_DIR RICHOS_SESSION_ID CLAUDE_PROJECT_DIR RICHOS_ENGINE_ROOT CLAUDE_PLUGIN_ROOT RICHOS_SESSION_PID RICHOS_AGENT_HOLD_DIR 2>/dev/null || true
 export SEAL_WAIT_SECONDS=0 RICHOS_WORKSPACES_SPAWN_WINDOW=0 RICHOS_WORKSPACES_STOP_GRACE=1 RICHOS_WORKSPACES_RETRY_BASE=0
 export TESTVM_ROOT="$T/testvm" RICHOS_CPU_GUARD_STATE="$T/cpu-guard"
+export RICHOS_AGENT_HOLD_WATCH_SECONDS=0.5     # the watchdog polls faster than its 5 s default
 mkdir -p "$TESTVM_ROOT"
 STORE="$CLAUDE_CONFIG_DIR/state/workspaces"
 HOLD_STATE="$CLAUDE_CONFIG_DIR/state/agent-hold"
@@ -107,7 +108,7 @@ for i in range(rounds):
         open(out + ".progress", "w").write(str(i))
 open(out, "w").write(h.hex())
 PY
-ROUNDS=600000
+ROUNDS=4000000     # several seconds of work: a shorter run can finish before the pause lands
 EXPECTED="$(python3 -c 'import hashlib,sys
 h=b"richos"
 for _ in range(int(sys.argv[1])): h=hashlib.sha256(h).digest()
@@ -189,6 +190,97 @@ sub "H5.1 held" "is_stopped $W3" "$(cat "$T/pause3.out")"
 payload SessionEnd "{\"session_id\":\"$CUR_SID\",\"cwd\":\"$ENT\",\"reason\":\"other\"}" | lifecycle >/dev/null 2>>"$T/hooks.err"
 sub "H5.2 the session end continued it" "! is_stopped $W3"
 kill -9 "$W3" 2>/dev/null
+
+echo "=== H6 Sage's catch 3: a land's in-flight notice never thaws a generated pause; only the generated RESUME does ==="
+start_session "sess-hold-2222"
+python3 "$ENGINE/mega-lander/workspaces.py" --entity "$ENT" --session "$CUR_SID" integration --repo "$ENT" --branch main \
+    --why "the pause-hold suite's body of work" >/dev/null 2>>"$T/hooks.err"
+AID3="aholdthreethreeth"
+register_agent "zach-opus-hold3" "$AID3"
+agent_call "$AID3" "toolu_work6" "python3 $T/worker.py $T/w6 $ROUNDS" w6
+wait_file "$T/w6.progress"; W6="$(cat "$T/w6.pid")"; OURS+=("$W6")
+send "zach-opus-hold3" "$PAUSE_TEXT" "$T/pause6.out"
+sub "H6.1 held by the generated pause" "is_stopped $W6" "$(cat "$T/pause6.out")"
+NOTICE="main moved to 0123456789abcdef0123456789abcdef01234567
+impact: none
+ack: scripts/inflight-ack.sh --sha 0123456789abcdef0123456789abcdef01234567 --impact none"
+send "zach-opus-hold3" "$NOTICE" "$T/notice6.out"
+send "zach-opus-hold3" "RESUME: continue." "$T/wake6.out"
+sub "H6.2 after an in-flight notice and a handwritten wake it still waits: frozen, paused, held" \
+    "is_stopped $W6 && ! unpaused zach-opus-hold3 && [ -n \"\$(ls $HOLD_STATE/held 2>/dev/null)\" ]" "$(cat "$T/notice6.out")"
+sub "H6.3 the lead is told the message did not resume it, and how to" \
+    "grep -q 'is WAITING under the generated pause' '$T/notice6.out' && grep -q 'pause_protocol.py --resume --to zach-opus-hold3' '$T/notice6.out'" \
+    "$(cat "$T/notice6.out")"
+send "zach-opus-hold3" "$RESUME_TEXT" "$T/resume6.out"
+wait_file "$T/w6.rc" 1200
+sub "H6.4 the generated RESUME continues it; it finishes with the correct result" \
+    "unpaused zach-opus-hold3 && [ \"\$(cat $T/w6 2>/dev/null)\" = '$EXPECTED' ] && [ \"\$(cat $T/w6.rc)\" = 0 ]" "$(cat "$T/resume6.out")"
+
+echo "=== H7 Sage's catch 1: a TaskStop releases the hold by the id it names, whatever the registry holds ==="
+agent_call "$AID3" "toolu_work7" "python3 $T/worker.py $T/w7 $((ROUNDS * 50))" w7
+wait_file "$T/w7.progress"; W7="$(cat "$T/w7.pid")"; OURS+=("$W7")
+send "zach-opus-hold3" "$PAUSE_TEXT" "$T/pause7.out"
+sub "H7.1 held" "is_stopped $W7" "$(cat "$T/pause7.out")"
+python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PostToolUse","session_id":sys.argv[1],"tool_name":"TaskStop","cwd":sys.argv[3],"tool_input":{"task_id":sys.argv[2]},"tool_response":{"task_id":sys.argv[2],"success":True}}))' "$CUR_SID" "$AID3" "$ENT" \
+    | lifecycle >"$T/taskstop7.out" 2>>"$T/hooks.err"
+sub "H7.2 the TaskStop's hook continued it, so the stop's signal is delivered" "! is_stopped $W7" "$(cat "$T/taskstop7.out")"
+kill -9 "$W7" 2>/dev/null
+# An id the registry never registered, held directly (as a hold outliving its record would be).
+GHOST="aghostghostghosts"
+agent_call "$GHOST" "toolu_ghost" "python3 $T/worker.py $T/wg $((ROUNDS * 50))" wg
+wait_file "$T/wg.progress"; WG="$(cat "$T/wg.pid")"; OURS+=("$WG")
+RICHOS_AGENT_HOLD_DIR="$HOLD_STATE" python3 "$LIB/agent_hold.py" hold --session "$CUR_SID" --agent "$GHOST" >/dev/null
+sub "H7.3 held without any registry record" "is_stopped $WG"
+python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PostToolUse","session_id":sys.argv[1],"tool_name":"TaskStop","cwd":sys.argv[3],"tool_input":{"task_id":sys.argv[2]},"tool_response":{"task_id":sys.argv[2],"success":True}}))' "$CUR_SID" "$GHOST" "$ENT" \
+    | lifecycle >/dev/null 2>>"$T/hooks.err"
+sub "H7.4 a TaskStop naming it still continues it" "! is_stopped $WG"
+kill -9 "$WG" 2>/dev/null
+
+echo "=== H8 the agent WAITS inside its run: its wait command returns RESUMED only after the generated RESUME ==="
+AID4="aholdfourfourfour"
+register_agent "zach-opus-hold4" "$AID4"
+agent_call "$AID4" "toolu_work8" "python3 $T/worker.py $T/w8 $((ROUNDS * 50))" w8
+wait_file "$T/w8.progress"; W8="$(cat "$T/w8.pid")"; OURS+=("$W8")
+send "zach-opus-hold4" "$PAUSE_TEXT" "$T/pause8.out"
+WAITCMD="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import pause_protocol as p; print(p.WAIT_COMMAND.replace("~/.claude/richos-engine", sys.argv[2]))' "$LIB" "$ENGINE")"
+agent_call "$AID4" "toolu_wait8" "$WAITCMD > $T/wait8.out" wait8
+SHW="$(cat "$T/wait8.shell")"
+i=0; while ! is_stopped "$SHW" && [ $i -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
+sleep 1
+sub "H8.1 the wait the message names is itself waiting, and has printed nothing" "is_stopped $SHW && [ ! -s '$T/wait8.out' ]"
+send "zach-opus-hold4" "$RESUME_TEXT" "$T/resume8.out"
+wait_file "$T/wait8.rc" 200
+sub "H8.2 after the generated RESUME it prints RESUMED and exits 0; the worker runs again" \
+    "grep -q '^RESUMED at' '$T/wait8.out' && [ \"\$(cat $T/wait8.rc)\" = 0 ] && ! is_stopped $W8" "$(cat "$T/wait8.out" "$T/resume8.out")"
+kill -9 "$W8" 2>/dev/null
+
+echo "=== H9 Sage's catch 6: a lead that dies without SessionEnd never leaves work frozen ==="
+start_session "sess-hold-3333"
+python3 "$ENGINE/mega-lander/workspaces.py" --entity "$ENT" --session "$CUR_SID" integration --repo "$ENT" --branch main \
+    --why "the pause-hold suite's body of work" >/dev/null 2>>"$T/hooks.err"
+LEADPID="$RICHOS_SESSION_PID"
+AID5="aholdfivefivefive"
+register_agent "zach-opus-hold5" "$AID5"
+# A real agent's shells are children of the lead's `claude`; here they are children of
+# launch.py, so after the pause the hold record keeps only the lead's session process.
+agent_call "$AID5" "toolu_work9" "python3 $T/worker.py $T/w9 $((ROUNDS * 50))" w9
+wait_file "$T/w9.progress"; W9="$(cat "$T/w9.pid")"; OURS+=("$W9")
+send "zach-opus-hold5" "$PAUSE_TEXT" "$T/pause9.out"
+python3 - "$HOLD_STATE" "$CUR_SID" "$AID5" "$LEADPID" <<'PY'
+import json, os, sys
+d, sid, aid, lead = sys.argv[1:5]
+p = os.path.join(d, "held", "%s__%s.json" % (sid, aid))
+r = json.load(open(p))
+r["parents"] = {lead: r["parents"][lead]}      # only the lead's session process, as for a real agent
+json.dump(r, open(p, "w"))
+PY
+sub "H9.1 held while its lead lives" "is_stopped $W9" "$(cat "$T/pause9.out")"
+T9="$(python3 -c 'import time; print(time.time())')"
+kill -9 "$LEADPID"
+i=0; while is_stopped "$W9" && [ $i -lt 300 ]; do sleep 0.1; i=$((i + 1)); done
+sub "H9.2 with no hook at all, the watchdog continued it after the lead died ($(python3 -c "import time; print('%.1f s' % (time.time() - $T9))"))" \
+    "! is_stopped $W9 && [ -z \"\$(ls $HOLD_STATE/held 2>/dev/null)\" ]"
+kill -9 "$W9" 2>/dev/null
 
 echo ""
 echo "CHECKS: $RUN  RED: $RED"
