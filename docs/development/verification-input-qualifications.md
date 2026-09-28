@@ -140,3 +140,9 @@ The app `no-foreign-app-data` recipe also includes the scanned app source,
 crates, UI and tools trees outside the common roots. Scanned source is text;
 the scanner does not execute it or inspect installed application data. The
 shared app wrapper and its result helpers are bound as reviewed readers.
+
+The `make-release` recipe retains every refusal journey against its private Git
+fixture, real names gate and owned loopback server. It binds the app version and
+updater configuration outside the shared roots. Signing, compilation and public
+release operations are never reached by these cases. This does not qualify a
+real published-release verification for reuse.
