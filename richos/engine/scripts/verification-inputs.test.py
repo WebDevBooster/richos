@@ -152,6 +152,23 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_inflight_notification_covers_stop_and_durable_ack_readers(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/inflight-notify.test.sh'
+        self.assertEqual(graph.closure(unit),
+                         {'keys': {}, 'whole': [], 'presence': [], 'fallback': []})
+        self.assertEqual(set(graph.closure('scripts/hooks/notice-inflight-acks.sh')['keys']),
+                         {'INFLIGHT_ACK_TIMEOUT_MIN'})
+        change = inputs.config_change('INFLIGHT_ACK_TIMEOUT_MIN=5', 'INFLIGHT_ACK_TIMEOUT_MIN=10')
+        self.assertEqual(graph.config_units(change, [unit]), {})
+        for helper in ('scripts/hooks/notice-inflight-acks.sh', 'scripts/inflight-ack.sh',
+                       'scripts/lib/stop-hook-notice.sh', 'scripts/lib/inflight.py'):
+            with self.subTest(helper=helper):
+                previous = document['nodes'].pop(helper)
+                self.assertEqual(set(graph.config_units(change, [unit])), {unit})
+                document['nodes'][helper] = previous
+
     def test_inflight_two_leads_keeps_private_settings_and_transitive_bindings(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

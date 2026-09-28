@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "3392f1f398edc4f5ce09f43a5b256bc85693310a80d2a0d81f526d4e8026462d",
+      "sha256": "5c2804c187993dc696999799c48ed9553d48a65880cd3c9f1807b8c0ebf05ed9",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -3716,6 +3716,68 @@
           "fixture": true
         }
       ]
+    },
+    "scripts/hooks/notice-inflight-acks.sh": {
+      "source": "scripts/hooks/notice-inflight-acks.sh",
+      "sha256": "09f3b2a22cbdbc9334d978a7899a3e64380b9edb386a255a4fe4f370897d1a1b",
+      "evidence": "Resolves the entity and team ledger, reads the timeout through inflight.sh and assesses recorded repositories through inflight.py. Its fixed Stop-notice and payload helpers read/write notice state; remediation and TaskStop text are output only.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/inflight.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ]
+    },
+    "scripts/inflight-ack.sh": {
+      "source": "scripts/inflight-ack.sh",
+      "sha256": "4fb7b966b62d32bf662719990643dc3b874d79a33e4aac1fbaec3b242a106adb",
+      "evidence": "Validates explicit CLI fields, resolves Git metadata and writes a durable ack row plus worktree mirror. Its only engine import is fixed inflight.py; it reads no config or generated command.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/inflight.py"
+        }
+      ]
+    },
+    "scripts/hooks/inflight-notify.test.sh": {
+      "source": "scripts/hooks/inflight-notify.test.sh",
+      "sha256": "53bd65350d9690f1110d968e730c1f1596f3afb80e87a552dd07b91ccc263e78",
+      "evidence": "Finite copied hooks/libraries run against newly initialized private repositories with literal PROTECTED_PATHS, private team/notice/ack ledgers and transcript data. All guard, Stop-hook, CLI and acknowledgement calls target these fixtures. Native teammate helpers create Git worktrees/locks, not model processes. The final timezone check imports real inflight.py but calls only time and ack readers with literal arguments; no production config is copied or sourced.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-inflight-notify.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/notice-inflight-sends.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/notice-inflight-acks.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/inflight-notify.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/inflight-ack.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/inflight.py"
+        }
+      ]
     }
   },
   "units": {
@@ -3783,7 +3845,8 @@
     "scripts/lib/spawn-guard-audience.test.sh": "scripts/lib/spawn-guard-audience.test.sh",
     "scripts/hooks/stale-staging.test.sh": "scripts/hooks/stale-staging.test.sh",
     "scripts/hooks/detect-nonnative-worktree.test.sh": "scripts/hooks/detect-nonnative-worktree.test.sh",
-    "scripts/hooks/inflight-two-leads.test.sh": "scripts/hooks/inflight-two-leads.test.sh"
+    "scripts/hooks/inflight-two-leads.test.sh": "scripts/hooks/inflight-two-leads.test.sh",
+    "scripts/hooks/inflight-notify.test.sh": "scripts/hooks/inflight-notify.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
