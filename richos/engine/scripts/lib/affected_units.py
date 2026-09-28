@@ -61,10 +61,11 @@ class Selection:
     def add(self, unit, reason):
         self.selected.setdefault(unit, set()).add(reason)
 
-    def suite(self, suite, path, reason):
+    def suite(self, suite, path, reason, all_sections=False):
         if suite == SECTIONED:
             basename = Path(path).name
-            hits = [part for part, body in self.bodies.items() if basename in body]
+            hits = list(self.bodies) if all_sections else [
+                part for part, body in self.bodies.items() if basename in body]
             for part in hits or self.bodies:
                 why = reason if hits else reason + "; ALL sections: named outside any section body"
                 self.add(suite + ":" + part, path + ": " + why)
@@ -129,14 +130,15 @@ class Selection:
             row = contracts.get(suite)
             if row is None:
                 if 'hooks.json' in text:
-                    self.suite(suite, 'hooks/hooks.json', 'unqualified manifest reader (conservative)')
+                    self.suite(suite, 'hooks/hooks.json', 'unqualified manifest reader (conservative)',
+                               all_sections=True)
                 continue
             try:
                 row = hook_reader(row, self.read)
                 if suite not in row['sources']:
                     raise Unsupported('hook reader omits its own source: ' + suite)
             except Unsupported as exc:
-                self.suite(suite, 'hooks/hooks.json', str(exc))
+                self.suite(suite, 'hooks/hooks.json', str(exc), all_sections=True)
                 continue
             affected = paths & set(row['commands'])
             events = (set(change['events']) if row.get('all_events')
@@ -152,7 +154,9 @@ class Selection:
                 why = ('changed registration/ordering for ' + ', '.join(sorted(affected))
                        if affected else 'changed event ordering/inventory for ' + ', '.join(sorted(events))
                        if events else 'changed text consumed by registration assertions')
-                self.suite(suite, 'hooks/hooks.json', why)
+                # A suite-level inventory contract includes shared setup.
+                # Basename matches inside a section cannot narrow that scope.
+                self.suite(suite, 'hooks/hooks.json', why, all_sections=True)
 
 
 def git(root, *argv):

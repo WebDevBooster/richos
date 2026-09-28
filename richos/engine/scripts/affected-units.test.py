@@ -17,6 +17,31 @@ from verification_inputs import Unsupported
 
 
 class Planner(unittest.TestCase):
+    def test_scoped_contract_inventory_keeps_new_events_and_helper_changes(self):
+        root = HERE.parent
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        suite = 'scripts/hooks/contract-integrity.test.sh'
+        def read(path):
+            file = root / path
+            return file.read_text() if file.is_file() else None
+        before = read('hooks/hooks.json')
+        after = json.loads(before)
+        after['hooks']['FutureEvent'] = [{'hooks': [
+            {'type': 'command', 'command': 'bash ${CLAUDE_PLUGIN_ROOT}/new-fixture-hook.sh'}]}]
+        plan = Selection(root, [suite], read, document)
+        units = set(plan.units)
+        plan.hooks(before, json.dumps(after))
+        self.assertEqual(set(plan.selected), set(units))
+        after = json.loads(before)
+        after['description'] = 'description only'
+        plan = Selection(root, [suite], read, document)
+        plan.hooks(before, json.dumps(after))
+        self.assertEqual(plan.selected, {})
+        document['hook_readers'][suite]['sources']['scripts/lib/registered-hooks.sh'] = 'changed'
+        plan = Selection(root, [suite], read, document)
+        plan.hooks(before, json.dumps(after))
+        self.assertEqual(set(plan.selected), set(units))
+
     def test_staging_fixture_registration_tracks_its_command_and_matcher(self):
         root = HERE.parent
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())

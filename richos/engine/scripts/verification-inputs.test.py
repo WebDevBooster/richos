@@ -152,6 +152,26 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_seated_contract_fixtures_do_not_consume_shipped_config(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        prefix = 'scripts/hooks/contract-integrity.test.sh:'
+        sections = ('M', 'shim', 'manifest', 'worktree', 'N', 'python3',
+                    'config', 'K', 'P', 'S', 'MT', 'MC')
+        units = [prefix + section for section in sections]
+        for unit in units:
+            closure = graph.closure(document['units'][unit])
+            self.assertFalse(any(closure.values()), (unit, closure))
+        change = inputs.config_change('MODEL_TIERS=old\nPROTECTED_PATHS=app', None)
+        self.assertFalse(graph.config_units(change, units))
+        unrelated = inputs.config_change('SHOW_TURN_MANIFEST=0', 'SHOW_TURN_MANIFEST=1')
+        for helper in ('scripts/hooks/guard-idle-land.py',
+                       'scripts/hooks/guard-workspace-gate.sh',
+                       'scripts/lib/operator_fences_admin.py#status'):
+            previous = document['nodes'].pop(helper)
+            self.assertIn(units[0], graph.config_units(unrelated, units[:1]))
+            document['nodes'][helper] = previous
+
     def test_scoped_contract_sections_keep_their_own_nested_readers(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)
