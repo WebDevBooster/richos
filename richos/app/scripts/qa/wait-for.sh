@@ -5,6 +5,8 @@
 #   wait-for.sh --ref <gitdir-or-worktree> <branch> [--from <sha>]
 #   wait-for.sh --log <file> <extended-regex>
 #   wait-for.sh --file <path>
+#   wait-for.sh --gone <path>       (a file or directory is REMOVED: a workspace
+#                                    another agent holds, a lock file released)
 #   wait-for.sh --time <epoch-seconds>
 #   wait-for.sh --new-process <pattern> [--not <pid> ...]
 #   wait-for.sh --help
@@ -47,6 +49,7 @@ while [ $# -gt 0 ]; do
         --ref)          MODE=ref;  A="${2:-}"; B="${3:-}"; shift 3 ;;
         --log)          MODE=log;  A="${2:-}"; B="${3:-}"; shift 3 ;;
         --file)         MODE=file; A="${2:-}"; shift 2 ;;
+        --gone)         MODE=gone; A="${2:-}"; shift 2 ;;
         --time)         MODE=time; A="${2:-}"; shift 2 ;;
         --new-process)  MODE=proc; A="${2:-}"; shift 2 ;;
         --from)         FROM="${2:-}"; shift 2 ;;
@@ -58,7 +61,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-[ -n "$MODE" ] || { echo "wait-for.sh: name one of --ref --log --file --time --new-process. --help" >&2; exit 2; }
+[ -n "$MODE" ] || { echo "wait-for.sh: name one of --ref --log --file --gone --time --new-process. --help" >&2; exit 2; }
 case "$TIMEOUT$POLL" in *[!0-9]*) echo "wait-for.sh: --timeout and --poll are whole seconds." >&2; exit 2 ;; esac
 [ "$POLL" -ge 1 ] || POLL=1
 
@@ -94,7 +97,7 @@ case "$MODE" in
         ;;
     log)
         [ -n "$A" ] && [ -n "$B" ] || { echo "wait-for.sh: --log needs a file and a pattern." >&2; exit 2; } ;;
-    file|time|proc)
+    file|gone|time|proc)
         [ -n "$A" ] || { echo "wait-for.sh: that mode needs an argument. --help" >&2; exit 2; } ;;
 esac
 
@@ -129,6 +132,11 @@ while :; do
                 echo "$A appeared after $(( $(now) - START ))s"
                 exit 0
             fi ;;
+        gone)
+            if [ ! -e "$A" ] && [ ! -L "$A" ]; then
+                echo "$A was gone after $(( $(now) - START ))s"
+                exit 0
+            fi ;;
         time)
             if [ "$(now)" -ge "$A" ]; then
                 echo "reached $A at $(now)"
@@ -150,6 +158,7 @@ while :; do
             ref)  echo "wait-for.sh: TIMEOUT after ${TIMEOUT}s — $B in $A is still $FROM." >&2 ;;
             log)  echo "wait-for.sh: TIMEOUT after ${TIMEOUT}s — nothing in $A matched /$B/." >&2 ;;
             file) echo "wait-for.sh: TIMEOUT after ${TIMEOUT}s — $A never appeared." >&2 ;;
+            gone) echo "wait-for.sh: TIMEOUT after ${TIMEOUT}s — $A is still there." >&2 ;;
             time) echo "wait-for.sh: TIMEOUT after ${TIMEOUT}s — $A is still in the future." >&2 ;;
             proc) echo "wait-for.sh: TIMEOUT after ${TIMEOUT}s — no new process matched /$A/." >&2 ;;
         esac

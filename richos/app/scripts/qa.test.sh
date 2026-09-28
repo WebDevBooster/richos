@@ -32,7 +32,7 @@
 #   O1-O6   the OCR gate and the finder, including a blind reader and an
 #           empty frame set
 #   R1-R4   redact: it covers the address, it keeps the evidence, it re-reads
-#   W1-W6   wait-for: it succeeds, and it FAILS on timeout
+#   W1-W8   wait-for: it succeeds, and it FAILS on timeout
 #   T1-T6   timeline: first change, no change, no baseline, stats, refusals
 #   N1-N5   phone-client: a foreign Mac that refuses the credential is the
 #           answer, one that ACCEPTS it exits non-zero; argument refusals
@@ -359,6 +359,13 @@ expect "W5 a ref that has moved is reported with both SHAs" 0 "moved $SHA1"
 
 run "$QA/wait-for.sh" --ref "$REPO" no-such-branch --timeout 300
 expect "W6 a branch that does not exist is refused at once, not after the timeout" 2 "does not exist"
+
+run "$QA/wait-for.sh" --gone "$TMP/never" --timeout 5
+expect "W7 a path that is already gone returns at once" 0 "was gone"
+
+mkdir -p "$TMP/held-workspace"
+run "$QA/wait-for.sh" --gone "$TMP/held-workspace" --timeout 2 --poll 1
+expect "W8 a directory that is never removed is a FAILURE, not a quiet success" 1 "still there"
 
 echo ""
 echo "=== T. timeline ==="
