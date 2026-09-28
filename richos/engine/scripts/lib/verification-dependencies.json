@@ -12893,6 +12893,120 @@
           "to": "scripts/lib/testdevices.mutation.sh"
         }
       ]
+    },
+    "scripts/prepare-agent-spawn.test.py": {
+      "source": "scripts/prepare-agent-spawn.test.py",
+      "sha256": "050fdf5a1fa75a04cc6b34cdc9580f7f7258225a93ff3e556728b559b90ba859",
+      "evidence": "Imports only the pure preparation helper. Actual prompt verifier calls use a newly written literal config via VERIFY_REPO_ROOT_OVERRIDE and explicit private entity/teams. Prepared inflight-ack text is never executed.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/prepare-agent-spawn.py"
+        },
+        {
+          "to": "scripts/hooks/verify-agent-prompt.sh",
+          "fixture": true
+        }
+      ]
+    },
+    "scripts/prepare-agent-spawn.test.sh": {
+      "source": "scripts/prepare-agent-spawn.test.sh",
+      "sha256": "8c64d968568d638a4a5916526688958d262a851587ad31c1abc2d487683d6af8",
+      "evidence": "Wrapper executes exactly the bound Python fixture with bytecode disabled. No mutation driver or other helper.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/prepare-agent-spawn.test.py"
+        }
+      ]
+    },
+    "mega-lander/workspaces.py#stop-records": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "evidence": "Stop CLI and fixture call all_agents(True), named_key/load_agent, finished_state, live_workspaces, _chain, main_checkout, integration_target, record_integration, new_record/save_agent and _bind_body_of_work. Reviewed _chain adds only load_agent traversal. All other callees are in the bound registry/integration closures. No lifecycle operation, cleanup or config-value reader executes.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#left-off-registry"
+        },
+        {
+          "to": "mega-lander/workspaces.py#liveness-readers"
+        },
+        {
+          "to": "mega-lander/workspaces.py#fixture-records"
+        }
+      ]
+    },
+    "scripts/lib/stop.py": {
+      "source": "scripts/lib/stop.py",
+      "sha256": "3a46c06f8e2897747883839f7afa1a0ec8912200a2082e2bf9e2a76246e49e6a",
+      "evidence": "Full module imports only workspace read/fixture operations, actual agent liveness and ACK predicate. Writes ACK through stop-work-ack.sh with explicit entity. Git subprocesses read metadata. Workspace stop/discard commands in output are suggestions, never execution.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#stop-records"
+        },
+        {
+          "to": "scripts/lib/agent-liveness.py"
+        },
+        {
+          "to": "scripts/lib/stop-live-work.py"
+        },
+        {
+          "to": "scripts/stop-work-ack.sh"
+        }
+      ]
+    },
+    "scripts/stop.sh": {
+      "source": "scripts/stop.sh",
+      "sha256": "497f1257e6082bdbcd352d9cc70573cc3bb93f779feda682eca7acefa8ef0db1",
+      "evidence": "Full wrapper resolves optional entity identity then invokes the fixed stop.py module. It never sources config values; root identity/presence remains bound.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/stop.py"
+        }
+      ]
+    },
+    "scripts/stop.mutation.sh": {
+      "source": "scripts/stop.mutation.sh",
+      "sha256": "79c313f28d4e17ec7ff7162ade16b068c124cc3ee2d1468244e429ff04c6eadf",
+      "evidence": "Shared mutation transport alters literal stop.py expressions and invokes the same bound private fixture suite. No other engine command executes.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/stop.test.sh"
+        }
+      ]
+    },
+    "scripts/stop.test.sh": {
+      "source": "scripts/stop.test.sh",
+      "sha256": "b3e85dbb87de365cb1281636be868a928024bd60ee7c156b43603d392f56aa62",
+      "evidence": "Private HOME, registry and Git fixtures exercise stop.sh, ACK predicate and fixed workspace record construction. Native Git and JSON fingerprint probes only. Full mutation transport and scratch allocator remain bound.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/scratch.sh"
+        },
+        {
+          "to": "scripts/stop.sh"
+        },
+        {
+          "to": "mega-lander/workspaces.py#stop-records"
+        },
+        {
+          "to": "scripts/lib/stop-live-work.py"
+        },
+        {
+          "to": "scripts/stop.mutation.sh"
+        }
+      ]
     }
   },
   "units": {
@@ -13051,7 +13165,9 @@
     "scripts/lib/worktree-ledger.test.sh": "scripts/lib/worktree-ledger.test.sh",
     "scripts/handoff-facts.test.sh": "scripts/handoff-facts.test.sh",
     "scripts/lib/appinstances.test.sh": "scripts/lib/appinstances.test.sh",
-    "scripts/lib/testdevices.test.sh": "scripts/lib/testdevices.test.sh"
+    "scripts/lib/testdevices.test.sh": "scripts/lib/testdevices.test.sh",
+    "scripts/prepare-agent-spawn.test.sh": "scripts/prepare-agent-spawn.test.sh",
+    "scripts/stop.test.sh": "scripts/stop.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {

@@ -165,6 +165,38 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_spawn_preparation_and_stop_fixtures_bind_complete_readers(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        read = lambda path: (HERE.parent / path).read_text()
+        change = inputs.config_change('CHECK_FAILURE_TYPE=0', 'CHECK_FAILURE_TYPE=1')
+        units = ('scripts/prepare-agent-spawn.test.sh', 'scripts/stop.test.sh')
+        graph = inputs.Dependencies(HERE.parent, document, read=read)
+        for unit in units:
+            self.assertFalse(graph.closure(unit)['fallback'], unit)
+            self.assertFalse(graph.config_units(change, [unit]), unit)
+            seen = set()
+            def visit(name):
+                if name in seen:
+                    return
+                seen.add(name)
+                for edge in document['nodes'][name].get('edges', []):
+                    visit(edge['to'])
+            visit(unit)
+            for source in {document['nodes'][name]['source'] for name in seen}:
+                with self.subTest(unit=unit, changed_reader=source):
+                    changed = lambda p: read(p) + '\n# changed reader\n' if p == source else read(p)
+                    self.assertIn(unit, inputs.Dependencies(HERE.parent, document, read=changed).config_units(change, [unit]))
+        for kind in ('keys', 'whole', 'presence'):
+            self.assertFalse(graph.closure(units[0])[kind])
+        invalid = graph.config_units(inputs.config_change('A=one', 'A=$(bad)'), [*units, 'scripts/verification-config.test.sh'])
+        self.assertNotIn(units[0], invalid)
+        self.assertIn(units[1], invalid)
+        self.assertIn('scripts/verification-config.test.sh', invalid)
+        self.assertFalse(graph.config_units(inputs.config_change('CREATOR_TEAMMATE=a', 'CREATOR_TEAMMATE=b'), [units[0]]))
+        self.assertIn('CREATOR_TEAMMATE', graph.closure('scripts/hooks/verify-agent-prompt.sh')['keys'])
+        self.assertIn(units[1], graph.config_units(inputs.config_change(None, 'CHECK_FAILURE_TYPE=1'), [units[1]]))
+        self.assertIn(units[1], graph.config_units(inputs.config_change('SCRATCH_DEFAULT_TTL_MINUTES=1', 'SCRATCH_DEFAULT_TTL_MINUTES=2'), [units[1]]))
+
     def test_app_and_device_fixtures_keep_real_keys_and_bind_all_readers(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         read = lambda path: (HERE.parent / path).read_text()
