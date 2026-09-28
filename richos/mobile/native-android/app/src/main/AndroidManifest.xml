@@ -2,7 +2,8 @@
 <!-- Owned by stream A1 (build plan §5.0; A3's platform features taken over by A1 while A3 is
      held). No debug-only component is declared here:
      the development bridge lives in app/src/debug/AndroidManifest.xml. -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- The Mac is reached over HTTPS. -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -31,9 +32,17 @@
         android:theme="@style/Theme.RichOS">
         <!-- Shell profiling exposes timing traces without enabling the Debug bridge. -->
         <profileable android:shell="true" />
+        <!-- PORTRAIT ONLY, every activity, always (CEO, 2026-09-28: "the RichConnect app should
+             NEVER show up in the landscape mode ... The user should NOT have to do anything").
+             A phone lying flat on a desk has no reliable "up", so an activity that follows the
+             sensor opens sideways; `portrait` holds whatever auto-rotate is set to. On phones
+             (smallest width under 600dp) Android 16 still honors it at targetSdk 36; on a tablet
+             or an unfolded foldable Android 16 ignores it by design. Guarded by
+             app/src/test/.../app/PortraitOnlyTest.kt, which reads the merged manifest. -->
         <activity
             android:name=".app.MainActivity"
             android:exported="true"
+            android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -45,11 +54,14 @@
              ones the Mac takes (Echo 22e59ed8); images are sent as JPEG. Exported, as a share target
              must be, so any app can start it: it shows the "Send to Rich" sheet over the app shared
              from, translucent, and sends nothing until the person presses Send (security review
-             2026-09-23, A-1). Handles its own configuration changes so a rotation, or the phone
-             switching light/dark, keeps the sheet. -->
+             2026-09-23, A-1). Portrait like the rest of the app, even over an app that is sideways
+             (a translucent activity's fixed orientation is honored from Android 8.1; minSdk is 29).
+             Handles its own configuration changes so the phone switching light/dark, or a window
+             resize, keeps the sheet. -->
         <activity
             android:name=".platform.ShareActivity"
             android:exported="true"
+            android:screenOrientation="portrait"
             android:label="Rich"
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|density|uiMode"
@@ -75,6 +87,14 @@
                 <data android:mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation" />
             </intent-filter>
         </activity>
+
+        <!-- Google Play services' own resolution screen, merged in with Firebase Messaging. The app
+             never starts it today, but it runs in this app's window when it does, so it is held to
+             portrait like every other activity in the package (merged onto the library's entry). -->
+        <activity
+            android:name="com.google.android.gms.common.api.GoogleApiActivity"
+            android:screenOrientation="portrait"
+            tools:node="merge" />
 
         <!-- FCM makes no token and no installation ID on its own: the app asks for the token only
              when the person turns notifications on (platform/Notifications.kt), and Forget deletes
