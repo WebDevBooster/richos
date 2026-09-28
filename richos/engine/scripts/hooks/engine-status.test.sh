@@ -861,7 +861,15 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # or a wait an escalation reports). No acknowledgement clears it; only the
 # wait ending does. Suite: resource-waits.test.sh; harness:
 # resource-waits.mutation.sh.
+# guard-record-owner-memory.sh, ADDED 2026-09-28 — one writer at cut-over
+# (daily-driver plan step 8; two-installs spec points 25-27). BLOCKING, the
+# Write chain: once the record's owner line (ROW_RECORD_OWNER="app <dir>" in the
+# record's .row-currency) says the RichOS app owns his record, his terminal is
+# refused a write into the named memory directory. With no owner line, the state
+# until cut-over, it refuses nothing and says nothing. Suite:
+# scripts/record-owner.test.sh; harness: scripts/record-owner.mutation.sh.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
+guard-record-owner-memory.sh
 failure-type-lookup.sh
 guard-resource-waits.sh
 guard-failure-type-answer.sh

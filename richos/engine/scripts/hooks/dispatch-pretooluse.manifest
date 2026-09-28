@@ -51,3 +51,4 @@ Write|guard-no-home-network-phone.sh
 Write|guard-host-display-power.sh
 Write|guard-operator-claim.sh
 Write|guard-shared-writes.sh
+Write|guard-record-owner-memory.sh

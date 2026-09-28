@@ -1290,6 +1290,7 @@ guard-operator-claim.sh|PreToolUse
 guard-operator-claim.sh|PreToolUse
 guard-live-names.sh|PreToolUse
 guard-shared-writes.sh|PreToolUse
+guard-record-owner-memory.sh|PreToolUse
 release-shared-writes.sh|PostToolUse
 release-shared-writes.sh|PostToolUseFailure"
 
