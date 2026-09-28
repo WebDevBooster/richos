@@ -17,15 +17,19 @@ def ownership(payload):
     """A subagent's call also records who owns it, so a pause can hold it (scripts/lib/agent_hold.py).
 
     This hook is the only Bash rewriter, so the capture lives here: two rewriting
-    hooks would race for the one updated command. Any failure leaves the command
-    exactly as it was without capture; the pause then cannot hold this call.
+    hooks would race for the one updated command. Returns {"command", "input"} or
+    None. Any failure leaves the command exactly as it was without capture; the
+    pause then cannot hold this call.
     """
     try:
         sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib"))
         import agent_hold
-        return agent_hold.capture(payload)
+        got = agent_hold.rewrite(payload)
+        if isinstance(got, dict) and isinstance(got.get("command"), str) and isinstance(got.get("input"), dict):
+            return got
     except Exception:
-        return ""
+        pass
+    return None
 
 
 def rewrite(payload):
@@ -39,9 +43,14 @@ def rewrite(payload):
     command = original["command"]
     if command.startswith(PREFIX):
         return {}
+    owned = ownership(payload)
+    updated = dict(original, command=PREFIX + command)
+    if owned:
+        updated.update(owned["input"])
+        updated["command"] = PREFIX + owned["command"]
     return {"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
-        "updatedInput": dict(original, command=PREFIX + ownership(payload) + command),
+        "updatedInput": updated,
         "additionalContext": "Shell commands use errexit and pipefail: a failed command or pipeline stops this call. "
         "Handle expected nonzero results explicitly with if/else. Keep JSON stdout separate from stderr. "
         "Read saved logs in a separate call; do not turn a failed check into success with a trailing echo or filter."

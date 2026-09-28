@@ -10,12 +10,14 @@
 # End to end, through the hooks the platform runs, in a sandbox: an agent is
 # registered by the spawn guard and the lifecycle hook, its Bash call is rewritten
 # by the real shell-evidence.sh and run as the harness runs it (a shell leading its
-# own process group), and the lead's generated PAUSE and RESUME go through the
+# own session, as Claude Code 2.1.283 starts it: ps shows `Ss`), and the lead's generated PAUSE and RESUME go through the
 # PostToolUse[SendMessage] lifecycle hook. Asserted: the running work is suspended
-# within seconds and uses no CPU while held; a new command of the held agent starts
-# nothing until RESUME; after RESUME the same processes finish with the right
-# result; a stop and a session end never leave work suspended. Only processes this
-# test started are ever signaled.
+# within seconds and uses no CPU while held, and its foreground call returns the
+# WAIT at once so the harness hands over the queued message (2026-09-28); a new
+# command of the held agent is refused at once with the WAIT and runs nothing; after
+# RESUME the same processes finish with the right result and the agent's wait prints
+# it; a stop and a session end never leave work suspended. Only processes this test
+# started are ever signaled.
 #
 # Usage: workspace-pause-hold.test.sh [--keep]
 
@@ -92,7 +94,9 @@ RESUME_TEXT="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import p
 cat > "$T/launch.py" <<'PY'
 import subprocess, sys
 shell, cmd, pidfile, rcfile = sys.argv[1:5]
-p = subprocess.Popen([shell, "-c", cmd], process_group=0, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+out = open(rcfile[:-3] + ".stdout", "w")
+p = subprocess.Popen([shell, "-c", cmd], start_new_session=True, stdout=out, stderr=subprocess.STDOUT,
+                     stdin=subprocess.DEVNULL)
 open(pidfile, "w").write(str(p.pid))
 rc = p.wait()          # the rc file appears only once the call has ended
 open(rcfile, "w").write(str(rc))
@@ -114,9 +118,9 @@ h=b"richos"
 for _ in range(int(sys.argv[1])): h=hashlib.sha256(h).digest()
 print(h.hex())' "$ROUNDS")"
 
-agent_call() { # <agent-id> <tool_use_id> <command> <tag>  -> starts it; shell pid in $T/<tag>.shell
+agent_call() { # <agent-id> <tool_use_id> <command> <tag> [bg]  -> starts it; shell pid in $T/<tag>.shell
     local rewritten
-    rewritten="$(python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","session_id":sys.argv[1],"agent_id":sys.argv[2],"tool_use_id":sys.argv[3],"tool_name":"Bash","cwd":sys.argv[5],"tool_input":{"command":sys.argv[4]}}))' "$CUR_SID" "$1" "$2" "$3" "$ENT" \
+    rewritten="$(python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","session_id":sys.argv[1],"agent_id":sys.argv[2],"tool_use_id":sys.argv[3],"tool_name":"Bash","cwd":sys.argv[5],"tool_input":{"command":sys.argv[4],"run_in_background":sys.argv[6]=="bg"}}))' "$CUR_SID" "$1" "$2" "$3" "$ENT" "${5:-fg}" \
         | bash "$HOOKS/shell-evidence.sh" | python3 -c 'import json,sys; print(json.load(sys.stdin)["hookSpecificOutput"]["updatedInput"]["command"])')"
     python3 "$T/launch.py" "$SHELL_BIN" "$rewritten" "$T/$4.shell" "$T/$4.rc" &
     OURS+=("$!")
@@ -144,7 +148,10 @@ send "zach-opus-hold1" "$PAUSE_TEXT" "$T/pause.out"
 T1="$(python3 -c 'import time; print(time.time())')"
 cpu() { ps -o time= -p "$1" | tr -d ' '; }
 C1="$(cpu "$W1")"; P1="$(cat "$T/w1.progress")"; sleep 1.5; C2="$(cpu "$W1")"; P2="$(cat "$T/w1.progress")"
-sub "H1.1 the worker and its shell are suspended when the pause hook returns ($(pstate "$W1"), $(pstate "$SH1"))" "is_stopped $W1 && is_stopped $SH1" "$(cat "$T/pause.out")"
+sub "H1.1 the worker is suspended when the pause hook returns ($(pstate "$W1"))" "is_stopped $W1" "$(cat "$T/pause.out")"
+wait_file "$T/w1.rc" 100
+sub "H1.1b its foreground call has returned the WAIT, so the queued message reaches the agent now (rc $(cat "$T/w1.rc" 2>/dev/null))" \
+    "[ \"\$(cat $T/w1.rc 2>/dev/null)\" = 0 ] && grep -q '^WAIT: the orchestrator has told you to wait while this command was running' '$T/w1.stdout' && ! kill -0 $SH1 2>/dev/null" "$(cat "$T/w1.stdout" 2>/dev/null)"
 sub "H1.2 it uses no CPU and makes no progress while held (cpu $C1 -> $C2, progress $P1 -> $P2)" "[ '$C1' = '$C2' ] && [ '$P1' = '$P2' ]"
 sub "H1.3 the lead is told, measured, in its own context" \
     "python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); c=d[\"hookSpecificOutput\"][\"additionalContext\"]; sys.exit(0 if \"HOLD zach-opus-hold1:\" in c and \"suspended in\" in c else 1)' '$T/pause.out'" "$(cat "$T/pause.out")"
@@ -152,21 +159,22 @@ sub "H1.4 the registry records the pause" "grep -q '\"until\": \"the user' \"\$(
 printf '  measured: pause hook returned %.2f s after the send began; %s\n' "$(python3 -c "print($T1 - $T0)")" \
     "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["hookSpecificOutput"]["additionalContext"])' "$T/pause.out" 2>/dev/null)"
 
-echo "=== H2 a NEW command of the held agent starts nothing until RESUME, and is never refused ==="
+echo "=== H2 a NEW command of the held agent returns the WAIT at once and runs nothing (Sage's catch B) ==="
 agent_call "$AID" "toolu_late1" "python3 -c \"open('$T/late.ran','w').write('ran')\"" late
-SHL="$(cat "$T/late.shell")"
-i=0; while ! is_stopped "$SHL" && [ $i -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
-sleep 1
-sub "H2.1 the new call's shell suspended itself before its command ($(pstate "$SHL"))" "is_stopped $SHL"
-sub "H2.2 it started no process and its command has not run" "[ -z \"\$(children_of $SHL)\" ] && [ ! -e '$T/late.ran' ] && [ ! -e '$T/late.rc' ]" \
-    "children: $(children_of "$SHL" | tr '\n' ' ') files: $(ls "$T"/late.* 2>&1 | tr '\n' ' ')"
+wait_file "$T/late.rc" 100
+sub "H2.1 the new call returned at once, refused with the WAIT (rc $(cat "$T/late.rc" 2>/dev/null))" \
+    "[ \"\$(cat $T/late.rc 2>/dev/null)\" = 75 ] && grep -q 'so this command did not run' '$T/late.stdout'" "$(cat "$T/late.stdout" 2>/dev/null)"
+sub "H2.2 its command did not run" "[ ! -e '$T/late.ran' ]"
 
 echo "=== H3 the generated RESUME continues the same work, which finishes correctly ==="
 send "zach-opus-hold1" "$RESUME_TEXT" "$T/resume.out"
-sub "H3.1 the lead is told what continued" "grep -q 'RELEASE zach-opus-hold1:' '$T/resume.out' && grep -q 'new command(s) that waited' '$T/resume.out'" "$(cat "$T/resume.out")"
-wait_file "$T/w1.rc" 1200; wait_file "$T/late.rc" 200
-sub "H3.2 the held worker finished with the correct result, exit 0" "[ \"\$(cat $T/w1 2>/dev/null)\" = '$EXPECTED' ] && [ \"\$(cat $T/w1.rc)\" = 0 ]" "rc=$(cat "$T/w1.rc" 2>/dev/null)"
-sub "H3.3 the command that waited ran normally after RESUME, exit 0" "[ \"\$(cat $T/late.ran 2>/dev/null)\" = ran ] && [ \"\$(cat $T/late.rc)\" = 0 ]"
+sub "H3.1 the lead is told what continued" "grep -q 'RELEASE zach-opus-hold1:' '$T/resume.out'" "$(cat "$T/resume.out")"
+WAITCMD="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import pause_protocol as p; print(p.WAIT_COMMAND.replace("~/.claude/richos-engine", sys.argv[2]))' "$LIB" "$ENGINE")"
+agent_call "$AID" "toolu_wait1" "$WAITCMD" wait1
+wait_file "$T/wait1.rc" 1200
+sub "H3.2 the held worker finished with the correct result" "[ \"\$(cat $T/w1 2>/dev/null)\" = '$EXPECTED' ]"
+sub "H3.3 the agent's wait prints RESUMED and the frozen command's own exit status" \
+    "grep -q '^RESUMED at' '$T/wait1.stdout' && grep -q 'has finished with exit status 0' '$T/wait1.stdout' && [ \"\$(cat $T/wait1.rc)\" = 0 ]" "$(cat "$T/wait1.stdout" 2>/dev/null)"
 unpaused() { python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("pause") is None else 1)' "$(ls "$STORE"/agents/*--"$1".json)"; }
 sub "H3.4 the registry records the resume and no hold is left" "[ -z \"\$(ls $HOLD_STATE/held 2>/dev/null)\" ] && unpaused zach-opus-hold1" \
     "held: $(ls "$HOLD_STATE/held" 2>&1 | tr '\n' ' ')"
@@ -212,9 +220,9 @@ sub "H6.3 the lead is told the message did not resume it, and how to" \
     "grep -q 'is WAITING under the generated pause' '$T/notice6.out' && grep -q 'pause_protocol.py --resume --to zach-opus-hold3' '$T/notice6.out'" \
     "$(cat "$T/notice6.out")"
 send "zach-opus-hold3" "$RESUME_TEXT" "$T/resume6.out"
-wait_file "$T/w6.rc" 1200
+wait_file "$T/w6" 1200     # its call returned the WAIT at the pause; the frozen worker writes this when it ends
 sub "H6.4 the generated RESUME continues it; it finishes with the correct result" \
-    "unpaused zach-opus-hold3 && [ \"\$(cat $T/w6 2>/dev/null)\" = '$EXPECTED' ] && [ \"\$(cat $T/w6.rc)\" = 0 ]" "$(cat "$T/resume6.out")"
+    "unpaused zach-opus-hold3 && [ \"\$(cat $T/w6 2>/dev/null)\" = '$EXPECTED' ]" "$(cat "$T/resume6.out")"
 
 echo "=== H7 Sage's catch 1: a TaskStop releases the hold by the id it names, whatever the registry holds ==="
 agent_call "$AID3" "toolu_work7" "python3 $T/worker.py $T/w7 $((ROUNDS * 50))" w7
@@ -239,19 +247,20 @@ kill -9 "$WG" 2>/dev/null
 echo "=== H8 the agent WAITS inside its run: its wait command returns RESUMED only after the generated RESUME ==="
 AID4="aholdfourfourfour"
 register_agent "zach-opus-hold4" "$AID4"
-agent_call "$AID4" "toolu_work8" "python3 $T/worker.py $T/w8 $((ROUNDS * 50))" w8
+# A background call this time: frozen whole, so the wait returns at RESUME without collecting it.
+agent_call "$AID4" "toolu_work8" "python3 $T/worker.py $T/w8 $((ROUNDS * 50))" w8 bg
 wait_file "$T/w8.progress"; W8="$(cat "$T/w8.pid")"; OURS+=("$W8")
 send "zach-opus-hold4" "$PAUSE_TEXT" "$T/pause8.out"
 WAITCMD="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import pause_protocol as p; print(p.WAIT_COMMAND.replace("~/.claude/richos-engine", sys.argv[2]))' "$LIB" "$ENGINE")"
-agent_call "$AID4" "toolu_wait8" "$WAITCMD > $T/wait8.out" wait8
+agent_call "$AID4" "toolu_wait8" "$WAITCMD" wait8
 SHW="$(cat "$T/wait8.shell")"
-i=0; while ! is_stopped "$SHW" && [ $i -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
 sleep 1
-sub "H8.1 the wait the message names is itself waiting, and has printed nothing" "is_stopped $SHW && [ ! -s '$T/wait8.out' ]"
+sub "H8.1 the wait the message names runs (never refused, never frozen: Sage's catch A) and has not returned" \
+    "! is_stopped $SHW && [ ! -e '$T/wait8.rc' ]" "$(pstate "$SHW") $(cat "$T/wait8.stdout" 2>/dev/null)"
 send "zach-opus-hold4" "$RESUME_TEXT" "$T/resume8.out"
 wait_file "$T/wait8.rc" 200
 sub "H8.2 after the generated RESUME it prints RESUMED and exits 0; the worker runs again" \
-    "grep -q '^RESUMED at' '$T/wait8.out' && [ \"\$(cat $T/wait8.rc)\" = 0 ] && ! is_stopped $W8" "$(cat "$T/wait8.out" "$T/resume8.out")"
+    "grep -q '^RESUMED at' '$T/wait8.stdout' && [ \"\$(cat $T/wait8.rc)\" = 0 ] && ! is_stopped $W8" "$(cat "$T/wait8.stdout" "$T/resume8.out")"
 kill -9 "$W8" 2>/dev/null
 
 echo "=== H9 Sage's catch 6: a lead that dies without SessionEnd never leaves work frozen ==="
