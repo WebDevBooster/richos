@@ -161,9 +161,22 @@ BUDGET_SECONDS = 2.0
 # A green reading of a finished commit never changes, so it is cached forever.
 # A RED one is re-read after this, because `gh run rerun` must be a way out.
 RED_RECHECK_SECONDS = 300
-# A commit whose runs have not appeared yet. GitHub takes a few seconds to
-# create them, and "no runs" during that window is not "no CI".
-RUNS_APPEAR_GRACE_SECONDS = 180
+# NO GRACE-PERIOD GUESS FOR "NO RUNS YET" — REMOVED 2026-09-28, AND WHY.
+# This used to promote a commit with zero runs to "running" for
+# RUNS_APPEAR_GRACE_SECONDS on the theory that GitHub takes a few seconds to
+# create a run after a push, so "no runs" during that window was assumed to
+# mean "about to run". That is exactly what broke: a push to a repository with
+# NO WORKFLOWS AT ALL (richos-hq has zero, verified via
+# `gh api repos/{owner}/{repo}/actions/workflows --jq .total_count` == 0) will
+# NEVER produce a run, so the guess printed "CI IS STILL RUNNING ... (no runs
+# have appeared yet)" on a turn that had no CI to wait for. The founder hit
+# this verbatim (2026-09-28): "What the fuck is this ... The notice was
+# false: nothing was running." A hook must never say something is happening
+# that is not, so a commit with zero observed runs is now SILENT — the same
+# as a green commit falls through this chain today. It costs nothing to get
+# right: "none" is never cached (see cache_is_usable) so the very next
+# turn-end reads GitHub live again and will report a real run the moment one
+# actually appears.
 # AN IN-FLIGHT READING IS NEVER REUSED, and the zero says so rather than
 # leaving it to be inferred. It was 20 seconds and the suite's case 6c caught
 # it: a second turn-end inside that window read "still running" from the cache
@@ -929,9 +942,15 @@ def evaluate(payload, budget):
         elif st == "running":
             running.append(item)
         elif st == "none":
-            age = time.time() - float(push.get("at") or 0)
-            if age < RUNS_APPEAR_GRACE_SECONDS:
-                running.append(item)
+            # ZERO OBSERVED RUNS IS NEVER "RUNNING" — silent, exactly like a
+            # green commit falls through this chain with no branch of its own.
+            # This covers a repository with no workflows at all (richos-hq),
+            # a workflow GitHub has not yet indexed the run for, and CI paused
+            # by any other means: none of those are "in flight", so none of
+            # them are announced as if they were. See the note above
+            # RED_RECHECK_SECONDS-adjacent constants for why this is safe to
+            # do silently: "none" is re-read live on every turn-end.
+            pass
         elif st == "unknown":
             unreadable.append("%s at %s: %s" % (slug, sha[:12], doc.get("reason") or "no reason given"))
 
