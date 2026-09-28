@@ -5884,8 +5884,8 @@
     },
     "scripts/hooks/row-currency.test.sh": {
       "source": "scripts/hooks/row-currency.test.sh",
-      "sha256": "0f55dbf5305a15d6368695e1060793c31f9e7f93f9ea9a7ea5c6ba90d8b23c0c",
-      "evidence": "Creates all record/artifact repositories, declarations and histories. The actual engine remains the seat, so adoption presence is retained. Invokes fixed guard, lint and headline verifier, then the fixed finite mutation driver. Real surface assertions inspect only row guard registration; probe/installer are scanned as source data, never executed.",
+      "sha256": "c41fa53e5ad4a54ae54f2badd8f11f03eead2b51088416d210a85e3d5ff71676",
+      "evidence": "Creates all record/artifact repositories, declarations and histories. The actual engine remains the seat, so adoption presence is retained. Invokes fixed guard, lint and headline verifier, then the fixed finite mutation driver. Real surface assertions inspect only row guard registration; probe/installer are scanned as source data, never executed. Inner-only scopes retain original named witness groups and prerequisites; full outer coverage remains. Local driver uses the same shared scratch/worker/deadline guards and copies all scripts/lib plus the guard, test, lint, verifier and config. Unmutated group controls must pass before literal mutations.",
       "keys": [],
       "edges": [
         {
@@ -5907,8 +5907,8 @@
     },
     "scripts/hooks/guard-row-currency-commits.mutation.sh": {
       "source": "scripts/hooks/guard-row-currency-commits.mutation.sh",
-      "sha256": "505a51ac99a12d2455ee79114cbc022639d4e0f2f6ed430f36828a45f00b8728",
-      "evidence": "Uses the shared mutation copy and fixed row-currency suite with recursion disabled. All fifteen patches are literal guard/predicate/verifier replacements. No config-value reader is added; copied config presence and the nested real-seat adoption remain required.",
+      "sha256": "0ee55fe56ec08d46ab55a90782e266b495dc6b5f949dcc5d28e423789a97f512",
+      "evidence": "Uses the shared mutation copy and fixed row-currency suite with recursion disabled. All fifteen patches are literal guard/predicate/verifier replacements. No config-value reader is added; copied config presence and the nested real-seat adoption remain required. Inner-only scopes retain original named witness groups and prerequisites; full outer coverage remains. Local driver uses the same shared scratch/worker/deadline guards and copies all scripts/lib plus the guard, test, lint, verifier and config. Unmutated group controls must pass before literal mutations.",
       "keys": [],
       "edges": [
         {

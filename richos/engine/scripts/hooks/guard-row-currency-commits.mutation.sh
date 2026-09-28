@@ -32,6 +32,44 @@ ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 mutation_begin "the row-currency landing guard" "scripts/hooks/row-currency.test.sh"
 
+# The full outer suite retains registration and all other cases. Each mutant
+# needs only its original witness group, in a smaller private engine fixture.
+# Keep the shared pool, scratch guards and _mut_run supervision unchanged.
+_mutant_body() {
+    local name="$1" want="$2" rel="$3" old="$4" new="$5" why="$6"
+    local dir="$MUT_SANDBOX/$name" rc
+    mut_refuse_recursive_copy "$dir" "$MUT_ENGINE_ROOT" || return 1
+    mut_refuse_oversize_root || return 1
+    mkdir -p "$dir/scripts/hooks" "$dir/scripts/lib"
+    cp -R "$MUT_ENGINE_ROOT/scripts/lib/." "$dir/scripts/lib/" || return 1
+    cp "$MUT_ENGINE_ROOT/scripts/hooks/row-currency.test.sh" \
+       "$MUT_ENGINE_ROOT/scripts/hooks/guard-row-currency-commits.sh" "$dir/scripts/hooks/" || return 1
+    cp "$MUT_ENGINE_ROOT/scripts/row-currency-lint.sh" \
+       "$MUT_ENGINE_ROOT/scripts/row-headline-verify.sh" "$dir/scripts/" || return 1
+    cp "$MUT_ENGINE_ROOT/orchestration.config" "$dir/" || return 1
+
+    RICHOS_MUTATION_INNER=1 _mut_run bash "$dir/$MUT_SUITE" --mutation-case "$want" >"$dir/control.txt" 2>&1
+    rc=$?
+    if [ "$rc" -ne 3 ] || ! grep -qxF "  PASS  mutation witness: $want" "$dir/control.txt"; then
+        printf '  FAIL  %s: unmutated witness group was not green (rc=%s)\n' "$name" "$rc"
+        tail -15 "$dir/control.txt"
+        return 1
+    fi
+    if ! python3 "$MUT_SANDBOX/mutate.py" "$dir/$rel" "$old" "$new" 2>"$dir/mutate.err"; then
+        printf '  FAIL  %s: mutation did not apply\n' "$name"
+        cat "$dir/mutate.err"
+        return 1
+    fi
+    RICHOS_MUTATION_INNER=1 _mut_run bash "$dir/$MUT_SUITE" --mutation-case "$want" >"$dir/out.txt" 2>&1
+    rc=$?
+    if [ "$rc" -eq 0 ] || [ "$rc" -eq 3 ] || ! grep -qF "FAIL  $want" "$dir/out.txt"; then
+        printf '  FAIL  %s: mutant did not fail its named witness (rc=%s)\n' "$name" "$rc"
+        tail -15 "$dir/out.txt"
+        return 1
+    fi
+    printf '  PASS  %s: removing it turns "%s" red\n' "$name" "$want"
+}
+
 G="scripts/hooks/guard-row-currency-commits.sh"
 
 # --- 1. THE COMMAND CLASSIFIER SEES THE COMMANDS THAT ACTUALLY HAPPEN -------

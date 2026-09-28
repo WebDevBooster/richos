@@ -1713,9 +1713,9 @@
         "richos/engine/scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "richos/engine/scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
         "richos/engine/scripts/lib/row-currency.py": "484404c6143d1a5b94182321e6fa0f6250b298b27a7d3b59ba26d5ed648db677",
-        "richos/engine/scripts/hooks/guard-row-currency-commits.mutation.sh": "505a51ac99a12d2455ee79114cbc022639d4e0f2f6ed430f36828a45f00b8728",
+        "richos/engine/scripts/hooks/guard-row-currency-commits.mutation.sh": "0ee55fe56ec08d46ab55a90782e266b495dc6b5f949dcc5d28e423789a97f512",
         "richos/engine/scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
-        "richos/engine/scripts/hooks/row-currency.test.sh": "0f55dbf5305a15d6368695e1060793c31f9e7f93f9ea9a7ea5c6ba90d8b23c0c",
+        "richos/engine/scripts/hooks/row-currency.test.sh": "c41fa53e5ad4a54ae54f2badd8f11f03eead2b51088416d210a85e3d5ff71676",
         "richos/engine/hooks/hooks.json": "23a48a48529125f063a128ec63e6028008caddc95e0fe373ac8656dcd29bcd20",
         "richos/engine/scripts/hooks/dispatch-pretooluse.manifest": "810536a8883f43bda980b5ba8a107310516c1a43db791b7e3c6a0a6e89ed05f7"
       },
