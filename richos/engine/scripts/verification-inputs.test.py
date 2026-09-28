@@ -152,6 +152,31 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_mechanical_findings_only_read_fixture_configuration_and_inventory(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        units = ('scripts/hooks/mechanical-findings.test.sh',
+                 'scripts/hooks/contract-integrity.test.sh:MF')
+        for unit in units:
+            closure = graph.closure(document['units'][unit])
+            self.assertFalse(any(closure.values()), (unit, closure))
+        change = inputs.config_change('SHOW_TURN_MANIFEST=0', 'SHOW_TURN_MANIFEST=1')
+        self.assertFalse(graph.config_units(change, units))
+        self.assertFalse(graph.config_units(inputs.config_change('PROTECTED_PATHS=app', None), units))
+        for helper in ('scripts/lib/mechanical-findings.py#fixture-records',
+                       'scripts/lib/unstarted-rows.py#fixture-records',
+                       'scripts/lib/row-currency.py#fixture-records'):
+            previous = document['nodes'].pop(helper)
+            self.assertEqual(set(graph.config_units(change, units)), set(units))
+            document['nodes'][helper] = previous
+        reader = inputs.hook_reader(document['hook_readers'][units[0]],
+                                    lambda path: (HERE.parent / path).read_text())
+        self.assertFalse(reader['commands'] or reader.get('events') or reader.get('all_events'))
+        with self.assertRaises(inputs.Unsupported):
+            inputs.hook_reader(document['hook_readers'][units[0]],
+                lambda path: (HERE.parent / path).read_text() + '# changed' if
+                path == 'scripts/lib/mechanical-findings.py' else (HERE.parent / path).read_text())
+
     def test_interactive_contract_keeps_real_adoption_without_config_values(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)
