@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "94c769a3774663d25971a5f7da550d965f57dc4055fe4e05e0d51b55a21adbd5",
+      "sha256": "35f2352bf6482ba8df727364e7ac5d4f3ddab90da3ec87045a513a27566fe5b5",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -7533,6 +7533,87 @@
           "to": "scripts/hooks/conceal.mutation.sh"
         }
       ]
+    },
+    "scripts/hooks/worker-created-handoff.sh": {
+      "source": "scripts/hooks/worker-created-handoff.sh",
+      "sha256": "a65bbd37af42971db667e9576cc1eb4cc95572b22cbab120a2bfb3e8005d53fd",
+      "evidence": "Full emitter only parses literal payload JSON and appends an event to resolved team/HOME paths. All Python is embedded stdlib code; no engine helper or orchestration.config read.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/hooks/worker-started-handoff.sh": {
+      "source": "scripts/hooks/worker-started-handoff.sh",
+      "sha256": "f18675f4938cae746d536661b44e49e7a3425c15acff5c7cd3ad2e1bf7ee9919",
+      "evidence": "Full emitter only parses literal payload JSON and appends an event to resolved team/HOME paths. All Python is embedded stdlib code; no engine helper or orchestration.config read.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/hooks/worker-updated-handoff.sh": {
+      "source": "scripts/hooks/worker-updated-handoff.sh",
+      "sha256": "6cbcdd13306d482c8bfd9da1f6ccc68141a3091f9f9405bb52232cb14430ebf8",
+      "evidence": "Full emitter only parses literal payload JSON and appends an event to resolved team/HOME paths. All Python is embedded stdlib code; no engine helper or orchestration.config read.",
+      "keys": [],
+      "edges": []
+    },
+    "mega-lander/workspaces.py#ledger-lookup": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+      "evidence": "Ledger assignment resolution calls key_for_id then load_agent. Reviewed key/id/path/read_json helpers only read the workspace registry; no config or dynamic helper call.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/worktree-ledger.py#append": {
+      "source": "scripts/lib/worktree-ledger.py",
+      "sha256": "38f6cc15cd69ccd6aae90232db8b1b078866b6676b3f4795bdfe13212e1cb8ce",
+      "evidence": "Reviewed append, resolve_assignment, assignment_workspaces, agent_id_from_worktree, read_all, ledger_path and now_iso. Advisory finish resolution imports workspaces.py only for key_for_id/load_agent then reads private ledger rows. Atomic append/fsync invokes no lifecycle or judgment commands.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#ledger-lookup"
+        }
+      ],
+      "region": [
+        "def ledger_path():",
+        "def _ws(s):"
+      ]
+    },
+    "scripts/hooks/worker-ended-handoff.sh": {
+      "source": "scripts/hooks/worker-ended-handoff.sh",
+      "sha256": "92a3dc39b502f1841b1c8f604eb5c42e5047fb678e86c76fb9dd3ab5aae97516",
+      "evidence": "Full emitter imports the adjacent ledger only for advisory append, then writes its lifecycle event using embedded stdlib Python. No config is sourced.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/worktree-ledger.py#append"
+        }
+      ]
+    },
+    "scripts/hooks/worker-lifecycle.test.sh": {
+      "source": "scripts/hooks/worker-lifecycle.test.sh",
+      "sha256": "683b2b80472ce6979a3817988caf2d1e9bfc5029a880d0236ad93c4c39a9ea6b",
+      "evidence": "Full suite supplies private event teams, ownership ledger and workspace registry, plus a live sleep process as session identity. Agent payloads are literal data, not actual dispatches. The isolation guard receives a literal empty entity config. Its registry admission can reach pending cleanup, so real engine cleanup readers remain unmasked separately; emitter-only cases have no config readers.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-worktree-isolation.sh",
+          "fixture": true
+        },
+        {
+          "to": "mega-lander/workspaces.py#isolation-registration"
+        },
+        {
+          "to": "scripts/hooks/worker-created-handoff.sh"
+        },
+        {
+          "to": "scripts/hooks/worker-started-handoff.sh"
+        },
+        {
+          "to": "scripts/hooks/worker-updated-handoff.sh"
+        },
+        {
+          "to": "scripts/hooks/worker-ended-handoff.sh"
+        }
+      ]
     }
   },
   "units": {
@@ -7645,7 +7726,8 @@
     "scripts/hooks/dispatch-pretooluse.test.sh": "scripts/hooks/dispatch-pretooluse.test.sh",
     "scripts/hooks/stop-hook-visibility.test.sh": "scripts/hooks/stop-hook-visibility.test.sh",
     "scripts/hooks/waiver-repetition.test.sh": "scripts/hooks/waiver-repetition.test.sh",
-    "scripts/hooks/verify-agent-prompt.test.sh": "scripts/hooks/verify-agent-prompt.test.sh"
+    "scripts/hooks/verify-agent-prompt.test.sh": "scripts/hooks/verify-agent-prompt.test.sh",
+    "scripts/hooks/worker-lifecycle.test.sh": "scripts/hooks/worker-lifecycle.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {

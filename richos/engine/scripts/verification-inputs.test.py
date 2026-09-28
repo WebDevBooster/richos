@@ -152,6 +152,22 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_worker_lifecycle_preserves_real_registry_cleanup_settings(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/worker-lifecycle.test.sh'
+        closure = graph.closure(unit)
+        self.assertFalse(closure['whole'] or closure['fallback'], closure)
+        self.assertEqual(set(closure['keys']), set(graph.closure('scripts/lib/appinstances.py#workspace-cleanup')['keys']))
+        unrelated = inputs.config_change('MODEL_TIERS=one', 'MODEL_TIERS=two')
+        self.assertFalse(graph.config_units(unrelated, [unit]))
+        self.assertIn(unit, graph.config_units(inputs.config_change('APP_TEST_INSTANCE_PROCESS_NAMES=one', 'APP_TEST_INSTANCE_PROCESS_NAMES=two'), [unit]))
+        for helper in ('scripts/hooks/worker-created-handoff.sh', 'scripts/hooks/worker-ended-handoff.sh',
+                       'scripts/lib/worktree-ledger.py#append', 'mega-lander/workspaces.py#ledger-lookup'):
+            old = document['nodes'].pop(helper)
+            self.assertIn(unit, graph.config_units(unrelated, [unit]), helper)
+            document['nodes'][helper] = old
+
     def test_agent_prompt_fixture_keeps_nested_copy_and_helper_bindings(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)
