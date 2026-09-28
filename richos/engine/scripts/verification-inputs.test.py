@@ -152,6 +152,28 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_stopped_workspace_fixture_keeps_copied_policy_values(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'mega-lander/tests/workspace-stopped-ending.test.sh'
+        expected = {'AGENT_NAMESPACE_ROOTS', 'ALLOWED_MODELS', 'MODEL_TIERS', 'READONLY_ALLOWLIST', 'HARNESS_UTILITY_TYPES',
+                    'GENERIC_AGENT_TYPES', 'SESSION_TEAMS_DIR', 'SEAL_READONLY_TOOLS', 'SEAL_WAIT_SECONDS',
+                    'APP_TEST_INSTANCE_PROCESS_NAMES', 'APP_TEST_INSTANCE_BUNDLE_ID',
+                    'APP_TEST_INSTANCE_REAL_HOME_PATHS', 'APP_TEST_INSTANCE_QUIT_GRACE_SECONDS',
+                    'APP_TEST_INSTANCE_KILL_GRACE_SECONDS'}
+        closure = graph.closure(unit)
+        self.assertEqual(closure['fallback'], [])
+        self.assertEqual(set(closure['keys']), expected)
+        self.assertFalse(closure['whole'])
+        self.assertTrue(closure['presence'])
+        for key in expected | {'QUOTA_PAUSE_PERCENT', 'DISK_RICH_ALERT_GB'}:
+            self.assertEqual(bool(graph.config_units(inputs.config_change(key+'=a', key+'=b'), [unit])), key in expected, key)
+        for helper in ('mega-lander/create-teammate-worktree.sh#plain-fixture-repos',
+                       'scripts/hooks/guard-resume-isolation.sh', 'mega-lander/workspaces.sh#stopped-fixture'):
+            old = document['nodes'].pop(helper)
+            self.assertIn(unit, graph.config_units(inputs.config_change('MODEL_CEILING=a', 'MODEL_CEILING=b'), [unit]))
+            document['nodes'][helper] = old
+
     def test_disk_watchdog_keeps_only_its_real_candidate_assertion(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

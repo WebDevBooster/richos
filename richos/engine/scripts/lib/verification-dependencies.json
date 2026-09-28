@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "f9665f88e09602aaeed37ad07ec15e5c58992c159e773c4d6802c3da3769b8ab",
+      "sha256": "cfdd8991b9b6d2e93949c94772067dae3004031a8cc82459ca22775706ff54db",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -8119,6 +8119,63 @@
         }
       ],
       "presence": "W22d requires the real config to provide a nonempty consumer list."
+    },
+    "mega-lander/create-teammate-worktree.sh#plain-fixture-repos": {
+      "source": "mega-lander/create-teammate-worktree.sh",
+      "sha256": "189e5e613e20454aeab4a5d7b66d635ed876c165d3fa18884b7e1f9fcd59c963",
+      "evidence": "Complete creator reviewed. Fixture repositories contain only seed, ignore and optionally copied config data; no .worktreeinclude or worktree setup executable exists. The creator reads actual engine ALLOWED_MODELS through teammate-name, registers/creates/confirms private worktrees and loads fixed workspaces.py only for state_dir. Printed spawn commands are not executed.",
+      "keys": [
+        "ALLOWED_MODELS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/teammate-name.sh"
+        },
+        {
+          "to": "mega-lander/workspaces.py#isolation-registration"
+        }
+      ]
+    },
+    "mega-lander/workspaces.sh#stopped-fixture": {
+      "source": "mega-lander/workspaces.sh",
+      "sha256": "93b86b885516641e69a7cd84105260ee94d52300f0099362c7ed9b475855764e",
+      "evidence": "Fixed Python wrapper; stopped-ending invokes only integration, discard and pause with an explicit session. Land and its additional QA/scratch helpers are not invoked.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#discard"
+        }
+      ]
+    },
+    "mega-lander/tests/workspace-stopped-ending.test.sh": {
+      "source": "mega-lander/tests/workspace-stopped-ending.test.sh",
+      "sha256": "6147ceecc1f0f3e1467416521214d118522c7531c26189161a742409573f93a2",
+      "evidence": "Full suite copies the real engine config into its private adopted repo without replacing policy values. Literal Agent/lifecycle messages and metadata simulate native states; only captured sleep processes are started. The finite assertion evals use fixed shell expressions and fixture paths, never config-derived commands. All invoked guards, creator and integration/discard/pause CLI paths are bound.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/workspace-lifecycle.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-worktree-isolation.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-sealed-worktree.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-resume-isolation.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-workspace-gate.sh"
+        },
+        {
+          "to": "mega-lander/create-teammate-worktree.sh#plain-fixture-repos"
+        },
+        {
+          "to": "mega-lander/workspaces.sh#stopped-fixture"
+        }
+      ],
+      "nonconfig_eval": "The complete finite sub assertion list evaluates literal tests, grep/jget, private Git queries and stop_gate; no config values supply executable text."
     }
   },
   "units": {
@@ -8238,7 +8295,8 @@
     "scripts/hooks/left-off.test.sh": "scripts/hooks/left-off.test.sh",
     "scripts/quota-watch.test.sh": "scripts/quota-watch.test.sh",
     "scripts/hooks/guard-vendoring-commits.test.sh": "scripts/hooks/guard-vendoring-commits.test.sh",
-    "scripts/disk-watchdog.test.sh": "scripts/disk-watchdog.test.sh"
+    "scripts/disk-watchdog.test.sh": "scripts/disk-watchdog.test.sh",
+    "mega-lander/tests/workspace-stopped-ending.test.sh": "mega-lander/tests/workspace-stopped-ending.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
