@@ -49,12 +49,17 @@
 #   I1-I16  phone-ios: a step list validated before any build, refusals, the
 #           per-step log read once each, no picture of the person's account,
 #           a reused build trusted only against its stamp, no lock without a
-#           person to open it, a bounded log capture kept on the SSD
+#           person to open it, a bounded log capture kept on the SSD; I17-I18
+#           pair-steps for pairing v2 waits for each word and holds before the press
+#   V1-V10  pair-words: the phone corpus's own v2 words, the origin written as a
+#           browser writes it, the lab's words from its own files, a mismatch
+#           that FAILS, a half-read phone log, a non-lab directory, a v1 phone
+#           and a lab no phone has reached, each refused
 #   X1      the committed fixtures still match their generator
 #
 # run-tests: no-host-screen: its only capture/keystroke references are the strings it asserts those two tools REFUSE to act on, and its frames are committed PNG fixtures
-# run-tests: inputs richos/app/scripts/qa.test.sh richos/app/scripts/qa
-# run-tests: covers richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-android.py richos/app/scripts/qa/lab-ledger.py richos/app/scripts/qa/fixtures/make-fixtures.py richos/app/scripts/qa/phone-ios.py
+# run-tests: inputs richos/app/scripts/qa.test.sh richos/app/scripts/qa richos/mobile/conformance/vectors/fingerprint.json
+# run-tests: covers richos/app/scripts/qa/pair-words.py richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-android.py richos/app/scripts/qa/lab-ledger.py richos/app/scripts/qa/fixtures/make-fixtures.py richos/app/scripts/qa/phone-ios.py
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -94,7 +99,7 @@ python3 -c 'import PIL' >/dev/null 2>&1 && HAVE_PIL=1
 echo ""
 echo "=== H. every tool answers for itself ==="
 for t in contrast.py frame.py redact.py timeline.py ocr-gate.sh ocr-find.sh \
-         ocr-watch.sh wait-for.sh phone-client.mjs flake-rate.sh phone-android.py lab-ledger.py phone-ios.py fixtures/make-fixtures.py; do
+         ocr-watch.sh wait-for.sh phone-client.mjs flake-rate.sh phone-android.py lab-ledger.py phone-ios.py pair-words.py fixtures/make-fixtures.py; do
   if [ ! -x "$QA/$t" ]; then
     bad "H $t is executable" "not present or not executable at $QA/$t"
     continue
@@ -759,6 +764,78 @@ run python3 "$QA/phone-ios.py" parse-log "$TMP/ios-test.log"
 if [ "$CODE" = 0 ] && [ "$(printf '%s' "$OUT" | grep -c '"do"')" = 2 ] && printf '%s' "$OUT" | grep -Fq "not on screen within 5 s"; then
   ok "I7 parse-log keeps each step once and skips a line cut in half"
 else bad "I7 parse-log keeps each step once" "exit $CODE: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-240)"; fi
+
+printf '{"pairLink":"https://c-x-g7.richos.ceo/#pair=abc","words":"orbit horizon cushion cabin mirror kitchen"}' > "$TMP/ios-lab.json"
+run python3 "$QA/phone-ios.py" pair-steps "$TMP/ios-lab.json" --v2-hold 45
+if [ "$CODE" = 0 ] && printf '%s' "$OUT" | grep -Fq '"label": "Word 6: "' && printf '%s' "$OUT" | grep -Fq '"seconds": 45' \
+   && ! printf '%s' "$OUT" | grep -Fq 'orbit' && ! printf '%s' "$OUT" | grep -Fq '"do": "count"'; then
+  ok "I17 pair-steps --v2-hold waits for each word by label and holds before the press, never counting the v1 words"
+else bad "I17 pair-steps --v2-hold" "exit $CODE: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-240)"; fi
+
+run python3 "$QA/phone-ios.py" pair-steps "$TMP/ios-lab.json" --v2-hold 900
+expect "I18 a v2 hold past the pairing code's five minutes is refused" 2 "--v2-hold must be 20 to 300 seconds"
+
+echo ""
+echo "=== V. pair-words: the six v2 words on both sides, checked before They match ==="
+PW="$QA/pair-words.py"
+CORPUS_FP="$DIR/../../mobile/conformance/vectors/fingerprint.json"
+for i in 0 1; do
+  eval "$(python3 -c "
+import json, shlex, sys
+c = json.load(open(sys.argv[1]))['v2']['cases'][int(sys.argv[2])]
+for k in ('origin', 'ca_fingerprint_sha256', 'device_point_b64url', 'phrase'):
+    print(f'V_{k.upper()}={shlex.quote(c[k])}')
+" "$CORPUS_FP" "$i")"
+  run python3 "$PW" compute --origin "$V_ORIGIN" --ca "$V_CA_FINGERPRINT_SHA256" --key "$V_DEVICE_POINT_B64URL"
+  if [ "$CODE" = 0 ] && [ "$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin)["words"]))')" = "$V_PHRASE" ]; then
+    ok "V$((i + 1)) compute gives the phone corpus's own words for case $i ($V_PHRASE)"
+  else bad "V$((i + 1)) compute matches the phone corpus case $i" "wanted '$V_PHRASE'; exit $CODE: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-240)"; fi
+done
+run python3 "$PW" compute --origin "HTTPS://C-5DE0DBE0862DD461AE305AF5CEF35202-G2.RICHOS.CEO:443/" --ca "$V_CA_FINGERPRINT_SHA256" --key "$V_DEVICE_POINT_B64URL"
+expect "V3 the origin is written the way a browser writes it (case, default port, slash)" 0 '"castle"'
+
+mkdir -p "$TMP/pwlab/data/phone"
+printf 'richos-mobile-isolated-v1' > "$TMP/pwlab/data/lab-owner"
+printf '%s\n' '-----BEGIN CERTIFICATE-----' "$(printf 'stand-in authority DER' | base64)" '-----END CERTIFICATE-----' > "$TMP/pwlab/data/phone/ca.crt"
+printf '{"pairing_version":2,"public_key":"%s","fingerprint_confirmed":false}' "$V_DEVICE_POINT_B64URL" > "$TMP/pwlab/data/phone/device.json"
+printf '{"origin":"https://c-x-g7.richos.ceo","data":"%s","ca":"%s"}' "$TMP/pwlab/data" "$TMP/pwlab/data/phone/ca.crt" > "$TMP/pwlab/mac.json"
+STANDIN_FP="$(python3 -c "import hashlib; print(':'.join(f'{b:02X}' for b in hashlib.sha256(b'stand-in authority DER').digest()))")"
+run python3 "$PW" compute --origin https://c-x-g7.richos.ceo --ca "$STANDIN_FP" --key "$V_DEVICE_POINT_B64URL"
+WANT="$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin)["words"]))')"
+run python3 "$PW" mac "$TMP/pwlab"
+if [ "$CODE" = 0 ] && [ "$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin)["words"]))')" = "$WANT" ]; then
+  ok "V4 mac reads the lab's origin, CA (DER hash) and registered key: the same words compute gives"
+else bad "V4 mac from the lab's own files" "wanted '$WANT'; exit $CODE: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-240)"; fi
+
+set -- $WANT
+{
+  echo 'PHONE_STEP {"i": 5, "do": "wait", "ok": true, "detail": {"label": "Word 1: '"$1"'"}}'
+  echo 'PHONE_STEP {"i": 6, "do": "wait", "ok": true, "detail": {"label": "Word 2: '"$2"'"}}'
+  echo 'PHONE_STEP {"i": 7, "do": "wait", "ok": true, "detail": {"label": "Word 3: '"$3"'"}}'
+  echo 'PHONE_STEP {"i": 8, "do": "wait", "ok": true, "detail": {"label": "Word 4: '"$4"'"}}'
+  echo 'PHONE_STEP {"i": 9, "do": "wait", "ok": true, "detail": {"label": "Word 5: '"$5"'"}}'
+} > "$TMP/pw-partial.log"
+cp "$TMP/pw-partial.log" "$TMP/pw-same.log"
+echo 'PHONE_STEP {"i": 10, "do": "wait", "ok": true, "detail": {"label": "Word 6: '"$6"'"}}' >> "$TMP/pw-same.log"
+cp "$TMP/pw-partial.log" "$TMP/pw-differ.log"
+echo 'PHONE_STEP {"i": 10, "do": "wait", "ok": true, "detail": {"label": "Word 6: zzz"}}' >> "$TMP/pw-differ.log"
+run python3 "$PW" check "$TMP/pwlab" "$TMP/pw-same.log"
+expect "V5 the phone's six words equal the Mac's: check passes" 0 '"same": true'
+run python3 "$PW" check "$TMP/pwlab" "$TMP/pw-differ.log"
+expect "V6 one differing word FAILS the check, exit 1: do not press They match" 1 '"same": false'
+run python3 "$PW" check "$TMP/pwlab" "$TMP/pw-partial.log"
+expect "V7 a phone log that has not shown all six words cannot answer, never a pass" 2 "has not shown word(s) [6]"
+
+rm "$TMP/pwlab/data/lab-owner"
+run python3 "$PW" mac "$TMP/pwlab"
+expect "V8 a data directory without the isolated lab's owner marker is refused, never read" 2 "owner marker"
+printf 'richos-mobile-isolated-v1' > "$TMP/pwlab/data/lab-owner"
+printf '{"pairing_version":1,"public_key":"%s"}' "$V_DEVICE_POINT_B64URL" > "$TMP/pwlab/data/phone/device.json"
+run python3 "$PW" mac "$TMP/pwlab"
+expect "V9 a phone that paired with v1 is refused: its words are ready.json's" 2 "not 2"
+rm "$TMP/pwlab/data/phone/device.json"
+run python3 "$PW" mac "$TMP/pwlab"
+expect "V10 before any phone has sent the link there are no Mac words to give" 2 "no phone has registered a key"
 
 echo ""
 echo "=== X. the fixtures are still the fixtures ==="
