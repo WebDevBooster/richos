@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "de374f37e0c69c12c38ea1b01e6b346a30b7615ae1f65f70434dfed2424ea66e",
+      "sha256": "9efc85ec58feed386a2bfc42c9b199ff530f11a7ca392bae842e1c3fee2fe103",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -7405,6 +7405,79 @@
         }
       ],
       "nonconfig_eval": "drive evaluates only literal test calls to stop_notice_init/normal/abnormal/abnormal_recurring, with private paths and fixed session strings."
+    },
+    "scripts/hooks/notice-waiver-repetition.py": {
+      "source": "scripts/hooks/notice-waiver-repetition.py",
+      "sha256": "536de700653b2d81df7ea51223338be0a9e93e67c1203e9950ec33a312381125",
+      "evidence": "Reviewed import/call inventory and all I/O boundaries: stdlib-only source discovery reads scripts as text, resolves ledger names with regex and dictionaries then reads state/teams logs. No source execution, config reader or subprocess. This suite supplies private engine/entity/config roots; CLI date is fixed for most cases, hook cases use wall clock.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/hooks/notice-waiver-repetition.sh": {
+      "source": "scripts/hooks/notice-waiver-repetition.sh",
+      "sha256": "ca6cf1b169ee2ba5717af73ff23062ad3c71a935c380aff91822c3e232780ea4",
+      "evidence": "Full wrapper reads root/adoption, shared notice helper and the fixed adjacent Python analyzer. The generated engine/entity tree is the only target. No config namespace is sourced.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/hooks/notice-waiver-repetition.py"
+        }
+      ]
+    },
+    "scripts/waiver-repetition-lint.sh": {
+      "source": "scripts/waiver-repetition-lint.sh",
+      "sha256": "03bba7c566c0b3348d91badad662f240b2da1085c80291bc34765418ce88adb0",
+      "evidence": "Full CLI parses fixed mode/date/Jaccard options and runs the fixed adjacent analyzer against the supplied repository. Help renders its own comments. No config reader.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/notice-waiver-repetition.py"
+        }
+      ]
+    },
+    "scripts/hooks/waiver-repetition.mutation.sh": {
+      "source": "scripts/hooks/waiver-repetition.mutation.sh",
+      "sha256": "70a9e53f97b80d55d9f1425d6aff3edf268b515b6e4a649e13c0a16825ad4d76",
+      "evidence": "Full driver creates minimal engine copies, retains hooks JSON then executes one control and finite literal mutants with INNER=1. No orchestration config is copied. Source replacements alter verdicts, grouping, notices and registration; no additional executed target is introduced.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/waiver-repetition.test.sh"
+        },
+        {
+          "to": "scripts/lib/stopwatch.sh"
+        },
+        {
+          "to": "scripts/lib/mutation-pool.sh"
+        }
+      ]
+    },
+    "scripts/hooks/waiver-repetition.test.sh": {
+      "source": "scripts/hooks/waiver-repetition.test.sh",
+      "sha256": "4c5c4f770d35162469da58979c38c5ddfaa84e3b781344dfe0339bb8795bf71b",
+      "evidence": "Full suite creates literal entity config, fake source guards and private ledgers under isolated CLAUDE_CONFIG_DIR. The fake guard source is analyzer data, never executed. Real hooks JSON is grep-checked for notice-waiver-repetition.sh. Nested fixed driver preserves the same fixture-only config obligations.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/notice-waiver-repetition.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/waiver-repetition-lint.sh"
+        },
+        {
+          "to": "scripts/hooks/notice-waiver-repetition.py"
+        },
+        {
+          "to": "scripts/hooks/waiver-repetition.mutation.sh"
+        }
+      ]
     }
   },
   "units": {
@@ -7515,7 +7588,8 @@
     "scripts/publication-completeness.test.sh": "scripts/publication-completeness.test.sh",
     "scripts/hooks/named-persons.test.sh": "scripts/hooks/named-persons.test.sh",
     "scripts/hooks/dispatch-pretooluse.test.sh": "scripts/hooks/dispatch-pretooluse.test.sh",
-    "scripts/hooks/stop-hook-visibility.test.sh": "scripts/hooks/stop-hook-visibility.test.sh"
+    "scripts/hooks/stop-hook-visibility.test.sh": "scripts/hooks/stop-hook-visibility.test.sh",
+    "scripts/hooks/waiver-repetition.test.sh": "scripts/hooks/waiver-repetition.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
@@ -8116,6 +8190,31 @@
         "scripts/hooks/notice-waiver-repetition.sh": "ca6cf1b169ee2ba5717af73ff23062ad3c71a935c380aff91822c3e232780ea4",
         "scripts/hooks/release-land-leases.sh": "9b933f62a43f2ef058654297789951667b27f6a116d9e4c4c1895e9c549dceb8",
         "scripts/hooks/turn-manifest.sh": "f5e92311f9896874e5294533673dd08160f3e4cfba4a262e161ae96e377331ae"
+      }
+    },
+    "scripts/hooks/waiver-repetition.test.sh": {
+      "commands": [],
+      "text_needles": [
+        "notice-waiver-repetition.sh"
+      ],
+      "evidence": "Suite greps the raw hooks JSON for this literal script name; the nested mutation renames that registration. Binds every copied/executed helper and the driver.",
+      "sources": {
+        "scripts/hooks/waiver-repetition.test.sh": "4c5c4f770d35162469da58979c38c5ddfaa84e3b781344dfe0339bb8795bf71b",
+        "scripts/hooks/notice-waiver-repetition.sh": "ca6cf1b169ee2ba5717af73ff23062ad3c71a935c380aff91822c3e232780ea4",
+        "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
+        "scripts/hooks/notice-waiver-repetition.py": "536de700653b2d81df7ea51223338be0a9e93e67c1203e9950ec33a312381125",
+        "scripts/waiver-repetition-lint.sh": "03bba7c566c0b3348d91badad662f240b2da1085c80291bc34765418ce88adb0",
+        "scripts/hooks/waiver-repetition.mutation.sh": "70a9e53f97b80d55d9f1425d6aff3edf268b515b6e4a649e13c0a16825ad4d76",
+        "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
+        "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
+        "scripts/lib/worker_tokens.py": "8c4cada1e7a4883a65435017ebac01c27307724a9724ea698f0df699898ff6b2",
+        "scripts/lib/proc_tree.py": "dbd97c9b9758184e960348cd6c81e5089ae9691aee8324977a3ddbc0460a219d",
+        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
+        "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
+        "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7"
       }
     }
   }

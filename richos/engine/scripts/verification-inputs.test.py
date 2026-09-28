@@ -152,6 +152,23 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_waiver_fixtures_keep_source_discovery_and_nested_mutation_bound(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/waiver-repetition.test.sh'
+        self.assertFalse(any(graph.closure(unit).values()))
+        change = inputs.config_change('PROTECTED_PATHS=one', 'PROTECTED_PATHS=two')
+        self.assertFalse(graph.config_units(change, [unit]))
+        self.assertFalse(graph.config_units(inputs.config_change('PROTECTED_PATHS=one', None), [unit]))
+        for helper in ('scripts/hooks/notice-waiver-repetition.py',
+                       'scripts/hooks/waiver-repetition.mutation.sh', 'scripts/lib/mutation-pool.sh'):
+            old = document['nodes'].pop(helper)
+            self.assertIn(unit, graph.config_units(change, [unit]), helper)
+            document['nodes'][helper] = old
+        reader = inputs.hook_reader(document['hook_readers'][unit],
+                                    lambda path: (HERE.parent / path).read_text())
+        self.assertEqual(reader['text_needles'], ['notice-waiver-repetition.sh'])
+
     def test_stop_visibility_preserves_real_disk_reader_and_dynamic_inventory(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)
