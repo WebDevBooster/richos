@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "98cb1917bcec0ed5ec366e54c4f1032d494ae24ccfe959231ce6cd46588e838d",
+      "sha256": "715f1f14cfa62c26889ee5f29dd9e65cf4ae7dd723fa172db3ea92e8d36c766f",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -11405,6 +11405,256 @@
           "to": "scripts/hooks/contract-integrity.test.sh#list"
         }
       ]
+    },
+    "scripts/operator-fences.mutation.sh": {
+      "source": "scripts/operator-fences.mutation.sh",
+      "sha256": "3ae93acf6f923c8b679df5f5e103cafab7fe88c2c699a39a5f2894f4cd8a6cc0",
+      "evidence": "All34 named mutants patch finite literal source operands then invoke the existing operator-fences fixture suite through mutation_focus stop-at-want. Mutations change branches/constants or fixed commands, never introduce a config reader. The shared harness transports config; the fixture suite constructs its own literal entity config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/operator-fences.test.sh"
+        }
+      ]
+    },
+    "scripts/operator-fences-mutation.test.sh": {
+      "source": "scripts/operator-fences-mutation.test.sh",
+      "sha256": "547f62004265935dcaed1b6c3429b2d59cb044b9c4c8a886128e5dd7d2acc98c",
+      "evidence": "Thin wrapper invokes only the source-bound operator-fences mutation driver. No configuration read or additional runtime path.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/operator-fences.mutation.sh"
+        }
+      ]
+    },
+    "scripts/hooks/ref-transaction-forensics.test.sh": {
+      "source": "scripts/hooks/ref-transaction-forensics.test.sh",
+      "sha256": "75fc4b6529b8a37f6a445db0793be252fb723e70beaf035cd2cc34052bd0c849",
+      "evidence": "Invokes the recorder directly and through private Git hooks with all forensic output redirected. The negative control only replaces the append target. Inline eval expressions are fixed literal calls inspecting parsed fixture rows; they do not execute row contents or configuration.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/ref-transaction-forensics.sh"
+        }
+      ],
+      "nonconfig_eval": "Fixed inline Python expressions passed at literal rows call sites; record strings are data only."
+    },
+    "scripts/hooks/release-land-leases.mutation.sh": {
+      "source": "scripts/hooks/release-land-leases.mutation.sh",
+      "sha256": "83632f38ba729b6650dd844455881671992ec19ffd2588d3d9413b307b028d94",
+      "evidence": "Four fixed branch/message mutations run the same private turn-end lease fixture. No mutation introduces a configuration reader. Shared harness copies are transport edges.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/hooks/release-land-leases.test.sh"
+        }
+      ]
+    },
+    "scripts/hooks/release-land-leases.test.sh": {
+      "source": "scripts/hooks/release-land-leases.test.sh",
+      "sha256": "d859aca1be911fea9d0955db606de6c853b0c421d9ccf2c1863f20571953b79f",
+      "evidence": "Uses operator-fences-fixture to create private repositories, literal entity configuration and captured shell sessions. turn_end invokes only the fixed release hook; all shell-server commands are fixed Git/lease fixture operations. Nested mutants preserve those entry points.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/operator-fences-fixture.sh"
+        },
+        {
+          "to": "scripts/hooks/release-land-leases.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/release-land-leases.mutation.sh"
+        }
+      ]
+    },
+    "scripts/lib/assert-own-worktree-registered.sh": {
+      "source": "scripts/lib/assert-own-worktree-registered.sh",
+      "sha256": "25449eccf162725a40090afacf715a720f194b8bd3f840f11f712371c1ca9acd",
+      "evidence": "Sources only resolve-main-checkout.sh and compares supplied physical paths with Git worktree inventory. No config source, config content read or dynamic callback.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-main-checkout.sh"
+        }
+      ]
+    },
+    "scripts/lib/assert-own-worktree-registered.test.sh": {
+      "source": "scripts/lib/assert-own-worktree-registered.test.sh",
+      "sha256": "eb9e8e4e5f8e8b13d92bdd3d427dab3985bac6fbe79eba35d34c5b8880a59071",
+      "evidence": "Copies the assertion and resolver into private Git repositories and exercises existing/missing/recreated worktree paths. It invokes only those fixed helpers. No orchestration config is present or read.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/assert-own-worktree-registered.sh"
+        }
+      ]
+    },
+    "scripts/ledger-prune-sandbox.py": {
+      "source": "scripts/ledger-prune-sandbox.py",
+      "sha256": "6eae706be128d9c1f12f1af5de9f1fdbdaeae86507e862727ef4efd2310e0860",
+      "evidence": "Reviewed all CLI/predicate/apply paths: reads the supplied ledger as JSON, stats named paths, preserves bytes and writes backups/replacement. Standard library only, no subprocess or configuration reader. Data paths are never executed.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/ledger-prune-sandbox.test.sh": {
+      "source": "scripts/ledger-prune-sandbox.test.sh",
+      "sha256": "ad564cbb9337b10c594e822f768e6d7ac3ffd5ff9dbaf69c5cbec4f5c07cdee3",
+      "evidence": "Uses explicit private ledger and backup paths. Invokes only the pruner; fixed inline Python creates a unique absent-path string. Runtime path-existence and clock inputs are distinct from orchestration config values.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/ledger-prune-sandbox.py"
+        }
+      ]
+    },
+    "scripts/hardware-choice-check.py": {
+      "source": "scripts/hardware-choice-check.py",
+      "sha256": "5c6f5ecf9755491937fd8df47af7eacb5085414e629a435dc8f8d3ca26b8fab5",
+      "evidence": "Reviewed complete standard-library scanner and CLI. Only reads candidate source files under the supplied root; Rust/JS snippets are regex input and never executed.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/hardware-choice-check.test.sh": {
+      "source": "scripts/hardware-choice-check.test.sh",
+      "sha256": "8c4f70d573319a49af1681c2869b5e9dbae0143e7a26629a024a92e569d52759",
+      "evidence": "Every scanner invocation supplies --root pointing at literal private fixture trees; no actual product source execution or orchestration config access.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hardware-choice-check.py"
+        }
+      ]
+    },
+    "scripts/lib/qa-throwaways.py": {
+      "source": "scripts/lib/qa-throwaways.py",
+      "sha256": "1c355bbfaa5bb464c020d4743bf842b8fbbe5a7265caa6ffb2200523064ef9b6",
+      "evidence": "Reviewed full CLI, transcript scan, classification and reporting. Embedded shell commands remain JSON string data. QA_TOOLKIT_DIR is the only config-named environment input and remains declared.",
+      "keys": [
+        "QA_TOOLKIT_DIR"
+      ],
+      "edges": []
+    },
+    "scripts/qa-throwaways.sh": {
+      "source": "scripts/qa-throwaways.sh",
+      "sha256": "8aae87d0f79017b1942bf249d56e6edbd5dce8b90f1f60af1d3eb71ad45e5643",
+      "evidence": "Fixed Python delegate with executable/missing-file checks only.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/qa-throwaways.py"
+        }
+      ]
+    },
+    "scripts/qa-throwaways.test.sh": {
+      "source": "scripts/qa-throwaways.test.sh",
+      "sha256": "dfa16aee1dd771c100714532f71a952c8ab3a0af9ebfbfebff4e8d68e11d690c",
+      "evidence": "Creates literal private JSONL tool transcripts and invokes the real parser. Commands in the transcripts are never launched; the real QA_TOOLKIT_DIR reader remains reachable.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/qa-throwaways.sh"
+        }
+      ]
+    },
+    "scripts/provision-claude-md.sh#identity-fixture": {
+      "source": "scripts/provision-claude-md.sh",
+      "sha256": "31855961f346953cd992129892bbebfdc4582debabc7f53b40a1acc7878154f1",
+      "evidence": "All invocation modes use a literal private --config identity file. Renderer reads VERSION and template as data; it never evaluates rendered Markdown or invokes its mentioned commands. No orchestration.config source.",
+      "keys": [],
+      "edges": [],
+      "nonconfig_eval": "Indirect shell expansion is limited to the explicit CONFIG_KEYS identity list; the only sourced file is the caller-supplied literal private identity fixture."
+    },
+    "scripts/provision-claude-md.test.sh": {
+      "source": "scripts/provision-claude-md.test.sh",
+      "sha256": "29fd69b6622351c6bd98a76b2d82b7446d5998b97b1d435417033a2d05c8e5c4",
+      "evidence": "All provisioner calls explicitly supply private identity, blank or missing config paths and private output paths. Template contents are rendered as data.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/provision-claude-md.sh#identity-fixture"
+        }
+      ]
+    },
+    "scripts/lib/bulk-record-transport.test.py": {
+      "source": "scripts/lib/bulk-record-transport.test.py",
+      "sha256": "ed9b43163d565bb846bd24d2a4030e6228355484b8aad221441be37786e434c3",
+      "evidence": "All three cases supply private Git records, explicit CA_REPOS or ur_resolve(root) and a cleared child environment. ca_items_json never calls ca_resolve; the fault injector only wraps fixed Python encoding. Only the fixture entity declaration and record paths can be read.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/ceo-asks.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/lib/unstarted-rows.sh#fixture-records"
+        }
+      ]
+    },
+    "scripts/lib/bulk-record-transport.test.sh": {
+      "source": "scripts/lib/bulk-record-transport.test.sh",
+      "sha256": "7dca46d771bc16e93ee14715a17659d7198d3e52f9ca85695753f690d7f56dea",
+      "evidence": "Fixed Python suite delegate; no other execution.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/bulk-record-transport.test.py"
+        }
+      ]
+    },
+    "scripts/hooks/payload-transport.test.py": {
+      "source": "scripts/hooks/payload-transport.test.py",
+      "sha256": "1f470f98b21c753ce91cc13000f9ccb9d47302f8eaa524f86384ee43a355847c",
+      "evidence": "Reviewed all fixed hook invocations. Each child gets a cleared environment, private HOME and explicit private RICHOS_ENTITY_ROOT/CLAUDE_PROJECT_DIR. Only private repositories, declarations and worktrees are targeted. PROTECTED_PATHS is literal src in that fixture; inflight timeout reads the fixture root. Payload command strings are classified, never executed. The fault injector delegates unchanged Python except its fixed classifier failure.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-publication-commits.sh#scan",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-completeness-commits.sh#fixture-trees",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-ceo-todos-commits.sh#fixture-records",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-vendoring-commits.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-bash-main-writes.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-worktree-removal.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-inflight-notify.sh",
+          "fixture": true
+        }
+      ]
+    },
+    "scripts/hooks/payload-transport.test.sh": {
+      "source": "scripts/hooks/payload-transport.test.sh",
+      "sha256": "b3e7d35a26080b4ed1d86a995732451df10ff3c8b66bef982c8d362e4df00da3",
+      "evidence": "Fixed Python suite delegate; no other execution.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/payload-transport.test.py"
+        }
+      ]
     }
   },
   "units": {
@@ -11546,7 +11796,17 @@
     "scripts/lib/record-canary.test.sh": "scripts/lib/record-canary.test.sh",
     "scripts/lib/mutation-pool.test.sh": "scripts/lib/mutation-pool.test.sh",
     "scripts/mutation-inventory.test.sh": "scripts/mutation-inventory.test.sh",
-    "scripts/ci-units.test.sh": "scripts/ci-units.test.sh"
+    "scripts/ci-units.test.sh": "scripts/ci-units.test.sh",
+    "scripts/operator-fences-mutation.test.sh": "scripts/operator-fences-mutation.test.sh",
+    "scripts/hooks/ref-transaction-forensics.test.sh": "scripts/hooks/ref-transaction-forensics.test.sh",
+    "scripts/hooks/release-land-leases.test.sh": "scripts/hooks/release-land-leases.test.sh",
+    "scripts/lib/assert-own-worktree-registered.test.sh": "scripts/lib/assert-own-worktree-registered.test.sh",
+    "scripts/ledger-prune-sandbox.test.sh": "scripts/ledger-prune-sandbox.test.sh",
+    "scripts/hardware-choice-check.test.sh": "scripts/hardware-choice-check.test.sh",
+    "scripts/qa-throwaways.test.sh": "scripts/qa-throwaways.test.sh",
+    "scripts/provision-claude-md.test.sh": "scripts/provision-claude-md.test.sh",
+    "scripts/lib/bulk-record-transport.test.sh": "scripts/lib/bulk-record-transport.test.sh",
+    "scripts/hooks/payload-transport.test.sh": "scripts/hooks/payload-transport.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
