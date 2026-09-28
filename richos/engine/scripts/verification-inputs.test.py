@@ -153,6 +153,20 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_land_lease_selection_keeps_real_dispatcher_config(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/guard-land-lease-commands.test.sh'
+        closure = graph.closure(unit)
+        self.assertFalse(closure['whole'] or closure['fallback'], closure)
+        self.assertIn('PUBLIC_RECORD_REPO_GUARD', closure['keys'])
+        self.assertIn('PUBLICATION_DECLARATION', closure['keys'])
+        self.assertIn('PROTECTED_PATHS', closure['keys'])
+        for key in ('MODEL_CEILING', 'INFLIGHT_ACK_TIMEOUT_MIN', 'OPERATOR_FENCES'):
+            self.assertNotIn(unit, graph.config_units(inputs.config_change(key+'=a', key+'=b'), [unit]))
+        document['nodes']['scripts/hooks/dispatch-pretooluse.manifest']['sha256'] = 'changed'
+        self.assertIn(unit, graph.config_units(inputs.config_change('MODEL_CEILING=a', 'MODEL_CEILING=b'), [unit]))
+
     def test_operator_fence_fixture_binds_restore_ingress_and_imports(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)

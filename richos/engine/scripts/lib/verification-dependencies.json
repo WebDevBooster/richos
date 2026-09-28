@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "c521d129562ab5b51d0ade3e7f3e44d376f18fe640720a6cece2bbdfaa07d54b",
+      "sha256": "0eb993a5f136321420a5004f5e6be8a263fd6148dbb75f8101ef5c2184a8bfa9",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -9631,6 +9631,215 @@
           "fixture": true
         }
       ]
+    },
+    "scripts/hooks/guard-inflight-notify.sh#fenced-commit": {
+      "source": "scripts/hooks/guard-inflight-notify.sh",
+      "sha256": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
+      "evidence": "The fixed fenced-commit dispatcher fixture supplies git -C <private repo> commit -m x. Reviewed prefix/classifier returns before push/merge-only, host-power or foreign-data paths. Settings read before classification remain bound.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/inflight.sh#load"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "SESSION_ID=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-ci-red-lands.sh#fenced-commit": {
+      "source": "scripts/hooks/guard-ci-red-lands.sh",
+      "sha256": "64d83f115beb4a9db8c3cfe52438b72951d2a9e2ce5becee5f9344b9fb3eb6b0",
+      "evidence": "The fixed fenced-commit dispatcher fixture supplies git -C <private repo> commit -m x. Reviewed prefix/classifier returns before push/merge-only, host-power or foreign-data paths. Settings read before classification remain bound.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#engine-only"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "VERB=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-host-display-power.sh#fenced-commit": {
+      "source": "scripts/hooks/guard-host-display-power.sh",
+      "sha256": "a6b99e74c251343564a32b52dbdafbf5a00ae84268853dfa7f622d032e79dc45",
+      "evidence": "The fixed fenced-commit dispatcher fixture supplies git -C <private repo> commit -m x. Reviewed prefix/classifier returns before push/merge-only, host-power or foreign-data paths. Settings read before classification remain bound.",
+      "keys": [
+        "HOST_DISPLAY_POWER_GUARD"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "SESSION_ID=\"$(printf"
+      ]
+    },
+    "scripts/hooks/guard-foreign-app-data.sh#fenced-commit": {
+      "source": "scripts/hooks/guard-foreign-app-data.sh",
+      "sha256": "4360ace16a692e3cf5c7dd100dc206c496f0960b4584d66f76ff240bda3ee42c",
+      "evidence": "The fixed fenced-commit dispatcher fixture supplies git -C <private repo> commit -m x. Reviewed prefix/classifier returns before push/merge-only, host-power or foreign-data paths. Settings read before classification remain bound.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "_gfad_in=\"$(cat)\"",
+        "_gfad_py="
+      ]
+    },
+    "scripts/hooks/guard-hook-registration-commits.sh#unadopted-target": {
+      "source": "scripts/hooks/guard-hook-registration-commits.sh",
+      "sha256": "0e684c61c9c4d2bd3a724b6f4693090812cff645911916e4b4cb035b90790393",
+      "evidence": "The fixed private repository carries no engine hook inventory. Full bootstrap, classifier and target resolution through the explicit HR_ADOPTED check reviewed; returns before the completeness checker.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#engine-only"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        }
+      ],
+      "region": [
+        "set -eo pipefail",
+        "BASELINE=\"HEAD\""
+      ]
+    },
+    "scripts/hooks/dispatch-pretooluse.sh#fenced-commit": {
+      "source": "scripts/hooks/dispatch-pretooluse.sh",
+      "sha256": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
+      "evidence": "Real Bash dispatcher with one fixed git commit target: private fenced repository without publication, TODO, row-currency or hook adoption declarations. Real seat config can still be inherited by preclassification guards. Every manifest module is bound.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/hooks/dispatch-pretooluse.manifest"
+        },
+        {
+          "to": "scripts/hooks/guard-interactive-prompt.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-bash-main-writes.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-inflight-notify.sh#fenced-commit"
+        },
+        {
+          "to": "scripts/hooks/guard-worktree-removal.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-publication-commits.sh#undeclared-target"
+        },
+        {
+          "to": "scripts/hooks/guard-named-persons-commands.sh#fixture-roster"
+        },
+        {
+          "to": "scripts/hooks/guard-ceo-todos-commits.sh#fixture-records"
+        },
+        {
+          "to": "scripts/hooks/guard-completeness-commits.sh#undeclared-target"
+        },
+        {
+          "to": "scripts/hooks/guard-row-currency-commits.sh#undeclared-target"
+        },
+        {
+          "to": "scripts/hooks/guard-vendoring-commits.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-hook-registration-commits.sh#unadopted-target"
+        },
+        {
+          "to": "scripts/hooks/guard-ci-red-lands.sh#fenced-commit"
+        },
+        {
+          "to": "scripts/hooks/guard-host-display-power.sh#fenced-commit"
+        },
+        {
+          "to": "scripts/hooks/guard-public-record-repo.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-land-lease-commands.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-foreign-app-data.sh#fenced-commit"
+        },
+        {
+          "to": "scripts/hooks/guard-operator-claim.sh"
+        }
+      ]
+    },
+    "scripts/hooks/land-lease-commands.mutation.sh": {
+      "source": "scripts/hooks/land-lease-commands.mutation.sh",
+      "sha256": "7f97e1be7a3ae255bd7d4a09a382aa5ee0ec6b6dba37930fee3614c55a4d5ccd",
+      "evidence": "All seven literal mutations reviewed: fixed prefilter, authorization, checkout identity, verb and switch predicates. No new execution target; generic transport invokes this same fixture.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-land-lease-commands.test.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-land-lease-commands.test.sh": {
+      "source": "scripts/hooks/guard-land-lease-commands.test.sh",
+      "sha256": "5698093fa932ce50698ce3092a04c04974866211216e1d8a7d52bcb7081c175e",
+      "evidence": "Full suite reviewed: private Git/fence/session fixtures and fixed guard payloads. E9 invokes the actual Bash dispatcher; inherited real seat config reads are retained. Mutation commands are finite source edits.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/operator-fences-fixture.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-land-lease-commands.sh"
+        },
+        {
+          "to": "scripts/hooks/dispatch-pretooluse.sh#fenced-commit"
+        },
+        {
+          "to": "scripts/hooks/land-lease-commands.mutation.sh"
+        }
+      ]
     }
   },
   "units": {
@@ -9759,7 +9968,8 @@
     "scripts/hooks/contract-integrity.test.sh:Qscope": "scripts/hooks/contract-integrity.test.sh#Qscope",
     "scripts/hooks/publication-boundary.test.sh": "scripts/hooks/publication-boundary.test.sh",
     "scripts/hooks/operator-leads.test.sh": "scripts/hooks/operator-leads.test.sh",
-    "scripts/operator-fences.test.sh": "scripts/operator-fences.test.sh"
+    "scripts/operator-fences.test.sh": "scripts/operator-fences.test.sh",
+    "scripts/hooks/guard-land-lease-commands.test.sh": "scripts/hooks/guard-land-lease-commands.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
