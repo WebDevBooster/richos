@@ -90,6 +90,7 @@ fun WaitingToSendCard(count: Int, onEvent: (UiEvent) -> Unit) = ComposerCardFram
     "Waiting to send",
     "Your Mac isn’t reachable from here. " +
         (if (count == 1) "One message will go as soon as it is." else "$count messages will go as soon as it is."),
+    modifier = Modifier.semantics { testTag = "waiting-to-send-card" },
 ) { RichButton("Try now", { onEvent(UiEvent.TryNow) }, kind = ButtonKind.GHOST, icon = RichIcons.Refresh) }
 
 @Composable
