@@ -165,6 +165,33 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_app_and_device_fixtures_keep_real_keys_and_bind_all_readers(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        read = lambda path: (HERE.parent / path).read_text()
+        change = inputs.config_change('CHECK_FAILURE_TYPE=0', 'CHECK_FAILURE_TYPE=1')
+        for unit in ('scripts/lib/appinstances.test.sh', 'scripts/lib/testdevices.test.sh'):
+            graph = inputs.Dependencies(HERE.parent, document, read=read)
+            self.assertFalse(graph.closure(unit)['fallback'], unit)
+            self.assertFalse(graph.config_units(change, [unit]), unit)
+            self.assertIn(unit, graph.config_units(inputs.config_change('A=one', 'A=$(bad)'), [unit]))
+            seen = set()
+            def visit(name):
+                if name in seen:
+                    return
+                seen.add(name)
+                for edge in document['nodes'][name].get('edges', []):
+                    visit(edge['to'])
+            visit(unit)
+            for source in {document['nodes'][name]['source'] for name in seen}:
+                with self.subTest(unit=unit, changed_reader=source):
+                    changed = lambda p: read(p) + '\n# changed reader\n' if p == source else read(p)
+                    self.assertIn(unit, inputs.Dependencies(HERE.parent, document, read=changed).config_units(change, [unit]))
+        app = 'scripts/lib/appinstances.test.sh'
+        device = 'scripts/lib/testdevices.test.sh'
+        graph = inputs.Dependencies(HERE.parent, document, read=read)
+        self.assertIn(app, graph.config_units(inputs.config_change('APP_TEST_INSTANCE_PROCESS_NAMES=a', 'APP_TEST_INSTANCE_PROCESS_NAMES=b'), [app]))
+        self.assertIn(device, graph.config_units(inputs.config_change(None, 'CHECK_FAILURE_TYPE=1'), [device]))
+
     def test_dialect_source_scan_keeps_unqualified_registration_selection(self):
         from affected_units import Selection
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())

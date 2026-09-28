@@ -12817,6 +12817,82 @@
           "to": "scripts/hooks/handoff-facts-annotate.sh#facts"
         }
       ]
+    },
+    "scripts/lib/appinstances.test.sh": {
+      "source": "scripts/lib/appinstances.test.sh",
+      "sha256": "642245649d553a5d0acff00b15c327e2f415ed8e870c66d22e54ab661550fe6c",
+      "evidence": "Imports the complete appinstances module and scratch allocator. Test binaries are compiled literal C fixtures; all process queries use native commands. Retain the full module declared config keys; no additional engine helper or mutation driver executes.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/appinstances.py"
+        },
+        {
+          "to": "scripts/lib/scratch.sh"
+        }
+      ]
+    },
+    "scripts/lib/testdevices.py#device-fixtures": {
+      "source": "scripts/lib/testdevices.py",
+      "sha256": "7317a16a8075947446dd7602c1715694e4f5dcce5ea0795d9dd9cb75ed665cdd",
+      "evidence": "Suite-bound API path: real workspace liveness and cpu_guard APIs before HostMemory plus failure writer. In-process boot has _device_admission replaced; T60 exercises admission with literal worker/simulator modules. Separate CLI calls are register/run-active/acquire-ios, never boot, so app-side simulator_budget/reserve does not execute. Native commands and all run-active child programs are separately bound fixture strings, not config-provided code.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#liveness-readers"
+        },
+        {
+          "to": "scripts/lib/cpu_guard.py"
+        },
+        {
+          "to": "scripts/lib/testdevice_alerts.py"
+        }
+      ]
+    },
+    "scripts/lib/testdevices.test.py": {
+      "source": "scripts/lib/testdevices.test.py",
+      "sha256": "0d274f48fbb0a3668288a0b6e54eb97c063c66f2766d075c344a368752ba767d",
+      "evidence": "Private state and literal fake simctl/process programs drive real device APIs. Every subprocess target is this module register/run-active/acquire-ios or literal standard-library code. setUp substitutes admission; T60 restores only admission with explicit fake worker/simulator modules. No live config is loaded.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/testdevices.py#device-fixtures"
+        },
+        {
+          "to": "scripts/lib/cpu_guard.py"
+        }
+      ]
+    },
+    "scripts/lib/testdevices.mutation.sh": {
+      "source": "scripts/lib/testdevices.mutation.sh",
+      "sha256": "43cd5aed81cf23bc62b7f1060c32111097ac2a6540dc1bc8a7927a7e1cf54a30",
+      "evidence": "Mutates only the device module and calls the same suite through the shared mutation transport; retain transport presence and all actual nested readers.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/lib/testdevices.test.sh"
+        }
+      ]
+    },
+    "scripts/lib/testdevices.test.sh": {
+      "source": "scripts/lib/testdevices.test.sh",
+      "sha256": "dd9b90d8c92f46e4b9ab6a46da7bbde351df74887e60917c6863d3ddf9f6efdb",
+      "evidence": "Scratch allocator wrapper runs its Python fixture and shared mutation driver. Full fixture entrypoint and transitive readers are bound; no device command is taken from real config.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/scratch.sh"
+        },
+        {
+          "to": "scripts/lib/testdevices.test.py"
+        },
+        {
+          "to": "scripts/lib/testdevices.mutation.sh"
+        }
+      ]
     }
   },
   "units": {
@@ -12973,7 +13049,9 @@
     "scripts/ci-shard.test.sh": "scripts/ci-shard.test.sh",
     "ass-kicker/tests/brief-scope.test.sh": "ass-kicker/tests/brief-scope.test.sh",
     "scripts/lib/worktree-ledger.test.sh": "scripts/lib/worktree-ledger.test.sh",
-    "scripts/handoff-facts.test.sh": "scripts/handoff-facts.test.sh"
+    "scripts/handoff-facts.test.sh": "scripts/handoff-facts.test.sh",
+    "scripts/lib/appinstances.test.sh": "scripts/lib/appinstances.test.sh",
+    "scripts/lib/testdevices.test.sh": "scripts/lib/testdevices.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
