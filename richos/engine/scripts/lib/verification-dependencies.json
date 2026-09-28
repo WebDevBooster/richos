@@ -14181,6 +14181,37 @@
         "scripts/scratch-sweep.sh": "98804cde04a632171f4323a43164e18871412d44e41ec36b2e535a2e43554297"
       },
       "evidence": "The manifest name appears only in suite/header and helper comments or printed remedies. Reviewed finite fixture execution calls fixed hook/CLI paths; no installer, platform dispatch or registered-hook discovery runs. Shared mutation transport may copy hooks/settings bytes but this execution closure never reads them. Existing configuration/call contracts bind the same transitive sources; actual config readers and ordinary source-path selection remain required."
+    },
+    "scripts/hooks/owned-state.test.sh": {
+      "commands": [],
+      "sources": {
+        "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
+        "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/hooks/guard-owned-state.sh": "5f137d70ca9ea567cf0d5d06250ff50606db82f2323d2e68346e5295721d58aa",
+        "scripts/hooks/owned-state.mutation.sh": "7eb9e8010a5113527b391ec6284f48839137d9efc09f855f76485f7133c6eb58",
+        "scripts/owned-state.sh": "313a26b975baf1005c6a86beaa03cc7910481b9e1d6754d45a0e4206b5b001a0",
+        "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
+        "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
+        "owned-systems.declaration": "53055602ea5dddb54a84be7d701a6a072c6b343d573a55af1783f9402d56edde",
+        "scripts/lib/mutation-harness.sh": "9dd839120e0a3b2ae4ef91054e076a8e9ea31c4592dbe0ea3eb80f3f018c88b0",
+        "scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
+        "scripts/hooks/owned-state.test.sh": "265c0099789c0bd4451cb6a246bb13ebedb3525d07e13f9ada60f11a3ce05b26",
+        "scripts/lib/escalations.py": "34c2f41e1c59ebfbd5a049c4bf418e7735d2740a17f924823e0eacaaf1a6a3b2",
+        "scripts/escalate.sh": "ead116322891a7e2205dbda200f37c846173973a58d2b745fdb803d6d23fd647",
+        "scripts/lib/proc_tree.py": "78ad648204b6e5748a218df45e33b2baec0ead71bda62f0908a83bb5c35bfeb0",
+        "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
+        "scripts/owned-state-checks/registered-executables.py": "8e324db884e02950f56ab3a4616f4acb4a8eea78eab71dd3c40823fae80b6fd9",
+        "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
+        "scripts/lib/escalations.sh": "656be06643a5579cc15e4ef5efe7628bd58e0a134e3677b36885f2060db59db7",
+        "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "scripts/lib/owned-systems.py": "722c3279040fde20c10c0e9f95a42808c02949cbb9e4f41b1425aaf4dde0372f",
+        "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
+        "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
+        "scripts/lib/ci_pause.py": "f41e86ea2b1aaa036c92eb44ddcb2fe2a6880724162561a5e31b84d556758693"
+      },
+      "evidence": "Registered-executables is invoked only with explicit private engine/entity/launch-agent roots and a literal fixture manifest. Other executed owned-system rows are literal bash fixtures and the bound escalations declaration row running escalate.sh list. Shared mutation transport copies manifests but nested suite recreates its private manifest. No reached reader observes the real plugin manifest; every existing reviewed helper/declaration source is bound."
     }
   }
 }

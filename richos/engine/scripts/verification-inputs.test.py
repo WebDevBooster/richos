@@ -153,6 +153,30 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_owned_state_manifest_is_private_and_all_readers_are_bound(self):
+        from affected_units import Selection
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        read = lambda path: (HERE.parent / path).read_text()
+        unit = 'scripts/hooks/owned-state.test.sh'
+        before = json.dumps({'hooks': {}})
+        def manifest(path):
+            return json.dumps({'hooks': {'UserPromptSubmit': [{'hooks': [
+                {'type': 'command', 'command': 'bash ${CLAUDE_PLUGIN_ROOT}/' + path}]}]}})
+        after = manifest('scripts/hooks/failure-type-lookup.sh')
+        selection = Selection(HERE.parent, [unit], read, document)
+        selection.hooks(before, after)
+        self.assertFalse(selection.selected)
+        for source in document['hook_readers'][unit]['sources']:
+            with self.subTest(changed_reader=source):
+                changed = lambda p: read(p) + '\n# changed reader\n' if p == source else read(p)
+                selection = Selection(HERE.parent, [unit], changed, document)
+                selection.hooks(before, after)
+                self.assertIn(unit, selection.selected)
+        for changed in ('{', manifest('scripts/hooks/guard-owned-state.sh')):
+            selection = Selection(HERE.parent, [unit], read, document)
+            selection.hooks(before, changed)
+            self.assertIn(unit, selection.selected)
+
     def test_seated_text_reader_retains_own_registration_and_source_controls(self):
         from affected_units import Selection
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
