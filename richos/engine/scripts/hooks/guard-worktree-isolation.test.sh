@@ -53,6 +53,39 @@
 
 set -uo pipefail
 
+# Internal mutation witnesses never return the full-suite success code. The
+# harness supplies its existing red-case patterns, so there is one source of
+# truth for each mutant's obligations. Missing/unknown witnesses fail closed.
+WTI_SCOPE=""
+WTI_WANTS=()
+WTI_SEEN=()
+if [ "$#" -gt 0 ]; then
+    if [ "$#" -lt 3 ] || [ "$1" != --mutation-case ] || [ "${RICHOS_MUTATION_INNER:-}" != 1 ]; then
+        echo 'ERROR: mutation witnesses require the internal harness and named cases' >&2; exit 2
+    fi
+    WTI_SCOPE="$2"; shift 2
+    case "$WTI_SCOPE" in
+        M[1-9]|M1[0-9]|M2[0-4]) ;;
+        *) echo "ERROR: unknown mutation scope: $WTI_SCOPE" >&2; exit 2 ;;
+    esac
+    WTI_WANTS=("$@")
+fi
+wti_group() {
+    [ -z "$WTI_SCOPE" ] && return 0
+    local id
+    for id in "$@"; do [ "$WTI_SCOPE" != "$id" ] || return 0; done
+    return 1
+}
+wti_want() {
+    [ -z "$WTI_SCOPE" ] && return 0
+    local i pattern found=1
+    for ((i=0; i<${#WTI_WANTS[@]}; i++)); do
+        pattern="^${WTI_WANTS[$i]}"
+        if [[ "$1" =~ $pattern ]]; then WTI_SEEN[$i]=1; found=0; fi
+    done
+    return "$found"
+}
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- declare the root under test -------------------------------------------
@@ -79,6 +112,13 @@ HOOK="$SCRIPT_DIR/guard-worktree-isolation.sh"
 # the identity of the session that happens to be running this suite.
 TX_SANDBOX="$(cd "$(mktemp -d -t guard-isolation-tx.XXXXXX)" && pwd -P)"
 export RICHOS_WORKSPACES_DIR="$TX_SANDBOX/workspaces"
+# Land-record lookups create their directory even when no land is performed.
+# Keep it beside the private registry, outside both the caller HOME and registry.
+export RICHOS_LAND_LOCKS_DIR="$TX_SANDBOX/land-locks"
+# Point5 discards its worktree and consults the device collector. Its lock and
+# failure record also belong to this fixture, not the caller's account state.
+export RICHOS_TEST_DEVICES_DIR="$TX_SANDBOX/test-devices"
+export TEST_DEVICE_FAILURES_STATE="$TX_SANDBOX/test-device-failures.json"
 RICHOS_SESSION_PID="$(sh -c 'sleep 3600 >/dev/null 2>&1 & echo $!')"
 export RICHOS_SESSION_PID
 trap 'kill "$RICHOS_SESSION_PID" 2>/dev/null || true' EXIT
@@ -97,6 +137,7 @@ TEST_SID="deadbeef-0000-4000-8000-000000000000"
 # branch (cc/, worktree-) is refused by record_integration by name, so those are
 # never candidates.
 WS_PY="$SCRIPT_DIR/../../mega-lander/workspaces.py"
+ws_record() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get(sys.argv[2]) or "")' "$RICHOS_WORKSPACES_DIR/agents/$TEST_SID--$1.json" "$2" 2>/dev/null; }
 ws_record_integration() { # <repo> <why>
     local repo="$1" why="$2" main b picked=""
     main="$(git -C "$repo" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')"
@@ -125,6 +166,7 @@ ws_record_integration "$RICHOS_ENTITY_ROOT" "the spawn guard suite's body of wor
 # run_case <name> <expected-exit> <json>
 run_case() {
     local name="$1" expected="$2" json="$3"
+    wti_want "$name" || return 0
     local actual
     printf '%s' "$json" | "$HOOK" >/dev/null 2>&1
     actual=$?
@@ -142,6 +184,7 @@ run_case() {
 # equal-or-higher tier, and a notice there is a nag that becomes noise.
 run_case_silent() {
     local name="$1" json="$2"
+    wti_want "$name" || return 0
     local out actual
     out="$(printf '%s' "$json" | "$HOOK" 2>&1)"
     actual=$?
@@ -157,6 +200,7 @@ run_case_silent() {
 # run_case_msg <name> <expected-substring> <json> — asserts stderr mentions it
 run_case_msg() {
     local name="$1" needle="$2" json="$3"
+    wti_want "$name" || return 0
     local out
     out="$(printf '%s' "$json" | "$HOOK" 2>&1 >/dev/null)"
     if printf '%s' "$out" | grep -qF "$needle"; then
@@ -220,6 +264,7 @@ PY
 
 echo "=== guard-worktree-isolation tests ==="
 
+if wti_group; then
 # --- non-Agent tool passes through untouched ---
 run_case "non-Agent tool (Bash)" 0 '{"tool_name":"Bash","tool_input":{"command":"ls"}}'
 run_case "non-Agent tool (Read)" 0 '{"tool_name":"Read","tool_input":{"file_path":"/tmp/x"}}'
@@ -237,12 +282,14 @@ run_case "isolation worktree, well-formed name" 0 \
     "$(json_agent 'dev' 'dev-sonnet-1' 'worktree' 'Do the thing.')"
 run_case "isolation remote, well-formed name" 0 \
     "$(json_agent 'dev' 'dev-sonnet-r1' 'remote' 'Do the thing.')"
+fi # mutation witness fixture group
 
 # --- (c) read-only agent type -> exit 0, no isolation/name required ---
 # THE ISOLATION EXEMPTION, PROVEN ON ITS OWN. Explore/Plan carry the clause-5
 # staffing hatch here so that what these cases assert is exactly one thing: an
 # allowlisted type needs NO isolation and NO name. Clause 5 is proven separately
 # in block (m); if a future change collapsed the two, block (m) goes red.
+if wti_group M5 M6; then
 GA_OK='generic-agent: a read-only sweep across three repositories that no roster teammate has a seat for'
 run_case "read-only type Explore, no isolation/name (isolation exemption holds)" 0 \
     "$(json_agent 'Explore' '' '' "Find where the login button is defined.
@@ -252,10 +299,12 @@ run_case "read-only type Plan, no isolation/name (isolation exemption holds)" 0 
 $GA_OK")"
 run_case "read-only type claude-code-guide" 0 "$(json_agent 'claude-code-guide' '' '' 'Explain a feature.')"
 run_case "read-only type statusline-setup" 0 "$(json_agent 'statusline-setup' '' '' 'Configure statusline.')"
+fi # mutation witness fixture group
 
 # --- (d) additional file-capable role types (e.g. device/visual QA) are
 # blocked without isolation, exactly like any other file-capable type; WITH
 # isolation:"worktree" or WITH the main-checkout-run: marker they pass.
+if wti_group; then
 run_case "deviceqa: no isolation, no marker -> BLOCKED" 2 \
     "$(json_agent 'deviceqa' 'deviceqa-sonnet-1' '' 'Run native device QA.')"
 run_case "visualqa: no isolation, no marker -> BLOCKED" 2 \
@@ -314,6 +363,8 @@ run_case_msg "garbage-token message says 'not an allowed model'" 'is not an allo
 # identifier that passed this guard's own loose NAME_SHAPE_RE (clause 2, above)
 # and was refused only by mega-lander/create-teammate-worktree.sh, one round
 # trip later. It must be BLOCKED here too, in the creator's exact wording.
+fi # mutation witness fixture group
+if wti_group M24; then
 run_case "C2C1 over-length identifier (14 chars) passes clause 2 but fails the creator's shape -> BLOCKED" 2 \
     "$(json_agent 'dev' 'zach-sonnet-multirepodemo1' 'worktree' 'Do the thing.')"
 run_case_msg "C2C1m the refusal is the CREATOR's exact wording" \
@@ -322,6 +373,8 @@ run_case_msg "C2C1m the refusal is the CREATOR's exact wording" \
 run_case "C2C2 POSITIVE CONTROL: a 12-character identifier is exactly within the shared shape -> allowed" 0 \
     "$(json_agent 'dev' 'dev-sonnet-multirepodem' 'worktree' 'Do the thing.')"
 
+fi # mutation witness fixture group
+if wti_group; then
 # 'fable' is an allowed model alias too (orchestration.config's ALLOWED_MODELS
 # default): a truthfully-named dev-fable-* spawn with an explicit model:"fable"
 # override passes both set-membership (2a) and truthfulness (2b).
@@ -372,6 +425,8 @@ run_case "undeterminable via model:inherit accepts valid alias token" 0 \
 run_case "undeterminable but garbage token still BLOCKED (2a floor holds)" 2 \
     "$(json_agent 'worker' 'worker-gpt-u3' 'worktree' 'Do the thing.')"
 
+fi # mutation witness fixture group
+if wti_group M12 M13 M14 M15 M18; then
 # --- (n) CLAUSE 6 — a move to a LOWER capability tier is stated, never silent ---
 # The order is DATA: this engine's orchestration.config declares
 # MODEL_TIERS="fable > opus > sonnet > haiku", read only through
@@ -414,7 +469,9 @@ run_case "model-downgrade-ack: does NOT relax clause 2b (untruthful name still B
     "$(json_agent_model 'frank' 'frank-opus-c6m' 'worktree' 'sonnet' $'Stress-test.\nmodel-downgrade-ack: a real reason, but the name lies about the model.')"
 run_case "a verbose lower-tier override id is normalized before ranking -> BLOCKED" 2 \
     "$(json_agent_model 'frank' 'frank-sonnet-c6n' 'worktree' 'claude-sonnet-4-5' 'Stress-test.')"
+fi # mutation witness fixture group
 
+if wti_group M16 M17 M18 M19; then
 # Sandbox entity: a judgment role defaulting to opus, and a declaration this
 # block rewrites per case. Same shape as the (i) sandbox above.
 C6SB="$(mktemp -d -t guard-c6.XXXXXX)"
@@ -424,6 +481,7 @@ c6_config() { printf 'ALLOWED_MODELS="fable opus sonnet haiku"\nMODEL_TIERS="%s"
 c6_out() { printf '%s' "$1" | RICHOS_ENTITY_ROOT="$C6SB" "$HOOK" 2>&1; }
 c6_case() { # <name> <expected-exit> <expected-substring-or-empty-for-silence> <json>
     local name="$1" expected="$2" needle="$3" json="$4" out rc
+    wti_want "$name" || return 0
     out="$(c6_out "$json")"; rc=$?
     if [ "$rc" -eq "$expected" ] && { { [ -z "$needle" ] && [ -z "$out" ]; } || { [ -n "$needle" ] && printf '%s' "$out" | grep -qF "$needle"; }; }; then
         printf '  PASS  %s\n' "$name"; PASS=$((PASS + 1))
@@ -434,6 +492,7 @@ c6_case() { # <name> <expected-exit> <expected-substring-or-empty-for-silence> <
 }
 
 # Accepted ack is logged, with both models; a refusal is never logged.
+if wti_want "an accepted model-downgrade-ack: is logged to .claude/state/model-downgrade-acks.log with both models"; then
 c6_config "fable > opus > sonnet > haiku"
 C6_MARK="c6-log-canary-$$"
 c6_out "$(json_agent_model 'judge' 'judge-sonnet-log1' 'worktree' 'sonnet' "Judge.
@@ -450,6 +509,7 @@ if grep -qF "judge-sonnet-log2" "$C6_LOG" 2>/dev/null; then
 else
     PASS=$((PASS + 1)); printf '  PASS  a REFUSED downgrade is not logged (a refusal is not a waiver)\n'
 fi
+fi # mutation witness fixture group
 
 # FAIL OPEN on the clause's own error — allowed, and announced.
 c6_config "opus > sonnet"
@@ -471,6 +531,7 @@ c6_case "a broken declaration is NOT announced on model:inherit" 0 "" \
     "$(json_agent_model 'judge' 'judge-opus-fo5' 'worktree' 'inherit' 'Judge.')"
 
 # Parser library missing -> allowed (fail-open), announced.
+if wti_want "parser library missing -> allowed (fail-open), announced"; then
 C6NOLIB="$(mktemp -d -t guard-c6-nolib.XXXXXX)"
 mkdir -p "$C6NOLIB/scripts/hooks" "$C6NOLIB/scripts/lib"
 cp "$HOOK" "$C6NOLIB/scripts/hooks/guard-worktree-isolation.sh"
@@ -488,6 +549,7 @@ else
     FAIL=$((FAIL + 1)); printf '  FAIL  parser library missing -> allowed (fail-open), announced (got exit %s: %s)\n' "$C6NL_RC" "${C6NL_OUT:0:160}"
 fi
 rm -rf "$C6NOLIB"
+fi # mutation witness fixture group
 
 # DATA, NEVER INFERENCE. A declaration that contradicts the alias names is
 # obeyed to the letter. If any consumer ranked by name, this block is the one
@@ -500,7 +562,9 @@ c6_case "the declared order is obeyed even when it contradicts the alias names: 
 c6_case "the declared order is obeyed even when it contradicts the alias names: opus-default on sonnet -> BLOCKED" 2 "model tier" \
     "$(json_agent_model 'judge' 'judge-sonnet-dn3' 'worktree' 'sonnet' 'Judge.')"
 rm -rf "$C6SB"
+fi # mutation witness fixture group
 
+if wti_group; then
 # --- (g) unparseable Agent payload -> exit 2 (fail-closed) ---
 run_case "tool_input is not a dict (tool_name IS Agent)" 2 \
     '{"tool_name":"Agent","tool_input":"not-a-dict"}'
@@ -678,7 +742,9 @@ rc=$?
 
 unset GUARD_ISOLATION_TEAMS_DIR
 rm -rf "$REUSE_TEAMS"
+fi # mutation witness fixture group
 
+if wti_group M20 M21; then
 # --- (l) CLAUSE 4 + CLAUSE 7 — a spawn is REGISTERED or it does not happen ---
 #
 # docs/plans/worktree-spec-2026-09-11.md, points 1-3: every non-native workspace
@@ -722,7 +788,6 @@ if cwd: ti["cwd"] = cwd
 print(json.dumps({"tool_name": "Agent", "tool_input": ti, "session_id": "deadbeef-0000-4000-8000-000000000000", "tool_use_id": tuid}))
 PY
 }
-ws_record() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get(sys.argv[2]) or "")' "$RICHOS_WORKSPACES_DIR/agents/$TEST_SID--$1.json" "$2" 2>/dev/null; }
 
 # (l1) cwd-only into a REGISTERED cc/ workspace -> BLOCKED at clause 7f
 run_case "cwd into a REGISTERED cc/ workspace, no isolation -> BLOCKED (cwd-only)" 2 \
@@ -751,11 +816,13 @@ run_case "cwd spawn with a bare name -> BLOCKED (name contract not relaxed)" 2 \
 # (l7) the registered shape: isolation + cross-repo-worktree: line -> allowed and REGISTERED
 run_case "cross-repo-worktree: REGISTERED cc/ path + isolation -> allowed" 0 \
     "$(json_cwd 'echo-opus-reg1' 'worktree' '' $'Do it.\ncross-repo-worktree: '"$CR/other-wt/echo-opus-reg1" toolu_test_reg1)"
+if wti_group; then
 if [ "$(ws_record echo-opus-reg1 tool_use_id)" = "toolu_test_reg1" ] && [ "$(ws_record echo-opus-reg1 isolation)" = "worktree" ]; then
     PASS=$((PASS + 1)); printf '  PASS  L07b the allowed spawn is REGISTERED: its cc/ registration now carries this spawn (point 3)\n'
 else
     FAIL=$((FAIL + 1)); printf '  FAIL  L07b the allowed spawn left no registration\n'
 fi
+fi # mutation witness fixture group
 # (l8) an UNREGISTERED cc/ workspace -> BLOCKED, the spawn does not happen (point 3)
 run_case "L08  cross-repo-worktree: UNREGISTERED cc/ path + isolation -> BLOCKED" 2 \
     "$(json_cwd 'echo-opus-imp1' 'worktree' '' $'Do it.\ncross-repo-worktree: '"$CR/other-wt/echo-opus-imp1")"
@@ -787,11 +854,15 @@ run_case "prompt instructing 'git worktree add' with a hand-roll-ack: line -> al
     "$(json_cwd 'echo-opus-hr2' 'worktree' '' $'Fix the helper that runs git worktree add.\nhand-roll-ack: this task is about the worktree tooling itself' toolu_test_hr2)"
 run_case "an ordinary prompt mentioning neither -> allowed (no false positive)" 0 \
     "$(json_cwd 'echo-opus-plain1' 'worktree' '' 'Add a worktree-lifecycle section to the README and commit.' toolu_test_plain1)"
+if wti_group; then
 if grep -qF 'echo-opus-hr2' "$RICHOS_ENTITY_ROOT/.claude/state/hand-roll-acks.log" 2>/dev/null; then
     PASS=$((PASS + 1)); printf '  PASS  hand-roll-ack use is logged to .claude/state/hand-roll-acks.log\n'
 else
     FAIL=$((FAIL + 1)); printf '  FAIL  hand-roll-ack use not logged\n'
 fi
+fi # mutation witness fixture group
+
+fi # mutation witness fixture group
 
 # ---------------------------------------------------------------------------
 # (q) CLAUSE 7 — REGISTRATION AT SPAWN, and point 5's new-work half.
@@ -799,12 +870,14 @@ fi
 M_GOOD_Q='generic-agent: a read-only sweep across three repositories that no roster teammate has a seat for'
 
 # (q1) a native isolation spawn is registered: its name, this session, isolation worktree
+if wti_want "Q01"; then
 printf '%s' "$(json_agent 'dev' 'dev-sonnet-q1' 'worktree' 'Do the thing.')" | "$HOOK" >/dev/null 2>&1; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(ws_record dev-sonnet-q1 isolation)" = "worktree" ] && [ "$(ws_record dev-sonnet-q1 tool_use_id)" = "toolu_test_agent" ]; then
     PASS=$((PASS + 1)); printf '  PASS  Q01  an allowed native spawn is REGISTERED (name, session, tool_use_id, isolation)\n'
 else
     FAIL=$((FAIL + 1)); printf '  FAIL  Q01  native registration (rc=%s)\n' "$rc"
 fi
+fi # mutation witness fixture group
 
 # (q7g) CLAUSE 7g — A DRY EVALUATION IS NOT A LIVE ONE, AND THE DIFFERENCE IS
 # THE WRITE. scripts/spawn.sh evaluates this guard against a payload it has not
@@ -831,22 +904,26 @@ PY
 # A LIVE call that ALSO carries the marker is still REGISTERED: the marker alone
 # decides nothing. This is the case that would go green for a guard that let the
 # marker turn a real spawn into an unregistered one.
+if wti_want "Q7G1"; then
 printf '%s' "$(json_check dev-sonnet-g7a toolu_test_g7a yes)" | "$HOOK" >/dev/null 2>&1; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(ws_record dev-sonnet-g7a tool_use_id)" = "toolu_test_g7a" ]; then
     PASS=$((PASS + 1)); printf '  PASS  Q7G1  a LIVE payload carrying richos_spawn_check is still REGISTERED\n'
 else
     FAIL=$((FAIL + 1)); printf '  FAIL  Q7G1  a live payload carrying the marker must still be registered (rc=%s, tool_use_id=%s)\n' "$rc" "$(ws_record dev-sonnet-g7a tool_use_id)"
 fi
+fi # mutation witness fixture group
 
 # A DRY payload — the marker and no tool_use_id — is evaluated and allowed, and
 # writes NOTHING. Both halves matter: allowed proves the evaluation runs, and
 # nothing written proves it is not a registration.
+if wti_want "Q7G2"; then
 printf '%s' "$(json_check dev-sonnet-g7b "" yes)" | "$HOOK" >/dev/null 2>&1; rc=$?
 if [ "$rc" -eq 0 ] && [ ! -e "$RICHOS_WORKSPACES_DIR/agents/$TEST_SID--dev-sonnet-g7b.json" ]; then
     PASS=$((PASS + 1)); printf '  PASS  Q7G2  a DRY payload is evaluated, allowed, and writes NO registration\n'
 else
     FAIL=$((FAIL + 1)); printf '  FAIL  Q7G2  dry evaluation (rc=%s, record present=%s)\n' "$rc" "$( [ -e "$RICHOS_WORKSPACES_DIR/agents/$TEST_SID--dev-sonnet-g7b.json" ] && echo yes || echo no )"
 fi
+fi # mutation witness fixture group
 
 # NEGATIVE CONTROL. Without the marker, a payload with no tool_use_id is what it
 # has always been: unregisterable, so the spawn does not happen. Without this
@@ -855,6 +932,7 @@ fi
 run_case "Q7G3  NEGATIVE CONTROL: no tool_use_id and NO marker -> BLOCKED (unregisterable)" 2 \
     "$(json_check dev-sonnet-g7c "" no)"
 
+if wti_group; then
 # (q11) SYNCHRONOUS file-writing spawn -> refused; async/unspecified -> allowed
 SYNC_JSON="$(python3 -c '
 import json
@@ -938,7 +1016,9 @@ else
     FAIL=$((FAIL + 1)); printf '  FAIL  Q18d healthy sandbox refused (exit %s): %s\n' "$rc" "${NOTX_OUT:0:200}"
 fi
 rm -rf "$NOTX"
+fi # mutation witness fixture group
 
+if wti_group M1 M2 M3 M4 M5 M6 M7 M8 M9 M10 M11; then
 # ---------------------------------------------------------------------------
 # (m) CLAUSE 5 — THE STAFFING GATE.
 # ---------------------------------------------------------------------------
@@ -1057,6 +1137,7 @@ run_case_msg "a roster-type refusal is the ISOLATION message, never the staffing
 # (m9) CONFIG IS THE SWITCH, AND ITS DEFAULT IS DENY. A type declared a harness
 # utility in the entity's own config is exempt; a type merely added to
 # READONLY_ALLOWLIST is NOT.
+if wti_want "undeclared allowlist type waved through"; then
 M9="$(mktemp -d -t guard-isolation-clause5.XXXXXX)"
 mkdir -p "$M9/scripts/hooks" "$M9/scripts/lib" "$M9/.claude"
 cp "$HOOK" "$M9/scripts/hooks/guard-worktree-isolation.sh"; chmod +x "$M9/scripts/hooks/guard-worktree-isolation.sh"
@@ -1087,8 +1168,10 @@ rc="$(m9_run "$(json_agent 'housekeeping' '' '' 'Tidy the config.')")"
 [ "$rc" -eq 2 ] && { PASS=$((PASS + 1)); printf '  PASS  a type merely ADDED to READONLY_ALLOWLIST still needs the hatch (default is deny)\n'; } \
                 || { FAIL=$((FAIL + 1)); printf '  FAIL  undeclared allowlist type waved through (exit %s)\n' "$rc"; }
 rm -rf "$M9"
+fi # mutation witness fixture group
 
 # (m10) THE USE IS LOGGED, so a habit of waiving is visible rather than invisible.
+if wti_want "accepted generic-agent: hatch was NOT logged"; then
 GA_LOG="$RICHOS_ENTITY_ROOT/.claude/state/generic-agent-dispatches.log"
 GA_MARK="clause5-log-canary-$$"
 printf '%s' "$(json_agent 'Explore' '' '' "Audit.
@@ -1108,7 +1191,10 @@ if grep -qF "$GA_MARK2" "$GA_LOG" 2>/dev/null; then
 else
     PASS=$((PASS + 1)); printf '  PASS  a REFUSED generic-agent dispatch is not logged (a refusal is not a waiver)\n'
 fi
+fi # mutation witness fixture group
+fi # mutation witness fixture group
 
+if wti_group; then
 # ---------------------------------------------------------------------------
 # (p5) POINT 5 — new work is refused while finished work is neither landed nor
 # discarded, except the work that lands it (lands-pending: / continues:).
@@ -1132,15 +1218,28 @@ python3 "$WS_PY" --session "$TEST_SID" discard echo-opus-reg1 --reason "a fixtur
     --not-ceo-ordered "a test fixture made by this suite" >/dev/null 2>&1
 run_case "P504 discarded: new work is allowed again (positive control)" 0 \
     "$(json_agent 'dev' 'dev-sonnet-p5after' 'worktree' 'New work.')"
+fi # mutation witness fixture group
 
-rm -rf "$CR"
+[ -z "${CR:-}" ] || rm -rf "$CR"
 kill "$RICHOS_SESSION_PID" 2>/dev/null || true
 rm -rf "$TX_SANDBOX"
+
+if [ -n "$WTI_SCOPE" ]; then
+    for ((i=0; i<${#WTI_WANTS[@]}; i++)); do
+        if [ "${WTI_SEEN[$i]:-0}" != 1 ]; then
+            echo "ERROR: mutation witness not executed: ${WTI_WANTS[$i]}" >&2; exit 2
+        fi
+    done
+fi
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== guard-worktree-isolation tests: $FAIL FAILED, $PASS passed ==="
     exit 1
+fi
+if [ -n "$WTI_SCOPE" ]; then
+    echo "=== guard-worktree-isolation mutation witness $WTI_SCOPE: $PASS passed (not full-suite coverage) ==="
+    exit 3
 fi
 echo "=== guard-worktree-isolation tests: all $PASS passed ==="
 
