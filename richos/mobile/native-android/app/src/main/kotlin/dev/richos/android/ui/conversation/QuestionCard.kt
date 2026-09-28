@@ -60,7 +60,7 @@ fun QuestionCard(body: Body.Question, onEvent: (UiEvent) -> Unit, modifier: Modi
                             val methods = mapOf("click" to "click", "keyboard" to "keyboard", "typed" to "typing", "spoken" to "voice", "phone_tap" to "tap", "phone_typed" to "typing", "phone_voice" to "voice note")
                             BasicText("By ${methods[answer.method] ?: "your words"}, on ${if (answer.surface == "mac") "your Mac" else "your phone"}", style = t.read.copy(color = c.inkSoft))
                         }
-                        BasicText(body.pending ?: if (q.delivered) "Rich has your answer" else if (q.remaining > 0) "Waiting for the remaining answers" else if (q.waitingForTurn) "It reaches Rich when his current reply ends" else "On its way to Rich", style = t.read.copy(color = if (q.delivered) goldText else c.inkSoft), modifier = Modifier.padding(top = 6.dp))
+                        BasicText(body.pending ?: if (q.delivered) "Rich has your answer" else if (q.endedBeforeTaken) "This job stopped before Rich got your answer." else if (q.remaining > 0) "Waiting for the remaining answers" else if (q.waitingForTurn) "It reaches Rich when his current reply ends" else "On its way to Rich", style = t.read.copy(color = if (q.delivered) goldText else c.inkSoft), modifier = Modifier.padding(top = 6.dp))
                         if (canEdit) Box(Modifier.heightIn(min = 48.dp).clickable(role = Role.Button) { editing = true; selected = q.answer?.optionIds.orEmpty().toSet(); text = q.answer?.text.orEmpty() }, contentAlignment = Alignment.CenterStart) {
                             BasicText("Change answer", style = t.readStrong.copy(color = c.ink, textDecoration = TextDecoration.Underline))
                         }

@@ -59,6 +59,29 @@ import Testing
         s = Reducer.reduce(s, .answerQuestion(id: "q", options: ["a"], text: "", revision: 0, clientID: "uncertain", at: 3)).state
         #expect(s.outbox == [saved])
     }
+    /// Rich's ruling on escalation esc-20260927T220629Z-cbc90040: a job that ended before any back
+    /// end took his answer says so, and only then; "On its way to Rich" would never again be true.
+    @Test func aJobThatStoppedBeforeRichGotTheAnswerSaysSoOnlyWhenFlagged() throws {
+        let stopped = "This job stopped before Rich got your answer."
+        var q = try JSONDecoder().decode(StreamRow.self, from: Data(wire.utf8)).question!
+        #expect(q.ended_before_taken == nil) // An older Mac never sends it.
+        q.state = "answered"; q.revision = 1; q.handoff_started = true
+        #expect(q.savedStatus == "On its way to Rich")
+        let flagged = wire.replacingOccurrences(of: #""delivered":false"#, with: #""delivered":false,"ended_before_taken":true"#)
+        var ended = try JSONDecoder().decode(StreamRow.self, from: Data(flagged.utf8)).question!
+        #expect(ended.ended_before_taken == true)
+        ended.state = "answered"; ended.revision = 1; ended.handoff_started = true
+        #expect(ended.savedStatus == stopped)
+        ended.waiting_for_turn = true
+        #expect(ended.savedStatus == stopped)
+        // The Mac never publishes both, but a delivered card says only that Rich has it.
+        ended.delivered = true
+        #expect(ended.savedStatus == "Rich has your answer")
+        q.waiting_for_turn = true
+        #expect(q.savedStatus == "It reaches Rich when his current reply ends")
+        q.remaining = 1
+        #expect(q.savedStatus == "Waiting for the remaining answers")
+    }
     @Test func absentCapabilityCannotQueueAnAnswer() throws {
         var s = try Fixture.named("conv-empty").state
         s.messages = [try JSONDecoder().decode(StreamRow.self, from: Data(wire.utf8)).message]
