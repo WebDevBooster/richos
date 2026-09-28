@@ -25,7 +25,11 @@ spec.loader.exec_module(runner)
 
 class Evidence(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="proof-evidence.")
+        # The runner resolves its log and root paths. macOS's default TMPDIR is under /var,
+        # a link to /private/var, so an unresolved fixture root compared as a different
+        # path and every resume, profile and snapshot case failed on a stock shell.
+        self.tmp = tempfile.TemporaryDirectory(prefix="proof-evidence.",
+                                               dir=os.path.realpath(tempfile.gettempdir()))
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name) / "repo"
         self.root.mkdir()
@@ -501,6 +505,9 @@ class Evidence(unittest.TestCase):
         env.update(RICHOS_MACHINE_WORKERS=str(Path(self.tmp.name) / "machine"),
             RICHOS_ENGINE_PASS_DIR=str(Path(self.tmp.name) / "slot"),
             RICHOS_PROOF_RUN_DIR=str(Path(self.tmp.name) / "history"),
+            # A private proof-run slot: the host's is shared with real runs, so a fixture
+            # waited behind them and wrote holder records into ~/.richos-nightly.
+            RICHOS_PROOF_RUN_SLOTS_DIR=str(Path(self.tmp.name) / "proof-slots"),
             CLAUDE_CONFIG_DIR=str(Path(self.tmp.name) / "config"),
             FIXTURE_COUNTER=str(counter), PYTHONDONTWRITEBYTECODE="1")
         # Exercise a normal caller without the test wrapper's bytecode setting.
@@ -723,7 +730,16 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
             "external": [], "qualification": "qualification.json", "isolation": evidence.PRIVATE_PROFILE}
         evidence.atomic(app / "proof-inputs.json", {"schema": 1,
             "checks": {label: recipe for label in ("joined", "independent")}})
-        (app / "proof-inputs.json").chmod(0o644)  # Match Git's checkout mode for this source file.
+        # Give every fixture file the mode a Git checkout writes, so the second worktree's
+        # identical bytes are identical inputs. A checkout follows the umask (0644 under 022,
+        # 0600 under the nightly's 077), while atomic() writes 0600 and copy2 keeps the
+        # source checkout's modes.
+        umask = os.umask(0)
+        os.umask(umask)
+        for written in self.root.rglob("*"):
+            if written.is_file() and not written.is_symlink():
+                executable = written.stat().st_mode & 0o100
+                written.chmod((0o777 if executable else 0o666) & ~umask)
         def git(*args, cwd=None):
             return subprocess.check_output(["git", "-c", "core.hooksPath=/dev/null", "-c", "user.name=fixture",
                 "-c", "user.email=fixture@example.invalid", *args], cwd=cwd or self.root,
@@ -747,8 +763,13 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
         env = {k: v for k, v in os.environ.items() if not k.startswith("RICHOS_")}
         env.update(RICHOS_MACHINE_WORKERS=str(temporary / "machine"),
             RICHOS_ENGINE_PASS_DIR=str(temporary / "slot"), RICHOS_PROOF_RUN_DIR=str(temporary / "history"),
+            RICHOS_PROOF_RUN_SLOTS_DIR=str(temporary / "proof-slots"),
             CLAUDE_CONFIG_DIR=str(temporary / "config"), COUNTER=str(temporary / "counter"),
             RELEASE=str(temporary / "release"), PYTHONDONTWRITEBYTECODE="1")
+        # Two runs must be inside at once for the target to join the author. The measured
+        # default on this Mac is one run at a time, so the private slot says two.
+        (temporary / "proof-slots").mkdir(mode=0o700)
+        (temporary / "proof-slots/limit").write_text("2\n")
         processes = []
         def start(root, name, labels):
             commands = temporary / (name + ".commands")
