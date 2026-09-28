@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "be10a050213e9b5018786aeacd40558f20aef526dd174c7017c2b7d31e1f987c",
+      "sha256": "b35b318849ef273c6c3bc45313e339d06fa75ec74e3498362e4754ac542c41c8",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -7874,6 +7874,144 @@
         }
       ],
       "nonconfig_eval": "Fixed timestamp variable assignments emitted by literal inline Python; no config variable names or external text are evaluated."
+    },
+    "scripts/lib/login_alarm.py#quota-fixture": {
+      "source": "scripts/lib/login_alarm.py",
+      "sha256": "121de3803351aa98c57eeb3810c638ecd0dfa8a1d7faf26c9cc009f29b93b7e2",
+      "evidence": "Reviewed main --report, locked state updates, transcript scan and credential/notification subprocesses. The quota suite supplies private paths and literal security/notification executables. Escalation records use the fixed sibling library. No orchestration.config reader or model invocation.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/escalations.py"
+        }
+      ]
+    },
+    "scripts/login-alarm.sh#report": {
+      "source": "scripts/login-alarm.sh",
+      "sha256": "4e1ab541da85a9bdb1330d1a033a3df30801effa8b1f6c85c86627f6b91fb278",
+      "evidence": "Quota calls --report, leaving MODE=run and executing only the adjacent Python library. Scheduling branches are not entered; no launchctl command executes. Full source binds those branches too.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/login_alarm.py#quota-fixture"
+        }
+      ]
+    },
+    "scripts/lib/quota_weekly.py#quota-fixture": {
+      "source": "scripts/lib/quota_weekly.py",
+      "sha256": "9bd2e65fa1318ff43a0d0dbf96ff9abe8df363055e58c556b363f216733b51a1",
+      "evidence": "Reviewed all functions. The quota suite fixes QUOTA_RESET_HELPER to /usr/bin/false, so reset_tick cannot enter quota-reset.sh or a live reset service. Window data and messages are parsed/rendered, never executed.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/pause_protocol.py"
+        }
+      ]
+    },
+    "mega-lander/workspaces.py#quota-fixture": {
+      "source": "mega-lander/workspaces.py",
+      "sha256": "eb005db95d1e17c7afa917339883c17a18cf65f2f71bb65e88ac7b13a7dacc8a",
+      "evidence": "Quota workers calls current_session, all_agents and finished_state; fixtures also use integration/register-spawn/hook/recipient. Reviewed current_session reads the explicit session ID or the private registry/platform records using the captured sleeper PID. These share lifecycle helpers and retain real engine cleanup settings.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#lifecycle-fixtures"
+        },
+        {
+          "to": "mega-lander/workspaces.py#recipient"
+        }
+      ]
+    },
+    "scripts/lib/quota_watch.py#quota-fixture": {
+      "source": "scripts/lib/quota_watch.py",
+      "sha256": "aaa78a25c45c5501335543cdd78f6c343d9f0470733da6c32bd700448411a19d",
+      "evidence": "Reviewed CLI, all imports, file and subprocess operations, workers and watch loop. The suite supplies a missing or literal fake Claude transport and a false reset helper. It loads only fixed workspace, weekly, pause and login-alarm siblings. Payloads, messages and registry records are data. Real clocks and process identities remain runtime inputs.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/pause_protocol.py"
+        },
+        {
+          "to": "scripts/lib/quota_weekly.py#quota-fixture"
+        },
+        {
+          "to": "mega-lander/workspaces.py#quota-fixture"
+        },
+        {
+          "to": "scripts/login-alarm.sh#report"
+        }
+      ]
+    },
+    "scripts/quota-watch.sh#quota-fixture": {
+      "source": "scripts/quota-watch.sh",
+      "sha256": "70ce3fdbd3a372f727086df522819fae6b3dab759838209563ba9414805d0d10",
+      "evidence": "Resolves roots then sources the explicit private entity config solely for QUOTA_PAUSE_PERCENT. Calls the adjacent watcher with fixed CLI arguments; fixture does not execute account transport.",
+      "keys": [
+        "QUOTA_PAUSE_PERCENT"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/quota_watch.py#quota-fixture"
+        }
+      ]
+    },
+    "scripts/lib/quota-watch-replay.py": {
+      "source": "scripts/lib/quota-watch-replay.py",
+      "sha256": "05c96c6470423b94035dbaa504142605f139263fb826e0f1a5a7565e18d6ec96",
+      "evidence": "Complete bounded historical replay imports the fixed watcher. It replaces that module clock while retaining registry and fixture transport operations. All generated payloads and arguments are literal or private fixture paths.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/quota_watch.py#quota-fixture"
+        }
+      ]
+    },
+    "scripts/quota-watch.mutation.sh": {
+      "source": "scripts/quota-watch.mutation.sh",
+      "sha256": "48cf01949ff121e8d1f724945f51807104bf0889f702275fc506a1531ebdc686",
+      "evidence": "Full finite driver changes watcher predicates or output, then executes the same fixed focused suite through the shared mutation harness. It transports shipped config presence but the nested suite replaces threshold values. No new executable target is introduced.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/quota-watch.test.sh"
+        }
+      ]
+    },
+    "scripts/quota-watch.test.sh": {
+      "source": "scripts/quota-watch.test.sh",
+      "sha256": "d33026e287ea6471b3a4aceff4d674e39cfa2d1846031236e78ae5128d150a46",
+      "evidence": "Full suite fixes private entity config, payload, registry, session, reset helper and fake Claude transport before watcher calls. Guard values are private; separate workspace edge retains actual engine cleanup readers. Historical replays and finite focused mutants share these dependencies. The fake Claude answers control JSON only; no model agent is launched.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/scratch.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/quota-watch.sh#quota-fixture",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-resume-isolation.sh",
+          "fixture": true
+        },
+        {
+          "to": "mega-lander/workspaces.py#quota-fixture"
+        },
+        {
+          "to": "scripts/lib/quota-watch-replay.py",
+          "fixture": true
+        },
+        {
+          "to": "scripts/quota-watch.mutation.sh"
+        }
+      ]
     }
   },
   "units": {
@@ -7990,7 +8128,8 @@
     "scripts/hooks/worker-lifecycle.test.sh": "scripts/hooks/worker-lifecycle.test.sh",
     "scripts/hooks/protected-ref-moves.test.sh": "scripts/hooks/protected-ref-moves.test.sh",
     "scripts/hooks/owned-state.test.sh": "scripts/hooks/owned-state.test.sh",
-    "scripts/hooks/left-off.test.sh": "scripts/hooks/left-off.test.sh"
+    "scripts/hooks/left-off.test.sh": "scripts/hooks/left-off.test.sh",
+    "scripts/quota-watch.test.sh": "scripts/quota-watch.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {

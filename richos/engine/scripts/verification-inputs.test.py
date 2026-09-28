@@ -152,6 +152,30 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_quota_fixture_retains_real_cleanup_and_nested_transport(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/quota-watch.test.sh'
+        expected = {'APP_TEST_INSTANCE_PROCESS_NAMES', 'APP_TEST_INSTANCE_BUNDLE_ID',
+                    'APP_TEST_INSTANCE_REAL_HOME_PATHS', 'APP_TEST_INSTANCE_QUIT_GRACE_SECONDS',
+                    'APP_TEST_INSTANCE_KILL_GRACE_SECONDS'}
+        closure = graph.closure(unit)
+        self.assertEqual(closure['fallback'], [])
+        self.assertEqual(set(closure['keys']), expected)
+        self.assertFalse(closure['whole'])
+        self.assertTrue(closure['presence'])
+        for key in expected | {'QUOTA_PAUSE_PERCENT', 'SESSION_TEAMS_DIR', 'MODEL_CEILING'}:
+            self.assertEqual(bool(graph.config_units(inputs.config_change(key+'=a', key+'=b'), [unit])), key in expected, key)
+        self.assertIn(unit, graph.config_units(inputs.config_change('QUOTA_PAUSE_PERCENT=93', None), [unit]))
+        change = inputs.config_change('MODEL_CEILING=a', 'MODEL_CEILING=b')
+        for helper in ('scripts/login-alarm.sh#report', 'scripts/lib/quota_weekly.py#quota-fixture',
+                       'scripts/lib/quota-watch-replay.py', 'mega-lander/workspaces.py#quota-fixture',
+                       'scripts/quota-watch.mutation.sh'):
+            previous = document['nodes'][helper]['sha256']
+            document['nodes'][helper]['sha256'] = 'changed'
+            self.assertIn(unit, graph.config_units(change, [unit]), helper)
+            document['nodes'][helper]['sha256'] = previous
+
     def test_left_off_retains_real_session_start_settings(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)
