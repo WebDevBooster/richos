@@ -221,7 +221,8 @@ class Capture(Base):
 
     def test_prefix_records_pid_and_exports_tag(self):
         prefix = agent_hold.capture(self.payload())
-        self.assertIn('"$$" "$PPID"', prefix)
+        self.assertNotIn("$$", prefix)
+        self.assertIn(" mark --state ", prefix)
         self.assertIn("export %s=%s" % (agent_hold.TAG, self.agent), prefix)
         self.assertTrue(os.path.exists(os.path.join(os.environ["RICHOS_AGENT_HOLD_DIR"], "shells",
                                                     self.session, self.agent, "toolu_fixture1.json")))
@@ -358,14 +359,13 @@ class RealTree(Base):
             self.assertTrue(r["ok"], r)
             marker = self.out("new-command-ran")
             t_start = time.monotonic()
-            late, _got = self.start_rewritten('%s -c "open(%r, \'w\').write(\'ran\')"' % (sys.executable, marker),
-                                              tuid="toolu_late%d" % background, background=background)
-            stdout, _err = late.communicate(timeout=10)
+            payload = self.payload("toolu_late%d" % background)
+            payload["tool_input"] = {"command": '%s -c "open(%r, \'w\').write(\'ran\')"' % (sys.executable, marker),
+                                     "run_in_background": background}
+            got = agent_hold.rewrite(payload)
             took = time.monotonic() - t_start
-            self.assertEqual(late.returncode, agent_hold.REFUSED_EXIT)
-            self.assertEqual(stdout.strip(), agent_hold.REFUSED_TEXT)
-            self.assertIn(agent_hold.WAIT_COMMAND, stdout)
-            self.assertFalse(os.path.exists(marker), "its command did not run")
+            self.assertEqual(got["deny"], agent_hold.REFUSED_TEXT)
+            self.assertFalse(os.path.exists(marker), "the denied command never launches")
             self.assertLess(took, 3.0)
             agent_hold.release(self.session, self.agent)
             sys.stderr.write("\n  measured: a held agent's new %s call returned the WAIT in %.3f s and ran nothing\n"
@@ -375,8 +375,8 @@ class RealTree(Base):
         r = agent_hold.hold(self.session, self.agent, "fixture")
         self.assertEqual(r["held"], {})
         self.assertIn("next command returns the WAIT at once", agent_hold.describe_hold(r))
-        late, _got = self.start_rewritten("true", tuid="toolu_idle")
-        self.assertEqual(late.wait(timeout=10), agent_hold.REFUSED_EXIT)
+        got = agent_hold.rewrite(self.payload("toolu_idle"))
+        self.assertEqual(got["deny"], agent_hold.REFUSED_TEXT)
         agent_hold.release(self.session, self.agent)
         again, _got = self.start_rewritten("true", tuid="toolu_idle2")
         self.assertEqual(again.wait(timeout=10), 0, "after release it runs normally")
@@ -616,7 +616,7 @@ class Wait(Base):
         # (never refused, never frozen by a hold) and return RESUMED only once released.
         agent_hold.hold(self.session, self.agent, "fixture")
         call, got = self.start_rewritten("python3 %s wait" % (HERE / "agent_hold.py"), tuid="toolu_wait")
-        self.assertEqual(got["input"], {"timeout": agent_hold.TOOL_MAX_TIMEOUT_MS},
+        self.assertEqual(got["input"], {"timeout": agent_hold.TOOL_MAX_TIMEOUT_MS, "run_in_background": False},
                          "its call gets the tool's longest timeout, so it returns before being backgrounded")
         time.sleep(1.0)
         again = agent_hold.hold(self.session, self.agent, "fixture")
@@ -657,7 +657,19 @@ class Wait(Base):
             self.assertFalse(agent_hold.is_wait_call(text), text)
 
 
-class Foreground(Base):
+class LegacyForeground(Base):
+    def start_rewritten(self, command, tuid="toolu_fg1", background=False):
+        original = agent_hold.rewrite
+        def legacy(payload):
+            if agent_hold.is_wait_call(payload["tool_input"]["command"]):
+                return original(payload)
+            stem, held = agent_hold._record(payload, "fg", command)
+            return {"command": agent_hold._head(stem, payload) + agent_hold._refuse(held)
+                    + agent_hold._wrap(stem, command), "input": {}}
+        from unittest.mock import patch
+        with patch.object(agent_hold, "rewrite", legacy):
+            return super().start_rewritten(command, tuid, background)
+
     """2026-09-28: the WAIT must reach an agent whose foreground command is running. A hold
     freezes that command's job and ends its tool call, so the queued message is handed over."""
 
@@ -768,6 +780,82 @@ class Foreground(Base):
         os.utime(os.path.join(d, "toolu_kept.json"), (old, old))
         agent_hold.capture(self.payload("toolu_last"))
         self.assertFalse([n for n in os.listdir(d) if n.startswith("toolu_kept.")], "gone after DETACHED_KEEP")
+
+
+class NativeForeground(Base):
+    def test_native_task_freezes_and_wait_returns_promptly_then_same_task_finishes(self):
+        command = '%s %s %s %d; echo native-output; exit 4' % (
+            sys.executable, self.worker, self.out("native"), ROUNDS * 20)
+        call, got = self.start_rewritten(command, tuid="toolu_native")
+        self.assertTrue(got["input"]["run_in_background"])
+        self.assertTrue(got["command"].endswith(command))
+        self.assertNotIn("trap ", got["command"])
+        worker = self.worker_pid("native")
+        waiter, wait_input = self.start_rewritten(agent_hold.WAIT_COMMAND, tuid="toolu_collect")
+        self.assertFalse(wait_input["input"]["run_in_background"])
+        time.sleep(0.2)
+        self.assertIsNone(waiter.poll())
+        start = time.monotonic()
+        result = agent_hold.hold(self.session, self.agent, "native", sample=0.2)
+        output, _ = waiter.communicate(timeout=5)
+        self.assertLess(time.monotonic() - start, 3)
+        self.assertIn("WAIT:", output)
+        self.assertTrue(result["ok"], result)
+        self.assertIn(str(call.pid), result["held"])
+        self.assertIn(str(worker), result["held"])
+        self.assertEqual(result["cpu_during_sample"], 0)
+        progress = Path(self.out("native") + ".progress").read_text()
+        time.sleep(0.3)
+        self.assertEqual(Path(self.out("native") + ".progress").read_text(), progress)
+        self.assertIsNone(call.poll())
+        resume_wait, _ = self.start_rewritten(agent_hold.WAIT_COMMAND, tuid="toolu_resume")
+        time.sleep(0.2)
+        self.assertIsNone(resume_wait.poll())
+        released = agent_hold.release(self.session, self.agent)
+        self.assertIn(worker, released["continued"])
+        stdout, stderr = call.communicate(timeout=60)
+        self.assertEqual((call.returncode, stdout, stderr), (4, "native-output\n", ""))
+        resumed, _ = resume_wait.communicate(timeout=5)
+        self.assertIn("RESUMED", resumed)
+        self.assertEqual(int(Path(self.out("native") + ".pid").read_text().split()[0]), worker)
+
+    def test_hold_between_hook_and_spawn_refuses_body(self):
+        got = agent_hold.rewrite(self.payload("toolu_race"))
+        agent_hold.hold(self.session, self.agent, "race", sample=0)
+        command = "set -e -o pipefail\n" + got["command"].replace("\ntrue", "\necho unreachable")
+        p = subprocess.run([SHELL, "-c", command], capture_output=True, text=True)
+        self.assertEqual(p.returncode, agent_hold.REFUSED_EXIT, p.stderr)
+        self.assertIn("WAIT:", p.stdout)
+        self.assertNotIn("unreachable", p.stdout)
+
+    def test_native_wait_covers_startup_but_not_a_permanently_refused_call(self):
+        payload = self.payload("toolu_starting")
+        agent_hold.rewrite(payload)
+        self.assertTrue(agent_hold.native_pending(self.session, self.agent))
+        stem = Path(os.environ["RICHOS_AGENT_HOLD_DIR"], "shells", self.session, self.agent, "toolu_starting.json")
+        meta = json.loads(stem.read_text());meta["at"] -= 11;stem.write_text(json.dumps(meta))
+        self.assertFalse(agent_hold.native_pending(self.session, self.agent))
+
+    def test_detached_descendant_remains_owned_after_shell_exit_and_pruning(self):
+        call = self.start_call('%s %s %s %d detach' % (
+            sys.executable, self.worker, self.out("orphan"), ROUNDS * 100), tuid="toolu_orphan")
+        worker = self.worker_pid("orphan")
+        call.wait(timeout=5)
+        stem = Path(os.environ["RICHOS_AGENT_HOLD_DIR"], "shells", self.session, self.agent, "toolu_orphan.json")
+        old = time.time() - 120
+        os.utime(stem, (old, old))
+        agent_hold.capture(self.payload("toolu_prune"))
+        self.assertTrue(stem.exists(), "live tagged descendants retain their captured ownership")
+        held = agent_hold.hold(self.session, self.agent, "orphan", sample=0.1)
+        self.assertIn(str(worker), held["held"])
+        self.assertTrue(state(worker).startswith("T"))
+        agent_hold.release(self.session, self.agent)
+        self.assertFalse(state(worker).startswith("T"))
+
+    def test_mark_rejects_outside_and_unregistered_paths(self):
+        self.assertEqual(agent_hold.mark(self.out("outside")), 2)
+        stem = os.path.join(os.environ["RICHOS_AGENT_HOLD_DIR"], "shells", self.session, self.agent, "missing")
+        self.assertEqual(agent_hold.mark(stem), 2)
 
 
 if __name__ == "__main__":

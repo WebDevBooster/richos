@@ -159,6 +159,9 @@ def is_generated_resume(text):
 # PREVIEW of `message`: the whole message when it fits in 50 display columns,
 # otherwise a prefix and an ellipsis (captured on 2.1.283, 2026-09-27). Never a
 # copy of a long message, so demanding equality refused every generated pause.
+# The captured multiline RESUME has 50 display characters plus a newline.
+# Newlines consume no preview columns; exact-prefix validation below still
+# prevents an alias from adding or changing instructions.
 PREVIEW_COLUMNS = 50
 ELLIPSIS = "…"
 
@@ -172,7 +175,7 @@ def is_preview(alias, text):
     """
     if alias == text:
         return True
-    if not isinstance(alias, str) or not alias.endswith(ELLIPSIS) or len(alias) > PREVIEW_COLUMNS:
+    if not isinstance(alias, str) or not alias.endswith(ELLIPSIS) or len(alias.replace("\n", "")) > PREVIEW_COLUMNS:
         return False
     head = alias[:-len(ELLIPSIS)]
     return 0 < len(head) < len(text) and text.startswith(head)

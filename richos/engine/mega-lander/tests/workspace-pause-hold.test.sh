@@ -92,13 +92,22 @@ RESUME_TEXT="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import p
 
 # One Bash call of the agent: rewritten by the real hook, run as the harness runs it.
 cat > "$T/launch.py" <<'PY'
-import subprocess, sys
-shell, cmd, pidfile, rcfile = sys.argv[1:5]
+import json, subprocess, sys
+shell, response, pidfile, rcfile = sys.argv[1:5]
+result = json.load(open(response))["hookSpecificOutput"]
+if result.get("permissionDecision") == "deny":
+    open(pidfile, "w").write("0")
+    open(rcfile[:-3] + ".stdout", "w").write(result["permissionDecisionReason"])
+    open(rcfile, "w").write("75")
+    sys.exit(0)
+ti = result["updatedInput"]
 out = open(rcfile[:-3] + ".stdout", "w")
-p = subprocess.Popen([shell, "-c", cmd], start_new_session=True, stdout=out, stderr=subprocess.STDOUT,
+p = subprocess.Popen([shell, "-c", ti["command"]], start_new_session=True, stdout=out, stderr=subprocess.STDOUT,
                      stdin=subprocess.DEVNULL)
 open(pidfile, "w").write(str(p.pid))
-rc = p.wait()          # the rc file appears only once the call has ended
+if ti.get("run_in_background"):
+    open(rcfile[:-3] + ".native-return", "w").write(str(p.pid))
+rc = p.wait()          # native task completion, separate from the immediate tool return
 open(rcfile, "w").write(str(rc))
 PY
 cat > "$T/worker.py" <<'PY'
@@ -119,13 +128,13 @@ for _ in range(int(sys.argv[1])): h=hashlib.sha256(h).digest()
 print(h.hex())' "$ROUNDS")"
 
 agent_call() { # <agent-id> <tool_use_id> <command> <tag> [bg]  -> starts it; shell pid in $T/<tag>.shell
-    local rewritten
-    rewritten="$(python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","session_id":sys.argv[1],"agent_id":sys.argv[2],"tool_use_id":sys.argv[3],"tool_name":"Bash","cwd":sys.argv[5],"tool_input":{"command":sys.argv[4],"run_in_background":sys.argv[6]=="bg"}}))' "$CUR_SID" "$1" "$2" "$3" "$ENT" "${5:-fg}" \
-        | bash "$HOOKS/shell-evidence.sh" | python3 -c 'import json,sys; print(json.load(sys.stdin)["hookSpecificOutput"]["updatedInput"]["command"])')"
+    local rewritten="$T/$4.hook.json"
+    python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","session_id":sys.argv[1],"agent_id":sys.argv[2],"tool_use_id":sys.argv[3],"tool_name":"Bash","cwd":sys.argv[5],"tool_input":{"command":sys.argv[4],"run_in_background":sys.argv[6]=="bg"}}))' "$CUR_SID" "$1" "$2" "$3" "$ENT" "${5:-fg}" \
+        | bash "$HOOKS/shell-evidence.sh" > "$rewritten"
     python3 "$T/launch.py" "$SHELL_BIN" "$rewritten" "$T/$4.shell" "$T/$4.rc" &
     OURS+=("$!")
     local i=0; while [ ! -s "$T/$4.shell" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
-    OURS+=("$(cat "$T/$4.shell")")
+    if [ "$(cat "$T/$4.shell")" -gt 1 ]; then OURS+=("$(cat "$T/$4.shell")"); fi
 }
 wait_file() { local i=0; while [ ! -s "$1" ] && [ $i -lt "${2:-400}" ]; do sleep 0.05; i=$((i + 1)); done; [ -s "$1" ]; }
 pstate() { ps -o stat= -p "$1" 2>/dev/null | tr -d ' '; }
@@ -141,17 +150,20 @@ register_agent "zach-opus-hold1" "$AID"
 sub "H0 the agent is registered with its id" "grep -q '\"agent_id\": \"$AID\"' \"\$(ls $STORE/agents/*--zach-opus-hold1.json)\"" "$(cat "$T/spawn.err" "$T/hooks.err" 2>/dev/null)"
 
 echo "=== H1 PAUSE suspends the running work at once; it uses no CPU while held ==="
-agent_call "$AID" "toolu_work1" "python3 $T/worker.py $T/w1 $ROUNDS" w1
+agent_call "$AID" "toolu_work1" "python3 $T/worker.py $T/w1 $ROUNDS; echo native-result; exit 7" w1
 wait_file "$T/w1.progress"; W1="$(cat "$T/w1.pid")"; OURS+=("$W1"); SH1="$(cat "$T/w1.shell")"
+WAITCMD="python3 $LIB/agent_hold.py wait"
+agent_call "$AID" "toolu_delivery" "$WAITCMD" delivery
+sleep 0.2
 T0="$(python3 -c 'import time; print(time.time())')"
 send "zach-opus-hold1" "$PAUSE_TEXT" "$T/pause.out"
 T1="$(python3 -c 'import time; print(time.time())')"
 cpu() { ps -o time= -p "$1" | tr -d ' '; }
 C1="$(cpu "$W1")"; P1="$(cat "$T/w1.progress")"; sleep 1.5; C2="$(cpu "$W1")"; P2="$(cat "$T/w1.progress")"
 sub "H1.1 the worker is suspended when the pause hook returns ($(pstate "$W1"))" "is_stopped $W1" "$(cat "$T/pause.out")"
-wait_file "$T/w1.rc" 100
-sub "H1.1b its foreground call has returned the WAIT, so the queued message reaches the agent now (rc $(cat "$T/w1.rc" 2>/dev/null))" \
-    "[ \"\$(cat $T/w1.rc 2>/dev/null)\" = 0 ] && grep -q '^WAIT: the orchestrator has told you to wait while this command was running' '$T/w1.stdout' && ! kill -0 $SH1 2>/dev/null" "$(cat "$T/w1.stdout" 2>/dev/null)"
+wait_file "$T/delivery.rc" 100
+sub "H1.1b native call returned and its wait delivered WAIT promptly while the same shell is frozen" \
+    "[ -s '$T/w1.native-return' ] && [ \"\$(cat $T/delivery.rc 2>/dev/null)\" = 0 ] && grep -q '^WAIT:' '$T/delivery.stdout' && is_stopped $SH1" "$(cat "$T/delivery.stdout" 2>/dev/null)"
 sub "H1.2 it uses no CPU and makes no progress while held (cpu $C1 -> $C2, progress $P1 -> $P2)" "[ '$C1' = '$C2' ] && [ '$P1' = '$P2' ]"
 sub "H1.3 the lead is told, measured, in its own context" \
     "python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); c=d[\"hookSpecificOutput\"][\"additionalContext\"]; sys.exit(0 if \"HOLD zach-opus-hold1:\" in c and \"suspended in\" in c else 1)' '$T/pause.out'" "$(cat "$T/pause.out")"
@@ -173,8 +185,10 @@ WAITCMD="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import pause
 agent_call "$AID" "toolu_wait1" "$WAITCMD" wait1
 wait_file "$T/wait1.rc" 1200
 sub "H3.2 the held worker finished with the correct result" "[ \"\$(cat $T/w1 2>/dev/null)\" = '$EXPECTED' ]"
-sub "H3.3 the agent's wait prints RESUMED and the frozen command's own exit status" \
-    "grep -q '^RESUMED at' '$T/wait1.stdout' && grep -q 'has finished with exit status 0' '$T/wait1.stdout' && [ \"\$(cat $T/wait1.rc)\" = 0 ]" "$(cat "$T/wait1.stdout" 2>/dev/null)"
+wait_file "$T/w1.rc" 100
+sub "H3.3 the wait returns RESUMED and native completion preserves the command's output and failure status" \
+    "grep -q '^RESUMED at' '$T/wait1.stdout' && grep -q 'native-result' '$T/w1.stdout' && [ \"\$(cat $T/w1.rc)\" = 7 ] && [ \"\$(cat $T/wait1.rc)\" = 0 ]" "$(cat "$T/wait1.stdout" "$T/w1.stdout" 2>/dev/null)"
+
 unpaused() { python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("pause") is None else 1)' "$(ls "$STORE"/agents/*--"$1".json)"; }
 sub "H3.4 the registry records the resume and no hold is left" "[ -z \"\$(ls $HOLD_STATE/held 2>/dev/null)\" ] && unpaused zach-opus-hold1" \
     "held: $(ls "$HOLD_STATE/held" 2>&1 | tr '\n' ' ')"

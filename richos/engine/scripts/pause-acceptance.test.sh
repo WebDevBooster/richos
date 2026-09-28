@@ -109,7 +109,11 @@ def call(n, command, wait=True):
                           input=json.dumps({"hook_event_name": "PreToolUse", "session_id": sid, "agent_id": aid,
                                             "tool_use_id": "toolu_%s" % n, "tool_name": "Bash", "cwd": work,
                                             "tool_input": {"command": command}}))
-    rewritten = json.loads(hook.stdout)["hookSpecificOutput"]["updatedInput"]["command"]
+    response = json.loads(hook.stdout)["hookSpecificOutput"]
+    if response.get("permissionDecision") == "deny":
+        call("wait_" + n, "python3 %s wait" % os.path.join(hooks, "../lib/agent_hold.py"))
+        return
+    rewritten = response["updatedInput"]["command"]
     p = subprocess.Popen([shell, "-c", rewritten], process_group=0, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     with open(groups, "a") as g:
         g.write("%d\n" % p.pid)

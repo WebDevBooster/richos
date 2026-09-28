@@ -10,8 +10,8 @@ foreground command that passes its Bash timeout is moved to the background, not
 signaled, and finishes normally once continued.
 
 OWNERSHIP IS CAPTURED AT SPAWN, BY THE PROCESS ITSELF. Every Bash call made by a
-subagent is rewritten (shell-evidence.py calls capture()) to write its own `$$`
-and `$PPID` into a record keyed by session, agent and tool call, and to export an
+subagent is rewritten (shell-evidence.py calls rewrite()) to record its shell
+through a literal helper call keyed by session, agent and tool call, and to export an
 inherited owner tag. A process is owned only when it is alive, still has its
 recorded parent and started between the hook and the record's write. A reused PID
 fails that test. Names, paths and working directories never choose a process.
@@ -51,34 +51,24 @@ ends its run, and a later message starts a new run (Rich, brief addition 1). The
 generated WAIT therefore tells it to run `agent_hold.py wait`, which returns
 RESUMED only once the hold is released.
 
-NO HOLD KEEPS A TOOL ROUND OPEN (2026-09-28). Claude Code hands a queued
-SendMessage to a subagent only when its current tool call returns: measured on
-2.1.283, the message row lands 5 ms after the tool result, never during the call.
-Freezing the running foreground command therefore froze the only delivery point,
-and the WAIT sat undelivered until the agent's own Bash timeout (up to 10 min).
-So, for a subagent:
-  - Every FOREGROUND Bash call runs as a job of its own shell, its output going to
-    a per-call file (wrap()). Unheld, the shell waits, prints the output and exits
-    with the job's status: the agent sees what it always saw. At a hold the job's
-    tree is SIGSTOPped and the shell alone gets SIGUSR1: it prints one fixed WAIT
-    line and exits, so the call returns within a second and the queued WAIT is
-    handed over with it. The job lives on, frozen (measured: a stopped job whose
-    output is redirected survives its shell's exit, the harness's end of the call
-    and the claude process's exit, and after SIGCONT it finishes and writes its
-    output). `agent_hold.py wait` returns RESUMED after release and then prints
-    that command's output and exit status once it ends: the same point, the same
-    result.
-  - A held agent's NEW Bash call is refused at once with the WAIT text; it never
-    suspends itself (Sage's catch B, 2026-09-28: a self-suspended call keeps the
-    round open exactly as a frozen one does).
-  - The wait command itself is exempt from that refusal and is never frozen
-    (Sage's catch A), and its Bash timeout is set to the tool's maximum; it
-    returns STILL WAITING after 270 s (inside the prompt cache's lifetime, so
-    each repeat is a cache read), well before the harness would move it to the background: a
-    backgrounded call reads to the model as "you will be notified", and a subagent
-    that then ends its turn ends its run (measured, 2026-09-28).
-  - Background (run_in_background) calls are frozen whole, shell included, as
-    before: their round has already returned.
+NATIVE TASKS KEEP THE TOOL ROUND FREE (2026-09-28). The previous foreground
+wrapper used trap, $$ and a subshell job. Claude Code 2.1.283 rejects those
+constructs for worktree-isolated agents. New calls retain the original command
+at top level after a literal helper invocation and owner exports. The helper
+records its own parent; it never reads or executes the user's command.
+
+Ordinary subagent Bash calls use the harness's native run_in_background mode.
+The agent waits with this module's foreground `wait` command, which checks for
+new holds every half second. A hold freezes the native task's entire owned tree;
+the wait returns promptly so the queued WAIT message reaches the agent. The next
+wait stays inside the same run until release, returning at most every 270 s to
+retain the prompt cache. Native task completion retains the original stdout,
+stderr and exit status. The wait's success is never the task's success.
+
+A held agent's new Bash calls are denied by the hook. The mark helper checks the
+hold again at execution to close the hook-to-spawn race. Wait calls are exempt
+and forced into the foreground. Legacy wrappers already in flight still use
+_detach/_collect and keep their frozen results until collected.
 
 KNOWN LIMITS: held work keeps its file locks (the hold report lists the lock
 files it has open: a Cargo target lock, a worker token, a git index lock), and a
@@ -203,7 +193,7 @@ def _unlink_call(stem):
 
 
 def _prune(directory, now):
-    """Remove records of calls that ended. Syscalls only: this runs on every Bash call.
+    """Remove records of calls that ended; retain ownership of tagged descendants.
 
     A frozen command's output is kept until the agent's wait collects it, or for
     DETACHED_KEEP after its job is gone when nobody ever does."""
@@ -211,6 +201,7 @@ def _prune(directory, now):
         names = os.listdir(directory)
     except OSError:
         return
+    prune_table = None
     for name in names:
         if not name.endswith(".json"):
             continue
@@ -231,6 +222,13 @@ def _prune(directory, now):
         else:
             dead = age > PRUNE_AFTER and not _alive(pid[0])
         if dead:
+            meta = _read_json(stem + ".json") or {}
+            if meta.get("identity"):
+                if prune_table is None:
+                    prune_table = snapshot()
+                session, agent = os.path.basename(os.path.dirname(directory)), os.path.basename(directory)
+                if tagged(agent, prune_table, meta["at"], session):
+                    continue
             _unlink_call(stem)
 
 
@@ -279,9 +277,49 @@ def _record(payload, mode, command):
 
 
 def _head(stem, payload):
-    """Record the shell's own PID and parent (builtin printf, no fork) and export the owner tags."""
-    return ("printf '%%s %%s\\n' \"$$\" \"$PPID\" > %s 2>/dev/null || :\nexport %s=%s %s=%s\n"
-            % (shlex.quote(stem + ".pid"), TAG, payload["agent_id"], SESSION_TAG, payload["session_id"]))
+    """Only literal helper arguments and exports precede the visible command.
+
+    Reading $$/$PPID in shell text makes Claude Code 2.1.283 reject otherwise
+    ordinary isolated git calls. The helper records its own parent instead.
+    """
+    return ("python3 %s mark --state %s %s\nexport %s=%s %s=%s\n"
+            % (shlex.quote(os.path.abspath(__file__)), shlex.quote(state_dir()), shlex.quote(stem),
+               TAG, payload["agent_id"], SESSION_TAG, payload["session_id"]))
+
+
+def mark(stem):
+    """Record only the calling shell, then close the hook-to-spawn hold race.
+
+    A failed capture fails the call before its body runs. No user command is
+    passed to or executed by this helper.
+    """
+    root = os.path.realpath(os.path.join(state_dir(), "shells"))
+    stem = os.path.realpath(stem)
+    try:
+        session, agent, tid = os.path.relpath(stem, root).split(os.sep)
+    except ValueError:
+        return 2
+    if not _valid_ids(session, agent, tid):
+        return 2
+    meta = _read_json(stem + ".json")
+    if not isinstance(meta, dict) or meta.get("tool_use_id") != tid:
+        return 2
+    pid = os.getppid()
+    table = snapshot()
+    row = table.get(pid)
+    if not row or not (int(meta["at"]) - BIRTH_SLACK <= row["birth"] <= time.time() + BIRTH_SLACK):
+        return 2
+    meta["identity"] = {"pid": pid, "birth": row["birth"], "ppid": row["ppid"],
+                        "parent_birth": table.get(row["ppid"], {}).get("birth")}
+    _write_json(stem + ".json", meta)
+    tmp = stem + ".pid.%d.new" % os.getpid()
+    with open(tmp, "w") as out:
+        out.write("%d %d\n" % (pid, row["ppid"]))
+    os.replace(tmp, stem + ".pid")
+    if meta.get("mode") != "exempt" and os.path.exists(_held_path(session, agent)):
+        print(REFUSED_TEXT)
+        return REFUSED_EXIT
+    return 0
 
 
 def _refuse(held):
@@ -335,7 +373,7 @@ def rewrite(payload):
     if not isinstance(ti, dict) or not isinstance(ti.get("command"), str):
         return None
     command = ti["command"]
-    mode = "exempt" if is_wait_call(command) else "bg" if ti.get("run_in_background") else "fg"
+    mode = "exempt" if is_wait_call(command) else "bg" if ti.get("run_in_background") else "native"
     rec = _record(payload, mode, command)
     if rec is None:
         return None
@@ -348,10 +386,16 @@ def rewrite(payload):
         args = command.split("agent_hold.py", 1)[1].replace("2>&1", "").split()
         return {"command": head + "export RICHOS_AGENT_HOLD_WAIT_SECONDS=%d\n" % bound
                 + " ".join(["python3", shlex.quote(os.path.abspath(__file__))] + [shlex.quote(a) for a in args]),
-                "input": {"timeout": ceiling}}
-    if mode == "bg":
-        return {"command": head + _refuse(held) + command, "input": {}}
-    return {"command": head + _refuse(held) + _wrap(stem, command), "input": {}}
+                "input": {"timeout": ceiling, "run_in_background": False}}
+    if os.path.exists(held):
+        return {"command": command, "input": {}, "deny": REFUSED_TEXT}
+    return {"command": head + command, "input": {"run_in_background": True},
+            "context": ("This command runs as a native background task so WAIT can freeze it immediately. "
+            "Before dependent work or your final reply, run " + WAIT_COMMAND +
+            " with Bash timeout 600000 to wait for the task. Repeat on STILL RUNNING or STILL WAITING. "
+            "The wait returns promptly when a new hold starts; follow its WAIT instructions. "
+            "Read the native task's completion notification and output file for its actual output and exit status. "
+            "A successful wait means only that waiting succeeded, not that the task passed." if mode == "native" else "")}
 
 
 def capture(payload):
@@ -361,7 +405,7 @@ def capture(payload):
     rec = _record(payload, "bg", str((payload.get("tool_input") or {}).get("command") or ""))
     if rec is None:
         return ""
-    return _head(rec[0], payload) + _refuse(rec[1])
+    return _head(rec[0], payload)
 
 
 # ---------------------------------------------------------------------------
@@ -496,7 +540,7 @@ def _environment(pid, _buf={}):
         return None
 
 
-def tagged(agent_id, table, since):
+def tagged(agent_id, table, since, session_id=None):
     """Processes carrying this agent's inherited tag, started no earlier than its first recorded call."""
     want = ("%s=%s" % (TAG, agent_id)).encode()
     hits = set()
@@ -504,7 +548,8 @@ def tagged(agent_id, table, since):
         if row["birth"] < since - BIRTH_SLACK:
             continue
         env = _environment(pid)
-        if env and want in env:
+        if env and want in env and (session_id is None or
+                ("%s=%s" % (SESSION_TAG, session_id)).encode() in env):
             hits.add(pid)
     return hits
 
@@ -623,11 +668,28 @@ def lock_files(pids):
 def owned_tree(session_id, agent_id, table):
     """(owned pids, excluded pids, protected pids, notes, shell parents)."""
     shells = owned_shells(session_id, agent_id, table)
-    if not shells:
-        return set(), set(), set(), [], {}
     parents = {ppid: table[ppid]["birth"] for _p, ppid, _a in shells if ppid in table}
-    since = min(at for _p, _pp, at in shells)
-    owned = subtree([p for p, _pp, _a in shells] + sorted(tagged(agent_id, table, since)), table)
+    # A shell can exit while its tagged descendants remain. Retain only records
+    # whose helper actually captured a process identity, never an unstarted hook.
+    identities = []
+    directory = _shell_dir(session_id, agent_id)
+    try:
+        for name in os.listdir(directory):
+            if name.endswith(".json"):
+                meta = _read_json(os.path.join(directory, name)) or {}
+                identity = meta.get("identity")
+                if isinstance(identity, dict) and isinstance(meta.get("at"), (int, float)):
+                    identities.append(meta)
+                    pp = identity.get("ppid")
+                    if pp in table and table[pp]["birth"] == identity.get("parent_birth"):
+                        parents[pp] = table[pp]["birth"]
+    except OSError:
+        pass
+    starts = [at for _p, _pp, at in shells] + [m["at"] for m in identities]
+    if not starts:
+        return set(), set(), set(), [], {}
+    since = min(starts)
+    owned = subtree([p for p, _pp, _a in shells] + sorted(tagged(agent_id, table, since, session_id)), table)
     protected = {1} | set(parents) | _ancestors(table)
     owned -= protected
     vm_roots, vm_notes = testvm_exclusions(table)
@@ -933,6 +995,28 @@ def _collect(stem, rec, deadline, poll, out):
     return True
 
 
+def native_pending(session, agent):
+    table = snapshot()
+    if any(c["mode"] == "native" and not table[c["pid"]]["stat"].startswith("Z")
+           for c in calls(session, agent, table)):
+        return True
+    # The native tool can return its task id before the shell has started.
+    # Do not let a subsequent wait race through that startup interval. A refused
+    # call never writes its PID, so this grace is bounded rather than indefinite.
+    directory = _shell_dir(session, agent)
+    try:
+        for name in os.listdir(directory):
+            if name.endswith(".json"):
+                stem = os.path.join(directory, name[:-5])
+                meta = _read_json(stem + ".json") or {}
+                if (meta.get("mode") == "native" and not os.path.exists(stem + ".pid")
+                        and 0 <= time.time() - float(meta.get("at", 0)) < 10):
+                    return True
+    except OSError:
+        pass
+    return False
+
+
 def wait_resume(max_seconds=None, poll=2.0, out=sys.stdout):
     """Returns once this agent's hold is released, printing RESUMED and then the result of
     any foreground command the hold froze; at the bound it prints STILL WAITING (or STILL
@@ -953,6 +1037,17 @@ def wait_resume(max_seconds=None, poll=2.0, out=sys.stdout):
             return 0
         time.sleep(poll)
     out.write("RESUMED at %s: carry on from where you were.\n" % _clock())
+    # Native tasks keep their output/status in the harness. Keep this agent's
+    # run active while it waits, but return as soon as a new hold appears so a
+    # queued SendMessage can be delivered at this tool boundary.
+    while native_pending(session, agent):
+        if os.path.exists(path):
+            out.write("WAIT: running work is held. " + HOW_TO_WAIT + "\n")
+            return 0
+        if time.monotonic() >= deadline:
+            out.write("STILL RUNNING at %s: repeat this wait to collect the native task's completion.\n" % _clock())
+            return 0
+        time.sleep(min(poll, 0.5))
     for stem, rec in _detached_calls(session, agent):
         if not _collect(stem, rec, deadline, min(poll, 0.5), out):
             break
@@ -1083,12 +1178,18 @@ def main(argv=None):
         s.add_argument("--session", required=True)
         s.add_argument("--agent", required=True, help="the agent id recorded by the registry")
         s.add_argument("--name", default="")
+    m = sub.add_parser("mark", help="record the calling shell without shell PID expansion")
+    m.add_argument("--state", required=True)
+    m.add_argument("stem")
     sub.add_parser("status")
     sub.add_parser("capture", help="print the ownership lines for a hook payload on stdin")
     w = sub.add_parser("wait", help="a paused agent's own call: returns RESUMED once its hold is released")
     w.add_argument("--max-seconds", type=float, default=None,
                    help="default: just under the Bash tool's timeout ceiling")
     a = p.parse_args(argv)
+    if a.cmd == "mark":
+        os.environ["RICHOS_AGENT_HOLD_DIR"] = a.state
+        return mark(a.stem)
     if a.cmd == "wait":
         return wait_resume(a.max_seconds)
     if a.cmd == "watch":

@@ -47,7 +47,9 @@ class ShellEvidence(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.tmp, "hold")), "the lead's calls record nothing")
 
     def test_already_rewritten_call_is_left_alone(self):
-        self.assertEqual(self.run_hook(self.bash(PREFIX + "true", agent_id="afixture1")), {})
+        self.assertEqual(self.run_hook(self.bash(PREFIX + "true")), {})
+        out = self.run_hook(self.bash(PREFIX + "true", agent_id="afixture1"))
+        self.assertTrue(out["hookSpecificOutput"]["updatedInput"]["run_in_background"])
 
     def test_other_tools_are_untouched(self):
         self.assertEqual(self.run_hook({"tool_name": "Read", "tool_input": {"file_path": "/x"}}), {})
@@ -60,13 +62,15 @@ class ShellEvidence(unittest.TestCase):
         out = self.run_hook(self.bash("echo hi", agent_id="afixture1"))
         cmd = out["hookSpecificOutput"]["updatedInput"]["command"]
         self.assertTrue(cmd.startswith(PREFIX), cmd)
-        self.assertIn("\necho hi\n", cmd)
-        self.assertIn('"$$" "$PPID"', cmd)
+        self.assertTrue(cmd.endswith("\necho hi"))
+        self.assertNotIn("$$", cmd)
+        self.assertIn(" mark --state ", cmd)
         self.assertIn("export RICHOS_AGENT_OWNER=afixture1", cmd)
         self.assertNotIn("kill -STOP $$", cmd, "a held agent's call is refused, never self-suspended")
-        self.assertIn("USR1", cmd, "a foreground call is detachable")
+        self.assertNotIn("USR1", cmd)
+        self.assertTrue(out["hookSpecificOutput"]["updatedInput"]["run_in_background"])
         record = Path(self.tmp, "hold", "shells", "fixture-session", "afixture1", "toolu_fixture.json")
-        self.assertEqual(json.loads(record.read_text())["mode"], "fg")
+        self.assertEqual(json.loads(record.read_text())["mode"], "native")
 
     def test_background_call_is_not_wrapped(self):
         payload = self.bash("echo hi", agent_id="afixture1")
@@ -80,6 +84,7 @@ class ShellEvidence(unittest.TestCase):
                                       agent_id="afixture1"))
         ui = out["hookSpecificOutput"]["updatedInput"]
         self.assertEqual(ui["timeout"], 600000)
+        self.assertFalse(ui["run_in_background"])
         self.assertTrue(ui["command"].endswith("\npython3 %s wait" % (HERE.parent / "lib" / "agent_hold.py")),
                         "the wait runs the same engine file that wrapped the agent's calls")
         self.assertNotIn("exit 75", ui["command"])
@@ -101,6 +106,16 @@ class ShellEvidence(unittest.TestCase):
                            capture_output=True, text=True)
         self.assertNotEqual(p.returncode, 0)
         self.assertNotIn("unreachable", p.stdout)
+
+    def test_held_call_is_denied_before_execution_even_with_failure_prefix(self):
+        held = Path(self.tmp, "hold", "held", "fixture-session__afixture1.json")
+        held.parent.mkdir(parents=True)
+        held.write_text("{}")
+        for command in ("echo never", PREFIX + "echo never"):
+            out = self.run_hook(self.bash(command, agent_id="afixture1"))["hookSpecificOutput"]
+            self.assertEqual(out["permissionDecision"], "deny")
+            self.assertIn("WAIT:", out["permissionDecisionReason"])
+            self.assertNotIn("updatedInput", out)
 
     def test_capture_failure_never_breaks_the_call(self):
         blocked = os.path.join(self.tmp, "a-file")
