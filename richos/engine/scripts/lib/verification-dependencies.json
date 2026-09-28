@@ -432,7 +432,7 @@
     "scripts/ceo-asks-status.sh": {
       "source": "scripts/ceo-asks-status.sh",
       "sha256": "ee087fd11e7a3a9507845240dd367c3528935f31d85c1ba7bb9eca004de2f7cf",
-      "evidence": "Uses the supplied entity-root argument, delegates config access to ca_resolve and reads that root’s ask ledger.",
+      "evidence": "Uses the supplied entity-root argument, delegates config access to ca_resolve and reads that root\u2019s ask ledger.",
       "keys": [],
       "edges": [
         {
@@ -489,7 +489,7 @@
     "scripts/lib/proc_tree.py": {
       "source": "scripts/lib/proc_tree.py",
       "sha256": "dbd97c9b9758184e960348cd6c81e5089ae9691aee8324977a3ddbc0460a219d",
-      "evidence": "Supervises the caller’s command and samples owned processes. Its own inputs are environment, process identity and controller state, never orchestration settings.",
+      "evidence": "Supervises the caller\u2019s command and samples owned processes. Its own inputs are environment, process identity and controller state, never orchestration settings.",
       "keys": [],
       "edges": [
         {
@@ -517,7 +517,7 @@
     "scripts/lib/worker_tokens.py": {
       "source": "scripts/lib/worker_tokens.py",
       "sha256": "8c4cada1e7a4883a65435017ebac01c27307724a9724ea698f0df699898ff6b2",
-      "evidence": "Worker leases read their budget files, bind held inodes to native process generations and invoke the caller’s separately declared command through process supervision and admission policy. Borrow validation follows a finite native ancestry and permit chain, never orchestration settings. Named native/compiler and simulator locks use the same kernel locks but do not grant worker capacity; their canonical paths remain governed.",
+      "evidence": "Worker leases read their budget files, bind held inodes to native process generations and invoke the caller\u2019s separately declared command through process supervision and admission policy. Borrow validation follows a finite native ancestry and permit chain, never orchestration settings. Named native/compiler and simulator locks use the same kernel locks but do not grant worker capacity; their canonical paths remain governed.",
       "keys": [],
       "edges": [
         {
@@ -1065,7 +1065,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "7f55fff7fb33fb40c3b00dc2233c4ea23991a9aa39e1c44f5dcc2708175105f8",
+      "sha256": "e0b9ed296e9a19b2707edcddd659752bbaa69005cd49a8732d58195603ae7342",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -4780,7 +4780,7 @@
       ],
       "region": [
         "if _section CL; then",
-        "fi  # _section — CL"
+        "fi  # _section \u2014 CL"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#RI": {
@@ -4804,7 +4804,7 @@
       ],
       "region": [
         "if _section RI; then",
-        "fi  # _section — RI"
+        "fi  # _section \u2014 RI"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#WTR": {
@@ -4822,7 +4822,7 @@
       ],
       "region": [
         "if _section WTR; then",
-        "fi  # _section — WTR"
+        "fi  # _section \u2014 WTR"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#MC6": {
@@ -4840,7 +4840,7 @@
       ],
       "region": [
         "if _section MC6; then",
-        "fi  # _section — MC6"
+        "fi  # _section \u2014 MC6"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#SCR": {
@@ -4869,7 +4869,7 @@
       ],
       "region": [
         "if _section SCR; then",
-        "fi  # _section — SCR"
+        "fi  # _section \u2014 SCR"
       ],
       "presence": "SCR2 directly opens the real config to check required assignment names."
     },
@@ -5096,7 +5096,7 @@
       ],
       "region": [
         "if _section M; then",
-        "fi  # _section — M\n"
+        "fi  # _section \u2014 M\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#shim": {
@@ -5119,7 +5119,7 @@
       ],
       "region": [
         "if _section shim; then",
-        "fi  # _section — shim\n"
+        "fi  # _section \u2014 shim\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#manifest": {
@@ -5142,7 +5142,7 @@
       ],
       "region": [
         "if _section manifest; then",
-        "fi  # _section — manifest\n"
+        "fi  # _section \u2014 manifest\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#worktree": {
@@ -5165,7 +5165,7 @@
       ],
       "region": [
         "if _section worktree; then",
-        "fi  # _section — worktree\n"
+        "fi  # _section \u2014 worktree\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#N": {
@@ -5188,7 +5188,7 @@
       ],
       "region": [
         "if _section N; then",
-        "fi  # _section — N\n"
+        "fi  # _section \u2014 N\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#python3": {
@@ -5211,7 +5211,7 @@
       ],
       "region": [
         "if _section python3; then",
-        "fi  # _section — python3\n"
+        "fi  # _section \u2014 python3\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#config": {
@@ -5234,7 +5234,7 @@
       ],
       "region": [
         "if _section config; then",
-        "fi  # _section — config\n"
+        "fi  # _section \u2014 config\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#K": {
@@ -5257,7 +5257,7 @@
       ],
       "region": [
         "if _section K; then",
-        "fi  # _section — K\n"
+        "fi  # _section \u2014 K\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#P": {
@@ -5283,7 +5283,7 @@
       ],
       "region": [
         "if _section P; then",
-        "fi  # _section — P\n"
+        "fi  # _section \u2014 P\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#S": {
@@ -5306,7 +5306,7 @@
       ],
       "region": [
         "if _section S; then",
-        "fi  # _section — S\n"
+        "fi  # _section \u2014 S\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#MT": {
@@ -5329,7 +5329,7 @@
       ],
       "region": [
         "if _section MT; then",
-        "fi  # _section — MT\n"
+        "fi  # _section \u2014 MT\n"
       ]
     },
     "scripts/hooks/contract-integrity.test.sh#MC": {
@@ -5352,7 +5352,7 @@
       ],
       "region": [
         "if _section MC; then",
-        "fi  # _section — MC\n"
+        "fi  # _section \u2014 MC\n"
       ]
     },
     "scripts/hooks/interactive-prompt.mutation.sh": {
@@ -5399,7 +5399,7 @@
       ],
       "region": [
         "if _section IP; then",
-        "fi  # _section — IP\n"
+        "fi  # _section \u2014 IP\n"
       ]
     },
     "scripts/lib/row-currency.py#fixture-records": {
@@ -5582,7 +5582,7 @@
       ],
       "region": [
         "if _section MF; then",
-        "fi  # _section — MF\n"
+        "fi  # _section \u2014 MF\n"
       ]
     },
     "scripts/hooks/notice-unstarted-rows.sh#fixture-records": {
@@ -5732,7 +5732,7 @@
       ],
       "region": [
         "if _section SA; then",
-        "fi  # _section — SA\n"
+        "fi  # _section \u2014 SA\n"
       ]
     },
     "scripts/hooks/guard-idle-land.test.sh": {
@@ -5790,7 +5790,7 @@
       ],
       "region": [
         "if _section IL; then",
-        "fi  # _section — IL\n"
+        "fi  # _section \u2014 IL\n"
       ]
     },
     "scripts/hooks/guard-worktree-isolation.mutation.sh": {
@@ -5845,7 +5845,78 @@
       ],
       "region": [
         "if _section WTI; then",
-        "fi  # _section — WTI\n"
+        "fi  # _section \u2014 WTI\n"
+      ]
+    },
+    "scripts/hooks/guard-row-currency-commits.sh#fixture-records": {
+      "source": "scripts/hooks/guard-row-currency-commits.sh",
+      "sha256": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
+      "evidence": "Full guard path reviewed: payload classification only parses command text, root resolution retains real engine adoption, jurisdiction and row predicates read the generated target Git repositories and records. It never sources orchestration config values. All fixed libraries and the supplied-record predicate remain bound.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/seat-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/git-jurisdiction.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/row-currency.sh#fixture-records"
+        }
+      ]
+    },
+    "scripts/row-headline-verify.sh#fixture-records": {
+      "source": "scripts/row-headline-verify.sh",
+      "sha256": "43a2d2fb4cbcaf02457ca0966ed26d7a7ba5fa63b33b3dca2add129075754f8f",
+      "evidence": "Reads the generated row declarations and executes headline commands from the caller record. This qualification is restricted to row-currency.test.sh, whose commands are finite literal grep, sound-refusal and fixture git-push/marker cases; none reads orchestration config. Nested mutants only change the finite refusal predicates, retaining the same private records and targets.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/row-currency.sh#fixture-records"
+        }
+      ]
+    },
+    "scripts/hooks/row-currency.test.sh": {
+      "source": "scripts/hooks/row-currency.test.sh",
+      "sha256": "0f55dbf5305a15d6368695e1060793c31f9e7f93f9ea9a7ea5c6ba90d8b23c0c",
+      "evidence": "Creates all record/artifact repositories, declarations and histories. The actual engine remains the seat, so adoption presence is retained. Invokes fixed guard, lint and headline verifier, then the fixed finite mutation driver. Real surface assertions inspect only row guard registration; probe/installer are scanned as source data, never executed.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/registered-hooks.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-row-currency-commits.sh#fixture-records"
+        },
+        {
+          "to": "scripts/row-currency-lint.sh#fixture-records"
+        },
+        {
+          "to": "scripts/row-headline-verify.sh#fixture-records"
+        },
+        {
+          "to": "scripts/hooks/guard-row-currency-commits.mutation.sh"
+        }
+      ]
+    },
+    "scripts/hooks/guard-row-currency-commits.mutation.sh": {
+      "source": "scripts/hooks/guard-row-currency-commits.mutation.sh",
+      "sha256": "505a51ac99a12d2455ee79114cbc022639d4e0f2f6ed430f36828a45f00b8728",
+      "evidence": "Uses the shared mutation copy and fixed row-currency suite with recursion disabled. All fifteen patches are literal guard/predicate/verifier replacements. No config-value reader is added; copied config presence and the nested real-seat adoption remain required.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/mutation-harness.sh"
+        },
+        {
+          "to": "scripts/hooks/row-currency.test.sh"
+        }
       ]
     }
   },
@@ -5951,7 +6022,8 @@
     "scripts/hooks/contract-integrity.test.sh:SA": "scripts/hooks/contract-integrity.test.sh#SA",
     "scripts/hooks/guard-idle-land.test.sh": "scripts/hooks/guard-idle-land.test.sh",
     "scripts/hooks/contract-integrity.test.sh:IL": "scripts/hooks/contract-integrity.test.sh#IL",
-    "scripts/hooks/contract-integrity.test.sh:WTI": "scripts/hooks/contract-integrity.test.sh#WTI"
+    "scripts/hooks/contract-integrity.test.sh:WTI": "scripts/hooks/contract-integrity.test.sh#WTI",
+    "scripts/hooks/row-currency.test.sh": "scripts/hooks/row-currency.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {
@@ -6354,6 +6426,41 @@
         "scripts/row-currency-lint.sh": "47b26a433c2a96e69844fdca03b263c37bd0f80bbbbeeacd87dd4117feef1167",
         "scripts/unstarted-rows-lint.sh": "4b654eefa4fb775ba218fbee15595b415684c7a90e2168eedf864c07f142e58e"
       }
+    },
+    "scripts/hooks/row-currency.test.sh": {
+      "commands": [
+        "scripts/hooks/guard-row-currency-commits.sh"
+      ],
+      "sources": {
+        "scripts/hooks/row-currency.test.sh": "0f55dbf5305a15d6368695e1060793c31f9e7f93f9ea9a7ea5c6ba90d8b23c0c",
+        "scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
+        "scripts/hooks/guard-row-currency-commits.sh": "89426f45209197868ad37a87e7906c1c337c8de83840544b528c7ae3fac75ab8",
+        "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
+        "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
+        "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
+        "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
+        "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
+        "scripts/lib/row-currency.sh": "6aeb36f33046c910ad654f2c1f8eba96ca2c2a9675d40e9f5abf2c94e139584e",
+        "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
+        "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
+        "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
+        "scripts/lib/row-currency.py": "484404c6143d1a5b94182321e6fa0f6250b298b27a7d3b59ba26d5ed648db677",
+        "scripts/row-currency-lint.sh": "47b26a433c2a96e69844fdca03b263c37bd0f80bbbbeeacd87dd4117feef1167",
+        "scripts/row-headline-verify.sh": "43a2d2fb4cbcaf02457ca0966ed26d7a7ba5fa63b33b3dca2add129075754f8f",
+        "scripts/hooks/guard-row-currency-commits.mutation.sh": "505a51ac99a12d2455ee79114cbc022639d4e0f2f6ed430f36828a45f00b8728",
+        "scripts/lib/mutation-harness.sh": "9dd839120e0a3b2ae4ef91054e076a8e9ea31c4592dbe0ea3eb80f3f018c88b0",
+        "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
+        "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
+        "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
+        "scripts/lib/worker_tokens.py": "8c4cada1e7a4883a65435017ebac01c27307724a9724ea698f0df699898ff6b2",
+        "scripts/lib/proc_tree.py": "dbd97c9b9758184e960348cd6c81e5089ae9691aee8324977a3ddbc0460a219d",
+        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/cpu_guard.py": "b1a8c62264ca67a923537ec02ea3d5c13db1e4308e8a90907c845b69300b705e",
+        "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
+        "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
+        "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1"
+      },
+      "evidence": "The registration assertions resolve this one guard through the real plugin and seated surfaces using registered-hooks. Nested mutants execute the same assertions. Probe and installer checks are source-data scans, not dynamic inventory execution."
     }
   }
 }

@@ -152,6 +152,30 @@ class Inputs(unittest.TestCase):
 
 
 class Closure(unittest.TestCase):
+    def test_row_currency_keeps_adoption_and_registration_without_config_values(self):
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        graph = inputs.Dependencies(HERE.parent, document)
+        unit = 'scripts/hooks/row-currency.test.sh'
+        closure = graph.closure(document['units'][unit])
+        self.assertFalse(closure['whole'] or closure['fallback'] or closure['keys'], closure)
+        self.assertTrue(closure['presence'])
+        change = inputs.config_change('SHOW_TURN_MANIFEST=0', 'SHOW_TURN_MANIFEST=1')
+        self.assertFalse(graph.config_units(change, [unit]))
+        self.assertIn(unit, graph.config_units(inputs.config_change('SHOW_TURN_MANIFEST=0', None), [unit]))
+        for helper in ('scripts/hooks/guard-row-currency-commits.mutation.sh',
+                       'scripts/row-headline-verify.sh#fixture-records',
+                       'scripts/lib/row-currency.py#fixture-records'):
+            previous = document['nodes'].pop(helper)
+            self.assertIn(unit, graph.config_units(change, [unit]))
+            document['nodes'][helper] = previous
+        reader = inputs.hook_reader(document['hook_readers'][unit],
+                                    lambda path: (HERE.parent / path).read_text())
+        self.assertEqual(reader['commands'], ['scripts/hooks/guard-row-currency-commits.sh'])
+        document['hook_readers'][unit]['sources']['scripts/lib/registered-hooks.sh'] = 'changed'
+        with self.assertRaises(inputs.Unsupported):
+            inputs.hook_reader(document['hook_readers'][unit],
+                               lambda path: (HERE.parent / path).read_text())
+
     def test_isolation_contract_keeps_copied_model_and_registration_settings(self):
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         graph = inputs.Dependencies(HERE.parent, document)
