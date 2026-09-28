@@ -1193,11 +1193,17 @@ else
 fi
 # THE DECLARATION ITSELF. The cause on 2026-09-25 was one word in the real
 # config; this reads that config with the real HOME and checks every entry.
+# "The real HOME" is the account's home from the password database, not $HOME:
+# since 2026-09-27 the engine's runners hand every unit a throwaway $HOME inside
+# their temp directory (lib/record-canary.sh), and judged against THAT home the
+# declared $TMPDIR entry is a folder holding the home — a verdict about the
+# runner, not about the declaration. Only a path string is read here.
+W22D_HOME="$(python3 -c 'import os, pwd; print(pwd.getpwuid(os.getuid()).pw_dir)' 2>/dev/null || printf '%s' "$HOME")"
 # shellcheck disable=SC2016  # expanded by the inner shell, after it sources the config
-REAL_CANDIDATES="$(env -i HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" bash -c '. "$1" >/dev/null 2>&1; printf "%s" "$DISK_CONSUMER_CANDIDATES"' _ "$SCRIPT_DIR/../orchestration.config")"
+REAL_CANDIDATES="$(env -i HOME="$W22D_HOME" TMPDIR="${TMPDIR:-/tmp}" bash -c '. "$1" >/dev/null 2>&1; printf "%s" "$DISK_CONSUMER_CANDIDATES"' _ "$SCRIPT_DIR/../orchestration.config")"
 W22D_BAD=""
 for c in $REAL_CANDIDATES; do
-    if ! python3 "$SCRIPT_DIR/lib/foreign_app_data.py" check "$c" >/dev/null; then
+    if ! python3 "$SCRIPT_DIR/lib/foreign_app_data.py" check "$c" --home "$W22D_HOME" >/dev/null; then
         W22D_BAD="$W22D_BAD $c"
     fi
 done
