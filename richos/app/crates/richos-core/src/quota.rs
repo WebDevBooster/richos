@@ -727,9 +727,22 @@ mod tests {
             tx.send(force).unwrap();
         });
         service.request_refresh();
-        assert!(rx.recv_timeout(Duration::from_secs(2)).unwrap(), "session start wakes the sleeping monitor");
+        // The monitor's answer is the verdict: `true` only if the request woke it, `false` if
+        // its own 30 s interval ran out first. So the wait for that answer is a hang guard
+        // beyond the interval, not a clock on the wake; it was 2 s, which failed on a busy Mac
+        // while the monitor was right (audit R9).
+        assert!(rx.recv_timeout(Duration::from_secs(120)).expect("the monitor never answered"),
+            "session start wakes the sleeping monitor");
         thread.join().unwrap();
         assert_eq!(calls.load(Ordering::SeqCst), 2, "session start bypasses the five-minute cache");
+        // "Just completed" is the product's 5 s duplicate-request cooldown, measured on the wall
+        // clock from the read above. A test thread descheduled for 5 s between that read and
+        // the next line saw the cooldown over and a third read, and failed while the service
+        // was right (seen under `scripts/qa/stall-run.py`). So the reading is stamped as
+        // completed at the moment these two requests arrive, with a hang guard's margin: the
+        // question is whether simultaneous requests share a just-completed read, not how fast
+        // this thread gets from one line to the next.
+        service.snapshot.lock().unwrap().checked_at = Some(crate::util::now_millis() + 60_000);
         service.request_refresh(); service.request_refresh();
         let force = service.wait_for_refresh(Duration::ZERO);
         assert!(force);

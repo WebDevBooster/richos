@@ -645,24 +645,30 @@ fn waiting_at_reply_boundary_is_distinct_from_delivered() {
 fn a_guard_that_never_reads_large_input_cannot_hold_the_vendor_fallback() {
     let mut f = Fixture::new();
     std::fs::create_dir_all(f.root.join("engine/scripts/hooks")).unwrap();
+    // The guard never reads its input and sleeps for a hang guard's length; the 100 ms budget
+    // kills its process group long before. A budget that only started once the input was
+    // written (the defect this pins) would block on the full pipe until the guard exited,
+    // and the guard exits 0, so the question would be recorded. The budget's own refusal,
+    // word for word, is therefore the verdict. The `< 1 s` clock that stood here, against a
+    // `sleep 3` guard, decided it by the speed of the Mac instead (audit
+    // `docs/verification/2026-09-29-load-sensitive-checks-audit.md` R9).
     std::fs::write(
         f.root.join("engine/scripts/hooks/guard-ceo-ruled-ask.sh"),
-        "sleep 3\n",
+        "sleep 60\n",
     )
     .unwrap();
     f.scope.engine = Some(f.root.join("engine"));
     f.scope.entity_root = Some(f.root.clone());
     let input:QuestionInput=serde_json::from_value(serde_json::json!({"text":"x".repeat(4096),"options":[{"label":"Today","description":"x".repeat(2048)},{"label":"Tomorrow","description":"y".repeat(2048)},{"label":"Tuesday","description":"z".repeat(2048)},{"label":"Wednesday","description":"z".repeat(2048)}]})).unwrap();
-    let start = std::time::Instant::now();
-    assert!(f
+    let refused = f
         .store
         .ask_bounded(
             &f.scope,
             vec![input; 4],
             std::time::Duration::from_millis(100)
         )
-        .is_err());
-    assert!(start.elapsed() < std::time::Duration::from_secs(1));
+        .expect_err("a guard that never reads its input held the ask until it exited");
+    assert!(refused.to_string().contains("did not finish in time"), "{refused}");
     assert!(f.store.all().unwrap().is_empty());
 }
 

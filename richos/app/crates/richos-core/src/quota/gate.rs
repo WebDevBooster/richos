@@ -240,22 +240,29 @@ mod tests {
         let (_root, service, state, scope) = setup();
         publish(&service, 3_600_000);
         let (tx, rx) = std::sync::mpsc::channel();
+        // The worker's budget and the wait for it to resume are hang guards, never verdicts
+        // (audit R9): they were 3 s and 1 s, so a test thread descheduled for a few seconds
+        // let the budget run out before the publish and failed while the gate was right. The
+        // verdict is the worker's own answer: `Ok` only once admission allows work, which the
+        // near-reset publish is the only thing here to grant.
+        const HANG_GUARD: Duration = Duration::from_secs(60);
         let worker = std::thread::spawn(move || {
-            tx.send(wait(
+            let _ = tx.send(wait(
                 &json!({"agent_id":"same-worker","tool_name":"Bash"}),
                 &state,
                 &scope,
                 Duration::from_millis(5),
-                Duration::from_secs(3),
-            ))
-            .unwrap();
+                HANG_GUARD * 2,
+            ));
         });
         assert!(
             rx.recv_timeout(Duration::from_millis(40)).is_err(),
             "worker must stay pending"
         );
         publish(&service, 19 * 60_000);
-        rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        rx.recv_timeout(HANG_GUARD)
+            .expect("the worker never resumed after the reset came near")
+            .expect("the worker was refused instead of resuming");
         worker.join().unwrap();
     }
     #[test]

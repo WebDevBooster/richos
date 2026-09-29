@@ -18,7 +18,25 @@
 use richos_core::work_gate::{self, WorkSources};
 use richos_core::worker_status;
 use std::io::Write;
-use std::time::Instant;
+use std::sync::Mutex;
+use std::time::Duration;
+
+/// `RICHOS_TEAM_DIR` is process-wide. One test sets it today; any test added to this file
+/// that reads or sets it holds this for its whole run, so they cannot see each other's value.
+static TEAM_DIR_ENV: Mutex<()> = Mutex::new(());
+
+/// CPU time this process has used (user plus system, every thread). The watcher's cost is a
+/// share of a core, so that is what is measured, rather than wall time, which also counts
+/// every moment the test spent waiting for a core on a busy Mac (audit
+/// `docs/verification/2026-09-29-load-sensitive-checks-audit.md` R9's class: a verdict on
+/// wall time is a verdict on the Mac). `current_status` starts no child process, so nothing
+/// it does is missing from this count.
+fn cpu_used() -> Duration {
+    let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+    assert_eq!(unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) }, 0, "getrusage failed");
+    let tv = |t: libc::timeval| Duration::from_secs(t.tv_sec as u64) + Duration::from_micros(t.tv_usec as u64);
+    tv(usage.ru_utime) + tv(usage.ru_stime)
+}
 
 /// The scale the watcher meets on a real machine. Measured on the development machine on
 /// 2026-09-05: the live session's `worker-events.jsonl` held 2,918 rows. This fixture is
@@ -60,6 +78,7 @@ fn fixture() -> std::path::PathBuf {
 
 #[test]
 fn reading_the_gate_is_cheap_enough_to_do_every_five_seconds() {
+    let _env = TEAM_DIR_ENV.lock().unwrap_or_else(|e| e.into_inner());
     let dir = fixture();
     // `current_status` resolves its directory from the session id or from an explicit
     // override; the override is the only way to point it at a fixture.
@@ -69,7 +88,7 @@ fn reading_the_gate_is_cheap_enough_to_do_every_five_seconds() {
     let _ = worker_status::current_status(None);
 
     const N: u32 = 20;
-    let started = Instant::now();
+    let started = cpu_used();
     for _ in 0..N {
         let view = worker_status::current_status(None);
         // The decision itself, so the number covers the whole question the watcher asks
@@ -77,7 +96,7 @@ fn reading_the_gate_is_cheap_enough_to_do_every_five_seconds() {
         let (workers, gap) = work_gate::workers(&view);
         let _ = work_gate::decide(&WorkSources { workers, worker_gap: gap, ..WorkSources::all_clear() });
     }
-    let per_read_us = started.elapsed().as_micros() / u128::from(N);
+    let per_read_us = (cpu_used() - started).as_micros() / u128::from(N);
 
     std::env::remove_var("RICHOS_TEAM_DIR");
     let _ = std::fs::remove_dir_all(dir.parent().unwrap());
@@ -86,13 +105,13 @@ fn reading_the_gate_is_cheap_enough_to_do_every_five_seconds() {
     //   duty cycle = per-read time / WATCH_INTERVAL = per_read_us / 5_000_000 us
     let duty_percent = (per_read_us as f64) / 5_000_000.0 * 100.0;
     println!(
-        "work gate over {ROWS} worker rows: {per_read_us} us per read; \
+        "work gate over {ROWS} worker rows: {per_read_us} us of CPU per read; \
          at one read per 5 s that is {duty_percent:.4} % of one core"
     );
 
     assert!(
         per_read_us / 1000 < CEILING_MS,
-        "reading the work gate took {per_read_us} us over {ROWS} rows — the watcher runs this \
+        "reading the work gate took {per_read_us} us of CPU over {ROWS} rows — the watcher runs this \
          every 5 s while an update waits, and the ruling it serves is that the update must not \
          get in the way of finishing work"
     );

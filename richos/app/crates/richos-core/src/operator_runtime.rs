@@ -648,11 +648,13 @@ mod tests {
             }),
         }).unwrap();
         let route=QuestionRoute { scope,fallback:Arc::new(NeverPermission) };
-        let started=Instant::now();
+        // Nobody in this test ever answers the question, so a route that waited for his
+        // answer would never return: returning at all, with the question recorded, is the
+        // proof that it did not wait. The `< 1 s` clock that stood here added nothing to that
+        // and failed on a busy Mac (audit R9).
         let reply=route.answer(&json!({"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{
             "question":"When should we ship?","options":[{"label":"Today","description":"Earlier fixes"},{"label":"Tomorrow","description":"More testing"}],"multiSelect":false
         }]}})).unwrap();
-        assert!(started.elapsed()<Duration::from_secs(1));
         assert_eq!(reply["behavior"],"deny");
         assert!(reply["message"].as_str().unwrap().contains("recorded"));
         let questions=crate::questions::Store::new(&state).all().unwrap();
@@ -713,10 +715,14 @@ mod tests {
     #[test]
     fn a_hung_script_is_bounded_and_a_missing_one_is_named() {
         let f = fixture();
-        script(&f, "slow.sh", "sleep 30\n");
-        let began = Instant::now();
+        // The script sleeps for a hang guard's length (the deadline kills its process group
+        // long before), so the only way out before then is the deadline, and "did not
+        // answer" names that way. A run that waited for the script would have returned its
+        // exit code instead, and `unwrap_err` would fail. That sentence is the verdict; the
+        // `< 5 s` clock beside it only added a way to fail on a busy Mac (audit R9).
+        script(&f, "slow.sh", "sleep 60\n");
         let err = run_engine_script(&f.declaration, "slow.sh", &[], &[], Duration::from_millis(300)).unwrap_err();
-        assert!(err.contains("did not answer") && began.elapsed() < Duration::from_secs(5), "{err}");
+        assert!(err.contains("did not answer"), "{err}");
         assert!(run_engine_script(&f.declaration, "absent.sh", &[], &[], Duration::from_secs(1)).unwrap_err().contains("missing"));
     }
 

@@ -4177,27 +4177,79 @@ impl Cognition for NativeCognition {
 mod native_driver_tests {
     use super::*;
 
+    /// A turn that ends at the question must not have waited for the provider's `result`.
+    ///
+    /// These fixtures used to send that `result` after `sleep 3` and the tests asserted the
+    /// prompt came back inside 1 s, so the verdict was the speed of the Mac: a test process
+    /// descheduled for a second on a busy nightly failed while the product was right
+    /// (audit `docs/verification/2026-09-29-load-sensitive-checks-audit.md` R9). Now the
+    /// fixture holds its `result` back for a minute and marks the moment it sends it. A
+    /// prompt that returned while the mark is absent returned without the `result`, however
+    /// slow the machine; one that waited for the `result` finds the mark. The minute is only
+    /// the hang guard, so a regression fails in a minute rather than hanging the suite. The
+    /// client's drop kills the fixture's process group, `sleep` included.
+    const RESULT_HELD_BACK: &str = r#"sleep 60
+: > "$(dirname "$0")/result-sent"
+printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+"#;
+
+    /// Process environment is shared by every test in this binary, and libtest runs them side
+    /// by side. The tests below set variables to prove `child_args`/`chat_child_args` read
+    /// none; nothing reads these names, but every test that sets or clears one holds this for
+    /// as long as its value is in place, and puts the old value back on the way out, even when
+    /// it fails (audit `docs/verification/2026-09-29-load-sensitive-checks-audit.md`,
+    /// `env-mutation-unguarded`).
+    static ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    struct EnvSet {
+        saved: Vec<(&'static str, Option<std::ffi::OsString>)>,
+        _held: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl EnvSet {
+        fn empty(names: &[&'static str]) -> EnvSet {
+            let held = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+            let saved = names.iter().map(|n| (*n, std::env::var_os(n))).collect();
+            for name in names {
+                std::env::set_var(name, "");
+            }
+            EnvSet { saved, _held: held }
+        }
+    }
+
+    impl Drop for EnvSet {
+        fn drop(&mut self) {
+            for (name, value) in &self.saved {
+                match value {
+                    Some(v) => std::env::set_var(name, v),
+                    None => std::env::remove_var(name),
+                }
+            }
+        }
+    }
+
+    fn assert_returned_before_the_result(root: &Path) {
+        assert!(!root.join("result-sent").exists(),
+            "the prompt returned only after the provider sent its result: the question retained the asking turn");
+    }
 
     #[test]
     fn a_vendor_question_is_converted_and_the_host_ends_a_noncooperative_turn() {
-        let script=write_script("nonblocking-vendor-question", r#"
+        let script=write_script("nonblocking-vendor-question", &(r#"
 read -r init
 printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
 read -r prompt
 printf '%s\n' '{"type":"control_request","request_id":"ask","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"When should the release ship?","options":[{"label":"Ship today","description":"Earlier fixes"},{"label":"Ship tomorrow","description":"More testing"}]}]}}}'
 read -r response
-sleep 3
-printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
-"#);
+"#.to_string()+RESULT_HELD_BACK));
         let root=script.parent().unwrap();
         let client=NativeClient::spawn(&script,root,&doctrine_fixture(),&skills_fixture()).unwrap();
         let path=root.join("questions-scope.json");
         let scope=crate::question_tools::Scope{context:crate::questions::AskScope{root:root.into(),entity_id:"company".into(),thread_id:"thread".into(),turn_id:"ask-turn".into(),asker:"front_desk".into(),session_id:client.session_id().into(),engine:None,entity_root:None},actions_allowed:true,answer_method:"typed".into(),surface:"mac".into()};
         crate::question_tools::write_scope(&path,&scope).unwrap();
         client.reader_state.lock().unwrap().question_scope=Some(path);
-        let started=std::time::Instant::now();
         assert_eq!(client.prompt("Ask one choice",&mut |_|{}).unwrap(),"question_asked");
-        assert!(started.elapsed()<Duration::from_secs(1),"vendor question retained the asking turn");
+        assert_returned_before_the_result(root);
         let qs=crate::questions::Store::new(root).list("company","thread").unwrap();
         assert_eq!(qs.len(),1);assert_eq!(qs[0].state,crate::questions::State::Open);
         assert!(qs[0].shown.is_none(),"persisting a question must not claim it was shown");
@@ -4205,26 +4257,24 @@ printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
 
     #[test]
     fn app_owned_ask_ends_the_front_desk_without_a_provider_result() {
-        let script=write_script("nonblocking-app-question",r#"
+        let script=write_script("nonblocking-app-question",&(r#"
 read -r init
 printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
 read -r prompt
 printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Asking now"}]}}'
-sleep 3
-printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
-"#);
+"#.to_string()+RESULT_HELD_BACK));
         let root=script.parent().unwrap();
         let client=NativeClient::spawn(&script,root,&doctrine_fixture(),&skills_fixture()).unwrap();
         let path=root.join("scope.json");
         let scope=crate::question_tools::Scope{context:crate::questions::AskScope{root:root.into(),entity_id:"company".into(),thread_id:"thread".into(),turn_id:"ask-turn".into(),asker:"front_desk".into(),session_id:client.session_id().into(),engine:None,entity_root:None},actions_allowed:true,answer_method:"typed".into(),surface:"mac".into()};
         crate::question_tools::write_scope(&path,&scope).unwrap();
         client.reader_state.lock().unwrap().question_scope=Some(path.clone());
-        let started=std::time::Instant::now();let mut asked=false;
+        let mut asked=false;
         let reason=client.prompt("Ask one choice",&mut |item|{if matches!(item,TurnItem::Text{..}) && !asked {
             asked=true;
             crate::question_tools::call(&path,"ask",json!({"questions":[{"text":"When should the release ship?","options":[{"label":"Ship today","description":"Earlier fixes"},{"label":"Ship tomorrow","description":"More testing"}]}]})).unwrap();
         }}).unwrap();
-        assert!(asked);assert_eq!(reason,"question_asked");assert!(started.elapsed()<Duration::from_secs(1));
+        assert!(asked);assert_eq!(reason,"question_asked");assert_returned_before_the_result(root);
     }
 
     // ---- the background-work spec's §5.8a-ii seams ------------------------------------
@@ -5058,9 +5108,8 @@ printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
         let j = args.iter().position(|a| a == "--session-id").unwrap();
         assert_eq!(args[j + 1], "sess-1");
         // And no environment variable can turn the flag off: `child_args` reads none.
-        std::env::set_var("RICHOS_PERMISSION_PROMPT_TOOL", "");
+        let _env = EnvSet::empty(&["RICHOS_PERMISSION_PROMPT_TOOL"]);
         assert!(child_args("x").iter().any(|a| a == PERMISSION_PROMPT_TOOL));
-        std::env::remove_var("RICHOS_PERMISSION_PROMPT_TOOL");
     }
 
     // ---- the standing instruction (doctrine.rs, inner-doctrine design §7.1/§7.2) --------
@@ -5091,11 +5140,8 @@ printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
         assert!(args[i + 1].contains("Application Support"));
 
         // And no environment variable can turn it off: `chat_child_args` reads none.
-        std::env::set_var("RICHOS_APPEND_SYSTEM_PROMPT_FILE", "");
-        std::env::set_var("RICHOS_DOCTRINE", "");
+        let _env = EnvSet::empty(&["RICHOS_APPEND_SYSTEM_PROMPT_FILE", "RICHOS_DOCTRINE"]);
         assert!(chat_child_args("x", doctrine, skills).iter().any(|a| a == APPEND_SYSTEM_PROMPT_FILE));
-        std::env::remove_var("RICHOS_APPEND_SYSTEM_PROMPT_FILE");
-        std::env::remove_var("RICHOS_DOCTRINE");
     }
 
     #[test]
@@ -5282,11 +5328,8 @@ printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
         assert!(!args[i + 1].contains("/.claude/"), "the operator's own directory is not a source of authority");
 
         // And no environment variable turns it off: `chat_child_args` reads none.
-        std::env::set_var("RICHOS_PLUGIN_DIR", "");
-        std::env::set_var("RICHOS_SKILLS", "");
+        let _env = EnvSet::empty(&["RICHOS_PLUGIN_DIR", "RICHOS_SKILLS"]);
         assert!(chat_child_args("x", doctrine, skills).iter().any(|a| a == PLUGIN_DIR));
-        std::env::remove_var("RICHOS_PLUGIN_DIR");
-        std::env::remove_var("RICHOS_SKILLS");
     }
 
     #[test]
@@ -5638,12 +5681,15 @@ done
             entered_tx.send(()).unwrap();
             client.handshake_cancellable(Some(&worker_control))
         });
-        entered_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
-        let began = std::time::Instant::now();
+        // A hang guard on a thread starting, not a measure of anything.
+        entered_rx.recv_timeout(std::time::Duration::from_secs(60)).unwrap();
         control.request_stop().unwrap();
+        // The fixture never answers this second handshake, so the only other way out is
+        // HANDSHAKE_TIMEOUT, which says "no answer to the initialize handshake". The error's
+        // own words tell the stop from the timeout; a clock beside them (it was `< 2 s`)
+        // only added a way to fail on a busy Mac (audit R9).
         let error = worker.join().unwrap().unwrap_err();
         assert!(error.to_string().contains("stopped at your request"), "{error}");
-        assert!(began.elapsed() < std::time::Duration::from_secs(2));
     }
 
     #[test]

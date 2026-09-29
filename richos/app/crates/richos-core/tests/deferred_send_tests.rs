@@ -72,6 +72,11 @@ fn tmp_path(tag: &str) -> std::path::PathBuf {
 // -------------------------------------------------------------------------------------
 
 /// A one-shot latch: `raise` once, `wait` from anywhere, never lost if the raise came first.
+/// How long a latch waits before it calls the build broken: a hang guard, never a verdict.
+/// It was 10 s; a latch the test raises in microseconds needs no tighter bound, and a tighter
+/// one only measures how busy the Mac is (audit R9's class).
+const LATCH_HANG_GUARD: Duration = Duration::from_secs(60);
+
 #[derive(Clone, Default)]
 struct Latch(Arc<(Mutex<bool>, Condvar)>);
 
@@ -124,7 +129,7 @@ impl Cognition for SlowPrimingLease {
     fn reprime(&mut self, priming_text: &str, _on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
         self.reprimes.lock().unwrap().push(priming_text.to_string());
         self.priming_started.raise();
-        self.release_priming.wait(Duration::from_secs(10));
+        self.release_priming.wait(LATCH_HANG_GUARD);
         Ok(())
     }
 
@@ -196,7 +201,7 @@ impl Contended {
         let spine = self.spine.clone();
         let thread = self.thread.clone();
         let handle = std::thread::spawn(move || spine.lock().unwrap().prime_front_desk(&thread));
-        self.priming_started.wait(Duration::from_secs(10));
+        self.priming_started.wait(LATCH_HANG_GUARD);
         handle
     }
 
@@ -245,21 +250,19 @@ fn his_send_is_accepted_while_the_spine_is_shut_for_the_pre_prime() {
     );
     assert_eq!(c.control.front_desk_priming().as_deref(), Some(c.thread.as_str()));
 
-    let asked_at = Instant::now();
     let deferred = c
         .control
         .defer_send(&c.thread, Some(femcboost()), "Land the pricing branch and get the staging deploy done.")
         .unwrap();
-    let waited = asked_at.elapsed();
 
     let record = deferred.expect("a send during the pre-prime must be accepted, not blocked");
     assert!(matches!(record, IntakeRecord::Desk { .. }), "a typed message is a desk record: {record:?}");
-    // NOT A TUNED THRESHOLD. The thing being distinguished is "one local `fsync`" from "the
-    // remainder of a model turn": the prime this test is holding open cannot end until the
-    // latch is released, so anything that completes at all here completed without waiting for
-    // it. The bound is generous on purpose — it is a smoke alarm for a re-introduced block,
-    // not a performance budget.
-    assert!(waited < Duration::from_secs(1), "the send waited {waited:?} — it is back on the lock");
+    // The thing being distinguished is "one local `fsync`" from "the remainder of a model
+    // turn": the prime this test is holding open cannot end until the latch is released, so
+    // anything that completes at all here completed without waiting for it, and the spine
+    // still being shut below says so. The `< 1 s` clock that stood here proved nothing that
+    // did not, and failed on a busy Mac (audit
+    // `docs/verification/2026-09-29-load-sensitive-checks-audit.md` R9).
     assert!(c.spine.try_lock().is_err(), "and the spine was still shut when it returned");
 
     // Nothing has been said to the provider except the priming payload.
@@ -413,9 +416,20 @@ fn the_ready_verdict_counts_the_prime_and_never_the_turn_it_drained_on_its_way_o
     // into a turn of MINUS 1.431 s. `app.log`'s figure would have been wrong in the same way,
     // silently, and it is exactly the sort of number that ends up quoted in a record.
     //
-    // 400 ms of turn against a prime released immediately: the two are an order of magnitude
-    // apart, so this tells them apart without being a timing threshold.
-    let c = Contended::open_with_turn_taking("ready-millis", "On it!", Duration::from_millis(400));
+    // 400 ms of turn, run by the priming thread AFTER the prime's clock stops and before the
+    // thread returns. So for a correct stamp, the whole span this test watches (from before the
+    // priming thread exists to after it joins) holds the prime's `millis` AND that 400 ms of
+    // turn, one after the other: `whole >= millis + turn`. A stamp taken after the drain has
+    // the turn inside `millis`, and the inequality no longer holds.
+    //
+    // Both sides are ORDERINGS, so a busy Mac can only widen `whole`: it can never fail a
+    // correct stamp. The check that stood here was `millis < 400`, and `millis` includes this
+    // test thread's own `defer_send` and wake-ups while the prime is held open, so a test
+    // thread descheduled for 400 ms failed it with the stamp right (audit
+    // `docs/verification/2026-09-29-load-sensitive-checks-audit.md` R9's class).
+    const TURN: Duration = Duration::from_millis(400);
+    let c = Contended::open_with_turn_taking("ready-millis", "On it!", TURN);
+    let watched_from = Instant::now();
     let priming = c.start_priming();
     c.control.defer_send(&c.thread, Some(femcboost()), "his message").unwrap().expect("accepted");
     c.release_priming.raise();
@@ -423,19 +437,21 @@ fn the_ready_verdict_counts_the_prime_and_never_the_turn_it_drained_on_its_way_o
     let joined_at = Instant::now();
     let verdict = priming.join().unwrap();
     let across_the_join = joined_at.elapsed();
+    let whole = watched_from.elapsed();
 
     let millis = match verdict {
         FrontDeskReady::Ready { millis, .. } => millis,
         other => panic!("the desk should have been made ready: {other:?}"),
     };
     assert!(
-        across_the_join >= Duration::from_millis(400),
+        across_the_join >= TURN,
         "the priming thread did not actually run his turn before returning: {across_the_join:?}"
     );
     assert!(
-        millis < 400,
-        "Ready.millis is {millis} ms — his own turn has been folded into the number `app.log` \
-         reports as the priming he did NOT have to wait for"
+        whole >= Duration::from_millis(millis as u64) + TURN,
+        "Ready.millis is {millis} ms of a {whole:?} span that also ran his {TURN:?} turn after the \
+         prime — his own turn has been folded into the number `app.log` reports as the priming \
+         he did NOT have to wait for"
     );
     assert_eq!(*c.prompts.lock().unwrap(), vec!["his message"]);
 }
