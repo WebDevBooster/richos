@@ -53,6 +53,13 @@ NIGHTLY_RE = re.compile(BASE_RE + r"-nightly\.([0-9]{8})\.([1-9][0-9]*)")
 # Candidate reservations do not appear in GitHub's branch, tag or release lists.
 # They are public references, not confidential storage. Creation uses an empty lease.
 CANDIDATE_REF_PREFIX = "refs/candidates/"
+# A STABLE build reserves its version the same way, under the tag it will publish:
+# `refs/candidates/stable/v1.2.0`. The real `v1.2.0` tag is created only by `finish`, so
+# a build that dies compiling or notarizing has created nothing public and spends
+# nothing. Before 2026-09-29 `prepare` pushed `v1.2.0` itself, before compiling, and
+# `stable_plan` read that tag as "shipped", so one failed build used up the version
+# (hunt part 2, section 05). The tag existing now means exactly one thing: published.
+STABLE_RESERVATION_PREFIX = "refs/candidates/stable/"
 RELEASE_ASSET_LIMIT = 1000
 CHANNEL_ASSET_HEADROOM = 2
 
@@ -316,6 +323,78 @@ def verify_candidate_ref(info):
         raise ValueError("remote candidate reservation does not match the tested build")
 
 
+def stable_reservation_ref(tag):
+    return f"{STABLE_RESERVATION_PREFIX}{tag}"
+
+
+def remote_ref(ref):
+    """The object `ref` names on origin, or "" when origin has no such ref.
+
+    Matched by the whole name: `ls-remote` matches its pattern against the TAIL of every
+    ref, and an annotated tag is also listed peeled, as `<ref>^{}`.
+    """
+    for line in git("ls-remote", "origin", ref).splitlines():
+        oid, name = line.split()
+        if name == ref:
+            return oid
+    return ""
+
+
+@release_step
+def stable_reservation(tag, published_tags, reserved_oid, reserved_info):
+    """The lease a stable build of `tag` takes on its version. Text in, decision out.
+
+    `reserved_oid` is what `refs/candidates/stable/<tag>` names on origin right now ("" when
+    it does not exist) and `reserved_info` is the provenance that commit carries. The plan
+    records `reserved_oid` and `prepare` replaces the reservation only if origin still
+    holds exactly that, so:
+
+      * A RETRY after a failed build takes the reservation over. The failed attempt created
+        no tag and no release, so there is nothing to protect; its reservation is only the
+        record that somebody tried.
+      * TWO BUILDS PLANNED FROM ONE OBSERVATION cannot both reserve: the second lease no
+        longer matches and `prepare` refuses. A build planned later, after the first had
+        reserved, does take the reservation over, and from then on the first can no
+        longer publish -- `stable_reservation_holds` refuses it at `build` and at `finish`.
+        One Mac cannot get there at all, because `nightly-local.py` holds `release.lock`
+        around every command.
+      * A PUBLISHED version is never planned again: its tag exists, and only `finish`
+        creates that tag.
+    """
+    if tag in published_tags:
+        raise ValueError(f"{tag} already exists, so that version was published, and a "
+                         "published version is never rebuilt or replaced. Bump the version "
+                         "on main and promote a nightly built after the bump.")
+    if reserved_oid and not (isinstance(reserved_info, dict)
+                             and reserved_info.get("channel") == "stable"
+                             and reserved_info.get("tag") == tag):
+        raise ValueError(f"{stable_reservation_ref(tag)} names {reserved_oid[:12]}, which is "
+                         f"not an earlier stable build of {tag}; refusing to replace it")
+    return {"reservation_ref": stable_reservation_ref(tag), "reservation_base": reserved_oid}
+
+
+@release_step
+def stable_reservation_holds(info, reserved_oid, tag_oid):
+    """Refuse a stable build that no longer holds its version, or whose version shipped.
+
+    `reserved_oid` and `tag_oid` are what origin names for the reservation and for the
+    public tag ("" when absent). The tag may already name THIS build: `finish` creates it
+    before uploading, and a `finish` that failed after that point is re-run, not rebuilt.
+    """
+    tag = info["tag"]
+    if info.get("reservation_ref") != stable_reservation_ref(tag):
+        raise ValueError(f"this stable build of {tag} carries no matching reservation; "
+                         "plan it again")
+    if reserved_oid != info["build_commit"]:
+        raise ValueError(f"{info['reservation_ref']} no longer names this build "
+                         f"({info['build_commit'][:12]}): another stable build of {tag} "
+                         "reserved the version after this one did, and only the build "
+                         "holding the reservation may publish")
+    if tag_oid and tag_oid != info["build_commit"]:
+        raise ValueError(f"{tag} was already published from another build, and a published "
+                         "version is never replaced")
+
+
 def channel():
     """The channel tag's commit and the `build-info.json` recorded in it.
 
@@ -496,10 +575,21 @@ def stable_plan(nightly_tag, record_text, now=None):
     if not re.fullmatch(BASE_RE, base):
         raise ValueError(f"{source[:12]} carries version {base!r}, which is not a stable "
                          "version; Cargo.toml must hold the next unreleased stable version")
-    if f"v{base}" in remote_tags():
-        raise ValueError(f"v{base} already exists; {nightly_tag} was built from a commit "
-                         f"whose version has already shipped. Bump the version on main and "
-                         "promote a nightly built after the bump.")
+    # THE VERSION IS RESERVED OUT OF SIGHT, NOT TAGGED. The public tag is created only when
+    # the release is published, so a tag here means shipped, and an earlier attempt that
+    # failed before publishing left only a hidden reservation, which this plan may take
+    # over. `stable_reservation` says why that is safe and what it still refuses.
+    tag = f"v{base}"
+    reservation = stable_reservation_ref(tag)
+    reserved = remote_ref(reservation)
+    reserved_info = None
+    if reserved:
+        git("fetch", "--no-tags", "origin", reservation)
+        try:
+            reserved_info = json.loads(git("show", f"{reserved}:{PROVENANCE}"))
+        except (subprocess.CalledProcessError, ValueError):
+            reserved_info = None
+    lease = stable_reservation(tag, remote_tags(), reserved, reserved_info)
     # THE COMMIT IS REBUILT BY ITS OWN RELEASE TOOLING, which is what makes it a rebuild
     # of that commit rather than a build of something adjacent to it. `nightly-local.py`
     # moves the dedicated worktree to `source` and runs the `nightly.py` it finds THERE,
@@ -518,7 +608,7 @@ def stable_plan(nightly_tag, record_text, now=None):
             "  Promote a nightly built from a commit that carries the stable channel; the "
             "first of those is the first nightly published after this landed.")
     identity()
-    return {"build": True, "version": base, "tag": f"v{base}", "source_commit": source,
+    return {"build": True, "version": base, "tag": tag, "source_commit": source,
             "created_at": now.isoformat(),
             "run_id": os.environ.get("RICHOS_NIGHTLY_RUN_ID", "manual"), "run_attempt": "1",
             "channel": "stable", "platform": built["platform"],
@@ -532,7 +622,11 @@ def stable_plan(nightly_tag, record_text, now=None):
             # rebuild of, and the record of the decision that allowed it.
             "promoted_from": nightly_tag, "promoted_from_version": built["version"],
             "promotion_decided_on": decision["decided_on"],
-            "promotion_words": decision["words"]}
+            "promotion_words": decision["words"],
+            # The hidden reservation and the exact value this plan saw it hold, which is
+            # the lease `prepare` takes. A key `candidate_ref` would not do: a commit whose
+            # own tooling predates this reads that key as "a nightly candidate".
+            **lease}
 
 
 def promote_stable(info):
@@ -600,6 +694,10 @@ def prepare(info):
             raise ValueError("nightly plan needs a matching candidate reservation; plan again")
         if version != next_version(base, day, tags, candidate_refs()):
             raise ValueError("build number is already reserved or plan is stale; plan again")
+    else:
+        if (info.get("reservation_ref") != stable_reservation_ref(info["tag"])
+                or not isinstance(info.get("reservation_base"), str)):
+            raise ValueError("stable plan needs a matching version reservation; plan again")
     # ONE ENTRY POINT, TWO CALLERS. The smoke calls this same function with the same three
     # files; see `release_step`'s note on why it is not two copies of one procedure.
     files = release_files(info, (ROOT / MANIFEST).read_text(), (ROOT / LOCK).read_text(),
@@ -612,8 +710,19 @@ def prepare(info):
         git("push", "--atomic", f"--force-with-lease={ref}:", "origin", f"{commit}:{ref}")
         git("fetch", "--no-tags", "origin", ref)
     else:
-        git("push", "origin", f"{commit}:refs/tags/{info['tag']}")
-        git("fetch", "origin", f"refs/tags/{info['tag']}:refs/tags/{info['tag']}")
+        # NO PUBLIC TAG HERE. `finish` creates `v<version>`; this only reserves the version,
+        # out of every GitHub list, with the lease the plan observed: absent for a first
+        # attempt, the failed attempt's commit for a retry. Anything else on origin means
+        # another stable build of this version reserved it after this plan was made.
+        ref = info["reservation_ref"]
+        try:
+            git("push", "--atomic", f"--force-with-lease={ref}:{info['reservation_base']}",
+                "origin", f"{commit}:{ref}")
+        except subprocess.CalledProcessError as error:
+            raise ValueError(f"{ref} changed after this plan read it: another stable build "
+                             f"of {info['tag']} reserved the version first. Plan again; "
+                             "the plan re-reads the reservation") from error
+        git("fetch", "--no-tags", "origin", ref)
     git("checkout", "--detach", commit)
     return {**info, "build_commit": commit}
 
@@ -884,26 +993,59 @@ def upload_candidate_assets(info, out, assets):
             verify_served_asset(url, path)
 
 
-def build(info, out):
-    """Build a candidate without a public nightly tag or release-list entry.
+def clear_superseded_stable_attempt(info, out):
+    """Remove the staging a failed earlier attempt of this stable version left in `out`.
 
-    New candidates pin a digest-named engine on the existing channel release.
-    Stable and legacy candidates keep their original engine delivery path.
+    Every attempt of one stable version is staged in the same place (`nightly-local.py`
+    uses `state/releases/<tag>`), and `build` refuses an existing directory, so without
+    this a retry would stop at `mkdir` even with its version free. Called only after
+    `stable_reservation_holds` has confirmed that THIS build holds the reservation and the
+    version is unpublished, so the earlier attempt can never publish and its files are
+    garbage. Anything that is not provably such an attempt is left alone, and `mkdir`
+    below refuses it as before.
+    """
+    if not out.exists():
+        return
+    try:
+        previous = json.loads((out / "build-info.json").read_text())
+    except (OSError, ValueError):
+        return
+    if (isinstance(previous, dict) and previous.get("channel") == "stable"
+            and previous.get("tag") == info["tag"]
+            and previous.get("reservation_ref") == info["reservation_ref"]
+            and previous.get("build_commit") != info["build_commit"]):
+        shutil.rmtree(out)
+
+
+def build(info, out):
+    """Build a candidate without a public version tag or release-list entry.
+
+    Nightly candidates and reserved stable builds pin a digest-named engine on the
+    existing channel release, because the engine's URL is compiled into the app and a
+    per-version URL would need the public `v<version>` release to exist before the
+    compile -- which is exactly what made a failed stable build spend its version. Only
+    already-staged legacy candidates keep the per-version engine delivery path.
     """
     scripts = ROOT / APP / "scripts"
     release = str(scripts / "make-release.sh")
+    hidden = info.get("candidate_ref") or info.get("reservation_ref")
+    if info.get("reservation_ref"):
+        stable_reservation_holds(info, remote_ref(info["reservation_ref"]),
+                                 remote_ref(f"refs/tags/{info['tag']}"))
+        clear_superseded_stable_attempt(info, out)
     out.mkdir(parents=True, exist_ok=False)
     (out / "build-info.json").write_text(json_text(info))
     label = describe_release(info)
     engine_version = (ROOT / "richos/engine/VERSION").read_text().strip()
-    if info.get("candidate_ref"):
-        verify_candidate_ref(info)
+    if hidden:
+        if info.get("candidate_ref"):
+            verify_candidate_ref(info)
         execute("bash", release, "engine", "--out", str(out), "--candidate-engine")
         archive = out / f"richos-engine-{engine_version}.tar.gz"
         name, url = candidate_engine_asset(sha256_file(archive))
         stage_candidate_engine(archive, name, url)
     else:
-        # Stable promotion and already-staged legacy nightly versions are unchanged.
+        # Already-staged legacy versions, planned before reservations existed.
         notes = out / "notes.txt"
         notes.write_text(release_notes(info))
         execute("bash", release, "engine", "--out", str(out))
@@ -938,17 +1080,24 @@ def finish(info, out):
                          "commit; run \"nightly-local.py build\" again before publishing")
     verify_candidate_manifest(info, out)
     verify_source_is_current(info["source_commit"])
+    hidden = info.get("candidate_ref") or info.get("reservation_ref")
     if info.get("candidate_ref"):
         verify_candidate_ref(info)
+    elif info.get("reservation_ref"):
+        stable_reservation_holds(info, remote_ref(info["reservation_ref"]),
+                                 remote_ref(f"refs/tags/{info['tag']}"))
+    if hidden:
         verify_repository_rules()
     scripts = ROOT / APP / "scripts"
     release = str(scripts / "make-release.sh")
     engine_version = (ROOT / "richos/engine/VERSION").read_text().strip()
     excluded = {"engine-pin.env", "engine-published.ok", "latest.json", CANDIDATE_MANIFEST}
-    if not info.get("candidate_ref"):
+    if not hidden:
         excluded.add(f"richos-engine-{engine_version}.tar.gz")
     assets = [str(p) for p in sorted(out.iterdir()) if p.is_file() and p.name not in excluded]
-    if info.get("candidate_ref"):
+    if hidden:
+        # THE PUBLISH STEP, and the first moment the version exists publicly. The tag is
+        # created with an empty lease, so of two builds only one can ever publish it.
         ensure_version_tag(info)
         upload_candidate_assets(info, out, assets)
     else:
@@ -1204,6 +1353,36 @@ def _release_smoke(work):
         tag, json_text([{"tag": tag, "decided_on": "2026-09-20", "words": "x"},
                         {"tag": tag, "decided_on": "2026-09-21", "words": "y"}])))
     checked.append("promotion decision: his record honored, every substitute refused")
+
+    # --- the stable version's reservation (hunt part 2, section 05) -------------------
+    stable_tag = stable_info["tag"]
+    first_lease = stable_reservation(stable_tag, {f"v{third}"}, "", None)
+    if first_lease != {"reservation_ref": f"{STABLE_RESERVATION_PREFIX}{stable_tag}",
+                       "reservation_base": ""}:
+        raise ValueError(f"release-smoke: a first stable attempt would reserve {first_lease}")
+    failed_attempt = "1" * 40
+    retry_lease = stable_reservation(stable_tag, set(), failed_attempt,
+                                     {**stable_info, "build_commit": failed_attempt})
+    if retry_lease["reservation_base"] != failed_attempt:
+        raise ValueError("release-smoke: a retry does not lease the failed attempt it replaces")
+    refuses("a stable version whose tag was published",
+            lambda: stable_reservation(stable_tag, {stable_tag}, "", None))
+    refuses("replacing a reservation that is not an earlier stable build of this version",
+            lambda: stable_reservation(stable_tag, set(), failed_attempt, nightly_info))
+    refuses("replacing a reservation whose provenance cannot be read",
+            lambda: stable_reservation(stable_tag, set(), failed_attempt, None))
+    holder = {**stable_info, **first_lease, "build_commit": "2" * 40}
+    stable_reservation_holds(holder, holder["build_commit"], "")
+    # A `finish` re-run after it created the tag is the same build, not a replacement.
+    stable_reservation_holds(holder, holder["build_commit"], holder["build_commit"])
+    refuses("publishing after another stable build took the reservation",
+            lambda: stable_reservation_holds(holder, failed_attempt, ""))
+    refuses("replacing a published stable version",
+            lambda: stable_reservation_holds(holder, holder["build_commit"], failed_attempt))
+    refuses("a stable build carrying no reservation", lambda: stable_reservation_holds(
+        {**holder, "reservation_ref": None}, holder["build_commit"], ""))
+    checked.append("stable reservation: hidden, retaken after a failed attempt, every "
+                   "collision refused")
 
     # --- COMPLETENESS: the check that keeps this from becoming T3's smoke -------------
     #
