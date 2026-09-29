@@ -934,6 +934,49 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
         (crate / "target" / "kept.txt").write_text("changed")
         self.assertNotEqual(with_tracked, evidence.recipe_identity(self.root, recipe, {}))
 
+    def test_test_output_written_beside_a_declared_input_is_not_that_input(self):
+        # 2026-09-29: the push of c7491c34 was refused on no-foreign-app-data `invalid`,
+        # "changed: richos/app/ui/tests/.shots/...": its inputs include richos/app/ui and the UI
+        # suites beside it wrote their per-run screenshots there. Alone it passes 3 of 3.
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, env=env)
+        ui = self.root / "richos/app/ui"
+        tests = ui / "tests"
+        tests.mkdir(parents=True)
+        (tests / ".gitignore").write_text(".shots/\nreceipts/\n.vouch/\nscratch/\n")
+        (ui / "main.js").write_text("export const x = 1;\n")
+        for name in (".shots", "receipts", ".vouch", "scratch"):
+            (tests / name).mkdir()
+            (tests / name / "one.png").write_text("first run")
+        self.qualification("fixture input contract", paths=["richos/app/ui"])
+        recipe = {"paths": ["richos/app/ui"], "tools": [], "environment": [], "external": [],
+                  "qualification": "qualification.json"}
+        base = evidence.recipe_identity(self.root, recipe, {})
+        for name in (".shots", "receipts", ".vouch"):
+            with self.subTest(output=name):
+                (tests / name / "one.png").write_text("another run's picture")
+                (tests / name / "changed").mkdir()
+                (tests / name / "changed" / "two.png").write_text("new")
+                self.assertEqual(base, evidence.recipe_identity(self.root, recipe, {}), "a write into " + name)
+        shutil.rmtree(tests / ".shots")
+        self.assertEqual(base, evidence.recipe_identity(self.root, recipe, {}), "the output removed")
+        # Everything else is bound exactly as before: the source, an ignored directory nobody
+        # declared as output, and a declared one that holds a tracked file.
+        for path in (ui / "main.js", tests / "scratch" / "one.png"):
+            with self.subTest(path=str(path.relative_to(self.root))):
+                original = path.read_text()
+                path.write_text(original + " changed")
+                self.assertNotEqual(base, evidence.recipe_identity(self.root, recipe, {}))
+                path.write_text(original)
+        (tests / ".shots").mkdir()
+        (tests / ".shots" / "kept.png").write_text("tracked on purpose")
+        subprocess.run(["git", "-C", str(self.root), "add", "-f", "richos/app/ui/tests/.shots/kept.png"],
+                       check=True, env=env)
+        with_tracked = evidence.recipe_identity(self.root, recipe, {})
+        (tests / ".shots" / "kept.png").write_text("changed")
+        self.assertNotEqual(with_tracked, evidence.recipe_identity(self.root, recipe, {}),
+                            "an output directory holding a tracked file is bound")
+
     def test_an_invalidated_pass_names_what_changed_and_the_checks_started_by_then(self):
         crate, recipe, _env = self.cache_fixture()
         scripts = self.root / "richos/app/scripts"

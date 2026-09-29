@@ -55,7 +55,10 @@ because the lint check beside it ran Clippy on `crates/richos-user-update`, whos
 directory is inside that root. A build cache is output: a directory git ignores, with nothing
 tracked in it, carrying the standard `CACHEDIR.TAG` (Cargo writes one into every target
 directory) is not part of any check's input identity (`lib/proof_evidence.py`,
-`build_cache`). Everything else is bound exactly as before. When a pass is still invalidated,
+`build_cache`). The UI suites' own per-run output directories (`ui/tests/.shots`, `receipts`,
+`.vouch`) are output by the same rule, named in `DECLARED_OUTPUT_DIRECTORIES` because their
+node writers do not tag them: the push of c7491c34 was refused when `.shots` changed under
+`no-foreign-app-data`. Everything else is bound exactly as before. When a pass is still invalidated,
 the note names the changed paths and every check that had started by then, instead of only
 "execution inputs changed".
 

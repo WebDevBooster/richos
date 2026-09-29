@@ -69,6 +69,47 @@ def atomic(path, value):
 CACHEDIR_SIGNATURE = b"Signature: 8a477f597d28d172789f06886806bc55"
 
 
+# A CHECK'S OWN TEST OUTPUT IS NEVER ANOTHER CHECK'S INPUT EITHER (2026-09-29).
+#
+# The push of main at c7491c34 was refused with `no-foreign-app-data` state `invalid`,
+# "execution inputs changed during the check; changed: richos/app/ui/tests/.shots/...": its
+# declared inputs include `richos/app/ui`, and the UI suites running beside it write their
+# per-run screenshots into `ui/tests/.shots/`. Alone it passes 3 of 3. Those directories are
+# output by the repository's own declaration (their .gitignore rules say so: "Screenshot
+# evidence for ONE run", shard receipts are "Evidence OF a run, never an input to one", the
+# vouch download is a digest-verified cache), but the writers are node suites that do not tag
+# what they write, so build_cache() could not see it. Tagging from the writers would not fix
+# it either: the first run to add a tag changes the directory it tags, mid-run.
+#
+# So these paths, relative to the repository root, are left out of every identity on the
+# same safety condition as a build cache: git ignores the directory and nothing inside it is
+# tracked. A directory that fails that condition is bound exactly as before.
+DECLARED_OUTPUT_DIRECTORIES = (
+    "richos/app/ui/tests/.shots",
+    "richos/app/ui/tests/receipts",
+    "richos/app/ui/tests/.vouch",
+)
+
+
+def declared_output(path):
+    """True for a DECLARED_OUTPUT_DIRECTORIES directory that git ignores and tracks nothing in."""
+    path = Path(path)
+    location = str(path.absolute())
+    if not any(location.endswith(os.sep + rel.replace("/", os.sep)) for rel in DECLARED_OUTPUT_DIRECTORIES):
+        return False
+    try:
+        if path.is_symlink() or not path.is_dir():
+            return False
+    except OSError:
+        return False
+    return ignored_and_untracked(path)
+
+
+def excluded(path):
+    """Output, never input: a tagged build cache or a declared test-output directory."""
+    return build_cache(path) or declared_output(path)
+
+
 def build_cache(path):
     """True for a git-ignored, untracked directory tagged as a cache (see above)."""
     path = Path(path)
@@ -81,6 +122,12 @@ def build_cache(path):
                 return False
     except OSError:
         return False
+    return ignored_and_untracked(path)
+
+
+def ignored_and_untracked(path):
+    """True when git ignores the directory `path` and tracks nothing inside it."""
+    path = Path(path)
     # Never the hook's GIT_DIR/GIT_INDEX_FILE: the question is about the checkout on disk.
     env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     def git(*args):
@@ -114,7 +161,7 @@ def path_identity(path, ancestors=()):
         return {"sha256": file_digest(path), "mode": path.stat().st_mode & 0o777}
     if path.is_dir():
         return {entry.name: path_identity(entry, ancestors) for entry in sorted(path.iterdir())
-                if not build_cache(entry)}
+                if not excluded(entry)}
     raise ValueError(f"unsupported input type: {path}")
 
 
@@ -149,7 +196,7 @@ def inventory_identity(path):
     mode = path.stat().st_mode & 0o777
     if path.is_dir():
         return {"mode": mode, "directory": {
-            p.name: inventory_identity(p) for p in sorted(path.iterdir()) if not build_cache(p)}}
+            p.name: inventory_identity(p) for p in sorted(path.iterdir()) if not excluded(p)}}
     if path.is_file():
         return {"file": True, "mode": mode}
     raise ValueError(f"unsupported inventory input: {path}")
