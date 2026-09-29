@@ -23,7 +23,9 @@ import timeout_rules
 
 ROOT = Path(__file__).resolve().parents[4]
 BASE = APP + "scripts/lint/baselines/"
-RULES = {**process_rules.RULES, **timeout_rules.RULES, **advisory_rules.RULES, **dialect.RULES, **suite_rules.RULES}
+# Seconds of Tauri Clippy's OWN work; waiting for Cargo's lock is not counted (rust.LOCK_WAIT).
+TAURI_CAP = 180
+RULES = {**process_rules.RULES,**timeout_rules.RULES, **advisory_rules.RULES, **dialect.RULES, **suite_rules.RULES}
 
 
 def versions(root, cargo=False):
@@ -127,17 +129,24 @@ def fast_was_run(path, run_id):
 
 def tauri(root, args, rows, tools, report):
     started = time.monotonic()
-    deadline = started + 180
-    print("Tauri Clippy running (180-second cap, including Cargo lock waiting)", flush=True)
-    counts, diagnostics = rust.collect(root, rust.TAURI, deadline)
-    report["tauri"] = dict(seconds=time.monotonic() - started, counts=counts, diagnostics=diagnostics)
+    deadline = started + TAURI_CAP
+    clock = {"lock_wait": 0.0}
+    print(f"Tauri Clippy running ({TAURI_CAP}-second cap on its own work; waiting for Cargo's "
+          "lock is reported, not counted)", flush=True)
+    counts, diagnostics = rust.collect(root, rust.TAURI, deadline, clock)
+    report["tauri"] = dict(seconds=time.monotonic() - started, lock_wait_seconds=clock["lock_wait"],
+                           counts=counts, diagnostics=diagnostics)
+    if clock["lock_wait"]:
+        print(f"Tauri Clippy waited {clock['lock_wait']:.1f}s for Cargo's lock (not counted in its cap)",
+              flush=True)
     summarize("Tauri Clippy", counts, diagnostics)
     actual = record({"clippy": rust.TAURI}, tools, rust.lint_rules(root),
                     {p: r for p, r in rows.items() if r["language"] == "rust"}, counts)
     enforce(root, "tauri", actual, args)
-    if time.monotonic() >= deadline:
+    if time.monotonic() >= deadline + clock["lock_wait"]:
         raise TimeoutError("Tauri Clippy deadline expired")
-    report["tauri"] = dict(seconds=time.monotonic() - started, counts=counts, diagnostics=diagnostics)
+    report["tauri"] = dict(seconds=time.monotonic() - started, lock_wait_seconds=clock["lock_wait"],
+                           counts=counts, diagnostics=diagnostics)
 
 
 def main(argv=None):
@@ -207,8 +216,12 @@ def main(argv=None):
         print(f"Lint passed in {time.monotonic() - started:.2f}s", flush=True)
         return 0
     except (Refusal, OSError, ValueError, subprocess.TimeoutExpired, TimeoutError) as exc:
-        if isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)):
-            message = "lint deadline refused: Tauri cap 180 seconds (including Cargo lock waiting); launched work stopped" if args.all else "lint command deadline expired; launched work stopped"
+        if isinstance(exc, TimeoutError) and "Cargo's lock" in str(exc):
+            message = f"lint deadline refused: {exc}; launched work stopped"
+        elif isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)):
+            message = (f"lint deadline refused: Tauri cap {TAURI_CAP} seconds of Clippy's own work "
+                       "(waiting for Cargo's lock not counted); launched work stopped"
+                       if args.all else "lint command deadline expired; launched work stopped")
         else:
             message = str(exc)
         report["refusal"] = message

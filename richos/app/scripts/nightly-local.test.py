@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Local release entry point: explicit trigger, isolation and private credentials."""
 import contextlib
+import fcntl
 import importlib.util
 import io
 import json
@@ -92,7 +93,8 @@ class LocalTests(unittest.TestCase):
 
         with patch.object(m, "owned_run", side_effect=record), contextlib.redirect_stdout(io.StringIO()):
             r.gates()
-        self.assertEqual(len(seen), 9)
+        # Eight gates, the UI suite's own worktree (rev-parse, worktree add), its cleanup.
+        self.assertEqual(len(seen), 11)
         for env in seen:
             self.assertEqual([name for name in env if m.is_credential(name)], [])
             self.assertEqual(env["RICHOS_NAMED_PERSONS_FILE"], "/fixture/list")
@@ -314,12 +316,97 @@ Path(sys.argv[1]).write_text(str(p.pid))
 """)
         pid_file = self.root / "pipe-child"
         with (self.root / "pipe.log").open("w") as log:
-            r = m.Runner(self.root, self.root, dict(os.environ), log)
+            # Its own worker budget: the wall bound below is about the pipe, not the queue.
+            r = m.Runner(self.root, self.root, self.private_budget()[0], log)
             start = time.monotonic()
             r.command(sys.executable, script, pid_file, cwd=self.root,
                       capture=True, timeout=5)
             self.assertLess(time.monotonic() - start, 5)
         self.assert_pid_gone(int(pid_file.read_text()))
+
+    def private_budget(self):
+        """An environment whose machine worker budget is this test's own, every token free,
+        and the tool that makes it. Nothing inherited from a runner around this test."""
+        tool = Path(m.__file__).resolve().parents[2] / "engine/scripts/lib/worker_tokens.py"
+        workers = self.root / "workers"
+        # The size worker_tokens.py's machine_directory() insists on, so its init agrees.
+        subprocess.run([sys.executable, str(tool), "init", str(workers),
+                        str(max(1, int((os.cpu_count() or 4) * 0.8)))], check=True)
+        env = dict(os.environ, RICHOS_MACHINE_WORKERS=str(workers))
+        for key in ("RICHOS_WORKER_TOKENS", "RICHOS_WORKER_TOKENS_TOOL", "RICHOS_WORKER_SLOT_HELD",
+                    "RICHOS_WORKER_BORROW_LOCK", "RICHOS_WORKER_TOKENS_RESERVED"):
+            env.pop(key, None)
+        return env, workers
+
+    def test_a_deadline_counts_execution_never_the_wait_for_a_worker_token(self):
+        # Run 20260929T003824Z-01545196: the UI gate's 30 s `git status` cleanup "timed out"
+        # while the mutation pool held the machine's worker tokens, because the deadline ran
+        # from the spawn. Here every token is held until the command has been seen queued for
+        # longer than its whole budget; it must then run, pass, and say how long it queued.
+        env, workers = self.private_budget()
+        budget = 5
+        held = []
+        for token in sorted(workers.glob("token-*")):
+            fd = os.open(token, os.O_RDWR)
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            held.append(fd)
+
+        def release_once_queued_past_the_budget():
+            try:
+                guard = time.monotonic() + 120            # a hang guard only
+                while not list(workers.glob("wait-*")) and time.monotonic() < guard:
+                    time.sleep(0.05)
+                time.sleep(budget + 1)                     # queued for longer than the budget
+            finally:
+                for fd in held:
+                    os.close(fd)
+
+        releaser = threading.Thread(target=release_once_queued_past_the_budget)
+        releaser.start()
+        try:
+            with (self.root / "run.log").open("w") as log:
+                r = m.Runner(self.root, self.root, env, log)
+                with r.phase("gates/fixture"):
+                    r.command("/usr/bin/true", cwd=self.root, timeout=budget)
+        finally:
+            releaser.join()
+        admission, execution = r.clocks["gates/fixture"]
+        self.assertGreaterEqual(admission, budget + 1, "the queueing is reported as admission")
+        text = (self.root / "run.log").read_text()
+        self.assertIn("gates/fixture: admission", text)
+        self.assertIn("a deadline counts execution only", text)
+
+    def test_the_gate_line_says_admission_and_execution_and_a_refusal_says_nothing_ran(self):
+        r = m.Runner(self.root, self.root / "state", {"PATH": "/usr/bin"}, io.StringIO(),
+                     gates_at_once="all")
+
+        def run(args, **kwargs):
+            result = subprocess.CompletedProcess(args, 0, "", "")
+            result.admitted, result.admission_seconds, result.execution_seconds = True, 2.0, 3.0
+            return result
+
+        def gate(name):
+            def body():
+                with r.phase(name):
+                    r.command("true", timeout=10)
+            return (name, body)
+
+        # Two gates, so they run side by side and each gets a verdict line.
+        with patch.object(m, "owned_run", side_effect=run), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            r.run_gates([gate("gates/fixture"), gate("gates/other")])
+        line = next(l for l in out.getvalue().splitlines() if "PASSED gates/fixture" in l)
+        self.assertRegex(line, r"PASSED gates/fixture in [\d.]+s \(admission 2\.0s, execution 3\.0s\)$")
+        self.assertTrue(m.Runner.GATE_VERDICT.match(line), "--gates-passed-in still reads the line")
+
+        def refused(args, **kwargs):
+            result = subprocess.CompletedProcess(args, 75, "", "")
+            result.admitted, result.admission_seconds, result.execution_seconds = False, 1800.0, 0.0
+            return result
+
+        with patch.object(m, "owned_run", side_effect=refused), \
+                self.assertRaisesRegex(RuntimeError, "never admitted: waited 1800s .* nothing ran"):
+            m.Runner(self.root, self.root, {}, io.StringIO()).command("true", timeout=10)
 
     def test_every_gate_has_a_named_deadline(self):
         for (phase, budget), at_once in [(item, n) for item in m.GATE_BUDGETS.items()
@@ -475,7 +562,8 @@ while True: time.sleep(.02)
                                     start_new_session=True)
         try:
             with (self.root / "log").open("w") as log:
-                r = m.Runner(self.root, self.root, dict(os.environ), log)
+                # Its own worker budget: the wall bound below is about cleanup, not the queue.
+                r = m.Runner(self.root, self.root, self.private_budget()[0], log)
                 start = time.monotonic()
                 with self.assertRaisesRegex(RuntimeError, "timed out after 1s"):
                     r.command(*self.process_fixture(), cwd=self.root, timeout=1)
@@ -739,6 +827,69 @@ while True: time.sleep(.02)
         r.perform("release")
         r.command.assert_not_called()
 
+    def test_the_ui_suite_writes_nowhere_another_gates_leak_canary_watches(self):
+        # Audit R5: workspace-mutants runs ci-shard.sh from `source`, whose leak canary fails
+        # its unit for any new or changed `git status` line there, while the UI suite rewrites
+        # committed screenshots in its own checkout. So its checkout must not be `source`.
+        r, seen = self.gate_commands()
+        calls = []
+
+        def record(args, **kwargs):
+            calls.append(([str(a) for a in args], Path(kwargs["cwd"])))
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        with patch.object(m, "owned_run", side_effect=record), \
+                contextlib.redirect_stdout(io.StringIO()):
+            r.ui_suite()
+        ui = [cwd for argv, cwd in calls if "run.js" in " ".join(argv)]
+        self.assertEqual(len(ui), 1, calls)
+        self.assertNotEqual(ui[0], r.source / m.UI_TESTS)
+        self.assertFalse(ui[0].is_relative_to(r.source), f"the UI suite ran inside {r.source}: {ui[0]}")
+        # ...and what it changed is looked for, and put back, THERE.
+        status = [cwd for argv, cwd in calls if argv[:3] == ["git", "status", "--porcelain"]]
+        self.assertEqual(status, [ui[0].parents[len(m.UI_TESTS.parts) - 1]], calls)
+
+    def test_the_ui_worktree_is_this_commit_and_a_leftover_change_never_survives(self):
+        repo = self.root / "repo"
+        repo.mkdir()
+
+        def git(*args, cwd=repo):
+            return subprocess.check_output(["git", *args], cwd=cwd, text=True,
+                                           stderr=subprocess.DEVNULL).strip()
+        git("init", "-b", "main")
+        git("config", "user.name", "Fixture")
+        git("config", "user.email", "fixture@example.invalid")
+        git("config", "core.hooksPath", "/dev/null")
+        (repo / "shot.png").write_text("committed picture")
+        git("add", ".")
+        git("commit", "-m", "one")
+        first = git("rev-parse", "HEAD")
+        state = self.root / "state"
+        state.mkdir()
+        with (self.root / "commands.log").open("w") as log:
+            r = m.Runner(repo, state, self.private_budget()[0], log)
+            git("worktree", "add", "--detach", str(r.source), first)
+            tree = r.ui_checkout()
+            self.assertNotEqual(tree.resolve(), r.source.resolve())
+            self.assertEqual(git("rev-parse", "HEAD", cwd=tree), first)
+            # A run that died before its restore left a rewritten shot behind.
+            (tree / "shot.png").write_text("rewritten by a shard")
+            (repo / "shot.png").write_text("committed picture, two")
+            git("commit", "-am", "two")
+            second = git("rev-parse", "HEAD")
+            git("checkout", "--detach", second, cwd=r.source)
+            self.assertEqual(r.ui_checkout(), tree)
+            self.assertEqual(git("rev-parse", "HEAD", cwd=tree), second)
+            self.assertEqual((tree / "shot.png").read_text(), "committed picture, two")
+            self.assertEqual(git("status", "--porcelain", cwd=r.source), "")
+            # Something else at that path is refused, never adopted or overwritten.
+            other = self.root / "other"
+            other.mkdir()
+            git("init", "-b", "main", cwd=other)
+            with patch.object(m.Runner, "UI_CHECKOUT", "../other"), \
+                    self.assertRaisesRegex(ValueError, "not the UI suite's worktree"):
+                r.ui_checkout()
+
     def test_checkout_uses_remote_main_without_touching_developer_edits(self):
         repo, remote = self.root / "repo", self.root / "remote.git"
         repo.mkdir()
@@ -789,7 +940,7 @@ while True: time.sleep(.02)
 
     def test_default_runs_every_gate_and_names_each_one_in_the_timings(self):
         r, seen = self.gate_commands()
-        self.assertEqual(len(seen), 9)
+        self.assertEqual(len(seen), 11)
         self.assertEqual(r.skipped, {})
         # ORDER IS PART OF THE ASSERTION, not incidental. The release smoke is first
         # because it is the cheapest refusal in the build (0.2 s against ~950 s), and the
@@ -852,7 +1003,7 @@ while True: time.sleep(.02)
         # its input is the release path itself rather than a tree whose sha was proved.
         self.assertTrue([c for c in joined if "release-smoke" in c], joined)
         # NO PROOF ON THIS MACHINE: the UI suite runs, and is NOT recorded as skipped.
-        self.assertEqual(len(seen), 8)
+        self.assertEqual(len(seen), 10)
         # The workspace-spec mutation pass is never dropped by this flag: a land does not run it
         # (CEO, 2026-09-23, "Only before nightlies"), so there is nothing a land proved.
         self.assertTrue([c for c in joined if "workspace-spec-fourteen" in c], joined)
@@ -1270,9 +1421,10 @@ class GatesAtOnceTests(unittest.TestCase):
     nightly-local.mutation.py.
     """
 
-    # Every gate that reads nothing another gate writes. GATE_AFTER holds the other two.
+    # Every gate that reads nothing another gate writes. GATE_AFTER holds the other one.
     INDEPENDENT = ("gates/release-smoke", "gates/core-tests", "gates/updater-tests",
-                   "gates/script-suites", "gates/workspace-mutants", "gates/ui-suite")
+                   "gates/script-suites", "gates/workspace-mutants", "gates/ui-suite",
+                   "gates/privacy-sweep")
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -1296,7 +1448,7 @@ class GatesAtOnceTests(unittest.TestCase):
                 first = phase not in firsts
                 firsts.add(phase)
             if barrier is not None and first and phase in self.INDEPENDENT:
-                barrier.wait()   # Raises BrokenBarrierError unless all six are running at once.
+                barrier.wait()   # Raises BrokenBarrierError unless all seven are running at once.
             time.sleep(delay)
             with lock:
                 events.append(("end", phase, [str(a) for a in args], kwargs.get("env")))
@@ -1314,7 +1466,7 @@ class GatesAtOnceTests(unittest.TestCase):
         events = self.run_gates_recording(r, barrier=threading.Barrier(len(self.INDEPENDENT),
                                                                        timeout=10))
         self.assertEqual({p for e, p, _, _ in events if e == "start"},
-                         set(self.INDEPENDENT) | {"gates/lint-tauri", "gates/privacy-sweep"})
+                         set(self.INDEPENDENT) | {"gates/lint-tauri"})
         # Each gate still gets its own timing row, and the whole set one more.
         names = [name for name, _, _ in r.timings]
         self.assertEqual(sorted(names[:-1]), sorted(m.GATE_BUDGETS))

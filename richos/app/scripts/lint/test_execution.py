@@ -40,8 +40,43 @@ class Execution(unittest.TestCase):
         for code, out in ((1, ''), (0, 'not json'), (0, ''),
                           (0, '{"reason":"build-finished","success":false}')):
             result = subprocess.CompletedProcess([], code, out, 'fixture compile error')
-            with patch('rust.run', return_value=(result, .1)), self.assertRaises(Refusal):
+            with patch('rust.run_cargo', return_value=(result, .1)), self.assertRaises(Refusal):
                 rust.collect(Path.cwd(), [['cargo', 'clippy']])
+
+    def fake_cargo(self, tmp, body):
+        """A stand-in `cargo` that ends with one successful Clippy build in JSON."""
+        path = Path(tmp) / 'cargo'
+        path.write_text('#!/bin/sh\n' + body +
+                        'echo \'{"reason":"compiler-artifact"}\'\n'
+                        'echo \'{"reason":"build-finished","success":true}\'\n')
+        path.chmod(0o755)
+        return [[str(path)]]
+
+    def test_waiting_for_cargos_lock_is_not_clippys_time(self):
+        # Audit R12: the Tauri cap counted Cargo's lock wait, so a Clippy queued behind another
+        # build spent its cap before it started. Here the lock is held past the whole cap and
+        # the work itself is two echo lines: Clippy must pass, and the wait must be reported.
+        with tempfile.TemporaryDirectory(prefix='lint-cargo-lock-') as tmp:
+            commands = self.fake_cargo(tmp, 'echo "    Blocking waiting for file lock on build directory" >&2\n'
+                                            'sleep 4\n')
+            self.assertEqual(rust.collect(Path(tmp), commands, time.monotonic() + 3), ({}, []))
+            clock = {}
+            rust.collect(Path(tmp), commands, time.monotonic() + 3, clock)
+            self.assertGreaterEqual(clock['lock_wait'], 3.5)
+
+    def test_clippys_own_work_past_the_cap_still_times_out(self):
+        with tempfile.TemporaryDirectory(prefix='lint-cargo-work-') as tmp:
+            commands = self.fake_cargo(tmp, 'exec sleep 60\n')
+            with self.assertRaises(subprocess.TimeoutExpired):
+                rust.collect(Path(tmp), commands, time.monotonic() + .5)
+
+    def test_a_lock_held_past_the_hang_guard_is_refused_by_name(self):
+        with tempfile.TemporaryDirectory(prefix='lint-cargo-hang-') as tmp:
+            commands = self.fake_cargo(tmp, 'echo "    Blocking waiting for file lock on package cache" >&2\n'
+                                            'exec sleep 60\n')
+            with patch('rust.LOCK_WAIT_GUARD', .5), \
+                    self.assertRaisesRegex(TimeoutError, "Cargo's lock was still held"):
+                rust.collect(Path(tmp), commands, time.monotonic() + 30)
 
     def test_nested_gate_never_probes_parent_lock_or_load(self):
         with patch.dict(os.environ, {'RICHOS_NIGHTLY_RUN_ID': 'fixture'}), \

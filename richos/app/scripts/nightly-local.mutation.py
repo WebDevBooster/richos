@@ -36,7 +36,7 @@ MUTANTS = (
      "test_a_gate_waits_only_for_the_gate_whose_output_it_reads",
      'if not all(d in passed for d in GATE_AFTER.get(name, ())):',
      'if False:',
-     "the lint would read a suite receipt not yet written, the privacy sweep a tree mid-rewrite."),
+     "the lint would read a suite receipt not yet written."),
     ("more-gates-than-the-operator-chose",
      "test_the_number_of_gates_at_once_is_honored",
      'if len(running) >= limit:',

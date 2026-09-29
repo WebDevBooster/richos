@@ -22,6 +22,7 @@
 #   R1-R5  the incident through run-tests.sh, serial and concurrent: named in the summary and in
 #          --results-out, the result file kept, the shared folder really overwritten, the kept
 #          store bounded; a suite with no test named by its last error
+#   R6     R2 with a admitted only after b started (nightly .32's shape): the order still holds
 #   P1-P2  the same through proof-run.py: named beside the check and in summary.json, the
 #          result file in the run's own log directory, nothing left for the suite that passed
 #   M1-M4  MUTATIONS, each of which this file must catch: the fake Gradle called directly (the
@@ -44,15 +45,34 @@ unset RICHOS_TEST_RESULTS_ROOT RICHOS_TEST_RESULTS_DIR
 # run-tests.test.sh empties it for its fixtures the same way.
 unset RUN_TESTS_DECLARED_GAPS
 export RUN_TESTS_JOBS=1
+# THE FAKE SUITES NEVER QUEUE BEHIND THE MAC'S REAL WORKERS. Inside a nightly this file inherits
+# the script-suites gate's worker budget (RICHOS_WORKER_TOKENS, its held slot and borrow lock),
+# and the copy of run-tests.sh below leased each fake suite from it. Nightly .32 (run
+# 20260929T052041Z-76cf4665): b took the borrowed slot, a queued for a machine token behind the
+# UI shards and the mutation pool, b's bounded wait for a ran out after 30 s (the suite took 64 s,
+# 33 s in the passing .30 run), and b took the shared folder FIRST, so R2 read a's result as
+# lost. The machine's load decided the order the case exists to set. R6 holds that shape.
+unset RICHOS_WORKER_TOKENS RICHOS_WORKER_TOKENS_TOOL RICHOS_WORKER_TOKENS_RESERVED \
+  RICHOS_WORKER_SLOT_HELD RICHOS_WORKER_BORROW_LOCK RICHOS_MACHINE_WORKERS
 
 PASS=0; FAIL=0
 ok()  { printf '  ok    %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n        %s\n' "$1" "${2:-}"; FAIL=$((FAIL + 1)); }
 has() { grep -Fq -- "$2" <<<"$1"; }   # a here-string, never `printf | grep -q` under pipefail
 entries() { find "$1" -mindepth 1 -maxdepth 1 -exec basename {} \; 2>/dev/null | LC_ALL=C sort; }
-# The overlapping cases start the second run once the first has written the shared folder, so
-# their order is the incident's on a loaded Mac too; the first then holds it for 3 s.
-wait_for() { local n=0; while [ ! -e "$1" ] && [ "$n" -lt 300 ]; do sleep 0.1; n=$((n + 1)); done; }
+# THE OVERLAPPING CASES ARE ORDERED BY FACTS, NEVER BY A CLOCK: the second run starts once the
+# first has written the shared folder, and the first holds it until the second is seen WAITING
+# on the lock (FAKE_HOLD_UNTIL). The bound on every such wait is a hang guard only (about 300 s,
+# hundreds of times the sub-second it takes); when it runs out the case fails naming the wait,
+# it never carries on in another order.
+HANG_TICKS=3000   # 0.1 s ticks
+wait_for() {  # wait_for <path> — 0 once it exists, 1 (and says so) when the hang guard runs out
+  local n=0
+  while [ ! -e "$1" ]; do
+    [ "$n" -lt "$HANG_TICKS" ] || { echo "  fixture: $1 never appeared (hang guard)" >&2; return 1; }
+    sleep 0.1; n=$((n + 1))
+  done
+}
 
 NAME="dev.fake.AppTest > a draft survives a restart"
 
@@ -172,9 +192,14 @@ make_box() {  # make_box <dir> [keeper]  — a scratch copy of the harness, its 
   cp "$DIR/run-tests.sh" "$box/scripts/run-tests.sh"
   cp "$DIR/lib/worktree-resource.sh" "$box/scripts/lib/worktree-resource.sh"
   cp "$keeper" "$box/scripts/lib/test_results.py"
-  cat > "$box/scripts/fake-gradle.sh" <<'SH'
-# fake-gradle.sh <shared> <pass|fail> <seconds to hold the folder> — clears its one results
-# folder and writes this run's JUnit XML there, as Gradle's test task does under $OUT.
+  cat > "$box/scripts/fake-gradle.sh" <<SH
+HANG_TICKS=$HANG_TICKS
+SH
+  cat >> "$box/scripts/fake-gradle.sh" <<'SH'
+# fake-gradle.sh <shared> <pass|fail> — clears its one results folder and writes this run's
+# JUnit XML there, as Gradle's test task does under $OUT. With FAKE_HOLD_UNTIL=<file> it then
+# holds the folder until <file> contains FAKE_HOLD_TEXT: an overlapping case holds it until
+# the other run is seen waiting, never for a number of seconds.
 shared="$1"; verdict="$2"
 rm -rf "$shared/xml"; mkdir -p "$shared/xml"
 if [ "$verdict" = fail ]; then
@@ -185,12 +210,18 @@ else
   printf '%s\n' '<testsuite name="dev.fake.UiTest" tests="139" failures="0">' \
     '<testcase name="every screen" classname="dev.fake.UiTest"/></testsuite>' > "$shared/xml/TEST-dev.fake.UiTest.xml"
 fi
-sleep "${3:-0}"
+if [ -n "${FAKE_HOLD_UNTIL:-}" ]; then
+  n=0
+  until grep -qF -- "${FAKE_HOLD_TEXT:?}" "$FAKE_HOLD_UNTIL" 2>/dev/null; do
+    [ "$n" -lt "$HANG_TICKS" ] || { echo "fake-gradle: $FAKE_HOLD_UNTIL never said '$FAKE_HOLD_TEXT' (hang guard)" >&2; break; }
+    sleep 0.1; n=$((n + 1))
+  done
+fi
 echo "$([ "$verdict" = fail ] && echo '2 tests completed, 1 failed' || echo 'BUILD SUCCESSFUL')"
 [ "$verdict" = pass ]
 SH
   cat > "$box/scripts/fake-randroid.sh" <<'SH'
-# fake-randroid.sh <shared> <pass|fail> <seconds> — `randroid test`: before the fix it ran Gradle
+# fake-randroid.sh <shared> <pass|fail> — `randroid test`: before the fix it ran Gradle
 # directly (FAKE_DIRECT=1); now through test_results.py run, as bin/randroid does.
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ "${FAKE_DIRECT:-}" = 1 ]; then exec bash "$here/fake-gradle.sh" "$@"; fi
@@ -198,22 +229,37 @@ exec python3 "$here/lib/test_results.py" run --lock "$1/test-results.lock" --lab
   ${RICHOS_TEST_RESULTS_DIR:+--into "$RICHOS_TEST_RESULTS_DIR"} --collect "app-xml=$1/xml" -- \
   bash "$here/fake-gradle.sh" "$@"
 SH
-  fake_suite "$box" a fail "${FAKE_HOLD:-0}"
-  fake_suite "$box" b pass 0
+  fake_suite "$box" a fail
+  fake_suite "$box" b pass
 }
 
-fake_suite() {  # fake_suite <box> <name> <pass|fail> <seconds>
+fake_suite() {  # fake_suite <box> <name> <pass|fail>
   cat > "$1/scripts/$2.test.sh" <<SH
 #!/usr/bin/env bash
 # A fake suite that drives the one Gradle project (bin/randroid), like native-android-app/-ui.
 # run-tests: no-host-screen: fixture files only
 here="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
-# R2 starts b only once a's run has written the shared folder, so the order is the incident's
-# on a loaded Mac too, not whichever process happened to start first.
-if [ "$2" = b ] && [ -n "\${FAKE_WAIT_FOR:-}" ]; then
-  n=0; while [ ! -e "\$FAKE_WAIT_FOR" ] && [ "\$n" -lt 300 ]; do sleep 0.1; n=\$((n + 1)); done
+HANG_TICKS=$HANG_TICKS
+# FAKE_CONCURRENT (R2, R6): the incident's order on any Mac, set by facts alone. b says it has
+# started, then starts its run only once a's run has written the shared folder; a holds that
+# folder until b's run is seen waiting on the lock. Neither depends on which process the
+# machine happened to start, or admit, first.
+if [ "$2" = b ] && [ -n "\${FAKE_CONCURRENT:-}" ]; then
+  : > "\$FAKE_SHARED/b.started"
+  n=0
+  while [ ! -e "\$FAKE_SHARED/xml/TEST-dev.fake.AppTest.xml" ]; do
+    [ "\$n" -lt "\$HANG_TICKS" ] || { echo "  FAIL  b: fixture: a never wrote the shared folder (hang guard)"; exit 1; }
+    sleep 0.1; n=\$((n + 1))
+  done
+  bash "\$here/fake-randroid.sh" "\$FAKE_SHARED" $3 2> "\$FAKE_SHARED/b.err"; rc=\$?
+  cat "\$FAKE_SHARED/b.err" >&2
+  [ "\$rc" = 0 ] || { echo "  FAIL  $2: Robolectric tests exited 1"; exit 1; }
+  echo "=== $2: all 1 passed ==="; exit 0
 fi
-bash "\$here/fake-randroid.sh" "\$FAKE_SHARED" $3 $4 || { echo "  FAIL  $2: Robolectric tests exited 1"; exit 1; }
+if [ "$2" = a ] && [ -n "\${FAKE_CONCURRENT:-}" ]; then
+  export FAKE_HOLD_UNTIL="\$FAKE_SHARED/b.err" FAKE_HOLD_TEXT="waiting for another test run"
+fi
+bash "\$here/fake-randroid.sh" "\$FAKE_SHARED" $3 || { echo "  FAIL  $2: Robolectric tests exited 1"; exit 1; }
 echo "=== $2: all 1 passed ==="
 SH
 }
@@ -234,11 +280,11 @@ kept_xml() { grep -rl '<failure' "$1/kept" 2>/dev/null | head -1; }
 # ------------------------------------------------------------------------------------------
 make_box "$TMP/l"
 mkdir -p "$TMP/l/shared"
-( RICHOS_TEST_RESULTS_DIR="$TMP/l/first" bash "$TMP/l/scripts/fake-randroid.sh" "$TMP/l/shared" fail 3 \
-    > "$TMP/l/first.out" 2>&1 ) &
+( RICHOS_TEST_RESULTS_DIR="$TMP/l/first" FAKE_HOLD_UNTIL="$TMP/l/second.out" FAKE_HOLD_TEXT="waiting for another test run" \
+    bash "$TMP/l/scripts/fake-randroid.sh" "$TMP/l/shared" fail > "$TMP/l/first.out" 2>&1 ) &
 first=$!
 wait_for "$TMP/l/shared/xml/TEST-dev.fake.AppTest.xml"
-RICHOS_TEST_RESULTS_DIR="$TMP/l/second" bash "$TMP/l/scripts/fake-randroid.sh" "$TMP/l/shared" pass 0 > "$TMP/l/second.out" 2>&1
+RICHOS_TEST_RESULTS_DIR="$TMP/l/second" bash "$TMP/l/scripts/fake-randroid.sh" "$TMP/l/shared" pass > "$TMP/l/second.out" 2>&1
 wait "$first"
 if grep -q '<failure' "$TMP/l/first/app-xml/TEST-dev.fake.AppTest.xml" 2>/dev/null \
    && [ -f "$TMP/l/second/app-xml/TEST-dev.fake.UiTest.xml" ] && [ ! -e "$TMP/l/second/app-xml/TEST-dev.fake.AppTest.xml" ] \
@@ -279,9 +325,41 @@ make_box "$TMP/r"
 run_box "$TMP/r"
 check_incident "$TMP/r" R1 "serial: a fails into the shared folder, b passes over it"
 
-FAKE_HOLD=3 make_box "$TMP/rc"
-FAKE_WAIT_FOR="$TMP/rc/shared/xml/TEST-dev.fake.AppTest.xml" run_box "$TMP/rc" --jobs 2
+check_waited() {  # check_waited <box> <case> — the concurrent order really happened
+  if grep -qF 'waiting for another test run' "$1/shared/b.err" 2>/dev/null; then
+    ok "$2 ...and b's run really waited on a's lock while a held the shared folder"
+  else bad "$2 b waited on a's lock" "b's run: $(cat "$1/shared/b.err" 2>&1 | tail -3)"; fi
+}
+
+make_box "$TMP/rc"
+FAKE_CONCURRENT=1 run_box "$TMP/rc" --jobs 2
 check_incident "$TMP/rc" R2 "concurrent: b starts while a still holds the folder"
+check_waited "$TMP/rc" R2
+
+# R6 — nightly .32's shape: a is ADMITTED after b has started (the machine's worker budget
+# queued it; run-tests.sh leases each suite through RICHOS_WORKER_TOKENS_TOOL). A stand-in for
+# that lease admits a only once b says it has started, or once b's run has written the folder
+# (an order that no longer waits for a would get there first). The incident's order must hold.
+cat > "$TMP/late-admission.py" <<'PY'
+import os, sys, time
+cmd = sys.argv[sys.argv.index("--") + 1:]
+shared = os.environ["FAKE_SHARED"]
+if cmd[-1].endswith("/a.test.sh"):
+    guard = time.monotonic() + 300          # a hang guard; the case fails if it is ever reached
+    while not (os.path.exists(os.path.join(shared, "b.started"))
+               or os.path.exists(os.path.join(shared, "xml", "TEST-dev.fake.UiTest.xml"))):
+        if time.monotonic() > guard:
+            print("late-admission: b never started (hang guard)", file=sys.stderr)
+            break
+        time.sleep(0.05)
+os.execvp(cmd[0], cmd)
+PY
+make_box "$TMP/r6"
+mkdir -p "$TMP/r6/budget"
+RICHOS_WORKER_TOKENS="$TMP/r6/budget" RICHOS_WORKER_TOKENS_TOOL="$TMP/late-admission.py" \
+  FAKE_CONCURRENT=1 run_box "$TMP/r6" --jobs 2
+check_incident "$TMP/r6" R6 "concurrent, a admitted only after b started (nightly .32)"
+check_waited "$TMP/r6" R6
 
 kept_list="$(entries "$TMP/r/kept")"
 if [ -n "$kept_list" ] && [ "$(wc -l <<<"$kept_list" | tr -d ' ')" = 1 ] && [[ "$kept_list" == *Z-a-* ]]; then
@@ -401,10 +479,13 @@ else bad "M2 mutation applied" "test_results.py no longer has the line M2 mutate
 if mutant "$TMP/m3.py" 's.replace("fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)", "pass")'; then
   make_box "$TMP/m3" "$TMP/m3.py"
   mkdir -p "$TMP/m3/shared"
-  ( RICHOS_TEST_RESULTS_DIR="$TMP/m3/first" bash "$TMP/m3/scripts/fake-randroid.sh" "$TMP/m3/shared" fail 3 >/dev/null 2>&1 ) &
+  # Without the lock the second run never waits, so the first holds until the second has
+  # written the folder (the overlap the lock exists to prevent), then copies.
+  ( RICHOS_TEST_RESULTS_DIR="$TMP/m3/first" FAKE_HOLD_UNTIL="$TMP/m3/shared/xml/TEST-dev.fake.UiTest.xml" \
+      FAKE_HOLD_TEXT="<testsuite" bash "$TMP/m3/scripts/fake-randroid.sh" "$TMP/m3/shared" fail >/dev/null 2>&1 ) &
   first=$!
   wait_for "$TMP/m3/shared/xml/TEST-dev.fake.AppTest.xml"
-  RICHOS_TEST_RESULTS_DIR="$TMP/m3/second" bash "$TMP/m3/scripts/fake-randroid.sh" "$TMP/m3/shared" pass 0 >/dev/null 2>&1
+  RICHOS_TEST_RESULTS_DIR="$TMP/m3/second" bash "$TMP/m3/scripts/fake-randroid.sh" "$TMP/m3/shared" pass >/dev/null 2>&1
   wait "$first"
   if ! grep -q '<failure' "$TMP/m3/first/app-xml/"*.xml 2>/dev/null; then
     ok "M3 with the lock removed, L1 goes red: the second run erased the first's failing result before its copy"

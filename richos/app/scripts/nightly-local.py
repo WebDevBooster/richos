@@ -37,6 +37,8 @@ import uuid
 # reference before doubling it. Script/UI ceilings round up to five minutes.
 # Measurements and model assumptions are recorded in the private handoff.
 # Gates skipped by a land proof do not spawn a command or spend a deadline.
+# Every ceiling here, and CLEANUP_TIMEOUT, is spent on EXECUTION only: owned_run() starts it
+# when the command is admitted to a machine worker token, never while it queues for one.
 GATE_BUDGETS = {
     "gates/release-smoke": 60,   # One-minute startup floor for fixture-only Python work.
     "gates/core-tests": 300,    # At least 5x the worst cold/warm Cargo sample.
@@ -56,7 +58,13 @@ GATE_BUDGETS = {
     # about 3340 s; 2x is 6680 s, rounded up to five minutes. The 1800 s it replaces predates A8
     # (the whole gate took 413 s on 2026-09-22) and killed that run with the suite still passing.
     "gates/script-suites": 6900,
-    "gates/lint-tauri": 300,    # At least 10x the full-lint sample; headroom beyond the 180s inner cap.
+    # A hang guard over `lint.sh --all`, whose own caps decide its verdict: Tauri Clippy's
+    # 180 s of work (lint/driver.py TAURI_CAP) plus up to 1800 s waiting for Cargo's lock
+    # (lint/rust.py LOCK_WAIT_GUARD, not counted in that cap since 2026-09-29, audit R12),
+    # plus 120 s for the static checks and tool versions (measured whole gate: 5-11 s). The
+    # 300 s this replaces sat INSIDE the lock-wait guard and would have refused a Clippy
+    # queued behind another build for two minutes before it compiled a line.
+    "gates/lint-tauri": 2100,
     # Re-derived 2026-09-25: the unit took 1291 s alone (run 20260925T201442Z-f9f0f9b9), and it ran
     # past 1800 s twice beside the simulator suites once gates ran at once (runs 20260925T222652Z-723fee53
     # and 20260925T225819Z-2a11fdd0). 792 s (2026-09-23) is stale; this is about 2x the contended envelope.
@@ -169,6 +177,12 @@ class OwnedGroups:
             pass
 
 
+# Written by the command's first instruction AFTER worker_tokens.py admitted it, and before
+# it execs the real command (same pid, so the owned group is unchanged).
+ADMITTED_SHIM = ': > "$0" && exec "$@"'
+ADMISSION_POLL = 0.1
+
+
 def owned_run(args, *, timeout=None, groups=None, cleanup=False, release_build=False, **kwargs):
     """subprocess.run's result shape with bounded, owned-group cleanup on all exits.
 
@@ -179,7 +193,17 @@ def owned_run(args, *, timeout=None, groups=None, cleanup=False, release_build=F
     instead of a plain session, which gives the compiler under it the guard's longer
     per-process window (cpu_guard.BUILD_WINDOW). Only the build step passes it: on
     2026-09-28 the guard's 10-second rule stopped rustc compiling the app binary at
-    4.52 cores after every gate had passed (run 20260928T190111Z-40a16163)."""
+    4.52 cores after every gate had passed (run 20260928T190111Z-40a16163).
+
+    `timeout` MEASURES EXECUTION, NEVER QUEUEING. Every command first waits in
+    worker_tokens.py for one of the machine's worker tokens, and until 2026-09-29 the deadline
+    ran from the spawn, so a gate beside the mutation pool spent its budget in the queue: run
+    20260929T003824Z-01545196, the UI gate's 30 s `git status` cleanup "timed out" while the
+    pool held the tokens. The clock now starts when the command is ADMITTED (the shim above
+    writes a marker as its first act under the token), as ci-shard.sh does per unit. The wait
+    for a token keeps its own bound: worker_tokens.py gives up after 1800 s and exits 75.
+    The result carries `admission_seconds`, `execution_seconds` and `admitted`; so does the
+    TimeoutExpired raised when execution runs past `timeout`."""
     library = Path(__file__).resolve().parents[2] / "engine/scripts/lib"
     worker = library / "worker_tokens.py"
     # The worker wrapper owns its command, but does not watch this coordinator.
@@ -187,23 +211,71 @@ def owned_run(args, *, timeout=None, groups=None, cleanup=False, release_build=F
     # admission/worker lifetime, so even SIGKILL here cancels waiting or active work.
     supervisor = library / "proc_tree.py"
     role = ["--guard-role", "release-build"] if release_build else []
-    process = subprocess.Popen([sys.executable, str(supervisor), "run", str(os.getpid()), *role, "--",
-                                sys.executable, str(worker), "machine", "--", *map(str, args)],
-                               start_new_session=True, **kwargs)
+    scratch = Path(tempfile.mkdtemp(prefix="richos-nightly-admission-"))
+    marker, timing = scratch / "admitted", scratch / "timing.json"
+    started = time.monotonic()
+    admitted_at = None
+
+    def admitted():
+        nonlocal admitted_at
+        if admitted_at is None and marker.exists():
+            admitted_at = time.monotonic()
+        return admitted_at is not None
+
+    process = None
     try:
+        process = subprocess.Popen([sys.executable, str(supervisor), "run", str(os.getpid()), *role, "--",
+                                    sys.executable, str(worker), "machine", "--timing", str(timing), "--",
+                                    "/bin/sh", "-c", ADMITTED_SHIM, str(marker), *map(str, args)],
+                                   start_new_session=True, **kwargs)
         if groups is not None:
             groups.add(process, cleanup)
-        stdout, stderr = process.communicate(timeout=timeout)
-        return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+        while True:
+            # Queued: look for the admission marker every ADMISSION_POLL seconds (communicate()
+            # keeps draining the pipes meanwhile). Admitted: the rest of the budget, once.
+            if not admitted():
+                wait = ADMISSION_POLL
+            elif timeout is None:
+                wait = None
+            else:
+                wait = max(0.0, admitted_at + timeout - time.monotonic())
+            try:
+                stdout, stderr = process.communicate(timeout=wait)
+                break
+            except subprocess.TimeoutExpired:
+                # Retrying communicate() after its timeout loses no output (subprocess docs).
+                if admitted_at is not None and timeout is not None and \
+                        time.monotonic() >= admitted_at + timeout:
+                    expired = subprocess.TimeoutExpired(args, timeout)
+                    expired.admitted = True
+                    expired.admission_seconds = admitted_at - started
+                    expired.execution_seconds = time.monotonic() - admitted_at
+                    raise expired from None
+        result = subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+        ended = time.monotonic()
+        admitted()
+        try:
+            row = json.loads(timing.read_text())
+            result.admitted = bool(row["admitted"])
+            result.admission_seconds = float(row["admission_seconds"])
+            result.execution_seconds = float(row["execution_seconds"])
+        except (OSError, ValueError, KeyError, TypeError):
+            result.admitted = admitted_at is not None
+            result.admission_seconds = (admitted_at or ended) - started
+            result.execution_seconds = ended - admitted_at if admitted_at is not None else 0.0
+        return result
     finally:
         try:
-            finish_group(process)
+            if process is not None:
+                finish_group(process)
         finally:
-            if groups is not None:
+            if groups is not None and process is not None:
                 groups.discard(process)
-            for stream in (process.stdout, process.stderr):
-                if stream is not None:
-                    stream.close()
+            if process is not None:
+                for stream in (process.stdout, process.stderr):
+                    if stream is not None:
+                        stream.close()
+            shutil.rmtree(scratch, ignore_errors=True)
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -384,9 +456,9 @@ GATE_AFTER = {
     # `lint.sh --all --suite-results` reads the script-suites receipt to skip the fast lint
     # that lint.test.sh already ran in this build (lint/driver.py fast_was_run).
     "gates/lint-tauri": ("gates/script-suites",),
-    # `named-persons.sh --tree` scans the tree that ships, and the UI suite rewrites committed
-    # screenshots in that tree until restore_source_tree() puts them back.
-    "gates/privacy-sweep": (UI_SUITE_GATE,),
+    # The privacy sweep waited here for the UI suite until 2026-09-29, because the suite
+    # rewrote committed screenshots in the tree the sweep scans. The suite now runs in its own
+    # worktree (Runner.ui_checkout) and writes nothing in that tree, so the sweep starts at once.
 }
 
 # The inside of the one long `nightly.py build` step, matched IN ORDER against the lines
@@ -872,6 +944,8 @@ class Runner:
         self.credentials = dict(credentials or {})
         self.source = state / "source"
         self.timings = []
+        # phase -> (seconds its commands queued for machine worker tokens, seconds they ran)
+        self.clocks = {}
         self.skipped = {}
         self.started = time.time()
         self.active_phase = None
@@ -930,14 +1004,39 @@ class Runner:
         self.watch_child_milestones(name == "build")
         start = time.time()
         previous_phase, self.active_phase = self.active_phase, name
+        previous_clock = getattr(self._local, "clock", None)
+        self._local.clock = [0.0, 0.0, 0]
         try:
             yield
         finally:
+            clock, self._local.clock = self._local.clock, previous_clock
             self.active_phase = previous_phase
             end = time.time()
             self.watch_child_milestones(False)
             self.timings.append((name, start, end))
+            if clock[2]:
+                self.clocks[name] = (clock[0], clock[1])
+                # Inside the section, so `--gates-passed-in` never reads it as the coordinator's.
+                self.log.write(f"  {name}: admission {clock[0]:.1f}s waiting for machine worker "
+                               f"tokens, execution {clock[1]:.1f}s over {clock[2]} command(s); "
+                               "a deadline counts execution only\n")
             self.log.write(f"=== phase {name} ends: {end - start:.1f}s ===\n")
+
+    def _count_clock(self, admission, execution):
+        """Add one command's queueing and running time to the phase it ran in."""
+        clock = getattr(self._local, "clock", None)
+        if clock is None or admission is None:
+            return
+        clock[0] += admission
+        clock[1] += execution or 0.0
+        clock[2] += 1
+
+    def clock_note(self, name):
+        """` (admission A s, execution E s)` for a gate that ran commands, else nothing."""
+        if name not in self.clocks:
+            return ""
+        admission, execution = self.clocks[name]
+        return f" (admission {admission:.1f}s, execution {execution:.1f}s)"
 
     def skip(self, name, reason):
         self.skipped[name] = reason
@@ -1003,10 +1102,22 @@ class Runner:
         except CommandCleanupError as error:
             label = self.active_phase or Path(str(args[0])).name
             raise CommandCleanupError(f"{label} cleanup failed (command budget {timeout}s): {error}") from None
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as expired:
             # TimeoutExpired's default message includes argv, potentially a password.
             label = self.active_phase or Path(str(args[0])).name
-            raise RuntimeError(f"{label} timed out after {timeout}s; owned group stopped; see the run log") from None
+            queued = getattr(expired, "admission_seconds", None)
+            self._count_clock(queued, getattr(expired, "execution_seconds", None))
+            after = (f" of execution, admitted after {queued:.1f}s in the worker queue"
+                     if queued is not None else "")
+            raise RuntimeError(f"{label} timed out after {timeout}s{after}; owned group stopped; "
+                               "see the run log") from None
+        self._count_clock(getattr(result, "admission_seconds", None),
+                          getattr(result, "execution_seconds", None))
+        if result.returncode == 75 and getattr(result, "admitted", None) is False:
+            # worker_tokens.py gave up waiting for a machine token: nothing ran.
+            label = self.active_phase or Path(str(args[0])).name
+            raise RuntimeError(f"{label} was never admitted: waited {result.admission_seconds:.0f}s "
+                               "for a machine worker token and nothing ran; see the run log")
         if result.returncode:
             # Do not echo argv: signing commands can carry a password.
             raise RuntimeError(f"{Path(str(args[0])).name} failed (exit {result.returncode}); see the run log")
@@ -1227,9 +1338,10 @@ class Runner:
                           f"({proof.get('ran')} suite(s), {proof.get('checks')} checks, "
                           f"proven {proof.get('at')}), which is the commit this run fetched")
                 return
-        tests = self.source / UI_TESTS
         receipts = self.state / "ui-receipts"
         with self.phase(UI_SUITE_GATE):
+            tree = self.ui_checkout()
+            tests = tree / UI_TESTS
             if UI_QUARANTINE:
                 self.announce(f"  ui quarantine ({len(UI_QUARANTINE)}): " + "; ".join(UI_QUARANTINE))
             else:
@@ -1239,10 +1351,10 @@ class Runner:
                 args.append(f"--quarantine={suite}")
             try:
                 self.command(*args, cwd=tests, timeout=GATE_BUDGETS[UI_SUITE_GATE])
-                self.restore_source_tree("the UI suite")
+                self.restore_source_tree("the UI suite", tree)
             except RuntimeError as error:
                 if not isinstance(error, CommandCleanupError):
-                    self.restore_source_tree("the UI suite")
+                    self.restore_source_tree("the UI suite", tree)
                 # NAME THE SUITE AND ITS LOG. A gate that refuses a build and leaves the
                 # reader to find out which of 55 suites did it is a gate people learn to
                 # re-run rather than read.
@@ -1253,8 +1365,48 @@ class Runner:
                     + f". Every shard's output and the coverage verdict are in this run's log "
                     f"under the {UI_SUITE_GATE} phase; the receipts are in {receipts}.") from None
 
-    def restore_source_tree(self, who):
+    UI_CHECKOUT = "ui-checkout"
+
+    def ui_checkout(self):
+        """The UI suite's OWN worktree, at the commit this run fetched: never `self.source`.
+
+        THE UI SUITE WRITES INTO ITS CHECKOUT (restore_source_tree says why), and until
+        2026-09-29 that checkout was the nightly's `source`, which other gates WATCH while
+        it runs: workspace-mutants runs ci-shard.sh from its root, and ci-shard's leak canary
+        turns any new or changed `git status` line under `$PWD` into a LEAKED verdict for its
+        unit (ci-shard.sh:519-520, :626-627), as does every script suite that runs ci-shard
+        from the checkout. So a screenshot rewritten mid-run would fail a gate that never
+        touched it (audit R5, docs/verification/2026-09-29-load-sensitive-checks-audit.md).
+        The suite now runs here, a sibling of `source` that no canary watches; the privacy
+        sweep, which scans `source`, no longer has to wait for it. A leftover change from a
+        run that died before its restore is discarded by the forced checkout; each run's own
+        changes are still named by restore_source_tree before they are put back. Its git
+        commands run inside the UI gate's phase and carry the gate's ceiling, as a hang guard.
+        """
+        path = self.state / self.UI_CHECKOUT
+        sha = self.command("git", "rev-parse", "HEAD", cwd=self.source, capture=True,
+                           timeout=GATE_BUDGETS[UI_SUITE_GATE])
+        if path.exists():
+            common = self.command("git", "rev-parse", "--path-format=absolute", "--git-common-dir",
+                                  cwd=path, capture=True, timeout=GATE_BUDGETS[UI_SUITE_GATE])
+            expected = self.command("git", "rev-parse", "--path-format=absolute", "--git-common-dir",
+                                    cwd=self.repo, capture=True, timeout=GATE_BUDGETS[UI_SUITE_GATE])
+            top = self.command("git", "rev-parse", "--show-toplevel", cwd=path, capture=True,
+                               timeout=GATE_BUDGETS[UI_SUITE_GATE])
+            if common != expected or Path(top).resolve() != path.resolve():
+                raise ValueError(f"{path} is not the UI suite's worktree of this repository")
+            self.command("git", "checkout", "--force", "--detach", sha, cwd=path,
+                         timeout=GATE_BUDGETS[UI_SUITE_GATE])
+        else:
+            self.command("git", "worktree", "add", "--detach", path, sha, cwd=self.repo,
+                         timeout=GATE_BUDGETS[UI_SUITE_GATE])
+        return path
+
+    def restore_source_tree(self, who, tree=None):
         """Put the fetched source back the way it was fetched, naming anything that moved.
+
+        `tree` is the checkout to inspect: the UI suite's own (ui_checkout) for the UI gate,
+        `self.source` otherwise.
 
         THIS EXISTS BECAUSE THE UI SUITE WRITES TO ITS OWN CHECKOUT, and until this gate
         existed nothing in a build did. `lib/harness.js:publishShot` deliberately REWRITES a
@@ -1282,8 +1434,9 @@ class Runner:
         # suite refused the build, and an exception thrown from inside it would replace that
         # message with a git error -- losing the only sentence that says what actually
         # happened. Tidying up is never allowed to become the reported failure.
+        tree = tree or self.source
         try:
-            dirty = self.command("git", "status", "--porcelain", cwd=self.source, capture=True,
+            dirty = self.command("git", "status", "--porcelain", cwd=tree, capture=True,
                                  timeout=CLEANUP_TIMEOUT, cleanup=True)
         except (RuntimeError, OSError) as error:
             self.announce(f"  could not check whether {who} left its checkout dirty: {error}")
@@ -1298,13 +1451,14 @@ class Runner:
                       "not a file to re-commit from here; if it differs run to run, it belongs "
                       "in richos/app/ui/tests/lib/shot-stability.js with its cause and bound.")
         try:
-            self.command("git", "checkout", "--", ".", cwd=self.source, timeout=CLEANUP_TIMEOUT,
+            self.command("git", "checkout", "--", ".", cwd=tree, timeout=CLEANUP_TIMEOUT,
                          cleanup=True)
         except (RuntimeError, OSError) as error:
             # Say it plainly rather than swallowing it: the next build will refuse to start
             # and this line is what tells somebody why.
-            self.announce(f"  RESTORE FAILED ({error}). The next build's checkout() will "
-                          f"refuse this worktree until {self.source} is clean.")
+            self.announce(f"  RESTORE FAILED ({error}). {tree} is left with these changes; "
+                          "the next build's checkout() refuses `source` until it is clean, and "
+                          "ui_checkout() discards them in the UI suite's own worktree.")
 
     @staticmethod
     def red_ui_suites(receipts):
@@ -1555,16 +1709,19 @@ class Runner:
                 thread, log, path, began = running.pop(name)
                 thread.join()
                 took = time.time() - began
+                # The gate line says how much of its wall clock was queueing for machine worker
+                # tokens and how much was its own work; only the second spends its budget.
+                note = self.clock_note(name)
                 if error is None:
                     passed.add(name)
                     verdict = (f"SKIPPED {name}" if name in self.skipped
-                               else f"PASSED {name} in {took:.1f}s")
+                               else f"PASSED {name} in {took:.1f}s{note}")
                 elif first is None:
                     first = (name, error)
                     self.groups.stop()
-                    verdict = f"FAILED {name} after {took:.1f}s: {error}"
+                    verdict = f"FAILED {name} after {took:.1f}s{note}: {error}"
                 else:
-                    verdict = (f"STOPPED {name} after {took:.1f}s, because {first[0]} failed "
+                    verdict = (f"STOPPED {name} after {took:.1f}s{note}, because {first[0]} failed "
                                f"first ({error})")
                 self._merge_gate_log(log, path, verdict)
                 if first is not None and first[0] == name and running:
