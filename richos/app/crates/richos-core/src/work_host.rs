@@ -4771,9 +4771,12 @@ mod tests {
         let waiting = await_state(&h, &receipt.id, AssignmentState::WaitingForScreen);
         assert_eq!(waiting.detail, crate::screen::says::detail());
 
-        let started = std::time::Instant::now();
+        // `shutdown` returning at all is the "quit returns" half; a quit that never came back
+        // would hang here and libtest names the test after 60 s. The `< 10 s` clock that
+        // stood after this call could not catch that hang (it only runs once the call has
+        // returned); it could only fail a quit that returned slowly on a busy Mac (audit R9,
+        // work_host `< 10 s`). What this test proves is what the quit LEAVES, below.
         h.host.shutdown();
-        assert!(started.elapsed() < std::time::Duration::from_secs(10), "quit did not return");
 
         // Witnessed, never invented: a quit is a stop somebody made.
         let stopped = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
