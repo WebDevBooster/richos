@@ -13,7 +13,9 @@
       --capacity N         the run's budget of concurrent WORKERS, nested ones included
                            (default: 80% of logical cores — the admission line, in cores)
       --engine-shards N    at most N engine shards (default: logical cores / 2)
-      --admission-wait S   how long one check may wait for admission (default 1800 s)
+      --admission-wait S   how long the Mac may refuse one check before it is NOT ADMITTED
+                           (default 1800 s); time queued behind this run's own checks does not
+                           count (refusal_counts)
       --slot-wait S        how long this RUN may wait for a proof-run slot on this Mac (default
                            10800 s; see RUNS SHARE THE MAC below)
       --budget S           a check running past S seconds is named while the run goes (600)
@@ -108,7 +110,8 @@ ADMISSION, TWO CONDITIONS, BOTH CHECKED BEFORE EVERY START:
     started always can.
   * CEO RULING §77's LINE, the same rule and the same code as testvm/reserve.py: one sample of
     total CPU (user plus system) and memory; below 80% it starts, otherwise the check waits (samples at least 30 s
-    apart, at most --admission-wait) and the wait is reported beside its time.
+    apart) and the wait is reported beside its time. --admission-wait bounds only the time the Mac
+    refused it; time queued behind this run's own checks is reported, never charged (refusal_counts).
 Checks start longest-expected first, so the long poles are not the ones left waiting. While the
 run goes, a sampler records total CPU and the tokens held; the summary prints both, which is the
 evidence of host use, not a guarantee that running compilers stay under the admission line.
@@ -192,7 +195,12 @@ class Item:
         self.rc = None
         self.admission_wait = 0.0
         self.started = self.ended = None
-        self.first_wait = None
+        # Seconds the MAC refused this check (refusal_counts), the only time --admission-wait
+        # bounds; queue time behind this run's own checks is admission_wait (total queue) only.
+        self.refused_wait = 0.0
+        self.refused_base = 0.0         # refused_wait when this attempt's limit began
+        self.refusing = False           # the next scheduler interval is a counted refusal
+        self.owner_wait_since = None    # waiting for another run's identical check (Pool)
         self.proc = None
         self.log = None
         self.notes = []
@@ -667,6 +675,27 @@ def admitted(args, sampler):
     return not reserve._refusal(s, args.max_cpu, 16, cpu_rule=True), s
 
 
+def refusal_counts(sample, pressure, running):
+    """Whether a refused start spends the check's --admission-wait (2026-09-29).
+
+    THE LIMIT IS ON THE MAC REFUSING, NEVER ON THIS RUN'S OWN QUEUE. Until today the clock ran
+    from the moment a check was ready, so time spent behind this run's own checks for a worker
+    token, a lane or the ramp was charged to it, and a check that only waited behind its
+    siblings was refused: several land logs of 2026-09-29 show checks NOT ADMITTED after
+    ~1,830 s (richos-hq docs/audits/2026-09-29-hunt/part-2-codex.md, section 01). It counts:
+      * a host sample over CEO ruling §77's CPU line or its memory rule (`sample` is not None);
+      * the machine's verification pressure controller closing admission (`pressure`), the
+        same CPU and memory rule measured by cpu_guard;
+      * any other refusal (the machine worker budget, integration priority, the measured
+        resource envelope) while NOTHING of this run is running: then the wait cannot be behind
+        this run's own work, and a Mac that keeps refusing still ends in NOT ADMITTED.
+    It does not count: this run's own full worker budget or envelope while its checks run, a
+    busy lane, the ramp, dependencies, the engine slot or an identical owner (their own bounds).
+    A check waiting behind its siblings therefore waits for as long as they run, which their
+    deadlines already bound, and then gets its turn."""
+    return sample is not None or bool(pressure) or not running
+
+
 class HostSamples:
     """Share a complete host measurement for at most one measurement interval.
 
@@ -926,14 +955,21 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
     admitted_lanes = set()
     previous_loop = time.monotonic()
     backoff_reason = "ready"
+    backoff_refusing = False
     heartbeat = time.monotonic() + 30
     while True:
         now = time.monotonic()
         interval, previous_loop = now - previous_loop, now
-        heartbeat += discount_held_gap(interval, running)
+        held = discount_held_gap(interval, running)
+        heartbeat += held
         for it in order:
             if it.state == "waiting":
                 it.wait_times[it.wait_reason] = it.wait_times.get(it.wait_reason, 0.0) + interval
+                if it.refusing:
+                    # Only an interval the Mac refused it spends its admission limit; a pause
+                    # (agent_hold.py) is nobody's time, as for a running check's deadline.
+                    it.refused_wait += max(0.0, interval - held)
+            it.refusing = False     # set again below only while a counted refusal lasts
         for it in list(running):
             rc = it.proc.poll() if it.proc is not None else 127
             age = now - it.started
@@ -979,7 +1015,8 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                     print("         failed: %s" % name, flush=True)
                 if retry_contained:
                     it.state, it.rc = 'waiting', None
-                    it.started = it.ended = it.first_wait = None
+                    it.started = it.ended = it.owner_wait_since = None
+                    it.refused_base = it.refused_wait   # a fresh admission limit for the retry
                     it.queued_at = time.monotonic()
                     it.wait_reason = 'controller-recovery'
                     it.retry_first = True
@@ -1053,13 +1090,16 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
         if pool:
             owned = []
             for it in ready:
-                if it.first_wait is None:
-                    it.first_wait = now
                 if pool.claim(it):
+                    it.owner_wait_since = None
                     owned.append(it)
                 elif it.state == "waiting":
                     it.wait_reason = "identical-owner"
-                    if now - it.first_wait >= args.admission_wait:
+                    # Its own clock: time waiting for another run's identical check, never
+                    # this run's queue and never the Mac's refusals (refused_wait).
+                    if it.owner_wait_since is None:
+                        it.owner_wait_since = now
+                    if now - it.owner_wait_since >= args.admission_wait:
                         it.finish_queue()
                         it.state, it.rc = "not-admitted", 75
                         it.notes.append("identical owner did not finish within the admission wait")
@@ -1091,9 +1131,6 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 intent.begin()
             else:
                 intent.close()
-        for it in ready:
-            if it.first_wait is None:
-                it.first_wait = now
         # Ordering-only dependencies still run diagnostics after failure. Explicit success
         # prerequisites block dependent execution. Nested workers never take the
         # reserved tokens (worker_tokens.py), so a check not yet started always gets one.
@@ -1114,13 +1151,17 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
         if now < next_sample:
             for it in eligible:
                 it.wait_reason = backoff_reason
+                it.refusing = backoff_refusing
         if eligible and now >= next_sample:
             if record and record.current_source() != record.source:
                 record.source_invalidated = True
                 continue
             it = eligible[0]
-            if it.first_wait is None:
-                it.first_wait = now
+            # The machine pressure controller's verdict is read from THIS attempt only: when this
+            # run's own tokens are full the machine budget is never asked, and an older refusal
+            # left on it would count this run's own queue as the Mac refusing.
+            pressure_owner = budget.shared or budget
+            pressure_owner.refusal = None
             token = budget.try_acquire()
             ok, s = (False, None)
             if token is not None:
@@ -1177,29 +1218,35 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 if it.lane is not None:
                     admitted_lanes.add(it.lane)
                 print("[%s] start  %-40s %s" % (stamp(), it.label,
-                                                "(queued %.0f s before launch)" % it.admission_wait if it.admission_wait >= 1 else ""),
+                                                "(queued %.0f s before launch, %.0f s of it refused by admission)" % (
+                                                    it.admission_wait, it.refused_wait)
+                                                if it.admission_wait >= 1 else ""),
                       flush=True)
             else:
                 resource_blocked = token is not None and s is None and any(
                     queued.wait_reason == 'resource-envelope' for queued in eligible)
+                pressure = getattr(pressure_owner, 'refusal', None) if token is None else None
                 refusal_kind = ('resource-envelope' if resource_blocked else
-                                'host' if s is not None else 'worker')
+                                'host' if s is not None else 'pressure' if pressure else 'worker')
+                counted = refusal_counts(s, pressure, running)
                 for queued in eligible:
                     queued.wait_reason = refusal_kind
-                # Refused by the CPU line or the memory rule (not merely waiting for a token).
-                waited = now - it.first_wait
-                if waited >= args.admission_wait:
+                    queued.refusing = counted
+                waited = it.refused_wait - it.refused_base
+                if counted and waited >= args.admission_wait:
                     STALL.over()
                     it.finish_queue()
                     it.state, it.rc = "not-admitted", 75
                     reason = (reserve.describe(s) if s is not None else getattr(it, 'resource_refusal', None)
-                              or getattr(budget.shared or budget, 'refusal', None) or "worker budget is full")
-                    it.notes.append("not admitted after %.0f s: %s" % (waited, reason))
-                    print("[%s] REFUSED %-39s not admitted after %.0f s (%s)" % (stamp(), it.label, waited,
-                                                                                 reason), flush=True)
+                              or pressure or getattr(budget.shared or budget, 'refusal', None) or "worker budget is full")
+                    it.notes.append("not admitted after %.0f s of refusals (%.0f s queued in all): %s" % (
+                        waited, it.admission_wait, reason))
+                    print("[%s] REFUSED %-39s not admitted after %.0f s of refusals (%s)" % (
+                        stamp(), it.label, waited, reason), flush=True)
                 else:
                     next_sample = now + (reserve.MIN_RETRY_SECONDS if s is not None else 0.2)
                     backoff_reason = refusal_kind
+                    backoff_refusing = counted
                     if not running and s is not None:
                         STALL.refused("proof-run: %s not admitted: %s" % (it.label, reserve.describe(s)))
                     else:
@@ -1370,11 +1417,13 @@ def summarize(items, wall, logdir, budget_seconds=600, monitor_lines=()):
           (len(items), wall, wall / 60, serial))
     for line in monitor_lines:
         print("  " + line)
-    print("  %-40s %-12s %8s %10s  %s" % ("check", "result", "seconds", "queue", "log"))
+    # queue: all the time it waited to start; refused: the part the Mac refused it (refusal_counts),
+    # the only part --admission-wait bounds.
+    print("  %-40s %-12s %8s %10s %10s  %s" % ("check", "result", "seconds", "queue", "refused", "log"))
     rows = []
     for it in sorted(items, key=lambda i: -(i.total_seconds)):
-        print("  %-40s %-12s %8.0f %9.0fs  %s" % (it.label, it.state.upper(), it.total_seconds, it.admission_wait,
-                                                 os.path.basename(it.log or "-")))
+        print("  %-40s %-12s %8.0f %9.0fs %9.0fs  %s" % (it.label, it.state.upper(), it.total_seconds, it.admission_wait,
+                                                        getattr(it, "refused_wait", 0.0), os.path.basename(it.log or "-")))
         if it.total_seconds > budget_seconds:
             print("      OVER BUDGET: %.0f s is past the %.0f s budget one check may take" % (it.total_seconds, budget_seconds))
         for note in it.notes[:6]:
@@ -1391,6 +1440,7 @@ def summarize(items, wall, logdir, budget_seconds=600, monitor_lines=()):
                      "last_attempt_seconds": round(it.seconds, 1),
                      "admission_wait": round(it.admission_wait, 1),  # legacy field: total queue
                      "total_queue_seconds": round(it.admission_wait, 1),
+                     "admission_refused_seconds": round(getattr(it, "refused_wait", 0.0), 1),
                      "engine_slot_wait": round(it.slot_wait, 1),
                      "wait_seconds_by_reason": {k: round(v, 3) for k, v in it.wait_times.items()},
                      "exit": it.rc, "log": it.log,
