@@ -42,7 +42,7 @@ if grep -rq LINT-BAD richos/app/src; then
 fi
 echo "Lint passed"
 """
-DRIVER = "# Fixture: this lint knows the commit mode, --changed.\n"
+DRIVER = "# Fixture: this lint knows the commit mode, --changed, and --strict.\n"
 PROOF_FOR = """#!/usr/bin/env bash
 # Fixture selector: scripts/suite.sh proves every change under richos/app.
 cd "$(dirname "$0")/../../.."
@@ -178,7 +178,7 @@ class Commit(Fixture):
         self.assertIn("COMMIT REFUSED", text)
         self.assertIn("Lint refused: lint growth: fixture-rule: 1 > 0", text)
         self.assertEqual(self.head(), before)
-        self.assertIn("lint --changed", self.tools())
+        self.assertIn("lint --changed --strict", self.tools())
 
     def test_a_clean_commit_passes_and_leaves_no_record(self):
         self.make()

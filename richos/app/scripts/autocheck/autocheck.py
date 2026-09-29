@@ -9,9 +9,10 @@ BASIC-LEVEL SHIT-FUCKERY OF ANY KIND????"* So nobody is told. Git runs this thro
 repository's hooks (installed by `install.sh` beside this file) for every committer: an
 engineer in a worktree, Codex, Rich in the main checkout.
 
-  COMMIT, on any branch but main (pre-commit, and pre-merge-commit for a merge into a
-  branch): `lint.sh --changed` over what differs from HEAD, i.e. the lint ratchets
-  (static, load rules, and Clippy for a Rust set whose inputs changed). The repository
+  COMMIT, on any branch but main (pre-commit): `lint.sh --changed --strict` over what
+  differs from HEAD, i.e. the lint ratchets (static, load rules, and Clippy for a Rust set
+  whose inputs changed), and no count may grow whatever room a ceiling has. A merge into a
+  branch (pre-merge-commit) runs `--changed` against the ceilings only. The repository
   enforces no formatter, so none is run. A failure refuses the commit with the lint's reason.
 
   LAND, anything that moves main (pre-merge-commit on main, pre-commit on main, and
@@ -163,15 +164,18 @@ def commit_check(repo, what):
         banner(f"{what.upper()} REFUSED: the lint is missing", [f"{LINT} is not in this tree; nothing can be checked."])
         return 1
     driver = repo.top / LINT_DRIVER
-    if driver.is_file() and "--changed" in driver.read_text(errors="replace"):
-        mode = "--changed"
+    known = driver.read_text(errors="replace") if driver.is_file() else ""
+    if "--changed" in known:
+        # A commit may not grow any count (--strict). A merge into a branch brings main's
+        # landed changes, which were held to the ceilings at their land, so it is not.
+        mode = ["--changed", "--strict"] if what == "commit" and "--strict" in known else ["--changed"]
     else:
         # A branch older than the commit mode: the full static pass, and the fast set when
         # Rust changed. Slower, never looser.
         rust = any(p.endswith(".rs") or Path(p).name in ("Cargo.toml", "Cargo.lock") for p in app)
-        mode = "--fast" if rust else "--static"
-    say(f"autocheck: {what}: {len(app)} changed path(s) under richos/app; lint {mode} (working tree)")
-    result = repo.run(["bash", LINT, mode])
+        mode = ["--fast"] if rust else ["--static"]
+    say(f"autocheck: {what}: {len(app)} changed path(s) under richos/app; lint {' '.join(mode)} (working tree)")
+    result = repo.run(["bash", LINT, *mode])
     if result.returncode:
         banner(f"{what.upper()} REFUSED: the lint failed for this change", [
             "The reason is printed just above (\"Lint refused: ...\").",

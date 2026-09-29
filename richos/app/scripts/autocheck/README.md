@@ -6,7 +6,8 @@ Git runs these itself. Nobody runs them by hand and nobody has to be told to (CE
 
 | When | On | What runs | A failure |
 | --- | --- | --- | --- |
-| `git commit`, `git merge` into a branch | every branch but `main`, in every worktree | `lint.sh --changed`: the lint ratchets for what differs from `HEAD` (static and load rules; Clippy for a Rust set whose inputs changed) | refuses the commit, with the lint's reason |
+| `git commit` | every branch but `main`, in every worktree | `lint.sh --changed --strict`: the lint ratchets for what differs from `HEAD` (static and load rules; Clippy for a Rust set whose inputs changed), and no count may grow, whatever room a ceiling has | refuses the commit, with the lint's reason |
+| `git merge` into a branch | every branch but `main` | `lint.sh --changed` (ceilings; what main brings was held to its land) | refuses the merge |
 | `git merge` into `main`, a commit on `main` | the main checkout | the suites `proof-for.sh` assigns to the change, run by `proof-run.py`, plus `lint.sh --all` when that selection does not already include `lint.test.sh` | refuses the merge before main moves |
 | `git push` of `main` | wherever main is pushed from | the same land checks, only when main's tip has no land receipt (a fast-forward, a cherry-pick, a `--no-verify` merge) | refuses the push |
 
