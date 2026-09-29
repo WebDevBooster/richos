@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Local release entry point: explicit trigger, isolation and private credentials."""
 import contextlib
+import fcntl
 import importlib.util
 import io
 import json
@@ -314,12 +315,97 @@ Path(sys.argv[1]).write_text(str(p.pid))
 """)
         pid_file = self.root / "pipe-child"
         with (self.root / "pipe.log").open("w") as log:
-            r = m.Runner(self.root, self.root, dict(os.environ), log)
+            # Its own worker budget: the wall bound below is about the pipe, not the queue.
+            r = m.Runner(self.root, self.root, self.private_budget()[0], log)
             start = time.monotonic()
             r.command(sys.executable, script, pid_file, cwd=self.root,
                       capture=True, timeout=5)
             self.assertLess(time.monotonic() - start, 5)
         self.assert_pid_gone(int(pid_file.read_text()))
+
+    def private_budget(self):
+        """An environment whose machine worker budget is this test's own, every token free,
+        and the tool that makes it. Nothing inherited from a runner around this test."""
+        tool = Path(m.__file__).resolve().parents[2] / "engine/scripts/lib/worker_tokens.py"
+        workers = self.root / "workers"
+        # The size worker_tokens.py's machine_directory() insists on, so its init agrees.
+        subprocess.run([sys.executable, str(tool), "init", str(workers),
+                        str(max(1, int((os.cpu_count() or 4) * 0.8)))], check=True)
+        env = dict(os.environ, RICHOS_MACHINE_WORKERS=str(workers))
+        for key in ("RICHOS_WORKER_TOKENS", "RICHOS_WORKER_TOKENS_TOOL", "RICHOS_WORKER_SLOT_HELD",
+                    "RICHOS_WORKER_BORROW_LOCK", "RICHOS_WORKER_TOKENS_RESERVED"):
+            env.pop(key, None)
+        return env, workers
+
+    def test_a_deadline_counts_execution_never_the_wait_for_a_worker_token(self):
+        # Run 20260929T003824Z-01545196: the UI gate's 30 s `git status` cleanup "timed out"
+        # while the mutation pool held the machine's worker tokens, because the deadline ran
+        # from the spawn. Here every token is held until the command has been seen queued for
+        # longer than its whole budget; it must then run, pass, and say how long it queued.
+        env, workers = self.private_budget()
+        budget = 5
+        held = []
+        for token in sorted(workers.glob("token-*")):
+            fd = os.open(token, os.O_RDWR)
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            held.append(fd)
+
+        def release_once_queued_past_the_budget():
+            try:
+                guard = time.monotonic() + 120            # a hang guard only
+                while not list(workers.glob("wait-*")) and time.monotonic() < guard:
+                    time.sleep(0.05)
+                time.sleep(budget + 1)                     # queued for longer than the budget
+            finally:
+                for fd in held:
+                    os.close(fd)
+
+        releaser = threading.Thread(target=release_once_queued_past_the_budget)
+        releaser.start()
+        try:
+            with (self.root / "run.log").open("w") as log:
+                r = m.Runner(self.root, self.root, env, log)
+                with r.phase("gates/fixture"):
+                    r.command("/usr/bin/true", cwd=self.root, timeout=budget)
+        finally:
+            releaser.join()
+        admission, execution = r.clocks["gates/fixture"]
+        self.assertGreaterEqual(admission, budget + 1, "the queueing is reported as admission")
+        text = (self.root / "run.log").read_text()
+        self.assertIn("gates/fixture: admission", text)
+        self.assertIn("a deadline counts execution only", text)
+
+    def test_the_gate_line_says_admission_and_execution_and_a_refusal_says_nothing_ran(self):
+        r = m.Runner(self.root, self.root / "state", {"PATH": "/usr/bin"}, io.StringIO(),
+                     gates_at_once="all")
+
+        def run(args, **kwargs):
+            result = subprocess.CompletedProcess(args, 0, "", "")
+            result.admitted, result.admission_seconds, result.execution_seconds = True, 2.0, 3.0
+            return result
+
+        def gate(name):
+            def body():
+                with r.phase(name):
+                    r.command("true", timeout=10)
+            return (name, body)
+
+        # Two gates, so they run side by side and each gets a verdict line.
+        with patch.object(m, "owned_run", side_effect=run), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            r.run_gates([gate("gates/fixture"), gate("gates/other")])
+        line = next(l for l in out.getvalue().splitlines() if "PASSED gates/fixture" in l)
+        self.assertRegex(line, r"PASSED gates/fixture in [\d.]+s \(admission 2\.0s, execution 3\.0s\)$")
+        self.assertTrue(m.Runner.GATE_VERDICT.match(line), "--gates-passed-in still reads the line")
+
+        def refused(args, **kwargs):
+            result = subprocess.CompletedProcess(args, 75, "", "")
+            result.admitted, result.admission_seconds, result.execution_seconds = False, 1800.0, 0.0
+            return result
+
+        with patch.object(m, "owned_run", side_effect=refused), \
+                self.assertRaisesRegex(RuntimeError, "never admitted: waited 1800s .* nothing ran"):
+            m.Runner(self.root, self.root, {}, io.StringIO()).command("true", timeout=10)
 
     def test_every_gate_has_a_named_deadline(self):
         for (phase, budget), at_once in [(item, n) for item in m.GATE_BUDGETS.items()
@@ -475,7 +561,8 @@ while True: time.sleep(.02)
                                     start_new_session=True)
         try:
             with (self.root / "log").open("w") as log:
-                r = m.Runner(self.root, self.root, dict(os.environ), log)
+                # Its own worker budget: the wall bound below is about cleanup, not the queue.
+                r = m.Runner(self.root, self.root, self.private_budget()[0], log)
                 start = time.monotonic()
                 with self.assertRaisesRegex(RuntimeError, "timed out after 1s"):
                     r.command(*self.process_fixture(), cwd=self.root, timeout=1)
