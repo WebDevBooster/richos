@@ -48,8 +48,12 @@ import dev.richos.android.design.Mark
 import dev.richos.android.design.Rich
 import dev.richos.android.design.RichMotion
 import dev.richos.android.design.ScrollEdgeFade
+import dev.richos.android.design.Speckle
 import dev.richos.android.design.Spinner
 import dev.richos.android.design.plane
+import androidx.compose.ui.graphics.asAndroidBitmap
+import dev.richos.android.core.Theme
+import kotlin.math.roundToInt
 import dev.richos.android.ui.UiEvent
 import dev.richos.android.ui.model.HistoryEdge
 import dev.richos.android.ui.model.Message
@@ -213,15 +217,17 @@ private fun buildItems(messages: List<Message>, edge: HistoryEdge, dayLabel: Str
 
 /**
  * The thread fades out under the header (round 12 `.thread` mask: hidden to 30 dp above the
- * header's foot, 35% visible 4 dp below it, fully visible 40 dp below). Drawn as the ground and its
- * lamp laid over the thread with falling opacity, which needs no offscreen layer: it costs one
- * gradient per frame and renders the same headless as on a phone.
+ * header's foot, 35% visible 4 dp below it, fully visible 40 dp below). Drawn as the ground, its
+ * speckle and its lamp laid over the thread with falling opacity, which needs no offscreen layer: it
+ * costs one shader per frame and renders the same headless as on a phone. It sits at the window's
+ * top-left, as the screen's own ground does, so the speckle's points land on the same pixels.
  */
 @Composable
 fun HeaderFade(headerBottom: Dp, screenHeight: Dp, modifier: Modifier = Modifier) {
     val c = Rich.colors
     val ground = c.ground.toArgb()
     val lamp = c.lamp
+    val theme = if (c.isDark) Theme.DARK else Theme.LIGHT
     Box(
         modifier.fillMaxWidth().height(headerBottom + 40.dp).drawWithCache {
             val w = size.width
@@ -229,8 +235,9 @@ fun HeaderFade(headerBottom: Dp, screenHeight: Dp, modifier: Modifier = Modifier
             val screenH = screenHeight.toPx()
             val foot = headerBottom.toPx()
             fun stop(y: Float) = (y / h).coerceIn(0f, 1f)
-            // The ground with its lamp, exactly as the screen's own background draws them
-            // (`radial-gradient(120% 60% at 50% -10%, lamp, transparent 60%)` over the ground)...
+            // The ground, its speckle and its lamp, exactly as the screen's own background draws
+            // them (design/Speckle.kt's field over the ground, then `radial-gradient(120% 60% at 50%
+            // -10%, lamp, transparent 60%)`)...
             val rx = 1.2f * w
             val ry = 0.6f * screenH
             val lampShader = android.graphics.RadialGradient(
@@ -238,11 +245,22 @@ fun HeaderFade(headerBottom: Dp, screenHeight: Dp, modifier: Modifier = Modifier
                 intArrayOf(lamp.toArgb(), lamp.copy(alpha = 0f).toArgb()), floatArrayOf(0f, 0.6f),
                 android.graphics.Shader.TileMode.CLAMP,
             ).apply { setLocalMatrix(android.graphics.Matrix().apply { setScale(1f, ry / rx, w / 2, -0.1f * screenH) }) }
-            val lit = android.graphics.ComposeShader(
-                android.graphics.LinearGradient(0f, 0f, 0f, 1f, ground, ground, android.graphics.Shader.TileMode.CLAMP),
-                lampShader,
+            val flat: android.graphics.Shader =
+                android.graphics.LinearGradient(0f, 0f, 0f, 1f, ground, ground, android.graphics.Shader.TileMode.CLAMP)
+            val screenWPx = w.roundToInt()
+            val screenHPx = screenH.roundToInt()
+            val points = Speckle.image(theme, screenWPx, screenHPx, density)?.asAndroidBitmap()
+            val speckled = if (points == null) flat else android.graphics.ComposeShader(
+                flat,
+                android.graphics.BitmapShader(points, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP).apply {
+                    // Denser than 3x the field is drawn at 3x and scaled up, as the screen's ground does.
+                    if (points.width != screenWPx || points.height != screenHPx) {
+                        setLocalMatrix(android.graphics.Matrix().apply { setScale(screenWPx / points.width.toFloat(), screenHPx / points.height.toFloat()) })
+                    }
+                },
                 android.graphics.PorterDuff.Mode.SRC_OVER,
             )
+            val lit = android.graphics.ComposeShader(speckled, lampShader, android.graphics.PorterDuff.Mode.SRC_OVER)
             // ...with the veil's opacity falling toward the thread, applied as a shader, not a layer.
             val fall = android.graphics.LinearGradient(
                 0f, 0f, 0f, h,

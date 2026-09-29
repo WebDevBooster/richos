@@ -48,6 +48,7 @@ import dev.richos.android.design.ScrollEdgeFade
 import dev.richos.android.design.Spinner
 import dev.richos.android.design.lamp
 import dev.richos.android.design.plane
+import dev.richos.android.design.speckle
 import dev.richos.android.ui.UiEvent
 
 /**
@@ -58,7 +59,7 @@ import dev.richos.android.ui.UiEvent
 private val wrapping = LineBreak.Paragraph.copy(strategy = LineBreak.Strategy.Balanced)
 
 /**
- * `.takeover`: a full screen on the ground with the lamp. Its content scrolls when the text is
+ * `.takeover`: a full screen on the speckled ground (design/Speckle.kt) with the lamp. Its content scrolls when the text is
  * large; its buttons stay on screen underneath (iOS audit O2, F1: the actions never leave). While
  * more content lies below, a fade marks the scroll edge so the cut never looks like clipping
  * (Urban's 2026-09-24 audit G3). [top] and [buttonGap] are round 12.1's `.takeover` padding and
@@ -75,7 +76,7 @@ fun TakeoverFrame(
     val c = Rich.colors
     val scroll = rememberScrollState()
     Column(
-        Modifier.fillMaxSize().background(c.ground).lamp()
+        Modifier.fillMaxSize().background(c.ground).speckle().lamp()
             .windowInsetsPadding(WindowInsets.safeDrawing)
             .padding(start = 26.dp, end = 26.dp, top = top, bottom = 20.dp)
             .semantics { testTag = tag },

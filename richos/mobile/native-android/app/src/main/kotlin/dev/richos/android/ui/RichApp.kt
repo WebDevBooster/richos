@@ -46,6 +46,7 @@ import dev.richos.android.core.AppState
 import dev.richos.android.design.Rich
 import dev.richos.android.design.RichTheme
 import dev.richos.android.design.lamp
+import dev.richos.android.design.speckle
 import dev.richos.android.ui.composer.Composer
 import dev.richos.android.ui.composer.ComposerCardView
 import dev.richos.android.ui.composer.InlineNoticeView
@@ -146,7 +147,8 @@ fun RichApp(model: ScreenModel, onEvent: (UiEvent) -> Unit, camera: (@Composable
         }
         val shown = withVoiceClock(model, handle)
         val c = Rich.colors
-        Box(Modifier.fillMaxSize().background(c.ground).lamp().semantics { testTag = "app" }) {
+        // The ground, the design system's speckled ground over it, then the lamp (design/Speckle.kt).
+        Box(Modifier.fillMaxSize().background(c.ground).speckle().lamp().semantics { testTag = "app" }) {
             val step = model.pairingStep
             val scanning = step == PairingStep.SCANNING || step == PairingStep.FOUND
             when {
