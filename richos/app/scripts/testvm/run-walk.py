@@ -2,7 +2,7 @@
 """Hold one test VM guest slot through guest boot, a scenario command and guest cleanup.
 
 The command after -- receives the owned VM name as its first argument. Example:
-run-walk.py --bundle BUNDLE --home FIXTURE --engine ENGINE -- delta-walk.py --out OUT ...
+run-walk.py --bundle BUNDLE --home FIXTURE --engine ENGINE --tailnet -- delta-walk.py --out OUT ...
 
 CEO ruling §77: a walk is a test run, admitted by the CPU rule; it does not take
 the nightly release.lock. The guest is a shared resource with TWO slots (slots.py):
@@ -40,6 +40,19 @@ RETIRED={'hold-walk.py':'hold-walk.py is retired (the CEO, 2026-09-27): a guest 
          'guest exists for exactly that run, and the slot is free again the moment it ends.'}
 
 
+# Scenarios whose proof IS the phone path: only these get the tailnet join.
+PHONE_WALKS={'delta-walk.py'}
+
+
+def boot_argv(vm,bundle,home,engine,tailnet):
+    """run.sh's command line. The tailnet join is the phone path's and nothing else's: a
+    walk that never touches the phone must not fail because a network join failed (run.sh
+    exits 1 on a failed join), so --no-tailnet is the default and --tailnet opts in."""
+    argv=[str(HERE/'run.sh'),'--vm',vm,'--bundle',bundle,'--home',home,'--engine',engine]
+    if not tailnet:argv.append('--no-tailnet')
+    return argv
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--bundle',required=True);p.add_argument('--home',required=True);p.add_argument('--engine',required=True)
@@ -49,11 +62,14 @@ def main():
                    help='accepted so older command lines parse; a walk no longer takes release.lock (CEO ruling §77)')
     p.add_argument('--wait',type=float,default=0,metavar='SECONDS',
                    help='wait for a free guest slot and CPU/memory admission for at most SECONDS (default 0: refuse at once)')
+    p.add_argument('--tailnet',action='store_true',
+                   help='join the phone network in the guest (only a walk that pairs a phone needs it; default: no join)')
     p.add_argument('command',nargs=argparse.REMAINDER)
     a=p.parse_args();command=a.command[1:] if a.command[:1]==['--'] else a.command
     if not command:p.error('a scenario command is required after --')
     retired=RETIRED.get(Path(command[0]).name)
     if retired:p.error(retired)
+    if Path(command[0]).name in PHONE_WALKS and not a.tailnet:p.error(Path(command[0]).name+' pairs a phone: pass --tailnet')
     # Before a slot is taken and a guest is booted: a command that cannot start would
     # spend a boot and a slot to find that out.
     if shutil.which(command[0]) is None:p.error('the scenario command is not an executable file: '+command[0])
@@ -68,7 +84,7 @@ def main():
         try:
             # Give each subprocess a group so interruption cannot strand the SSH
             # command. stop.sh subsequently reaps the captured VM process.
-            boot=[str(HERE/'run.sh'),'--vm',vm,'--bundle',a.bundle,'--home',a.home,'--engine',a.engine]
+            boot=boot_argv(vm,a.bundle,a.home,a.engine,a.tailnet)
             child=subprocess.Popen(boot,start_new_session=True)
             rc=child.wait(timeout=480)
             result['boot_seconds']=time.monotonic()-began

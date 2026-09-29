@@ -174,7 +174,9 @@ echo ""
 
 RESULT="fail:no-window"
 WINDOWS=0
-if "$TESTVM/run.sh" --bundle "$BUNDLE" --home "$FIXTURE" --vm "$VM" > "$WORK/run.out" 2>&1; then
+# --no-tailnet: this proof is "does the app draw a window", nothing to do with the phone; a
+# failed network join must not fail it (run.sh exits 1 on one, and says so at its :36-41).
+if "$TESTVM/run.sh" --bundle "$BUNDLE" --home "$FIXTURE" --vm "$VM" --no-tailnet > "$WORK/run.out" 2>&1; then
   # `run.sh` prints `windows=N`, and N is the point: a pid is not a proof, because the app
   # can be running and drawing nothing — which is precisely the state a screenshot would
   # photograph and call a pass (run.sh's own words).
