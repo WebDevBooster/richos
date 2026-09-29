@@ -42,7 +42,7 @@
 
 const path = require("path");
 const fs = require("fs");
-const { loadPlaywright, leaveHome, shot, publishShotFile, createRun, assert, assertEqual, SEED_THEME, UI_DIR, SHOT_DIR } = require("./lib/harness");
+const { loadPlaywright, leaveHome, shot, publishShotFile, createRun, assert, assertEqual, awaitSettled, SEED_THEME, UI_DIR, SHOT_DIR } = require("./lib/harness");
 const contrastLib = require("./lib/contrast");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
@@ -3255,6 +3255,77 @@ async function main() {
     assert(left, "leaveHome did not find the home screen");
     assert(r.hidden && !r.inert, "leaveHome left the shell unreachable");
     return "leaveHome(page) returns true, un-mounts the surface and hands the shell back";
+  });
+
+  // THE HARNESS'S OWN WAITS SAY SO WHEN THEY GIVE UP (2026-09-29, audit R11). Both of these
+  // used to time out quietly and hand the caller a wrong state: `leaveHome` returned `false`
+  // after 5,000ms and ~60 callers ignored it, and `awaitSettled` resolved after 2,000ms as if a
+  // fade had ended. On a busy host that is a failure far from its cause, or a wrong picture
+  // published as the reference.
+  await run.check("leaveHome refuses a page whose home screen failed to load, rather than handing it on", async () => {
+    const p = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    try {
+      // PLANTED: `home.js` publishes itself with `window.RichHome = (function () {...})()`, and
+      // this makes that one assignment throw, which is what any load failure of the script
+      // looks like from outside: the script is on the page and its export never appears.
+      await p.addInitScript(() => {
+        Object.defineProperty(window, "RichHome", {
+          configurable: false,
+          get() {
+            return undefined;
+          },
+          set() {
+            throw new Error("planted: the home screen failed to load");
+          },
+        });
+      });
+      await p.goto(APP);
+      const t0 = Date.now();
+      let refused = null;
+      let returned;
+      try {
+        returned = await leaveHome(p);
+      } catch (e) {
+        refused = String(e.message || e);
+      }
+      const took = Date.now() - t0;
+      assert(
+        refused !== null,
+        `leaveHome handed back a page whose home screen never loaded (it returned ${JSON.stringify(returned)}) ` +
+          "instead of saying so; every caller that ignores the return drives an inert #app from here"
+      );
+      assert(/home\.js is on this page but window\.RichHome never appeared/.test(refused), "leaveHome refused, but did not name the cause: " + refused);
+      return `refused in ${took}ms with: ${refused.slice(0, 140)}`;
+    } finally {
+      await p.close();
+    }
+  });
+
+  await run.check("a settled shot waits for a fade to END, however long it runs past two seconds", async () => {
+    const p = await browser.newPage({ viewport: { width: 400, height: 300 } });
+    try {
+      // A finite 4-second fade: longer than the flat 2,000ms the settle wait used to give any
+      // animation, which is exactly what a busy host turns a 900ms fade into by the time its
+      // `finished` promise is delivered. The settle wait must return only when it has ended.
+      await p.setContent(
+        '<!doctype html><div id="f" style="width:100px;height:100px;background:#123;opacity:1;transition:opacity 4000ms linear"></div>'
+      );
+      await p.evaluate(() => {
+        const f = document.getElementById("f");
+        f.getBoundingClientRect();
+        f.style.opacity = "0";
+      });
+      const t0 = Date.now();
+      await awaitSettled(p);
+      const took = Date.now() - t0;
+      const still = await p.evaluate(
+        () => document.getAnimations().filter((a) => a.playState === "running").length
+      );
+      assertEqual(still, 0, `awaitSettled returned after ${took}ms with the 4s fade still running`);
+      return `returned after ${took}ms, with 0 animations running (a 4000ms fade)`;
+    } finally {
+      await p.close();
+    }
   });
 
   await browser.close();

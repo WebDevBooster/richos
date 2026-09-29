@@ -362,24 +362,68 @@ async function pinLoops(page) {
 /// screenshot helper must not be able to hang a suite; the bound is generous and never silent
 /// about what it gave up on — anything still running is either infinite (and `pinLoops` takes
 /// it next) or a real stall the shot will show.
+///
+/// THE BOUND IS A HANG GUARD NOW, AND IT IS NEVER SILENT (2026-09-29, audit R11). It used to be
+/// a flat 2,000ms, after which this resolved as if settled. An animation's end is on the
+/// document's REAL timeline, but the promise that reports it is delivered by a page and a harness
+/// that a busy host slows down, so a 900ms fade could still be "running" at 2,000ms and the shot
+/// was taken mid-fade: a pixel comparison failing far from its cause, or a mid-fade picture
+/// published as the reference. The guard is now what the page itself declares: the longest
+/// remaining time of any running finite animation, plus `SETTLE_SLACK_MS` for the report to
+/// arrive. Running past that is a hang, and it throws, naming the animations still running.
+///
+/// A caller that passes `timeoutMs` has declared it is working against a clock of its own
+/// (`splash.js`, one second of ceiling grace): that caller still gets its cap, and a cap that
+/// fires is printed with what was still running rather than swallowed.
+const SETTLE_SLACK_MS = 10000;
 async function awaitSettled(page, timeoutMs) {
-  const budget = timeoutMs || 2000;
-  await page
-    .evaluate(
-      (ms) =>
-        new Promise((resolve) => {
-          const finite = document.getAnimations().filter((a) => {
-            const t = a.effect && a.effect.getComputedTiming ? a.effect.getComputedTiming() : null;
-            return t && t.iterations !== Infinity && a.playState === "running";
+  const r = await page.evaluate(
+    ({ capMs, slackMs }) =>
+      new Promise((resolve) => {
+        const finite = document.getAnimations().filter((a) => {
+          const t = a.effect && a.effect.getComputedTiming ? a.effect.getComputedTiming() : null;
+          return t && t.iterations !== Infinity && a.playState === "running";
+        });
+        if (!finite.length) return resolve({ count: 0, settled: true, ms: 0, still: [] });
+        const describe = (a) => {
+          const el = a.effect && a.effect.target;
+          const who = el ? el.tagName.toLowerCase() + (el.id ? "#" + el.id : "") : "?";
+          const what = a.animationName || a.transitionProperty || a.id || a.constructor.name;
+          return `${what} on ${who}`;
+        };
+        let remaining = 0;
+        for (const a of finite) {
+          const t = a.effect.getComputedTiming();
+          const rate = Math.abs(a.playbackRate || 1);
+          const left = (Number(t.endTime) - Number(t.localTime || 0)) / rate;
+          if (Number.isFinite(left)) remaining = Math.max(remaining, left);
+        }
+        const ms = capMs !== null ? capMs : Math.ceil(remaining) + slackMs;
+        let timer = null;
+        const done = Promise.all(finite.map((a) => a.finished.catch(() => {}))).then(() => true);
+        const cap = new Promise((res) => {
+          timer = setTimeout(() => res(false), ms);
+        });
+        Promise.race([done, cap]).then((settled) => {
+          clearTimeout(timer);
+          resolve({
+            count: finite.length,
+            settled,
+            ms,
+            still: settled ? [] : finite.filter((a) => a.playState === "running").map(describe),
           });
-          if (!finite.length) return resolve(0);
-          const done = Promise.all(finite.map((a) => a.finished.catch(() => {})));
-          const cap = new Promise((r) => setTimeout(r, ms));
-          Promise.race([done, cap]).then(() => resolve(finite.length));
-        }),
-      budget
-    )
-    .catch(() => 0);
+        });
+      }),
+    { capMs: typeof timeoutMs === "number" ? timeoutMs : null, slackMs: SETTLE_SLACK_MS }
+  );
+  if (!r.settled) {
+    const msg = `awaitSettled: ${r.still.length} animation(s) still running after ${r.ms}ms: ${r.still.join(", ")}`;
+    if (typeof timeoutMs !== "number") {
+      throw new Error(msg + " — past their own declared end plus " + SETTLE_SLACK_MS + "ms, which is a hang, not a slow host");
+    }
+    process.stderr.write(`  ${msg} (the caller's own ${timeoutMs}ms cap)\n`);
+  }
+  return r.count;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -411,12 +455,20 @@ async function awaitSettled(page, timeoutMs) {
 // OPT-IN, NEVER AUTOMATIC. A suite that photographs a hover ON PURPOSE must keep it, so this
 // is `opts.parkPointer` at the call site and not something `shot()` does behind every caller's
 // back.
+//
+// IT SAYS SO WHEN IT GIVES UP (2026-09-29, audit R11). The wait used to be 2,000ms and then
+// `.catch(() => {})`: on a busy host the hit test ran late, the helper returned anyway, and the
+// shot was taken hovered — a pixel comparison failing far from its cause, or worse, a hovered
+// picture published as the reference. The bound is now a hang guard (the hover chain normally
+// agrees within a frame or two), and running out of it throws, naming what was hovered and what
+// was under the pointer.
+const PARK_POINTER_GUARD_MS = 20000;
 async function parkPointer(page, at) {
   const x = at && typeof at.x === "number" ? at.x : 0;
   const y = at && typeof at.y === "number" ? at.y : 0;
-  await page.mouse.move(x, y).catch(() => {});
-  await page
-    .waitForFunction(
+  await page.mouse.move(x, y);
+  try {
+    await page.waitForFunction(
       ([px, py]) => {
         const hovered = document.querySelectorAll(":hover");
         if (!hovered.length) return true;
@@ -424,9 +476,22 @@ async function parkPointer(page, at) {
         return under === hovered[hovered.length - 1];
       },
       [x, y],
-      { timeout: 2000 }
-    )
-    .catch(() => {});
+      { timeout: PARK_POINTER_GUARD_MS }
+    );
+  } catch (e) {
+    const seen = await page
+      .evaluate(([px, py]) => {
+        const name = (el) => (el ? el.tagName.toLowerCase() + (el.id ? "#" + el.id : "") + (el.className && typeof el.className === "string" ? "." + el.className.trim().split(/\s+/).join(".") : "") : "nothing");
+        const hovered = document.querySelectorAll(":hover");
+        return { hovered: name(hovered[hovered.length - 1]), under: name(document.elementFromPoint(px, py)) };
+      }, [x, y])
+      .catch(() => ({ hovered: "unknown", under: "unknown" }));
+    throw new Error(
+      `parkPointer: the pointer was parked at (${x}, ${y}) and the page's hover chain did not agree within ` +
+        `${PARK_POINTER_GUARD_MS}ms (still hovered: ${seen.hovered}; under the pointer: ${seen.under}). ` +
+        `A shot now would photograph a hover nobody asked for. ${String(e.message || e).split("\n")[0]}`
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1021,19 +1086,49 @@ async function leaveHome(page) {
   // §15's always-dark clamp raised while it is still up (`home.js`'s `splashStillUp`). Clearing
   // it first is what lets one call leave a CEO on light mode actually on light mode.
   await leaveSplash(page);
-  const present = await page
-    .waitForFunction("typeof window.RichHome === 'object'", { timeout: 5000 })
-    .then(() => true)
-    .catch(() => false);
-  if (!present) return false;
+  // WHETHER THIS PAGE HAS A HOME SCREEN IS DECIDED BY THE DOCUMENT, NOT BY A TIMER (2026-09-29,
+  // audit R11). This used to wait 5,000ms for `window.RichHome` and quietly return `false` when it
+  // had not appeared, and all but one of the ~60 callers ignore the return: on a busy host a
+  // slow parse handed the suite a page whose home screen was still covering an inert `#app`, and
+  // the failure surfaced checks later, far from its cause. `home.js` is a classic synchronous
+  // script, so once the document has been parsed its export exists or never will. So: wait for
+  // the parse (a hang guard, which names itself), then read the answer. No `home.js` on the page
+  // is a real "there is nothing to leave" and still returns `false`; `home.js` on the page and no
+  // export is a home screen that failed to load, and that is said, not handed on.
+  await page
+    .waitForFunction(() => document.readyState !== "loading", null, { timeout: 30000 })
+    .catch((e) => {
+      throw new Error("leaveHome: the document never finished parsing within 30s: " + String(e.message || e).split("\n")[0]);
+    });
+  const seen = await page.evaluate(() => ({
+    present: typeof window.RichHome === "object" && window.RichHome !== null,
+    script: !!document.querySelector('script[src$="home.js"]'),
+  }));
+  if (!seen.present) {
+    if (seen.script) {
+      throw new Error(
+        "leaveHome: home.js is on this page but window.RichHome never appeared after the document was parsed; " +
+          "the home screen failed to load (read the page's errors), so there is no app UI to hand back"
+      );
+    }
+    return false;
+  }
   await page.evaluate(() => {
     if (window.RichHome && window.RichHome.isOpen()) window.RichHome.hide("acceptance-suite");
   });
   // `hide()` fades before it un-mounts, so the wait is on the end state and not on a timer.
-  await page.waitForFunction(() => {
-    const h = document.getElementById("home");
-    return !h || h.hidden;
-  });
+  await page
+    .waitForFunction(
+      () => {
+        const h = document.getElementById("home");
+        return !h || h.hidden;
+      },
+      null,
+      { timeout: 30000 }
+    )
+    .catch((e) => {
+      throw new Error("leaveHome: the home screen was asked to hide and was still up after 30s: " + String(e.message || e).split("\n")[0]);
+    });
   return true;
 }
 
