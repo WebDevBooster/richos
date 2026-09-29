@@ -56,5 +56,21 @@ else
   printf '%s\n' "$out" | sed 's/^/       /'
 fi
 
+# 3. Negative control for the export: a crate that compiles in a file outside the exported roots
+#    must be refused by --check, naming the file. The unmutated baseline cannot compile without
+#    every such file, and it is 20 minutes into a cargo build before it says so.
+cp "$ROOT/richos/app/src-tauri/src/main.rs" "$SCRATCH/richos/app/src-tauri/src/main.rs"  # undo step 2's mutation
+rm -rf "$SCRATCH/richos/app/crates/probe"
+mkdir -p "$SCRATCH/richos/app/crates/probe/src"
+printf 'const X: &str = include_str!("../../../../engine/not-exported/probe.txt");\n' > "$SCRATCH/richos/app/crates/probe/src/lib.rs"
+if out="$(TURN_BOUNDARY_CHECK_ROOT="$SCRATCH" python3 "$HERE/turn-boundary-mutations.py" --check 2>&1)"; then
+  bad "a crate including a file outside the export still passed --check"
+elif printf '%s\n' "$out" | grep -q "FAIL export misses richos/engine/not-exported/probe.txt"; then
+  ok "an include outside the export is refused, naming richos/engine/not-exported/probe.txt"
+else
+  bad "an include outside the export failed, but not by naming the file:"
+  printf '%s\n' "$out" | sed 's/^/       /'
+fi
+
 echo "turn-boundary-mutations.test.sh: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -123,12 +123,47 @@ def run(copy, target, workspace, filt):
     return done.returncode, failed, passed, compiled, out
 
 
+# Everything the export carries. richos-core compiles the dialect table in with `include_str!`,
+# so its directory is a root too; `unexported_includes` keeps this list honest.
+EXPORT_ROOTS = [APP, "richos/web", "richos/mobile", "richos/engine/voice/models",
+                "richos/engine/scripts/lib/dialect",
+                # richos-core's integration tests compile in the captured upstream failures.
+                "docs/verification/upstream-failure-2026-09-05"]
+INCLUDE_RE = re.compile(r'include_(?:str|bytes)!\s*\(\s*"([^"]+)"')
+
+
+def unexported_includes(root):
+    """Every `include_str!`/`include_bytes!` in the built crates whose file lies outside EXPORT_ROOTS.
+    Returns (source file, literal path, resolved path) triples."""
+    found = []
+    for base in (root / APP / "crates", root / APP / "src-tauri"):
+        for src in sorted(base.rglob("*.rs")):
+            if "target" in src.relative_to(base).parts:
+                continue
+            for line in src.read_text(errors="replace").splitlines():
+                if line.lstrip().startswith("//"):
+                    continue
+                for literal in INCLUDE_RE.findall(line):
+                    resolved = Path(os.path.normpath(src.parent / literal)).relative_to(root).as_posix() \
+                        if Path(os.path.normpath(src.parent / literal)).is_relative_to(root) else literal
+                    if not any(resolved == r or resolved.startswith(r + "/") for r in EXPORT_ROOTS):
+                        found.append((src.relative_to(root).as_posix(), literal, resolved))
+    return found
+
+
+def report_unexported(root):
+    missing = unexported_includes(root)
+    for src, literal, resolved in missing:
+        print(f"FAIL export misses {resolved}: {src} compiles it in with include_str!/include_bytes! "
+              f"(\"{literal}\"); add its directory to EXPORT_ROOTS")
+    return len(missing)
+
+
 def export(copy):
     if copy.exists():
         shutil.rmtree(copy)
     copy.mkdir(parents=True)
-    archive = subprocess.run(["git", "-C", str(ROOT), "archive", "HEAD", APP, "richos/web", "richos/mobile",
-                              "richos/engine/voice/models"],
+    archive = subprocess.run(["git", "-C", str(ROOT), "archive", "HEAD", *EXPORT_ROOTS],
                              capture_output=True, check=True).stdout
     subprocess.run(["tar", "-x", "-C", str(copy)], input=archive, check=True)
     dist = ROOT / APP / "ui-dist"
@@ -144,6 +179,7 @@ def check():
     defined = set()
     for rel in TEST_FILES:
         defined.update(re.findall(r"^fn ([a-z0-9_]+)\(", (CHECK_ROOT / rel).read_text(), re.M))
+    unexported = report_unexported(CHECK_ROOT)
     bad = 0
     for name, rel, old, _new, _workspace, _filt, must_fail in MUTANTS:
         count = (CHECK_ROOT / rel).read_text().count(old)
@@ -157,7 +193,7 @@ def check():
         else:
             print(f"ok   {name}")
     print(f"{len(MUTANTS) - bad}/{len(MUTANTS)} mutants apply")
-    return 1 if bad else 0
+    return 1 if bad or unexported else 0
 
 
 def main():
@@ -177,6 +213,8 @@ def main():
     head = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True, text=True,
                           check=True).stdout.strip()
     print(f"sources: HEAD {head}, exported to {copy}")
+    if report_unexported(ROOT):
+        return 1
     export(copy)
     bad = 0
     try:
