@@ -16,8 +16,8 @@
 //! edited, so no test here can pass against a shape the product does not actually write.
 
 use richos_core::correction::{
-    CorrectionDesk, CorrectionError, LoroWriteBackend, ProposalState, ProposedWrite, WriteOutput,
-    KNOWN_DESK_TAGS,
+    asked_again_sentence, CorrectionDesk, CorrectionError, LoroWriteBackend, ProposalState,
+    ProposedWrite, WriteOutput, KNOWN_DESK_TAGS,
 };
 use richos_core::skip::SkipKind;
 use std::io::Write;
@@ -89,7 +89,7 @@ fn scratch(name: &str) -> PathBuf {
 /// because everything is", and the second failure is the one that would stop him being
 /// asked at all.
 fn write_real_desk(path: &PathBuf) -> Recorder {
-    let _ = std::fs::remove_file(path);
+    discard(path);
     let w = Recorder::default();
     let mut desk = CorrectionDesk::open(path, Box::new(w.clone())).unwrap();
     desk.propose("ent_ceo", "thr_1", an_append(), "the price was wrong").unwrap();
@@ -218,7 +218,7 @@ fn nothing_at_all_is_skipped_on_an_untouched_desk() {
     assert_eq!(desk.get("prop-4").unwrap().state, ProposalState::AwaitingCeo);
     let pending: Vec<&str> = desk.pending_for("ent_ceo").iter().map(|p| p.id.as_str()).collect();
     assert_eq!(pending, ["prop-3", "prop-4"], "exactly the ones he has not answered");
-    let _ = std::fs::remove_file(path);
+    discard(path);
 }
 
 /// The same claim from the other end: reopening a log the product wrote, unedited, leaves
@@ -234,7 +234,7 @@ fn replaying_a_desk_leaves_the_file_exactly_as_it_was() {
     assert!(desk.desk_health().is_clean());
     assert_eq!(std::fs::read(&path).unwrap(), before, "the replay rewrote the file");
     assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), before_mtime);
-    let _ = std::fs::remove_file(path);
+    discard(path);
 }
 
 /// And a damaged record is still on disk afterwards, untouched — the property that makes
@@ -257,7 +257,7 @@ fn a_record_this_build_cannot_read_is_still_on_disk_after_the_replay() {
         lines_of(&path).contains(&future.to_string()),
         "the record this build could not read was removed from the file"
     );
-    let _ = std::fs::remove_file(path);
+    discard(path);
 }
 
 // -------------------------------------------------------------------------------------
@@ -320,7 +320,7 @@ fn one_bad_byte_no_longer_discards_every_record_below_it() {
     assert_eq!(desk.get("prop-2").unwrap().state, ProposalState::Declined, "line 5 survived");
     assert!(desk.get("prop-3").is_some(), "line 7 survived");
     assert_eq!(desk.suppressed(), ["rec:ceo/records/deal"], "line 6 survived");
-    let _ = std::fs::remove_file(path);
+    discard(path);
 }
 
 // -------------------------------------------------------------------------------------
@@ -347,7 +347,7 @@ fn a_record_from_a_newer_build_is_benign_and_labeled_as_such() {
     );
     assert!(!h.detail.contains("damaged and could not be read"), "a benign record is not damage: {}", h.detail);
     assert!(h.detail.contains("Updating will bring it back"), "{}", h.detail);
-    let _ = std::fs::remove_file(path);
+    discard(path);
 }
 
 #[test]
@@ -361,7 +361,7 @@ fn a_torn_write_is_damage_and_is_never_waved_through_as_the_future() {
     assert_eq!(h.from_future, 0);
     assert_eq!(desk.skipped_records()[0].kind, SkipKind::Damaged);
     assert!(h.detail.contains("1 record is damaged and could not be read"), "{}", h.detail);
-    let _ = std::fs::remove_file(path);
+    discard(path);
 }
 
 #[test]
@@ -380,7 +380,7 @@ fn a_known_tag_that_does_not_fit_says_it_cannot_tell_rather_than_guessing() {
     assert_eq!(r.tag.as_deref(), Some("written"));
     assert!(r.detail.contains("cannot tell"), "{}", r.detail);
     assert!(h.detail.contains("cannot tell which"), "{}", h.detail);
-    let _ = std::fs::remove_file(path);
+    discard(path);
 }
 
 /// Damage that LOOKS like a new record type is still damage. A tag that is not a plain
@@ -395,7 +395,7 @@ fn a_mangled_tag_is_damage_not_a_new_record_type() {
     assert_eq!(h.damaged, 1);
     assert_eq!(h.from_future, 0, "corruption must never be waved through as the future");
     assert_eq!(desk.skipped_records()[0].tag, None, "a mangled tag is not kept");
-    let _ = std::fs::remove_file(path);
+    discard(path);
 }
 
 // -------------------------------------------------------------------------------------
@@ -417,14 +417,14 @@ fn the_summary_counts_every_line_it_visited_and_every_one_it_folded() {
     assert_eq!(h.from_future + h.damaged + h.ambiguous, h.skipped, "every skip has exactly one kind");
     assert_eq!((h.from_future, h.damaged, h.ambiguous), (1, 1, 1));
     assert!(h.detail.contains("8 of 11 records"), "{}", h.detail);
-    let _ = std::fs::remove_file(path);
+    discard(path);
 }
 
 /// An empty file and an absent file are both clean, and neither says anything.
 #[test]
 fn an_absent_or_empty_desk_says_nothing() {
     let path = scratch("absent");
-    let _ = std::fs::remove_file(&path);
+    discard(&path);
     let desk = CorrectionDesk::open(&path, Box::new(Recorder::default())).unwrap();
     let h = desk.desk_health();
     assert!(h.is_clean());
@@ -435,7 +435,7 @@ fn an_absent_or_empty_desk_says_nothing() {
     let desk = CorrectionDesk::open(&path, Box::new(Recorder::default())).unwrap();
     assert!(desk.desk_health().is_clean(), "blank lines are not records");
     assert_eq!(desk.desk_health().records_read, 0);
-    let _ = std::fs::remove_file(path);
+    discard(path);
 }
 
 /// Plurals are composed, not glued. "1 records" in a notice reads as a machine talking.
@@ -457,8 +457,8 @@ fn the_sentences_agree_with_their_own_numbers() {
     let h = two.desk_health();
     assert!(h.detail.contains("2 records are damaged"), "{}", h.detail);
     assert!(!h.detail.contains("2 record is"), "{}", h.detail);
-    let _ = std::fs::remove_file(path_one);
-    let _ = std::fs::remove_file(path_two);
+    discard(path_one);
+    discard(path_two);
 }
 
 // -------------------------------------------------------------------------------------
@@ -489,7 +489,7 @@ fn a_fresh_proposal_never_reuses_an_id_hidden_in_an_unreadable_record() {
     let fresh = desk.propose("ent_ceo", "thr_1", an_append(), "another one").unwrap();
     assert_eq!(fresh.id, "prop-10", "the counter must clear every id the FILE has used");
     assert_eq!(w.commits(), 0, "propose writes nothing");
-    let _ = std::fs::remove_file(path);
+    discard(path);
 }
 
 /// The other half of that rule: a DAMAGED line's numbers are not facts, so nothing is
@@ -511,7 +511,7 @@ fn a_damaged_lines_number_is_not_treated_as_a_fact() {
     assert_eq!(desk.desk_health().damaged, 1);
     let fresh = desk.propose("ent_ceo", "thr_1", an_append(), "another one").unwrap();
     assert_eq!(fresh.id, "prop-5", "a damaged line must not move the counter to 901");
-    let _ = std::fs::remove_file(path);
+    discard(path);
 }
 
 // -------------------------------------------------------------------------------------
@@ -563,7 +563,7 @@ fn a_skipped_records_report_never_contains_one_word_of_his_memory() {
             assert!(!printed.contains("FORTY"), "leaked his memory: {printed}");
             assert!(!printed.contains("MILLION"), "leaked his memory: {printed}");
         }
-        let _ = std::fs::remove_file(path);
+        discard(path);
     }
 }
 
@@ -574,7 +574,7 @@ fn a_skipped_records_report_never_contains_one_word_of_his_memory() {
 fn a_desk_carrying_the_same_words_in_a_readable_record_reports_nothing_at_all() {
     const SECRET: &str = "ACQUISITION-PRICE-IS-FORTY-MILLION";
     let path = scratch("secret-clean");
-    let _ = std::fs::remove_file(&path);
+    discard(&path);
     let mut desk = CorrectionDesk::open(&path, Box::new(Recorder::default())).unwrap();
     desk.propose(
         "ent_ceo",
@@ -600,7 +600,7 @@ fn a_desk_carrying_the_same_words_in_a_readable_record_reports_nothing_at_all() 
     assert!(reopened.skipped_records().is_empty());
     // And his words ARE still there, in the one place they belong.
     assert_eq!(reopened.get("prop-1").unwrap().why, SECRET);
-    let _ = std::fs::remove_file(path);
+    discard(path);
 }
 
 // -------------------------------------------------------------------------------------
@@ -645,7 +645,7 @@ fn a_confirmed_decision_never_becomes_pending_again_when_its_answer_is_unreadabl
     // Held back is not lost: it is inspectable, by id and as a list.
     let held: Vec<&str> = desk.unresolved().iter().map(|p| p.id.as_str()).collect();
     assert_eq!(held, ["prop-1"]);
-    let _ = std::fs::remove_file(path);
+    discard(path);
 }
 
 /// **The reverse direction, and it is NOT the same failure.** Losing the EARLIER
@@ -664,7 +664,7 @@ fn losing_the_proposal_instead_of_the_answer_shows_him_nothing_wrong() {
     assert_eq!(pending, ["prop-4"], "and nothing wrong is offered in its place");
     assert_eq!(desk.get("prop-1").unwrap().state, ProposalState::Written, "his answer still stands");
     assert_eq!(desk.get("prop-2").unwrap().state, ProposalState::Declined);
-    let _ = std::fs::remove_file(path);
+    discard(path);
 }
 
 /// **The quarantine is as narrow as the file allows.** A record from a newer build is
@@ -687,7 +687,7 @@ fn an_unreadable_record_that_names_its_proposal_holds_back_only_that_one() {
     );
     let pending: Vec<&str> = desk.pending_for("ent_ceo").iter().map(|p| p.id.as_str()).collect();
     assert_eq!(pending, ["prop-4"], "the other open proposal is still offered");
-    let _ = std::fs::remove_file(path);
+    discard(path);
 }
 
 /// A proposal that already HAS its answer on disk is not in doubt and is never held back,
@@ -702,14 +702,18 @@ fn a_proposal_whose_answer_did_load_is_never_held_back() {
     assert_eq!(desk.desk_health().from_future, 1);
     assert_eq!(desk.desk_health().unresolved, 0, "prop-1's answer is right there on line 3");
     assert_eq!(desk.get("prop-1").unwrap().state, ProposalState::Written);
-    let _ = std::fs::remove_file(path);
+    discard(path);
 }
 
 /// A DAMAGED line names nothing this build will trust, so every proposal ABOVE it is in
 /// doubt — and every proposal below it is not, because an answer is always appended after
 /// the proposal it answers.
+///
+/// Until 2026-09-28 "in doubt" here meant held back forever. The CEO's answer (§96) makes it
+/// "asked again, and saying so": the doubt is exactly as narrow as before, and what changes
+/// is what the doubted proposal does.
 #[test]
-fn a_damaged_record_holds_back_what_is_above_it_and_nothing_below_it() {
+fn a_damaged_record_asks_again_about_what_is_above_it_and_nothing_below_it() {
     // A damaged line INSERTED between prop-3 (line 7) and prop-4 (which becomes line 9).
     // An answer is always appended after the proposal it answers, so this line could have
     // answered prop-3 and could not possibly have answered prop-4.
@@ -725,18 +729,23 @@ fn a_damaged_record_holds_back_what_is_above_it_and_nothing_below_it() {
     });
     let h = desk.desk_health();
     assert_eq!(h.damaged, 1);
-    assert_eq!(h.unresolved, 1, "only prop-3 is above the damage and unanswered");
-    assert_eq!(desk.get("prop-3").unwrap().state, ProposalState::Unresolved);
+    assert_eq!(h.unresolved, 0, "damaged bytes never become readable, so nothing waits on them");
+    assert_eq!(h.asked_again, 1, "only prop-3 is above the damage and unanswered");
+    let asked: Vec<&str> = desk.asked_again().iter().map(|p| p.id.as_str()).collect();
+    assert_eq!(asked, ["prop-3"]);
+    assert_eq!(desk.get("prop-3").unwrap().state, ProposalState::AwaitingCeo);
+    assert_eq!(desk.get("prop-3").unwrap().asked_again.as_deref(), Some(asked_again_sentence(1).as_str()));
     assert_eq!(
-        desk.get("prop-4").unwrap().state,
-        ProposalState::AwaitingCeo,
-        "prop-4 was proposed BELOW the damage, so nothing above it can have answered it"
+        desk.get("prop-4").unwrap().asked_again,
+        None,
+        "prop-4 was proposed BELOW the damage, so nothing above it can have answered it — an \
+         ordinary question with no 'asked again' on it"
     );
     assert_eq!(desk.get("prop-1").unwrap().state, ProposalState::Written, "answered above the damage");
     assert_eq!(desk.get("prop-2").unwrap().state, ProposalState::Declined);
     let pending: Vec<&str> = desk.pending_for("ent_ceo").iter().map(|p| p.id.as_str()).collect();
-    assert_eq!(pending, ["prop-4"]);
-    let _ = std::fs::remove_file(path);
+    assert_eq!(pending, ["prop-3", "prop-4"]);
+    discard(path);
 }
 
 // -------------------------------------------------------------------------------------
@@ -761,15 +770,19 @@ fn a_permanent_decline_survives_its_suppression_record_being_unreadable() {
         Err(CorrectionError::Suppressed(r)) => assert_eq!(r, "rec:ceo/records/deal"),
         other => panic!("a record he permanently declined must not be proposed again: {other:?}"),
     }
-    let _ = std::fs::remove_file(path);
+    discard(path);
 }
 
-/// And when the DECLINE itself is the unreadable record, this build genuinely does not know
-/// whether he said "never again" — so it holds the record rather than asking. The refusal
-/// says which of the two it is: claiming he permanently declined something would be a wrong
-/// statement, not a short one.
+/// A `declined` record from a NEWER RichOS: a known tag, fields this build cannot fit, and a
+/// writer stamp above this build's. Intact on disk, and an update reads it.
+const NEWER_BUILDS_DECLINE: &str = r#"{"rec":"declined","id":"prop-2","at":5,"permanent":"forever","written_by":2}"#;
+
+/// And when the DECLINE itself is unreadable because a NEWER build wrote it, this build
+/// genuinely does not know whether he said "never again" — and an update will tell it. So it
+/// holds the record rather than asking. The refusal says which of the two it is: claiming he
+/// permanently declined something would be a wrong statement, not a short one.
 #[test]
-fn an_unreadable_decline_puts_the_record_on_hold_rather_than_asking_about_it_again() {
+fn a_newer_builds_decline_puts_the_record_on_hold_rather_than_asking_about_it_again() {
     // BOTH records of the permanent decline are unreadable. Either one alone is enough to
     // reconstruct the suppression — that is the test above — so the hold path is only
     // reached when there is genuinely nothing left to read.
@@ -778,15 +791,17 @@ fn an_unreadable_decline_puts_the_record_on_hold_rather_than_asking_about_it_aga
             .into_iter()
             .enumerate()
             .map(|(i, l)| match i + 1 {
-                5 => r#"{"rec":"declined","id":"prop-2","at":5,"permanent":"#.to_string(),
+                5 => NEWER_BUILDS_DECLINE.to_string(),
                 6 => r#"{"rec":"suppressed","record_ref":"#.to_string(),
                 _ => l,
             })
             .collect()
     });
     let h = desk.desk_health();
-    assert_eq!(h.damaged, 2);
-    assert_eq!(h.unresolved, 1, "prop-2's answer is unreadable");
+    assert_eq!((h.from_future, h.damaged), (1, 1), "{:?}", desk.skipped_records());
+    assert_eq!(h.unresolved, 1, "prop-2's answer is a newer build's, so it waits for the update");
+    assert_eq!(h.asked_again, 0, "and it is NOT asked again meanwhile");
+    assert!(desk.pending_for("ent_ceo").iter().all(|p| p.id != "prop-2"));
     assert_eq!(h.held_records, 1);
     assert_eq!(desk.held_records(), ["rec:ceo/records/deal"]);
     assert!(desk.suppressed().is_empty(), "this build has NOT read a permanent decline");
@@ -799,7 +814,45 @@ fn an_unreadable_decline_puts_the_record_on_hold_rather_than_asking_about_it_aga
     }
     // A DIFFERENT record is unaffected — the hold is per record, not a shutdown.
     assert!(desk.propose("ent_ceo", "thr_1", a_second_correct(), "the lawyer changed again").is_ok());
-    let _ = std::fs::remove_file(path);
+    discard(path);
+}
+
+/// **The same loss with DAMAGED bytes, and his answer (§96) decides it the other way.** Both
+/// records of the permanent decline are unreadable for good, so a hold would never lift on
+/// its own. prop-2 is asked again, saying why, and the record is NOT put on hold — he is being
+/// asked about it right now, and if he says "never" again that is recorded as it always was.
+#[test]
+fn a_damaged_decline_is_asked_again_rather_than_held_forever() {
+    let (mut desk, w, path) = open_edited_with("damaged-decline", |lines| {
+        lines
+            .into_iter()
+            .enumerate()
+            .map(|(i, l)| match i + 1 {
+                5 => r#"{"rec":"declined","id":"prop-2","at":5,"permanent":"#.to_string(),
+                6 => r#"{"rec":"suppressed","record_ref":"#.to_string(),
+                _ => l,
+            })
+            .collect()
+    });
+    let h = desk.desk_health();
+    assert_eq!(h.damaged, 2);
+    assert_eq!(h.unresolved, 0);
+    assert_eq!(h.asked_again, 1);
+    assert_eq!(h.held_records, 0, "nothing is on hold: the question is in front of him");
+    let pending: Vec<&str> = desk.pending_for("ent_ceo").iter().map(|p| p.id.as_str()).collect();
+    assert_eq!(pending, ["prop-2", "prop-3", "prop-4"]);
+    assert!(desk.get("prop-2").unwrap().asked_again.is_some());
+
+    // He says never, again — and that is exactly as durable as the first time.
+    desk.decline("prop-2", true).unwrap();
+    assert_eq!(desk.suppressed(), ["rec:ceo/records/deal"]);
+    assert_eq!(w.commits(), 0, "a decline writes nothing to loro");
+    drop(desk);
+    let reopened = CorrectionDesk::open(&path, Box::new(Recorder::default())).unwrap();
+    assert_eq!(reopened.get("prop-2").unwrap().state, ProposalState::Declined);
+    assert_eq!(reopened.suppressed(), ["rec:ceo/records/deal"]);
+    assert_eq!(reopened.desk_health().asked_again, 0, "answered below the damage: settled for good");
+    discard(path);
 }
 
 /// A hold he lifts stays lifted. `unsuppress` writes a durable record, so the next replay
@@ -811,7 +864,7 @@ fn a_hold_the_ceo_lifts_stays_lifted_across_a_restart() {
             .into_iter()
             .enumerate()
             .map(|(i, l)| match i + 1 {
-                5 => r#"{"rec":"declined","id":"prop-2","at":5,"permanent":"#.to_string(),
+                5 => NEWER_BUILDS_DECLINE.to_string(),
                 6 => r#"{"rec":"suppressed","record_ref":"#.to_string(),
                 _ => l,
             })
@@ -829,7 +882,7 @@ fn a_hold_the_ceo_lifts_stays_lifted_across_a_restart() {
         "the lift is durable — a replay must not re-apply a hold he cleared"
     );
     assert_eq!(reopened.desk_health().held_records, 0);
-    let _ = std::fs::remove_file(path);
+    discard(path);
 }
 
 // -------------------------------------------------------------------------------------
@@ -855,7 +908,7 @@ fn nothing_is_held_back_on_an_untouched_desk_and_a_real_proposal_still_reaches_t
     let confirmed = desk.confirm("ent_ceo", "prop-3").unwrap();
     assert_eq!(confirmed.state, ProposalState::Written);
     assert_eq!(w.commits(), 1, "the open proposal went all the way to the writer");
-    let _ = std::fs::remove_file(path);
+    discard(path);
 }
 
 /// `Unresolved` is never written to disk. It is recomputed from the file on every open, so
@@ -891,7 +944,261 @@ fn the_quarantine_is_recomputed_from_the_file_and_never_written_into_it() {
     let updated = CorrectionDesk::open(&path, Box::new(Recorder::default())).unwrap();
     assert_eq!(updated.desk_health().unresolved, 0);
     assert_eq!(updated.get("prop-3").unwrap().state, ProposalState::AwaitingCeo);
-    let _ = std::fs::remove_file(path);
+    discard(path);
+}
+
+// -------------------------------------------------------------------------------------
+// HIS ANSWER, 2026-09-28 (ceo-decisions.md §96, escalation esc-20260905T124300Z-3ce871e9)
+//
+// Asked: "If the file holding your past answers gets corrupted, RichOS can't tell whether
+// you already answered. Should it ask you again, or stay silent about that one?"
+// He answered: "Ask me again".
+// -------------------------------------------------------------------------------------
+
+/// **The acceptance test for his answer.** A DAMAGED line sits where prop-3's answer could
+/// have been. Until this change prop-3 was held back forever — damaged bytes never become
+/// readable — so it could never reach him again. Now it is an ordinary question: offered,
+/// and confirmable all the way to the writer, exactly once, and settled for good afterwards.
+#[test]
+fn a_correction_whose_answer_is_damaged_is_asked_again_and_can_be_confirmed() {
+    let (mut desk, w, path) = open_edited_with("ask-again", |lines| {
+        let mut out: Vec<String> = Vec::new();
+        for (i, l) in lines.into_iter().enumerate() {
+            out.push(l);
+            if i + 1 == 7 {
+                // Damaged bytes directly under prop-3: the one place its answer could be.
+                out.push(r#"{"rec":"declined","id":"#.to_string());
+            }
+        }
+        out
+    });
+    assert_eq!(desk.desk_health().damaged, 1);
+
+    // Offered again, as an ordinary question, beside the one that was never in doubt.
+    let pending: Vec<&str> = desk.pending_for("ent_ceo").iter().map(|p| p.id.as_str()).collect();
+    assert_eq!(pending, ["prop-3", "prop-4"], "prop-3 must be back in front of him");
+    assert_eq!(desk.get("prop-3").unwrap().state, ProposalState::AwaitingCeo);
+    assert!(desk.unresolved().is_empty(), "nothing is held back any more");
+    // ...and the question says plainly why he is seeing it.
+    assert_eq!(
+        desk.get("prop-3").unwrap().asked_again.as_deref(),
+        Some("RichOS could not read your earlier answer to this correction, so it is asking you again. You may already have answered it."),
+    );
+
+    // And he can answer it: the write reaches the writer exactly once.
+    let done = desk.confirm("ent_ceo", "prop-3").expect("a re-asked correction can be confirmed");
+    assert_eq!(done.state, ProposalState::Written);
+    assert_eq!(w.commits(), 1);
+    assert!(desk.pending_for("ent_ceo").iter().all(|p| p.id != "prop-3"), "answered, so gone");
+    drop(desk);
+
+    // His new answer is durable and sits BELOW the damage, so the next open reads it and
+    // never asks a third time.
+    let reopened = CorrectionDesk::open(&path, Box::new(Recorder::default())).unwrap();
+    assert_eq!(reopened.get("prop-3").unwrap().state, ProposalState::Written);
+    let pending: Vec<&str> = reopened.pending_for("ent_ceo").iter().map(|p| p.id.as_str()).collect();
+    assert_eq!(pending, ["prop-4"]);
+    assert_eq!(reopened.desk_health().unresolved, 0);
+    discard(path);
+}
+
+/// The real eight-line desk with damaged bytes directly under prop-3 (line 7).
+fn damaged_under_prop_3(lines: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for (i, l) in lines.into_iter().enumerate() {
+        out.push(l);
+        if i + 1 == 7 {
+            out.push(r#"{"rec":"declined","id":"#.to_string());
+        }
+    }
+    out
+}
+
+/// **One sentence, every surface.** The card's line and the health notice's line come from
+/// one composer, so the desktop card, any other client rendering a `Proposal`, and the boot
+/// notice cannot drift into three wordings of the same fact.
+#[test]
+fn the_card_and_the_health_notice_say_the_same_thing() {
+    let (one, _w, path_one) = open_edited_with("asked-again-one", damaged_under_prop_3);
+    let h = one.desk_health();
+    assert_eq!(h.headline, "A correction you may have already answered is being asked again.");
+    let card = one.get("prop-3").unwrap().asked_again.clone().unwrap();
+    assert!(h.detail.contains(&card), "the notice must carry the card's own sentence: {}", h.detail);
+    assert!(h.detail.contains("1 record is damaged"), "and still name the cause: {}", h.detail);
+    assert!(!h.is_clean());
+
+    // Two asked again reads as two, from the same composer.
+    let (two, _w2, path_two) = open_edited_with("asked-again-two", |mut l| {
+        l.push(r#"{"rec":"declined","id":"#.to_string());
+        l
+    });
+    let h = two.desk_health();
+    assert_eq!(h.asked_again, 2);
+    assert_eq!(h.headline, "Some corrections you may have already answered are being asked again.");
+    assert!(h.detail.contains(&asked_again_sentence(2)), "{}", h.detail);
+    assert!(h.detail.contains("earlier answers to 2 corrections"), "{}", h.detail);
+    for id in ["prop-3", "prop-4"] {
+        assert_eq!(two.get(id).unwrap().asked_again.as_deref(), Some(asked_again_sentence(1).as_str()));
+    }
+    discard(path_one);
+    discard(path_two);
+}
+
+/// **Demonstrably answered is never re-asked**, from both directions a loaded record can
+/// prove it: an answer that loaded (prop-1 written, prop-2 declined, both ABOVE the damage),
+/// and a `confirmed` record that loaded while the writer's receipt is the damaged line.
+#[test]
+fn a_correction_he_demonstrably_answered_is_never_asked_again() {
+    // Damage at the very end: every proposal is above it.
+    let (desk, _w, path) = open_edited_with("answered-stays-answered", |mut l| {
+        l.push(r#"{"rec":"declined","id":"#.to_string());
+        l
+    });
+    assert_eq!(desk.get("prop-1").unwrap().state, ProposalState::Written);
+    assert_eq!(desk.get("prop-2").unwrap().state, ProposalState::Declined);
+    assert!(desk.get("prop-1").unwrap().asked_again.is_none());
+    assert!(desk.get("prop-2").unwrap().asked_again.is_none());
+    let asked: Vec<&str> = desk.asked_again().iter().map(|p| p.id.as_str()).collect();
+    assert_eq!(asked, ["prop-3", "prop-4"], "only the two he never answered");
+    discard(path);
+
+    // He said yes (line 2 loaded); the receipt (line 3) is the damage. The write may have
+    // landed, so asking again could run it twice: held, exactly as before §96.
+    let (mut desk, w, path) =
+        open_with_line_replaced("confirmed-stays-held", 3, r#"{"rec":"written","id":"prop-1","at":3,"outcome":"#);
+    assert_eq!(desk.get("prop-1").unwrap().state, ProposalState::Unresolved);
+    assert!(desk.get("prop-1").unwrap().asked_again.is_none());
+    assert_eq!(desk.desk_health().asked_again, 0);
+    assert!(desk.pending_for("ent_ceo").iter().all(|p| p.id != "prop-1"));
+    assert!(desk.confirm("ent_ceo", "prop-1").is_err());
+    assert_eq!(w.commits(), 0);
+    discard(path);
+}
+
+/// An unstamped misfit (`Ambiguous`) that names its proposal is not a newer build's record —
+/// every build that writes one stamps it — so no update will ever read it. It asks again
+/// about exactly the proposal it names, and no other.
+#[test]
+fn an_unstamped_misfit_asks_again_about_only_the_proposal_it_names() {
+    let (desk, path) = open_edited("ambiguous-names-one", |mut l| {
+        l.push(r#"{"rec":"written","id":"prop-3","at":7,"outcome":42}"#.to_string());
+        l
+    });
+    let h = desk.desk_health();
+    assert_eq!(h.ambiguous, 1);
+    assert_eq!((h.unresolved, h.asked_again), (0, 1));
+    assert!(desk.get("prop-3").unwrap().asked_again.is_some());
+    assert!(desk.get("prop-4").unwrap().asked_again.is_none(), "not named, so not in doubt");
+    discard(path);
+}
+
+/// A line that is not text at all could have been any answer to anything above it. It used
+/// to be counted and then left out of the reckoning, so the proposal above it came back as a
+/// plain question with nothing saying why. Now it says why.
+#[test]
+fn an_answer_turned_into_non_text_is_asked_again_and_says_so() {
+    let path = scratch("non-text-answer");
+    write_real_desk(&path);
+    let lines = lines_of(&path);
+    let mut f = std::fs::File::create(&path).unwrap();
+    for (i, l) in lines.iter().enumerate() {
+        writeln!(f, "{l}").unwrap();
+        if i + 1 == 7 {
+            f.write_all(&[0xff, 0xfe, 0xff, b'\n']).unwrap();
+        }
+    }
+    drop(f);
+    let desk = CorrectionDesk::open(&path, Box::new(Recorder::default())).unwrap();
+    assert_eq!(desk.desk_health().damaged, 1);
+    let asked: Vec<&str> = desk.asked_again().iter().map(|p| p.id.as_str()).collect();
+    assert_eq!(asked, ["prop-3"], "prop-3 is above the bytes, prop-4 below them");
+    discard(path);
+}
+
+/// **A record he said never to ask about stays unasked** — the one answer this build CAN read
+/// wins over the one it cannot. And lifting that suppression turns the held proposal into a
+/// question at once, and on every open after, because the lift is durable.
+#[test]
+fn a_suppressed_record_is_not_asked_about_until_he_lifts_it() {
+    let path = scratch("suppressed-then-lifted");
+    discard(&path);
+    let mut desk = CorrectionDesk::open(&path, Box::new(Recorder::default())).unwrap();
+    desk.propose("ent_ceo", "thr_1", a_supersede(), "that is not what I decided").unwrap(); // prop-1
+    desk.propose("ent_ceo", "thr_1", a_supersede(), "still not what I decided").unwrap(); // prop-2
+    desk.decline("prop-2", true).unwrap(); // never ask about the deal record again
+    drop(desk);
+    // Damaged bytes directly under prop-1: its answer could have been there.
+    let lines = lines_of(&path);
+    let mut f = std::fs::File::create(&path).unwrap();
+    for (i, l) in lines.iter().enumerate() {
+        writeln!(f, "{l}").unwrap();
+        if i == 0 {
+            writeln!(f, r#"{{"rec":"declined","id":"#).unwrap();
+        }
+    }
+    drop(f);
+
+    let mut desk = CorrectionDesk::open(&path, Box::new(Recorder::default())).unwrap();
+    assert_eq!(desk.suppressed(), ["rec:ceo/records/deal"]);
+    assert_eq!(desk.get("prop-1").unwrap().state, ProposalState::Unresolved);
+    assert!(desk.pending_for("ent_ceo").is_empty(), "he said never ask about this record");
+    assert_eq!(desk.desk_health().asked_again, 0);
+
+    desk.unsuppress("rec:ceo/records/deal").unwrap();
+    let pending: Vec<&str> = desk.pending_for("ent_ceo").iter().map(|p| p.id.as_str()).collect();
+    assert_eq!(pending, ["prop-1"], "lifted, so asked — now, not after a restart");
+    assert_eq!(desk.get("prop-1").unwrap().asked_again.as_deref(), Some(asked_again_sentence(1).as_str()));
+    drop(desk);
+
+    let reopened = CorrectionDesk::open(&path, Box::new(Recorder::default())).unwrap();
+    let pending: Vec<&str> = reopened.pending_for("ent_ceo").iter().map(|p| p.id.as_str()).collect();
+    assert_eq!(pending, ["prop-1"], "and the lift is durable");
+    assert!(reopened.get("prop-1").unwrap().asked_again.is_some());
+    discard(path);
+}
+
+/// The asked-again state is a PROJECTION: not one byte of it reaches the desk log, so an
+/// older build reads exactly what it read before.
+#[test]
+fn asking_again_writes_nothing_into_the_desk_log() {
+    let path = scratch("asked-again-no-write");
+    write_real_desk(&path);
+    let edited = damaged_under_prop_3(lines_of(&path));
+    let mut f = std::fs::File::create(&path).unwrap();
+    for l in &edited {
+        writeln!(f, "{l}").unwrap();
+    }
+    drop(f);
+    let before = std::fs::read(&path).unwrap();
+    let desk = CorrectionDesk::open(&path, Box::new(Recorder::default())).unwrap();
+    assert_eq!(desk.desk_health().asked_again, 1);
+    assert_eq!(std::fs::read(&path).unwrap(), before, "opening rewrote the file");
+    assert!(!String::from_utf8_lossy(&before).contains("asked_again"));
+    discard(path);
+}
+
+/// **The UI fixture is the proposal the desk really asks again**, byte for byte — the same
+/// posture as `belief_trigger_tests`' fixture: `ui/tests/corrections.js` renders THIS file,
+/// so the sentence on the desktop card is read off the Rust desk, never retyped in JS.
+/// Regenerate with `RICHOS_WRITE_FIXTURES=1`.
+#[test]
+fn the_ui_fixture_is_the_proposal_the_desk_really_asks_again() {
+    let (desk, _w, path) = open_edited_with("asked-again-fixture", damaged_under_prop_3);
+    let p = desk.get("prop-3").unwrap().clone();
+    assert!(p.asked_again.is_some());
+    let mut json = serde_json::to_value(&p).unwrap();
+    json["at"] = serde_json::json!(0);
+    let rendered = serde_json::to_string_pretty(&json).unwrap() + "\n";
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../ui/tests/fixtures/loro-proposal-asked-again.json");
+    if std::env::var("RICHOS_WRITE_FIXTURES").is_ok() {
+        std::fs::write(&fixture, &rendered).unwrap();
+    }
+    let on_disk = std::fs::read_to_string(&fixture).unwrap_or_else(|e| {
+        panic!("the UI fixture is missing at {} ({e}) — regenerate with RICHOS_WRITE_FIXTURES=1", fixture.display())
+    });
+    assert_eq!(on_disk, rendered, "the UI fixture no longer matches what the desk asks again");
+    discard(path);
 }
 
 /// The consequence he can feel leads the notice, ahead of its cause: whether the record was
@@ -922,6 +1229,15 @@ fn the_notice_leads_with_the_held_back_correction_and_still_names_the_cause() {
     assert_eq!(h.unresolved, 2);
     assert_eq!(h.headline, "Some corrections you may have already answered are being held back.");
     assert!(h.detail.contains("2 corrections are being held back"), "{}", h.detail);
-    let _ = std::fs::remove_file(path);
-    let _ = std::fs::remove_file(path2);
+    discard(path);
+    discard(path2);
+}
+
+/// Test cleanup: a file already gone is fine; any other failure is a real fault.
+fn discard(path: impl AsRef<std::path::Path>) {
+    match std::fs::remove_file(path.as_ref()) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => panic!("cleanup of {} failed: {e}", path.as_ref().display()),
+    }
 }

@@ -51,6 +51,11 @@ const SHOTS = path.join(__dirname, "shots-5b");
 /// composes a proposal; check 14 renders THAT one.
 const DETECTED = path.join(__dirname, "fixtures", "loro-proposal.json");
 const SHOTS_5D = path.join(__dirname, "shots-5d");
+/// The proposal `correction.rs` ACTUALLY asks again when the record of his earlier answer is
+/// damaged (CEO ruling §96), written by
+/// `correction_forward_compat_tests::the_ui_fixture_is_the_proposal_the_desk_really_asks_again`
+/// and re-checked against the live desk on every `cargo test` run. Check 16 renders THAT one.
+const ASKED_AGAIN = path.join(__dirname, "fixtures", "loro-proposal-asked-again.json");
 /// The candidate `heard.rs` ACTUALLY files when a dictation is silently edited before
 /// sending, written by
 /// `heard_trigger_tests::the_ui_fixture_is_the_candidate_the_detector_really_files` and
@@ -784,6 +789,65 @@ async function main() {
     return "the silent edit the detector really filed, rendered as a CHANGE — " + shotName;
   });
 
+  // ---- 16. asked again, because his earlier answer could not be read (§96) ----------------
+
+  await run.check("16 a correction ASKED AGAIN says why, first, in the desk's own words, and can be confirmed", async () => {
+    // CEO ruling §96 (2026-09-28): asked whether RichOS should ask again about a correction
+    // whose earlier answer sits in a damaged record, he answered "Ask me again". The fixture
+    // is the proposal the Rust desk really re-asks over a damaged record, written and pinned
+    // by `correction_forward_compat_tests::the_ui_fixture_is_the_proposal_the_desk_really_asks_again`,
+    // so the sentence checked here is the desk's, not one typed in this file.
+    const raw = fs.readFileSync(ASKED_AGAIN, "utf8");
+    const filed = JSON.parse(raw);
+    assertEqual(filed.state, "awaiting-ceo", "a re-asked correction is an ORDINARY question");
+    assert(
+      typeof filed.asked_again === "string" && filed.asked_again.indexOf("could not read your earlier answer") >= 0,
+      "the fixture must carry the desk's asked-again sentence: " + filed.asked_again
+    );
+    // And an ordinary proposal carries no such field — the line is not a default decoration.
+    const ordinary = JSON.parse(fs.readFileSync(DETECTED, "utf8"));
+    assert(!("asked_again" in ordinary), "an ordinary proposal must not carry asked_again");
+
+    const page = await openApp(browser);
+    await page.evaluate((json) => {
+      window.__RICHOS_MOCK__.seedLoroProposals([JSON.parse(json[0]), JSON.parse(json[1])]);
+    }, [raw, fs.readFileSync(DETECTED, "utf8")]);
+    await page.click("#nav-corrections");
+    await page.waitForSelector("#desk-loro-list .desk-card");
+
+    const cards = await page.$$eval("#desk-loro-list .desk-card", (ns) =>
+      ns.map((n) => ({
+        id: n.dataset.proposalId,
+        first: n.firstElementChild ? n.firstElementChild.className + "|" + n.firstElementChild.textContent : "",
+        asked: n.querySelectorAll(".desk-card-asked-again").length,
+      }))
+    );
+    const re = cards.find((c) => c.id === filed.id);
+    const plain = cards.find((c) => c.id === ordinary.id);
+    assert(re && plain, "both cards must render: " + JSON.stringify(cards));
+    assertEqual(
+      re.first,
+      "desk-card-prompt desk-card-asked-again|" + filed.asked_again,
+      "the asked-again sentence LEADS its card, verbatim"
+    );
+    assertEqual(plain.asked, 0, "an ordinary card says nothing about being asked again");
+
+    // He answers it like any other: yes reaches the desk exactly once and the card goes.
+    const said = await answer(page, '#desk-loro-list .desk-card[data-proposal-id="' + filed.id + '"] .desk-btn--confirm');
+    assertEqual(said, "Done. That's what I have on record now.", "confirming a re-asked correction writes it");
+    const st = await deskState(page);
+    assertEqual(
+      st.proposals.find((p) => p.id === filed.id).state,
+      "written",
+      "the desk recorded his yes"
+    );
+    const left = await page.$$eval("#desk-loro-list .desk-card", (ns) => ns.map((n) => n.dataset.proposalId));
+    assertEqual(left, [ordinary.id], "answered, so it is no longer in front of him");
+    bump(8);
+    await page.close();
+    return "asked again with the desk's own sentence leading the card, then confirmed and gone";
+  });
+
   await run.check("NEGATIVE CONTROL: this suite asserted a non-zero number of things", async () => {
     assert(
       assertions >= 40,
@@ -842,6 +906,9 @@ main().catch((e) => {
 // 15   heard.rs `detect`: `frame: Frame::Contrast`
 //        -> the fixture regenerates, the JSON no longer says silent-edit, and check 15's
 //           first assertion fails before the browser is even opened
+// 16   main.js `renderProposalCard`: drop the `if (p.asked_again)` line (run 2026-09-29)
+//        -> the card leads with "correct · rec:ceo/records/vendor" and never says his
+//           earlier answer could not be read
 //  6   main.js `renderDeskFamily`: `empty.hidden = st.pending.length !== 0`
 //        -> an absent desk reads as "nothing to correct"
 //  6b  main.js `refreshDeskFamily`: set `st.available = false` on a read failure

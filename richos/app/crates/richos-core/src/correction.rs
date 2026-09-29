@@ -55,10 +55,27 @@
 //!   passes the check, so the write can run a second time. Being asked twice is how a person
 //!   learns the machine does not remember him.
 //!
-//! So the reader refuses to present a state it cannot vouch for: a proposal whose answer
-//! could have been among the records this build could not read is [`ProposalState::Unresolved`]
-//! — held back, counted, inspectable, and never offered as though it were new. See
-//! [`CorrectionDesk::unresolved`] for exactly how narrow "could have been" is.
+//! So the reader never presents a state it cannot vouch for AS IF it could. A proposal whose
+//! answer could have been among the records this build could not read goes one of two ways,
+//! and which one is decided by whether the missing answer can ever come back:
+//!
+//! - **Written by a NEWER RichOS** — the record is intact and updating reads it. The
+//!   proposal is [`ProposalState::Unresolved`]: held back, counted, inspectable, and settled
+//!   by the update, so nothing is asked in the meantime.
+//! - **Damaged, or unreadable for good** — the bytes will never be readable, so a hold would
+//!   be a hold forever. **The CEO ruled on exactly this (2026-09-28, `ceo-decisions.md` §96,
+//!   escalation `esc-20260905T124300Z-3ce871e9`).** Asked *"If the file holding your past
+//!   answers gets corrupted, RichOS can't tell whether you already answered. Should it ask
+//!   you again, or stay silent about that one?"*, he answered *"Ask me again"*. So the
+//!   proposal is an ordinary question again — in `pending_for`, answerable by `confirm` and
+//!   `decline` — carrying [`Proposal::asked_again`], the plain sentence saying RichOS could
+//!   not read his earlier answer. The cost he accepted is that he may see one he already
+//!   answered; the sentence is how he knows that is what he is looking at.
+//!
+//! A correction he DEMONSTRABLY answered is never asked again: an answer that loaded settles
+//! it, a `confirmed` record that loaded holds it (the write may have landed), and a record he
+//! said never to ask about stays unasked. See [`CorrectionDesk::unresolved`] and
+//! [`CorrectionDesk::asked_again`].
 //!
 //! # What this deliberately does NOT do
 //!
@@ -431,20 +448,23 @@ pub enum ProposalState {
     /// He said yes and the writer refused. The reason is kept — a failed write that
     /// disappears is indistinguishable from one that never happened.
     Failed,
-    /// **This build cannot tell whether he has answered this or not**, because a record
-    /// that could have been the answer was one it could not read.
+    /// **This build cannot tell whether he has answered this or not, and waiting will
+    /// settle it** — or he demonstrably answered and the write's outcome is unknown.
     ///
-    /// Never written to disk and never minted by `propose` — it exists only in a projection
-    /// built over a file with at least one unreadable record, and it is recomputed from
-    /// scratch on every open. Held back from [`CorrectionDesk::pending_for`] and refused by
-    /// `confirm`/`decline`, because the alternative is offering a decision he has already
-    /// made as though it were new.
+    /// Never written to disk and never minted by `propose` — it exists only in a projection,
+    /// recomputed from scratch on every open. Held back from [`CorrectionDesk::pending_for`]
+    /// and refused by `confirm`/`decline`. Since the CEO's 2026-09-28 answer (§96, module
+    /// doc) it is reached ONLY when holding is not a hold forever:
     ///
-    /// The bar this meets, stated as it was given: *a confirmed decision must never become
-    /// pending again; the reader must refuse to present a reverted state rather than present
-    /// a wrong one.* The cost is the other direction — a proposal he genuinely has NOT
-    /// answered can end up held back — and that cost is paid deliberately and out loud, in
-    /// [`DeskHealth::unresolved`] and the sentence beside it, rather than by asking him twice.
+    ///   * the record that could have been his answer was written by a NEWER RichOS, which
+    ///     updating reads — so the proposal returns to its true state without him being asked;
+    ///   * a `confirmed` record loaded and the writer's receipt did not — he answered, and a
+    ///     second yes could run the write twice;
+    ///   * the proposal's record is one he said never to ask about, which lifting that
+    ///     suppression turns back into a question.
+    ///
+    /// A proposal whose answer is unreadable FOR GOOD is not this state: it is asked again,
+    /// as [`ProposalState::AwaitingCeo`] with [`Proposal::asked_again`] set.
     Unresolved,
 }
 
@@ -466,6 +486,36 @@ pub struct Proposal {
     /// Set once the answer is in.
     pub outcome: Option<WriteOutput>,
     pub failure: Option<String>,
+    /// **Present only when this is a question RichOS is asking him AGAIN**, because the
+    /// record of his earlier answer could not be read (§96, module doc). It is the sentence
+    /// every surface shows above the card, verbatim — [`asked_again_sentence`]`(1)` — so the
+    /// desktop card, any other client and the health notice say one thing, not three.
+    ///
+    /// PROJECTION ONLY. `propose` mints `None`, `None` is never serialized, and the replay
+    /// clears whatever a `proposed` line might carry before deciding afresh — so this never
+    /// reaches the desk log and changes no byte an older build reads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asked_again: Option<String>,
+}
+
+/// **What RichOS says when it asks him again about a correction whose earlier answer it
+/// could not read.** One composer for every surface: the card carries `n = 1` on
+/// [`Proposal::asked_again`], and [`DeskHealth::detail`] carries the count.
+///
+/// Plain words, and it says the one thing he needs to judge the card by: he may already have
+/// answered this. That is the cost he accepted when he said *"Ask me again"* (§96), and a
+/// re-ask that hid it would read as the machine forgetting him.
+pub fn asked_again_sentence(n: usize) -> String {
+    if n == 1 {
+        "RichOS could not read your earlier answer to this correction, so it is asking you \
+         again. You may already have answered it."
+            .to_string()
+    } else {
+        format!(
+            "RichOS could not read your earlier answers to {n} corrections, so it is asking \
+             you again. You may already have answered them."
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -558,6 +608,9 @@ pub struct DeskHealth {
     /// Proposals held back because an answer was unreadable or a confirmed write
     /// has no durable outcome. See [`ProposalState::Unresolved`].
     pub unresolved: usize,
+    /// Proposals put back in front of him because the record of his earlier answer could
+    /// not be read (§96). See [`CorrectionDesk::asked_again`].
+    pub asked_again: usize,
     /// Records not proposed against while their earlier decision or writer outcome
     /// is unresolved. See [`CorrectionDesk::held_records`].
     pub held_records: usize,
@@ -599,6 +652,9 @@ pub struct CorrectionDesk {
     /// explicitly lifted must stay lifted across restarts, and the lift is already durable —
     /// this is how the replay sees it.
     ever_unsuppressed: Vec<String>,
+    /// Proposals that would be asked again (§96) but name a record he said never to ask
+    /// about. Held instead; [`CorrectionDesk::unsuppress`] on that record asks them.
+    held_by_suppression: Vec<String>,
 }
 
 impl CorrectionDesk {
@@ -622,6 +678,7 @@ impl CorrectionDesk {
             records_applied: 0,
             held: Vec::new(),
             ever_unsuppressed: Vec::new(),
+            held_by_suppression: Vec::new(),
         };
         desk.replay()?;
         Ok(desk)
@@ -667,12 +724,26 @@ impl CorrectionDesk {
         //   * `at_risk_numbers` — a skipped line that is not `Damaged` is a well-formed JSON
         //     object with a plain-identifier tag, so its `id` is structure this build trusts.
         //     If it reads as `prop-<n>`, that ONE proposal is at risk and no other.
-        //   * `broad_from_line` — every other skipped line (damaged, or naming no proposal,
+        //   * `broad_*_line` — every other skipped line (damaged, or naming no proposal,
         //     which is what a `suppressed`/`unsuppressed` record looks like) could have
         //     answered anything above it, so every proposal above the LAST such line is at
         //     risk. Deliberately blunt: the alternative is guessing.
-        let mut at_risk_numbers: Vec<u64> = Vec::new();
-        let mut broad_from_line = 0usize;
+        //
+        // AND EACH IS KEPT IN TWO KINDS, because the CEO's 2026-09-28 answer (§96) turns on
+        // whether the missing answer can ever come back:
+        //
+        //   * `FromFuture` — a NEWER RichOS wrote it, it is intact, and updating reads it.
+        //     Holding the proposal until then is a wait, not a silence.
+        //   * everything else — `Damaged`, not UTF-8 at all, or `Ambiguous`. Damaged bytes
+        //     never become readable. `Ambiguous` is a known tag whose fields do not fit and
+        //     that carries NO writer stamp; every build that can write a newer record stamps
+        //     it (`skip::stamped_line`, spec point 18), so an unstamped misfit is not a newer
+        //     build's record either, and no update will ever read it. Holding such a proposal
+        //     is holding it forever, which is exactly what he said no to: it is asked again.
+        let mut future_numbers: Vec<u64> = Vec::new();
+        let mut unreadable_numbers: Vec<u64> = Vec::new();
+        let mut broad_future_line = 0usize;
+        let mut broad_unreadable_line = 0usize;
         let mut proposal_lines: Vec<(String, usize)> = Vec::new();
         let mut reader = BufReader::new(std::fs::File::open(&self.path)?);
         let mut raw: Vec<u8> = Vec::new();
@@ -690,8 +761,14 @@ impl CorrectionDesk {
                 Err(_) => {
                     // Not text at all, so it cannot carry a tag and cannot be from the
                     // future: no version of RichOS has ever written a non-UTF-8 record.
+                    //
+                    // And it could have been any answer to anything above it. Until the
+                    // §96 change this line was counted and then left out of the at-risk
+                    // reckoning altogether, so a proposal whose answer had turned into
+                    // non-text replayed as a plain, unexplained question.
                     self.records_read += 1;
                     self.skipped.push(crate::skip::not_utf8(line_no, body.len()));
+                    broad_unreadable_line = broad_unreadable_line.max(line_no);
                     continue;
                 }
             };
@@ -718,16 +795,25 @@ impl CorrectionDesk {
                     // of them collides for real. A `Damaged` line is neither: its numbers
                     // are not facts, and its bytes never become readable, so nothing is
                     // salvaged from it. That is the identical line `steering.rs` draws.
+                    let from_future = record.kind == SkipKind::FromFuture;
                     let mut attributed = false;
                     if record.kind != SkipKind::Damaged {
                         if let Some(n) = salvage_proposal_number(line) {
                             salvaged_number = salvaged_number.max(n);
-                            at_risk_numbers.push(n);
+                            if from_future {
+                                future_numbers.push(n);
+                            } else {
+                                unreadable_numbers.push(n);
+                            }
                             attributed = true;
                         }
                     }
                     if !attributed {
-                        broad_from_line = broad_from_line.max(line_no);
+                        if from_future {
+                            broad_future_line = broad_future_line.max(line_no);
+                        } else {
+                            broad_unreadable_line = broad_unreadable_line.max(line_no);
+                        }
                     }
                     self.skipped.push(record);
                 }
@@ -741,26 +827,58 @@ impl CorrectionDesk {
             .unwrap_or(0);
         self.next = highest_loaded.max(salvaged_number) + 1;
 
-        // HOLD BACK EVERY PROPOSAL WHOSE ANSWER MIGHT HAVE BEEN ONE OF THE RECORDS THAT DID
-        // NOT LOAD. A proposal that has an answer is left exactly as it is: its answer is on
-        // disk and `confirm`/`decline` already refuse a second one.
-        let at_risk: Vec<String> = at_risk_numbers
-            .iter()
-            .map(|n| format!("prop-{n}"))
-            .chain(
-                proposal_lines
-                    .iter()
-                    .filter(|(_, line)| *line < broad_from_line)
-                    .map(|(id, _)| id.clone()),
-            )
-            .collect();
+        // EVERY PROPOSAL WHOSE ANSWER MIGHT HAVE BEEN ONE OF THE RECORDS THAT DID NOT LOAD is
+        // either held (the answer comes back with an update) or asked again (it never will —
+        // §96). A proposal that has an answer is left exactly as it is: its answer is on disk
+        // and `confirm`/`decline` already refuse a second one.
+        let at_risk_from = |numbers: &[u64], broad_line: usize| -> Vec<String> {
+            numbers
+                .iter()
+                .map(|n| format!("prop-{n}"))
+                .chain(
+                    proposal_lines
+                        .iter()
+                        .filter(|(_, line)| *line < broad_line)
+                        .map(|(id, _)| id.clone()),
+                )
+                .collect()
+        };
+        let at_risk_future = at_risk_from(&future_numbers, broad_future_line);
+        let at_risk_unreadable = at_risk_from(&unreadable_numbers, broad_unreadable_line);
         for p in self.proposals.iter_mut() {
-            if at_risk.contains(&p.id) && matches!(p.state, ProposalState::AwaitingCeo | ProposalState::Unresolved) {
-                p.state = ProposalState::Unresolved;
-                // Preserve the existing unreadable-answer diagnosis when a
-                // writer receipt was present but damaged. A missing receipt
-                // with an otherwise intact log is the distinct crash case.
-                p.failure = Some("answer-unreadable".into());
+            let future = at_risk_future.contains(&p.id);
+            let unreadable = at_risk_unreadable.contains(&p.id);
+            if !(future || unreadable) {
+                continue;
+            }
+            match p.state {
+                // HE DEMONSTRABLY ANSWERED: a `confirmed` record loaded, and only the
+                // writer's receipt is missing. Never asked again — a second yes could run the
+                // write a second time. Held, exactly as before.
+                ProposalState::Unresolved => {
+                    // Preserve the existing unreadable-answer diagnosis when a
+                    // writer receipt was present but damaged. A missing receipt
+                    // with an otherwise intact log is the distinct crash case.
+                    p.failure = Some("answer-unreadable".into());
+                }
+                ProposalState::AwaitingCeo => {
+                    let suppressed_target =
+                        p.write.target_ref().is_some_and(|r| self.suppressed.iter().any(|s| s == r));
+                    if future || suppressed_target {
+                        // A newer build's record: updating settles it, so nothing is asked
+                        // meanwhile. Or a record he said never to ask about: asking would
+                        // override the one answer this build CAN read.
+                        p.state = ProposalState::Unresolved;
+                        p.failure = Some("answer-unreadable".into());
+                        if !future && suppressed_target {
+                            self.held_by_suppression.push(p.id.clone());
+                        }
+                    } else {
+                        // UNREADABLE FOR GOOD. His answer (§96): ask me again.
+                        p.asked_again = Some(asked_again_sentence(1));
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -831,7 +949,11 @@ impl CorrectionDesk {
 
     fn apply(&mut self, rec: DeskRecord) {
         match rec {
-            DeskRecord::Proposed(p) => self.proposals.push(p),
+            DeskRecord::Proposed(mut p) => {
+                // A projection field, decided by the replay and never by a line on disk.
+                p.asked_again = None;
+                self.proposals.push(p)
+            }
             DeskRecord::Confirmed { id, .. } => {
                 if let Some(p) = self.find_mut(&id) {
                     p.state = ProposalState::Unresolved;
@@ -947,6 +1069,7 @@ impl CorrectionDesk {
             state: ProposalState::AwaitingCeo,
             outcome: None,
             failure: None,
+            asked_again: None,
         };
         self.write_record(&DeskRecord::Proposed(proposal.clone()))?;
         self.proposals.push(proposal.clone());
@@ -1031,10 +1154,25 @@ impl CorrectionDesk {
     /// correction about this record? — and a second verb would be a second thing to
     /// understand for no gain. The `unsuppressed` record it writes is durable, so a hold he
     /// lifts is not re-applied by the next replay.
+    ///
+    /// A proposal held ONLY because it names a record he had said never to ask about (its own
+    /// answer being unreadable for good) becomes a question again the moment he lifts that —
+    /// the same thing the next replay would decide, without making him wait for a restart.
     pub fn unsuppress(&mut self, record_ref: &str) -> Result<(), CorrectionError> {
         let at = crate::util::now_millis();
         self.write_record(&DeskRecord::Unsuppressed { record_ref: record_ref.into(), at })?;
         self.apply(DeskRecord::Unsuppressed { record_ref: record_ref.into(), at });
+        let waiting = std::mem::take(&mut self.held_by_suppression);
+        for id in waiting {
+            let Some(p) = self.proposals.iter_mut().find(|p| p.id == id) else { continue };
+            if p.state == ProposalState::Unresolved && p.write.target_ref() == Some(record_ref) {
+                p.state = ProposalState::AwaitingCeo;
+                p.failure = None;
+                p.asked_again = Some(asked_again_sentence(1));
+            } else {
+                self.held_by_suppression.push(id);
+            }
+        }
         Ok(())
     }
 
@@ -1081,8 +1219,26 @@ impl CorrectionDesk {
     /// that can read the record resolves it. For a record from a newer RichOS that is what
     /// updating does. For genuinely damaged bytes it is not, and this list is the honest
     /// statement of that rather than a quiet one.
+    ///
+    /// **Since the CEO's 2026-09-28 answer (§96) the second bullet applies only where the
+    /// record can come back.** A proposal whose possible answer is unreadable for good —
+    /// damaged bytes, or an unstamped record no build will ever read — is not held here; it
+    /// is asked again ([`asked_again`](Self::asked_again)). What stays here: a record from a
+    /// newer build, a confirmation whose writer outcome is unknown, and a proposal naming a
+    /// record he said never to ask about.
     pub fn unresolved(&self) -> Vec<&Proposal> {
         self.proposals.iter().filter(|p| p.state == ProposalState::Unresolved).collect()
+    }
+
+    /// **Questions RichOS is asking him again** because the record of his earlier answer
+    /// could not be read and never will be (§96). Every one of them is also in
+    /// [`pending_for`](Self::pending_for) for its entity — an ordinary question, confirmable
+    /// and declinable — and carries [`Proposal::asked_again`] so the card says so.
+    pub fn asked_again(&self) -> Vec<&Proposal> {
+        self.proposals
+            .iter()
+            .filter(|p| p.state == ProposalState::AwaitingCeo && p.asked_again.is_some())
+            .collect()
     }
 
     /// Records this build will not raise a NEW correction about, because the answer it
@@ -1122,6 +1278,7 @@ impl CorrectionDesk {
         let ambiguous = count(SkipKind::Ambiguous);
         let skipped = self.skipped.len();
         let unresolved = self.proposals.iter().filter(|p| p.state == ProposalState::Unresolved).count();
+        let asked_again = self.asked_again().len();
         let held_records = self.held.len();
 
         let (headline, detail) = if skipped == 0 && unresolved > 0 {
@@ -1140,6 +1297,14 @@ impl CorrectionDesk {
                     unresolved,
                     "A correction you may have already answered is being held back.",
                     "Some corrections you may have already answered are being held back.",
+                )
+            } else if asked_again > 0 {
+                // The same consequence-first order: what he will SEE is a question he may
+                // already have answered, and that leads.
+                plural(
+                    asked_again,
+                    "A correction you may have already answered is being asked again.",
+                    "Some corrections you may have already answered are being asked again.",
                 )
             } else if damaged > 0 || ambiguous > 0 {
                 plural(
@@ -1189,6 +1354,11 @@ impl CorrectionDesk {
                     plural(unresolved, "it", "them"),
                 ));
             }
+            if asked_again > 0 {
+                // THE SAME SENTENCE THE CARD CARRIES, from the same composer, so the notice
+                // and the question he is looking at cannot say two different things (§96).
+                parts.push(asked_again_sentence(asked_again));
+            }
             if held_records > 0 {
                 parts.push(format!(
                     "For the same reason, RichOS will not raise a new correction about {} {} \
@@ -1213,6 +1383,7 @@ impl CorrectionDesk {
             damaged,
             ambiguous,
             unresolved,
+            asked_again,
             held_records,
             headline,
             detail,
@@ -1349,7 +1520,12 @@ mod tests {
         drop(d);
         let recovered = CorrectionDesk::open(&log, Box::new(w)).unwrap();
         assert_eq!(recovered.get(&accepted.id).unwrap().state, ProposalState::AwaitingCeo);
-        assert_eq!(recovered.pending_for("acme").len(), 1);
+        assert!(recovered.get(&accepted.id).unwrap().asked_again.is_none(), "proposed below the tear");
+        // The torn line could have been his answer to prop-1 and will never be readable, so
+        // prop-1 is asked AGAIN (§96) and says so; the proposal filed after it is not.
+        let pending: Vec<&str> = recovered.pending_for("acme").iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(pending, ["prop-1", accepted.id.as_str()]);
+        assert_eq!(recovered.get("prop-1").unwrap().asked_again.as_deref(), Some(asked_again_sentence(1).as_str()));
         std::fs::remove_file(log).unwrap();
     }
 
@@ -1616,6 +1792,7 @@ mod tests {
             state: ProposalState::AwaitingCeo,
             outcome: None,
             failure: None,
+            asked_again: None,
         };
         let samples = [
             DeskRecord::Proposed(proposal),
