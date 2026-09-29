@@ -19,7 +19,10 @@ engineer in a worktree, Codex, Rich in the main checkout.
   pre-push of main as the backstop): the suites `proof-for.sh` assigns to the change, run
   by `proof-run.py`, plus `lint.sh --all` when the selection does not already include
   `lint.test.sh`. Nobody chooses the suites. A failure refuses the merge before it exists,
-  so it cannot be pushed. A pass leaves a receipt keyed by the tree it proved.
+  so it cannot be pushed. A pass leaves a receipt keyed by the tree it proved. A check
+  proof-run reports NOT RUN is never a pass: the land accepts only a suite that needs a
+  screen (a land never uses this Mac's screen), names it in its verdict and records it in
+  the receipt as not run; any other NOT RUN refuses the land (README.md, "NOT RUN").
 
   THE ONE ESCAPE is git's own `--no-verify`. It cannot be prevented; it is recorded. After
   the fact (post-commit, post-merge) a commit whose tree this check never passed, or a main
@@ -81,6 +84,9 @@ def git(*args, env=None, check=True, cwd=None):
 
 def clean_env(common):
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    # A land runs every suite it selected: a caller's opt-in to skip unchanged suites would
+    # turn them into NOT RUN, which the land refuses (accepted_not_run).
+    env.pop("RUN_TESTS_SKIP_UNCHANGED", None)
     cargo = str(Path.home() / ".cargo/bin")
     if cargo not in env.get("PATH", "").split(":"):
         env["PATH"] = env.get("PATH", "") + ":" + cargo
@@ -260,22 +266,72 @@ def land_check(repo, what, staged, range_argv):
     with tempfile.NamedTemporaryFile("w", prefix="autocheck-land-", suffix=".txt", delete=False) as f:
         f.write("\n".join(commands) + "\n")
         plan = f.name
+    summary_path = plan[:-len(".txt")] + "-summary.json"
     try:
-        result = repo.run(["python3", PROOF_RUN, "--commands", plan])
+        result = repo.run(["python3", PROOF_RUN, "--commands", plan, "--summary-out", summary_path])
+        not_run, why_not = accepted_not_run(result.returncode, summary_path)
     finally:
         os.unlink(plan)
+        if os.path.exists(summary_path):
+            os.unlink(summary_path)
     seconds = time.monotonic() - started
-    if result.returncode:
-        banner(f"{what.upper()} REFUSED: a check it owns failed", [
-            "proof-run.py's summary above names the failing check and its log.",
+    if result.returncode and not_run is None:
+        banner(f"{what.upper()} REFUSED: a check it owns did not pass", [
+            "proof-run.py's summary above names the check, its state and its log.",
+            *([why_not] if why_not else []),
             "Nothing was committed: fix the branch and land it again.",
             "git's --no-verify skips this, and every skip is recorded in the lead's escalation ledger.",
         ])
         return 1
     tree = repo.index_tree()
-    repo.write_land_receipt(tree, dict(what=what, commands=commands, seconds=round(seconds, 1)))
+    repo.write_land_receipt(tree, dict(what=what, commands=commands, seconds=round(seconds, 1), not_run=not_run or []))
+    if not_run:
+        names = ", ".join(f"{row['check']} ({row['why']})" for row in not_run)
+        banner(f"{what.upper()} ALLOWED WITH {len(not_run)} CHECK(S) NOT RUN, WHICH IS NOT A PASS", [
+            f"NOT RUN: {names}.",
+            "Every other selected check ran and passed. These need a screen, and a land never puts",
+            "anything on this Mac's screen (--no-host-screen). The receipt records them as NOT RUN,",
+            "never as passed, and `nightly-local.py publish` refuses a build of this commit until",
+            "a gui-boot proof taken against it exists (--gui-proof). See autocheck/README.md.",
+        ])
+        say(f"autocheck: {what}: passed with {len(not_run)} NOT RUN (no screen): {names}; "
+            f"{seconds:.1f}s; receipt for tree {tree[:12]}")
+        return 0
     say(f"autocheck: {what}: every selected check passed in {seconds:.1f}s; receipt for tree {tree[:12]}")
     return 0
+
+
+# The one NOT RUN a land accepts: a suite that needs a screen, under --no-host-screen with no
+# test-VM guest named. Anything else that did not run (a declared host gap, a suite skipped as
+# unchanged) did not answer for this change and refuses the land. Reasoning: README.md.
+LAND_ACCEPTS_NOT_RUN = {"no-screen"}
+
+
+def accepted_not_run(rc, summary_path):
+    """([{check, why, suites}], None) when proof-run exited 3 and every check it did not pass is
+    NOT RUN for a reason the land accepts; (None, reason) otherwise. Exit 0 is ([], None)."""
+    if rc == 0:
+        return [], None
+    if rc != 3:
+        return None, None
+    try:
+        with open(summary_path) as stream:
+            checks = json.load(stream)["checks"]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return None, f"proof-run.py exited 3 (NOT RUN) and its summary is unreadable ({exc})."
+    idle, other = [], []
+    for row in checks:
+        if row.get("result") == "passed":
+            continue
+        info = row.get("not_run") or {}
+        if row.get("result") == "not-run" and info.get("why") in LAND_ACCEPTS_NOT_RUN:
+            idle.append({"check": row["check"], "why": info["why"], "suites": info.get("suites", [])})
+        else:
+            other.append(f"{row.get('check')} ({row.get('result')}{', ' + info['why'] if info.get('why') else ''})")
+    if other or not idle:
+        return None, ("NOT RUN is not a pass. A land accepts it only for a suite that needs a screen; "
+                      "these did not answer for this change: " + (", ".join(other) or "none named") + ".")
+    return idle, None
 
 
 def refuse_selection(what, rc):

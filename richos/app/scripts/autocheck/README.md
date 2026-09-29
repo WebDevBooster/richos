@@ -20,6 +20,45 @@ at every session start and turn end) and is appended to
 `<git-common-dir>/richos-autocheck/bypass.log`. A rebase, cherry-pick or revert on a branch
 replays commits and is not recorded; its land runs the full checks.
 
+## NOT RUN is not a pass
+
+A check `proof-run.py` could not run is reported as its own state, `not-run`, with a reason:
+`no-screen` (a suite that boots the app on a screen, under `--no-host-screen` with no test-VM
+guest named), `host-gap` (a declared host gap) or `unchanged-inputs` (a suite skipped by
+`RUN_TESTS_SKIP_UNCHANGED`). Until 2026-09-29 `front-door` and `gui-boot` were recorded as
+`passed` in exactly that case.
+
+**The land's decision: a `no-screen` NOT RUN does not refuse the land; every other NOT RUN
+does.** Why:
+
+- A land may never put anything on this Mac's screen (CEO ruling §65; `--no-host-screen` is
+  how every land runs), so a screen suite can never run in one here. Refusing would make every
+  land that touches the app's screen inputs impossible, and the only way through would be
+  `--no-verify`, which skips every other check too.
+- It is still not a pass, and nothing records it as one: the verdict line says
+  `ALLOWED WITH N CHECK(S) NOT RUN, WHICH IS NOT A PASS` and names each one, the land receipt
+  lists them under `not_run`, and `nightly-local.py publish` refuses a build of that commit
+  until a gui-boot proof taken against it exists (`--gui-proof`). The screen proof is made
+  where a screen may be used, the test VM, before anything is published.
+- With `RICHOS_GUI_HOST` naming a guest, the same suites run in the guest and are real passes
+  or failures; nothing here changes that.
+- A `host-gap` or `unchanged-inputs` NOT RUN is a suite that did not answer for this change
+  on a host that could have run it, so it refuses. The land check removes
+  `RUN_TESTS_SKIP_UNCHANGED` from its environment: a land runs every suite it selected.
+
+## A check's inputs are not another check's outputs
+
+`proof-run.py` fingerprints each qualified check's declared inputs before the run and again
+after it; a difference makes a pass `invalid`. In the refused land of 6ef73abf,
+`no-foreign-app-data` (inputs include `richos/app/crates`) passed 3 of 3 and was invalidated
+because the lint check beside it ran Clippy on `crates/richos-user-update`, whose Cargo target
+directory is inside that root. A build cache is output: a directory git ignores, with nothing
+tracked in it, carrying the standard `CACHEDIR.TAG` (Cargo writes one into every target
+directory) is not part of any check's input identity (`lib/proof_evidence.py`,
+`build_cache`). Everything else is bound exactly as before. When a pass is still invalidated,
+the note names the changed paths and every check that had started by then, instead of only
+"execution inputs changed".
+
 ## Pieces
 
 - `autocheck.py`: the checks, one file, standard library only. Its header is the reference.

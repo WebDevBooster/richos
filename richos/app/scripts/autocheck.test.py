@@ -59,22 +59,42 @@ fi
 if printf '%s\\n' "$paths" | grep -q '^richos/app/'; then
     echo "  cd richos/app && bash scripts/suite.sh"
 fi
+if printf '%s\\n' "$paths" | grep -q 'screen'; then
+    echo "  cd richos/app && bash scripts/screen.sh"
+fi
 """
-PROOF_RUN = """import os
+PROOF_RUN = """import json
+import os
 import subprocess
 import sys
 
+# Fixture runner, proof-run.py's contract: exit 0 all passed, 1 a check did not pass, 3 nothing
+# failed and a check was NOT RUN; --summary-out gets summary.json's rows. A command that prints
+# "NOT-RUN <why>" and exits 0 is a suite run-tests.sh did not run, for that reason.
 plan = sys.argv[sys.argv.index("--commands") + 1]
-rc = 0
+rows = []
 for line in open(plan):
     line = line.strip()
     if line:
         with open(os.environ["AUTOCHECK_FIXTURE_LOG"], "a") as log:
             log.write("run " + line + "\\n")
-        if subprocess.run(["bash", "-c", line]).returncode:
+        done = subprocess.run(["bash", "-c", line], stdout=subprocess.PIPE, text=True)
+        sys.stdout.write(done.stdout)
+        said = [l.split()[1] for l in done.stdout.splitlines() if l.startswith("NOT-RUN ")]
+        if done.returncode:
             print("FAILED " + line)
-            rc = 1
-sys.exit(rc)
+            rows.append({"check": line, "result": "failed", "not_run": None})
+        elif said:
+            print("NOT RUN (%s) " % said[0] + line)
+            rows.append({"check": line, "result": "not-run",
+                         "not_run": {"why": said[0], "suites": [{"name": line, "state": "notrun", "reason": said[0]}]}})
+        else:
+            rows.append({"check": line, "result": "passed", "not_run": None})
+if "--summary-out" in sys.argv:
+    with open(sys.argv[sys.argv.index("--summary-out") + 1], "w") as out:
+        json.dump({"checks": rows}, out)
+results = {row["result"] for row in rows}
+sys.exit(1 if results - {"passed", "not-run"} else 3 if "not-run" in results else 0)
 """
 SUITE = """#!/usr/bin/env bash
 # Fixture owning suite.
@@ -84,6 +104,11 @@ if grep -q BROKEN src/thing.txt; then
     exit 1
 fi
 echo "suite: PASS"
+"""
+SCREEN = """#!/usr/bin/env bash
+# Fixture screen suite: does not run, for the reason src/screen.txt names.
+cd "$(dirname "$0")/.."
+echo "NOT-RUN $(cat src/screen.txt)"
 """
 
 
@@ -108,7 +133,8 @@ class Fixture(unittest.TestCase):
         app = self.repo / "richos/app"
         for rel, text, mode in (("scripts/lint.sh", LINT, 0o755), ("scripts/lint/driver.py", DRIVER, 0o644),
                                 ("scripts/proof-for.sh", PROOF_FOR, 0o755), ("scripts/proof-run.py", PROOF_RUN, 0o644),
-                                ("scripts/suite.sh", SUITE, 0o755), ("src/thing.txt", "fine\n", 0o644)):
+                                ("scripts/suite.sh", SUITE, 0o755), ("scripts/screen.sh", SCREEN, 0o755),
+                                ("src/thing.txt", "fine\n", 0o644)):
             path = app / rel
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text)
@@ -282,6 +308,30 @@ class Land(Fixture):
         self.assertTrue((self.repo / ".git/richos-autocheck/land" / tree).exists())
         self.assertEqual(self.recorded(), "")
 
+    def test_a_land_whose_screen_suites_did_not_run_lands_and_says_not_run(self):
+        # 2026-09-29: front-door and gui-boot were NOT RUN (no screen) in the refused land of
+        # 6ef73abf and recorded as passed. NOT RUN is not a pass; the one a land accepts is a
+        # suite that needs the screen a land may never use, and it says so where it lands.
+        self.make()
+        self.branch_with("feature", "richos/app/src/screen.txt", "no-screen\n")
+        out = self.git("merge", "--no-ff", "-m", "land feature", "feature")
+        self.assertIn("MERGE INTO MAIN ALLOWED WITH 1 CHECK(S) NOT RUN, WHICH IS NOT A PASS", out.stderr)
+        self.assertIn("NOT RUN: cd richos/app && bash scripts/screen.sh (no-screen)", out.stderr)
+        self.assertNotIn("every selected check passed", out.stderr)
+        receipt = json.loads((self.repo / ".git/richos-autocheck/land" / self.head("HEAD^{tree}")).read_text())
+        self.assertEqual([row["check"] for row in receipt["not_run"]], ["cd richos/app && bash scripts/screen.sh"])
+        self.assertEqual(self.recorded(), "")
+
+    def test_a_land_with_any_other_check_not_run_is_refused(self):
+        self.make()
+        self.branch_with("feature", "richos/app/src/screen.txt", "host-gap\n")
+        before = self.head("main")
+        out = self.git("merge", "--no-ff", "-m", "land feature", "feature", expect=1)
+        self.assertIn("MERGE INTO MAIN REFUSED: a check it owns did not pass", out.stderr)
+        self.assertIn("NOT RUN is not a pass", out.stderr)
+        self.assertEqual(self.head("main"), before)
+        self.git("merge", "--abort")
+
     def test_no_verify_merge_is_recorded(self):
         self.make()
         self.branch_with("feature", "richos/app/src/thing.txt", "BROKEN\n")
@@ -298,7 +348,7 @@ class Land(Fixture):
         self.git("merge", "--ff-only", "feature")
         self.assertIn("without the land checks (a fast-forward)", self.recorded())
         out = self.git("push", "origin", "main", expect=1)
-        self.assertIn("PUSH REFUSED: a check it owns failed", out.stderr)
+        self.assertIn("PUSH REFUSED: a check it owns did not pass", out.stderr)
         self.assertNotEqual(self.git("rev-parse", "main", cwd=remote).stdout.strip(), self.head("main"))
 
     def test_an_uncovered_path_refuses_the_merge(self):
