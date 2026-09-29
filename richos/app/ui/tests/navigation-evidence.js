@@ -82,6 +82,28 @@ function assertRedWith(r, message) {
   );
 }
 
+/// THE NAVIGATION FAILED AT THE DEADLINE IT WAS GIVEN — proven by facts, never by a stopwatch
+/// (2026-09-29, audit R6; the same defect check 3 lost in `42a22f04`). This used to be
+/// `elapsedMs >= ms && elapsedMs < ms + 1000`, and the upper half was a bound on how late the
+/// rejection is DELIVERED: a starved Node (`fixtures/stalled-host-preload.js`,
+/// RICHOS_UI_FREEZE_AFTER_GOTO_MS=2500) delivers it at ~2,560 ms while Playwright decided at
+/// exactly 1,500. What that bound stood for, each ruled out by what it would leave behind:
+///   - a DIFFERENT deadline (doubled, or the 30 s default): Playwright's message names the one
+///     it enforced (`assertRedWith(r, "Timeout <ms>ms exceeded.")`), and `options` is what the
+///     suite passed, unchanged;
+///   - the capture RETRYING the navigation: a second attempt sends the document request again
+///     and goes through the capture again, so there is exactly one main-document request before
+///     the failure and exactly one observed navigation in the fixture process.
+/// The lower bound stays: it is the half that says the deadline was not cut short.
+function assertAtItsOwnDeadline(b, ms, docPath) {
+  assertEqual(b.options, { timeout: ms }, "the options the suite passed, recorded as passed");
+  assert(b.error.message.startsWith("page.goto: Timeout " + ms + "ms exceeded."), "recorded message: " + b.error.message);
+  const docs = b.lifecycle.filter((l) => l.event === "request" && !l.afterFailure).map((l) => new URL(l.url).pathname);
+  assertEqual(docs, [docPath], "main-document requests before the failure (a second one is a retried navigation)");
+  assertEqual(b.process.navigationsThisProcess, 1, "navigations the capture observed in the fixture process");
+  assert(b.elapsedMs >= ms, "navigation rejected after " + b.elapsedMs + " ms, before its " + ms + " ms deadline");
+}
+
 function distinctPixels(file) {
   const img = png.decode(fs.readFileSync(file));
   const seen = new Set();
@@ -147,13 +169,9 @@ async function main() {
       const { file, data: b } = oneBundle(dir, r);
       assert(r.stderr.includes("navigation evidence: " + file), "the run's output must name the bundle:\n" + r.stderr);
       assertEqual(b.error.name, "TimeoutError", "the recorded error type");
-      assert(b.error.message.startsWith("page.goto: Timeout 1500ms exceeded."), "recorded message: " + b.error.message);
-      assertEqual(b.options, { timeout: 1500 }, "the options the suite passed, recorded as passed");
       // THE DEADLINE IS UNCHANGED: the navigation rejected at the 1500 ms it was given, never
-      // before it and nowhere near a doubled or default one. The upper bound is scheduling
-      // slack for a saturated machine (measured 1501.7-1503.8 ms on 2026-09-22), not a second
-      // deadline — evidence collection starts only after the rejection and is not in this number.
-      assert(b.elapsedMs >= 1500 && b.elapsedMs < 2500, "navigation rejected after " + b.elapsedMs + " ms, not at its 1500 ms deadline");
+      // before it, never under a doubled or default one, never on a retry (see the helper).
+      assertAtItsOwnDeadline(b, 1500, "/stall");
       assertEqual(
         b.reached,
         { request: true, response: true, commit: true, domcontentloaded: true, load: false },
@@ -272,7 +290,7 @@ async function main() {
       assertRedWith(r, "page.goto: Timeout 1500ms exceeded.");
       const { data: b } = oneBundle(dir, r);
       assertEqual(b.error.name, "TimeoutError", "the recorded error type");
-      assert(b.elapsedMs >= 1500 && b.elapsedMs < 2500, "navigation rejected after " + b.elapsedMs + " ms, not at its 1500 ms deadline");
+      assertAtItsOwnDeadline(b, 1500, "/stall");
       assertEqual(b.reached.load, false, "load reached on a page whose image never answers");
       const busy = b.host.cpuBusyPercent;
       assert(

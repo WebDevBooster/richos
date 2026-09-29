@@ -413,8 +413,12 @@ mod tests {
             }
             other => panic!("a child that never exits was not reported as a timeout: {other:?}"),
         }
+        // The one wrong answer is waiting for the child's own 30 s `sleep`; 20 s tells that apart
+        // on any host. This was 5 s, a bound on how fast a busy host spawns, kills and reaps a
+        // process rather than on whether the deadline was enforced (2026-09-29, the
+        // load-sensitive checks audit). The `ToolTimedOut` verdict above is the proof it fired.
         assert!(
-            waited < Duration::from_secs(5),
+            waited < Duration::from_secs(20),
             "the bound did not bound anything: waited {waited:?} for a 300 ms deadline"
         );
     }
