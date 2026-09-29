@@ -42,6 +42,9 @@ const png = require("./png");
 const stability = require("./shot-stability");
 // On a navigation that fails, write down what the page was doing (`lib/navigation-evidence.js`).
 const navigation = require("./navigation-evidence");
+// A suite prints its PASS/FAIL report in one burst and then exits; on a pipe, the FAIL lines
+// must not be the part that is lost (`lib/blocking-stdio.js`).
+require("./blocking-stdio")();
 
 const UI_DIR = path.resolve(__dirname, "..", "..");
 const SHOT_DIR = path.resolve(__dirname, "..", ".shots");

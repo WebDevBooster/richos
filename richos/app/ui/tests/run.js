@@ -59,6 +59,8 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const SOURCES = require("./lib/ui-sources");
+// Every byte this process prints reaches its reader before it exits (`lib/blocking-stdio.js`).
+require("./lib/blocking-stdio")();
 
 // ---------------------------------------------------------------------------------------
 // Arguments

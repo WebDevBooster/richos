@@ -10,6 +10,7 @@ import unittest
 
 
 UI = Path(__file__).resolve().parents[1] / 'ui/tests'
+WORKER_TOKENS = Path(__file__).resolve().parents[2] / 'engine/scripts/lib/worker_tokens.py'
 
 
 class LedgerTests(unittest.TestCase):
@@ -22,6 +23,7 @@ class LedgerTests(unittest.TestCase):
         (self.root / 'lib').mkdir()
         shutil.copyfile(UI / 'run.js', self.root / 'run.js')
         shutil.copyfile(UI / 'lib/ui-sources.js', self.root / 'lib/ui-sources.js')
+        shutil.copyfile(UI / 'lib/blocking-stdio.js', self.root / 'lib/blocking-stdio.js')
         (self.root / 'sample.js').write_text('''
 const fs = require('fs');
 const run = {check() {}};
@@ -32,6 +34,11 @@ fs.appendFileSync(process.env.RICHOS_UI_TESTS_LEDGER,
         self.env = {**os.environ, 'TMPDIR': str(self.scratch)}
         for name in ('NODE_OPTIONS', 'RICHOS_UI_TESTS_LEDGER', 'RICHOS_UI_NAV_EVIDENCE_DIR'):
             self.env.pop(name, None)
+        # This suite can itself run under a proof run that holds a machine worker token. The
+        # runner reads these to put its shards on the budget, so a fixture that did not ask
+        # for a budget must not inherit the real one.
+        for name in [n for n in self.env if n.startswith('RICHOS_WORKER_') or n == 'RICHOS_MACHINE_WORKERS']:
+            self.env.pop(name)
 
     def runner(self, preload=None):
         args = ['node']
@@ -165,6 +172,32 @@ fs.appendFileSync(process.env.RICHOS_UI_TESTS_LEDGER,
         self.assertEqual(self.navigation_dir_seen_by_a_suite(
             f'--receipts={self.root / "receipts"}', env={'RICHOS_UI_NAV_EVIDENCE_DIR': str(chosen)}),
             str(chosen))
+
+    def test_a_sharded_run_prints_every_byte_before_it_exits(self):
+        # Runs 20260928T230511Z-20aa349a and 20260928T233221Z-56bcde43: the nightly's log of
+        # the UI gate stops in the middle of shard 2's output, mid-line, both times. Shards 3
+        # and 4 and the coverage verdict never arrived, so the log could not say which check
+        # failed. The `--shards` parent prints every shard's held output in one burst and then
+        # exits the process. On macOS, Node writes to a pipe asynchronously, so whatever did
+        # not fit in the pipe was still queued when the process exited, and was dropped.
+        lines = 4000
+        (self.root / 'sample.js').write_text('''
+const fs = require('fs');
+const run = {check() {}};
+run.check();
+for (let i = 0; i < LINES; i++) console.log('sample line ' + i + ' ' + 'x'.repeat(200));
+console.log('SAMPLE-END');
+fs.appendFileSync(process.env.RICHOS_UI_TESTS_LEDGER,
+  JSON.stringify({suite:'sample.js',label:'fixture',checks:1,failed:0})+'\\n');
+'''.replace('LINES', str(lines)))
+        result = subprocess.run(['node', str(self.root / 'run.js'), '--shards=1',
+                                 f'--receipts={self.root / "receipts"}'], cwd=self.root,
+                                env=self.env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout[-2000:] + result.stderr)
+        seen = sum(1 for line in result.stdout.splitlines() if line.startswith('sample line '))
+        self.assertEqual(seen, lines, f'{lines - seen} of the suite\'s lines never reached the pipe')
+        self.assertIn('SAMPLE-END', result.stdout)
+        self.assertIn('✓ ui-suite:', result.stdout, 'the coverage verdict never reached the pipe')
 
     def test_permission_denied_is_not_proof_of_death(self):
         directory = self.ledger('permission', os.getpid())
