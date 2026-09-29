@@ -1390,18 +1390,25 @@ def source_identity():
     Recorded with every plan and outcome. It binds a check with no identity of its own; HEAD
     binds every check. A change to the rest is judged per check (proof_evidence.Record)."""
     head = head_commit()
-    diff =subprocess.check_output(["git", "-C", ROOT, "diff", "--binary", "HEAD"])
+    diff = subprocess.check_output(["git", "-C", ROOT, "diff", "--binary", "HEAD"])
     digest = hashlib.sha256()
     untracked = subprocess.check_output(["git", "-C", ROOT, "ls-files", "--others", "--exclude-standard", "-z"])
     for raw in sorted(p for p in untracked.split(b"\0") if p):
         path = os.path.join(ROOT, os.fsdecode(raw))
         digest.update(raw + b"\0")
-        if os.path.islink(path):
-            digest.update(os.fsencode(os.readlink(path)))
-        else:
-            with open(path, "rb") as source:
-                for chunk in iter(lambda: source.read(65536), b""):
-                    digest.update(chunk)
+        try:
+            if os.path.islink(path):
+                digest.update(os.fsencode(os.readlink(path)))
+            else:
+                with open(path, "rb") as source:
+                    for chunk in iter(lambda: source.read(65536), b""):
+                        digest.update(chunk)
+        except FileNotFoundError:
+            # Listed, then gone before it was read (2026-09-30: updater-setup.test.sh's key,
+            # removed by its own cleanup, crashed a land here). Absence is a state of the
+            # checkout: recorded as one, so the identity differs from the one with the file,
+            # and a vanished file never crashes the run.
+            digest.update(b"\0absent\0")
     return {"commit": head, "tracked_diff_sha256": hashlib.sha256(diff).hexdigest(),
             "untracked_sha256": digest.hexdigest()}
 

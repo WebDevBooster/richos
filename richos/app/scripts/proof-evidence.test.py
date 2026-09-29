@@ -477,6 +477,44 @@ class Evidence(unittest.TestCase):
         record.finalize(verifier)
         self.assertEqual(verifier[0].state, "passed", verifier[0].notes)
 
+    def test_an_untracked_file_that_vanishes_while_it_is_read_is_a_changed_identity_not_a_crash(self):
+        # 2026-09-30: a land crashed with FileNotFoundError in source_identity() on
+        # richos/app/.updater-key-under-test.key, listed by `git ls-files --others` and removed
+        # by updater-setup.test.sh's cleanup before it was opened. The whole-checkout content
+        # read (checkout_content) lists and then reads the same way.
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        git = lambda *a: subprocess.run(["git", "-C", str(self.root), "-c", "user.name=fixture",
+                                         "-c", "user.email=fixture@example.invalid", "-c", "core.hooksPath=/dev/null",
+                                         "-c", "commit.gpgsign=false", *a],
+                                        check=True, env=env, capture_output=True)
+        git("init", "-q")
+        (self.root / "tracked.txt").write_text("tracked\n")
+        git("add", "tracked.txt")
+        git("commit", "-q", "-m", "fixture")
+        key = self.root / "key-under-test.key"
+        key.write_text("a key a suite put here\n")
+        with patch.object(runner, "ROOT", str(self.root)):
+            present = runner.source_identity()
+            real_output, real_run = subprocess.check_output, subprocess.run
+
+            def listed_then_removed(listing):
+                def call(args, *a, **k):
+                    result = listing(args, *a, **k)
+                    if "--others" in args and key.exists():
+                        key.unlink()  # gone between the listing and the read
+                    return result
+                return call
+
+            with patch.object(runner.subprocess, "check_output", side_effect=listed_then_removed(real_output)):
+                vanished = runner.source_identity()
+            self.assertNotEqual(present, vanished, "a vanished file must change the identity")
+            key.write_text("a key a suite put here\n")
+            before = evidence.checkout_content(self.root)
+            with patch.object(evidence.subprocess, "run", side_effect=listed_then_removed(real_run)):
+                during = evidence.checkout_content(self.root)
+            self.assertNotEqual(before, during, "a vanished file must change the checkout content")
+            self.assertEqual(during, evidence.checkout_content(self.root), "and read as absent")
+
     def test_actual_unrelated_edit_during_a_run_invalidates_only_the_checks_that_read_it(self):
         # Part-2 hunt section 07, end to end through runner.main on a real git checkout: one check
         # (`editor`, no contract, so keyed by the whole checkout) saves a tracked file while

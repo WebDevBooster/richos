@@ -265,16 +265,22 @@ def _git_blob(data):
 
 
 def _worktree_entry(path):
-    """(mode, blob id) for a working-tree path as git would store it; None when absent."""
-    if path.is_symlink():
-        return "120000", _git_blob(os.fsencode(os.readlink(path)))
-    if not path.exists():
+    """(mode, blob id) for a working-tree path as git would store it; None when absent.
+
+    A path listed by git and gone before it is read is absent, never a crash (the same race
+    as proof-run.py source_identity(), 2026-09-30)."""
+    try:
+        if path.is_symlink():
+            return "120000", _git_blob(os.fsencode(os.readlink(path)))
+        if not path.exists():
+            return None
+        if not path.is_file():
+            raise ValueError("unsupported checkout entry (a nested repository?): " + str(path))
+        with open(path, "rb") as stream:
+            data = stream.read()
+        return ("100755" if path.stat().st_mode & 0o111 else "100644"), _git_blob(data)
+    except FileNotFoundError:
         return None
-    if not path.is_file():
-        raise ValueError("unsupported checkout entry (a nested repository?): " + str(path))
-    with open(path, "rb") as stream:
-        data = stream.read()
-    return ("100755" if path.stat().st_mode & 0o111 else "100644"), _git_blob(data)
 
 
 def checkout_content(root):
