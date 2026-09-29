@@ -161,6 +161,46 @@ The other knob is not a variable: `home.js`'s WebGL check PLANTS the failure it 
 check that passes for want of the defect is not a check. Do the same for anything else the
 runner can do and this machine cannot.
 
+### A loaded nightly host, on demand (2026-09-29)
+
+The nightly runs the UI shards beside the mutation pool, the script suites and Cargo, and on
+that host a check that measured wall time, raced the page's own timers, or slept and then
+asserted something had happened went red for a product that was right
+(`docs/verification/2026-09-29-load-sensitive-checks-audit.md`, R1, R2, R6, R10, R11). Two
+preloads put that host on any Mac, deterministically, without loading anyone's machine:
+
+```
+node --require ./fixtures/slow-round-trips-preload.js home.js
+RICHOS_UI_ROUND_TRIP_LAG_MS=2000 RICHOS_UI_ROUND_TRIP_LAG_ONLY='THE TEMPORARY LINE' \
+  node --require ./fixtures/slow-round-trips-preload.js home.js
+RICHOS_UI_ROUND_TRIP_LAG_MS=0 RICHOS_UI_PAGE_BUSY_MS=600 \
+  node --require ./fixtures/slow-round-trips-preload.js retention.js
+```
+
+`slow-round-trips-preload.js` makes every harness round trip to the page (`evaluate`,
+`waitForFunction`, `click`, `goto`, keyboard, mouse) answer late while the page's own timers
+keep running (`_ONLY` confines it to checks whose name matches), and `RICHOS_UI_PAGE_BUSY_MS`
+holds each page's own main thread busy so its timers and frames come late.
+
+```
+NODE_OPTIONS="--require $PWD/fixtures/stalled-host-preload.js" \
+  RICHOS_UI_STALLED_HOST_ONLY='^navigation-hang-suite\.js$' RICHOS_UI_SPAWN_LAG_MS=6000 node navigation-evidence.js
+```
+
+`stalled-host-preload.js` makes THIS process late: it freezes for
+`RICHOS_UI_FREEZE_AFTER_GOTO_MS` right after each navigation is issued, and delays every
+`spawnSync` by `RICHOS_UI_SPAWN_LAG_MS`.
+
+A check that is green without them and red with them was measuring the host. The fixes all
+take one of three shapes, and a new check should start from one of them rather than from a
+`waitForTimeout`: **read at the page's own instant** (`page.clock` paused and advanced with
+`runFor`, as `home.js`'s temporary-line check does, or `pinClock` to the fixture's instant, as
+`memory-strategy.js` does); **wait for the fact the next line asserts**, with a bound that is
+only a hang guard; or, for an absence, **wait for the thing that must be absent to have
+ARRIVED** (a delivered event, the page's own frames), never for a number of milliseconds.
+`awaitSettled`, `parkPointer` and `leaveHome` now throw, naming what they waited for, instead
+of handing a caller a wrong state when their bound runs out.
+
 `node_modules/` and `.shots/` are gitignored; `package-lock.json` is COMMITTED, because
 `npm ci` is the only install command that refuses to resolve anything not already written
 down and it does not run without one. The tests are the artifact; those PNGs are evidence for
