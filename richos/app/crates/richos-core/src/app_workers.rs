@@ -8,7 +8,11 @@ use std::path::Path;
 // The Python hook holds this same lock exclusively while appending callbacks.
 // Keep a shared lock through parsing so a half-written callback is never a
 // successful settlement observation. A stuck writer remains an unknown state.
-fn evidence_lock(folder: &Path) -> Option<std::fs::File> {
+/// How long a reader waits for a writer's exclusive lock before calling the evidence
+/// unavailable.
+const EVIDENCE_LOCK_PATIENCE: std::time::Duration = std::time::Duration::from_millis(500);
+
+fn evidence_lock(folder: &Path, patience: std::time::Duration) -> Option<std::fs::File> {
     #[cfg(unix)] {
         use std::os::fd::AsRawFd;
         use std::os::unix::fs::OpenOptionsExt;
@@ -17,7 +21,7 @@ fn evidence_lock(folder: &Path) -> Option<std::fs::File> {
             .open(folder.join(".lock")).ok()?;
         let metadata = file.metadata().ok()?;
         if !metadata.is_file() { return None; }
-        let deadline = Instant::now() + Duration::from_millis(500);
+        let deadline = Instant::now() + patience;
         loop {
             if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } == 0 { return Some(file); }
             if std::io::Error::last_os_error().kind() != std::io::ErrorKind::WouldBlock || Instant::now() >= deadline {
@@ -26,7 +30,7 @@ fn evidence_lock(folder: &Path) -> Option<std::fs::File> {
             std::thread::sleep(Duration::from_millis(10));
         }
     }
-    #[cfg(not(unix))] { let _ = folder; None }
+    #[cfg(not(unix))] { let _ = (folder, patience); None }
 }
 
 /// **`active` VS `liveness_unknown`, AND WHY THIS READER NOW TELLS THEM APART.**
@@ -56,13 +60,20 @@ fn evidence_lock(folder: &Path) -> Option<std::fs::File> {
 /// is, from a different source — and the caller that needs the hosting child to be alive
 /// establishes that itself (`native.rs` has just been handed the turn's result by it).
 pub fn status(state: &Path, session: Option<&str>) -> WorkerStatusView {
+    status_within(state, session, EVIDENCE_LOCK_PATIENCE)
+}
+
+/// [`status`] with the lock patience named. Only the tests name a different one: a test that
+/// proves a reader WAITS for a writer cannot also race the reader's 500 ms against the
+/// writer being scheduled, or it fails on a busy Mac while the reader is right.
+fn status_within(state: &Path, session: Option<&str>, patience: std::time::Duration) -> WorkerStatusView {
     fn unavailable(reason: Unattributed) -> WorkerStatusView { WorkerStatusView {unattributed:Some(reason),..Default::default()} }
     let Some(session) = session else { return unavailable(Unattributed::NoSession); };
     if session.is_empty() || session.len()>128 || !session.bytes().all(|b|b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
         return unavailable(Unattributed::UnusableSessionId);
     }
     let folder = state.join("evidence").join(session);
-    let Some(_lock) = evidence_lock(&folder) else { return unavailable(Unattributed::AppEvidenceUnavailable); };
+    let Some(_lock) = evidence_lock(&folder, patience) else { return unavailable(Unattributed::AppEvidenceUnavailable); };
     let path = folder.join("callbacks.jsonl");
     let Ok(file) = std::fs::File::open(path) else { return unavailable(Unattributed::AppEvidenceUnavailable); };
     let mut open = BTreeMap::new();
@@ -194,7 +205,7 @@ pub fn status(state: &Path, session: Option<&str>) -> WorkerStatusView {
     #[cfg(unix)]
     fn readers_wait_for_a_complete_callback_and_a_stuck_writer_is_unavailable() {
         use std::os::fd::AsRawFd;
-        use std::time::{Duration, Instant};
+        use std::time::Duration;
         let root = std::env::temp_dir().join(format!("app-worker-lock-{}", uuid::Uuid::new_v4()));
         let folder = root.join("evidence/session-one");
         std::fs::create_dir_all(&folder).unwrap();
@@ -212,15 +223,30 @@ pub fn status(state: &Path, session: Option<&str>) -> WorkerStatusView {
                 "{\"schema\":1,\"callback\":{\"session_id\":\"session-one\",\"hook_event_name\":\"SubagentStart\",\"agent_id\":\"worker\"}}\n").unwrap();
         });
         rx.recv().unwrap();
-        let observed = status(&root, Some("session-one"));
+        // The reader is given a hang guard's patience rather than the product's 500 ms: what
+        // this half proves is that it WAITS for the writer and reads the whole callback, and
+        // with 500 ms it also raced the writer thread being scheduled again, which a busy Mac
+        // loses (audit R9; failed on main under `scripts/qa/stall-run.py`). The product's own
+        // 500 ms is the second half's subject, against a writer that never lets go.
+        let observed = status_within(&root, Some("session-one"), Duration::from_secs(60));
         writer.join().unwrap();
         assert!(observed.is_attributed());
         assert_eq!(observed.liveness_unknown, 1);
         let held = std::fs::File::open(lock_path).unwrap();
         assert_eq!(unsafe { libc::flock(held.as_raw_fd(), libc::LOCK_EX) }, 0);
-        let began = Instant::now();
-        assert_eq!(status(&root, Some("session-one")).unattributed, Some(Unattributed::AppEvidenceUnavailable));
-        assert!(began.elapsed() < Duration::from_secs(3));
+        // The lock is held until after the reader returns, so a reader that waited for it
+        // could never return: returning at all, and saying the evidence is unavailable, is
+        // the proof that its wait is bounded. The reader runs on its own thread so that one
+        // which never returns fails at a hang guard with a sentence rather than hanging the
+        // suite; the `< 3 s` clock that stood here failed on a busy Mac instead (audit R9).
+        let (tx, rx) = std::sync::mpsc::channel();
+        let reader_root = root.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(status(&reader_root, Some("session-one")).unattributed);
+        });
+        let unattributed = rx.recv_timeout(Duration::from_secs(60))
+            .expect("a reader waited on a writer that never lets go");
+        assert_eq!(unattributed, Some(Unattributed::AppEvidenceUnavailable));
         drop(held);
         std::fs::remove_dir_all(root).unwrap();
     }
