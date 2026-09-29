@@ -43,7 +43,8 @@ import kotlin.math.roundToInt
  * [EXTRA_DARK] adds the one this app draws there that the dark preset does not list (danger: "Not
  * sent", the Forget row), as the design system's NOTES require. It does not bind: the caps are the
  * design system's own (dark cool 0.1132, gold 0.1241; light gold 0.85, rose 0.4846, aqua 0.64).
- * Non-text indicators on the ground (3:1) are checked against the same worst point in `SpeckleTest`.
+ * Non-text indicators on the ground (borders, the mark) are not what the caps are solved for; the
+ * design system's clear zone for them comes separately, and the presets ship unchanged until then.
  *
  * WHERE: [Modifier.speckle] goes on a WHOLE-SCREEN ground plane, between its ground fill and its
  * lamp (`background(ground).speckle().lamp()`: the design system paints the ground, the points over

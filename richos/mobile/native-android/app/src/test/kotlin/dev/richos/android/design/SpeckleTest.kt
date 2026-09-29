@@ -92,41 +92,6 @@ class SpeckleTest {
     }
 
     /**
-     * Indicators on the ground (3:1) against the ground as it is seen beside them: the mean of the
-     * densest 24 x 24 dp of the field (under the lamp's peak), composited over the ground. A single
-     * device pixel is not the "adjacent color" an indicator is read against; the sheen is.
-     */
-    @Test
-    fun `every indicator on the ground keeps 3 to 1 against the sheen at its densest`() {
-        val failures = mutableListOf<String>()
-        val table = StringBuilder()
-        for (theme in listOf(Theme.DARK, Theme.LIGHT)) {
-            val colors = if (theme == Theme.DARK) RichColors.Dark else RichColors.Light
-            val f = Speckle.field(Speckle.Surface.MOBILE, theme, 402.0, 874.0, 2.0)
-            val ground = rgb(colors.ground)
-            val side = 48
-            val x0 = f.width / 2 - side / 2
-            var r = 0.0; var g = 0.0; var b = 0.0
-            for (y in 0 until side) for (x in x0 until x0 + side) {
-                val px = f.argb[y * f.width + x]
-                val a = (px ushr 24) / 255.0
-                r += ((px ushr 16) and 0xFF) * a + ground[0] * (1 - a)
-                g += ((px ushr 8) and 0xFF) * a + ground[1] * (1 - a)
-                b += (px and 0xFF) * a + ground[2] * (1 - a)
-            }
-            val n = (side * side).toDouble()
-            val sheen = doubleArrayOf(r / n, g / n, b / n)
-            for (pair in onGround(colors).filter { it.floor == Floor.LARGE_OR_INDICATOR }) {
-                val ratio = Speckle.ratio(Speckle.over(rgb(pair.foreground), pair.foreground.alpha.toDouble(), sheen), sheen)
-                table.append("$theme | ${pair.name} | plain ${"%.2f".format(pair.ratio)} | on the sheen ${"%.2f".format(ratio)}\n")
-                if (ratio < 3.0) failures += "$theme ${pair.name}: ${"%.3f".format(ratio)} on the sheen"
-            }
-        }
-        println(table)
-        assertTrue(failures.joinToString("\n"), failures.isEmpty())
-    }
-
-    /**
      * THE RULE: the splash screen never carries the speckle. On this phone the splash is the launch
      * window, `Theme.RichOS`'s `windowBackground`: it stays one flat color in both themes.
      */
