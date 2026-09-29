@@ -20,8 +20,11 @@
 //   4. A file already modified before the suite started is not blamed for the person's edit;
 //      the same file changed again during the suite is.
 //   5. A new untracked file is blamed; a gitignored one is not.
+//   6. A tracked file saved OUTSIDE the UI tree during the suite (an unrelated editor save) is
+//      not blamed on it; one inside the UI tree still is. In a real checkout the watched scope
+//      is `richos/app/ui`, not the repository (part-2 hunt section 07, 2026-09-29).
 //
-// Checks 2-5 run a child suite (`fixtures/tracked-tree-suite.js`) against a throwaway git
+// Checks 2-6 run a child suite (`fixtures/tracked-tree-suite.js`) against a throwaway git
 // repository, so the guard is proven red without ever touching a real tracked file — a test
 // of this rule that wrote into this checkout would be the defect it tests for.
 
@@ -85,8 +88,10 @@ function throwawayRepo(dirs) {
   return dir;
 }
 
-function runFixture(root, mode) {
+function runFixture(root, mode, scope) {
   const env = Object.assign({}, process.env, { RICHOS_UI_TRACKED_TREE_ROOT: root });
+  delete env.RICHOS_UI_TRACKED_TREE_SCOPE;
+  if (scope) env.RICHOS_UI_TRACKED_TREE_SCOPE = scope;
   // The child is not a suite of this run: it must not write into the run's evidence ledger,
   // and a regeneration asked of THIS process is not asked of it.
   delete env.RICHOS_UI_TESTS_LEDGER;
@@ -188,6 +193,38 @@ async function main() {
       assert(l2 && /^\s*PASS\s/.test(l2), "a write into gitignored scratch was blamed:\n" + ignored.out);
       assertEqual(ignored.code, 0, "exit code for a gitignored write");
       return "untracked: FAIL naming new-reference.png · gitignored scratch/: PASS";
+    });
+
+    await run.check("6  an unrelated tracked file saved during a suite is not blamed on it; one in the UI tree is", async () => {
+      // 2026-09-29, part-2 hunt section 07: the guard watched every tracked file in the
+      // repository, so one editor save anywhere failed every UI suite running at that moment.
+      const scoped = (dirs) => {
+        const dir = throwawayRepo(dirs);
+        fs.mkdirSync(path.join(dir, "ui"));
+        fs.mkdirSync(path.join(dir, "elsewhere"));
+        fs.writeFileSync(path.join(dir, "ui", "view.txt"), "committed\n");
+        fs.writeFileSync(path.join(dir, "elsewhere", "notes.txt"), "committed\n");
+        git(dir, ["add", "-A"]);
+        return dir;
+      };
+      const outside = runFixture(scoped(dirs), "modify-outside-scope", "ui");
+      const l1 = guardLine(outside.out);
+      assert(l1 && /^\s*PASS\s/.test(l1), "a save outside the UI tree failed the suite:\n" + outside.out);
+      assertEqual(outside.code, 0, "exit code for a save outside the UI tree");
+
+      const inside = runFixture(scoped(dirs), "modify-inside-scope", "ui");
+      const l2 = guardLine(inside.out);
+      assert(l2 && /^\s*FAIL\s/.test(l2), "a write inside the UI tree was not blamed:\n" + inside.out);
+      assert(inside.out.includes("ui/view.txt"), "the failure does not name ui/view.txt:\n" + inside.out);
+      assertEqual(inside.code, 1, "exit code for a write inside the UI tree");
+
+      // And in this real checkout the watched scope IS the UI tree, not the repository.
+      const tree = require("./lib/tracked-tree");
+      const root = tree.resolveRoot();
+      assert(root, "this suite is not inside a git checkout");
+      const scope = typeof tree.scopeOf === "function" ? tree.scopeOf(root).tracked : ".";
+      assertEqual(scope, path.relative(root, path.resolve(__dirname, "..")), "the tracked scope in this checkout");
+      return "outside: PASS, exit 0 · inside: FAIL naming ui/view.txt, exit 1 · real scope " + scope;
     });
   } finally {
     for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });

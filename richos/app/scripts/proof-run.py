@@ -1027,7 +1027,7 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
         if record and record.source_invalidated:
             os.makedirs(contamination, exist_ok=True)
             proof_evidence.atomic(os.path.join(contamination, "source.json"),
-                                  {"reason": "source changed during verification"})
+                                  {"reason": "the checkout's commit changed during verification"})
         unsafe = os.path.isdir(contamination) and bool(os.listdir(contamination))
         fail_fast = getattr(args, "fail_fast", False) and any(
             it.state in ("failed", "timed-out", "not-admitted") for it in items)
@@ -1153,7 +1153,9 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 it.wait_reason = backoff_reason
                 it.refusing = backoff_refusing
         if eligible and now >= next_sample:
-            if record and record.current_source() != record.source:
+            # Only HEAD stops the run. An edited file invalidates only the checks whose own
+            # inputs hold it, when they finish (proof_evidence.Record, part-2 hunt section 07).
+            if record and record.current_commit() != record.source["commit"]:
                 record.source_invalidated = True
                 continue
             it = eligible[0]
@@ -1378,20 +1380,35 @@ def checkpoint(items, logdir):
     os.replace(path + ".new", path)
 
 
+def head_commit():
+    return subprocess.check_output(["git", "-C", ROOT, "rev-parse", "HEAD"], text=True).strip()
+
+
 def source_identity():
-    head = subprocess.check_output(["git", "-C", ROOT, "rev-parse", "HEAD"], text=True).strip()
+    """The whole checkout: HEAD, the tracked diff and every untracked file git does not ignore.
+
+    Recorded with every plan and outcome. It binds a check with no identity of its own; HEAD
+    binds every check. A change to the rest is judged per check (proof_evidence.Record)."""
+    head = head_commit()
     diff = subprocess.check_output(["git", "-C", ROOT, "diff", "--binary", "HEAD"])
     digest = hashlib.sha256()
     untracked = subprocess.check_output(["git", "-C", ROOT, "ls-files", "--others", "--exclude-standard", "-z"])
     for raw in sorted(p for p in untracked.split(b"\0") if p):
         path = os.path.join(ROOT, os.fsdecode(raw))
         digest.update(raw + b"\0")
-        if os.path.islink(path):
-            digest.update(os.fsencode(os.readlink(path)))
-        else:
-            with open(path, "rb") as source:
-                for chunk in iter(lambda: source.read(65536), b""):
-                    digest.update(chunk)
+        try:
+            if os.path.islink(path):
+                digest.update(os.fsencode(os.readlink(path)))
+            else:
+                with open(path, "rb") as source:
+                    for chunk in iter(lambda: source.read(65536), b""):
+                        digest.update(chunk)
+        except FileNotFoundError:
+            # Listed, then gone before it was read (2026-09-30: updater-setup.test.sh's key,
+            # removed by its own cleanup, crashed a land here). Absence is a state of the
+            # checkout: recorded as one, so the identity differs from the one with the file,
+            # and a vanished file never crashes the run.
+            digest.update(b"\0absent\0")
     return {"commit": head, "tracked_diff_sha256": hashlib.sha256(diff).hexdigest(),
             "untracked_sha256": digest.hexdigest()}
 
@@ -1632,7 +1649,7 @@ def main(argv=None):
         baseline = proof_evidence.InputSnapshot()
         args.evidence = proof_evidence.Record(ROOT, logdir, items, before,
             identities(items, baseline), args.resume, source_identity, identity, identities,
-            explain=lambda item: describe_input_change(item, baseline, items))
+            explain=lambda item: describe_input_change(item, baseline, items), current_commit=head_commit)
         args.pool = proof_evidence.Pool(proof_evidence.pool_directory(ROOT, hist_dir), args.evidence,
                                         args.retry_reason)
         started = time.monotonic()
@@ -1655,8 +1672,9 @@ def main(argv=None):
             args.pool.close(items)
             args.evidence.close()
         wall = time.monotonic() - started
-        if source_identity() != before:
-            changed = Item("source changed during verification", ROOT, [])
+        # HEAD only: a changed file already invalidated exactly the checks whose inputs hold it.
+        if head_commit() != before["commit"]:
+            changed = Item("the checkout's commit changed during verification", ROOT, [])
             changed.state, changed.rc = "failed", 1
             items.append(changed)
         notes_from_logs(items)

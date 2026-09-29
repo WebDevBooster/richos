@@ -265,16 +265,22 @@ def _git_blob(data):
 
 
 def _worktree_entry(path):
-    """(mode, blob id) for a working-tree path as git would store it; None when absent."""
-    if path.is_symlink():
-        return "120000", _git_blob(os.fsencode(os.readlink(path)))
-    if not path.exists():
+    """(mode, blob id) for a working-tree path as git would store it; None when absent.
+
+    A path listed by git and gone before it is read is absent, never a crash (the same race
+    as proof-run.py source_identity(), 2026-09-30)."""
+    try:
+        if path.is_symlink():
+            return "120000", _git_blob(os.fsencode(os.readlink(path)))
+        if not path.exists():
+            return None
+        if not path.is_file():
+            raise ValueError("unsupported checkout entry (a nested repository?): " + str(path))
+        with open(path, "rb") as stream:
+            data = stream.read()
+        return ("100755" if path.stat().st_mode & 0o111 else "100644"), _git_blob(data)
+    except FileNotFoundError:
         return None
-    if not path.is_file():
-        raise ValueError("unsupported checkout entry (a nested repository?): " + str(path))
-    with open(path, "rb") as stream:
-        data = stream.read()
-    return ("100755" if path.stat().st_mode & 0o111 else "100644"), _git_blob(data)
 
 
 def checkout_content(root):
@@ -682,9 +688,38 @@ def completed_receipt(item, sha, allow_known_red=False):
     return {"path": str(path), "sha256": file_digest(path)}
 
 
+# A CHANGE INVALIDATES ONLY THE CHECKS WHOSE INPUTS IT TOUCHES (2026-09-29, part-2 hunt
+# section 07).
+#
+# `source` is the whole checkout: HEAD, the tracked diff and every untracked file git does not
+# ignore. It used to decide for every check at once: any change to it during a run marked the
+# run contaminated, stopped every running and waiting check, and invalidated every pass,
+# including passes whose own declared inputs had not changed by a byte. So one editor save
+# anywhere in the checkout (a doc, an unrelated script) refused a land and threw away its
+# evidence. Now each check is judged by its OWN identity, which already says what it reads:
+#   * a check with a reviewed contract (proof-inputs.json): its declared paths, tools,
+#     environment and Git inputs. A change outside them leaves its pass standing;
+#   * a check with no contract is keyed by the whole checkout's content (WHOLE_CHECKOUT), so for
+#     it every change IS an input change and its pass is invalidated, on its own, without
+#     stopping any other check;
+#   * a check with no identity at all (`fresh`: an engine unit without a contract, the receipts
+#     verifier) has only the whole source to bind it, so a source change invalidates it
+#     exactly as before.
+# What stays global is HEAD: a commit or a checkout switch in the verified checkout is not an
+# editor save, receipts are bound to the commit, and it still marks the run contaminated.
+#
+# One `fresh` check is not bound to the whole source: `engine receipts`. It is fresh so that it
+# always runs (it is the coverage verifier over this run's receipts), not because its inputs are
+# unknown: verify_target_receipts() re-reads every covered unit's own identity and HEAD itself,
+# so its pass is exactly as valid as the units it covers. Binding it to the whole source would
+# make one unrelated save fail the coverage of every engine unit in the run.
+VERIFIES_OWN_INPUTS = frozenset(("engine receipts",))
+
+
 class Record:
     def __init__(self, root, logdir, items, source, identities, previous=None,
-                 current_source=None, current_identity=None, current_identities=None, explain=None):
+                 current_source=None, current_identity=None, current_identities=None, explain=None,
+                 current_commit=None):
         self.root, self.logdir = str(root), Path(logdir)
         # What changed and who could have changed it, appended to an invalidation note, so a
         # check invalidated by another check's writes names the paths instead of only saying so.
@@ -692,6 +727,8 @@ class Record:
         self.source, self.identities = source, identities
         self.previous = previous
         self.current_source = current_source or (lambda: self.source)
+        # HEAD alone, read cheaply while the run goes (the block above says why only HEAD).
+        self.current_commit = current_commit or (lambda: self.current_source()["commit"])
         self.current_identity = current_identity or (lambda item: self.identities[item.label])
         self.current_identities = current_identities or (
             lambda selected: {item.label: self.current_identity(item) for item in selected})
@@ -717,15 +754,20 @@ class Record:
 
     def save(self, item, source):
         """Called before launch and after completion, independently of the summary."""
-        if source != self.source:
+        moved = source["commit"] != self.source["commit"]
+        if moved:
             self.source_invalidated = True
+        identity = self.identities[item.label]
         result = {"state": item.state, "exit": item.rc, "source": source,
                   "attempts": getattr(item, 'attempts', []),
-                  "input": self.identities[item.label], "log": item.log,
+                  "input": identity, "log": item.log,
                   "receipt": None, "seconds": item.seconds, "reused_from": getattr(item, "reused_from", None)}
         if item.state == "passed":
-            if source != self.source:
-                result["invalid"] = "source changed during execution"
+            if moved:
+                result["invalid"] = "the checkout's commit changed during execution"
+            elif identity.get("fresh") and item.label not in VERIFIES_OWN_INPUTS and source != self.source:
+                result["invalid"] = ("source changed during execution (this check declares no inputs, "
+                                     "so every change is one of its inputs)")
             else:
                 try:
                     if self.current_identity(item) != self.identities[item.label]:
@@ -750,12 +792,18 @@ class Record:
 
     def finalize(self, items):
         """Later checks must not invalidate an earlier pass or its copied proof."""
-        source = self.current_source()
+        before = self.current_source()
         selected = [item for item in items if item.state == 'passed' and item.label in self.results]
         input_error = None
         try:
-            identities = self.current_identities(selected)
-            changed_during_read = self.current_source() != source
+            identities = again = self.current_identities(selected)
+            source = self.current_source()
+            if source != before:
+                # The checkout changed while the inputs were being read. Read them once more: a
+                # check whose own inputs read differently the second time was not holding still;
+                # one whose inputs read the same both times is judged on them like any other.
+                again = self.current_identities(selected)
+                source = self.current_source()
         except (OSError, ValueError, KeyError, TypeError) as exc:
             input_error = str(exc)
         for item in items:
@@ -765,8 +813,13 @@ class Record:
             try:
                 if input_error is not None:
                     raise ValueError(input_error)
-                if changed_during_read or source != row["source"]:
-                    raise ValueError("inputs changed after this check completed")
+                if source["commit"] != row["source"]["commit"]:
+                    raise ValueError("the checkout's commit changed after this check completed")
+                if (row["input"].get("fresh") and item.label not in VERIFIES_OWN_INPUTS
+                        and source != row["source"]):
+                    raise ValueError("inputs changed after this check completed (it declares no inputs)")
+                if identities[item.label] != again[item.label]:
+                    raise ValueError("inputs changed while they were being read" + self.explain(item))
                 if identities[item.label] != row["input"]:
                     raise ValueError("inputs changed after this check completed" + self.explain(item))
                 if file_digest(item.log) != row["log_sha256"]:
@@ -940,10 +993,12 @@ def reuse(previous, items, record, exact=True):
             reason = identity["fresh"]
         elif old.get("state") != "passed" or old.get("exit") != 0 or old.get("invalid"):
             reason = "no validated passing execution"
-        elif exact and (old.get("source") != record.source or plan["source"] != record.source):
+        elif exact and plan["source"] != record.source:
             reason = "source identity changed"
-        elif old.get("source") != plan["source"]:
-            reason = "source changed during the original execution"
+        elif (old.get("source") or {}).get("commit") != plan["source"]["commit"]:
+            # Only HEAD: a pass saved after an unrelated edit is valid for its own declared
+            # inputs (Record says why), and the input identity below is what decides it.
+            reason = "the checkout's commit changed during the original execution"
         elif old.get("input") != identity:
             reason = "declared execution inputs changed"
         else:
@@ -1002,8 +1057,12 @@ def verify_target_receipts(directory, rows, root):
     runner = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(runner)
     runner.ROOT = str(root)
-    if runner.source_identity() != plan["source"]:
-        raise ValueError("target source changed since the plan was recorded")
+    # HEAD for every unit; the whole source only for a unit that declares no inputs (Record says
+    # why): an unrelated edit must not fail the coverage of units it cannot reach.
+    current = runner.source_identity()
+    if current["commit"] != plan["source"]["commit"]:
+        raise ValueError("target commit changed since the plan was recorded")
+    undeclared = False
     outcomes = json.loads((directory / "outcomes.json").read_text())
     items = [decode_item(row, runner.Item, root, directory) for row in plan["items"]]
     runner.supply_runtime(items)
@@ -1021,10 +1080,14 @@ def verify_target_receipts(directory, rows, root):
         item = units[unit]
         outcome = outcomes[item.label]
         identity = plan["identities"][item.label]
-        if (outcome.get("state") != "passed" or outcome.get("exit") != 0
-                or outcome.get("invalid") or outcome.get("source") != plan["source"]
+        if (outcome.get("state") != "passed" or outcome.get("exit") != 0 or outcome.get("invalid")
+                or (outcome.get("source") or {}).get("commit") != plan["source"]["commit"]
                 or outcome.get("input") != identity):
             raise ValueError("no validated target outcome for " + unit)
+        if identity.get("fresh"):
+            undeclared = True
+            if outcome.get("source") != plan["source"] or current != plan["source"]:
+                raise ValueError("target source changed for " + unit + ", which declares no inputs")
         actual = runner.input_identity(item, SimpleNamespace(**identity["settings"]), directory, snapshot)
         if actual != identity:
             raise ValueError("target execution inputs changed for " + unit)
@@ -1048,7 +1111,8 @@ def verify_target_receipts(directory, rows, root):
                 raise ValueError("unqualified historical receipt for " + unit)
         elif row.get("sha") != outcome.get("receipt_sha", plan["source"]["commit"]):
             raise ValueError("receipt execution commit differs for " + unit)
-    if runner.source_identity() != plan["source"]:
+    after = runner.source_identity()
+    if after["commit"] != plan["source"]["commit"] or (undeclared and after != plan["source"]):
         raise ValueError("target source changed during input validation")
     return plan["source"]["commit"]
 

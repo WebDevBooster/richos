@@ -338,6 +338,17 @@ A test that rewrites the tree it is verifying is making an unreviewed commit, so
   directory, is a FAIL in that suite's own report, naming the file. So the next writer — one
   that never goes near `publishShot` — is red on its own branch, by name, instead of refusing a
   merge gate later. `tracked-tree.js` proves both halves, red and green.
+* **what that check watches is the UI tree, `richos/app/ui`, not the whole checkout** (part-2
+  hunt section 07, 2026-09-29: one editor save anywhere in the repository failed every UI suite
+  running at that moment). The design choice: ONE shared scope, the tree where UI suites write
+  on purpose, instead of each suite declaring what it may write. Every writer found is inside
+  it (`publishShot` into `shots-*`, `run.js` into `suite-weights.tsv`), so the catch stays and
+  no suite needs a declaration; the cost is one scope function in `lib/tracked-tree.js`. A save
+  outside it is no longer blamed on a UI suite; a write into it, by anyone, still is.
+  `tracked-tree.js` check 6 proves both sides. Under `proof-run.py` a UI suite has no reviewed
+  input contract, so it is keyed by the whole checkout: any change during the run invalidates
+  its pass and it runs again, but it is never failed for that and never stops or invalidates
+  another check. Narrowing that needs a read declaration per suite, which is separate work.
 
 ### AND WHAT IS LEFT IS DECLARED, WITH ITS CAUSE, ITS MEASUREMENT AND ITS BOUND
 

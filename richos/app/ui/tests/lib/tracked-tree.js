@@ -16,20 +16,35 @@
 //   1. `publishShot` (lib/harness.js), the one place a PNG reaches a committed path, no longer
 //      writes there unless the file is being regenerated on purpose (RICHOS_SHOTS_REGENERATE).
 //      A changed picture goes to `.shots/changed/`, gitignored, and is announced.
-//   2. THIS FILE. The harness snapshots the checkout when a suite starts and compares it when
-//      the suite reports. Any tracked file whose content changed, any tracked file that
-//      appeared in or left `git status`, and any new untracked (not ignored) file under the
-//      tests directory is a FAILED CHECK in that suite's own report, naming the files. So a
-//      future suite that calls `fs.writeFileSync` on a tracked path — not through
+//   2. THIS FILE. The harness snapshots the UI tree (`richos/app/ui`, see WHAT IT WATCHES
+//      below) when a suite starts and compares it when the suite reports. Any tracked file
+//      there whose content changed, any tracked file there that appeared in or left `git
+//      status`, and any new untracked (not ignored) file under the tests directory is a FAILED
+//      CHECK in that suite's own report, naming the files. So a future suite that calls
+//      `fs.writeFileSync` on a tracked path of the UI tree — not through
 //      `publishShot` at all — fails on its own branch, with its own name on it, long before a
 //      merge gate is asked to verify it in the main checkout.
 //
 // WHAT IT DELIBERATELY DOES NOT DO: it does not restore anything. Restoring hides the writer,
 // which is exactly how the nightly's restore let this class survive for weeks.
 //
-// THE ONE THING IT CANNOT TELL APART: another process editing the same checkout during the
-// suite (a person saving a file, a second writer running beside it). The message says so. With
-// no writer in the harness, the only way this fires is a real writer somewhere.
+// THE ONE THING IT CANNOT TELL APART: another process editing the same files during the suite
+// (a person saving a file, a second writer running beside it). The message says so. With no
+// writer in the harness, the only way this fires is a real writer somewhere.
+//
+// WHAT IT WATCHES: THE UI TREE, `richos/app/ui`, NEVER THE WHOLE CHECKOUT (2026-09-29, part-2
+// hunt section 07). It used to watch every tracked file in the repository, so saving an
+// unrelated file anywhere (a Rust source, an engine script, a doc) during a land failed every
+// UI suite that was running, by name, for a write none of them made. The UI tree is where
+// everything a UI suite writes on purpose lives: its committed references
+// (`tests/shots-*`, through `publishShot`), its weights file (`run.js`), its own sources. So
+// a suite that writes a tracked file there is still red in its own report, which is the
+// property this guard exists for; an edit outside it is not a UI suite's write and is not
+// blamed on one. A suite that wrote a tracked file OUTSIDE the UI tree would not be named
+// here any more; under `proof-run.py` it is still caught, because every check whose declared
+// inputs hold that file (the writer's own whole-checkout identity included) is invalidated.
+// `ui/tests` greps show no such writer today. An edit INSIDE the UI tree by another process
+// still fails the suite: that file is one of the things the UI suites test.
 //
 // Cost, measured 2026-09-29 in a richos worktree of 9,127 tracked files: `git status
 // --untracked-files=no` 0.026 s, `--untracked-files=all` 0.065 s. Two of them per suite.
@@ -42,6 +57,8 @@ const path = require("path");
 const { execFileSync } = require("child_process");
 
 const TESTS_DIR = path.resolve(__dirname, "..");
+/// The tree a UI suite verifies and the only tree it writes on purpose (see the header).
+const UI_DIR = path.resolve(TESTS_DIR, "..");
 
 /// Where the checkout is. `RICHOS_UI_TRACKED_TREE_ROOT` is the seam `tracked-tree.js` uses to
 /// point a child suite at a throwaway repository, so the guard can be proven red without
@@ -97,14 +114,34 @@ function contentId(abs) {
   }
 }
 
-/// A picture of what `git status` says is not clean, with the CONTENT of each such file, so a
-/// file that was already modified when the suite started is blamed only if it changed again.
+/// `dir` as a path relative to `root`, or "." when `dir` is not inside `root`.
+function within(root, dir) {
+  const rel = path.relative(root, dir);
+  return rel && !rel.startsWith("..") && !path.isAbsolute(rel) ? rel : ".";
+}
+
+/// What is watched, repository-relative: `tracked` for changed tracked files, `untracked` for
+/// new files git does not ignore. In a real checkout that is the UI tree and its tests
+/// directory. Under the `RICHOS_UI_TRACKED_TREE_ROOT` seam (a throwaway repository) it is the
+/// whole repository, or `RICHOS_UI_TRACKED_TREE_SCOPE` inside it, so the fixture can put an
+/// edit on either side of the line. Nothing else sets either variable.
+function scopeOf(root) {
+  const forced = process.env.RICHOS_UI_TRACKED_TREE_ROOT ? process.env.RICHOS_UI_TRACKED_TREE_SCOPE : "";
+  if (forced) {
+    const rel = within(root, path.resolve(root, forced));
+    return { tracked: rel, untracked: rel };
+  }
+  return { tracked: within(root, UI_DIR), untracked: within(root, TESTS_DIR) };
+}
+
+/// A picture of what `git status` says is not clean in the watched scope, with the CONTENT of
+/// each such file, so a file that was already modified when the suite started is blamed only
+/// if it changed again.
 function snapshot(root) {
-  const scope = path.relative(root, TESTS_DIR);
-  const untrackedScope = scope && !scope.startsWith("..") && !path.isAbsolute(scope) ? scope : ".";
+  const scope = scopeOf(root);
   const entries = [
-    ...statusPaths(root, ["--untracked-files=no"]),
-    ...statusPaths(root, ["--untracked-files=all", "--", untrackedScope]).filter((e) => e.code === "??"),
+    ...statusPaths(root, ["--untracked-files=no", "--", scope.tracked]),
+    ...statusPaths(root, ["--untracked-files=all", "--", scope.untracked]).filter((e) => e.code === "??"),
   ];
   const map = new Map();
   for (const e of entries) map.set(e.file, e.code + " " + contentId(path.join(root, e.file)));
@@ -147,9 +184,9 @@ function watch(exempt) {
         return { checked: false, why: "git status failed at report: " + ((e && e.message) || String(e)).split("\n")[0] };
       }
       const changed = compare(before, after).filter((c) => !(exempt && exempt(path.join(root, c.file))));
-      return { checked: true, root, changed };
+      return { checked: true, root, scope: scopeOf(root).tracked, changed };
     },
   };
 }
 
-module.exports = { watch, snapshot, compare, resolveRoot };
+module.exports = { watch, snapshot, compare, resolveRoot, scopeOf };

@@ -114,14 +114,20 @@ expect "A1 --updater with no key refuses, and says there is no fallback" 2 "no f
 run env TAURI_SIGNING_PRIVATE_KEY_PATH="$TMP/nope.key" bash "$SCRIPT" --updater --dry-run
 expect "A2 a key path that does not exist refuses" 2 "TAURI_SIGNING_PRIVATE_KEY_PATH does not exist"
 
-# A3: a key inside a git worktree. `app/` itself is one, so this needs no fixture repo.
-cp "$KEY" "$TMP/in-repo.key"
-INREPO="$APP/.updater-key-under-test.key"
+# A3: a key inside a git worktree. A THROWAWAY repository under this suite's $TMP, never this
+# checkout: package-app.sh refuses any key whose directory `git rev-parse --show-toplevel`
+# answers for, so a fresh `git init` proves the same refusal. Until 2026-09-30 the key was
+# copied into `$APP` itself; a proof run fingerprinting the checkout listed it, the rm below
+# removed it, and the land of zach-opus-stable1 crashed opening it (part-2 hunt section 07
+# follow-up). A suite never writes into the checkout it is verified in.
+# `updater-setup-a3.test.sh` proves this case keeps its key out of the checkout.
+A3_REPO="$TMP/a3-repo"
+git init -q "$A3_REPO"
+INREPO="$A3_REPO/updater-key-under-test.key"
 cp "$KEY" "$INREPO"
 chmod 600 "$INREPO"
 run env TAURI_SIGNING_PRIVATE_KEY_PATH="$INREPO" bash "$SCRIPT" --updater --dry-run
 expect "A3 a key inside a git worktree refuses" 2 "inside a git worktree"
-rm -f "$INREPO"
 
 cp "$KEY" "$KEYDIR/loose.key"; chmod 644 "$KEYDIR/loose.key"
 run env TAURI_SIGNING_PRIVATE_KEY_PATH="$KEYDIR/loose.key" bash "$SCRIPT" --updater --dry-run
