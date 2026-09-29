@@ -70,6 +70,29 @@ waited=$(( $(date +%s) - began ))
 [ "$rc" -eq 75 ] && [ "$waited" -ge 3 ] && has "$out" "slot waiting: every slot is executing a run"; ok=$?
 check "--wait 3 waits for a slot, says so, and is refused only when the wait is spent" "$ok" "rc=$rc waited=${waited}s $out"
 
+# The window proof has nothing to do with the phone, so it must never join the tailnet: run.sh
+# exits 1 on a failed join, which used to record fail:run.sh and block publishing. A sandbox
+# copy of the script runs against stand-ins: a run.sh that joins (through a tailnet.sh that
+# always fails) unless it is given --no-tailnet, exactly as the real one does.
+SB="$TMP/sandbox"; mkdir -p "$SB/testvm"
+cp "$HERE/gui-proof-in-vm.sh" "$SB/gui-proof-in-vm.sh"
+cat > "$SB/testvm/tailnet.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "tailnet.sh $*" >> "$STUB_LOG"; echo "stand-in: join refused" >&2; exit 1
+EOF
+cat > "$SB/testvm/run.sh" <<'EOF'
+#!/usr/bin/env bash
+T=1; for a in "$@"; do [ "$a" = "--no-tailnet" ] && T=0; done
+if [ "$T" -eq 1 ]; then "$(dirname "$0")/tailnet.sh" join vm || { echo "REFUSED: NOT ON THE TAILNET" >&2; exit 1; }; fi
+echo "windows=1"
+EOF
+printf '#!/usr/bin/env bash\nexit 0\n' > "$SB/testvm/stop.sh"
+chmod +x "$SB"/gui-proof-in-vm.sh "$SB"/testvm/*.sh
+export STUB_LOG="$TMP/stub.log"; : > "$STUB_LOG"
+out="$(TESTVM_SLOT=1 "$SB/gui-proof-in-vm.sh" --bundle "$TMP/bundle.zip" --commit abc123 --out "$TMP/proof2" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && has "$out" "PASS" "windows=1" && [ ! -s "$STUB_LOG" ]; ok=$?
+check "a failing tailnet join cannot fail the window proof: it passes and never asks tailnet.sh to join" "$ok" "rc=$rc log=$(cat "$STUB_LOG") $out"
+
 if [ "$fail" -eq 0 ]; then echo "gui-proof-in-vm.test.sh: all passed"; else echo "gui-proof-in-vm.test.sh: FAILED"; fi
 cleanup; HOLDER=""; trap - EXIT
 exit "$fail"
