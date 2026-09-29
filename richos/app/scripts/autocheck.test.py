@@ -326,6 +326,46 @@ class Commit(Fixture):
         out = self.git("commit", "-m", "an innocent change", expect=1)
         self.assertIn("UNCOVERED: richos/app/src/uncovered.txt", out.stderr)
 
+    PIN_SOURCE = "richos/app/scripts/pinned.sh"
+    QUALIFICATIONS = "docs/development/verification-input-qualifications.json"
+
+    def pin(self, text):
+        import hashlib
+        self.write(self.QUALIFICATIONS, json.dumps({"schema": 1, "units": {"pinned-unit": {"sources": {
+            self.PIN_SOURCE: hashlib.sha256(text.encode()).hexdigest()}}}}))
+
+    def pin_fixture(self):
+        """A reviewed unit pins scripts/pinned.sh by SHA-256, as the real qualification file does."""
+        self.write(self.PIN_SOURCE, "echo v1\n")
+        self.pin("echo v1\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "pin it", "--no-verify")
+        self.git("checkout", "-q", "-b", "feature")
+
+    def test_a_changed_file_a_reviewed_check_pins_is_refused_until_its_pin_is_renewed(self):
+        # 2026-09-29: three branches passed every commit and were refused at the merge with
+        # UnqualifiedReader, because only the merge compared a source to its pin.
+        self.make()
+        self.pin_fixture()
+        before = self.head()
+        self.write(self.PIN_SOURCE, "echo v2\n")
+        self.git("add", "-A")
+        out = self.git("commit", "-m", "edit a pinned file", expect=1)
+        self.assertIn("COMMIT REFUSED: a changed file is pinned by a reviewed check", out.stderr)
+        self.assertIn(self.PIN_SOURCE, out.stderr)
+        self.assertIn('unit "pinned-unit"', out.stderr)
+        self.assertIn("renew the pin", out.stderr)
+        self.assertEqual(self.head(), before)
+
+    def test_a_pinned_file_committed_with_its_renewed_pin_passes(self):
+        self.make()
+        self.pin_fixture()
+        self.write(self.PIN_SOURCE, "echo v2\n")
+        self.pin("echo v2\n")
+        self.git("add", "-A")
+        out = self.git("commit", "-m", "edit a pinned file and renew its pin")
+        self.assertIn("autocheck: commit: passed", out.stderr)
+
     def test_a_quick_document_check_the_change_falsifies_refuses_the_commit(self):
         # 2026-09-29: a Rust test file made app/README.md's counts false; docs-claims.js (under
         # a second) ran nowhere before the nightly. The commit runs the quick suites selected.
