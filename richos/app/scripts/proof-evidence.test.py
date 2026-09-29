@@ -1119,6 +1119,60 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
         outcomes = {row["check"]: row["result"] for row in json.loads((olddir / "summary.json").read_text())["checks"]}
         self.assertEqual(outcomes["retry"], "failed")
 
+    def test_unqualified_passes_are_kept_on_the_same_tree_and_rerun_on_any_change(self):
+        # 2026-09-29: cc/echo-opus-speckle3's land ran one 78-check selection five times on one
+        # tree (three refused merges, `--resume`, the push); ~70 checks have no reviewed input
+        # contract, were `fresh`, and every retry ran again what had already passed there.
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        # A fixture repository: no machine hooks (this Mac's global hooksPath) and no signing.
+        git = lambda *a: subprocess.run(["git", "-C", str(self.root), "-c", "user.name=fixture",
+                                         "-c", "user.email=fixture@example.invalid", "-c", "core.hooksPath=/dev/null",
+                                         "-c", "commit.gpgsign=false", *a],
+                                        check=True, env=env, capture_output=True)
+        git("init", "-q")
+        output = Path(self.tmp.name) / "executions"
+        failure = Path(self.tmp.name) / "failure"
+        failure.touch()
+        for name in ("pass", "retry"):
+            (self.root / (name + ".test.sh")).write_text(
+                'printf "%s\\n" "' + name + '" >> "$1"\n' + ('[ ! -f "$2" ]\n' if name == "retry" else 'exit 0\n'))
+        git("add", "-A")
+        git("commit", "-q", "-m", "fixture")
+        lines = [f"cd . && bash {name}.test.sh {output} {failure}" for name in ("pass", "retry")]
+        idle = lambda: {"cpu_user_percent": 5, "cpu_system_percent": 2,
+            "memory_pressure": "normal", "swapout_mb_per_s": 0, "memory_free_percent": 80,
+            "swap_used_mb": 0}
+        runs = [Path(self.tmp.name) / name for name in ("first", "resumed", "again", "changed")]
+        captured = io.StringIO()
+        with patch.dict(os.environ, {"RICHOS_MACHINE_WORKERS": str(Path(self.tmp.name) / "machine"),
+                                      "CLAUDE_CONFIG_DIR": str(Path(self.tmp.name) / "config")}), \
+                patch.object(runner, "ROOT", str(self.root)), \
+                patch.object(runner, "default_logdir", return_value=str(Path(self.tmp.name) / "history")), \
+                patch.object(evidence, "pool_directory", return_value=Path(self.tmp.name) / "pool"), \
+                patch.object(runner, "supply_runtime", return_value="private fixture"), \
+                patch.object(runner.reserve, "host_sample", side_effect=idle), \
+                patch.object(runner, "selection", return_value=lines), \
+                contextlib.redirect_stdout(captured):
+            self.assertEqual(runner.main(["--log-dir", str(runs[0])]), 1)
+            failure.unlink()
+            # --resume keeps the pass and runs only what did not pass.
+            self.assertEqual(runner.main(["--resume", str(runs[0]), "--log-dir", str(runs[1])]), 0,
+                             captured.getvalue()[-3000:])
+            self.assertEqual(output.read_text().splitlines(), ["pass", "retry", "retry"])
+            # A new run of the same selection on the same tree (a land tried again, the push
+            # after it) runs nothing that passed on this tree.
+            self.assertEqual(runner.main(["--log-dir", str(runs[2])]), 0)
+            self.assertEqual(output.read_text().splitlines(), ["pass", "retry", "retry"])
+            # One changed byte anywhere git would land, even in neither check's file, and both run.
+            (self.root / "unrelated.txt").write_text("a new untracked file")
+            self.assertEqual(runner.main(["--log-dir", str(runs[3])]), 0)
+        executions = output.read_text().splitlines()
+        # The last run's start order follows the measured weights of the runs before it.
+        self.assertEqual((executions[:3], sorted(executions[3:])), (["pass", "retry", "retry"], ["pass", "retry"]))
+        reused = {row["check"]: row["reused_from"] for row in json.loads((runs[2] / "summary.json").read_text())["checks"]}
+        self.assertEqual(set(reused), {"pass", "retry"})
+        self.assertTrue(all(reused.values()), reused)
+
 
 if __name__ == "__main__":
     unittest.main()

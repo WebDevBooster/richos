@@ -45,6 +45,12 @@ live line and the final line. A run-tests.sh check that exits 0 without writing 
 `invalid`: it cannot show that it ran. What a caller does with NOT RUN is the caller's
 decision; the land gate's is in autocheck/README.md.
 
+A RETRY ON THE SAME TREE RUNS ONLY WHAT DID NOT PASS (2026-09-29). `--resume` and every new run
+reuse a validated pass whose input identity is unchanged (lib/proof_evidence.py). A check with
+a reviewed contract in proof-inputs.json is keyed by the inputs it declares; every other check
+is keyed by the whole checkout's content (WHOLE_CHECKOUT there), so a refused land tried again,
+or the push after it, never re-runs a check that already passed on that exact content.
+
 WHY THIS EXISTS (2026-09-23). Verification exposed unbounded nested workers, descendants
 surviving timeouts and failures that were discovered only after long waits. This runner
 owns scheduling, admission, logs and cancellation so callers do not reconstruct that protocol.
@@ -442,8 +448,17 @@ def execution_environment(item):
 
 
 def input_identity(item, args, logdir, snapshot=None):
+    environment = execution_environment(item)
     result = proof_evidence.recipe_identity(ROOT, proof_evidence.contract_for(ROOT, item.label),
-                                            execution_environment(item), snapshot)
+                                            environment, snapshot)
+    if result.get("fresh") and not item.engine_unit and item.label != "engine receipts" and item.argv:
+        # No reviewed contract: keyed by the whole checkout's content, so a retry of the same
+        # tree (--resume, a refused land tried again, the push after it) keeps what passed
+        # (proof_evidence.WHOLE_CHECKOUT). Engine units keep their own receipts and stay fresh.
+        try:
+            result = proof_evidence.checkout_identity(ROOT, item.argv, environment, snapshot)
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            result = {"fresh": "%s; whole-checkout identity unavailable: %s" % (result["fresh"], exc)}
     result["command"] = proof_evidence.command_identity(item, ROOT, logdir)
     result["settings"] = {key: getattr(args, key, None) for key in (
         "capacity", "engine_shards", "max_cpu", "budget", "deadline", "fail_fast", "admission_wait", "slot_wait", "engine_slot_wait")}
