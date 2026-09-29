@@ -42,5 +42,23 @@ to tell a skipped check from a passed one.
 
 ## Cost
 
-Measured on this Mac, 2026-09-29, and stated in the commit that introduced this directory:
-the commit check for a typical change and the land check for a typical land.
+Measured on this Mac on 2026-09-29, on the commits and the land check that built this:
+
+| Change | What the commit check runs | Measured |
+| --- | --- | --- |
+| nothing under `richos/app` (docs, the record) | nothing | 0.0 s in the check |
+| scripts, tests, declarations | `--changed --strict` static and load rules over the changed files | 0.2 to 2.5 s |
+| a Rust test (the refused `let _ = tx.send(())`) | the above plus the Clippy fast set, warm | 5.3 s for the whole `git commit` |
+| the lint itself or its baselines | the full static pass and the fast set | 41 s |
+
+Before this, the same checks cost 35 to 49 s for the static pass and 49 s for a warm Clippy
+fast set on every run: `richos-voice`'s build script watched `~/ab/richos-wt`, whose mtime
+moves whenever any worktree is created, and recompiled the crate each time (fixed alongside).
+
+The land check costs what `proof-for.sh` assigns to the change, which is what a land was
+supposed to run anyway, plus about 4 s of its own (selection and receipt). Measured: a land of
+one changed script (5 checks, including `lint.test.sh` and `make-engine-asset.test.sh`) took
+128 s end to end in a fresh clone, 112 s of it the lint suite compiling Rust at a new path.
+When the selection does not include `lint.test.sh` (an engine-only or documentation land), the
+check adds `lint.sh --all`: 58 s warm (`lint.test.sh` as a whole, which a land of anything
+under `richos/app` selects, measured 81 s).
