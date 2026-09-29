@@ -450,9 +450,9 @@ GATE_AFTER = {
     # `lint.sh --all --suite-results` reads the script-suites receipt to skip the fast lint
     # that lint.test.sh already ran in this build (lint/driver.py fast_was_run).
     "gates/lint-tauri": ("gates/script-suites",),
-    # `named-persons.sh --tree` scans the tree that ships, and the UI suite rewrites committed
-    # screenshots in that tree until restore_source_tree() puts them back.
-    "gates/privacy-sweep": (UI_SUITE_GATE,),
+    # The privacy sweep waited here for the UI suite until 2026-09-29, because the suite
+    # rewrote committed screenshots in the tree the sweep scans. The suite now runs in its own
+    # worktree (Runner.ui_checkout) and writes nothing in that tree, so the sweep starts at once.
 }
 
 # The inside of the one long `nightly.py build` step, matched IN ORDER against the lines
@@ -1332,9 +1332,10 @@ class Runner:
                           f"({proof.get('ran')} suite(s), {proof.get('checks')} checks, "
                           f"proven {proof.get('at')}), which is the commit this run fetched")
                 return
-        tests = self.source / UI_TESTS
         receipts = self.state / "ui-receipts"
         with self.phase(UI_SUITE_GATE):
+            tree = self.ui_checkout()
+            tests = tree / UI_TESTS
             if UI_QUARANTINE:
                 self.announce(f"  ui quarantine ({len(UI_QUARANTINE)}): " + "; ".join(UI_QUARANTINE))
             else:
@@ -1344,10 +1345,10 @@ class Runner:
                 args.append(f"--quarantine={suite}")
             try:
                 self.command(*args, cwd=tests, timeout=GATE_BUDGETS[UI_SUITE_GATE])
-                self.restore_source_tree("the UI suite")
+                self.restore_source_tree("the UI suite", tree)
             except RuntimeError as error:
                 if not isinstance(error, CommandCleanupError):
-                    self.restore_source_tree("the UI suite")
+                    self.restore_source_tree("the UI suite", tree)
                 # NAME THE SUITE AND ITS LOG. A gate that refuses a build and leaves the
                 # reader to find out which of 55 suites did it is a gate people learn to
                 # re-run rather than read.
@@ -1358,8 +1359,48 @@ class Runner:
                     + f". Every shard's output and the coverage verdict are in this run's log "
                     f"under the {UI_SUITE_GATE} phase; the receipts are in {receipts}.") from None
 
-    def restore_source_tree(self, who):
+    UI_CHECKOUT = "ui-checkout"
+
+    def ui_checkout(self):
+        """The UI suite's OWN worktree, at the commit this run fetched: never `self.source`.
+
+        THE UI SUITE WRITES INTO ITS CHECKOUT (restore_source_tree says why), and until
+        2026-09-29 that checkout was the nightly's `source`, which other gates WATCH while
+        it runs: workspace-mutants runs ci-shard.sh from its root, and ci-shard's leak canary
+        turns any new or changed `git status` line under `$PWD` into a LEAKED verdict for its
+        unit (ci-shard.sh:519-520, :626-627), as does every script suite that runs ci-shard
+        from the checkout. So a screenshot rewritten mid-run would fail a gate that never
+        touched it (audit R5, docs/verification/2026-09-29-load-sensitive-checks-audit.md).
+        The suite now runs here, a sibling of `source` that no canary watches; the privacy
+        sweep, which scans `source`, no longer has to wait for it. A leftover change from a
+        run that died before its restore is discarded by the forced checkout; each run's own
+        changes are still named by restore_source_tree before they are put back. Its git
+        commands run inside the UI gate's phase and carry the gate's ceiling, as a hang guard.
+        """
+        path = self.state / self.UI_CHECKOUT
+        sha = self.command("git", "rev-parse", "HEAD", cwd=self.source, capture=True,
+                           timeout=GATE_BUDGETS[UI_SUITE_GATE])
+        if path.exists():
+            common = self.command("git", "rev-parse", "--path-format=absolute", "--git-common-dir",
+                                  cwd=path, capture=True, timeout=GATE_BUDGETS[UI_SUITE_GATE])
+            expected = self.command("git", "rev-parse", "--path-format=absolute", "--git-common-dir",
+                                    cwd=self.repo, capture=True, timeout=GATE_BUDGETS[UI_SUITE_GATE])
+            top = self.command("git", "rev-parse", "--show-toplevel", cwd=path, capture=True,
+                               timeout=GATE_BUDGETS[UI_SUITE_GATE])
+            if common != expected or Path(top).resolve() != path.resolve():
+                raise ValueError(f"{path} is not the UI suite's worktree of this repository")
+            self.command("git", "checkout", "--force", "--detach", sha, cwd=path,
+                         timeout=GATE_BUDGETS[UI_SUITE_GATE])
+        else:
+            self.command("git", "worktree", "add", "--detach", path, sha, cwd=self.repo,
+                         timeout=GATE_BUDGETS[UI_SUITE_GATE])
+        return path
+
+    def restore_source_tree(self, who, tree=None):
         """Put the fetched source back the way it was fetched, naming anything that moved.
+
+        `tree` is the checkout to inspect: the UI suite's own (ui_checkout) for the UI gate,
+        `self.source` otherwise.
 
         THIS EXISTS BECAUSE THE UI SUITE WRITES TO ITS OWN CHECKOUT, and until this gate
         existed nothing in a build did. `lib/harness.js:publishShot` deliberately REWRITES a
@@ -1387,8 +1428,9 @@ class Runner:
         # suite refused the build, and an exception thrown from inside it would replace that
         # message with a git error -- losing the only sentence that says what actually
         # happened. Tidying up is never allowed to become the reported failure.
+        tree = tree or self.source
         try:
-            dirty = self.command("git", "status", "--porcelain", cwd=self.source, capture=True,
+            dirty = self.command("git", "status", "--porcelain", cwd=tree, capture=True,
                                  timeout=CLEANUP_TIMEOUT, cleanup=True)
         except (RuntimeError, OSError) as error:
             self.announce(f"  could not check whether {who} left its checkout dirty: {error}")
@@ -1403,13 +1445,14 @@ class Runner:
                       "not a file to re-commit from here; if it differs run to run, it belongs "
                       "in richos/app/ui/tests/lib/shot-stability.js with its cause and bound.")
         try:
-            self.command("git", "checkout", "--", ".", cwd=self.source, timeout=CLEANUP_TIMEOUT,
+            self.command("git", "checkout", "--", ".", cwd=tree, timeout=CLEANUP_TIMEOUT,
                          cleanup=True)
         except (RuntimeError, OSError) as error:
             # Say it plainly rather than swallowing it: the next build will refuse to start
             # and this line is what tells somebody why.
-            self.announce(f"  RESTORE FAILED ({error}). The next build's checkout() will "
-                          f"refuse this worktree until {self.source} is clean.")
+            self.announce(f"  RESTORE FAILED ({error}). {tree} is left with these changes; "
+                          "the next build's checkout() refuses `source` until it is clean, and "
+                          "ui_checkout() discards them in the UI suite's own worktree.")
 
     @staticmethod
     def red_ui_suites(receipts):
