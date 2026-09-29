@@ -114,9 +114,33 @@ function slowBrowser(browser) {
   // `Browser.newPage` goes through `this.newContext` (see `lib/navigation-evidence.js`), so
   // wrapping `newContext` covers both.
   const newContext = browser.newContext.bind(browser);
-  browser.newContext = async (...args) => slowContext(await newContext(...args));
+  browser.newContext = async (...args) => {
+    const ctx = await newContext(...args);
+    if (BUSY_MS > 0) await ctx.addInitScript(busyPage, BUSY_MS);
+    return slowContext(ctx);
+  };
   for (const c of browser.contexts()) slowContext(c);
   return browser;
+}
+
+/// `RICHOS_UI_PAGE_BUSY_MS=<ms>`: THE PAGE'S OWN MAIN THREAD IS BUSY, the other half of a loaded
+/// host. Every page this browser opens holds its main thread for this many milliseconds, then
+/// lets it run for 50, again and again, from its first script: its timers fire late, its frames
+/// come slowly, and a debounced write or a re-render lands later than a sleep in the harness
+/// bets it will. Off (0) unless set. Combine with `RICHOS_UI_ROUND_TRIP_LAG_MS=0` to load only
+/// the page. The clock read is taken before any page script can replace it.
+const BUSY_MS = Number(process.env.RICHOS_UI_PAGE_BUSY_MS || 0);
+function busyPage(ms) {
+  const now = performance.now.bind(performance);
+  const later = setTimeout;
+  const hold = () => {
+    const end = now() + ms;
+    while (now() < end) {
+      /* a starved CPU */
+    }
+    later(hold, 50);
+  };
+  later(hold, 50);
 }
 
 const pw = harness.loadPlaywright();
@@ -129,3 +153,4 @@ for (const name of ["webkit", "chromium", "firefox"]) {
 }
 
 process.stderr.write(`slow-round-trips: page round trips answer ${LAG_MS}ms late${ONLY ? " inside checks matching " + ONLY : ""}\n`);
+if (BUSY_MS > 0) process.stderr.write(`slow-round-trips: every page's main thread is busy ${BUSY_MS}ms of every ${BUSY_MS + 50}ms\n`);
