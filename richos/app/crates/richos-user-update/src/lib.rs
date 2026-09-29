@@ -72,6 +72,18 @@ fn uid() -> u32 {
 /// This coordinates only this crate's launches. Uncoordinated launches elsewhere in the
 /// process can still inherit a lease before exec despite close-on-exec. Production startup
 /// activation must run before runtime threads, as the startup/exec API requires.
+///
+/// THE WINDOW DOES NOT END WHEN `spawn` RETURNS -- NOT BY ITSELF. A launch that needs a
+/// pre-exec step (`probe()` does) is a real fork, and `Command::spawn` returns when its own
+/// close-on-exec status pipe reaches end-of-file. On macOS that end-of-file overtakes the
+/// release of the lock on every OTHER close-on-exec descriptor exec is sweeping: measured
+/// 2026-09-29, a lease numbered below 2000 or 8000 inherited non-file descriptors was still
+/// held when `spawn` returned in 20 of 20 rounds each, and in 0 of 20 once the child closed
+/// its file descriptors itself before exec. With the exclusive side already released, the
+/// next acquisition read the child's copy as a session. That is the nightly .31 failure
+/// (`gates/updater-tests`, two rollback tests, 2026-09-29). So every coordinated launch
+/// closes its inherited close-on-exec FILES in the child, before exec -- see
+/// `release_files_before_exec` -- and `spawn` returning then means what this lock needs.
 static FORK_WINDOW: RwLock<()> = RwLock::new(());
 
 /// Run one lock observation -- an `flock`, and the `open` that precedes it -- with no fork
@@ -84,14 +96,98 @@ fn lock_step<T>(step: impl FnOnce() -> T) -> T {
     step()
 }
 
-/// Fork and exec with no lock observation in flight. `spawn` returns after the child has
-/// execed or failed, so the exclusive side is held for exactly the dangerous window.
+/// Fork and exec with no lock observation in flight. The child closes every inherited
+/// close-on-exec file before it execs, so when `spawn` returns -- exec succeeded or failed
+/// -- the child holds no lock this process took, and the exclusive side has been held for
+/// exactly the dangerous window.
 fn spawn_past_lock_steps(command: &mut std::process::Command) -> io::Result<std::process::Child> {
+    release_files_before_exec(command);
     let _held = FORK_WINDOW
         .write()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     command.spawn()
 }
+
+/// One row of `proc_pidinfo(PROC_PIDLISTFDS)`: `struct proc_fdinfo`, <sys/proc_info.h>.
+#[cfg(target_os = "macos")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct ProcFd {
+    fd: i32,
+    kind: u32,
+}
+#[cfg(target_os = "macos")]
+const PROC_PIDLISTFDS: i32 = 1;
+/// `PROX_FDTYPE_VNODE`: files, directories, devices. `flock` exists only on these.
+#[cfg(target_os = "macos")]
+const PROX_FDTYPE_VNODE: u32 = 1;
+#[cfg(target_os = "macos")]
+#[link(name = "proc")]
+extern "C" {
+    fn proc_pidinfo(pid: i32, flavor: i32, arg: u64, buffer: *mut libc::c_void, size: i32) -> i32;
+}
+/// Room for every descriptor a child can list. Allocate BEFORE fork: the child may not.
+/// RLIMIT_NOFILE can be lowered below already-open descriptors, so only the actual
+/// inventory is authoritative, never a loop up to the limit.
+#[cfg(target_os = "macos")]
+fn descriptor_inventory() -> Vec<ProcFd> {
+    vec![ProcFd { fd: 0, kind: 0 }; 65_536]
+}
+/// This process's open descriptors, into memory allocated before fork. Async-signal-safe.
+#[cfg(target_os = "macos")]
+fn list_descriptors(room: &mut [ProcFd]) -> io::Result<&[ProcFd]> {
+    let capacity = std::mem::size_of_val(room) as i32;
+    let size = unsafe {
+        proc_pidinfo(
+            libc::getpid(),
+            PROC_PIDLISTFDS,
+            0,
+            room.as_mut_ptr().cast(),
+            capacity,
+        )
+    };
+    if size <= 0
+        || size >= capacity
+        || !(size as usize).is_multiple_of(std::mem::size_of::<ProcFd>())
+    {
+        return Err(io::Error::from_raw_os_error(libc::EIO));
+    }
+    Ok(&room[..size as usize / std::mem::size_of::<ProcFd>()])
+}
+
+/// In the CHILD, after every step the caller registered and immediately before exec: close
+/// each inherited close-on-exec FILE now instead of leaving it to exec's own sweep.
+///
+/// Nothing the child runs can tell the difference -- exec was about to close exactly these.
+/// A descriptor WITHOUT close-on-exec is deliberately inherited and is left alone. Pipes and
+/// sockets are left to exec too: they carry no `flock`, and one of them is `spawn`'s own
+/// status pipe, which must stay open until exec. What changes is only the ORDER: a lease
+/// copy is gone before that pipe can report, so `spawn` returning is evidence again.
+#[cfg(target_os = "macos")]
+fn release_files_before_exec(command: &mut std::process::Command) {
+    use std::os::unix::process::CommandExt;
+    let mut room = descriptor_inventory();
+    unsafe {
+        command.pre_exec(move || {
+            for entry in list_descriptors(&mut room)? {
+                if entry.fd < 3 || entry.kind != PROX_FDTYPE_VNODE {
+                    continue;
+                }
+                let flags = libc::fcntl(entry.fd, libc::F_GETFD);
+                if flags < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                if flags & libc::FD_CLOEXEC != 0 && libc::close(entry.fd) != 0 {
+                    return Err(io::Error::last_os_error());
+                }
+            }
+            Ok(())
+        });
+    }
+}
+/// Not implemented off macOS, where `probe` and `exchange` refuse and nothing is published.
+#[cfg(not(target_os = "macos"))]
+fn release_files_before_exec(_command: &mut std::process::Command) {}
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
@@ -929,40 +1025,12 @@ fn probe(app: &Path, p: &Published) -> io::Result<()> {
         .stderr(Stdio::piped());
     // Path restrictions cannot revoke already-open file or socket capabilities.
     // Mark rather than close so Rust's pre-exec error pipe remains usable until exec.
+    // (`spawn_past_lock_steps` then closes the files among them early; see there.)
     use std::os::unix::process::CommandExt;
-    #[repr(C)]
-    #[derive(Clone, Copy)]
-    struct ProcFd {
-        fd: i32,
-        kind: u32,
-    }
-    #[link(name = "proc")]
-    extern "C" {
-        fn proc_pidinfo(
-            pid: i32,
-            flavor: i32,
-            arg: u64,
-            buffer: *mut libc::c_void,
-            size: i32,
-        ) -> i32;
-    }
-    // Allocate before fork. RLIMIT_NOFILE can be lowered below already-open descriptors,
-    // so only the actual child descriptor inventory is authoritative.
-    let mut descriptors = vec![ProcFd { fd: 0, kind: 0 }; 65_536];
+    let mut descriptors = descriptor_inventory();
     unsafe {
         command.pre_exec(move || {
-            let capacity = (descriptors.len() * std::mem::size_of::<ProcFd>()) as i32;
-            let size = proc_pidinfo(
-                libc::getpid(),
-                1,
-                0,
-                descriptors.as_mut_ptr().cast(),
-                capacity,
-            );
-            if size <= 0 || size >= capacity || size as usize % std::mem::size_of::<ProcFd>() != 0 {
-                return Err(io::Error::from_raw_os_error(libc::EIO));
-            }
-            for entry in &descriptors[..size as usize / std::mem::size_of::<ProcFd>()] {
+            for entry in list_descriptors(&mut descriptors)? {
                 if entry.fd < 3 {
                     continue;
                 }
@@ -1824,6 +1892,8 @@ mod tests {
     // Every fixture launch must participate, including ordinary Command spawns:
     // on macOS those can briefly inherit another thread's session descriptor too.
     // Coordinate only spawn/exec, never the child's runtime or the entire test.
+    // Participating makes every fixture launch a fork with a pre-exec step (the early
+    // release of inherited files), so each one is covered the same way `probe()` is.
     trait FixtureCommandExt {
         fn spawn_fixture(&mut self) -> io::Result<std::process::Child>;
     }
