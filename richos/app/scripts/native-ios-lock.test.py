@@ -13,8 +13,11 @@ binary = sys.argv[1]
 with tempfile.TemporaryDirectory(prefix='rios-lock.') as tmp:
     cache = Path(tmp)
     env = {**os.environ, 'RICHOS_NATIVE_IOS_CACHE': tmp}
+    # No clock of this file's own (audit R13, 2026-09-29): every wait below ends on a fact or
+    # on the process ending, and the holder holds until it is killed, not for 60 s. A hang is
+    # caught by the enclosing runner's per-suite deadline, which names native-ios-core.test.sh.
     def run(ok):
-        r = subprocess.run([binary, 'headless', 'state'], env=env, capture_output=True, text=True, timeout=10)
+        r = subprocess.run([binary, 'headless', 'state'], env=env, capture_output=True, text=True)
         assert (r.returncode == 0) == ok, r.stdout + r.stderr
         return r
     run(True)
@@ -26,16 +29,15 @@ with tempfile.TemporaryDirectory(prefix='rios-lock.') as tmp:
     run(True)
     ready = cache / 'ready'
     code = ('import fcntl,sys,time; f=open(sys.argv[1],"a");fcntl.flock(f,fcntl.LOCK_EX);'
-            'open(sys.argv[2],"w").write("ready");time.sleep(60)')
+            'open(sys.argv[2],"w").write("ready")\nwhile True: time.sleep(3600)')
     owner = subprocess.Popen([sys.executable, '-c', code, str(lock), str(ready)])
     try:
-        deadline = time.monotonic() + 10
-        while not ready.exists() and time.monotonic() < deadline:
+        while not ready.exists() and owner.poll() is None:
             time.sleep(.02)
         assert ready.exists(), 'lock holder did not start'
         run(False)
         owner.kill()
-        owner.wait(timeout=5)
+        owner.wait()
         run(True)
         legacy = cache / 'headless.lock'
         legacy.mkdir()
@@ -52,5 +54,5 @@ with tempfile.TemporaryDirectory(prefix='rios-lock.') as tmp:
     finally:
         if owner.poll() is None:
             owner.kill()
-            owner.wait(timeout=5)
+            owner.wait()
 print('7 command-lock checks passed: exclusion, release, crash recovery and conservative legacy migration')

@@ -16,9 +16,14 @@ import sys
 import tempfile
 import time
 
+# No clock of this suite's own around real work (audit R13, 2026-09-29): the build waits on
+# Cargo's lock behind whatever else builds, the smoke executable and the gate are real process
+# starts, and 240 s, 30 s and 5 s were verdicts on how busy the Mac was. Every wait below ends
+# on a fact or on the process ending; a hang is caught by the enclosing runner's per-suite
+# deadline, which names this suite.
 build = subprocess.run(
     ["cargo", "build", "--quiet", "-p", "richos-core", "--example", "claude_quota", "--message-format=json"],
-    check=True, capture_output=True, text=True, timeout=240,
+    check=True, capture_output=True, text=True,
 )
 executables = [row["executable"] for line in build.stdout.splitlines()
                if (row := json.loads(line)).get("reason") == "compiler-artifact"
@@ -60,7 +65,7 @@ for line in sys.stdin:
 
     def invoke(*args, extra=None):
         return subprocess.run([executable, *map(str, args)], env={**env, **(extra or {})},
-                              capture_output=True, text=True, timeout=30)
+                              capture_output=True, text=True)
 
     for args in [(), ("--live",), ("--invalid",)]:
         result = invoke(*args)
@@ -105,15 +110,14 @@ for line in sys.stdin:
         child.stdin.close()
         child.stdin = None
         try:
-            deadline = time.monotonic() + 5
-            while time.monotonic() < deadline:
+            while True:
                 if any(not p.name.endswith(".released.json") for p in (state / "quota-waits").glob("*.json")):
                     assert child.poll() is None and not observed.exists()
                     return child
                 if child.poll() is not None:
-                    raise AssertionError(child.communicate()[1])
+                    raise AssertionError("hook ended before it entered the observed wait: "
+                                         + child.communicate()[1])
                 time.sleep(0.01)
-            raise AssertionError("hook did not enter the observed wait")
         except BaseException:
             child.kill()
             child.communicate()
@@ -126,7 +130,7 @@ for line in sys.stdin:
             "nextCheckAt": None, "refreshIntervalMs": 300000, "message": None,
             "policy": {"enabled": False, "pausePercent": 93}, "admission": {"state": "disabled"},
         })
-        stdout, stderr = child.communicate(timeout=5)
+        stdout, stderr = child.communicate()
         assert child.returncode == 0, stderr
         assert observed.read_text() == payload, "callback changed during the retained wait"
     finally:
@@ -140,7 +144,7 @@ for line in sys.stdin:
     child = start_waiter()
     try:
         publish(scope, {"version": 1, "actions_allowed": False, "background_work_allowed": False})
-        stdout, stderr = child.communicate(timeout=5)
+        stdout, stderr = child.communicate()
         assert child.returncode == 2 and "stopped" in stderr
         assert not observed.exists(), "stopped work reached the canonical hook"
     finally:

@@ -531,24 +531,46 @@ while True: time.sleep(.02)
         return [sys.executable, str(script), str(self.root), "0"]
 
     def assert_pid_gone(self, pid):
-        until = time.monotonic() + 3
-        while time.monotonic() < until:
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
-                return
-            time.sleep(.02)
-        self.fail(f"owned process {pid} survived cleanup")
+        # GONE MEANS GONE OR A ZOMBIE, READ ONCE (audit R13, 2026-09-29). This used to poll
+        # `os.kill(pid, 0)` for 3 s, and that call still finds a zombie: a group member
+        # whose parent died waits for launchd to reap it, which on a loaded Mac takes
+        # longer than any number here. Every caller asks after cleanup has returned, and
+        # m.finish_group returns only once the group is gone, so the kernel's state is
+        # read once, with no wait: a survivor is still a running process at that moment.
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)],
+                               capture_output=True, text=True).stdout.strip()
+        if state and "Z" not in state:
+            self.fail(f"owned process {pid} survived cleanup (state {state})")
+
+    def test_an_exited_process_nobody_has_reaped_reads_gone(self):
+        # A zombie is an exited process: cleanup stopped it, and only the reaping is left,
+        # which launchd does when it gets round to it (audit R13, 2026-09-29).
+        child = os.fork()
+        if child == 0:
+            os._exit(0)
+        try:
+            while "Z" not in subprocess.run(["ps", "-o", "stat=", "-p", str(child)],
+                                            capture_output=True, text=True).stdout:
+                time.sleep(.02)
+            os.kill(child, 0)  # Positive evidence: the kernel still lists it.
+            self.assert_pid_gone(child)
+        finally:
+            os.waitpid(child, 0)
 
     def test_parent_only_kill_leaves_descendants_but_group_cleanup_does_not(self):
         p = subprocess.Popen(self.process_fixture(), start_new_session=True)
         try:
-            until = time.monotonic() + 5
-            while not (self.root / "pid2").exists() and time.monotonic() < until:
+            # The tree is three Python starts deep: wait for the fact, or for the tree to die,
+            # never for a number of seconds (a loaded Mac starts Python in more than 5).
+            while not (self.root / "pid2").exists() and p.poll() is None:
                 time.sleep(.02)
             ids = [int((self.root / f"pid{i}").read_text()) for i in range(3)]
             p.kill()
-            p.wait(timeout=3)
+            p.wait()  # SIGKILL is certain; only the kernel's time is left
             for pid in ids[1:]:
                 os.kill(pid, 0)  # Positive evidence: parent-only kill left both alive.
             m.finish_group(p)
@@ -577,7 +599,7 @@ while True: time.sleep(.02)
             self.assertIsNone(sentinel.poll())
         finally:
             sentinel.kill()
-            sentinel.wait(timeout=3)
+            sentinel.wait()  # SIGKILL is certain; only the kernel's time is left
 
     def test_only_release_reaches_publisher(self):
         r = self.runner()
