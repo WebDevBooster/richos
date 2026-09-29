@@ -509,13 +509,23 @@ impl ScopedPermissions {
         std::fs::write(&p,json!({"version":1,"actions_allowed":true,"binding":binding(audience,turn)}).to_string()).unwrap();
         (p.clone(),ScopedPermissions{desk:Arc::clone(desk),scope:p})
     }
+    /// The deadline of a call THIS TEST answers, stops or forgets, and the longest `wait_for`
+    /// waits: a hang guard, never a verdict (audit
+    /// `docs/verification/2026-09-29-load-sensitive-checks-audit.md` R9). These calls used to
+    /// carry 2-5 s deadlines and `wait_for` gave up after 200 polls of 5 ms, so a test thread
+    /// descheduled for a few seconds saw its own call time out into "deny" before it could
+    /// answer, and failed while the desk was right. A test that means a deadline to EXPIRE
+    /// passes a few milliseconds and says so; that direction cannot be broken by load.
+    const HANG_GUARD: Duration = Duration::from_secs(60);
+
     fn ask(policy: &ScopedPermissions, tool: &str, limit: Duration) -> std::thread::JoinHandle<PermissionDecision> {
         let child=policy.clone();let tool=tool.to_string();
         std::thread::spawn(move||child.wait(&json!({"tool_name":tool,"input":{"command":"fictional action"}}),limit))
     }
     fn wait_for(f: impl Fn()->bool) -> bool {
-        for _ in 0..200 { if f() {return true;} std::thread::sleep(Duration::from_millis(5)); }
-        false
+        let deadline=Instant::now()+HANG_GUARD;
+        while Instant::now()<deadline { if f() {return true;} std::thread::sleep(Duration::from_millis(5)); }
+        f()
     }
 
     #[test] fn provider_reason_survives_missing_human_explanation() {
@@ -525,7 +535,7 @@ impl ScopedPermissions {
     }
     #[test] fn allow_and_deny_apply_to_one_exact_request_and_never_persist_a_rule(){
         for allow in [true,false] {let (p,policy)=scope();
-            let work=ask(&policy,"Bash",Duration::from_secs(2));
+            let work=ask(&policy,"Bash",HANG_GUARD);
             assert!(wait_for(||policy.desk.current().is_some()));
             let request=policy.desk.current().unwrap();
             assert!(policy.desk.resolve("obsolete",true).is_err());
@@ -536,7 +546,7 @@ impl ScopedPermissions {
     }
     #[test] fn stop_and_expiry_never_approve_an_action(){
         let (p,policy)=scope();assert_eq!(policy.wait(&json!({"tool_name":"Bash"}),Duration::from_millis(1)).behavior(),"deny");
-        let work=ask(&policy,"Bash",Duration::from_secs(2));
+        let work=ask(&policy,"Bash",HANG_GUARD);
         assert!(wait_for(||policy.desk.current().is_some()));
         std::fs::remove_file(&p).unwrap();assert_eq!(work.join().unwrap().behavior(),"deny");assert!(policy.desk.current().is_none());
     }
@@ -559,7 +569,7 @@ impl ScopedPermissions {
     #[test] fn a_background_request_with_no_visible_turn_waits_instead_of_being_denied(){
         let desk=Arc::new(PermissionDesk::default());
         let (p,work_lease)=joined(&desk,WORK_AUDIENCE,"obligation-7");
-        let call=ask(&work_lease,"Bash",Duration::from_secs(3));
+        let call=ask(&work_lease,"Bash",HANG_GUARD);
         assert!(wait_for(||!desk.background_queue().is_empty()),"the request was refused rather than queued");
         // It is NOT on the conversation's sheet: a modal for background work would be an
         // interruption (§0 row 6).
@@ -580,9 +590,9 @@ impl ScopedPermissions {
         let desk=Arc::new(PermissionDesk::default());
         let (p1,one)=joined(&desk,WORK_AUDIENCE,"obligation-1");
         let (p2,two)=joined(&desk,WORK_AUDIENCE,"obligation-2");
-        let first=ask(&one,"Write",Duration::from_secs(5));
+        let first=ask(&one,"Write",HANG_GUARD);
         assert!(wait_for(||desk.background_queue().len()==1));
-        let second=ask(&two,"Bash",Duration::from_secs(5));
+        let second=ask(&two,"Bash",HANG_GUARD);
         assert!(wait_for(||desk.background_queue().len()==2),"the second request was refused rather than queued");
         let queue=desk.background_queue();
         assert_eq!(queue[0].binding.turn_id,"obligation-1","the queue is not in the order they asked");
@@ -679,14 +689,15 @@ impl ScopedPermissions {
         let first=work_lease.wait(&json!({"tool_name":"Bash","input":{"command":"sleep 95"}}),Duration::from_millis(30));
         assert_eq!(first.behavior(),"deny");
         assert_eq!(desk.background_queue().len(),1);
-        // A different command, on the same assignment, with a deadline long enough that a
-        // desk which queued it would visibly wait for it.
-        let started=Instant::now();
+        // A different command, on the same assignment. A desk that queued it and waited would
+        // come back with the deadline's own refusal (which also says "End your turn now") and
+        // a second entry in his queue; the refusal that did not wait is STEP_ALREADY_WAITING,
+        // word for word, with his queue unchanged. Those two facts are the verdict. The
+        // `< 1 s` clock that stood here decided it by the speed of the Mac instead (audit R9).
         let second=work_lease.wait(&json!({"tool_name":"Bash","input":{"command":"cat /tmp/out.txt"}}),Duration::from_secs(3));
-        assert!(started.elapsed()<Duration::from_secs(1),
-            "the second request held the turn for {:?} while an earlier step was waiting on him", started.elapsed());
         match &second {
-            PermissionDecision::Deny{message}=>assert!(message.contains("End your turn now"),"{message}"),
+            PermissionDecision::Deny{message}=>assert_eq!(message,STEP_ALREADY_WAITING,
+                "the second request was not refused as a step behind one already waiting on him"),
             _=>panic!("a second step ran while the first was waiting on him"),
         }
         assert_eq!(desk.background_queue().len(),1,"the second request was put in front of him as well");
@@ -700,7 +711,7 @@ impl ScopedPermissions {
         let (p2,other)=joined(&desk,WORK_AUDIENCE,"obligation-8");
         assert_eq!(work_lease.wait(&json!({"tool_name":"Bash","input":{"command":"third"}}),Duration::from_millis(30)).behavior(),"deny");
         assert_eq!(desk.background_queue().len(),1);
-        let call=ask(&other,"Bash",Duration::from_secs(3));
+        let call=ask(&other,"Bash",HANG_GUARD);
         assert!(wait_for(||desk.background_queue().iter().any(|r|r.binding.turn_id=="obligation-8")),
             "another assignment's request was refused because of this one");
         let theirs=desk.background_queue().into_iter().find(|r|r.binding.turn_id=="obligation-8").unwrap();
@@ -731,8 +742,8 @@ impl ScopedPermissions {
         let desk=Arc::new(PermissionDesk::default());
         let (p1,one)=joined(&desk,WORK_AUDIENCE,"obligation-1");
         let (p2,two)=joined(&desk,WORK_AUDIENCE,"obligation-2");
-        let first=ask(&one,"Bash",Duration::from_secs(5));
-        let second=ask(&two,"Bash",Duration::from_secs(5));
+        let first=ask(&one,"Bash",HANG_GUARD);
+        let second=ask(&two,"Bash",HANG_GUARD);
         assert!(wait_for(||desk.background_queue().len()==2));
         assert_eq!(desk.forget("alpha","thread","obligation-1"),1);
         assert_eq!(first.join().unwrap().behavior(),"deny");
