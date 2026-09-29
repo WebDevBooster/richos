@@ -715,13 +715,19 @@ def prepare(info):
         # attempt, the failed attempt's commit for a retry. Anything else on origin means
         # another stable build of this version reserved it after this plan was made.
         ref = info["reservation_ref"]
+        changed = (f"{ref} changed after this plan read it: another stable build "
+                   f"of {info['tag']} reserved the version first. Plan again; "
+                   "the plan re-reads the reservation")
+        # Two builds planned in the same second from one tree make the SAME commit id, and
+        # pushing an id the ref already holds succeeds as "up to date" whatever the lease
+        # says. So the observation is compared first, not left to the push alone.
+        if remote_ref(ref) != info["reservation_base"]:
+            raise ValueError(changed)
         try:
             git("push", "--atomic", f"--force-with-lease={ref}:{info['reservation_base']}",
                 "origin", f"{commit}:{ref}")
         except subprocess.CalledProcessError as error:
-            raise ValueError(f"{ref} changed after this plan read it: another stable build "
-                             f"of {info['tag']} reserved the version first. Plan again; "
-                             "the plan re-reads the reservation") from error
+            raise ValueError(changed) from error
         git("fetch", "--no-tags", "origin", ref)
     git("checkout", "--detach", commit)
     return {**info, "build_commit": commit}
