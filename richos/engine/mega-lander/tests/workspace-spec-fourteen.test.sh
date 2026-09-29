@@ -98,8 +98,10 @@ verdict() {
 # --- the sandbox ------------------------------------------------------------
 T="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/ws-fourteen.XXXXXX")" && pwd -P)"
 SESS_PIDS=()
+FIXTURE_PIDS=()
 cleanup() {
     for p in "${SESS_PIDS[@]+"${SESS_PIDS[@]}"}"; do kill "$p" 2>/dev/null || true; done
+    for p in "${FIXTURE_PIDS[@]+"${FIXTURE_PIDS[@]}"}"; do kill -9 "$p" 2>/dev/null || true; done
     [ -n "${HOLD_PID:-}" ] && kill -9 "$HOLD_PID" 2>/dev/null
     if [ "$KEEP" -eq 1 ]; then echo "sandbox kept: $T"; else
         chflags -R nouchg "$T" 2>/dev/null || true
@@ -116,6 +118,36 @@ printf '[user]\n\tname = fourteen\n\temail = fourteen@example.invalid\n[init]\n\
 unset RICHOS_WORKSPACES_DIR RICHOS_SESSION_ID CLAUDE_PROJECT_DIR RICHOS_ENGINE_ROOT CLAUDE_PLUGIN_ROOT RICHOS_SESSION_PID 2>/dev/null || true
 export SEAL_WAIT_SECONDS=0 RICHOS_WORKSPACES_SPAWN_WINDOW=0 RICHOS_WORKSPACES_STOP_GRACE=1 RICHOS_WORKSPACES_RETRY_BASE=0
 STORE="$CLAUDE_CONFIG_DIR/state/workspaces"
+
+# --- process fixtures: read facts, never sleep (audit R8, 2026-09-29) --------
+# C9 used to sleep 0.3 s twice and then assert, and a loaded Mac lost both bets.
+#
+# DEAD MEANS GONE OR A ZOMBIE. A process the land stopped has usually lost its
+# parent already, so launchd reaps it whenever it gets round to it, and until then
+# `kill -0` still succeeds. The product counts a zombie as stopped (workspaces.py
+# _alive), and a land that finds a survivor fails, so C9 reads this ONCE, right
+# after the land returns, with no wait: a mutant that leaves the holder running
+# still reads alive at once.
+is_dead() { # <pid>
+    local stat
+    kill -0 "$1" 2>/dev/null || return 0
+    stat="$(ps -o stat= -p "$1" 2>/dev/null)" || return 0
+    case "$stat" in ''|*Z*) return 0 ;; esac
+    return 1
+}
+# A HOLDER THAT IGNORES TERM, SENT TERM ONLY ONCE IT DOES. Python needs time to
+# start before it can install the handler, and under load that is longer than any
+# sleep: a TERM that arrived first killed the holder and the positive control went
+# red. The holder ignores TERM, sends itself one (delivered before its own kill()
+# returns), and only then writes <ready>, so the file says it has survived a TERM.
+# The wait has no clock: it ends when the file appears or the holder dies, and a
+# hang is caught by the unit's own deadline in ci-shard.sh.
+start_term_ignorer() { # <cwd> <ready-file>   -> prints the holder's pid once it is ready
+    local pid
+    pid="$(cd "$1" && sh -c 'python3 -c "import os,signal,sys,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); os.kill(os.getpid(), signal.SIGTERM); open(sys.argv[1], \"w\").close(); time.sleep(3600)" "$1" >/dev/null 2>&1 & echo $!' sh "$2")"
+    while [ ! -e "$2" ] && kill -0 "$pid" 2>/dev/null; do sleep 0.05; done
+    echo "$pid"
+}
 
 new_repo() { # <path> [adopt]
     mkdir -p "$1" && git init -q -b main "$1"
@@ -790,8 +822,7 @@ sub "C9.1 finished: the restarted agent is refused every tool, Read ($r1) and Ba
 sub "C9.2 POSITIVE CONTROL: the sleeper is alive in the workspace before the land (pid $HOLD_PID)" "kill -0 $HOLD_PID 2>/dev/null"
 git -C "$ENT" merge -q --no-edit "worktree-agent-ap1p1p1p1p1p1p1p1"
 stop_gate; rc=$?
-sleep 0.3
-ALIVE=0; kill -0 "$HOLD_PID" 2>/dev/null && ALIVE=1
+ALIVE=0; is_dead "$HOLD_PID" || ALIVE=1
 sub "C9.3 landed (exit $rc): the process is dead and the workspace is gone" "[ $rc -eq 0 ] && [ $ALIVE -eq 0 ] && [ ! -e '$NPP' ]" "alive=$ALIVE $(cat "$T/stop.err")"
 KEY="$(basename "$(done_rec zach-opus-p1)" .json)"
 ORDER="$(grep -E '"event": "(processes-stopped|deleted)"' "$STORE/events.jsonl" | grep -E "processes-stopped.*$HOLD_PID|\"key\": \"$KEY\"" | grep -o -E '"event": "[a-z-]+"' | tr -d '"' | sed 's/event: //' | tr '\n' ' ')"
@@ -806,21 +837,55 @@ spawn "zach-opus-p2" "start a process that ignores TERM"
 platform_spawn "zach-opus-p2" "ap2p2p2p2p2p2p2p2"
 NPP2="$ENT/.claude/worktrees/agent-ap2p2p2p2p2p2p2p2"
 commit_in "$NPP2" p2.txt
-HOLD2_PID="$(cd "$NPP2" && sh -c 'python3 -c "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(3600)" >/dev/null 2>&1 & echo $!')"
+HOLD2_PID="$(start_term_ignorer "$NPP2" "$T/hold2.ready")"
+HOLD_PID="$HOLD2_PID"   # the EXIT trap stops it if the land does not; C9.2-C9.5's holder is dead by now
 subagent_stop "ap2p2p2p2p2p2p2p2"
 kill -0 "$HOLD2_PID" 2>/dev/null && H2_BEFORE=1 || H2_BEFORE=0
-kill -TERM "$HOLD2_PID" 2>/dev/null; sleep 0.3
-kill -0 "$HOLD2_PID" 2>/dev/null && H2_IGNORES=1 || H2_IGNORES=0
-sub "C9.6a POSITIVE CONTROL: the holder is alive (pid $HOLD2_PID, alive=$H2_BEFORE) and IGNORES TERM (still alive after SIGTERM: $H2_IGNORES)" "[ $H2_BEFORE -eq 1 ] && [ $H2_IGNORES -eq 1 ]"
+kill -TERM "$HOLD2_PID" 2>/dev/null
+H2_IGNORES=0; [ -e "$T/hold2.ready" ] && ! is_dead "$HOLD2_PID" && H2_IGNORES=1
+sub "C9.6a POSITIVE CONTROL: the holder is alive (pid $HOLD2_PID, alive=$H2_BEFORE) and IGNORES TERM (it survived its own TERM before it said ready, and is alive after ours: $H2_IGNORES)" "[ $H2_BEFORE -eq 1 ] && [ $H2_IGNORES -eq 1 ]"
 git -C "$ENT" merge -q --no-edit "worktree-agent-ap2p2p2p2p2p2p2p2"
 stop_gate; rc6=$?
-sleep 0.3
-H2_ALIVE=0; kill -0 "$HOLD2_PID" 2>/dev/null && H2_ALIVE=1
+H2_ALIVE=0; is_dead "$HOLD2_PID" || H2_ALIVE=1
 KEY2="$(basename "$(done_rec zach-opus-p2 2>/dev/null)" .json)"
 SURV="$(grep '"event": "processes-stopped"' "$STORE/events.jsonl" | grep "$HOLD2_PID" | grep -o '"survivors": [^,}]*' | tail -1 | tr -d '"')"
 sub "C9.6 a process that ignores TERM is dead after the land (exit $rc6, alive=$H2_ALIVE): the SIGKILL escalation, and the store records no survivor ($SURV)" \
     "[ $rc6 -eq 0 ] && [ $H2_ALIVE -eq 0 ] && [ ! -e '$NPP2' ] && [ -n '$KEY2' ] && [ '$SURV' = 'survivors: null' ]" "alive=$H2_ALIVE survivors=[$SURV] $(cat "$T/stop.err")"
 HOLD_PID="$HOLD2_PID"   # cleanup kills it if the land did not
+# THE HARNESS'S TWO FACTS, proven where they are used (audit R8, 2026-09-29). Both
+# were a sleep until then; neither depends on how busy the Mac is now.
+ZFILE="$T/zombie.pid"
+python3 -c 'import os,signal,sys
+child = os.fork()
+if child == 0:
+    os._exit(0)
+open(sys.argv[1] + ".new", "w").write(str(child)); os.replace(sys.argv[1] + ".new", sys.argv[1])
+while True:
+    signal.pause()   # the child exit wakes pause() on macOS: hold in a loop, never return' "$ZFILE" </dev/null >/dev/null 2>&1 &
+ZPARENT=$!
+FIXTURE_PIDS+=("$ZPARENT")
+while [ ! -s "$ZFILE" ] && kill -0 "$ZPARENT" 2>/dev/null; do sleep 0.05; done
+ZCHILD="$(cat "$ZFILE" 2>/dev/null)"
+# The child has exited and its parent never waits for it: wait for the kernel to say Z.
+while [ -n "$ZCHILD" ] && kill -0 "$ZPARENT" 2>/dev/null \
+        && ! ps -o stat= -p "$ZCHILD" 2>/dev/null | grep -q Z; do sleep 0.05; done
+ZFOUND=0; [ -n "$ZCHILD" ] && kill -0 "$ZCHILD" 2>/dev/null && ZFOUND=1
+ZDEAD=0; [ -n "$ZCHILD" ] && is_dead "$ZCHILD" && ZDEAD=1
+kill -9 "$ZPARENT" 2>/dev/null; wait "$ZPARENT" 2>/dev/null
+FIXTURE_PIDS=()   # reaped: never signal a released pid from the EXIT trap
+sub "C9.7 HARNESS: an exited process nobody has reaped yet reads DEAD (pid $ZCHILD, dead=$ZDEAD) although kill -0 still finds it (found=$ZFOUND), which is how C9.3 and C9.6 read the holder the moment the land returns" \
+    "[ $ZFOUND -eq 1 ] && [ $ZDEAD -eq 1 ]"
+SLOWBIN="$T/slow-bin"; mkdir -p "$SLOWBIN"
+printf '#!/bin/sh\nsleep 1\nexec "%s" "$@"\n' "$(command -v python3)" > "$SLOWBIN/python3"; chmod +x "$SLOWBIN/python3"
+SLOW_PID="$(PATH="$SLOWBIN:$PATH" start_term_ignorer "$T" "$T/slow.ready")"
+FIXTURE_PIDS+=("$SLOW_PID")
+kill -TERM "$SLOW_PID" 2>/dev/null
+SLOW_IGNORES=0; [ -e "$T/slow.ready" ] && ! is_dead "$SLOW_PID" && SLOW_IGNORES=1
+kill -9 "$SLOW_PID" 2>/dev/null
+while ! is_dead "$SLOW_PID"; do sleep 0.05; done   # SIGKILL is certain; wait for the kernel to finish it
+FIXTURE_PIDS=()   # stopped: never signal a released pid from the EXIT trap
+sub "C9.8 HARNESS: the holder that ignores TERM is sent one only after it has installed its handler, even through an interpreter that takes a second to start (survived: $SLOW_IGNORES), so C9.6a does not depend on how busy the Mac is" \
+    "[ $SLOW_IGNORES -eq 1 ]"
 verdict
 
 # ===========================================================================
