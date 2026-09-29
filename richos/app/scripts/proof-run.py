@@ -432,6 +432,31 @@ def input_identity(item, args, logdir, snapshot=None):
     return result
 
 
+def describe_input_change(item, baseline, items, limit=5):
+    """'; changed: <paths>; checks started by then: <labels>' for an invalidation note, or ''.
+
+    The paths are what differs between the plan-time fingerprint (`baseline`, the snapshot the
+    plan's identities were read through) and the tree now; the labels are every check of this
+    run that had started, the check itself included, because any of them could be the writer.
+    Diagnosis only: it never changes a verdict, and a failure to explain explains nothing."""
+    try:
+        recipe = proof_evidence.contract_for(ROOT, item.label)
+        if recipe.get("fresh"):
+            return ""
+        root = Path(ROOT).resolve()
+        changed = []
+        for rel in recipe.get("subset", {}).get("paths", recipe["paths"]):
+            before = baseline.paths.get(str((root / rel).absolute()))
+            if before is not None:
+                changed += proof_evidence.identity_differences(before, proof_evidence.path_identity(root / rel), rel)
+        started = sorted(it.label for it in items if it.started is not None)
+        where = (", ".join(changed[:limit]) + (" (+%d more)" % (len(changed) - limit) if len(changed) > limit else "")
+                 if changed else "nothing under its declared paths (a tool, the environment or its Git inputs)")
+        return "; changed: %s; checks started by then: %s" % (where, ", ".join(started) or "none")
+    except Exception:  # noqa: BLE001 — an explanation never breaks the verdict it explains
+        return ""
+
+
 def reserve_item(item, n, args, logdir):
     if not getattr(args, 'managed_verification', False):
         return
@@ -1440,12 +1465,15 @@ def main(argv=None):
         def identity(item):
             return input_identity(item, args, logdir)
 
-        def identities(selected):
-            snapshot = proof_evidence.InputSnapshot()
+        def identities(selected, snapshot=None):
+            snapshot = snapshot or proof_evidence.InputSnapshot()
             return {item.label: input_identity(item, args, logdir, snapshot) for item in selected}
 
+        # The plan-time reads are kept: an invalidation note names what changed since them.
+        baseline = proof_evidence.InputSnapshot()
         args.evidence = proof_evidence.Record(ROOT, logdir, items, before,
-            identities(items), args.resume, source_identity, identity, identities)
+            identities(items, baseline), args.resume, source_identity, identity, identities,
+            explain=lambda item: describe_input_change(item, baseline, items))
         args.pool = proof_evidence.Pool(proof_evidence.pool_directory(ROOT, hist_dir), args.evidence,
                                         args.retry_reason)
         started = time.monotonic()
