@@ -130,12 +130,9 @@ RUN_WALK="${TESTVM_RUN_WALK:-$HERE/run-walk.py}"
 WAIT="${TESTVM_SUITE_WAIT:-1800}"
 # The engine travels in the payload with everything else the suite reads, so run.sh is
 # given none to install.
+# No network flag: this guest has nothing to do with the phone, and a walk does not join the
+# tailnet unless it asks to (run-walk.py --tailnet).
 WALK=(--no-app --home "$WORK/home" --engine "" --report "$WORK/walk.json" --wait "$WAIT")
-# This guest has nothing to do with the phone, so it does not join the tailnet, where
-# run-walk.py can be told so (--no-tailnet). Asked of run-walk.py rather than assumed, so
-# this runner works on either side of the change that gives run-walk.py the flag.
-WALK_HELP="$("$RUN_WALK" --help 2>/dev/null || true)"
-if grep -q -- '--no-tailnet' <<<"$WALK_HELP"; then WALK+=(--no-tailnet); fi
 
 say "running $NAME in a guest for RICHOS_GUI_HOST=$GUI_HOST (a fresh clone, held for this run only)"
 STEP=(--stage "$PAYLOAD" --suite "$NAME" --engine "$ENGINE" --rc "$WORK/suite.rc")

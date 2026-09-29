@@ -735,7 +735,6 @@ done
 cat > "$GBIN/run-walk" <<'SH'
 #!/bin/bash
 # Stand-in for testvm/run-walk.py: no slot, no clone, no boot.
-[ "${1:-}" = "--help" ] && { echo "usage: run-walk.py (--bundle B | --no-app) --home H --engine E --report R -- CMD"; exit 0; }
 printf '%s\n' "$@" > "$GLOG/walk.args"
 report=""
 while [ $# -gt 0 ]; do
@@ -810,9 +809,9 @@ else
   elif ! says "stand-in richos-tauri, built on the host" || ! says "PASS  G ran in the guest's payload at $GROOT/run-suite/tree"; then
     bad "G1 RICHOS_GUI_HOST runs a host-screen suite in a guest and reports its real result" \
         "the suite did not run from the payload in the guest, in prebuilt mode: $(tr '\n' ' ' <<<"$OUT" | cut -c1-400)"
-  elif ! grep -qx -- '--no-app' "$GLOG/walk.args" 2>/dev/null; then
+  elif ! grep -qx -- '--no-app' "$GLOG/walk.args" 2>/dev/null || grep -q -- 'tailnet' "$GLOG/walk.args"; then
     bad "G1 RICHOS_GUI_HOST runs a host-screen suite in a guest and reports its real result" \
-        "run-walk.py was not asked for a guest with no app: $(tr '\n' ' ' < "$GLOG/walk.args" 2>/dev/null)"
+        "run-walk.py was not asked for a guest with no app and no network flag: $(tr '\n' ' ' < "$GLOG/walk.args" 2>/dev/null)"
   elif ! says "window.test.sh exited 0 in guest stand-in-vm" || ! says "all 1 suites passed — 4 checks"; then
     bad "G1 RICHOS_GUI_HOST runs a host-screen suite in a guest and reports its real result" \
         "the suite's verdict and its checks did not come back as the run's: $(tail -3 <<<"$OUT" | tr '\n' ' ')"
