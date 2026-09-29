@@ -836,7 +836,8 @@ function createRun(label) {
           ok,
           detail: ok
             ? ""
-            : "changed while this suite ran, in " + tree.root + ":\n            " +
+            : "changed while this suite ran, in " + path.join(tree.root, tree.scope || ".") +
+              " (the UI tree; edits elsewhere in the checkout are not watched here):\n            " +
               tree.changed.map((c) => c.file + "  (" + c.before + " -> " + c.after + ")").join("\n            ") +
               "\n          A test never writes a tracked path: a committed shot is replaced only under " +
               "RICHOS_SHOTS_REGENERATE, and everything else a run produces belongs in .shots/ (gitignored). " +

@@ -26,6 +26,14 @@ async function main() {
       case "predirty-changed":
         fs.writeFileSync(path.join(root, "dirty.txt"), "changed again by a test\n");
         return "changed dirty.txt again";
+      case "modify-outside-scope":
+        // Another process saving an unrelated file: from the guard's side it is the same
+        // write whoever makes it, so the child makes it.
+        fs.writeFileSync(path.join(root, "elsewhere", "notes.txt"), "an unrelated save\n");
+        return "rewrote elsewhere/notes.txt, outside the watched scope";
+      case "modify-inside-scope":
+        fs.writeFileSync(path.join(root, "ui", "view.txt"), "rewritten by a test\n");
+        return "rewrote ui/view.txt, inside the watched scope";
       case "untracked":
         fs.writeFileSync(path.join(root, "new-reference.png"), "not a png");
         return "created new-reference.png";
