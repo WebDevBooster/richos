@@ -190,6 +190,7 @@
 
 # run-tests: inputs richos/app/scripts/front-door.test.sh richos/app/scripts/lib/gui-launch.sh richos/app/scripts/package-app.sh richos/app/src-tauri richos/app/crates richos/app/ui
 # run-tests: covers richos/app/ui/main.js richos/app/src-tauri/src/activation.rs
+# run-tests: host-only: it drives a published release's bundle on a person's unlocked screen with cliclick and System Events, and a build host has no such bundle (a declared gap in every build), so testvm/run-suite.sh has nothing to run it with; it is run by hand or from a walk with --release
 set -uo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
