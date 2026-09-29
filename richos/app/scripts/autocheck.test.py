@@ -191,6 +191,12 @@ class Fixture(unittest.TestCase):
         self.git("checkout", "-q", "main")
         self.log.unlink(missing_ok=True)
 
+    def land_a_merge_commit_on_main(self):
+        """main's tip becomes a land merge (two parents), checked and passed like any land."""
+        self.branch_with("other", "richos/app/src/thing.txt", "fine, better\n")
+        self.git("merge", "--no-ff", "-m", "land other", "other")
+        self.assertEqual(len(self.git("rev-list", "--parents", "-n", "1", "main").stdout.split()), 3)
+
 
 class Commit(Fixture):
     def test_a_commit_whose_lint_fails_is_refused_with_the_reason(self):
@@ -275,6 +281,30 @@ class Commit(Fixture):
         out = self.git("commit", "-m", "bad", expect=1)
         self.assertIn("COMMIT REFUSED", out.stderr)
 
+    def test_fast_forwarding_a_branch_onto_a_land_merge_records_no_skip(self):
+        # 2026-09-29: echo-opus-speckle1 fast-forwarded its branch onto main's 5ddcce1c, a
+        # land merge, and the ledger said "skipped the automatic checks (--no-verify)". No
+        # --no-verify was passed; a fast-forward writes no commit and has nothing to skip.
+        self.make()
+        self.git("branch", "feature")
+        self.land_a_merge_commit_on_main()
+        self.git("checkout", "-q", "feature")
+        out = self.git("merge", "--ff-only", "main")
+        self.assertNotIn("AUTOCHECK SKIPPED", out.stderr)
+        self.assertEqual(self.recorded(), "")
+
+    def test_a_real_merge_into_a_branch_with_no_verify_is_still_recorded(self):
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        self.write("richos/app/src/feature.txt", "feature work\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "feature work")
+        self.git("checkout", "-q", "main")
+        self.land_a_merge_commit_on_main()
+        self.git("checkout", "-q", "feature")
+        self.git("merge", "--no-ff", "--no-verify", "-m", "bring main in", "main")
+        self.assertIn("skipped the automatic checks (--no-verify)", self.recorded())
+
     def test_before_the_check_exists_the_hooks_do_nothing(self):
         self.make(with_checker=False)
         self.git("checkout", "-q", "-b", "feature")
@@ -350,6 +380,22 @@ class Land(Fixture):
         out = self.git("push", "origin", "main", expect=1)
         self.assertIn("PUSH REFUSED: a check it owns did not pass", out.stderr)
         self.assertNotEqual(self.git("rev-parse", "main", cwd=remote).stdout.strip(), self.head("main"))
+
+    def test_main_fast_forwarded_onto_a_merge_commit_is_named_a_fast_forward(self):
+        self.make()
+        self.git("checkout", "-q", "-b", "side")
+        self.write("richos/app/src/side.txt", "side work\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "side work")
+        self.git("checkout", "-q", "main")
+        self.land_a_merge_commit_on_main()
+        self.git("checkout", "-q", "side")
+        self.git("merge", "--no-ff", "--no-verify", "-m", "a merge made off main", "main")
+        self.git("checkout", "-q", "main")
+        self.ledger.unlink(missing_ok=True)
+        self.git("merge", "--ff-only", "side")
+        self.assertIn("without the land checks (a fast-forward)", self.recorded())
+        self.assertNotIn("--no-verify", self.recorded())
 
     def test_an_uncovered_path_refuses_the_merge(self):
         self.make()

@@ -453,6 +453,24 @@ def post_commit(repo):
     return 0
 
 
+def made_a_merge_commit(repo, parents):
+    """Did THIS merge write a new merge commit, or move HEAD to a commit that already existed?
+
+    Two parents on the new HEAD is not the answer. On 2026-09-29 a branch fast-forwarded onto
+    main's tip 5ddcce1c, which is itself a land merge with two parents; no pre-merge-commit
+    ran (a fast-forward writes no commit, so there is nothing to check), and this hook
+    reported that as a `--no-verify` skip that never happened. A merge commit written here
+    always has the pre-merge HEAD as its first parent, and git's own reflog says
+    `Fast-forward` when it moved HEAD without writing one: both must say "a new commit"."""
+    if len(parents) < 2:
+        return False
+    orig = git("rev-parse", "-q", "--verify", "ORIG_HEAD", check=False, cwd=repo.top).stdout.strip()
+    if orig and parents[0] != orig:
+        return False
+    subject = git("reflog", "-1", "--format=%gs", "HEAD", check=False, cwd=repo.top).stdout.strip()
+    return not subject.endswith("Fast-forward")
+
+
 def post_merge(repo, squash):
     if squash == "1":
         return 0
@@ -461,9 +479,10 @@ def post_merge(repo, squash):
     parents = git("rev-list", "--parents", "-n", "1", "HEAD", cwd=repo.top).split()[1:]
     if not existed_before(repo, ["ORIG_HEAD", *parents]):
         return 0
+    merged = made_a_merge_commit(repo, parents)
     if repo.branch == LAND_BRANCH:
         if not repo.land_receipt(tree).exists():
-            how = "a fast-forward" if len(parents) < 2 else "git merge --no-verify"
+            how = "git merge --no-verify" if merged else "a fast-forward"
             record_skip(repo, f"main moved to {head[:12]} without the land checks ({how})",
                         f"Was landing {head[:12]} on main without its suites deliberate? The next push of main runs them.")
         return 0
@@ -471,7 +490,7 @@ def post_merge(repo, squash):
     verified = marker.read_text().strip() if marker.exists() else ""
     if marker.exists():
         marker.unlink()
-    if len(parents) >= 2 and verified != tree:
+    if merged and verified != tree:
         record_skip(repo, f"merge {head[:12]} on {repo.branch or 'a detached HEAD'} skipped the automatic checks (--no-verify)",
                     f"Was skipping the lint on {head[:12]} deliberate? Its land will run the full checks.")
     return 0
