@@ -74,8 +74,8 @@ MUTANTS = (
      "a forgotten decision would be a silent default, not a refusal."),
     ("the-chosen-numbers-are-not-logged",
      "test_the_chosen_numbers_and_who_chose_them_are_the_logs_first_lines",
-     '            self.record_settings()\n        if command == "stable":',
-     '            pass\n        if command == "stable":',
+     '            self.record_settings()\n            if command == "build":',
+     '            pass\n            if command == "build":',
      "nobody could tell from a run log how it was told to run, or who told it."),
 )
 
