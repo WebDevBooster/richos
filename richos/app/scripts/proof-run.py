@@ -139,7 +139,6 @@ sys.dont_write_bytecode = True
 import threading
 import time
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.dirname(HERE)
@@ -490,7 +489,8 @@ def reserve_item(item, n, args, logdir):
     os.makedirs(directory, exist_ok=True)
     native = proc_tree.identity(os.getpid())
     context = {'protocol': cpu_guard.VERIFICATION_PROTOCOL, 'input_key': key,
-        'label': item.label, 'priority': 'integration' if engine_pass.is_main_checkout(ROOT) else 'background',
+        'label': item.label, 'priority': 'integration' if (engine_pass.is_main_checkout(ROOT) and
+                                                          not getattr(args, 'priority_turn_over', False)) else 'background',
         'result': os.path.join(directory, 'supervision.json'),
         'seed': {'pid': os.getpid(), 'generation': native}}
     if not inputs.get('fresh'):
@@ -764,6 +764,7 @@ def run(items, args, logdir, sampler=None):
     budget.shared.admission = engine_pass.Admission(machine, ROOT)
     # A worker permit is only the first admission step. Retain integration
     # intent while eligible checks wait for measured capacity as well.
+    args.priority_turn_over = False
     args.integration_intent = (engine_pass.Admission(machine, ROOT)
                                if budget.shared.admission.main else None)
     # A proof run started by a check of a proof run (it works inside its caller's slot) is part
@@ -867,6 +868,41 @@ def run(items, args, logdir, sampler=None):
     monitor.join(timeout=5)
     args.monitor_lines = monitor.report(args.max_cpu)
     return time.monotonic() - t0
+
+
+def end_priority_turn(args, budget, running, waiting):
+    """The integration plan's PRIORITY turn is over; the plan itself goes on.
+
+    THE BOUND WAS ON THE WRONG THING (2026-09-29). engine_pass.IntegrationPlan gives a
+    main-checkout plan admission priority for INTEGRATION_PLAN_SECONDS (600) so background
+    runs waiting behind it get a turn: a bound on PRIORITY, and a right one. Until today its
+    expiry also stopped every running check and refused every waiting one, which made it a
+    bound on how long a land may take. The land of cc/echo-opus-speckle3 was refused that way
+    three times running, 47, 30 and 10 of 78 checks unrun, and no check had failed: the third
+    try ran on a quiet Mac (mean CPU 52%) and still could not fit, because the runner admits
+    one check per fresh CPU sample after a SETTLE_SECONDS ramp (CEO ruling §77's line), about
+    one start every 4-5 s, so 78 starts alone take 350 s before any check waits for the CPU.
+    No fixed number fits every selection. So now the turn ends and nothing is stopped: the
+    plan's priority is released at once (waiters aged past BACKGROUND_PRIORITY_AGE are named
+    in the record, exactly as before), its checks keep running, and the rest are admitted
+    as background work, behind older background waiters like any other run. The land
+    finishes its selection or refuses on a check that did not pass, never on its own clock."""
+    args.priority_turn_over = True
+    episode = args.integration_episode
+    episode.close("over-budget")
+    if args.integration_intent:
+        args.integration_intent.close()
+        args.integration_intent = None
+    admission = getattr(budget.shared, "admission", None) if budget.shared else None
+    if admission is not None:
+        admission.close()
+        admission.main = False  # from here on this run asks for admission as background work
+    for it in waiting:
+        if it.wait_reason == "integration-episode":
+            it.wait_reason = "ready"
+    print("[%s] proof-run: the %.0f s integration priority turn is over; nothing is stopped: %d running "
+          "check(s) go on and %d waiting check(s) are admitted as background work" % (
+              stamp(), episode.deadline - episode.requested, len(running), len(waiting)), flush=True)
 
 
 def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, sampler):
@@ -974,35 +1010,11 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
         if not waiting and not running:
             break
         episode = getattr(args, "integration_episode", None)
-        if episode and episode.expired():
-            # Stop all owned domains concurrently so the cleanup allowance is
-            # shared by the plan, rather than multiplied by its worker count.
-            args.integration_intent.close()
-            budget.shared.admission.close()
-            with ThreadPoolExecutor(max_workers=max(1, len(running))) as cleanup:
-                survivors = list(cleanup.map(stop_item, running))
-            for it, left in zip(running, survivors):
-                it.state, it.rc, it.ended = "cancelled", 125, time.monotonic()
-                finish_attempt(it)
-                if left:
-                    it.state = "cleanup-failed"
-                it.notes.append("fixed integration priority episode expired; owned cleanup " +
-                                ("incomplete: %s" % left if left else "complete"))
-                it.token.release()
-            running.clear()
-            for it in waiting:
-                it.finish_queue()
-                it.state, it.rc = "not-admitted", 75
-                it.notes.append("fixed integration episode expired before admission")
-            finding = Item("integration priority exhausted", ROOT, [])
-            finding.state, finding.rc = "scheduler-starvation", 75
-            finding.notes.append("600-second fixed plan bound; completed evidence retained; "
-                                 "owned work stopped and capacity released. Evidence: " + logdir)
-            items.append(finding)
-            checkpoint(items, logdir)
-            print("proof-run: integration episode exhausted; retained completed evidence, stopped owned "
-                  "work and released priority. Unfinished obligations remain unresolved.", flush=True)
-            break
+        if getattr(args, "priority_turn_over", False):
+            episode = None
+        elif episode and episode.expired():
+            end_priority_turn(args, budget, running, waiting)
+            episode = None
         if episode and not episode.enter():
             for it in waiting:
                 it.wait_reason = "integration-episode"

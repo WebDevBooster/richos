@@ -49,40 +49,47 @@ class FailurePolicy(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(pr.summarize(items, 1, str(self.root / "run")), 1)
 
-    def test_integration_episode_stops_owned_work_preserves_pass_and_releases_priority(self):
-        marker = self.root / "must-not-run"
+    def test_integration_priority_turn_ends_but_the_plan_finishes(self):
+        # 2026-09-29: the land of cc/echo-opus-speckle3 was refused three times on the 600 s
+        # episode ("fixed integration episode expired before admission"), 47, 30 and 10 of 78
+        # checks unrun and none failed. The bound is on PRIORITY: when it ends, a background
+        # run must get admission at once, and this plan's checks must still all run.
+        marker = self.root / "ran-after-the-turn"
+        background = ("import sys, time; sys.path.insert(0, %r); import engine_pass; time.sleep(2.5); "
+                      "a = engine_pass.Admission(%r, %r); ok = a.begin(); a.close(); "
+                      "sys.exit(0 if ok else 3)" % (os.path.dirname(pr.engine_pass.__file__),
+                                                    str(self.root / "machine"), str(self.root)))
         items = [self.item("finished", "pass", weight=4),
-                 self.item("running", "import time; time.sleep(60)", weight=3),
-                 self.item("unrun", "from pathlib import Path; Path(%r).touch()" % str(marker),
+                 # Still running when the 1.4 s turn ends; a background run asks for admission
+                 # while it runs, which only a released priority grants (exit 3 otherwise).
+                 self.item("running", background, weight=3),
+                 self.item("after the turn", "from pathlib import Path; Path(%r).touch()" % str(marker),
                            after=["running"])]
         with patch.object(pr.engine_pass, "is_main_checkout", return_value=True), \
                 patch.object(pr.engine_pass, "INTEGRATION_PLAN_SECONDS", 1.4):
             self.run_items(items)
-        self.assertEqual([it.state for it in items],
-                         ["passed", "cancelled", "not-admitted", "scheduler-starvation"])
-        self.assertIsNotNone(items[1].proc.poll())
-        self.assertFalse(marker.exists())
-        self.assertGreater(items[2].admission_wait, 1)
+        self.assertEqual([(it.label, it.state) for it in items],
+                         [("finished", "passed"), ("running", "passed"), ("after the turn", "passed")],
+                         [it.notes for it in items])
+        self.assertTrue(marker.exists())
+        self.assertGreater(items[1].seconds, 1.4)
         report = json.loads((self.root / "run" / "priority-episode.json").read_text())
         self.assertEqual(report["status"], "over-budget")
         self.assertEqual(len(report["plan"]), 3)
-        admission = pr.engine_pass.Admission(str(self.root / "machine"), str(self.root))
-        try:
-            self.assertTrue(admission.begin())
-        finally:
-            admission.close()
+        self.assertFalse(pr.engine_pass._locked(str(self.root / "machine" / "admission" / "priority.lock")))
 
-    def test_waiting_integration_plan_cannot_publish_unit_priority_or_execute(self):
+    def test_waiting_integration_plan_never_takes_priority_and_runs_as_background_after_its_turn(self):
         machine = str(self.root / "machine")
         owner = pr.engine_pass.IntegrationPlan(machine, ["other fixed plan"], str(self.root))
         self.assertTrue(owner.enter())
-        item = self.item("waiting", "raise AssertionError('not admitted')")
+        item = self.item("waiting", "pass")
         try:
             with patch.object(pr.engine_pass, "is_main_checkout", return_value=True), \
                     patch.object(pr.engine_pass, "INTEGRATION_PLAN_SECONDS", .4):
                 self.run_items([item])
-            self.assertEqual(item.state, "not-admitted")
-            self.assertIsNone(item.started)
+            # It waited for the other plan's turn, never published priority of its own, and
+            # when its own turn had passed it ran as background work instead of being refused.
+            self.assertEqual(item.state, "passed", item.notes)
             self.assertGreater(item.wait_times.get("integration-episode", 0), .2)
             self.assertEqual(json.loads(Path(owner.path).read_text())["status"], "active")
             self.assertFalse(pr.engine_pass._locked(str(Path(machine) / "admission" / "priority.lock")))
