@@ -61,7 +61,13 @@ GATE_BUDGETS = {
     # past 1800 s twice beside the simulator suites once gates ran at once (runs 20260925T222652Z-723fee53
     # and 20260925T225819Z-2a11fdd0). 792 s (2026-09-23) is stale; this is about 2x the contended envelope.
     "gates/workspace-mutants": 3600,
-    "gates/ui-suite": 1200,    # At least 2x the fresh-browser four-shard reference.
+    # Re-derived 2026-09-29, when each UI shard started holding a machine worker token of its own
+    # (ui/tests/run.js): beside a mutation pool the shards now wait for tokens instead of running
+    # uncounted, and the progress guarantee is ONE shard at a time on the gate's own token, i.e.
+    # the inventory's serial cost -- 1512 s by the committed suite-weights.tsv. 2x is 3024 s,
+    # rounded up to five minutes. The 1200 s it replaces was 2x the four-shard reference on an
+    # otherwise free Mac, which the gate never gets beside workspace-mutants.
+    "gates/ui-suite": 3300,
     "gates/privacy-sweep": 120, # At least 4x a full scan; no receipt-reuse assumption.
 }
 CLEANUP_TIMEOUT = 30

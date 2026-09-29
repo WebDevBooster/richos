@@ -227,6 +227,45 @@ const run = createRun('the fixture suite');
         verdict = result.stdout[result.stdout.index('reconciled across every shard'):]
         self.assertIn('the check that breaks: rejected at 2731 ms of 1500', verdict)
 
+    def test_shards_hold_machine_worker_tokens_and_never_exceed_the_budget(self):
+        # The UI gate held ONE machine worker token (nightly-local.py owned_run) and ran four
+        # WebKit shards under it, so the budget that keeps every other gate's parallel work at
+        # 80% of the cores admitted a full mutation pool on top of four shards it never counted.
+        # Under a budget, each shard is a nested worker: the first runs on the caller's own
+        # token (its free slot), and every other one waits for a token of the budget.
+        budget = self.root / 'budget'
+        subprocess.run(['python3', str(WORKER_TOKENS), 'init', str(budget), '2'], check=True, timeout=30)
+        spans = self.root / 'spans.jsonl'
+        (self.root / 'sample.js').unlink()
+        for name in ('a', 'b', 'c'):
+            (self.root / f'{name}.js').write_text('''
+const fs = require('fs');
+const run = {check() {}};
+run.check();
+const start = Date.now();
+Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1500);
+fs.appendFileSync(SPANS, JSON.stringify({start, end: Date.now()}) + '\\n');
+fs.appendFileSync(process.env.RICHOS_UI_TESTS_LEDGER,
+  JSON.stringify({suite:NAME,label:'fixture',checks:1,failed:0})+'\\n');
+'''.replace('SPANS', json.dumps(str(spans))).replace('NAME', json.dumps(f'{name}.js')))
+        env = {**self.env, 'RICHOS_MACHINE_WORKERS': str(budget), 'RICHOS_WORKER_TOKENS': str(budget),
+               'RICHOS_WORKER_TOKENS_TOOL': str(WORKER_TOKENS)}
+        # The gate's own command holds one of the two tokens, exactly as owned_run's does.
+        result = subprocess.run(['python3', str(WORKER_TOKENS), 'run', str(budget), '--',
+                                 'node', str(self.root / 'run.js'), '--shards=3',
+                                 f'--receipts={self.root / "receipts"}'],
+                                cwd=self.root, env=env, capture_output=True, text=True, timeout=90)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        rows = [json.loads(line) for line in spans.read_text().splitlines()]
+        self.assertEqual(len(rows), 3)
+        edges = sorted([(r['start'], 1) for r in rows] + [(r['end'], -1) for r in rows],
+                       key=lambda e: (e[0], e[1]))
+        running = most = 0
+        for _, step in edges:
+            running += step
+            most = max(most, running)
+        self.assertEqual(most, 2, f'{most} shards ran at once on a budget of two worker tokens')
+
     def test_permission_denied_is_not_proof_of_death(self):
         directory = self.ledger('permission', os.getpid())
         hook = self.root / 'deny-probe.cjs'
