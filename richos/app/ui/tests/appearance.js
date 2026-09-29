@@ -1399,9 +1399,15 @@ async function main() {
     // checked rather than believed.
     const rules = SOURCES.cssRules("font-size");
     assert(rules.length >= 150, "only " + rules.length + " font-size declarations found — that is not this tree");
-    assert(
-      SOURCES.styleSources().length === 4,
-      "the shell links " + SOURCES.styleSources().length + " stylesheets, not the four this check was measured against"
+    // FIVE SINCE 2026-09-29, AND NAMED RATHER THAN COUNTED. `speckle.css` is the design
+    // system's speckled-ground stylesheet, copied byte for byte from richos-hq design/system
+    // (speckle-app.js says why); it declares no font-size at all today, and the walk below
+    // reads it like every other file, so a size added to it is held to the same floor. The
+    // list is compared by NAME, so a swap of one file for another cannot pass as "still five".
+    assertEqual(
+      SOURCES.styleSources(),
+      ["fonts/fonts.css", "style.css", "speckle.css", "splash.css", "home.css"],
+      "the shell links a different set of stylesheets from the five this check was measured against"
     );
     // THE TWO DERIVATIONS ARE JOINED, the way `lib/harness.js` joins its two PNG decoders: a
     // brace-counting walk and the property regex must see the same declarations, or the walk
