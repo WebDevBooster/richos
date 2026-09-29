@@ -62,7 +62,10 @@ const MAX_HISTORY = 10;
 /// that is wedged cannot turn the evidence collection into a second hang.
 const EVAL_MS = 2000;
 const SHOT_MS = 3000;
-const HOST_MS = 5000;
+/// The CPU sample's interval: two readings of the kernel's tick counters this far apart.
+const CPU_SAMPLE_MS = 1000;
+/// Ceiling for each best-effort helper process (`sysctl`, `ps`). Neither is ever required.
+const HOST_MS = 3000;
 
 function enabled() {
   return String(process.env.RICHOS_UI_NAV_EVIDENCE || "").toLowerCase() !== "off";
@@ -325,7 +328,7 @@ async function writeBundle(page, rec, error) {
   } else {
     screenshot = { unavailable: shot.unavailable };
   }
-  const host = hostContext();
+  const host = await hostContext();
 
   const reached = {};
   for (const e of ["request", "response", "commit", "domcontentloaded", "load"]) {
@@ -469,39 +472,62 @@ function gitHead() {
   return r && r.status === 0 ? r.stdout.trim() : null;
 }
 
-/// The machine around the failure: was it busy, and with what. `top`'s second sample is the
-/// same measurement `scripts/testvm/reserve.py` admits heavy work on, so the two numbers can
-/// be compared directly. About one second, and only ever paid on a failure.
-function hostContext() {
+/// The machine around the failure: was it busy, and with what.
+///
+/// THE CPU SAMPLE NEEDS NO OTHER PROCESS. Until 2026-09-29 it came from `/usr/bin/top -l 2 -s 1`
+/// under a 5-second ceiling, and nightly run `20260929T044015Z-588457c3` (UI suite, script
+/// suites and the mutation pool side by side, load average 13.0 on 10 cores, the CPU guard
+/// reading 89-92% busy) is where that fails: `spawnSync /usr/bin/top ETIMEDOUT`, no number,
+/// and the one moment the sample matters (a loaded host) is the moment it cannot be taken. It
+/// is now two readings of the kernel's own per-core tick counters (`os.cpus()`, which libuv
+/// reads with `host_processor_info`), `CPU_SAMPLE_MS` apart, taken in this process. Busy is
+/// everything that is not idle over that interval: user, nice, system and interrupt time,
+/// the same split `scripts/testvm/reserve.py` admits heavy work on (`host_statistics`
+/// HOST_CPU_LOAD_INFO, `cpu_policy.busy_percent`), so the two numbers compare directly. A
+/// loaded host makes the interval run long, and `cpuSampleMs` records how long it really was.
+///
+/// Everything else here is BEST-EFFORT and bounded: the kernel's memory-pressure verdict and
+/// the busiest processes each come from a helper process under a `HOST_MS` ceiling, and one
+/// that cannot answer is written down as unavailable, never waited on and never fatal.
+///
+/// MEMORY: `freeMemBytes` is `os.freemem()`, which on macOS is free plus speculative pages
+/// only. It leaves out the inactive pages the kernel reclaims on demand, so a low number is
+/// normal and is NOT a pressure reading (2026-09-29, at pressure NORMAL: 2155 MB "free" beside
+/// 6.5 GB inactive). The kernel's own verdict is `memoryPressure` (normal / warn / critical,
+/// the level `reserve.py` refuses at CRITICAL) and `memoryAvailablePercent`.
+async function hostContext() {
   const out = {
     loadavg: os.loadavg().map(round),
     cpus: os.cpus().length,
     freeMemBytes: os.freemem(),
     totalMemBytes: os.totalmem(),
     cpuBusyPercent: null,
-    topProcesses: null,
+    cpuSampleMs: null,
+    memoryPressure: null,
+    memoryAvailablePercent: null,
+    busiestProcesses: null,
   };
+  const cpu = await cpuSample(CPU_SAMPLE_MS);
+  if (cpu.unavailable) out.cpuUnavailable = cpu.unavailable;
+  else Object.assign(out, { cpuBusyPercent: cpu.busyPercent, cpuSampleMs: cpu.intervalMs });
   if (process.platform !== "darwin") return out;
-  const r = safe(() =>
-    spawnSync("/usr/bin/top", ["-l", "2", "-s", "1", "-n", "10", "-o", "cpu", "-stats", "pid,cpu,command"], {
-      encoding: "utf8",
-      timeout: HOST_MS,
-      env: Object.assign({}, process.env, { LC_ALL: "C" }),
-    })
-  );
-  if (!r || r.status !== 0 || !r.stdout) {
-    out.topUnavailable = r && r.error ? String(r.error.message || r.error) : "top did not run";
-    return out;
+
+  const mem = helper("/usr/sbin/sysctl", ["-n", "kern.memorystatus_vm_pressure_level", "kern.memorystatus_level"]);
+  const lines = mem.stdout ? mem.stdout.trim().split("\n") : [];
+  if (lines.length === 2 && /^\d+$/.test(lines[0]) && /^\d+$/.test(lines[1])) {
+    const level = Number(lines[0]);
+    out.memoryPressure = { 1: "normal", 2: "warn", 4: "critical" }[level] || "level " + level;
+    out.memoryAvailablePercent = Number(lines[1]);
+  } else {
+    out.memoryUnavailable = mem.unavailable || "sysctl answered " + JSON.stringify(mem.stdout);
   }
-  const idle = [...r.stdout.matchAll(/CPU usage:.*?([0-9]+(?:\.[0-9]+)?)% idle/g)];
-  if (idle.length >= 2) out.cpuBusyPercent = round(100 - Number(idle[idle.length - 1][1]));
-  // The process table of the SECOND sample: the first one's %CPU is since boot.
-  const lastHeader = r.stdout.lastIndexOf("\nPID");
-  if (lastHeader >= 0) {
-    out.topProcesses = r.stdout
-      .slice(lastHeader + 1)
+
+  // One `ps` snapshot, busiest first. Its %CPU is the kernel's decaying per-process average,
+  // which says what was busy around the failure; `cpuBusyPercent` is the measured host number.
+  const ps = helper("/bin/ps", ["-A", "-r", "-o", "pid=,%cpu=,comm="]);
+  if (ps.stdout) {
+    out.busiestProcesses = ps.stdout
       .split("\n")
-      .slice(1)
       .map((l) => l.trim())
       .filter(Boolean)
       .slice(0, 10)
@@ -509,8 +535,55 @@ function hostContext() {
         const m = l.match(/^(\d+)\s+([0-9.]+)\s+(.*)$/);
         return m ? { pid: Number(m[1]), cpu: Number(m[2]), command: m[3] } : { raw: l };
       });
+  } else {
+    out.processesUnavailable = ps.unavailable;
   }
   return out;
+}
+
+/// Host CPU busy percent over `ms`, from two readings of the kernel's per-core tick counters.
+async function cpuSample(ms) {
+  const ticks = () => {
+    let idle = 0;
+    let total = 0;
+    for (const c of os.cpus()) {
+      const t = c.times;
+      idle += t.idle;
+      total += t.user + t.nice + t.sys + t.idle + t.irq;
+    }
+    return { idle, total };
+  };
+  try {
+    const a = ticks();
+    const t0 = performance.now();
+    await new Promise((resolve) => setTimeout(resolve, ms));
+    const b = ticks();
+    const total = b.total - a.total;
+    if (!(total > 0)) return { unavailable: "the kernel's CPU tick counters did not advance in " + ms + " ms" };
+    const busy = 100 * (1 - (b.idle - a.idle) / total);
+    if (!Number.isFinite(busy) || busy < 0 || busy > 100) return { unavailable: "CPU tick counters gave " + busy };
+    return { busyPercent: round(busy), intervalMs: round(performance.now() - t0) };
+  } catch (e) {
+    return { unavailable: "CPU tick counters unreadable: " + ((e && e.message) || e) };
+  }
+}
+
+/// A short helper process under `HOST_MS`. Returns `{ stdout }` or `{ unavailable }`.
+function helper(file, args) {
+  const r = safe(() =>
+    spawnSync(file, args, {
+      encoding: "utf8",
+      timeout: HOST_MS,
+      env: Object.assign({}, process.env, { LC_ALL: "C" }),
+    })
+  );
+  if (r && r.status === 0 && r.stdout) return { stdout: r.stdout };
+  const why = !r
+    ? "did not run"
+    : r.error
+      ? String(r.error.message || r.error)
+      : "exited " + (r.status === null ? "on " + r.signal : r.status);
+  return { unavailable: file + ": " + why };
 }
 
 module.exports = {
