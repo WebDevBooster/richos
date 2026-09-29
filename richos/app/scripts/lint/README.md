@@ -130,10 +130,15 @@ git diff -- richos/app/scripts/lint/baselines
 commit. It refuses growth. Comparison with `refs/heads/main` also rejects a
 raised ceiling, removed rule, weakened classification or smaller inventory.
 `--trusted-ref` selects another integration reference explicitly. That reference
-must exist. Deleting a scanned file or changing a tool version requires an
-explicit integration migration; a normal baseline update cannot silently waive
-either. New files are scanned immediately, even before their inventory is added
-with `--lower`. A new diagnostic ID starts at zero.
+must exist. Changing a tool version requires an explicit integration migration;
+a normal baseline update cannot silently waive it. A scanned file that is gone
+from the tree (nothing exists at its path) leaves the inventory without one: the
+normal check passes, `--lower` records the removal, and the comparison with
+integration accepts a baseline that lost only such paths. A file that still
+exists but is no longer scanned, or whose role changed, is still refused. A
+rename is a removal plus a new file. New files are scanned immediately, even
+before their inventory is added with `--lower`. A new diagnostic ID starts at
+zero.
 
 `--bootstrap` creates missing initial baselines only if they are also absent on
 integration. Existing baselines are still checked, so an interrupted first run
