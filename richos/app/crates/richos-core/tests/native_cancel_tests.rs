@@ -20,6 +20,52 @@ use richos_core::native::{NativeClient, STOP_REASON_CANCELLED, STOP_REASON_CANCE
 use richos_core::steering::TurnCancel;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::mpsc;
+use std::sync::{Mutex, MutexGuard};
+use std::time::Duration;
+
+/// `RICHOS_CANCEL_GRACE_MS` is process-wide, and libtest runs these tests side by side in one
+/// process: the deaf test's 300 ms used to leak into the compliant test's cancel, turning a
+/// clean answer from a fake agent that was slow to be scheduled into "unacknowledged" (audit
+/// `docs/verification/2026-09-29-load-sensitive-checks-audit.md` R9). Every test that sets
+/// or depends on the grace holds this for its whole run and states the grace it needs.
+static GRACE_ENV: Mutex<()> = Mutex::new(());
+
+struct Grace {
+    _held: MutexGuard<'static, ()>,
+}
+
+impl Grace {
+    fn set(ms: u64) -> Grace {
+        // A test that failed while holding it leaves it poisoned; the value it guards is
+        // rewritten below, so the poison carries nothing the next test needs.
+        let held = GRACE_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("RICHOS_CANCEL_GRACE_MS", ms.to_string());
+        Grace { _held: held }
+    }
+}
+
+impl Drop for Grace {
+    fn drop(&mut self) {
+        std::env::remove_var("RICHOS_CANCEL_GRACE_MS");
+    }
+}
+
+/// A hang guard, never a verdict: a turn that never ends fails here with a sentence instead of
+/// holding the suite until the gate's own budget runs out.
+const HANG_GUARD: Duration = Duration::from_secs(60);
+
+/// Press stop from another thread once the turn has visibly started (its first text arrived),
+/// never after a fixed sleep: a sleep that ran out before the turn began pressed stop on
+/// nothing, and the turn then waited forever for a `result` nobody would send.
+fn press_on_first_text(cancel: std::sync::Arc<dyn TurnCancel>) -> (mpsc::Sender<()>, std::thread::JoinHandle<bool>) {
+    let (started_tx, started_rx) = mpsc::channel::<()>();
+    let presser = std::thread::spawn(move || {
+        started_rx.recv_timeout(HANG_GUARD).expect("the turn never produced its first text");
+        cancel.cancel()
+    });
+    (started_tx, presser)
+}
 
 /// A fake native agent in POSIX sh. `comply=true` answers the interrupt; `false` ignores
 /// it, which is the whole point of the second test.
@@ -94,23 +140,25 @@ fn connect(script: &PathBuf) -> NativeClient {
 
 #[test]
 fn a_compliant_agent_ends_the_turn_as_cancelled_and_the_partial_text_survives() {
+    // What this test proves is what a COMPLIANT answer turns into, so the grace is set far
+    // beyond any scheduling delay: a fake agent that answers the interrupt is reported as
+    // having answered it however busy the Mac is. How long the grace is, is the deaf test's
+    // subject, not this one's.
+    let _grace = Grace::set(HANG_GUARD.as_millis() as u64);
     let script = fake_agent("comply", true);
     let client = connect(&script);
-    let cancel = client.cancel_handle();
 
     let seen = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
     let seen_w = seen.clone();
-    // Press stop shortly after the turn starts, from a DIFFERENT thread — which is the real
+    // Press stop once the turn is under way, from a DIFFERENT thread — which is the real
     // shape of the problem: the turn owns the spine lock, the stop cannot wait for it.
-    let presser = std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(250));
-        cancel.cancel()
-    });
+    let (started, presser) = press_on_first_text(client.cancel_handle());
 
     let stop = client
         .prompt("take your time", &mut |item| {
             if let TurnItem::Text { text, .. } = item {
                 seen_w.lock().unwrap().push_str(text);
+                let _ = started.send(());
             }
         })
         .unwrap();
@@ -128,37 +176,46 @@ fn a_compliant_agent_ends_the_turn_as_cancelled_and_the_partial_text_survives() 
 #[test]
 fn a_deaf_agent_does_not_hold_the_turn_open_and_is_reported_as_deaf() {
     // The bound, exercised in milliseconds rather than the shipping 3s.
-    std::env::set_var("RICHOS_CANCEL_GRACE_MS", "300");
+    const GRACE_MS: u64 = 300;
+    let _grace = Grace::set(GRACE_MS);
     let script = fake_agent("deaf", false);
     let client = connect(&script);
-    let cancel = client.cancel_handle();
+    let (started, presser) = press_on_first_text(client.cancel_handle());
 
-    let presser = std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(150));
-        cancel.cancel()
+    // The turn runs on its own thread so that a loop which parks forever on a `result` that
+    // never comes fails at the hang guard with a sentence, instead of holding the suite.
+    let (done_tx, done_rx) = mpsc::channel();
+    let turn = std::thread::spawn(move || {
+        let began = std::time::Instant::now();
+        let stop = client
+            .prompt("ignore me", &mut |item| {
+                if matches!(item, TurnItem::Text { .. }) {
+                    let _ = started.send(());
+                }
+            })
+            .unwrap();
+        let _ = done_tx.send((stop, began.elapsed()));
+        client
     });
-
-    let began = std::time::Instant::now();
-    let stop = client.prompt("ignore me", &mut |_| {}).unwrap();
-    let elapsed = began.elapsed();
-    assert!(presser.join().unwrap());
+    let (stop, elapsed) = done_rx
+        .recv_timeout(HANG_GUARD)
+        .expect("the deaf agent held the turn open: the loop never returned");
+    assert!(presser.join().unwrap(), "the cancel reached a live turn");
+    drop(turn.join().unwrap());
 
     assert_eq!(
         stop, STOP_REASON_CANCEL_UNACKNOWLEDGED,
         "an agent that ignored the interrupt must not be reported as a clean cancel"
     );
-    // 150ms before the press + a 300ms grace = 450ms floor. The ceiling is generous because
-    // a loaded CI box is not a real-time system; what is being proven is that the loop
-    // RETURNS rather than parking forever on a `result` that never comes.
+    // A FLOOR, which load can only make larger: the press came after `began` and the grace
+    // runs from the press, so a loop that honored the grace cannot return sooner than it.
+    // There is no ceiling: what is proven is that the loop RETURNS at all rather than parking
+    // on a `result` that never comes, and the hang guard above is what catches a loop that
+    // does not. (The old `< 5 s` ceiling decided the verdict by the speed of the Mac.)
     assert!(
-        elapsed.as_millis() >= 400,
-        "returned too early: {elapsed:?}"
+        elapsed >= Duration::from_millis(GRACE_MS),
+        "returned before the grace ran out: {elapsed:?}"
     );
-    assert!(
-        elapsed.as_millis() < 5_000,
-        "the deaf agent held the turn open: {elapsed:?}"
-    );
-    std::env::remove_var("RICHOS_CANCEL_GRACE_MS");
     let _ = std::fs::remove_file(&script);
 }
 
