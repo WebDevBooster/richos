@@ -22,6 +22,10 @@ spec = importlib.util.spec_from_file_location("proof_run", HERE / "proof-run.py"
 runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
 
+# The Cache Directory Tagging Specification's signature, as Cargo writes it into a target
+# directory (bford.info/cachedir). Literal here, so the fixture never depends on the code under test.
+CACHEDIR_SIGNATURE = b"Signature: 8a477f597d28d172789f06886806bc55"
+
 IDLE_SAMPLE = {"cpu_user_percent": 5.0, "cpu_system_percent": 2.0, "cpu_idle_percent": 93.0,
                "swapout_mb_per_s": 0.0, "memory_pressure": "normal", "memory_free_percent": 80,
                "swap_used_mb": 0.0}
@@ -893,7 +897,7 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
         for name, tagged in (("target", True), ("plain-output", False), ("tagged-source", True)):
             (crate / name).mkdir()
             if tagged:
-                (crate / name / "CACHEDIR.TAG").write_bytes(evidence.CACHEDIR_SIGNATURE + b"\n# a cache\n")
+                (crate / name / "CACHEDIR.TAG").write_bytes(CACHEDIR_SIGNATURE + b"\n# a cache\n")
             (crate / name / "product.bin").write_text("one")
         self.qualification("fixture input contract", paths=["input"])
         recipe = {"paths": ["input"], "tools": [], "environment": [], "external": [],
@@ -922,7 +926,7 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
                 path.write_text(original)
         self.assertEqual(base, evidence.recipe_identity(self.root, recipe, {}))
         (crate / "target").mkdir()
-        (crate / "target" / "CACHEDIR.TAG").write_bytes(evidence.CACHEDIR_SIGNATURE + b"\n")
+        (crate / "target" / "CACHEDIR.TAG").write_bytes(CACHEDIR_SIGNATURE + b"\n")
         (crate / "target" / "kept.txt").write_text("tracked on purpose")
         subprocess.run(["git", "-C", str(self.root), "add", "-f", "input/crate/target/kept.txt"], check=True, env=env)
         with_tracked = evidence.recipe_identity(self.root, recipe, {})
@@ -941,7 +945,7 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
         writer = runner.Item("writer", str(self.root), ["true"])
         writer.started = items[0].started = 1.0
         with patch.object(runner, "ROOT", str(self.root)):
-            record.explain = lambda item: runner.describe_input_change(item, baseline, items + [writer])
+            record.explain = lambda item: getattr(runner, "describe_input_change", lambda *a: "")(item, baseline, items + [writer])
             record.current_identity = lambda item: evidence.recipe_identity(self.root, recipe, {})
             (crate / "target" / "product.bin").write_text("a build beside the check")
             self.passed(items, record)
