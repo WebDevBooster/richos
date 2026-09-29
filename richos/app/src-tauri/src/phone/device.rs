@@ -1072,6 +1072,15 @@ impl DeviceDesk {
         self.state.lock().unwrap().hold.released
     }
 
+    /// How many holds have begun since this desk opened: a ticket is issued the moment
+    /// [`DeviceDesk::hold_answer`] is called. **Test observation only**, so a test that needs an
+    /// ask to BE held before it presses, supersedes or tears down waits for this fact instead of
+    /// sleeping and betting that the ask got there (2026-09-29, the load-sensitive checks audit).
+    #[cfg(test)]
+    pub(crate) fn holds_begun(&self) -> u64 {
+        self.state.lock().unwrap().hold.next_ticket
+    }
+
     /// **HOLD THE PHONE'S "They match" UNTIL THERE IS SOMETHING NEW TO SAY** — Sage's review §1,
     /// "The fix" point 2.
     ///

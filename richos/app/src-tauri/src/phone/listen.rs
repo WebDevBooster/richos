@@ -2354,7 +2354,6 @@ mod tests {
     /// the seam the command calls, with the lock in the state the command finds it in.
     #[test]
     fn his_words_reach_the_phone_while_the_spine_is_still_held_by_something_else() {
-        const HELD_MS: u64 = 1_500;
         let mac = a_mac_with_a_paired_phone("announced", THE_REPLY);
 
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
@@ -2363,16 +2362,26 @@ mod tests {
             .recv_timeout(std::time::Duration::from_secs(10))
             .expect("the phone's stream never said hello");
 
+        // THE HOLDER KEEPS THE SPINE UNTIL THE PHONE HAS HIS WORDS (2026-09-29, the load-sensitive
+        // checks audit). It used to hold it for 1,500 ms and the test then required the words to
+        // arrive within 300 ms of wall clock, which a descheduled test process fails while the
+        // words went past the lock exactly as they should. Now the lock is released only after
+        // the watcher has returned, so "past the lock, not behind it" is a fact: if the
+        // announcement were behind the lock, the watcher would reach its own 20 s deadline with
+        // nothing, and the holder's 60 s bound is only there so a regression cannot hang the run.
         let holding = Arc::clone(&mac.spine);
-        let (let_go_tx, let_go_rx) = std::sync::mpsc::channel::<()>();
+        let (took_tx, took_rx) = std::sync::mpsc::channel::<()>();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
         let holder = std::thread::spawn(move || {
             let guard = holding.lock().unwrap();
-            let _ = let_go_tx.send(());
-            std::thread::sleep(std::time::Duration::from_millis(HELD_MS));
+            let _ = took_tx.send(());
+            if release_rx.recv_timeout(std::time::Duration::from_secs(60)).is_err() {
+                eprintln!("[test] the holder was never told to let go; letting go at its 60 s bound");
+            }
             drop(guard);
         });
-        let_go_rx
-            .recv_timeout(std::time::Duration::from_secs(5))
+        took_rx
+            .recv_timeout(std::time::Duration::from_secs(30))
             .expect("the holder never took the spine");
 
         // THE PRESS, on the road `send_message` takes: the durable record first — which this
@@ -2393,20 +2402,24 @@ mod tests {
         assert!(announced.is_some(), "nothing was published for his sentence");
 
         let (at, transcript) = watcher.join().expect("the watching phone panicked");
-        let his = at[0].expect("his message never reached the phone at all");
-        let took = his.saturating_sub(pressed);
-        println!("the spine was held for            : {HELD_MS} ms");
-        println!("his message -> the phone, past it : {took} ms");
-
-        // **PAST THE LOCK, NOT BEHIND IT.** 300 ms is the same slack the test above uses, from
-        // the same three sources (wall clock, a 20 ms poll, a loaded host). It is a fifth of
-        // the wait it has to beat, so this cannot pass on a machine where the lock still
-        // mattered — that machine produces 1,507 ms, which is what the test above measured.
+        // **PAST THE LOCK, NOT BEHIND IT.** The watcher has returned and the holder has not been
+        // told to let go, so the spine is still held right now; the phone either has his words
+        // already or never got them inside its 20 s deadline.
         assert!(
-            took <= 300,
-            "his message took {took} ms to reach the phone while the spine was held for \
-             {HELD_MS} ms — the announcement is back behind the lock. Transcript:\n{transcript}"
+            mac.spine.try_lock().is_err(),
+            "the spine is free, so this proves nothing about getting past a held lock"
         );
+        let his = at[0].unwrap_or_else(|| {
+            panic!(
+                "his message never reached the phone while the spine was held — the announcement \
+                 is back behind the lock. Transcript:\n{transcript}"
+            )
+        });
+        let took = his.saturating_sub(pressed);
+        // Reported, not judged: on this Mac's idle runs single-digit milliseconds, against the
+        // 1,507 ms the test above measures behind the lock.
+        println!("the spine was still held when the phone had his words");
+        println!("his message -> the phone, past it : {took} ms");
         assert!(
             transcript.contains("intake_"),
             "the row on the wire does not carry the intake id the page retires it by:\n{transcript}"
@@ -2419,6 +2432,7 @@ mod tests {
             "his sentence was announced to the phone and is not on the log"
         );
 
+        release_tx.send(()).expect("the holder let go of the spine before it was told to");
         let _ = holder.join();
         // The turn itself still runs, in order, off the log — the same call `send_message`
         // makes once it has the spine.
@@ -2920,31 +2934,54 @@ mod tests {
 
     /// The teardown's wait for released answers: none open returns at once, an open one is waited
     /// for until its body is done, and one that never finishes costs at most the bound.
+    ///
+    /// **DECIDED BY WHAT ENDED THE WAIT, NOT BY A STOPWATCH** (2026-09-29, the load-sensitive
+    /// checks audit). This used to time each `settle` against `< 50 ms` and `< 2 s`, which a
+    /// descheduled test process fails while the drain does exactly the right thing. Now each wait
+    /// is given a bound it cannot reach — `NEVER_MS` — so returning at all proves something
+    /// other than the bound ended it, and `HANG_GUARD` only stops a broken drain from hanging
+    /// the run: an hour-long bound that is waited out is caught 3,570 s early.
     #[test]
     fn the_drain_waits_for_held_answers_and_no_longer_than_its_bound() {
+        const NEVER_MS: u64 = 3_600_000;
+        const HANG_GUARD: std::time::Duration = std::time::Duration::from_secs(30);
+        let never = std::time::Duration::from_millis(NEVER_MS);
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         runtime.block_on(async {
             let drain = Arc::new(Drain::default());
-            let started = tokio::time::Instant::now();
-            drain.settle(std::time::Duration::from_secs(5)).await;
-            assert!(started.elapsed() < std::time::Duration::from_millis(50), "nothing open, and it waited");
 
+            // NOTHING OPEN: it returns without waiting for its (hour-long) bound.
+            tokio::time::timeout(HANG_GUARD, drain.settle(never))
+                .await
+                .expect("nothing was open, and the drain sat out its bound instead of returning");
+
+            // ONE OPEN: it returns because the answer finished, and not before.
             let guard = drain.enter();
+            let finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let marked = Arc::clone(&finished);
             tokio::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                marked.store(true, std::sync::atomic::Ordering::SeqCst);
                 drop(guard);
             });
-            let started = tokio::time::Instant::now();
-            drain.settle(std::time::Duration::from_secs(5)).await;
-            let waited = started.elapsed();
-            assert!(waited >= std::time::Duration::from_millis(190), "it did not wait for the open answer: {waited:?}");
-            assert!(waited < std::time::Duration::from_secs(2), "it waited past the answer: {waited:?}");
+            tokio::time::timeout(HANG_GUARD, drain.settle(never))
+                .await
+                .expect("the open answer finished, and the drain sat out its bound instead of returning");
+            assert!(
+                finished.load(std::sync::atomic::Ordering::SeqCst),
+                "the drain returned while the open answer was still being written"
+            );
 
+            // ONE THAT NEVER FINISHES: only the bound can end this wait, so returning at all is
+            // the bound holding; and a tokio timer never fires early, so the lower bound is safe
+            // on any host.
             let _stuck = drain.enter();
             let started = tokio::time::Instant::now();
-            drain.settle(std::time::Duration::from_millis(300)).await;
+            tokio::time::timeout(HANG_GUARD, drain.settle(std::time::Duration::from_millis(300)))
+                .await
+                .expect("an answer that never finishes held the drain past its bound");
             let waited = started.elapsed();
-            assert!(waited >= std::time::Duration::from_millis(290) && waited < std::time::Duration::from_secs(2), "the bound did not hold: {waited:?}");
+            assert!(waited >= std::time::Duration::from_millis(290), "the drain gave up before its bound: {waited:?}");
         });
     }
 
@@ -3088,7 +3125,26 @@ mod tests {
         fn they_match(&self, prefer: Option<&str>) -> (u16, Value, std::time::Duration) {
             self.they_match_signed_by(&self.phone, prefer)
         }
+
+        /// **WAIT FOR THE MAC TO BE HOLDING, NOT FOR A NUMBER OF MILLISECONDS** (2026-09-29, the
+        /// load-sensitive checks audit). These tests used to sleep 500-600 ms and bet that the
+        /// ask had connected, shaken hands and reached the hold by then; on a busy host it had
+        /// not, and a press, a newer ask or a teardown landed BEFORE the hold it was meant to
+        /// end. The desk issues a ticket the moment a hold begins; this waits for the `n`th. The
+        /// bound is a hang guard only.
+        fn wait_until_held(&self, n: u64) {
+            let guard = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            while self.devices.holds_begun() < n {
+                assert!(std::time::Instant::now() < guard, "hold {n} never began within 30 s");
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        }
     }
+
+    /// The longest a hold can last, so the one wrong answer a held-ask test must tell apart from
+    /// the right one: a hold that was not ended early runs to at least this. A held ask that
+    /// answers inside it was ended by something else, however slow the host was on the way.
+    const HOLD_LIMIT: std::time::Duration = std::time::Duration::from_secs(PAIR_WAIT_MAX_SECONDS);
 
     fn still_waiting() -> Value {
         serde_json::json!({ "ok": true, "awaiting_mac_confirmation": true })
@@ -3103,23 +3159,28 @@ mod tests {
 
         // CONTROLS: without `Prefer` the answer is immediate and unchanged, and a caller without
         // the key is refused at once however long it asks to wait.
-        let (status, body, took) = wire.they_match(None);
+        // "At once" is "no hold began", read off the desk rather than off a stopwatch.
+        let (status, body, _) = wire.they_match(None);
         assert_eq!((status, &body), (200, &still_waiting()), "the unheld answer changed");
-        assert!(took < std::time::Duration::from_secs(2), "an ask that did not ask to be held took {took:?}");
-        let (status, _, took) = wire.they_match_signed_by(&crate::phone::device::tests::Phone::new(), Some("wait=14"));
+        assert_eq!(wire.devices.holds_begun(), 0, "an ask that did not ask to be held was held");
+        let (status, _, _) = wire.they_match_signed_by(&crate::phone::device::tests::Phone::new(), Some("wait=14"));
         assert_eq!(status, 404, "a signature from another key was not refused");
-        assert!(took < std::time::Duration::from_secs(2), "a caller without the key was held for {took:?}");
+        assert_eq!(wire.devices.holds_begun(), 0, "a caller without the key was held");
 
         std::thread::scope(|scope| {
             let asked = scope.spawn(|| wire.they_match(Some("wait=14")));
-            std::thread::sleep(std::time::Duration::from_millis(600));
+            wire.wait_until_held(1);
             assert!(!asked.is_finished(), "the Mac answered at once instead of holding the ask");
             let pressed = std::time::Instant::now();
             wire.devices.confirm_on_mac().unwrap();
             let (status, body, took) = asked.join().unwrap();
             let after_press = pressed.elapsed();
             assert_eq!((status, &body), (200, &serde_json::json!({ "ok": true })), "the held ask was not told the Mac had pressed");
-            assert!(after_press < std::time::Duration::from_secs(1), "the phone heard the press {after_press:?} after it");
+            // THE PRESS ENDED THE HOLD, not its fourteen seconds running out: a hold nobody woke
+            // would answer `{ok: true}` too (the press moved the generation), but only at the
+            // limit. `took` runs from before the ask was sent, so it cannot be under the limit
+            // unless something ended the hold early — and the press is the only thing here.
+            assert!(took < HOLD_LIMIT, "the held ask answered after {took:?}: the press did not wake it, its limit did");
             eprintln!("[test] held {} ms; answered {} ms after the press on the Mac", took.as_millis(), after_press.as_millis());
         });
     }
@@ -3131,8 +3192,11 @@ mod tests {
         let wire = hold_wire("timeout");
         let (status, body, took) = wire.they_match(Some("wait=1"));
         assert_eq!((status, &body), (200, &still_waiting()));
+        assert_eq!(wire.devices.holds_begun(), 1, "the ask was answered without being held");
         assert!(took >= std::time::Duration::from_millis(900), "a one-second hold answered after {took:?}");
-        assert!(took < std::time::Duration::from_secs(4), "a one-second hold answered after {took:?}");
+        // The time the phone ASKED for, not the most a hold may last: the one wrong answer this
+        // tells apart is a hold that ignored `wait=1` and ran to the limit.
+        assert!(took < HOLD_LIMIT, "a one-second hold answered after {took:?}: it ran to the limit, not to the time asked for");
         eprintln!("[test] a one-second hold answered after {} ms", took.as_millis());
     }
 
@@ -3143,14 +3207,18 @@ mod tests {
         let wire = hold_wire("supersede");
         std::thread::scope(|scope| {
             let first = scope.spawn(|| wire.they_match(Some("wait=14")));
-            std::thread::sleep(std::time::Duration::from_millis(500));
+            // The newer ask must arrive while the older one IS held, or there is nothing for it
+            // to supersede and the order of the two holds is the scheduler's.
+            wire.wait_until_held(1);
             let second_started = std::time::Instant::now();
             let second = scope.spawn(|| wire.they_match(Some("wait=2")));
             let (status, body, took) = first.join().unwrap();
             let first_answered = second_started.elapsed();
             assert_eq!((status, &body), (200, &still_waiting()));
-            assert!(first_answered < std::time::Duration::from_secs(1), "the older hold lasted {first_answered:?} after a newer ask arrived");
-            assert!(took < std::time::Duration::from_secs(3), "the older hold was not answered early: {took:?}");
+            assert_eq!(wire.devices.holds_begun(), 2, "the older hold ended before the newer ask was held");
+            // Ended by the newer hold, not by its own fourteen seconds (see `HOLD_LIMIT`).
+            assert!(took < HOLD_LIMIT, "the older hold was not answered early: {took:?}");
+            eprintln!("[test] the older hold answered {} ms after the newer ask was sent", first_answered.as_millis());
             let (status, body, took) = second.join().unwrap();
             assert_eq!((status, &body), (200, &still_waiting()));
             assert!(took >= std::time::Duration::from_millis(1_900), "the newer ask was not the one held: {took:?}");
@@ -3170,20 +3238,26 @@ mod tests {
     fn a_held_ask_hears_they_do_not_match_on_the_mac_before_the_channel_closes() {
         let wire = hold_wire("reject");
         std::thread::scope(|scope| {
+            let sent = std::time::Instant::now();
             let asked = scope.spawn(|| wire.they_match(Some("wait=14")));
-            std::thread::sleep(std::time::Duration::from_millis(500));
+            wire.wait_until_held(1);
             assert!(!asked.is_finished());
             // `PhoneRuntime::reject_on_mac`, in order: the device goes, then the channel.
             let stopping = std::time::Instant::now();
             wire.devices.forget().unwrap();
             wire.listener.lock().unwrap().take().expect("the listener").stop();
             let stopped_after = stopping.elapsed();
-            let (status, body, _) = asked.join().unwrap();
+            let stopped_since_sent = sent.elapsed();
+            let (status, body, took) = asked.join().unwrap();
             assert_eq!((status, &body), (403, &serde_json::json!({ "revoked": true })), "the held phone did not hear the Mac's refusal");
-            assert!(
-                stopped_after < std::time::Duration::from_millis(HELD_ANSWER_DRAIN_MS + 1_000),
-                "the teardown took {stopped_after:?}"
-            );
+            // THE REFUSAL ENDED THE HOLD AND THE TEARDOWN DID NOT SIT IT OUT. Both are counted
+            // from before the ask was sent, so neither can be under the hold's limit if the hold
+            // ran to it (`HOLD_LIMIT`). The teardown's own wait for the answer is bounded at
+            // `HELD_ANSWER_DRAIN_MS`, and that bound is proven by value in
+            // `the_drain_waits_for_held_answers_and_no_longer_than_its_bound`; this used to re-time
+            // it here against 2 s of wall clock, which a busy host fails with the answer delivered.
+            assert!(took < HOLD_LIMIT, "the held ask answered after {took:?}: the refusal did not end it, its limit did");
+            assert!(stopped_since_sent < HOLD_LIMIT, "the teardown returned {stopped_since_sent:?} after the ask was sent: it sat out the held ask");
             eprintln!("[test] the channel stopped {} ms after They do not match, with the answer delivered", stopped_after.as_millis());
         });
         assert!(std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, wire.port)).is_err(), "the port is still open");

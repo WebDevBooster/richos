@@ -251,11 +251,20 @@ mod tests {
     /// the decision half chose. 2000 readings is the same sample the 298.4 µs figure came from.
     #[test]
     fn two_thousand_real_readings_stay_cheap() {
-        let started = std::time::Instant::now();
+        // EACH READING IS TIMED ON ITS OWN AND THE MEDIAN IS JUDGED (2026-09-29, the
+        // load-sensitive checks audit). This used to divide the wall time of all 2000 by 2000,
+        // so one second of the test process being off a core on a busy host added half a
+        // millisecond to every reading. A descheduling lands inside a minority of 0.3 ms
+        // readings, and the median does not move for them; a reading that really became
+        // milliseconds moves every one of them.
+        let mut times = Vec::with_capacity(2000);
         for _ in 0..2000 {
+            let started = std::time::Instant::now();
             let _ = MacScreen.read();
+            times.push(started.elapsed());
         }
-        let each = started.elapsed() / 2000;
+        times.sort_unstable();
+        let each = times[times.len() / 2];
         // Measured at 298.4 µs on this Mac. The ceiling is deliberately loose — this is a
         // guard against a reading that became milliseconds, not a re-measurement.
         assert!(

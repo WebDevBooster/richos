@@ -177,12 +177,15 @@ mod tests {
         std::fs::write(&helper,"#!/bin/sh\nprintf '%s' \"$$\" > \"$(dirname \"$0\")/pid\"\nexec /bin/sleep 60\n").unwrap();
         std::fs::set_permissions(&helper,std::fs::Permissions::from_mode(0o700)).unwrap();
         let mut guard = guard_command(&helper,"fixture-token").unwrap().spawn().unwrap();
-        let deadline = Instant::now() + Duration::from_secs(3);
+        // Both waits below end on the fact they wait for; their bound is a hang guard only, and
+        // 30 s rather than 3 because the guard is this whole test binary started again, which a
+        // swapping host can take seconds to do (2026-09-29, the load-sensitive checks audit).
+        let deadline = Instant::now() + HANG_GUARD;
         while !dir.join("pid").exists() && Instant::now() < deadline { std::thread::sleep(Duration::from_millis(10)); }
         let pid = std::fs::read_to_string(dir.join("pid")).expect("guard did not launch its helper");
         // The OS performs this same close on an abrupt parent-process exit.
         drop(guard.stdin.take());
-        let deadline = Instant::now() + Duration::from_secs(3);
+        let deadline = Instant::now() + HANG_GUARD;
         while matches!(guard.try_wait(),Ok(None)) && Instant::now() < deadline { std::thread::sleep(Duration::from_millis(10)); }
         assert!(guard.try_wait().unwrap().is_some(), "guard survived the parent pipe");
         let alive = Command::new("/bin/kill").args(["-0",pid.trim()]).stdout(Stdio::null()).stderr(Stdio::null()).status().unwrap().success();
@@ -199,9 +202,22 @@ mod tests {
         std::fs::set_permissions(&helper,std::fs::Permissions::from_mode(0o700)).unwrap();
         let mut supervisor = Supervisor::start(&helper,"test-token".into()).unwrap();
         std::thread::sleep(Duration::from_millis(50));
-        let start = Instant::now(); supervisor.stop();
-        assert!(start.elapsed() < Duration::from_secs(2));
-        assert_eq!(supervisor.health().state,"stopped");
+        // THE STOP IS JUDGED AGAINST WHAT IT MUST NOT WAIT FOR, NOT AGAINST A STOPWATCH
+        // (2026-09-29, the load-sensitive checks audit). This used to be `< 2 s` of wall clock
+        // around `stop()`, which spawns and reaps a whole process tree and so fails on a busy
+        // host with the stop correct. What a wrong stop waits for is the helper's own 60 s
+        // `sleep`, or forever; so the stop runs on its own thread and must be back inside half of
+        // that, and a stop that never returns fails here instead of hanging the run.
+        let health = Arc::clone(&supervisor.health);
+        let (stopped_tx, stopped_rx) = mpsc::channel();
+        let stopper = std::thread::spawn(move || { supervisor.stop(); stopped_tx.send(()).expect("the test stopped listening"); });
+        stopped_rx.recv_timeout(HANG_GUARD).expect("stop() waited on the helper instead of ending it");
+        stopper.join().expect("the stopping thread panicked");
+        assert_eq!(health.lock().unwrap().state,"stopped");
         std::fs::remove_dir_all(dir).unwrap();
     }
+
+    /// Half of the fixture helper's 60 s `sleep`: a wait that is still going at this point was
+    /// waiting on the helper, and no correct wait here comes near it.
+    const HANG_GUARD: Duration = Duration::from_secs(30);
 }
