@@ -10,11 +10,13 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 
 import advisory_rules
-from common import APP, Refusal, checked, inventory, select, shellcheck
+from common import APP, Refusal, checked, classify, inventory, select, shellcheck, tracked
 import dialect
+import load_rules
 import process_rules
 import ratchet
 import rust
@@ -25,7 +27,8 @@ ROOT = Path(__file__).resolve().parents[4]
 BASE = APP + "scripts/lint/baselines/"
 # Seconds of Tauri Clippy's OWN work; waiting for Cargo's lock is not counted (rust.LOCK_WAIT).
 TAURI_CAP = 180
-RULES = {**process_rules.RULES,**timeout_rules.RULES, **advisory_rules.RULES, **dialect.RULES, **suite_rules.RULES}
+RULES = {**process_rules.RULES,**timeout_rules.RULES, **advisory_rules.RULES, **dialect.RULES, **suite_rules.RULES,
+         **load_rules.RULES}
 
 
 def versions(root, cargo=False):
@@ -52,12 +55,16 @@ def summarize(name, counts, diagnostics):
         print("Advisory candidates (review required): " + ", ".join(f"{key}={value}" for key, value in sorted(advisory.items())), flush=True)
 
 
-def custom(root, rows):
+def custom(root, rows, read=None):
+    """`read` supplies each file's text; by default the working tree. The dialect hook always
+    runs from `root`'s engine with the file's real path, whatever text it is handed."""
+    read = read or (lambda path: (root / path).read_text())
     findings = []
     counts = {rule: 0 for rule, kind in RULES.items() if kind == "blocking"}
     paths = select(rows, "shell") + select(rows, "rust")
+    texts = {path: read(path) for path in paths}
     for path in paths:
-        text = (root / path).read_text()
+        text = texts[path]
         row = rows[path]
         found = advisory_rules.scan(text, row["role"], row["language"])
         if row["language"] == "shell":
@@ -68,7 +75,7 @@ def custom(root, rows):
             if RULES[rule] == "blocking":
                 counts[rule] += 1
     def scan_path(path):
-        return path, dialect.scan(root, path, (root / path).read_text())
+        return path, dialect.scan(root, path, texts[path])
     # Each hook receives its real file path, preserving ownership and exemptions.
     with ThreadPoolExecutor(max_workers=4) as pool:
         for path, labels in pool.map(scan_path, paths):
@@ -97,6 +104,72 @@ def enforce(root, name, actual, args):
     ratchet.check(actual, baseline)
     if args.lower:
         baseline_path.write_text(json.dumps(ratchet.lower(actual, baseline), indent=2, sort_keys=True) + "\n")
+
+
+def load_phase(root, args, report, paths=None):
+    """Load-sensitive test code (load_rules.py): per-SITE baseline, not a count ceiling.
+    `paths` limits the scan to those files; sites are per file, so that is exact for them."""
+    tick = time.monotonic()
+    scanned = tracked(root) if paths is None else paths
+    sites = load_rules.collect(root, scanned)
+    report["load"] = dict(sites=sites, files=len(load_rules.targets(scanned)))
+    baseline_path = root / load_rules.BASELINE
+    trusted = ratchet.trusted_record(root, args.trusted_ref, load_rules.BASELINE)
+    if args.bootstrap and not baseline_path.exists():
+        if trusted is not None:
+            raise Refusal("bootstrap refuses a baseline already on integration: load")
+        baseline_path.write_text(load_rules.dump(load_rules.record(sites)))
+    else:
+        try:
+            baseline = json.loads(baseline_path.read_text())
+        except (OSError, ValueError) as exc:
+            raise Refusal("missing or malformed baseline: load") from exc
+        if trusted is not None:
+            load_rules.compare(baseline, trusted)
+        load_rules.check(sites, baseline)
+        if args.lower:
+            baseline_path.write_text(load_rules.dump(load_rules.lower(sites, baseline)))
+    report["load"]["seconds"] = time.monotonic() - tick
+    print(f"Load rules: {report['load']['files']} file(s) scanned for test code, no new load-sensitive site "
+          f"({len(sites)} baselined) in {report['load']['seconds']:.2f}s", flush=True)
+
+
+def shell_record(rows, tool_versions, counts):
+    shell_rows = {p: r for p, r in rows.items() if r["language"] == "shell"}
+    return record({"shellcheck": ["shellcheck", "--format=json", "--rcfile=" + APP + ".shellcheckrc", "<shell-inventory>"],
+                   "configuration_sha256": hashlib.sha256((ROOT / APP / ".shellcheckrc").read_bytes()).hexdigest()},
+                  {"shellcheck": tool_versions["shellcheck"]}, {"shellcheck-diagnostics": "blocking"}, shell_rows, counts)
+
+
+def custom_record(rows, tool_versions, counts):
+    return record({"custom": ["python3", APP + "scripts/lint/driver.py", "<rust-and-shell-inventory>"]},
+                  {"python": tool_versions["python"]}, RULES,
+                  {p: r for p, r in rows.items() if r["language"] != "javascript"}, counts)
+
+
+def static_full(args, rows, tool_versions, report):
+    tick = time.monotonic()
+    print("ShellCheck and custom rules running", flush=True)
+    counts, diagnostics = shellcheck(ROOT, rows)
+    report["shell"] = dict(counts=counts, diagnostics=diagnostics)
+    summarize("ShellCheck", counts, diagnostics)
+    enforce(ROOT, "shell", shell_record(rows, tool_versions, counts), args)
+    counts, diagnostics = custom(ROOT, rows)
+    report["custom"] = dict(counts=counts, diagnostics=diagnostics, seconds=time.monotonic() - tick)
+    summarize("Project rules", counts, diagnostics)
+    enforce(ROOT, "custom", custom_record(rows, tool_versions, counts), args)
+    load_phase(ROOT, args, report)
+    print(f"Static checks complete in {time.monotonic() - tick:.2f}s", flush=True)
+
+
+def rust_fast(args, rows, tool_versions, report):
+    tick = time.monotonic()
+    print("Rust fast set running", flush=True)
+    counts, diagnostics = rust.collect(ROOT, rust.FAST)
+    report["rust-fast"] = dict(counts=counts, diagnostics=diagnostics, seconds=time.monotonic() - tick)
+    summarize("Rust fast set", counts, diagnostics)
+    enforce(ROOT, "rust-fast", record({"clippy": rust.FAST}, tool_versions,
+            rust.lint_rules(ROOT), {p: r for p, r in rows.items() if r["language"] == "rust"}, counts), args)
 
 
 def js_report(root, rows):
@@ -185,37 +258,14 @@ def main(argv=None):
         tool_versions = versions(ROOT, cargo=not args.static)
         report["versions"] = tool_versions
         if not args.all or not fast_was_run(args.suite_results, os.environ.get("RICHOS_NIGHTLY_RUN_ID")):
-            tick = time.monotonic()
-            print("ShellCheck and custom rules running", flush=True)
-            counts, diagnostics = shellcheck(ROOT, rows)
-            report["shell"] = dict(counts=counts, diagnostics=diagnostics)
-            summarize("ShellCheck", counts, diagnostics)
-            shell_rows = {p: r for p, r in rows.items() if r["language"] == "shell"}
-            shell_record = record({"shellcheck": ["shellcheck", "--format=json", "--rcfile=" + APP + ".shellcheckrc", "<shell-inventory>"],
-                                   "configuration_sha256": hashlib.sha256((ROOT / APP / ".shellcheckrc").read_bytes()).hexdigest()},
-                                  {"shellcheck": tool_versions["shellcheck"]}, {"shellcheck-diagnostics": "blocking"}, shell_rows, counts)
-            enforce(ROOT, "shell", shell_record, args)
-            counts, diagnostics = custom(ROOT, rows)
-            report["custom"] = dict(counts=counts, diagnostics=diagnostics, seconds=time.monotonic() - tick)
-            summarize("Project rules", counts, diagnostics)
-            custom_record = record({"custom": ["python3", APP + "scripts/lint/driver.py", "<rust-and-shell-inventory>"]},
-                                   {"python": tool_versions["python"]}, RULES,
-                                   {p: r for p, r in rows.items() if r["language"] != "javascript"}, counts)
-            enforce(ROOT, "custom", custom_record, args)
-            print(f"Static checks complete in {time.monotonic() - tick:.2f}s", flush=True)
+            static_full(args, rows, tool_versions, report)
             if not args.static:
-                tick = time.monotonic()
-                print("Rust fast set running", flush=True)
-                counts, diagnostics = rust.collect(ROOT, rust.FAST)
-                report["rust-fast"] = dict(counts=counts, diagnostics=diagnostics, seconds=time.monotonic() - tick)
-                summarize("Rust fast set", counts, diagnostics)
-                enforce(ROOT, "rust-fast", record({"clippy": rust.FAST}, tool_versions,
-                        rust.lint_rules(ROOT), {p: r for p, r in rows.items() if r["language"] == "rust"}, counts), args)
+                rust_fast(args, rows, tool_versions, report)
         if args.all:
             tauri(ROOT, args, rows, tool_versions, report)
         print(f"Lint passed in {time.monotonic() - started:.2f}s", flush=True)
         return 0
-    except (Refusal, OSError, ValueError, subprocess.TimeoutExpired, TimeoutError) as exc:
+    except (Refusal, OSError, ValueError, subprocess.TimeoutExpired, subprocess.CalledProcessError, TimeoutError) as exc:
         if isinstance(exc, TimeoutError) and "Cargo's lock" in str(exc):
             message = f"lint deadline refused: {exc}; launched work stopped"
         elif isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)):

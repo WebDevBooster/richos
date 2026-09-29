@@ -41,6 +41,7 @@ only to top-level `*.test.sh` files discovered by the app script runner.
 | `test-positive-control` | Advisory | A refusal assertion without an acceptance assertion recognized in that file |
 | `test-retry` | Advisory | Retry or sleep syntax in a test; product retries can look identical |
 | `ui-absence` | Advisory, JavaScript report only | A string that may assert an absence |
+| `wall-clock-verdict`, `short-deadline`, `sleep-then-assert`, `host-sample`, `env-mutation-unguarded` | Blocking per SITE (`load_rules.py`) | Load-sensitive test code, below |
 
 Structural shell checks cover the syntax above. They are not a shell interpreter
 or a proof of arbitrary data flow. Heredoc contents, indirect functions, arrays
@@ -54,6 +55,34 @@ dictionary or scanner. It observes the scanner-result assignment through shell
 trace because the hook has silent stand-down and parse-failure paths. An
 unevaluated scan fails. Trace stays in memory; normal output reports only the
 result. Explicit exemptions in the hook remain valid.
+
+## Load-sensitive test code
+
+`load_rules.py` is the rule from section 5 of
+`docs/verification/2026-09-29-load-sensitive-checks-audit.md`: *a test may bound TIME only to
+catch a hang, never to decide a verdict; and a deadline measures execution, never queueing.*
+It covers test code only: `*.test.sh`, `*.test.py`, `ui/tests/**/*.js` (blocking, unlike the
+other JavaScript rules), Rust files under `tests/` and `#[cfg(test)]` items.
+
+| ID | Refuses |
+| --- | --- |
+| `wall-clock-verdict` | an assertion comparing a measured duration (`Date.now()`/`performance.now()` difference, `Instant::elapsed`, `time.monotonic()` difference, `$SECONDS`, or a name assigned from one) against an upper literal |
+| `short-deadline` | a literal deadline under 30 s: `timeout=` in a call, Playwright `timeout:`, `waitForFact(..., N)`, `recv_timeout`, `Instant::now() + Duration` |
+| `sleep-then-assert` | `waitForTimeout(N)`, `time.sleep(N)`, `sleep N`, `thread::sleep` followed, before any condition wait, by an assertion; a sleep inside a loop is a poll interval and is not a site |
+| `host-sample` | `/usr/bin/top`, `os.loadavg`/`getloadavg`, `vm_stat`, `memory_pressure`, `uptime` executed (a line naming a mock, fake, stub or fixture is not) |
+| `env-mutation-unguarded` | `std::env::set_var`/`remove_var` in a Rust test with no `static` `Mutex`/`RwLock` guard in the file |
+
+A site is exempt only with `load-bound: <why this cannot depend on host load>` on the line or
+the line above, where a reviewer sees it (for example `load-bound: virtual clock, page.clock
+installed at :40`). A bare marker, or a reason under ten characters, exempts nothing.
+
+These rules are baselined by SITE, not count: `baselines/load.json` holds each existing site
+(file, rule, hash of the whitespace-normalized line). Any site not in it refuses, even while
+another is being removed; a duplicated line is a new site. `--lower` drops paid-down sites.
+Against `refs/heads/main` a branch cannot add a site to the file or drop a rule. Moving a
+line to another file makes it a new site: fix it or declare it. The recognizers are line
+patterns, not parsers; what each one sees is written beside it in `load_rules.py`. The engine
+suites (`richos/engine/**/tests/`) are outside this lint's inventory, as the audit notes.
 
 ## Maintaining the ceiling
 
