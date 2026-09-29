@@ -214,9 +214,31 @@ fn tmp_path(tag: &str) -> std::path::PathBuf {
     ))
 }
 
+/// The bound on every wait in this file for something the test itself set in motion: a hang
+/// guard, never a verdict. It was 5 s (audit
+/// `docs/verification/2026-09-29-load-sensitive-checks-audit.md` R9, steering_tests `< 5 s`).
+const HANG_GUARD: Duration = Duration::from_secs(60);
+
+/// A turn that only a stop can end in time: 20 ms chunks for a whole hang guard. These tests
+/// used to script 60 chunks (1.2 s), so a test thread descheduled for about a second between
+/// "the turn is running" and "press stop" watched the turn finish on its own and failed with
+/// the stop path right. Now the only way the turn ends before the hang guard is the stop, and
+/// `delivered < STOPPABLE_TURN_CHUNKS` still says the stop cut it short.
+const STOPPABLE_TURN_CHUNKS: usize = (HANG_GUARD.as_millis() / 20) as usize;
+
 /// A spine wired the way the shell wires it: durable ledger, durable intake, a lease whose
 /// turn takes long enough to be interrupted.
 fn running_spine(tag: &str, chunks: usize) -> (Arc<Mutex<Spine>>, TurnControl, RecordingLive, String) {
+    let text: Vec<String> = (0..chunks).map(|i| format!("chunk {i} ")).collect();
+    let lease = CancellableMockCognition::new(
+        "sess-cancellable",
+        text.iter().map(|s| s.as_str()).collect(),
+        Duration::from_millis(20),
+    );
+    spine_with_lease(tag, Box::new(lease))
+}
+
+fn spine_with_lease(tag: &str, lease: Box<dyn Cognition>) -> (Arc<Mutex<Spine>>, TurnControl, RecordingLive, String) {
     let ledger_path = tmp_path(&format!("{tag}-ledger")).with_extension("jsonl");
     let intake_path = tmp_path(&format!("{tag}-intake")).with_extension("jsonl");
     let mut spine = support::spine(Ledger::open(&ledger_path).unwrap());
@@ -224,25 +246,49 @@ fn running_spine(tag: &str, chunks: usize) -> (Arc<Mutex<Spine>>, TurnControl, R
     spine.set_live_observer(Box::new(live.clone()));
     let thread = spine.create_thread("stop me", &femcboost()).unwrap();
     spine.switch_thread(&thread).unwrap();
-
-    let text: Vec<String> = (0..chunks).map(|i| format!("chunk {i} ")).collect();
-    let lease = CancellableMockCognition::new(
-        "sess-cancellable",
-        text.iter().map(|s| s.as_str()).collect(),
-        Duration::from_millis(20),
-    );
-    spine.attach_lease(Box::new(lease));
+    spine.attach_lease(lease);
     let control = TurnControl::open(&intake_path).unwrap();
     spine.set_turn_control(control.clone());
     (Arc::new(Mutex::new(spine)), control, live, thread)
 }
 
+/// A lease whose FIRST turn says one thing and then holds until the test lets it finish, and
+/// whose later turns answer at once. For a test that needs the spine genuinely busy while it
+/// does something, and the turn to END naturally afterwards: a fixed-length turn raced the
+/// test thread and, on a busy Mac, ended before the test looked.
+struct HeldUntilReleased {
+    release: Arc<AtomicBool>,
+    turns: usize,
+}
+
+impl Cognition for HeldUntilReleased {
+    fn session_id(&self) -> &str {
+        "sess-held"
+    }
+    fn reprime(&mut self, _p: &str, _on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
+        Ok(())
+    }
+    fn prompt(&mut self, _text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
+        self.turns += 1;
+        on_item(TurnItem::Text { seq: 0, text: "working on it " });
+        if self.turns == 1 {
+            let began = std::time::Instant::now();
+            while !self.release.load(Ordering::SeqCst) {
+                assert!(began.elapsed() < HANG_GUARD, "the test never released the first turn");
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        }
+        Ok("end_turn".to_string())
+    }
+}
+
 #[test]
 fn the_spine_lock_is_genuinely_held_for_the_whole_turn_and_the_stop_does_not_wait_for_it() {
-    // 60 chunks x 20ms = 1.2s of turn, which is 60x the 20ms the stop needs. If the stop
-    // were routed through the spine lock this test would take the full 1.2s and the turn
-    // would complete normally — which is exactly what a decorative stop button looks like.
-    let (spine, control, live, _thread) = running_spine("lock", 60);
+    // A turn a whole hang guard long (STOPPABLE_TURN_CHUNKS x 20 ms), which the stop needs
+    // 20 ms of. If the stop were routed through the spine lock this test would wait out the
+    // turn and it would complete normally — which is exactly what a decorative stop button
+    // looks like.
+    let (spine, control, live, _thread) = running_spine("lock", STOPPABLE_TURN_CHUNKS);
     let runner = {
         let spine = Arc::clone(&spine);
         std::thread::spawn(move || {
@@ -256,7 +302,7 @@ fn the_spine_lock_is_genuinely_held_for_the_whole_turn_and_the_stop_does_not_wai
     // Active now includes preparation. Wait for actual output in this test of
     // preserving partial output; preparation-only Stop has its own regressions.
     while !live.events.lock().unwrap().iter().any(|(name, _)| name == "rich://message-delta") {
-        assert!(began.elapsed() < Duration::from_secs(5), "the turn never produced output");
+        assert!(began.elapsed() < HANG_GUARD, "the turn never produced output");
         std::thread::sleep(Duration::from_millis(2));
     }
 
@@ -273,15 +319,15 @@ fn the_spine_lock_is_genuinely_held_for_the_whole_turn_and_the_stop_does_not_wai
     let guard = spine.lock().unwrap();
     let turn = guard.ledger().turn(&turn_id).unwrap();
     assert_eq!(turn.state, TurnState::Stopped, "the turn must record that the CEO ended it");
-    // It really was cut short: 60 chunks were scripted, fewer arrived.
+    // It really was cut short: STOPPABLE_TURN_CHUNKS were scripted, fewer arrived.
     let delivered = turn.assistant_text.split_whitespace().filter(|w| *w == "chunk").count();
     assert!(delivered > 0, "partial output must be preserved (§9.3 step 4), got none");
-    assert!(delivered < 60, "the turn ran to completion — nothing was actually stopped");
+    assert!(delivered < STOPPABLE_TURN_CHUNKS, "the turn ran to completion — nothing was actually stopped");
 }
 
 #[test]
 fn a_stopped_turn_reaches_the_wire_as_stopped_and_never_as_completed_or_failed() {
-    let (spine, control, live, _thread) = running_spine("wire", 60);
+    let (spine, control, live, _thread) = running_spine("wire", STOPPABLE_TURN_CHUNKS);
     let runner = {
         let spine = Arc::clone(&spine);
         std::thread::spawn(move || spine.lock().unwrap().submit_prompt("go", Source::Text).unwrap())
@@ -300,12 +346,19 @@ fn a_stopped_turn_reaches_the_wire_as_stopped_and_never_as_completed_or_failed()
 
 #[test]
 fn steering_written_while_rich_works_is_durable_immediately_and_delivered_at_the_boundary() {
-    let (spine, control, _live, thread) = running_spine("steer", 20);
+    // The first turn holds until this test releases it, so "the turn is still running while
+    // he steers" is a fact the test arranges, not a race with a 0.4 s turn (20 chunks, before
+    // 2026-09-29) that a descheduled test thread could lose.
+    let release = Arc::new(AtomicBool::new(false));
+    let (spine, control, _live, thread) =
+        spine_with_lease("steer", Box::new(HeldUntilReleased { release: Arc::clone(&release), turns: 0 }));
     let runner = {
         let spine = Arc::clone(&spine);
         std::thread::spawn(move || spine.lock().unwrap().submit_prompt("first", Source::Text).unwrap())
     };
+    let began = std::time::Instant::now();
     while control.active_turn().is_none() {
+        assert!(began.elapsed() < HANG_GUARD, "the turn never started");
         std::thread::sleep(Duration::from_millis(2));
     }
     // The spine is locked. This still returns.
@@ -317,6 +370,7 @@ fn steering_written_while_rich_works_is_durable_immediately_and_delivered_at_the
     assert!(on_disk.contains("also check the invoice"), "steering must be persisted before delivery");
     assert!(record.id() > 0);
 
+    release.store(true, Ordering::SeqCst);
     runner.join().unwrap();
     let guard = spine.lock().unwrap();
     let turns = ceo_turns(guard.ledger(), &thread);
@@ -329,7 +383,7 @@ fn steering_written_while_rich_works_is_durable_immediately_and_delivered_at_the
 #[test]
 fn a_stop_also_stops_the_work_the_ceo_had_queued_behind_it() {
     // A stop that immediately starts the next queued turn is not a stop.
-    let (spine, control, _live, thread) = running_spine("queued", 60);
+    let (spine, control, _live, thread) = running_spine("queued", STOPPABLE_TURN_CHUNKS);
     let runner = {
         let spine = Arc::clone(&spine);
         std::thread::spawn(move || spine.lock().unwrap().submit_prompt("first", Source::Text).unwrap())
@@ -585,7 +639,7 @@ impl Cognition for FinishesDespiteTheStop {
         self.running.store(true, Ordering::SeqCst);
         let began = std::time::Instant::now();
         while !self.stop_registered.load(Ordering::SeqCst) {
-            assert!(began.elapsed() < Duration::from_secs(5), "the stop never registered");
+            assert!(began.elapsed() < HANG_GUARD, "the stop never registered");
             std::thread::sleep(Duration::from_millis(2));
         }
         // The whole point: the adapter's `Done` was already in the channel.
@@ -633,7 +687,7 @@ fn a_turn_that_completed_is_never_rendered_as_one_the_ceo_stopped() {
     // slept-and-hoped.
     let began = std::time::Instant::now();
     while !(running.load(Ordering::SeqCst) && control.active_turn().is_some()) {
-        assert!(began.elapsed() < Duration::from_secs(5), "the turn never started");
+        assert!(began.elapsed() < HANG_GUARD, "the turn never started");
         std::thread::sleep(Duration::from_millis(2));
     }
 
@@ -740,7 +794,7 @@ fn a_stop_the_lease_actually_honoured_is_still_a_stop() {
     // the turn IS stopped and IS attributed to the CEO. `STOP_REASON_CANCELLED` had no
     // production reader at all before this commit; `deliver` is now that reader, and this
     // is the assertion that it reads it correctly.
-    let (spine, control, live, _thread) = running_spine("honoured", 60);
+    let (spine, control, live, _thread) = running_spine("honored", STOPPABLE_TURN_CHUNKS);
     let runner = {
         let spine = Arc::clone(&spine);
         std::thread::spawn(move || spine.lock().unwrap().submit_prompt("go", Source::Text).unwrap())
