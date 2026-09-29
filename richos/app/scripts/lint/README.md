@@ -99,7 +99,10 @@ the nightly's execution marker; standalone `--all` runs both sets.
 The lint never probes the parent's release lock or waits for the parent's load.
 Scheduling standalone measurements is an operator responsibility.
 
-The Tauri deadline is 180 seconds, including Cargo lock waiting.
+The Tauri deadline is 180 seconds of Clippy's own work. Waiting for Cargo's lock
+(from Cargo's "Blocking waiting for file lock" line to its next line) is queueing,
+not work: it is reported and not counted, and a wait past 1800 seconds is refused
+as a hang (`rust.py` `LOCK_WAIT_GUARD`). Every Clippy run goes through `run_cargo`.
 Timeout cleanup terminates the process group created for the command, escalating
 to a kill if needed. It never selects processes by name. Descendants that
 deliberately detach into another session are outside process-group ownership.

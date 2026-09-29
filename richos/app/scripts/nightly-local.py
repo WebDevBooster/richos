@@ -58,7 +58,13 @@ GATE_BUDGETS = {
     # about 3340 s; 2x is 6680 s, rounded up to five minutes. The 1800 s it replaces predates A8
     # (the whole gate took 413 s on 2026-09-22) and killed that run with the suite still passing.
     "gates/script-suites": 6900,
-    "gates/lint-tauri": 300,    # At least 10x the full-lint sample; headroom beyond the 180s inner cap.
+    # A hang guard over `lint.sh --all`, whose own caps decide its verdict: Tauri Clippy's
+    # 180 s of work (lint/driver.py TAURI_CAP) plus up to 1800 s waiting for Cargo's lock
+    # (lint/rust.py LOCK_WAIT_GUARD, not counted in that cap since 2026-09-29, audit R12),
+    # plus 120 s for the static checks and tool versions (measured whole gate: 5-11 s). The
+    # 300 s this replaces sat INSIDE the lock-wait guard and would have refused a Clippy
+    # queued behind another build for two minutes before it compiled a line.
+    "gates/lint-tauri": 2100,
     # Re-derived 2026-09-25: the unit took 1291 s alone (run 20260925T201442Z-f9f0f9b9), and it ran
     # past 1800 s twice beside the simulator suites once gates ran at once (runs 20260925T222652Z-723fee53
     # and 20260925T225819Z-2a11fdd0). 792 s (2026-09-23) is stale; this is about 2x the contended envelope.
