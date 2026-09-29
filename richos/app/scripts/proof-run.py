@@ -76,7 +76,7 @@ WHAT MUST NOT RUN AT THE SAME TIME, and how that is decided (derived, never type
   * lane `cargo`   every cargo command (one target directory, one lock);
   * lane `gradle`  every app suite that drives bin/randroid (one Gradle project);
   * lane `guest`   every host-screen suite when RICHOS_GUI_HOST names the test VM (one
-                   guest, which run-suite.sh locks);
+                   guest slot at a time from this lane; run-suite.sh boots it through run-walk.py);
   * iOS suites own their devices. Shared simulator limits serialize boots and cap live devices;
     per-cache locks prevent independent runs from replacing one another's build or device state.
 

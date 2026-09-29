@@ -367,10 +367,11 @@ NO_HOST_SCREEN_COMMANDS = ("build",)
 # Nobody sets a variable, remembers a flag or runs a second command.
 #
 # WHAT IT DOES NOT DO, SAID HERE SO NOBODY FINDS IT LATER: gui-boot.test.sh itself (a debug
-# binary built from the checkout, B0-B8/C1-C5) is still recorded NOT RUN (no screen). It needs
-# cargo and the repository, and the guest has neither; `run-tests.sh` routes a screen suite to
-# a guest only through testvm/run-suite.sh, which has never existed (escalation
-# esc-20260929T110927Z-49c07194). The proof `publish` accepts is the shipped bundle's boot.
+# binary built from the checkout, B0-B8/C1-C5) is still recorded NOT RUN (no screen) here: the
+# gates do not hand RICHOS_GUI_HOST to `run-tests.sh`. Given it, `run-tests.sh` runs the suite in
+# a guest through testvm/run-suite.sh (2026-09-30), which builds the two executables on this Mac
+# because the guest has no cargo and no repository. The proof `publish` accepts is the shipped
+# bundle's boot.
 VM_PROOF_PHASE = "vm-boot-proof"
 # gui-proof-in-vm.sh waits up to 3600 s for one of the two guest slots (its --wait default,
 # chosen so a build that is walked away from still gets its proof), then boots, watches and
