@@ -907,6 +907,7 @@ def end_priority_turn(args, budget, running, waiting):
 
 def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, sampler):
     n, next_sample, last_launch = 0, 0.0, 0.0
+    last_ramp = None      # the check whose start the ramp is waiting to see in a sample
     admitted_lanes = set()
     previous_loop = time.monotonic()
     backoff_reason = "ready"
@@ -1084,9 +1085,14 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
         # Keep gradual ramp-up into additional lanes. A replacement in an
         # already admitted lane does not increase the established concurrency;
         # it still needs a fresh host sample and a real worker permit.
+        # The ramp exists so the next sample shows the load of the check started last. When
+        # that check has already exited there is no load left to wait for, and waiting anyway
+        # made every short check cost a full SETTLE_SECONDS (2026-09-29: the last 30 checks of
+        # the 78 in cc/echo-opus-speckle3's land each ran 2-6 s, one at a time, ~4-5 s apart).
+        settled = last_ramp is not None and last_ramp.state != "running"
         eligible = [it for it in ready if not running or
                     (it.lane is not None and it.lane in admitted_lanes) or
-                    now - last_launch >= SETTLE_SECONDS]
+                    now - last_launch >= SETTLE_SECONDS or settled]
         for it in ready:
             if it not in eligible:
                 it.wait_reason = "ramp"
@@ -1152,7 +1158,7 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 launch(it, n, logdir, tokens_dir, reserved)
                 checkpoint(items, logdir)
                 if it.lane is None or it.lane not in admitted_lanes:
-                    last_launch = time.monotonic()
+                    last_launch, last_ramp = time.monotonic(), it
                 if it.lane is not None:
                     admitted_lanes.add(it.lane)
                 print("[%s] start  %-40s %s" % (stamp(), it.label,

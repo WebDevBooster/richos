@@ -168,6 +168,28 @@ class FailurePolicy(unittest.TestCase):
         self.assertGreaterEqual(items[1].started - items[0].started, pr.SETTLE_SECONDS)
         self.assertLess(items[2].started - items[1].started, pr.SETTLE_SECONDS)
 
+    def test_ramp_does_not_wait_for_a_check_that_has_already_exited(self):
+        # The ramp waits SETTLE_SECONDS after a start so the next sample shows that check's
+        # load. Here the ramp's check, `quick`, exits at once; `blocker` (a replacement in
+        # quick's lane, which the ramp does not time) keeps the run busy until `next` has
+        # started. A ramp that honors only the clock holds `next` for the whole (huge) ramp,
+        # so `blocker` gives up and fails; one that sees `quick` gone starts `next` at once.
+        # 2026-09-29: the short tail of a 78-check land ran one check at a time, 4-5 s apart.
+        ready = self.root / "next-started"
+        blocker = ("import pathlib, time\nfor _ in range(600):\n    if pathlib.Path(%r).exists(): break\n"
+                   "    time.sleep(.05)\nelse:\n    raise SystemExit('next never started')" % str(ready))
+        items = [self.item("quick", "pass", lane="shared", weight=3),
+                 self.item("blocker", blocker, lane="shared", weight=2),
+                 self.item("next", "from pathlib import Path; Path(%r).touch()" % str(ready), weight=1)]
+        with patch.object(pr, "SETTLE_SECONDS", 1000), patch.object(pr, "admitted", return_value=(True, {})), \
+                contextlib.redirect_stdout(io.StringIO()):
+            pr.run(items, self.args, str(self.root / "run"), sampler=lambda: {
+                "cpu_user_percent": 5, "cpu_system_percent": 2, "swapout_mb_per_s": 0,
+                "memory_pressure": "normal"})
+        self.assertEqual([(i.label, i.state) for i in items],
+                         [("quick", "passed"), ("blocker", "passed"), ("next", "passed")], [i.notes for i in items])
+        self.assertLess(items[1].started, items[2].started)
+
     def test_shared_host_sample_keeps_pressure_and_never_reuses_stale_or_failed_data(self):
         values = iter([
             {"cpu_user_percent": 5, "cpu_system_percent": 2, "memory_pressure": "critical",
