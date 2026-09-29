@@ -270,6 +270,36 @@ class FailurePolicy(unittest.TestCase):
         self.assertEqual(item.wait_times.get('worker', 0), 0)
         self.assertIsNone(item.started)
 
+    def test_machine_pressure_refusal_is_the_mac_refusing_and_ends_not_admitted(self):
+        # 2026-09-29 (part-2 hunt section 01): only the Mac refusing spends --admission-wait. The
+        # verification pressure controller closing admission is the Mac refusing, so a check it
+        # keeps refusing still ends NOT ADMITTED, and the wait is named for what it was.
+        self.args.admission_wait = .4
+        item = self.item('pressure refused', "raise AssertionError('must not execute')")
+        with patch.object(pr.cpu_guard, 'verification_admission', return_value='verification pressure: red'):
+            self.run_items([item])
+        self.assertEqual((item.state, item.rc), ('not-admitted', 75))
+        self.assertGreaterEqual(item.refused_wait, .4)
+        self.assertGreater(item.wait_times.get('pressure', 0), 0)
+        self.assertIn('verification pressure: red', item.notes[-1])
+        self.assertIsNone(item.started)
+
+    def test_envelope_full_of_this_runs_own_work_is_a_queue_not_a_refusal(self):
+        # The measured resource envelope refusing while this run's own check holds it is this
+        # run's queue: the queued check waits past --admission-wait and then runs.
+        self.args.admission_wait = .3
+        sibling = self.item('holds the envelope', 'import time; time.sleep(1.2)', weight=2)
+        queued = self.item('queued', 'pass', weight=1)
+        def reserve(candidate, *args):
+            if candidate is queued and sibling.state == 'running':
+                raise BlockingIOError('measured verification capacity is full: cores')
+        with patch.object(pr, 'reserve_item', side_effect=reserve):
+            self.run_items([sibling, queued])
+        self.assertEqual((sibling.state, queued.state), ('passed', 'passed'), queued.notes)
+        self.assertGreater(queued.wait_times.get('resource-envelope', 0), self.args.admission_wait)
+        self.assertLess(queued.refused_wait, self.args.admission_wait)
+        self.assertGreaterEqual(queued.started, sibling.ended)
+
     def test_missing_or_failed_cleanup_preserves_attempt_cost_without_green(self):
         for index, record in enumerate((None, {'status': 'completed', 'cleanup': 'failed'})):
             item = self.item('incomplete ' + str(index), 'pass')

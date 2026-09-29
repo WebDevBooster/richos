@@ -142,6 +142,28 @@ try:
     check(its[0].state == "not-admitted" and its[0].started is None,
           "P5a at 95% user CPU a check is not started, and after its wait it is NOT-ADMITTED (a failure)",
           (its[0].state, its[0].notes))
+    # P5c — waiting behind this run's OWN checks is a queue, never a refusal (2026-09-29, part-2
+    # hunt section 01: checks were NOT ADMITTED after ~1,830 s of waiting, partly behind their own
+    # siblings). One worker, an idle Mac, an admission limit far below the sibling's run time:
+    # the second check waits for the worker, is never refused for it, and then runs; its queue
+    # time is reported apart from the time the Mac refused it (none).
+    app = os.path.join(pr.ROOT, "richos/app")
+    its = [pr.Item("holds-the-worker", app, ["bash", "-c", "sleep 1.5"], None, 2.0),
+           pr.Item("queued-behind-it", app, ["bash", "-c", "exit 0"], None, 1.0)]
+    d5c = os.path.join(tmp, "p5c")
+    import io
+    import contextlib
+    with contextlib.redirect_stdout(io.StringIO()):
+        pr.run(its, Args(capacity=1, admission_wait=0.3), d5c, sampler=idle)
+        pr.summarize(its, 1.0, d5c)
+    with open(os.path.join(d5c, "summary.json")) as fh:
+        row5c = {c["check"]: c for c in json.load(fh)["checks"]}.get("queued-behind-it", {})
+    check([i.state for i in its] == ["passed", "passed"] and its[1].started >= its[0].ended
+          and row5c.get("total_queue_seconds", 0) >= 1.0 and row5c.get("admission_refused_seconds") == 0
+          and row5c.get("wait_seconds_by_reason", {}).get("worker", 0) > 0.3,
+          "P5c a check queued behind its own run's worker for longer than --admission-wait is never refused "
+          "for it: it runs, queue time and refused time reported apart",
+          ([(i.label, i.state, i.notes) for i in its], row5c))
     r = subprocess.run([sys.executable, os.path.join(HERE, "proof-run.py"), "--low-priority", "--dry-run",
                         "--log-dir", os.path.join(tmp, "p5b"), "--paths", "richos/app/scripts/proof-run.py"],
                        capture_output=True, text=True)
