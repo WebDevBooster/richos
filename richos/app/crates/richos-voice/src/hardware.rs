@@ -943,8 +943,14 @@ mod tests {
 
     /// INVARIANT: the cache keeps the MINIMUM, because the same machine measured ~50% slower while
     /// busy and a sample taken under load must not be able to permanently under-rate it.
+    /// `RICHOS_WHISPER_SPEED_CACHE` is process-wide and libtest runs this crate's tests side by
+    /// side: any test that sets it holds this for as long as its value is in place (audit
+    /// `docs/verification/2026-09-29-load-sensitive-checks-audit.md`, `env-mutation-unguarded`).
+    static SPEED_CACHE_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn the_speed_cache_keeps_the_best_measurement_not_the_latest() {
+        let _env = SPEED_CACHE_ENV.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("richos-speed-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("speed.json");

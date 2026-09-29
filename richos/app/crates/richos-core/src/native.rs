@@ -4193,6 +4193,41 @@ mod native_driver_tests {
 printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
 "#;
 
+    /// Process environment is shared by every test in this binary, and libtest runs them side
+    /// by side. The tests below set variables to prove `child_args`/`chat_child_args` read
+    /// none; nothing reads these names, but every test that sets or clears one holds this for
+    /// as long as its value is in place, and puts the old value back on the way out, even when
+    /// it fails (audit `docs/verification/2026-09-29-load-sensitive-checks-audit.md`,
+    /// `env-mutation-unguarded`).
+    static ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    struct EnvSet {
+        saved: Vec<(&'static str, Option<std::ffi::OsString>)>,
+        _held: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl EnvSet {
+        fn empty(names: &[&'static str]) -> EnvSet {
+            let held = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+            let saved = names.iter().map(|n| (*n, std::env::var_os(n))).collect();
+            for name in names {
+                std::env::set_var(name, "");
+            }
+            EnvSet { saved, _held: held }
+        }
+    }
+
+    impl Drop for EnvSet {
+        fn drop(&mut self) {
+            for (name, value) in &self.saved {
+                match value {
+                    Some(v) => std::env::set_var(name, v),
+                    None => std::env::remove_var(name),
+                }
+            }
+        }
+    }
+
     fn assert_returned_before_the_result(root: &Path) {
         assert!(!root.join("result-sent").exists(),
             "the prompt returned only after the provider sent its result: the question retained the asking turn");
@@ -5073,9 +5108,8 @@ printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"ty
         let j = args.iter().position(|a| a == "--session-id").unwrap();
         assert_eq!(args[j + 1], "sess-1");
         // And no environment variable can turn the flag off: `child_args` reads none.
-        std::env::set_var("RICHOS_PERMISSION_PROMPT_TOOL", "");
+        let _env = EnvSet::empty(&["RICHOS_PERMISSION_PROMPT_TOOL"]);
         assert!(child_args("x").iter().any(|a| a == PERMISSION_PROMPT_TOOL));
-        std::env::remove_var("RICHOS_PERMISSION_PROMPT_TOOL");
     }
 
     // ---- the standing instruction (doctrine.rs, inner-doctrine design §7.1/§7.2) --------
@@ -5106,11 +5140,8 @@ printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"ty
         assert!(args[i + 1].contains("Application Support"));
 
         // And no environment variable can turn it off: `chat_child_args` reads none.
-        std::env::set_var("RICHOS_APPEND_SYSTEM_PROMPT_FILE", "");
-        std::env::set_var("RICHOS_DOCTRINE", "");
+        let _env = EnvSet::empty(&["RICHOS_APPEND_SYSTEM_PROMPT_FILE", "RICHOS_DOCTRINE"]);
         assert!(chat_child_args("x", doctrine, skills).iter().any(|a| a == APPEND_SYSTEM_PROMPT_FILE));
-        std::env::remove_var("RICHOS_APPEND_SYSTEM_PROMPT_FILE");
-        std::env::remove_var("RICHOS_DOCTRINE");
     }
 
     #[test]
@@ -5297,11 +5328,8 @@ printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"ty
         assert!(!args[i + 1].contains("/.claude/"), "the operator's own directory is not a source of authority");
 
         // And no environment variable turns it off: `chat_child_args` reads none.
-        std::env::set_var("RICHOS_PLUGIN_DIR", "");
-        std::env::set_var("RICHOS_SKILLS", "");
+        let _env = EnvSet::empty(&["RICHOS_PLUGIN_DIR", "RICHOS_SKILLS"]);
         assert!(chat_child_args("x", doctrine, skills).iter().any(|a| a == PLUGIN_DIR));
-        std::env::remove_var("RICHOS_PLUGIN_DIR");
-        std::env::remove_var("RICHOS_SKILLS");
     }
 
     #[test]

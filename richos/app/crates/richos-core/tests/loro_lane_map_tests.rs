@@ -32,6 +32,9 @@ use richos_core::loro::{CliContextCompiler, CorpusLanes, LaneMap, LoroRoot, Loro
 use richos_core::reprime::{LoroTier, SliceRequest};
 use std::path::PathBuf;
 
+/// Held by any test here that sets or clears the loro environment variables.
+static LORO_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// THE REGISTRY THESE TESTS RUN AGAINST — a local fixture, since 2026-09-04.
 ///
 /// It used to be `registry()`, a `const` table compiled into the
@@ -219,6 +222,11 @@ fn no_corpus_configured_is_not_an_error_and_not_a_crash() {
     // The state most machines are in, including a fresh install. `from_env` must say
     // "nothing configured" rather than failing — and it must not read a stale process
     // environment to do it.
+    // Process environment is shared by every test in this binary and libtest runs them side
+    // by side; whatever sets or clears these holds LORO_ENV for as long as its value is in
+    // place (audit `docs/verification/2026-09-29-load-sensitive-checks-audit.md`,
+    // `env-mutation-unguarded`).
+    let _env = LORO_ENV.lock().unwrap_or_else(|e| e.into_inner());
     let saved: Vec<(&str, Option<String>)> = ["LORO_CORPUS", "LORO_ROOT", "RICHOS_LORO_DIR", "RICHOS_LORO_LANES"]
         .iter()
         .map(|k| (*k, std::env::var(k).ok()))
