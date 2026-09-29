@@ -14,7 +14,9 @@ and the first shot taken while building this pass came out as a dimmed page with
 it at all — a photograph of an animation, which would have been filed as evidence of a broken
 surface. That is why `settledShot` exists rather than a bare `page.screenshot`.
 
-Re-running the suite overwrites all twelve. They are committed — unlike `.shots/`, which is
+Re-running the suite never rewrites them: a picture that changed is announced and kept at
+`../.shots/changed/shots-5b/`, and a reference is replaced only by
+`RICHOS_SHOTS_REGENERATE=shots-5b node corrections.js`, then committed. They are committed — unlike `.shots/`, which is
 the per-run scratch every suite writes and gitignores — because "the CEO can see what loro
 believes is wrong and confirm or decline it with the mouse" is a claim that should be
 checkable without running anything. **They are not byte-stable across runs and are not

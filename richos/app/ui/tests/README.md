@@ -318,6 +318,27 @@ with no nightly build on it: `techy.js` 104 s → 65 s and `updates.js` 78 s →
 were paying the same three seconds. Whoever deletes those `evidence()` waits on the strength of
 the leading call will get the alternating picture back.
 
+### AND A TEST RUN NEVER WRITES ONE AT ALL
+
+Since 2026-09-29 a changed picture is **announced and kept, never written over its reference**.
+The merge gate verifies a candidate in the main checkout; `splash.js` photographed two app
+screens the candidate had legitimately changed, wrote them over `shots-splash/splash-03` and
+`splash-04`, and the gate refused the merge as "source changed during verification" with every
+check canceled. The nightly had been doing the same with `home.js` and restoring it afterwards.
+A test that rewrites the tree it is verifying is making an unreviewed commit, so:
+
+* the run prints `shot changed: <file> — <difference> — the committed reference is NOT
+  rewritten`, keeps this run's picture at `.shots/changed/<same path>` (gitignored), and names
+  the exact command that accepts it. A changed picture is still not a failure, as before;
+* a reference is written only under `RICHOS_SHOTS_REGENERATE` (below), in your own worktree,
+  and committed with one line saying why it changed;
+* **every suite's report now carries the check "the tracked tree is exactly as this suite found
+  it"** (`lib/tracked-tree.js`): the harness takes `git status` when a suite starts and again
+  when it reports, and a tracked file whose content changed, or a new untracked file under this
+  directory, is a FAIL in that suite's own report, naming the file. So the next writer — one
+  that never goes near `publishShot` — is red on its own branch, by name, instead of refusing a
+  merge gate later. `tracked-tree.js` proves both halves, red and green.
+
 ### AND WHAT IS LEFT IS DECLARED, WITH ITS CAUSE, ITS MEASUREMENT AND ITS BOUND
 
 `lib/shot-stability.js` is the only place a committed shot may differ without being rewritten.
@@ -390,8 +411,9 @@ deletes both rows.
 Everything else in `shots-*` is byte-identical across consecutive runs, so a diff in it is
 signal.
 
-**To regenerate deliberately**, which ignores every bound and writes whenever the picture
-differs at all:
+**To regenerate deliberately** — the ONLY way a committed shot is written — which ignores every
+bound and writes whenever the picture differs at all. Run it in your own worktree and commit the
+result with one line saying why the picture changed:
 
 ```sh
 RICHOS_SHOTS_REGENERATE=all node contrast.js          # a whole run
@@ -406,8 +428,8 @@ nothing failed, because check 5's guard asked only whether `#splash` was still i
 was: the ceiling had fired, the fade had finished, and the node had 40 ms left before removal,
 so the suite filed a photograph of the home screen through a curtain at opacity 0 and called it
 green. It measured byte-identical across all five runs on 2026-09-19, so it is not declared —
-and if it ever drifts again it will be written, announced, and land in `git status` as the one
-thing a reference is for.
+and if it ever drifts again it will be announced as changed, with this run's picture kept in
+`.shots/changed/`, which is the one thing a reference is for.
 
 ## When a page load fails: the navigation evidence bundle
 
