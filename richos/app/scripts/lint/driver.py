@@ -99,11 +99,13 @@ def enforce(root, name, actual, args):
         baseline = json.loads(baseline_path.read_text())
     except (OSError, ValueError) as exc:
         raise Refusal(f"missing or malformed baseline: {name}") from exc
+    # A scanned path deleted from the tree leaves the inventory; one still present never does.
+    gone = ratchet.gone_from(root)
     if trusted is not None:
-        ratchet.compare(baseline, trusted)
-    ratchet.check(actual, baseline)
+        ratchet.compare(baseline, trusted, gone)
+    ratchet.check(actual, baseline, gone)
     if args.lower:
-        baseline_path.write_text(json.dumps(ratchet.lower(actual, baseline), indent=2, sort_keys=True) + "\n")
+        baseline_path.write_text(json.dumps(ratchet.lower(actual, baseline, gone), indent=2, sort_keys=True) + "\n")
 
 
 def load_phase(root, args, report, paths=None):
@@ -299,12 +301,13 @@ def changed(args, rows, tool_versions, report):
         return
     # Non-count parts of the contract, in full: versions, rules, commands, inventory, and the
     # committed baselines against integration.
+    gone = ratchet.gone_from(ROOT)
     for name, rec in (("shell", shell_record(rows, tool_versions, {})), ("custom", custom_record(rows, tool_versions, {}))):
         baseline = json.loads((ROOT / BASE / (name + ".json")).read_text())
         trusted = ratchet.trusted_record(ROOT, args.trusted_ref, BASE + name + ".json")
         if trusted is not None:
-            ratchet.compare(baseline, trusted)
-        ratchet.check(rec, baseline)
+            ratchet.compare(baseline, trusted, gone)
+        ratchet.check(rec, baseline, gone)
     # Counts, before and after, over the changed files plus the scripts that source them.
     shell_paths = select(rows, "shell")
     touched = {p for p in app_paths if classify(p) and classify(p)["role"] != "fixture"
