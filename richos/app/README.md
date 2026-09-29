@@ -203,7 +203,7 @@ richos/app/
                               nothing could read; a planted secret reaches no report; and
                               the anti-vacuous test that an untouched log skips NOTHING and
                               says NOTHING
-    tests/correction_forward_compat_tests.rs 27 tests holding the SAME line over the
+    tests/correction_forward_compat_tests.rs 36 tests holding the SAME line over the
                               CORRECTION DESK — the file that holds what he was ASKED and
                               what he ANSWERED. The desk is an event log, so losing the
                               LATER record loses the ANSWER: a correction he confirmed
@@ -1104,7 +1104,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1693 tests + 5 doc-tests (1689 direct, 4 ignored)
+cargo test -p richos-core                       # 1702 tests + 5 doc-tests (1698 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
