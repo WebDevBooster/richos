@@ -153,3 +153,8 @@ thread-switch.js       @shell richos/app/ui/timeline.js richos/app/ui/mock.js
 # The navigation capture in `lib/navigation-evidence.js` (reached by the library rule), proven
 # against a fixture suite it runs as a child process and one load of the shipping shell.
 navigation-evidence.js  @shell richos/app/ui/tests/fixtures/navigation-hang-suite.js richos/app/ui/tests/fixtures/loaded-host-preload.js richos/app/ui/tests/fixtures/stalled-host-preload.js
+# The tracked-tree guard in `lib/tracked-tree.js` and `publishShot` in `lib/harness.js` (both
+# reached by the library rule), and the one committed reference it reads, `shots-5c/` (reached
+# by the shots rule: the suite names that directory). It opens no shipped screen, so it names no
+# `ui/` source; its only declared input is the child suite it runs against a throwaway repository.
+tracked-tree.js         richos/app/ui/tests/fixtures/tracked-tree-suite.js
