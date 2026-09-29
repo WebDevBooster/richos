@@ -445,7 +445,9 @@ async function main() {
     // CEO's rule has no exception for "while the home screen is up", and this is the half that
     // keeps the guard a floor instead of a wall.
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(200);
+    // The effect is the fact waited for (hang guard), not a 200ms sleep (2026-09-29, audit R10);
+    // the assertion below still names a popup that never went.
+    await page.waitForSelector("#planted-above", { state: "hidden", timeout: 10000 }).catch(() => {});
     assert(
       await page.isHidden("#planted-above"),
       "a popup painted ABOVE the home screen stopped answering Escape — the guard is a wall, not a floor"
@@ -458,7 +460,9 @@ async function main() {
     // ...and now the only thing left is BEHIND the picture. This is the key a person presses at
     // a full-screen composition, and it must not answer a question he has never seen.
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(200);
+    // An ABSENCE of effect: give the shell two of its own frames to act (it renders at most once
+    // per frame), rather than 200ms of this process's time.
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     assert(
       await page.isVisible("#planted-behind"),
       "one Escape at the home screen answered a surface painted behind it — he declined a question he was never shown"
@@ -485,7 +489,7 @@ async function main() {
       "#set-menu now carries its own z-index, so this check no longer covers the case it was written for"
     );
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(200);
+    await page.waitForSelector("#set-menu", { state: "hidden", timeout: 10000 }).catch(() => {});
     assert(
       await page.isHidden("#set-menu"),
       `the settings menu stopped answering Escape at the home screen — it is painted at ${menuStacking.wrapperZ} by its wrapper and carries ${menuStacking.menuZ} itself, which is the trap`
@@ -495,7 +499,7 @@ async function main() {
     // was never behind anything, and Escape is Escape again.
     await leaveHome(page);
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(200);
+    await page.waitForSelector("#planted-behind", { state: "hidden", timeout: 10000 }).catch(() => {});
     assert(
       await page.isHidden("#planted-behind"),
       "the guard outlived the screen it belongs to — a surface that is covered by nothing is still refusing Escape"
@@ -574,7 +578,7 @@ async function main() {
     );
 
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(250);
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     assert(
       await page.evaluate(() => !document.getElementById("setup-sheet").hidden),
       "Escape pressed the offer's named way out through an opaque cover — he declined the one " +
@@ -584,7 +588,7 @@ async function main() {
     // it and Escape is the named button again, immediately, with no reload and no second key.
     await page.evaluate(() => document.getElementById("planted-cover").remove());
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(250);
+    await page.waitForFunction(() => document.getElementById("setup-sheet").hidden, null, { timeout: 10000 }).catch(() => {});
     assert(
       await page.evaluate(() => document.getElementById("setup-sheet").hidden),
       "with nothing over it, Escape stopped pressing the offer's named way out"

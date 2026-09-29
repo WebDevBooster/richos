@@ -42,7 +42,7 @@
 
 const path = require("path");
 const fs = require("fs");
-const { loadPlaywright, leaveHome, shot, publishShotFile, createRun, assert, assertEqual, SEED_THEME, UI_DIR, SHOT_DIR } = require("./lib/harness");
+const { loadPlaywright, leaveHome, shot, publishShotFile, createRun, assert, assertEqual, awaitSettled, SEED_THEME, UI_DIR, SHOT_DIR } = require("./lib/harness");
 const contrastLib = require("./lib/contrast");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
@@ -110,8 +110,12 @@ const READ_ROW = `(() => {
   };
 })()`;
 
-async function openApp(browser, viewport) {
+async function openApp(browser, viewport, opts) {
   const page = await browser.newPage({ viewport: viewport || { width: 1440, height: 900 } });
+  // `opts.clock`: the page runs on Playwright's clock from its first script. It keeps pace with
+  // real time until a check pauses it, so the boot is the boot a real launch gets; see
+  // `advanceUntil` for why a check would want to pause it.
+  if (opts && opts.clock) await page.clock.install();
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => {
@@ -180,6 +184,44 @@ async function waitForFact(page, fact, predicate, budgetMs) {
         (errs.length ? ":\n            " + errs.join("\n            ") : " — so this is a slow boot rather than a broken one") +
         `\n          page state: ${JSON.stringify(seen)}`
     );
+  }
+}
+
+/// Move a page whose clock is PAUSED (`openApp(..., { clock: true })`, then
+/// `page.clock.pauseAt`) forward in steps of `stepMs` of ITS OWN time until `predicate` holds,
+/// and return how much of its time that took.
+///
+/// WHY A CHECK WOULD DO THIS. The field's timers — the auto-ingest cadence, the spark's flight,
+/// the 2,600ms line, the label easing — all read `performance.now()`, `setTimeout` and
+/// `requestAnimationFrame`. On a real clock they keep running while the harness is between two
+/// round trips, so a check that reads "before / during / after" is racing them with however
+/// slow this host happens to be that minute. On a paused clock they move only here: every read
+/// is at an exact instant of the page's time, the page renders exactly one frame per 16ms of
+/// it, and a busy host spends more real seconds on the same answer rather than getting a
+/// different one.
+///
+/// The budget is in the PAGE's time and it is a refusal with the fact named, like
+/// `waitForFact`'s: "the page ran N ms of its own time and this never happened" is a statement
+/// about the product. There is no real-time bound here on purpose; a wedged page is caught by
+/// the suite's own hang guard, not by a number that would have to guess this host's speed.
+///
+/// `step` is a number of milliseconds, or an expression evaluated in the page that returns one,
+/// for a wait whose next useful instant the page itself can name.
+async function advanceUntil(page, fact, predicate, step, budgetMs) {
+  let spent = 0;
+  for (;;) {
+    if (await page.evaluate(predicate)) return spent;
+    if (spent >= budgetMs) {
+      const errs = (page.__errors || []).slice(0, 6);
+      throw new Error(
+        `ran the page's own clock ${spent}ms for ${fact} and it never became true.\n` +
+          `          the page had reported ${(page.__errors || []).length} error(s)` +
+          (errs.length ? ":\n            " + errs.join("\n            ") : "")
+      );
+    }
+    const ms = typeof step === "number" ? step : Math.max(1, Math.ceil(Number(await page.evaluate(step)) || 1));
+    await page.clock.runFor(ms);
+    spent += ms;
   }
 }
 
@@ -1676,108 +1718,116 @@ async function main() {
       return !window.__loro.domLabelRects.some(hits) && !window.__loro.nodeLabelRects.some(hits);
     })()`;
 
-    // THE PRECONDITION WAS AN ASSERTION, AND THAT IS WHAT MADE IT FLAKY
-    // (`esc-20260917T113423Z-bdc63632`). `ingest()` also fires on its OWN cadence, independent
-    // of this check calling it: first auto-fire at field-time t>7s, then every
-    // `7000 + rnd()*5000` = 7,000-12,000ms after that (`home/field-engine.js:838,593`), and each
-    // line it raises lives 2,600ms (`:743`). By the time this check runs, `withField()` plus
-    // every check ahead of it in this file has already spent well past 7s of field time, so
-    // whether a line HAPPENS to be up here is a coin flip driven by wall-clock timing of
-    // everything that ran before — not by anything this check does. Two identical runs on one
-    // tree disagreed for exactly that reason: run A found one up, run B did not.
+    // ON THE PAGE'S OWN CLOCK, AND WHY (2026-09-29). This check is a race by construction.
+    // `ingest()` also fires on its OWN cadence: first at field-time t>7s, then every
+    // `7000 + rnd()*5000` = 7,000-12,000ms (`home/field-engine.js`, `frame()`), and each line
+    // lives 2,600ms. Calling `ingest()` from outside does not reset that clock
+    // (`lastIngest`/`nextIngestGap`), so a line the field has already scheduled can land ON TOP
+    // of the one this check drives, and then "after" is not after anything.
     //
-    // So this waits for the fact instead of asserting it, on a bounded budget: the auto line's
-    // own longest life (2,600ms) plus its longest gap (12,000ms) is 14,600ms, and 20,000ms —
-    // the same budget `waitForFact` uses elsewhere in this file for a slow-boot allowance — is a
-    // refusal past that, not a courtesy. NEITHER `pause()` NOR `resume()` is called: the field's
-    // own cadence runs exactly as a real launch's does, because pausing it to make this
-    // precondition convenient would stop testing the product that ships.
+    // The version before this one waited, on the real clock, for `autoIngestDueInMs > 6000`
+    // and then drove its cycle: 1,250ms spark + 2,600ms line + 900ms = 4,750ms of the page's
+    // time, "plus whatever a dozen or so round trips cost", with 1,250ms of margin for those
+    // round trips. That margin was never measured, and on the nightly's host it is the host's
+    // to spend: the round trips before `ingest()` and after the line went all come out of it.
+    // Two nightly UI gates failed in home.js with no check named
+    // (`20260928T233221Z-56bcde43`, `20260928T235444Z-5610331e`); this was the first suspect
+    // in the audit (`docs/verification/2026-09-29-load-sensitive-checks-audit.md`, R1a).
     //
-    // "the field's quiet pass reads zero over the right half" was considered and DROPPED: it is
-    // never zero. `computeQuiet()`'s group 6 is `[#home-live .cap, #home-working]`, which sits
-    // in the right half and is never removed from the quiet-groups list — measured, standalone,
-    // three times: 57,564/156,640 erased/touched in ALL THREE of before/during/after, ticker
-    // state included, because the ticker itself stopped being a quiet group in the CEO's own fix
-    // above and so cannot move that number by design. Waiting for "zero" there would wait
-    // forever and turn every run into a timeout; waiting for `!on` is the actual precondition
-    // this check needs and the actual thing that was racing.
-    //
-    // `!on` ALONE WAS NOT ENOUGH, measured the hard way: the very first full-suite run of the
-    // `!on`-only wait passed the "before" gate clean and then failed on "after" with "the line is
-    // still up, so 'after' is not after anything" — a SECOND, auto-fired line landing during this
-    // check's own drive. `ingest()` called from outside (as this check calls it) does not reset
-    // the field's own clock (`lastIngest`/`nextIngestGap` — only the scheduler's own firing does,
-    // `field-engine.js:838`), so that clock keeps counting down in the background regardless of
-    // what this check does, and a line already scheduled to land in a few hundred ms will land
-    // ON TOP of the one this check drives. So this also waits for enough headroom on that clock
-    // before starting, via the read-only `autoIngestDueInMs` accessor added for exactly this
-    // (`home/field-engine.js`, next to `ingest`) — nothing about the clock's own behavior changes.
-    //
-    // THE HEADROOM THRESHOLD IS DERIVED, NOT GUESSED. This check's own driven cycle, summed from
-    // the constants above rather than assumed: 1,250ms for the spark to land (`:730`) + 2,600ms
-    // the line stays up (`:743`) + 900ms this file waits after it goes (below) = 4,750ms
-    // deterministic, plus whatever a dozen or so `page.evaluate`/`waitForFunction` round trips
-    // cost on top of that — not separately measured here, but bounded by construction: 6,000ms
-    // clears the 4,750ms deterministic floor with 1,250ms of margin for that overhead, and stays
-    // BELOW the auto clock's guaranteed minimum gap (7,000ms — `rnd()` is `[0,1)` so
-    // `7000 + rnd()*5000` never goes under 7,000). That second property is what makes the wait
-    // actually terminate rather than block forever: every time the auto clock resets, due-in
-    // jumps to 7,000-12,000ms, which is always > 6,000ms, so there is always a real window to be
-    // caught. The five-consecutive-green run below is the check on the 1,250ms margin actually
-    // holding in practice, not just on paper.
-    await waitForFact(
-      page,
-      "no temporary line is up, and the field's own auto-ingest clock has at least 6000ms of headroom before this check's own drive would race it",
-      "!document.getElementById('home-ticker').classList.contains('on') && window.__loro.autoIngestDueInMs > 6000",
-      20000
-    );
-    const before = await page.evaluate(AREA);
-    assert(!before.on, "a line was already up before this check drove one, even after waiting for it to clear");
+    // So the race is taken away rather than widened. This check opens its own page on
+    // Playwright's clock (`openApp(..., { clock: true })`), lets it boot at the pace of real
+    // time exactly as a launch does, and then PAUSES it. From there the page's time moves only
+    // by `advanceUntil` and `page.clock.runFor`: the auto-ingest cadence still runs, NEITHER
+    // `pause()` NOR `resume()` is called on the field, and nothing about the product changes,
+    // but every read is at an exact instant of the page's time and no round trip can move it.
+    // The 6,000ms headroom now carries its whole margin in the page's time: the driven cycle
+    // is at most 1,266 + 250 + 2,600 + 900 = 4,766ms of it, whatever the host is doing.
+    const pc = await openApp(browser, undefined, { clock: true });
+    try {
+      await withField(pc);
+      // `pauseAt` fast-forwards to the instant it is given. The page's clock tracks real time
+      // from `install()` and cannot be ahead of this process's own `Date.now()`, so a target
+      // one second past it is never in the page's past on any host.
+      await pc.clock.pauseAt(Date.now() + 1000);
 
-    await page.evaluate(() => window.__loro.ingest());
-    await waitForFact(page, "a temporary line is up", "document.getElementById('home-ticker').classList.contains('on')", 20000);
-    await page.waitForTimeout(250);
-    const during = await page.evaluate(AREA);
+      // THE PRECONDITION IS A FACT WAITED FOR, NOT ASSERTED (`esc-20260917T113423Z-bdc63632`:
+      // two identical runs disagreed on whether a line happened to be up). It holds at every
+      // reset of the auto clock (due-in jumps to 7,000-12,000ms, the previous line long gone),
+      // and a reset comes at least every 12,000ms, so 20,000ms of the page's time is a refusal.
+      // The step is read off the clock itself (straight past the next reset, or 250ms while a
+      // line is up), so this takes a handful of round trips rather than two hundred.
+      await advanceUntil(
+        pc,
+        "no temporary line is up, and the field's own auto-ingest clock has at least 6000ms of headroom before this check's own drive would race it",
+        "!document.getElementById('home-ticker').classList.contains('on') && window.__loro.autoIngestDueInMs > 6000",
+        "document.getElementById('home-ticker').classList.contains('on') || window.__loro.autoIngestDueInMs > 6000 ? 250 : Math.ceil(window.__loro.autoIngestDueInMs) + 50",
+        20000
+      );
+      const before = await pc.evaluate(AREA);
+      assert(!before.on, "a line was already up before this check drove one, even after waiting for it to clear");
+      const dueAtDrive = Math.round(await pc.evaluate("window.__loro.autoIngestDueInMs"));
 
-    // THE PICTURE'S OWN CAPTIONS LEAVE, AND THEY FADE RATHER THAN POP — so this waits for the
-    // fact instead of asserting it on the first frame. A node label is refused outright (the
-    // zone is seeded into the placement list, so it never draws); a DOMAIN label that was
-    // already up eases out at `LABEL_EASE = 0.18s`, which from 0.86 to the 0.15 it stops being
-    // recorded at is ln(0.15/0.86)/ln(1 - 0.0167/0.18) = 18 frames = 300ms at 60fps. Measured:
-    // present at 200ms, gone at 300ms. The budget is five times that, and it is a REFUSAL.
-    const t0 = Date.now();
-    await waitForFact(page, "the picture's own labels have left the line's box", NO_LABELS_UNDER_IT, 1500);
-    const clearedMs = Date.now() - t0;
+      await pc.evaluate(() => window.__loro.ingest());
+      // The spark flies 1,250ms (`ingest()`, `dur: 1250`) and lands on the first frame after.
+      await pc.clock.runFor(1200);
+      const landedMs = 1200 + (await advanceUntil(pc, "a temporary line is up", "document.getElementById('home-ticker').classList.contains('on')", 16, 800));
+      await pc.clock.runFor(250);
+      const during = await pc.evaluate(AREA);
 
-    await waitForFact(page, "the temporary line has gone", "!document.getElementById('home-ticker').classList.contains('on')", 20000);
-    // Past the 600ms fade, and past a second one landing: `ingest` is on a 4s-ish cadence of its
-    // own, so this reads in the gap rather than into the next line.
-    await page.waitForTimeout(900);
-    const after = await page.evaluate(AREA);
+      // THE PICTURE'S OWN CAPTIONS LEAVE, AND THEY FADE RATHER THAN POP. A node label is refused
+      // outright (the zone is seeded into the placement list, so it never draws); a DOMAIN label
+      // that was already up eases out at `LABEL_EASE = 0.18s`, which from 0.86 to the 0.15 it
+      // stops being recorded at is ln(0.15/0.86)/ln(1 - 0.0167/0.18) = 18 frames = 300ms at
+      // 60fps. The budget is five times that, and it is a REFUSAL. It used to be 1,500ms of
+      // REAL time, which on a busy host is fewer than 18 of the page's frames; it is now 1,500ms
+      // of the page's time, which renders a frame every 16ms of it, so it counts exactly the
+      // frames it was derived from. Read every 48ms (three frames).
+      // load-bound: page clock paused by `pauseAt` above; the page advances only via runFor.
+      const clearedMs = await advanceUntil(pc, "the picture's own labels have left the line's box", NO_LABELS_UNDER_IT, 48, 1500);
 
-    const hush = (r) => `${r.erased}/${r.touched}`;
-    assertEqual(
-      [hush(during), hush(after)].join(" "),
-      [hush(before), hush(before)].join(" "),
-      `the temporary line moved the picture's hush. erased/touched px over the right half — ` +
-        `before ${hush(before)}, up ${hush(during)}, after ${hush(after)}`
-    );
-    assertEqual(
-      [during.cap.join(","), during.working.join(","), after.cap.join(","), after.working.join(",")].join(" | "),
-      [before.cap.join(","), before.working.join(","), before.cap.join(","), before.working.join(",")].join(" | "),
-      "the temporary line resized the text block it sits under, which is what widened the hush over the whole block"
-    );
-    assert(during.ticker[2] - during.ticker[0] > 100, "no line was actually drawn, so this measured nothing");
-    assertEqual(after.on, false, "the line is still up, so 'after' is not after anything");
+      await advanceUntil(pc, "the temporary line has gone", "!document.getElementById('home-ticker').classList.contains('on')", 50, 3000);
+      // The line's 0.6s opacity fade is a CSS transition, and CSS runs on the document's real
+      // timeline, not on the page's clock. Wait for the fade itself to be over (a condition,
+      // with a hang guard), then give the field 900ms of its own time to redraw after it, which
+      // is the "after" the version before this read.
+      await waitForFact(
+        pc,
+        "the temporary line's fade has finished",
+        "document.getElementById('home-ticker').getAnimations().length === 0",
+        20000
+      );
+      await pc.clock.runFor(900);
+      const after = await pc.evaluate(AREA);
 
-    return (
-      `erased/touched px over the right half (2px lattice, 648,000 px): before ${hush(before)}, ` +
-      `line up ${hush(during)}, 900ms after it went ${hush(after)} — one number, three states\n          ` +
-      `the block under it never moved: cap ${before.cap.join(",")}, workforce ${before.working.join(",")} ` +
-      `in all three\n          the line's own box while up: ${during.ticker.join(",")} ` +
-      `(${during.ticker[2] - during.ticker[0]}x${during.ticker[3] - during.ticker[1]}px), ` +
-      `${during.labelsOverIt} of the picture's own captions inside it at +250ms, 0 by +${clearedMs}ms`
-    );
+      const hush = (r) => `${r.erased}/${r.touched}`;
+      assertEqual(
+        [hush(during), hush(after)].join(" "),
+        [hush(before), hush(before)].join(" "),
+        `the temporary line moved the picture's hush. erased/touched px over the right half — ` +
+          `before ${hush(before)}, up ${hush(during)}, after ${hush(after)}`
+      );
+      assertEqual(
+        [during.cap.join(","), during.working.join(","), after.cap.join(","), after.working.join(",")].join(" | "),
+        [before.cap.join(","), before.working.join(","), before.cap.join(","), before.working.join(",")].join(" | "),
+        "the temporary line resized the text block it sits under, which is what widened the hush over the whole block"
+      );
+      assert(during.ticker[2] - during.ticker[0] > 100, "no line was actually drawn, so this measured nothing");
+      assertEqual(after.on, false, "the line is still up, so 'after' is not after anything");
+      assertEqual(pc.__errors, [], "the page on the paused clock put errors in the console");
+
+      return (
+        `erased/touched px over the right half (2px lattice, 648,000 px): before ${hush(before)}, ` +
+        `line up ${hush(during)}, 900ms after it went ${hush(after)} — one number, three states\n          ` +
+        `the block under it never moved: cap ${before.cap.join(",")}, workforce ${before.working.join(",")} ` +
+        `in all three\n          the line's own box while up: ${during.ticker.join(",")} ` +
+        `(${during.ticker[2] - during.ticker[0]}x${during.ticker[3] - during.ticker[1]}px), ` +
+        `${during.labelsOverIt} of the picture's own captions inside it at +250ms, 0 by +${clearedMs}ms\n          ` +
+        `on the page's own clock, paused: auto-ingest due in ${dueAtDrive}ms when this drove its line, ` +
+        `the line landed ${landedMs}ms after the drive`
+      );
+    } finally {
+      await pc.close();
+    }
   });
 
   await run.check("THE TEMPORARY LINE: its own plate holds the floor, measured on the rendered frame", async () => {
@@ -2242,30 +2292,77 @@ async function main() {
     await shot(page, "home-named", { fullPage: false });
     publishShotFile(path.join(SHOT_DIR, "home-named.png"), path.join(SHOTS, "home-named.png"));
     const framesAt = await page.evaluate(() => window.__loro.frames);
+    // THE MOMENT THE SURFACE IS HIDDEN IS RECORDED BY THE PAGE, NOT SAMPLED BY THE HARNESS
+    // (2026-09-29, audit R1c). This used to sleep 1,200ms and assert fewer than 30 frames between
+    // a read taken BEFORE the click and a read taken after the sleep. Those frames are the
+    // 200ms fade (paused after it, by design: `home.js` `hide()`) plus however long the click's
+    // round trip took, and at 60fps a round trip of half a second on a busy host is 30 frames
+    // of a loop that stopped exactly when it should. What the product promises is that the loop
+    // is stopped when the surface is hidden, and that it stays stopped. So an observer records
+    // `running` and `frames` at the instant `#home` becomes hidden (a mutation observer runs at
+    // the end of the task that set it, which is the task that calls `pause()`), and the checks
+    // below compare against that instant, on any host.
+    await page.evaluate(() => {
+      const home = document.getElementById("home");
+      window.__homeHiddenAt = null;
+      const obs = new MutationObserver(() => {
+        if (!home.hidden || window.__homeHiddenAt) return;
+        window.__homeHiddenAt = { running: window.__loro.running, frames: window.__loro.frames };
+        obs.disconnect();
+      });
+      obs.observe(home, { attributes: true, attributeFilter: ["hidden"] });
+    });
     await page.click("#home-enter");
-    await page.waitForFunction(() => document.getElementById("home").hidden);
-    await page.waitForTimeout(1200);
+    await page.waitForFunction(() => document.getElementById("home").hidden && window.__homeHiddenAt, null, { timeout: 20000 });
     const r = await page.evaluate(() => ({
       open: window.RichHome.state.open,
       appInert: document.getElementById("app").hasAttribute("inert"),
       bodyClass: document.body.classList.contains("home-open"),
       running: window.__loro.running,
       frames: window.__loro.frames,
+      hiddenAt: window.__homeHiddenAt,
       focus: document.activeElement ? document.activeElement.id : null,
       forced: window.RichTheme.forcedDark(),
       composerReachable: !!document.getElementById("input") && !document.getElementById("input").disabled,
     }));
     assert(!r.open && !r.appInert && !r.bodyClass, "the app UI is not the surface in front");
+    assert(!r.hiddenAt.running, "the picture was still running at the instant the home screen was hidden");
     assert(!r.running, "the picture is still running behind an opaque conversation view");
-    assert(r.frames - framesAt < 30, `the loop ran on for ${r.frames - framesAt} frames after the switch`);
+    assertEqual(
+      r.frames,
+      r.hiddenAt.frames,
+      `the loop drew ${r.frames - r.hiddenAt.frames} frames after the home screen was hidden`
+    );
     assertEqual(r.focus, "input", "focus did not follow the surface to the composer");
     assert(!r.forced, "the always-dark clamp is still up in the app UI");
     await shot(page, "home-app-ui", { fullPage: false });
     publishShotFile(path.join(SHOT_DIR, "home-app-ui.png"), path.join(SHOTS, "home-app-ui.png"));
-    await page.waitForTimeout(1500);
+    // STILL STOPPED, MEASURED IN THE PAGE'S OWN FRAMES rather than 1,500ms of the harness's
+    // time: the page renders 90 more frames (1.5s at 60fps) and the loop's counter must not move
+    // across any of them. A loop that was still scheduled would advance with every one, however
+    // slowly this host renders them. The 30s race is a hang guard for a page that stops
+    // rendering at all, and it names itself.
+    const probed = await page.evaluate(
+      () =>
+        new Promise((resolve, reject) => {
+          const guard = setTimeout(() => reject(new Error("the page rendered fewer than 90 frames in 30s")), 30000);
+          let n = 0;
+          const tick = () => {
+            if (++n >= 90) {
+              clearTimeout(guard);
+              resolve(n);
+            } else requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        })
+    );
     const later = await page.evaluate(() => window.__loro.frames);
     assertEqual(later, r.frames, "the frame loop is still running while the CEO is in the app UI");
-    return `switched; #app live, focus on the composer, clamp dropped, frames stopped at ${r.frames} and still ${later} 1.5s later`;
+    return (
+      `switched; #app live, focus on the composer, clamp dropped, not running at the instant it was hidden ` +
+      `(${r.hiddenAt.frames - framesAt} frames from the click through the fade), frames stopped at ${r.frames} ` +
+      `and still ${later} after ${probed} more of the page's own frames`
+    );
   });
 
   await run.check("clicking the logo in the corner brings him back, and NOTHING is rebuilt", async () => {
@@ -2281,9 +2378,11 @@ async function main() {
     assertEqual(before.tabindex, "0", "the wordmark cannot be reached from the keyboard");
     const t0 = Date.now();
     await page.click("#rail-wordmark");
-    await page.waitForFunction("window.__loro.running === true");
+    await page.waitForFunction("window.__loro.running === true", null, { timeout: 20000 });
     const resumeMs = Date.now() - t0;
-    await page.waitForTimeout(900);
+    // The assertion below is that the picture is running again (frames advanced). It used to be
+    // read after a 900ms sleep; it is now the thing waited for, with a hang guard (audit R10).
+    await page.waitForFunction((f) => window.__loro.frames > f + 1, before.frames, { timeout: 20000 });
     const r = await page.evaluate(() => ({
       open: window.RichHome.state.open,
       hidden: document.getElementById("home").hidden,
@@ -2818,10 +2917,23 @@ async function main() {
       "the honest sentence is not on screen — it says: " + JSON.stringify(r.said)
     );
     // 2. AT ONCE. The eight-second deadline is the backstop for a failure nothing can be
-    //    told about; a failure the engine KNOWS about must not wait for it. Two seconds is
-    //    generous for a page load on any machine and a third of the deadline it replaces.
+    //    told about; a failure the engine KNOWS about must not wait for it.
+    //
+    //    WHICH PATH SETTLED THE SURFACE IS READ OFF THE SURFACE, NOT OFF A STOPWATCH
+    //    (2026-09-29, audit R1b). This used to assert `took < 2000`: a wall-clock bound around
+    //    a page load and a round trip, which a busy nightly host can spend on its own while the
+    //    engine reports its failure in the first frame. `settled()` (`home.js`) degrades with
+    //    the reason it was given: the engine's own words from `window.__loroFailed` on the
+    //    report path, or "the picture did not start within 8 seconds" on the deadline path. So
+    //    the reason on screen IS the path, on any host: equal to the engine's report means the
+    //    report settled it, and the deadline path cannot produce that string. `took` is still
+    //    measured and printed.
     assert(r.failed, "the engine did not report its own failure — settled() is back on the timeout");
-    assert(took < 2000, `the surface took ${took}ms to admit it — that is the eight-second deadline, not the report`);
+    assertEqual(
+      r.why,
+      r.failed,
+      "the surface degraded for a reason other than the engine's own report — that is the eight-second deadline (or another path), not the report"
+    );
     // 3. AND IT DOES NOT SHOUT. An unhandled rejection is what a crash reporter files, what a
     //    console fills with, and what made three unrelated splash checks red on that runner.
     const unhandled = noise.filter((n) => /Unhandled Promise Rejection|pageerror/.test(n));
@@ -3143,6 +3255,77 @@ async function main() {
     assert(left, "leaveHome did not find the home screen");
     assert(r.hidden && !r.inert, "leaveHome left the shell unreachable");
     return "leaveHome(page) returns true, un-mounts the surface and hands the shell back";
+  });
+
+  // THE HARNESS'S OWN WAITS SAY SO WHEN THEY GIVE UP (2026-09-29, audit R11). Both of these
+  // used to time out quietly and hand the caller a wrong state: `leaveHome` returned `false`
+  // after 5,000ms and ~60 callers ignored it, and `awaitSettled` resolved after 2,000ms as if a
+  // fade had ended. On a busy host that is a failure far from its cause, or a wrong picture
+  // published as the reference.
+  await run.check("leaveHome refuses a page whose home screen failed to load, rather than handing it on", async () => {
+    const p = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    try {
+      // PLANTED: `home.js` publishes itself with `window.RichHome = (function () {...})()`, and
+      // this makes that one assignment throw, which is what any load failure of the script
+      // looks like from outside: the script is on the page and its export never appears.
+      await p.addInitScript(() => {
+        Object.defineProperty(window, "RichHome", {
+          configurable: false,
+          get() {
+            return undefined;
+          },
+          set() {
+            throw new Error("planted: the home screen failed to load");
+          },
+        });
+      });
+      await p.goto(APP);
+      const t0 = Date.now();
+      let refused = null;
+      let returned;
+      try {
+        returned = await leaveHome(p);
+      } catch (e) {
+        refused = String(e.message || e);
+      }
+      const took = Date.now() - t0;
+      assert(
+        refused !== null,
+        `leaveHome handed back a page whose home screen never loaded (it returned ${JSON.stringify(returned)}) ` +
+          "instead of saying so; every caller that ignores the return drives an inert #app from here"
+      );
+      assert(/home\.js is on this page but window\.RichHome never appeared/.test(refused), "leaveHome refused, but did not name the cause: " + refused);
+      return `refused in ${took}ms with: ${refused.slice(0, 140)}`;
+    } finally {
+      await p.close();
+    }
+  });
+
+  await run.check("a settled shot waits for a fade to END, however long it runs past two seconds", async () => {
+    const p = await browser.newPage({ viewport: { width: 400, height: 300 } });
+    try {
+      // A finite 4-second fade: longer than the flat 2,000ms the settle wait used to give any
+      // animation, which is exactly what a busy host turns a 900ms fade into by the time its
+      // `finished` promise is delivered. The settle wait must return only when it has ended.
+      await p.setContent(
+        '<!doctype html><div id="f" style="width:100px;height:100px;background:#123;opacity:1;transition:opacity 4000ms linear"></div>'
+      );
+      await p.evaluate(() => {
+        const f = document.getElementById("f");
+        f.getBoundingClientRect();
+        f.style.opacity = "0";
+      });
+      const t0 = Date.now();
+      await awaitSettled(p);
+      const took = Date.now() - t0;
+      const still = await p.evaluate(
+        () => document.getAnimations().filter((a) => a.playState === "running").length
+      );
+      assertEqual(still, 0, `awaitSettled returned after ${took}ms with the 4s fade still running`);
+      return `returned after ${took}ms, with 0 animations running (a 4000ms fade)`;
+    } finally {
+      await p.close();
+    }
   });
 
   await browser.close();

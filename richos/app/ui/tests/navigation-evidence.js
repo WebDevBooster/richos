@@ -184,7 +184,14 @@ async function main() {
       assertRedWith(r, "page.goto: Timeout 1200ms exceeded.");
       const { data: b } = oneBundle(dir, r);
       assertEqual(b.options, null, "options recorded for a goto that passed none");
-      assert(b.elapsedMs >= 1200 && b.elapsedMs < 2200, "navigation rejected after " + b.elapsedMs + " ms, not at the page's 1200 ms default");
+      // WHICH DEADLINE DECIDED IS READ OFF PLAYWRIGHT'S OWN MESSAGE, NOT OFF A STOPWATCH
+      // (2026-09-29, audit R6). `assertRedWith` above already holds the FAIL line to
+      // `Timeout 1200ms exceeded.` — the page's default, by name — and `options: null` says no
+      // other one was passed. This used to add `elapsedMs < 2200` as well: an upper bound on how
+      // late a rejection is DELIVERED, which a starved event loop pushes past 2,200ms on a busy
+      // nightly host while the page's default decided exactly as it should. The lower bound
+      // stays; it is the half that says the deadline was not cut short.
+      assert(b.elapsedMs >= 1200, "navigation rejected after " + b.elapsedMs + " ms, before the page's 1200 ms default");
       assertEqual(
         b.reached,
         { request: true, response: false, commit: false, domcontentloaded: false, load: false },
@@ -204,8 +211,20 @@ async function main() {
       const { data: b } = oneBundle(dir, r);
       assertEqual(b.reached.commit, true, "the wedged document was committed");
       assertEqual(b.reached.domcontentloaded, false, "a script that never yields cannot reach domcontentloaded");
-      assert(b.dom.unavailable, "the DOM snapshot of a wedged page should be recorded as unavailable: " + JSON.stringify(b.dom).slice(0, 300));
-      assert(b.collectionMs < 15000, "collection took " + b.collectionMs + " ms: it is not bounded");
+      // BOUNDED IS PROVEN BY THE BOUND FIRING, NOT BY A STOPWATCH (2026-09-29, audit R6). The
+      // wedged fixture's script never yields, so the page can never answer `page.evaluate`; the
+      // only way this bundle exists at all is that the collector's own ceiling on that step
+      // fired and it went on. The DOM snapshot must therefore be recorded as the bound's own
+      // words, "did not answer within 2000 ms", and not as some other failure. This used to
+      // assert `collectionMs < 15000` instead, which is no hang guard: the collector's own
+      // ceilings (2,000 evaluate + 3,500 screenshot + 1,000 CPU sample + 3,000 sysctl + 3,000
+      // ps + 2,000 git) already sum to 14,500ms, so a busy host reached 10,031ms of it with
+      // nothing hung. A collection that really hangs never writes a bundle, and the fixture's
+      // own 60s process deadline (`runFixture`) names that.
+      assert(
+        /^page\.evaluate did not answer within \d+ ms$/.test(String(b.dom.unavailable || "")),
+        "the DOM snapshot of a wedged page must be recorded as the collector's own bound firing: " + JSON.stringify(b.dom).slice(0, 300)
+      );
       return "exit 1 in " + wall + " ms wall; dom: " + b.dom.unavailable + "; screenshot: " +
         (typeof b.screenshot === "string" ? "captured" : b.screenshot.unavailable) + "; collection " + b.collectionMs + " ms";
     });

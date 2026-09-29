@@ -424,7 +424,11 @@ async function main() {
     // turn is settled, so its work transcript is collapsed (§6.4) — open it the way the CEO
     // does, through the summary line, rather than reaching into the model.
     await page.click(".tl-collapsed-summary");
-    await page.waitForTimeout(200);
+    // The rolled-up row is the fact waited for (hang guard); it used to be a 200ms sleep
+    // (2026-09-29, audit R10). The assertion below still names a view that never rolled up.
+    await page
+      .waitForFunction(() => Array.from(document.querySelectorAll(".tl-activity-text")).some((n) => n.textContent === "Read 3 files"), null, { timeout: 10000 })
+      .catch(() => {});
     const calmLabels = await page.$$eval(".tl-activity-text", (n) => n.map((x) => x.textContent));
     assert(calmLabels.includes("Read 3 files"), "the calm view DOES roll up: " + JSON.stringify(calmLabels));
     await pressToggle(page);
@@ -568,7 +572,8 @@ async function main() {
     const before = await page.innerHTML("#messages");
     await pressToggle(page);
     await page.click("#mach\\:mach_a1"); // open a raw pane, so the round trip is not trivial
-    await page.waitForTimeout(200);
+    // Open means its bytes are on screen, waited for rather than slept for (audit R10).
+    await page.waitForFunction(() => /q3-acme\.csv/.test((document.getElementById("raw:mach_a1") || {}).textContent || ""), null, { timeout: 10000 });
     await pressToggle(page);
     const after = await page.innerHTML("#messages");
     assertEqual(after.length, before.length, "same length");
@@ -631,7 +636,16 @@ async function main() {
 
     await page.click("#mach\\:mach_a1");
     await page.waitForSelector("#raw\\:mach_a1");
-    await page.waitForTimeout(200);
+    // Each pane's answer is the fact waited for (hang guard); these were 200ms sleeps before the
+    // read (2026-09-29, audit R10). Every assertion below still names a wrong answer.
+    const paneSays = (id, test) =>
+      page
+        .waitForFunction(([i, t]) => {
+          const el = document.getElementById("raw:" + i);
+          return !!el && new RegExp(t).test(el.textContent || "");
+        }, [id, test], { timeout: 10000 })
+        .catch(() => {});
+    await paneSays("mach_a1", "q3-acme\\.csv");
     const retained = await page.textContent("#raw\\:mach_a1");
     assert(retained.includes("q3-acme.csv"), "the raw payload is on screen: " + retained.slice(0, 80));
     assertEqual(await page.getAttribute("#raw\\:mach_a1", "data-note"), null, "no note over real bytes");
@@ -640,7 +654,7 @@ async function main() {
     // record above it is untouched — structure, title, status, paths, summary — and the
     // pane says why the bytes are gone rather than showing a blank.
     await page.click("#mach\\:mach_a5");
-    await page.waitForTimeout(200);
+    await page.waitForFunction(() => { const el = document.getElementById("raw:mach_a5"); return !!el && el.getAttribute("data-note") !== null; }, null, { timeout: 10000 }).catch(() => {});
     assertEqual(await page.textContent("#raw\\:mach_a5"), RAW_NOT_RETAINED, "verbatim from main.rs");
     assertEqual(await page.getAttribute("#raw\\:mach_a5", "data-note"), "not_retained", "and it is that state");
     const stillThere = (await techRows(page)).find((r) => r.title.startsWith("grep -rn"));
@@ -649,7 +663,7 @@ async function main() {
     // §2.4's 32 KB cap fired: what is on screen is a PREFIX, and it is labelled. A prefix
     // that looks whole is worse than one that says it is not.
     await page.click("#mach\\:mach_a6");
-    await page.waitForTimeout(200);
+    await page.waitForFunction(() => !!document.querySelector('[id="raw:mach_a6"] .tl-tech-note'), null, { timeout: 10000 }).catch(() => {});
     assertEqual(await page.textContent("#raw\\:mach_a6 .tl-tech-note"), RAW_TRUNCATED, "verbatim from main.rs");
     await evidence(page, "../shots-3-1/3-1-07-the-output-and-the-two-honest-degrades");
     assertEqual(page.__errors, [], "no page errors");
