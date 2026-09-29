@@ -1,0 +1,323 @@
+{
+  "build": true,
+  "version": "1.2.0-nightly.20260929.31",
+  "tag": "v1.2.0-nightly.20260929.31",
+  "candidate_ref": "refs/candidates/31",
+  "source_commit": "95ca29c8a3a193940dddaf70f332b8fe7a10c737",
+  "created_at": "2026-09-29T07:24:15.857775+00:00",
+  "run_id": "20260929T065230Z-a31cb448",
+  "run_attempt": "1",
+  "channel": "nightly",
+  "platform": "darwin-aarch64",
+  "no_host_screen": false,
+  "script_suites": {
+    "jobs": 3,
+    "seconds": 480,
+    "run_id": "20260929T065230Z-a31cb448",
+    "commit": "95ca29c8a3a193940dddaf70f332b8fe7a10c737",
+    "build": "desktop",
+    "not_in_this_build": [
+      {
+        "name": "mobile-ios.test.sh",
+        "belongs_to": "ios",
+        "reason": "the earlier iPhone app in richos/mobile/ios, on an iPhone simulator"
+      },
+      {
+        "name": "mobile-perf.test.sh",
+        "belongs_to": "ios,android",
+        "reason": "the phone apps' speed and battery measurement tool"
+      },
+      {
+        "name": "native-android-app.test.sh",
+        "belongs_to": "android",
+        "reason": "the native Android app: Robolectric app tests, its release check and its icon"
+      },
+      {
+        "name": "native-android-core.test.sh",
+        "belongs_to": "android",
+        "reason": "the native Android app's Kotlin core and its randroid command line"
+      },
+      {
+        "name": "native-android-pair-lab.test.sh",
+        "belongs_to": "android",
+        "reason": "the Android emulator pairing helpers"
+      },
+      {
+        "name": "native-android-ui.test.sh",
+        "belongs_to": "android",
+        "reason": "the native Android app's Compose screens, rendered by Robolectric"
+      },
+      {
+        "name": "native-ios-app.test.sh",
+        "belongs_to": "ios",
+        "reason": "the native iPhone app built and driven on an iPhone simulator (A1-A8); nothing it builds ships in the Mac app"
+      },
+      {
+        "name": "native-ios-core.test.sh",
+        "belongs_to": "ios",
+        "reason": "the native iPhone app's Swift core package and its rios command line"
+      },
+      {
+        "name": "native-ios-physical-tool.test.sh",
+        "belongs_to": "ios",
+        "reason": "the launcher for checks on a physical iPhone (rios device)"
+      },
+      {
+        "name": "native-ios-share.test.sh",
+        "belongs_to": "ios",
+        "reason": "the native iPhone app's Share and notification extensions, its release check and its TestFlight tool"
+      },
+      {
+        "name": "native-ios-ui.test.sh",
+        "belongs_to": "ios",
+        "reason": "the native iPhone app's XCUITest screens on the smallest and largest iPhone simulators"
+      },
+      {
+        "name": "native-release-policy.test.sh",
+        "belongs_to": "ios,android",
+        "reason": "the release security policy both phone apps' store builds must pass"
+      },
+      {
+        "name": "review-mock.test.sh",
+        "belongs_to": "ios,android",
+        "reason": "the hosted mock backend App Store and Google Play reviewers pair the phone apps' store builds with"
+      }
+    ],
+    "suites": [
+      {
+        "name": "battery-check.test.sh",
+        "state": "passed",
+        "seconds": 13,
+        "where": "host"
+      },
+      {
+        "name": "build-runtimes.test.sh",
+        "state": "passed",
+        "seconds": 0,
+        "where": "host"
+      },
+      {
+        "name": "claude-quota.test.sh",
+        "state": "passed",
+        "seconds": 2,
+        "where": "host"
+      },
+      {
+        "name": "connect-helper.test.sh",
+        "state": "passed",
+        "seconds": 0,
+        "where": "host"
+      },
+      {
+        "name": "front-door.test.sh",
+        "state": "gap",
+        "seconds": 1,
+        "where": "host"
+      },
+      {
+        "name": "frontend-payload.test.sh",
+        "state": "passed",
+        "seconds": 1,
+        "where": "host"
+      },
+      {
+        "name": "gui-boot.test.sh",
+        "state": "passed",
+        "seconds": 162,
+        "where": "host"
+      },
+      {
+        "name": "gui-launch-env.test.sh",
+        "state": "passed",
+        "seconds": 1,
+        "where": "host"
+      },
+      {
+        "name": "gui-proof-in-vm.test.sh",
+        "state": "passed",
+        "seconds": 4,
+        "where": "host"
+      },
+      {
+        "name": "import-setup.test.sh",
+        "state": "passed",
+        "seconds": 2,
+        "where": "host"
+      },
+      {
+        "name": "lint.test.sh",
+        "state": "passed",
+        "seconds": 87,
+        "where": "host"
+      },
+      {
+        "name": "make-engine-asset.test.sh",
+        "state": "passed",
+        "seconds": 87,
+        "where": "host"
+      },
+      {
+        "name": "make-release.test.sh",
+        "state": "passed",
+        "seconds": 3,
+        "where": "host"
+      },
+      {
+        "name": "mobile-headless.test.sh",
+        "state": "passed",
+        "seconds": 7,
+        "where": "host"
+      },
+      {
+        "name": "mobile-mac.test.sh",
+        "state": "passed",
+        "seconds": 16,
+        "where": "host"
+      },
+      {
+        "name": "mobile-pwa.test.sh",
+        "state": "passed",
+        "seconds": 38,
+        "where": "host"
+      },
+      {
+        "name": "native-conformance.test.sh",
+        "state": "passed",
+        "seconds": 1,
+        "where": "host"
+      },
+      {
+        "name": "nightly-launch.test.sh",
+        "state": "passed",
+        "seconds": 6,
+        "where": "host"
+      },
+      {
+        "name": "nightly-local.test.sh",
+        "state": "passed",
+        "seconds": 123,
+        "where": "host"
+      },
+      {
+        "name": "nightly.test.sh",
+        "state": "passed",
+        "seconds": 47,
+        "where": "host"
+      },
+      {
+        "name": "no-compile-time-paths.test.sh",
+        "state": "passed",
+        "seconds": 4,
+        "where": "host"
+      },
+      {
+        "name": "no-foreign-app-data.test.sh",
+        "state": "passed",
+        "seconds": 1,
+        "where": "host"
+      },
+      {
+        "name": "operator-walk.test.sh",
+        "state": "passed",
+        "seconds": 3,
+        "where": "host"
+      },
+      {
+        "name": "package-app.test.sh",
+        "state": "passed",
+        "seconds": 8,
+        "where": "host"
+      },
+      {
+        "name": "phone-apps-independent.test.sh",
+        "state": "passed",
+        "seconds": 8,
+        "where": "host"
+      },
+      {
+        "name": "proof-for.test.sh",
+        "state": "passed",
+        "seconds": 47,
+        "where": "host"
+      },
+      {
+        "name": "proof-run.test.sh",
+        "state": "passed",
+        "seconds": 206,
+        "where": "host"
+      },
+      {
+        "name": "qa.test.sh",
+        "state": "passed",
+        "seconds": 51,
+        "where": "host"
+      },
+      {
+        "name": "questions.test.sh",
+        "state": "passed",
+        "seconds": 10,
+        "where": "host"
+      },
+      {
+        "name": "rebuild-survival.test.sh",
+        "state": "passed",
+        "seconds": 25,
+        "where": "host"
+      },
+      {
+        "name": "run-tests.test.sh",
+        "state": "passed",
+        "seconds": 107,
+        "where": "host"
+      },
+      {
+        "name": "signing-setup.test.sh",
+        "state": "passed",
+        "seconds": 10,
+        "where": "host"
+      },
+      {
+        "name": "terminal-quota.test.sh",
+        "state": "passed",
+        "seconds": 148,
+        "where": "host"
+      },
+      {
+        "name": "test-results.test.sh",
+        "state": "passed",
+        "seconds": 23,
+        "where": "host"
+      },
+      {
+        "name": "turn-boundary-mutations.test.sh",
+        "state": "passed",
+        "seconds": 16,
+        "where": "host"
+      },
+      {
+        "name": "ui-ledger.test.sh",
+        "state": "passed",
+        "seconds": 20,
+        "where": "host"
+      },
+      {
+        "name": "updater-setup.test.sh",
+        "state": "passed",
+        "seconds": 41,
+        "where": "host"
+      },
+      {
+        "name": "voice-component.test.sh",
+        "state": "passed",
+        "seconds": 47,
+        "where": "host"
+      },
+      {
+        "name": "work-walk.test.sh",
+        "state": "passed",
+        "seconds": 14,
+        "where": "host"
+      }
+    ]
+  }
+}
