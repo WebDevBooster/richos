@@ -1,0 +1,22 @@
+{
+  "asked_again": "RichOS could not read your earlier answer to this correction, so it is asking you again. You may already have answered it.",
+  "at": 0,
+  "entity_id": "ent_ceo",
+  "failure": null,
+  "id": "prop-3",
+  "outcome": null,
+  "preview": "---\nkind: decision\n---\n\nWhat would be written.\n",
+  "state": "awaiting-ceo",
+  "thread_id": "thr_1",
+  "why": "the title is wrong",
+  "write": {
+    "body": null,
+    "confidence": null,
+    "kind": null,
+    "narrowScopeTo": null,
+    "op": "correct",
+    "recordRef": "rec:ceo/records/vendor",
+    "tags": null,
+    "title": "Deepgram"
+  }
+}
