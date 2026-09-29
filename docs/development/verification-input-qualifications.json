@@ -2500,7 +2500,8 @@
       "review": "The complete R1-R10 refusal journeys copy the release script, version/config and real name scanner into a private tracked repository. A private literal deny-list includes both clean and planted-hit controls. Downloads are exclusively from an owned loopback fixture server. Every app case refuses before any compiler, signing or publication step. Private HOME clears signing/proxy/config overrides; the worktree-derived port is operational allocation, not asserted data. Receipt timestamps are output only. Source Git history, live release hosts and operator records are not consulted.",
       "sources": {
         "richos/app/scripts/make-release.test.sh": "354dab37039aaba443d108821fe51405142e66710ab5c8285013a62f5f17ffe8",
-        "richos/app/scripts/make-release.sh": "3d915d9b95551d5636cef007c2be1f0807105a975a1132ffdb7fc36135279864",
+        "richos/app/scripts/make-release.sh": "6f690002f073caa710a0ac4fa521f4488b6b702fec5e7817c5287eb0dded3a14",
+        "richos/app/scripts/lib/cargo-target.sh": "5e3c3c1c09f357a7a6691be9ef9d1ecd0e92601092be7700975f7c43e41770ec",
         "richos/app/scripts/lib/worktree-resource.sh": "f3ce44d7c52f97f4545e4c79636e8ad19cba994db5168d9f1b8104b57793a1c7",
         "richos/engine/scripts/named-persons.sh": "0c672c2e9cc4b61f9c0262df9c251692a30d1f110a335c718365c5a69cd126ca",
         "richos/engine/scripts/lib/named-persons.sh": "2c28d15414eed56676bd2c5588d66fe88f30c03dfb78e5e2752ffc5de17fffc3",
