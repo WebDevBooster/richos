@@ -11,9 +11,12 @@ engineer in a worktree, Codex, Rich in the main checkout.
 
   COMMIT, on any branch but main (pre-commit): `lint.sh --changed --strict` over what
   differs from HEAD, i.e. the lint ratchets (static, load rules, and Clippy for a Rust set
-  whose inputs changed), and no count may grow whatever room a ceiling has. A merge into a
-  branch (pre-merge-commit) runs `--changed` against the ceilings only. The repository
-  enforces no formatter, so none is run. A failure refuses the commit with the lint's reason.
+  whose inputs changed), and no count may grow whatever room a ceiling has. Then the land's
+  own selector (`proof-for.sh`) over the BRANCH'S WHOLE CHANGE: whatever it refuses
+  (UNCOVERED, a map that does not reconcile) refuses the commit, and the selected suites that
+  measure under a second run here (see branch_selection). A merge into a branch
+  (pre-merge-commit) runs `--changed` against the ceilings only. The repository enforces no
+  formatter, so none is run. A failure refuses the commit with the reason.
 
   LAND, anything that moves main (pre-merge-commit on main, pre-commit on main, and
   pre-push of main as the backstop): the suites `proof-for.sh` assigns to the change, run
@@ -189,7 +192,88 @@ def commit_check(repo, what):
             "git's --no-verify skips it, and every skip is recorded in the lead's escalation ledger.",
         ])
         return 1
+    if what == "commit" and branch_selection(repo, what):
+        return 1
     say(f"autocheck: {what}: passed in {time.monotonic() - started:.1f}s")
+    return 0
+
+
+# ---------------------------------------------------------------------------------------
+# What the land would refuse, refused at the commit
+# ---------------------------------------------------------------------------------------
+# 2026-09-29: two finished branches (isaac-opus-speckle1, andy-opus-speckle1) were refused at
+# Rich's merge for UNCOVERED paths, four each, although every one of their commits had passed
+# this hook: the commit ran the lint and nothing else, so the first thing that could see the
+# refusal was the land. The same day a Rust test file made app/README.md's counts false and
+# nothing short of the nightly ran docs-claims.js. So a commit now asks the land's own
+# selector about the BRANCH'S WHOLE CHANGE (the merge-base with main to the tree being
+# committed, which is what the land will diff), refuses what it refuses, and runs the selected
+# suites that measure under a second in ui/tests/suite-weights.tsv. The heavier suites (Rust,
+# the browser suites, the build suites) still run only at the land: minutes per commit would
+# be the wrong trade for the one engineer who is waiting on it.
+
+QUICK_WEIGHTS = "richos/app/ui/tests/suite-weights.tsv"
+UI_SUITE_LINE = "cd richos/app/ui/tests && node "
+
+
+def branch_paths(repo):
+    """The branch's change as the land will see it: merge-base(main, HEAD) against the index
+    being committed. With no main to compare to, the staged change alone."""
+    base = git("merge-base", f"refs/heads/{LAND_BRANCH}", "HEAD", check=False, cwd=repo.top)
+    if base.returncode == 0 and base.stdout.strip():
+        return [p for p in git("diff", "--cached", "--name-only", "--no-renames", base.stdout.strip()).splitlines() if p]
+    return [p for p in git("diff", "--cached", "--name-only", "--no-renames").splitlines() if p]
+
+
+def quick_suites(repo, commands):
+    """The selected UI suites whose measured weight is 0, i.e. under a second (the file's
+    own convention). A suite with no row is not assumed quick; it runs at the land."""
+    weights = repo.top / QUICK_WEIGHTS
+    if not weights.is_file():
+        return []
+    quick = set()
+    for line in weights.read_text(errors="replace").splitlines():
+        parts = line.split("\t")
+        if len(parts) == 2 and not line.startswith("#") and parts[1].strip() == "0":
+            quick.add(parts[0].strip())
+    return [c[len(UI_SUITE_LINE):].strip() for c in commands
+            if c.startswith(UI_SUITE_LINE) and c[len(UI_SUITE_LINE):].strip() in quick]
+
+
+def branch_selection(repo, what):
+    started = time.monotonic()
+    if not (repo.top / PROOF_FOR).is_file():
+        banner(f"{what.upper()} REFUSED: cannot select the checks", [f"{PROOF_FOR} is not in this tree."])
+        return 1
+    paths = branch_paths(repo)
+    if not paths:
+        return 0
+    commands, rc = select(repo, ["--paths", ",".join(paths)])
+    if commands is None:
+        refuse_selection(what, rc)
+        say("  The land runs this same selection over the same change and would refuse it there.")
+        return 1
+    quick = quick_suites(repo, commands)
+    for suite in quick:
+        say(f"+ (cd richos/app/ui/tests && node {suite})")
+        try:
+            result = subprocess.run(["node", suite], cwd=repo.top / "richos/app/ui/tests", env=repo.env,
+                                    stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
+        except subprocess.TimeoutExpired:
+            banner(f"{what.upper()} REFUSED: {suite} did not finish in 120 s",
+                   [f"It measures under a second ({QUICK_WEIGHTS}); a hang is a failure, not a pass."])
+            return 1
+        if result.returncode:
+            sys.stderr.write((result.stdout + result.stderr)[-4000:])
+            banner(f"{what.upper()} REFUSED: {suite} failed for this branch", [
+                f"proof-for.sh selects {suite} for this change, so the land would run it and refuse.",
+                "Its output is just above. Fix the branch and commit again.",
+            ])
+            return 1
+    later = len(commands) - len(quick)
+    say(f"autocheck: {what}: the land's selection over the branch's {len(paths)} changed path(s) maps cleanly; "
+        f"ran {', '.join(quick) or 'no quick suite'}; {later} heavier check command(s) run at the land "
+        f"({time.monotonic() - started:.1f}s)")
     return 0
 
 
