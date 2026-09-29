@@ -172,6 +172,121 @@ def rust_fast(args, rows, tool_versions, report):
             rust.lint_rules(ROOT), {p: r for p, r in rows.items() if r["language"] == "rust"}, counts), args)
 
 
+# ---------------------------------------------------------------------------------------
+# --changed: the commit check. Same ceilings, same refusals, a fraction of the work.
+# ---------------------------------------------------------------------------------------
+# A full static pass is ~35 s here (ShellCheck ~9 s over 95 scripts, the dialect hook
+# ~0.2 s per file over 378), which is the cost that gets a hook skipped. Every static rule
+# is a per-file count, so the change's effect on each count is the change's files counted
+# before and after; files that `source` a changed script are counted with it, because a
+# ShellCheck result can depend on what a script sources. If no count grows, no ceiling can
+# be newly exceeded by this change and the check passes. If one grows, the exact full pass
+# decides, so the verdict is never looser than the full lint's: a change that adds a
+# diagnostic still passes when the tree has room under the ceiling, and is refused when not.
+# Everything that is not a count (tool versions, rule set, shrunk inventory, a baseline
+# weakened against main) is checked in full every time; it is cheap.
+LINT_MACHINERY = (APP + "scripts/lint/", APP + ".shellcheckrc", APP + "scripts/lint.sh")
+RUST_INPUT = ("Cargo.toml", "Cargo.lock", "clippy.toml", ".clippy.toml", "rust-toolchain", "rust-toolchain.toml", "build.rs")
+
+
+def changed_paths(root):
+    out = checked(["git", "diff", "--name-only", "--no-renames", "HEAD", "--"], root)
+    return sorted({p for p in out.splitlines() if p})
+
+
+def head_text(root, path):
+    result = subprocess.run(["git", "show", f"HEAD:{path}"], cwd=root, capture_output=True)
+    return result.stdout.decode(errors="surrogateescape") if result.returncode == 0 else None
+
+
+def rust_input(path):
+    return path.startswith(APP) and (path.endswith(".rs") or Path(path).name in RUST_INPUT)
+
+
+def changed(args, rows, tool_versions, report):
+    started = time.monotonic()
+    paths = changed_paths(ROOT)
+    report["changed"] = paths
+    app_paths = [p for p in paths if p.startswith(APP)]
+    if not app_paths:
+        print("No change under " + APP + "; nothing this lint scans changed", flush=True)
+        return
+    if any(p.startswith(LINT_MACHINERY) for p in app_paths):
+        # The lint or its baselines changed: only the full check can say what they mean now.
+        print("The lint itself changed: running the full static check and the Rust fast set", flush=True)
+        static_full(args, rows, tool_versions, report)
+        rust_fast(args, rows, tool_versions, report)
+        if any(p.startswith(BASE + "tauri") or (rust_input(p) and p.startswith(APP + "src-tauri/")) for p in app_paths):
+            tauri(ROOT, args, rows, tool_versions, report)
+        return
+    # Non-count parts of the contract, in full: versions, rules, commands, inventory, and the
+    # committed baselines against integration.
+    for name, rec in (("shell", shell_record(rows, tool_versions, {})), ("custom", custom_record(rows, tool_versions, {}))):
+        baseline = json.loads((ROOT / BASE / (name + ".json")).read_text())
+        trusted = ratchet.trusted_record(ROOT, args.trusted_ref, BASE + name + ".json")
+        if trusted is not None:
+            ratchet.compare(baseline, trusted)
+        ratchet.check(rec, baseline)
+    # Counts, before and after, over the changed files plus the scripts that source them.
+    shell_paths = select(rows, "shell")
+    touched = {p for p in app_paths if classify(p) and classify(p)["role"] != "fixture"
+               and classify(p)["language"] in ("shell", "rust")}
+    names = {Path(p).name for p in touched if p.endswith(".sh")}
+    if names:
+        for p in shell_paths:
+            text = (ROOT / p).read_text(errors="surrogateescape")
+            if any(n in text for n in names):
+                touched.add(p)
+    now_rows = {p: rows[p] for p in touched if p in rows}
+    before = {p: head_text(ROOT, p) for p in touched}
+    then_rows = {p: classify(p) for p, text in before.items() if text is not None}
+    growth = {}
+    if now_rows or then_rows:
+        after_counts = count_static(ROOT, now_rows, None)
+        before_counts = count_static(ROOT, then_rows, before)
+        for rule in set(after_counts) | set(before_counts):
+            delta = after_counts.get(rule, 0) - before_counts.get(rule, 0)
+            if delta > 0:
+                growth[rule] = delta
+    report["changed-growth"] = growth
+    if growth:
+        print("This change adds " + ", ".join(f"{k}+{v}" for k, v in sorted(growth.items()))
+              + "; the full static check decides whether the tree still fits its ceilings", flush=True)
+        static_full(args, rows, tool_versions, report)
+    else:
+        load_phase(ROOT, args, report, paths=app_paths)
+        print(f"Static checks: {len(touched)} changed or dependent file(s), no count grew "
+              f"({time.monotonic() - started:.2f}s)", flush=True)
+    if any(rust_input(p) and not p.startswith(APP + "src-tauri/") for p in app_paths):
+        rust_fast(args, rows, tool_versions, report)
+    if any(rust_input(p) and p.startswith(APP + "src-tauri/") for p in app_paths):
+        tauri(ROOT, args, rows, tool_versions, report)
+
+
+def count_static(root, rows, texts):
+    """ShellCheck plus project-rule counts for exactly these rows. `texts` None means the
+    working tree; otherwise HEAD's text per path, checked in a scratch copy of the scripts
+    tree at HEAD so that what a script sources is HEAD's too."""
+    counts = {}
+    shell_rows = {p: r for p, r in rows.items() if r["language"] == "shell" and r["role"] != "fixture"}
+    if shell_rows:
+        if texts is None:
+            found, _ = shellcheck(root, shell_rows)
+        else:
+            with tempfile.TemporaryDirectory(prefix="lint-head-") as scratch:
+                archive = subprocess.run(["git", "archive", "--format=tar", "HEAD", "--", APP + "scripts", APP + ".shellcheckrc"],
+                                         cwd=root, capture_output=True, check=True).stdout
+                subprocess.run(["tar", "-x", "-C", scratch], input=archive, check=True)
+                found, _ = shellcheck(Path(scratch), shell_rows)
+        for rule, n in found.items():
+            counts[rule] = counts.get(rule, 0) + n
+    if rows:
+        found, _ = custom(root, rows, None if texts is None else (lambda p: texts[p]))
+        for rule, n in found.items():
+            counts[rule] = counts.get(rule, 0) + n
+    return counts
+
+
 def js_report(root, rows):
     findings = []
     for path in select(rows, "javascript"):
@@ -229,6 +344,9 @@ def main(argv=None):
     modes.add_argument("--all", action="store_true", help="fast set plus unconditional Tauri Clippy")
     modes.add_argument("--static", action="store_true", help="shell and custom checks only; not the full build gate")
     modes.add_argument("--js-report", action="store_true", help="report advisory JavaScript candidates only")
+    modes.add_argument("--changed", action="store_true",
+                       help="the commit check: static and load rules for what differs from HEAD, "
+                            "Clippy only for the Rust sets whose inputs changed")
     updates = parser.add_mutually_exclusive_group()
     updates.add_argument("--lower", action="store_true", help="propose lower baselines as a working-tree diff")
     updates.add_argument("--bootstrap", action="store_true", help="create initial baselines only when absent on integration")
@@ -255,6 +373,15 @@ def main(argv=None):
         # Standalone measurement scheduling belongs to the operator. The lint
         # never probes release.lock or host load, including inside a nightly
         # that already owns that lock. Cargo arbitrates its own cache lock.
+        if args.changed:
+            if args.lower or args.bootstrap:
+                raise Refusal("--changed only checks; --lower and --bootstrap need a full mode")
+            changed_rust = [p for p in changed_paths(ROOT) if rust_input(p) or p.startswith(LINT_MACHINERY)]
+            tool_versions = versions(ROOT, cargo=bool(changed_rust))
+            report["versions"] = tool_versions
+            changed(args, rows, tool_versions, report)
+            print(f"Lint passed in {time.monotonic() - started:.2f}s", flush=True)
+            return 0
         tool_versions = versions(ROOT, cargo=not args.static)
         report["versions"] = tool_versions
         if not args.all or not fast_was_run(args.suite_results, os.environ.get("RICHOS_NIGHTLY_RUN_ID")):

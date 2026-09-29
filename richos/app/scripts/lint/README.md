@@ -84,6 +84,25 @@ line to another file makes it a new site: fix it or declare it. The recognizers 
 patterns, not parsers; what each one sees is written beside it in `load_rules.py`. The engine
 suites (`richos/engine/**/tests/`) are outside this lint's inventory, as the audit notes.
 
+## The commit check: `--changed`
+
+`--changed` is what the automatic commit check runs (`scripts/autocheck/`). It enforces the
+same ceilings as `--static`/`--fast` at a fraction of the cost:
+
+- Versions, rule sets, commands, inventory and the baselines against `refs/heads/main` are
+  checked in full every time; they are cheap.
+- Every static count is per file, so only the files that differ from `HEAD` (plus the
+  scripts that `source` a changed script) are counted, before (`HEAD`, in a scratch copy of
+  the scripts tree) and after. If no count grows, no ceiling can newly fail. If one grows,
+  the full static pass decides, so the verdict is never looser than the full lint's.
+- Load rules are per site, so scanning only the changed files is exact.
+- Clippy runs only for a Rust set whose inputs changed: the fast set for Rust under
+  `richos/app` outside `src-tauri`, Tauri Clippy for `src-tauri`.
+- A change to the lint itself or its baselines runs the full static pass and the fast set.
+
+It checks the working tree, including unstaged edits. The land check (`lint.sh --all`, or
+`lint.test.sh` when `proof-for.sh` selects it) sees exactly the merged tree.
+
 ## Maintaining the ceiling
 
 Normal checks never edit baselines. Counts prevent a **net increase**, not every
