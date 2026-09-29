@@ -199,6 +199,34 @@ fs.appendFileSync(process.env.RICHOS_UI_TESTS_LEDGER,
         self.assertIn('SAMPLE-END', result.stdout)
         self.assertIn('✓ ui-suite:', result.stdout, 'the coverage verdict never reached the pipe')
 
+    def test_a_failed_check_names_itself_in_its_receipt_and_the_verdict(self):
+        # Run 20260928T233221Z-56bcde43's receipt said home.js ran 38 checks and 1 failed, and
+        # nothing anywhere said which one or why. The receipt is the record a build keeps, so
+        # the failed check's name and its message belong in it.
+        # The REAL harness, from where it lives: it checks its own screenshot declarations
+        # against the real tree when it loads, so a copy of it cannot load anywhere else.
+        (self.root / 'sample.js').write_text('''
+const { createRun } = require(HARNESS);
+const run = createRun('the fixture suite');
+(async () => {
+  await run.check('the check that holds', async () => 'fine');
+  await run.check('the check that breaks', async () => {
+    throw new Error('rejected at 2731 ms of 1500\\nsecond line of the reason');
+  });
+  process.exit(run.report() ? 1 : 0);
+})();
+'''.replace('HARNESS', json.dumps(str(UI / 'lib/harness.js'))))
+        receipts = self.root / 'receipts'
+        result = subprocess.run(['node', str(self.root / 'run.js'), '--shards=1', f'--receipts={receipts}'],
+                                cwd=self.root, env=self.env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        receipt = json.loads((receipts / 'sample.receipt.json').read_text())
+        failures = [f for r in receipt['records'] for f in r.get('failures', [])]
+        self.assertEqual(failures, [{'check': 'the check that breaks',
+                                     'message': 'rejected at 2731 ms of 1500\nsecond line of the reason'}])
+        verdict = result.stdout[result.stdout.index('reconciled across every shard'):]
+        self.assertIn('the check that breaks: rejected at 2731 ms of 1500', verdict)
+
     def test_permission_denied_is_not_proof_of_death(self):
         directory = self.ledger('permission', os.getpid())
         hook = self.root / 'deny-probe.cjs'

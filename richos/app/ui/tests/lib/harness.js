@@ -730,7 +730,14 @@ function createRun(label) {
         if (!r.ok) failed++;
         console.log(`  ${r.ok ? "PASS" : "FAIL"}  ${r.name}${r.detail ? "\n          " + r.detail : ""}`);
       }
-      recordEvidence({ label, checks: results.length, failed });
+      // A RED CHECK NAMES ITSELF IN THE RECORD, not only on stdout. Run 20260928T233221Z-56bcde43's
+      // receipt said home.js ran 38 checks and 1 failed, the log had lost the FAIL line, and
+      // nothing a build keeps could say which check or why. The receipt (`run.js`) and the
+      // nightly's own FAILED line (`nightly-local.py` red_ui_suites) now carry these.
+      const failures = results
+        .filter((r) => !r.ok)
+        .map((r) => ({ check: r.name, message: String(r.detail || "").slice(0, 2000) }));
+      recordEvidence(Object.assign({ label, checks: results.length, failed }, failed ? { failures } : {}));
       return failed;
     },
   };

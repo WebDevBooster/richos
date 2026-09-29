@@ -706,6 +706,12 @@ function gate(planned, data, opts) {
       `  ${verdict}           ${suite} — ${observed} check(s) run, ${declared} declared, ` +
         `${failedChecks} failed (exit ${status})${took}${where}`
     );
+    // WHICH CHECK, AND WHY, read off the receipt (`lib/harness.js` report()). The coverage job
+    // prints this from what the shards wrote down, so the verdict names the check even when the
+    // shard's own FAIL line is somewhere else in a long log.
+    for (const f of runs.flatMap((r) => (Array.isArray(r.failures) ? r.failures : []))) {
+      console.log(`                    ✗ ${f.check}: ${String(f.message || "").split("\n")[0]}`);
+    }
   }
 
   // FAILED BY EITHER WITNESS. The exit code is one; the ledger is the other, and where they

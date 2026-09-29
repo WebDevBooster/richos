@@ -1307,6 +1307,11 @@ class Runner:
         Read here rather than parsed out of the coverage job's prose: the receipt is the
         thing `run.js` wrote down, and a second parser for the same fact is a second thing
         to keep true.
+
+        EACH FAILED CHECK IS NAMED, with the first line of its message (`lib/harness.js`
+        report() writes both into the receipt). Run 20260928T233221Z-56bcde43 refused the
+        build with "home.js (exit 1, 1 failed check(s))" and nothing else, and the log had
+        lost the FAIL line, so the only way to learn which check was a rerun.
         """
         red = []
         for path in sorted(Path(receipts).glob("*.receipt.json")):
@@ -1314,11 +1319,13 @@ class Runner:
                 receipt = json.loads(path.read_text())
             except (OSError, ValueError):
                 continue
-            failed = sum(r.get("failed", 0) for r in receipt.get("records", [])
-                         if isinstance(r.get("checks"), int))
+            records = [r for r in receipt.get("records", []) if isinstance(r.get("checks"), int)]
+            failed = sum(r.get("failed", 0) for r in records)
             if receipt.get("exit") or failed:
+                named = [f"{f.get('check')}: {str(f.get('message') or '').splitlines()[0] if f.get('message') else ''}"
+                         for r in records for f in r.get("failures") or [] if isinstance(f, dict)]
                 red.append(f"{receipt.get('suite')} (exit {receipt.get('exit')}, "
-                           f"{failed} failed check(s))")
+                           f"{failed} failed check(s))" + (" [" + "; ".join(named) + "]" if named else ""))
         return red
 
     def gates(self, checks_done_at_land=None, no_host_screen=False, skip_unchanged=False):

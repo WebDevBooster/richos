@@ -410,6 +410,25 @@ Path(sys.argv[1]).write_text(str(p.pid))
             r.ui_suite()
         r.restore_source_tree.assert_not_called()
 
+    def test_a_red_ui_suite_names_its_failed_check_and_the_reason(self):
+        # Run 20260928T233221Z-56bcde43 refused the build with "home.js (exit 1, 1 failed
+        # check(s))" and the run log had lost the lines that said which. The receipt carries
+        # the failed check's name and message; the gate's own FAILED line must repeat them.
+        receipts = self.root / "receipts"
+        receipts.mkdir()
+        (receipts / "home.receipt.json").write_text(json.dumps({
+            "suite": "home.js", "exit": 1, "records": [{
+                "suite": "home.js", "label": "The home screen", "checks": 38, "failed": 1,
+                "failures": [{"check": "12  the settle deadline holds",
+                              "message": "settled after 2731 ms of 1500\nexpected 1\nactual   0"}]}]}))
+        (receipts / "splash.receipt.json").write_text(json.dumps({
+            "suite": "splash.js", "exit": 0, "records": [{"checks": 4, "failed": 0}]}))
+        red = m.Runner.red_ui_suites(receipts)
+        self.assertEqual(len(red), 1, red)
+        self.assertIn("home.js (exit 1, 1 failed check(s))", red[0])
+        self.assertIn("12  the settle deadline holds: settled after 2731 ms of 1500", red[0])
+        self.assertNotIn("expected 1", red[0], "only the message's first line belongs in the verdict")
+
     def process_fixture(self):
         script = self.root / "tree.py"
         script.write_text("""import os, signal, subprocess, sys, time
