@@ -69,6 +69,47 @@ def atomic(path, value):
 CACHEDIR_SIGNATURE = b"Signature: 8a477f597d28d172789f06886806bc55"
 
 
+# A CHECK'S OWN TEST OUTPUT IS NEVER ANOTHER CHECK'S INPUT EITHER (2026-09-29).
+#
+# The push of main at c7491c34 was refused with `no-foreign-app-data` state `invalid`,
+# "execution inputs changed during the check; changed: richos/app/ui/tests/.shots/...": its
+# declared inputs include `richos/app/ui`, and the UI suites running beside it write their
+# per-run screenshots into `ui/tests/.shots/`. Alone it passes 3 of 3. Those directories are
+# output by the repository's own declaration (their .gitignore rules say so: "Screenshot
+# evidence for ONE run", shard receipts are "Evidence OF a run, never an input to one", the
+# vouch download is a digest-verified cache), but the writers are node suites that do not tag
+# what they write, so build_cache() could not see it. Tagging from the writers would not fix
+# it either: the first run to add a tag changes the directory it tags, mid-run.
+#
+# So these paths, relative to the repository root, are left out of every identity on the
+# same safety condition as a build cache: git ignores the directory and nothing inside it is
+# tracked. A directory that fails that condition is bound exactly as before.
+DECLARED_OUTPUT_DIRECTORIES = (
+    "richos/app/ui/tests/.shots",
+    "richos/app/ui/tests/receipts",
+    "richos/app/ui/tests/.vouch",
+)
+
+
+def declared_output(path):
+    """True for a DECLARED_OUTPUT_DIRECTORIES directory that git ignores and tracks nothing in."""
+    path = Path(path)
+    location = str(path.absolute())
+    if not any(location.endswith(os.sep + rel.replace("/", os.sep)) for rel in DECLARED_OUTPUT_DIRECTORIES):
+        return False
+    try:
+        if path.is_symlink() or not path.is_dir():
+            return False
+    except OSError:
+        return False
+    return ignored_and_untracked(path)
+
+
+def excluded(path):
+    """Output, never input: a tagged build cache or a declared test-output directory."""
+    return build_cache(path) or declared_output(path)
+
+
 def build_cache(path):
     """True for a git-ignored, untracked directory tagged as a cache (see above)."""
     path = Path(path)
@@ -81,6 +122,12 @@ def build_cache(path):
                 return False
     except OSError:
         return False
+    return ignored_and_untracked(path)
+
+
+def ignored_and_untracked(path):
+    """True when git ignores the directory `path` and tracks nothing inside it."""
+    path = Path(path)
     # Never the hook's GIT_DIR/GIT_INDEX_FILE: the question is about the checkout on disk.
     env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     def git(*args):
@@ -114,7 +161,7 @@ def path_identity(path, ancestors=()):
         return {"sha256": file_digest(path), "mode": path.stat().st_mode & 0o777}
     if path.is_dir():
         return {entry.name: path_identity(entry, ancestors) for entry in sorted(path.iterdir())
-                if not build_cache(entry)}
+                if not excluded(entry)}
     raise ValueError(f"unsupported input type: {path}")
 
 
@@ -149,7 +196,7 @@ def inventory_identity(path):
     mode = path.stat().st_mode & 0o777
     if path.is_dir():
         return {"mode": mode, "directory": {
-            p.name: inventory_identity(p) for p in sorted(path.iterdir()) if not build_cache(p)}}
+            p.name: inventory_identity(p) for p in sorted(path.iterdir()) if not excluded(p)}}
     if path.is_file():
         return {"file": True, "mode": mode}
     raise ValueError(f"unsupported inventory input: {path}")
@@ -182,6 +229,111 @@ def python_runtime(executable):
     return runtime
 
 
+# A CHECK WITH NO REVIEWED INPUT CONTRACT IS KEYED BY THE WHOLE CHECKOUT (2026-09-29).
+#
+# Until today such a check was `fresh`: never reused, so every retry ran it again. The land
+# of cc/echo-opus-speckle3 ran the same 78-check selection five times on one tree (three
+# refused merges, a `--resume` whose help says it preserves valid results, and the push),
+# and each time re-ran the ~70 unqualified checks that had already passed on that tree.
+# A reviewed contract (proof-inputs.json) says which bytes a check reads, so its result can
+# be reused across DIFFERENT trees. Without one, the only safe statement is the strongest:
+# nothing git would land differs. So the identity of an unqualified check is:
+#   * the checkout's CONTENT: every path git would land, with its mode and blob id, read
+#     from the index where the working tree agrees and from the working tree where it does
+#     not, plus every untracked file git does not ignore. Never HEAD: a merge being checked
+#     and the commit that concludes it are the same content. Any byte change anywhere in the
+#     checkout re-runs every unqualified check;
+#   * the checkout's path (a result is never shared between worktrees: what git ignores,
+#     node_modules and build products, differs between them);
+#   * the command (proof-run adds it), the runner's settings, the resolved interpreters, the
+#     environment variables named below, and the platform.
+# What it does not bind, and cannot: what git ignores and what lives outside the checkout
+# (a dependency install, the host). Those are the same limits a rerun on this Mac has.
+WHOLE_CHECKOUT = "whole-checkout-v1"
+CHECKOUT_TOOLS = ("bash", "sh", "node", "python3", "git")
+CHECKOUT_ENVIRONMENT_NAMES = ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "DEVELOPER_DIR", "SDKROOT")
+CHECKOUT_ENVIRONMENT_PREFIXES = ("RICHOS_", "RUN_TESTS_", "NODE_", "NPM_CONFIG_", "PYTHON", "CARGO_",
+                                 "RUST", "PLAYWRIGHT_")
+# Set per run or per process by the runner and the land hook; never part of an identity.
+RUN_SCOPED_ENVIRONMENT = frozenset(("RICHOS_AUTOCHECK_ACTIVE", "RICHOS_TEST_RESULTS_ROOT",
+                                    "RICHOS_TEST_DEVICE_RUN_ID", "RICHOS_VERIFICATION_CONTAMINATION"))
+_TOOL_DIGESTS = {}
+
+
+def _git_blob(data):
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def _worktree_entry(path):
+    """(mode, blob id) for a working-tree path as git would store it; None when absent."""
+    if path.is_symlink():
+        return "120000", _git_blob(os.fsencode(os.readlink(path)))
+    if not path.exists():
+        return None
+    if not path.is_file():
+        raise ValueError("unsupported checkout entry (a nested repository?): " + str(path))
+    with open(path, "rb") as stream:
+        data = stream.read()
+    return ("100755" if path.stat().st_mode & 0o111 else "100644"), _git_blob(data)
+
+
+def checkout_content(root):
+    """sha256 over the content git would land from the checkout at `root` (see above)."""
+    root = Path(root)
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    def listing(*args):
+        result = subprocess.run(["git", "-C", str(root), *args], env=env, stdin=subprocess.DEVNULL,
+                                capture_output=True, timeout=120)
+        if result.returncode != 0:
+            raise ValueError("cannot read the checkout's content: git " + " ".join(args[:2]))
+        return [name for name in result.stdout.split(b"\0") if name]
+    entries = {}
+    for row in listing("ls-files", "--stage", "-z"):
+        meta, name = row.split(b"\t", 1)
+        mode, blob, stage = meta.split(b" ")
+        entries.setdefault(name, {})[stage] = (mode.decode(), blob.decode())
+    differing = set(listing("diff", "--name-only", "--no-renames", "-z"))
+    differing |= set(listing("ls-files", "--others", "--exclude-standard", "-z"))
+    for name in differing:
+        entry = _worktree_entry(root / os.fsdecode(name))
+        entries[name] = {b"0": entry} if entry else {}
+    digest = hashlib.sha256()
+    for name in sorted(entries):
+        for stage, (mode, blob) in sorted(entries[name].items()):
+            digest.update(b"%s\0%s\0%s\0%s\n" % (name, stage, mode.encode(), blob.encode()))
+    return digest.hexdigest()
+
+
+def _tool_digest(path):
+    """A resolved tool's content digest, read again whenever its file changes."""
+    real = os.path.realpath(path)
+    info = os.stat(real)
+    key = (real, info.st_size, info.st_mtime_ns, info.st_ctime_ns, info.st_ino)
+    if key not in _TOOL_DIGESTS:
+        _TOOL_DIGESTS[key] = file_digest(real)
+    return _TOOL_DIGESTS[key]
+
+
+def checkout_identity(root, argv, environment, snapshot=None):
+    """The identity of a check with no reviewed input contract (WHOLE_CHECKOUT above)."""
+    snapshot = snapshot or InputSnapshot()
+    root = Path(root).resolve()
+    names = list(CHECKOUT_TOOLS)
+    if argv and os.sep not in argv[0] and argv[0] not in names:
+        names.append(argv[0])
+    tools = {}
+    for name in names:
+        resolved = shutil.which(name, path=environment.get("PATH"))
+        tools[name] = {"path": resolved, "sha256": _tool_digest(resolved)} if resolved else {"absent": True}
+    values = {name: digest(value) for name, value in sorted(environment.items())
+              if name not in RUN_SCOPED_ENVIRONMENT and (name in CHECKOUT_ENVIRONMENT_NAMES
+                                                          or name.startswith(CHECKOUT_ENVIRONMENT_PREFIXES))}
+    return {"contract": WHOLE_CHECKOUT, "checkout": str(root), "tree": snapshot.checkout(root),
+            "paths": {}, "tools": tools, "profile": None, "inventories": {}, "external_paths": {},
+            "git_inputs": {}, "environment": values, "external": {},
+            "platform": [platform.system(), platform.release(), platform.machine(), platform.mac_ver()[0], os.cpu_count()]}
+
+
 class InputSnapshot:
     """Share identical reads within one validation pass, never across passes.
 
@@ -193,6 +345,13 @@ class InputSnapshot:
         self.paths = {}
         self.runtimes = {}
         self.inventories = {}
+        self.checkouts = {}
+
+    def checkout(self, root):
+        key = str(root)
+        if key not in self.checkouts:
+            self.checkouts[key] = checkout_content(root)
+        return self.checkouts[key]
 
     def path(self, path):
         key = str(Path(path).absolute())
@@ -692,7 +851,10 @@ class Pool:
             if item.state not in ("waiting", "passed"):
                 os.close(fd)
                 return False
-            if item.state != "passed" and failures:
+            # The two-attempt retry budget stays with reviewed contracts. A whole-checkout
+            # identity only reuses passes: a land retried on the same tree after a failure
+            # runs that check again rather than being refused with no --retry-reason to give.
+            if item.state != "passed" and failures and identity.get("contract") != WHOLE_CHECKOUT:
                 reason = ("unchanged inputs exhausted their two-attempt functional budget"
                           if len(failures) >= 2 else
                           "unchanged failed inputs require --retry-reason with the diagnosis")

@@ -45,6 +45,12 @@ live line and the final line. A run-tests.sh check that exits 0 without writing 
 `invalid`: it cannot show that it ran. What a caller does with NOT RUN is the caller's
 decision; the land gate's is in autocheck/README.md.
 
+A RETRY ON THE SAME TREE RUNS ONLY WHAT DID NOT PASS (2026-09-29). `--resume` and every new run
+reuse a validated pass whose input identity is unchanged (lib/proof_evidence.py). A check with
+a reviewed contract in proof-inputs.json is keyed by the inputs it declares; every other check
+is keyed by the whole checkout's content (WHOLE_CHECKOUT there), so a refused land tried again,
+or the push after it, never re-runs a check that already passed on that exact content.
+
 WHY THIS EXISTS (2026-09-23). Verification exposed unbounded nested workers, descendants
 surviving timeouts and failures that were discovered only after long waits. This runner
 owns scheduling, admission, logs and cancellation so callers do not reconstruct that protocol.
@@ -139,7 +145,6 @@ sys.dont_write_bytecode = True
 import threading
 import time
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.dirname(HERE)
@@ -443,8 +448,17 @@ def execution_environment(item):
 
 
 def input_identity(item, args, logdir, snapshot=None):
+    environment = execution_environment(item)
     result = proof_evidence.recipe_identity(ROOT, proof_evidence.contract_for(ROOT, item.label),
-                                            execution_environment(item), snapshot)
+                                            environment, snapshot)
+    if result.get("fresh") and not item.engine_unit and item.label != "engine receipts" and item.argv:
+        # No reviewed contract: keyed by the whole checkout's content, so a retry of the same
+        # tree (--resume, a refused land tried again, the push after it) keeps what passed
+        # (proof_evidence.WHOLE_CHECKOUT). Engine units keep their own receipts and stay fresh.
+        try:
+            result = proof_evidence.checkout_identity(ROOT, item.argv, environment, snapshot)
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            result = {"fresh": "%s; whole-checkout identity unavailable: %s" % (result["fresh"], exc)}
     result["command"] = proof_evidence.command_identity(item, ROOT, logdir)
     result["settings"] = {key: getattr(args, key, None) for key in (
         "capacity", "engine_shards", "max_cpu", "budget", "deadline", "fail_fast", "admission_wait", "slot_wait", "engine_slot_wait")}
@@ -490,7 +504,8 @@ def reserve_item(item, n, args, logdir):
     os.makedirs(directory, exist_ok=True)
     native = proc_tree.identity(os.getpid())
     context = {'protocol': cpu_guard.VERIFICATION_PROTOCOL, 'input_key': key,
-        'label': item.label, 'priority': 'integration' if engine_pass.is_main_checkout(ROOT) else 'background',
+        'label': item.label, 'priority': 'integration' if (engine_pass.is_main_checkout(ROOT) and
+                                                          not getattr(args, 'priority_turn_over', False)) else 'background',
         'result': os.path.join(directory, 'supervision.json'),
         'seed': {'pid': os.getpid(), 'generation': native}}
     if not inputs.get('fresh'):
@@ -764,6 +779,7 @@ def run(items, args, logdir, sampler=None):
     budget.shared.admission = engine_pass.Admission(machine, ROOT)
     # A worker permit is only the first admission step. Retain integration
     # intent while eligible checks wait for measured capacity as well.
+    args.priority_turn_over = False
     args.integration_intent = (engine_pass.Admission(machine, ROOT)
                                if budget.shared.admission.main else None)
     # A proof run started by a check of a proof run (it works inside its caller's slot) is part
@@ -869,8 +885,44 @@ def run(items, args, logdir, sampler=None):
     return time.monotonic() - t0
 
 
+def end_priority_turn(args, budget, running, waiting):
+    """The integration plan's PRIORITY turn is over; the plan itself goes on.
+
+    THE BOUND WAS ON THE WRONG THING (2026-09-29). engine_pass.IntegrationPlan gives a
+    main-checkout plan admission priority for INTEGRATION_PLAN_SECONDS (600) so background
+    runs waiting behind it get a turn: a bound on PRIORITY, and a right one. Until today its
+    expiry also stopped every running check and refused every waiting one, which made it a
+    bound on how long a land may take. The land of cc/echo-opus-speckle3 was refused that way
+    three times running, 47, 30 and 10 of 78 checks unrun, and no check had failed: the third
+    try ran on a quiet Mac (mean CPU 52%) and still could not fit, because the runner admits
+    one check per fresh CPU sample after a SETTLE_SECONDS ramp (CEO ruling §77's line), about
+    one start every 4-5 s, so 78 starts alone take 350 s before any check waits for the CPU.
+    No fixed number fits every selection. So now the turn ends and nothing is stopped: the
+    plan's priority is released at once (waiters aged past BACKGROUND_PRIORITY_AGE are named
+    in the record, exactly as before), its checks keep running, and the rest are admitted
+    as background work, behind older background waiters like any other run. The land
+    finishes its selection or refuses on a check that did not pass, never on its own clock."""
+    args.priority_turn_over = True
+    episode = args.integration_episode
+    episode.close("over-budget")
+    if args.integration_intent:
+        args.integration_intent.close()
+        args.integration_intent = None
+    admission = getattr(budget.shared, "admission", None) if budget.shared else None
+    if admission is not None:
+        admission.close()
+        admission.main = False  # from here on this run asks for admission as background work
+    for it in waiting:
+        if it.wait_reason == "integration-episode":
+            it.wait_reason = "ready"
+    print("[%s] proof-run: the %.0f s integration priority turn is over; nothing is stopped: %d running "
+          "check(s) go on and %d waiting check(s) are admitted as background work" % (
+              stamp(), episode.deadline - episode.requested, len(running), len(waiting)), flush=True)
+
+
 def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, sampler):
     n, next_sample, last_launch = 0, 0.0, 0.0
+    last_ramp = None      # the check whose start the ramp is waiting to see in a sample
     admitted_lanes = set()
     previous_loop = time.monotonic()
     backoff_reason = "ready"
@@ -974,35 +1026,11 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
         if not waiting and not running:
             break
         episode = getattr(args, "integration_episode", None)
-        if episode and episode.expired():
-            # Stop all owned domains concurrently so the cleanup allowance is
-            # shared by the plan, rather than multiplied by its worker count.
-            args.integration_intent.close()
-            budget.shared.admission.close()
-            with ThreadPoolExecutor(max_workers=max(1, len(running))) as cleanup:
-                survivors = list(cleanup.map(stop_item, running))
-            for it, left in zip(running, survivors):
-                it.state, it.rc, it.ended = "cancelled", 125, time.monotonic()
-                finish_attempt(it)
-                if left:
-                    it.state = "cleanup-failed"
-                it.notes.append("fixed integration priority episode expired; owned cleanup " +
-                                ("incomplete: %s" % left if left else "complete"))
-                it.token.release()
-            running.clear()
-            for it in waiting:
-                it.finish_queue()
-                it.state, it.rc = "not-admitted", 75
-                it.notes.append("fixed integration episode expired before admission")
-            finding = Item("integration priority exhausted", ROOT, [])
-            finding.state, finding.rc = "scheduler-starvation", 75
-            finding.notes.append("600-second fixed plan bound; completed evidence retained; "
-                                 "owned work stopped and capacity released. Evidence: " + logdir)
-            items.append(finding)
-            checkpoint(items, logdir)
-            print("proof-run: integration episode exhausted; retained completed evidence, stopped owned "
-                  "work and released priority. Unfinished obligations remain unresolved.", flush=True)
-            break
+        if getattr(args, "priority_turn_over", False):
+            episode = None
+        elif episode and episode.expired():
+            end_priority_turn(args, budget, running, waiting)
+            episode = None
         if episode and not episode.enter():
             for it in waiting:
                 it.wait_reason = "integration-episode"
@@ -1072,9 +1100,14 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
         # Keep gradual ramp-up into additional lanes. A replacement in an
         # already admitted lane does not increase the established concurrency;
         # it still needs a fresh host sample and a real worker permit.
+        # The ramp exists so the next sample shows the load of the check started last. When
+        # that check has already exited there is no load left to wait for, and waiting anyway
+        # made every short check cost a full SETTLE_SECONDS (2026-09-29: the last 30 checks of
+        # the 78 in cc/echo-opus-speckle3's land each ran 2-6 s, one at a time, ~4-5 s apart).
+        settled = last_ramp is not None and last_ramp.state != "running"
         eligible = [it for it in ready if not running or
                     (it.lane is not None and it.lane in admitted_lanes) or
-                    now - last_launch >= SETTLE_SECONDS]
+                    now - last_launch >= SETTLE_SECONDS or settled]
         for it in ready:
             if it not in eligible:
                 it.wait_reason = "ramp"
@@ -1140,7 +1173,7 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 launch(it, n, logdir, tokens_dir, reserved)
                 checkpoint(items, logdir)
                 if it.lane is None or it.lane not in admitted_lanes:
-                    last_launch = time.monotonic()
+                    last_launch, last_ramp = time.monotonic(), it
                 if it.lane is not None:
                     admitted_lanes.add(it.lane)
                 print("[%s] start  %-40s %s" % (stamp(), it.label,

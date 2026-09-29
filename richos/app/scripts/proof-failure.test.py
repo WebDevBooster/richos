@@ -49,40 +49,47 @@ class FailurePolicy(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(pr.summarize(items, 1, str(self.root / "run")), 1)
 
-    def test_integration_episode_stops_owned_work_preserves_pass_and_releases_priority(self):
-        marker = self.root / "must-not-run"
+    def test_integration_priority_turn_ends_but_the_plan_finishes(self):
+        # 2026-09-29: the land of cc/echo-opus-speckle3 was refused three times on the 600 s
+        # episode ("fixed integration episode expired before admission"), 47, 30 and 10 of 78
+        # checks unrun and none failed. The bound is on PRIORITY: when it ends, a background
+        # run must get admission at once, and this plan's checks must still all run.
+        marker = self.root / "ran-after-the-turn"
+        background = ("import sys, time; sys.path.insert(0, %r); import engine_pass; time.sleep(2.5); "
+                      "a = engine_pass.Admission(%r, %r); ok = a.begin(); a.close(); "
+                      "sys.exit(0 if ok else 3)" % (os.path.dirname(pr.engine_pass.__file__),
+                                                    str(self.root / "machine"), str(self.root)))
         items = [self.item("finished", "pass", weight=4),
-                 self.item("running", "import time; time.sleep(60)", weight=3),
-                 self.item("unrun", "from pathlib import Path; Path(%r).touch()" % str(marker),
+                 # Still running when the 1.4 s turn ends; a background run asks for admission
+                 # while it runs, which only a released priority grants (exit 3 otherwise).
+                 self.item("running", background, weight=3),
+                 self.item("after the turn", "from pathlib import Path; Path(%r).touch()" % str(marker),
                            after=["running"])]
         with patch.object(pr.engine_pass, "is_main_checkout", return_value=True), \
                 patch.object(pr.engine_pass, "INTEGRATION_PLAN_SECONDS", 1.4):
             self.run_items(items)
-        self.assertEqual([it.state for it in items],
-                         ["passed", "cancelled", "not-admitted", "scheduler-starvation"])
-        self.assertIsNotNone(items[1].proc.poll())
-        self.assertFalse(marker.exists())
-        self.assertGreater(items[2].admission_wait, 1)
+        self.assertEqual([(it.label, it.state) for it in items],
+                         [("finished", "passed"), ("running", "passed"), ("after the turn", "passed")],
+                         [it.notes for it in items])
+        self.assertTrue(marker.exists())
+        self.assertGreater(items[1].seconds, 1.4)
         report = json.loads((self.root / "run" / "priority-episode.json").read_text())
         self.assertEqual(report["status"], "over-budget")
         self.assertEqual(len(report["plan"]), 3)
-        admission = pr.engine_pass.Admission(str(self.root / "machine"), str(self.root))
-        try:
-            self.assertTrue(admission.begin())
-        finally:
-            admission.close()
+        self.assertFalse(pr.engine_pass._locked(str(self.root / "machine" / "admission" / "priority.lock")))
 
-    def test_waiting_integration_plan_cannot_publish_unit_priority_or_execute(self):
+    def test_waiting_integration_plan_never_takes_priority_and_runs_as_background_after_its_turn(self):
         machine = str(self.root / "machine")
         owner = pr.engine_pass.IntegrationPlan(machine, ["other fixed plan"], str(self.root))
         self.assertTrue(owner.enter())
-        item = self.item("waiting", "raise AssertionError('not admitted')")
+        item = self.item("waiting", "pass")
         try:
             with patch.object(pr.engine_pass, "is_main_checkout", return_value=True), \
                     patch.object(pr.engine_pass, "INTEGRATION_PLAN_SECONDS", .4):
                 self.run_items([item])
-            self.assertEqual(item.state, "not-admitted")
-            self.assertIsNone(item.started)
+            # It waited for the other plan's turn, never published priority of its own, and
+            # when its own turn had passed it ran as background work instead of being refused.
+            self.assertEqual(item.state, "passed", item.notes)
             self.assertGreater(item.wait_times.get("integration-episode", 0), .2)
             self.assertEqual(json.loads(Path(owner.path).read_text())["status"], "active")
             self.assertFalse(pr.engine_pass._locked(str(Path(machine) / "admission" / "priority.lock")))
@@ -160,6 +167,28 @@ class FailurePolicy(unittest.TestCase):
         self.assertTrue(all(i.state == "passed" for i in items))
         self.assertGreaterEqual(items[1].started - items[0].started, pr.SETTLE_SECONDS)
         self.assertLess(items[2].started - items[1].started, pr.SETTLE_SECONDS)
+
+    def test_ramp_does_not_wait_for_a_check_that_has_already_exited(self):
+        # The ramp waits SETTLE_SECONDS after a start so the next sample shows that check's
+        # load. Here the ramp's check, `quick`, exits at once; `blocker` (a replacement in
+        # quick's lane, which the ramp does not time) keeps the run busy until `next` has
+        # started. A ramp that honors only the clock holds `next` for the whole (huge) ramp,
+        # so `blocker` gives up and fails; one that sees `quick` gone starts `next` at once.
+        # 2026-09-29: the short tail of a 78-check land ran one check at a time, 4-5 s apart.
+        ready = self.root / "next-started"
+        blocker = ("import pathlib, time\nfor _ in range(600):\n    if pathlib.Path(%r).exists(): break\n"
+                   "    time.sleep(.05)\nelse:\n    raise SystemExit('next never started')" % str(ready))
+        items = [self.item("quick", "pass", lane="shared", weight=3),
+                 self.item("blocker", blocker, lane="shared", weight=2),
+                 self.item("next", "from pathlib import Path; Path(%r).touch()" % str(ready), weight=1)]
+        with patch.object(pr, "SETTLE_SECONDS", 1000), patch.object(pr, "admitted", return_value=(True, {})), \
+                contextlib.redirect_stdout(io.StringIO()):
+            pr.run(items, self.args, str(self.root / "run"), sampler=lambda: {
+                "cpu_user_percent": 5, "cpu_system_percent": 2, "swapout_mb_per_s": 0,
+                "memory_pressure": "normal"})
+        self.assertEqual([(i.label, i.state) for i in items],
+                         [("quick", "passed"), ("blocker", "passed"), ("next", "passed")], [i.notes for i in items])
+        self.assertLess(items[1].started, items[2].started)
 
     def test_shared_host_sample_keeps_pressure_and_never_reuses_stale_or_failed_data(self):
         values = iter([

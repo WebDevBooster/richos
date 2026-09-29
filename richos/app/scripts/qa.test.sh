@@ -59,7 +59,7 @@
 #
 # run-tests: no-host-screen: its only capture/keystroke references are the strings it asserts those two tools REFUSE to act on, and its frames are committed PNG fixtures
 # run-tests: inputs richos/app/scripts/qa.test.sh richos/app/scripts/qa richos/mobile/conformance/vectors/fingerprint.json
-# run-tests: covers richos/app/scripts/qa/pair-words.py richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-android.py richos/app/scripts/qa/lab-ledger.py richos/app/scripts/qa/fixtures/make-fixtures.py richos/app/scripts/qa/phone-ios.py richos/app/scripts/qa/stall-run.py richos/app/scripts/qa/under-load.py richos/app/scripts/qa/ocr-cache.test.py
+# run-tests: covers richos/app/scripts/qa/pair-words.py richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-android.py richos/app/scripts/qa/lab-ledger.py richos/app/scripts/qa/fixtures/make-fixtures.py richos/app/scripts/qa/phone-ios.py richos/app/scripts/qa/stall-run.py richos/app/scripts/qa/under-load.py richos/app/scripts/qa/busy-sample.py richos/app/scripts/qa/lib/busy-sample/sitecustomize.py richos/app/scripts/qa/ocr-cache.test.py
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -493,6 +493,16 @@ run python3 "$QA/under-load.py" --workers 1 --warmup 0 -- sh -c 'echo loaded-chi
 expect "U1 under-load.py runs the command and hands back its own exit status" 5 "loaded-child-ran"
 run python3 "$QA/under-load.py" --workers 1 --warmup 0
 expect "U2 under-load.py with no command is refused as bad usage" 2 "usage"
+# busy-sample.py fixes what reserve.py's admission sample reads, adding no load: the same
+# admission refuses at the busy it was given and admits under the line.
+run python3 "$QA/busy-sample.py" -- sh -c 'echo busy-child-ran; exit 6'
+expect "B1 busy-sample.py runs the command and hands back its own exit status" 6 "busy-child-ran"
+run python3 "$QA/busy-sample.py" --busy 100 -- python3 "$DIR/testvm/reserve.py" -- true
+expect "B2 under busy-sample.py --busy 100 a reserve.py admission reads 100% and refuses" 75 "total CPU is 100.0%"
+run python3 "$QA/busy-sample.py" --busy 10 -- python3 "$DIR/testvm/reserve.py" -- true
+expect "B3 under busy-sample.py --busy 10 the same admission reads 10% and admits" 0 "user CPU 10.0%"
+run python3 "$QA/busy-sample.py" --busy 100
+expect "B4 busy-sample.py with no command is refused as bad usage" 2 "usage"
 
 echo "=== N. phone-client: the headless phone ==="
 
