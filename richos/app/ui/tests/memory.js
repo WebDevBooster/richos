@@ -94,6 +94,26 @@ const dialogText = (page) =>
     (document.getElementById("memory-setup").innerText || "").replace(/\s+/g, " ").trim()
   );
 
+/// Wait until the boot has got PAST the point that would ask the memory question: the shell has
+/// read `memory_status`, and `take_work_notices` (called from `openThread`'s tail, after
+/// `maybeAskAboutMemory` has had its turn) has run; then two of the page's own frames for the
+/// sheet to be drawn if it was going to be. A NEGATIVE NEEDS SOMETHING TO WAIT FOR, and these
+/// checks used to wait for 400ms of this process's time instead (2026-09-29, audit R10). The
+/// 10s bound is a hang guard; the assertions after it name what went wrong.
+async function pastTheQuestion(page) {
+  await page
+    .waitForFunction(
+      () => {
+        const calls = window.__calls || [];
+        return calls.some((c) => c.cmd === "memory_status") && calls.some((c) => c.cmd === "take_work_notices");
+      },
+      null,
+      { timeout: 10000 }
+    )
+    .catch(() => {});
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+}
+
 async function main() {
   const run = createRun("first-run provisioning — the question a fresh install asks, and the one click that answers it");
   const { webkit } = loadPlaywright();
@@ -275,7 +295,7 @@ async function main() {
     // that is every launch forever — a permanent interruption carrying a sentence that ends
     // "there's nothing for you to install and nothing for you to fix".
     const page = await openApp(browser, { memory: "no-compiler" });
-    await page.waitForTimeout(400);
+    await pastTheQuestion(page);
     assert(
       await page.isHidden("#memory-setup"),
       "a launch that can do nothing about the state must not open a dialog about it"
@@ -319,7 +339,7 @@ async function main() {
     // point that would have asked: `take_work_notices` is called from `openThread`'s tail,
     // after `maybeAskAboutMemory` has had its turn.
     await again.waitForFunction(() => (window.__calls || []).some((c) => c.cmd === "memory_status"), { timeout: 10000 });
-    await again.waitForTimeout(400);
+    await pastTheQuestion(again);
     assert(await again.isHidden("#memory-setup"), "the corpus question came back on the next launch after he said Not now");
 
     // AND THE OFFER IS NOT LOST. Going quiet without leaving a way in would trade a nag for a
@@ -355,7 +375,7 @@ async function main() {
 
   await run.check("6  an install that is already set up is never asked", async () => {
     const page = await openApp(browser, { memory: "ready" });
-    await page.waitForTimeout(400);
+    await pastTheQuestion(page);
     assert(await page.isHidden("#memory-setup"), "a machine with memory must not be interrupted");
     const provisionCalls = await page.evaluate(
       () => window.__calls.filter((c) => c.cmd === "provision_memory").length

@@ -116,6 +116,26 @@ async function selected(page) {
 
 const hint = (page) => page.textContent("#retention-hint");
 
+/// Wait until the popover's own state says `fact` (a function run in the page), with a hang
+/// guard. WAITED FOR, NOT SLEPT FOR (2026-09-29, audit R10): every check below used to click a
+/// radio, sleep 150-250ms and read the sentence, which is a bet that the store's round trip and
+/// the re-render land inside that sleep. On expiry this returns and the assertion after it
+/// names what the surface said instead.
+async function surfaceSays(page, fact, arg) {
+  await page.waitForFunction(fact, arg === undefined ? null : arg, { timeout: 10000 }).catch(() => {});
+}
+const hintHas = (page, text) =>
+  surfaceSays(page, (t) => ((document.getElementById("retention-hint") || {}).textContent || "").includes(t), text);
+const checkedIs = (page, value) =>
+  surfaceSays(
+    page,
+    (v) => {
+      const on = document.querySelector('#assertiveness-popover input[name="raw-retention"]:checked');
+      return (on ? on.value : null) === v;
+    },
+    value
+  );
+
 async function main() {
   const { webkit } = loadPlaywright();
   const browser = await webkit.launch();
@@ -185,10 +205,10 @@ async function main() {
     const page = await openApp(browser);
     await openSettings(page);
     await page.click('input[name="raw-retention"][value="two-weeks"]');
-    await page.waitForTimeout(150);
+    await hintHas(page, "Kept for " + days + " days");
     assert((await hint(page)).includes("Kept for " + days + " days"), "the sentence carries the real number");
     await page.click('input[name="raw-retention"][value="three-months"]');
-    await page.waitForTimeout(150);
+    await hintHas(page, "Kept for " + months + " days");
     assert((await hint(page)).includes("Kept for " + months + " days"), "and so does the other one");
     await page.close();
     return days + " days / " + months + " days, from journal.rs and config.rs";
@@ -205,7 +225,7 @@ async function main() {
     assertEqual(await selected(page), "forever", "the store's answer, before he touches anything");
 
     await page.click('input[name="raw-retention"][value="two-weeks"]');
-    await page.waitForTimeout(200);
+    await hintHas(page, "Removed the stored output");
     const said = await hint(page);
     assert(said.includes("Removed the stored output from 3 earlier days"), "it counted, out loud: " + said);
     assert(
@@ -217,7 +237,7 @@ async function main() {
     // A second, LOOSER change must not claim a removal it did not make — and must not
     // pretend the bytes came back either.
     await page.click('input[name="raw-retention"][value="forever"]');
-    await page.waitForTimeout(200);
+    await hintHas(page, "Nothing is ever removed.");
     const after = await hint(page);
     assert(!after.includes("Removed"), "nothing removed, nothing claimed: " + after);
     assertEqual(after.includes("Nothing is ever removed."), true, "and the window reads as forever");
@@ -237,7 +257,7 @@ async function main() {
     assert(/Using [\d.]+ MB now\./.test(forever), "and what it is costing: " + forever);
 
     await page.click('input[name="raw-retention"][value="three-months"]');
-    await page.waitForTimeout(200);
+    await hintHas(page, "Kept for 90 days");
     const bounded = await hint(page);
     // BOTH axes. A day window and a byte ceiling are different limits and either can bind
     // first; a sentence naming only the one he picked would be a promise the other can break.
@@ -261,7 +281,7 @@ async function main() {
     const page = await openApp(browser);
     await openSettings(page);
     await page.click('input[name="raw-retention"][value="three-months"]');
-    await page.waitForTimeout(200);
+    await hintHas(page, "Kept for 90 days"); // the store's answer to the click has come back
     assertEqual(await selected(page), "three-months", "the click landed");
     const keys = await page.evaluate(() => Object.keys(window.localStorage).filter((k) => /retention/i.test(k)));
     assertEqual(keys, [], "and wrote nothing about retention to localStorage");
@@ -275,6 +295,7 @@ async function main() {
     });
     await closeSettings(page);
     await openSettings(page);
+    await checkedIs(page, "two-weeks");
     assertEqual(await selected(page), "two-weeks", "the store wins over the click, every time the popover opens");
     assert((await hint(page)).includes("Kept for 14 days"), "and the sentence came with it");
     assertEqual(page.__errors, [], "no page errors");
@@ -331,7 +352,8 @@ async function main() {
       input.checked = true;
       input.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    await page.waitForTimeout(250);
+    // Right after the dispatch the radio claims `custom`; going back is the fact waited for.
+    await checkedIs(page, before);
     assertEqual(await selected(page), before, "the surface went back to what the store holds");
     assertEqual(await hint(page), hintBefore, "and claims no window it did not get");
     assertEqual(page.__errors, [], "a refusal is not a page error");

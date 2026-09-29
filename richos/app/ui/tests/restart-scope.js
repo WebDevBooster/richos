@@ -76,6 +76,61 @@ async function openApp(browser, viewport) {
   return page;
 }
 
+/// Wait until the store `main.js` parks the view into (`richos.view.drafts` / `richos.view.scroll`,
+/// written `PARK_DEBOUNCE_MS` after the last change) says what `want` says, key by key; a key
+/// whose wanted value is `null` must be ABSENT. WAITED FOR, NOT SLEPT FOR (2026-09-29, audit
+/// R10): these checks used to sleep 700ms "> PARK_DEBOUNCE_MS" and read the store, which is
+/// 300ms of slack for a debounced timer to fire and write on a busy host. The 10s bound is a
+/// hang guard; on expiry this returns and the assertion after it names what is missing.
+async function parkedAs(page, want) {
+  await page
+    .waitForFunction(
+      (w) => {
+        const read = (k) => JSON.parse(window.localStorage.getItem(k) || "{}");
+        const now = { drafts: read("richos.view.drafts"), scroll: read("richos.view.scroll") };
+        return Object.keys(w).every((store) =>
+          Object.keys(w[store]).every((id) => (w[store][id] === null ? !(id in now[store]) : now[store][id] === w[store][id]))
+        );
+      },
+      want,
+      { timeout: 10000 }
+    )
+    .catch(() => {});
+}
+
+/// Record every `turn-status` the shell DELIVERS, per thread, by wrapping the handler it calls
+/// (`main.js` looks `window.RichTimeline.onTurnStatus` up at delivery time, the same seam the
+/// dropped-events check below uses). The wrapper calls straight through, so nothing the
+/// renderer does changes; it only lets a check know that a foreign turn's whole stream has
+/// ARRIVED in this page, rather than guessing it from a sleep.
+async function watchTurnStatus(page) {
+  await page.evaluate(() => {
+    if (window.__turnStatusSeen) return;
+    window.__turnStatusSeen = [];
+    const real = window.RichTimeline.onTurnStatus;
+    window.RichTimeline.onTurnStatus = function (model, p) {
+      window.__turnStatusSeen.push({ threadId: p && p.threadId, status: p && p.status });
+      return real.apply(this, arguments);
+    };
+  });
+}
+
+/// Wait until a turn in `threadId` has been delivered to this page all the way to `completed`
+/// (its deltas and its completion are emitted before that status). A precondition, not a
+/// verdict: a scope check that asserts ABSENCE is only worth something once the thing that must
+/// be absent has actually arrived. The 30s bound is a hang guard and it names itself.
+async function turnDelivered(page, threadId, since) {
+  await page
+    .waitForFunction(
+      ([t, from]) => (window.__turnStatusSeen || []).slice(from).some((s) => s.threadId === t && s.status === "completed"),
+      [threadId, since],
+      { timeout: 30000 }
+    )
+    .catch((e) => {
+      throw new Error(`the ${threadId} turn never reached this page as completed within 30s: ${String(e.message || e).split("\n")[0]}`);
+    });
+}
+
 async function open(page, threadId) {
   await page.click(`.nav-thread[data-thread-id="${threadId}"]`);
   await settle(page);
@@ -195,8 +250,23 @@ async function main() {
       "the timer restarted on arrival — it reads " + seconds + "s for a turn that has been running over 3s"
     );
 
-    // And it keeps ticking from that value rather than being a frozen snapshot.
-    await page.waitForTimeout(1400);
+    // And it keeps ticking from that value rather than being a frozen snapshot. WAITED FOR, NOT
+    // SLEPT FOR (2026-09-29, audit R10): this used to sleep 1,400ms and then require a bigger
+    // number, which a tick delivered late on a busy host reads as the same second. The fact is
+    // the row moving past `seconds`; the 20s bound is a hang guard for a row that froze, which
+    // is exactly the defect, and it fails by name below.
+    await page
+      .waitForFunction(
+        ([turnId, s]) => {
+          const sec = document.querySelector(`.tl-turn[data-turn-id="${turnId}"]`);
+          const label = sec && sec.querySelector(".tl-duration-label");
+          const m = label && /Working for (\d+)s/.exec(label.textContent);
+          return !!m && Number(m[1]) > s;
+        },
+        [live.turnId, seconds],
+        { timeout: 20000 }
+      )
+      .catch(() => {});
     await settle(page);
     const later = (await turns(page)).find((t) => t.turnId === live.turnId);
     const seconds2 = Number((later.duration.match(/Working for (\d+)s/) || [])[1]);
@@ -287,7 +357,7 @@ async function main() {
       c.dispatchEvent(new Event("scroll"));
       return { top: c.scrollTop, bottom: c.scrollHeight - c.clientHeight };
     });
-    await before.waitForTimeout(700); // > PARK_DEBOUNCE_MS: the scroll is on disk, the composer is empty
+    await parkedAs(before, { scroll: { acme: parked.top } }); // the scroll is on disk, the composer is empty
     const sentence = "our walk-away number on Acme is";
     await before.fill("#input", sentence);
     assert(
@@ -300,7 +370,7 @@ async function main() {
     // page is not closed, not navigated and not asked to tidy up — it is simply still there
     // while a second one opens on the same store. So whatever the second page finds was
     // written WHILE HE TYPED, which is the only kind of write a crash cannot skip.
-    await before.waitForTimeout(700); // > PARK_DEBOUNCE_MS
+    await parkedAs(before, { drafts: { acme: sentence }, scroll: { acme: parked.top } });
     const onDisk = await before.evaluate(() => ({
       drafts: JSON.parse(window.localStorage.getItem("richos.view.drafts") || "{}"),
       scroll: JSON.parse(window.localStorage.getItem("richos.view.scroll") || "{}"),
@@ -383,7 +453,7 @@ async function main() {
     // fired when Send was clicked, the composer was empty by the time it did, and nothing
     // was ever on disk to come back — so "it did not come back" passed over an empty store.
     // That is the vacuity the probe below exists to make impossible.
-    await before.waitForTimeout(700);
+    await parkedAs(before, { drafts: { acme: "send this one" } });
     const parkedBeforeSend = await before.evaluate(() =>
       JSON.parse(window.localStorage.getItem("richos.view.drafts") || "{}")
     );
@@ -405,7 +475,12 @@ async function main() {
       "VACUITY: the draft is not in the in-memory map, so deleting it there would be a no-op"
     );
     await before.click("#send");
-    await before.waitForTimeout(700);
+    // The composer clears on acceptance and the delete-on-send reaches the store one debounce
+    // later; both are waited for (hang guard), and both are asserted below.
+    await before
+      .waitForFunction(() => document.getElementById("input").value === "", null, { timeout: 10000 })
+      .catch(() => {});
+    await parkedAs(before, { drafts: { acme: null } });
     const boxAfterSend = await before.inputValue("#input");
     assertEqual(boxAfterSend, "", "the composer kept the sent words");
 
@@ -426,12 +501,16 @@ async function main() {
 
   await run.check("SCOPE: a turn streaming in another entity's thread renders nothing here", async () => {
     await open(page, "partner"); // Lumen Labs
+    await watchTurnStatus(page);
     // `simulateSlowTurn` streams a fixed word list that contains "comparables" — a word
     // that appears nowhere in Lumen Labs's own seeded conversation, so its presence here would
     // be unambiguous.
+    let since = await page.evaluate(() => window.__turnStatusSeen.length);
     await page.evaluate(() => window.__RICHOS_MOCK__.simulateSlowTurn("acme", "check the Acme numbers", 40));
-    // Let it stream for a while with the wrong thread on screen.
-    await page.waitForTimeout(2500);
+    // Let the WHOLE foreign turn arrive with the wrong thread on screen. This used to sleep
+    // 2,500ms and call that "a while" (2026-09-29, audit R10): on a busy host that is part of a
+    // stream, and an absence check over a stream that has not arrived passes for nothing.
+    await turnDelivered(page, "acme", since);
     await settle(page);
     const here = await page.evaluate(() => document.getElementById("messages").innerText);
 
@@ -444,8 +523,10 @@ async function main() {
 
     // POSITIVE PROBE, the other half: the very same turn IS rendered in the thread it
     // belongs to. Without this the check above passes on a renderer that draws nothing.
-    await page.waitForTimeout(3000);
     await open(page, "acme");
+    await page
+      .waitForFunction(() => document.getElementById("messages").innerText.includes("check the Acme numbers"), null, { timeout: 20000 })
+      .catch(() => {});
     const there = await page.evaluate(() => document.getElementById("messages").innerText);
     assert(there.includes("check the Acme numbers"), "the turn did not render in its OWN thread either: " + there.slice(0, 300));
 
@@ -464,10 +545,11 @@ async function main() {
         rich: Array.from(document.querySelectorAll(".tl-rich")).map((n) => n.innerText),
       }));
     const acmeBefore = await said();
+    since = await page.evaluate(() => window.__turnStatusSeen.length);
     await page.evaluate(() =>
       window.__RICHOS_MOCK__.simulateSlowTurn("hiring", "sibling thread, same entity", 40)
     );
-    await page.waitForTimeout(2500);
+    await turnDelivered(page, "hiring", since);
     await settle(page);
     const acmeDuring = await said();
     assert(acmeBefore.ceo.length > 0, "POSITIVE PROBE: this thread had nothing on screen to protect");
@@ -632,8 +714,10 @@ async function main() {
     });
 
     await b.evaluate(() => window.__RICHOS_MOCK__.simulateSlowTurn("general", "second, with every live event dropped", 30));
-    // Mid-stream: the deltas are being thrown away, so nothing new can be on screen.
-    await b.waitForTimeout(1800);
+    // Mid-stream: the deltas are being thrown away, so nothing new can be on screen. The
+    // first dropped event is the fact waited for (it used to be an 1,800ms sleep, audit R10);
+    // the VACUITY assertion below still names a run where none was ever dropped.
+    await b.waitForFunction(() => window.__dropped > 0, null, { timeout: 20000 }).catch(() => {});
     await settle(b);
     const midStream = await b.evaluate(() => ({
       dropped: window.__dropped,

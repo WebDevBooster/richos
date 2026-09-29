@@ -291,8 +291,19 @@ async function main() {
       "the notices are not between the two answers they came between: " + order.join(","));
     // ONCE: leaving and coming back reads the store again, and it has nothing new.
     await openThread(page, "hiring");
+    const callsBefore = await page.evaluate(() => window.__RICHOS_MOCK__.operatorCalls().filter((t) => t === "acme").length);
     await openThread(page, "acme");
-    await page.waitForTimeout(300);
+    // The second opening's durable read, and the thread drawn after it, are the facts waited
+    // for (hang guard); this used to be a 300ms sleep (2026-09-29, audit R10). Both assertions
+    // below still name a read that never ran or a count that is wrong.
+    await page
+      .waitForFunction(
+        (n) => window.__RICHOS_MOCK__.operatorCalls().filter((t) => t === "acme").length > n,
+        callsBefore,
+        { timeout: 10000 }
+      )
+      .catch(() => {});
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     assertEqual((await teamCards(page)).length, 2, "coming back drew the notices again (or lost them)");
     const asked = await page.evaluate(() => window.__RICHOS_MOCK__.operatorCalls().filter((t) => t === "acme").length);
     assert(asked >= 2, `the durable read ran ${asked} time(s) on acme; the second opening never asked`);
@@ -319,7 +330,10 @@ async function main() {
       window.__RICHOS_MOCK__.workNoticeQueue("acme", { assignmentId: "a9", title: "x", kind: "failed", text: "The nightly build stopped before it finished.", raisedAtMs: Date.now() });
       drainWorkNotices(); // eslint-disable-line no-undef
     });
-    await page.waitForTimeout(250);
+    // Two of the page's own frames — the shell renders at most once per frame (§15) — rather
+    // than 250ms of this process's time (audit R10): a notice that was NOT held would be on
+    // screen by then on any host, and the turn has had no wall-clock sleep in which to end.
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     const during = await page.evaluate(() => ({
       live: anyLiveTurn(), // eslint-disable-line no-undef
       cards: document.querySelectorAll("#messages .tl-notice--team").length,
@@ -438,7 +452,7 @@ async function main() {
     await openThread(page, "acme");
     await page.waitForFunction(() => window.__RICHOS_MOCK__.operatorCalls().includes("acme"), undefined, { timeout: 8000 });
     await page.waitForFunction(() => document.querySelectorAll("#messages .tl-notice").length === 1, undefined, { timeout: 8000 });
-    await page.waitForTimeout(300);
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     assertEqual(await page.locator("#messages .tl-notice--team").count(), 0, "a product install drew his team's notice");
     assertEqual(await page.locator("#messages .tl-notice-from").count(), 0, "a product install drew a from-line");
     // The app's own line is exactly as it was before this surface existed.

@@ -429,7 +429,13 @@ async function main() {
       () => /connected|sign in|Sign in|account/i.test(document.getElementById("setup-account").textContent || ""),
       { timeout: 10000 }
     );
-    await page.waitForTimeout(400);
+    // A WINDOW OF THE PAGE'S OWN FRAMES after the answer landed, not 400ms of this process's
+    // time (2026-09-29, audit R10): 24 more frames is the 400ms this used to sleep, at 60fps,
+    // and on a busy host it is still 24 frames of the button being watched. Hang guard 20s.
+    const seenAtAnswer = await page.evaluate(() => window.__closeTops.length);
+    await page
+      .waitForFunction((n) => window.__closeTops.length >= n + 24, seenAtAnswer, { timeout: 20000 })
+      .catch(() => {});
     const tops = await page.evaluate(() => window.__closeTops);
     const distinct = [...new Set(tops)];
     assert(tops.length > 5, "the button was never sampled on screen: " + JSON.stringify(tops));
@@ -456,7 +462,10 @@ async function main() {
 
   await run.check("8  a machine that has everything is never asked", async () => {
     const page = await openApp(browser, { setup: "ready" });
-    await page.waitForTimeout(300);
+    // The status having been READ is the fact waited for, then two of the page's own frames for
+    // a sheet to be drawn if it was going to be; this was a 300ms sleep (audit R10).
+    await page.waitForFunction(() => (window.__calls || []).some((c) => c.cmd === "setup_status"), null, { timeout: 10000 }).catch(() => {});
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     assert(
       await page.isHidden("#setup-sheet"),
       "an install that is already set up must not be interrupted on every launch"
@@ -1075,7 +1084,7 @@ async function main() {
       "the hand is not on the offer, so Escape is about to answer a question it is not pointed at"
     );
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(250);
+    await page.waitForFunction(() => document.getElementById("setup-sheet").hidden, null, { timeout: 10000 }).catch(() => {});
     const afterEscape = await page.evaluate(() => ({
       clicked: window.__escapeClicked,
       sheetHidden: document.getElementById("setup-sheet").hidden,
@@ -1239,7 +1248,8 @@ async function main() {
       return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
     });
     await page.mouse.click(at.x, at.y);
-    await page.waitForTimeout(300);
+    // An ABSENCE of effect: two of the shell's own frames for a menu to open, not 300ms (R10).
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     const clicked = await page.evaluate(() => {
       const m = document.getElementById("set-menu");
       return {
@@ -1261,7 +1271,9 @@ async function main() {
     // ANSWERED, AND THE WINDOW COMES BACK. "Not now" is a real answer and he is entitled to
     // give it; a wall that outlives the question is a worse defect than the one it closed.
     await page.click("#setup-later");
-    await page.waitForTimeout(400);
+    // The answer registering (the sheet gone) is the fact waited for, then two frames (R10).
+    await page.waitForFunction(() => document.getElementById("setup-sheet").hidden, null, { timeout: 10000 }).catch(() => {});
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     assertEqual(await tryFocus("input"), "took focus", "the composer stayed unreachable after the offer was answered");
     assertEqual(
       await tryFocus("set-btn"),

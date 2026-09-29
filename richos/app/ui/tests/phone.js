@@ -33,6 +33,7 @@
 const fs = require("fs");
 const path = require("path");
 const {
+  awaitSettled,
   bootSettled,
   leaveHome,
   loadPlaywright,
@@ -1818,7 +1819,22 @@ async function openSheet(browser, theme, preset) {
       panel.scrollTop = panel.scrollHeight;
     });
     await page.click("#phone-refresh");
-    await page.waitForTimeout(250);
+    // The code coming into view is the fact waited for (hang guard); it used to be a 250ms
+    // sleep (2026-09-29, audit R10). The assertion below still names where the code ended up.
+    await page
+      .waitForFunction(
+        () => {
+        const panel = document.getElementById("phone-scroll");
+        const code = document.getElementById("phone-code-block");
+        if (!panel || !code) return false;
+        const p = panel.getBoundingClientRect();
+        const c = code.getBoundingClientRect();
+        return c.top - p.top >= 0 && c.top - p.top < p.height - 40;
+      },
+        null,
+        { timeout: 10000 }
+      )
+      .catch(() => {});
     const where = await page.evaluate(() => {
       const panel = document.getElementById("phone-scroll");
       const code = document.getElementById("phone-code-block");
@@ -1903,7 +1919,9 @@ async function openSheet(browser, theme, preset) {
         const n = document.getElementById("phone-device-name");
         return n && n.textContent.trim().length > 0;
       });
-      await page.waitForTimeout(300);
+      // Every finite transition on the sheet has ENDED, rather than 300ms having passed
+      // (2026-09-29, audit R10): `awaitSettled` waits on `Animation.finished` with a hang guard.
+      await awaitSettled(page);
       for (const sel of ["#phone-forget", "#phone-close"]) {
         const box = await page.evaluate((s) => {
           const el = document.querySelector(s);
@@ -1911,7 +1929,8 @@ async function openSheet(browser, theme, preset) {
           const r = el.getBoundingClientRect();
           return { x: r.x, y: r.y, w: r.width, h: r.height };
         }, sel);
-        await page.waitForTimeout(60);
+        // Two of the page's own frames for the scroll to be painted, not 60ms (audit R10).
+        await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
         // A 6px strip across the LEFT border, taken from the vertical middle so no glyph of the
         // label is inside it: columns 0/1 are the panel outside the button and 4/5 the panel
         // showing through it (`background: none`), so the skirt resolves to the panel and the
@@ -2177,8 +2196,23 @@ async function openSheet(browser, theme, preset) {
         await page.click("#set-phone-open");
         await page.waitForSelector("#phone-sheet:not([hidden])");
         // The open is `async` (it awaits `phone_status`), so the screen it draws — and the scroll
-        // it sets on the back of that draw — is one turn later than the click.
-        await page.waitForTimeout(250);
+        // it sets on the back of that draw — is one turn later than the click. That scroll landing
+        // the code in view is the fact waited for (hang guard), not 250ms (audit R10); on a build
+        // that never scrolls, this runs out and the assertion below names where the code is.
+        await page
+          .waitForFunction(
+            () => {
+            const panel = document.getElementById("phone-scroll");
+            const code = document.getElementById("phone-code-block");
+            if (!panel || !code) return false;
+            const p = panel.getBoundingClientRect();
+            const c = code.getBoundingClientRect();
+            return c.top - p.top >= 0 && c.top - p.top < p.height - 40;
+          },
+            null,
+            { timeout: 10000 }
+          )
+          .catch(() => {});
       };
       const where = (page) =>
         page.evaluate(() => {
@@ -2382,8 +2416,20 @@ async function openSheet(browser, theme, preset) {
       await page.waitForSelector("#phone-pairing:not([hidden])");
       // A SECOND CALL INTO A RUNNING CHANNEL, which is what makes the press below the
       // interesting one rather than a repeat of check 27.
+      const urlBefore = await page.evaluate(() => (document.getElementById("phone-pair-url").textContent || "").trim());
       await page.click("#phone-refresh");
-      await page.waitForTimeout(250);
+      // The fresh code on screen (a different pairing URL) is the fact waited for, with a hang
+      // guard; this was a 250ms sleep (2026-09-29, audit R10).
+      await page
+        .waitForFunction(
+          (u) => {
+            const t = (document.getElementById("phone-pair-url").textContent || "").trim();
+            return t.length > 0 && t !== u;
+          },
+          urlBefore,
+          { timeout: 10000 }
+        )
+        .catch(() => {});
 
       const after = await page.evaluate(async () => {
         const status = await window.RichBridge.invoke("phone_status");
