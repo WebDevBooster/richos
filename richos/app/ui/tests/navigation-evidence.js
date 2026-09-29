@@ -22,6 +22,10 @@
 //      written, says which parts of the page would not answer, and the suite is still red.
 //   5. The off switch removes the capture and changes nothing else about the failure.
 //   6. What it costs a passing load, measured against the same page without it, and printed.
+//   7. A host too loaded to start a helper process in time still gets its CPU sample, and the
+//      failure stays red exactly as in 2. On 2026-09-29 (nightly `20260929T044015Z-588457c3`)
+//      the sample was `spawnSync /usr/bin/top`, it timed out with three gates side by side,
+//      and check 2 went red for the host's reason instead of the product's.
 //
 // The failing navigations run in a child process (`fixtures/navigation-hang-suite.js`) so
 // their evidence lines and bundles never appear in THIS suite's output or in the run's real
@@ -233,6 +237,38 @@ async function main() {
       } finally {
         await browser.close();
       }
+    });
+
+    // ---- 7. a host too loaded to start a helper process ---------------------------------------
+    await run.check("7  a host too loaded to start a helper process in time still gets its CPU sample, and the failure stays red", async () => {
+      // `fixtures/loaded-host-preload.js` makes every spawnSync in the fixture answer the way
+      // `spawnSync /usr/bin/top` answered at 04:51Z: ETIMEDOUT, no output.
+      const dir = mk("loaded");
+      const preload = path.join(__dirname, "fixtures", "loaded-host-preload.js");
+      const nodeOptions = ((process.env.NODE_OPTIONS || "") + " --require " + JSON.stringify(preload)).trim();
+      const r = runFixture("stall-subresource", dir, { NODE_OPTIONS: nodeOptions });
+      // The simulation really was on: without this, a pass proves nothing about a loaded host.
+      assert(/^loaded-host: refused spawnSync /m.test(r.stderr), "the loaded-host preload never refused a spawnSync:\n" + r.stderr);
+      // The negative control is unchanged by the host: red, Playwright's message, one bundle.
+      assertRedWith(r, "page.goto: Timeout 1500ms exceeded.");
+      const { data: b } = oneBundle(dir, r);
+      assertEqual(b.error.name, "TimeoutError", "the recorded error type");
+      assert(b.elapsedMs >= 1500 && b.elapsedMs < 2500, "navigation rejected after " + b.elapsedMs + " ms, not at its 1500 ms deadline");
+      assertEqual(b.reached.load, false, "load reached on a page whose image never answers");
+      const busy = b.host.cpuBusyPercent;
+      assert(
+        typeof busy === "number" && busy >= 0 && busy <= 100,
+        "no CPU sample in the host context when no helper process can start: " + JSON.stringify(b.host)
+      );
+      // What could not be measured is written down as unavailable, with the reason, not dropped.
+      if (process.platform === "darwin") {
+        assert(/ETIMEDOUT/.test(b.host.processesUnavailable || ""), "the refused process list is not recorded as unavailable: " + JSON.stringify(b.host));
+        assert(/ETIMEDOUT/.test(b.host.memoryUnavailable || ""), "the refused memory reading is not recorded as unavailable: " + JSON.stringify(b.host));
+      }
+      return (
+        "every spawnSync refused with ETIMEDOUT; exit 1, FAIL line unchanged, rejected at " + b.elapsedMs +
+        " ms of 1500; CPU " + busy + "% busy over " + b.host.cpuSampleMs + " ms from the kernel's tick counters"
+      );
     });
   } finally {
     for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
