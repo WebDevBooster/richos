@@ -3,7 +3,10 @@ package dev.richos.android.app
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
+import dev.richos.android.design.Speckle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.ReportDrawnWhen
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -74,6 +77,7 @@ class MainActivity : ComponentActivity() {
         )
         super.onCreate(savedInstanceState)
         val store = richStore
+        prewarmSpeckle()
         setContent {
             val state by store.states.collectAsStateWithLifecycle()
             // Useful content, for the launch measurement (PRD 2026-09-24 §7, J1): the platform's own
@@ -152,7 +156,8 @@ class MainActivity : ComponentActivity() {
                 }
                 }
             } else {
-                // Until the saved state is read (a few milliseconds): the ground, nothing else.
+                // Until the saved state is read (a few milliseconds): the ground, nothing else. Part
+                // of the splash, so never speckled (the CEO's rule, 2026-09-29; design/Speckle.kt).
                 AppRoot(null, theme, problem = refusal)
             }
         }
@@ -167,6 +172,24 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         NotificationTaps.handle(intent, richStore, (application as RichApplication).appScope)
     }
+}
+
+/**
+ * The speckled ground (design/Speckle.kt) for this window, in the phone's theme, started once on a
+ * background thread so the first screen finds it ready. Edge to edge, the app's ground is the whole
+ * window. A size or theme this misses is computed when first drawn instead. The splash (the launch
+ * window and [AppRoot]'s bare ground) never draws it: the CEO's rule, 2026-09-29.
+ */
+private fun ComponentActivity.prewarmSpeckle() {
+    val (w, h) = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        windowManager.currentWindowMetrics.bounds.let { it.width() to it.height() }
+    } else {
+        val size = android.graphics.Point()
+        @Suppress("DEPRECATION") windowManager.defaultDisplay.getRealSize(size)
+        size.x to size.y
+    }
+    val night = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+    Speckle.prewarm(if (night) Theme.DARK else Theme.LIGHT, w, h, resources.displayMetrics.density)
 }
 
 private fun ComponentActivity.cameraGranted(): Boolean =
