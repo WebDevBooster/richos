@@ -74,5 +74,18 @@ outcome, said = main_with(command=('/nonexistent/walk.py',))
 check('a command that cannot run is refused before a slot is asked for',
       outcome == 'exit 2' and not asked and 'not an executable file' in said, (outcome, asked, said))
 
+# The tailnet join is the phone path's alone: run.sh exits 1 when a join fails, so a walk
+# that never touches the phone must not ask for one (audit 2026-09-29 part 2, section 09).
+asked.clear()
+plain = run_walk.boot_argv('vm1', 'b.zip', 'home', 'e.tar.gz', False)
+check('a walk that does not pair a phone boots with --no-tailnet', '--no-tailnet' in plain, plain)
+phone = run_walk.boot_argv('vm1', 'b.zip', 'home', 'e.tar.gz', True)
+check('--tailnet keeps the join for a walk that does pair a phone', '--no-tailnet' not in phone, phone)
+outcome, said = main_with(command=(str(HERE / 'delta-walk.py'), '--out', '/tmp/x'))
+check('delta-walk.py (the phone walk) without --tailnet is refused before a slot is asked for',
+      outcome == 'exit 2' and not asked and '--tailnet' in said, (outcome, asked, said))
+outcome, _ = main_with('--tailnet', command=(str(HERE / 'delta-walk.py'), '--out', '/tmp/x'))
+check('delta-walk.py with --tailnet reaches the slot admission', outcome == 'refused' and asked, (outcome, asked))
+
 print(f'run-walk-wait.test.py: {len(failures)} failed')
 sys.exit(1 if failures else 0)
