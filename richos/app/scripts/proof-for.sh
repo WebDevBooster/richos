@@ -159,7 +159,7 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/proof-for.XXXXXX")" || die "could not make a 
 trap 'rm -rf "$WORK"' EXIT HUP INT TERM
 CHANGED="$WORK/changed"; UNCOVERED="$WORK/uncovered"; PROSE="$WORK/prose"
 : > "$CHANGED"; : > "$UNCOVERED"; : > "$PROSE"
-for f in script ui rust web engine nested ui-index ui-cause; do : > "$WORK/$f"; done
+for f in script ui rust web engine nested ui-index ui-dir-index ui-cause; do : > "$WORK/$f"; done
 
 # --- the changed paths, repository-relative ----------------------------------------------
 case "${MODE:-working}" in
@@ -311,6 +311,15 @@ while IFS="$TAB" read -r s paths; do
   expand_alias "$paths" | LC_ALL=C sort -u > "$ROWDIR/$s"
   while IFS= read -r p; do
     [ -n "$p" ] || continue
+    case "$p" in
+      */)
+        # A DIRECTORY INPUT (a token ending in `/`): the suite reads everything under it,
+        # including files that do not exist yet. It SELECTS the suite and COVERS nothing,
+        # the same rule as `run-tests: inputs` — see the header of proof-for.ui-inputs.
+        [ -d "$ROOT/${p%/}" ] || echo "  '$s' names the directory '$p', which is not in the tree" >> "$RECON"
+        printf '%s\t%s\n' "$p" "$s" >> "$WORK/ui-dir-index"
+        continue ;;
+    esac
     printf '%s\t%s\n' "$p" "$s" >> "$WORK/ui-index"
     case "$p" in
       __UNKNOWN_ALIAS__*) echo "  '$s' uses ${p#__UNKNOWN_ALIAS__}, which no line defines" >> "$RECON" ;;
@@ -477,6 +486,15 @@ while IFS= read -r p; do
     [ -n "$s" ] || continue
     add_ui "$s"; MATCHED=1; note "declared by $s"
   done < <(awk -F"$TAB" -v q="$p" '$1 == q { print $2 }' "$WORK/ui-index" 2>/dev/null)
+  # A directory input SELECTS and never sets MATCHED: a suite that reads a whole tree (the
+  # document-vs-tree claims) must run when anything in it changes, and must not thereby
+  # make every file in that tree look covered. Found 2026-09-29: a Rust test file added in
+  # 6f5cfb03 made app/README.md's counts false, and docs-claims.js, whose row named eight
+  # exact files, was selected by nothing in that land.
+  while IFS= read -r s; do
+    [ -n "$s" ] || continue
+    add_ui "$s"; note "under a directory $s reads (selects; covers nothing)"
+  done < <(awk -F"$TAB" -v q="$p" 'index(q, $1) == 1 { print $2 }' "$WORK/ui-dir-index" 2>/dev/null)
 
   # ---- Rust ----
   case "$p" in

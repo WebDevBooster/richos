@@ -24,7 +24,7 @@
 # would be worse than none, so the assertion is that it says 55 AND names the one file that
 # caused it.
 #
-# run-tests: inputs richos/app/scripts/proof-for.test.sh richos/app/scripts/proof-for.sh richos/app/scripts/battery-check.py richos/app/scripts/proof-for.ui-inputs richos/app/scripts/lib/proof_declarations.py richos/app/scripts/proof-for-declarations.test.py richos/app/scripts/proof-for-engine.test.py richos/engine docs/development/verification-input-qualifications.json richos/mobile richos/app/scripts/mobile-headless.test.sh richos/app/scripts/mobile-pwa.test.sh richos/app/scripts/mobile-ios.test.sh
+# run-tests: inputs richos/app/scripts/proof-for.test.sh richos/app/scripts/proof-for.sh richos/app/scripts/battery-check.py richos/app/scripts/proof-for.ui-inputs richos/app/ui/tests/docs-claims.js richos/app/scripts/lib/proof_declarations.py richos/app/scripts/proof-for-declarations.test.py richos/app/scripts/proof-for-engine.test.py richos/engine docs/development/verification-input-qualifications.json richos/mobile richos/app/scripts/mobile-headless.test.sh richos/app/scripts/mobile-pwa.test.sh richos/app/scripts/mobile-ios.test.sh
 # run-tests: covers richos/app/scripts/proof-for.sh richos/app/scripts/lib/proof_declarations.py richos/app/scripts/proof-for-declarations.test.py richos/app/scripts/proof-for-engine.test.py
 set -uo pipefail
 
@@ -138,10 +138,13 @@ if have_commit e7facc99; then
     && ok "B3 the NESTED testvm runner is named, which run-tests.sh's maxdepth 1 cannot reach" \
     || bad "B3 the NESTED testvm runner is named"
 
-  N="$(sed -n 's/^UI SUITES — \([0-9]*\) of .*$/\1/p' "$WORK/b.out")"
-  [ "${N:-0}" -eq 1 ] \
-    && ok "B4 a one-check UI change costs ONE suite, not the 19-minute run" \
-    || bad "B4 a one-check UI change costs ONE suite" "got ${N:-none}"
+  # ONE browser suite, plus docs-claims.js: the land also changed a Rust source whose #[test]
+  # count feeds app/README.md's crate total, and that document check weighs 0 s
+  # (ui/tests/suite-weights.tsv). Still not the 19-minute run (K1 below says why it is here).
+  UI_B="$(sed -n 's/^  cd richos\/app\/ui\/tests && node \(.*\.js\)$/\1/p' "$WORK/b.out" | LC_ALL=C sort | tr '\n' ' ')"
+  [ "$UI_B" = "docs-claims.js no-home-network.js " ] \
+    && ok "B4 a one-check UI change costs ONE suite (plus the sub-second document check), not the 19-minute run" \
+    || bad "B4 a one-check UI change costs ONE suite" "got ${UI_B:-none}"
 else
   bad "B  e7facc99 is not in this clone — the testvm fixture could not run"
 fi
@@ -256,6 +259,54 @@ OUT="$("$PF" --paths richos/app/ui/main.js 2>&1)"; E0_RC=$?
 [ "$E0_RC" -eq 0 ] \
   && ok "E5 (positive probe) the real declaration reconciles and answers" \
   || bad "E5 (positive probe) the real declaration reconciles" "exit $E0_RC: $OUT"
+
+# -----------------------------------------------------------------------------------------
+# K. A WHOLE-TREE CLAIM IS SELECTED BY ANY CHANGE THAT CAN FALSIFY IT (2026-09-29). Nightly
+#    20260929T101720Z-bee22332 failed docs-claims.js: 6f5cfb03 added tests to
+#    correction_forward_compat_tests.rs, which made app/README.md's counts false, and the land
+#    ran lint, richos-core and corrections.js, never docs-claims.js, whose row named eight
+#    exact files. A directory input (`<dir>/`) selects for everything under it and covers
+#    nothing; docs-claims.js checks its own row against what it actually read.
+# -----------------------------------------------------------------------------------------
+run_pf "$WORK/k1.out" --paths richos/app/crates/richos-core/tests/correction_forward_compat_tests.rs; K1_RC=$RC
+if [ "$K1_RC" -eq 0 ] && grep -q 'node docs-claims.js' "$WORK/k1.out"; then
+  ok "K1 a change to a Rust test file selects docs-claims.js, whose counts it can falsify"
+else
+  bad "K1 a change to a Rust test file selects docs-claims.js" "exit $K1_RC: $(tr '\n' ' ' < "$WORK/k1.out")"
+fi
+
+run_pf "$WORK/k2.out" --paths richos/app/crates/richos-core/src/a_module_no_test_names.rs; K2_RC=$RC
+if [ "$K2_RC" -eq 1 ] && grep -q 'node docs-claims.js' "$WORK/k2.out" \
+   && grep -q 'UNCOVERED' "$WORK/k2.out" && grep -q 'a_module_no_test_names.rs' "$WORK/k2.out"; then
+  ok "K2 a directory input selects its suite and covers nothing: an untested module is still UNCOVERED"
+else
+  bad "K2 a directory input selects and covers nothing" "exit $K2_RC: $(tr '\n' ' ' < "$WORK/k2.out")"
+fi
+
+OUT="$(mutate 'home.js richos/app/a-directory-that-is-not-there/')"
+if printf '%s' "$OUT" | grep -q "names the directory 'richos/app/a-directory-that-is-not-there/', which is not in the tree"; then
+  ok "K3 a row naming a directory that is not there refuses"
+else
+  bad "K3 a row naming a directory that is not there refuses" "$OUT"
+fi
+
+# The row as it was on 5ddcce1c: the same row with its directory inputs taken out, derived
+# from the real one so this case never keeps a stale copy of it.
+awk '$1 == "docs-claims.js" { o = $1; for (i = 2; i <= NF; i++) if ($i !~ /\/$/) o = o " " $i; print o; next } { print }' \
+  "$DECL" > "$WORK/decl-narrow"
+if command -v node >/dev/null 2>&1; then
+  OUT="$(cd "$APP/ui/tests" && PROOF_FOR_UI_INPUTS="$WORK/decl-narrow" node docs-claims.js 2>&1)"
+  REAL="$(cd "$APP/ui/tests" && node docs-claims.js 2>&1)"
+  if printf '%s' "$OUT" | grep -q 'FAIL  proof-for.ui-inputs selects this suite' \
+     && printf '%s' "$OUT" | grep -q 'correction_forward_compat_tests.rs' \
+     && printf '%s' "$REAL" | grep -q 'PASS  proof-for.ui-inputs selects this suite'; then
+    ok "K4 docs-claims.js refuses a row that does not reach what it reads, and accepts the real one"
+  else
+    bad "K4 docs-claims.js checks its own row against its reads" "$(printf '%s' "$OUT" | grep -A3 'proof-for.ui-inputs selects' | tr '\n' ' ')"
+  fi
+else
+  notrun "K4 docs-claims.js checks its own row against its reads" "node is not on PATH"
+fi
 
 echo
 echo "=== the declarations this script reads ==="

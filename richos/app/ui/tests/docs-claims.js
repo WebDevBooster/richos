@@ -29,6 +29,10 @@
 //   3. the browser-suite table     against the inventory `run.js` discovers from disk
 //   4. `rich://` event names       against the constants the Rust source declares
 //
+// and, last, holds the land's selector to this suite's own reads: every file and directory
+// read above must select this suite through its row in scripts/proof-for.ui-inputs, or a
+// change there could make a claim false with nothing running it (2026-09-29).
+//
 // NOTHING HERE IS TYPED. There is no list of expected files, expected counts or expected
 // events anywhere below; each side of every join is read off disk. That is the whole point:
 // a typed expectation is a second document to keep true, and this suite exists because the
@@ -49,10 +53,26 @@ const path = require("path");
 const { createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
 
 const APP_DIR = path.resolve(UI_DIR, "..");
+const REPO_ROOT = path.resolve(APP_DIR, "..", "..");
 const CRATES = path.join(APP_DIR, "crates");
 const TESTS_DIR = __dirname;
+const SELECTION_MAP = path.join(APP_DIR, "scripts", "proof-for.ui-inputs");
 
-const read = (p) => fs.readFileSync(p, "utf8");
+// EVERYTHING THIS SUITE READS IS RECORDED, so its last check can hold the land's selector to
+// it. Every claim here is about a whole tree, and a change anywhere in that tree can make one
+// false: on 2026-09-29 a Rust test file added in 6f5cfb03 made app/README.md's counts stale,
+// and the land that carried it never ran this suite because its row in proof-for.ui-inputs
+// named eight exact files. A directory listed is recorded with a trailing slash.
+const touched = new Set();
+const repoRel = (p) => path.relative(REPO_ROOT, p);
+const read = (p) => {
+  touched.add(repoRel(p));
+  return fs.readFileSync(p, "utf8");
+};
+const list = (dir) => {
+  touched.add(repoRel(dir) + "/");
+  return fs.readdirSync(dir);
+};
 
 // ---------------------------------------------------------------------------------------
 // Derivations
@@ -97,16 +117,14 @@ function docTestCount(file) {
 
 function rustFiles(dir) {
   if (!fs.existsSync(dir)) return [];
-  return fs
-    .readdirSync(dir)
+  return list(dir)
     .filter((f) => f.endsWith(".rs"))
     .sort()
     .map((f) => path.join(dir, f));
 }
 
 function crateNames() {
-  return fs
-    .readdirSync(CRATES)
+  return list(CRATES)
     .filter((d) => fs.existsSync(path.join(CRATES, d, "Cargo.toml")))
     .sort();
 }
@@ -127,6 +145,33 @@ function declaredEventNames() {
     }
   }
   return found;
+}
+
+/// proof-for.ui-inputs, read the way proof-for.sh reads it: `#` to end of line is a comment,
+/// `@name paths…` is an alias, anything else is `<suite> paths…`.
+function parseSelectionMap(text) {
+  const rows = new Map();
+  const aliases = new Map();
+  for (const raw of text.split("\n")) {
+    const words = raw.replace(/#.*$/, "").trim().split(/\s+/).filter(Boolean);
+    if (!words.length) continue;
+    const [key, ...rest] = words;
+    if (key.startsWith("@")) aliases.set(key, rest);
+    else rows.set(key, rest);
+  }
+  return { rows, aliases };
+}
+
+/// A row's tokens with aliases expanded. `@allui` is computed by proof-for.sh from the tree and
+/// is not reproduced here; a row that needs it cannot be checked by this function, so it
+/// expands to nothing and every read it would have reached is reported, never waved through.
+function expandRow(tokens, aliases, seen = new Set()) {
+  const out = [];
+  for (const t of tokens) {
+    if (!t.startsWith("@")) out.push(t);
+    else if (aliases.has(t) && !seen.has(t)) out.push(...expandRow(aliases.get(t), aliases, new Set([...seen, t])));
+  }
+  return out;
 }
 
 async function main() {
@@ -237,8 +282,7 @@ async function main() {
   await run.check("app/ui/tests/README.md's table is exactly the inventory run.js discovers", async () => {
     // The SAME rule run.js applies: every .js file in this directory except run.js itself.
     // `lib/` holds shared harness code and is not a suite.
-    const onDisk = fs
-      .readdirSync(TESTS_DIR)
+    const onDisk = list(TESTS_DIR)
       .filter((f) => f.endsWith(".js") && f !== "run.js")
       .filter((f) => fs.statSync(path.join(TESTS_DIR, f)).isFile())
       .sort();
@@ -304,6 +348,36 @@ async function main() {
     const unbacked = [...mentioned].filter((n) => !declared.has(n) && !deferred.has(n)).sort();
     assertEqual(unbacked, [], "STREAMING.md documents events with no constant behind them and no DEFERRED row");
     return `${mentioned.size} names in the document: ${mentioned.size - deferred.size} backed by a constant, ${deferred.size} declared DEFERRED`;
+  });
+
+  // =====================================================================================
+  // 7. LAST, because it checks the reads of everything above: the land selects this suite
+  //    for every file it read. `proof-for.sh` picks the suites a land runs from this suite's
+  //    row in proof-for.ui-inputs; a place this suite reads that the row does not reach is a
+  //    change that can make a claim here false with nothing running it.
+  // =====================================================================================
+
+  await run.check("proof-for.ui-inputs selects this suite for every file and directory it read", async () => {
+    const suite = path.basename(__filename);
+    // The same override proof-for.sh honors, for the same reason: proof-for.test.sh points both
+    // at a deliberately narrowed row and watches this refuse. The real map is itself a read.
+    const override = process.env.PROOF_FOR_UI_INPUTS;
+    const mapText = override ? fs.readFileSync(override, "utf8") : read(SELECTION_MAP);
+    const { rows, aliases } = parseSelectionMap(mapText);
+    assert(rows.has(suite), `EMPTY INVENTORY: ${repoRel(SELECTION_MAP)} has no row for ${suite}`);
+    const tokens = expandRow(rows.get(suite), aliases);
+    const dirs = tokens.filter((t) => t.endsWith("/"));
+    const files = new Set(tokens.filter((t) => !t.endsWith("/")));
+    assert(touched.size > 0, "EMPTY INVENTORY: this suite recorded no read at all");
+    const unselected = [...touched]
+      .filter((t) => !(files.has(t) || dirs.some((d) => t.startsWith(d))))
+      .sort();
+    assertEqual(
+      unselected,
+      [],
+      `read by ${suite} and not reached by its row in ${repoRel(SELECTION_MAP)}; add each (a directory as <dir>/)`
+    );
+    return `${touched.size} paths read, every one selects this suite (${dirs.length} directory input(s): ${dirs.join(" ")})`;
   });
 
   const failed = run.report();
