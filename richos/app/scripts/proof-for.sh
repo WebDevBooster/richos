@@ -95,8 +95,8 @@
 # =========================================================================================
 # The dangerous output is not a diff that maps to too much. It is a diff that maps to
 # nothing and exits 0, because then "smallest proof" means "no proof" and it looks the
-# same. So every changed path that no rule reaches is printed by name, under one of two
-# headings:
+# same. So every changed path that no rule reaches is printed by name, under one of three
+# headings (REMOVED, a path the change deleted, is the third; see `gone()` below):
 #
 #   UNCOVERED                      code, and no suite claims it. Exit 1. The remedy is a
 #                                  suite, or a declaration that is true — never an
@@ -104,6 +104,8 @@
 #   NOT PROVEN BY A SUITE          prose, documentation, fixture data, images. Printed with
 #                                  its count so it is visible, exit 0. A docs-only change
 #                                  mapping to nothing is the correct answer.
+#   REMOVED                        deleted by the change: no code is left to prove. Printed
+#                                  with its count, exit 0.
 #
 # Usage:
 #   proof-for.sh                      working tree vs the merge-base with origin/main
@@ -157,8 +159,8 @@ done
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/proof-for.XXXXXX")" || die "could not make a scratch directory"
 # §54: the scratch goes, however this ends — including a signal.
 trap 'rm -rf "$WORK"' EXIT HUP INT TERM
-CHANGED="$WORK/changed"; UNCOVERED="$WORK/uncovered"; PROSE="$WORK/prose"
-: > "$CHANGED"; : > "$UNCOVERED"; : > "$PROSE"
+CHANGED="$WORK/changed"; UNCOVERED="$WORK/uncovered"; PROSE="$WORK/prose"; REMOVED="$WORK/removed"
+: > "$CHANGED"; : > "$UNCOVERED"; : > "$PROSE"; : > "$REMOVED"
 for f in script ui rust web engine nested ui-index ui-dir-index ui-cause; do : > "$WORK/$f"; done
 
 # --- the changed paths, repository-relative ----------------------------------------------
@@ -384,6 +386,43 @@ is_code() {  # $1 = repo-relative path
   return 1
 }
 
+# A PATH THE CHANGE DELETED has no code left to prove, so it is never UNCOVERED (hunt
+# 2026-09-29, part 2, section 03: deleting an uncovered script refused every commit and land).
+# It is printed under REMOVED, never dropped. "Deleted" is judged against the tree the
+# selection reads, and it means the path existed on the base side and is absent now:
+#   a commit or range   absent from its head commit (the diff lists only paths the base had);
+#   --staged            absent from the index;
+#   --paths, working    absent from disk AND the index, and present at HEAD or at a merge-base
+#                       with main. A path that never existed (a typo, or a new file named
+#                       before it is written) is not a deletion and stays UNCOVERED.
+# A deleted path that a suite still declares is refused earlier, by the reconciliation: a real
+# deletion edits that declaration in the same change. PROOF_FOR_DELETION_BASE adds one more
+# base commit so the suite can watch the --paths rule accept; it can only name a path that is
+# already absent from disk and index, so it cannot excuse a file that exists.
+case "${MODE:-working}" in
+  ref) case "$REF" in *..*) GONE_REV="${REF##*..}" ;; *) GONE_REV="$REF" ;; esac
+       GONE_REV="${GONE_REV:-HEAD}" ;;
+esac
+GONE_BASES=""; GONE_BASES_READ=0
+# Called inside the mapping loop, which reads the changed list on stdin: git never gets it.
+in_rev() { git -C "$ROOT" cat-file -e "$1:$2" < /dev/null 2>/dev/null; }
+in_index() { [ -n "$(git -C "$ROOT" ls-files --cached -- ":(literal)$1" < /dev/null 2>/dev/null)" ]; }
+gone() {  # $1 = repo-relative path; 0 when the change deleted it
+  local b
+  case "${MODE:-working}" in
+    ref)    in_rev "$GONE_REV" "$1" && return 1; return 0 ;;
+    staged) in_index "$1" && return 1; return 0 ;;
+  esac
+  { [ -e "$ROOT/$1" ] || [ -L "$ROOT/$1" ] || in_index "$1"; } && return 1
+  if [ "$GONE_BASES_READ" -eq 0 ]; then
+    GONE_BASES_READ=1
+    GONE_BASES="HEAD $(git -C "$ROOT" merge-base HEAD refs/heads/main < /dev/null 2>/dev/null) \
+$(git -C "$ROOT" merge-base HEAD origin/main < /dev/null 2>/dev/null) ${PROOF_FOR_DELETION_BASE:-}"
+  fi
+  for b in $GONE_BASES; do in_rev "$b" "$1" && return 0; done
+  return 1
+}
+
 # --- the mapping ---------------------------------------------------------------------------
 N_CHANGED=0
 while IFS= read -r p; do
@@ -403,7 +442,10 @@ while IFS= read -r p; do
   # ---- script suites: the suite's own declaration, and the suite itself ----
   case "$p" in
     "$APP_REL"/scripts/*.test.sh)
-      printf '%s\n' "$BASE_NAME" >> "$WORK/script"; MATCHED=1; note "is a script suite" ;;
+      # A deleted suite has nothing to run, and `run-tests.sh --only` refuses a name that
+      # matches no suite, so selecting it would refuse the land over the deletion itself.
+      if gone "$p"; then note "a deleted suite: nothing to run"
+      else printf '%s\n' "$BASE_NAME" >> "$WORK/script"; MATCHED=1; note "is a script suite"; fi ;;
     "$APP_REL"/scripts/*.test.py)
       w="${BASE_NAME%.py}.sh"
       if [ -f "$DIR/$w" ]; then
@@ -552,7 +594,8 @@ while IFS= read -r p; do
   esac
 
   if [ "$MATCHED" -eq 0 ]; then
-    if is_code "$p"; then printf '%s\n' "$p" >> "$UNCOVERED"; note "NO SUITE COVERS IT (code)"
+    if gone "$p"; then printf '%s\n' "$p" >> "$REMOVED"; note "deleted by this change: nothing left to prove"
+    elif is_code "$p"; then printf '%s\n' "$p" >> "$UNCOVERED"; note "NO SUITE COVERS IT (code)"
     else printf '%s\n' "$p" >> "$PROSE"; note "prose or data — no suite by design"; fi
   fi
 done < "$CHANGED"
@@ -571,6 +614,7 @@ mv "$WORK/rust.u" "$WORK/rust"
 N_UI="$(grep -c . "$WORK/ui" || true)"; N_SCRIPT="$(grep -c . "$WORK/script" || true)"
 N_RUST="$(grep -c . "$WORK/rust" || true)"; N_WEB="$(grep -c . "$WORK/web" || true)"
 N_UNCOV="$(grep -c . "$UNCOVERED" || true)"; N_PROSE="$(grep -c . "$PROSE" || true)"
+N_REMOVED="$(grep -c . "$REMOVED" || true)"
 
 say ""
 say "$N_CHANGED changed path(s) — $SOURCE_LABEL"
@@ -687,6 +731,12 @@ fi
 if [ "${N_PROSE:-0}" -gt 0 ]; then
   say "NOT PROVEN BY A SUITE — $N_PROSE (prose, documentation, fixture data, images)"
   [ "$QUIET" -eq 1 ] || sed 's/^/  /' "$PROSE"
+  say ""
+fi
+
+if [ "${N_REMOVED:-0}" -gt 0 ]; then
+  say "REMOVED — $N_REMOVED (deleted by this change; no code left to prove)"
+  [ "$QUIET" -eq 1 ] || sed 's/^/  /' "$REMOVED"
   say ""
 fi
 
