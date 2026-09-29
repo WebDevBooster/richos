@@ -67,6 +67,7 @@ const {
   leaveSplash,
   HOLD_CURTAIN,
   assertCurtainHeld,
+  paintedGround,
   UI_DIR,
 } = require("./lib/harness");
 const SOURCES = require("./lib/ui-sources");
@@ -451,8 +452,10 @@ async function main() {
         "and the stored PREFERENCE is 'system' — resolving correctly by coincidence is not " +
           "following the OS, and only 'system' keeps following it when the OS changes"
       );
+      // Off the element that PAINTS the ground: `html` since the speckled ground made `body`
+      // transparent on purpose (`lib/harness.js` `paintedGround`).
       assertEqual(
-        await page.evaluate(() => getComputedStyle(document.body).backgroundColor),
+        await paintedGround(page),
         ground,
         "painted on the shipped --ground for " + wanted + ", not merely labeled it"
       );
@@ -510,7 +513,7 @@ async function main() {
     await settledPage(page);
     assertEqual(await themeOf(page), "dark", "the OS went dark and the app did not");
     assertEqual(
-      await page.evaluate(() => getComputedStyle(document.body).backgroundColor),
+      await paintedGround(page),
       grounds.dark,
       "and the PAINT followed, not only the attribute"
     );
@@ -632,9 +635,9 @@ async function main() {
         theme: document.documentElement.getAttribute("data-theme"),
         forced: window.RichTheme.forcedDark(),
         pref: window.RichTheme.theme(),
-        ground: getComputedStyle(document.body).backgroundColor,
         themeRow: !!document.querySelector(".theme-opt"),
       }));
+      onHome.ground = await paintedGround(page);
       assertEqual(onHome.theme, "dark", "§15's clamp: the home screen is dark under a " + osScheme + " OS");
       assertEqual(onHome.ground, "rgb(12, 19, 34)", "painted on the §14 ground, not merely named dark");
       assertEqual(onHome.forced, true, "and it is a FORCE, so it cannot be mistaken for a preference");

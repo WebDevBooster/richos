@@ -101,6 +101,7 @@ const {
   HOLD_CURTAIN,
   assertCurtainHeld,
   SLOW_BRIDGE,
+  paintedGround,
   UI_DIR,
 } = require("./lib/harness");
 const C = require("./lib/contrast");
@@ -2230,10 +2231,15 @@ async function main() {
     // taken from the PIXELS: the shell's own painted background, read out of both walks.
     // That is evidence a clean app still produces, and it is closer to the thing being
     // claimed anyway — "there are two palettes" is a statement about colours, not failures.
+    // READ OFF THE ELEMENT THAT PAINTS THE GROUND, which stopped being `body` on 2026-09-29:
+    // the speckled ground needs `body` transparent and keeps the ruled ground on `html`
+    // (style.css "THE SPECKLED GROUND"). Reading `body` there gave rgba(0, 0, 0, 0) in both
+    // themes and failed this check on a transparent layer, not on the theme.
+    // `lib/harness.js` `paintedGround` says why it is not simply `html` by name.
     const grounds = {};
     for (const t of THEMES) {
       const page = await openApp(browser, t, false);
-      grounds[t] = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+      grounds[t] = await paintedGround(page);
       await page.close();
     }
     if (themed === 0) {
@@ -2247,7 +2253,7 @@ async function main() {
     }
     assert(
       grounds.light !== grounds.dark,
-      themed + " second-theme rule(s) are shipped, but both walks paint the same body background (" +
+      themed + " second-theme rule(s) are shipped, but both walks paint the same ground (" +
         grounds.dark + ") — the theme is not reaching the elements, so half of every check above " +
         "is a fiction"
     );
@@ -2287,7 +2293,7 @@ async function main() {
     return (
       themed + " second-theme rule(s) shipped (" + attrBlocks + " `:root[data-theme=]`, " +
       mediaBlocks + " `prefers-color-scheme`), and both walks exercise them: the two runs " +
-      "differ, the body ground differs (" + grounds.dark + " vs " + grounds.light + "), and a " +
+      "differ, the painted ground differs (" + grounds.dark + " vs " + grounds.light + "), and a " +
       "fresh install follows the OS both ways (light OS -> " + virgins.light + ", dark OS -> " +
       virgins.dark + ")."
     );

@@ -1484,9 +1484,32 @@ async function assertOnThread(page, threadId, surface) {
   return on;
 }
 
+/// THE GROUND, READ OFF THE ELEMENT THAT PAINTS IT. Since the speckled ground (style.css "THE
+/// SPECKLED GROUND", 2026-09-29) `body` is transparent ON PURPOSE: a non-positioned block's
+/// background paints above a negative z-index layer, so a painted body would cover the speckle
+/// canvas completely. The ruled ground is `html`'s. A check that kept reading `body` reads
+/// `rgba(0, 0, 0, 0)` in every theme and fails for a reason that says nothing about the theme.
+///
+/// This returns the FIRST of `body`, `html` that paints anything at all, not "html" by name. So
+/// it still fails when the ground is wrong: a body that regains a paint of its own is what gets
+/// read (and a wrong one is named), an html that paints the same color in both themes is
+/// caught by the caller's comparison, and if neither paints, the transparent value comes back
+/// and the caller's assertion fails on it rather than on a guess.
+async function paintedGround(page) {
+  return page.evaluate(() => {
+    const clear = (c) => c === "transparent" || /^rgba\([^)]*,\s*0\)$/.test(c);
+    for (const el of [document.body, document.documentElement]) {
+      const c = getComputedStyle(el).backgroundColor;
+      if (!clear(c)) return c;
+    }
+    return getComputedStyle(document.documentElement).backgroundColor;
+  });
+}
+
 module.exports = {
   loadPlaywright,
   openFixture,
+  paintedGround,
   leaveHome,
   leaveSplash,
   awaitSettled,
