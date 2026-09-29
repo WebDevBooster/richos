@@ -177,7 +177,8 @@ build() { # build <version> -> leaves the bundle + artifacts in the target dir
   fi
 }
 
-BUNDLE_DIR="$src_tauri/target/release/bundle/macos"
+. "$here/lib/cargo-target.sh"
+BUNDLE_DIR="$(cargo_target_dir "$src_tauri")/release/bundle/macos"
 
 # ---------------------------------------------------------------------------
 # 1. Build the NEW version first, and take its artifacts away before building the

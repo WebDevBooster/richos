@@ -486,7 +486,8 @@ $(printf '%s' "$dirty" | sed 's/^/    /')" 1
       RICHOS_UPDATE_NOTES="$NOTES" \
       bash "$here/package-app.sh" --sign "$SIGN_MODE" --updater "${intent_args[@]}" || exit 1
 
-  local bundle="$src_tauri/target/release/bundle/macos/RichOS.app"
+  . "$here/lib/cargo-target.sh"
+  local bundle; bundle="$(cargo_target_dir "$src_tauri")/release/bundle/macos/RichOS.app"
   local tarball="$bundle.tar.gz"
   local sig="$tarball.sig"
   local manifest; manifest="$(dirname "$tarball")/latest.json"

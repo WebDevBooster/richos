@@ -1005,7 +1005,8 @@ fi
 
 GUI_APP_DIR="$APP_DIR"
 GUI_ENGINE_DIR="${RICHOS_GUI_ENGINE_SOURCE:-$REPO_DIR/engine}"
-GUI_BINARY="$APP_DIR/src-tauri/target/debug/richos-tauri"
+. "$DIR/lib/cargo-target.sh"
+GUI_BINARY="$(cargo_target_dir "$APP_DIR/src-tauri")/debug/richos-tauri"
 export GUI_APP_DIR GUI_ENGINE_DIR GUI_BINARY
 # shellcheck source=lib/gui-launch.sh
 . "$DIR/lib/gui-launch.sh"

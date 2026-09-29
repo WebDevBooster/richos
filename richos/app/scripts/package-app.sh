@@ -1347,7 +1347,8 @@ fi
 # ---------------------------------------------------------------------------
 # Find and verify what was actually produced.
 # ---------------------------------------------------------------------------
-target_dir="${CARGO_TARGET_DIR:-$src_tauri/target}"
+. "$here/lib/cargo-target.sh"
+target_dir="$(cargo_target_dir "$src_tauri")"
 bundle_dir="$target_dir/release/bundle/macos"
 app_bundle="$(ls -d "$bundle_dir"/*.app 2>/dev/null | head -1 || true)"
 
