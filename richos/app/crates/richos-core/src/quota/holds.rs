@@ -353,7 +353,10 @@ mod tests {
             .stdout(std::process::Stdio::null())
             .spawn()
             .unwrap();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        // A hang guard on a fresh copy of this whole test binary starting and taking its
+        // lock, which on a busy or swapping Mac has no fixed cost; it was 5 s (audit R9's
+        // class). The loop leaves the moment the lock is seen.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
         let mut observed = false;
         while std::time::Instant::now() < deadline {
             if read(root.path(), None).unwrap().held.len() == 1 {

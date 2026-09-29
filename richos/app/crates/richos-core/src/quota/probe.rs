@@ -249,7 +249,9 @@ for line in sys.stdin:
         let mut source = ClaudeSource::controlled(control.clone());
         let cwd = root.path().to_path_buf();
         let reader = std::thread::spawn(move || source.read(&bin, &cwd));
-        let deadline = Instant::now() + Duration::from_secs(5);
+        // A hang guard on a Python child starting, which under memory pressure alone has
+        // taken seconds; it was 5 s (audit R9).
+        let deadline = Instant::now() + Duration::from_secs(60);
         while !root.path().join("started").exists() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(5));
         }
@@ -257,6 +259,12 @@ for line in sys.stdin:
         let stopped = Instant::now();
         control.stop();
         assert_eq!(reader.join().unwrap(), Err(ReadError::Failed));
-        assert!(stopped.elapsed() < Duration::from_secs(2));
+        // load-bound: the only other way out of this read is the request's own DEADLINE
+        // (20 s, above), which also ends in `Failed`, so the elapsed time is the one thing
+        // that tells the stop from it. Half of DEADLINE is thousands of times what the stop
+        // takes, so only a stall of ten seconds between two lines can fail it. The `< 2 s`
+        // that stood here failed on a busy Mac; the audit's suggested 20 s would have equaled
+        // DEADLINE and told nothing apart.
+        assert!(stopped.elapsed() < DEADLINE / 2, "the stop did not interrupt the request; it ran to its deadline");
     }
 }
