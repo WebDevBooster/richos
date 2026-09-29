@@ -6443,6 +6443,14 @@ function renderProposalCard(p) {
   card.className = "desk-card";
   card.dataset.proposalId = p.id;
 
+  // ASKED AGAIN (CEO ruling §96, 2026-09-28: "Ask me again"). RichOS could not read his
+  // earlier answer to this one, so it is back in front of him — and it LEADS the card, in the
+  // desk's own sentence (`correction.rs` `asked_again_sentence`), because the one thing he
+  // needs before reading the rest is that he may already have answered it. Rendered verbatim
+  // and never composed here, so this card and the health notice say the same words. Absent
+  // on an ordinary proposal: the field is only present when the desk set it.
+  if (p.asked_again) card.appendChild(deskLine("desk-card-prompt desk-card-asked-again", p.asked_again));
+
   const targetRef = p.write && (p.write.recordRef || p.write.record_ref);
   card.appendChild(deskLine("desk-card-target", (p.write ? p.write.op : "") + (targetRef ? " · " + targetRef : "")));
   card.appendChild(deskLine("desk-label", "Because you said:"));
