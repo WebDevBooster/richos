@@ -511,36 +511,8 @@
         }
       }
     },
-    "richos/app/src-tauri/src/phone/connect/supervisor.rs": {
-      "short-deadline": {
-        "31a311172e05e362": {
-          "count": 2,
-          "text": "let deadline = Instant::now() + Duration::from_secs(3);"
-        }
-      },
-      "sleep-then-assert": {
-        "d6b395f9d534be1a": {
-          "count": 1,
-          "text": "std::thread::sleep(Duration::from_millis(50));"
-        }
-      },
-      "wall-clock-verdict": {
-        "373fdbec926af9f4": {
-          "count": 1,
-          "text": "assert!(start.elapsed() < Duration::from_secs(2));"
-        }
-      }
-    },
     "richos/app/src-tauri/src/phone/listen.rs": {
       "sleep-then-assert": {
-        "2be5ee5dd308584d": {
-          "count": 1,
-          "text": "std::thread::sleep(std::time::Duration::from_millis(600));"
-        },
-        "c67ca85d04e6c3ec": {
-          "count": 1,
-          "text": "std::thread::sleep(std::time::Duration::from_millis(500));"
-        },
         "f091c475a2fe211d": {
           "count": 2,
           "text": "std::thread::sleep(std::time::Duration::from_millis(25));"
@@ -968,20 +940,6 @@
         "dfb0b2fdf19a0464": {
           "count": 1,
           "text": "{ timeout: 10000 }"
-        }
-      }
-    },
-    "richos/app/ui/tests/navigation-evidence.js": {
-      "short-deadline": {
-        "10ffddaec1bc35f0": {
-          "count": 1,
-          "text": "assertEqual(b.options, { timeout: 1500 }, \"the options the suite passed, recorded as passed\");"
-        }
-      },
-      "wall-clock-verdict": {
-        "649b33b97aa0590f": {
-          "count": 2,
-          "text": "assert(b.elapsedMs >= 1500 && b.elapsedMs < 2500, \"navigation rejected after \" + b.elapsedMs + \" ms, not at its 1500 ms deadline\");"
         }
       }
     },
