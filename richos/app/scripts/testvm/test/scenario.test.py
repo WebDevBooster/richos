@@ -141,17 +141,34 @@ class ScenarioTests(unittest.TestCase):
             self.assertEqual(reserve.cpu_admission(cpu_rule=False)['cpu_busy_percent'],100)
         with patch('reserve.host_sample',return_value=S(95,pressure='critical')):
             with self.assertRaisesRegex(BlockingIOError,'CRITICAL'):reserve.cpu_admission(cpu_rule=False)
+    def reserve_cli(self,*args):
+        """reserve.py's own command line (main(): argument parsing, the announcement, the
+        nice wrapper, the Popen), with the admission SAMPLE fixed and idle.
+
+        This test proves the nice level and the announcement; admission has its own tests
+        above. With the real sample the verdict was the host's: at load 20 the plain run's
+        `--max-cpu 100` refused (100.0% busy is not under a 100% line), printed nothing, and
+        int('') raised ValueError (2026-09-29 land of c7491c34; 2026-09-24, zach-opus-launcher1).
+        The command under test gets a session of its own, as reserve.py gives its command, so
+        a stall of this test process (qa/stall-run.py) lands on the test's clock alone; that
+        clock is a hang guard, far above the ~0.2 s the command takes."""
+        bootstrap=('import sys; sys.path.insert(0,%r); import reserve; '
+                   'reserve.host_sample=lambda interval=1.0: %r; sys.argv=[%r]+sys.argv[1:]\n'
+                   'try: sys.exit(reserve.main())\n'
+                   'except BlockingIOError as exc: print(exc, file=sys.stderr); sys.exit(75)'
+                   % (str(HERE),S(5.0),str(HERE/'reserve.py')))
+        return subprocess.run([sys.executable,'-c',bootstrap,*args],capture_output=True,text=True,
+                              timeout=120,start_new_session=True)
     def test_low_priority_runs_the_command_niced_and_says_so(self):
         probe=[sys.executable,'-c','import os;print(os.nice(0))']
-        run_=subprocess.run([sys.executable,str(HERE/'reserve.py'),'--low-priority','--max-swapout-mb-s','100000','--',*probe],
-                            capture_output=True,text=True,timeout=30)
+        run_=self.reserve_cli('--low-priority','--max-swapout-mb-s','100000','--',*probe)
         self.assertEqual(run_.returncode,0,run_.stderr)
         self.assertGreaterEqual(int(run_.stdout.strip()),os.nice(0)+reserve.LOW_PRIORITY_NICE)
         self.assertIn('LOW PRIORITY (CEO ruling §78)',run_.stderr)
         self.assertIn('memory rule was applied',run_.stderr)
-        plain=subprocess.run([sys.executable,str(HERE/'reserve.py'),'--max-cpu','100','--max-swapout-mb-s','100000','--',*probe],
-                             capture_output=True,text=True,timeout=30)
-        self.assertEqual((plain.returncode,int(plain.stdout.strip())),(0,os.nice(0)),plain.stderr)
+        plain=self.reserve_cli('--max-swapout-mb-s','100000','--',*probe)
+        self.assertEqual(plain.returncode,0,plain.stderr)
+        self.assertEqual(int(plain.stdout.strip()),os.nice(0),plain.stderr)
         self.assertNotIn('LOW PRIORITY',plain.stderr)
 
     def test_admission_wait_rechecks_and_records_delay(self):
