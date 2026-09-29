@@ -75,5 +75,26 @@ put(img, 10, 10, (60, 70, 90))
 put(img, 150, 100, (60, 70, 90))
 check('only points inside the region are counted', walk.isolated_points(img, 0, 0, 100, 60)[0] == 1)
 
+# The guest reads, as ax.sh prints them.
+check('a window line parses to (w, h, x, y)',
+      walk.parse_window('RichOS 1400x900 at (140,75)\n') == (1400, 900, 140, 75))
+check('no window line is None, never a zero box', walk.parse_window('') is None)
+check('a menu bar size {1680, 24} prints as "1680, 24" and parses to its width',
+      walk.parse_width('1680, 24') == 1680)
+check('an empty menu bar read is None', walk.parse_width('') is None)
+
+# The verdict, per theme: enough points AND the lamp's top third well over the bottom third.
+check('a lit top third passes', walk.verdict({'top_third_isolated': 900, 'bottom_third_isolated': 100}, 500, 5.0) == (True, 9.0))
+check('too few points fails even at a high ratio',
+      walk.verdict({'top_third_isolated': 400, 'bottom_third_isolated': 0}, 500, 5.0)[0] is False)
+check('points spread evenly (no lamp) fail on the ratio',
+      walk.verdict({'top_third_isolated': 900, 'bottom_third_isolated': 400}, 500, 5.0)[0] is False)
+
+# No Apple Event to anything but System Events: the guest grants nothing else, and the first
+# version's Finder read died at the deadline before a single photograph (exit 124, twice).
+src = (HERE.parent / 'speckle-walk.py').read_text()
+targets = set(__import__('re').findall(r'tell application \\?"([^"\\]+)', src))
+check('every Apple Event goes to System Events', targets == {'System Events'}, targets)
+
 print('%d failure(s)' % len(failures))
 sys.exit(1 if failures else 0)
