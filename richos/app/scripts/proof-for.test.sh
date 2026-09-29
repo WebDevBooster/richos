@@ -308,6 +308,59 @@ else
   notrun "K4 docs-claims.js checks its own row against its reads" "node is not on PATH"
 fi
 
+# -----------------------------------------------------------------------------------------
+# L. A PATH THE CHANGE DELETED IS NEVER UNCOVERED (hunt 2026-09-29, part 2, section 03).
+#    Deleting a script no suite covers refused the commit and the land as UNCOVERED, though
+#    no code was left to prove, and deleting a suite selected a suite that is gone. Two
+#    commits are built from HEAD's tree in a scratch index: ADD holds an uncovered script and
+#    a suite nobody declares, DEL is ADD with both deleted. Neither the working tree, the real
+#    index nor any ref is touched; the objects are unreferenced and git collects them.
+# -----------------------------------------------------------------------------------------
+L_PROBE=richos/app/.proof-for-probe/deleted-orphan.sh
+L_SUITE=richos/app/scripts/a-deleted-probe.test.sh
+lgit() { GIT_INDEX_FILE="$WORK/l-index" git -C "$ROOT" -c user.name='proof-for fixture' \
+           -c user.email=proof-for@example.invalid "$@"; }
+L_ADD=""; L_DEL=""
+if L_BLOB="$(printf '#!/bin/sh\nexit 0\n' | git -C "$ROOT" hash-object -w --stdin)" \
+   && lgit read-tree HEAD \
+   && lgit update-index --add --cacheinfo "100755,$L_BLOB,$L_PROBE" \
+   && lgit update-index --add --cacheinfo "100755,$L_BLOB,$L_SUITE" \
+   && L_ADD="$(lgit commit-tree "$(lgit write-tree)" -p HEAD -m 'proof-for fixture: add')" \
+   && lgit update-index --force-remove "$L_PROBE" "$L_SUITE" \
+   && L_DEL="$(lgit commit-tree "$(lgit write-tree)" -p "$L_ADD" -m 'proof-for fixture: delete')"; then
+  run_pf "$WORK/l1.out" "$L_DEL"; L1_RC=$RC
+  if [ "$L1_RC" -eq 0 ] && grep -q '^REMOVED — 2' "$WORK/l1.out" && grep -q 'deleted-orphan.sh' "$WORK/l1.out" \
+     && ! grep -q 'UNCOVERED' "$WORK/l1.out" && ! grep -q 'a-deleted-probe.test.sh' <(grep -- '--only' "$WORK/l1.out"); then
+    ok "L1 a commit that deletes an uncovered script and a suite maps cleanly, listed under REMOVED"
+  else
+    bad "L1 a commit that deletes an uncovered script and a suite maps cleanly" "exit $L1_RC: $(tr '\n' ' ' < "$WORK/l1.out")"
+  fi
+  # The land's form: a range whose head lacks the paths.
+  run_pf "$WORK/l2.out" "$L_ADD..$L_DEL"; L2_RC=$RC
+  if [ "$L2_RC" -eq 0 ] && grep -q '^REMOVED — 2' "$WORK/l2.out" && ! grep -q 'UNCOVERED' "$WORK/l2.out"; then
+    ok "L2 the same deletion as a land's range maps cleanly"
+  else
+    bad "L2 the same deletion as a land's range maps cleanly" "exit $L2_RC: $(tr '\n' ' ' < "$WORK/l2.out")"
+  fi
+  # The commit check's form (--paths): absent from disk and index, present at a base commit.
+  # D1 above is the other half: a path that never existed is not a deletion and stays UNCOVERED.
+  PROOF_FOR_DELETION_BASE="$L_ADD" "$PF" --paths "$L_PROBE" > "$WORK/l3.out" 2>&1; L3_RC=$?
+  if [ "$L3_RC" -eq 0 ] && grep -q '^REMOVED — 1' "$WORK/l3.out" && ! grep -q 'UNCOVERED' "$WORK/l3.out"; then
+    ok "L3 the commit check's path list accepts a path deleted since its base"
+  else
+    bad "L3 the commit check's path list accepts a path deleted since its base" "exit $L3_RC: $(tr '\n' ' ' < "$WORK/l3.out")"
+  fi
+  # The positive control: the same script while it EXISTS is still refused, by name.
+  run_pf "$WORK/l4.out" "$L_ADD"; L4_RC=$RC
+  if [ "$L4_RC" -eq 1 ] && grep -q 'UNCOVERED' "$WORK/l4.out" && grep -q 'deleted-orphan.sh' "$WORK/l4.out"; then
+    ok "L4 (positive control) the same script, present and uncovered, still exits 1 by name"
+  else
+    bad "L4 (positive control) the same script, present, is still UNCOVERED" "exit $L4_RC: $(tr '\n' ' ' < "$WORK/l4.out")"
+  fi
+else
+  bad "L  the deletion fixture commits could not be built from HEAD"
+fi
+
 echo
 echo "=== the declarations this script reads ==="
 
