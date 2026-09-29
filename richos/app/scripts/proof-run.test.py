@@ -227,6 +227,52 @@ try:
           "P14 a command that cannot start is a FAILED check, named, and the run carries on",
           (gone.state, gone.notes, fine.state))
 
+    # P17 — a check that did not run is never recorded as passed. In the refused land of
+    # 6ef73abf (2026-09-29) front-door and gui-boot were `passed` while their logs said "0 of 1
+    # suites passed — 1 NOT RUN (no screen)". Here: the REAL run-tests.sh and the real
+    # front-door suite with the no-screen flag and no guest named, which opens nothing and
+    # records the suite NOT RUN in about a second, beside a check that really passes.
+    import io
+    import contextlib
+    d17 = os.path.join(tmp, "p17")
+    os.makedirs(d17)
+    saved_gui = os.environ.pop("RICHOS_GUI_HOST", None)
+    buf = io.StringIO()
+    door_line = "cd richos/app && scripts/run-tests.sh %s --only %s" % ("--no-host-screen", "front-door.test.sh")
+    try:
+        its = items_from([door_line, "cd richos/app && bash -c 'exit 0'"], d17)
+        with contextlib.redirect_stdout(buf):
+            pr.run(its, Args(), d17, sampler=idle)
+            rc = pr.summarize(its, 1.0, d17)
+    finally:
+        if saved_gui is not None:
+            os.environ["RICHOS_GUI_HOST"] = saved_gui
+    door = [i for i in its if i.label == "front-door"]
+    with open(os.path.join(d17, "summary.json")) as fh:
+        rows = {c["check"]: c for c in json.load(fh)["checks"]}
+    with open(os.path.join(d17, "progress.json")) as fh:
+        progress = {c["check"]: c for c in json.load(fh)}
+    out = buf.getvalue()
+    check(len(door) == 1 and door[0].state == "not-run" and rc == 3
+          and rows.get("front-door", {}).get("result") == "not-run"
+          and (rows.get("front-door", {}).get("not_run") or {}).get("why") == "no-screen"
+          and progress.get("front-door", {}).get("state") == "not-run"
+          and [rows.get(i.label, {}).get("result") for i in its if i.label != "front-door"] == ["passed"]
+          and "] NOT RUN   front-door" in out
+          and "1 check(s) NOT RUN, which is not a pass: front-door (no-screen)" in out,
+          "P17 a suite run-tests.sh did not run is NOT RUN (no-screen) in progress.json, summary.json, the live "
+          "line and the final line; the run exits 3, never 0",
+          ([(i.label, i.state, i.notes) for i in its], rc, out[-600:]))
+    # A run-tests.sh check that exits 0 and never wrote its results record cannot show it ran.
+    silent = pr.Item("silent-suite", os.path.join(pr.ROOT, "richos/app"),
+                     ["bash", "-c", "exit 0", "--results-out", os.path.join(d17, "never-written.json")], None, 1)
+    with contextlib.redirect_stdout(io.StringIO()):
+        pr.run([silent], Args(), os.path.join(tmp, "p17b"), sampler=idle)
+    check(silent.state == "invalid" and silent.rc == 125
+          and any("without a readable results record" in n for n in silent.notes),
+          "P17b a run-tests.sh check that exits 0 without its results record is INVALID, not passed",
+          (silent.state, silent.notes))
+
     # P6 — the receipts check runs even when a shard failed: it is what names the missing units.
     a = pr.Item("engine 1/2", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "exit 1"], None, 5)
     b = pr.Item("engine receipts", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "exit 0"], None, 1,

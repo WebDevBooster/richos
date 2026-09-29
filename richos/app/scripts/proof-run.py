@@ -25,10 +25,25 @@
     There is no low-priority switch: CEO ruling §78's mode is for the native app build, and a
     runner of tests never skips the CPU line.
 
+      --summary-out F      also write summary.json to F (the land gate reads its verdict there)
 Exit: 0 every check passed; 1 a check failed, timed out, was not admitted, the run was not
 admitted to a proof-run slot within --slot-wait, or proof-for.sh
 found a changed code path no suite covers (nothing is run then); 2 usage or an unreadable
-selection.
+selection; 3 nothing failed, and at least one check was NOT RUN (see below). 3 is not 0: a
+caller that reads any non-zero exit as "not green" stays right.
+
+A CHECK THAT DID NOT RUN IS NEVER RECORDED AS PASSED (2026-09-29). The land of
+cc/zach-opus-autocheck1 recorded `front-door` and `gui-boot` as `passed` while their logs said
+"0 of 1 suites passed — 0 checks — 1 NOT RUN (no screen)": run-tests.sh exits 0 for a suite
+it deliberately did not run, and exit 0 was all this runner read. Now every run-tests.sh check
+is given `--results-out` in this run's log directory and its state is read from that file, the
+same per-suite record the nightly puts into build-info.json: a suite recorded `notrun` (no
+screen), `gap` (a declared host gap) or `skipped` (RUN_TESTS_SKIP_UNCHANGED) makes the check
+NOT RUN, a state of its own, with the reason ("no-screen", "host-gap", "unchanged-inputs") in
+progress.json, outcomes.json, summary.json (`result: not-run`, `not_run: {why, suites}`), the
+live line and the final line. A run-tests.sh check that exits 0 without writing that file is
+`invalid`: it cannot show that it ran. What a caller does with NOT RUN is the caller's
+decision; the land gate's is in autocheck/README.md.
 
 WHY THIS EXISTS (2026-09-23). Verification exposed unbounded nested workers, descendants
 surviving timeouts and failures that were discovered only after long waits. This runner
@@ -327,8 +342,12 @@ def plan(lines, args, logdir, hist):
                     if os.environ.get("RICHOS_GUI_HOST") and is_host_screen(path):
                         lane = "guest"
                     label = suite[:-len(".test.sh")] if suite.endswith(".test.sh") else suite
-                    items.append(Item(label, cwd, ["scripts/run-tests.sh", *flags, "--only", suite], lane,
-                                      default_weight(label, hist)))
+                    # Its per-suite states (passed, notrun, gap, skipped), read when it ends: exit 0
+                    # alone cannot tell a suite that passed from one that never ran (not_run()).
+                    # Resolved, so the saved plan names it $RUN/... and identities stay stable.
+                    report = os.path.join(os.path.realpath(logdir), "results-out", slug(label) + ".json")
+                    items.append(Item(label, cwd, ["scripts/run-tests.sh", *flags, "--results-out", report,
+                                                   "--only", suite], lane, default_weight(label, hist)))
         elif argv[:2] == ["cargo", "test"]:
             cargo.append((cwd, argv))
         else:
@@ -569,6 +588,8 @@ def launch(item, n, logdir, tokens_dir, reserved):
     # before any other check can replace them (lib/test_results.py; 2026-09-25).
     item.results = os.path.join(logdir, "results", "%02d-%s" % (n, slug(item.label)))
     item.env["RICHOS_TEST_RESULTS_ROOT"] = item.results
+    if "--results-out" in item.argv:
+        os.makedirs(os.path.dirname(item.argv[item.argv.index("--results-out") + 1]), exist_ok=True)
     fh = open(item.log, "wb")
     fh.write(("$ cd %s && %s\n" % (os.path.relpath(item.cwd, ROOT), " ".join(shlex.quote(a) for a in item.argv))).encode())
     fh.flush()
@@ -878,6 +899,8 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                     it.notes.append("could not start; see command log")
                 if it.state != "timed-out":
                     it.state = "passed" if rc == 0 else "failed"
+                if it.state == "passed":
+                    not_run(it)
                 retry_contained = finish_attempt(it)
                 running.remove(it)
                 it.token.release()
@@ -885,9 +908,13 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 if getattr(args, "pool", None):
                     args.pool.finish(it)
                 print("[%s] %-9s %-40s %6.0f s%s" % (stamp(), {"passed": "PASS", "failed": "FAIL", "contained": "CONTAINED",
+                      "not-run": "NOT RUN", "invalid": "INVALID",
                       "resource-envelope-exceeded": "RESOURCE", "not-admitted": "REFUSED",
                       "infrastructure-failed": "INFRA", "timed-out": "TIMEOUT"}.get(it.state, "KILLED"),
                                                      it.label, it.seconds, "" if rc == 0 else "  (exit %d)" % rc), flush=True)
+                if it.state == "not-run":
+                    for suite in it.not_run["suites"]:
+                        print("         NOT RUN (%s): %s: %s" % (it.not_run["why"], suite["name"], suite["reason"]), flush=True)
                 name_failures(it)
                 for name in it.failing[:SHOWN_FAILURES]:
                     print("         failed: %s" % name, flush=True)
@@ -1144,6 +1171,38 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
 
 SHOWN_FAILURES = 20
 
+# run-tests.sh's per-suite states that mean the suite's code did not execute in this run, and
+# the reason each one carries into summary.json. `gap` exits 0 only when declared.
+NOT_RUN_STATES = {"notrun": "no-screen", "gap": "host-gap", "skipped": "unchanged-inputs"}
+
+
+def not_run(it):
+    """For a run-tests.sh check that exited 0: its state from its own --results-out record.
+    A suite that did not run makes the check `not-run`; no record at all makes it `invalid`."""
+    if "--results-out" not in it.argv:
+        return
+    report = it.argv[it.argv.index("--results-out") + 1]
+    try:
+        with open(report) as stream:
+            suites = json.load(stream)["suites"]
+        states = [(str(s["name"]), str(s["state"]), str(s.get("reason", ""))) for s in suites]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        it.state, it.rc = "invalid", 125
+        it.notes.append("run-tests.sh exited 0 without a readable results record (%s): it cannot show it ran" % exc)
+        return
+    odd = [name for name, state, _ in states if state not in NOT_RUN_STATES and state != "passed"]
+    if not states or odd:
+        it.state, it.rc = "invalid", 125
+        it.notes.append("run-tests.sh exited 0 but its results record says %s" % (
+            ", ".join("%s %s" % (n, st) for n, st, _ in states if n in odd) or "no suite ran"))
+        return
+    idle = [(name, state, reason) for name, state, reason in states if state in NOT_RUN_STATES]
+    if idle:
+        why = sorted({NOT_RUN_STATES[state] for _, state, _ in idle})
+        it.state = "not-run"
+        it.not_run = {"why": "+".join(why), "suites": [{"name": n, "state": st, "reason": r} for n, st, r in idle]}
+        it.notes.append("NOT RUN (%s): %s" % (it.not_run["why"], "; ".join("%s: %s" % (n, r) for n, _, r in idle)))
+
 
 class Stall(object):
     """A proof run with nothing of its own running whose next check admission refuses is a job
@@ -1301,6 +1360,7 @@ def summarize(items, wall, logdir, budget_seconds=600, monitor_lines=()):
                      "cpu_seconds": attempt_cpu(it.attempts),
                      "repeated_cpu_seconds": attempt_cpu(it.previous_attempts),
                      "failing_tests": list(it.failing), "results": kept,
+                     "not_run": getattr(it, "not_run", None),
                      "command": "cd %s && %s" % (os.path.relpath(it.cwd, ROOT), " ".join(shlex.quote(a) for a in it.argv))})
     with open(os.path.join(logdir, "summary.json"), "w") as fh:
         json.dump({"wall_seconds": round(wall, 1), "serial_seconds": round(serial, 1), "host": list(monitor_lines),
@@ -1309,13 +1369,20 @@ def summarize(items, wall, logdir, budget_seconds=600, monitor_lines=()):
         os.rmdir(os.path.join(logdir, "results"))  # only when no check kept anything
     except OSError:
         pass
-    bad = [it for it in items if it.state != "passed"]
+    idle = [it for it in items if it.state == "not-run"]
+    bad = [it for it in items if it.state not in ("passed", "not-run")]
+    idle_line = ("%d check(s) NOT RUN, which is not a pass: %s" % (len(idle), ", ".join(
+        "%s (%s)" % (it.label, it.not_run["why"]) for it in idle))) if idle else ""
     print("")
     if bad:
-        print("=== proof-run: %d of %d check(s) did NOT pass: %s ===" % (len(bad), len(items),
-                                                                        ", ".join("%s (%s)" % (b.label, b.state) for b in bad)))
+        print("=== proof-run: %d of %d check(s) did NOT pass: %s%s ===" % (len(bad), len(items),
+              ", ".join("%s (%s)" % (b.label, b.state) for b in bad), "; " + idle_line if idle else ""))
         print("    logs: %s" % logdir)
         return 1
+    if idle:
+        print("=== proof-run: %d of %d check(s) passed; %s ===" % (len(items) - len(idle), len(items), idle_line))
+        print("    logs: %s" % logdir)
+        return 3
     reused = sum(bool(getattr(it, "reused_from", None)) for it in items)
     print("=== proof-run: all %d check(s) passed in %.0f s%s ===" % (
         len(items), wall, "; reconciled with %d reused result(s)" % reused if reused else ""))
@@ -1350,7 +1417,8 @@ def rotate(parent):
         try:
             with open(os.path.join(parent, d, "summary.json")) as source:
                 summary = json.load(source)
-            if summary["checks"] and all(c["result"] == "passed" for c in summary["checks"]):
+            # A run whose only non-passes are NOT RUN failed nothing; it rotates like a green one.
+            if summary["checks"] and all(c["result"] in ("passed", "not-run") for c in summary["checks"]):
                 successful.append(d)
         except (OSError, ValueError, KeyError, TypeError):
             continue
@@ -1391,6 +1459,7 @@ def main(argv=None):
     p.add_argument("--deadline", type=float, default=3 * BUDGET_SECONDS)
     p.add_argument("--sample-every", type=float, default=10)
     p.add_argument("--log-dir")
+    p.add_argument("--summary-out", help="also write summary.json to this file")
     args, rest = p.parse_known_args(argv)
     args.proof_for_args = rest
     if args.resume and (args.commands or rest or args.as_printed or args.reuse):
@@ -1502,6 +1571,8 @@ def main(argv=None):
             items.append(changed)
         notes_from_logs(items)
         rc = summarize(items, wall, logdir, args.budget, [slot_line] + list(getattr(args, "monitor_lines", ())))
+        if args.summary_out:
+            shutil.copyfile(os.path.join(logdir, "summary.json"), args.summary_out)
     finally:
         SLOT.release()
         SLOT = None
