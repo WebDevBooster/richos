@@ -67,6 +67,8 @@ QA="$DIR/qa"
 FIX="$QA/fixtures"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/qa-toolkit-test.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
+# A path that is off /Volumes/E1TB whatever TMPDIR is (agents keep TMPDIR on the SSD). The refusals under test happen before anything is written there.
+OFFSSD="/private/var/empty/qa-toolkit-off-ssd"
 
 PASS=0; FAIL=0; SKIP=0
 ok()   { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
@@ -763,7 +765,7 @@ expect "I13 there is no scripted unlock: XCTest's Home press does not open an iO
 run python3 "$QA/phone-ios.py" syslog --device x --seconds 0 --out /Volumes/E1TB/nonexistent-qa-test.txt
 expect "I14 a log capture with no interval is refused" 2 "--seconds must be 1 to 3600"
 
-run python3 "$QA/phone-ios.py" syslog --device x --seconds 5 --out "$TMP/syslog.txt"
+run python3 "$QA/phone-ios.py" syslog --device x --seconds 5 --out "$OFFSSD/syslog.txt"
 expect "I15 a log capture off the external SSD is refused before the relay starts" 2 "--out must be on /Volumes/E1TB"
 
 run python3 "$QA/phone-ios.py" battery --device 00000000-NOT-A-PHONE --network
@@ -772,8 +774,16 @@ expect "I16 a battery reading from a phone that is not there is refused, never a
 run env -u RICHOS_IOS_DEVICE python3 "$QA/phone-ios.py" run "$TMP/ios-ok.json" --out /Volumes/E1TB/nonexistent-qa-test
 expect "I5 run refuses without a named phone" 2 "set RICHOS_IOS_DEVICE"
 
-run env RICHOS_IOS_DEVICE=x RICHOS_APPLE_TEAM=y python3 "$QA/phone-ios.py" run "$TMP/ios-ok.json" --out "$TMP/ios-out"
+run env RICHOS_IOS_DEVICE=x RICHOS_APPLE_TEAM=y python3 "$QA/phone-ios.py" run "$TMP/ios-ok.json" --out "$OFFSSD/ios-out"
 expect "I6 run refuses an output directory off the external SSD" 2 "must be on /Volumes/E1TB"
+
+case "$OFFSSD" in
+  /Volumes/E1TB/*) bad "I30 the off-SSD fixture path is off the SSD whatever TMPDIR is" "OFFSSD=$OFFSSD" ;;
+  *) case "$TMP" in
+       /Volumes/E1TB/*) ok "I30 the off-SSD fixture path stays off the SSD while TMPDIR is on it" ;;
+       *) ok "I30 the off-SSD fixture path is off the SSD" ;;
+     esac ;;
+esac
 
 {
   echo 'Test Case started'
