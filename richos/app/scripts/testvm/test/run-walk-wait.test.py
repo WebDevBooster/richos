@@ -39,9 +39,9 @@ def stub_slot(**kw):
 run_walk.guest_slot = stub_slot
 
 
-def main_with(*extra, command=('true',)):
+def main_with(*extra, command=('true',), bundle=('--bundle', 'b.zip')):
     with tempfile.TemporaryDirectory() as t:
-        sys.argv = ['run-walk.py', '--bundle', 'b.zip', '--home', t, '--engine', 'e.tar.gz',
+        sys.argv = ['run-walk.py', *bundle, '--home', t, '--engine', 'e.tar.gz',
                     '--report', str(Path(t) / 'r.json'), *extra, '--', *command]
         err = io.StringIO()
         try:
@@ -73,6 +73,21 @@ asked.clear()
 outcome, said = main_with(command=('/nonexistent/walk.py',))
 check('a command that cannot run is refused before a slot is asked for',
       outcome == 'exit 2' and not asked and 'not an executable file' in said, (outcome, asked, said))
+asked.clear()
+outcome, said = main_with('--no-app')
+check('--no-app beside --bundle is refused before a slot is asked for',
+      outcome == 'exit 2' and not asked and 'exactly one' in said, (outcome, asked, said))
+asked.clear()
+outcome, said = main_with(bundle=())
+check('neither --bundle nor --no-app is refused before a slot is asked for',
+      outcome == 'exit 2' and not asked and 'exactly one' in said, (outcome, asked, said))
+asked.clear()
+outcome, _ = main_with('--no-app', bundle=())
+check('--no-app alone reaches the guest-slot admission (run-suite.sh boots a guest this way)',
+      outcome == 'refused' and asked, (outcome, asked))
+noapp = run_walk.boot_argv('vm1', None, 'home', '', False)
+check('with no bundle, run.sh is asked for --no-app, never a --bundle, and no tailnet join',
+      '--no-app' in noapp and '--bundle' not in noapp and '--no-tailnet' in noapp, noapp)
 
 # The tailnet join is the phone path's alone: run.sh exits 1 when a join fails, so a walk
 # that never touches the phone must not ask for one (audit 2026-09-29 part 2, section 09).

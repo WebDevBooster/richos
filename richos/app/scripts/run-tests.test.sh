@@ -698,6 +698,149 @@ else
 fi
 
 # =========================================================================================
+# G. RICHOS_GUI_HOST: a host-screen suite really runs in a guest
+# =========================================================================================
+#
+# Section 02 of the 2026-09-29 hunt (Codex, part 2): run-tests.sh routed every host-screen
+# suite to `testvm/run-suite.sh` under RICHOS_GUI_HOST, and that runner had never been
+# written, so the route refused every time while telling the caller to "provision the
+# guest", which cannot create a missing script. S3 above holds the refusal; these cases
+# hold the route itself: the REAL run-suite.sh, suite-walk.sh and suite-in-guest.sh,
+# copied beside a copy of the harness, with two stand-ins and nothing else faked:
+#
+#   * run-walk.py -> a script that takes no slot and boots nothing: it records its
+#     arguments, hands the command a VM name and writes the report run-walk.py writes;
+#   * guest.sh    -> a directory under this scratch that plays the guest's $HOME, where
+#     each command runs in a shell of its own (and `sudo` only runs what follows it).
+#
+# The executables are given (RICHOS_GUI_PREBUILT), so nothing is compiled here; the build
+# half is gui_prebuild's, proved by the real run in a guest.
+echo ""
+echo "=== G. RICHOS_GUI_HOST: the guest route, against a stand-in guest ==="
+GBOX="$TMP/guest-route"; GBIN="$TMP/guest-bin"; GSUDO="$TMP/guest-sudo"
+GROOT="$TMP/guest-home"; GLOG="$TMP/guest-log"; GPRE="$TMP/guest-prebuilt"; GENG="$TMP/guest-engine"
+mkdir -p "$GBOX/testvm" "$GBIN" "$GSUDO" "$GROOT" "$GLOG" "$GPRE" "$GENG"
+# The guest half resolves its own paths with `pwd -P`; /var is a symlink on macOS.
+GROOT="$(cd "$GROOT" && pwd -P)"
+install_harness "$GBOX"
+G_READY=1
+for f in testvm/run-suite.sh testvm/suite-walk.sh testvm/suite-in-guest.sh lib/gui-launch.sh; do
+  if [ -f "$DIR/$f" ]; then cp "$DIR/$f" "$GBOX/$f"; else G_READY=""; G_MISSING="${G_MISSING:-} $f"; fi
+done
+echo "the engine a suite provisions from" > "$GENG/VERSION"
+for n in richos-tauri gui_boot_machine; do
+  printf '#!/bin/sh\necho "stand-in %s, built on the host"\n' "$n" > "$GPRE/$n"
+  chmod +x "$GPRE/$n"
+done
+cat > "$GBIN/run-walk" <<'SH'
+#!/bin/bash
+# Stand-in for testvm/run-walk.py: no slot, no clone, no boot.
+printf '%s\n' "$@" > "$GLOG/walk.args"
+report=""
+while [ $# -gt 0 ]; do
+  case "$1" in --report) report="$2"; shift 2 ;; --) shift; break ;; *) shift ;; esac
+done
+cmd="$1"; shift
+"$cmd" stand-in-vm "$@"; rc=$?
+printf '{"vm": "stand-in-vm", "execution": "completed", "scenario_exit": %s, "cleanup_complete": true, "boot_seconds": 0, "scenario_seconds": 0, "cleanup_seconds": 0}\n' "$rc" > "$report"
+exit "$rc"
+SH
+cat > "$GBIN/guest" <<'SH'
+#!/bin/bash
+# Stand-in for testvm/guest.sh <vm> '<command>': the guest's $HOME is a scratch directory.
+shift
+HOME="$GUEST_ROOT" PATH="$GUEST_SUDO:/usr/bin:/bin:/usr/sbin:/sbin" exec /bin/bash -c "$1"
+SH
+cat > "$GSUDO/sudo" <<'SH'
+#!/bin/bash
+# Stand-in for `sudo -n launchctl asuser <uid> sudo -n -u <user> /bin/bash ...`: runs the rest.
+while [ $# -gt 0 ] && [ "$1" != /bin/bash ]; do shift; done
+exec "$@"
+SH
+chmod +x "$GBIN/run-walk" "$GBIN/guest" "$GSUDO/sudo"
+# A suite that boots the app, as gui-boot does: it sources the library, and it can only pass
+# where the route put it — in prebuilt mode, with the host's executables beside it. Written
+# with printf, never a here-document, for the reason S1's fixture is: a line of THIS file
+# that begins by sourcing the library would make S7 classify this file as one that boots
+# the app.
+# shellcheck disable=SC2016  # fixture text: the $ expressions belong to the suite being written
+G_HEAD='DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"'
+# shellcheck disable=SC2016  # fixture text, as above
+G_LIB='. "$DIR/lib/gui-launch.sh"'
+# shellcheck disable=SC2016  # fixture text, as above
+printf '%s\n' "$G_HEAD" "$G_LIB" \
+  'gui_prebuilt_mode || { echo "  FAIL  G not in prebuilt mode"; exit 1; }' \
+  'gui_prebuilt_check || { echo "  FAIL  G the prebuilt executables are missing"; exit 1; }' \
+  '"$RICHOS_GUI_PREBUILT/richos-tauri"' \
+  '[ -f "$RICHOS_GUI_ENGINE_SOURCE/VERSION" ] || { echo "  FAIL  G no engine"; exit 1; }' \
+  'echo "  PASS  G ran in the guest'"'"'s payload at $(dirname "$DIR")"' \
+  'echo "=== window tests: all 4 passed ==="' \
+  'exit 0' > "$GBOX/window.test.sh"
+printf '%s\n' "$G_HEAD" "$G_LIB" \
+  'echo "  FAIL  R a case that failed in the guest"' \
+  'echo "=== redwin tests: 1 FAILED, 3 passed ==="' \
+  'exit 1' > "$GBOX/redwin.test.sh"
+printf '%s\n' "$G_HEAD" \
+  '# run-tests: host-only: it needs a published release on a person'"'"'s screen' \
+  "$G_LIB" \
+  'echo "  FAIL  D this suite must never have been started"' \
+  'exit 1' > "$GBOX/door.test.sh"
+grun() {  # grun <suite>  — with a named guest, and WITHOUT --no-host-screen
+  rm -f "$GLOG/walk.args"
+  harness RUN_TESTS_DECLARED_GAPS= RICHOS_GUI_HOST=richos-test-g \
+    "TESTVM_RUN_WALK=$GBIN/run-walk" "TESTVM_GUEST_EXEC=$GBIN/guest" \
+    "GUEST_ROOT=$GROOT" "GUEST_SUDO=$GSUDO" "GLOG=$GLOG" \
+    "RICHOS_GUI_PREBUILT=$GPRE" "RICHOS_GUI_ENGINE_SOURCE=$GENG" \
+    -- "$GBOX/run-tests.sh" --only "$1"
+}
+
+if [ -z "$G_READY" ]; then
+  bad "G1 RICHOS_GUI_HOST runs a host-screen suite in a guest and reports its real result" \
+      "this checkout has no${G_MISSING}: the route run-tests.sh takes under RICHOS_GUI_HOST \
+has nothing to run the suite with, so it can only refuse (section 02 of the 2026-09-29 hunt)"
+else
+  grun window.test.sh
+  if [ "$CODE" != 0 ]; then
+    bad "G1 RICHOS_GUI_HOST runs a host-screen suite in a guest and reports its real result" \
+        "exit $CODE, wanted 0: $(tail -6 <<<"$OUT" | tr '\n' ' ' | cut -c1-400)"
+  elif ! says "in a guest: window.test.sh"; then
+    bad "G1 RICHOS_GUI_HOST runs a host-screen suite in a guest and reports its real result" \
+        "the plan did not route window.test.sh to a guest"
+  elif ! says "stand-in richos-tauri, built on the host" || ! says "PASS  G ran in the guest's payload at $GROOT/run-suite/tree"; then
+    bad "G1 RICHOS_GUI_HOST runs a host-screen suite in a guest and reports its real result" \
+        "the suite did not run from the payload in the guest, in prebuilt mode: $(tr '\n' ' ' <<<"$OUT" | cut -c1-400)"
+  elif ! grep -qx -- '--no-app' "$GLOG/walk.args" 2>/dev/null || grep -q -- 'tailnet' "$GLOG/walk.args"; then
+    bad "G1 RICHOS_GUI_HOST runs a host-screen suite in a guest and reports its real result" \
+        "run-walk.py was not asked for a guest with no app and no network flag: $(tr '\n' ' ' < "$GLOG/walk.args" 2>/dev/null)"
+  elif ! says "window.test.sh exited 0 in guest stand-in-vm" || ! says "all 1 suites passed — 4 checks"; then
+    bad "G1 RICHOS_GUI_HOST runs a host-screen suite in a guest and reports its real result" \
+        "the suite's verdict and its checks did not come back as the run's: $(tail -3 <<<"$OUT" | tr '\n' ' ')"
+  else
+    ok "G1 RICHOS_GUI_HOST runs a host-screen suite in a guest from the host's executables, and its result is the run's"
+  fi
+
+  grun redwin.test.sh
+  if [ "$CODE" != 1 ] || ! says "FAIL  R a case that failed in the guest" || ! says "suite(s) FAILED: redwin.test.sh"; then
+    bad "G2 a suite that FAILS in the guest fails the run, with its failed case named" \
+        "exit $CODE, wanted 1: $(tail -4 <<<"$OUT" | tr '\n' ' ' | cut -c1-300)"
+  else
+    ok "G2 a suite that fails in the guest fails the run, and its failed case is named"
+  fi
+
+  grun door.test.sh
+  if [ "$CODE" != 0 ] || ! says "NOT RUN (no screen): door.test.sh" \
+     || ! says "runs on this Mac's own screen only (no guest route): it needs a published release"; then
+    bad "G3 a host-only suite is recorded NOT RUN with its reason, never promised a guest" \
+        "exit $CODE: $(tail -4 <<<"$OUT" | tr '\n' ' ' | cut -c1-300)"
+  elif [ -f "$GLOG/walk.args" ] || says "D this suite must never have been started"; then
+    bad "G3 a host-only suite is recorded NOT RUN with its reason, never promised a guest" \
+        "a guest was booted for it, or it was started anyway"
+  else
+    ok "G3 a host-only suite is recorded NOT RUN with its declared reason, and no guest is booted for it"
+  fi
+fi
+
+# =========================================================================================
 # B. `--for`: WHICH APP'S BUILD A RUN IS
 # =========================================================================================
 #

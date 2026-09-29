@@ -208,11 +208,18 @@
 #     this repository that boots the shipped binary — or that declares itself with
 #     `# run-tests: host-screen`. Structural, not a guess: `gui-boot.test.sh` and
 #     `front-door.test.sh` are what that finds today.
-#   * With `RICHOS_GUI_HOST=<vm-name>`, such a suite is run in that guest instead, through
-#     `scripts/testvm/run-suite.sh`. If the caller named a VM and no runner is there, the
-#     run REFUSES. It never falls back to the host's screen, and it never quietly
-#     downgrades a named VM to "not run" — a caller who asked for the proof gets the proof
-#     or an error.
+#   * With `RICHOS_GUI_HOST=<vm-name>`, with or without `--no-host-screen`, such a suite is
+#     run in a test-VM guest instead, through `scripts/testvm/run-suite.sh`: this Mac builds
+#     what the suite launches (the guest has no cargo and no checkout), a fresh guest is
+#     booted for that suite's run only, the suite runs there in PREBUILT MODE
+#     (lib/gui-launch.sh), and its exit code and results folder come back as the suite's
+#     own. If the caller named a VM and no runner is there, the run REFUSES. It never falls
+#     back to the host's screen, and it never quietly downgrades a named VM to "not run" — a
+#     caller who asked for the proof gets the proof or an error.
+#   * THE ONE EXCEPTION IS DECLARED, NOT DISCOVERED. A suite that cannot run in a guest says
+#     `# run-tests: host-only: <reason>`, and under RICHOS_GUI_HOST it is recorded NOT RUN
+#     with that reason, never promised a guest. `front-door.test.sh` is that suite: it drives
+#     a published release on a person's unlocked screen. A bare marker is refused.
 #   * Without one, the suite is recorded `NOT RUN (no screen)`, the candidate is still
 #     built and still walkable, and `nightly-local.py publish` REFUSES that candidate
 #     until `--gui-proof <path>` names a gui-boot result produced later against the same
@@ -538,6 +545,14 @@ is_host_screen() {  # $1 = full path to a suite
   return 1
 }
 
+# A host-screen suite that CANNOT run in a guest says so, with the reason, in its own file:
+#   # run-tests: host-only: <why it needs this Mac's screen>
+# Prints the reason (empty for every other suite). A bare marker declares nothing and is
+# refused below, before anything runs.
+host_only_reason() {  # $1 = full path to a suite
+  sed -n 's/^# run-tests: host-only:[[:space:]]*//p' "$1" | head -1
+}
+
 # ---------------------------------------------------------------------------------------
 # Skip-when-unchanged. The input sets are a deliberate SUPERSET; see the header.
 # ---------------------------------------------------------------------------------------
@@ -729,24 +744,34 @@ while [ "$i" -lt "$N" ]; do
   NOTE[$i]=""
   DIGEST[$i]=""
   RUNNER[$i]="host"
+  if grep -q '^# run-tests: host-only' "$t" && [ -z "$(host_only_reason "$t" | tr -d '[:space:]')" ]; then
+    echo "run-tests.sh: $rel declares '# run-tests: host-only' with no reason after the colon." >&2
+    echo "              A bare marker declares nothing. Say why it cannot run in a guest." >&2
+    exit 2
+  fi
   if is_host_screen "$t"; then
-    if [ -n "$NO_HOST_SCREEN" ]; then
-      if [ -n "${RICHOS_GUI_HOST:-}" ]; then
-        if [ -x "$DIR/testvm/run-suite.sh" ]; then
-          RUNNER[$i]="vm:${RICHOS_GUI_HOST}"
-        else
-          echo "run-tests.sh: RICHOS_GUI_HOST names '${RICHOS_GUI_HOST}', and there is no" >&2
-          echo "              $DIR/testvm/run-suite.sh to run $rel in it." >&2
-          echo "              A caller who named a guest asked for the proof. This run will not" >&2
-          echo "              fall back to the operator's screen and will not pretend the suite" >&2
-          echo "              was skipped on purpose. Provision the guest, or unset" >&2
-          echo "              RICHOS_GUI_HOST to record the suite as NOT RUN." >&2
-          exit 2
-        fi
+    # A NAMED GUEST MEANS THIS MAC's SCREEN IS NOT TO BE USED, with or without
+    # --no-host-screen: the caller said where the suite's windows go.
+    if [ -n "${RICHOS_GUI_HOST:-}" ]; then
+      host_only="$(host_only_reason "$t")"
+      if [ -n "$host_only" ]; then
+        # Said plainly, never promised: this suite has no guest route at all.
+        STATE_OF[i]="notrun"
+        NOTE[i]="runs on this Mac's own screen only (no guest route): $host_only"
+      elif [ -x "$DIR/testvm/run-suite.sh" ]; then
+        RUNNER[$i]="vm:${RICHOS_GUI_HOST}"
       else
-        STATE_OF[$i]="notrun"
-        NOTE[$i]="no screen this run may use; --no-host-screen is in effect and RICHOS_GUI_HOST is unset"
+        echo "run-tests.sh: RICHOS_GUI_HOST names '${RICHOS_GUI_HOST}', and this checkout has no" >&2
+        echo "              $DIR/testvm/run-suite.sh to run $rel in a guest with." >&2
+        echo "              A caller who named a guest asked for the proof. This run will not" >&2
+        echo "              fall back to the operator's screen and will not pretend the suite" >&2
+        echo "              was skipped on purpose. Unset RICHOS_GUI_HOST (with --no-host-screen" >&2
+        echo "              to record the suite as NOT RUN)." >&2
+        exit 2
       fi
+    elif [ -n "$NO_HOST_SCREEN" ]; then
+      STATE_OF[$i]="notrun"
+      NOTE[$i]="no screen this run may use; --no-host-screen is in effect and RICHOS_GUI_HOST is unset"
     fi
   fi
   if [ "${STATE_OF[$i]}" = "run" ] && [ -n "$SKIP_UNCHANGED" ]; then
@@ -809,8 +834,8 @@ launch() {
   fi
   case "${RUNNER[$idx]}" in
     vm:*)
-      # A guest cannot write this host's results folder: no RICHOS_TEST_RESULTS_DIR there.
-      ( ${lease[@]+"${lease[@]}"} "$DIR/testvm/run-suite.sh" "${RUNNER[$idx]#vm:}" "$t" > "$WORK/$idx.out" 2>&1
+      # The suite writes its results folder in the guest; run-suite.sh brings it back here.
+      ( RICHOS_TEST_RESULTS_DIR="$results" ${lease[@]+"${lease[@]}"} "$DIR/testvm/run-suite.sh" "${RUNNER[$idx]#vm:}" "$t" > "$WORK/$idx.out" 2>&1
         c=$?; date +%s > "$WORK/$idx.end"; echo $c > "$WORK/$idx.rc" ) &
       ;;
     *)

@@ -3,6 +3,8 @@
 
 The command after -- receives the owned VM name as its first argument. Example:
 run-walk.py --bundle BUNDLE --home FIXTURE --engine ENGINE --tailnet -- delta-walk.py --out OUT ...
+With --no-app instead of --bundle the guest is booted ready and nothing is launched, for a
+command that launches what it tests itself (run-suite.sh runs gui-boot.test.sh that way).
 
 CEO ruling §77: a walk is a test run, admitted by the CPU rule; it does not take
 the nightly release.lock. The guest is a shared resource with TWO slots (slots.py):
@@ -47,15 +49,20 @@ PHONE_WALKS={'delta-walk.py'}
 def boot_argv(vm,bundle,home,engine,tailnet):
     """run.sh's command line. The tailnet join is the phone path's and nothing else's: a
     walk that never touches the phone must not fail because a network join failed (run.sh
-    exits 1 on a failed join), so --no-tailnet is the default and --tailnet opts in."""
-    argv=[str(HERE/'run.sh'),'--vm',vm,'--bundle',bundle,'--home',home,'--engine',engine]
+    exits 1 on a failed join), so --no-tailnet is the default and --tailnet opts in.
+    No bundle (None) boots the guest with nothing launched: run.sh --no-app."""
+    app=['--bundle',bundle] if bundle else ['--no-app']
+    argv=[str(HERE/'run.sh'),'--vm',vm,*app,'--home',home,'--engine',engine]
     if not tailnet:argv.append('--no-tailnet')
     return argv
 
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--bundle',required=True);p.add_argument('--home',required=True);p.add_argument('--engine',required=True)
+    p.add_argument('--bundle');p.add_argument('--home',required=True);p.add_argument('--engine',required=True)
+    p.add_argument('--no-app',action='store_true',
+                   help='boot the guest ready with no app launched (run.sh --no-app), for a command that '
+                        'launches what it tests itself (run-suite.sh); give this or --bundle')
     p.add_argument('--previous-bundle',type=Path,help='published previous zip or app to stage for rollback')
     p.add_argument('--report',type=Path,required=True,help='whole-run boot/scenario/cleanup timing report outside scratch')
     p.add_argument('--state-dir',type=Path,default=Path.home()/'.richos-nightly',
@@ -67,6 +74,7 @@ def main():
     p.add_argument('command',nargs=argparse.REMAINDER)
     a=p.parse_args();command=a.command[1:] if a.command[:1]==['--'] else a.command
     if not command:p.error('a scenario command is required after --')
+    if bool(a.bundle)==a.no_app:p.error('give --bundle <app> or --no-app: exactly one of them')
     retired=RETIRED.get(Path(command[0]).name)
     if retired:p.error(retired)
     if Path(command[0]).name in PHONE_WALKS and not a.tailnet:p.error(Path(command[0]).name+' pairs a phone: pass --tailnet')
