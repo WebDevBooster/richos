@@ -59,6 +59,8 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const SOURCES = require("./lib/ui-sources");
+// Every byte this process prints reaches its reader before it exits (`lib/blocking-stdio.js`).
+require("./lib/blocking-stdio")();
 
 // ---------------------------------------------------------------------------------------
 // Arguments
@@ -404,13 +406,51 @@ if (SHARDS !== null) {
     process.env.RICHOS_UI_NAV_EVIDENCE_DIR = path.join(__dirname, ".shots", "navigation-failures");
   }
   console.log(`${SUITES.length} suite(s) over ${SHARDS} shard(s), receipts in ${dir}\n`);
+  // EACH SHARD IS A WORKER, AND UNDER A WORKER BUDGET IT HOLDS A TOKEN OF IT.
+  //
+  // The nightly runs every gate through `worker_tokens.py machine`, which holds ONE token of
+  // the machine budget (80% of the cores) for the gate's command and exports the budget to it.
+  // Every other wide gate spends that budget per worker: a mutation pool takes one token per
+  // mutant, a proof run one per check. This command used to run its four WebKit shards on the
+  // one token it was given, so the budget admitted a full mutation pool and a full script-suite
+  // run BESIDE four shards it never counted, and the host sat at 95-100% CPU. Tonight's three
+  // failed nightlies (20260928T224842Z-c3cce554, 20260928T230511Z-20aa349a,
+  // 20260928T233221Z-56bcde43) each failed a different wall-clock check in whichever gate ran
+  // beside this one, and each of those suites passed alone on the same commit.
+  //
+  // So under a budget, a shard is started the way `mutation-pool.sh` starts a mutant: through
+  // `worker_tokens.py run <budget> --free <the caller's own slot>`. The first shard runs on the
+  // token this command already holds; every other shard waits for a token of the budget, so the
+  // whole machine never admits more workers than it has. With the Mac otherwise free, all four
+  // get a token at once and the suite costs what it always did. Without a budget (a person
+  // running `node run.js --shards=4`), nothing changes.
+  const budget =
+    process.env.RICHOS_WORKER_TOKENS &&
+    process.env.RICHOS_WORKER_TOKENS_TOOL &&
+    process.env.RICHOS_WORKER_SLOT_HELD === "1" &&
+    process.env.RICHOS_WORKER_BORROW_LOCK
+      ? {
+          dir: process.env.RICHOS_WORKER_TOKENS,
+          tool: process.env.RICHOS_WORKER_TOKENS_TOOL,
+          free: process.env.RICHOS_WORKER_BORROW_LOCK,
+        }
+      : null;
+  if (budget) {
+    console.log(
+      `each shard holds one worker token of ${budget.dir}; the first runs on this command's own, ` +
+        `the others wait for the budget\n`
+    );
+  }
   const started = Date.now();
   const children = [];
   for (let i = 1; i <= SHARDS; i++) {
     const t0 = Date.now();
     const args = [__filename, `--shard=${i}/${SHARDS}`, `--receipts=${dir}`];
     for (const s of ALLOWED_SKIPS) args.push(`--allow-skip=${s}`);
-    const child = spawn(process.execPath, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const [file, argv] = budget
+      ? ["python3", [budget.tool, "run", budget.dir, "--free", budget.free, "--", process.execPath, ...args]]
+      : [process.execPath, args];
+    const child = spawn(file, argv, { stdio: ["ignore", "pipe", "pipe"] });
     const chunks = [];
     child.stdout.on("data", (d) => chunks.push(d));
     child.stderr.on("data", (d) => chunks.push(d));
@@ -704,6 +744,12 @@ function gate(planned, data, opts) {
       `  ${verdict}           ${suite} — ${observed} check(s) run, ${declared} declared, ` +
         `${failedChecks} failed (exit ${status})${took}${where}`
     );
+    // WHICH CHECK, AND WHY, read off the receipt (`lib/harness.js` report()). The coverage job
+    // prints this from what the shards wrote down, so the verdict names the check even when the
+    // shard's own FAIL line is somewhere else in a long log.
+    for (const f of runs.flatMap((r) => (Array.isArray(r.failures) ? r.failures : []))) {
+      console.log(`                    ✗ ${f.check}: ${String(f.message || "").split("\n")[0]}`);
+    }
   }
 
   // FAILED BY EITHER WITNESS. The exit code is one; the ledger is the other, and where they

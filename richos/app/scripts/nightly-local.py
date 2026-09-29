@@ -61,7 +61,13 @@ GATE_BUDGETS = {
     # past 1800 s twice beside the simulator suites once gates ran at once (runs 20260925T222652Z-723fee53
     # and 20260925T225819Z-2a11fdd0). 792 s (2026-09-23) is stale; this is about 2x the contended envelope.
     "gates/workspace-mutants": 3600,
-    "gates/ui-suite": 1200,    # At least 2x the fresh-browser four-shard reference.
+    # Re-derived 2026-09-29, when each UI shard started holding a machine worker token of its own
+    # (ui/tests/run.js): beside a mutation pool the shards now wait for tokens instead of running
+    # uncounted, and the progress guarantee is ONE shard at a time on the gate's own token, i.e.
+    # the inventory's serial cost -- 1512 s by the committed suite-weights.tsv. 2x is 3024 s,
+    # rounded up to five minutes. The 1200 s it replaces was 2x the four-shard reference on an
+    # otherwise free Mac, which the gate never gets beside workspace-mutants.
+    "gates/ui-suite": 3300,
     "gates/privacy-sweep": 120, # At least 4x a full scan; no receipt-reuse assumption.
 }
 CLEANUP_TIMEOUT = 30
@@ -1307,6 +1313,11 @@ class Runner:
         Read here rather than parsed out of the coverage job's prose: the receipt is the
         thing `run.js` wrote down, and a second parser for the same fact is a second thing
         to keep true.
+
+        EACH FAILED CHECK IS NAMED, with the first line of its message (`lib/harness.js`
+        report() writes both into the receipt). Run 20260928T233221Z-56bcde43 refused the
+        build with "home.js (exit 1, 1 failed check(s))" and nothing else, and the log had
+        lost the FAIL line, so the only way to learn which check was a rerun.
         """
         red = []
         for path in sorted(Path(receipts).glob("*.receipt.json")):
@@ -1314,11 +1325,13 @@ class Runner:
                 receipt = json.loads(path.read_text())
             except (OSError, ValueError):
                 continue
-            failed = sum(r.get("failed", 0) for r in receipt.get("records", [])
-                         if isinstance(r.get("checks"), int))
+            records = [r for r in receipt.get("records", []) if isinstance(r.get("checks"), int)]
+            failed = sum(r.get("failed", 0) for r in records)
             if receipt.get("exit") or failed:
+                named = [f"{f.get('check')}: {str(f.get('message') or '').splitlines()[0] if f.get('message') else ''}"
+                         for r in records for f in r.get("failures") or [] if isinstance(f, dict)]
                 red.append(f"{receipt.get('suite')} (exit {receipt.get('exit')}, "
-                           f"{failed} failed check(s))")
+                           f"{failed} failed check(s))" + (" [" + "; ".join(named) + "]" if named else ""))
         return red
 
     def gates(self, checks_done_at_land=None, no_host_screen=False, skip_unchanged=False):
