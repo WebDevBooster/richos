@@ -117,6 +117,17 @@ class MockupFidelityTest {
 
     private fun pixel(image: android.graphics.Bitmap, x: Float, y: Float) = androidx.compose.ui.graphics.Color(image.getPixel(x.toInt(), y.toInt()))
 
+    /**
+     * The ground as it is under the speckle (design/Speckle.kt): the per-channel median of a
+     * 21-pixel run of the row, so the sparse single-pixel points drop out and what is left is the
+     * ground, its lamp and whatever line is drawn along that row.
+     */
+    private fun rowMedian(image: android.graphics.Bitmap, x: Float, y: Float): androidx.compose.ui.graphics.Color {
+        val run = (-10..10).map { image.getPixel(x.toInt() + it, y.toInt()) }
+        fun med(shift: Int) = run.map { (it shr shift) and 0xFF }.sorted()[run.size / 2]
+        return androidx.compose.ui.graphics.Color(red = med(16), green = med(8), blue = med(0))
+    }
+
     private fun near(a: androidx.compose.ui.graphics.Color, b: androidx.compose.ui.graphics.Color, tolerance: Float = 3f / 255f) =
         kotlin.math.abs(a.red - b.red) <= tolerance && kotlin.math.abs(a.green - b.green) <= tolerance && kotlin.math.abs(a.blue - b.blue) <= tolerance
 
@@ -138,9 +149,10 @@ class MockupFidelityTest {
             val image = compose.onRoot().captureToImage().asAndroidBitmap()
             val x = p.boundsInRoot.center.x
             val lineY = p.boundsInRoot.top - 20f * density + 0.5f * density
-            val ground = pixel(image, x, lineY - 6f * density)
+            // Both sampled as the median of their row, clear of the speckle's single-pixel points.
+            val ground = rowMedian(image, x, lineY - 6f * density)
             val expected = colors.lineFaint.compositeOver(ground)
-            val seen = pixel(image, x, lineY)
+            val seen = rowMedian(image, x, lineY)
             assertTrue("$theme: hairline pixel $seen, expected $expected over ground $ground", near(seen, expected) && !near(seen, ground, 0f))
             // It clears the composer: nothing to scroll at 100% on the small phone.
             assertTrue("$theme: the empty state scrolls at 100%", !hasTag("scroll-edge-fade"))
