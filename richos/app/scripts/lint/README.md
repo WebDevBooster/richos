@@ -103,6 +103,19 @@ same ceilings as `--static`/`--fast` at a fraction of the cost:
 It checks the working tree, including unstaged edits. The land check (`lint.sh --all`, or
 `lint.test.sh` when `proof-for.sh` selects it) sees exactly the merged tree.
 
+`--changed --strict` is what a commit runs. A ceiling that nobody lowered leaves room: on
+2026-09-29 `let_underscore_must_use` stood at 747 under a ceiling of 777, so thirty new
+discarded results would each have passed. Under `--strict` a commit may not grow any count,
+whatever room the ceiling has: a static count that grows over the changed files refuses, and
+each Clippy set's counts are compared with the counts recorded for HEAD's Rust. Every Clippy
+run records its counts under a digest of what the set reads (every Rust input's blob, the
+commands and the tool versions) in `<git-common-dir>/richos-lint-cache/`, shared by every
+worktree; a land's run records main's, so a branch cut from main is compared from its first
+commit. With no record for HEAD, the commit is held to the ceiling only and the run records
+one. An intended exception is made explicit where a reviewer sees it (`# shellcheck
+disable=SCnnnn`, `#[allow(clippy::...)]`), not absorbed by stale room. Merges into a branch
+run `--changed` without `--strict`: what they bring from main was held to its land.
+
 ## Maintaining the ceiling
 
 Normal checks never edit baselines. Counts prevent a **net increase**, not every

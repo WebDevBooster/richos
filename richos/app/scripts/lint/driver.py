@@ -168,8 +168,86 @@ def rust_fast(args, rows, tool_versions, report):
     counts, diagnostics = rust.collect(ROOT, rust.FAST)
     report["rust-fast"] = dict(counts=counts, diagnostics=diagnostics, seconds=time.monotonic() - tick)
     summarize("Rust fast set", counts, diagnostics)
+    remember_counts(ROOT, "fast", tool_versions, counts)
     enforce(ROOT, "rust-fast", record({"clippy": rust.FAST}, tool_versions,
             rust.lint_rules(ROOT), {p: r for p, r in rows.items() if r["language"] == "rust"}, counts), args)
+    return counts
+
+
+# ---------------------------------------------------------------------------------------
+# Clippy counts by content, so a commit can be compared with its parent without building it
+# ---------------------------------------------------------------------------------------
+# Every Clippy run records its counts under a digest of what that set reads: the blob of every
+# Rust input (.rs, manifests, lockfile, build scripts) plus the commands and tool versions.
+# The digest is a content address, so the record is shared by every worktree of the
+# repository (in <git-common-dir>/richos-lint-cache/) and a land's run serves every branch
+# cut from that main. Inputs that are not Rust (a file read by include_str!) are outside it.
+RUST_CACHE = "richos-lint-cache"
+
+
+def in_set(path, which):
+    return rust_input(path) and (which == "tauri" or not path.startswith(APP + "src-tauri/"))
+
+
+def rust_digest(root, which, tool_versions, source):
+    """`source` "HEAD" digests HEAD's blobs; "working" the working tree, untracked inputs included."""
+    blobs = {}
+    for line in checked(["git", "ls-tree", "-r", "HEAD", "--", APP], root).splitlines():
+        meta, path = line.split("\t", 1)
+        if in_set(path, which):
+            blobs[path] = meta.split()[2]
+    if source == "working":
+        untracked = checked(["git", "ls-files", "--others", "--exclude-standard", "--", APP], root).splitlines()
+        present = []
+        for path in changed_paths(root) + untracked:
+            if not in_set(path, which):
+                continue
+            if (root / path).is_file():
+                present.append(path)
+            else:
+                blobs.pop(path, None)
+        if present:
+            hashes = checked(["git", "hash-object", "--", *present], root).split()
+            blobs.update(zip(present, hashes))
+    digest = hashlib.sha256(json.dumps({"set": which, "commands": rust.TAURI if which == "tauri" else rust.FAST,
+                                        "clippy": tool_versions.get("clippy"), "rustc": tool_versions.get("rustc")},
+                                       sort_keys=True).encode())
+    for path in sorted(blobs):
+        digest.update(f"{path} {blobs[path]}\n".encode())
+    return digest.hexdigest()
+
+
+def cache_file(root, which, digest):
+    common = Path(checked(["git", "rev-parse", "--git-common-dir"], root).strip())
+    common = common if common.is_absolute() else root / common
+    return common / RUST_CACHE / which / (digest + ".json")
+
+
+def remember_counts(root, which, tool_versions, counts):
+    try:
+        path = cache_file(root, which, rust_digest(root, which, tool_versions, "working"))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        scratch = path.with_suffix(f".{os.getpid()}.tmp")
+        scratch.write_text(json.dumps(counts, sort_keys=True) + "\n")
+        scratch.replace(path)
+    except (Refusal, OSError, ValueError) as exc:
+        print(f"Clippy counts not recorded for later comparison: {exc}", flush=True)
+
+
+def recalled_counts(root, which, tool_versions):
+    try:
+        path = cache_file(root, which, rust_digest(root, which, tool_versions, "HEAD"))
+        return json.loads(path.read_text()) if path.is_file() else None
+    except (Refusal, OSError, ValueError):
+        return None
+
+
+def refuse_growth(what, growth):
+    grown = ", ".join(f"{rule} +{n}" for rule, n in sorted(growth.items()))
+    raise Refusal(
+        f"this change adds {what} diagnostics: {grown}. A commit may not grow a lint count, whatever room "
+        "the ceiling still has (--strict). Fix it, or make the exception explicit where a reviewer sees it "
+        "(# shellcheck disable=SCnnnn, #[allow(clippy::...)] with the reason beside it).")
 
 
 # ---------------------------------------------------------------------------------------
@@ -249,6 +327,8 @@ def changed(args, rows, tool_versions, report):
             if delta > 0:
                 growth[rule] = delta
     report["changed-growth"] = growth
+    if growth and args.strict:
+        refuse_growth("static", growth)
     if growth:
         print("This change adds " + ", ".join(f"{k}+{v}" for k, v in sorted(growth.items()))
               + "; the full static check decides whether the tree still fits its ceilings", flush=True)
@@ -257,10 +337,25 @@ def changed(args, rows, tool_versions, report):
         load_phase(ROOT, args, report, paths=app_paths)
         print(f"Static checks: {len(touched)} changed or dependent file(s), no count grew "
               f"({time.monotonic() - started:.2f}s)", flush=True)
-    if any(rust_input(p) and not p.startswith(APP + "src-tauri/") for p in app_paths):
-        rust_fast(args, rows, tool_versions, report)
-    if any(rust_input(p) and p.startswith(APP + "src-tauri/") for p in app_paths):
-        tauri(ROOT, args, rows, tool_versions, report)
+    for which, wanted in (("fast", lambda p: in_set(p, "fast")), ("tauri", lambda p: p.startswith(APP + "src-tauri/"))):
+        if not any(rust_input(p) and wanted(p) for p in app_paths):
+            continue
+        before = recalled_counts(ROOT, which, tool_versions) if args.strict else None
+        if which == "fast":
+            after = rust_fast(args, rows, tool_versions, report)
+        else:
+            tauri(ROOT, args, rows, tool_versions, report)
+            after = report["tauri"]["counts"]
+        if not args.strict:
+            continue
+        if before is None:
+            print(f"No Clippy counts are recorded for HEAD's Rust ({which} set), so this commit is held "
+                  "to the ceiling only; this run's counts are recorded for the next one", flush=True)
+            continue
+        grown = {rule: n - before.get(rule, 0) for rule, n in after.items() if n > before.get(rule, 0)}
+        if grown:
+            refuse_growth(f"Clippy ({which} set)", grown)
+        print(f"Clippy ({which} set): no count grew against HEAD", flush=True)
 
 
 def count_static(root, rows, texts):
@@ -335,6 +430,7 @@ def tauri(root, args, rows, tools, report):
         raise TimeoutError("Tauri Clippy deadline expired")
     report["tauri"] = dict(seconds=time.monotonic() - started, lock_wait_seconds=clock["lock_wait"],
                            counts=counts, diagnostics=diagnostics)
+    remember_counts(root, "tauri", tools, counts)
 
 
 def main(argv=None):
@@ -350,6 +446,8 @@ def main(argv=None):
     updates = parser.add_mutually_exclusive_group()
     updates.add_argument("--lower", action="store_true", help="propose lower baselines as a working-tree diff")
     updates.add_argument("--bootstrap", action="store_true", help="create initial baselines only when absent on integration")
+    parser.add_argument("--strict", action="store_true",
+                        help="with --changed: refuse any count this change grows, whatever room the ceiling has")
     parser.add_argument("--trusted-ref", default="refs/heads/main")
     parser.add_argument("--suite-results", type=Path, help="current nightly script-suite receipt")
     parser.add_argument("--json-out", type=Path, help="write detailed measurement output to the named file")
@@ -373,6 +471,8 @@ def main(argv=None):
         # Standalone measurement scheduling belongs to the operator. The lint
         # never probes release.lock or host load, including inside a nightly
         # that already owns that lock. Cargo arbitrates its own cache lock.
+        if args.strict and not args.changed:
+            raise Refusal("--strict applies to --changed only")
         if args.changed:
             if args.lower or args.bootstrap:
                 raise Refusal("--changed only checks; --lower and --bootstrap need a full mode")

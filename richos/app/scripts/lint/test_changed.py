@@ -83,6 +83,36 @@ class Changed(unittest.TestCase):
         self.assertIn("This change adds SC2086+1", out)
         self.assertIn("ShellCheck and custom rules running", out)
 
+    def test_strict_refuses_growth_the_ceiling_would_still_allow(self):
+        self.write("scripts/a.sh", unquoted(2))
+        out = self.lint("--changed", "--strict", expect=1)
+        self.assertIn("this change adds static diagnostics: SC2086 +1", out)
+        self.write("scripts/a.sh", unquoted(1) + "# a comment\n")
+        self.lint("--changed", "--strict", expect=0)
+
+    def test_the_rust_digest_follows_rust_inputs_and_nothing_else(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("fixture_driver", self.root / APP / "scripts/lint/driver.py")
+        driver = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(driver)
+        tools = {"clippy": "clippy 0", "rustc": "rustc 0"}
+        head = driver.rust_digest(self.root, "fast", tools, "HEAD")
+        self.assertEqual(driver.rust_digest(self.root, "fast", tools, "working"), head)
+        self.write("scripts/a.sh", unquoted(1) + "# not Rust\n")
+        self.assertEqual(driver.rust_digest(self.root, "fast", tools, "working"), head)
+        self.write("crates/x/src/lib.rs", "pub fn x() { let _ = 1; }\n")
+        changed = driver.rust_digest(self.root, "fast", tools, "working")
+        self.assertNotEqual(changed, head)
+        self.write("crates/x/src/extra.rs", "pub fn y() {}\n")  # untracked, and cargo would read it
+        self.assertNotEqual(driver.rust_digest(self.root, "fast", tools, "working"), changed)
+        self.assertNotEqual(driver.rust_digest(self.root, "fast", {"clippy": "clippy 1", "rustc": "rustc 0"}, "HEAD"), head)
+        driver.remember_counts(self.root, "fast", tools, {"clippy::x": 3})
+        self.write("crates/x/src/lib.rs", "pub fn x() {}\n")
+        (self.root / APP / "crates/x/src/extra.rs").unlink()
+        self.assertIsNone(driver.recalled_counts(self.root, "fast", tools))
+        driver.remember_counts(self.root, "fast", tools, {"clippy::y": 1})  # the tree is HEAD's again
+        self.assertEqual(driver.recalled_counts(self.root, "fast", tools), {"clippy::y": 1})
+
     def test_growth_past_the_ceiling_is_refused_with_the_lints_reason(self):
         self.write("scripts/a.sh", unquoted(3))
         out = self.lint("--changed", expect=1)
