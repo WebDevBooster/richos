@@ -165,6 +165,8 @@ def commit_check(repo, what):
     staged = git("diff", "--cached", "--name-only", "--no-renames").splitlines()
     working = git("diff", "--name-only", "--no-renames", "HEAD", env=repo.env, cwd=repo.top).splitlines()
     app = sorted({p for p in staged + working if p.startswith("richos/app/")})
+    if what == "commit" and stale_pins(repo):
+        return 1
     if not app:
         say(f"autocheck: {what}: nothing under richos/app changed, so no lint applies "
             f"({time.monotonic() - started:.1f}s)")
@@ -196,6 +198,64 @@ def commit_check(repo, what):
         return 1
     say(f"autocheck: {what}: passed in {time.monotonic() - started:.1f}s")
     return 0
+
+
+# ---------------------------------------------------------------------------------------
+# A changed source that a reviewed check pins
+# ---------------------------------------------------------------------------------------
+# 2026-09-29: three finished branches (make-release.sh, a stable-release script, run-tests.sh)
+# passed every commit here and were refused at the merge, because
+# proof_evidence.qualify_recipe raises UnqualifiedReader when a source a reviewed unit pins by
+# SHA-256 no longer matches its pin, and only proof-run.test.sh ran that. Each cost a full merge
+# run plus another engineer pass. The same comparison runs here, over the branch's changed
+# paths only, and reads the qualification file only when one of them is named in it.
+
+QUALIFICATIONS = "docs/development/verification-input-qualifications.json"
+
+
+def stale_pins(repo):
+    """Refuse (return 1) when a path this branch changed is a pinned source of a reviewed unit
+    and the pin no longer matches the staged content."""
+    import hashlib
+    paths = branch_paths(repo)
+    if not paths:
+        return 0
+    got = subprocess.run(["git", "show", f":{QUALIFICATIONS}"], cwd=repo.top, env=repo.env,
+                         capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    if got.returncode:
+        return 0  # this tree has no qualification file, so nothing is pinned
+    if not any(p in got.stdout for p in paths):
+        return 0  # the common case: nothing changed is named there; no parse
+    try:
+        units = json.loads(got.stdout).get("units", {})
+    except ValueError:
+        return 0  # the merge-time test reports a malformed file; not this check's job
+    changed = set(paths)
+    stale = []
+    for unit, body in sorted(units.items()):
+        for source, pinned in sorted((body.get("sources") or {}).items()):
+            if source not in changed:
+                continue
+            blob = subprocess.run(["git", "show", f":{source}"], cwd=repo.top, env=repo.env,
+                                  capture_output=True, stdin=subprocess.DEVNULL)
+            now = hashlib.sha256(blob.stdout).hexdigest() if blob.returncode == 0 else "(file removed)"
+            if now != pinned:
+                stale.append((source, unit, pinned, now))
+    if not stale:
+        return 0
+    lines = []
+    for source, unit, pinned, now in stale:
+        lines.append(f"{source} (unit \"{unit}\"): pinned {pinned[:12]}, now {now[:12]}")
+    lines += [
+        "",
+        f"A reviewed check reads these files, and {QUALIFICATIONS} pins each by SHA-256.",
+        "The merge would refuse this branch with UnqualifiedReader (proof_evidence.qualify_recipe).",
+        "Fix: renew the pin in that file's \"sources\" for the unit (the new SHA-256 is",
+        "`shasum -a 256 <file>`), as commit a6bd0145 did for make-release.sh; re-check that the",
+        "unit's \"review\" text still describes what the changed file reads.",
+    ]
+    banner("COMMIT REFUSED: a changed file is pinned by a reviewed check", lines)
+    return 1
 
 
 # ---------------------------------------------------------------------------------------
