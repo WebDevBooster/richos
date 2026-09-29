@@ -701,6 +701,15 @@ def completed_receipt(item, sha, allow_known_red=False):
 #     exactly as before.
 # What stays global is HEAD: a commit or a checkout switch in the verified checkout is not an
 # editor save, receipts are bound to the commit, and it still marks the run contaminated.
+#
+# One `fresh` check is not bound to the whole source: `engine receipts`. It is fresh so that it
+# always runs (it is the coverage verifier over this run's receipts), not because its inputs are
+# unknown: verify_target_receipts() re-reads every covered unit's own identity and HEAD itself,
+# so its pass is exactly as valid as the units it covers. Binding it to the whole source would
+# make one unrelated save fail the coverage of every engine unit in the run.
+VERIFIES_OWN_INPUTS = frozenset(("engine receipts",))
+
+
 class Record:
     def __init__(self, root, logdir, items, source, identities, previous=None,
                  current_source=None, current_identity=None, current_identities=None, explain=None,
@@ -750,7 +759,7 @@ class Record:
         if item.state == "passed":
             if moved:
                 result["invalid"] = "the checkout's commit changed during execution"
-            elif identity.get("fresh") and source != self.source:
+            elif identity.get("fresh") and item.label not in VERIFIES_OWN_INPUTS and source != self.source:
                 result["invalid"] = ("source changed during execution (this check declares no inputs, "
                                      "so every change is one of its inputs)")
             else:
@@ -800,7 +809,8 @@ class Record:
                     raise ValueError(input_error)
                 if source["commit"] != row["source"]["commit"]:
                     raise ValueError("the checkout's commit changed after this check completed")
-                if row["input"].get("fresh") and source != row["source"]:
+                if (row["input"].get("fresh") and item.label not in VERIFIES_OWN_INPUTS
+                        and source != row["source"]):
                     raise ValueError("inputs changed after this check completed (it declares no inputs)")
                 if identities[item.label] != again[item.label]:
                     raise ValueError("inputs changed while they were being read" + self.explain(item))

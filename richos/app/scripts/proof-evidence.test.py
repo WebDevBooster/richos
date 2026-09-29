@@ -464,6 +464,18 @@ class Evidence(unittest.TestCase):
         current.source = {**self.source, "tracked_diff_sha256": "an unrelated save"}
         evidence.reuse(record.logdir, new, current, exact=False)
         self.assertEqual(new[0].state, "passed", new[0].notes)
+        # The coverage verifier is fresh only so that it always runs; it re-reads each covered
+        # unit's own inputs itself, so an unrelated save does not invalidate it either.
+        path = Path(self.tmp.name) / "verifier"
+        path.mkdir()
+        verifier = [runner.Item("engine receipts", str(self.root), ["bash", "scripts/ci-shard.sh", "--verify-receipts"])]
+        record = evidence.Record(str(self.root), path, verifier, dict(self.source),
+                                 {"engine receipts": {"fresh": "coverage verifier runs over the reconciled receipt set"}})
+        self.addCleanup(record.close)
+        record.current_source = lambda: {**self.source, "tracked_diff_sha256": "an unrelated save"}
+        self.passed(verifier, record)
+        record.finalize(verifier)
+        self.assertEqual(verifier[0].state, "passed", verifier[0].notes)
 
     def test_actual_unrelated_edit_during_a_run_invalidates_only_the_checks_that_read_it(self):
         # Part-2 hunt section 07, end to end through runner.main on a real git checkout: one check
