@@ -22,9 +22,15 @@
 # at once instead of waiting for a password nobody will type.
 #
 # THE ENVIRONMENT IS STATED, NOT INHERITED. sudo resets it, and the host's never reaches a
-# guest, so everything the suite reads is set below and nothing else is: PATH is the system
-# directories first, then the delivered runtime's bin (the only `node` a clean guest has),
-# and RICHOS_GUI_PREBUILT puts the suite in PREBUILT MODE (lib/gui-launch.sh).
+# guest, so everything the suite reads is set below and nothing else is: PATH is the
+# delivered runtime's bin first and the system directories after it, and RICHOS_GUI_PREBUILT
+# puts the suite in PREBUILT MODE (lib/gui-launch.sh).
+#
+# THE RUNTIME COMES FIRST, MEASURED (2026-09-30, guest walk-16770d5c625a): a clean guest's
+# only `node` is the delivered one, and its /usr/bin/python3 is the Command Line Tools' 3.9,
+# on which verify-runtime.py stops at `hashlib.file_digest` (3.11 and later). The delivered
+# runtime is the python 3.13, node, git and jq this product ships, so it is also the one the
+# suite should meet.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -46,7 +52,7 @@ SUITE_FILE="$ROOT/tree/richos/app/scripts/$SUITE"
 HOME="$(dirname "$ROOT")"
 USER="$(id -un)"
 TMPDIR="$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || echo /tmp)"
-PATH="/usr/bin:/bin:/usr/sbin:/sbin:$ROOT/engine/runtime/bin:$ROOT/runtime/bin"
+PATH="$ROOT/engine/runtime/bin:$ROOT/runtime/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 RICHOS_GUI_PREBUILT="$ROOT/prebuilt"
 RICHOS_GUI_ENGINE_SOURCE="$ROOT/engine"
 RICHOS_TEST_RESULTS_DIR="$ROOT/results"
