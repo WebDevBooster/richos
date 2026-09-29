@@ -262,12 +262,15 @@ try:
     runner = subprocess.Popen([sys.executable, '-c', bootstrap, "--commands", cmds,
                                "--log-dir", os.path.join(tmp, "p8")],
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    deadline = time.time() + 20
-    while not all(os.path.exists(f) and open(f).read().strip() for f in (pidfile, own, deaf)) and time.time() < deadline:
+    # No clock of this suite's own around real runners (audit R13, 2026-09-29): every wait
+    # ends on a fact or on the process that would produce it ending. A hang is caught by the
+    # enclosing runner's per-suite deadline, which names this suite.
+    while not all(os.path.exists(f) and open(f).read().strip() for f in (pidfile, own, deaf)) \
+            and runner.poll() is None:
         time.sleep(0.1)
     pids = [int(open(f).read().strip()) for f in (pidfile, own, deaf) if os.path.exists(f) and open(f).read().strip()]
     runner.send_signal(signal.SIGTERM)
-    out, _ = runner.communicate(timeout=60)
+    out, _ = runner.communicate()
     alive = []
     for p in pids:
         try:
@@ -351,16 +354,34 @@ try:
         with open(os.path.join(tmp, name + ".out")) as fh:
             return fh.read()
 
-    def until(predicate, seconds):
-        end = time.time() + seconds
-        while time.time() < end:
-            if predicate():
-                return True
+    def until(predicate, *runs):
+        # The fact, or the end of every run that could produce it; never a number of seconds
+        # (audit R13: 10-30 s on real runners was a verdict on how busy the Mac was).
+        while not predicate():
+            if all(run.poll() is not None for run in runs):
+                return predicate()
             time.sleep(0.1)
-        return predicate()
+        return True
 
     def exists(path):
         return os.path.exists(path)
+
+    def held(tag):
+        # A holder run that keeps its slot until the test says so. It used to `sleep 3`, and a
+        # second run slower than that to start never met a held slot at all.
+        return "while [ ! -e %s/%s.release ]; do sleep 0.1; done" % (mark, tag)
+
+    def release(tag):
+        open(os.path.join(mark, tag + ".release"), "w").close()
+
+    def gone(pid):
+        # Gone, or a zombie waiting to be reaped: os.kill(pid, 0) still finds one.
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout
+        return not state.strip() or "Z" in state
 
     from shlex import quote as shlex_quote
     r = slots("set", "1")
@@ -375,11 +396,11 @@ try:
     # in the status with the holder, and runs once the first run is over.
     mark = os.path.join(tmp, "p16")
     os.makedirs(mark)
-    a = start_run("p16-a", "touch %s/a.start; sleep 3; touch %s/a.end" % (mark, mark))
-    check(until(lambda: exists(os.path.join(mark, "a.start")), 30), "P16b0 the first run starts at once under the limit",
+    a = start_run("p16-a", "touch %s/a.start; %s; touch %s/a.end" % (mark, held("a"), mark))
+    check(until(lambda: exists(os.path.join(mark, "a.start")), a), "P16b0 the first run starts at once under the limit",
           output("p16-a")[-400:])
     b = start_run("p16-b", "touch %s/b.start" % mark)
-    waited_seen = until(lambda: "waiting for a proof-run slot" in output("p16-b"), 10)
+    waited_seen = until(lambda: "waiting for a proof-run slot" in output("p16-b"), b)
     status = json.loads(slots("status", "--json").stdout)
     records = []
     for f in (os.listdir(os.environ["RICHOS_WAITS_DIR"]) if os.path.isdir(os.environ["RICHOS_WAITS_DIR"]) else []):
@@ -396,7 +417,8 @@ try:
     check(any(rec.get("pid") == b.pid and rec.get("resource") == "cpu-admission" and "proof-run slot" in rec.get("reason", "")
               and "p16-a" in rec.get("reason", "") for rec in records),
           "P16d the waiting run is RECORDED for the lead's turn-end gate, naming the run it waits for", records)
-    a_rc, b_rc = a.wait(timeout=60), b.wait(timeout=60)
+    release("a")
+    a_rc, b_rc = a.wait(), b.wait()
     a_end = os.path.getmtime(os.path.join(mark, "a.end")) if exists(os.path.join(mark, "a.end")) else None
     b_start = os.path.getmtime(os.path.join(mark, "b.start")) if exists(os.path.join(mark, "b.start")) else None
     left = [f for f in os.listdir(os.environ["RICHOS_WAITS_DIR"]) if f.endswith(".json")] \
@@ -415,36 +437,34 @@ try:
 
     # P16f — a killed holder releases the Mac: SIGKILL the holding runner (its pid, captured at
     # spawn). The kernel drops its locks; its check's supervisor stops the check it was running.
-    a = start_run("p16-kill-a", "echo $$ > %s/k.pid; sleep 60" % mark)
-    check(until(lambda: exists(os.path.join(mark, "k.pid")) and open(os.path.join(mark, "k.pid")).read().strip(), 30),
+    a = start_run("p16-kill-a", "echo $$ > %s/k.pid; %s" % (mark, held("k")))   # never released: killed
+    check(until(lambda: exists(os.path.join(mark, "k.pid")) and open(os.path.join(mark, "k.pid")).read().strip(), a),
           "P16f0 the holder's check is running", output("p16-kill-a")[-400:])
     b = start_run("p16-kill-b", "touch %s/k.b" % mark)
-    until(lambda: "waiting for a proof-run slot" in output("p16-kill-b"), 10)
+    until(lambda: "waiting for a proof-run slot" in output("p16-kill-b"), b)
     a.send_signal(signal.SIGKILL)
-    a.wait(timeout=10)
-    released = until(lambda: exists(os.path.join(mark, "k.b")), 20)
-    b_rc = b.wait(timeout=30)
+    a.wait()
+    released = until(lambda: exists(os.path.join(mark, "k.b")), b)
+    b_rc = b.wait()
     sleeper = int(open(os.path.join(mark, "k.pid")).read().strip())
-    try:
-        os.kill(sleeper, 0)
-        survived = True
+    survived = not gone(sleeper)
+    if survived:
         os.kill(sleeper, signal.SIGKILL)
-    except ProcessLookupError:
-        survived = False
     check(released and b_rc == 0 and not survived,
           "P16f a SIGKILLed holder releases the Mac: the waiting run starts and passes, the dead run's check is gone",
           (released, b_rc, survived, output("p16-kill-b")[-400:]))
 
     # P16g — the positive control: under the limit, a second run starts at once.
     slots("set", "2")
-    a = start_run("p16-two-a", "touch %s/t.a; sleep 3" % mark)
-    until(lambda: exists(os.path.join(mark, "t.a")), 30)
+    a = start_run("p16-two-a", "touch %s/t.a; %s" % (mark, held("t")))
+    until(lambda: exists(os.path.join(mark, "t.a")), a)
     t_b = time.time()
     b = start_run("p16-two-b", "touch %s/t.b" % mark)
-    started = until(lambda: exists(os.path.join(mark, "t.b")), 10)
+    started = until(lambda: exists(os.path.join(mark, "t.b")), b)   # the first still holds its slot
     to_start = time.time() - t_b
-    b_rc = b.wait(timeout=30)
-    a_rc = a.wait(timeout=30)
+    b_rc = b.wait()
+    release("t")
+    a_rc = a.wait()
     check(started and b_rc == 0 and a_rc == 0 and "waiting for a proof-run slot" not in output("p16-two-b"),
           "P16g under a limit of 2, the second run's check starts beside the first (%.1f s after launch)" % to_start,
           output("p16-two-b")[-400:])
@@ -459,20 +479,21 @@ try:
         shlex_quote(sys.executable), shlex_quote(runner_boot), shlex_quote(nested_cmds),
         shlex_quote(os.path.join(tmp, "p16-inner.log"))))
     outer = start_run("p16-outer", inner)
-    rc = outer.wait(timeout=60)
+    rc = outer.wait()
     check(rc == 0 and exists(os.path.join(mark, "inner")),
           "P16h a proof run inside a check of a proof run uses its caller's slot and does not deadlock",
           output("p16-outer")[-600:])
     # ... and nobody else can claim that: a run that is NOT a descendant of the holder, naming the
     # holder in the environment, still waits.
-    a = start_run("p16-hold", "touch %s/h.a; sleep 3" % mark)
-    until(lambda: exists(os.path.join(mark, "h.a")), 30)
+    a = start_run("p16-hold", "touch %s/h.a; %s" % (mark, held("h")))
+    until(lambda: exists(os.path.join(mark, "h.a")), a)
     holder = json.loads(slots("status", "--json").stdout)["holders"]
     fake = holder[0]["holder_file"] if holder else "none"
     b = start_run("p16-fake", "touch %s/h.b" % mark, {"RICHOS_PROOF_RUN_SLOT_HELD": fake})
-    waited = until(lambda: "waiting for a proof-run slot" in output("p16-fake"), 10)
-    a.wait(timeout=30)
-    b.wait(timeout=30)
+    waited = until(lambda: "waiting for a proof-run slot" in output("p16-fake"), b)
+    release("h")
+    a.wait()
+    b.wait()
     check(waited, "P16i naming the holder's slot in the environment does not let an unrelated run skip the line",
           output("p16-fake")[-400:])
 

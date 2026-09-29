@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.dont_write_bytecode = True
 SCRIPTS = Path(__file__).resolve().parent
@@ -68,8 +69,11 @@ class Declarations(unittest.TestCase):
         env = dict(os.environ)
         if directory is not None:
             env["PROOF_FOR_SCRIPT_DIR"] = str(directory)
+        # No clock of this file's own (audit R13, 2026-09-29): proof-for.sh over the whole
+        # tree is real work, and 15 s of it was a verdict on how busy the Mac was. A hang is
+        # caught by the enclosing runner's per-suite deadline, which names this suite.
         return subprocess.run(["/bin/bash", str(SCRIPTS / "proof-for.sh"), "--paths", path],
-                              cwd=ROOT, env=env, capture_output=True, text=True, timeout=15)
+                              cwd=ROOT, env=env, capture_output=True, text=True)
 
     def test_real_tree_reconciles_and_orphans_still_select_dependencies(self):
         rows = read_declarations(ROOT, SCRIPTS)
@@ -200,7 +204,7 @@ class Declarations(unittest.TestCase):
         self.assertLessEqual(pinned | {qualification}, set(rows["proof-run.test.sh"]))
         result = subprocess.run([sys.executable, str(SCRIPTS / "lib/proof_declarations.py"), "--pinned",
                                  str(ROOT), str(SCRIPTS / "proof-run.test.sh")],
-                                capture_output=True, text=True, timeout=15)
+                                capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertLessEqual(pinned, set(result.stdout.split()))
 
@@ -214,6 +218,19 @@ class Declarations(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("lint.test.sh", result.stderr)
         self.assertIn("covers", result.stderr)
+
+    def test_the_selector_runs_without_a_clock_of_this_files_own(self):
+        # Records the clock `select` puts on the real selector instead of running it
+        # (audit R13): a fixed timeout around real work decides the verdict on a busy Mac.
+        clocks = []
+
+        def recorder(argv, **kwargs):
+            clocks.append(kwargs.get("timeout"))
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        with mock.patch.object(subprocess, "run", recorder):
+            self.select("docs/a-file-that-is-only-prose.md")
+        self.assertEqual(clocks, [None])
 
 
 if __name__ == "__main__":

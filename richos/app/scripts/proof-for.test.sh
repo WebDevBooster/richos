@@ -349,8 +349,11 @@ command = selected[0]
 assert "proof-for.test.sh" not in command
 missing = dict(os.environ)
 missing.pop("RICHOS_RUNTIME_DIR", None)
+# No clock of this check's own around the generated commands (audit R13, 2026-09-29): a
+# fixed timeout on real work is a verdict on the Mac's speed. A hang is caught by the
+# enclosing runner's per-suite deadline, which names this suite.
 result = subprocess.run(["bash", "-c", command], cwd=sys.argv[1], env=missing,
-                        capture_output=True, text=True, timeout=15)
+                        capture_output=True, text=True)
 assert result.returncode == 2 and "Prerequisite: set RICHOS_RUNTIME_DIR" in result.stderr
 with tempfile.TemporaryDirectory(prefix="proof-generated-command-") as temporary:
     root = Path(temporary).resolve()
@@ -366,7 +369,7 @@ with tempfile.TemporaryDirectory(prefix="proof-generated-command-") as temporary
                    RICHOS_RUNTIME_DIR=str(root / "runtime fixture"),
                    EXPECTED_RUNTIME=str(root / "runtime fixture"), TARGET_EXIT=str(code))
         result = subprocess.run(["bash", "-c", command], cwd=root, env=env,
-                                capture_output=True, text=True, timeout=15)
+                                capture_output=True, text=True)
         assert result.returncode == code and result.stdout.strip() == "generated-target-ran", result
 
 PYTEST

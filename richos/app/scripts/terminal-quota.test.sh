@@ -7,8 +7,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 python3 - <<'PY'
 import json, os, pathlib, subprocess, tempfile
+# No clock of this suite's own around real work (audit R13, 2026-09-29): the build waits on
+# Cargo's lock behind whatever else builds, and each command below is a real process start,
+# so 240 s and 10 s were verdicts on how busy the Mac was. A hang is caught by the enclosing
+# runner's per-suite deadline, which names this suite.
 build=subprocess.run(['cargo','build','--quiet','-p','richos-core','--bin','richos-quota',
-    '--example','terminal_quota_proof','--message-format=json'],capture_output=True,text=True,timeout=240,check=True)
+    '--example','terminal_quota_proof','--message-format=json'],capture_output=True,text=True,check=True)
 exe={r['target']['name']:r['executable'] for line in build.stdout.splitlines()
      if (r:=json.loads(line)).get('reason')=='compiler-artifact' and r.get('executable')}
 with tempfile.TemporaryDirectory(prefix='terminal-quota-cli-') as d:
@@ -16,7 +20,7 @@ with tempfile.TemporaryDirectory(prefix='terminal-quota-cli-') as d:
     env={**os.environ,'HOME':d,'ANTHROPIC_API_KEY':'fixture-auth-override'}
     def call(*args):
         return subprocess.run([exe['richos-quota'],*args],env=env,stdin=subprocess.DEVNULL,
-            capture_output=True,text=True,timeout=10)
+            capture_output=True,text=True)
     for args in [('approve','offer'),('approve','offer','--yes'),('--unknown',)]:
         r=call(*args);assert r.returncode==2,(args,r)
     assert not list(root.iterdir()),'refused approvals wrote state'
@@ -26,23 +30,23 @@ with tempfile.TemporaryDirectory(prefix='terminal-quota-cli-') as d:
     # the Rust isolated-store tests cover revocation and the separate-process
     # account-path test proves that a nightly HOME resolves to the same store.
     assert b'--richos-quota-v1' in pathlib.Path(exe['richos-quota']).read_bytes()
-    r=subprocess.run([exe['terminal_quota_proof']],env=env,capture_output=True,text=True,timeout=10)
+    r=subprocess.run([exe['terminal_quota_proof']],env=env,capture_output=True,text=True)
     assert r.returncode!=0 and 'Requires --live-no-redemption' in r.stderr
     fakebin=root/'bin';fakebin.mkdir()
     cargo=fakebin/'cargo'
     cargo.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n');cargo.chmod(0o700)
     wrapper=pathlib.Path('../engine/scripts/quota-reset.sh').resolve()
-    r=subprocess.run([str(wrapper),'tick'],env={**env,'PATH':str(fakebin)+':/usr/bin:/bin'},capture_output=True,text=True,timeout=10)
+    r=subprocess.run([str(wrapper),'tick'],env={**env,'PATH':str(fakebin)+':/usr/bin:/bin'},capture_output=True,text=True)
     assert r.returncode==0 and r.stdout.splitlines()[-2:]==['--','tick'],r
     import shutil
     installed=root/'installed/engine/scripts';installed.mkdir(parents=True)
     shutil.copy(wrapper,installed/'quota-reset.sh')
     app=root/'Applications/RichOS.app/Contents/MacOS/richos-tauri';app.parent.mkdir(parents=True)
     app.write_text('#!/bin/sh\necho GUI-WAS-LAUNCHED\n');app.chmod(0o700)
-    r=subprocess.run([str(installed/'quota-reset.sh'),'tick'],env=env,capture_output=True,text=True,timeout=10)
+    r=subprocess.run([str(installed/'quota-reset.sh'),'tick'],env=env,capture_output=True,text=True)
     assert 'GUI-WAS-LAUNCHED' not in r.stdout,'old app was launched'
     app.write_text('#!/bin/sh\n# --richos-quota-v1\nprintf "%s\\n" "$@"\n')
-    r=subprocess.run([str(installed/'quota-reset.sh'),'tick'],env=env,capture_output=True,text=True,timeout=10)
+    r=subprocess.run([str(installed/'quota-reset.sh'),'tick'],env=env,capture_output=True,text=True)
     assert r.returncode==0 and r.stdout.splitlines()==['--richos-quota-v1','tick'],r
 print('  PASS  noninteractive approval refusal, no yes flag, no credential read on refusal, live-proof opt-in and headless wrapper')
 PY
