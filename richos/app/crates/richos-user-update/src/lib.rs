@@ -2383,6 +2383,139 @@ exec, so the next session refused to activate over a session that had ended"
         drop(next);
     }
 
+    // =====================================================================================
+    // THE SAME WINDOW, FROM A LAUNCH THAT HAS ALREADY RETURNED
+    // =====================================================================================
+    //
+    // Nightly .31 (2026-09-29, `gates/updater-tests` beside four other gates): two rollback
+    // tests, both WouldBlock "another RichOS session is running" on their SECOND
+    // `install_verified`, with the parked-child repair above in place. That repair holds
+    // every lock observation off until `spawn` returns. But a launch with a pre-exec step --
+    // `probe()`, and the parked child above -- is a real fork, and its `spawn` returns when
+    // its own close-on-exec status pipe reaches end-of-file. On macOS that end-of-file
+    // overtakes the release of the lock on the other close-on-exec descriptors exec is
+    // sweeping, so a lease the child inherited can still be held after `spawn` returned.
+    //
+    // Descriptors numbered between the lease and that status pipe hold the sweep open long
+    // enough to see it every time: sockets whose LAST reference is the child's, because
+    // this process drops its own copies while the child is parked before exec, so exec's
+    // sweep has to tear each one down. They are not files, so the repair does not close them
+    // early, and the window is exactly as wide on both sides of it. Measured with raw
+    // `flock` before the repair, 8000 of them: the released lease was still held for 1.8
+    // to 8.7 ms after `spawn` returned, in 10 rounds of 10 -- far longer than the next
+    // `StartupLease::acquire` takes to reach its `flock`. After the repair: 0 of 10.
+    //
+    // It runs alone, in a child test process, because descriptor NUMBERING is the whole
+    // mechanism: other tests opening and closing files beside it would move the numbers.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_launch_that_has_returned_holds_no_released_lease() {
+        const MARKER: &str = "RICHOS_TEST_LAUNCH_RETURNED";
+        const NAME: &str = "tests::a_launch_that_has_returned_holds_no_released_lease";
+        if std::env::var_os(MARKER).is_none() {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", NAME, "--nocapture"])
+                .env(MARKER, "1")
+                .spawn_fixture()
+                .unwrap()
+                .wait()
+                .unwrap();
+            assert!(
+                status.success(),
+                "the isolated run failed; its panic is above"
+            );
+            return;
+        }
+        use std::os::unix::{net::UnixStream, process::CommandExt};
+        const BETWEEN: usize = 16_000;
+        let mut limit = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        assert_eq!(
+            unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) },
+            0
+        );
+        let wanted = BETWEEN as libc::rlim_t + 512;
+        if limit.rlim_cur < wanted {
+            limit.rlim_cur = wanted.min(limit.rlim_max);
+            assert_eq!(unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &limit) }, 0);
+        }
+        assert!(
+            limit.rlim_cur >= wanted,
+            "cannot open {BETWEEN} descriptors here"
+        );
+
+        let t = home();
+        let h = canonical(&t);
+        for round in 1..=3 {
+            let lease = StartupLease::acquire(&h).unwrap();
+            assert!(
+                lease.can_activate(),
+                "round {round}: a session is already held"
+            );
+            let between: Vec<(UnixStream, UnixStream)> = (0..BETWEEN / 2)
+                .map(|_| UnixStream::pair().unwrap())
+                .collect();
+            // Owned, close-on-exec endpoints, with a bound if the child never reports in.
+            let (mut reader, writer) = UnixStream::pair().unwrap();
+            reader
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let writer_fd = writer.as_raw_fd();
+            let mut command = std::process::Command::new("/usr/bin/true");
+            command
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
+            // A pre-exec step is what makes this the fork `probe()` is, not a posix_spawn.
+            // This one reports in and waits for this process to let go of the sockets.
+            unsafe {
+                command.pre_exec(move || {
+                    if libc::write(writer_fd, b".".as_ptr().cast(), 1) != 1 {
+                        return Err(io::Error::last_os_error());
+                    }
+                    let delay = libc::timespec {
+                        tv_sec: 0,
+                        tv_nsec: 100_000_000,
+                    };
+                    if libc::nanosleep(&delay, std::ptr::null_mut()) != 0 {
+                        return Err(io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+            let launcher = std::thread::spawn(move || {
+                let child = command.spawn_fixture();
+                drop(writer);
+                child
+            });
+            let mut byte = [0u8; 1];
+            reader
+                .read_exact(&mut byte)
+                .expect("the child never reached its pre-exec step, so nothing was proven");
+            drop(between);
+            let mut child = launcher.join().unwrap().unwrap();
+
+            // `spawn` has returned. The session ends, and the next one starts at once.
+            drop(lease);
+            let next = StartupLease::acquire(&h);
+            // Reap the child even when the captured acquisition proves the regression.
+            assert!(child.wait().unwrap().success());
+            let next = next.unwrap_or_else(|error| {
+                panic!(
+                    "round {round}: a launch had already returned, yet its child still held \
+the released lease, so the next session could not take it at all: {error}"
+                )
+            });
+            assert!(
+                next.can_activate(),
+                "round {round}: a launch had already returned, yet its child still held the \
+released lease, so the next session refused to activate over a session that had ended"
+            );
+        }
+    }
+
     // A REAL SECOND SESSION IS STILL REFUSED. The repair above is about a child that is
     // not a session at all; it must not have bought quiet by weakening the exclusion this
     // whole lease exists for.
