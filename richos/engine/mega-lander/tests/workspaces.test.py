@@ -12,6 +12,7 @@ import importlib.util
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -1145,6 +1146,61 @@ class Point09_NeverWritesAgain(Base):
         self.assertFalse(os.path.exists(npath))
         ev = open(os.path.join(ws.state_dir(), "events.jsonl")).read()
         self.assertIn('"event": "processes-stopped"', ev)
+
+    def term_ignoring_holder(self):
+        """A real process in a workspace that ignores SIGTERM, so only the
+        SIGKILL escalation can stop it. It says ready only after its handler
+        is installed, so the TERM is never sent before it can be ignored."""
+        d = os.path.realpath(tempfile.mkdtemp(prefix="ws-kill-", dir=self.env.root))
+        ready = os.path.join(d, "ready")
+        pr = subprocess.Popen([sys.executable, "-c",
+                               "import signal, sys, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                               "open(sys.argv[1], 'w').close(); time.sleep(3600)", ready], cwd=d)
+        self.env.procs.append(pr)
+        guard = time.monotonic() + 30
+        while not os.path.exists(ready):
+            self.assertLess(time.monotonic(), guard, "the holder never installed its handler")
+            time.sleep(0.02)
+        return d, pr
+
+    def test_point_09_a_killed_process_the_kernel_is_slow_to_remove_is_not_a_survivor(self):
+        # THE RACE (2026-09-29, the load-sensitive checks audit, item 3). The
+        # land used to SIGKILL, sleep 0.2 s and record whatever the kernel had
+        # not yet torn down as a SURVIVOR, which fails the land. A busy Mac
+        # takes longer than that to remove a killed process. The teardown's
+        # lag is simulated here, deterministically: `_alive` keeps reporting
+        # the killed holder for 0.6 s after its SIGKILL was sent, as a loaded
+        # kernel does, and then reports what the operating system says.
+        d, pr = self.term_ignoring_holder()
+        real_alive, real_kill = ws._alive, os.kill
+        killed_at = {}
+
+        def kill(pid, sig):
+            if sig == signal.SIGKILL:
+                killed_at.setdefault(pid, time.monotonic())
+            return real_kill(pid, sig)
+
+        def alive(pid):
+            if pid in killed_at and time.monotonic() - killed_at[pid] < 0.6:
+                return True
+            return real_alive(pid)
+
+        with patch.object(ws.os, "kill", kill), patch.object(ws, "_alive", alive):
+            res = ws.stop_processes([d])
+        self.assertEqual(res["stopped"], [pr.pid])
+        self.assertIn(pr.pid, killed_at, "the holder ignores TERM, so it was never sent a KILL")
+        self.assertEqual(res["survivors"], [], "a killed process that took 0.6 s to be removed was recorded as surviving")
+        self.assertEqual(pr.wait(timeout=30), -signal.SIGKILL)
+
+    def test_point_09_a_process_the_kernel_never_removes_is_still_a_survivor(self):
+        # THE OTHER HALF: waiting for the kernel is bounded, and a process that
+        # outlives the bound is reported, not waited on for ever. `_alive`
+        # says the holder is alive whatever happens to it.
+        d, pr = self.term_ignoring_holder()
+        with patch.object(ws, "_alive", lambda pid: True), patch.object(ws, "PROCESS_KILL_WAIT", 0.5):
+            res = ws.stop_processes([d])
+        self.assertEqual(res["survivors"], [pr.pid])
+        self.assertEqual(pr.wait(timeout=30), -signal.SIGKILL)
 
 
 class LandingShutdown(Base):

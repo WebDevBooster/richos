@@ -84,6 +84,10 @@ RETRY_BASE_SECONDS = float(os.environ.get("RICHOS_WORKSPACES_RETRY_BASE", "60"))
 RETRY_CAP_SECONDS = 3600.0
 RETRY_TELL_CEO_AFTER = int(os.environ.get("RICHOS_WORKSPACES_RETRY_TELL_CEO", "5"))
 PROCESS_STOP_GRACE = float(os.environ.get("RICHOS_WORKSPACES_STOP_GRACE", "3"))
+# How long a SIGKILLed process may take to be gone before stop_processes calls
+# it a survivor. Not a grace (nothing is waited for that a process decides):
+# only an unkillable process, stuck in the kernel, ever reaches it.
+PROCESS_KILL_WAIT = 10.0
 # How long a spawn takes to register what it created (see _younger_than_its_spawn).
 SPAWN_WINDOW = float(os.environ.get("RICHOS_WORKSPACES_SPAWN_WINDOW", "120"))
 
@@ -4531,8 +4535,19 @@ def stop_processes(paths):
             os.kill(p, signal.SIGKILL)
         except OSError:
             pass
-    time.sleep(0.2)
+    # A SIGKILL cannot be refused, but the kernel still has to tear the process
+    # down, and on a loaded Mac that takes no fixed time. This used to sleep
+    # 0.2 s and record whatever was still there as a SURVIVOR, which fails the
+    # land (`processes still running in its workspaces`) for a process that
+    # was already dying (2026-09-29, the load-sensitive checks audit). So poll
+    # until each is gone. The bound is only for a process the kernel cannot
+    # finish (an uninterruptible wait): that one IS a survivor, and it is
+    # reported as one instead of hanging the land.
     survivors = [p for p in alive if _alive(p)]
+    kill_deadline = time.monotonic() + PROCESS_KILL_WAIT
+    while survivors and time.monotonic() < kill_deadline:
+        time.sleep(0.05)
+        survivors = [p for p in survivors if _alive(p)]
     event("processes-stopped", pids=pids, survivors=survivors or None)
     return {"stopped": pids, "survivors": survivors}
 
