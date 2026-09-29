@@ -784,6 +784,71 @@ while True: time.sleep(.02)
         self.assertIn("RICHOS_ACTIVATION=regular", buf.getvalue())
         self.assertIn("the update channel has not moved", buf.getvalue())
 
+    # ---- 2026-09-29: the build boots its own candidate in the test VM ----------------------
+    def screenless_candidate(self, out):
+        info = {**self.CANDIDATE_INFO, "no_host_screen": True, "script_suites": {"suites": [
+            {"name": "gui-boot.test.sh", "state": "not-run", "reason": "no screen"}]}}
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "candidate.json").write_text(json.dumps({"info": info, "files": {}}))
+
+    def build_that_takes_its_vm_proof(self, proof_result):
+        r = self.runner()
+        r.env = {"RICHOS_NIGHTLY_RUN_ID": "fixture-run-id"}
+        r.gui_host, r.vm_settings = "richos-test-1", {"TESTVM_ROOT": "/Volumes/E1TB/testvm"}
+        calls = []
+
+        def fake_command(*args, **kwargs):
+            calls.append((args, kwargs))
+            if args[2] == "build":
+                self.screenless_candidate(Path(args[args.index("--out") + 1]))
+            elif str(args[1]).endswith("gui-proof-in-vm.sh"):
+                proof = Path(args[args.index("--out") + 1])
+                proof.parent.mkdir(parents=True, exist_ok=True)
+                proof.write_text(f"richos-gui-proof 1\nsuite=shipped-bundle-boot\n"
+                                 f"commit={self.CANDIDATE_INFO['source_commit']}\nwhere=vm:richos-test-1\n"
+                                 f"result={proof_result}\nat=2026-09-29T12:00:00Z\n--- output ---\n")
+                if proof_result != "pass":
+                    raise RuntimeError("bash failed (exit 1); see the run log")
+        r.command = Mock(side_effect=fake_command)
+        return r, calls
+
+    def test_a_screenless_build_boots_its_candidate_in_the_vm_and_publish_uses_that_proof(self):
+        r, calls = self.build_that_takes_its_vm_proof("pass")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            r.perform("build", no_host_screen=True)
+        proof_calls = [(a, k) for a, k in calls if str(a[1]).endswith("gui-proof-in-vm.sh")]
+        self.assertEqual(len(proof_calls), 1, calls)
+        args, kwargs = proof_calls[0]
+        self.assertEqual(args[args.index("--run") + 1], "fixture-run-id")
+        self.assertEqual(args[args.index("--vm") + 1], "richos-test-1")
+        self.assertEqual(kwargs["env_extra"]["RICHOS_NIGHTLY_STATE"], str(self.root / "state"))
+        self.assertEqual(kwargs["env_extra"]["TESTVM_ROOT"], "/Volumes/E1TB/testvm")
+        self.assertIn("Screen suites: never on this Mac's display", buf.getvalue())
+        self.assertIn("VM boot proof PASSED", buf.getvalue())
+        # And publish takes it with nobody passing --gui-proof.
+        (self.root / "state" / "source").mkdir(parents=True, exist_ok=True)
+        publisher = self.runner()
+        publisher.command = Mock()
+        with contextlib.redirect_stdout(io.StringIO()):
+            publisher.perform("publish", run_id="fixture-run-id")
+        self.assertEqual(publisher.command.call_args.args[2], "finish")
+
+    def test_a_vm_proof_that_fails_fails_the_build_and_still_shows_the_candidate(self):
+        r, _ = self.build_that_takes_its_vm_proof("fail:no-window")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), \
+                self.assertRaisesRegex(RuntimeError, "THE CANDIDATE IS BUILT, AND ITS BOOT WAS NOT PROVEN"):
+            r.perform("build", no_host_screen=True)
+        self.assertIn("Candidate build", buf.getvalue())
+        # The failed proof is kept and publish refuses it: a failed boot is not evidence.
+        (self.root / "state" / "source").mkdir(parents=True, exist_ok=True)
+        publisher = self.runner()
+        publisher.command = Mock()
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(ValueError, "not a pass"):
+            publisher.perform("publish", run_id="fixture-run-id")
+        publisher.command.assert_not_called()
+
     def test_publish_calls_finish_without_signing_credentials(self):
         r = self.runner()
         (self.root / "state" / "source").mkdir(parents=True)
@@ -1639,16 +1704,22 @@ class GatesAtOnceTests(unittest.TestCase):
             r.gates()
         self.assertEqual(seen, ["gates/release-smoke", "gates/core-tests", "gates/updater-tests"])
 
-    def main_refusal(self, *argv):
+    # What a shell always has and that is no setting of this build's.
+    BASE_ENVIRON = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": "/Users/fixture", "LANG": "en_US.UTF-8"}
+
+    def main_refusal(self, *argv, environ=None):
         """Run main() in this process (so a mutation of it is what runs); (exit code, stderr).
 
         Anything past the argument checks is replaced by a tripwire, so a main() that failed
-        to refuse can never go on to fetch, sign or run a gate from inside a test.
+        to refuse can never go on to fetch, sign or run a gate from inside a test. `environ`,
+        when given, is the WHOLE environment main() sees.
         """
         err = io.StringIO()
         tripwire = AssertionError("main() went past its argument checks")
-        with patch.object(sys, "argv", ["nightly-local.py", *argv,
-                                        "--state-dir", str(self.root / "state")]), \
+        scoped = (patch.dict(os.environ, {**self.BASE_ENVIRON, **environ}, clear=True)
+                  if environ is not None else contextlib.nullcontext())
+        with scoped, patch.object(sys, "argv", ["nightly-local.py", *argv,
+                                                "--state-dir", str(self.root / "state")]), \
                 patch.object(m, "local_environment", side_effect=tripwire), \
                 patch.object(m, "exclusive", side_effect=tripwire), \
                 patch.object(m, "Runner", side_effect=tripwire), \
@@ -1701,6 +1772,66 @@ class GatesAtOnceTests(unittest.TestCase):
                                  "fixture-user on the command line)")
         # main() names the account and the command line, not a placeholder.
         self.assertIn(" on the command line", m.chosen_by())
+
+    # ---- 2026-09-29: a build on a quiet Mac, the first time ---------------------------------
+    # Attempt 1 (20260929T100554Z-3155ee52) ran gui-boot on this Mac's asleep display; attempt
+    # 2 (20260929T101720Z-bee22332) was given RICHOS_GUI_HOST=richos-test-1, which the gates'
+    # allowlisted environment dropped without a word.
+
+    def main_with(self, *argv, environ=None):
+        """Run main() under exactly BASE_ENVIRON + `environ`, up to the Runner and no further:
+        (the Runner's keyword arguments, perform()'s positional arguments)."""
+        runner = Mock()
+        state = self.root / "state"
+        state.mkdir(exist_ok=True)
+        with patch.dict(os.environ, {**self.BASE_ENVIRON, **(environ or {})}, clear=True), \
+                patch.object(sys, "argv", ["nightly-local.py", *argv, "--state-dir", str(state)]), \
+                patch.object(m.platform, "system", return_value="Darwin"), \
+                patch.object(m.platform, "machine", return_value="arm64"), \
+                patch.object(m, "local_environment", return_value=({"RICHOS_NIGHTLY_RUN_ID": "run-x"}, {})), \
+                patch.object(m, "exclusive", return_value=contextlib.nullcontext()), \
+                patch.object(m, "TimestampedLog", return_value=contextlib.nullcontext(io.StringIO())), \
+                patch.object(m, "Runner", runner), contextlib.redirect_stdout(io.StringIO()):
+            m.main()
+        runner.return_value.perform.assert_called_once()
+        return runner.call_args.kwargs, runner.return_value.perform.call_args.args
+
+    NUMBERS = ("--gates-at-once", "2", "--simulated-phones", "1")
+    NO_HOST_SCREEN_ARG = 5  # perform(command, force, runtime, run, checks_done_at_land, no_host_screen, ...)
+
+    def test_a_build_never_uses_this_macs_screen_unless_told_to(self):
+        _, args = self.main_with("build", *self.NUMBERS)
+        self.assertIs(args[self.NO_HOST_SCREEN_ARG], True)
+        _, args = self.main_with("build", *self.NUMBERS, "--host-screen")
+        self.assertIs(args[self.NO_HOST_SCREEN_ARG], False)
+        # A build reusing a recorded run's gates runs no screen suite, so none is held back.
+        _, args = self.main_with("build", "--gates-passed-in", "20260929T101720Z-bee22332")
+        self.assertIs(args[self.NO_HOST_SCREEN_ARG], False)
+        code, err = self.main_refusal("release", *self.NUMBERS, "--host-screen")
+        self.assertEqual(code, 2)
+        self.assertIn("--host-screen is for `build` alone", err)
+
+    def test_the_guest_and_vm_settings_the_shell_gives_reach_the_vm_boot_proof(self):
+        kwargs, _ = self.main_with("build", *self.NUMBERS, environ={
+            "RICHOS_GUI_HOST": "richos-test-1", "TESTVM_ROOT": "/Volumes/E1TB/testvm",
+            # Not settings of this build's, and never refused: the agent harness's identity,
+            # and a credential read from the shell on purpose for the signing steps.
+            "RICHOS_AGENT_OWNER": "zach", "RICHOS_NOTARY_PROFILE": "fixture-profile"})
+        self.assertEqual(kwargs["gui_host"], "richos-test-1")
+        self.assertEqual(kwargs["vm_settings"], {"TESTVM_ROOT": "/Volumes/E1TB/testvm"})
+
+    def test_a_setting_no_step_would_receive_refuses_before_anything_starts(self):
+        for command, extra, name in (("build", self.NUMBERS, "RICHOS_MUTANT_JOBS"),
+                                     ("build", self.NUMBERS, "RUN_TESTS_NO_HOST_SCREEN"),
+                                     # release runs every gate on this Mac; a guest name
+                                     # would be ignored, so it is refused, not dropped.
+                                     ("release", self.NUMBERS, "RICHOS_GUI_HOST")):
+            with self.subTest(command=command, name=name):
+                code, err = self.main_refusal(command, *extra, environ={name: "1"})
+                self.assertEqual(code, 2)
+                self.assertIn(f"your shell sets {name}, and no step of `{command}` would receive it", err)
+                self.assertIn("Nothing has started", err)
+                self.assertFalse((self.root / "state").exists())
 
 
 class WalkRecipeTests(unittest.TestCase):
