@@ -1230,6 +1230,22 @@ else:
         self.assets()
 
     def test_candidate_engine_pin_and_receipt_keep_the_digest_url(self):
+        self.candidate_engine_pin()
+
+    def test_a_stable_build_pins_the_digest_named_engine_too(self):
+        """A per-version engine URL needs the public stable release before the compile.
+
+        That is what made a failed stable build spend its version (hunt part 2, section
+        05), so a stable build takes the same digest-named engine a nightly candidate does.
+        """
+        root = self.scripts.parents[2]
+        (root / n.MANIFEST).write_text('[package]\nversion = "5.1.0"\n')
+        self.config.write_text(n.json_text(
+            {'plugins': {'updater': {'endpoints': [n.STABLE_ENDPOINT]}}}))
+        url = self.candidate_engine_pin()
+        self.assertNotIn('/v5.1.0/', url)
+
+    def candidate_engine_pin(self):
         checker = self.scripts.parents[1] / "engine/scripts/named-persons.sh"
         checker.parent.mkdir(parents=True)
         checker.write_text("#!/bin/sh\nexit 0\n")
@@ -1267,6 +1283,7 @@ EOF
         refused = self.call('app')
         self.assertNotEqual(refused.returncode, 0)
         self.assertIn('URL changed after verification', refused.stderr)
+        return url
 
     def assets(self, manifest_version=None):
         values = {'latest.json': n.json_text({'version': manifest_version or self.version}),

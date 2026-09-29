@@ -22,9 +22,12 @@
 #
 # A pin is not a promise. It is a claim about bytes that are already there, and the only
 # way to know is to fetch them.
-# Nightly candidates use --candidate-engine for a digest-named engine on the
-# existing channel release. The runner uploads it before verify-engine; no public
-# candidate version tag is needed. Stable releases keep the per-version URL below.
+# Nightly candidates and stable builds use --candidate-engine for a digest-named engine
+# on the existing channel release. The runner uploads it before verify-engine; no public
+# version tag is needed before the publish step. A stable build needs this as much as a
+# nightly: a per-version engine URL needs the public `v<version>` release to exist before
+# the app is compiled, so a stable build that then failed had already spent its version.
+# Only a release run by hand without the flag keeps the per-version URL below.
 #
 # WHAT UPLOADS, AND IN WHICH ORDER
 #
@@ -183,8 +186,7 @@ case "$VERSION" in
 esac
 
 if [ "$CANDIDATE_ENGINE" = 1 ]; then
-  [ "$IS_NIGHTLY" = 1 ] && [ "$cmd" = engine ] \
-    || die "--candidate-engine is only for a nightly engine build"
+  [ "$cmd" = engine ] || die "--candidate-engine is only for an engine build"
 fi
 
 PIN_FILE="$OUT/engine-pin.env"
