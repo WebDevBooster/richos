@@ -97,6 +97,12 @@
 # macOS only, for the reason run-tests.sh gives: launchd's environment is the thing under
 # test and it does not exist elsewhere.
 #
+# IN A TEST-VM GUEST the same cases run unchanged. `run-tests.sh` under RICHOS_GUI_HOST hands
+# this file to `testvm/run-suite.sh`, which builds richos-tauri and the gui_boot_machine
+# example on the host (the guest has no cargo and no checkout) and runs this suite in the
+# guest with RICHOS_GUI_PREBUILT naming them: PREBUILT MODE in lib/gui-launch.sh. The only
+# difference is where the two executables were built; every case below still runs.
+#
 # =========================================================================================
 # C1-C5, AND WHY THE SUITE NOW CHECKS ITS OWN HARNESS BEFORE IT CHECKS THE PRODUCT
 # =========================================================================================
@@ -1005,8 +1011,14 @@ fi
 
 GUI_APP_DIR="$APP_DIR"
 GUI_ENGINE_DIR="${RICHOS_GUI_ENGINE_SOURCE:-$REPO_DIR/engine}"
-. "$DIR/lib/cargo-target.sh"
-GUI_BINARY="$(cargo_target_dir "$APP_DIR/src-tauri")/debug/richos-tauri"
+# PREBUILT MODE (lib/gui-launch.sh): in a test-VM guest there is no cargo, and the binary
+# this Mac built for this checkout is the one booted. Unset, the suite builds it, as always.
+if [ -n "${RICHOS_GUI_PREBUILT:-}" ]; then
+  GUI_BINARY="$RICHOS_GUI_PREBUILT/richos-tauri"
+else
+  . "$DIR/lib/cargo-target.sh"
+  GUI_BINARY="$(cargo_target_dir "$APP_DIR/src-tauri")/debug/richos-tauri"
+fi
 export GUI_APP_DIR GUI_ENGINE_DIR GUI_BINARY
 # shellcheck source=lib/gui-launch.sh
 . "$DIR/lib/gui-launch.sh"
@@ -1128,7 +1140,17 @@ fi
 # B0-B8 — the real thing
 # =========================================================================================
 
-if ! command -v cargo >/dev/null 2>&1; then
+if gui_prebuilt_mode; then
+  # The artifacts were built on the host from this checkout (gui_prebuild), so nothing is
+  # built here. A missing one is the route's failure, never a gap about this machine.
+  if ! PREBUILT_WHY="$(gui_prebuilt_check 2>&1)"; then
+    bad "B0 the prebuilt artifacts named by RICHOS_GUI_PREBUILT are present" "$PREBUILT_WHY"
+    echo ""
+    echo "=== gui-boot.test.sh: $FAIL FAILED, $PASS passed ==="
+    exit 1
+  fi
+  echo "  ... prebuilt mode: booting $GUI_BINARY, built on the host (nothing is built here)"
+elif ! command -v cargo >/dev/null 2>&1; then
   if [ -x "$HOME/.cargo/bin/cargo" ]; then
     PATH="$HOME/.cargo/bin:$PATH"; export PATH
   else
@@ -1149,10 +1171,11 @@ if [ ! -f "$GUI_ENGINE_DIR/runtime/delivery.json" ] && [ -z "${RICHOS_RUNTIME_DI
   host_gap_exit
 fi
 
-echo "  ... building richos-tauri (the artifact under test is built here, never assumed)"
+gui_prebuilt_mode || echo "  ... building richos-tauri (the artifact under test is built here, never assumed)"
 # The artifact is built INSIDE this checkout, so it names its commit the way a packaged bundle
 # does (package-app.sh stamps RICHOS_SOURCE_SHA; engine::source_commit reads it at compile time).
-if ! ( cd "$APP_DIR/src-tauri" && RICHOS_SOURCE_SHA="$(git -C "$APP_DIR" rev-parse HEAD)" cargo build --quiet --bin richos-tauri ); then
+if ! gui_prebuilt_mode \
+   && ! ( cd "$APP_DIR/src-tauri" && RICHOS_SOURCE_SHA="$(git -C "$APP_DIR" rev-parse HEAD)" cargo build --quiet --bin richos-tauri ); then
   # EXIT 1, NOT 2, AND THE DIFFERENCE IS THE WHOLE POINT OF THE TWO CODES. Exit 2 from this
   # suite means "this host cannot answer" and `run-tests.sh` will tolerate it when a caller
   # has declared the gap. A binary that does not compile is not a fact about the host; it is

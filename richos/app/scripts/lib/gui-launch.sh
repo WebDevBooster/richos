@@ -3,7 +3,8 @@
 # gui-launch.sh — build a complete machine, and boot the shipped binary on it the way
 # LaunchServices boots it.
 #
-# Sourced by `gui-boot.test.sh`. It is a library and not a suite: everything here is
+# Sourced by `gui-boot.test.sh`, and by `testvm/run-suite.sh` for `gui_prebuild` when that
+# suite runs in a test-VM guest (PREBUILT MODE, below). It is a library and not a suite: everything here is
 # MACHINERY, and every VERDICT lives in the suite, where a reader looking for what is
 # asserted finds it in one file.
 #
@@ -51,6 +52,119 @@
 # happens looks exactly like a boot that failed for the reason each of them broke.
 
 set -uo pipefail
+
+# ---------------------------------------------------------------------------------------
+# PREBUILT MODE — RICHOS_GUI_PREBUILT=<directory>
+# ---------------------------------------------------------------------------------------
+#
+# A test-VM guest is a clean macOS with no cargo and no checkout, on purpose (testvm/run.sh,
+# gui-proof-in-vm.sh), so a suite that `run-tests.sh` routes there under RICHOS_GUI_HOST
+# cannot build what it launches. This Mac builds both executables first (`gui_prebuild`,
+# called by testvm/run-suite.sh) and the guest run names the directory that holds them:
+#
+#   <dir>/richos-tauri       the binary the suite boots, built as the suite builds it
+#   <dir>/gui_boot_machine   the example `gui_machine` runs to provision the machine
+#
+# UNSET, NOTHING IN THIS FILE CHANGES: the suite builds from the checkout and `gui_machine`
+# runs the example through `cargo run`, exactly as before this mode existed.
+GUI_PREBUILT_NAMES="richos-tauri gui_boot_machine"
+
+gui_prebuilt_mode() { [ -n "${RICHOS_GUI_PREBUILT:-}" ]; }
+
+# gui_prebuilt_check — exit 0 when every prebuilt executable is there and runnable; otherwise
+# names each one that is not, on stderr.
+gui_prebuilt_check() {
+  local name missing=0
+  for name in $GUI_PREBUILT_NAMES; do
+    if [ ! -f "$RICHOS_GUI_PREBUILT/$name" ] || [ ! -x "$RICHOS_GUI_PREBUILT/$name" ]; then
+      echo "gui_prebuilt_check: no executable $RICHOS_GUI_PREBUILT/$name" >&2
+      missing=$((missing + 1))
+    fi
+  done
+  [ "$missing" -eq 0 ]
+}
+
+# gui_artifact <cargo-json-file> <target-name> <target-kind> — the executable cargo reported
+# for that target, read from `--message-format=json`, never from a guessed target path: the
+# target directory here is a symlink into a cache shared by every checkout on this Mac.
+gui_artifact() {
+  python3 - "$1" "$2" "$3" <<'PY'
+import json, sys
+path, name, kind = sys.argv[1:]
+hit = None
+with open(path, encoding="utf-8") as handle:
+    for line in handle:
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            continue
+        target = msg.get("target") or {}
+        if (msg.get("reason") == "compiler-artifact" and target.get("name") == name
+                and kind in target.get("kind", []) and msg.get("executable")):
+            hit = msg["executable"]
+if not hit:
+    sys.exit(1)
+print(hit)
+PY
+}
+
+# ---------------------------------------------------------------------------------------
+# gui_prebuild <out-dir>
+#
+# THIS MAC's HALF OF PREBUILT MODE. Builds the two executables the way the suite and
+# `gui_machine` build them today (the same crates, the same profile, and RICHOS_SOURCE_SHA
+# set to this checkout's HEAD so the boot names its commit) and copies them into <out-dir>
+# the moment each build ends.
+#
+# THE COPY IS CHECKED, NOT TRUSTED. `src-tauri/target` is a symlink into a cache every
+# richos checkout on this Mac builds into, so another checkout's build can replace the
+# binary between this build finishing and the copy. The copied `richos-tauri` must carry
+# this checkout's commit (engine::source_commit compiles it in); one that does not is
+# refused here rather than booted in a guest as somebody else's code.
+#
+# Exit 0: both are in <out-dir>. Exit 1: a build failed, which is a verdict about the CODE.
+# Exit 2: nothing this Mac could vouch for came out of it (no checkout, no artifact, a copy
+# that is not this commit's).
+# ---------------------------------------------------------------------------------------
+gui_prebuild() {
+  local out="$1" app_dir="$GUI_APP_DIR" sha json exe
+  if ! sha="$(git -C "$app_dir" rev-parse HEAD 2>/dev/null)" || [ -z "$sha" ]; then
+    echo "gui_prebuild: $app_dir is not inside a git checkout, so the binary could not name its commit." >&2
+    return 2
+  fi
+  mkdir -p "$out" || return 2
+  json="$(mktemp -t gui-prebuild.XXXXXX)" || return 2
+
+  if ! ( cd "$app_dir/src-tauri" && RICHOS_SOURCE_SHA="$sha" \
+         cargo build --quiet --bin richos-tauri --message-format=json-render-diagnostics ) > "$json"; then
+    echo "gui_prebuild: richos-tauri did not build. That is a verdict about the CODE." >&2
+    rm -f "$json"; return 1
+  fi
+  if ! exe="$(gui_artifact "$json" richos-tauri bin)" || ! cp "$exe" "$out/richos-tauri"; then
+    echo "gui_prebuild: cargo reported no richos-tauri executable to copy." >&2
+    rm -f "$json"; return 2
+  fi
+  if ! LC_ALL=C grep -aFq "$sha" "$out/richos-tauri"; then
+    echo "gui_prebuild: the richos-tauri copied from $exe does not carry this checkout's commit" >&2
+    echo "              $sha. Another checkout's build replaced it in the shared target directory" >&2
+    echo "              between the build and the copy. Refusing to boot somebody else's binary." >&2
+    rm -f "$json"; return 2
+  fi
+
+  if ! ( cd "$app_dir" && cargo build --quiet -p richos-core --example gui_boot_machine \
+           --message-format=json-render-diagnostics ) > "$json"; then
+    echo "gui_prebuild: the gui_boot_machine example did not build. That is a verdict about the CODE." >&2
+    rm -f "$json"; return 1
+  fi
+  if ! exe="$(gui_artifact "$json" gui_boot_machine example)" || ! cp "$exe" "$out/gui_boot_machine"; then
+    echo "gui_prebuild: cargo reported no gui_boot_machine executable to copy." >&2
+    rm -f "$json"; return 2
+  fi
+  rm -f "$json"
+  chmod 755 "$out/richos-tauri" "$out/gui_boot_machine" || return 2
+  echo "prebuilt        : richos-tauri and gui_boot_machine at $sha, in $out"
+  return 0
+}
 
 # ---------------------------------------------------------------------------------------
 # gui_compiler_source
@@ -104,7 +218,12 @@ gui_machine() {
   fi
   ln -sfn ../FixtureDelivery/engine "$home/.claude/richos-engine" || return 1
   src="$home/FixtureDelivery/engine/loro"
-  ( cd "$app_dir" && cargo run -q -p richos-core --example gui_boot_machine -- "$home" "$src" ) || return 1
+  # The same program either way; prebuilt mode runs the copy this Mac built (see the top).
+  if gui_prebuilt_mode; then
+    "$RICHOS_GUI_PREBUILT/gui_boot_machine" "$home" "$src" || return 1
+  else
+    ( cd "$app_dir" && cargo run -q -p richos-core --example gui_boot_machine -- "$home" "$src" ) || return 1
+  fi
 
   # -- the central folder, and the ONE thing here that is deliberately not provisioned ----
   #
