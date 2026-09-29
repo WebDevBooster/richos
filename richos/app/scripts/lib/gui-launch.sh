@@ -133,6 +133,16 @@ gui_prebuild() {
     return 2
   fi
   mkdir -p "$out" || return 2
+  # Found the way gui-boot.test.sh finds it: PATH, then rustup's own directory. None at all is
+  # a fact about this Mac, never a verdict about the code.
+  if ! command -v cargo >/dev/null 2>&1; then
+    if [ -x "$HOME/.cargo/bin/cargo" ]; then
+      PATH="$HOME/.cargo/bin:$PATH"; export PATH
+    else
+      echo "gui_prebuild: no cargo on PATH or at $HOME/.cargo/bin; nothing can be built for the guest." >&2
+      return 2
+    fi
+  fi
   json="$(mktemp -t gui-prebuild.XXXXXX)" || return 2
 
   if ! ( cd "$app_dir/src-tauri" && RICHOS_SOURCE_SHA="$sha" \
