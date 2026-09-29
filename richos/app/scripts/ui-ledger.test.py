@@ -227,27 +227,52 @@ const run = createRun('the fixture suite');
         verdict = result.stdout[result.stdout.index('reconciled across every shard'):]
         self.assertIn('the check that breaks: rejected at 2731 ms of 1500', verdict)
 
-    def test_shards_hold_machine_worker_tokens_and_never_exceed_the_budget(self):
-        # The UI gate held ONE machine worker token (nightly-local.py owned_run) and ran four
-        # WebKit shards under it, so the budget that keeps every other gate's parallel work at
-        # 80% of the cores admitted a full mutation pool on top of four shards it never counted.
-        # Under a budget, each shard is a nested worker: the first runs on the caller's own
-        # token (its free slot), and every other one waits for a token of the budget.
+    def shards_on_a_budget_of_two(self, start_delay_ms=None):
+        """Run three one-check shards under a two-token budget; return how many ran at once.
+
+        HOW MANY RAN AT ONCE IS COUNTED, NOT INFERRED FROM TIMESTAMPS. The first version slept
+        1500 ms per shard and took the overlap of their wall-clock spans, which is a bet that the
+        second shard reaches its first line within 1.5 s of the first one. On a busy Mac a node
+        process can take longer than that to start, and a correct budget then read as "1 ran at
+        once" (test_the_budget_proof_does_not_depend_on_how_fast_a_shard_starts, red on that
+        version). Now each shard marks itself live for as long as it runs, and waits -- bounded,
+        so a runner that never admits a second shard fails the count instead of hanging -- until
+        a second shard has started. The positive control no longer depends on speed. The
+        negative control keeps its window: every shard stays live 1.5 s after the rendezvous, so
+        a third shard admitted in breach of the budget would be counted. Load can only make that
+        window miss a breach, never invent one: a marker is removed before its process exits,
+        and the token is released only after it exits."""
         budget = self.root / 'budget'
         subprocess.run(['python3', str(WORKER_TOKENS), 'init', str(budget), '2'], check=True, timeout=30)
         spans = self.root / 'spans.jsonl'
+        live, started = self.root / 'live', self.root / 'started'
+        live.mkdir()
+        started.mkdir()
         (self.root / 'sample.js').unlink()
         for name in ('a', 'b', 'c'):
             (self.root / f'{name}.js').write_text('''
 const fs = require('fs');
+const path = require('path');
 const run = {check() {}};
 run.check();
-const start = Date.now();
-Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1500);
-fs.appendFileSync(SPANS, JSON.stringify({start, end: Date.now()}) + '\\n');
+const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+pause(DELAY);
+fs.writeFileSync(path.join(STARTED, NAME), '');
+fs.writeFileSync(path.join(LIVE, NAME), '');
+let most = 0;
+const look = () => { most = Math.max(most, fs.readdirSync(LIVE).length); };
+const partner = Date.now() + 60000;
+while (fs.readdirSync(STARTED).length < 2 && Date.now() < partner) { look(); pause(20); }
+const hold = Date.now() + 1500;
+while (Date.now() < hold) { look(); pause(20); }
+look();
+fs.unlinkSync(path.join(LIVE, NAME));
+fs.appendFileSync(SPANS, JSON.stringify({most}) + '\\n');
 fs.appendFileSync(process.env.RICHOS_UI_TESTS_LEDGER,
   JSON.stringify({suite:NAME,label:'fixture',checks:1,failed:0})+'\\n');
-'''.replace('SPANS', json.dumps(str(spans))).replace('NAME', json.dumps(f'{name}.js')))
+'''.replace('SPANS', json.dumps(str(spans))).replace('NAME', json.dumps(f'{name}.js'))
+   .replace('STARTED', json.dumps(str(started))).replace('LIVE', json.dumps(str(live)))
+   .replace('DELAY', str((start_delay_ms or {}).get(name, 0))))
         env = {**self.env, 'RICHOS_MACHINE_WORKERS': str(budget), 'RICHOS_WORKER_TOKENS': str(budget),
                'RICHOS_WORKER_TOKENS_TOOL': str(WORKER_TOKENS)}
         # The gate's own command holds one of the two tokens, exactly as owned_run's does.
@@ -258,12 +283,24 @@ fs.appendFileSync(process.env.RICHOS_UI_TESTS_LEDGER,
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         rows = [json.loads(line) for line in spans.read_text().splitlines()]
         self.assertEqual(len(rows), 3)
-        edges = sorted([(r['start'], 1) for r in rows] + [(r['end'], -1) for r in rows],
-                       key=lambda e: (e[0], e[1]))
-        running = most = 0
-        for _, step in edges:
-            running += step
-            most = max(most, running)
+        self.assertEqual(sorted(p.name for p in started.iterdir()), ['a.js', 'b.js', 'c.js'])
+        self.assertEqual(list(live.iterdir()), [], 'a shard ended without leaving the live count')
+        return max(r['most'] for r in rows)
+
+    def test_shards_hold_machine_worker_tokens_and_never_exceed_the_budget(self):
+        # The UI gate held ONE machine worker token (nightly-local.py owned_run) and ran four
+        # WebKit shards under it, so the budget that keeps every other gate's parallel work at
+        # 80% of the cores admitted a full mutation pool on top of four shards it never counted.
+        # Under a budget, each shard is a nested worker: the first runs on the caller's own
+        # token (its free slot), and every other one waits for a token of the budget.
+        most = self.shards_on_a_budget_of_two()
+        self.assertEqual(most, 2, f'{most} shards ran at once on a budget of two worker tokens')
+
+    def test_the_budget_proof_does_not_depend_on_how_fast_a_shard_starts(self):
+        # On a busy Mac a node process can take seconds to reach its first line. Two of the
+        # three shards here take 2 s to start, which is what that looks like. The budget is
+        # exactly as correct as it was, so the proof must read exactly the same.
+        most = self.shards_on_a_budget_of_two(start_delay_ms={'b': 2000, 'c': 2000})
         self.assertEqual(most, 2, f'{most} shards ran at once on a budget of two worker tokens')
 
     def test_permission_denied_is_not_proof_of_death(self):
