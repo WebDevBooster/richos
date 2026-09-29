@@ -46,8 +46,60 @@ def atomic(path, value):
             os.unlink(temporary)
 
 
+# A BUILD CACHE IS A CHECK'S OUTPUT, NEVER ANOTHER CHECK'S INPUT (2026-09-29).
+#
+# The land of cc/zach-opus-autocheck1 into main (6ef73abf) was refused with
+# `no-foreign-app-data` state `invalid`, "execution inputs changed during the check", while its
+# own output said "3 passed, 0 failed". Its declared inputs include `richos/app/crates`; the
+# lint check running beside it ran Clippy on `crates/richos-user-update`, a standalone Cargo
+# package whose default target directory is `crates/richos-user-update/target`, and 536 MB of
+# build products written there changed the reader's fingerprint (09:39:27, the rmeta files).
+# The reader never looks inside it (foreign_app_data.py skips `target`), and nothing is
+# specific to that pair: any check that builds into the tree invalidated any check whose
+# declared root holds the build directory, during the check or, through finalize(), after it.
+#
+# So a directory that is BOTH (a) tagged under the Cache Directory Tagging Specification
+# (bford.info/cachedir: a `CACHEDIR.TAG` beginning with the signature below, which Cargo writes
+# into every target directory it creates, atomically with the directory) AND (b) ignored by git
+# with nothing inside it tracked, is left out of every identity: not its bytes, not its
+# listing, not its existence. The specification's meaning of the tag is "regenerable output";
+# (b) guarantees no byte git would land is ever skipped. A directory with the tag and without
+# (b), or with (b) and without the tag, is bound exactly as before, so the fingerprint still
+# binds every source file, untracked fixture, bytecode file and tool it bound.
+CACHEDIR_SIGNATURE = b"Signature: 8a477f597d28d172789f06886806bc55"
+
+
+def build_cache(path):
+    """True for a git-ignored, untracked directory tagged as a cache (see above)."""
+    path = Path(path)
+    tag = path / "CACHEDIR.TAG"
+    try:
+        if not path.is_dir() or tag.is_symlink() or not tag.is_file():
+            return False
+        with open(tag, "rb") as stream:
+            if stream.read(len(CACHEDIR_SIGNATURE)) != CACHEDIR_SIGNATURE:
+                return False
+    except OSError:
+        return False
+    # Never the hook's GIT_DIR/GIT_INDEX_FILE: the question is about the checkout on disk.
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    def git(*args):
+        return subprocess.run(["git", "-C", str(path.parent), *args], env=env, stdin=subprocess.DEVNULL,
+                              capture_output=True, timeout=30)
+    try:
+        ignored = git("check-ignore", "-q", "--", path.name)
+        if ignored.returncode != 0:
+            return False  # not ignored, or no repository here: bound like any directory
+        tracked = git("ls-files", "-z", "--", path.name)
+        return tracked.returncode == 0 and not tracked.stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def path_identity(path, ancestors=()):
-    """Includes inventories, absence, executable modes and untracked fixture data."""
+    """Includes inventories, absence, executable modes and untracked fixture data.
+
+    Build caches inside a directory (build_cache above) are not part of its identity."""
     path = Path(path)
     location = str(path.absolute())
     if location in ancestors:
@@ -61,8 +113,26 @@ def path_identity(path, ancestors=()):
     if path.is_file():
         return {"sha256": file_digest(path), "mode": path.stat().st_mode & 0o777}
     if path.is_dir():
-        return {entry.name: path_identity(entry, ancestors) for entry in sorted(path.iterdir())}
+        return {entry.name: path_identity(entry, ancestors) for entry in sorted(path.iterdir())
+                if not build_cache(entry)}
     raise ValueError(f"unsupported input type: {path}")
+
+
+def identity_differences(before, after, prefix):
+    """The paths whose path_identity() differs, for a note a reader can act on."""
+    def leaf(value):
+        return (not isinstance(value, dict) or not value
+                or set(value) <= {"sha256", "mode"} or set(value) == {"absent"} or set(value) <= {"link", "target"})
+    if before == after:
+        return []
+    if leaf(before) or leaf(after):
+        return [prefix]
+    found = []
+    for name in sorted(set(before) | set(after)):
+        if before.get(name) != after.get(name):
+            found += identity_differences(before.get(name, {"absent": True}), after.get(name, {"absent": True}),
+                                          prefix + "/" + name)
+    return found
 
 
 def inventory_identity(path):
@@ -79,7 +149,7 @@ def inventory_identity(path):
     mode = path.stat().st_mode & 0o777
     if path.is_dir():
         return {"mode": mode, "directory": {
-            p.name: inventory_identity(p) for p in sorted(path.iterdir())}}
+            p.name: inventory_identity(p) for p in sorted(path.iterdir()) if not build_cache(p)}}
     if path.is_file():
         return {"file": True, "mode": mode}
     raise ValueError(f"unsupported inventory input: {path}")
@@ -455,8 +525,11 @@ def completed_receipt(item, sha, allow_known_red=False):
 
 class Record:
     def __init__(self, root, logdir, items, source, identities, previous=None,
-                 current_source=None, current_identity=None, current_identities=None):
+                 current_source=None, current_identity=None, current_identities=None, explain=None):
         self.root, self.logdir = str(root), Path(logdir)
+        # What changed and who could have changed it, appended to an invalidation note, so a
+        # check invalidated by another check's writes names the paths instead of only saying so.
+        self.explain = explain or (lambda item: "")
         self.source, self.identities = source, identities
         self.previous = previous
         self.current_source = current_source or (lambda: self.source)
@@ -497,7 +570,7 @@ class Record:
             else:
                 try:
                     if self.current_identity(item) != self.identities[item.label]:
-                        raise ValueError("execution inputs changed during the check")
+                        raise ValueError("execution inputs changed during the check" + self.explain(item))
                     result["receipt_sha"] = getattr(item, "receipt_sha", source["commit"])
                     result["receipt"] = completed_receipt(item, result["receipt_sha"],
                         allow_known_red=not getattr(item, "reused_from", None))
@@ -533,8 +606,10 @@ class Record:
             try:
                 if input_error is not None:
                     raise ValueError(input_error)
-                if changed_during_read or source != row["source"] or identities[item.label] != row["input"]:
+                if changed_during_read or source != row["source"]:
                     raise ValueError("inputs changed after this check completed")
+                if identities[item.label] != row["input"]:
+                    raise ValueError("inputs changed after this check completed" + self.explain(item))
                 if file_digest(item.log) != row["log_sha256"]:
                     raise ValueError("completed check log changed")
                 if row["receipt"] and file_digest(row["receipt"]["path"]) != row["receipt"]["sha256"]:

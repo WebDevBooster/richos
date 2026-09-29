@@ -62,14 +62,22 @@
 @splash  richos/app/ui/splash.js richos/app/ui/splash-library.js richos/app/ui/splash.css richos/app/ui/theme-boot.js
 @phone   richos/app/ui/phone.js richos/app/ui/qr.js
 
+# FIXTURES (`ui/tests/fixtures/*`) are named on the row of the suite that LOADS them, found by
+# reference in the suite's code (`path.join(__dirname, "fixtures", "<name>")`,
+# `readFixture("<name>")`). The two on-demand preloads no suite loads are named on the rows of
+# the suites their own usage lines run them with (`node --require ./fixtures/<preload>.js
+# <suite>.js`, in the preload's header and ui/tests/README.md). A fixture on no row is
+# UNCOVERED, and the land check refuses it until a row names it (2026-09-29, the automatic
+# land check, esc-20260929T082408Z-c96cefea).
+
 # ---- the eight that read the whole shipped manifest ------------------------------------
 # Each of these requires `./lib/ui-sources` and walks every file it classifies: the state
 # inventory, the contrast sweep and the dialect pass are whole-surface gates by definition.
 affordances.js          @allui
 appearance.js           @allui
 contrast.js             @allui richos/app/ui/tests/contrast-debt.json
-corrections.js          @allui
-feedback.js             @allui
+corrections.js          @allui richos/app/ui/tests/fixtures/loro-proposal.json richos/app/ui/tests/fixtures/loro-proposal-asked-again.json richos/app/ui/tests/fixtures/heard-candidate.json
+feedback.js             @allui richos/app/ui/tests/fixtures/feedback-vocabulary.json richos/app/ui/tests/fixtures/feedback-previews.json richos/app/ui/tests/fixtures/feedback-entries.json
 memory.js               @allui
 setup.js                @allui
 splash.js               @allui
@@ -88,7 +96,7 @@ waiting-state.js        @shell richos/app/ui/mock.js
 waiting-lifecycle.js    @shell richos/app/ui/mock.js
 second-mouth.js         @shell richos/app/ui/mock.js
 dialect.js              @shell richos/app/ui/mock.js
-retention.js            @shell richos/app/ui/mock.js
+retention.js            @shell richos/app/ui/mock.js richos/app/ui/tests/fixtures/slow-round-trips-preload.js
 onboarding.js           @shell richos/app/ui/mock.js
 onboarding-lifecycle.js @shell richos/app/ui/mock.js
 first-run-sheet.js      @shell richos/app/ui/mock.js
@@ -102,13 +110,13 @@ interruption.js         @shell richos/app/ui/timeline.js
 local-notice.js         @shell richos/app/ui/timeline.js
 operator-notice.js      @shell richos/app/ui/timeline.js richos/app/ui/mock.js
 markdown.js             @shell richos/app/ui/timeline.js
-memory-strategy.js      @shell richos/app/ui/timeline.js richos/app/ui/mock.js
+memory-strategy.js      @shell richos/app/ui/timeline.js richos/app/ui/mock.js richos/app/ui/tests/fixtures/slow-round-trips-preload.js
 outage.js               @shell richos/app/ui/timeline.js
 realbytes.js            @shell richos/app/ui/timeline.js
 restart-scope.js        @shell richos/app/ui/timeline.js richos/app/ui/mock.js
 scale.js                @shell richos/app/ui/timeline.js
 steering.js             @shell richos/app/ui/timeline.js richos/app/ui/mock.js
-techy.js                @shell richos/app/ui/timeline.js richos/app/ui/mock.js
+techy.js                @shell richos/app/ui/timeline.js richos/app/ui/mock.js richos/app/ui/tests/fixtures/machinery-payload.json
 workers.js              @shell richos/app/ui/timeline.js
 
 # ---- the home screen and the window's chrome ---------------------------------------------
@@ -116,7 +124,7 @@ chrome-align.js         @shell @home richos/app/ui/settings-button.js richos/app
 escape.js               @shell @home @splash richos/app/ui/permissions.js
 front-door.js           @shell @home
 home-fit.js             @shell @home
-home.js                 @shell @home richos/app/ui/mock.js richos/app/ui/home/field-data.js richos/app/ui/splash.js richos/app/ui/settings-button.js richos/app/ui/theme-boot.js
+home.js                 @shell @home richos/app/ui/mock.js richos/app/ui/home/field-data.js richos/app/ui/splash.js richos/app/ui/settings-button.js richos/app/ui/theme-boot.js richos/app/ui/tests/fixtures/slow-round-trips-preload.js
 ticker-wrap.js          @shell @home
 settings-fit.js         @shell @phone richos/app/ui/settings-button.js
 
@@ -143,4 +151,4 @@ thread-switch.js       @shell richos/app/ui/timeline.js richos/app/ui/mock.js
 # ---- the harness's own behavior ------------------------------------------------------------
 # The navigation capture in `lib/navigation-evidence.js` (reached by the library rule), proven
 # against a fixture suite it runs as a child process and one load of the shipping shell.
-navigation-evidence.js  @shell richos/app/ui/tests/fixtures/navigation-hang-suite.js
+navigation-evidence.js  @shell richos/app/ui/tests/fixtures/navigation-hang-suite.js richos/app/ui/tests/fixtures/loaded-host-preload.js richos/app/ui/tests/fixtures/stalled-host-preload.js

@@ -199,6 +199,23 @@ else
   bad "D2 (positive probe) prose exits 0 and is listed" "exit $DP_RC"
 fi
 
+# D3/D4. A UI FIXTURE is owned only by a row that names it (proof-for.ui-inputs, "FIXTURES").
+#    The automatic land check refuses UNCOVERED, so a new fixture nobody loads must still be
+#    refused by name; one a suite loads maps to that suite. Found 2026-09-29: three of the
+#    last four lands carried fixtures no row named (esc-20260929T082408Z-c96cefea).
+run_pf "$WORK/d3.out" --paths richos/app/ui/tests/fixtures/a-new-fixture-no-suite-loads.json; D3_RC=$RC
+if [ "$D3_RC" -eq 1 ] && grep -q 'UNCOVERED' "$WORK/d3.out" && grep -q 'a-new-fixture-no-suite-loads.json' "$WORK/d3.out"; then
+  ok "D3 a new UI fixture with no owner exits 1 and is named"
+else
+  bad "D3 a new UI fixture with no owner exits 1 and is named" "exit $D3_RC"
+fi
+run_pf "$WORK/d4.out" --paths richos/app/ui/tests/fixtures/loro-proposal-asked-again.json; D4_RC=$RC
+if [ "$D4_RC" -eq 0 ] && grep -q 'node corrections.js' "$WORK/d4.out" && ! grep -q 'UNCOVERED' "$WORK/d4.out"; then
+  ok "D4 (positive probe) a fixture a suite loads maps to that suite"
+else
+  bad "D4 (positive probe) a fixture a suite loads maps to that suite" "exit $D4_RC"
+fi
+
 # -----------------------------------------------------------------------------------------
 # E. The reconciliation. Each of the four ways the declaration can go stale must REFUSE,
 #    with exit 2, naming what is wrong. A map that answers from a stale row is worse than

@@ -1,0 +1,1413 @@
+{
+  "limitation": "Sites, not counts: every site not in this file refuses. Check never writes.",
+  "rules": {
+    "env-mutation-unguarded": "blocking-site",
+    "host-sample": "blocking-site",
+    "short-deadline": "blocking-site",
+    "sleep-then-assert": "blocking-site",
+    "wall-clock-verdict": "blocking-site"
+  },
+  "schema": 1,
+  "sites": {
+    "richos/app/crates/richos-core/src/assignment.rs": {
+      "sleep-then-assert": {
+        "42aaa4ddeb20a99d": {
+          "count": 4,
+          "text": "std::thread::sleep(std::time::Duration::from_millis(5));"
+        }
+      }
+    },
+    "richos/app/crates/richos-core/src/native.rs": {
+      "short-deadline": {
+        "8477d8c243651c83": {
+          "count": 2,
+          "text": "let deadline = std::time::Instant::now() + Duration::from_secs(10);"
+        }
+      }
+    },
+    "richos/app/crates/richos-core/src/operator_desk.rs": {
+      "sleep-then-assert": {
+        "6e57511a08a73760": {
+          "count": 1,
+          "text": "std::thread::sleep(Duration::from_millis(200)); // several more timer ticks: no third send"
+        }
+      }
+    },
+    "richos/app/crates/richos-core/src/operator_lead.rs": {
+      "short-deadline": {
+        "4cc9b4132fcdd790": {
+          "count": 4,
+          "text": "let deadline = Instant::now() + Duration::from_secs(10);"
+        }
+      }
+    },
+    "richos/app/crates/richos-core/src/owned_process.rs": {
+      "sleep-then-assert": {
+        "138428ea339b9fea": {
+          "count": 1,
+          "text": "std::thread::sleep(BOUND + Duration::from_millis(200));"
+        },
+        "519abbdf18991296": {
+          "count": 1,
+          "text": "std::thread::sleep(BOUND / 2);"
+        }
+      },
+      "wall-clock-verdict": {
+        "cb53e0d54409a13e": {
+          "count": 1,
+          "text": "assert!(started.elapsed() < Duration::from_secs(1));"
+        }
+      }
+    },
+    "richos/app/crates/richos-core/src/quota/gate.rs": {
+      "short-deadline": {
+        "5e7fd563f28cf247": {
+          "count": 1,
+          "text": "rx.recv_timeout(Duration::from_millis(40)).is_err(),"
+        }
+      }
+    },
+    "richos/app/crates/richos-core/src/screen.rs": {
+      "sleep-then-assert": {
+        "1f59029f9370b7f7": {
+          "count": 1,
+          "text": "std::thread::sleep(Duration::from_millis(30));"
+        }
+      }
+    },
+    "richos/app/crates/richos-core/src/steering.rs": {
+      "short-deadline": {
+        "81e93ceb85436b3e": {
+          "count": 1,
+          "text": "entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();"
+        },
+        "b6f6e0341d032cad": {
+          "count": 1,
+          "text": "self.release.lock().unwrap().recv_timeout(Duration::from_secs(5)).unwrap();"
+        }
+      }
+    },
+    "richos/app/crates/richos-core/src/work_host.rs": {
+      "sleep-then-assert": {
+        "42aaa4ddeb20a99d": {
+          "count": 1,
+          "text": "std::thread::sleep(std::time::Duration::from_millis(5));"
+        },
+        "8b275bd5a56edad6": {
+          "count": 2,
+          "text": "std::thread::sleep(std::time::Duration::from_millis(200));"
+        },
+        "a0740dd521a1f753": {
+          "count": 1,
+          "text": "std::thread::sleep(std::time::Duration::from_millis(150));"
+        }
+      }
+    },
+    "richos/app/crates/richos-core/tests/between_turn_tests.rs": {
+      "short-deadline": {
+        "4238f4d8635cd2ac": {
+          "count": 1,
+          "text": "let deadline = Instant::now() + Duration::from_secs(5);"
+        }
+      }
+    },
+    "richos/app/crates/richos-core/tests/between_turn_thread_tests.rs": {
+      "short-deadline": {
+        "4238f4d8635cd2ac": {
+          "count": 1,
+          "text": "let deadline = Instant::now() + Duration::from_secs(5);"
+        }
+      }
+    },
+    "richos/app/crates/richos-core/tests/native_onboarding_grant_tests.rs": {
+      "short-deadline": {
+        "95c18e275cfdfa48": {
+          "count": 1,
+          "text": "let ready = ready_rx.recv_timeout(Duration::from_secs(5));"
+        }
+      }
+    },
+    "richos/app/crates/richos-core/tests/owned_process.rs": {
+      "short-deadline": {
+        "31a311172e05e362": {
+          "count": 2,
+          "text": "let deadline = Instant::now() + Duration::from_secs(3);"
+        }
+      }
+    },
+    "richos/app/crates/richos-core/tests/provider_auth.rs": {
+      "short-deadline": {
+        "31a311172e05e362": {
+          "count": 2,
+          "text": "let deadline = Instant::now() + Duration::from_secs(3);"
+        }
+      }
+    },
+    "richos/app/crates/richos-core/tests/request_preparation_tests.rs": {
+      "short-deadline": {
+        "1f314d865f59049d": {
+          "count": 2,
+          "text": "self.cancelled.recv_timeout(Duration::from_secs(5)).unwrap();"
+        },
+        "7d23e5407501ee30": {
+          "count": 2,
+          "text": "rx.recv_timeout(Duration::from_secs(5)).unwrap();"
+        },
+        "81e93ceb85436b3e": {
+          "count": 2,
+          "text": "entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();"
+        }
+      },
+      "wall-clock-verdict": {
+        "243267efa96c4582": {
+          "count": 1,
+          "text": "assert!(start.elapsed() < Duration::from_secs(5));"
+        }
+      }
+    },
+    "richos/app/crates/richos-core/tests/worker_attribution_tests.rs": {
+      "sleep-then-assert": {
+        "5b49960b70255439": {
+          "count": 2,
+          "text": "std::thread::sleep(std::time::Duration::from_millis(20));"
+        }
+      }
+    },
+    "richos/app/crates/richos-user-update/tests/startup_exec.rs": {
+      "short-deadline": {
+        "4cc9b4132fcdd790": {
+          "count": 1,
+          "text": "let deadline = Instant::now() + Duration::from_secs(10);"
+        }
+      }
+    },
+    "richos/app/crates/richos-voice/src/capture.rs": {
+      "sleep-then-assert": {
+        "07741a7d13079a56": {
+          "count": 1,
+          "text": "std::thread::sleep(std::time::Duration::from_millis(2));"
+        }
+      }
+    },
+    "richos/app/crates/richos-voice/src/controller.rs": {
+      "short-deadline": {
+        "1a5f811ac097c2b9": {
+          "count": 1,
+          "text": "let deadline = Instant::now() + Duration::from_secs(15);"
+        }
+      },
+      "sleep-then-assert": {
+        "092c4c6dd031dcae": {
+          "count": 1,
+          "text": "std::thread::sleep(Duration::from_millis(6000));"
+        },
+        "1e04f2396792e0c0": {
+          "count": 1,
+          "text": "std::thread::sleep(Duration::from_millis(16_000));"
+        },
+        "4361ded80daea503": {
+          "count": 1,
+          "text": "std::thread::sleep(Duration::from_millis(8_000));"
+        },
+        "4a1046787de4599e": {
+          "count": 1,
+          "text": "std::thread::sleep(Duration::from_millis(600));"
+        },
+        "c69aa0a4d55d7a61": {
+          "count": 1,
+          "text": "std::thread::sleep(Duration::from_millis(1500));"
+        }
+      }
+    },
+    "richos/app/crates/richos-voice/src/playout.rs": {
+      "sleep-then-assert": {
+        "c67ca85d04e6c3ec": {
+          "count": 1,
+          "text": "std::thread::sleep(std::time::Duration::from_millis(500));"
+        }
+      }
+    },
+    "richos/app/crates/richos-voice/src/stt.rs": {
+      "wall-clock-verdict": {
+        "2c302a65dc745842": {
+          "count": 1,
+          "text": "assert_eq!(result.unwrap_err().kind(),std::io::ErrorKind::TimedOut);assert!(started.elapsed().as_secs()<2);"
+        }
+      }
+    },
+    "richos/app/crates/richos-voice/tests/voiced_acceptance.rs": {
+      "sleep-then-assert": {
+        "4aac62194072eaf4": {
+          "count": 1,
+          "text": "std::thread::sleep(std::time::Duration::from_millis(100));"
+        }
+      }
+    },
+    "richos/app/scripts/front-door.test.sh": {
+      "sleep-then-assert": {
+        "3906086191bf13c4": {
+          "count": 2,
+          "text": "sleep 1"
+        },
+        "6aae6ef421d7e7ea": {
+          "count": 1,
+          "text": "sleep 5"
+        },
+        "7e98e814ec9e2f8f": {
+          "count": 5,
+          "text": "sleep 1.5"
+        },
+        "f43a82f533260034": {
+          "count": 1,
+          "text": "sleep 3"
+        },
+        "fbb97a213c583a31": {
+          "count": 1,
+          "text": "sleep 2"
+        }
+      }
+    },
+    "richos/app/scripts/gui-boot.test.sh": {
+      "sleep-then-assert": {
+        "df51e35bb37ad56b": {
+          "count": 1,
+          "text": "Y=\"$(bash -c 'bash -c '\"'\"'trap \"\" TERM; sleep 60'\"'\"' >/dev/null 2>&1 & echo $!')\""
+        }
+      }
+    },
+    "richos/app/scripts/mobile-perf.test.py": {
+      "short-deadline": {
+        "c8b0aed2aa957ff9": {
+          "count": 1,
+          "text": "assert \"did not answer\" in raises(perfcore.Unmeasurable, dev.run, \"wait-for-device\", timeout=1)"
+        }
+      }
+    },
+    "richos/app/scripts/native-responsiveness.test.py": {
+      "wall-clock-verdict": {
+        "24c5ea5e727db7dc": {
+          "count": 1,
+          "text": "assert loop_ms < 500, (mode, \"native mainloop blocked\", loop_ms)"
+        }
+      }
+    },
+    "richos/app/scripts/nightly-local.test.py": {
+      "short-deadline": {
+        "50522d02d03d0ca5": {
+          "count": 1,
+          "text": "m.Runner(self.root, self.root, {}, io.StringIO()).command(\"true\", timeout=10)"
+        },
+        "9b37adc8e58f7c4f": {
+          "count": 1,
+          "text": "r.command(\"true\", timeout=10)"
+        },
+        "b7d23926d8537660": {
+          "count": 1,
+          "text": "capture=True, timeout=5)"
+        },
+        "c2aa162b797ca246": {
+          "count": 1,
+          "text": "r.command(*self.process_fixture(), cwd=self.root, timeout=1)"
+        }
+      },
+      "wall-clock-verdict": {
+        "621830048f97343a": {
+          "count": 1,
+          "text": "self.assertLess(time.monotonic() - start, 5)"
+        },
+        "7efd997872876e05": {
+          "count": 1,
+          "text": "self.assertLess(time.monotonic() - began, 10, \"close() waited on a process it does not own\")"
+        },
+        "f230ff366971bf89": {
+          "count": 1,
+          "text": "self.assertLess(took, 25)"
+        }
+      }
+    },
+    "richos/app/scripts/proof-evidence.test.py": {
+      "short-deadline": {
+        "517b749d757d63a9": {
+          "count": 1,
+          "text": "child.communicate(timeout=5)"
+        },
+        "6d84c824143348f6": {
+          "count": 1,
+          "text": "env=env, capture_output=True, check=True, timeout=10)"
+        },
+        "84911c3d14405aaf": {
+          "count": 1,
+          "text": "child.wait(timeout=5)"
+        },
+        "92da87f4fb35190a": {
+          "count": 1,
+          "text": "process.wait(timeout=20)"
+        },
+        "a652deb9e5a1b10c": {
+          "count": 1,
+          "text": "capture_output=True, text=True, check=True, timeout=10)"
+        },
+        "de2133c8ef0d7305": {
+          "count": 1,
+          "text": "env=env, text=True, capture_output=True, timeout=10)"
+        }
+      }
+    },
+    "richos/app/scripts/proof-failure.test.py": {
+      "short-deadline": {
+        "6c39a1ea47049089": {
+          "count": 1,
+          "text": "holder.communicate(\"\\n\", timeout=5)"
+        }
+      }
+    },
+    "richos/app/scripts/runner-reliability.test.py": {
+      "short-deadline": {
+        "0b65f06826202d10": {
+          "count": 2,
+          "text": "coordinator.wait(timeout=5)"
+        },
+        "756307404a83bc7a": {
+          "count": 1,
+          "text": "capture_output=True, timeout=5)"
+        },
+        "8dba9e1848fc89fe": {
+          "count": 1,
+          "text": "wrapper.wait(timeout=5)"
+        },
+        "8dc64b4e113986ac": {
+          "count": 1,
+          "text": "result = subprocess.run(proc_tree.command(['bash', '-c', script, 'fixture', str(record)]), timeout=15)"
+        },
+        "a6bec9dadda7b124": {
+          "count": 1,
+          "text": "result = subprocess.run(proc_tree.command([sys.executable, '-c', script, str(record)]), timeout=15)"
+        },
+        "a73be6f6c76d9fa9": {
+          "count": 1,
+          "text": "wrapper.wait(timeout=10)"
+        },
+        "a760e91c2058a718": {
+          "count": 1,
+          "text": "self.assertEqual(wrapper.wait(timeout=15), 130)"
+        },
+        "c06c83f40fd7135d": {
+          "count": 1,
+          "text": "wrapper.wait(timeout=15)"
+        },
+        "cac7588971083677": {
+          "count": 1,
+          "text": "with self.assertRaises(TimeoutError): native.wait_for_headroom(pr.reserve, timeout=0)"
+        },
+        "cbe89f51735d94d9": {
+          "count": 2,
+          "text": "env=env, capture_output=True, text=True, timeout=20)"
+        },
+        "d614bb9e8212748a": {
+          "count": 1,
+          "text": "p.wait(timeout=5)"
+        },
+        "dd40a8bf4e0883ac": {
+          "count": 1,
+          "text": "wrappers[0].wait(timeout=10)"
+        },
+        "efd117ae03fd704c": {
+          "count": 1,
+          "text": "native.wait_for_headroom(pr.reserve, timeout=0)"
+        }
+      },
+      "sleep-then-assert": {
+        "245e8eb07f498432": {
+          "count": 1,
+          "text": "time.sleep(.3)"
+        },
+        "a6c75a7259b805e6": {
+          "count": 1,
+          "text": "time.sleep(.5)"
+        }
+      },
+      "wall-clock-verdict": {
+        "04f62a514a682c43": {
+          "count": 1,
+          "text": "self.assertLess(elapsed, 3)"
+        }
+      }
+    },
+    "richos/app/scripts/testvm/test/permission-provider.test.py": {
+      "short-deadline": {
+        "d778531bfa8db715": {
+          "count": 1,
+          "text": "self.child.communicate(timeout=5)"
+        }
+      }
+    },
+    "richos/app/scripts/testvm/test/reap-walk.test.py": {
+      "short-deadline": {
+        "a3a39674de97d388": {
+          "count": 1,
+          "text": "capture_output=True, text=True, timeout=20)"
+        },
+        "c7ef6ae050c9da7e": {
+          "count": 1,
+          "text": "capture_output=True, text=True, timeout=10)"
+        }
+      }
+    },
+    "richos/app/scripts/testvm/test/scenario.test.py": {
+      "short-deadline": {
+        "8ea9f67adb2d68c9": {
+          "count": 1,
+          "text": "result=subprocess.run([sys.executable,str(HERE/'ax-deadline.py'),'2',sys.executable,'-c',child],input=b'',capture_output=True,timeout=4)"
+        },
+        "a707c18669aa79e0": {
+          "count": 1,
+          "text": "first.terminate();first.wait(timeout=12)"
+        }
+      }
+    },
+    "richos/app/scripts/testvm/test/slots-wait-gate.test.py": {
+      "short-deadline": {
+        "f0a81c8ba33d5a34": {
+          "count": 1,
+          "text": "child.wait(timeout=20)"
+        }
+      }
+    },
+    "richos/app/scripts/testvm/test/slots.test.py": {
+      "wall-clock-verdict": {
+        "64297077ea92602e": {
+          "count": 1,
+          "text": "self.assertLess(time.monotonic() - began, 5)"
+        }
+      }
+    },
+    "richos/app/scripts/ui-ledger.test.py": {
+      "short-deadline": {
+        "54e68723b3d59214": {
+          "count": 1,
+          "text": "child.wait(timeout=10)"
+        },
+        "9c70d91f05c1535d": {
+          "count": 1,
+          "text": "out, err = child.communicate(timeout=15)"
+        },
+        "a3a39674de97d388": {
+          "count": 1,
+          "text": "capture_output=True, text=True, timeout=20)"
+        }
+      }
+    },
+    "richos/app/src-tauri/src/phone/connect/client.rs": {
+      "short-deadline": {
+        "8027f08129d433bb": {
+          "count": 1,
+          "text": "let until = Instant::now() + Duration::from_secs(3);"
+        }
+      },
+      "sleep-then-assert": {
+        "cb140ea841063684": {
+          "count": 1,
+          "text": "std::thread::sleep(Duration::from_millis(10));"
+        }
+      }
+    },
+    "richos/app/src-tauri/src/phone/listen.rs": {
+      "sleep-then-assert": {
+        "f091c475a2fe211d": {
+          "count": 2,
+          "text": "std::thread::sleep(std::time::Duration::from_millis(25));"
+        }
+      }
+    },
+    "richos/app/ui/tests/affordances.js": {
+      "short-deadline": {
+        "094e06e1c4cde674": {
+          "count": 1,
+          "text": "{ timeout: 20000 }"
+        },
+        "23c76c28e2f9bc0c": {
+          "count": 2,
+          "text": "await page.waitForFunction(() => document.getElementById(\"home\").hidden, { timeout: 4000 });"
+        },
+        "3d7f5b9582b5d156": {
+          "count": 1,
+          "text": ".waitForSelector(\"#entity-view:not([hidden])\", { timeout: 8000 })"
+        },
+        "4baa46e70eef18ab": {
+          "count": 3,
+          "text": "await page.waitForFunction(\"typeof window.RichHome === 'object'\", { timeout: 10000 });"
+        },
+        "64f570177366c39b": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => document.getElementById(\"composer-blocked\").hidden, { timeout: 5000 });"
+        },
+        "70e02170c568701f": {
+          "count": 1,
+          "text": "}, { timeout: 5000 });"
+        },
+        "78a6696532ca2e20": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => !document.getElementById(\"feedback-notice\").hidden, { timeout: 5000 });"
+        },
+        "a76952a70af76f36": {
+          "count": 2,
+          "text": "{ timeout: 5000 }"
+        },
+        "deee115b35cc269b": {
+          "count": 1,
+          "text": "{ timeout: 8000 }"
+        }
+      }
+    },
+    "richos/app/ui/tests/appearance.js": {
+      "short-deadline": {
+        "0803f5d7c843d42b": {
+          "count": 1,
+          "text": ".waitForFunction(() => !document.getElementById(\"splash\"), { timeout: 5000 })"
+        },
+        "388f914d4160685b": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => window.RichSplash.state.barStopped === true, { timeout: 20000 });"
+        },
+        "44b263489c4f2741": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => !document.getElementById(\"splash\"), { timeout: 15000 }).catch(() => {});"
+        },
+        "8dfe0c313da9ff43": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => typeof window.RichHome === \"object\", null, { timeout: 15000 });"
+        },
+        "9d08c979a71d41fa": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => window.RichHome.isOpen(), null, { timeout: 15000 });"
+        },
+        "fa8a12c403d91d93": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => document.querySelectorAll(\".tl-tech\").length > 0, { timeout: 15000 });"
+        }
+      }
+    },
+    "richos/app/ui/tests/attachments.js": {
+      "short-deadline": {
+        "a76952a70af76f36": {
+          "count": 1,
+          "text": "{ timeout: 5000 }"
+        },
+        "deee115b35cc269b": {
+          "count": 2,
+          "text": "{ timeout: 8000 }"
+        }
+      }
+    },
+    "richos/app/ui/tests/chrome-align.js": {
+      "short-deadline": {
+        "145ed9a6469d8a09": {
+          "count": 1,
+          "text": "await page.waitForFunction(\"typeof window.RichHome === 'object'\", null, { timeout: 15000 });"
+        },
+        "dfb0b2fdf19a0464": {
+          "count": 2,
+          "text": "{ timeout: 10000 }"
+        },
+        "f3329860153c9b91": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => !document.getElementById(\"splash\"), { timeout: 10000 });"
+        },
+        "fa58ecfff3e676c7": {
+          "count": 1,
+          "text": "await page.waitForSelector(\"#splash\", { timeout: 15000 });"
+        }
+      }
+    },
+    "richos/app/ui/tests/compaction-notice.js": {
+      "short-deadline": {
+        "5776d6bfd2635b15": {
+          "count": 1,
+          "text": "await page.waitForFunction(\"typeof window.RichHome === 'object'\", { timeout: 8000 }).catch(() => {});"
+        },
+        "877ea99f9ff2d72b": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => !document.getElementById(\"splash\"), { timeout: 8000 }).catch(() => {});"
+        },
+        "b89ce612cb8497f9": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => { const h = document.getElementById(\"home\"); return !h || h.hidden; }, { timeout: 8000 }).catch(() => {});"
+        }
+      }
+    },
+    "richos/app/ui/tests/compaction-progress.js": {
+      "short-deadline": {
+        "5776d6bfd2635b15": {
+          "count": 1,
+          "text": "await page.waitForFunction(\"typeof window.RichHome === 'object'\", { timeout: 8000 }).catch(() => {});"
+        },
+        "877ea99f9ff2d72b": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => !document.getElementById(\"splash\"), { timeout: 8000 }).catch(() => {});"
+        },
+        "b89ce612cb8497f9": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => { const h = document.getElementById(\"home\"); return !h || h.hidden; }, { timeout: 8000 }).catch(() => {});"
+        }
+      }
+    },
+    "richos/app/ui/tests/composer-off.js": {
+      "short-deadline": {
+        "64f570177366c39b": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => document.getElementById(\"composer-blocked\").hidden, { timeout: 5000 });"
+        },
+        "9cac449203874670": {
+          "count": 1,
+          "text": "await page.locator(\"#input\").press(\"h\", { force: true, timeout: 2000 }).catch(() => {});"
+        }
+      },
+      "sleep-then-assert": {
+        "23168f3397fdadfa": {
+          "count": 1,
+          "text": "await page.waitForTimeout(150);"
+        },
+        "e281a09190fbe426": {
+          "count": 1,
+          "text": "await page.waitForTimeout(80);"
+        }
+      }
+    },
+    "richos/app/ui/tests/contrast.js": {
+      "short-deadline": {
+        "0de7ddcefff9df22": {
+          "count": 1,
+          "text": "await offer.waitForSelector(\"#setup-sheet:not([hidden])\", { timeout: 10000 });"
+        },
+        "44b263489c4f2741": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => !document.getElementById(\"splash\"), { timeout: 15000 }).catch(() => {});"
+        },
+        "58c49276e164daeb": {
+          "count": 1,
+          "text": "{ timeout: 15000 }"
+        },
+        "827b589ef4ec486b": {
+          "count": 1,
+          "text": "await fresh.waitForFunction(() => window.RichTheme && !window.RichTheme.forcedDark(), null, { timeout: 15000 });"
+        },
+        "ba19158456f54727": {
+          "count": 1,
+          "text": "await p.waitForSelector(\".tl-user.is-pending .tl-user-text\", { state: \"visible\", timeout: 8000 });"
+        },
+        "dfb0b2fdf19a0464": {
+          "count": 2,
+          "text": "{ timeout: 10000 }"
+        },
+        "ee3c792b190b9a8c": {
+          "count": 1,
+          "text": "await p.waitForSelector(\"#splash\", { timeout: 5000 });"
+        }
+      }
+    },
+    "richos/app/ui/tests/corrections.js": {
+      "short-deadline": {
+        "a76952a70af76f36": {
+          "count": 1,
+          "text": "{ timeout: 5000 }"
+        },
+        "b7659f5e3bbbf410": {
+          "count": 2,
+          "text": "timeout: 5000,"
+        }
+      },
+      "sleep-then-assert": {
+        "23168f3397fdadfa": {
+          "count": 1,
+          "text": "await page.waitForTimeout(150);"
+        }
+      }
+    },
+    "richos/app/ui/tests/escape.js": {
+      "short-deadline": {
+        "066debda93f11a80": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => document.getElementById(\"setup-sheet\").hidden, null, { timeout: 10000 }).catch(() => {});"
+        },
+        "07474ffba3e29ca1": {
+          "count": 1,
+          "text": "await page.waitForSelector(\"#planted-above\", { state: \"hidden\", timeout: 10000 }).catch(() => {});"
+        },
+        "350b3ec2461e114c": {
+          "count": 1,
+          "text": "await page.waitForFunction(\"typeof window.RichSplash === 'object'\", { timeout: 10000 });"
+        },
+        "360535aa21cf53eb": {
+          "count": 1,
+          "text": "await page.waitForSelector(\"#set-menu\", { state: \"hidden\", timeout: 10000 }).catch(() => {});"
+        },
+        "740baaf43b798bc0": {
+          "count": 1,
+          "text": "await page.waitForSelector(\".splash\", { state: \"detached\", timeout: 10000 });"
+        },
+        "b3ef941e369132c9": {
+          "count": 1,
+          "text": "await page.waitForSelector(\"#planted-behind\", { state: \"hidden\", timeout: 10000 }).catch(() => {});"
+        },
+        "b790e51457ec4eae": {
+          "count": 1,
+          "text": "await page.waitForFunction(\"typeof window.RichDismiss === 'object'\", { timeout: 10000 });"
+        },
+        "dbbc4b4af376b22b": {
+          "count": 1,
+          "text": "await page.waitForSelector(\"#setup-sheet:not([hidden])\", { timeout: 10000 });"
+        }
+      }
+    },
+    "richos/app/ui/tests/feedback.js": {
+      "short-deadline": {
+        "b7659f5e3bbbf410": {
+          "count": 1,
+          "text": "timeout: 5000,"
+        }
+      }
+    },
+    "richos/app/ui/tests/first-run-sheet.js": {
+      "short-deadline": {
+        "1c39626a42a77865": {
+          "count": 1,
+          "text": "await page.waitForSelector(\"#entity-picker\", { state: \"hidden\", timeout: 5000 });"
+        },
+        "7e8dc2d837d524f3": {
+          "count": 1,
+          "text": "await page.click(\"#entity-picker-later\", { timeout: 5000 });"
+        }
+      }
+    },
+    "richos/app/ui/tests/front-door.js": {
+      "short-deadline": {
+        "a76952a70af76f36": {
+          "count": 1,
+          "text": "{ timeout: 5000 }"
+        },
+        "b436a6ab7826d5a9": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => !document.getElementById(\"home\").hidden, { timeout: 5000 });"
+        },
+        "beab1e5bb42bc787": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => typeof window.RichHome === \"object\", { timeout: 15000 });"
+        },
+        "dfb0b2fdf19a0464": {
+          "count": 1,
+          "text": "{ timeout: 10000 }"
+        }
+      }
+    },
+    "richos/app/ui/tests/home-fit.js": {
+      "short-deadline": {
+        "fc0ac8d48f6f3ff7": {
+          "count": 1,
+          "text": "await page.waitForFunction(\"typeof window.RichHome === 'object'\", { timeout: 15000 });"
+        }
+      }
+    },
+    "richos/app/ui/tests/home.js": {
+      "short-deadline": {
+        "094e06e1c4cde674": {
+          "count": 1,
+          "text": "{ timeout: 20000 }"
+        },
+        "16c425060cabc24c": {
+          "count": 1,
+          "text": "await real.waitForFunction(\"typeof window.RichHome === 'object'\", { timeout: 10000 });"
+        },
+        "23c76c28e2f9bc0c": {
+          "count": 2,
+          "text": "await page.waitForFunction(() => document.getElementById(\"home\").hidden, { timeout: 4000 });"
+        },
+        "27eedd4777dcb09b": {
+          "count": 1,
+          "text": "await waitForFact(p2, \"window.RichHome on the cold launch\", \"typeof window.RichHome === 'object'\", 15000);"
+        },
+        "2c79b25e24a05941": {
+          "count": 1,
+          "text": "await p5.waitForFunction(\"window.RichHome.state.field === 'degraded'\", { timeout: 20000 });"
+        },
+        "2ed8c2caa143ddc1": {
+          "count": 1,
+          "text": "await p2.waitForFunction(\"window.__liveAt != null\", { timeout: 5000 });"
+        },
+        "319346f6ccb479a6": {
+          "count": 1,
+          "text": "await waitForFact(p5, \"window.RichHome on the refusing-display launch\", \"typeof window.RichHome === 'object'\", 15000);"
+        },
+        "3ddf09f03ce70e59": {
+          "count": 1,
+          "text": "await waitForFact(page, \"a temporary line is up\", \"document.getElementById('home-ticker').classList.contains('on')\", 20000);"
+        },
+        "58690087a62101a2": {
+          "count": 2,
+          "text": "await p.waitForFunction(() => document.getElementById(\"home\").hidden, { timeout: 5000 });"
+        },
+        "5f86e5c561d8a600": {
+          "count": 1,
+          "text": "await waitForFact(page, \"window.RichHome is the home screen's export\", \"typeof window.RichHome === 'object'\", 15000);"
+        },
+        "6bd32879a564a65f": {
+          "count": 1,
+          "text": "await waitForFact(page, \"window.RichTimeline is the shell's export\", \"typeof window.RichTimeline === 'object'\", 15000);"
+        },
+        "87cd62320189dd7b": {
+          "count": 3,
+          "text": "await p.waitForFunction(\"typeof window.RichHome === 'object'\", { timeout: 10000 });"
+        },
+        "9c0fdb053d396a3c": {
+          "count": 1,
+          "text": "await page.waitForFunction((f) => window.__loro.frames > f + 1, before.frames, { timeout: 20000 });"
+        },
+        "a1a3f351020b04c2": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => document.getElementById(\"home\").hidden && window.__homeHiddenAt, null, { timeout: 20000 });"
+        },
+        "bc00f1b234b2740d": {
+          "count": 1,
+          "text": "await waitForFact(p5, \"window.RichHome on the customer-corpus launch\", \"typeof window.RichHome === 'object'\", 15000);"
+        },
+        "cf808dcfdabd4fc2": {
+          "count": 1,
+          "text": "{ timeout: 4000 }"
+        },
+        "e7e74af665a59893": {
+          "count": 1,
+          "text": "await page.waitForFunction(\"window.__loro.running === true\", null, { timeout: 20000 });"
+        },
+        "e8b87c784a63cc54": {
+          "count": 1,
+          "text": "await p.waitForFunction(() => !document.getElementById(\"repositories-sheet\").hidden, { timeout: 5000 });"
+        },
+        "f3bd9ce43bf2004e": {
+          "count": 1,
+          "text": "await waitForFact(p4, \"window.RichHome on the no-curtain launch\", \"typeof window.RichHome === 'object'\", 15000);"
+        },
+        "f6b487eb2953a94d": {
+          "count": 1,
+          "text": "await waitForFact(p4, \"window.RichTimeline on the no-curtain launch\", \"typeof window.RichTimeline === 'object'\", 15000);"
+        },
+        "fda2e058cacb402a": {
+          "count": 1,
+          "text": "await p.waitForFunction((n) => window.__loro.landed.sources > n, was, { timeout: 20000 });"
+        }
+      }
+    },
+    "richos/app/ui/tests/lib/harness.js": {
+      "short-deadline": {
+        "e599b5d97de2be39": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => !document.getElementById(\"splash\"), { timeout: 5000 });"
+        }
+      }
+    },
+    "richos/app/ui/tests/lib/navigation-evidence.js": {
+      "host-sample": {
+        "1c56d96fb968d02d": {
+          "count": 1,
+          "text": "loadavg: os.loadavg().map(round),"
+        }
+      },
+      "short-deadline": {
+        "f5e86a0d9093c338": {
+          "count": 1,
+          "text": "spawnSync(\"git\", [\"rev-parse\", \"HEAD\"], { cwd: __dirname, encoding: \"utf8\", timeout: 2000 })"
+        }
+      }
+    },
+    "richos/app/ui/tests/memory-strategy.js": {
+      "short-deadline": {
+        "a76952a70af76f36": {
+          "count": 1,
+          "text": "{ timeout: 5000 }"
+        }
+      },
+      "sleep-then-assert": {
+        "a39faefa445eb1b1": {
+          "count": 1,
+          "text": "await b.waitForTimeout(500);"
+        }
+      }
+    },
+    "richos/app/ui/tests/memory.js": {
+      "short-deadline": {
+        "4e916ca3697fb078": {
+          "count": 1,
+          "text": "await again.waitForFunction(() => (window.__calls || []).some((c) => c.cmd === \"memory_status\"), { timeout: 10000 });"
+        },
+        "dfb0b2fdf19a0464": {
+          "count": 1,
+          "text": "{ timeout: 10000 }"
+        }
+      }
+    },
+    "richos/app/ui/tests/onboarding-lifecycle.js": {
+      "sleep-then-assert": {
+        "1bbc97220a93e109": {
+          "count": 2,
+          "text": "await page.waitForTimeout(100);"
+        }
+      }
+    },
+    "richos/app/ui/tests/onboarding.js": {
+      "short-deadline": {
+        "1d2eee744c3a2a35": {
+          "count": 1,
+          "text": "await page.waitForSelector(\"#first-run:not([hidden])\", { timeout: 8000 });"
+        }
+      }
+    },
+    "richos/app/ui/tests/operator-notice.js": {
+      "short-deadline": {
+        "032d16b2360449cb": {
+          "count": 1,
+          "text": "undefined, { timeout: 8000 }"
+        },
+        "0808ce6c870892ee": {
+          "count": 1,
+          "text": "await control.waitForFunction(() => document.querySelectorAll(\"#messages .tl-notice--team\").length === 1, undefined, { timeout: 8000 });"
+        },
+        "125ac9b4f31fdc45": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => anyLiveTurn(), undefined, { timeout: 5000 }); // eslint-disable-line no-undef"
+        },
+        "43938559e652a4bf": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => document.querySelectorAll(\"#messages .tl-notice--team\").length === 1, undefined, { timeout: 5000 });"
+        },
+        "895f94b5d075be53": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => window.__RICHOS_MOCK__.operatorCalls().includes(\"acme\"), undefined, { timeout: 8000 });"
+        },
+        "aa07bc5c9eb12ac8": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => !anyLiveTurn(), undefined, { timeout: 15000 }); // eslint-disable-line no-undef"
+        },
+        "ab59a51ff21fc7f5": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => document.querySelectorAll(\"#messages .tl-notice--team\").length === 2, undefined, { timeout: 8000 });"
+        },
+        "dfb0b2fdf19a0464": {
+          "count": 1,
+          "text": "{ timeout: 10000 }"
+        },
+        "ef4335965964e1ba": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => document.querySelectorAll(\"#messages .tl-notice\").length === 1, undefined, { timeout: 8000 });"
+        }
+      }
+    },
+    "richos/app/ui/tests/phone.js": {
+      "short-deadline": {
+        "58c49276e164daeb": {
+          "count": 1,
+          "text": "{ timeout: 15000 }"
+        },
+        "b0942b460a90b9ce": {
+          "count": 1,
+          "text": "await yes.waitForFunction(() => document.getElementById(\"phone-mac-answer\").hidden, null, { timeout: 5000 });"
+        },
+        "b7659f5e3bbbf410": {
+          "count": 1,
+          "text": "timeout: 5000,"
+        },
+        "dfb0b2fdf19a0464": {
+          "count": 3,
+          "text": "{ timeout: 10000 }"
+        }
+      }
+    },
+    "richos/app/ui/tests/quota.js": {
+      "sleep-then-assert": {
+        "767f0cb771c9e849": {
+          "count": 1,
+          "text": "await page.waitForTimeout(1200);"
+        }
+      }
+    },
+    "richos/app/ui/tests/restart-scope.js": {
+      "short-deadline": {
+        "094e06e1c4cde674": {
+          "count": 4,
+          "text": "{ timeout: 20000 }"
+        },
+        "58c49276e164daeb": {
+          "count": 1,
+          "text": "{ timeout: 15000 }"
+        },
+        "5b64db7f2d0204ed": {
+          "count": 1,
+          "text": ".waitForFunction(() => document.getElementById(\"input\").value === \"\", null, { timeout: 10000 })"
+        },
+        "6dc830cd884dea40": {
+          "count": 1,
+          "text": "await b.waitForFunction(() => document.querySelectorAll(\".tl-rich\").length > 0, null, { timeout: 8000 });"
+        },
+        "779c10357d273433": {
+          "count": 1,
+          "text": ".waitForFunction(() => document.getElementById(\"messages\").innerText.includes(\"check the Acme numbers\"), null, { timeout: 20000 })"
+        },
+        "a76952a70af76f36": {
+          "count": 2,
+          "text": "{ timeout: 5000 }"
+        },
+        "d4a5ad26d2fcd58e": {
+          "count": 1,
+          "text": "await b.waitForFunction(() => window.__dropped > 0, null, { timeout: 20000 }).catch(() => {});"
+        },
+        "dfb0b2fdf19a0464": {
+          "count": 1,
+          "text": "{ timeout: 10000 }"
+        }
+      },
+      "sleep-then-assert": {
+        "78816a080bbb69c8": {
+          "count": 1,
+          "text": "await page.waitForTimeout(3600);"
+        }
+      }
+    },
+    "richos/app/ui/tests/retention.js": {
+      "short-deadline": {
+        "538a5b9c1d3622f4": {
+          "count": 1,
+          "text": "await page.waitForFunction(fact, arg === undefined ? null : arg, { timeout: 10000 }).catch(() => {});"
+        }
+      }
+    },
+    "richos/app/ui/tests/second-mouth.js": {
+      "short-deadline": {
+        "07aea034ab0ffce6": {
+          "count": 1,
+          "text": "await page.waitForFunction((t) => document.body.innerText.includes(t), typed, { timeout: 4000 });"
+        },
+        "58c49276e164daeb": {
+          "count": 1,
+          "text": "{ timeout: 15000 }"
+        },
+        "cf808dcfdabd4fc2": {
+          "count": 2,
+          "text": "{ timeout: 4000 }"
+        }
+      },
+      "sleep-then-assert": {
+        "124cb5498dd4d240": {
+          "count": 2,
+          "text": "await page.waitForTimeout(600);"
+        },
+        "27323be34a0005e1": {
+          "count": 1,
+          "text": "await page.waitForTimeout(500);"
+        },
+        "76f566c13a340666": {
+          "count": 1,
+          "text": "await page.waitForTimeout(400);"
+        }
+      }
+    },
+    "richos/app/ui/tests/settings-fit.js": {
+      "short-deadline": {
+        "89fdc994188e2ea2": {
+          "count": 1,
+          "text": "await page.waitForSelector(\"#set-btn\", { timeout: 15000 });"
+        },
+        "cf808dcfdabd4fc2": {
+          "count": 2,
+          "text": "{ timeout: 4000 }"
+        }
+      },
+      "sleep-then-assert": {
+        "190d7fba7d4f4703": {
+          "count": 1,
+          "text": "await p2.waitForTimeout(500);"
+        },
+        "79168c97f45988b1": {
+          "count": 1,
+          "text": "await p.waitForTimeout(250);"
+        }
+      }
+    },
+    "richos/app/ui/tests/setup.js": {
+      "short-deadline": {
+        "066debda93f11a80": {
+          "count": 2,
+          "text": "await page.waitForFunction(() => document.getElementById(\"setup-sheet\").hidden, null, { timeout: 10000 }).catch(() => {});"
+        },
+        "0d3f329af6052948": {
+          "count": 1,
+          "text": "await p.waitForSelector(\"#setup-sheet:not([hidden])\", { timeout: 10000 });"
+        },
+        "1f7128335b21862d": {
+          "count": 1,
+          "text": ".waitForFunction((n) => window.__closeTops.length >= n + 24, seenAtAnswer, { timeout: 20000 })"
+        },
+        "28f8e743ef0f410b": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => (window.__calls || []).some((c) => c.cmd === \"setup_status\"), null, { timeout: 10000 }).catch(() => {});"
+        },
+        "5cd98b5412b1d30e": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => !document.querySelector(\".splash\"), { timeout: 10000 });"
+        },
+        "a76952a70af76f36": {
+          "count": 1,
+          "text": "{ timeout: 5000 }"
+        },
+        "abb48da92b3f632b": {
+          "count": 1,
+          "text": "await page.waitForSelector(\"#setup-sheet:not([hidden])\", { timeout: 15000 });"
+        },
+        "b5e849cefdcba58d": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => !document.getElementById(\"setup-sheet\").hidden, { timeout: 5000 })"
+        },
+        "dbbc4b4af376b22b": {
+          "count": 2,
+          "text": "await page.waitForSelector(\"#setup-sheet:not([hidden])\", { timeout: 10000 });"
+        },
+        "ded753465939a0c5": {
+          "count": 1,
+          "text": "await page.waitForSelector(\".splash\", { state: \"detached\", timeout: 15000 });"
+        },
+        "dfb0b2fdf19a0464": {
+          "count": 1,
+          "text": "{ timeout: 10000 }"
+        },
+        "ecabb7341735cfa4": {
+          "count": 1,
+          "text": "await p.waitForFunction(\"typeof window.RichSplash === 'object'\", { timeout: 10000 });"
+        },
+        "f250434c93a173e4": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => document.getElementById(\"setup-sheet\").hidden, { timeout: 5000 });"
+        }
+      },
+      "sleep-then-assert": {
+        "7e0fad12211fe809": {
+          "count": 1,
+          "text": "await held.waitForTimeout(600);"
+        },
+        "7e38e6613f190263": {
+          "count": 1,
+          "text": "await escaped.waitForTimeout(2500);"
+        },
+        "7ebbfb4f25a61d92": {
+          "count": 1,
+          "text": "await page.waitForTimeout(120);"
+        },
+        "f4ffc93e1d57bcb6": {
+          "count": 1,
+          "text": "await mid.waitForTimeout(120);"
+        },
+        "fb3dbe4f97f85c3f": {
+          "count": 1,
+          "text": "await healthy.waitForTimeout(600);"
+        }
+      }
+    },
+    "richos/app/ui/tests/slow-bridge.js": {
+      "short-deadline": {
+        "29bfe512502b8966": {
+          "count": 1,
+          "text": "await page.waitForSelector(\"#entity-view:not([hidden])\", { timeout: 6 * lag + 8000 });"
+        },
+        "7ec4341e42dfa248": {
+          "count": 1,
+          "text": "{ timeout: 6 * lag + 4000 }"
+        },
+        "9e38f873c0f4144c": {
+          "count": 1,
+          "text": "timeout: 15000,"
+        }
+      }
+    },
+    "richos/app/ui/tests/splash.js": {
+      "short-deadline": {
+        "0803f5d7c843d42b": {
+          "count": 2,
+          "text": ".waitForFunction(() => !document.getElementById(\"splash\"), { timeout: 5000 })"
+        },
+        "094e06e1c4cde674": {
+          "count": 1,
+          "text": "{ timeout: 20000 }"
+        },
+        "12a560a4787b2d47": {
+          "count": 1,
+          "text": "await plain.waitForFunction(() => window.__curtain.goneAt !== null, null, { timeout: 20000 });"
+        },
+        "13393074882a758b": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => window.__curtain && window.__curtain.goneAt !== null, null, { timeout: 20000 });"
+        },
+        "1784ea4d0a3322af": {
+          "count": 1,
+          "text": "await long.waitForFunction(() => window.__curtain.goneAt !== null, null, { timeout: 20000 });"
+        },
+        "23d93edb6426e946": {
+          "count": 1,
+          "text": "await page.waitForSelector(\"#splash\", { timeout: 20000 });"
+        },
+        "264825735de01495": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => window.__atReady != null, { timeout: 20000 });"
+        },
+        "335a463f98111b56": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => window.__readyAt != null, { timeout: 20000 });"
+        },
+        "388f914d4160685b": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => window.RichSplash.state.barStopped === true, { timeout: 20000 });"
+        },
+        "3ae4626a740a7552": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => !document.getElementById(\"splash\"), { timeout: 20000 });"
+        },
+        "7cddf6cf1010b2e4": {
+          "count": 1,
+          "text": "await typed.waitForFunction(() => window.__readyAt != null, null, { timeout: 20000 });"
+        },
+        "8ad5cec0f70b8cb6": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => window.__pinnedAtYield !== null, null, { timeout: 20000 });"
+        },
+        "971a6c03ce85ff10": {
+          "count": 1,
+          "text": "await p.waitForFunction(\"typeof window.RichHome === 'object'\", { timeout: 15000 });"
+        },
+        "b395e177f6d9e336": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => window.__curtain && window.__curtain.mid !== null, null, { timeout: 20000 });"
+        },
+        "d03f9e314324e17e": {
+          "count": 1,
+          "text": "await typed.waitForFunction(() => window.__curtain.goneAt !== null, null, { timeout: 20000 });"
+        },
+        "de90e36980e257a9": {
+          "count": 1,
+          "text": "await hung.waitForFunction(() => window.__curtain.goneAt !== null, null, { timeout: 20000 });"
+        },
+        "e599b5d97de2be39": {
+          "count": 2,
+          "text": "await page.waitForFunction(() => !document.getElementById(\"splash\"), { timeout: 5000 });"
+        },
+        "e7576bed1be99011": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => window.__curtain.goneAt !== null, null, { timeout: 20000 });"
+        },
+        "ecabb7341735cfa4": {
+          "count": 1,
+          "text": "await p.waitForFunction(\"typeof window.RichSplash === 'object'\", { timeout: 10000 });"
+        }
+      },
+      "sleep-then-assert": {
+        "86ec1db9124b2c24": {
+          "count": 1,
+          "text": "await page.waitForTimeout(4400);"
+        },
+        "9e34cd1208036597": {
+          "count": 1,
+          "text": "if (SHUTTER_LAG_MS > 0) await page.waitForTimeout(SHUTTER_LAG_MS);"
+        }
+      }
+    },
+    "richos/app/ui/tests/techy.js": {
+      "short-deadline": {
+        "3c7f8787947331b3": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => /q3-acme\\.csv/.test((document.getElementById(\"raw:mach_a1\") || {}).textContent || \"\"), null, { timeout: 10000 });"
+        },
+        "540ed2a6c58b7f38": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => !!document.querySelector('[id=\"raw:mach_a6\"] .tl-tech-note'), null, { timeout: 10000 }).catch(() => {});"
+        },
+        "779d2abb2916b93a": {
+          "count": 1,
+          "text": ".waitForFunction(() => Array.from(document.querySelectorAll(\".tl-activity-text\")).some((n) => n.textContent === \"Read 3 files\"), null, { timeout: 10000 })"
+        },
+        "f52f07e82f71b282": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => { const el = document.getElementById(\"raw:mach_a5\"); return !!el && el.getAttribute(\"data-note\") !== null; }, null, { timeout: 10000 }).catch(() => {});"
+        },
+        "f9d7bbbef5139b0f": {
+          "count": 1,
+          "text": "}, [id, test], { timeout: 10000 })"
+        }
+      },
+      "sleep-then-assert": {
+        "27f38a8ce590d2bf": {
+          "count": 3,
+          "text": "await page.waitForTimeout(250);"
+        }
+      }
+    },
+    "richos/app/ui/tests/ticker-wrap.js": {
+      "short-deadline": {
+        "094e06e1c4cde674": {
+          "count": 1,
+          "text": "{ timeout: 20000 }"
+        },
+        "fc0ac8d48f6f3ff7": {
+          "count": 1,
+          "text": "await page.waitForFunction(\"typeof window.RichHome === 'object'\", { timeout: 15000 });"
+        }
+      }
+    },
+    "richos/app/ui/tests/updates.js": {
+      "short-deadline": {
+        "44b263489c4f2741": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => !document.getElementById(\"splash\"), { timeout: 15000 }).catch(() => {});"
+        },
+        "dfb0b2fdf19a0464": {
+          "count": 3,
+          "text": "{ timeout: 10000 }"
+        }
+      }
+    },
+    "richos/app/ui/tests/waiting-lifecycle.js": {
+      "short-deadline": {
+        "deee115b35cc269b": {
+          "count": 1,
+          "text": "{ timeout: 8000 }"
+        }
+      },
+      "sleep-then-assert": {
+        "1bbc97220a93e109": {
+          "count": 1,
+          "text": "await page.waitForTimeout(100);"
+        }
+      }
+    },
+    "richos/app/ui/tests/waiting-state.js": {
+      "short-deadline": {
+        "006495eec736a8cd": {
+          "count": 1,
+          "text": "}, { timeout: 4000 })"
+        },
+        "5776d6bfd2635b15": {
+          "count": 1,
+          "text": "await page.waitForFunction(\"typeof window.RichHome === 'object'\", { timeout: 8000 }).catch(() => {});"
+        },
+        "877ea99f9ff2d72b": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => !document.getElementById(\"splash\"), { timeout: 8000 }).catch(() => {});"
+        },
+        "b89ce612cb8497f9": {
+          "count": 1,
+          "text": "await page.waitForFunction(() => { const h = document.getElementById(\"home\"); return !h || h.hidden; }, { timeout: 8000 }).catch(() => {});"
+        }
+      }
+    },
+    "richos/app/ui/tests/work-summary.js": {
+      "short-deadline": {
+        "eb641102b1ef14ff": {
+          "count": 1,
+          "text": "{timeout: 8000}"
+        }
+      }
+    }
+  }
+}

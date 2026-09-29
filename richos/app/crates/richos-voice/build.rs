@@ -102,9 +102,10 @@ fn main() {
 /// `rerun-if-env-changed` puts `RICHOS_PRIVATE_FIXTURES` in this script's fingerprint, so setting
 /// or unsetting it recompiles the crate and re-decides the cfg. The FILE APPEARING is not a
 /// variable, so it is watched by `rerun-if-changed` on the deepest directory of each candidate
-/// path that currently exists — cloning `richos-hq` beside `richos` changes `~/ab`'s mtime, and
-/// creating `fixtures/echo-path` inside an existing `richos-hq` changes its. That covers the real
-/// cases and is not a proof. If a run reports `ignored` when you believe the file is there,
+/// path that currently exists, below the directory holding the checkout — creating
+/// `fixtures/echo-path` inside an existing `richos-hq` changes its mtime. Cloning `richos-hq`
+/// beside `richos` after the first build is NOT watched (the holding directory churns; see
+/// `private_fixtures_cfg`). That covers the real cases and is not a proof. If a run reports `ignored` when you believe the file is there,
 /// `touch build.rs` (or `cargo clean -p richos-voice`) and run it again; the cfg is then correct.
 /// Erring toward `ignored` is the safe direction: it under-claims, and a false `ok` is the thing
 /// this file exists to prevent.
@@ -112,12 +113,26 @@ fn private_fixtures_cfg() {
     println!("cargo::rerun-if-env-changed={}", private_fixtures::ENV_DIR);
 
     let manifest = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    // The directory that HOLDS this checkout. It is never watched, and neither is anything
+    // above it: on this Mac it is `~/ab/richos-wt` (one entry per worktree) or
+    // `~/.richos-nightly` (logs and runs), whose mtime moves every time any other checkout is
+    // created or removed. Watching it re-ran this script, and so recompiled this crate and
+    // every crate above it, on nearly every build in every worktree: measured 2026-09-29,
+    // `cargo clippy --all-targets` on an unchanged tree took 49 s twice in a row, with Cargo's
+    // fingerprint log naming `stale: changed "/Users/alex/ab/richos-wt"`. Without the watch a
+    // `richos-hq` cloned beside a checkout AFTER its first build is not noticed until
+    // `touch build.rs`, which is the limitation above, in its safe direction (`ignored`).
+    let holder = private_fixtures::repo_root(&manifest)
+        .and_then(|root| root.parent().map(std::path::Path::to_path_buf));
     for dir in private_fixtures::candidate_dirs(&manifest) {
         // Watch the deepest ANCESTOR THAT EXISTS. A `rerun-if-changed` on a path that is not
         // there makes Cargo re-run this script on every single build, which is a real cost paid
         // by every developer who does not have the private repository — i.e. by almost everyone.
         let mut d: &std::path::Path = &dir;
         loop {
+            if holder.as_deref().is_some_and(|h| h.starts_with(d)) {
+                break;
+            }
             if d.exists() {
                 println!("cargo::rerun-if-changed={}", d.display());
                 break;

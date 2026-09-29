@@ -67,25 +67,32 @@ def tracked(root):
     return sorted(p for p in paths if p)
 
 
+def classify(path):
+    """The inventory row for one repository-relative path, or None when it is not scanned."""
+    if not path.startswith(APP):
+        return None
+    p = Path(path)
+    if p.suffix not in {".sh", ".rs", ".js"}:
+        return None
+    if p.suffix == ".sh" and not path.startswith(APP + "scripts/"):
+        return None
+    if p.suffix == ".js" and not path.startswith(APP + "ui/"):
+        return None
+    role = "production"
+    if "fixtures" in p.parts or "fixture" in p.parts:
+        role = "fixture"
+    elif p.name.endswith(".test.sh") or "tests" in p.parts or "test" in p.parts:
+        role = "suite"
+    return {"language": {".sh": "shell", ".rs": "rust", ".js": "javascript"}[p.suffix], "role": role}
+
+
 def inventory(root):
     """One tracked inventory; fixtures are accounted for but never linted as products."""
     rows = {}
     for path in tracked(root):
-        if not path.startswith(APP):
-            continue
-        p = Path(path)
-        if p.suffix not in {".sh", ".rs", ".js"}:
-            continue
-        if p.suffix == ".sh" and not path.startswith(APP + "scripts/"):
-            continue
-        if p.suffix == ".js" and not path.startswith(APP + "ui/"):
-            continue
-        role = "production"
-        if "fixtures" in p.parts or "fixture" in p.parts:
-            role = "fixture"
-        elif p.name.endswith(".test.sh") or "tests" in p.parts or "test" in p.parts:
-            role = "suite"
-        rows[path] = {"language": {".sh": "shell", ".rs": "rust", ".js": "javascript"}[p.suffix], "role": role}
+        row = classify(path)
+        if row is not None:
+            rows[path] = row
     for language in ("shell", "rust", "javascript"):
         if not any(r["language"] == language for r in rows.values()):
             raise Refusal(f"zero-file {language} inventory")

@@ -170,3 +170,12 @@ registration surfaces and installer/probe text are additional content inputs
 beyond the R1 executed-reader graph. They are excluded from subset reuse until
 that data closure is independently qualified. No production result was accepted
 under the earlier incomplete record subset declarations.
+
+## Renewals
+
+- 2026-09-29, `richos/engine/mega-lander/workspaces.py`, pinned by 22 unit contracts,
+  `2af6d481…` to `98d5ba20…` after `a2355c58`. That change replaces one 0.2 s sleep in
+  `stop_processes` with a bounded poll of the existing `_alive` check and adds the constant
+  `PROCESS_KILL_WAIT`. It reads no new file, environment variable, tool or outside path, so
+  every contract's input floor is unchanged. Without the renewal every one of those
+  contracts refused qualification and `proof-run.test.sh` was red on main at `6ef73abf`.

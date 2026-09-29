@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# autocheck.test.sh — git runs the basic checks itself: the lint at every commit, the owning
+# suites plus the lint at every land into main, and every --no-verify is recorded for the
+# lead (CEO ruling §97). Throwaway Git repositories with stand-in tools and a scratch
+# escalation ledger; nothing builds, boots or opens a window, and this repository's hooks
+# are never touched.
+# run-tests: no-host-screen: throwaway Git repositories only; nothing is launched on any screen
+# run-tests: inputs richos/app/scripts/autocheck.test.sh richos/app/scripts/autocheck.test.py richos/app/scripts/autocheck richos/engine/scripts/escalate.sh richos/engine/scripts/lib/escalations.py richos/engine/scripts/lib/escalations.sh
+# run-tests: covers richos/app/scripts/autocheck/autocheck.py richos/app/scripts/autocheck/shim.sh richos/app/scripts/autocheck/install.sh
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PYTHONDONTWRITEBYTECODE=1 python3 "$here/autocheck.test.py"
