@@ -67,6 +67,7 @@ const {
   leaveSplash,
   HOLD_CURTAIN,
   assertCurtainHeld,
+  paintedGround,
   UI_DIR,
 } = require("./lib/harness");
 const SOURCES = require("./lib/ui-sources");
@@ -451,8 +452,10 @@ async function main() {
         "and the stored PREFERENCE is 'system' — resolving correctly by coincidence is not " +
           "following the OS, and only 'system' keeps following it when the OS changes"
       );
+      // Off the element that PAINTS the ground: `html` since the speckled ground made `body`
+      // transparent on purpose (`lib/harness.js` `paintedGround`).
       assertEqual(
-        await page.evaluate(() => getComputedStyle(document.body).backgroundColor),
+        await paintedGround(page),
         ground,
         "painted on the shipped --ground for " + wanted + ", not merely labeled it"
       );
@@ -510,7 +513,7 @@ async function main() {
     await settledPage(page);
     assertEqual(await themeOf(page), "dark", "the OS went dark and the app did not");
     assertEqual(
-      await page.evaluate(() => getComputedStyle(document.body).backgroundColor),
+      await paintedGround(page),
       grounds.dark,
       "and the PAINT followed, not only the attribute"
     );
@@ -632,9 +635,9 @@ async function main() {
         theme: document.documentElement.getAttribute("data-theme"),
         forced: window.RichTheme.forcedDark(),
         pref: window.RichTheme.theme(),
-        ground: getComputedStyle(document.body).backgroundColor,
         themeRow: !!document.querySelector(".theme-opt"),
       }));
+      onHome.ground = await paintedGround(page);
       assertEqual(onHome.theme, "dark", "§15's clamp: the home screen is dark under a " + osScheme + " OS");
       assertEqual(onHome.ground, "rgb(12, 19, 34)", "painted on the §14 ground, not merely named dark");
       assertEqual(onHome.forced, true, "and it is a FORCE, so it cannot be mistaken for a preference");
@@ -1396,9 +1399,15 @@ async function main() {
     // checked rather than believed.
     const rules = SOURCES.cssRules("font-size");
     assert(rules.length >= 150, "only " + rules.length + " font-size declarations found — that is not this tree");
-    assert(
-      SOURCES.styleSources().length === 4,
-      "the shell links " + SOURCES.styleSources().length + " stylesheets, not the four this check was measured against"
+    // FIVE SINCE 2026-09-29, AND NAMED RATHER THAN COUNTED. `speckle.css` is the design
+    // system's speckled-ground stylesheet, copied byte for byte from richos-hq design/system
+    // (speckle-app.js says why); it declares no font-size at all today, and the walk below
+    // reads it like every other file, so a size added to it is held to the same floor. The
+    // list is compared by NAME, so a swap of one file for another cannot pass as "still five".
+    assertEqual(
+      SOURCES.styleSources(),
+      ["fonts/fonts.css", "style.css", "speckle.css", "splash.css", "home.css"],
+      "the shell links a different set of stylesheets from the five this check was measured against"
     );
     // THE TWO DERIVATIONS ARE JOINED, the way `lib/harness.js` joins its two PNG decoders: a
     // brace-counting walk and the property regex must see the same declarations, or the walk
@@ -1545,7 +1554,7 @@ async function main() {
       ".nav-status": { kind: "glyph", why: "the per-conversation status mark, a SHAPE (§18: a state is never carried by color alone), with the word in the row's accessible label" },
       ".tl-chevron": { kind: "glyph", why: "the turn's expand/collapse chevron; the row it belongs to carries the readable label" },
       ".tl-activity-mark": { kind: "glyph", why: "the activity row's status shape, the same symbol vocabulary as .nav-status, beside 16px text that says the state" },
-      ".tl-tech-chevron": { kind: "glyph", why: "the technical row's expand chevron. Its ink is measured on the painted glass by contrast.js check 17 (6.46:1 dark, 5.14:1 light) against a 4.5:1 floor, which is stricter than the 3:1 a non-text indicator owes" },
+      ".tl-tech-chevron": { kind: "glyph", why: "the technical row's expand chevron. Its ink is measured on the painted glass, on the plain ground with the speckle hidden, by contrast.js check 17 (6.46:1 dark, 5.14:1 light) against a 4.5:1 floor, which is stricter than the 3:1 a non-text indicator owes" },
       ".chrome-select-chevron": { kind: "glyph", why: "the `this opens a list` cue on a <select>; aria-hidden and pointer-events:none, so the control's own accessible name is the whole of what is read" },
       ".nav-group-label": { kind: "caps", why: "the company eyebrow over a group of conversations — all caps, letter-spaced, the app's standard micro-label" },
       ".entity-block-title": { kind: "caps", why: "the entity view's section eyebrow — all caps, letter-spaced" },

@@ -4905,4 +4905,24 @@ module.exports = [
   {"s":"· can resume just after","c":"FRAGMENT","why":"A label or interpolated piece of the quota reading, hold status or affected-limit list. It is not an independent instruction."},
   {"s":"Weekly usage reached 99%. Agents will pause at their next step until allowance is confirmed.","c":"ACTIONABLE","control":"#quota-enabled","fixture":null,"why":"The shared automatic-pause switch is present in this weekly state. quota.js checks the weekly fixture and the switch lifecycle."},
   {"s":"Weekly usage reached 99%. Waiting for a confirmed reset and available allowance.","c":"ACTIONABLE","control":"#quota-release","fixture":null,"why":"The weekly hold offers the same explicit release control as a five-hour hold. quota.js checks that this control releases the weekly hold and disables automatic pause."},
+
+  // ---- speckle.js — THE DESIGN SYSTEM'S SPECKLED GROUND (CEO, 2026-09-29) ---------------
+  // `ui/speckle.js` is copied byte for byte from richos-hq design/system (speckle-app.js says
+  // why), so its wording is not edited here. Every one of these is the text of an `Error`
+  // thrown by `RichOSSpeckle.preset()` or `.background()` (speckle.js:336-355) to the code that
+  // called it, or a piece of one: the CEO's rule, quoted into the refusal, and the two names of
+  // the surfaces it forbids. The app's one caller, `speckle-app.js` `mount()`, catches any
+  // throw into `RichSpeckle.state.error`, which nothing draws, and the shell carries on without
+  // the canvas. `tests/speckled-ground.js` check 7 reads the refusal off the thrown error. None
+  // of them reaches the DOM.
+  {"s":"The splash screens on desktop and mobile apps as well as the desktop app home screen should never have that speckled background design.","c":"NOT-RENDERED","why":"speckle.js `RULE`, the CEO's rule of 2026-09-29, quoted into the Error the engine throws when asked for the splash or home surface. Thrown to the caller; speckle-app.js keeps it in RichSpeckle.state.error, which nothing renders."},
+  {"s":"the splash screen (desktop or mobile)","c":"NOT-RENDERED","why":"speckle.js `NEVER.splash`, the name of a forbidden surface interpolated into the engine's thrown refusal. Never drawn."},
+  {"s":"the desktop app home screen","c":"NOT-RENDERED","why":"speckle.js `NEVER.home`, the name of a forbidden surface interpolated into the engine's thrown refusal. Never drawn."},
+  {"s":"RichOSSpeckle: no speckle preset exists for","c":"NOT-RENDERED","why":"The head of the Error preset() throws for a forbidden surface. A developer-facing refusal to the calling code; speckle-app.js catches it into RichSpeckle.state.error, which nothing renders."},
+  {"s":"RichOSSpeckle: unknown surface \"","c":"NOT-RENDERED","why":"The head of the Error preset() throws for a surface name it does not know. Developer-facing, caught by speckle-app.js, never rendered."},
+  {"s":"\"; the surfaces are \"desktop\" and \"mobile\".","c":"NOT-RENDERED","why":"The tail of the same unknown-surface Error. Developer-facing, caught by speckle-app.js, never rendered."},
+  {"s":"RichOSSpeckle: unknown theme \"","c":"NOT-RENDERED","why":"The head of the Error preset() throws for a theme other than dark or light. Developer-facing, caught by speckle-app.js, never rendered."},
+  {"s":"\"; the themes are \"dark\" and \"light\".","c":"NOT-RENDERED","why":"The tail of the same unknown-theme Error. Developer-facing, caught by speckle-app.js, never rendered."},
+  {"s":"RichOSSpeckle.background: refused for","c":"NOT-RENDERED","why":"The head of the Error background() throws for the splash or home surface, which the CEO's rule forbids. speckled-ground.js check 7 reads it off the throw; speckle-app.js never asks for either surface, and a throw would land in RichSpeckle.state.error, which nothing renders."},
+  {"s":"RichOSSpeckle.background: `surface` must be \"desktop\" or \"mobile\" (got","c":"NOT-RENDERED","why":"The head of the Error background() throws for a missing or unknown surface. speckle-app.js always passes \"desktop\"; developer-facing, never rendered."},
 ];

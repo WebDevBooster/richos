@@ -101,6 +101,7 @@ const {
   HOLD_CURTAIN,
   assertCurtainHeld,
   SLOW_BRIDGE,
+  paintedGround,
   UI_DIR,
 } = require("./lib/harness");
 const C = require("./lib/contrast");
@@ -1378,6 +1379,50 @@ async function techyScopeThisConversation(page) {
   await page.waitForSelector("#techy-scope", { state: "hidden" });
 }
 
+/// A NON-TEXT INDICATOR IS MEASURED AGAINST THE PLAIN GROUND IT SITS ON, WITH THE SPECKLE
+/// HIDDEN. The lead's ruling of 2026-09-29, correcting echo-opus-speckle3's brief: a speckle dot
+/// under a border, an icon or the logo is not a contrast failure; the worst-single-pixel rule is
+/// for TEXT only; a non-text indicator keeps its own floor, measured on the plain ground.
+///
+/// WHY A CROP OVER THE SPECKLE CANNOT BE READ THAT WAY, measured on this branch: the light
+/// chevron `.tl-tech-chevron` is `--ink-tech`, rgba(12, 19, 34, 0.75). Shot as painted, its
+/// 9x15 crop had four core ink values (#5b5d64, #5d5e62, #5c5f65 x2, #5d6066, 5.06-5.28:1 on
+/// #eae6dd), because a translucent ink over a ground that changes pixel by pixel never repeats
+/// a value. `measureIndicatorCrop` needs a value 3 times, so it passed over the ink and took an
+/// antialiased edge, #c5c2be (3 samples), as the "ink": 1.42:1. Shot with the speckle hidden:
+/// #5c5f65 on #eae6dd, 5.14:1. The 1.42 was an edge pixel against the ground, not the chevron.
+///
+/// The speckle is the canvas `body > canvas.speckle` (speckle-app.js). It is hidden for the one
+/// shot and restored, so every other measurement in the walk still sees the app as shipped.
+/// `tally.hidden` counts the shots it was really there for and the check prints it, so a run in
+/// which the speckle never mounted says so rather than reading as a measurement around it.
+async function onPlainGround(page, shoot, tally) {
+  const hidden = await page.evaluate(() => {
+    const c = document.querySelector("body > canvas.speckle");
+    if (!c) return false;
+    c.style.setProperty("visibility", "hidden", "important");
+    return true;
+  });
+  try {
+    if (hidden) {
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    }
+    const buf = await shoot();
+    if (tally) {
+      tally.shots += 1;
+      if (hidden) tally.hidden += 1;
+    }
+    return buf;
+  } finally {
+    if (hidden) {
+      await page.evaluate(() => {
+        const c = document.querySelector("body > canvas.speckle");
+        if (c) c.style.removeProperty("visibility");
+      });
+    }
+  }
+}
+
 async function openApp(browser, theme, holdSplash, preset) {
   const page = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: theme });
   // The occlusion check joins node paths across independent pages. The preview
@@ -1638,6 +1683,7 @@ async function main() {
     canvas: 0,
     canvasInHome: 0,
     canvasInPhone: 0,
+    canvasSpeckle: 0,
     svgText: 0,
     /// Which of the shell's DECLARED panels any walk actually put on screen — see check 10c.
     panelsReached: new Map(),
@@ -1982,6 +2028,7 @@ async function main() {
         seen.canvas += out.canvasCount;
         seen.canvasInHome += out.canvasInHome || 0;
         seen.canvasInPhone += out.canvasInPhone || 0;
+        seen.canvasSpeckle += out.canvasSpeckle || 0;
         seen.svgText += out.svgTextCount;
         seen.totals.considered += out.nodesConsidered;
         seen.totals.checked += out.nodesChecked;
@@ -2228,10 +2275,15 @@ async function main() {
     // taken from the PIXELS: the shell's own painted background, read out of both walks.
     // That is evidence a clean app still produces, and it is closer to the thing being
     // claimed anyway — "there are two palettes" is a statement about colours, not failures.
+    // READ OFF THE ELEMENT THAT PAINTS THE GROUND, which stopped being `body` on 2026-09-29:
+    // the speckled ground needs `body` transparent and keeps the ruled ground on `html`
+    // (style.css "THE SPECKLED GROUND"). Reading `body` there gave rgba(0, 0, 0, 0) in both
+    // themes and failed this check on a transparent layer, not on the theme.
+    // `lib/harness.js` `paintedGround` says why it is not simply `html` by name.
     const grounds = {};
     for (const t of THEMES) {
       const page = await openApp(browser, t, false);
-      grounds[t] = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+      grounds[t] = await paintedGround(page);
       await page.close();
     }
     if (themed === 0) {
@@ -2245,7 +2297,7 @@ async function main() {
     }
     assert(
       grounds.light !== grounds.dark,
-      themed + " second-theme rule(s) are shipped, but both walks paint the same body background (" +
+      themed + " second-theme rule(s) are shipped, but both walks paint the same ground (" +
         grounds.dark + ") — the theme is not reaching the elements, so half of every check above " +
         "is a fiction"
     );
@@ -2285,7 +2337,7 @@ async function main() {
     return (
       themed + " second-theme rule(s) shipped (" + attrBlocks + " `:root[data-theme=]`, " +
       mediaBlocks + " `prefers-color-scheme`), and both walks exercise them: the two runs " +
-      "differ, the body ground differs (" + grounds.dark + " vs " + grounds.light + "), and a " +
+      "differ, the painted ground differs (" + grounds.dark + " vs " + grounds.light + "), and a " +
       "fresh install follows the OS both ways (light OS -> " + virgins.light + ", dark OS -> " +
       virgins.dark + ")."
     );
@@ -2625,6 +2677,9 @@ async function main() {
       "PIXELS in this same WebKit — only the #000000 modules and the #ffffff quiet zone this shell " +
       "paints are present, which is 21:1, and the quiet zone is white on all four edges, which is " +
       "what makes a code scan on a dark page.\n          " +
+      seen.canvasSpeckle + " speckled-ground <canvas> element(s) (`body > canvas.speckle`) were EXCLUDED and ARE " +
+      "covered, elsewhere: it carries no text, it sits behind the shell, and `tests/speckled-ground.js` proves every " +
+      "text node drawn over it keeps 4.5:1 against the strongest point the engine can paint.\n          " +
       seen.canvasInHome + " <canvas> element(s) inside #home were EXCLUDED and are not covered here: the " +
       "home screen is round-11.1/v1 \"Constellation\", a canvas composition the CEO chose, and it is " +
       "measured from the pixels by tests/home.js instead — 16 elements, worst 4.23:1, on the rendered " +
@@ -2721,9 +2776,11 @@ async function main() {
         // A three-pixel skirt, so the crop carries the panel the ring is drawn on as well as the
         // ring. The ground is then read from the skirt (the most common border value) rather than
         // assumed, exactly as the surface walks resolve a ground from the paint stack.
-        const buf = await page.screenshot({
+        // A radio is a non-text indicator: shot on the plain ground (`onPlainGround`). The scope
+        // sheet's panel is opaque, so today this changes no pixel; it keeps the rule uniform.
+        const buf = await onPlainGround(page, () => page.screenshot({
           clip: { x: Math.floor(r.x - 3), y: Math.floor(r.y - 3), width: Math.ceil(r.w + 6), height: Math.ceil(r.h + 6) },
-        });
+        }));
         measured.push(Object.assign({ theme: theme }, C.measureIndicatorCrop(buf), { value: r.value, checked: r.checked }));
       }
 
@@ -2824,15 +2881,16 @@ async function main() {
         }, want);
         assertEqual(b.checked, want, "the checkbox would not take the state to be measured");
         // The same three-pixel skirt check 16 uses, so the ground is READ off the panel
-        // rather than assumed, and the two checks are the same instrument.
-        const buf = await page.screenshot({
+        // rather than assumed, and the two checks are the same instrument — including the
+        // plain ground (`onPlainGround`), as a non-text indicator is measured.
+        const buf = await onPlainGround(page, () => page.screenshot({
           clip: {
             x: Math.floor(b.x - 3),
             y: Math.floor(b.y - 3),
             width: Math.ceil(b.w + 6),
             height: Math.ceil(b.h + 6),
           },
-        });
+        }));
         crops[theme + ":techy-default:" + b.checked] = buf.toString("base64");
         measured.push(Object.assign({ theme: theme }, C.measureIndicatorCrop(buf), { id: b.id, checked: b.checked }));
       }
@@ -3081,6 +3139,7 @@ async function main() {
     const RENDERED_FLOOR = 4.5;
     const DECLARED_FLOOR = 6;
     const lines = [];
+    const plainGround = { shots: 0, hidden: 0 };
     for (const theme of ["light", "dark"]) {
       const page = await openApp(browser, theme);
       // `acme` AND NOT `hiring`, for the reason at the top of this check.
@@ -3093,6 +3152,24 @@ async function main() {
         return !!chip && !chip.hidden;
       });
       await awaitSettled(page);
+      // THE CHEVRON IS WAITED FOR, BECAUSE THIS CHECK PASSED WITHOUT ONE. On 2026-09-29 two runs
+      // of this same file on the same tree measured 2 nodes in each theme (the two vendor labels
+      // and nothing else, so no chevron at all) and then 13 light / 21 dark with the chevron
+      // among them: the conversation's technical rows arrive after `awaitSettled` returns on
+      // some runs. `acme`'s rows are always expandable (main.js hands the timeline
+      // `machineryRaw`), so a visible chevron is what this fixture renders. The wait is for the
+      // FACT; its 60 s bound is a hang guard only, and running out fails here by name.
+      await page
+        .waitForFunction(() => [...document.querySelectorAll(".tl-tech-chevron")].some((n) => {
+          const r = n.getBoundingClientRect();
+          return r.width >= 2 && r.height >= 2;
+        }), null, { timeout: 60000 })
+        .catch(() => {
+          throw new Error(
+            theme + ": `acme` never showed a visible .tl-tech-chevron (hang guard, 60 s), so the one " +
+              "non-text node in this cluster could not be measured"
+          );
+        });
 
       // THE POSITIVE PROBE, and it is the whole defense against this check passing by
       // measuring nothing. If the fixture ever stops rendering technical rows — the exact
@@ -3118,10 +3195,11 @@ async function main() {
         [".tl-tech[data-vendor] .tl-tech-title", "vendor label, 14px italic mono"],
         [".tl-tech-summary", "the bounded preview, 14px"],
         [".tl-tech-path", "a touched path, 14px mono"],
-        [".tl-tech-chevron", "the expand chevron, 11px glyph"],
+        // The one NON-TEXT node here, so it is shot on the plain ground (`onPlainGround`).
+        [".tl-tech-chevron", "the expand chevron, 11px glyph", { nonText: true }],
       ];
       const nodes = [];
-      for (const [sel, what] of WANT) {
+      for (const [sel, what, how] of WANT) {
         for (const handle of await page.$$(sel)) {
           const info = await handle.evaluate((n) => {
             const r = n.getBoundingClientRect();
@@ -3143,7 +3221,7 @@ async function main() {
             return { text: (n.textContent || "").trim().slice(0, 44), color: cs.color, ground,
                      size: cs.fontSize, weight: cs.fontWeight };
           });
-          if (info) nodes.push(Object.assign({ sel, what, handle }, info));
+          if (info) nodes.push(Object.assign({ sel, what, handle, nonText: !!(how && how.nonText) }, info));
         }
       }
       assert(
@@ -3155,6 +3233,7 @@ async function main() {
 
       let worstDeclared = null;
       let worstRendered = null;
+      const chevrons = [];
       for (const n of nodes) {
         // ---- the declared column, the suite's own arithmetic on the resolved colors -------
         const fg = C.parseCssColor(n.color);
@@ -3171,8 +3250,14 @@ async function main() {
         if (!worstDeclared || declared < worstDeclared.r) worstDeclared = { r: declared, what: n.what };
 
         // ---- the rendered column, off the painted frame ----------------------------------
-        const buf = await n.handle.screenshot();
+        // TEXT is shot as painted, speckle and all: text owes 4.5:1 at the worst single pixel,
+        // and `speckled-ground.js` check 4 holds every text node on the ground to that against
+        // the strongest point the engine can paint. The CHEVRON is non-text and is shot on the
+        // plain ground it sits on, with the speckle hidden (`onPlainGround` says why and what
+        // it measured when it was not).
+        const buf = n.nonText ? await onPlainGround(page, () => n.handle.screenshot(), plainGround) : await n.handle.screenshot();
         const m = C.measureIndicatorCrop(buf, 3);
+        if (n.nonText) chevrons.push(m.ratio + ":1 (" + m.ink + " on " + m.ground + ")");
         assert(
           !m.unresolvable,
           theme + ": " + n.what + " " + JSON.stringify(n.text) + " — " + m.unresolvable +
@@ -3187,13 +3272,22 @@ async function main() {
         );
         if (!worstRendered || m.ratio < worstRendered.r) worstRendered = { r: m.ratio, what: n.what, text: n.text };
       }
+      assert(
+        chevrons.length >= 1,
+        theme + ": no chevron was measured, so the one non-text node in this cluster went unshot"
+      );
       lines.push(
         theme + ": " + nodes.length + " label(s), worst declared " + worstDeclared.r + ":1 (" +
-          worstDeclared.what + "), worst rendered " + worstRendered.r + ":1 (" + worstRendered.what + ")"
+          worstDeclared.what + "), worst rendered " + worstRendered.r + ":1 (" + worstRendered.what +
+          "); chevron(s) on the plain ground " + chevrons.join(", ")
       );
       await page.close();
     }
-    return "declared floor " + DECLARED_FLOOR + ":1, rendered floor " + RENDERED_FLOOR + ":1 — " + lines.join("; ");
+    return (
+      "declared floor " + DECLARED_FLOOR + ":1, rendered floor " + RENDERED_FLOOR + ":1 — " + lines.join("; ") +
+      ". Non-text crops on the plain ground: " + plainGround.shots + ", the speckle mounted and hidden for " +
+      plainGround.hidden + " of them"
+    );
   });
 
   // ---- the run's own numbers, printed whether it passes or fails ---------------------------

@@ -40,6 +40,9 @@ const path = require("path");
 const fs = require("fs");
 const png = require("./png");
 const stability = require("./shot-stability");
+// The checkout as this suite found it, compared at `report()` (`lib/tracked-tree.js`). Taken
+// here, at the harness's first require, which is before any suite code has run.
+const TREE = require("./tracked-tree").watch((abs) => stability.regenerating(abs));
 // On a navigation that fails, write down what the page was doing (`lib/navigation-evidence.js`).
 const navigation = require("./navigation-evidence");
 // A suite prints its PASS/FAIL report in one burst and then exits; on a pipe, the FAIL lines
@@ -245,51 +248,80 @@ const SHOT_MIN_DISTINCT = 8;
 // decoder will not guess at, `samePicture` is false and the file is written. One redundant
 // write costs a line in `git status`; a wrongly-skipped write costs a regression nobody sees.
 //
-// When a committed shot IS rewritten, the change is announced with the pixel count that made
-// it necessary — so the diff arrives already explained, rather than as a binary blob.
+// When a committed shot differs, the change is announced with the pixel count — so the
+// difference arrives already explained, rather than as a binary blob.
+//
+// AND A COMMITTED SHOT IS NEVER WRITTEN BY A TEST RUN. Since 2026-09-29 (`lib/tracked-tree.js`
+// carries the incident): the merge gate verifies a candidate IN THE MAIN CHECKOUT, and this
+// function used to write a changed picture straight over its committed reference — so any
+// change that legitimately moved a picture had its own verification refused as "source changed
+// during verification". A test that rewrites the tree it is verifying is not evidence; it is a
+// second, unreviewed commit. So:
+//
+//   * `.shots/` (gitignored per-run scratch) is written as always;
+//   * a committed reference is written ONLY when it is being regenerated on purpose —
+//     `RICHOS_SHOTS_REGENERATE=<file|dir|all>`, the same switch `lib/shot-stability.js` names —
+//     which a person runs in their own worktree and then commits, with the reason;
+//   * otherwise the picture this run took is kept at `.shots/changed/<same path>` and the line
+//     says so, with the exact command that accepts it. Nothing fails for it: a changed picture
+//     was never a failure here, and it is not made one now.
+const CHANGED_DIR = path.join(SHOT_DIR, "changed");
+
 function publishShot(buf, file) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  file = path.resolve(file);
+  const scratch = file.startsWith(SHOT_DIR + path.sep);
+  // A reference is a destination inside this tests directory that is not scratch. Anything
+  // outside the tests directory is a directory somebody named explicitly, and is theirs.
+  const key = scratch ? null : stability.relKey(file);
   let existing = null;
   try {
     existing = fs.readFileSync(file);
   } catch (_e) {
-    /* no previous shot — first write */
+    /* no previous shot */
   }
   if (existing && png.samePicture(existing, buf)) {
     return { file, written: false, bytes: existing.length };
   }
-  // A COMMITTED shot changed. `.shots/` is per-run scratch and gitignored; saying anything
-  // about it every run would be the noise this whole change exists to remove.
-  if (existing && !file.startsWith(SHOT_DIR + path.sep)) {
-    const rel = path.relative(path.resolve(__dirname, ".."), file);
-    const difference = png.describeDifference(existing, buf);
-    // AND THE HANDFUL OF SURFACES THAT ARE NOT THE SAME PICTURE TWICE. `lib/shot-stability.js`
-    // is the only place a file is allowed to differ without being rewritten, it names one file
-    // at a time, and every entry carries the cause, the measurement and the bound. A shot held
-    // under a bound is announced exactly as loudly as one that changed — the whole arrangement
-    // depends on the line being in the run's output where somebody reads it.
-    const rule = stability.ruleFor(file);
-    if (rule && !stability.regenerating(file)) {
-      const verdict = stability.heldBy(rule, existing, buf);
-      if (verdict.held) {
-        console.log(
-          "  shot held: " + rel + " — " + rule.class + " — " + difference +
-            " — inside its declared bound (" + verdict.bound + ", lib/shot-stability.js)"
-        );
-        return { file, written: false, bytes: existing.length, held: true };
-      }
-      console.log(
-        "  shot changed OUTSIDE ITS DECLARED BOUND: " + rel + " — " + difference +
-          " — declared as `" + rule.class + "` at " + verdict.bound +
-          " in lib/shot-stability.js, and this run is past it"
-      );
-      fs.writeFileSync(file, buf);
-      return { file, written: true, bytes: buf.length };
-    }
-    console.log("  shot changed: " + rel + " — " + difference);
+  if (!key) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, buf);
+    return { file, written: true, bytes: buf.length };
   }
-  fs.writeFileSync(file, buf);
-  return { file, written: true, bytes: buf.length };
+  const regenerating = stability.regenerating(file);
+  const difference = existing ? png.describeDifference(existing, buf) : "no committed reference yet";
+  // THE HANDFUL OF SURFACES THAT ARE NOT THE SAME PICTURE TWICE. `lib/shot-stability.js` is the
+  // only place a file is allowed to differ without being announced as changed; it names one file
+  // at a time, and every entry carries the cause, the measurement and the bound. A shot held
+  // under a bound is announced exactly as loudly as one that changed.
+  const rule = existing ? stability.ruleFor(file) : null;
+  let outside = "";
+  if (rule && !regenerating) {
+    const verdict = stability.heldBy(rule, existing, buf);
+    if (verdict.held) {
+      console.log(
+        "  shot held: " + key + " — " + rule.class + " — " + difference +
+          " — inside its declared bound (" + verdict.bound + ", lib/shot-stability.js)"
+      );
+      return { file, written: false, bytes: existing.length, held: true };
+    }
+    outside = " OUTSIDE ITS DECLARED BOUND (`" + rule.class + "` at " + verdict.bound + " in lib/shot-stability.js)";
+  }
+  if (regenerating) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, buf);
+    console.log("  shot regenerated: " + key + " — " + difference + " — RICHOS_SHOTS_REGENERATE, commit it with the reason");
+    return { file, written: true, bytes: buf.length };
+  }
+  const kept = path.join(CHANGED_DIR, key);
+  fs.mkdirSync(path.dirname(kept), { recursive: true });
+  fs.writeFileSync(kept, buf);
+  console.log(
+    "  shot changed" + outside + ": " + key + " — " + difference + " — the committed reference is NOT rewritten; " +
+      "this run's picture is at " + path.relative(path.resolve(__dirname, ".."), kept) +
+      ". To accept it: RICHOS_SHOTS_REGENERATE=" + key + " node " + path.basename(process.argv[1] || "<suite>.js") +
+      ", then commit it with one line saying why it changed"
+  );
+  return { file, written: false, bytes: existing ? existing.length : 0, changed: true, kept };
 }
 
 /// The same rule for a shot that already exists as a file — the `.shots/` scratch copy a suite
@@ -772,6 +804,8 @@ function skipSuite(label, reason) {
   recordEvidence({ label, skipped: reason });
 }
 
+const TREE_CHECK = "the tracked tree is exactly as this suite found it";
+
 function createRun(label) {
   const results = [];
   return {
@@ -789,6 +823,28 @@ function createRun(label) {
       }
     },
     report() {
+      // NO TEST WRITES INTO THE TREE IT IS VERIFYING (`lib/tracked-tree.js`). Every suite that
+      // reports carries this check, so a writer is red in its OWN report, by name, on its own
+      // branch — instead of refusing whichever merge gate later verifies it in the main checkout.
+      const tree = TREE.verify();
+      const seen = results.findIndex((r) => r.name === TREE_CHECK);
+      if (seen >= 0) results.splice(seen, 1); // a second report() re-measures, never double-counts
+      if (tree.checked) {
+        const ok = tree.changed.length === 0;
+        results.push({
+          name: TREE_CHECK,
+          ok,
+          detail: ok
+            ? ""
+            : "changed while this suite ran, in " + tree.root + ":\n            " +
+              tree.changed.map((c) => c.file + "  (" + c.before + " -> " + c.after + ")").join("\n            ") +
+              "\n          A test never writes a tracked path: a committed shot is replaced only under " +
+              "RICHOS_SHOTS_REGENERATE, and everything else a run produces belongs in .shots/ (gitignored). " +
+              "If a person or another process was editing this checkout during the run, that is the other writer.",
+        });
+      } else {
+        console.log("  tracked tree: NOT CHECKED — " + tree.why);
+      }
       let failed = 0;
       console.log("\n== " + label + " ==");
       for (const r of results) {
@@ -1428,9 +1484,32 @@ async function assertOnThread(page, threadId, surface) {
   return on;
 }
 
+/// THE GROUND, READ OFF THE ELEMENT THAT PAINTS IT. Since the speckled ground (style.css "THE
+/// SPECKLED GROUND", 2026-09-29) `body` is transparent ON PURPOSE: a non-positioned block's
+/// background paints above a negative z-index layer, so a painted body would cover the speckle
+/// canvas completely. The ruled ground is `html`'s. A check that kept reading `body` reads
+/// `rgba(0, 0, 0, 0)` in every theme and fails for a reason that says nothing about the theme.
+///
+/// This returns the FIRST of `body`, `html` that paints anything at all, not "html" by name. So
+/// it still fails when the ground is wrong: a body that regains a paint of its own is what gets
+/// read (and a wrong one is named), an html that paints the same color in both themes is
+/// caught by the caller's comparison, and if neither paints, the transparent value comes back
+/// and the caller's assertion fails on it rather than on a guess.
+async function paintedGround(page) {
+  return page.evaluate(() => {
+    const clear = (c) => c === "transparent" || /^rgba\([^)]*,\s*0\)$/.test(c);
+    for (const el of [document.body, document.documentElement]) {
+      const c = getComputedStyle(el).backgroundColor;
+      if (!clear(c)) return c;
+    }
+    return getComputedStyle(document.documentElement).backgroundColor;
+  });
+}
+
 module.exports = {
   loadPlaywright,
   openFixture,
+  paintedGround,
   leaveHome,
   leaveSplash,
   awaitSettled,

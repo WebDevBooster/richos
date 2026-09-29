@@ -8,7 +8,9 @@ on this machine has returned a valid, several-kilobyte, single-color (0,0,0) PNG
 slices running because the display is locked. Every file below was decoded and pixel-counted
 before it was allowed to count as evidence; a shot with fewer than 8 distinct colors throws.
 
-Re-running the suite overwrites all nine. They are committed — unlike `.shots/`, which is the
+Re-running the suite never rewrites them: a picture that changed is announced and kept at
+`../.shots/changed/shots-26/`, and a reference is replaced only by
+`RICHOS_SHOTS_REGENERATE=shots-26 node memory-strategy.js`, then committed. They are committed — unlike `.shots/`, which is the
 per-run scratch every suite writes and gitignores — because §26 names them as deliverables.
 
 **These PNGs are not byte-stable across runs and are not claimed to be.** The fixture's

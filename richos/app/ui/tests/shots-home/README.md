@@ -7,8 +7,10 @@ nothing, never as a pass.
 
 **Committed, unlike most of this directory's output**, for the same reason `shots-26/` and
 `shots-5b/` are: the CEO asked to see two of these states side by side, and the numbered row is
-the state everyone lands on rather than a failure mode. They are overwritten on every run and
-are not byte-stable; read the suite's exit code, not a `git diff` over a PNG.
+the state everyone lands on rather than a failure mode. A run never rewrites them: a
+picture that changed is announced and kept at `../.shots/changed/shots-home/`, and a reference
+is replaced only by `RICHOS_SHOTS_REGENERATE=shots-home node home.js`, then committed. They are
+not byte-stable; read the suite's exit code, not a `git diff` over a PNG.
 
 | File | What it is evidence of |
 |---|---|

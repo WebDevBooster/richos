@@ -318,6 +318,27 @@ with no nightly build on it: `techy.js` 104 s → 65 s and `updates.js` 78 s →
 were paying the same three seconds. Whoever deletes those `evidence()` waits on the strength of
 the leading call will get the alternating picture back.
 
+### AND A TEST RUN NEVER WRITES ONE AT ALL
+
+Since 2026-09-29 a changed picture is **announced and kept, never written over its reference**.
+The merge gate verifies a candidate in the main checkout; `splash.js` photographed two app
+screens the candidate had legitimately changed, wrote them over `shots-splash/splash-03` and
+`splash-04`, and the gate refused the merge as "source changed during verification" with every
+check canceled. The nightly had been doing the same with `home.js` and restoring it afterwards.
+A test that rewrites the tree it is verifying is making an unreviewed commit, so:
+
+* the run prints `shot changed: <file> — <difference> — the committed reference is NOT
+  rewritten`, keeps this run's picture at `.shots/changed/<same path>` (gitignored), and names
+  the exact command that accepts it. A changed picture is still not a failure, as before;
+* a reference is written only under `RICHOS_SHOTS_REGENERATE` (below), in your own worktree,
+  and committed with one line saying why it changed;
+* **every suite's report now carries the check "the tracked tree is exactly as this suite found
+  it"** (`lib/tracked-tree.js`): the harness takes `git status` when a suite starts and again
+  when it reports, and a tracked file whose content changed, or a new untracked file under this
+  directory, is a FAIL in that suite's own report, naming the file. So the next writer — one
+  that never goes near `publishShot` — is red on its own branch, by name, instead of refusing a
+  merge gate later. `tracked-tree.js` proves both halves, red and green.
+
 ### AND WHAT IS LEFT IS DECLARED, WITH ITS CAUSE, ITS MEASUREMENT AND ITS BOUND
 
 `lib/shot-stability.js` is the only place a committed shot may differ without being rewritten.
@@ -390,8 +411,9 @@ deletes both rows.
 Everything else in `shots-*` is byte-identical across consecutive runs, so a diff in it is
 signal.
 
-**To regenerate deliberately**, which ignores every bound and writes whenever the picture
-differs at all:
+**To regenerate deliberately** — the ONLY way a committed shot is written — which ignores every
+bound and writes whenever the picture differs at all. Run it in your own worktree and commit the
+result with one line saying why the picture changed:
 
 ```sh
 RICHOS_SHOTS_REGENERATE=all node contrast.js          # a whole run
@@ -406,8 +428,8 @@ nothing failed, because check 5's guard asked only whether `#splash` was still i
 was: the ceiling had fired, the fade had finished, and the node had 40 ms left before removal,
 so the suite filed a photograph of the home screen through a curtain at opacity 0 and called it
 green. It measured byte-identical across all five runs on 2026-09-19, so it is not declared —
-and if it ever drifts again it will be written, announced, and land in `git status` as the one
-thing a reference is for.
+and if it ever drifts again it will be announced as changed, with this run's picture kept in
+`.shots/changed/`, which is the one thing a reference is for.
 
 ## When a page load fails: the navigation evidence bundle
 
@@ -560,7 +582,9 @@ instrumentation entirely, for measuring it.
 | `settings-fit.js` | THE SETTINGS PANEL AT 1024x700, the app's own minimum and the size it restores itself to — candidate-.4 defect 3, where the panel measured 738pt in a 700pt window, did not scroll, and put **"Bust a bug!"** below the edge. CEO ruling §15 puts that button on every screen, and a button below the fold is not on the screen. THE WINDOW SIZE IS THE SUBJECT: `appearance.js` opens every page at 1400x950 and `ticker-wrap.js` at 1400x880, so neither could ever see it — three of that walk's defects are the same shape, something measured at a comfortable size and shipped to a smaller one. The panel's height depends on state (9 rows are 523px; Ray's 738px is the same panel with the Updates block opened on an error), so the negative control GROWS it to his measured height and strips the bound, reproducing his geometry rather than describing it: 104px below the edge, the button ending at y=797 in a 700px window. The positive control clamps the same panel to 616px, scrolls 122px, and reads the button back inside the window. A fourth check re-runs it at 1024x520 so a `max-height` in px could not pass. |
 | `ticker-wrap.js` | THE TEMPORARY LINE'S WRAP — candidate-.2 defect #9, where "→ 1 new memory" split with "memory" alone on the second line, and candidate-.4 defect 2, where the fix for it was still not on screen. Asserts the RENDERED FRAME and never the declaration: the repair is one CSS property, a hint, and a check reading `getComputedStyle(...).textWrapStyle` would pass on an engine that parsed the value and did nothing with it. **AND IT MEASURES THE FRAME THE OTHER ENGINE WOULD DRAW**, which is what the first version was missing: Playwright ships WebKit 26.5, Tauri renders through the system WebKit (18.6 on the CEO's Mac), and `text-wrap: pretty` is honored by the first and not the second — so this suite was green while two of four lines orphaned on his screen. It now forces each value the property can resolve to, one at a time, with `auto` as a negative control that must still orphan (394/52px and 397/61px, Ray's two lines). The shipped value is `text-wrap: balance`, which both engines have. Line boxes come from `Range.getClientRects()` grouped by top edge, and the words on the last line are counted rather than guessed from widths. The strings are not the file's: the audit's own sentence copied out of frame 33, including the `<i>` the engine wraps the domain label in, plus 24 distinct lines `__loro.ingest()` actually wrote, captured and replayed so each can be measured without racing its 2,600ms life. Two of those 24 orphaned against the unfixed stylesheet, so the reported frame was not a one-off. The first check is a negative control: the audit's sentence must still WRAP here, or everything under it passes on a sentence that happens to fit. |
 | `chrome-align.js` | THE SETTINGS BUTTON AND THE TWO COMPOSER BUTTONS LINE UP — CEO, 2026-09-19: *"the settings button needs to be properly centered vertically and the right padding for that button needs to be reduced to 15px. And the 2 buttons at the bottom need to be either vertically center aligned relative to the text input or have the same height as the text input because otherwise it looks weird."* Measured on `f918f185`, at 1024x700 and 1400x950 alike: the button's center 12px below the header's with six pixels of its box hanging through the header's bottom border, 18px of right padding, and the two controls 6px shorter than the field and 3px below its center. Asserts HIS SENTENCE and not this tree's answer to it — a control passes if its center matches the field's OR its height does, so a later redesign that centers them instead is still green. The negative control comes first and reproduces the shipped geometry exactly (12 / 18 / -6 / +3) rather than describing it; the composer is driven through idle, working with stop and send both up, stopping, voice mode, a grown field and 120% text size, each through the shipping path. Red on `f918f185` at 11 of 13, green here at 13. |
+| `speckled-ground.js` | THE DESIGN SYSTEM'S SPECKLED GROUND IN THE DESKTOP APP — CEO, 2026-09-29: *"After the design system addition lands, get it integrated in desktop and mobile apps."* Through the real shell in both themes: the ground is on screen (the stage and rail photographed with the field and again after `RichSpeckle.destroy()`, and the pixels must differ); `speckle.js` and `speckle.css` are the design system's files byte for byte, by sha256, mounted with the `desktop` preset; the rule holds — never on the opening screen or the home screen, and back when the shell returns; and every line of text on a ground plane keeps 4.5:1 (3:1 large) over the strongest point the live engine can paint. |
 | `navigation-evidence.js` | THE HARNESS'S OWN NAVIGATION CAPTURE, proven against a local server that never answers, after the unexplained 30-second `page.goto` timeout of 2026-09-21. The capture is installed on every page and silent on success; a load stalled on one image stays RED with Playwright's message unchanged, fails at its own 1500 ms deadline, and leaves a bundle showing `domcontentloaded` reached, `load` not, and the image in flight; with no timeout passed the page's own default decides; a page whose script never yields cannot hang the collection; `RICHOS_UI_NAV_EVIDENCE=off` removes it; its cost on a passing load is printed against the same page without it (`lib/navigation-bench.js`); and on a host too loaded to start a helper process in time (`fixtures/loaded-host-preload.js` refuses every `spawnSync` with `ETIMEDOUT`, as `top` was refused on 2026-09-29) the bundle still has its CPU sample and the failure stays red. The failing runs happen in `fixtures/navigation-hang-suite.js`, a child process with its own evidence directory and no ledger. |
+| `tracked-tree.js` | NO TEST WRITES INTO THE TRACKED TREE IT IS VERIFYING — 2026-09-29, when the merge gate verifying `cc/echo-opus-speckle1` in the main checkout was refused by its own tests: `splash.js` wrote two legitimately changed pictures over their committed references, the gate saw its source change during verification, and canceled every check. Proves, through the real `publishShot` and a real committed file, that a changed picture is NOT written over its reference and IS kept in `.shots/changed/`; and, through a child suite against a throwaway repository (so the proof itself never touches a tracked file), that the harness's end-of-suite guard fails a suite that rewrites a tracked file or creates an untracked one, naming the file, while a suite that writes nothing, a file a person had already edited before the run, and a write into gitignored scratch all pass. |
 
 ## Four rules, each one a thing an earlier slice got wrong
 **This table is checked, not maintained by memory.** `docs-claims.js` fails if a suite
