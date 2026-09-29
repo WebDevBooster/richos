@@ -158,7 +158,7 @@ fn a_compliant_agent_ends_the_turn_as_cancelled_and_the_partial_text_survives() 
         .prompt("take your time", &mut |item| {
             if let TurnItem::Text { text, .. } = item {
                 seen_w.lock().unwrap().push_str(text);
-                let _ = started.send(());
+                started.send(()).ok(); // the presser may already have taken its first signal and gone
             }
         })
         .unwrap();
@@ -190,11 +190,11 @@ fn a_deaf_agent_does_not_hold_the_turn_open_and_is_reported_as_deaf() {
         let stop = client
             .prompt("ignore me", &mut |item| {
                 if matches!(item, TurnItem::Text { .. }) {
-                    let _ = started.send(());
+                    started.send(()).ok(); // the presser may already have taken its first signal and gone
                 }
             })
             .unwrap();
-        let _ = done_tx.send((stop, began.elapsed()));
+        done_tx.send((stop, began.elapsed())).expect("the test thread waits on done_rx");
         client
     });
     let (stop, elapsed) = done_rx

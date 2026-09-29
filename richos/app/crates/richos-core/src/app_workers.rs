@@ -242,7 +242,7 @@ fn status_within(state: &Path, session: Option<&str>, patience: std::time::Durat
         let (tx, rx) = std::sync::mpsc::channel();
         let reader_root = root.clone();
         std::thread::spawn(move || {
-            let _ = tx.send(status(&reader_root, Some("session-one")).unattributed);
+            tx.send(status(&reader_root, Some("session-one")).unattributed).expect("the test thread waits on rx");
         });
         let unattributed = rx.recv_timeout(Duration::from_secs(60))
             .expect("a reader waited on a writer that never lets go");

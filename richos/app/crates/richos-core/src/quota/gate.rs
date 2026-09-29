@@ -247,13 +247,14 @@ mod tests {
         // near-reset publish is the only thing here to grant.
         const HANG_GUARD: Duration = Duration::from_secs(60);
         let worker = std::thread::spawn(move || {
-            let _ = tx.send(wait(
+            tx.send(wait(
                 &json!({"agent_id":"same-worker","tool_name":"Bash"}),
                 &state,
                 &scope,
                 Duration::from_millis(5),
                 HANG_GUARD * 2,
-            ));
+            ))
+            .expect("the test thread holds rx until the verdict arrives");
         });
         assert!(
             rx.recv_timeout(Duration::from_millis(40)).is_err(),
