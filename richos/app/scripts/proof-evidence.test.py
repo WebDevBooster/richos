@@ -22,6 +22,10 @@ spec = importlib.util.spec_from_file_location("proof_run", HERE / "proof-run.py"
 runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
 
+# The Cache Directory Tagging Specification's signature, as Cargo writes it into a target
+# directory (bford.info/cachedir). Literal here, so the fixture never depends on the code under test.
+CACHEDIR_SIGNATURE = b"Signature: 8a477f597d28d172789f06886806bc55"
+
 IDLE_SAMPLE = {"cpu_user_percent": 5.0, "cpu_system_percent": 2.0, "cpu_idle_percent": 93.0,
                "swapout_mb_per_s": 0.0, "memory_pressure": "normal", "memory_free_percent": 80,
                "swap_used_mb": 0.0}
@@ -879,6 +883,78 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
         (self.root / "input" / "loop").symlink_to(".")
         with self.assertRaisesRegex(ValueError, "cyclic"):
             evidence.recipe_identity(self.root, recipe, env)
+
+    def cache_fixture(self):
+        """A checkout whose declared input `input` holds a source file and, beside it, what a
+        build writes: a Cargo-style target directory (tagged, ignored), an ignored directory
+        without the tag, and a tagged directory git does not ignore."""
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, env=env)
+        (self.root / ".gitignore").write_text("target/\nplain-output/\n")
+        crate = self.root / "input" / "crate"
+        crate.mkdir(parents=True)
+        (crate / "lib.rs").write_text("fn main() {}\n")
+        for name, tagged in (("target", True), ("plain-output", False), ("tagged-source", True)):
+            (crate / name).mkdir()
+            if tagged:
+                (crate / name / "CACHEDIR.TAG").write_bytes(CACHEDIR_SIGNATURE + b"\n# a cache\n")
+            (crate / name / "product.bin").write_text("one")
+        self.qualification("fixture input contract", paths=["input"])
+        recipe = {"paths": ["input"], "tools": [], "environment": [], "external": [],
+                  "qualification": "qualification.json"}
+        return crate, recipe, env
+
+    def test_a_build_cache_written_beside_a_declared_input_is_not_that_input(self):
+        # 2026-09-29: the lint's Clippy wrote crates/richos-user-update/target while
+        # no-foreign-app-data, whose inputs include richos/app/crates, ran; its pass became
+        # "invalid: execution inputs changed during the check". A build cache is output.
+        crate, recipe, env = self.cache_fixture()
+        base = evidence.recipe_identity(self.root, recipe, {})
+        (crate / "target" / "product.bin").write_text("rebuilt")
+        (crate / "target" / "debug").mkdir()
+        (crate / "target" / "debug" / "lib.rmeta").write_text("new artifact")
+        self.assertEqual(base, evidence.recipe_identity(self.root, recipe, {}), "a write inside the build cache")
+        shutil.rmtree(crate / "target")
+        self.assertEqual(base, evidence.recipe_identity(self.root, recipe, {}), "the build cache removed")
+        # Everything else is bound exactly as before: sources, an untagged ignored directory,
+        # a tagged directory git would land, and a tagged ignored one holding a tracked file.
+        for path in (crate / "lib.rs", crate / "plain-output" / "product.bin", crate / "tagged-source" / "product.bin"):
+            with self.subTest(path=str(path.relative_to(self.root))):
+                original = path.read_text()
+                path.write_text(original + " changed")
+                self.assertNotEqual(base, evidence.recipe_identity(self.root, recipe, {}))
+                path.write_text(original)
+        self.assertEqual(base, evidence.recipe_identity(self.root, recipe, {}))
+        (crate / "target").mkdir()
+        (crate / "target" / "CACHEDIR.TAG").write_bytes(CACHEDIR_SIGNATURE + b"\n")
+        (crate / "target" / "kept.txt").write_text("tracked on purpose")
+        subprocess.run(["git", "-C", str(self.root), "add", "-f", "input/crate/target/kept.txt"], check=True, env=env)
+        with_tracked = evidence.recipe_identity(self.root, recipe, {})
+        self.assertNotEqual(base, with_tracked, "a cache directory holding a tracked file is bound")
+        (crate / "target" / "kept.txt").write_text("changed")
+        self.assertNotEqual(with_tracked, evidence.recipe_identity(self.root, recipe, {}))
+
+    def test_an_invalidated_pass_names_what_changed_and_the_checks_started_by_then(self):
+        crate, recipe, _env = self.cache_fixture()
+        scripts = self.root / "richos/app/scripts"
+        scripts.mkdir(parents=True)
+        evidence.atomic(scripts / "proof-inputs.json", {"schema": 1, "checks": {"check": recipe}})
+        baseline = evidence.InputSnapshot()
+        items, record = self.attempt("explained", engine=False,
+                                     identities={"check": evidence.recipe_identity(self.root, recipe, {}, baseline)})
+        writer = runner.Item("writer", str(self.root), ["true"])
+        writer.started = items[0].started = 1.0
+        with patch.object(runner, "ROOT", str(self.root)):
+            record.explain = lambda item: getattr(runner, "describe_input_change", lambda *a: "")(item, baseline, items + [writer])
+            record.current_identity = lambda item: evidence.recipe_identity(self.root, recipe, {})
+            (crate / "target" / "product.bin").write_text("a build beside the check")
+            self.passed(items, record)
+            self.assertEqual(items[0].state, "passed", items[0].notes)
+            (crate / "lib.rs").write_text("fn main() { changed(); }\n")
+            record.save(items[0], self.source)
+        self.assertEqual(items[0].state, "invalid")
+        self.assertIn("execution inputs changed during the check; changed: input/crate/lib.rs; "
+                      "checks started by then: check, writer", record.results["check"]["invalid"])
 
     def test_refused_receipt_cannot_become_saved_pass(self):
         items, record = self.attempt("attempt")

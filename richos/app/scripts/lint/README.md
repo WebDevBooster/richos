@@ -41,6 +41,7 @@ only to top-level `*.test.sh` files discovered by the app script runner.
 | `test-positive-control` | Advisory | A refusal assertion without an acceptance assertion recognized in that file |
 | `test-retry` | Advisory | Retry or sleep syntax in a test; product retries can look identical |
 | `ui-absence` | Advisory, JavaScript report only | A string that may assert an absence |
+| `wall-clock-verdict`, `short-deadline`, `sleep-then-assert`, `host-sample`, `env-mutation-unguarded` | Blocking per SITE (`load_rules.py`) | Load-sensitive test code, below |
 
 Structural shell checks cover the syntax above. They are not a shell interpreter
 or a proof of arbitrary data flow. Heredoc contents, indirect functions, arrays
@@ -54,6 +55,66 @@ dictionary or scanner. It observes the scanner-result assignment through shell
 trace because the hook has silent stand-down and parse-failure paths. An
 unevaluated scan fails. Trace stays in memory; normal output reports only the
 result. Explicit exemptions in the hook remain valid.
+
+## Load-sensitive test code
+
+`load_rules.py` is the rule from section 5 of
+`docs/verification/2026-09-29-load-sensitive-checks-audit.md`: *a test may bound TIME only to
+catch a hang, never to decide a verdict; and a deadline measures execution, never queueing.*
+It covers test code only: `*.test.sh`, `*.test.py`, `ui/tests/**/*.js` (blocking, unlike the
+other JavaScript rules), Rust files under `tests/` and `#[cfg(test)]` items.
+
+| ID | Refuses |
+| --- | --- |
+| `wall-clock-verdict` | an assertion comparing a measured duration (`Date.now()`/`performance.now()` difference, `Instant::elapsed`, `time.monotonic()` difference, `$SECONDS`, or a name assigned from one) against an upper literal |
+| `short-deadline` | a literal deadline under 30 s: `timeout=` in a call, Playwright `timeout:`, `waitForFact(..., N)`, `recv_timeout`, `Instant::now() + Duration` |
+| `sleep-then-assert` | `waitForTimeout(N)`, `time.sleep(N)`, `sleep N`, `thread::sleep` followed, before any condition wait, by an assertion; a sleep inside a loop is a poll interval and is not a site |
+| `host-sample` | `/usr/bin/top`, `os.loadavg`/`getloadavg`, `vm_stat`, `memory_pressure`, `uptime` executed (a line naming a mock, fake, stub or fixture is not) |
+| `env-mutation-unguarded` | `std::env::set_var`/`remove_var` in a Rust test with no `static` `Mutex`/`RwLock` guard in the file |
+
+A site is exempt only with `load-bound: <why this cannot depend on host load>` on the line or
+the line above, where a reviewer sees it (for example `load-bound: virtual clock, page.clock
+installed at :40`). A bare marker, or a reason under ten characters, exempts nothing.
+
+These rules are baselined by SITE, not count: `baselines/load.json` holds each existing site
+(file, rule, hash of the whitespace-normalized line). Any site not in it refuses, even while
+another is being removed; a duplicated line is a new site. `--lower` drops paid-down sites.
+Against `refs/heads/main` a branch cannot add a site to the file or drop a rule. Moving a
+line to another file makes it a new site: fix it or declare it. The recognizers are line
+patterns, not parsers; what each one sees is written beside it in `load_rules.py`. The engine
+suites (`richos/engine/**/tests/`) are outside this lint's inventory, as the audit notes.
+
+## The commit check: `--changed`
+
+`--changed` is what the automatic commit check runs (`scripts/autocheck/`). It enforces the
+same ceilings as `--static`/`--fast` at a fraction of the cost:
+
+- Versions, rule sets, commands, inventory and the baselines against `refs/heads/main` are
+  checked in full every time; they are cheap.
+- Every static count is per file, so only the files that differ from `HEAD` (plus the
+  scripts that `source` a changed script) are counted, before (`HEAD`, in a scratch copy of
+  the scripts tree) and after. If no count grows, no ceiling can newly fail. If one grows,
+  the full static pass decides, so the verdict is never looser than the full lint's.
+- Load rules are per site, so scanning only the changed files is exact.
+- Clippy runs only for a Rust set whose inputs changed: the fast set for Rust under
+  `richos/app` outside `src-tauri`, Tauri Clippy for `src-tauri`.
+- A change to the lint itself or its baselines runs the full static pass and the fast set.
+
+It checks the working tree, including unstaged edits. The land check (`lint.sh --all`, or
+`lint.test.sh` when `proof-for.sh` selects it) sees exactly the merged tree.
+
+`--changed --strict` is what a commit runs. A ceiling that nobody lowered leaves room: on
+2026-09-29 `let_underscore_must_use` stood at 747 under a ceiling of 777, so thirty new
+discarded results would each have passed. Under `--strict` a commit may not grow any count,
+whatever room the ceiling has: a static count that grows over the changed files refuses, and
+each Clippy set's counts are compared with the counts recorded for HEAD's Rust. Every Clippy
+run records its counts under a digest of what the set reads (every Rust input's blob, the
+commands and the tool versions) in `<git-common-dir>/richos-lint-cache/`, shared by every
+worktree; a land's run records main's, so a branch cut from main is compared from its first
+commit. With no record for HEAD, the commit is held to the ceiling only and the run records
+one. An intended exception is made explicit where a reviewer sees it (`# shellcheck
+disable=SCnnnn`, `#[allow(clippy::...)]`), not absorbed by stale room. Merges into a branch
+run `--changed` without `--strict`: what they bring from main was held to its land.
 
 ## Maintaining the ceiling
 

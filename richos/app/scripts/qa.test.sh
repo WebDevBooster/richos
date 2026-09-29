@@ -59,7 +59,7 @@
 #
 # run-tests: no-host-screen: its only capture/keystroke references are the strings it asserts those two tools REFUSE to act on, and its frames are committed PNG fixtures
 # run-tests: inputs richos/app/scripts/qa.test.sh richos/app/scripts/qa richos/mobile/conformance/vectors/fingerprint.json
-# run-tests: covers richos/app/scripts/qa/pair-words.py richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-android.py richos/app/scripts/qa/lab-ledger.py richos/app/scripts/qa/fixtures/make-fixtures.py richos/app/scripts/qa/phone-ios.py
+# run-tests: covers richos/app/scripts/qa/pair-words.py richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-android.py richos/app/scripts/qa/lab-ledger.py richos/app/scripts/qa/fixtures/make-fixtures.py richos/app/scripts/qa/phone-ios.py richos/app/scripts/qa/stall-run.py richos/app/scripts/qa/under-load.py richos/app/scripts/qa/ocr-cache.test.py
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -481,6 +481,18 @@ expect "OCR cache invalidation, reader failure, fresh control and multi-pattern 
 
 run python3 "$QA/timeline-bounds.test.py"
 expect "Monotonic visibility bounds and native input refusal" 0 "OK"
+
+# The two tools for reproducing a loaded nightly (qa/README.md). What a caller relies on: the
+# command runs, its own exit status comes back, and bad usage is refused rather than run. One
+# worker and no warmup keep under-load.py from loading the Mac it is being tested on.
+run python3 "$QA/stall-run.py" --run-ms 5 --stop-ms 5 -- sh -c 'echo stalled-child-ran; exit 7'
+expect "S1 stall-run.py runs the command and hands back its own exit status" 7 "stalled-child-ran"
+run python3 "$QA/stall-run.py" --run-ms 5
+expect "S2 stall-run.py with no command is refused as bad usage" 2 "usage"
+run python3 "$QA/under-load.py" --workers 1 --warmup 0 -- sh -c 'echo loaded-child-ran; exit 5'
+expect "U1 under-load.py runs the command and hands back its own exit status" 5 "loaded-child-ran"
+run python3 "$QA/under-load.py" --workers 1 --warmup 0
+expect "U2 under-load.py with no command is refused as bad usage" 2 "usage"
 
 echo "=== N. phone-client: the headless phone ==="
 

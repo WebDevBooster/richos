@@ -1166,14 +1166,19 @@
   "limitation": "Counts prevent net growth, not every new violation. Check never writes.",
   "rules": {
     "dialect": "blocking",
+    "env-mutation-unguarded": "blocking-site",
+    "host-sample": "blocking-site",
     "process-pattern-kill": "blocking",
     "process-self-wait": "blocking",
+    "short-deadline": "blocking-site",
+    "sleep-then-assert": "blocking-site",
     "suite-inputs": "blocking",
     "test-positive-control": "advisory",
     "test-retry": "advisory",
     "timeout-indirect": "advisory",
     "timeout-success": "blocking",
-    "ui-absence": "advisory"
+    "ui-absence": "advisory",
+    "wall-clock-verdict": "blocking-site"
   },
   "schema": 1,
   "versions": {
