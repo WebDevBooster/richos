@@ -95,6 +95,14 @@ const ROLES = {
   "splash.js": { role: "ui", why: "the opening curtain's renderer" },
   "splash-library.js": { role: "ui", why: "the two approved splash compositions — data, with prose in it" },
   "theme-boot.js": { role: "ui", why: "the pre-paint theme mirror" },
+  "speckle.js": {
+    role: "ui",
+    why:
+      "the speckled ground's engine, copied unedited from the design system (CEO, 2026-09-29). " +
+      "Its only user-visible strings are the errors it throws when asked for the splash or home " +
+      "surface, which quote the CEO's rule",
+  },
+  "speckle-app.js": { role: "ui", why: "the desktop app's one call to the speckled ground, and the text colors it holds 4.5:1 for" },
   "home/field-engine.js": { role: "ui", why: "the home screen's WebGL field — it authors the hover card and the loro line" },
   "home/field-prep.js": { role: "ui", why: "the field's geometry preparation" },
   "home/field-ref.js": { role: "ui", why: "the field's reference tables" },
@@ -131,6 +139,7 @@ const ROLES = {
   "style.css": { role: "style", why: "the shell's stylesheet" },
   "home.css": { role: "style", why: "the home screen's stylesheet" },
   "splash.css": { role: "style", why: "the opening curtain's stylesheet" },
+  "speckle.css": { role: "style", why: "the speckled ground's CSS half, copied unedited from the design system" },
   "fonts/fonts.css": { role: "style", why: "the vendored font faces" },
 };
 

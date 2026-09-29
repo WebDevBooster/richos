@@ -21,6 +21,9 @@
          this product that names a typeface (ceo-decisions.md §22). -->
     <link rel="stylesheet" href="fonts/fonts.css" />
     <link rel="stylesheet" href="style.css" />
+    <!-- The speckled ground's CSS half, from the design system, unedited. The app's own rules for
+         it (which planes are ground, and the splash/home exclusion) are in style.css. -->
+    <link rel="stylesheet" href="speckle.css" />
     <!-- The opening screen. Render-blocking on purpose: the composition has to be part
          of the window's first paint, not something that arrives after it. -->
     <link rel="stylesheet" href="splash.css" />
@@ -1273,5 +1276,12 @@
     <!-- The quit question (background-work spec §2.5/§7.4a). AFTER main.js, because it
          listens on `window.RichBridge`, which main.js installs. -->
     <script src="quit-question.js"></script>
+    <!-- THE SPECKLED GROUND (CEO, 2026-09-29): the design system's engine, copied byte for byte
+         from richos-hq design/system/, and the app's one call to it. LAST, and it builds nothing
+         until an idle moment after `load`, while the curtain and the home screen still cover the
+         shell: it is never on the launch path. Never on the splash or the home screen; see the
+         head of speckle-app.js for where that rule is held. -->
+    <script src="speckle.js"></script>
+    <script src="speckle-app.js"></script>
   </body>
 </html>

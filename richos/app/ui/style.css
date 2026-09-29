@@ -340,6 +340,36 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* ---------------------------------------------------------------------------------------
+   THE SPECKLED GROUND (CEO, 2026-09-29) — the app's half of the design system's
+   integration. The engine (speckle.js, copied unedited from richos-hq design/system/) paints
+   the ruled ground and the sheen on ONE fixed canvas at z-index -1, first child of <body>;
+   speckle-app.js makes the call. For it to show, the planes between it and the reader must
+   let it through, and only the GROUND planes do: the stage, its header band and the composer
+   band. Every surface, card, panel, popover and the composer's own field stays opaque and
+   untouched — the sheen lives only on the ground (design/system/NOTES.md "The speckled
+   ground").
+
+   `html` keeps the ruled ground, so if the canvas is absent (destroyed, failed, not yet
+   built) these transparent planes show exactly the color they painted before. `body` has to
+   let go of its own copy: a non-positioned block's background paints ABOVE a negative
+   z-index layer, so a painted body would cover the canvas completely.
+   --------------------------------------------------------------------------------------- */
+body {
+  background: transparent;
+}
+
+/* THE RULE, HELD HERE AS WELL AS BY COVERING: the splash screens and the desktop home screen
+   never have the speckled background. Both are opaque full-window layers above the canvas,
+   and on top of that the canvas is not composited at all while either is up — including
+   during their fades — so "covered" never has to be trusted. `body.home-open` is home.js's
+   own marker for the home screen being up; `#splash` exists exactly while the curtain does
+   (splash.js removes it when it has faded). */
+body.home-open > canvas.speckle,
+body:has(> #splash) > canvas.speckle {
+  visibility: hidden;
+}
+
 button {
   font-family: inherit;
 }
@@ -6888,3 +6918,45 @@ body.home-open {
 
 .quota-toolbar { flex-wrap: wrap; gap: 8px; }
 .quota-toolbar-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+
+/* ---------------------------------------------------------------------------------------
+   THE SPECKLED GROUND — THE GROUND PLANES. At the END of the file on purpose: these replace
+   the `background: var(--paper)` / `var(--paper-rail)` declared by the rules above, and a
+   later rule of equal specificity is what wins. See "THE SPECKLED GROUND" near the top.
+
+   The stage and its two bands are ground, so they let the sheen through. The composer's
+   field (`#input-shell` and friends) sits on its own surface inside the band and is not
+   touched. `#techy-state` is NOT listed: it is sticky over the scrolling conversation and
+   has to stay opaque to hide what scrolls under it. The inspector is a panel and stays
+   opaque.
+
+   THE RAIL, PER THEME:
+     dark   the design system's `--speckle-rail` (black at 32%, speckle.css) — the rail's
+            deeper tone rebuilt translucent, exactly as round-15/v6 chose it.
+     light  transparent: the rail IS the ruled paper in this app (`--rail-bg: #eae6dd`, the
+            "THE RULED GROUND, AND THE RAIL IS PART OF IT" note above). speckle.css's light
+            rail tint would rebuild `#e4dfd3`, the drifted value this app removed because the
+            ruled light gold of the mark computes 2.95:1 on it; so the app does not apply it.
+            A declared difference from the design system's page, not a new value: the engine's
+            light caps are still solved on that deeper rail as well as on the paper, so text
+            on the lighter ground the app actually paints only gains contrast.
+   BELOW 820px the rail is a drawer OVER the stage, and a translucent drawer would show the
+   conversation through it — so there it keeps its opaque fill (`body.bp-narrow`). */
+#stage,
+#stage-header,
+#composer-zone {
+  background: transparent;
+}
+
+#rail {
+  background: var(--speckle-rail);
+}
+
+:root[data-theme="light"] #rail {
+  background: transparent;
+}
+
+body.bp-narrow #rail,
+:root[data-theme="light"] body.bp-narrow #rail {
+  background: var(--paper-rail);
+}
