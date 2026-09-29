@@ -273,6 +273,39 @@ try:
           "P17b a run-tests.sh check that exits 0 without its results record is INVALID, not passed",
           (silent.state, silent.notes))
 
+    # P18 — a proof run started by a check of a proof run, in a MAIN checkout, is part of its
+    # caller's integration plan and never waits for the episode lock its caller holds. Before
+    # 2026-09-29 it opened a second episode, waited its whole bound for that lock and failed
+    # "integration priority exhausted" (P16h in a main checkout; the land gate stopped at 600 s).
+    # Here the caller's episode is this process holding the lock, the bound is 5 s, and the
+    # checkout is declared main for the run.
+    import fcntl
+    d18 = os.path.join(tmp, "p18")
+    admission = os.path.join(os.environ["RICHOS_MACHINE_WORKERS"], "admission")
+    os.makedirs(admission, exist_ok=True)
+    caller_episode = open(os.path.join(admission, "integration-plan.lock"), "a")
+    fcntl.flock(caller_episode, fcntl.LOCK_EX)
+
+    class CallersSlot:
+        borrowed, fds = True, ()
+
+        def env(self):
+            return {}
+
+    saved = (pr.SLOT, pr.engine_pass.is_main_checkout, pr.engine_pass.INTEGRATION_PLAN_SECONDS)
+    pr.SLOT, pr.engine_pass.is_main_checkout, pr.engine_pass.INTEGRATION_PLAN_SECONDS = \
+        CallersSlot(), (lambda *a: True), 5
+    inner = pr.Item("inner-run-check", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "exit 0"], None, 1)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            pr.run([inner], Args(), d18, sampler=idle)
+    finally:
+        pr.SLOT, pr.engine_pass.is_main_checkout, pr.engine_pass.INTEGRATION_PLAN_SECONDS = saved
+        caller_episode.close()
+    check(inner.state == "passed",
+          "P18 a nested run in a main checkout runs inside its caller's integration plan, never waiting for its lock",
+          (inner.state, inner.notes))
+
     # P6 — the receipts check runs even when a shard failed: it is what names the missing units.
     a = pr.Item("engine 1/2", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "exit 1"], None, 5)
     b = pr.Item("engine receipts", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "exit 0"], None, 1,
@@ -371,11 +404,16 @@ try:
     # OS-held locks (lib/proof_slots.py). 2026-09-27: several agents each saw a free Mac on one
     # instant sample and each started a full selection; one run alone already peaks at the whole
     # Mac. Real proof-run.py processes, a fixture slot directory, a stubbed idle sampler (so only
-    # the run limit can make a run wait), fixture commands only.
+    # the run limit can make a run wait), fixture commands only. The fixture runs are background
+    # runs wherever this suite runs: in a main checkout every run is otherwise a land's
+    # integration plan, and one integration plan at a time is a different rule (engine_pass.py)
+    # that made P16g wait 600 s there (2026-09-29, the land gate of cc/zach-opus-gatefix1).
     slots_dir = os.path.join(tmp, "slots")
     slots_tool = os.path.join(HERE, "lib", "proof_slots.py")
     runner_boot = ("import runpy,sys; sys.path.insert(0," + repr(os.path.join(HERE, 'testvm')) + "); "
                    "import reserve; reserve.host_sample=lambda: " + repr(idle()) + "; "
+                   "sys.path.insert(0," + repr(os.path.join(os.path.dirname(os.path.dirname(HERE)), 'engine', 'scripts', 'lib')) + "); "
+                   "import engine_pass; engine_pass.is_main_checkout=lambda *a: False; "
                    "sys.argv=[" + repr(os.path.join(HERE, 'proof-run.py')) + "]+sys.argv[1:]; "
                    "runpy.run_path(sys.argv[0],run_name='__main__')")
 

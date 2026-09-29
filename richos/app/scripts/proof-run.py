@@ -766,11 +766,18 @@ def run(items, args, logdir, sampler=None):
     # intent while eligible checks wait for measured capacity as well.
     args.integration_intent = (engine_pass.Admission(machine, ROOT)
                                if budget.shared.admission.main else None)
+    # A proof run started by a check of a proof run (it works inside its caller's slot) is part
+    # of its caller's plan, and that plan's episode already bounds it. It never opens a second
+    # one: the episode lock is exclusive, so the inner run would wait for the lock its own caller
+    # holds until its fixed bound expired. Measured 2026-09-29 in a main checkout: P16h of
+    # proof-run.test.py sat 600 s and failed "integration priority exhausted", and the land
+    # gate, whose selection includes that suite, stopped it at its own 600 s bound.
+    nested = SLOT is not None and SLOT.borrowed
     args.integration_episode = (engine_pass.IntegrationPlan(machine,
         [{"check": it.label, "command": proof_evidence.command_identity(it, ROOT, logdir),
           "after": sorted(it.after), "requires": sorted(it.requires)} for it in items],
         os.path.abspath(logdir), limit=engine_pass.INTEGRATION_PLAN_SECONDS)
-        if args.integration_intent else None)
+        if args.integration_intent and not nested else None)
     reserved = reserved_tokens(args.capacity)
     order = sorted(items, key=lambda it: (not getattr(it, "retry_first", False), -it.weight))
     running = []
