@@ -62,7 +62,24 @@ fi
 if printf '%s\\n' "$paths" | grep -q 'screen'; then
     echo "  cd richos/app && bash scripts/screen.sh"
 fi
+if printf '%s\\n' "$paths" | grep -q 'claims'; then
+    echo "  cd richos/app/ui/tests && node quick.js"
+    echo "  cd richos/app/ui/tests && node heavy.js"
+fi
 """
+# A document-vs-tree check that measures under a second (weight 0): fails when the claim in
+# src/claims.txt says FALSE. And a heavy suite selected beside it, which a commit never runs.
+QUICK = """const fs = require("fs");
+fs.appendFileSync(process.env.AUTOCHECK_FIXTURE_LOG, "node quick.js\\n");
+if (fs.readFileSync("../../src/claims.txt", "utf8").includes("FALSE")) {
+  console.error("quick: FAIL the README's count is stale");
+  process.exit(1);
+}
+console.log("quick: PASS");
+"""
+HEAVY = """require("fs").appendFileSync(process.env.AUTOCHECK_FIXTURE_LOG, "node heavy.js\\n");
+"""
+WEIGHTS = "# fixture weights\nquick.js\t0\nheavy.js\t40\n"
 PROOF_RUN = """import json
 import os
 import subprocess
@@ -134,7 +151,9 @@ class Fixture(unittest.TestCase):
         for rel, text, mode in (("scripts/lint.sh", LINT, 0o755), ("scripts/lint/driver.py", DRIVER, 0o644),
                                 ("scripts/proof-for.sh", PROOF_FOR, 0o755), ("scripts/proof-run.py", PROOF_RUN, 0o644),
                                 ("scripts/suite.sh", SUITE, 0o755), ("scripts/screen.sh", SCREEN, 0o755),
-                                ("src/thing.txt", "fine\n", 0o644)):
+                                ("ui/tests/quick.js", QUICK, 0o644), ("ui/tests/heavy.js", HEAVY, 0o644),
+                                ("ui/tests/suite-weights.tsv", WEIGHTS, 0o644),
+                                ("src/thing.txt", "fine\n", 0o644), ("src/claims.txt", "true\n", 0o644)):
             path = app / rel
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text)
@@ -183,13 +202,19 @@ class Fixture(unittest.TestCase):
     def recorded(self):
         return self.ledger.read_text() if self.ledger.exists() else ""
 
-    def branch_with(self, name, rel, text, message="change"):
+    def branch_with(self, name, rel, text, message="change", no_verify=False):
         self.git("checkout", "-q", "-b", name)
         self.write(rel, text)
         self.git("add", "-A")
-        self.git("commit", "-q", "-m", message)
+        self.git("commit", "-q", "-m", message, *(["--no-verify"] if no_verify else []))
         self.git("checkout", "-q", "main")
         self.log.unlink(missing_ok=True)
+
+    def land_a_merge_commit_on_main(self):
+        """main's tip becomes a land merge (two parents), checked and passed like any land."""
+        self.branch_with("other", "richos/app/src/thing.txt", "fine, better\n")
+        self.git("merge", "--no-ff", "-m", "land other", "other")
+        self.assertEqual(len(self.git("rev-list", "--parents", "-n", "1", "main").stdout.split()), 3)
 
 
 class Commit(Fixture):
@@ -275,6 +300,79 @@ class Commit(Fixture):
         out = self.git("commit", "-m", "bad", expect=1)
         self.assertIn("COMMIT REFUSED", out.stderr)
 
+    def test_a_commit_the_land_would_refuse_as_uncovered_is_refused_at_the_commit(self):
+        # 2026-09-29: isaac-opus-speckle1 and andy-opus-speckle1 each had four UNCOVERED paths
+        # that nobody could see until Rich's merge; their commits had passed this hook.
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        before = self.head()
+        self.write("richos/app/src/uncovered.txt", "new code\n")
+        self.git("add", "-A")
+        out = self.git("commit", "-m", "uncovered", expect=1)
+        self.assertIn("COMMIT REFUSED: a changed code path is covered by no suite", out.stderr)
+        self.assertIn("UNCOVERED: richos/app/src/uncovered.txt", out.stderr)
+        self.assertEqual(self.head(), before)
+
+    def test_the_whole_branch_is_asked_not_only_the_staged_files(self):
+        # An uncovered path committed earlier with --no-verify is still in what the land will
+        # diff, so the next ordinary commit on the branch refuses it too.
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        self.write("richos/app/src/uncovered.txt", "new code\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "uncovered", "--no-verify")
+        self.write("richos/app/src/thing.txt", "fine, again\n")
+        self.git("add", "-A")
+        out = self.git("commit", "-m", "an innocent change", expect=1)
+        self.assertIn("UNCOVERED: richos/app/src/uncovered.txt", out.stderr)
+
+    def test_a_quick_document_check_the_change_falsifies_refuses_the_commit(self):
+        # 2026-09-29: a Rust test file made app/README.md's counts false; docs-claims.js (under
+        # a second) ran nowhere before the nightly. The commit runs the quick suites selected.
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        self.write("richos/app/src/claims.txt", "FALSE\n")
+        self.git("add", "-A")
+        out = self.git("commit", "-m", "stale claim", expect=1)
+        self.assertIn("COMMIT REFUSED: quick.js failed for this branch", out.stderr)
+        self.assertIn("quick: FAIL the README's count is stale", out.stderr)
+        self.assertNotIn("node heavy.js", self.tools())
+
+    def test_a_true_claim_commits_and_heavy_suites_wait_for_the_land(self):
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        self.write("richos/app/src/claims.txt", "still true\n")
+        self.git("add", "-A")
+        out = self.git("commit", "-m", "claim kept true")
+        self.assertIn("ran quick.js", out.stderr)
+        self.assertIn("node quick.js", self.tools())
+        self.assertNotIn("node heavy.js", self.tools())
+        self.assertEqual(self.recorded(), "")
+
+    def test_fast_forwarding_a_branch_onto_a_land_merge_records_no_skip(self):
+        # 2026-09-29: echo-opus-speckle1 fast-forwarded its branch onto main's 5ddcce1c, a
+        # land merge, and the ledger said "skipped the automatic checks (--no-verify)". No
+        # --no-verify was passed; a fast-forward writes no commit and has nothing to skip.
+        self.make()
+        self.git("branch", "feature")
+        self.land_a_merge_commit_on_main()
+        self.git("checkout", "-q", "feature")
+        out = self.git("merge", "--ff-only", "main")
+        self.assertNotIn("AUTOCHECK SKIPPED", out.stderr)
+        self.assertEqual(self.recorded(), "")
+
+    def test_a_real_merge_into_a_branch_with_no_verify_is_still_recorded(self):
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        self.write("richos/app/src/feature.txt", "feature work\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "feature work")
+        self.git("checkout", "-q", "main")
+        self.land_a_merge_commit_on_main()
+        self.git("checkout", "-q", "feature")
+        self.git("merge", "--no-ff", "--no-verify", "-m", "bring main in", "main")
+        self.assertIn("skipped the automatic checks (--no-verify)", self.recorded())
+
     def test_before_the_check_exists_the_hooks_do_nothing(self):
         self.make(with_checker=False)
         self.git("checkout", "-q", "-b", "feature")
@@ -351,9 +449,27 @@ class Land(Fixture):
         self.assertIn("PUSH REFUSED: a check it owns did not pass", out.stderr)
         self.assertNotEqual(self.git("rev-parse", "main", cwd=remote).stdout.strip(), self.head("main"))
 
-    def test_an_uncovered_path_refuses_the_merge(self):
+    def test_main_fast_forwarded_onto_a_merge_commit_is_named_a_fast_forward(self):
         self.make()
-        self.branch_with("feature", "richos/app/src/uncovered.txt", "new code\n")
+        self.git("checkout", "-q", "-b", "side")
+        self.write("richos/app/src/side.txt", "side work\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "side work")
+        self.git("checkout", "-q", "main")
+        self.land_a_merge_commit_on_main()
+        self.git("checkout", "-q", "side")
+        self.git("merge", "--no-ff", "--no-verify", "-m", "a merge made off main", "main")
+        self.git("checkout", "-q", "main")
+        self.ledger.unlink(missing_ok=True)
+        self.git("merge", "--ff-only", "side")
+        self.assertIn("without the land checks (a fast-forward)", self.recorded())
+        self.assertNotIn("--no-verify", self.recorded())
+
+    def test_an_uncovered_path_refuses_the_merge(self):
+        # Its own commit refuses it now (Commit, below); a branch that got past that with
+        # --no-verify is still refused at the land.
+        self.make()
+        self.branch_with("feature", "richos/app/src/uncovered.txt", "new code\n", no_verify=True)
         out = self.git("merge", "--no-ff", "-m", "land feature", "feature", expect=1)
         self.assertIn("covered by no suite", out.stderr)
 

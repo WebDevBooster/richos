@@ -55,6 +55,14 @@
 #                                     file under app/ui/ (tests/ and node_modules/ aside).
 #                                     The eight suites that `require("./lib/ui-sources")`
 #                                     genuinely read all of them.
+#   <dir>/      a DIRECTORY INPUT (the trailing slash is the marker): the suite reads the
+#               whole tree under it, including files that do not exist yet. Any changed path
+#               under it SELECTS the suite; it COVERS nothing, so it can never make a file
+#               under it look proven (the same rule as a script suite's `run-tests: inputs`).
+#               For a suite that checks a claim about a whole tree, such as docs-claims.js's
+#               test counts, whose inputs are every Rust file in every crate. That suite
+#               also checks its own row against what it read (its last check), so a new claim
+#               reading a new place cannot land with nothing to select it.
 # ========================================================================================
 
 @shell   richos/app/ui/index.html richos/app/ui/main.js richos/app/ui/style.css richos/app/ui/attachments.js
@@ -144,7 +152,7 @@ work-summary.js         @shell richos/app/ui/work-summary.js
 # They live in this directory and run with the rest, but nothing they check is in `ui/`, so
 # their rows name what they actually read. Both would otherwise be suites with no inputs,
 # which the reconciliation refuses — correctly: "reads nothing" is never true of a suite.
-docs-claims.js          richos/app/README.md richos/app/STREAMING.md richos/app/ui/tests/README.md richos/app/crates/richos-core/src/stream.rs richos/app/crates/richos-core/src/live.rs richos/app/crates/richos-core/src/machinery.rs richos/app/crates/richos-core/src/upstream.rs richos/app/crates/richos-voice/src/event.rs
+docs-claims.js          richos/app/crates/ richos/app/src-tauri/src/ richos/app/ui/tests/ richos/app/scripts/proof-for.ui-inputs richos/app/README.md richos/app/STREAMING.md richos/app/ui/tests/README.md richos/app/crates/richos-core/src/stream.rs richos/app/crates/richos-core/src/live.rs richos/app/crates/richos-core/src/machinery.rs richos/app/crates/richos-core/src/upstream.rs richos/app/crates/richos-voice/src/event.rs
 vouch-template.js       .github/workflows/vouch-pr.yml .github/workflows/ui-suite-ci.yml docs/verification/pr-trust-gate-2026-09-05/README.md docs/verification/pr-trust-gate-2026-09-05/raw/close-comment-rendered.md
 
 thread-switch.js       @shell richos/app/ui/timeline.js richos/app/ui/mock.js
