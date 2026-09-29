@@ -99,14 +99,27 @@ python3 richos/app/scripts/nightly-local.py candidate --run <run-id>
 `candidate` reads only the recorded build; it never runs any command and never
 touches the network.
 
-### `--no-host-screen`: a build that opens nothing on this Mac
+### A build opens nothing on this Mac, and proves the boot in the test VM itself
 
 CEO, 2026-09-19: *"So, every engineer will keep opening the app making me
 unable to do anything here or WHAT???"* — `gui-boot.test.sh` boots the real app
 on the real screen for ~162 s of every build.
 
+**Since 2026-09-29 this is what `build` does with no flag at all.** Once the
+signed candidate exists, the build boots that bundle in a test-VM guest
+(`gui-proof-in-vm.sh`, below), keeps the proof at
+`~/.richos-nightly/gui-proofs/<run-id>.proof`, and `publish --run <run-id>`
+uses it without `--gui-proof`. A proof that does not pass fails the build after
+the candidate is printed, and says how to take it again without a rebuild.
+`RICHOS_GUI_HOST=<guest>` names the guest, and `TESTVM_*` settings reach the
+VM step; any other `RICHOS_*` / `RUN_TESTS_*` setting no step would receive
+refuses the run before anything starts, instead of being dropped.
+`--host-screen` puts the screen suites back on this Mac's display (never on the
+CEO's Mac, §65). `gui-boot.test.sh` itself still records NOT RUN (no screen):
+the guest has no cargo and no repository to build its debug binary.
+
 ```sh
-python3 richos/app/scripts/nightly-local.py build --no-host-screen --gates-at-once all --simulated-phones 2
+python3 richos/app/scripts/nightly-local.py build --gates-at-once all --simulated-phones 2
 ```
 
 holds back every suite that boots the shipped binary, so the candidate is
@@ -116,7 +129,8 @@ motion with no `publish` step to refuse an unproven boot.
 
 **The price is real and `publish` collects it.** Such a candidate records
 `gui-boot.test.sh: not-run` in its `build-info.json`, and `publish` refuses it
-until you show that somebody watched it start:
+until somebody has watched it start. The build takes that proof itself; by hand
+(a build whose VM step failed, or an older candidate) it is:
 
 ```sh
 richos/app/scripts/gui-proof-in-vm.sh --run <run-id>

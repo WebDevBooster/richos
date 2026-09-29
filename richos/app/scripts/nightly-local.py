@@ -356,6 +356,66 @@ LAND_PROVEN_GATE = "gates/core-tests"
 # publish --gui-proof, which is the documented flow anyway.
 NO_HOST_SCREEN_COMMANDS = ("build",)
 
+# AND IT IS THE DEFAULT FOR `build`, WITH THE PROOF TAKEN BY THE BUILD ITSELF (2026-09-29).
+# The CEO: *"how much retarded fuckery is needed to get a build done THE FIRST FUCKING TIME if
+# the Mac is "quiet"???"* That day's attempt 1 (run 20260929T100554Z-3155ee52) was started
+# without the flag, ran gui-boot.test.sh on this Mac's own display, and failed because the
+# display was asleep. His Mac is never the on-screen host (§65); the test VM is. So `build`
+# holds every screen suite back unless `--host-screen` is said out loud, and once the signed
+# candidate exists the build boots THAT bundle in a test-VM guest (`gui-proof-in-vm.sh`,
+# suite=shipped-bundle-boot) and keeps the proof where `publish` finds it without being told.
+# Nobody sets a variable, remembers a flag or runs a second command.
+#
+# WHAT IT DOES NOT DO, SAID HERE SO NOBODY FINDS IT LATER: gui-boot.test.sh itself (a debug
+# binary built from the checkout, B0-B8/C1-C5) is still recorded NOT RUN (no screen). It needs
+# cargo and the repository, and the guest has neither; `run-tests.sh` routes a screen suite to
+# a guest only through testvm/run-suite.sh, which has never existed (escalation
+# esc-20260929T110927Z-49c07194). The proof `publish` accepts is the shipped bundle's boot.
+VM_PROOF_PHASE = "vm-boot-proof"
+# gui-proof-in-vm.sh waits up to 3600 s for one of the two guest slots (its --wait default,
+# chosen so a build that is walked away from still gets its proof), then boots, watches and
+# cleans up a guest; a measured boot-to-verdict is minutes. The budget is the wait plus 20
+# minutes, so the one thing that can end it is a guest that never answers.
+VM_PROOF_BUDGET = 3600 + 1200
+
+# A SETTING GIVEN TO THE BUILD IS NEVER SILENTLY DROPPED (2026-09-29). Attempt 2 that day was
+# started as `RICHOS_GUI_HOST=richos-test-1 nightly-local.py build --no-host-screen`; every
+# gate runs in the allowlisted environment below (GATE_PASSTHROUGH), the variable never
+# reached `run-tests.sh`, and the run went on for minutes to a screenless result nobody had
+# asked for. So at start every name in this project's setting namespaces is accounted for:
+# handed to the gates, consumed by a step of this script, or refused before anything runs,
+# with the reason and the way out. Names the agent harness gives every process on this Mac
+# are not settings and are named, with that reason, in AMBIENT_NAMES.
+SETTING_PREFIXES = ("RICHOS_", "RUN_TESTS_", "TESTVM_", "TART_")
+GUI_HOST_ENV = "RICHOS_GUI_HOST"
+# The test-VM tooling's own settings (testvm/lib.sh, testvm/slots.py): handed to the VM boot
+# proof, the one step of a build that uses a guest.
+VM_STEP_PREFIXES = ("TESTVM_", "TART_")
+AMBIENT_NAMES = {
+    "RICHOS_AGENT_OWNER": "the agent harness's name for the session that started this process",
+    "RICHOS_AGENT_SESSION": "the agent harness's session id for this process",
+}
+
+
+def settings_this_build_drops(environ, command):
+    """The setting-shaped names in `environ` that no step of `command` would receive."""
+    dropped = []
+    for name in sorted(environ):
+        if not name.startswith(SETTING_PREFIXES):
+            continue
+        if name in GATE_PASSTHROUGH or name in AMBIENT_NAMES or is_credential(name):
+            # A credential (RICHOS_NOTARY_*, RICHOS_SIGNING_IDENTITY, ...) is read from the
+            # shell ON PURPOSE and handed to the signing steps only: delivered, not dropped.
+            continue
+        if command == "build" and (name == GUI_HOST_ENV or name.startswith(VM_STEP_PREFIXES)):
+            continue
+        if command != "build" and name.startswith(VM_STEP_PREFIXES):
+            # No step of any other command touches a guest; the name has no consumer to be
+            # dropped on the way to. (A TESTVM_ROOT kept in a shell profile is ordinary.)
+            continue
+        dropped.append(name)
+    return dropped
+
 # `run-tests.sh` writes this beside the plan; its contents travel into the candidate's
 # `build-info.json`, so a candidate can never quietly claim a suite it did not run.
 SUITE_RESULTS = "script-suites.json"
@@ -934,7 +994,7 @@ def exclusive(state):
 
 class Runner:
     def __init__(self, repo, state, env, log, credentials=None, gates_at_once=1,
-                 simulated_phones=1, chosen_by=None):
+                 simulated_phones=1, chosen_by=None, gui_host=None, vm_settings=None):
         # What runs in a gate's own thread -- its phase and its log -- is per thread, so gates
         # running side by side never write into each other's section or claim each other's
         # deadline. Outside a gate thread both are the run's own.
@@ -955,6 +1015,11 @@ class Runner:
         self.gates_at_once = gates_at_once
         self.simulated_phones = simulated_phones
         self.chosen_by = chosen_by
+        # What the operator's shell said about the test VM, consumed by the VM boot proof
+        # rather than dropped (settings_this_build_drops): the guest's name, if one was
+        # given, and the testvm tooling's own settings.
+        self.gui_host = gui_host
+        self.vm_settings = dict(vm_settings or {})
         self.groups = OwnedGroups()
 
     @property
@@ -1839,7 +1904,48 @@ class Runner:
                 fields[name.strip()] = value.strip()
         return fields
 
-    def require_gui_proof(self, info, gui_proof):
+    @classmethod
+    def needs_gui_proof(cls, info):
+        """True when nobody has seen this candidate boot: the same rule require_gui_proof
+        enforces, asked before publish so the build can take the proof itself."""
+        state = cls.gui_boot_state(info)
+        if state == "passed":
+            return False
+        return state is not None or bool(info.get("no_host_screen"))
+
+    def gui_proof_path(self, run_id):
+        """Where the build keeps its own VM boot proof: gui-proof-in-vm.sh's default."""
+        return self.state / "gui-proofs" / f"{run_id}.proof"
+
+    def vm_boot_proof(self, run_id):
+        """Boot the candidate's own signed bundle in a test-VM guest. None on a pass, else
+        the sentence that says what did not happen and how to take it again.
+
+        Nothing here touches this Mac's screen: gui-proof-in-vm.sh boots, watches and deletes
+        a guest on the guest's own display, inside one of the two guest slots.
+        """
+        proof = self.gui_proof_path(run_id)
+        args = ["bash", self.source / SCRIPTS / "gui-proof-in-vm.sh", "--run", run_id, "--out", proof]
+        if self.gui_host:
+            args += ["--vm", self.gui_host]
+        # Written literally for this one step: where the run pointer lives, and the testvm
+        # settings the operator's shell gave (TESTVM_ROOT, TESTVM_SLOTS, ...).
+        extra = {"RICHOS_NIGHTLY_STATE": str(self.state), **self.vm_settings}
+        guest = f"guest {self.gui_host}" if self.gui_host else "a fresh guest"
+        self.announce(f"Booting the candidate's own bundle in {guest} on the test VM "
+                      "(nothing is put on this Mac's screen)...")
+        try:
+            with self.phase(VM_PROOF_PHASE):
+                self.command(*args, env_extra=extra, timeout=VM_PROOF_BUDGET)
+        except RuntimeError as error:
+            return (f"THE CANDIDATE IS BUILT, AND ITS BOOT WAS NOT PROVEN IN THE TEST VM: {error}. "
+                    f"The proof file, if any, is {proof}. `publish` refuses this candidate until a "
+                    f"passing proof exists; take it again with "
+                    f"richos/app/scripts/gui-proof-in-vm.sh --run {run_id} (no rebuild needed).")
+        self.announce(f"VM boot proof PASSED: {proof}. `publish --run {run_id}` uses it without --gui-proof.")
+        return None
+
+    def require_gui_proof(self, info, gui_proof, run_id=None):
         """Refuse to publish a candidate whose boot nobody has seen.
 
         `--no-host-screen` buys a build that never touches this Mac's screen by NOT running
@@ -1847,6 +1953,13 @@ class Runner:
         has to arrive before anything becomes installable, or the mode is just a way of
         skipping a gate.
         """
+        if not gui_proof and self.needs_gui_proof(info):
+            # The build takes this proof itself (vm_boot_proof) and keeps it here, so nobody
+            # has to carry its path to this command. It is checked exactly like a given one.
+            own = self.gui_proof_path(run_id or info.get("run_id") or "none")
+            if own.is_file():
+                print(f"Using the build's own VM boot proof: {own}", flush=True)
+                gui_proof = own
         state = self.gui_boot_state(info)
         if state is None and not info.get("no_host_screen"):
             # A candidate from before this field existed. `build` had no way to hold the
@@ -2008,6 +2121,16 @@ class Runner:
         elif command in GATE_COMMANDS and not (command == "stable" and dry_run):
             # The run log's first lines: what runs at once, and who chose it.
             self.record_settings()
+            if command == "build":
+                # And which screen the screen suites get, with whatever the shell gave for the
+                # test VM, so it is never reconstructed from a missing effect afterwards.
+                self.announce("Screen suites: " + (
+                    "never on this Mac's display; the signed candidate is booted in the test VM"
+                    + (f" (guest {self.gui_host}, from {GUI_HOST_ENV})" if self.gui_host else "")
+                    if no_host_screen else "on THIS Mac's display (--host-screen)"))
+                if self.vm_settings:
+                    self.announce("Handed to the VM boot proof from your shell: "
+                                  + ", ".join(sorted(self.vm_settings)))
         if command == "stable":
             # THE COMMIT, NOT THE BYTES. T3 Code's sentence, which is what is being copied
             # (`t3code:.github/workflows/release.yml:44-47`): *"Manual stable releases
@@ -2059,7 +2182,7 @@ class Runner:
                                  f"built run {run_id} is gone, so it cannot be published from here")
             # BEFORE the network, the upload and the channel move: this is a refusal about
             # what was never checked, and it costs nothing to make it first.
-            proof = self.require_gui_proof(info, gui_proof)
+            proof = self.require_gui_proof(info, gui_proof, run_id=run_id)
             if proof:
                 print(f"gui-boot proof accepted: {proof.get('result')} at {proof.get('where')}, "
                       f"commit {proof.get('commit')}, taken {proof.get('at')}", flush=True)
@@ -2180,9 +2303,16 @@ class Runner:
                          release_build=True)
         candidate_info = json.loads((out / "candidate.json").read_text())["info"]
         self.record_run(self.env["RICHOS_NIGHTLY_RUN_ID"], out)
+        # THE SCREEN SUITES' PROOF, TAKEN HERE AND NOT LEFT FOR SOMEBODY TO REMEMBER: a
+        # candidate whose boot nobody watched is booted in the test VM now (see VM_PROOF_PHASE).
+        proof_error = None
+        if self.needs_gui_proof(candidate_info):
+            proof_error = self.vm_boot_proof(self.env["RICHOS_NIGHTLY_RUN_ID"])
         self.summary()
         print("", flush=True)
         self.print_candidate(candidate_info, out)
+        if proof_error:
+            raise RuntimeError(proof_error)
 
 
 def gates_at_once_value(text):
@@ -2229,9 +2359,12 @@ def main():
                              "coverage proof for SHA is on this machine); refused unless "
                              "SHA is the sha this run fetches")
     parser.add_argument("--no-host-screen", action="store_true",
-                        help="hold back every suite that boots the app on this Mac's screen; "
-                             "the candidate is still built and walkable, and publish will "
-                             "refuse it until --gui-proof names a boot taken elsewhere")
+                        help="the DEFAULT for build: hold back every suite that boots the app "
+                             "on this Mac's screen; the build then boots the signed candidate "
+                             "in the test VM itself, and publish uses that proof")
+    parser.add_argument("--host-screen", action="store_true",
+                        help="build only: run the screen suites on THIS Mac's display instead "
+                             "of the test VM. Never on the CEO's Mac (ruling §65)")
     parser.add_argument("--from-nightly", metavar="TAG",
                         help="the published nightly whose SOURCE COMMIT `stable` rebuilds; "
                              "refused unless the CEO's own promotion decision for that exact "
@@ -2276,6 +2409,13 @@ def main():
         parser.error("--no-host-screen is for `build`. `release` publishes in one motion with "
                      "no publish step to refuse an unproven boot, so it always runs the whole "
                      "gate; the screenless path is build -> walk -> publish --gui-proof.")
+    if args.host_screen and (args.command != "build" or args.no_host_screen):
+        parser.error("--host-screen is for `build` alone, and it contradicts --no-host-screen: "
+                     "say which screen the suites may use")
+    # `build` never uses this Mac's screen unless told to (NO_HOST_SCREEN_COMMANDS, above). A
+    # build reusing a recorded run's gates runs no screen suite at all, so it is not set there.
+    no_host_screen = args.no_host_screen or (
+        args.command == "build" and not args.host_screen and not args.gates_passed_in)
     if args.command == "stable" and not args.from_nightly:
         parser.error("stable requires --from-nightly <tag>: a stable release is a rebuild "
                      "of the commit a published nightly was built from, and it is refused "
@@ -2315,22 +2455,36 @@ def main():
                      f"they mean nothing to {args.command}"
                      + (" --dry-run, which runs no gate" if args.command == "stable" else "")
                      + (f" {PASSED_GATES_FLAG}, which runs no gate" if args.gates_passed_in else ""))
+    dropped = settings_this_build_drops(os.environ, args.command)
+    if dropped:
+        parser.error(
+            f"your shell sets {', '.join(dropped)}, and no step of `{args.command}` would receive "
+            f"{'it' if len(dropped) == 1 else 'them'}: every gate runs in an allowlisted "
+            "environment (GATE_PASSTHROUGH in this file), so the setting would be dropped "
+            "without a word and the run would not be the one you asked for. Nothing has "
+            f"started. Unset it to run without it (unset {' '.join(dropped)}). A setting a gate "
+            "really needs becomes a command-line flag or a GATE_PASSTHROUGH entry with its "
+            "reason. (The test VM needs none: `build` boots its candidate there by itself.)")
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         parser.error("local nightly releases currently require an Apple Silicon Mac")
     os.umask(0o077)
     state = args.state_dir.expanduser().absolute()
     env, credentials = local_environment(args.run if args.command == "build" else None)
+    vm_settings = {name: value for name, value in os.environ.items()
+                   if args.command == "build" and name.startswith(VM_STEP_PREFIXES)}
+    gui_host = os.environ.get(GUI_HOST_ENV) if args.command == "build" else None
     with exclusive(state):
         logs = state / "logs"
         logs.mkdir(exist_ok=True)
         log_path = logs / (env["RICHOS_NIGHTLY_RUN_ID"] + ".log")
         print(f"Run log: {log_path}", flush=True)
         with TimestampedLog(log_path, BUILD_MILESTONES) as log:
-            Runner(args.repo.resolve(), state, env, log, credentials,
-                   gates_at_once=args.gates_at_once, simulated_phones=args.simulated_phones,
-                   chosen_by=chosen_by()).perform(
+            runner = Runner(args.repo.resolve(), state, env, log, credentials,
+                            gates_at_once=args.gates_at_once, simulated_phones=args.simulated_phones,
+                            chosen_by=chosen_by(), gui_host=gui_host, vm_settings=vm_settings)
+            runner.perform(
                 args.command, args.force, args.runtime_dir.resolve() if args.runtime_dir else None,
-                args.run, args.checks_done_at_land, args.no_host_screen, args.gui_proof,
+                args.run, args.checks_done_at_land, no_host_screen, args.gui_proof,
                 args.from_nightly, args.dry_run, args.gates_passed_in)
 
 
