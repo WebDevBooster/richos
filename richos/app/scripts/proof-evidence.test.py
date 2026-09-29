@@ -255,16 +255,30 @@ class Evidence(unittest.TestCase):
         after = evidence.recipe_identity(self.root, recipe, {'FIXTURE': str(first)}, evidence.InputSnapshot())
         self.assertNotEqual(left['paths'], after['paths'])
 
-    def test_source_change_during_final_input_snapshot_invalidates_pass(self):
-        items, record = self.attempt('final-snapshot')
-        self.passed(items, record)
-        def inputs(selected):
-            record.current_source = lambda: {**self.source, 'untracked_sha256': 'changed-during-read'}
-            return {item.label: self.inputs for item in selected}
-        record.current_identities = inputs
-        record.finalize(items)
-        self.assertEqual(items[0].state, 'invalid')
-        self.assertEqual(record.results['check']['exit'], 125)
+    def test_source_change_during_final_input_snapshot_rereads_and_judges_each_check_by_its_inputs(self):
+        # The checkout changes while finalize() reads the inputs. A check whose own inputs read
+        # differently the second time is invalid; one whose inputs read the same both times is
+        # not, because the change was somewhere else (part-2 hunt section 07).
+        for moving in (True, False):
+            with self.subTest(own_inputs_moving=moving):
+                items, record = self.attempt('final-snapshot-%s' % moving)
+                self.passed(items, record)
+                reads = []
+                def inputs(selected):
+                    record.current_source = lambda: {**self.source, 'untracked_sha256': 'changed-during-read'}
+                    reads.append(1)
+                    same = len(reads) == 1 or not moving
+                    return {item.label: (self.inputs if same else {'paths': {'fixture': 'moved'}})
+                            for item in selected}
+                record.current_identities = inputs
+                record.finalize(items)
+                self.assertEqual(len(reads), 2, 'the inputs are read again after the checkout moved')
+                if moving:
+                    self.assertEqual(items[0].state, 'invalid')
+                    self.assertEqual(record.results['check']['exit'], 125)
+                    self.assertIn('while they were being read', record.results['check']['invalid'])
+                else:
+                    self.assertEqual(items[0].state, 'passed', items[0].notes)
 
     def test_unreadable_final_input_snapshot_preserves_non_green_outcome(self):
         items, record = self.attempt('unreadable-snapshot')
@@ -416,15 +430,101 @@ class Evidence(unittest.TestCase):
         self.assertIn("no committed input contract", new[0].notes[-1])
 
     def test_changed_source_or_inputs_during_execution_invalidates_pass(self):
-        for change in ("source", "input"):
-            items, record = self.attempt(change, engine=False)
-            if change == "source":
-                record.current_source = lambda: {**self.source, "tracked_diff_sha256": "changed"}
-            else:
-                record.current_identity = lambda item: {"changed": True}
-            self.passed(items, record)
-            self.assertEqual(items[0].state, "invalid")
-            self.assertIn("invalid", record.results["check"])
+        # A change to the check's own inputs, a source change for a check that declares no
+        # inputs, and a moved HEAD each invalidate the pass.
+        for change in ("input", "fresh-source", "commit"):
+            with self.subTest(change=change):
+                identities = {"check": {"fresh": "no contract"}} if change == "fresh-source" else None
+                items, record = self.attempt(change, engine=False, identities=identities)
+                if change == "input":
+                    record.current_identity = lambda item: {"changed": True}
+                elif change == "fresh-source":
+                    record.current_source = lambda: {**self.source, "tracked_diff_sha256": "changed"}
+                else:
+                    record.current_source = lambda: {**self.source, "commit": "c" * 40}
+                self.passed(items, record)
+                self.assertEqual(items[0].state, "invalid")
+                self.assertIn("invalid", record.results["check"])
+                self.assertEqual(record.source_invalidated, change == "commit",
+                                 "only a moved HEAD contaminates the whole run")
+
+    def test_unrelated_source_change_keeps_a_declared_pass_and_contaminates_nothing(self):
+        # Part-2 hunt section 07: an edit elsewhere in the checkout used to mark the run
+        # contaminated and invalidate every pass, even one whose declared inputs were unchanged.
+        items, record = self.attempt("unrelated", engine=False)
+        record.current_source = lambda: {**self.source, "tracked_diff_sha256": "an unrelated save"}
+        self.passed(items, record)
+        self.assertEqual(items[0].state, "passed", items[0].notes)
+        self.assertNotIn("invalid", record.results["check"])
+        self.assertFalse(record.source_invalidated)
+        record.finalize(items)
+        self.assertEqual(items[0].state, "passed", items[0].notes)
+        # And the saved pass is reusable by a later run whose declared inputs are the same.
+        new, current = self.attempt("after-unrelated", engine=False)
+        current.source = {**self.source, "tracked_diff_sha256": "an unrelated save"}
+        evidence.reuse(record.logdir, new, current, exact=False)
+        self.assertEqual(new[0].state, "passed", new[0].notes)
+
+    def test_actual_unrelated_edit_during_a_run_invalidates_only_the_checks_that_read_it(self):
+        # Part-2 hunt section 07, end to end through runner.main on a real git checkout: one check
+        # (`editor`, no contract, so keyed by the whole checkout) saves a tracked file while
+        # another (`reader`, a reviewed contract over reader.test.sh and input.txt) is admitted
+        # beside it. Before: the run was marked contaminated, `reader` was stopped or invalidated
+        # and a "source changed during verification" failure was added. Now an unrelated save
+        # leaves `reader` passed, and a save to input.txt invalidates it.
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        git = lambda *a: subprocess.run(["git", "-C", str(self.root), "-c", "user.name=fixture",
+                                         "-c", "user.email=fixture@example.invalid", "-c", "core.hooksPath=/dev/null",
+                                         "-c", "commit.gpgsign=false", *a],
+                                        check=True, env=env, capture_output=True)
+        git("init", "-q")
+        (self.root / "input.txt").write_text("read by reader\n")
+        (self.root / "notes.txt").write_text("read by nobody but the whole-checkout identity\n")
+        (self.root / "reader.test.sh").write_text(
+            'i=0; while [ "$i" -lt 600 ]; do [ -f "$1" ] && exit 0; sleep 0.1; i=$((i + 1)); done; exit 1\n')
+        (self.root / "editor.test.sh").write_text('printf "edited during the run\\n" > "$2"; : > "$1"\n')
+        scripts = self.root / "richos/app/scripts"
+        scripts.mkdir(parents=True)
+        self.qualification("Controlled shell fixture: reads only its script and input.txt.")
+        recipe = {"paths": ["reader.test.sh", "input.txt"], "tools": ["bash"],
+                  "external": [], "environment": ["PATH"], "qualification": "qualification.json"}
+        evidence.atomic(scripts / "proof-inputs.json", {"schema": 1, "checks": {"reader": recipe}})
+        git("add", "-A")
+        git("commit", "-q", "-m", "fixture")
+        idle = lambda: {"cpu_user_percent": 5, "cpu_system_percent": 2,
+            "memory_pressure": "normal", "swapout_mb_per_s": 0, "memory_free_percent": 80,
+            "swap_used_mb": 0}
+        pools = iter(range(100))
+        results = {}
+        for target in ("notes.txt", "input.txt"):
+            marker = Path(self.tmp.name) / ("marker-" + target)
+            lines = [f"cd . && bash reader.test.sh {marker}",
+                     f"cd . && bash editor.test.sh {marker} {self.root / target}"]
+            logdir = Path(self.tmp.name) / ("run-" + target)
+            captured = io.StringIO()
+            with patch.dict(os.environ, {"RICHOS_MACHINE_WORKERS": str(Path(self.tmp.name) / "machine"),
+                                          "CLAUDE_CONFIG_DIR": str(Path(self.tmp.name) / "config")}), \
+                    patch.object(runner, "ROOT", str(self.root)), \
+                    patch.object(runner, "default_logdir", return_value=str(Path(self.tmp.name) / "history")), \
+                    patch.object(evidence, "pool_directory",
+                                 side_effect=lambda *a: Path(self.tmp.name) / ("pool-%d" % next(pools))), \
+                    patch.object(runner, "supply_runtime", return_value="private fixture"), \
+                    patch.object(runner.reserve, "host_sample", side_effect=idle), \
+                    patch.object(runner, "selection", return_value=lines), \
+                    contextlib.redirect_stdout(captured):
+                rc = runner.main(["--log-dir", str(logdir)])
+            summary = json.loads((logdir / "summary.json").read_text())
+            results[target] = ({row["check"]: row["result"] for row in summary["checks"]}, rc, captured.getvalue())
+            git("checkout", "--", target)
+        states, rc, out = results["notes.txt"]
+        self.assertEqual(states.get("reader"), "passed", out[-3000:])
+        # The editor wrote into the checkout it was verified in: its own whole-checkout identity
+        # moved, so its pass, and only its pass, is invalid.
+        self.assertEqual(states.get("editor"), "invalid", out[-3000:])
+        self.assertEqual(set(states), {"reader", "editor"}, "no run-wide contamination finding: " + out[-3000:])
+        states, rc, out = results["input.txt"]
+        self.assertEqual(states.get("reader"), "invalid", out[-3000:])
+        self.assertEqual(rc, 1)
 
     def test_frozen_plan_cannot_be_replaced(self):
         old, previous = self.attempt("old")
@@ -1103,6 +1203,7 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
                                       "CLAUDE_CONFIG_DIR": str(Path(self.tmp.name) / "config")}), \
                 patch.object(runner, "ROOT", str(self.root)), \
                 patch.object(runner, "source_identity", return_value=self.source), \
+                patch.object(runner, "head_commit", return_value=self.source["commit"]), \
                 patch.object(runner, "default_logdir", return_value=str(Path(self.tmp.name) / "history")), \
                 patch.object(evidence, "pool_directory", return_value=Path(self.tmp.name) / "pool"), \
                 patch.object(runner, "supply_runtime", return_value="private fixture"), \
