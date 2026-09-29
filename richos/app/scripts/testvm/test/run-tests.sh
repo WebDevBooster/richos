@@ -1551,6 +1551,10 @@ t "slots: run.sh boots no guest outside a slot, and names the one command that d
   has "$out" "is not held"
 t_done
 
+t "speckle-walk: single speckle points are counted once; rules, strokes, fills and sub-delta noise are not"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/speckle-walk.test.py" >"$TMP/speckle-walk.log" 2>&1; ok $? "$(cat "$TMP/speckle-walk.log")"
+t_done
+
 t "files-since: every class, the baseline window, and a control that must be found and flagged"
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/files-since.test.py" >"$TMP/files-since.log" 2>&1; ok $? "$(cat "$TMP/files-since.log")"
 t_done

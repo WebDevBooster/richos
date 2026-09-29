@@ -272,9 +272,19 @@ function probeBody(options) {
     // note above gives about `#home`: one number would either sit red forever over something
     // that is covered, or get its threshold raised, and the next canvas nobody measures would
     // go with it.
-    canvasCount: document.querySelectorAll("canvas:not(#home canvas):not(#phone-sheet canvas)").length,
+    // A FOURTH BUCKET, the speckled ground (CEO, 2026-09-29), excluded BY NAME for the same
+    // reason as the two above: it is measured, just not here. It is one decorative canvas
+    // (`aria-hidden`, `pointer-events: none`) BEHIND the shell, carrying no text of its own,
+    // and `tests/speckled-ground.js` walks every text node drawn over it and proves each one keeps
+    // 4.5:1 against the strongest point the engine can paint under it. Because it is
+    // `pointer-events: none` it never enters `elementsFromPoint`, so this walk still resolves
+    // those nodes against the ruled ground on `html` — the unlit half of the same proof.
+    canvasCount: document.querySelectorAll(
+      "canvas:not(#home canvas):not(#phone-sheet canvas):not(body > canvas.speckle)"
+    ).length,
     canvasInHome: document.querySelectorAll("#home canvas").length,
     canvasInPhone: document.querySelectorAll("#phone-sheet canvas").length,
+    canvasSpeckle: document.querySelectorAll("body > canvas.speckle").length,
     svgTextCount: document.querySelectorAll("svg text, svg tspan").length,
     failures: {},
     unresolvable: {},

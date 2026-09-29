@@ -1,0 +1,34 @@
+/* =================================================================================================
+   RICHOS DESIGN SYSTEM — THE SPECKLED GROUND, the CSS half.
+   design/system/speckle.css · goes with speckle.js. Read the head of speckle.js first.
+
+   The canvas paints the ruled ground itself and the sheen on top of it, BEHIND the app. For that to
+   show, the app's ground planes under it must be transparent, everything raised stays opaque, and
+   the rail keeps its deeper tone as a translucent darkening over the sheen rather than an opaque
+   fill. That is these four rules. The values are the ones in the chosen configurations
+   (round-15/desktop.html and round-15/v6-light-2/desktop.html), not new ones.
+
+   THE RULE (CEO, 2026-09-29): the splash screens on desktop and mobile, and the desktop app home
+   screen, NEVER carry this background. Do not put `speckle-ground` on any of them.
+   ================================================================================================= */
+
+/* The element the canvas fills when `parent` is given (a phone frame, an app shell). `isolation`
+   keeps the canvas's negative z-index inside this element, so it sits behind the element's own
+   content and above whatever is behind the element. Without `parent`, the canvas is fixed to the
+   viewport and body needs no class. */
+.speckle-host { position: relative; isolation: isolate; background: transparent; overflow: hidden; }
+
+/* The ground planes the sheen shows through: the stage, the conversation column, the page body of
+   a phone screen. Apply to each ground plane; never to a surface, a card, a panel or the composer. */
+.speckle-ground { background: transparent; }
+
+/* The rail, over the sheen. Dark: black at 32%, which is the deeper tone the rail already had, now
+   translucent. Light: the rail's #E4DFD3 rebuilt exactly as rgba(134,113,54,.06) over the paper,
+   so the sheen runs under it too, a shade deeper. Both caps are solved on that deeper light rail. */
+:root, [data-theme="dark"] { --speckle-rail: rgba(0, 0, 0, 0.32); }
+[data-theme="light"] { --speckle-rail: rgba(134, 113, 54, 0.06); }
+.speckle-rail { background: var(--speckle-rail); }
+
+/* The canvas itself. speckle.js sets position, inset, size, pointer-events and z-index inline; this
+   only rounds it to a rounded host (a phone frame in a mockup). */
+canvas.speckle { border-radius: inherit; }
