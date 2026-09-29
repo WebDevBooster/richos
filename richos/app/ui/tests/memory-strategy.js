@@ -377,14 +377,37 @@ async function main() {
   });
 
   await run.check("§26 the clock reads exactly `Working for 18s` — injected, not waited for", async () => {
-    const t = await readTurn(b);
-    assertEqual(t.duration.trim(), "Working for 18s", "the anchored elapsed time");
+    // READ AT THE INSTANT THE FIXTURE DEFINES, NOT AT WHATEVER INSTANT THE HARNESS ARRIVES
+    // (2026-09-29, audit R2). The brief was sent with the anchor `Date.now() - 18,600` and the
+    // mock starts the turn 600ms after the anchor, so at the send the turn is exactly 18,000ms
+    // old. This used to read the LIVE row two checks and a few dozen round trips later and
+    // require the real elapsed time to still be inside [18,000, 19,000): measured 301 and
+    // 324ms of that second spent on a quiet Mac, and on a busy nightly host the row reads
+    // `Working for 19s` for a product that is right. So the page's wall clock is pinned to the
+    // send instant (anchor + 18,600ms) and the row is recomputed through the product's own
+    // visibility handler (`pinClock`, `lib/harness.js`), exactly as every §26 shot is taken.
+    // What this still proves: the fixture's anchor reached the product's `startedAt`, and the
+    // product's own formatter turns 18,000ms of elapsed time into `Working for 18s`. What it no
+    // longer does is race the harness.
     const m = await b.evaluate(() => {
       const s = window.__RICHOS_MOCK__.activeMemoryStrategy();
-      return { startedAt: s.startedAt, anchor: s.anchor, elapsed: Date.now() - s.startedAt };
+      return { startedAt: s.startedAt, anchor: s.anchor };
     });
-    assert(m.elapsed >= 18000 && m.elapsed < 19000, "measured elapsed " + m.elapsed + "ms floors to 18s");
-    return `startedAt = anchor + 600; Date.now() - startedAt = ${m.elapsed}ms -> "18s". No sleep, no patched Date.now.`;
+    assertEqual(m.startedAt - m.anchor, 600, "the mock starts the turn 600ms after the anchor it was given");
+    const sentAt = m.anchor + ANCHOR_18S;
+    const pinned = await pinClock(b, sentAt);
+    assertEqual(pinned, sentAt, "the page's clock could not be pinned to the send instant");
+    let t;
+    try {
+      t = await readTurn(b);
+    } finally {
+      await unpinClock(b);
+    }
+    assertEqual(t.duration.trim(), "Working for 18s", "the anchored elapsed time, read at the send instant");
+    return (
+      `startedAt = anchor + 600; at the send instant (anchor + ${ANCHOR_18S}) Date.now() - startedAt = ` +
+      `${sentAt - m.startedAt}ms -> "Working for 18s". No sleep; the clock is pinned to the fixture's instant, not to the harness's.`
+    );
   });
 
   await run.check("SCREENSHOT 2/9: active at `Working for 18s`", async () =>
