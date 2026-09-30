@@ -400,6 +400,36 @@ fn a_full_disk_is_refused_before_a_single_request_and_a_roomy_one_is_not() {
     assert!(matches!(plan, FetchPlan::Fetch { .. }), "unknown free space is not a refusal");
 }
 
+/// A nearly finished download needs room for the MISSING bytes only: the partial is appended in
+/// place, so there is no second full copy to budget for.
+#[test]
+fn a_resume_needs_room_for_the_missing_bytes_only() {
+    let s = Scratch::new("resume-room");
+    let body = model_bytes(4096, 0x66);
+    let pin = pin_for_bytes("resume-room.en", &body);
+    let part = s.path().join(format!("{}.part", pin.file));
+    std::fs::write(&part, &body[..3686]).expect("seed a 90% prefix");
+
+    // Missing 410 bytes; with 10% headroom (integer ceiling) that is 451.
+    assert_eq!(pin.required_free_bytes_resuming(3686), 451);
+    assert_eq!(provision::resumable_bytes(&pin, s.path()), 3686);
+
+    let plan = provision::plan_fetch(&pin, s.path(), Some(451));
+    let FetchPlan::Fetch { from, .. } = plan else { panic!("room for the remainder must proceed, got {plan:?}") };
+    assert_eq!(from, 3686);
+
+    // NEGATIVE CONTROL: one byte short of the remainder is still refused, and the partial stays.
+    let plan = provision::plan_fetch(&pin, s.path(), Some(450));
+    assert!(matches!(plan, FetchPlan::Refused { .. }), "short of the remainder must refuse");
+    assert!(part.exists(), "a refusal leaves the partial alone");
+
+    // A partial that will NOT be resumed (wrong start) still needs the whole model.
+    std::fs::write(&part, b"<html>portal</html>").expect("seed junk");
+    let plan = provision::plan_fetch(&pin, s.path(), Some(451));
+    assert!(matches!(plan, FetchPlan::Refused { .. }), "a restart needs the full budget");
+    assert!(part.exists(), "and a refusal removes nothing");
+}
+
 /// A declared length that disagrees with the pin stops the transfer BEFORE the body.
 ///
 /// The one check that can save a whole download on a metered or slow connection.
