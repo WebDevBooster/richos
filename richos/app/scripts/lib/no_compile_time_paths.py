@@ -67,6 +67,16 @@ PLACEHOLDER_HOMES = {"you", "example"}
 
 HOST_PATH = re.compile(r"/Users/([^/\s\"']+)/")
 
+# Rust accepts any whitespace inside a macro call, so `env!( "OUT_DIR" )` is the same call as
+# `env!("OUT_DIR")` and must be found too. Comments are already removed from the scanned
+# lines. A call split across lines is still not seen: the scan is per line.
+_ENV_CALL = r'\benv\s*!\s*\(\s*"%s"\s*\)'
+MANIFEST_DIR_MACRO = re.compile(_ENV_CALL % "CARGO_MANIFEST_DIR")
+OUT_DIR_MACRO = re.compile(_ENV_CALL % "OUT_DIR")
+OUT_DIR_INCLUDE = re.compile(
+    r"\binclude(_bytes|_str)?\s*!\s*\(\s*concat\s*!\s*\(\s*" + _ENV_CALL % "OUT_DIR"
+)
+
 
 class Finding:
     def __init__(self, path: str, line: int, kind: str, text: str) -> None:
@@ -227,7 +237,7 @@ def scan_text(source: str, path: str, allow_homes: set[str]) -> list[Finding]:
     for ln in sorted(code_lines):
         stripped = code_lines[ln]
         raw_line = stripped
-        if 'env!("CARGO_MANIFEST_DIR")' in stripped:
+        if MANIFEST_DIR_MACRO.search(stripped):
             findings.append(
                 Finding(
                     path,
@@ -238,9 +248,7 @@ def scan_text(source: str, path: str, allow_homes: set[str]) -> list[Finding]:
                     raw_line,
                 )
             )
-        if 'env!("OUT_DIR")' in stripped and not re.search(
-            r"include(_bytes|_str)?!\s*\(\s*concat!\s*\(\s*env!\(\"OUT_DIR\"\)", stripped
-        ):
+        if OUT_DIR_MACRO.search(stripped) and not OUT_DIR_INCLUDE.search(stripped):
             findings.append(
                 Finding(
                     path,
@@ -309,6 +317,26 @@ SELF_TEST_CASES = [
         "and code AFTER a cfg(test) module is scanned again",
         '#[cfg(test)]\nmod tests {\n    fn t() {}\n}\nfn g() { let p = env!("CARGO_MANIFEST_DIR"); }\n',
         1,
+    ),
+    (
+        "a spaced env! CARGO_MANIFEST_DIR is still a finding",
+        'fn f() { let p = env!( "CARGO_MANIFEST_DIR" ); }',
+        1,
+    ),
+    (
+        "a spaced env ! CARGO_MANIFEST_DIR is still a finding",
+        'fn f() { let p = env ! ( "CARGO_MANIFEST_DIR" ); }',
+        1,
+    ),
+    (
+        "a spaced env! OUT_DIR used as a value is still a finding",
+        'fn f() { let d = env!( "OUT_DIR" ); }',
+        1,
+    ),
+    (
+        "a spaced env! OUT_DIR consumed by include! is not a finding",
+        'mod g { include!( concat!( env!( "OUT_DIR" ), "/a.rs" ) ); }',
+        0,
     ),
     (
         "a home directory in a string literal is a finding",
