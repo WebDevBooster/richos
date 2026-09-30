@@ -1781,7 +1781,8 @@ while True: time.sleep(.02)
         units = others[0].args[others[0].args.index("--only-units") + 1].split(",")
         self.assertEqual(sorted(units), sorted(["mega-lander/tests/workspaces.test.sh",
                                                 "mega-lander/tests/create-teammate-worktree.test.sh",
-                                                "mega-lander/tests/workspace-probes.test.sh"]))
+                                                "mega-lander/tests/workspace-probes.test.sh",
+                                                "mega-lander/tests/app.test.sh"]))
         self.assertEqual(others[0].kwargs.get("env_extra"), {"RICHOS_MUTATION_PASSES": "1"})
 
     def test_release_never_skips_a_suite_over_unchanged_inputs(self):

@@ -249,3 +249,8 @@ scripts/operator-fences-mutation.test.sh	1407.7	darwin-local-2026-09-25-zach-opu
 # Recorded PASS: verification-source-identity-20260930/final-integration/04-engine-scripts-scratch-reaper.test.sh.log
 # Its SCR receipt from the isolated run is 275.9s; the contended full suite took 676.8s.
 scripts/hooks/contract-integrity.test.sh:SCR	676.8	mac-20260930-full-scratch-53-mutants
+
+# Behavioral half under ci-shard.sh after its land-lock home moved into the fixture
+# (693528de, "After: PASS 172.4s, ci-shard 1/1 unit(s) passed"); the mutation pass
+# runs only at the nightly's workspace-mutants gate and is not in this number.
+mega-lander/tests/app.test.sh	172.4	darwin-local-2026-09-30-zach-sonnet-landlock1

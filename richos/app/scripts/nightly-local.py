@@ -448,14 +448,14 @@ UI_SUITE_GATE = "gates/ui-suite"
 WORKSPACE_MUTANTS_GATE = "gates/workspace-mutants"
 # The engine units whose mutation passes run only under RICHOS_MUTATION_PASSES=1, at that gate
 # (hunt part 4 finding 19): every land runs their behavioral checks, never their mutants.
-# mega-lander/tests/app.test.sh takes the same switch but is NOT here yet: on 2026-09-30 its
-# behavioral half failed under ci-shard.sh with RECORD-TOUCHED (it writes the machine-wide land
-# locks under its HOME, app.test.py line 41) before its mutation pass started, so adding it
-# would turn every nightly red. It joins this list in the change that fixes that.
+# mega-lander/tests/app.test.sh takes the same switch. It joined on 2026-09-30, once its
+# behavioral half stopped failing under ci-shard.sh with RECORD-TOUCHED: the suite now points
+# the land-lock home inside its fixture (693528de, PASS 172.4 s, ci-shard 1/1 unit passed).
 MUTATION_PASS_UNITS = (
     "mega-lander/tests/workspaces.test.sh",
     "mega-lander/tests/create-teammate-worktree.test.sh",
     "mega-lander/tests/workspace-probes.test.sh",
+    "mega-lander/tests/app.test.sh",
 )
 UI_SHARDS = 4
 
