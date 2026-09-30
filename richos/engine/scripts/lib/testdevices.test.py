@@ -9,6 +9,7 @@ paired with the case that must NOT remove, because a collector is judged as
 much on what it leaves as on what it takes.
 """
 import importlib.util
+import io
 import json
 import os
 import subprocess
@@ -909,11 +910,14 @@ class Collector(Base):
         runner.wait(timeout=10)
         self.assertIn("not proven alive", runner.stderr.read())
 
-    def test_T46_an_owned_run_ends_at_its_lifetime(self):
+    def test_T46_an_owned_run_that_renews_forever_ends_at_the_ceiling(self):
+        # P5-23: the lifetime no longer cuts off a run whose renewer vouches for it; a run
+        # that hangs yet stays alive is still ended, at LEASE_ACTIVE_CEILING_SECONDS.
         import cpu_guard
         udid = self.device("rios-ui-runaway")
         rec = T.register("ios-simulator", udid, os.getpid())
-        rec["lease"]["created"] = time.time() - (T.LEASE_MAX_SECONDS - 1.5)
+        rec["lease"]["created"] = time.time() - (T.LEASE_ACTIVE_CEILING_SECONDS - 1.5)
+        rec["lease"]["activity"] = {"pid": 1, "renewer": 1, "renewed": time.time()}   # already renewed once
         T._write_json(T._record_path("ios-simulator", udid), rec)
         runner = self.run_active(udid, os.getpid(), "sleep", "4")
         time.sleep(0.8)
@@ -995,9 +999,29 @@ class Collector(Base):
         with self.assertRaisesRegex(ValueError, "unknown lease purpose"):
             T.acquire_ios("iPhone", "runtime", os.getpid(), purpose="forever")
 
-    def test_T50b_the_pool_wait_is_300_s_unless_a_gate_names_a_positive_number(self):
+    def test_T50a_an_actively_renewed_lease_outlives_its_lifetime_but_not_the_ceiling(self):
+        # P5-23: the lifetime must not cut off a run whose renewer is still vouching for it.
+        base = {"created": 1000.0, "max_seconds": 900, "idle_seconds": 300}
+        at = 1000.0 + 901
+        renewed = dict(base, last_use=at - 10, activity={"pid": 1, "renewer": 2, "renewed": at - 10})
+        self.assertFalse(T.lease_expired({"lease": renewed}, at))                     # healthy, past 900 s
+        # No renewer behind it (a CLI touch alone): the lifetime still ends it.
+        touched = dict(base, last_use=at - 10)
+        self.assertTrue(T.lease_expired({"lease": touched}, at))
+        # A renewer that has gone quiet for the inactivity window: idle limit ends it.
+        quiet = dict(base, last_use=at - 300, activity={"pid": 1, "renewer": 2, "renewed": at - 300})
+        self.assertTrue(T.lease_expired({"lease": quiet}, at))
+        # A run that renews forever is still ended, at the ceiling.
+        late = 1000.0 + T.LEASE_ACTIVE_CEILING_SECONDS
+        forever = dict(base, last_use=late - 10, activity={"pid": 1, "renewer": 2, "renewed": late - 10})
+        self.assertTrue(T.lease_expired({"lease": forever}, late))
+        self.assertFalse(T.lease_expired({"lease": forever}, late - 100))
+
+    def test_T50b_the_pool_wait_outlasts_the_longest_lease_unless_a_gate_names_a_positive_number(self):
         with patch.dict(os.environ, {T.POOL_WAIT_ENV: ""}):
-            self.assertEqual(T.pool_wait_seconds(), 300)
+            # P5-24: five minutes gave up on a healthy holder that may keep the device 15 or 30.
+            self.assertGreater(T.pool_wait_seconds(), max(T.LEASE_MAX_SECONDS, *T.LEASE_PURPOSES.values()))
+            self.assertGreater(T.pool_wait_seconds(), 300)
         with patch.dict(os.environ, {T.POOL_WAIT_ENV: "6900"}):
             self.assertEqual(T.pool_wait_seconds(), 6900)
             # ...and the CLI hands exactly that to acquire_ios, for rios's calls as much as a suite's.
@@ -1282,6 +1306,27 @@ class Collector(Base):
         time.sleep(0.8)                                        # and not after it
         self.assertEqual(T._read_json(T._record_path("ios-simulator", udid))["lease"]["last_use"], stopped)
         T.release_ios(udid, os.getpid())
+
+    def test_T51b_one_failed_renewal_attempt_does_not_end_renewal_for_good(self):
+        # P5-25: a registry-lock timeout is a failed attempt, not a lost lease. The run
+        # keeps renewing on the next interval; before, one error stopped renewal forever.
+        udid = self.device("rios-ui-transient-renewal")
+        T.register("ios-simulator", udid, os.getpid())
+        real = T.renew_activity
+        calls = []
+
+        def flaky(*args):
+            calls.append(time.monotonic())
+            if len(calls) == 1:
+                raise TimeoutError("registry lock busy")
+            return real(*args)
+        err = io.StringIO()
+        with patch.object(T, "renew_activity", flaky), patch("sys.stderr", err):
+            code = T.run_active("ios-simulator", udid, ["sleep", "1.5"], os.getpid(), interval=0.2, check=0.05)
+        self.assertEqual(code, 0)
+        self.assertGreaterEqual(len(calls), 3)                    # it went on after the failure
+        self.assertIn("trying again", err.getvalue())
+        self.assertNotIn("stopped renewing", err.getvalue())
 
     def test_T51_renewal_stops_when_the_owned_run_ends(self):
         udid = self.device("rios-ui-run-ended")

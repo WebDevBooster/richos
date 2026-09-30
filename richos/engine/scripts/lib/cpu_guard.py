@@ -885,6 +885,7 @@ class Watch:
         self.over = {}
         self.pending = {}
         self.host_since = None
+        self.pressure_since = None
         self.reported_at = 0
         self.unowned_rates = {}
         self.verification_pressure = VerificationPressure()
@@ -991,6 +992,17 @@ class Watch:
         # capped Gradle builds while unrelated work saturated the host.
         candidates = []
         self.windows = {}
+        # A core count alone is not a runaway: the machine may have plenty idle
+        # (P5-22). A process is stopped only while it is a contributor to a host
+        # that is itself out of room, the same 80 percent that closes admission,
+        # held for WINDOW seconds. A host that is busy for another reason never
+        # stops a process that is not over JOB_CORES (above), and a sub-window
+        # spike never stops a long-running compile.
+        if host_busy >= DEFAULT_MAX_CPU:
+            self.pressure_since = now if self.pressure_since is None else self.pressure_since
+        else:
+            self.pressure_since = None
+        pressured = self.pressure_since is not None and now - self.pressure_since >= WINDOW
         for pid in allowed:
             rate = rates.get(pid, 0)
             window = BUILD_WINDOW if self.in_release_build(pid, rows, build_roots) else WINDOW
@@ -1000,7 +1012,7 @@ class Watch:
             else:
                 self.over.pop((pid, rows[pid]['birth']), None)
             since = self.over.get((pid, rows[pid]['birth']))
-            if since is not None and now - since >= window:
+            if since is not None and now - since >= window and pressured:
                 candidates.append(pid)
         self.over = {k: v for k, v in self.over.items() if k[0] in allowed and rows[k[0]]['birth'] == k[1]}
         return sorted(set(candidates), key=lambda p: rates.get(p, 0), reverse=True), rates, protected

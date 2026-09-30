@@ -227,9 +227,9 @@ class GuardTests(unittest.TestCase):
         self.root()
         watch = G.Watch()
         for now in (0, 2, 4, 6, 8, 10):
-            chosen, _, _ = watch.sample({10:self.row(), 20:self.row(10,now*5), 30:self.row(0,now*9)}, now)
+            chosen, _, _ = watch.sample({10:self.row(), 20:self.row(10,now*5), 30:self.row(0,now*9)}, now, host_busy=100)
             self.assertEqual(chosen, [])
-        chosen, _, protected = watch.sample({10:self.row(),20:self.row(10,60),30:self.row(0,108)},12)
+        chosen, _, protected = watch.sample({10:self.row(),20:self.row(10,60),30:self.row(0,108)},12,host_busy=100)
         self.assertEqual(chosen,[20])
         self.assertIn(10,protected)
 
@@ -287,6 +287,16 @@ class GuardTests(unittest.TestCase):
             chosen,_,_=watch.sample({10:self.row(),20:self.row(10,now)},now,host_busy=99.5)
         self.assertEqual(chosen,[])
 
+    def test_a_job_over_the_core_limit_is_left_alone_while_the_host_has_room(self):
+        # P5-22, same per-process rule as cpu_guard_live.py.
+        self.root()
+        for busy, expected in ((40, []), (79.9, []), (100, [20])):
+            watch = G.Watch()
+            chosen = []
+            for now in range(0, 62, 2):
+                chosen, _, _ = watch.sample({10: self.row(), 20: self.row(10, now * 4.0)}, now, host_busy=busy)
+            self.assertEqual(chosen, expected, busy)
+
     def test_release_build_compiler_keeps_its_cores_but_a_runaway_is_still_stopped(self):
         # Run 20260928T190111Z-40a16163: every gate passed, then rustc compiling the app
         # binary under the nightly's build supervisor ran at 4.52 cores and was stopped
@@ -299,7 +309,7 @@ class GuardTests(unittest.TestCase):
         for now in range(0, 604, 2):
             rows = {10: self.row(), 20: self.row(10), 30: self.row(20, now * 4.5, name='rustc'),
                     40: self.row(), 50: self.row(40, now * 4.5, name='rustc')}
-            chosen, rates, protected = watch.sample(rows, now)
+            chosen, rates, protected = watch.sample(rows, now, host_busy=100)
             for pid in chosen:
                 stopped.setdefault(pid, now)
         self.assertEqual(stopped.get(50), 12)                # outside a build: 10 s, as before
@@ -317,7 +327,8 @@ class GuardTests(unittest.TestCase):
         for now in range(0, 14, 2):
             # Observed under the build once, then reparented to launchd: still owned,
             # but no longer a compile step of the registered build.
-            chosen, _, _ = watch.sample({10: self.row(), 30: self.row(10 if now == 0 else 1, now * 4.5)}, now)
+            chosen, _, _ = watch.sample({10: self.row(), 30: self.row(10 if now == 0 else 1, now * 4.5)}, now,
+                                        host_busy=100)
         self.assertEqual(chosen, [30])
 
     def test_the_build_supervisor_registers_with_the_role_it_was_given(self):
@@ -616,7 +627,8 @@ class GuardTests(unittest.TestCase):
                 caught=False
                 while time.monotonic()<deadline:
                     rows=G.processes()
-                    candidates,rates,protected=watch.sample(rows,time.monotonic())
+                    # A stop needs a host that is out of room (P5-22); this one is not, by design.
+                    candidates,rates,protected=watch.sample(rows,time.monotonic(),host_busy=100)
                     if candidates:
                         self.assertEqual(candidates, [busy.pid])
                         watch.stop(candidates[0],rows,protected,rates)
