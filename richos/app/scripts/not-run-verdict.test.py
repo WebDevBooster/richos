@@ -14,10 +14,13 @@ is genuinely absent; what changes is the machine verdict, never the skip.
 
   V1  battery-check.test.py, run for real in a throwaway clone without the historical commit
       it needs, exits 2 and says NOT RUN in its summary line.
-  S*  the static rule, per suite: every line that prints the `  NOT RUN  ` marker either stops
+  S   the static rule, per suite: every line that prints the `  NOT RUN  ` marker either stops
       the suite with exit 2 there, or is counted by a variable the suite's verdict turns into
       exit 2, or is declared on the line as `# not-a-subcheck: <reason>` (an intentional scope
       decision, such as a case that is off every land by a recorded decision).
+  S*  the same rule over every suite in this directory, so the class stays closed.
+  V2, V3  the two native iOS suites' own final verdicts, executed with the counters injected
+      (their cases need Xcode and simulators; their verdict does not).
 
 Nothing builds, boots or opens a window.
 """
@@ -117,6 +120,19 @@ def static_rule(names):
               "; ".join(bad))
 
 
+def every_suite():
+    """The class, not the list: every suite in this directory, so the next suite written with
+    `echo "  NOT RUN  ..."` and an exit 0 after it is red on its first run. This file is left
+    out only because it spells the marker it looks for."""
+    own = os.path.basename(__file__)
+    rest = sorted(n for n in os.listdir(HERE)
+                  if n.endswith((".test.sh", ".test.py")) and n != own)
+    bad = ["%s:%s" % (n, line) for n in rest for line in unaccounted(os.path.join(HERE, n))]
+    check(len(rest) > 20 and not bad,
+          "S* every suite under app/scripts (%d) holds every NOT RUN it prints to exit 2" % len(rest),
+          "; ".join(bad))
+
+
 VERDICT_START = re.compile(r'^if \[ "\$FAILED" -eq 0 \] && \[ -n "\$NOT_RUN" \]; then$')
 
 
@@ -162,6 +178,7 @@ if __name__ == "__main__":
     verdict_cases("native-ios-share.test.sh", "V2", "S5 (the tag is not in this clone)")
     verdict_cases("native-ios-app.test.sh", "V3", "A8 (no test files)")
     static_rule(NAMED)
+    every_suite()
     if FAILED:
         print("=== not-run-verdict tests: %d FAILED, %d passed ===" % (FAILED, PASSED))
         sys.exit(1)
