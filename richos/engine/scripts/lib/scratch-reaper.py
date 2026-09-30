@@ -439,7 +439,15 @@ def registered_workspaces():
                     if isinstance(val, str):
                         paths.add(val)
                     elif isinstance(val, list):
-                        paths.update(v for v in val if isinstance(v, str))
+                        # The registry stores `workspaces: [{"path": ...}]`; a string
+                        # item is a path, an object or list is read for its own paths.
+                        for v in val:
+                            if isinstance(v, str):
+                                paths.add(v)
+                            elif isinstance(v, (dict, list)):
+                                harvest(v)
+                    elif isinstance(val, dict):
+                        harvest(val)
                 elif isinstance(val, (dict, list)):
                     harvest(val)
         elif isinstance(obj, list):
