@@ -476,9 +476,13 @@ grep -q 'vendored-material' "$ENGINE_ROOT/scripts/lib/declaration-path.sh" \
 # defect scripts/lib/registered-hooks.sh exists to describe, one domain over.
 # The predicate is who RESOLVES the declaration — naming REDISTRIBUTABLE_PATHS
 # in a refusal message or a test is a mention, and mentions are not parsers.
+# The verification-inputs contract (lib/verification-dependencies.json) and its
+# Python suite name the config key as DATA about the guard's inputs; they are
+# mentions too, and E8 went red on them from the moment they named it.
 DUP="$(grep -rl 'VENDORING_DECLARATION' "$ENGINE_ROOT/scripts" 2>/dev/null \
         | grep -v 'vendored-material' \
-        | grep -vE '\.(test|mutation)\.sh$' || true)"
+        | grep -vE '\.(test|mutation)\.(sh|py)$' \
+        | grep -vxF "$ENGINE_ROOT/scripts/lib/verification-dependencies.json" || true)"
 [ -z "$DUP" ] && ok "E8. the registry has exactly one parser" \
               || bad "E8. the registry has exactly one parser" "also resolved by: $DUP"
 

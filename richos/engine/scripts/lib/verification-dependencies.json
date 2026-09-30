@@ -8120,7 +8120,7 @@
     },
     "scripts/hooks/guard-vendoring-commits.test.sh": {
       "source": "scripts/hooks/guard-vendoring-commits.test.sh",
-      "sha256": "4b486cec7187c7ba639a3d35a12fb6845959b71fac008dbf9f3727573e0aa674",
+      "sha256": "68fa73e66007fa4ea272dcdedceeabb579215df2b0becb8a664661ccb6326f5c",
       "evidence": "Full suite creates private Git repos and literal vendoring registries with hooks disabled. It explicitly resolves real engine adoption without sourcing config, checks the shipped vendoring declaration and tracked inventory as data and verifies only its own registration. Direct library sourcing uses unsourced defaults. Nested finite mutants repeat these paths, omitting only the shipped-tree data section.",
       "keys": [],
       "edges": [
@@ -16285,7 +16285,7 @@
         "scripts/hooks/guard-vendoring-commits.sh"
       ],
       "sources": {
-        "scripts/hooks/guard-vendoring-commits.test.sh": "4b486cec7187c7ba639a3d35a12fb6845959b71fac008dbf9f3727573e0aa674",
+        "scripts/hooks/guard-vendoring-commits.test.sh": "68fa73e66007fa4ea272dcdedceeabb579215df2b0becb8a664661ccb6326f5c",
         "scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
         "scripts/hooks/guard-vendoring-commits.sh": "88f0eef0c45b61a143ce0ebd0cba1b8ceda9f908d0cfed09994a9acc30da1208",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
