@@ -322,6 +322,67 @@ def build_spawn_command(repo_dests, name, role, brief_path, title, integration=N
     return command
 
 
+SPAWN_EVIDENCE = ("agent_id", "tool_use_id", "spawned_at", "started_at", "end", "disposition")
+
+
+def settle_undispatched(scope, path, record):
+    """Settle a `preparing` or `unknown` receipt that provably never dispatched.
+
+    WHY AN UNCERTAIN RECEIPT IS KEPT AT ALL, and that reason still holds: a
+    preparation that failed after `spawn.py` began may have created workspaces,
+    and repeating a start whose outcome is unknown could repeat its side
+    effects. So the receipt is never replayed and never silently dropped.
+
+    WHY IT CAN NEVER HAVE STARTED A WORKER. Its payload reaches `Agent` only
+    through `dispatch_intent`, which refuses every receipt whose status is not
+    `prepared` and moves it to `dispatching` first. A receipt still `preparing`
+    or `unknown` therefore never passed that gate, and the canonical record says
+    the same thing independently: `register_spawn` writes `tool_use_id` and
+    `spawned_at` at the PreToolUse[Agent] hook, `bind_agent` and `record_start`
+    write `agent_id` and `started_at`. With none of them present nothing ran.
+
+    WHAT WAS MISSING (part 4, finding 1). Nothing turned that proof into a
+    settled receipt, so an assignment whose preparation failed this way refused
+    every replacement worker forever, and `refresh` could never settle it
+    because there was no start and no ending to observe.
+
+    THE SETTLEMENT IS THE CANONICAL ONE. Whatever the failed preparation did
+    create is withdrawn by `W.withdraw_cc`, the same call `spawn.py` makes to
+    roll back a spawn that never happened: it refuses anything that ever ran and
+    deletes through `_delete`, the only code that deletes a workspace. Dirty
+    files are refused first, never discarded. If any of that cannot be proved
+    or done, the receipt stays unresolved and the refusal names why.
+    """
+    if record.get("tool_use_id") or record.get("agent_id"):
+        return
+    session, name = record["binding"]["session_id"], record["name"]
+    canonical = W.load_agent(W.named_key(session, name))
+    if canonical and any(canonical.get(field) for field in SPAWN_EVIDENCE):
+        return
+    withdrawn = []
+    if canonical:
+        try:
+            W._require_clean(canonical, "withdraw its never-dispatched workspace; inspect and "
+                                        "reconcile retained uncommitted files first")
+            withdrawn = W.withdraw_cc(session, name, "its app preparation failed before any "
+                                                     "dispatch")["withdrawn"]
+        except W.SpecError as error:
+            raise ValueError("this obligation already has unresolved work: an earlier preparation never "
+                             "dispatched, but its workspace could not be withdrawn: %s" % error)
+    record.update(status="blocked", settled={
+        "at": W.iso(), "withdrawn": withdrawn,
+        "reason": "never dispatched: no worker was registered or started for this receipt, so a "
+                  "replacement cannot repeat its work"})
+    save(path, record)
+    project(scope, path, record)
+
+
+def never_dispatched(record):
+    """A receipt that was refused or settled before any dispatch. It did no
+    work, so it is not a worker the assignment's completion has to account for."""
+    return record["status"] == "blocked" and not record.get("tool_use_id") and not record.get("agent_id")
+
+
 def prepare(scope_path, scope, args):
     if set(args) - {"request_id","obligation_id","repo","repos","title","brief","role","integration","base","review_of","continue_of"}:
         raise ValueError("unsupported preparation fields")
@@ -378,9 +439,11 @@ def prepare(scope_path, scope, args):
             refresh(old); save(path, old); project(scope,path,old)
             # Payload delivery is not retried once provider dispatch became uncertain.
             return view(old, include_payload=old["status"] == "prepared" and old["binding"] == scope["binding"])
-        for _, old in receipts(root):
+        for old_path, old in receipts(root):
             if old["request"]["obligation_id"] == obligation and old["request"]["role"] == role:
                 refresh(old)
+                if old["status"] in ("preparing","unknown"):
+                    settle_undispatched(scope, old_path, old)
                 if old["status"] in ("preparing","prepared","dispatching","running","unknown"):
                     raise ValueError("this obligation already has unresolved work; inspect its receipt before retrying")
         name = f"{role}-sonnet-{identity[:12]}"
@@ -1218,7 +1281,10 @@ def completion_evidence(scope, obligation, worker_ids):
             if record["request"]["obligation_id"] == obligation]
     if any(record["status"] in ("preparing", "prepared", "dispatching", "running", "unknown") for record in rows):
         raise ValueError("this assignment still has unresolved execution; reconcile it before completion")
-    workers = [record for record in rows if record["request"]["role"] == "worker"]
+    # A worker receipt refused or settled before dispatch did no work, so it is
+    # not a final worker: counting it would make the assignment uncompletable
+    # the moment its replacement landed (part 4, finding 1).
+    workers = [record for record in rows if record["request"]["role"] == "worker" and not never_dispatched(record)]
     continued = {record["continuation"]["worker_id"] for record in workers if record.get("continuation")}
     final = [record for record in workers if record["id"] not in continued]
     if not final or sorted(record["id"] for record in final) != worker_ids:
@@ -1316,7 +1382,7 @@ TOOLS = [
     {"name":"pause_message","description":"Generate the one standard pause message. Submit message_payload unchanged to SendMessage. Do not write, append or summarize pause instructions yourself. Preparation and delivery do not confirm a pause. No process is stopped and no message is sent by this tool.","inputSchema":{"type":"object","properties":{"to":{"type":"string"},"reason":{"type":"string","enum":["manual","quota"]},"reset":{"type":"string","pattern":"^(?:[01][0-9]|2[0-3]):[0-5][0-9]Z$"}},"required":["to"],"additionalProperties":False}},
     {"name":"complete","description":"Close a code assignment in ECS only after every requirement is satisfied and every final worker has a passing independent review, verified local integration and completed cleanup. Your connection already knows which assignment you are carrying, so leave obligation_id out; never invent one. Supply all final worker receipts, across every repository. Unresolved execution or omitted work is refused. Do not use this to claim unrelated or unverified business outcomes. An assignment you handled yourself, with no worker, is closed by the app from your report: do not call this for it. Local completion never means publication.","inputSchema":{"type":"object","properties":{"obligation_id":{"type":"string"},"worker_ids":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":50}},"required":["worker_ids"],"additionalProperties":False}},
     {"name":"repositories","description":"List repositories explicitly connected to this company. A company folder alone grants no execution access.","inputSchema":{"type":"object","properties":{},"additionalProperties":False}},
-    {"name":"prepare","description":"Prepare an isolated generic worker or reviewer for the assignment this connection is carrying. Your connection already knows which assignment that is, so leave obligation_id out; never invent one. Persists intent before workspace creation. Returns agent_payload only while no dispatch has been attempted. Submit that exact JSON to Agent once. Preparation is not dispatch or completion. Reuse request_id for retries; uncertain work must be inspected first. To continue settled work, set continue_of to its worker receipt: the new worker starts at its actual saved commit. Dirty work is preserved and refused until its uncommitted files are reconciled. Never reset or discard those files to bypass the refusal. If this same worker also needs a workspace in other connected repositories, name them in repos; each gets its own isolated workspace, all under the one worker.","inputSchema":{"type":"object","properties":{**{key:{"type":"string"} for key in ("request_id","obligation_id","repo","title","brief","role","integration","base","review_of","continue_of")},"repos":{"type":"array","items":{"type":"string"},"maxItems":8}},"required":["request_id","repo","title","brief"],"additionalProperties":False}},
+    {"name":"prepare","description":"Prepare an isolated generic worker or reviewer for the assignment this connection is carrying. Your connection already knows which assignment that is, so leave obligation_id out; never invent one. Persists intent before workspace creation. Returns agent_payload only while no dispatch has been attempted. Submit that exact JSON to Agent once. Preparation is not dispatch or completion. Reuse request_id for retries; uncertain work must be inspected first. A failed preparation that never dispatched is settled when a new request_id prepares a replacement: anything it created is withdrawn, and dirty files are refused rather than discarded. To continue settled work, set continue_of to its worker receipt: the new worker starts at its actual saved commit. Dirty work is preserved and refused until its uncommitted files are reconciled. Never reset or discard those files to bypass the refusal. If this same worker also needs a workspace in other connected repositories, name them in repos; each gets its own isolated workspace, all under the one worker.","inputSchema":{"type":"object","properties":{**{key:{"type":"string"} for key in ("request_id","obligation_id","repo","title","brief","role","integration","base","review_of","continue_of")},"repos":{"type":"array","items":{"type":"string"},"maxItems":8}},"required":["request_id","repo","title","brief"],"additionalProperties":False}},
     {"name":"integrate","description":"After an authorized implementation and an actual passing independent review, fast-forward the recorded clean integration branch to the exact reviewed commit and clean up through Mega Lander. No push, rebase or conflict resolution. Dirty or moved targets are preserved and refused. This verifies one work result; it does not close the entire obligation.","inputSchema":{"type":"object","properties":{"worker_id":{"type":"string"},"reviewer_id":{"type":"string"}},"required":["worker_id","reviewer_id"],"additionalProperties":False}},
     {"name":"inspect","description":"Reconcile scoped dispatch receipts against actual provider and workspace observations. A run ending is not task completion. Inspect unresolved work before retrying after a restart.","inputSchema":{"type":"object","properties":{"offset":{"type":"integer"},"limit":{"type":"integer"}},"additionalProperties":False}},
 ]

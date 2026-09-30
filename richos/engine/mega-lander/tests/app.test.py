@@ -87,14 +87,78 @@ class DesktopWork(unittest.TestCase):
         self.assertEqual(ready["status"], "prepared")
         self.assertIn("agent_payload", ready)
 
-    def test_unstructured_spawn_failure_still_blocks_duplicate_work(self):
+    def test_unstructured_spawn_failure_is_retained_then_settled_for_a_replacement(self):
+        """Part 4, finding 1: this test used to END at the refusal below, which
+        pinned the stuck state. The receipt is still retained and never
+        replayed, but a replacement settles it once nothing ran."""
         command = [sys.executable, "-c", "import sys; print('spawn: refused - NOTHING WAS CREATED.'); sys.exit(1)"]
         with patch.object(self.app, "build_spawn_command", return_value=command):
             with self.assertRaises(ValueError): self.call("prepare", self.args)
         record = self.call("inspect")["records"][0]
         self.assertEqual(record["status"], "unknown")
+        # The same request is still only its receipt: nothing is replayed.
+        self.assertNotIn("agent_payload", self.call("prepare", self.args))
+        replacement = self.call("prepare", {**self.args, "request_id":"replacement"})
+        self.assertEqual(replacement["status"], "prepared")
+        self.assertIn("agent_payload", replacement)
+        settled = [r for r in self.call("inspect")["records"] if r["id"] == record["id"]][0]
+        self.assertEqual(settled["status"], "blocked")
+        self.assertEqual(settled["settled"]["withdrawn"], [])
+        self.assertIn("never dispatched", settled["settled"]["reason"])
+
+    def test_a_created_but_never_dispatched_preparation_is_withdrawn_and_a_registered_spawn_is_not(self):
+        """Part 4, finding 1, the harder half: the failed preparation DID create
+        its workspace. Its registration shows no spawn, so the canonical
+        withdrawal removes it and a replacement proceeds. The control is the
+        reason the receipt is kept at all: once the canonical record shows a
+        registered spawn, nothing is withdrawn and the refusal stands."""
+        real = self.app.run
+        def created_then_uncertain(command, **kw):
+            real(command, **kw)
+            raise TimeoutError("synthetic uncertainty after the workspace was created")
+        with patch.object(self.app, "run", side_effect=created_then_uncertain):
+            with self.assertRaises(TimeoutError): self.call("prepare", self.args)
+        stuck = self.call("inspect")["records"][0]
+        self.assertEqual(stuck["status"], "unknown")
+        key = self.app.W.named_key(self.session, stuck["name"])
+        workspace = [w for w in self.app.W.load_agent(key)["workspaces"] if w.get("kind") == "cc"][0]
+        self.assertTrue(Path(workspace["path"]).is_dir())
+        # CONTROL: a registered spawn may have run, so it is never withdrawn here.
+        with self.app.W.Lock():
+            canonical = self.app.W.load_agent(key); canonical["tool_use_id"] = "observed-spawn"
+            self.app.W.save_agent(canonical)
         with self.assertRaisesRegex(ValueError, "unresolved"):
-            self.call("prepare", {**self.args, "request_id":"must-not-duplicate"})
+            self.call("prepare", {**self.args, "request_id":"refused-replacement"})
+        self.assertTrue(Path(workspace["path"]).is_dir())
+        # CONTROL: dirty files are refused, never discarded.
+        with self.app.W.Lock():
+            canonical = self.app.W.load_agent(key); canonical.pop("tool_use_id")
+            self.app.W.save_agent(canonical)
+        (Path(workspace["path"]) / "keep.txt").write_text("KEEP")
+        with self.assertRaisesRegex(ValueError, "could not be withdrawn"):
+            self.call("prepare", {**self.args, "request_id":"dirty-replacement"})
+        self.assertEqual((Path(workspace["path"]) / "keep.txt").read_text(), "KEEP")
+        (Path(workspace["path"]) / "keep.txt").unlink()
+        # Nothing ran and nothing is dirty: withdrawn canonically, and replaced.
+        replacement = self.call("prepare", {**self.args, "request_id":"replacement"})
+        self.assertEqual(replacement["status"], "prepared")
+        self.assertFalse(Path(workspace["path"]).exists())
+        self.assertEqual(self.app.git(self.repo, "branch", "--list", workspace["branch"]), "")
+        self.assertIsNone(self.app.W.load_agent(key))
+        settled = [r for r in self.call("inspect")["records"] if r["id"] == stuck["id"]][0]
+        self.assertEqual(settled["status"], "blocked")
+        self.assertEqual(settled["settled"]["withdrawn"], [workspace["path"]])
+
+    def test_a_settled_preparation_does_not_block_the_assignment_from_completing(self):
+        """Part 4, finding 1, one step later: a settled receipt did no work, so
+        completion must not demand integration evidence for it."""
+        command = [sys.executable, "-c", "import sys; sys.exit(1)"]
+        with patch.object(self.app, "build_spawn_command", return_value=command):
+            with self.assertRaises(ValueError): self.call("prepare", self.args)
+        args = self.reviewed_pair("after-stuck")
+        self.assertTrue(self.call("integrate", args)["work_integrated"])
+        done = self.call("complete", {"obligation_id":"fixture-task", "worker_ids":[args["worker_id"]]})
+        self.assertTrue(done["obligation_closed"])
 
     def test_build_spawn_command_one_repository_is_byte_identical_to_todays_command(self):
         # POSITIVE CONTROL: the exact list `prepare()` built before this
