@@ -910,11 +910,14 @@ class Collector(Base):
         runner.wait(timeout=10)
         self.assertIn("not proven alive", runner.stderr.read())
 
-    def test_T46_an_owned_run_ends_at_its_lifetime(self):
+    def test_T46_an_owned_run_that_renews_forever_ends_at_the_ceiling(self):
+        # P5-23: the lifetime no longer cuts off a run whose renewer vouches for it; a run
+        # that hangs yet stays alive is still ended, at LEASE_ACTIVE_CEILING_SECONDS.
         import cpu_guard
         udid = self.device("rios-ui-runaway")
         rec = T.register("ios-simulator", udid, os.getpid())
-        rec["lease"]["created"] = time.time() - (T.LEASE_MAX_SECONDS - 1.5)
+        rec["lease"]["created"] = time.time() - (T.LEASE_ACTIVE_CEILING_SECONDS - 1.5)
+        rec["lease"]["activity"] = {"pid": 1, "renewer": 1, "renewed": time.time()}   # already renewed once
         T._write_json(T._record_path("ios-simulator", udid), rec)
         runner = self.run_active(udid, os.getpid(), "sleep", "4")
         time.sleep(0.8)
