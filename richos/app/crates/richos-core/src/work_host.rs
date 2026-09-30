@@ -1204,6 +1204,13 @@ impl WorkHost {
             return;
         }
         if let Err(why) = self.ensure_lease(backend, binding) {
+            // **A quit reached this back end while it was opening** (finding 28): the quit's
+            // sweep has already written this job's honest state, `interrupted`, and a "did
+            // not start" written after it would be the last word on a job he quit.
+            if backend.inner.lock().unwrap().closing {
+                self.let_go_if_ended(record);
+                return;
+            }
             // **An answer run that could not open its back end** (the work-path design's C10:
             // D4 takes this exit). His answer is saved and nothing was asked of anybody, so the
             // job waits on it again and is tried once more, within D4's bound.
@@ -1260,6 +1267,20 @@ impl WorkHost {
             }
             let session = lease.session_id().to_string();
             let mut inner = backend.inner.lock().unwrap();
+            // **The quit path reads this back end's cancel handle in the same critical section
+            // that sets `closing`**, so exactly one of two things is true here: quit has not
+            // begun, and the handle published below is the one it will cancel; or it has, and
+            // it will never see this handle. In the second case the grant just bound is
+            // revoked here and no turn starts, because quit no longer waits for this lease
+            // (hunt 2026-09-29 part 1, finding 28) and nothing else would revoke it.
+            if inner.closing {
+                drop(inner);
+                if let Err(error) = lease.revoke_work_assignment() {
+                    eprintln!("[richos] work: a grant bound as RichOS closed could not be revoked: {error}");
+                }
+                self.let_go_if_ended(record);
+                return;
+            }
             inner.cancel = lease.cancel_handle();
             inner.live = Some(LiveAssignment {
                 id: record.id.clone(),
@@ -2983,10 +3004,23 @@ impl WorkHost {
             .unwrap()
             .spawn_work(binding)
             .map_err(|e| e.to_string())?;
-        {
+        // **A back end that finished opening after quit began is not kept** (hunt 2026-09-29
+        // part 1, finding 28). Quit no longer waits without bound for this lock, so it may
+        // already have swept past this back end; keeping the lease would hand a connection to
+        // a job that the sweep has already marked `interrupted`. It is dropped with the lock
+        // released, the way every other retirement here drops one.
+        let closing = {
             let mut inner = backend.inner.lock().unwrap();
-            inner.lease_session = Some(opened.session_id().to_string());
-            inner.lease_repositories = self.connected_repositories(binding);
+            if !inner.closing {
+                inner.lease_session = Some(opened.session_id().to_string());
+                inner.lease_repositories = self.connected_repositories(binding);
+            }
+            inner.closing
+        };
+        if closing {
+            drop(lease);
+            drop(opened);
+            return Err("RichOS is closing down. Nothing was started.".into());
         }
         *lease = Some(opened);
         Ok(())
@@ -3382,11 +3416,25 @@ impl WorkHost {
                 );
             }
         }
+        // **The same bound holds here** (hunt 2026-09-29 part 1, finding 28). The lease lock
+        // is held for as long as a back end takes to OPEN (`ensure_lease` holds it across
+        // `spawn_work`), and a blocking lock here waited that long after the bound above had
+        // expired. A lock still held at the bound is skipped, and nothing it guards is lost:
+        // a back end still opening has been given no grant (the bind comes after it), and
+        // `ensure_lease` does not keep one that finishes opening now; a back end still in a
+        // turn had its grants revoked and its process fence killed by `handle.shutdown()`
+        // above (`native.rs`'s `NativeCancelHandle`).
         for backend in &backends {
-            if let Some(lease) = backend.lease.lock().unwrap().as_mut() {
+            let Some(mut lease) = lock_until(&backend.lease, deadline) else {
+                eprintln!(
+                    "[richos] work: quit did not wait for a back end that was still opening or ending its turn"
+                );
+                continue;
+            };
+            if let Some(lease) = lease.as_mut() {
                 let _ = lease.revoke_work_assignment();
             }
-            *backend.lease.lock().unwrap() = None;
+            *lease = None;
         }
     }
 
@@ -3414,6 +3462,24 @@ impl WorkHost {
             }
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
+    }
+}
+
+/// **Take `lock` if it can be had by `deadline`**, trying at least once however late it is.
+/// For the quit path, where a lock held by a back end that is still opening must not hold the
+/// app open (hunt 2026-09-29 part 1, finding 28). A poisoned lock is still a lock: its
+/// holder panicked and is gone, so what it guards is taken as it is.
+fn lock_until<T>(lock: &Mutex<T>, deadline: std::time::Instant) -> Option<std::sync::MutexGuard<'_, T>> {
+    loop {
+        match lock.try_lock() {
+            Ok(guard) => return Some(guard),
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => return Some(poisoned.into_inner()),
+            Err(std::sync::TryLockError::WouldBlock) => {}
+        }
+        if std::time::Instant::now() >= deadline {
+            return None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
     }
 }
 
@@ -4576,6 +4642,50 @@ mod tests {
         assert_ne!(row.state, AssignmentState::Registered, "the runner never picked it up");
         assert_eq!(h.bound.lock().unwrap().len(), 1, "the assignment never reached the work lease");
         h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **QUIT IS BOUNDED EVEN WHILE A BACK END IS STILL BEING OPENED** (hunt 2026-09-29 part 1,
+    /// finding 28). `ensure_lease` holds the lease lock across `spawn_work`, so a quit that
+    /// reached its last cleanup while the back end was still opening used to wait on that lock
+    /// for as long as the opening took, after the two-second bound had already expired.
+    ///
+    /// The gate holds `spawn_work` shut, which is exactly that window, and it is released only
+    /// after the quit has been given 8 s: four times the quit's own 2 s bound. A build with the
+    /// unbounded wait cannot return inside it, on any machine; a bounded one returns in about
+    /// 2 s. Then, released, the back end that finished opening after the quit is not kept and
+    /// does not write over the sweep: the row stays `interrupted` and nothing was bound.
+    #[test]
+    fn quit_is_bounded_while_a_back_end_is_still_being_opened() {
+        let h = harness(5);
+        h.host.start();
+        h.start_gate.shut();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !h.host.lease_locked("thread-one") {
+            assert!(std::time::Instant::now() < deadline, "the runner never began opening its back end");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        let host = Arc::clone(&h.host);
+        let (done, quit_returned) = std::sync::mpsc::channel();
+        let began = std::time::Instant::now();
+        std::thread::spawn(move || {
+            host.shutdown();
+            done.send(()).ok();
+        });
+        let returned = quit_returned.recv_timeout(std::time::Duration::from_secs(8)).is_ok();
+        let took = began.elapsed();
+        h.start_gate.release();
+        assert!(returned, "quit was still waiting after {took:?} for a back end that was still opening");
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)), "the runner never finished");
+        let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Interrupted, "the late opening wrote over the quit: {row:?}");
+        assert!(h.bound.lock().unwrap().is_empty(), "a back end opened after quit was given the assignment");
+        assert!(!h.host.lease_locked("thread-one"));
+        assert!(
+            h.host.backend("thread-one").is_some_and(|backend| backend.lease.lock().unwrap().is_none()),
+            "a back end opened after quit was kept"
+        );
         std::fs::remove_dir_all(h.root).unwrap();
     }
 
