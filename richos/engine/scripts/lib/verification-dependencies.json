@@ -4568,7 +4568,7 @@
     },
     "scripts/lib/left-off.py#human-classifier": {
       "source": "scripts/lib/left-off.py",
-      "sha256": "f86b8a7767d1c0c4af0db1358eeaf4ce98d4e8524f7c0a2f7944a307b500e4db",
+      "sha256": "f42910420dc6f26fbc0f8f060d9d94ce754bc7fc17a33847297e1f1278fd71c6",
       "evidence": "Import only installs constants/functions. Failure-type calls is_human and text_of plus reads MACHINE_ENVELOPES. Both functions classify supplied record values without files, commands or config. Other report/CLI helpers are not invoked.",
       "keys": [],
       "edges": []
@@ -7872,7 +7872,7 @@
     },
     "scripts/lib/left-off.py": {
       "source": "scripts/lib/left-off.py",
-      "sha256": "f86b8a7767d1c0c4af0db1358eeaf4ce98d4e8524f7c0a2f7944a307b500e4db",
+      "sha256": "f42910420dc6f26fbc0f8f060d9d94ce754bc7fc17a33847297e1f1278fd71c6",
       "evidence": "Reviewed CLI/build, all file reads, subprocess sites and dynamic sibling calls. Transcript/prompt/state fields are data; Git calls are fixed read-only queries. Finite sibling imports read workspace mapping/integration, unlanded repository discovery and escalation rows. Wall clock, Git refs/reflogs and external ledger content remain execution inputs, not config readers.",
       "keys": [],
       "edges": [
@@ -15936,7 +15936,7 @@
         "scripts/hooks/dispatch-pretooluse.sh": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
         "scripts/hooks/failure-type-lookup.sh": "8e77ae84f95d79e11fd2f168a2fbb39c5f9548a8eec3ffcd0af5e4496e8cffd1",
         "scripts/lib/failure-type.py": "ce7b83a67ec1960d46b5697bc4aadcfa5fc273ed321200deea71c4ac0da69d38",
-        "scripts/lib/left-off.py": "f86b8a7767d1c0c4af0db1358eeaf4ce98d4e8524f7c0a2f7944a307b500e4db",
+        "scripts/lib/left-off.py": "f42910420dc6f26fbc0f8f060d9d94ce754bc7fc17a33847297e1f1278fd71c6",
         "scripts/hooks/failure-type.test.sh": "d540d43e3550ab716a362e2effe9f09ebe1bceea2daac8cf1bd2489911030bff",
         "scripts/hooks/failure-type.mutation.sh": "5e7ae2f9db01319d09788455ee64e434b7c73f9d1da626c663e4c7b3ca23bff6",
         "scripts/hooks/guard-agent-state-claims.py": "341d0223962f9ccfa6298b3d6982dc55b5f3ea19ec5ea4ba1deb162380811ab5",
@@ -16576,7 +16576,7 @@
         "scripts/hooks/guard-definition-drift.sh": "6abe090d1a5eae1c726799e7c6e9bdaad2da332635fec5737ce9ce31f4f05007",
         "scripts/hooks/guard-failure-type-answer.sh": "9178339b1342a751b3de2fa743b2d65df019af3eb4af10e7447a82ad805895aa",
         "scripts/lib/failure-type.py": "ce7b83a67ec1960d46b5697bc4aadcfa5fc273ed321200deea71c4ac0da69d38",
-        "scripts/lib/left-off.py": "f86b8a7767d1c0c4af0db1358eeaf4ce98d4e8524f7c0a2f7944a307b500e4db",
+        "scripts/lib/left-off.py": "f42910420dc6f26fbc0f8f060d9d94ce754bc7fc17a33847297e1f1278fd71c6",
         "scripts/hooks/failure-type.test.sh": "d540d43e3550ab716a362e2effe9f09ebe1bceea2daac8cf1bd2489911030bff",
         "scripts/hooks/failure-type-lookup.sh": "8e77ae84f95d79e11fd2f168a2fbb39c5f9548a8eec3ffcd0af5e4496e8cffd1",
         "scripts/hooks/failure-type.mutation.sh": "5e7ae2f9db01319d09788455ee64e434b7c73f9d1da626c663e4c7b3ca23bff6",
