@@ -42,6 +42,26 @@ at every session start and turn end) and is appended to
 `<git-common-dir>/richos-autocheck/bypass.log`. A rebase, cherry-pick or revert on a branch
 replays commits and is not recorded; its land runs the full checks.
 
+## A changed reader the engine's input selector pins
+
+`richos/engine/scripts/lib/verification-dependencies.json` pins every reviewed reader by
+SHA-256. A stale pin makes `verification_inputs.py` refuse every unit that reaches it
+("changed reader requires input qualification"), and `verification-inputs.test.sh` fails. On
+2026-09-30 that happened twice in one day on main (95 failures, then 108), each time summed
+from branches whose own commits had passed. So every branch commit also runs
+`dependency-pins.py` (the committed copy at `HEAD`, else `main`'s): over the branch's changed
+files only, it compares each file the declaration pins (a node source, a hook-reader source, an
+external reader in this repository, and any pin the branch typed by hand) with the bytes being
+committed, and refuses a mismatch, naming the file, the row and the renewal command:
+
+    python3 richos/app/scripts/autocheck/dependency-pins.py --renew <file> ...
+
+Renew only after reading the file's added lines for a new configuration key, environment
+variable or file it now reads, and declaring it in that row. `--all [--rev <commit>]` lists
+every stale pin in the file. It parses the declaration only when a changed path is named in it,
+and takes under a second on a branch that renewed 274 pins. `../dependency-pins.test.sh` proves
+it with throwaway repositories and checks its digests against `verification_inputs.py`.
+
 ## NOT RUN is not a pass
 
 A check `proof-run.py` could not run is reported as its own state, `not-run`, with a reason:

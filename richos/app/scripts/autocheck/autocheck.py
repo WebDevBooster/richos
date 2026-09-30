@@ -172,7 +172,7 @@ def commit_check(repo, what):
     # call for a lint nor answer for one (see StagedOnly).
     staged = git("diff", "--cached", "--name-only", "--no-renames").splitlines()
     app = sorted({p for p in staged if p.startswith("richos/app/")})
-    if what == "commit" and stale_pins(repo):
+    if what == "commit" and (stale_pins(repo) or subprocess.run("{ git show HEAD:richos/app/scripts/autocheck/dependency-pins.py || git show refs/heads/main:richos/app/scripts/autocheck/dependency-pins.py; } 2>/dev/null | python3 -", shell=True, cwd=repo.top, stdin=subprocess.DEVNULL).returncode):
         return 1
     if not app:
         say(f"autocheck: {what}: nothing under richos/app changed, so no lint applies "
