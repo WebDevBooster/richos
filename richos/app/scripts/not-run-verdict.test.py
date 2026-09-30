@@ -78,6 +78,36 @@ DECLARED = re.compile(r"#\s*not-a-subcheck:\s*\S")
 # Fixture text: a suite that writes a NOT RUN line into a log file for the code under test to read
 # (Path(...).write_text('  NOT RUN  ...')) is not printing a verdict of its own.
 FIXTURE = re.compile(r"\.write_text\(")
+# Only the text inside the write_text(...) argument is exempt; a NOT RUN printed elsewhere on the
+# same line is audited.
+
+
+def outside_fixtures(line):
+    """`line` with every write_text(...) argument blanked out (quotes respected, so a paren inside a
+    string does not end the call; a call left open at the end of the line blanks to the end)."""
+    out, i = [], 0
+    while True:
+        m = FIXTURE.search(line, i)
+        if not m:
+            out.append(line[i:])
+            return "".join(out)
+        out.append(line[i:m.end()])
+        depth, quote, j = 1, None, m.end()
+        while j < len(line) and depth:
+            c = line[j]
+            if quote:
+                if c == "\\":
+                    j += 1
+                elif c == quote:
+                    quote = None
+            elif c in "'\"":
+                quote = c
+            elif c == "(":
+                depth += 1
+            elif c == ")":
+                depth -= 1
+            j += 1
+        i = j
 ASSIGNS = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*(?:\+?=|\.append\()")
 
 
@@ -102,7 +132,7 @@ def unaccounted(path):
         lines = fh.read().split("\n")
     bad = []
     for i, line in enumerate(lines):
-        if MARKER not in line or line.lstrip().startswith("#") or FIXTURE.search(line):
+        if MARKER not in line or line.lstrip().startswith("#") or MARKER not in outside_fixtures(line):
             continue
         window = lines[i:i + 3]
         if DECLARED.search(line) or any(STOPS.search(l) for l in window):
@@ -134,6 +164,29 @@ def every_suite():
     check(len(rest) > 20 and not bad,
           "S* every suite under app/scripts (%d) holds every NOT RUN it prints to exit 2" % len(rest),
           "; ".join(bad))
+
+
+def probes():
+    """P  Codex's three probes (richos-hq docs/verification/2026-09-30-codex/baseline-repair-audit):
+    a real NOT RUN printed on the same line as a write_text call is flagged; NOT RUN text only inside
+    the write_text argument is accepted; a plain print with exit 0 is flagged."""
+    cases = [
+        ("P1 a printed NOT RUN sharing a line with write_text is flagged",
+         "import sys\nfrom pathlib import Path\nprint('  NOT RUN  unavailable'); Path('artifact').write_text('note')\nsys.exit(0)\n", True),
+        ("P2 NOT RUN text only inside a write_text argument is accepted",
+         "import sys\nfrom pathlib import Path\nPath('log').write_text('  NOT RUN  (fixture) x')\nsys.exit(0)\n", False),
+        ("P3 a printed NOT RUN with exit 0 is flagged",
+         "import sys\nprint('  NOT RUN  unavailable')\nsys.exit(0)\n", True),
+    ]
+    for what, text, flagged in cases:
+        tmp = tempfile.mkdtemp(prefix="not-run-probe.", dir=os.environ.get("TMPDIR"))
+        try:
+            path = os.path.join(tmp, "probe.py")
+            with open(path, "w") as fh:
+                fh.write(text)
+            check(bool(unaccounted(path)) == flagged, what, unaccounted(path))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 VERDICT_START = re.compile(r'^if \[ "\$FAILED" -eq 0 \] && \[ -n "\$NOT_RUN" \]; then$')
@@ -180,6 +233,7 @@ if __name__ == "__main__":
     v1_battery_check_in_a_shallow_history()
     verdict_cases("native-ios-share.test.sh", "V2", "S5 (the tag is not in this clone)")
     verdict_cases("native-ios-app.test.sh", "V3", "A8 (no test files)")
+    probes()
     static_rule(NAMED)
     every_suite()
     if FAILED:
