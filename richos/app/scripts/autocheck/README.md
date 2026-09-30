@@ -82,10 +82,38 @@ every job capped at 10 minutes. A merge into main runs exactly:
 
 **Left to the nightly, by name**: suites that need a device this Mac has one of: the
 iPhone simulator (native-ios-app, native-ios-share, native-ios-ui, mobile-ios) or a screen,
-the host's or the test VM's guest (read off the suite as `proof-run.py` reads it). The
-mutation passes of the workspace suites run only under `RICHOS_MUTATION_PASSES=1` (and the
-fourteen-point suite's under `RICHOS_FOURTEEN_MUTANTS=1`), which the nightly's
-`gates/workspace-mutants` sets (hunt part 4 finding 19).
+the host's or the test VM's guest (read off the suite as `proof-run.py` reads it).
+
+**No mutation pass runs in the merge (2026-09-30).** The merge of cc/zach-opus-q1
+(`4e73fd89`) ran `scripts/operator-fences-mutation.test.sh`, a unit whose whole job is the fence
+suite's mutation pass, planned at 1408 s: a comment in it names `ci-unit-weights.tsv`, the land
+changed that file, and the engine's selector maps a file to every unit that mentions its name.
+It ran into its cap, the Mac stayed too busy to start anything else, and the gate passed with
+60 of 63 checks NOT RUN. Now:
+
+1. An engine unit that is a mutation pass (named `<suite>-mutation.test.sh`, or declaring
+   `# merge-gate: mutation-pass` in its header) is dropped from the selection, whatever chose
+   it, and named NOT RUN.
+2. Every other check runs with `RICHOS_MUTATION_PASSES=0` and `RICHOS_FOURTEEN_MUTANTS=0`.
+   Every `*.mutation.sh` and `*.mutation.py` harness reads the switch as its first command,
+   prints one NOT RUN line and exits 0, so the suite that invokes it reaches its own verdict on
+   its own checks. `mutation-inventory.test.sh` (engine) and `autocheck.test.py` (app) refuse a
+   harness without it. Unset, as an engineer runs a suite by hand, the engine harnesses run as
+   they always did; the workspace suites' and the fourteen-point pass run only when told 1.
+3. The passes run in the nightlies: `nightly-engine.py` runs every engine unit with both
+   switches at 1, as a job of its own that never starts beside an app nightly and raises an
+   escalation for anything that does not pass (the lead's decision on
+   esc-20260930T223507Z-b12f0d6a); the app nightly's `gates/workspace-mutants` and its script
+   suites run the app's.
+
+**A check planned past its cap is never started, and the cheap checks go first.** Under
+`--cap`, `proof-run.py` names a check whose planned weight is over the cap NOT RUN before
+anything starts ("planned N s, over its 600 s cap; not started, the nightly runs it"): it
+takes no token, lane or admission, and an engine unit leaves the receipts proof. The rest
+start cheapest first, so the short checks the change owns finish while the long ones would
+still be queued, and what the gate's 900 s cap can still cut is the longest work, last. The
+planned weight is dated data (`lib/ci-unit-weights.tsv`, this checkout's measured history); a
+stale row is fixed by measuring the unit, as section SCR's 676.8 s was (4.8 s measured).
 
 **What blocks**: a check that failed (`failed`), an unchanged failure the runner refuses to
 run again (`blocked`), and an `invalid` result for any reason except inputs that changed while
@@ -93,8 +121,9 @@ the gate ran (an invalid result can hide a failure, for example a UI suite whose
 records a failed check). `engine receipts` blocks only when every engine unit passed.
 **Nothing else blocks**: a check over its cap, ended at the gate's cap, not admitted, stopped
 by the verification controller, NOT RUN for any reason, or left to the nightly is named in
-the verdict and written to the receipt's `not_run` with its reason. The nightly
-(`nightly-local.py`) runs all of it and stays the release gate.
+the verdict and written to the receipt's `not_run` with its reason. The nightlies run all of
+it: `nightly-local.py` for the app, and it stays the release gate; `nightly-engine.py` for
+every engine unit, which gates no release.
 
 ### Measuring the gate
 
