@@ -400,6 +400,28 @@ fn a_complete_part_file_is_verified_and_installed_not_redownloaded() {
     assert!(!s2.path().join(&pin.file).exists());
 }
 
+/// A response with no honest length that keeps sending stops growing the file one byte past the
+/// pin, and is rejected as oversize.
+#[test]
+fn a_download_stops_writing_once_it_exceeds_the_pinned_size() {
+    let s = Scratch::new("overfull");
+    let body = model_bytes(4096, 0x99);
+    let pin = pin_for_bytes("overfull.en", &body);
+    let part = s.path().join(format!("{}.part", pin.file));
+    let dest = s.path().join(&pin.file);
+    let mut f = PartFile::open(&pin, &part, &dest, 0).expect("open");
+    let mut endless = body.clone();
+    endless.extend(std::iter::repeat_n(0u8, 100_000));
+    f.write(&endless).expect("write");
+    assert!(f.is_overfull());
+    assert!(std::fs::metadata(&part).unwrap().len() <= pin.bytes + 1, "no byte past pin + 1 reaches the disk");
+    match f.finish() {
+        Outcome::Failed { finding } => assert_eq!(finding.kind, Failure::Oversize),
+        other => panic!("an oversize download must fail: {other:?}"),
+    }
+    assert!(!part.exists());
+}
+
 /// A full disk is refused before a single request is made — and a disk with room is not.
 #[test]
 fn a_full_disk_is_refused_before_a_single_request_and_a_roomy_one_is_not() {

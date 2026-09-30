@@ -916,10 +916,22 @@ impl PartFile {
     }
 
     /// Append one chunk. The caller reports progress from [`PartFile::received`].
+    ///
+    /// NEVER WRITES PAST ONE BYTE OVER THE PINNED SIZE. A response that declared no honest length
+    /// can keep sending forever, and every byte beyond the pin is bytes `finish` will reject, so
+    /// the writer keeps exactly enough to make `finish` classify the file as oversize (pin + 1)
+    /// and drops the rest. The caller stops the transfer when [`PartFile::is_overfull`] is true.
     pub fn write(&mut self, chunk: &[u8]) -> std::io::Result<()> {
-        self.file.write_all(chunk)?;
-        self.received += chunk.len() as u64;
+        let room = (self.pin.bytes + 1).saturating_sub(self.received);
+        let keep = chunk.len().min(room as usize);
+        self.file.write_all(&chunk[..keep])?;
+        self.received += keep as u64;
         Ok(())
+    }
+
+    /// More bytes have arrived than the pinned model has. Nothing more can make this file valid.
+    pub fn is_overfull(&self) -> bool {
+        self.received > self.pin.bytes
     }
 
     /// Bytes on disk for this download, resume offset included.
