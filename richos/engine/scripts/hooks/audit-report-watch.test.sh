@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+#
+# audit-report-watch.test.sh - a fixture audit report gains a finding in a new
+# commit; the lead must get a notice naming that finding, through the Stop hook
+# the lead actually runs (notice-escalations.sh).
+#
+# Red on main: the hook raises nothing about audit reports, so the delivered
+# context never names the finding.
+
+set -uo pipefail
+SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENGINE_ROOT="$(cd "$SRC_DIR/../.." && pwd)"
+PASS=0; FAIL=0
+ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
+bad() { printf '  FAIL  %s\n' "$1"; [ -n "${2:-}" ] && printf '         %s\n' "$2"; FAIL=$((FAIL + 1)); }
+
+unset GIT_AUTHOR_EMAIL GIT_COMMITTER_EMAIL GIT_AUTHOR_NAME GIT_COMMITTER_NAME EMAIL
+SANDBOX="$(cd "$(mktemp -d -t auditwatch.XXXXXX)" && pwd -P)"
+trap 'rm -rf "$SANDBOX"' EXIT
+
+REPO="$SANDBOX/record"
+mkdir -p "$REPO/docs/audits"
+git -C "$REPO" init -q
+REPORT="$REPO/docs/audits/part-1.md"
+printf '# Part 1\n\n## 01. First finding\n\nBody one.\n\n## 02. Second finding\n\nBody two.\n' > "$REPORT"
+git -C "$REPO" add -A
+git -C "$REPO" commit -q -m "report v1"
+
+export RICHOS_ESCALATION_LEDGER="$SANDBOX/ledger.jsonl"
+export RICHOS_AUDIT_RECORD_REPO="$REPO"
+export RICHOS_AUDIT_WATCH_STATE="$SANDBOX/state"
+PAYLOAD='{"session_id":"auditwatch-test","transcript_path":""}'
+cd "$ENGINE_ROOT" || exit 1
+
+stop() { printf '%s' "$PAYLOAD" | bash "$SRC_DIR/notice-escalations.sh" 2>&1; }
+
+OUT1="$(stop)"
+case "$OUT1" in
+    *"40"*|*"udit"*) bad "first sighting is a silent baseline" "$OUT1" ;;
+    *) ok "first sighting is a silent baseline" ;;
+esac
+
+printf '\n## 40. A late finding\n\nBody forty.\n' >> "$REPORT"
+sed -i.bak 's/Body two\./Body two, revised./' "$REPORT"
+rm -f "$REPORT.bak"
+git -C "$REPO" add -A
+git -C "$REPO" commit -q -m "report v2"
+SHA="$(git -C "$REPO" rev-parse --short HEAD)"
+
+OUT2="$(stop)"
+if printf '%s' "$OUT2" | grep -q 'part-1.md' && printf '%s' "$OUT2" | grep -q 'new: 40' \
+   && printf '%s' "$OUT2" | grep -q 'changed: 02' && printf '%s' "$OUT2" | grep -q "$SHA"; then
+    ok "the lead's turn end names the report, the commit, new finding 40 and changed finding 02"
+else
+    bad "the lead's turn end names the report, commit and IDs" "$OUT2"
+fi
+
+OUT3="$(stop)"
+if printf '%s' "$OUT3" | grep -q 'new: 40'; then
+    bad "the same change is delivered once, not at every turn end" "$OUT3"
+else
+    ok "the same change is delivered once, not at every turn end"
+fi
+ROWS="$(grep -c 'audit-report-watch' "$RICHOS_ESCALATION_LEDGER" 2>/dev/null || true)"
+if [ "$ROWS" = "1" ]; then ok "exactly one ledger row was raised"; else bad "exactly one ledger row was raised" "rows=$ROWS"; fi
+
+sed -i.bak 's/^# Part 1$/# Part 1 (edited preamble)/' "$REPORT"
+rm -f "$REPORT.bak"
+git -C "$REPO" add -A
+git -C "$REPO" commit -q -m "prose only"
+stop >/dev/null
+ROWS="$(grep -c 'audit-report-watch' "$RICHOS_ESCALATION_LEDGER" 2>/dev/null || true)"
+if [ "$ROWS" = "1" ]; then ok "an edit that touches no finding raises nothing"; else bad "an edit that touches no finding raises nothing" "rows=$ROWS"; fi
+
+printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
+[ "$FAIL" -eq 0 ]

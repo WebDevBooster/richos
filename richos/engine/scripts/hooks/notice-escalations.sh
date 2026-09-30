@@ -221,6 +221,19 @@ if ! escalations_require; then
     exit 0
 fi
 
+# AUDIT REPORTS THAT CHANGED AFTER THEIR FIXES WERE BRIEFED. The sweep raises an
+# ordinary escalation for each new or changed finding, and the read below then
+# delivers it in this same turn end. Why here and not in a commit hook: see
+# scripts/lib/audit-report-watch.py. A failed sweep is said aloud, never skipped.
+set +e
+AUDIT_WATCH_ERR="$(python3 "$SCRIPT_DIR/../lib/audit-report-watch.py" 2>&1 >/dev/null)"
+AUDIT_WATCH_RC=$?
+set -e
+if [ "$AUDIT_WATCH_RC" -ne 0 ]; then
+    stop_notice_abnormal "audit-watch-failed" \
+        "AUDIT REPORT WATCH FAILED (exit $AUDIT_WATCH_RC): $AUDIT_WATCH_ERR. A report rewritten with new findings would not be announced this turn."
+fi
+
 # ONE INVOCATION, THREE LINES: the state key, the count, and the sentence. The
 # predicate owns all three, so this wrapper cannot end up telling the operator a
 # different number from the one `escalate.sh list` prints.
