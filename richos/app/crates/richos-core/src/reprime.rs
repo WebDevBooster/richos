@@ -694,7 +694,16 @@ impl RePrimePayload {
         // nobody is entitled to make when the app could not even identify whose workers it
         // would be counting. Same rule, same reason as the ACTION LEDGER section above —
         // an absent section is how a successor infers a denial from an absence.
-        if let Some(reason) = &self.worker_state_unknown {
+        if self.worker_state_unknown == Some(Unattributed::WorkerLogUnreadable) {
+            // The directory IS this session's, so the sentence below ("could not be
+            // identified") would be false. The conclusion is the same one (finding 41).
+            s.push_str(
+                "LIVE WORKER STATE: NOT AVAILABLE — this session's worker log is there but could \
+                 not be read, so nothing was counted from it. THIS IS NOT A STATEMENT THAT NO \
+                 WORKERS ARE RUNNING: you do not know either way. Do not report a worker count \
+                 from this section, and say you would need to check if the CEO asks.\n\n",
+            );
+        } else if let Some(reason) = &self.worker_state_unknown {
             s.push_str(&format!(
                 "LIVE WORKER STATE: NOT AVAILABLE — this session's team directory could not be \
                  identified ({}), so nothing was read rather than reading another session's \

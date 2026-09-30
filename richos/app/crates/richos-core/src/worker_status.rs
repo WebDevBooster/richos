@@ -191,6 +191,12 @@ pub enum Unattributed {
     /// `RICHOS_TEAM_DIR` was set to a path that is not a directory. An explicit override
     /// that does not resolve is an operator error, not a license to fall back.
     OverrideNotADirectory,
+    /// The directory WAS identified, and its worker log is there but could not be read (a
+    /// permission failure, a folder where the file goes). Not an attribution failure in
+    /// the narrow sense, but the same statement to every reader of this field: the counts do
+    /// not describe this session, so nothing may be concluded from them (hunt 2026-09-29
+    /// part 1, finding 41).
+    WorkerLogUnreadable,
 }
 
 impl Unattributed {
@@ -204,6 +210,7 @@ impl Unattributed {
             Unattributed::NoHome => "the home directory could not be located",
             Unattributed::NoTeamDirForSession => "this session has no team directory on disk",
             Unattributed::OverrideNotADirectory => "RICHOS_TEAM_DIR does not point at a directory",
+            Unattributed::WorkerLogUnreadable => "this session's worker log is there but could not be read",
         }
     }
 }
@@ -228,7 +235,13 @@ pub fn read_from_dir_with_probe(team_dir: &Path, probe: HostProbe) -> WorkerStat
     // liveness-reconciled against each open run's recorded host_pid (constraint 2).
     // Nothing below consults a clock, an mtime, a directory listing or idle-events.jsonl.
     let scope = SessionScope::from_team_dir(team_dir);
-    let rows = worker_events::read_stream(&worker_events::worker_events_path(team_dir));
+    // A missing log is a session that has started nobody, and its zero is true. A log that
+    // is there and could not be read says nothing either way, so no count is made from it
+    // (hunt 2026-09-29 part 1, finding 41): the view says why instead.
+    let rows = match worker_events::try_read_stream(&worker_events::worker_events_path(team_dir)) {
+        Ok(rows) => rows,
+        Err(_) => return WorkerStatusView::unattributed(Unattributed::WorkerLogUnreadable),
+    };
     let open = worker_events::open_runs(&rows, &scope, probe);
 
     let mut active = 0usize;
@@ -438,6 +451,39 @@ mod tests {
         assert_eq!(status.active, 0);
         assert_eq!(status.needs_you, 0);
         assert!(status.items.is_empty());
+    }
+
+    /// **A worker log that exists and cannot be read is an unknown, never "no workers"**
+    /// (hunt 2026-09-29 part 1, finding 41). A missing log is still the honest empty stream
+    /// of a session that has started nobody (the test above); a log that is there and could
+    /// not be read says nothing about whether anyone is running, so the counts must not be
+    /// presented as describing it. Here the log's path is a folder, which every read refuses.
+    ///
+    /// And one line that is not valid UTF-8 blinds nothing but itself: before, it made the
+    /// whole file unreadable, and a running worker two lines above it vanished.
+    #[test]
+    fn an_unreadable_worker_log_is_unknown_and_one_bad_line_hides_nothing_else() {
+        let dir = session_dir("unreadable-log");
+        let log = worker_events::worker_events_path(&dir);
+        std::fs::create_dir_all(&log).unwrap();
+        let status = read_from_dir_with_probe(&dir, alive);
+        assert!(status.unattributed.is_some(), "a log that could not be read was reported as no workers: {status:?}");
+        assert!(!status.is_attributed());
+        assert_eq!((status.active, status.liveness_unknown), (0, 0), "nothing is counted from a log nobody read");
+
+        std::fs::remove_dir_all(&log).unwrap();
+        let mut bytes = [
+            wrow("created", "a1", r#","worker_name":"sage-opus-r3","host_pid":10"#),
+            wrow("started", "a1", r#","host_pid":10"#),
+        ]
+        .join("\n")
+        .into_bytes();
+        bytes.extend_from_slice(b"\n\xff\xfe half a row the emitter never finished\n");
+        std::fs::write(&log, bytes).unwrap();
+        let status = read_from_dir_with_probe(&dir, alive);
+        assert!(status.is_attributed(), "{status:?}");
+        assert_eq!(status.active, 1, "the running worker above the bad line vanished: {status:?}");
+        std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
     }
 
     #[test]

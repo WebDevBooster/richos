@@ -197,6 +197,8 @@ pub struct WorkVerdict {
 ///   [`Unattributed::OverrideNotADirectory`]** — [`Liveness::Unknown`]. A lease exists (or
 ///   the filesystem cannot be located at all) and its workers cannot be looked at. Nothing
 ///   here guesses.
+/// - **[`Unattributed::WorkerLogUnreadable`]** — [`Liveness::Unknown`]. The directory is
+///   known and its worker log is there, and it could not be read.
 ///
 /// **The match is exhaustive rather than wildcarded, and that earned its keep on the first
 /// compile:** `OverrideNotADirectory` was added to `worker_status` after this file was
@@ -241,6 +243,12 @@ pub fn workers(view: &WorkerStatusView) -> (Liveness, Option<String>) {
         Some(Unattributed::OverrideNotADirectory) => (
             Liveness::Unknown,
             Some("RichOS was pointed at a workers folder that is not there.".into()),
+        ),
+        // Hunt 2026-09-29 part 1, finding 41: the log is there and nobody read it, so
+        // whether anyone is running is not known. Never a silent zero.
+        Some(Unattributed::WorkerLogUnreadable) => (
+            Liveness::Unknown,
+            Some("RichOS could not read its record of which workers are running.".into()),
         ),
     }
 }

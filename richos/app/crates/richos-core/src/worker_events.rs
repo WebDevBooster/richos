@@ -269,13 +269,30 @@ pub fn parse_stream(contents: &str) -> Vec<WorkerEventRow> {
         .collect()
 }
 
-/// Read and parse one stream file. A missing or unreadable file is an empty stream, not an
-/// error: "no worker events" is a true and common state, not a failure.
-pub fn read_stream(path: &Path) -> Vec<WorkerEventRow> {
-    match fs::read_to_string(path) {
-        Ok(contents) => parse_stream(&contents),
-        Err(_) => Vec::new(),
+/// Read and parse one stream file, and say whether it could be read at all.
+///
+/// A MISSING file is `Ok` and empty: "no worker events" is a true and common state, not a
+/// failure. A file that is THERE and cannot be read (a permission failure, a folder where the
+/// file goes) is `Err`, because its rows are unknown, and unknown rows are not the same as no
+/// rows (hunt 2026-09-29 part 1, finding 41: that difference was lost here and a session with
+/// running workers could be reported as having none).
+///
+/// Bytes that are not UTF-8 spoil only the line they are on: the file is decoded lossily and
+/// that line is then refused by [`parse_stream`] like any other malformed line. Before, one
+/// such byte made the whole file unreadable and every run in it vanished.
+pub fn try_read_stream(path: &Path) -> Result<Vec<WorkerEventRow>, String> {
+    match fs::read(path) {
+        Ok(bytes) => Ok(parse_stream(&String::from_utf8_lossy(&bytes))),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(error) => Err(error.to_string()),
     }
+}
+
+/// [`try_read_stream`] for a caller that only renders rows: an unreadable file reads as empty
+/// here. A caller whose answer is a COUNT of running workers must use [`try_read_stream`]
+/// and say "unknown" on `Err` (`worker_status::read_from_dir_with_probe` does).
+pub fn read_stream(path: &Path) -> Vec<WorkerEventRow> {
+    try_read_stream(path).unwrap_or_default()
 }
 
 /// The stream file inside a team-session directory. **The team dir only** — see the module
