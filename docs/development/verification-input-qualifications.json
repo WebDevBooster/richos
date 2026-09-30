@@ -160,7 +160,7 @@
         "richos/engine/scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "richos/engine/scripts/lib/cpu_guard.py": "a00a68f56736ead4b491fd5879344e72e3850ce98185e4edca7c979fafdd3f3e",
         "richos/engine/scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
-        "richos/engine/scripts/hooks/verify-agent-prompt.sh": "108d302d819442877ea6cbf06a5d9bfca9f3ddc01300cb502049b9271be4e738",
+        "richos/engine/scripts/hooks/verify-agent-prompt.sh": "862ddf86cca9e7c3b9039d656165f2f4b2afa655d0bc834bc25a59b6371aafda",
         "richos/engine/scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
         "richos/engine/scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
         "richos/engine/scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
@@ -170,7 +170,7 @@
         "richos/engine/scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
         "richos/engine/scripts/hooks/conceal.mutation.sh": "da62bf7ab6bb8ae6b8778a1485098859323ffe680d24f8d68388000521527d6f",
         "richos/engine/scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
-        "richos/engine/scripts/hooks/verify-agent-prompt.test.sh": "96439675f0f6f8a8fe12afe6837283c0b9da62aa40022aabd3414a4af4a238b2"
+        "richos/engine/scripts/hooks/verify-agent-prompt.test.sh": "f15ce2ebbc7fe50724f01611af88740067dddf38c88b7ad7f63161097ce1037e"
       },
       "requires": {
         "paths": [],
