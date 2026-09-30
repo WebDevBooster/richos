@@ -79,6 +79,23 @@ try:
     check("P5-18c  an unreadable recorded start cannot prove reuse -> still ALIVE (the old rule)",
           r["verdict"] == mod.ALIVE, r["verdict"] + ": " + r["reason"])
 
+    # P5-19: the authoritative registry settles a finished agent whose lock names nobody.
+    t = locked_worktree("empty", None)
+    r = mod.resolve(repo, t)
+    check("P5-19a  (control) empty lock, no registry record -> INDETERMINATE",
+          r["verdict"] == mod.INDETERMINATE, r["verdict"])
+
+    mod._registry_says = lambda _aid: {"finished": True, "paused": False, "why": "run ended",
+                                       "name": "zed", "key": "k"}
+    r = mod.resolve(repo, t)
+    check("P5-19b  empty lock + registry says FINISHED -> NOT-ALIVE",
+          r["verdict"] == mod.NOT_ALIVE, r["verdict"] + ": " + r["reason"])
+
+    mod._registry_says = lambda _aid: {"finished": False, "paused": False, "why": "running",
+                                       "name": "zed", "key": "k"}
+    r = mod.resolve(repo, t)
+    check("P5-19c  empty lock + registry says RUNNING -> still INDETERMINATE",
+          r["verdict"] == mod.INDETERMINATE, r["verdict"])
 finally:
     shutil.rmtree(scratch, ignore_errors=True)
 

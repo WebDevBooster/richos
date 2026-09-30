@@ -486,14 +486,22 @@ def resolve(entity_root, target):
     if reg:
         rec["evidence"]["registry_finished"] = reg["finished"]
         rec["evidence"]["registry_why"] = reg["why"]
-    if reg and reg["finished"] and rec["verdict"] == ALIVE:
-        rec["evidence"]["lock_verdict"] = ALIVE
+    # A lock that names nobody (held, no pid) leaves the verdict INDETERMINATE; the
+    # registry is authoritative for "finished", so it settles that case too (hunt
+    # part 5, P5-19). An empty lock ALONE still proves nothing -- live agents have had
+    # empty locks -- which is why only a FINISHED record changes the answer.
+    lock_names_nobody = (rec["verdict"] == INDETERMINATE and rec["evidence"].get("locked")
+                         and "pid" not in rec["evidence"])
+    if reg and reg["finished"] and (rec["verdict"] == ALIVE or lock_names_nobody):
+        was = rec["verdict"]
+        rec["evidence"]["lock_verdict"] = was
         rec["evidence"]["lock_reason"] = rec["reason"]
         rec["verdict"] = NOT_ALIVE
         rec["reason"] = ("the workspace registry records %s as FINISHED — %s (point 11). Its "
                          "worktree is still locked because the lock is the SESSION's (pid %s), not "
                          "the agent's; the lock proves the session runs, not that this agent does"
-                         % (reg["name"] or rec.get("agent_id"), reg["why"], rec["evidence"].get("pid", "?")))
+                         % (reg["name"] or rec.get("agent_id"), reg["why"],
+                            rec["evidence"].get("pid", "unrecorded")))
     elif reg and not reg["finished"] and rec["verdict"] == NOT_ALIVE:
         rec.setdefault("disagreements", []).append(
             "the workspace registry records %s as not finished (%s) while the lock reads NOT-ALIVE "
