@@ -13,6 +13,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import shutil
 import tempfile
@@ -1319,6 +1320,13 @@ class ReleaseScriptTests(unittest.TestCase):
         self.scripts.mkdir(parents=True)
         for name in ('make-release.sh', 'nightly.py'):
             shutil.copy(Path(__file__).with_name(name), self.scripts / name)
+        # Every library make-release.sh sources, read from the script itself so a new
+        # `. "$here/lib/x.sh"` line needs no edit here.
+        release_text = (self.scripts / 'make-release.sh').read_text()
+        for lib in sorted(set(re.findall(r'^\s*\.\s+"\$here/(lib/[\w.-]+\.sh)"', release_text, re.M))):
+            (self.scripts / lib).parent.mkdir(exist_ok=True)
+            shutil.copy(Path(__file__).with_name(lib.split('/')[0]) / Path(lib).name,
+                        self.scripts / lib)
         self.config = root / n.CONFIG
         self.config.parent.mkdir(parents=True)
         (root / 'richos/engine').mkdir()
