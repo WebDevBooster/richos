@@ -145,6 +145,7 @@ Exit codes:
 
 import argparse
 import glob
+import hashlib
 import json
 import os
 import re
@@ -763,8 +764,13 @@ class Api:
         return err
 
     def _cache_path(self, path):
-        key = re.sub(r"[^A-Za-z0-9]+", "_", path)[:180]
-        return os.path.join(STATE_DIR, "api_%s.json" % key)
+        # The readable part is for a human looking at the directory; the digest
+        # of the WHOLE path is the identity. Substituting punctuation and
+        # truncating alone made `team/a-b` and `team/a_b` (or two paths that
+        # differ after character 180) the same file.
+        key = re.sub(r"[^A-Za-z0-9]+", "_", path)[:120]
+        digest = hashlib.sha256(path.encode("utf-8")).hexdigest()[:16]
+        return os.path.join(STATE_DIR, "api_%s_%s.json" % (key, digest))
 
     def _is_transient(self, stderr):
         s = (stderr or "").lower()
@@ -1789,6 +1795,14 @@ def self_test():
           [{"name": "a", "conclusion": "success"}], "main", None, now_utc())
     want("a zero budget in a judged entry does not crash", e.get("axes", {}).get("slow", {}).get("verdict"),
          "UNDECLARED")
+
+
+    # P5-53: two distinct API paths never share a cache file.
+    c = Api.__new__(Api)
+    want("punctuation-only differences do not collide",
+         c._cache_path("repos/team/a-b/actions/runs") != c._cache_path("repos/team/a_b/actions/runs"), True)
+    want("long paths that differ late do not collide",
+         c._cache_path("x" * 300 + "a") != c._cache_path("x" * 300 + "b"), True)
 
 
     now = now_utc()
