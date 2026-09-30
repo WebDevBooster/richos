@@ -36,7 +36,18 @@ pub fn read(state: &Path, entity: &str, thread: &str) -> Result<WorkSummary, Str
         if path.extension().is_some_and(|e| e == "json") { paths.push(path); }
         if paths.len() > 10000 { return Err("There are too many saved work records for this view. Ask Rich to inspect a specific assignment.".into()); }
     }
-    paths.sort();
+    // The hundred shown are the hundred most recently written, not the first hundred
+    // filenames: a receipt id says nothing about which work is current. The bounds on records
+    // and bytes stay (they limit resource use); only the choice of WHICH records changed.
+    // Receipts are rewritten as their state advances, so the modification time is the last
+    // activity. Ties fall back to the path so the order is deterministic.
+    let mut dated = Vec::with_capacity(paths.len());
+    for path in paths {
+        let meta = std::fs::symlink_metadata(&path).map_err(|_| "A saved work record could not be read.")?;
+        dated.push((meta.modified().unwrap_or(std::time::UNIX_EPOCH), path));
+    }
+    dated.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    let paths: Vec<_> = dated.into_iter().map(|(_, p)| p).collect();
     let mut summary = WorkSummary { omitted: paths.len().saturating_sub(100), ..Default::default() };
     let mut bytes_read = 0;
     for path in paths.into_iter().take(100) {
@@ -382,6 +393,34 @@ pub fn trail(state: &Path, entity: &str, thread: &str, obligation: &str) -> Resu
         assert_eq!(trail.lands.len(), 1);
         assert!(trail.cleanup_pending);
         assert_eq!(trail.not_landed, 0, "a landed commit was counted as not landed");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// The saved-work view shows the most recently written receipts, not the first hundred
+    /// filenames: a newest receipt whose id sorts last must still be shown.
+    #[test] fn the_saved_work_view_shows_the_newest_records_not_the_first_filenames() {
+        let root = temp();
+        let rows: Vec<Value> = (0..120).map(|n| {
+            let mut r = receipt(&format!("a{n:03}"), "o", "worker");
+            r["request"]["title"] = format!("old {n}").into();
+            r
+        }).collect();
+        let path = write(&root, &rows);
+        let base = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        for (n, row) in rows.iter().enumerate() {
+            let f = std::fs::File::options().write(true).open(path.join(format!("{}.json", row["id"].as_str().unwrap()))).unwrap();
+            f.set_modified(base + std::time::Duration::from_secs(n as u64)).unwrap();
+        }
+        let mut newest = receipt("zzz-newest", "o", "worker");
+        newest["request"]["title"] = "the newest work".into();
+        write(&root, &[newest]);
+        let f = std::fs::File::options().write(true).open(path.join("zzz-newest.json")).unwrap();
+        f.set_modified(base + std::time::Duration::from_secs(5000)).unwrap();
+        let summary = read(&root, "depot", "thread").unwrap();
+        assert_eq!(summary.items.len(), 100);
+        assert_eq!(summary.omitted, 21);
+        assert!(summary.items.iter().any(|i| i.title == "the newest work"), "the newest record was hidden by its filename");
+        assert!(!summary.items.iter().any(|i| i.title == "old 0"), "the oldest record outranked a newer one");
         std::fs::remove_dir_all(root).unwrap();
     }
 
