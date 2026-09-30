@@ -767,6 +767,42 @@ try:
           "P40c a run refused a proof-run slot writes its summary: every check NOT ADMITTED by name, none run",
           (r40.returncode, rows40, r40.stdout[-300:]))
 
+    # P41 — under --cap a check planned past the cap is never started (2026-09-30, the merge of
+    # 4e73fd89: a mutation unit planned at 1408 s ran into its 600 s cap and held the Mac while
+    # the change's own checks waited). It is NOT RUN at once, with its planned weight as the
+    # reason; the check beside it runs. Without --cap nothing changes.
+    d41 = os.path.join(tmp, "p41")
+    os.makedirs(d41)
+    marker41 = os.path.join(d41, "started")
+    long41 = pr.Item("long", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "touch %s" % marker41], None, 1408.0)
+    short41 = pr.Item("short", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "true"], None, 5.0)
+    t41 = time.time()
+    with contextlib.redirect_stdout(io.StringIO()):
+        pr.run([long41, short41], Args(cap=600), d41, sampler=idle)
+    check(long41.state == "not-run" and not exists(marker41)
+          and "planned 1408 s, over its 600 s cap" in (getattr(long41, "not_run", None) or {}).get("why", "")
+          and short41.state == "passed" and time.time() - t41 < 20,
+          "P41a under --cap 600 a check planned at 1408 s is NOT RUN at once and never starts; the other runs",
+          [(i.label, i.state, getattr(i, "not_run", None)) for i in (long41, short41)])
+    # The planner keeps such an engine unit out of the shards and out of the receipts proof: the
+    # fence suite's mutation unit is planned at 1408 s in lib/ci-unit-weights.tsv.
+    d41b = os.path.join(tmp, "p41b")
+    os.makedirs(d41b)
+    unit_line41 = "cd richos/engine && " + " ".join(["bash", "scripts/ci-shard.sh", "--only-units"]) + " "
+    fence_unit41 = "scripts/" + "operator-fences" + "-mutation.test.sh"
+    its41 = pr.plan([unit_line41 + fence_unit41, unit_line41 + "scripts/spawn.test.sh"], Args(cap=600), d41b, {})
+    fence41 = [i for i in its41 if fence_unit41 in i.label]
+    with open(os.path.join(d41b, "engine-units.txt")) as fh:
+        planned41 = fh.read().split()
+    check(len(fence41) == 1 and fence41[0].lane is None and planned41 == ["scripts/spawn.test.sh"],
+          "P41b the planner gives a unit planned past --cap no shard and leaves it out of the receipts proof",
+          ([(i.label, i.lane) for i in its41], planned41))
+    uncapped41 = pr.Item("long", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "touch %s" % marker41], None, 1408.0)
+    with contextlib.redirect_stdout(io.StringIO()):
+        pr.run([uncapped41], Args(), os.path.join(tmp, "p41c"), sampler=idle)
+    check(uncapped41.state == "passed" and exists(marker41),
+          "P41c without --cap the same check runs, whatever its planned weight", uncapped41.state)
+
     # P37 — a pause (agent_hold.py) suspends the runner with its checks. The loop gap it leaves is
     # not the checks' time: each running check's start moves by it, so its deadline is where it was.
     class Held:

@@ -418,6 +418,17 @@ def plan(lines, args, logdir, hist):
             f = row.split("\t")
             if len(f) >= 4:
                 weight[f[0]] = float(f[3] or 0)
+        # Under --cap a unit planned past the cap is never started (leave_over_cap), so it takes
+        # no shard: packed with the rest it would leave its lane idle and the others fuller.
+        cap = getattr(args, "cap", None)
+        over = sorted(u for u, w in weight.items() if cap and w > cap)
+        for unit in over:
+            items.append(Item("engine " + unit, engine, ["bash", "scripts/ci-shard.sh", "--only-units", unit],
+                              None, weight.pop(unit)))
+        if over:
+            with open(ufile, "w") as fh:
+                fh.write("".join(u + "\n" for u in sorted(weight)))
+    if units and weight:
         # As many shards as allowed: the packer is longest-first, so a unit heavier than all the
         # rest together gets a shard of its own and the others spread over the remainder. A shard
         # count derived from the weights would trust lib/ci-unit-weights.tsv further than it can
@@ -840,6 +851,54 @@ def discount_held_gap(interval, running):
     return held
 
 
+def over_cap_why(weight, cap):
+    return "planned %.0f s, over its %.0f s cap; not started, the nightly runs it" % (weight, cap)
+
+
+def leave_over_cap(items, args):
+    """--cap (the merge gate): a check whose planned weight is over the cap is never started.
+
+    THE MERGE OF 4e73fd89 (2026-09-30). The gate started `operator-fences-mutation.test.sh`,
+    planned at 1408 s, under a 600 s cap. It could not finish, it held its lane and most of the
+    Mac for its whole 600 s, and the checks the change owned waited 611-870 s behind it until
+    the gate's own 900 s cap ended them. A check planned past the cap is now NOT RUN at once,
+    with its planned weight and the cap as the reason, and never takes a worker token, a lane or
+    admission; an engine unit leaves the receipts proof too, which then proves exactly the units
+    that ran. The weight is the planned one proof-run always uses (lib/ci-unit-weights.tsv for
+    an engine unit, this checkout's measured history otherwise), dated data that a stale row can
+    make wrong in either direction; a row that is too high is corrected by measuring the unit,
+    as the SCR row was. Returns the checks left out."""
+    cap = getattr(args, "cap", None)
+    if not cap:
+        return []
+    left = []
+    for it in items:
+        if it.state == "waiting" and it.label != "engine receipts" and it.weight > cap:
+            it.state, it.rc = "not-run", None
+            it.not_run = {"why": over_cap_why(it.weight, cap),
+                          "suites": [{"name": it.label, "state": "over-cap", "reason": over_cap_why(it.weight, cap)}]}
+            it.notes.append("NOT RUN: " + over_cap_why(it.weight, cap))
+            left.append(it)
+    gone = {it.argv[it.argv.index("--only-units") + 1] for it in left if it.engine_unit}
+    for receipts in (it for it in items if it.label == "engine receipts" and "--units-file" in it.argv):
+        path = receipts.argv[receipts.argv.index("--units-file") + 1]
+        try:
+            with open(path) as stream:
+                units = stream.read().split()
+        except OSError:
+            continue
+        kept = [u for u in units if u not in gone]
+        if kept != units:
+            with open(path, "w") as stream:
+                stream.write("".join(u + "\n" for u in kept))
+        if not kept and receipts.state == "waiting":
+            receipts.state, receipts.rc = "not-run", None
+            receipts.not_run = {"why": "no engine unit it proves was started", "suites": []}
+    for it in left:
+        print("  NOT RUN %-40s %s" % (it.label, over_cap_why(it.weight, cap)), flush=True)
+    return left
+
+
 def run(items, args, logdir, sampler=None):
     args.managed_verification = cpu_guard.verification_enabled()
     remaining = list(items)
@@ -850,6 +909,7 @@ def run(items, args, logdir, sampler=None):
             raise ValueError("unknown or cyclic check prerequisites: " + ", ".join(it.label for it in remaining))
         resolved.update(it.label for it in ready)
         remaining = [it for it in remaining if it not in ready]
+    leave_over_cap(items, args)
     sampler = HostSamples(sampler or (lambda: reserve.host_sample()), args.sample_every)
     os.makedirs(logdir, exist_ok=True)
     tokens_dir = tempfile.mkdtemp(prefix="worker-tokens-", dir=logdir)
@@ -882,7 +942,7 @@ def run(items, args, logdir, sampler=None):
     reserved = reserved_tokens(args.capacity)
     order = sorted(items, key=lambda it: (not getattr(it, "retry_first", False), -it.weight))
     running = []
-    units = {it.argv[it.argv.index("--only-units") + 1] for it in items if it.engine_unit}
+    units = {it.argv[it.argv.index("--only-units") + 1] for it in items if it.engine_unit and it.state != "not-run"}
     args.engine_gate = (engine_pass.PlanGate(len(units), "proof-run", ROOT, sorted(units),
                                             getattr(args, "engine_slot_wait", None))
                         if engine_pass.needs_slot(len(units)) and not engine_pass.held_by_ancestor()

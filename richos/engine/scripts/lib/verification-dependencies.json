@@ -14366,7 +14366,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/proof-run.py",
-          "sha256": "e4532a80f661184e0d1e45b3ebededf53add7132eee7605001a1fd9e236aff66",
+          "sha256": "14619dd485272fa11803b8b2a53a60078407f66bf363afd23275ae61dbc8526c",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -14582,7 +14582,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/proof-run.py",
-          "sha256": "e4532a80f661184e0d1e45b3ebededf53add7132eee7605001a1fd9e236aff66",
+          "sha256": "14619dd485272fa11803b8b2a53a60078407f66bf363afd23275ae61dbc8526c",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
