@@ -338,6 +338,11 @@ mutant p13-unreadable-branch-recorded-deleted "test_point_13_a_branch_whose_tip_
     '    if False:{NL}        return False, "branch %s: %s" % (b, unread)' \
     "a branch whose tip git could not READ would be reported already gone, and the record would call it deleted while it still exists (points 10, 13; hunt part 4, finding 4)."
 
+mutant p03-known-stray-narrows-the-scan "test_point_03_a_known_stray_in_one_repository_never_hides_one_in_another" "$W" \
+    '        its_repos = sorted(set(w.get("repo") for w in live_workspaces(r) if w.get("repo")))' \
+    '        repos = its_repos = sorted(set(w.get("repo") for w in live_workspaces(r) if w.get("repo")))' \
+    "one stray already known in one repository would narrow the scan to that record's repositories, so a new stray in another requested repository would stay unregistered and outside automatic handling (point 3, hole 6; hunt part 4, finding 7)."
+
 mutant p08-refused-call-widens-the-window "test_point_03_a_refused_call_never_widens_the_window_to_the_whole_run" "$W" \
     '            before = b if before is None else (before | b){NL}    if latest and repo in (latest.get("repos") or {}):' \
     '            before = b if before is None else (before & b){NL}    if False:' \

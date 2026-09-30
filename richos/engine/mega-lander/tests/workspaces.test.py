@@ -2734,6 +2734,21 @@ class UnknownIsNeverClean(Base):
                 os.chmod(locked, 0o755)
         self.assertTrue(os.path.isfile(os.path.join(mine, "private", "only-copy.txt")))
 
+    def test_point_03_a_known_stray_in_one_repository_never_hides_one_in_another(self):
+        """Finding 7. A stray already known in the first repository must not
+        narrow the scan of the repositories it was asked to look at."""
+        a = os.path.join(self.env.root, "entity-wt", "stray-a")
+        run("git", "-C", self.entity, "worktree", "add", "-q", a, "-b", "cc/stray-a")
+        self.commit(a)
+        first = ws.scan_unregistered([self.entity, self.other])
+        self.assertEqual(len(first), 1, first)
+        b = os.path.join(self.env.root, "other-wt", "stray-b")
+        run("git", "-C", self.other, "worktree", "add", "-q", b, "-b", "cc/stray-b")
+        self.commit(b)
+        second = ws.scan_unregistered([self.entity, self.other])
+        self.assertEqual(len(second), 1, second)
+        self.assertEqual([w.get("branch") for w in ws.load_agent(second[0])["workspaces"]], ["cc/stray-b"])
+
 
 class _Result(unittest.TextTestResult):
     """Prints `  PASS  <test>` / `  FAIL  <test>` so the mutation harness

@@ -2481,16 +2481,20 @@ def scan_unregistered(repos):
     for r in all_agents():
         if not (r.get("orphan") or r.get("provisional")) or r.get("disposition"):
             continue
-        repos = sorted(set(w.get("repo") for w in live_workspaces(r) if w.get("repo")))
+        # ITS OWN name, never `repos`: reusing the parameter's name narrowed
+        # the discovery below to the last such record's repositories, so one
+        # known stray hid a new one in every other repository it was asked to
+        # scan (hunt part 4, finding 7).
+        its_repos = sorted(set(w.get("repo") for w in live_workspaces(r) if w.get("repo")))
         bound = r.get("integration_work") or {}
-        if all(_norm_repo(x) in bound for x in repos):
+        if all(_norm_repo(x) in bound for x in its_repos):
             continue
         with Lock():
             fresh = load_agent(r["key"])
             if not fresh or fresh.get("disposition"):
                 continue
             changed = False
-            for x in repos:
+            for x in its_repos:
                 if _norm_repo(x) not in (fresh.get("integration_work") or {}) and _bind_body_of_work(fresh, x):
                     changed = True
             if changed:
