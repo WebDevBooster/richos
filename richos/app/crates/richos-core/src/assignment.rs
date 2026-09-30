@@ -1308,6 +1308,19 @@ pub mod says {
         )
     }
 
+    /// **A job that was waiting on his approval when RichOS closed** (hunt part 1 finding 07,
+    /// `recovery.rs`). The approval request lived in memory and closed with RichOS, so there
+    /// is nothing to approve now; the sentence says that, says nothing ran and nothing
+    /// finished, and names the one thing that moves it forward, as [`unknown`] does.
+    pub fn approval_lost(title: &str) -> String {
+        continues(
+            title,
+            "was waiting on a decision from you when RichOS closed, and that request closed \
+             with it. Nothing is running now and nothing was finished. Say the word and I'll \
+             pick it back up; if it reaches that step again, it will ask you then.",
+        )
+    }
+
     /// **A QUESTION THAT DID NOT GET ANSWERED, SAID AS THAT.**
     ///
     /// [`failed`] and [`did_not_start`] both put the title where a job's name goes —

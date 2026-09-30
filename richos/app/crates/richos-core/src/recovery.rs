@@ -241,11 +241,12 @@ pub fn reconcile(state: &Path, repositories: &dyn Repositories) -> Reconciliatio
     };
     for record in open {
         match record.state {
-            // **Already stopped at a step of his, and the record says so.** That was
-            // written while a process was watching, so it is a witnessed fact and not an
-            // inference — leave it exactly as it is. §7.8 is the case: he comes back,
-            // finds an assignment waiting for him to approve, and approves it.
-            AssignmentState::Blocked => report.untouched.push(Reconciled {
+            // **Stopped at a step of his, and what he must answer is still on disk.** That
+            // was written while a process was watching, so it is a witnessed fact and not an
+            // inference — leave it exactly as it is. §7.8 is the case: he comes back, finds
+            // an assignment waiting for him, and answers it. A question of his and a saved
+            // answer of his both outlive the process (`questions.rs`, `question_work.rs`).
+            AssignmentState::Blocked if waits_on_something_saved(state, &record) => report.untouched.push(Reconciled {
                 entity_id: record.entity_id.clone(),
                 thread_id: record.thread_id.clone(),
                 id: record.id.clone(),
@@ -253,6 +254,34 @@ pub fn reconcile(state: &Path, repositories: &dyn Repositories) -> Reconciliatio
                 state: AssignmentState::Blocked,
                 said: None,
             }),
+            // **Stopped at a step for him to APPROVE, and that request died with the process**
+            // (hunt part 1 finding 07, richos-hq `docs/audits/2026-09-29-hunt/part-1-codex.md`).
+            // An approval request lives only in the permission desk's memory (`permissions.rs`),
+            // so after a crash there is nothing he can approve, and a row that still says it
+            // waits on his decision is a door with no handle. It becomes `unknown`, which is
+            // what it now is: nothing is running and nothing finished. He is told the request
+            // closed with RichOS, and picking it back up (`assignment::pick_up`) runs it again,
+            // which asks him again if it reaches that step. Nothing re-runs it by itself (§6.3).
+            AssignmentState::Blocked => {
+                let said = assignment::says::approval_lost(&record.title);
+                if assignment::advance(state, &record.entity_id, &record.thread_id, &record.id,
+                                       AssignmentState::Unknown, APPROVAL_LOST_AT_RELAUNCH).is_err() {
+                    report.unreadable = Some("an assignment could not be brought up to date".into());
+                    continue;
+                }
+                if let Err(error) = assignment::raise_notice(state, &record.entity_id, &record.thread_id, &record.id,
+                                                             NoticeKind::Unknown, &said) {
+                    eprintln!("[richos] recovery: the notice about a lost approval request could not be written: {error}");
+                }
+                report.unknown.push(Reconciled {
+                    entity_id: record.entity_id.clone(),
+                    thread_id: record.thread_id.clone(),
+                    id: record.id.clone(),
+                    title: record.title.clone(),
+                    state: AssignmentState::Unknown,
+                    said: Some(said),
+                });
+            }
             // **AN ANSWER RUN THAT HAD NOT STARTED** (design D6). Nothing had been asked of the
             // back end: the job was written down, waiting for the screen, waiting for its
             // allowance before its first turn, or opening its connection (`work_host.rs` writes
@@ -320,6 +349,26 @@ pub fn reconcile(state: &Path, repositories: &dyn Repositories) -> Reconciliatio
 /// The row's detail for a job put back to waiting on his saved answer (design D6).
 pub const ANSWER_SAVED_AT_RELAUNCH: &str =
     "Your answer is saved. RichOS closed before the back end took it, so it goes to the back end now.";
+
+/// The row's detail for a job whose approval request closed with RichOS (finding 07).
+pub const APPROVAL_LOST_AT_RELAUNCH: &str =
+    "It was waiting on a decision from you when RichOS closed, and that request closed with it. \
+     Nothing is running, and nothing was finished.";
+
+/// **Is what this blocked job waits for still on disk?** A question of his it asked and he
+/// has not answered, or an answer of his saved and not yet taken: both outlive the process.
+/// An approval request does not (`permissions.rs` keeps it in memory only). A store that
+/// cannot be read answers yes, which leaves the job exactly as it was recorded, the behavior
+/// before this reading existed: an unreadable store is no evidence that the wait is gone.
+fn waits_on_something_saved(state: &Path, record: &Assignment) -> bool {
+    let question = crate::questions::Store::new(state).list(&record.entity_id, &record.thread_id).map(|questions| {
+        questions.iter().any(|q| {
+            q.asker == record.obligation_id && !q.delivered && q.state != crate::questions::State::Withdrawn
+        })
+    });
+    let answer = crate::question_work::untaken(state, &record.entity_id, &record.thread_id, &record.obligation_id);
+    !matches!((question, answer), (Ok(false), Ok(false)))
+}
 
 /// **Had nothing been asked of the back end in the run this job was on?** The states before
 /// its first turn. `WaitingForQuota` counts only when its detail is not the one a started run
@@ -870,21 +919,40 @@ mod tests {
         std::fs::remove_dir_all(state).unwrap();
     }
 
-    /// **§7.8 survives a relaunch.** An assignment that had already stopped at a step of
-    /// his is left exactly as it was: that state was witnessed and written down while a
-    /// process was watching, so it is a fact rather than an inference, and turning it into
-    /// `unknown` would throw away the one thing he came back for.
+    /// A question of his that the job asked and he has not answered: it is on disk
+    /// (`questions.rs`), so it outlives the process that asked it.
+    fn open_question(state: &Path, obligation: &str) {
+        use crate::questions::{AskScope, OptionInput, QuestionInput, Store};
+        Store::new(state).ask(&AskScope {
+            root: state.to_path_buf(), entity_id: "depot".into(), thread_id: "thread-one".into(),
+            turn_id: "turn-7".into(), asker: obligation.into(), session_id: "work-session-a".into(),
+            engine: None, entity_root: None,
+        }, vec![QuestionInput {
+            text: "Who should review it?".into(),
+            options: vec![
+                OptionInput { label: "Dana reviews".into(), description: "Faster, knows the code.".into() },
+                OptionInput { label: "Sam reviews".into(), description: "Slower, fresh eyes.".into() },
+            ],
+            multiple: false, free_answer: true, recommended: None,
+        }]).unwrap();
+    }
+
+    /// **§7.8 survives a relaunch, where the thing he must answer survives it.** An
+    /// assignment waiting on a question of his is left exactly as it was: that state was
+    /// witnessed and written down while a process was watching, the question is on disk, and
+    /// turning it into `unknown` would throw away the one thing he came back for.
     #[test]
     fn an_assignment_that_was_waiting_for_him_is_still_waiting_for_him() {
         let state = root();
         let receipt = assignment::register(&state, &registration("obligation-1")).unwrap();
+        open_question(&state, "obligation-1");
         assignment::advance(
             &state,
             "depot",
             "thread-one",
             &receipt.id,
             AssignmentState::Blocked,
-            "The work has run and stopped at a step that is yours to approve.",
+            "Waiting for your answer. Independent work can continue.",
         )
         .unwrap();
 
@@ -898,6 +966,53 @@ mod tests {
         // Nothing was said about it: he was already told, and telling him twice about the
         // same waiting decision is noise pretending to be diligence.
         assert!(record.notices.is_empty());
+        std::fs::remove_dir_all(state).unwrap();
+    }
+
+    /// **Hunt part 1 finding 07** (richos-hq `docs/audits/2026-09-29-hunt/part-1-codex.md`):
+    /// a job stopped at a step for him to approve, and RichOS then crashed. The approval
+    /// request lived only in the permission desk's memory (`permissions.rs`), so after the
+    /// relaunch there is nothing he can approve, and a row still saying it waits for his
+    /// approval is a door with no handle. It comes back `unknown` instead, says the request
+    /// closed with RichOS, and picking it back up works: the run that follows asks him again
+    /// if it reaches the same step. The control: a job waiting on a saved answer of his,
+    /// which is on disk, is still left exactly as it was.
+    #[test]
+    fn a_job_whose_approval_request_died_with_the_app_comes_back_as_something_he_can_pick_up() {
+        let state = root();
+        let approval = assignment::register(&state, &registration("obligation-1")).unwrap();
+        assignment::advance(&state, "depot", "thread-one", &approval.id, AssignmentState::Blocked,
+            "The work has run and stopped at a step that is yours to decide: run a command.").unwrap();
+        assignment::raise_notice(&state, "depot", "thread-one", &approval.id, NoticeKind::ReadyToApprove,
+            &assignment::says::ready_to_approve("landing obligation-1")).unwrap();
+        let answered = assignment::register(&state, &registration("obligation-2")).unwrap();
+        assignment::advance(&state, "depot", "thread-one", &answered.id, AssignmentState::Blocked,
+            crate::work_host::ANSWER_RETRY_DETAIL).unwrap();
+        crate::question_work::enqueue(&state, &crate::questions::Delivery {
+            id: "question-set:obligation-2".into(), entity_id: "depot".into(), thread_id: "thread-one".into(),
+            asker: "obligation-2".into(), set_id: None, text: "You answered: tomorrow".into(), receipt: None,
+        }).unwrap();
+
+        let report = reconcile(&state, &at(&"a".repeat(40)));
+
+        let row = assignment::read(&state, "depot", "thread-one", &approval.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Unknown, "it still waits on an approval nobody can give: {}", row.detail);
+        assert!(row.state.awaits_his_word());
+        assert!(!row.state.is_open(), "nothing re-runs it by itself (§6.3)");
+        assert_eq!(report.unknown.len(), 1, "{report:?}");
+        let notice = row.notices.last().unwrap();
+        assert_eq!(notice.kind, NoticeKind::Unknown);
+        assert!(notice.text.contains("waiting on a decision from you when RichOS closed"), "{}", notice.text);
+        assert!(notice.text.contains("Say the word"), "{}", notice.text);
+        // The way out is the ordinary one for work RichOS closed on.
+        assignment::pick_up(&state, "depot", "thread-one", "landing obligation-1").unwrap();
+        assert_eq!(assignment::read(&state, "depot", "thread-one", &approval.id).unwrap().state,
+                   AssignmentState::Registered);
+        // The control: what he answered is saved, so that job is left as it was.
+        let row = assignment::read(&state, "depot", "thread-one", &answered.id).unwrap();
+        assert_eq!((row.state, row.detail.as_str()), (AssignmentState::Blocked, crate::work_host::ANSWER_RETRY_DETAIL));
+        assert!(row.notices.is_empty());
+        assert_eq!(report.untouched.len(), 1, "{report:?}");
         std::fs::remove_dir_all(state).unwrap();
     }
 
