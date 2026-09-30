@@ -878,6 +878,32 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
         self.assertTrue(pool.claim(items[0]))
         pool.close(items)
 
+    def test_a_check_without_a_reviewed_contract_has_a_budget_that_starts_one_failure_later(self):
+        # Hunt part 2, finding 12: a whole-checkout identity was exempt from the retry budget, so
+        # an unchanged known failure repeated without limit. The reason for the exemption stands
+        # for the first retry (a land retried once has no --retry-reason to give), so that one
+        # still runs; the second failure needs the diagnosis and the third ends it.
+        directory = Path(self.tmp.name) / "pool"
+        whole = {"check": {"contract": evidence.WHOLE_CHECKOUT, "tree": "same"}}
+        for name, reason, expected in (("first", None, True), ("retry-without-reason", None, True),
+                ("third-without-diagnosis", None, False),
+                ("diagnosed", "identified transient fixture fault", True),
+                ("fifth", "same diagnosis", False)):
+            items, record = self.attempt(name, engine=False, identities=whole)
+            pool = evidence.Pool(directory, record, reason)
+            self.assertEqual(pool.claim(items[0]), expected, name)
+            if expected:
+                items[0].state, items[0].rc = "failed", 1
+                record.checkpoint(items)
+                pool.finish(items[0])
+            else:
+                self.assertEqual(items[0].state, "blocked", name)
+        items, record = self.attempt("changed-tree", engine=False,
+                                     identities={"check": {"contract": evidence.WHOLE_CHECKOUT, "tree": "new"}})
+        pool = evidence.Pool(directory, record)
+        self.assertTrue(pool.claim(items[0]))
+        pool.close(items)
+
     def test_refusal_and_timeout_do_not_spend_functional_retry_budget(self):
         for name, code in (("refused", 75), ("deadline", 124), ("infrastructure", 125)):
             items, record = self.attempt(name, engine=False)

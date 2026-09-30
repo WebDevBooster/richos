@@ -22,8 +22,8 @@ engineer in a worktree, Codex, Rich in the main checkout.
 
   LAND, anything that moves main (pre-merge-commit on main, pre-commit on main, and
   pre-push of main as the backstop): the suites `proof-for.sh` assigns to the change, run
-  by `proof-run.py`, plus `lint.sh --all` when the selection does not already include
-  `lint.test.sh`. Nobody chooses the suites. A failure refuses the merge before it exists,
+  by `proof-run.py`, plus `lint.sh --all` when the land changes something under richos/app
+  and the selection does not already include `lint.test.sh`. Nobody chooses the suites. A failure refuses the merge before it exists,
   so it cannot be pushed. A pass leaves a receipt keyed by the tree it proved. A check
   proof-run reports NOT RUN is never a pass: the land accepts only a suite that needs a
   screen (a land never uses this Mac's screen), names it in its verdict and records it in
@@ -533,6 +533,7 @@ def land_check(repo, what, staged, range_argv):
             banner(f"{what.upper()} REFUSED: cannot select the checks", [f"{need} is not in this tree."])
             return 1
     commands = []
+    covered = set()
     if range_argv:
         found, rc = select(repo, range_argv)
         if found is None:
@@ -547,7 +548,11 @@ def land_check(repo, what, staged, range_argv):
         if found is None:
             return refuse_selection(what, rc)
         commands += [c for c in found if c not in commands]
-    if not any("lint.test.sh" in c for c in commands):
+    # The lint checks the application (it lives under richos/app). A land that changes nothing
+    # under richos/app has nothing for it to check, as in commit_check, so it does not pay the
+    # compiler work (hunt part 2, finding 13). Any application path, a deletion included, runs it.
+    touches_app = any(p.startswith("richos/app/") for p in covered | set(staged))
+    if touches_app and not any("lint.test.sh" in c for c in commands):
         commands.append("cd richos/app && bash scripts/lint.sh --all")
     say(f"autocheck: {what}: {len(commands)} check command(s) selected by proof-for.sh, run by proof-run.py:")
     for c in commands:

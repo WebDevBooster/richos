@@ -518,6 +518,26 @@ class Land(Fixture):
         self.assertTrue((self.repo / ".git/richos-autocheck/land" / tree).exists())
         self.assertEqual(self.recorded(), "")
 
+    def test_a_land_that_changes_nothing_under_the_app_runs_no_application_lint(self):
+        # Hunt part 2, finding 13: a docs-only land paid for `lint.sh --all` (58 s warm) although
+        # nothing it changed is application code. The commit check already skips it.
+        self.make()
+        self.branch_with("docs", "README.md", "docs\n")
+        out = self.git("merge", "--no-ff", "-m", "land docs", "docs")
+        self.assertNotIn("lint --all", self.tools())
+        self.assertNotIn("lint.sh --all", out.stderr)
+        self.assertEqual(self.recorded(), "")
+
+    def test_a_land_that_deletes_an_app_file_still_runs_the_lint(self):
+        self.make()
+        self.git("checkout", "-q", "-b", "gone")
+        self.git("rm", "-q", "richos/app/src/thing.txt")
+        self.git("commit", "-q", "-m", "delete", "--no-verify")
+        self.git("checkout", "-q", "main")
+        self.log.unlink(missing_ok=True)
+        self.git("merge", "--no-ff", "-m", "land deletion", "gone", expect=None)
+        self.assertIn("lint --all", self.tools())
+
     def test_a_land_whose_screen_suites_did_not_run_lands_and_says_not_run(self):
         # 2026-09-29: front-door and gui-boot were NOT RUN (no screen) in the refused land of
         # 6ef73abf and recorded as passed. NOT RUN is not a pass; the one a land accepts is a

@@ -9,7 +9,7 @@ Git runs these itself. Nobody runs them by hand and nobody has to be told to (CE
 | `git commit` | every branch but `main`, in every worktree | `lint.sh --changed --strict`: the lint ratchets for what differs from `HEAD` (static and load rules; Clippy for a Rust set whose inputs changed), and no count may grow, whatever room a ceiling has | refuses the commit, with the lint's reason |
 | `git commit` | every branch but `main`, in every worktree | a branch-changed file that a reviewed check pins by SHA-256 in `docs/development/verification-input-qualifications.json` must have its pin renewed in the same change (the merge would refuse it with `UnqualifiedReader`); read only when a changed path is named there | refuses the commit, naming the file, the unit and the fix |
 | `git merge` into a branch | every branch but `main` | `lint.sh --changed` (ceilings; what main brings was held to its land) | refuses the merge |
-| `git merge` into `main`, a commit on `main` | the main checkout | the suites `proof-for.sh` assigns to the change, run by `proof-run.py`, plus `lint.sh --all` when that selection does not already include `lint.test.sh` | refuses the merge before main moves |
+| `git merge` into `main`, a commit on `main` | the main checkout | the suites `proof-for.sh` assigns to the change, run by `proof-run.py`, plus `lint.sh --all` when the land changes something under `richos/app` and that selection does not already include `lint.test.sh` | refuses the merge before main moves |
 | `git push` of `main` | wherever main is pushed from | the same land checks, only when main's tip has no land receipt (a fast-forward, a cherry-pick, a `--no-verify` merge) | refuses the push |
 
 No formatter runs: the repository does not enforce one.
@@ -117,6 +117,7 @@ The land check costs what `proof-for.sh` assigns to the change, which is what a 
 supposed to run anyway, plus about 4 s of its own (selection and receipt). Measured: a land of
 one changed script (5 checks, including `lint.test.sh` and `make-engine-asset.test.sh`) took
 128 s end to end in a fresh clone, 112 s of it the lint suite compiling Rust at a new path.
-When the selection does not include `lint.test.sh` (an engine-only or documentation land), the
-check adds `lint.sh --all`: 58 s warm (`lint.test.sh` as a whole, which a land of anything
+When the land changes something under `richos/app` and the selection does not include
+`lint.test.sh`, the check adds `lint.sh --all`; a land that changes nothing under `richos/app`
+(engine-only or documentation) adds nothing, as the commit check does. The added lint costs 58 s warm (`lint.test.sh` as a whole, which a land of anything
 under `richos/app` selects, measured 81 s).
