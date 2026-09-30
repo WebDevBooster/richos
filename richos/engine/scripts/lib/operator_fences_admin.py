@@ -102,11 +102,15 @@ def chain_reachable(main):
     if not hooks_path:
         return True, "(unset)"
     dispatch = os.path.join(os.path.expanduser(hooks_path), "reference-transaction")
+    real = os.path.realpath(dispatch)
     try:
-        with open(os.path.realpath(dispatch), encoding="utf-8", errors="replace") as fh:
-            return "git-common-dir" in fh.read(), hooks_path
+        with open(real, encoding="utf-8", errors="replace") as fh:
+            chains = "git-common-dir" in fh.read()
     except OSError:
         return False, hooks_path
+    # Git runs a hook only when it is executable: a dispatcher that chains but
+    # is mode 0644 is not reachable (P5-44).
+    return chains and os.access(real, os.X_OK), hooks_path
 
 
 def launcher_text(values):
@@ -259,6 +263,11 @@ def check_one(repo, mode):
     conf = F.read_launcher(target)
     if not conf:
         return ["%s: the launcher is not installed" % repo]
+    if not os.access(target, os.X_OK):
+        problems.append("%s: the launcher %s is not executable, so git will not run it" % (repo, target))
+    program = conf.get("PROGRAM", "")
+    if program and os.path.isfile(program) and not os.access(program, os.X_OK):
+        problems.append("%s: the fence program %s is not executable" % (repo, program))
     if mode != "on-ready" and conf.get("STATE") != "on":
         problems.append("%s: the fence is off" % repo)
     if F.file_digest(conf.get("PROGRAM", "")) != F.file_digest(PROGRAM_SOURCE):
@@ -271,6 +280,11 @@ def check_one(repo, mode):
     missing = [m for m in expected if m not in chain_members(paths["common"])]
     if missing:
         problems.append("%s: chain member(s) %s are gone" % (repo, ", ".join(missing)))
+    chain_dir = os.path.join(paths["common"], "hooks", F.CHAIN_DIR)
+    not_run = [m for m in expected if m not in missing and not os.access(os.path.join(chain_dir, m), os.X_OK)]
+    if not_run:
+        problems.append("%s: chain member(s) %s are not executable, so the chain skips them"
+                        % (repo, ", ".join(not_run)))
     try:
         home, key = F.keyed_paths(paths["main"])
         if os.path.realpath(home) != os.path.realpath(conf.get("HOME", "")) or key != conf.get("KEY"):
