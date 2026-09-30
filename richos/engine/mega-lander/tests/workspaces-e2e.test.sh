@@ -141,8 +141,8 @@ stop_gate; rc=$?
 check "E1.5 the Stop gate refuses the end of the turn while it is pending (point 5)" \
     "[ $rc -eq 2 ] && grep -q 'zach-opus-e1' '$T/stop.err'" "$(cat "$T/stop.err")"
 spawn "zach-opus-e1b" "unrelated new work"; rc=$?
-check "E1.6 the spawn guard refuses new work while it is pending (point 5)" \
-    "[ $rc -eq 2 ] && grep -q 'zach-opus-e1' '$T/spawn.err'" "rc=$rc $(cat "$T/spawn.err")"
+check "E1.6 unrelated work starts while finished work stays pending (point 5, amended 2026-09-30)" \
+    "[ $rc -eq 0 ] && [ -e '$NP1' ]" "rc=$rc $(cat "$T/spawn.err")"
 git -C "$ENT" merge -q --no-edit "worktree-agent-ae1e1e1e1e1e1e1e1"
 stop_gate; rc=$?
 check "E1.7 merged: the Stop gate lands it on its own and lets the turn end (point 4)" "[ $rc -eq 0 ]" "$(cat "$T/stop.err")"
@@ -274,7 +274,7 @@ check "E4.2 the next session is told first (point 5)" \
 barrier "ae4e4e4e4e4e4e4e4" Bash; rc=$?
 check "E4.3 its agent cannot outlive the session: locked out (points 9, 12)" "[ $rc -eq 2 ]" "$(cat "$T/barrier.err")"
 spawn "zach-opus-e4b" "unrelated"; rc=$?
-check "E4.4 new work is refused until it is handled (point 5)" "[ $rc -eq 2 ]"
+check "E4.4 unrelated work starts while the previous session stays unresolved" "[ $rc -eq 0 ] && [ -e '$NP4/draft.txt' ]"
 stop_gate; rc=$?
 check "E4.5 the turn cannot end either" "[ $rc -eq 2 ] && grep -q 'zach-opus-e4' '$T/stop.err'"
 RICHOS_SESSION_ID="$CUR_SID" "$WS" land zach-opus-e4 >"$T/land.out" 2>&1; rc=$?

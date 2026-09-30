@@ -1196,8 +1196,8 @@ fi # mutation witness fixture group
 
 if wti_group; then
 # ---------------------------------------------------------------------------
-# (p5) POINT 5 — new work is refused while finished work is neither landed nor
-# discarded, except the work that lands it (lands-pending: / continues:).
+# (p5) POINT 5, amended 2026-09-30: pending integration allows unrelated
+# development. Registration, workspace isolation and explicit land helpers remain.
 # ---------------------------------------------------------------------------
 # echo-opus-reg1 was spawned above (L07). The platform acknowledges it, it
 # commits in its cc/ workspace, and its run ends: finished, not landed.
@@ -1208,10 +1208,10 @@ git -C "$CR/other-wt/echo-opus-reg1" add work.txt
 git -C "$CR/other-wt/echo-opus-reg1" commit -q -m work
 printf '{"hook_event_name":"SubagentStop","session_id":"%s","agent_id":"aechoreg10000001"}' "$TEST_SID" \
     | python3 "$WS_PY" --entity "$RICHOS_ENTITY_ROOT" hook >/dev/null
-run_case_msg "P501 new work while echo-opus-reg1 is finished and neither landed nor discarded -> BLOCKED, naming it" 'echo-opus-reg1' \
-    "$(json_agent 'dev' 'dev-sonnet-p5new' 'worktree' 'Unrelated new work.')"
-run_case "P502 ...and the refusal is a refusal (exit 2)" 2 \
-    "$(json_agent 'dev' 'dev-sonnet-p5new' 'worktree' 'Unrelated new work.')"
+run_case "P501 unrelated work while echo-opus-reg1 stays pending -> allowed" 0 \
+    "$(json_cwd 'dev-sonnet-p5new' 'worktree' '' 'Unrelated new work.' toolu_test_p5new)"
+run_case "P502 a second unrelated spawn also passes registration" 0 \
+    "$(json_cwd 'dev-sonnet-p5new2' 'worktree' '' 'More unrelated work.' toolu_test_p5new2)"
 run_case "P503 the work that lands it (lands-pending: echo-opus-reg1) -> allowed" 0 \
     "$(json_cwd 'dev-sonnet-p5fix' 'worktree' '' $'Resolve the clash and land it.\nlands-pending: echo-opus-reg1' toolu_test_p5fix)"
 python3 "$WS_PY" --session "$TEST_SID" discard echo-opus-reg1 --reason "a fixture of this suite, done with" \

@@ -155,10 +155,11 @@ mutant R-p05-turn-end-not-blocked "C5.1b" "$W" \
     '    if not blocking:{NL}        msg = "\n".join(notes)' \
     '    if True:{NL}        msg = "\n".join(notes)' \
     "RECORDED [lifecycle-failure-record-2026-09-10.md §3.1 and §2.11, 2026-09-10: notice-unlanded-branches.sh reported, de-duplicated, and went quiet while six then five finished branches sat outside main; the turn ended every time]: Rich could end his turn with finished work neither landed nor discarded."
-mutant R-p05-new-work-not-blocked "C5.1 " "$W" \
-    '    if blocking and not (helps & set(value for i in blocking for value in (i["name"], i["key"]))):' \
-    '    if False:' \
-    "RECORDED [lifecycle-failure-record-2026-09-12.md §5 Type D, 2026-09-12: within the hour of clearing 30 worktrees Rich had spawned new agents and left four more finished agents' worktrees plus a native leftover]: new work could start while finished work is pending."
+mutant S-p05-pending-work-blocks-spawn "C5.1 " "$W" \
+    '    continuation_keys = []' \
+    '    if pending(sid, entity):{NL}        raise SpecError("pending work blocks new agents"){NL}    continuation_keys = []' \
+    "Point 5, amended 2026-09-30: unrelated development would freeze behind finished work pending integration."
+
 mutant S-p05-answer-allowance-unlimited "C5.3 " "$W" \
     '            if prev.get("state") == state[i["key"]]:{NL}                spent.append((i, prev))' \
     '            if False:{NL}                spent.append((i, prev))' \
@@ -199,10 +200,11 @@ mutant S-p05-his-word-blocks-the-turn "C5.13" "$W" \
     '            "blocks_turn_end": kind not in ("ceo-discard", "started", "outside"),' \
     '            "blocks_turn_end": kind not in ("started", "outside"),' \
     "SPEC-DERIVED (point 5 negated, 'that one item then waits on him, is on his TODO list'): a discard waiting on the CEO's word, asked and recorded, would still block the turn."
-mutant S-p05-ceo-wait-unblocks-new-work "C5.13" "$W" \
-    '            "blocks_new_work": not under_way,' \
-    '            "blocks_new_work": kind != "ceo-discard",' \
-    "SPEC-DERIVED (point 5 negated, 'New work stays blocked either way' — its parenthesis names 'the CEO's word'; the round-7 mis-build restored, brief-audit-sage-round8 §3: with one item waiting on his word an unrelated spawn returned rc=0 at a0c1e1bd): an item waiting on the CEO's word would be the one kind of pending item that lets new work start."
+mutant S-p05-ceo-wait-blocks-new-work "C5.13" "$W" \
+    '    continuation_keys = []' \
+    '    if any(i["waiting"] == "ceo-discard" for i in pending(sid, entity)):{NL}        raise SpecError("waiting on the CEO blocks new agents"){NL}    continuation_keys = []' \
+    "Point 5, amended 2026-09-30: an item waiting on the CEO would block unrelated development."
+
 mutant S-p05-his-word-blocks-the-other-items "C5.14" "$W" \
     '        if auto and not _past(deadline):{NL}            try:{NL}                res = land(rec["key"], me, auto=True, deadline=deadline)' \
     '        if auto and not _past(deadline) and not any((r.get("waiting") or {}).get("kind") == "ceo-discard" for r in all_agents()):{NL}            try:{NL}                res = land(rec["key"], me, auto=True, deadline=deadline)' \
