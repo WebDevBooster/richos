@@ -2108,7 +2108,7 @@
     "engine scripts/hooks/guard-idle-land.test.sh": {
       "review": "Payloads, transcripts, records, Git histories and the bare remote are private fixtures. The suite executes only fixed Git queries and generated local Git writes, never transcript command strings. The Stop recovery registry and platform session lookup use private HOME/config with no operator session. Notice timestamps are output, not an expiration predicate in this suite.",
       "sources": {
-        "richos/engine/scripts/hooks/guard-idle-land.test.sh": "d37f2b44fe420e411b34108410fc4b0c02268765d5136d91a6c05ed6d50516be",
+        "richos/engine/scripts/hooks/guard-idle-land.test.sh": "e79ecdfea218fc6d681278a8ba4cabbf7d491d5488e3c58ac01150184dca1ea6",
         "richos/engine/scripts/hooks/guard-idle-land.sh": "c65ff6beb940c15ff20cf5a7e54e2f8453c4f6594d2ed2a8d32cda662dc3efae",
         "richos/engine/scripts/hooks/guard-idle-land.py": "5f75c89a50a316e8737c1bc901686b914d93c094012c59d55d8e3f1d1d7eb713",
         "richos/engine/mega-lander/workspaces.py": "19e837cdde6c11e12a6fbdddd9043229787529d9017d0452a734fb2c6c309e96",
@@ -2367,7 +2367,7 @@
       "sources": {
         "richos/engine/scripts/hooks/contract-integrity.test.sh": "367fc70f5ccbc66e5be5f1414d821f4c11c69916829c9ca27aa2ddfb1b5638d2",
         "richos/engine/scripts/hooks/idle-land.mutation.sh": "b2be7c34811448327fec6445453e142f7a72c0b191453b1d65d03d36c0f353ac",
-        "richos/engine/scripts/hooks/guard-idle-land.test.sh": "d37f2b44fe420e411b34108410fc4b0c02268765d5136d91a6c05ed6d50516be",
+        "richos/engine/scripts/hooks/guard-idle-land.test.sh": "e79ecdfea218fc6d681278a8ba4cabbf7d491d5488e3c58ac01150184dca1ea6",
         "richos/engine/scripts/hooks/guard-idle-land.sh": "c65ff6beb940c15ff20cf5a7e54e2f8453c4f6594d2ed2a8d32cda662dc3efae",
         "richos/engine/scripts/hooks/guard-idle-land.py": "5f75c89a50a316e8737c1bc901686b914d93c094012c59d55d8e3f1d1d7eb713",
         "richos/engine/mega-lander/workspaces.py": "19e837cdde6c11e12a6fbdddd9043229787529d9017d0452a734fb2c6c309e96",

@@ -100,6 +100,9 @@
 # Exit 0 = all pass; exit 1 = at least one failure.
 
 set -uo pipefail
+# Loading guard-idle-land.py below compiles it; bytecode written beside the hook lands inside
+# other checks' declared inputs and invalidates them (2026-09-30).
+export PYTHONDONTWRITEBYTECODE=1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOK="$SCRIPT_DIR/guard-idle-land.sh"
