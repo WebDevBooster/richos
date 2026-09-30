@@ -652,7 +652,7 @@ async function countedLaunch(browser, off) {
   if (off) await page.addInitScript(() => window.localStorage.setItem("richos.splash.enabled", "false"));
   await page.addInitScript(LAUNCH_COUNTERS);
   await page.goto(APP);
-  await page.waitForFunction(() => window.__atReady != null, { timeout: 20000 });
+  await page.waitForFunction(() => window.__atReady != null, null, { timeout: 30000 });
   // THE POSITIVE PROBES, FIRST — because two of the four need the curtain to still be on
   // screen, and this surface is over in a few seconds. A zero from an instrument that never
   // ran is the same number as a zero from a launch that asked for nothing, and this
@@ -789,7 +789,7 @@ async function settledShot(page, name) {
   // WAS racing it — a 270 ms window, and the picture that came out is described on
   // `curtainNow`. The callers now ask for `noCeiling` as well, and that is asserted below
   // rather than believed.
-  await page.waitForFunction(() => window.RichSplash.state.barStopped === true, { timeout: 20000 });
+  await page.waitForFunction(() => window.RichSplash.state.barStopped === true, null, { timeout: 30000 });
   if (SHUTTER_LAG_MS > 0) await page.waitForTimeout(SHUTTER_LAG_MS);
   // THE OPT-IN HAS TO HAVE TAKEN, and this is where that is established. `NO_CEILING` refuses
   // to arm the timer whose body is `yieldNow("ceiling")`; if the product ever arms its
@@ -1933,7 +1933,7 @@ async function main() {
         window.__RICHOS_LAUNCH__ = Object.freeze({ kind: "fresh", ordinal: 1, splashEnabled: v });
       }, durable);
       await p.goto(APP);
-      await p.waitForFunction("typeof window.RichHome === 'object'", { timeout: 15000 });
+      await p.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 30000 });
       const got = await p.evaluate(() => {
         const home = document.getElementById("home");
         const cs = home ? getComputedStyle(home) : null;
@@ -2029,7 +2029,7 @@ async function main() {
         [c.durable, c.mirror]
       );
       await p.goto(APP);
-      await p.waitForFunction("typeof window.RichSplash === 'object'", { timeout: 10000 });
+      await p.waitForFunction("typeof window.RichSplash === 'object'", null, { timeout: 30000 });
       const got = await p.evaluate(() => ({
         nodes: document.querySelectorAll("#splash, .splash").length,
         shown: window.RichSplash.state.shown,
@@ -2325,7 +2325,7 @@ async function main() {
 
     async function timeOne(page) {
       await page.goto(APP);
-      await page.waitForFunction(() => window.__readyAt != null, { timeout: 20000 });
+      await page.waitForFunction(() => window.__readyAt != null, null, { timeout: 30000 });
       return page.evaluate(() => {
         const t = window.__readyAt;
         window.__readyAt = null;
@@ -2603,15 +2603,40 @@ async function main() {
     await atCurtain(page, 300);
     await stillUp(page, "the relief reading");
     const before = await page.evaluate(() => getComputedStyle(document.querySelector("#splash .splash-signal")).filter);
-    await page.keyboard.press("a");
-    const after = await page.evaluate(() => {
-      const n = document.getElementById("splash");
-      return {
-        settled: n.classList.contains("splash--settled"),
-        signal: getComputedStyle(n.querySelector(".splash-signal")).filter,
-        ink: getComputedStyle(n.querySelector(".splash-ink")).filter,
-      };
+    // THE PINNED READING IS TAKEN INSIDE THE KEYSTROKE, NOT A ROUND TRIP AFTER IT (hunt part 2,
+    // finding 29). This was `press("a")` then `page.evaluate(read)`, the sequence check 8
+    // dropped on 2026-09-10 (see the long comment there): `yieldNow` pins synchronously and
+    // removes `#splash` 220 ms later (`FADE_MS + 40`), so a second round trip on a contended
+    // runner reads `null` and throws on healthy product behavior. A capture-phase `keydown`
+    // listener on `window`, registered now and so after the one `splash.js` registered, runs
+    // in the same dispatch immediately after the pin, before any timer can remove the node.
+    await page.evaluate(() => {
+      window.__reliefAtYield = null;
+      window.addEventListener(
+        "keydown",
+        () => {
+          if (window.__reliefAtYield !== null) return;
+          const n = document.getElementById("splash");
+          window.__reliefAtYield = n
+            ? {
+                settled: n.classList.contains("splash--settled"),
+                signal: getComputedStyle(n.querySelector(".splash-signal")).filter,
+                ink: getComputedStyle(n.querySelector(".splash-ink")).filter,
+              }
+            : { gone: true };
+        },
+        true
+      );
     });
+    await page.keyboard.press("a");
+    // load-bound: a hang guard on a fact the keystroke itself produces; it decides no verdict
+    await page.waitForFunction(() => window.__reliefAtYield !== null, null, { timeout: 20000 });
+    const after = await page.evaluate(() => window.__reliefAtYield);
+    assert(
+      !after.gone,
+      "the curtain was gone before the keystroke reached it — this check fell behind the surface, " +
+        "which is a harness fault, not a product one"
+    );
     assert(after.settled, "the surface did not pin itself on the way out");
     assert(before.indexOf("richos-splash-relief") >= 0, "the relief was not on the gold to begin with");
     assert(after.signal.indexOf("richos-splash-relief") >= 0, "pinning the composition flattened the gold's relief");
@@ -3327,7 +3352,7 @@ async function main() {
     assert(handover.present && handover.yielding, "the curtain did not begin to fade on that keystroke");
     assertEqual(handover.reason, "first-input", "an ordinary key stopped dismissing the opening screen");
     assert(handover.display !== "none", "the button is still hidden while the curtain is fading — it arrives 220ms late");
-    await page.waitForFunction(() => !document.getElementById("splash"), { timeout: 5000 });
+    await page.waitForFunction(() => !document.getElementById("splash"), null, { timeout: 30000 });
     assert(await page.locator("#set-btn").isVisible(), "the button never came back after the curtain left");
     const said = noErrors(page, "25");
     await page.__ctx.close();
@@ -3486,7 +3511,7 @@ async function main() {
     assert(going.yielding, "the curtain is not fading");
     assert(going.settled, "the composition was not pinned on its way out — a resumed screen must still show a finished mark");
     assert(going.pausedMs > 0, "the surface reports it was never held, which cannot be true of a resumed screen");
-    await page.waitForFunction(() => !document.getElementById("splash"), { timeout: 5000 });
+    await page.waitForFunction(() => !document.getElementById("splash"), null, { timeout: 30000 });
     const landed = await page.evaluate(() => ({
       home: !!(window.RichHome && window.RichHome.isOpen()),
       settings: getComputedStyle(document.querySelector(".settings")).display,
@@ -3549,7 +3574,7 @@ async function main() {
     // ...and an ordinary click anywhere else still dismisses, exactly as it did before §62.
     await page.mouse.click(700, 500);
     const dismissed = await page
-      .waitForFunction(() => !document.getElementById("splash"), { timeout: 5000 })
+      .waitForFunction(() => !document.getElementById("splash"), null, { timeout: 30000 })
       .then(() => true)
       .catch(() => false);
     assert(dismissed, "the first-input dismissal is otherwise UNCHANGED — the exception is exactly one control wide");
@@ -3585,7 +3610,7 @@ async function main() {
       assertEqual(after.state.reason, "first-input", leg.name + ": the screen did not dismiss on first input");
       assertEqual(after.state.paused, false, leg.name + ": it dismissed but is still reporting itself held");
       const gone = await page
-        .waitForFunction(() => !document.getElementById("splash"), { timeout: 5000 })
+        .waitForFunction(() => !document.getElementById("splash"), null, { timeout: 30000 })
         .then(() => true)
         .catch(() => false);
       assert(gone, leg.name + ": it decided to go and then did not");
@@ -3613,7 +3638,7 @@ async function main() {
     // end-to-end by check 12b and is deliberately not re-measured here; what this holds is that
     // an untouched launch reports the default, was never held, refused nobody, and left on its
     // own — the four readings §62's machinery could have broken without 12b noticing.
-    await page.waitForFunction(() => !document.getElementById("splash"), { timeout: 20000 });
+    await page.waitForFunction(() => !document.getElementById("splash"), null, { timeout: 30000 });
     const after = await page.evaluate(() => ({
       state: JSON.parse(JSON.stringify(window.RichSplash.state)),
       life: Math.round(window.__curtain.goneAt - window.__curtain.shownAt),

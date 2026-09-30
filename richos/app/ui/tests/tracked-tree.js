@@ -113,8 +113,27 @@ async function main() {
   const dirs = [];
   try {
     await run.check("1  a picture that differs from its committed reference is not written over it", async () => {
-      const rel = path.join("shots-5c", "5c-02-after-a-plain-decline.png");
+      // THIS CHECK'S OWN REFERENCE, NOT ANOTHER SUITE'S (hunt part 2, finding 27). It used to
+      // aim at the real `shots-5c/5c-02-after-a-plain-decline.png`, and a changed real picture
+      // `corrections.js` had just kept at the same `.shots/changed/<key>` was overwritten by
+      // this check's 4x4 fixture and then deleted. The destination is inside the tests
+      // directory and not scratch, which is all `publishShot` needs to treat it as a
+      // reference; the name is unique to this process so neither a real candidate nor a
+      // concurrent run can share it.
+      const rel = path.join("shots-tracked-tree-check-" + process.pid, "reference.png");
       const reference = path.join(__dirname, rel);
+      const kept = path.join(__dirname, ".shots", "changed", rel);
+      fs.mkdirSync(path.dirname(reference), { recursive: true });
+      fs.writeFileSync(reference, tinyPng(200));
+      try {
+        return await checkOneAgainst(rel, reference, kept);
+      } finally {
+        fs.rmSync(path.dirname(reference), { recursive: true, force: true });
+        fs.rmSync(path.dirname(kept), { recursive: true, force: true });
+      }
+    });
+
+    async function checkOneAgainst(rel, reference, kept) {
       const original = fs.readFileSync(reference);
       const fresh = tinyPng(40);
       const regen = process.env.RICHOS_SHOTS_REGENERATE;
@@ -134,13 +153,11 @@ async function main() {
         "publishShot wrote a changed picture over the committed " + rel + " (" + original.length + " -> " +
           after.length + " bytes). That is the write that made the merge gate refuse itself on 2026-09-29."
       );
-      const kept = path.join(__dirname, ".shots", "changed", rel);
       assert(fs.existsSync(kept), "the picture this run took was thrown away rather than kept at " + kept);
       assert(fs.readFileSync(kept).equals(fresh), "the kept picture is not the one this run took: " + kept);
-      // It is this check's synthetic picture, not a real candidate; leave none behind.
-      fs.rmSync(kept, { force: true });
+      // It is this check's synthetic picture, not a real candidate; the caller removes it.
       return rel + " untouched (" + original.length + " bytes); this run's picture kept at .shots/changed/" + rel;
-    });
+    }
 
     await run.check("2  a suite that writes a tracked file fails its own report, naming the file", async () => {
       const root = throwawayRepo(dirs);

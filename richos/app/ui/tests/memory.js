@@ -338,7 +338,7 @@ async function main() {
     // A NEGATIVE NEEDS SOMETHING TO WAIT FOR, so it waits for the boot to have got PAST the
     // point that would have asked: `take_work_notices` is called from `openThread`'s tail,
     // after `maybeAskAboutMemory` has had its turn.
-    await again.waitForFunction(() => (window.__calls || []).some((c) => c.cmd === "memory_status"), { timeout: 10000 });
+    await again.waitForFunction(() => (window.__calls || []).some((c) => c.cmd === "memory_status"), null, { timeout: 30000 });
     await pastTheQuestion(again);
     assert(await again.isHidden("#memory-setup"), "the corpus question came back on the next launch after he said Not now");
 

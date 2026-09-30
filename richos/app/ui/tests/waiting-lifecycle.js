@@ -135,7 +135,7 @@ async function main() {
         // below it in this same file, "a send refused after navigation restores its draft only
         // to the original thread", is the one that owns it and it still passes.
         await page.waitForFunction(
-          () => Array.from(document.querySelectorAll(".tl-user-text")).some(n => n.textContent.trim() === "New company's draft"),
+          () => Array.from(document.querySelectorAll(".tl-user-text")).some(n => n.textContent.trim() === "New company's draft"), null,
           { timeout: 8000 }
         );
         assertEqual(await page.inputValue("#input"), "", "the held send landed but its words are still in the composer");

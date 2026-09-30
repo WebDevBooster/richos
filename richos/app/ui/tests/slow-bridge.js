@@ -149,7 +149,7 @@ async function open(browser, lag) {
 /// `init()` has reached its rail, let alone its landing branch. Measured 2026-09-06: at 120 ms
 /// the check read `bound: null` on a boot that went on to land perfectly well.
 async function bootDone(page) {
-  await page.waitForFunction(() => (window.__bridgeReturned || []).indexOf("raw_retention") >= 0, {
+  await page.waitForFunction(() => (window.__bridgeReturned || []).indexOf("raw_retention") >= 0, null, {
     timeout: 60000,
   });
 }
@@ -315,7 +315,7 @@ async function main() {
       // AND THE KEYSTROKE REACHES THE COMMAND. Focus on a control that does nothing would be a
       // more elaborate version of the same defect.
       await page.keyboard.press("Enter");
-      await page.waitForFunction(() => window.__RICHOS_MOCK__.updateCalls().indexOf("update_install") >= 0, {
+      await page.waitForFunction(() => window.__RICHOS_MOCK__.updateCalls().indexOf("update_install") >= 0, null, {
         timeout: 15000,
       });
       const calls = await page.evaluate(() => window.__RICHOS_MOCK__.updateCalls());
@@ -377,7 +377,7 @@ async function main() {
       // Start from a settled desk on a DIFFERENT thread, so opening "hiring" is a real
       // navigation with a real opening window rather than the boot's own.
       await page.evaluate(() => document.querySelector('.nav-thread[data-thread-id="hiring"]').click());
-      await page.waitForFunction(() => document.getElementById("composer-row").dataset.mode !== "opening", {
+      await page.waitForFunction(() => document.getElementById("composer-row").dataset.mode !== "opening", null, {
         timeout: 60000,
       });
       const other = await page.evaluate(() => {
@@ -409,7 +409,7 @@ async function main() {
       await page.keyboard.press("Enter");
       await page.keyboard.press("Enter");
 
-      await page.waitForFunction(() => document.getElementById("composer-row").dataset.mode !== "opening", {
+      await page.waitForFunction(() => document.getElementById("composer-row").dataset.mode !== "opening", null, {
         timeout: 60000,
       });
       // BOUNDED, AND THE FAILURE IS NAMED RATHER THAN A TIMEOUT. With the replay removed this
@@ -477,7 +477,7 @@ async function main() {
         i.value = "half a thought, changed";
         i.dispatchEvent(new Event("input", { bubbles: true }));
       });
-      await page.waitForFunction(() => document.getElementById("composer-row").dataset.mode !== "opening", {
+      await page.waitForFunction(() => document.getElementById("composer-row").dataset.mode !== "opening", null, {
         timeout: 60000,
       });
       await observe(page, 3 * lag + 400, "a send replayed on arrival would have painted its bubble within three call-times");

@@ -330,7 +330,7 @@ async function openApp(browser, opts) {
   await leaveHome(page);
   await page.waitForSelector(".nav-thread", { state: "attached" });
   if (!opts.holdSplash) {
-    await page.waitForFunction(() => !document.getElementById("splash"), { timeout: 15000 }).catch(() => {});
+    await page.waitForFunction(() => !document.getElementById("splash"), null, { timeout: 30000 }).catch(() => {});
   }
   // `init()` HAS DECIDED, rather than 400 ms have passed — and deliberately NOT "the theme is
   // what was asked for", which is what checks 1, 2 and 17 assert three lines later. A wait on
@@ -407,7 +407,7 @@ async function techyOnEverywhere(page) {
   await page.click("#set-techy");
   const picked = await confirmTechyScope(page);
   assertEqual(picked, "all-companies", "the sheet's preselected option is not the all-companies tier");
-  await page.waitForFunction(() => document.querySelectorAll(".tl-tech").length > 0, { timeout: 15000 });
+  await page.waitForFunction(() => document.querySelectorAll(".tl-tech").length > 0, null, { timeout: 30000 });
   await settledPage(page);
 }
 
@@ -824,7 +824,7 @@ async function main() {
     // the settled composition plus the one control §62 adds — and it differs from the file it
     // replaces by exactly that control's 40x40 box. `HOLD_CURTAIN` has disarmed the ceiling, so
     // there is no clock under this wait.
-    await page.waitForFunction(() => window.RichSplash.state.barStopped === true, { timeout: 20000 });
+    await page.waitForFunction(() => window.RichSplash.state.barStopped === true, null, { timeout: 30000 });
     await page.keyboard.press("Space");
     assert(
       await page.evaluate(() => window.RichSplash.state.paused === true),
@@ -879,10 +879,10 @@ async function main() {
     // BOUNDED: a curtain that never leaves exhausts the budget and the check fails with the
     // sentence below, which is the outcome a 900 ms sleep produced too. What changes is that a
     // curtain which leaves in 950 ms now passes instead of failing, and one that never leaves
-    // still fails. `removeSelf` takes the node out 220 ms after the yield, so 5 s is four
-    // times the whole ceremony.
+    // still fails. `removeSelf` takes the node out 220 ms after the yield, so 30 s is far
+    // beyond the whole ceremony and only ends a hang.
     const dismissed = await page
-      .waitForFunction(() => !document.getElementById("splash"), { timeout: 5000 })
+      .waitForFunction(() => !document.getElementById("splash"), null, { timeout: 30000 })
       .then(() => true)
       .catch(() => false);
     assert(

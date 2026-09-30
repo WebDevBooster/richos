@@ -173,12 +173,12 @@ async function openApp(browser, theme) {
       if (s && s.state && s.state.shown && !s.state.reason) s.yieldNow("compaction-notice-suite");
     })
     .catch(() => {});
-  await page.waitForFunction(() => !document.getElementById("splash"), { timeout: 8000 }).catch(() => {});
-  await page.waitForFunction("typeof window.RichHome === 'object'", { timeout: 8000 }).catch(() => {});
+  await page.waitForFunction(() => !document.getElementById("splash"), null, { timeout: 30000 }).catch(() => {});
+  await page.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 30000 }).catch(() => {});
   await page.evaluate(() => {
     if (window.RichHome && window.RichHome.isOpen()) window.RichHome.hide("compaction-notice-suite");
   });
-  await page.waitForFunction(() => { const h = document.getElementById("home"); return !h || h.hidden; }, { timeout: 8000 }).catch(() => {});
+  await page.waitForFunction(() => { const h = document.getElementById("home"); return !h || h.hidden; }, null, { timeout: 30000 }).catch(() => {});
   await page.waitForSelector(".nav-thread", { state: "attached" });
   page.__errors = errors;
   return page;

@@ -727,7 +727,7 @@ async function main() {
       () => {
         const btn = document.querySelector('.tl-turn[data-turn-id="turn_memory_01"] .tl-duration-btn');
         return btn && btn.getAttribute("aria-expanded") === "false" && /Worked for/.test(btn.textContent);
-      },
+      }, null,
       { timeout: 5000 }
     );
     // Nothing in this page ever clicked the disclosure, so the 180ms settle owns the state.

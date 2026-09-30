@@ -111,7 +111,7 @@ async function openDesk(browser, setup, viewport) {
 /// no timer is needed.
 async function answer(page, selector) {
   await page.click(selector);
-  await page.waitForFunction(() => !document.getElementById("corrections-notice").hidden, {
+  await page.waitForFunction(() => !document.getElementById("corrections-notice").hidden, null, {
     timeout: 5000,
   });
   return page.textContent("#corrections-notice");
@@ -158,7 +158,7 @@ async function main() {
 
   await run.check("1  the rail carries the count of what is waiting, from BOTH desks", async () => {
     const page = await openApp(browser);
-    await page.waitForFunction(() => !document.getElementById("nav-corrections-count").hidden, {
+    await page.waitForFunction(() => !document.getElementById("nav-corrections-count").hidden, null, {
       timeout: 5000,
     });
     const badge = await page.textContent("#nav-corrections-count");
