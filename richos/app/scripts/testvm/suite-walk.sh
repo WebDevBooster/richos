@@ -8,9 +8,11 @@
 #
 # It pushes the payload, runs the suite in the guest (suite-in-guest.sh), streams the
 # suite's output as its own, and writes the suite's exit code to --rc. It exits 0 when the
-# suite ran to the end, whatever the suite's verdict, and 3 when it could not get the suite
-# to the end: the verdict is the suite's, read from --rc by run-suite.sh, and this script's
-# own exit only says whether there is one. Nothing here boots or deletes a guest; run-walk.py
+# suite ran to the end, whatever the suite's verdict, 3 when it could not get the suite
+# to the end, and 4 when the suite ran to the end (--rc is written) but the results folder the
+# caller asked for did not come back: run-walk.py deletes the guest right after this, so what
+# was not brought back is gone. The verdict is the suite's, read from --rc by run-suite.sh, and
+# this script's own exit only says whether there is one and whether everything asked for is here. Nothing here boots or deletes a guest; run-walk.py
 # does both, around this, however it ends.
 #
 # TESTVM_GUEST_EXEC, when set, replaces guest.sh as the way a command reaches the guest (the
@@ -77,9 +79,13 @@ esac
 printf '%s\n' "$RC" > "$RC_FILE"
 
 # Its results folder comes back beside the host's, when the caller named one.
+# The guest half always makes the folder, so a folder that cannot be read or carried is a loss,
+# not an empty answer; pipefail makes either end of the copy fail the step.
 if [ -n "$RESULTS" ]; then
-  mkdir -p "$RESULTS"
-  guest 'cd "$HOME/run-suite/results" 2>/dev/null && tar -cf - .' | tar -C "$RESULTS" -xf - 2>/dev/null \
-    || echo "  [guest $VM] the suite's results folder could not be brought back to $RESULTS"
+  if ! mkdir -p "$RESULTS" \
+     || ! guest 'cd "$HOME/run-suite/results" && tar -cf - .' | tar -C "$RESULTS" -xf - 2>/dev/null; then
+    echo "  [guest $VM] the suite's results folder could not be brought back to $RESULTS; the guest is deleted next, so it is lost" >&2
+    exit 4
+  fi
 fi
 exit 0
