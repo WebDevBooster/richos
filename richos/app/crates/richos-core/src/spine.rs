@@ -1764,16 +1764,17 @@ impl Spine {
         // finding 43). This runs once per priming of a fresh session, and the provenance sink
         // describes the CURRENT session's prompt (`SliceProvenance::record`'s own doc). The
         // compiler replaces the entry only when it ACCEPTS a slice, so a thin answer, a refusal,
-        // a compiler failure, a thread with no topic or a build with no compiler would all leave
-        // the previous session's records in place, resolvable by `stage_belief_correction` into
-        // a proposal citing memory this session never saw. Forgotten first; an accepted slice
-        // records its own entry again below.
+        // a compiler failure or a thread with no topic would all leave the previous session's
+        // records in place, resolvable by `stage_belief_correction` into a proposal citing memory
+        // this session never saw. Forgotten first; an accepted slice records its own entry again
+        // below. Only when a compiler is attached: it is the only writer of this sink, so a spine
+        // without one has no previous session's slice to drop.
+        let Some(compiler) = self.loro_compiler.as_ref() else { return };
         if let Some(sink) = self.loro_provenance.as_ref() {
             if let Ok(mut held) = sink.lock() {
                 held.forget(binding.thread_id());
             }
         }
-        let Some(compiler) = self.loro_compiler.as_ref() else { return };
         // A COMPILER AND NO LOOKUP IS THE ORDINARY STATE, and it leaves `EvidenceTier::NotWired`
         // untouched below — never a claim that the CEO has no such files.
         // Acceptance is journaled before priming. Use the newest pending request only as
