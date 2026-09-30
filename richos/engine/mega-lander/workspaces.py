@@ -4994,8 +4994,22 @@ def _codex_workspace_of(path):
     return ""
 
 
+def _recipient_record(session_id, to):
+    """The record a SendMessage `to` names: the teammate's name, or the agent
+    ID the platform's other lifecycle events use (TaskStop, SubagentStop)."""
+    if not session_id or not to:
+        return None
+    rec = load_agent(named_key(session_id, to)) if NAME_RE.match(to) else None
+    if not rec:
+        key = key_for_id(to)
+        rec = load_agent(key) if key else None
+        if rec and rec.get("session_id") not in ("", None, session_id):
+            rec = None                   # another session's agent is not this session's recipient
+    return rec
+
+
 def recipient_state(session_id, name):
-    rec = load_agent(named_key(session_id, name)) if session_id and name else None
+    rec = _recipient_record(session_id, name)
     if not rec:
         return "unregistered", ""
     # A STOPPED agent is finished (point 11), so a message to it would restart
@@ -5347,8 +5361,8 @@ def lifecycle(payload, entity):
             to = str(ti.get("to") or "")
             msg = ti.get("message")
             text = msg if isinstance(msg, str) else ""
-            if to and NAME_RE.match(to):
-                rec = load_agent(named_key(sid, to))
+            if to:
+                rec = _recipient_record(sid, to)
                 if rec:
                     until = prompt_lines(text, "pause-until")
                     if prompt_lines(text, "pause-until") or re.search(r"(?m)^\s*pause-until:\s*$", text):

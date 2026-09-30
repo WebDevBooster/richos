@@ -2915,6 +2915,18 @@ class Hunt4_TurnEndPauseAndPathChecks(Base):
                 f.write(row)
         self.assertFalse(ws._turn_started_by_person(tr2))
 
+    def test_hunt4_09_a_pause_addressed_by_agent_id_operates_the_pause_record(self):
+        aid, _n = self.spawn("zach-opus-pid")
+        self.assertEqual(ws.recipient_state(self.sid, aid)[0], "active")
+        ws.lifecycle({"hook_event_name": "PostToolUse", "tool_name": "SendMessage", "session_id": self.sid,
+                      "tool_input": {"to": aid, "message": "commit and hold\npause-until: the CEO's answer"}},
+                     self.entity)
+        self.assertEqual(ws.finished_state(self.rec("zach-opus-pid"))[:2], (False, True))
+        self.assertEqual(ws.recipient_state(self.sid, aid)[0], "paused")
+        ws.lifecycle({"hook_event_name": "PostToolUse", "tool_name": "SendMessage", "session_id": self.sid,
+                      "tool_input": {"to": aid, "message": "go on"}}, self.entity)
+        self.assertEqual(ws.finished_state(self.rec("zach-opus-pid"))[:2], (False, False))
+
 
 if __name__ == "__main__":
     # No arguments: every point. Arguments: the named classes or tests only,
