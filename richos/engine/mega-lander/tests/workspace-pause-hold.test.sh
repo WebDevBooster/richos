@@ -319,7 +319,12 @@ PY
 sub "H9.1 held while its lead lives" "is_stopped $W9" "$(cat "$T/pause9.out")"
 T9="$(python3 -c 'import time; print(time.time())')"
 kill -9 "$LEADPID"
-i=0; while is_stopped "$W9" && [ $i -lt 300 ]; do sleep 0.1; i=$((i + 1)); done
+# The release continues the work FIRST and removes its record only after its last
+# scan for self-suspended shells (hunt part 5, P5-01), so the wait covers both.
+i=0
+while { is_stopped "$W9" || [ -n "$(ls "$HOLD_STATE/held" 2>/dev/null)" ]; } && [ $i -lt 300 ]; do
+    sleep 0.1; i=$((i + 1))
+done
 sub "H9.2 with no hook at all, the watchdog continued it after the lead died ($(python3 -c "import time; print('%.1f s' % (time.time() - $T9))"))" \
     "! is_stopped $W9 && [ -z \"\$(ls $HOLD_STATE/held 2>/dev/null)\" ]"
 kill -9 "$W9" 2>/dev/null
