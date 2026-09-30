@@ -334,8 +334,15 @@ fi
 echo "=== create-teammate-worktree tests: all $PASS passed ==="
 
 # The mutation harness is part of this suite's definition of green: a suite
-# nobody has watched go red proves nothing (open-items rows 3.22-3.29).
+# nobody has watched go red proves nothing (open-items rows 3.22-3.29). It is watched
+# ONLY BEFORE NIGHTLIES (hunt part 4 finding 19, 2026-09-30; the fourteen-point suite's
+# ruling of 2026-09-23): the nightly's gates/workspace-mutants runs this unit with
+# RICHOS_MUTATION_PASSES=1. Anywhere else the pass says NOT RUN and why.
 if [ -f "$SCRIPT_DIR/create-teammate-worktree.mutation.sh" ]; then
-    bash "$SCRIPT_DIR/create-teammate-worktree.mutation.sh" || exit 1
+    if [ "${RICHOS_MUTATION_PASSES:-}" = 1 ]; then
+        bash "$SCRIPT_DIR/create-teammate-worktree.mutation.sh" || exit 1
+    else
+        echo "  NOT RUN  the mutation harness: it runs before each nightly (hunt part 4 finding 19); RICHOS_MUTATION_PASSES=1 runs it here"
+    fi
 fi
 exit 0

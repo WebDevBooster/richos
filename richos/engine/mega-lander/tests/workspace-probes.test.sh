@@ -922,8 +922,14 @@ export RICHOS_WORKSPACES_DIR="$SAVED_WS"
 # Most of what this suite asserts is that something was REFUSED, and a runner
 # that refuses everything would pass those cases while being useless -- which is
 # why W4/W18/W28, W9b, W14b, W15a, W16b and W27b are paired twins. The harness
-# is the other half: each refusal watched going red on its own.
-if [ -z "${RICHOS_MUTATION_INNER:-}" ] && [ -f "$SCRIPT_DIR/workspace-probes.mutation.sh" ]; then
+# is the other half: each refusal watched going red on its own. ONLY BEFORE NIGHTLIES
+# (hunt part 4 finding 19, 2026-09-30; the fourteen-point suite's ruling of 2026-09-23): the
+# nightly's gates/workspace-mutants runs this unit with RICHOS_MUTATION_PASSES=1.
+if [ -z "${RICHOS_MUTATION_INNER:-}" ] && [ -f "$SCRIPT_DIR/workspace-probes.mutation.sh" ] \
+   && [ "${RICHOS_MUTATION_PASSES:-}" != 1 ]; then
+    echo ""
+    echo "  NOT RUN  the mutation harness: it runs before each nightly (hunt part 4 finding 19); RICHOS_MUTATION_PASSES=1 runs it here"
+elif [ -z "${RICHOS_MUTATION_INNER:-}" ] && [ -f "$SCRIPT_DIR/workspace-probes.mutation.sh" ]; then
     echo ""
     echo "=== running the mutation harness ==="
     if bash "$SCRIPT_DIR/workspace-probes.mutation.sh"; then
