@@ -61,7 +61,7 @@ try:
 
     me = os.getpid()
     lstart = subprocess.run(["ps", "-o", "lstart=", "-p", str(me)], capture_output=True, text=True,
-                            env=dict(os.environ, LC_ALL="C")).stdout.strip()
+                            env=dict(os.environ, LC_ALL="C", TZ="UTC")).stdout.strip()   # UTC, as the lock records it
 
     # P5-18: a live pid whose start time is not the one the lock recorded is a different process.
     t = locked_worktree("reused", "claude agent agent-reused (pid %d start Mon Jan  6 10:00:00 2020)" % me)

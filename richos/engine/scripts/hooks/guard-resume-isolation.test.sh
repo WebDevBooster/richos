@@ -412,7 +412,7 @@ git -C "$BG_REPO" worktree add -q -b br-live  "$BG_REPO/.claude/worktrees/agent-
 git -C "$BG_REPO" worktree add -q -b br-stale "$BG_REPO/.claude/worktrees/agent-$STALE_ID" >/dev/null 2>&1
 git -C "$BG_REPO" worktree add -q -b br-gone  "$BG_REPO/.claude/worktrees/agent-$GONE_ID"  >/dev/null 2>&1
 git -C "$BG_REPO" worktree lock \
-    --reason "claude agent agent-$LIVE_ID (pid $$ start Tue Sep  2 09:00:00 2026)" \
+    --reason "claude agent agent-$LIVE_ID (pid $$ start $(TZ=UTC LC_ALL=C ps -o lstart= -p "$$"))" \
     "$BG_REPO/.claude/worktrees/agent-$LIVE_ID" >/dev/null 2>&1
 git -C "$BG_REPO" worktree lock \
     --reason "claude agent agent-$STALE_ID (pid 999999 start Tue Sep  2 09:00:00 2026)" \

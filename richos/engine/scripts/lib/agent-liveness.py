@@ -117,6 +117,7 @@ It is the exact signal that mattered on 2026-08-31, so it is reported by name.
 """
 
 import argparse
+import calendar
 import json
 import os
 import re
@@ -202,19 +203,24 @@ START_TOLERANCE_SECONDS = 10
 
 
 def _parse_start(text):
-    """Epoch for a `Mon Aug 31 19:39:29 2026` start string (local time), or None."""
+    """Epoch for a `Mon Aug 31 19:39:29 2026` start string, read as UTC, or None.
+
+    UTC because the platform writes the lock's start with `TZ=UTC ps -o lstart`
+    (measured 2026-09-30 on a live lock: recorded 22:12:51, local `ps` 23:12:51,
+    one hour apart in BST). Reading it in local time called every live session's
+    pid "reused"."""
     try:
-        return time.mktime(time.strptime(text.strip(), "%a %b %d %H:%M:%S %Y"))
+        return float(calendar.timegm(time.strptime(text.strip(), "%a %b %d %H:%M:%S %Y")))
     except (ValueError, OverflowError):
         return None
 
 
 def _pid_start_epoch(pid):
-    """When the running process `pid` started, from `ps`, or None if unreadable."""
+    """When the running process `pid` started (UTC, like the lock), or None."""
     try:
         res = subprocess.run(["ps", "-o", "lstart=", "-p", str(int(pid))],
                              capture_output=True, text=True, timeout=10,
-                             env=dict(os.environ, LC_ALL="C"))
+                             env=dict(os.environ, LC_ALL="C", TZ="UTC"))
     except Exception:
         return None
     if res.returncode != 0:
