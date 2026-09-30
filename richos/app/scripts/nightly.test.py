@@ -655,6 +655,43 @@ class GitTests(GitFixture):
             promote.assert_not_called()
         self.assertEqual(n.channel(), (None, None))
 
+    def test_a_moved_checkout_asks_for_the_build_commit_back_never_a_rebuild(self):
+        """Hunt part 2, section 16: another command moved the shared worktree after `build`.
+
+        The guard stays: `finish` runs this checkout's make-release.sh and reads its engine
+        VERSION, so the checkout must be the build commit. But the candidate is intact and the
+        build commit is immutable, so the repair is that commit back, never a second build.
+        """
+        info = self.reserve()
+        out = Path(self.temp.name) / "moved"
+        fake, calls = self.fake_execute(out)
+        with patch.object(n, "execute", side_effect=fake):
+            n.build(info, out)
+        # What a `check` (or another `build`) does to the one dedicated worktree in between.
+        n.git("checkout", "-q", "main")
+        with patch.object(n, "execute", side_effect=fake), patch.object(n, "promote") as promote:
+            with self.assertRaises(ValueError) as refused:
+                n.finish(info, out)
+            promote.assert_not_called()
+        message = str(refused.exception)
+        self.assertNotIn("build\" again", message)
+        self.assertIn(info["build_commit"], message)
+        self.assertEqual(n.channel(), (None, None))
+        # A tree with changes in it still refuses, and nothing in it is discarded.
+        n.git("checkout", "-q", "--detach", info["build_commit"])
+        stray = self.repo / "stray.txt"
+        stray.write_text("someone's work")
+        with patch.object(n, "execute", side_effect=fake), self.assertRaisesRegex(ValueError, "changes"):
+            n.finish(info, out)
+        self.assertEqual(stray.read_text(), "someone's work")
+        stray.unlink()
+        # The repair it names is enough: the recorded commit is back, and nothing is rebuilt.
+        calls.clear()
+        with patch.object(n, "execute", side_effect=fake):
+            n.finish(info, out)
+        self.assertEqual([c[2] for c in calls if c[0] == "bash"], ["verify-assets"])
+        self.assertEqual(n.channel()[1], info)
+
     def test_the_rolling_channel_release_is_created_once_then_only_replaced(self):
         """`--verify-tag` is why the create can only run after the tag has moved."""
         self.stub_succeeds.return_value = False       # no `nightly` release yet

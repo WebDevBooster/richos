@@ -1081,9 +1081,23 @@ def finish(info, out):
     # re-checked it out in the meantime (a `check` or another `build`), this is the
     # same guard `build` itself applies right after compiling, re-applied here
     # because that guarantee does not survive a second process using the worktree.
-    if git("rev-parse", "HEAD") != info["build_commit"] or git("status", "--porcelain"):
-        raise ValueError("the source worktree no longer matches this candidate's build "
-                         "commit; run \"nightly-local.py build\" again before publishing")
+    # It is needed because what follows runs THIS checkout's make-release.sh and reads
+    # its engine VERSION. But the candidate's files are digested separately
+    # (verify_candidate_manifest) and the build commit is immutable, so a moved checkout
+    # is repaired by putting that commit back, never by a second build and a second walk
+    # (hunt part 2, section 16). `nightly-local.py publish` does that before it runs this.
+    if git("status", "--porcelain"):
+        raise ValueError("the source worktree has uncommitted changes, so it is not this "
+                         "candidate's build commit; inspect them before publishing (nothing "
+                         "was discarded)")
+    head = git("rev-parse", "HEAD")
+    if head != info["build_commit"]:
+        raise ValueError(
+            f"the source worktree is at {head}, not this candidate's build commit "
+            f"{info['build_commit']}: another command (a `check` or another `build`) checked "
+            "it out since. The candidate needs no rebuild. `nightly-local.py publish` puts "
+            f"the build commit back before publishing, or run `git -C {ROOT} checkout "
+            f"--detach {info['build_commit']}` and finish again")
     verify_candidate_manifest(info, out)
     verify_source_is_current(info["source_commit"])
     hidden = info.get("candidate_ref") or info.get("reservation_ref")
