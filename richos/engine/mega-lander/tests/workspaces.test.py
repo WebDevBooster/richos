@@ -2853,6 +2853,65 @@ class UnknownIsNeverClean(Base):
         self.assertEqual([w.get("branch") for w in ws.load_agent(second[0])["workspaces"]], ["cc/stray-b"])
 
 
+class Finding11_ContainerCleanupIsRetried(Base):
+    """Hunt part 4, finding 11 (richos-hq docs/audits/2026-09-29-hunt/
+    part-4-codex.md): a workspace's containers that could not be stopped are a
+    deletion failure like any other (point 13), whatever the disposition, and
+    a reaper that could not even run is not a success."""
+
+    FAILED = {"available": True, "removed": [], "kept": [],
+              "failed": [{"name": "agent-ct-redis-1", "id": "c0ffee", "why": "simulated daemon refusal"}]}
+
+    def _discarded_with(self, containers_result):
+        aid, npath = self.spawn("zach-opus-ct11")
+        self.finish(aid)
+        with patch.object(ws, "stop_containers", return_value=containers_result):
+            ws.discard("zach-opus-ct11", "the reviewer rejected the approach",
+                       not_ceo_ordered="an internal experiment", me=self.sid)
+        return npath
+
+    def test_finding_11_a_discard_whose_containers_survived_keeps_a_retry(self):
+        npath = self._discarded_with(self.FAILED)
+        key = ws.named_key(self.sid, "zach-opus-ct11")
+        self.assertTrue(os.path.exists(ws.agent_path(key)), "the record was filed as done")
+        self.assertFalse(os.path.exists(ws.done_path(key)))
+        d = self.rec("zach-opus-ct11")["deletion"]
+        self.assertTrue(d, "no deletion retry was recorded")
+        self.assertIn("agent-ct-redis-1", d["last_error"])
+        # Held like a process that survived its stop: nothing of the workspace
+        # is deleted while something may still be running against it.
+        self.assertTrue(os.path.isdir(npath))
+        # The retry asks about the SAME workspace again, and once its
+        # containers are gone the deletion completes and the record is filed.
+        seen = []
+        with patch.object(ws, "stop_containers", side_effect=lambda paths: seen.append(list(paths)) or {}):
+            ws.retry_due()
+        self.assertIn([npath], seen)
+        self.assertFalse(os.path.exists(npath))
+        self.assertFalse(os.path.exists(ws.agent_path(key)))
+        self.assertTrue(os.path.exists(ws.done_path(key)))
+        self.assertIsNone(ws.load_agent(key)["deletion"])
+
+    def test_finding_11_a_reaper_that_could_not_run_is_never_a_success(self):
+        class Broken(object):
+            @staticmethod
+            def reap_for_workspaces(paths, ending=False):
+                raise RuntimeError("simulated reaper crash")
+        with patch.dict(sys.modules, {"containers": Broken}):
+            res = ws.stop_containers(["/nonexistent/ws-finding-11"])
+        self.assertTrue(res.get("error"), res)
+        self.assertIn("simulated reaper crash", res["error"])
+        # ...and it is carried into the deletion record like a failed container
+        aid, npath = self.spawn("zach-opus-ct11b")
+        self.finish(aid)
+        with patch.dict(sys.modules, {"containers": Broken}):
+            ws.discard("zach-opus-ct11b", "the reviewer rejected the approach",
+                       not_ceo_ordered="an internal experiment", me=self.sid)
+        d = self.rec("zach-opus-ct11b")["deletion"]
+        self.assertTrue(d, "a crashed reaper left no retry")
+        self.assertIn("simulated reaper crash", d["last_error"])
+
+
 class _Result(unittest.TextTestResult):
     """Prints `  PASS  <test>` / `  FAIL  <test>` so the mutation harness
     (workspaces.mutation.sh) can tell which point went red."""

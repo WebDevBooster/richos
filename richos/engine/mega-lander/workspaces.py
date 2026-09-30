@@ -4344,12 +4344,13 @@ def _delete(rec, workspaces, branches, why, processes=None):
     if processes is None:
         processes = stop_processes([w["path"] for w in workspaces])
     failures = []
+    held = False
     if processes.get("survivors"):
         failures.append("processes still running in its workspaces: %s" % processes["survivors"])
+        held = True
     else:
         # Containers first, directories second: a workspace's containers are
-        # part of it, and stop_containers never raises, so this cannot cost a
-        # deletion that would otherwise have succeeded. See stop_containers.
+        # part of it, and stop_containers never raises. See stop_containers.
         containers = stop_containers([w["path"] for w in workspaces])
         # §54 addendum 4, and it sits here rather than beside stop_processes
         # for the same reason containers do: it never raises and it never
@@ -4357,14 +4358,27 @@ def _delete(rec, workspaces, branches, why, processes=None):
         # have worked. A window that will not close is recorded for the alert,
         # not made into a reason to keep a landed worktree on disk.
         stop_test_instances([w["path"] for w in workspaces])
+        # A CONTAINER THAT COULD NOT BE STOPPED IS A SURVIVOR (hunt part 4,
+        # finding 11). It used to be checked for a LANDED disposition only, so
+        # a discard deleted the workspace, filed the record as done and left
+        # the containers running with no retry at all, and a reaper that
+        # crashed was indistinguishable from one that found nothing. Whatever
+        # the disposition, it is now what a surviving process is: nothing of
+        # the workspace is deleted, the failure is recorded and retried (point
+        # 13), and after RETRY_TELL_CEO_AFTER attempts the CEO is told. The
+        # deleter still never raises: tidying up cannot break it, and it can
+        # no longer be forgotten either.
+        unstopped = _containers_unstopped(containers)
+        if unstopped:
+            failures.append(unstopped)
+            held = True
+    if not held:
         current = load_agent(rec["key"]) or rec
         disposition = current.get("disposition") or {}
         if disposition.get("kind") == "landed":
             owner = load_agent(disposition.get("as_part_of") or rec["key"]) or current
             chain = _chain(owner)
             try:
-                if containers.get("failed"):
-                    raise SpecError("workspace containers could not be stopped")
                 _require_landed(owner, chain, disposition.get("ignored_not_needed") or "")
             except SpecError as e:
                 # Eligibility expired. Return surviving work to the pending gate,
@@ -4395,7 +4409,7 @@ def _delete(rec, workspaces, branches, why, processes=None):
             else:
                 failures.append(err)
     untouched = []
-    if branches and not processes.get("survivors"):
+    if branches and not held:
         for repo, b in _branch_targets([rec]):
             ok, err = delete_branch(repo, b)
             if ok is None:
@@ -4806,14 +4820,34 @@ def stop_containers(paths):
         # other live workspace keeps its protection. See reap_for_workspaces.
         res = containers.reap_for_workspaces(paths, ending=True)
     except Exception as e:
-        # Tidying up must never be able to break the deleter it is attached to.
+        # Tidying up must never be able to break the deleter it is attached to,
+        # so this still does not raise. But it is not a success either: an
+        # empty result here used to be indistinguishable from "no containers",
+        # so the deleter went on and nothing ever retried (hunt part 4, finding
+        # 11). The error is returned, and _delete holds the workspace and
+        # retries it like a process that survived its stop.
         event("containers-unreaped", why=str(e)[:200], paths=paths or None)
-        return {}
+        return {"error": "container cleanup could not run: %s" % (str(e)[:200] or type(e).__name__)}
     if res.get("removed") or res.get("failed") or res.get("kept"):
         event("containers-reaped", removed=[r["name"] for r in res.get("removed") or []] or None,
               failed=[r["name"] for r in res.get("failed") or []] or None,
               kept=[r["name"] for r in res.get("kept") or []] or None)
     return res
+
+
+def _containers_unstopped(res):
+    """"" when stop_containers left nothing behind that it knows of, else the
+    failure to record: named containers it could not remove, or the reason the
+    reaper could not run at all. A machine without Docker is neither: the
+    reaper reports it unavailable, and there is nothing to stop."""
+    res = res or {}
+    names = ["%s (%s)" % (r.get("name") or r.get("id") or "?", r.get("why") or "no reason given")
+             for r in res.get("failed") or []]
+    if names:
+        return "workspace containers could not be stopped: %s" % ", ".join(names)
+    if res.get("error"):
+        return str(res["error"])
+    return ""
 
 
 def _alive(pid):
