@@ -484,7 +484,12 @@ def bash_verdict(command, cwd=None, home=None):
             target = args[0] if args else home
             target = re.sub(r"^(?:~|\$HOME|\$\{HOME\})", home.rstrip("/"), target)
             if target.startswith("/"):
-                effective_cwd = target
+                effective_cwd = os.path.normpath(target)
+            elif target != "-" and effective_cwd:
+                # A relative cd moves the working directory the depth rule
+                # measures from: `cd Library && find . -maxdepth 3` is a walk
+                # of HOME/Library (budget 2), not of HOME (budget 3) (P5-38).
+                effective_cwd = os.path.normpath(os.path.join(effective_cwd, target))
             continue
         if cmd not in MENTION_ONLY:
             # A path is a word of its own (or follows `=`/`:` as in --file=PATH). Inside a

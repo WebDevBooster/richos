@@ -2075,7 +2075,7 @@
         "richos/app/scripts/run-tests.sh": "56903e7ec047fb5bcc2e4490acb1468faccf3c63efeb82df1c3ec6e130a4ba4a",
         "richos/app/scripts/lib/worktree-resource.sh": "f3ce44d7c52f97f4545e4c79636e8ad19cba994db5168d9f1b8104b57793a1c7",
         "richos/app/scripts/lib/test_results.py": "9790f38172be11848fbc50fc5fc387831f25a5bda49e877e1ed4aa59fb6fa0e2",
-        "richos/engine/scripts/lib/foreign_app_data.py": "9fcafeaae9e177df0c15fc93b547b2aa08710f94f723e393d51239861859b00b",
+        "richos/engine/scripts/lib/foreign_app_data.py": "752fbb7aade6e2281d7335fceba9cdcb1fdd3d7b0302df40665dc40f72d120a8",
         "richos/app/scripts/bin/cargo": "2250e8c39acd3123165adbcfc70f8b344d89e77dc0d6865ca1e3108f0b4de1d9",
         "richos/app/scripts/lib/cargo_identity.py": "a88990c93cb148a1915ef1a095ef5c649b4583ae9b8215f00d7ab468ae1ecbc0",
         "richos/app/scripts/lib/cargo-cache-env.sh": "68e85ef5873e9d5a18f9094a44562941c91723855019bf7369ecbd90a8e053b4"

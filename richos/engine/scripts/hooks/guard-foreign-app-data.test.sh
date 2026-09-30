@@ -96,6 +96,8 @@ check 2 P3 "find . with the payload cwd at home" 'find . -name x' "$T_HOME"
 check 2 P3 "find / -name" 'find / -name libfoo.dylib 2>/dev/null'
 check 2 P3 "find /Users/<name>" 'find /Users/tester -name app.log'
 check 2 P4 "find ~ -maxdepth 4 opens a container" 'find ~ -maxdepth 4 -name x'
+check 2 P4r "a RELATIVE cd into Library keeps the Library depth budget (P5-38)" 'cd Library && find . -maxdepth 3 -type f' "$T_HOME"
+check 2 P4r "cd .. from the repository lands in home: unbounded find is refused" 'cd ../.. && find . -name x' "/Users/tester/ab/richos"
 }
 
 echo "=== guard-foreign-app-data: allowed ==="
@@ -113,7 +115,8 @@ check 0 N3 "find in ~/Library/Developer" 'find ~/Library/Developer -maxdepth 2 -
 check 0 N4 "the app's own container" 'ls ~/Library/Containers/com.richos.app/Data'  # foreign-app-data-exempt: test input
 check 0 N4 "the app's own group container" 'ls "$HOME/Library/Group Containers/group.com.richos.shared"'  # foreign-app-data-exempt: test input
 check 0 N5 "find ~ -maxdepth 3" 'find ~ -maxdepth 3 -name RichOS.app'
-check 0 N5 "find / -maxdepth 2" 'find / -maxdepth 2 -name dossiers 2>/dev/null'
+check 0 N5r "a relative cd into Library at its own budget (2)" 'cd Library && find . -maxdepth 2 -type f' "$T_HOME"
+check 0 N5 "find / -maxdepth 2" 'find /-maxdepth 2 -name dossiers 2>/dev/null'
 check 0 N5 "ls of home and of the container folder itself (names only)" 'ls -la ~ ~/Library/Containers/'  # foreign-app-data-exempt: test input
 check 0 N6 "echo" 'echo "never run find ~ here"'
 check 0 N6m "echo of a container path as its own word" 'echo ~/Library/Containers/com.apple.mail/Data'  # foreign-app-data-exempt: test input
