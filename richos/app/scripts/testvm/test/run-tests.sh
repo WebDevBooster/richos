@@ -1589,6 +1589,10 @@ t "slots: a caller waiting for a slot is recorded, and past ten minutes the engi
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/slots-wait-gate.test.py" >"$TMP/slots-wait-gate.log" 2>&1; ok $? "$(cat "$TMP/slots-wait-gate.log")"
 t_done
 
+t "slot-proof: a run still going at the finish deadline is ended there, its cleanup given a grace, never waited on forever"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/slot-proof-finish.test.py" >"$TMP/slot-proof-finish.log" 2>&1; ok $? "$(cat "$TMP/slot-proof-finish.log")"
+t_done
+
 t "mem-walk: a guest probe reads as used, need, swap-outs and the app's and claude's memory"
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/mem-walk.test.py" >"$TMP/mem-walk.log" 2>&1; ok $? "$(cat "$TMP/mem-walk.log")"
 t_done
