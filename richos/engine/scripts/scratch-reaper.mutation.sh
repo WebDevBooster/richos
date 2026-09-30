@@ -64,6 +64,14 @@ mutation_focus stop-at-want
 
 LIB="scripts/lib/scratch-reaper.py"
 
+mutant M52.partial-scanner-bypass-unchecked "S33b " "scripts/scratch-reaper.test.sh" \
+    'sys.addaudithook(audit)' '# scanner audit disabled' \
+    "A wrapped query cannot hide a second query that bypasses the wrapper."
+mutant M53.external-pid-scan-unchecked "S33c " "scripts/scratch-reaper.test.sh" \
+    'if any(not pid.isdecimal() or (pid not in tree and pid in {p for values in children.values() for p in values}) for pid in requested):' \
+    'if False:' \
+    "An explicit PID cannot take the scanner outside this fixture's process tree."
+
 mutant M1.liveness-gutted "S1 " "$LIB" \
     "if session_id in self.running:{AND}if name in self.live.running:" \
     "if False:{AND}if False:" \

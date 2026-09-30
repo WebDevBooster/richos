@@ -271,6 +271,14 @@ def reservation(state=None, max_load=None, max_cpu=DEFAULT_MAX_CPU, release_lock
 
 
 def main():
+    sys.dont_write_bytecode = True
+    # Engineers also invoke Cargo directly through this admission wrapper.
+    # Apply isolation inside RichOS worktrees without changing resource policy.
+    cargo_library = Path(__file__).resolve().parents[1] / 'lib'
+    if (cargo_library / 'cargo_identity.py').is_file():
+        sys.path.insert(0, str(cargo_library))
+        import cargo_identity
+        os.environ.update(cargo_identity.enable_environment(os.environ))
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--state-dir', type=Path, default=Path.home()/'.richos-nightly',
                    help='same --state-dir as nightly-local.py; read only with --release-lock')

@@ -494,6 +494,7 @@ def summary(out):
 
 
 def main():
+    os.environ["PATH"] = str(Path(__file__).resolve().parent / "bin") + os.pathsep + os.environ.get("PATH", "")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--only', default='')
     ap.add_argument('--list', action='store_true')

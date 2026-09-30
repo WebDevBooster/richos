@@ -46,7 +46,7 @@
 # scanner exempt from its own rule is a rule with a hole exactly where somebody clever would
 # put something.
 # run-tests: no-host-screen: its matches are its own S6 search pattern and the fake suites S1 writes under mktemp
-# run-tests: inputs richos/app/scripts/run-tests.test.sh richos/app/scripts/run-tests.sh richos/app/scripts/lib/worktree-resource.sh richos/app/scripts/lib/test_results.py richos/app/scripts/lib/proof_declarations.py richos/app/scripts/lib/gui-launch.sh richos/app/scripts/testvm richos/app/scripts/phone-app-suites.tsv
+# run-tests: inputs richos/app/scripts/run-tests.test.sh richos/app/scripts/run-tests.sh richos/app/scripts/lib/worktree-resource.sh richos/app/scripts/lib/test_results.py richos/app/scripts/lib/proof_declarations.py richos/app/scripts/lib/gui-launch.sh richos/app/scripts/testvm richos/app/scripts/phone-app-suites.tsv richos/app/scripts/bin/cargo richos/app/scripts/lib/cargo_identity.py richos/app/scripts/lib/cargo-cache-env.sh
 # run-tests: covers richos/app/scripts/run-tests.sh richos/app/scripts/lib/worktree-resource.sh richos/app/scripts/lib/gui-launch.sh
 set -uo pipefail
 
@@ -58,11 +58,13 @@ HARNESS="$DIR/run-tests.sh"
 # and refuses to run without it rather than falling back to a fixed path. So a scratch box
 # gets both files, exactly as the real directory holds both.
 install_harness() {  # install_harness <box directory>
-  mkdir -p "$1/lib"
+  mkdir -p "$1/lib" "$1/bin"
   cp "$HARNESS" "$1/run-tests.sh"
   cp "$DIR/lib/worktree-resource.sh" "$1/lib/worktree-resource.sh"
   cp "$DIR/lib/test_results.py" "$1/lib/test_results.py"
   cp "$DIR/lib/proof_declarations.py" "$1/lib/proof_declarations.py"
+  cp "$DIR/lib/cargo-cache-env.sh" "$DIR/lib/cargo_identity.py" "$1/lib/"
+  cp "$DIR/bin/cargo" "$1/bin/cargo"
 }
 
 TMP="$(mktemp -d -t run-tests-test.XXXXXX)"

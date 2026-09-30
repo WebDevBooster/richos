@@ -7,12 +7,10 @@
 # is killed if it runs longer than two minutes, so a bad edit here cannot hang every spawn
 # on the machine.
 #
-# WHY THIS EXISTS. This Mac holds many checkouts of this repository at once, and cargo puts
-# its output in `target/` beside the workspace, so each one compiled the same dependency
-# graph from scratch the first time anybody built in it. Measured on a fresh checkout,
-# 2026-09-20: the Tauri shell's first `cargo build` was 58s with its own target/ and 19s
-# against the shared cache. The line below is what makes the second number the one a
-# teammate actually gets, without anybody remembering to do anything.
+# This Mac holds many checkouts. A shared target directory let Cargo run another
+# checkout's stale binary when the current source timestamps were older. Each
+# physical Cargo workspace now keeps its own mutable output on the external SSD.
+# Registry downloads remain shared. Repeated builds reuse that workspace's output.
 #
 # It is deliberately a SHELL SCRIPT and not a list of paths. What a repository needs per
 # worktree is not one shape — today it is two symlinks, tomorrow it could be a generated
@@ -23,9 +21,8 @@
 
 set -uo pipefail
 
-# The cargo build cache. Its own header carries the argument for the mechanism, the refusals
-# it makes, and the measurements. It is idempotent, and it never touches a target/ that
-# already holds build output.
+# Private Cargo output under the configured cache root. Existing shared links
+# are retargeted without deleting their artifacts. Real directories need --adopt.
 bash richos/app/scripts/shared-build-cache.sh .
 
 # Playwright needs nothing here. `richos/app/ui/tests/lib/harness.js` derives the main

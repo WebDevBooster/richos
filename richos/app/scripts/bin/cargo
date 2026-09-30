@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""Cargo with a private artifact directory for each physical workspace."""
+from pathlib import Path
+import runpy
+import sys
+
+sys.dont_write_bytecode = True
+
+runpy.run_path(str(Path(__file__).resolve().parents[1] / "lib/cargo_identity.py"),
+               run_name="__main__")

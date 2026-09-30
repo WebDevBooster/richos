@@ -248,23 +248,27 @@ if not real or not root or os.path.basename(os.path.dirname(real)) == "scoped-bi
     sys.stderr.write("scoped lsof: no real lsof or no suite root; refusing to "
                      "scan the whole machine\n")
     sys.exit(97)
+ps = subprocess.run(["ps", "-Ao", "pid=,ppid="], capture_output=True, text=True)
+if ps.returncode != 0:
+    sys.stderr.write("scoped lsof: ps failed; refusing to guess the tree\n")
+    sys.exit(98)
+children = {}
+for line in ps.stdout.splitlines():
+    parts = line.split()
+    if len(parts) == 2:
+        children.setdefault(parts[1], []).append(parts[0])
+tree, stack = [], [root]
+while stack:
+    pid = stack.pop()
+    tree.append(pid)
+    stack.extend(children.get(pid, []))
 if "-p" in args:
+    requested = args[args.index("-p") + 1].split(",")
+    if any(not pid.isdecimal() or (pid not in tree and pid in {p for values in children.values() for p in values}) for pid in requested):
+        sys.stderr.write("scoped lsof: refusing a PID outside the fixture\n")
+        sys.exit(99)
     mode = "pid-list"
 else:
-    ps = subprocess.run(["ps", "-Ao", "pid=,ppid="], capture_output=True, text=True)
-    if ps.returncode != 0:
-        sys.stderr.write("scoped lsof: ps failed; refusing to guess the tree\n")
-        sys.exit(98)
-    children = {}
-    for line in ps.stdout.splitlines():
-        parts = line.split()
-        if len(parts) == 2:
-            children.setdefault(parts[1], []).append(parts[0])
-    tree, stack = [], [root]
-    while stack:
-        pid = stack.pop()
-        tree.append(pid)
-        stack.extend(children.get(pid, []))
     args = ["-a", "-p", ",".join(tree)] + args
     mode = "scoped"
 log = os.environ.get("SRT_LSOF_LOG", "")
@@ -279,6 +283,46 @@ PYEOF
     chmod +x "$SANDBOX/scoped-bin/lsof"
     PATH="$SANDBOX/scoped-bin:$PATH"
     export PATH
+
+    # Observe requests before executable lookup. Counting the wrapper's own log
+    # cannot catch a second call that bypasses it by absolute path. Reject that
+    # call before it can scan the host, including calls made by imported helpers.
+    SRT_SCANNER_AUDIT="$SANDBOX/scanner-audit.log"
+    SRT_SCOPED_LSOF="$SANDBOX/scoped-bin/lsof"
+    export SRT_SCANNER_AUDIT SRT_SCOPED_LSOF
+    : >"$SRT_SCANNER_AUDIT"
+    mkdir -p "$SANDBOX/scoped-python"
+    cat >"$SANDBOX/scoped-python/sitecustomize.py" <<'PYEOF'
+import os
+from pathlib import Path
+import shutil
+import sys
+
+def audit(event, arguments):
+    if event not in ("subprocess.Popen", "os.exec", "os.posix_spawn"):
+        return
+    executable, argv = arguments[:2]
+    name = Path(os.fsdecode(executable)).name
+    if name not in ("lsof", "du"):
+        return
+    resolved = os.path.realpath(shutil.which(os.fsdecode(executable)) or os.fsdecode(executable))
+    scoped = os.path.realpath(os.environ["SRT_SCOPED_LSOF"])
+    blind = os.environ.get("SRT_BLIND_LSOF", "")
+    permitted = name == "lsof" and (resolved == scoped or (blind and resolved == os.path.realpath(blind)))
+    # The wrapper's exec of the real tool must carry its PID restriction.
+    if event == "os.exec" and name == "lsof":
+        permitted = (resolved == os.path.realpath(os.environ["SRT_REAL_LSOF"]) and "-p" in argv
+                     and os.path.realpath(sys.argv[0]) == scoped)
+    outcome = "allowed" if permitted else "denied"
+    role = "control" if os.environ.get("SRT_SCANNER_CONTROL") == "1" else "suite"
+    with open(os.environ["SRT_SCANNER_AUDIT"], "a", encoding="utf-8") as stream:
+        stream.write("%s\t%s\t%s\t%s\n" % (outcome, role, event, resolved))
+    if not permitted:
+        raise RuntimeError("fixture refused an unscoped scanner: " + resolved)
+
+sys.addaudithook(audit)
+PYEOF
+    export PYTHONPATH="$SANDBOX/scoped-python${PYTHONPATH:+:$PYTHONPATH}"
 fi
 KILL_LIST=""
 cleanup() {
@@ -2133,7 +2177,7 @@ BLINDDIR="$W_ROOT/blindbin"
 mkdir -p "$BLINDDIR"
 printf '#!/bin/sh\nexit 9\n' >"$BLINDDIR/lsof"
 chmod +x "$BLINDDIR/lsof"
-OUT="$(PATH="$BLINDDIR:$PATH" run --dry-run)"
+OUT="$(SRT_BLIND_LSOF="$BLINDDIR/lsof" PATH="$BLINDDIR:$PATH" run --dry-run)"
 N_UNDEC="$(printf '%s\n' "$OUT" | grep -c 'OPEN-FILE TABLE COULD NOT BE READ' || true)"
 if [ "$N_UNDEC" = "1" ]; then
     ok "S27  an unreadable open-file table is reported ONCE for the whole root"
@@ -2544,10 +2588,42 @@ fi
 if [ -n "$SCOPED_LSOF_LOG" ]; then
     N_SCOPED="$(grep -c '^scoped' "$SCOPED_LSOF_LOG" 2>/dev/null || true)"
     N_WHOLE="$(grep -c $'^scoped\t-n -P -F n$' "$SCOPED_LSOF_LOG" 2>/dev/null || true)"
-    if [ "${N_WHOLE:-0}" -gt 0 ] && [ "${N_SCOPED:-0}" -ge "${N_WHOLE:-0}" ]; then
-        ok "S33  every open-file query the reaper made went through the suite's scoped lsof ($N_SCOPED narrowed, $N_WHOLE of them the whole-machine form)"
+    N_DENIED="$(grep -c $'^denied\tsuite\t' "$SRT_SCANNER_AUDIT" || true)"
+    N_REQUESTS="$(grep -c $'^allowed\tsuite\tsubprocess.Popen\t' "$SRT_SCANNER_AUDIT" || true)"
+    if [ "${N_WHOLE:-0}" -gt 0 ] && [ "${N_REQUESTS:-0}" -ge "${N_SCOPED:-0}" ] && [ "${N_DENIED:-0}" -eq 0 ]; then
+        ok "S33  scanner requests were audited before execution, with no escaping scan"
     else
         bad "S33  the reaper's whole-machine lsof never reached the scoped wrapper (scoped=$N_SCOPED whole-form=$N_WHOLE), so this suite scanned the whole Mac"
+    fi
+
+    # Partial bypass control: one real wrapped query followed by an absolute
+    # query. A harmless fake stands in for the forbidden host scanner, so even
+    # a broken audit hook cannot make this control scan the Mac.
+    mkdir -p "$SANDBOX/escaping-bin"
+    printf '#!/bin/sh\ntouch "%s"\n' "$SANDBOX/escaped-scan" > "$SANDBOX/escaping-bin/lsof"
+    chmod +x "$SANDBOX/escaping-bin/lsof"
+    if SRT_SCANNER_CONTROL=1 python3 - "$SANDBOX/escaping-bin/lsof" <<'PY' >"$SANDBOX/partial-bypass.log" 2>&1
+import subprocess, sys
+subprocess.run(["lsof", "-n", "-P", "-F", "n"], capture_output=True)
+subprocess.run([sys.argv[1], "-n", "-P", "-F", "n"], check=True)
+PY
+    then
+        bad "S33b the partial scanner bypass was accepted"
+    elif [ ! -f "$SANDBOX/escaped-scan" ] && grep -q 'fixture refused an unscoped scanner' "$SANDBOX/partial-bypass.log"; then
+        ok "S33b a partial absolute-path bypass is refused before its scanner starts"
+    else
+        bad "S33b the bypass control failed without proving pre-execution refusal"
+    fi
+    if SRT_REAL_LSOF="$SANDBOX/escaping-bin/lsof" SRT_SCANNER_CONTROL=1 python3 - <<'PY' >"$SANDBOX/pid-bypass.log" 2>&1
+import subprocess
+subprocess.run(["lsof", "-p", "1"], check=True)
+PY
+    then
+        bad "S33c a scanner could ask about a process outside the fixture"
+    elif [ ! -f "$SANDBOX/escaped-scan" ] && grep -q 'refusing a PID outside the fixture' "$SANDBOX/pid-bypass.log"; then
+        ok "S33c an explicit PID outside the fixture is refused before its scanner starts"
+    else
+        bad "S33c the PID control did not prove refusal before execution"
     fi
 else
     ok "S33  SKIPPED — lsof is not on this host"

@@ -20,7 +20,7 @@
 #   O9  a caller holding the bundle output (make-release.sh app) does not block its own
 #       package-app.sh
 #
-# run-tests: inputs richos/app/scripts/output-lock.test.sh richos/app/scripts/lib/output-lock.sh richos/app/scripts/make-engine-asset.sh richos/app/scripts/verify-engine-asset-members.sh richos/app/scripts/package-app.sh richos/app/scripts/make-release.sh richos/app/scripts/lib/cargo-target.sh LICENSE
+# run-tests: inputs richos/app/scripts/output-lock.test.sh richos/app/scripts/lib/output-lock.sh richos/app/scripts/make-engine-asset.sh richos/app/scripts/verify-engine-asset-members.sh richos/app/scripts/package-app.sh richos/app/scripts/make-release.sh richos/app/scripts/lib/cargo-target.sh LICENSE richos/app/scripts/bin/cargo richos/app/scripts/lib/cargo_identity.py richos/app/scripts/lib/cargo-cache-env.sh
 # run-tests: covers richos/app/scripts/lib/output-lock.sh
 set -uo pipefail
 
@@ -179,8 +179,10 @@ printf '#!/usr/bin/env bash\necho "     0 valid identities found"\n' > "$SHIM/se
 chmod +x "$SHIM/cargo" "$SHIM/security"
 PAST_THE_LOCK='install-signing-cert.sh'
 TARGET="$WORK/shared-cargo-target"
-mkdir -p "$TARGET/release"
-hold_from_outside "$TARGET/release" "$WORK/release-4" || bad "O8 fixture holder" "never took the lock"
+. "$DIR/lib/cargo-target.sh"
+PRIVATE_TARGET="$(CARGO_TARGET_DIR="$TARGET" cargo_target_dir "$DIR/../src-tauri")"
+mkdir -p "$PRIVATE_TARGET/release"
+hold_from_outside "$PRIVATE_TARGET/release" "$WORK/release-4" || bad "O8 fixture holder" "never took the lock"
 OUT="$(PATH="$SHIM:$PATH" CARGO_TARGET_DIR="$TARGET" RICHOS_OUTPUT_LOCK_WAIT=2 \
     bash "$DIR/package-app.sh" --sign developer-id 2>&1)"; CODE=$?
 if [ "$CODE" -ne 0 ] && printf '%s' "$OUT" | grep -q 'another packaging run' \
@@ -198,7 +200,7 @@ wait "${HOLDERS[${#HOLDERS[@]}-1]}" 2>/dev/null
 # rather than wait on its own caller.
 OUT="$(PATH="$SHIM:$PATH" CARGO_TARGET_DIR="$TARGET" RICHOS_OUTPUT_LOCK_WAIT=2 \
     bash -c '. "$1"; hold_output_lock "$2" 8 "make-release.sh app" || exit 3; bash "$3" --sign developer-id 2>&1; exit 0' \
-    _ "$LOCK_LIB" "$TARGET/release" "$DIR/package-app.sh" 2>&1)"; CODE=$?
+    _ "$LOCK_LIB" "$PRIVATE_TARGET/release" "$DIR/package-app.sh" 2>&1)"; CODE=$?
 if [ "$CODE" -eq 0 ] && printf '%s' "$OUT" | grep -q "$PAST_THE_LOCK" \
         && ! printf '%s' "$OUT" | grep -q 'another packaging run'; then
     ok "O9 a caller's hold on the bundle output does not block its own package-app.sh"

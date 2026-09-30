@@ -197,6 +197,7 @@ def check():
 
 
 def main():
+    os.environ["PATH"] = str(Path(__file__).resolve().parent / "bin") + os.pathsep + os.environ.get("PATH", "")
     parser = argparse.ArgumentParser()
     parser.add_argument("--copy", default=str(Path(os.environ.get("TMPDIR", "/tmp")) / "richos-turn-boundary-mutants"))
     parser.add_argument("--keep", action="store_true")

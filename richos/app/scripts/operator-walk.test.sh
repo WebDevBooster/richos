@@ -11,10 +11,11 @@
 # (scripts/operator-mutations.py) must still apply every mutant exactly once and name tests
 # that exist; its full run needs cargo per mutant and is run by hand under reserve.py.
 #
-# run-tests: inputs richos/app/scripts/operator-probes/guest_probes.py richos/app/scripts/operator-probes/test/test_guest_probes.py richos/app/scripts/operator-walk.test.sh richos/app/crates/richos-core richos/app/scripts/operator-mutations.py
+# run-tests: inputs richos/app/scripts/operator-probes/guest_probes.py richos/app/scripts/operator-probes/test/test_guest_probes.py richos/app/scripts/operator-walk.test.sh richos/app/crates/richos-core richos/app/scripts/operator-mutations.py richos/app/scripts/bin/cargo richos/app/scripts/lib/cargo_identity.py richos/app/scripts/lib/cargo-cache-env.sh richos/app/scripts/lib/cargo-target.sh
 # run-tests: covers richos/app/scripts/operator-probes/guest_probes.py richos/app/scripts/operator-probes/test/test_guest_probes.py richos/app/crates/richos-core/examples/operator_walk.rs richos/app/scripts/operator-mutations.py
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$HERE/lib/cargo-cache-env.sh"
 APP="$(cd "$HERE/.." && pwd)"
 PASS=0
 FAIL=0
@@ -32,7 +33,8 @@ if ! ( cd "$APP" && cargo build --quiet -p richos-core --example operator_walk )
   echo "operator-walk.test.sh: the example did not build" >&2
   exit 1
 fi
-WALK="${CARGO_TARGET_DIR:-$APP/target}/debug/examples/operator_walk"
+. "$HERE/lib/cargo-target.sh"
+WALK="$(cargo_target_dir "$APP")/debug/examples/operator_walk"
 [ -x "$WALK" ] || { echo "operator-walk.test.sh: no binary at $WALK" >&2; exit 1; }
 
 # W1: no declaration is the product path, as the shell's gate says.
