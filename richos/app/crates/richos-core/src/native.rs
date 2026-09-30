@@ -1378,6 +1378,14 @@ struct ReaderState {
     checkpoint_after_his_words: bool,
     /// What was withheld after the checkpoint, kept so the turn's end can SAY what it took.
     withheld_after_checkpoint: String,
+    /// **The `tool_use` id of a checkpoint that was ATTEMPTED after his words and has not
+    /// answered yet** — part 1 hunt finding 15. `checkpoint_after_his_words` used to be set on
+    /// the attempt, so a checkpoint the engine's adapter refused (`isError: true`) still
+    /// withheld the error explanation or corrected answer that followed it. The flag is now
+    /// set only when the matching `tool_result` comes back without `is_error`; a result that
+    /// says the write failed clears this id and leaves everything after it visible.
+    /// Host-owned, reset with the send.
+    checkpoint_call_id: Option<String>,
     /// **The front desk's bookkeeping grant, held here because this is where his first words
     /// are seen** — [`ActionGrant::ContinuityTools`]. `None` on a lease with no continuity
     /// server (every work lease, and any lease started without a bridge).
@@ -1588,6 +1596,7 @@ impl Default for ReaderState {
             withheld_after_receipt: String::new(),
             checkpoint_after_his_words: false,
             withheld_after_checkpoint: String::new(),
+            checkpoint_call_id: None,
             turns_named_by_the_child: false,
             background: Vec::new(),
         }
@@ -2573,6 +2582,9 @@ impl NativeClient {
         // model that has been instructed to say nothing and a host that cannot say anything. So
         // the model keeps its instruction, the app beats it to the words by a round trip, and the
         // duplicate is withheld HERE — where the host can see both and he can only ever see one.
+        if ty == "user" {
+            Self::settle_the_checkpoint(&msg, state);
+        }
         if ty == "user" && !state.lock().unwrap().context_only {
             let said = {
                 let st = state.lock().unwrap();
@@ -2703,8 +2715,38 @@ impl NativeClient {
         // engine's own adapter (the scope file is shut until `he_has_now_been_spoken_to` opens
         // it), so it establishes nothing — and taking it as "the turn has spoken" would withhold
         // the reply that has not happened yet.
-        if st.spoken_this_turn {
-            st.checkpoint_after_his_words = true;
+        //
+        // **AND NEVER ON THE ATTEMPT ALONE** (part 1 hunt finding 15). This only NAMES the call;
+        // [`Self::settle_the_checkpoint`] sets the withholding when its result says it wrote.
+        // A call that was refused or failed established nothing, and what the model says next
+        // (an error explanation, a corrected answer) is his to read. A result that never comes
+        // leaves the flag false, which is a doubled line at worst and never a silent turn.
+        if st.spoken_this_turn && !st.checkpoint_after_his_words {
+            if let Some(id) = block.get("id").and_then(|v| v.as_str()) {
+                st.checkpoint_call_id = Some(id.to_string());
+            }
+        }
+    }
+
+    /// **THE CHECKPOINT ANSWERED** — the other half of [`Self::note_the_checkpoint`]. `msg` is a
+    /// `user` frame; a `tool_result` in it whose `tool_use_id` is the pending checkpoint's
+    /// settles it. `is_error` is the wire's own word for a call that did not write
+    /// (`adapters/mcp.py` answers `"isError": True` for a refusal), so anything else is a
+    /// checkpoint that succeeded and the closing line after it is the duplicate to withhold.
+    fn settle_the_checkpoint(msg: &Value, state: &Arc<Mutex<ReaderState>>) {
+        let mut st = state.lock().unwrap();
+        let Some(pending) = st.checkpoint_call_id.clone() else { return };
+        let blocks = msg.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_array());
+        for block in blocks.map(|b| b.as_slice()).unwrap_or(&[]) {
+            if block.get("type").and_then(|v| v.as_str()) == Some("tool_result")
+                && block.get("tool_use_id").and_then(|v| v.as_str()) == Some(pending.as_str())
+            {
+                st.checkpoint_call_id = None;
+                if block.get("is_error").and_then(|v| v.as_bool()) != Some(true) {
+                    st.checkpoint_after_his_words = true;
+                }
+                return;
+            }
         }
     }
 
@@ -2965,6 +3007,7 @@ impl NativeClient {
                 // the strength of this turn's bookkeeping.
                 state.checkpoint_after_his_words = false;
                 state.withheld_after_checkpoint.clear();
+                state.checkpoint_call_id = None;
                 drop(state);
             }
             if let Err(error) = Self::write_line(&self.stdin, &msg) {
@@ -6033,6 +6076,19 @@ printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
     /// string; Ray's verbatim sentences are in the tests' own documentation, where they can be
     /// read, rather than mangled into a shell literal here.
     fn a_checkpointed_turn(tag: &str, before: &str, after: &str, speak_first: bool) -> Vec<TurnItem2> {
+        a_checkpointed_turn_returning(tag, before, after, speak_first, "")
+    }
+
+    /// [`a_checkpointed_turn`] with the checkpoint's own `tool_result` flag chosen:
+    /// `result_flag` is spliced into the result block, so `"\"is_error\":true,"` is a
+    /// checkpoint the engine's adapter refused (`adapters/mcp.py`, `"isError": True`).
+    fn a_checkpointed_turn_returning(
+        tag: &str,
+        before: &str,
+        after: &str,
+        speak_first: bool,
+        result_flag: &str,
+    ) -> Vec<TurnItem2> {
         let reply = if speak_first {
             format!(r#"printf '%s\n' '{{"type":"stream_event","event":{{"type":"content_block_delta","delta":{{"type":"text_delta","text":"{before}"}}}}}}'"#)
         } else {
@@ -6046,7 +6102,7 @@ printf '%s\n' '{{"type":"stream_event","event":{{"type":"message_start"}}}}'
 {reply}
 printf '%s\n' '{{"type":"stream_event","event":{{"type":"content_block_start","content_block":{{"type":"tool_use","id":"toolu_CP","name":"mcp__richos_continuity__checkpoint","input":{{}}}}}}}}'
 printf '%s\n' '{{"type":"assistant","message":{{"content":[{{"type":"tool_use","id":"toolu_CP","name":"mcp__richos_continuity__checkpoint","input":{{"summary":"the conversation so far"}}}}]}}}}'
-printf '%s\n' '{{"type":"user","message":{{"content":[{{"type":"tool_result","tool_use_id":"toolu_CP","content":"checkpoint written"}}]}}}}'
+printf '%s\n' '{{"type":"user","message":{{"content":[{{"type":"tool_result",{result_flag}"tool_use_id":"toolu_CP","content":"checkpoint written"}}]}}}}'
 printf '%s\n' '{{"type":"stream_event","event":{{"type":"content_block_delta","delta":{{"type":"text_delta","text":"{after}"}}}}}}'
 printf '%s\n' '{{"type":"result","stop_reason":"end_turn"}}'
 "#));
@@ -6122,6 +6178,28 @@ printf '%s\n' '{{"type":"result","stop_reason":"end_turn"}}'
             said,
             vec!["It is in progress. Nothing is waiting on you."],
             "a checkpoint ahead of the reply must never withhold the reply: {log:#?}"
+        );
+    }
+
+    #[test]
+    fn a_checkpoint_the_engine_refused_never_withholds_what_the_model_says_next() {
+        // **PART 1 HUNT FINDING 15.** The withholding exists for the duplicate closing line
+        // after a checkpoint that SUCCEEDED. The flag used to be set on the `tool_use` — the
+        // attempt — so a checkpoint the adapter refused (`isError: true`) still swallowed the
+        // model's error explanation or corrected answer. A refused checkpoint established
+        // nothing, so what the model says after it is his to read.
+        let log = a_checkpointed_turn_returning(
+            "refused-checkpoint-then-the-correction",
+            "It is landed.",
+            "Correction: it is not landed yet, the checkpoint was refused.",
+            true,
+            r#""is_error":true,"#,
+        );
+        let said: Vec<&String> = log.iter().filter_map(|i| match i { TurnItem2::Said(t) => Some(t), _ => None }).collect();
+        assert_eq!(
+            said,
+            vec!["It is landed.", "Correction: it is not landed yet, the checkpoint was refused."],
+            "words after a refused checkpoint were hidden: {log:#?}"
         );
     }
 
