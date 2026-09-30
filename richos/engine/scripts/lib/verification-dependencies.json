@@ -3653,7 +3653,7 @@
     },
     "scripts/lib/inflight.py": {
       "source": "scripts/lib/inflight.py",
-      "sha256": "7557f1c701858629759472c355a35583e3e2edaa60ab5ea6f1b5e819984a6739",
+      "sha256": "d1feca630d8fda5b042c70e0940798856678db09faa65e4b722f3d9c6f9ec3a3",
       "evidence": "Reads Git worktree/ref/diff metadata, acknowledgement and notice ledgers, timestamps and PID liveness. Its only dynamic imports are teammate-identity and the workspaces integration_for reader. It never reads orchestration.config, runs payload commands or invokes workspace lifecycle actions. The full module was reviewed, including default-tip and durable-ack paths.",
       "keys": [],
       "edges": [
@@ -15879,7 +15879,7 @@
         "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
         "scripts/lib/hook-dependencies.py": "897b42d0130b3b6139bb1da820a8dd9757f5f39764065e419f2f50e2acb3bd51",
         "scripts/lib/hook-dependencies.sh": "a4634dd1f95fe9c518055fd324d4b56a07186aafb8828e387c890c3cbd0e4621",
-        "scripts/lib/inflight.py": "7557f1c701858629759472c355a35583e3e2edaa60ab5ea6f1b5e819984a6739",
+        "scripts/lib/inflight.py": "d1feca630d8fda5b042c70e0940798856678db09faa65e4b722f3d9c6f9ec3a3",
         "scripts/lib/inflight.sh": "db5588f3a0093a55befbcab454ee7e1921e1d8f8a049ff0c243da5020e418e43",
         "scripts/lib/interactive-prompt.py": "fd95664d486aa1cde400a9c216e1d2fda2eeb5f21a202a8ccce2b2d1a7b11af8",
         "scripts/lib/mechanical-findings.py": "0942c108c40a62c831eaee4d569f8def0178903e17a289e221cc93ed7f51db78",
@@ -16654,7 +16654,7 @@
         "scripts/hooks/notice-hook-staleness.sh": "360fd629986741403adc2337a84ae2dd2645b517f275f7cbb3af331cae48460b",
         "scripts/hooks/notice-inflight-acks.sh": "00c0ab640594e4639be4f1b153f1ee8a1b29429dd936b81c4b74078a2f79b029",
         "scripts/lib/inflight.sh": "db5588f3a0093a55befbcab454ee7e1921e1d8f8a049ff0c243da5020e418e43",
-        "scripts/lib/inflight.py": "7557f1c701858629759472c355a35583e3e2edaa60ab5ea6f1b5e819984a6739",
+        "scripts/lib/inflight.py": "d1feca630d8fda5b042c70e0940798856678db09faa65e4b722f3d9c6f9ec3a3",
         "scripts/hooks/notice-mechanical-findings.sh": "1b3ba1af8d15b64cd8eda504e691347f0ef923bd78e53f235223589248bb1c07",
         "scripts/lib/mechanical-findings.sh": "1c67019e979adea3071d160882f26acb6bd14c032162ba31d7a1020ad06509bb",
         "scripts/lib/row-currency.sh": "c9d7c6e3deee626a5f6591e9c0e5d78617d0db20ecfa6d827a79d39e22fa56fa",
