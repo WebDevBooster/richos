@@ -31,9 +31,25 @@
 # ===========================================================================
 set -uo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HERE="${RUN_TESTS_HERE:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 TESTVM_DIR="$(cd "$HERE/.." && pwd)"
 FILTER="${1:-}"
+
+# A named run runs ONLY the named bodies. The filter used to sit in t_done, after the body
+# had already executed, so `run-tests.sh "claude login"` still paid for every unrelated
+# body (crypto, sleeps, samplers), five times over under the mutation runner, and a failure in
+# an unselected body never showed. Here the script re-executes a copy of itself with the
+# `t "name"` ... `t_done` blocks whose name does not contain the pattern cut out before
+# bash sees them. Setup code between blocks is kept. (Header: "run the tests whose names match".)
+if [ -n "$FILTER" ] && [ -z "${RUN_TESTS_FILTERED:-}" ]; then
+  export RUN_TESTS_FILTERED=1 RUN_TESTS_HERE="$HERE"
+  exec bash <(awk -v pat="$FILTER" '
+    /^t "/ { name = $0; sub(/^t "/, "", name); sub(/".*$/, "", name)
+             skipping = (index(name, pat) == 0) }
+    !skipping { print }
+    /^t_done$/ { skipping = 0 }
+  ' "${BASH_SOURCE[0]}") "$FILTER"
+fi
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/testvm-tests.XXXXXX")"
 # §54: this scratch directory goes however this script ends — pass, fail, or
