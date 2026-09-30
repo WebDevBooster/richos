@@ -181,8 +181,62 @@ class RunFailure(ValueError):
         self.stdout = result.stdout
 
 
+RUN_TIMEOUT = 120
+
+
+def _process_tree(root):
+    """`root` and every descendant of it, read from one `ps` before anything
+    is stopped (a child whose parent dies is reparented and no longer shows
+    as a descendant)."""
+    try:
+        rows = subprocess.run(["ps", "-axo", "pid=,ppid="], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return [root]
+    parent = {}
+    for line in rows.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            parent[int(parts[0])] = int(parts[1])
+    tree, grew = {root}, True
+    while grew:
+        grew = False
+        for pid, ppid in parent.items():
+            if ppid in tree and pid not in tree:
+                tree.add(pid)
+                grew = True
+    return sorted(tree)
+
+
 def run(command, *, body=None, cwd=None):
-    result = subprocess.run(command, input=body, text=True, capture_output=True, cwd=cwd, timeout=120)
+    """One engine command, bounded by RUN_TIMEOUT, and the bound is the whole
+    operation's (hunt part 4, finding 18).
+
+    The command is TOLD when this caller stops waiting: RICHOS_OPERATION_DEADLINE
+    (epoch seconds) is exported to it, and the workspace creator fits its own
+    setup bound inside what is left of it. Before, preparation had 120 s while
+    the creator alone allowed its setup 120 s, so this bound could expire first.
+
+    And at the bound, what the command started is stopped with it. The command
+    runs in its own session; on timeout its process tree is read, then its
+    group and every process in that tree are killed. subprocess.run's timeout
+    reached only the direct child, so spawn.py's creator and its setup kept
+    running while preparation was recorded as "unknown". Every signaled process
+    is one this call started, never one matched by a name."""
+    env = dict(os.environ, RICHOS_OPERATION_DEADLINE="%d" % int(time.time() + RUN_TIMEOUT))
+    proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, cwd=cwd, env=env, start_new_session=True)
+    try:
+        out, err = proc.communicate(body, timeout=RUN_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        tree = _process_tree(proc.pid)
+        with contextlib.suppress(OSError):
+            os.killpg(proc.pid, 9)
+        for pid in tree:
+            with contextlib.suppress(OSError):
+                os.kill(pid, 9)
+        proc.communicate()
+        raise
+    result = subprocess.CompletedProcess(command, proc.returncode, out, err)
     if result.returncode: raise RunFailure(result)
     return result.stdout
 

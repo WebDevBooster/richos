@@ -1293,6 +1293,52 @@ class DesktopWork(unittest.TestCase):
         self.assertNotIn("landed",self.app._read_land_lock(self.app.land_lock_path(self.repo)) or {})
 
 
+class RunBoundIsTheWholeOperations(unittest.TestCase):
+    """Hunt part 4, finding 18 (richos-hq docs/audits/2026-09-29-hunt/
+    part-4-codex.md): the app gave a whole preparation 120 s while the
+    workspace creator alone allowed its setup 120 s, and subprocess.run's
+    timeout stopped only the direct child. run() now tells the command when it
+    stops waiting, and at the bound stops what the command started too."""
+
+    def setUp(self):
+        self.app=load()
+        self.scratch=tempfile.TemporaryDirectory(prefix="app run bound ");self.addCleanup(self.scratch.cleanup)
+
+    @staticmethod
+    def alive(pid):
+        try: os.kill(pid,0)
+        except ProcessLookupError: return False
+        stat=subprocess.run(["ps","-o","stat=","-p",str(pid)],capture_output=True,text=True).stdout
+        return bool(stat.strip()) and "Z" not in stat
+
+    def test_finding_18_the_command_is_told_when_the_caller_stops_waiting(self):
+        import time
+        t0=time.time()
+        out=self.app.run([sys.executable,"-c","import os; print(os.environ.get('RICHOS_OPERATION_DEADLINE', ''))"])
+        self.assertTrue(out.strip(),"no deadline was exported to the command")
+        self.assertAlmostEqual(int(out.strip()),t0+getattr(self.app,"RUN_TIMEOUT",120),delta=5)
+
+    def test_finding_18_at_the_bound_what_the_command_started_is_stopped_too(self):
+        import time
+        pidfile=Path(self.scratch.name)/"grandchild.pid"
+        # the command starts a child of its own and both outlive the bound
+        command=["sh","-c",'sh -c "sleep 30" & echo $! > "$0"; sleep 30',str(pidfile)]
+        grandchild=[]
+        def cleanup():
+            # the test's own leftover, by the pid its own command recorded
+            for pid in grandchild:
+                if self.alive(pid): os.kill(pid,9)
+        self.addCleanup(cleanup)
+        t0=time.monotonic()
+        with patch.object(self.app,"RUN_TIMEOUT",2,create=True):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                self.app.run(command)
+        self.assertLess(time.monotonic()-t0,20)
+        grandchild.append(int(pidfile.read_text().strip()))
+        deadline=time.monotonic()+10
+        while self.alive(grandchild[0]) and time.monotonic()<deadline: time.sleep(0.1)
+        self.assertFalse(self.alive(grandchild[0]),"the command's own child outlived the run() bound")
+
 
 class _Result(unittest.TextTestResult):
     """Prints `  PASS  <test>` / `  FAIL  <test>` so the mutation harness
