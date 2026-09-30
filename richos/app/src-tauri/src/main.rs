@@ -7443,11 +7443,33 @@ fn loro_show_record(state: State<AppState>, record_ref: String) -> Result<WriteO
     desk(&state)?.lock().unwrap().show(&record_ref).map_err(|e| e.to_string())
 }
 
-/// Corrections waiting on the CEO, for the entity this launch is bound to. Scoped, not
-/// global: a proposal about one entity's memory has no business in another's queue.
+/// The company a correction belongs to: the one the conversation on screen is bound to.
+///
+/// The spine files a belief correction under the ACTIVE thread's immutable binding
+/// (`Spine::stage_belief_correction`), and the app opens conversations from several companies,
+/// so the launch selection (`state.entity`) can name a different company than the one the
+/// CEO is looking at. Reading the launch selection then hid B's corrections behind A's queue
+/// and sent A to `confirm`, which refused B's proposal as `WrongEntity` (hunt part 1, finding 09).
+/// The reader snapshot is lock-free, so this never waits for a turn. With no active
+/// conversation the launch selection is the scope, as before; with neither, refuse.
+fn correction_entity(view: &dyn SpineView, launch: Option<EntityId>) -> Result<EntityId, String> {
+    view.active_binding()
+        .map(|b| b.entity_id().clone())
+        .or(launch)
+        .ok_or_else(|| ENTITY_UNRESOLVED_MESSAGE.to_string())
+}
+
+fn correction_entity_of(state: &State<AppState>) -> Result<EntityId, String> {
+    let launch = state.entity.lock().unwrap().clone();
+    correction_entity(&*state.reader.snapshot(), launch)
+}
+
+/// Corrections waiting on the CEO, for the company of the conversation now open (its launch
+/// selection when none is). Scoped, not global: a proposal about one entity's memory has no
+/// business in another's queue.
 #[tauri::command(async)]
 fn loro_pending_corrections(state: State<AppState>) -> Result<Vec<Proposal>, String> {
-    let entity = state.entity.lock().unwrap().clone().ok_or_else(|| ENTITY_UNRESOLVED_MESSAGE.to_string())?;
+    let entity = correction_entity_of(&state)?;
     Ok(desk(&state)?.lock().unwrap().pending_for(entity.as_str()).into_iter().cloned().collect())
 }
 
@@ -7462,7 +7484,7 @@ fn loro_propose_correction(
     write: ProposedWrite,
     why: String,
 ) -> Result<Proposal, String> {
-    let entity = state.entity.lock().unwrap().clone().ok_or_else(|| ENTITY_UNRESOLVED_MESSAGE.to_string())?;
+    let entity = correction_entity_of(&state)?;
     // The thread id is PROVENANCE and comes from the caller. It is deliberately not read
     // off the spine: `send_message` holds that lock for the whole of a turn, so asking the
     // spine which thread is active would freeze a correction panel until Rich finished —
@@ -7480,7 +7502,7 @@ fn loro_propose_correction(
 /// already durable, and losing a ledger line must not un-write a record that landed.
 #[tauri::command(async)]
 fn loro_confirm_correction(state: State<AppState>, id: String) -> Result<Proposal, String> {
-    let entity = state.entity.lock().unwrap().clone().ok_or_else(|| ENTITY_UNRESOLVED_MESSAGE.to_string())?;
+    let entity = correction_entity_of(&state)?;
     let done = desk(&state)?.lock().unwrap().confirm(entity.as_str(), &id).map_err(|e| e.to_string())?;
     if let Some(outcome) = &done.outcome {
         let detail = match &outcome.superseded_ref {

@@ -58,3 +58,36 @@ fn window_reads_finish_before_an_unfinished_turn_releases() {
     assert!(has_text, "already written reply text must be available during the turn");
 }
 use crate::timeline_view::timeline_payload;
+
+#[test]
+fn corrections_follow_the_company_of_the_open_conversation_not_the_launch_selection() {
+    let path = std::env::temp_dir().join(format!("correction-entity-{}.jsonl", std::process::id()));
+    let empty_path = std::env::temp_dir().join(format!("correction-entity-empty-{}.jsonl", std::process::id()));
+    for p in [&path, &empty_path] {
+        if let Err(error) = std::fs::remove_file(p) {
+            assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+        }
+    }
+    let mut spine = Spine::new(Ledger::open(&path).unwrap());
+    spine.set_entity_registry(EntityRegistry::new(vec![
+        Entity::new("alpha", "Alpha", &["/fixture/alpha"]).unwrap(),
+        Entity::new("beta", "Beta", &["/fixture/beta"]).unwrap(),
+    ]).unwrap());
+    let alpha = EntityId::parse("alpha").unwrap();
+    let beta = EntityId::parse("beta").unwrap();
+    let a_thread = spine.create_thread("A's work", &alpha).unwrap();
+    let b_thread = spine.create_thread("B's work", &beta).unwrap();
+    let reader = spine.reader();
+    // Launch selection is company A; the conversation on screen is B's.
+    spine.switch_thread(&a_thread).unwrap();
+    assert_eq!(correction_entity(&*reader.snapshot(), Some(alpha.clone())).unwrap(), alpha);
+    spine.switch_thread(&b_thread).unwrap();
+    assert_eq!(correction_entity(&*reader.snapshot(), Some(alpha.clone())).unwrap(), beta,
+        "a belief correction is filed under the open conversation's company; the queue and confirm must ask for the same one");
+    // Nothing open: the launch selection is the scope; with neither, refuse rather than guess.
+    let mut empty = Spine::new(Ledger::open(&empty_path).unwrap());
+    assert!(correction_entity(&*empty.reader().snapshot(), None).is_err());
+    assert_eq!(correction_entity(&*empty.reader().snapshot(), Some(alpha.clone())).unwrap(), alpha);
+    std::fs::remove_file(&path).unwrap();
+    std::fs::remove_file(&empty_path).ok();
+}
