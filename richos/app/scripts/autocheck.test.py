@@ -456,6 +456,21 @@ class Commit(Fixture):
         self.assertIn("renew the pin", out.stderr)
         self.assertEqual(self.head(), before)
 
+    def test_commit_a_reads_the_index_the_hook_was_given_for_a_pinned_file(self):
+        # `git commit -a` hands the hook a temporary index in GIT_INDEX_FILE; the pin check used
+        # to drop it and read the real index, where the pinned file still matched its pin.
+        self.make()
+        self.pin_fixture()
+        before = self.head()
+        self.write(self.PIN_SOURCE, "echo v2\n")
+        out = self.git("commit", "-a", "-m", "edit a pinned file", expect=1)
+        self.assertIn("COMMIT REFUSED: a changed file is pinned by a reviewed check", out.stderr)
+        self.assertEqual(self.head(), before)
+        self.write(self.PIN_SOURCE, "echo v2\n")
+        self.pin("echo v2\n")
+        out = self.git("commit", "-a", "-m", "edit a pinned file and renew its pin")
+        self.assertIn("autocheck: commit: passed", out.stderr)
+
     def test_a_pinned_file_committed_with_its_renewed_pin_passes(self):
         self.make()
         self.pin_fixture()

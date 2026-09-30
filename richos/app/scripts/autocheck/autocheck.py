@@ -473,6 +473,15 @@ def same_bytes(a, b):
 QUALIFICATIONS = "docs/development/verification-input-qualifications.json"
 
 
+def hook_env(repo):
+    """The check environment plus the index the hook was given: `commit -a` or `commit <path>`
+    names a temporary one in GIT_INDEX_FILE, which clean_env drops."""
+    env = dict(repo.env)
+    if os.environ.get("GIT_INDEX_FILE"):
+        env["GIT_INDEX_FILE"] = os.environ["GIT_INDEX_FILE"]
+    return env
+
+
 def stale_pins(repo):
     """Refuse (return 1) when a path this branch changed is a pinned source of a reviewed unit
     and the pin no longer matches the staged content."""
@@ -480,7 +489,7 @@ def stale_pins(repo):
     paths = branch_paths(repo)
     if not paths:
         return 0
-    got = subprocess.run(["git", "show", f":{QUALIFICATIONS}"], cwd=repo.top, env=repo.env,
+    got = subprocess.run(["git", "show", f":{QUALIFICATIONS}"], cwd=repo.top, env=hook_env(repo),
                          capture_output=True, text=True, stdin=subprocess.DEVNULL)
     if got.returncode:
         return 0  # this tree has no qualification file, so nothing is pinned
@@ -496,7 +505,7 @@ def stale_pins(repo):
         for source, pinned in sorted((body.get("sources") or {}).items()):
             if source not in changed:
                 continue
-            blob = subprocess.run(["git", "show", f":{source}"], cwd=repo.top, env=repo.env,
+            blob = subprocess.run(["git", "show", f":{source}"], cwd=repo.top, env=hook_env(repo),
                                   capture_output=True, stdin=subprocess.DEVNULL)
             now = hashlib.sha256(blob.stdout).hexdigest() if blob.returncode == 0 else "(file removed)"
             if now != pinned:
