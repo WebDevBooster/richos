@@ -32,6 +32,11 @@
 //! declared file roots or not absolute; a file that does not exist. Those are the lead's
 //! mistakes, and it is told which, so it can report again correctly.
 //!
+//! And words that ask him something his record has already ruled (F3 of the operator contract
+//! notes, §4 item 1): a report's asking paragraphs go through the same already-ruled check as a
+//! prepared question card, and the refusal names and quotes the ruling
+//! ([`crate::question_engine::check_ruled`]).
+//!
 //! ## Long text
 //!
 //! The notice keeps the register's 8,000-character bound (`assignment.rs:1288-1299`). Longer
@@ -55,6 +60,8 @@ const MAX_SCOPE_BYTES: u64 = 16 * 1024;
 const MAX_LANDS: usize = 20;
 const MAX_FILES: usize = 50;
 const MAX_AGENTS: usize = 50;
+/// The already-ruled check reads his record with python; the guard's own hook budget is 20 s.
+const RULED_CHECK_BUDGET: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// The scope the app writes for one lead, and the only thing this server trusts.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -398,6 +405,19 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
     // report and a wrong one is recorded as not confirmed.
     let lands = args.lands.iter().map(|claim| verify_land(claim, &scope.file_roots))
         .collect::<Result<Vec<_>, _>>()?;
+    // F3: a question written into the words themselves goes through the same settled-by-his-words
+    // check as a prepared question card (`question_engine::check_ruled`). A withdrawal's words are
+    // a reason, never a question to him.
+    let mut unchecked = None;
+    if args.kind != "withdraw_question" {
+        if let Some(context) = scope.question_context.as_ref() {
+            match crate::question_engine::check_ruled(context, &args.text, RULED_CHECK_BUDGET) {
+                crate::question_engine::Ruled::Clear => {}
+                crate::question_engine::Ruled::Ruled(refusal) => return Err(refusal),
+                crate::question_engine::Ruled::Unchecked(why) => unchecked = Some(why),
+            }
+        }
+    }
     if args.kind=="question" || args.kind=="withdraw_question" {
         if !args.lands.is_empty() || !args.files.is_empty() {return Err("Report lands and files separately from a question set.".into());}
         let mut context=scope.question_context.clone().ok_or("The operator runtime has not bound its question delivery scope.")?;
@@ -438,6 +458,9 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
     };
     append(&scope.outbox, &record)?;
     let mut said = vec!["Recorded; the CEO will be told.".to_string()];
+    if let Some(why) = unchecked {
+        said.push(format!("His record could not be checked for a question in these words ({why}), so they were recorded unchecked."));
+    }
     for land in &record.lands {
         match &land.why {
             None => said.push(format!("Confirmed in Git: {}", land.says)),
@@ -686,6 +709,79 @@ mod tests {
         f.scope.question_context.as_mut().unwrap().thread_id="other-thread".into();
         write_scope(&f.scope_path,&f.scope).unwrap();
         assert!(report(&f,args).unwrap_err().contains("scope"));
+    }
+
+    /// The shipped engine, and a seat whose record rules one subject (the splash screens), as
+    /// the engine's own ceo-ruled suite writes a ruling.
+    fn with_ruled_engine(f: &mut Fixture) -> PathBuf {
+        let engine = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../engine").canonicalize().unwrap();
+        let seat = f.root.join("seat");
+        std::fs::create_dir_all(seat.join("wiki")).unwrap();
+        std::fs::write(seat.join("orchestration.config"), "CEO_RULINGS_PATHS=\"wiki/ceo-decisions.md\"\n").unwrap();
+        std::fs::write(seat.join("wiki/ceo-decisions.md"), "# Decisions\n\n## 21. The start screen (CEO, 2026-09-01)\n\n\
+### The splash screens — TWO, and the order is DETERMINISTIC (CEO, 2026-09-01)\n\n\
+**His words:** *\"I have never approved more than 2 splash screens.\"*\n").unwrap();
+        f.scope.question_context = Some(crate::questions::AskScope {
+            root: f.scope.state_root.clone(), entity_id: f.scope.entity_id.clone(), thread_id: f.scope.thread_id.clone(),
+            turn_id: "operator-turn".into(), asker: "operator:conversation".into(), session_id: "lead-session-1".into(),
+            engine: Some(engine.clone()), entity_root: Some(seat.clone()), app_run: None,
+        });
+        write_scope(&f.scope_path, &f.scope).unwrap();
+        engine
+    }
+
+    /// **F3 (operator contract notes §4 item 1):** every route by which his lead puts a
+    /// question to him goes through the settled-by-his-words check. A prepared question card
+    /// already did (`question_engine::check`, since 0413ea69); a question written into a
+    /// report's own words reached him unchecked.
+    #[test]
+    fn a_question_in_a_report_s_words_goes_through_the_settled_by_his_words_check() {
+        let mut f = fixture();
+        let engine = with_ruled_engine(&mut f);
+        let ruled = "Landed the fix.\n\nWhich splash screens should ship in v1, all seven or your two?";
+        // The prepared card: refused by the guard itself.
+        let card = report(&f, json!({"kind": "question", "text": "Splash screens", "questions": [{
+            "text": "Which splash screens should ship in v1?\npremise-unverified: a fixture question with no deadline.",
+            "options": [{"label": "All seven", "description": "Every variation"}, {"label": "Your two", "description": "The approved pair"}]}]}));
+        assert!(card.as_ref().is_err_and(|e| e.contains("ALREADY RULED")), "{card:?}");
+        // The same question in the words of every other kind: refused, naming and quoting the
+        // ruling, and nothing written.
+        for kind in ["update", "answer", "outcome", "failed"] {
+            let refused = report(&f, json!({"kind": kind, "text": ruled})).unwrap_err();
+            assert!(refused.contains("§21 › The splash screens") && refused.contains("never approved more than 2"),
+                    "{kind}: {refused}");
+            assert!(refused.contains("ceo-ruled-exempt.sh lead-session-1"), "{kind}: the way through names his session: {refused}");
+        }
+        assert!(outbox(&f).is_empty(), "a refused report wrote nothing");
+        // Words that ask nothing ruled, and words that ask nothing at all, are recorded.
+        report(&f, json!({"kind": "update", "text": "Landed the fix.\n\nShould I start on the release notes next?"})).unwrap();
+        report(&f, json!({"kind": "update", "text": "Landed the splash screens fix."})).unwrap();
+        assert_eq!(outbox(&f).len(), 2);
+        // The way through is the engine's own exemption, per session and per cite.
+        let exempt = Command::new("bash")
+            .arg(engine.join("scripts/ceo-ruled-exempt.sh"))
+            .args(["lead-session-1", "§21 › The splash screens",
+                   "the ruling covers which screens ship; this asks about their order on a relaunch"])
+            .current_dir(f.root.join("seat")).env("RICHOS_ENTITY_ROOT", f.root.join("seat"))
+            .output().unwrap();
+        assert!(exempt.status.success(), "{}", String::from_utf8_lossy(&exempt.stderr));
+        report(&f, json!({"kind": "update", "text": ruled})).unwrap();
+        assert_eq!(outbox(&f).len(), 3, "an exempted question is recorded");
+    }
+
+    #[test]
+    fn the_asking_window_is_the_terminal_prose_notice_s() {
+        use crate::question_engine::asking_paragraphs;
+        let notice = std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../engine/scripts/hooks/notice-ceo-ruled-prose.sh")).unwrap();
+        assert!(notice.contains(r#"ASK = re.compile(r"\?|\*\*Options?:|\*\*Decision:", re.I)"#)
+                && notice.contains(r#"re.split(r"\n\s*\n", msg)"#) && notice.contains("[:6000]"),
+                "the engine's prose window changed; change asking_paragraphs with it");
+        assert_eq!(asking_paragraphs("Landed it.\n\nShip today?\nor tomorrow"), "Ship today?\nor tomorrow");
+        assert_eq!(asking_paragraphs("One.\n  \n**Options:** A or B\n\nTwo."), "**Options:** A or B");
+        assert_eq!(asking_paragraphs("**decision:** yours\n\n\n\nWhy?"), "**decision:** yours\nWhy?");
+        assert_eq!(asking_paragraphs("Nothing asked here."), "");
+        assert_eq!(asking_paragraphs(&format!("{}?", "x".repeat(7000))).chars().count(), 6000);
     }
 
     // ---- the tool, as the lead sees it ---------------------------------------------------
