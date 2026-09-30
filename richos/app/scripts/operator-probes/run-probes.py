@@ -120,6 +120,16 @@ def main():
                         'probe never carries the account to ruling §87\'s 93%% pause for every other session')
     a = p.parse_args()
 
+    # An unknown probe id is refused here, before a guest is booted and set up to run nothing.
+    # guest_probes.py refuses it again inside the guest; this is the cheap copy of that check.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('guest_probes', HERE / 'guest_probes.py')
+    gp = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gp)
+    unknown = gp.unknown_probe_ids(a.only)
+    if unknown:
+        p.error('not a probe: %s (known: %s)' % (', '.join(unknown), ', '.join(pid for pid, _ in gp.PROBES)))
+
     out = a.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     vm = 'probes-' + uuid.uuid4().hex[:12]

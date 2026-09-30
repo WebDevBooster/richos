@@ -3367,6 +3367,13 @@ def w3(ctx, r):
     return w3_verdict(cells, wanted)
 
 
+def unknown_probe_ids(only):
+    """The names in a comma-separated --only that are not registered probes. An empty --only
+    means all probes and has none."""
+    known = {pid for pid, _ in PROBES}
+    return [x for x in (y.strip() for y in (only or '').split(',')) if x and x not in known]
+
+
 def w3_wanted(named):
     """The cells to run: all of them, or the comma-separated names given (--w3-cells), in the
     matrix's own order. An unknown name is refused, never skipped."""
@@ -3818,6 +3825,11 @@ def main():
     ap.add_argument('--w4-cells', default='', help='comma-separated work crash-matrix cells for W4 (default: all)')
     ap.add_argument('--w3-cells', default='', help='comma-separated crash-matrix cells for W3 (default: all)')
     a = ap.parse_args()
+    unknown_probes = unknown_probe_ids(a.only)
+    if unknown_probes:  # like an unknown cell below: refused before any guest work, never skipped
+        print('NOT A PROBE: %s (known: %s)' % (', '.join(unknown_probes), ', '.join(pid for pid, _ in PROBES)),
+              file=sys.stderr)
+        return 2
     w3_wanted(a.w3_cells)  # an unknown cell is refused before any guest work
     w4_wanted(a.w4_cells)
     p = Paths(a.payload)

@@ -633,5 +633,40 @@ class Arguments(unittest.TestCase):
             self.assertIn(flag, rust, 'the profile no longer carries %s: update the harness with it' % flag)
 
 
+class Selection(unittest.TestCase):
+    """--only names that match no probe are refused, never an empty run that exits 0."""
+
+    def run_main(self, only):
+        import io
+        from unittest import mock
+        calls = []
+        argv = ['guest_probes.py', '--payload', '/nonexistent-payload', '--engine-commit', 'x', '--only', only]
+        err = io.StringIO()
+        with mock.patch.object(sys, 'argv', argv), \
+                mock.patch.object(gp, 'setup_fixture', side_effect=lambda *a, **k: calls.append('setup')), \
+                mock.patch.object(gp, 'Paths', side_effect=lambda *a, **k: calls.append('paths')), \
+                mock.patch('sys.stderr', err):
+            try:
+                code = gp.main()
+            except Exception as exc:  # noqa: BLE001
+                code = 'raised %r' % exc
+        return code, calls, err.getvalue()
+
+    def test_an_unknown_probe_is_refused_before_any_guest_work(self):
+        code, calls, err = self.run_main('definitely-not-a-probe')
+        self.assertEqual(code, 2)
+        self.assertEqual(calls, [])
+        self.assertIn('definitely-not-a-probe', err)
+
+    def test_an_unknown_name_among_valid_ones_is_refused_not_omitted(self):
+        code, calls, _ = self.run_main('%s,nope' % gp.PROBES[0][0])
+        self.assertEqual(code, 2)
+        self.assertEqual(calls, [])
+
+    def test_known_names_and_an_empty_selection_have_no_unknowns(self):
+        self.assertEqual(gp.unknown_probe_ids(''), [])
+        self.assertEqual(gp.unknown_probe_ids(' %s ' % gp.PROBES[0][0]), [])
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
