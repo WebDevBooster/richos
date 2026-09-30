@@ -4891,6 +4891,47 @@ printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"ty
          printf '%s\\n' '{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"req_init\",\"response\":{}}}'\n\
          sleep 5\n";
 
+    /// **The native half of stopping a watched job's command** (hunt 2026-09-29 part 1,
+    /// finding 11; `work_host.rs` drives it through `TurnCancel::stop_background_command`).
+    /// A stand-in child records every line it is sent after the handshake. Stopping one
+    /// background command sends exactly one frame, `control_request{stop_task}` for that task
+    /// id (the frame `operator_lead::stop_task_request` builds, P12), and no `interrupt`: no
+    /// turn is ended by it.
+    #[test]
+    fn stopping_one_background_command_sends_stop_task_for_it_and_nothing_else() {
+        let root = fixture_root().join(format!("stop-task-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let heard = root.join("heard.jsonl");
+        let script = write_script(
+            "stop-task",
+            &format!(
+                "read -r line\n\
+                 printf '%s\\n' '{{\"type\":\"control_response\",\"response\":{{\"subtype\":\"success\",\"request_id\":\"req_init\",\"response\":{{}}}}}}'\n\
+                 while read -r line; do printf '%s\\n' \"$line\" >> '{}'; done\n",
+                heard.display()
+            ),
+        );
+        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture())
+            .expect("the handshake should succeed");
+        assert!(client.cancel_handle().stop_background_command("bk1c0clka"), "the stop was not written");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let frames: Vec<Value> = loop {
+            let text = std::fs::read_to_string(&heard).unwrap_or_default();
+            if text.contains("stop_task") && text.ends_with('\n') {
+                break text.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+            }
+            assert!(std::time::Instant::now() < deadline, "the child never heard the stop: {text:?}");
+            // load-bound: a poll for the line the child writes; the verdict is read from those frames, and the 10 s deadline only turns a hang into a failure.
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        };
+        let stops: Vec<&Value> = frames.iter().filter(|f| f["type"] == "control_request").collect();
+        assert_eq!(stops.len(), 1, "exactly one control request: {frames:?}");
+        assert_eq!(stops[0]["request"], json!({"subtype": "stop_task", "task_id": "bk1c0clka"}));
+        assert!(stops[0]["request_id"].as_str().is_some_and(|id| id.starts_with("richos_stop_task_")), "{frames:?}");
+        drop(client);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
     /// **THE DEFECT CANDIDATE .7 FOUND, AS A TEST — and it is a false NEGATIVE, not a
     /// conservative reading.**
     ///
