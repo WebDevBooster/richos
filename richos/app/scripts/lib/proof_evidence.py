@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import shlex
 import shutil
 import subprocess
@@ -246,10 +247,20 @@ def python_runtime(executable):
 #   * the checkout's path (a result is never shared between worktrees: what git ignores,
 #     node_modules and build products, differs between them);
 #   * the command (proof-run adds it), the runner's settings, the resolved interpreters, the
-#     environment variables named below, and the platform.
-# What it does not bind, and cannot: what git ignores and what lives outside the checkout
-# (a dependency install, the host). Those are the same limits a rerun on this Mac has.
-WHOLE_CHECKOUT = "whole-checkout-v1"
+#     environment variables named below, and the platform;
+#   * the INSTALLED DEPENDENCIES a check runs against (installed_dependencies below).
+#
+# INSTALLED DEPENDENCIES ARE INPUTS (2026-09-30, hunt part 2, finding 11). This used to say
+# that what git ignores and what lives outside the checkout "are the same limits a rerun on
+# this Mac has". They are not: a rerun reads the dependency as it is now. A check passed with
+# an ignored node_modules package, only that package changed, running the check again failed,
+# and the saved pass was reused and finalized as passed. So the identity also binds, by
+# content or by install identity, what a check executes that git does not track: every
+# ignored `node_modules` directory in the checkout, the Playwright browser installs the UI
+# suites launch, and the Rust toolchain `cargo` resolves. It still binds nothing else git
+# ignores: bytecode caches, build caches, test output and hook sidecars are written by checks
+# and tools as they run, and binding them would invalidate every pass on every run.
+WHOLE_CHECKOUT = "whole-checkout-v2"
 CHECKOUT_TOOLS = ("bash", "sh", "node", "python3", "git")
 CHECKOUT_ENVIRONMENT_NAMES = ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "DEVELOPER_DIR", "SDKROOT")
 CHECKOUT_ENVIRONMENT_PREFIXES = ("RICHOS_", "RUN_TESTS_", "NODE_", "NPM_CONFIG_", "PYTHON", "CARGO_",
@@ -310,6 +321,88 @@ def checkout_content(root):
     return digest.hexdigest()
 
 
+# What an install is, by the name of the directory it lives in. A directory of this name that
+# git ignores and tracks nothing in is bound by content (path_identity, which still leaves out a
+# tagged build cache inside it).
+INSTALLED_DEPENDENCY_DIRECTORIES = ("node_modules",)
+# A Playwright browser install is a `<browser>-<revision>` directory (webkit-2311,
+# chromium_headless_shell-1234, ffmpeg-1011). Anything else beside them (a browser profile
+# another tool keeps there, the CLI's update-check file) is not an install and is not bound.
+PLAYWRIGHT_INSTALL = re.compile(r"[a-z][a-z0-9_]*-[0-9]+")
+
+
+def checkout_installs(root):
+    """{relative path: digest} for every ignored, untracked dependency install in the checkout."""
+    root = Path(root)
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    result = subprocess.run(["git", "-C", str(root), "ls-files", "--others", "--ignored", "--exclude-standard",
+                             "--directory", "-z"], env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                            timeout=120)
+    if result.returncode != 0:
+        raise ValueError("cannot list the checkout's installed dependencies: git ls-files --ignored")
+    found = {}
+    for raw in result.stdout.split(b"\0"):
+        name = os.fsdecode(raw).rstrip("/")
+        if not name or Path(name).name not in INSTALLED_DEPENDENCY_DIRECTORIES:
+            continue
+        path = root / name
+        if path.is_dir() and not path.is_symlink():
+            found[name] = digest(path_identity(path))
+    return found
+
+
+def playwright_installs(environment):
+    """The Playwright browser installs a check would launch, by install identity.
+
+    A browser is hundreds of megabytes, so it is bound by the identity of its install rather
+    than its bytes: the revision directory's inode (an install or `install --force` creates a
+    new one) and whether Playwright marked it complete. PLAYWRIGHT_BROWSERS_PATH=0 puts the
+    browsers inside node_modules, which checkout_installs already binds."""
+    configured = environment.get("PLAYWRIGHT_BROWSERS_PATH")
+    if configured == "0":
+        return {"inside": "node_modules"}
+    if configured:
+        base = Path(configured)
+    else:
+        home = Path(environment.get("HOME") or Path.home())
+        base = home / ("Library/Caches" if platform.system() == "Darwin" else ".cache") / "ms-playwright"
+    try:
+        entries = sorted(os.scandir(base), key=lambda entry: entry.name)
+    except FileNotFoundError:
+        return {"base": str(base), "absent": True}
+    installs = {}
+    for entry in entries:
+        if PLAYWRIGHT_INSTALL.fullmatch(entry.name) and entry.is_dir(follow_symlinks=False):
+            installs[entry.name] = {"inode": entry.inode(),
+                                    "complete": os.path.exists(os.path.join(entry.path, "INSTALLATION_COMPLETE"))}
+    return {"base": str(base), "installs": installs}
+
+
+def rust_toolchain(root, environment):
+    """What `rustc -vV` says in the checkout: a rustup shim's bytes do not change with the toolchain."""
+    rustc = shutil.which("rustc", path=environment.get("PATH"))
+    if not rustc:
+        return {"absent": True}
+    # Never let asking install a toolchain: a missing one is an identity of its own.
+    env = dict(environment, RUSTUP_AUTO_INSTALL="0")
+    try:
+        result = subprocess.run([rustc, "-vV"], cwd=str(root), env=env, stdin=subprocess.DEVNULL,
+                                capture_output=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ValueError("cannot read the Rust toolchain: " + str(exc)) from None
+    return {"path": rustc, "exit": result.returncode, "sha256": hashlib.sha256(result.stdout).hexdigest()}
+
+
+INSTALL_ENVIRONMENT_NAMES = ("PATH", "HOME", "PLAYWRIGHT_BROWSERS_PATH", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN",
+                             "CARGO_HOME")
+
+
+def installed_dependencies(root, environment):
+    """What a check executes that git does not track (WHOLE_CHECKOUT above)."""
+    return {"checkout": checkout_installs(root), "playwright": playwright_installs(environment),
+            "rust": rust_toolchain(root, environment)}
+
+
 def _tool_digest(path):
     """A resolved tool's content digest, read again whenever its file changes."""
     real = os.path.realpath(path)
@@ -335,6 +428,7 @@ def checkout_identity(root, argv, environment, snapshot=None):
               if name not in RUN_SCOPED_ENVIRONMENT and (name in CHECKOUT_ENVIRONMENT_NAMES
                                                           or name.startswith(CHECKOUT_ENVIRONMENT_PREFIXES))}
     return {"contract": WHOLE_CHECKOUT, "checkout": str(root), "tree": snapshot.checkout(root),
+            "installed": snapshot.installed(root, environment),
             "paths": {}, "tools": tools, "profile": None, "inventories": {}, "external_paths": {},
             "git_inputs": {}, "environment": values, "external": {},
             "platform": [platform.system(), platform.release(), platform.machine(), platform.mac_ver()[0], os.cpu_count()]}
@@ -352,12 +446,19 @@ class InputSnapshot:
         self.runtimes = {}
         self.inventories = {}
         self.checkouts = {}
+        self.installs = {}
 
     def checkout(self, root):
         key = str(root)
         if key not in self.checkouts:
             self.checkouts[key] = checkout_content(root)
         return self.checkouts[key]
+
+    def installed(self, root, environment):
+        key = (str(root), *(environment.get(name) for name in INSTALL_ENVIRONMENT_NAMES))
+        if key not in self.installs:
+            self.installs[key] = installed_dependencies(root, environment)
+        return self.installs[key]
 
     def path(self, path):
         key = str(Path(path).absolute())

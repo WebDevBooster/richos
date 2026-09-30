@@ -1324,6 +1324,90 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
         self.assertEqual(set(reused), {"pass", "retry"})
         self.assertTrue(all(reused.values()), reused)
 
+    def test_a_saved_pass_is_not_reused_after_an_installed_dependency_changes(self):
+        # Hunt part 2, finding 11: a check that passed with an ignored node_modules dependency
+        # was reused, and finalized as passed, after only that dependency changed, although
+        # running it again failed. The whole-checkout identity bound what git would land and
+        # nothing git ignores. An installed dependency is an input; a bytecode cache is not.
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        git = lambda *a: subprocess.run(["git", "-C", str(self.root), "-c", "user.name=fixture",
+                                         "-c", "user.email=fixture@example.invalid", "-c", "core.hooksPath=/dev/null",
+                                         "-c", "commit.gpgsign=false", *a],
+                                        check=True, env=env, capture_output=True)
+        git("init", "-q")
+        output = Path(self.tmp.name) / "executions"
+        (self.root / ".gitignore").write_text("node_modules/\n__pycache__/\n")
+        (self.root / "dep.test.sh").write_text(
+            'printf "dep\\n" >> "$1"\ngrep -q "working" node_modules/dep/index.js\n')
+        dependency = self.root / "node_modules/dep/index.js"
+        dependency.parent.mkdir(parents=True)
+        dependency.write_text("module.exports = 'working';\n")
+        git("add", "-A")
+        git("commit", "-q", "-m", "fixture")
+        lines = [f"cd . && bash dep.test.sh {output}"]
+        idle = lambda: {"cpu_user_percent": 5, "cpu_system_percent": 2,
+            "memory_pressure": "normal", "swapout_mb_per_s": 0, "memory_free_percent": 80,
+            "swap_used_mb": 0}
+        runs = [Path(self.tmp.name) / name for name in ("first", "dependency", "restored")]
+        captured = io.StringIO()
+        with patch.dict(os.environ, {"RICHOS_MACHINE_WORKERS": str(Path(self.tmp.name) / "machine"),
+                                      "CLAUDE_CONFIG_DIR": str(Path(self.tmp.name) / "config")}), \
+                patch.object(runner, "ROOT", str(self.root)), \
+                patch.object(runner, "default_logdir", return_value=str(Path(self.tmp.name) / "history")), \
+                patch.object(evidence, "pool_directory", return_value=Path(self.tmp.name) / "pool"), \
+                patch.object(runner, "supply_runtime", return_value="private fixture"), \
+                patch.object(runner.reserve, "host_sample", side_effect=idle), \
+                patch.object(runner, "selection", return_value=lines), \
+                contextlib.redirect_stdout(captured):
+            self.assertEqual(runner.main(["--log-dir", str(runs[0])]), 0, captured.getvalue()[-3000:])
+            # Only the installed dependency changes: nothing git would land differs.
+            dependency.write_text("module.exports = 'broken';\n")
+            self.assertEqual(git("status", "--porcelain").stdout, b"")
+            self.assertEqual(runner.main(["--log-dir", str(runs[1])]), 1,
+                             "a pass saved before the dependency changed was reused:\n" + captured.getvalue()[-3000:])
+            self.assertEqual(output.read_text().splitlines(), ["dep", "dep"])
+            # The same dependency again, plus an ignored bytecode cache written beside it: the
+            # first run's pass is exactly as valid as it was, and is reused.
+            dependency.write_text("module.exports = 'working';\n")
+            (self.root / "__pycache__").mkdir()
+            (self.root / "__pycache__/tool.cpython-314.pyc").write_bytes(b"written by a check")
+            self.assertEqual(runner.main(["--log-dir", str(runs[2])]), 0, captured.getvalue()[-3000:])
+        self.assertEqual(output.read_text().splitlines(), ["dep", "dep"])
+        reused = {row["check"]: row["reused_from"] for row in json.loads((runs[2] / "summary.json").read_text())["checks"]}
+        self.assertTrue(all(reused.values()), reused)
+
+    def test_the_whole_checkout_identity_binds_installed_browsers_and_the_rust_toolchain(self):
+        # The same finding names the browser suites' external browser installations and the
+        # Rust toolchain that `cargo` resolves: neither is in the checkout, and a changed one
+        # can turn a pass into a failure on the same tree.
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, capture_output=True)
+        bin_dir = Path(self.tmp.name) / "bin"
+        bin_dir.mkdir()
+        rustc = bin_dir / "rustc"
+        rustc.write_text('#!/bin/sh\necho "rustc 1.90.0 (fixture)"\n')
+        rustc.chmod(0o755)
+        browsers = Path(self.tmp.name) / "ms-playwright"
+        (browsers / "webkit-2311").mkdir(parents=True)
+        (browsers / "webkit-2311/INSTALLATION_COMPLETE").touch()
+        (browsers / "mcp-chrome").mkdir()
+        environment = {"PATH": str(bin_dir) + os.pathsep + "/usr/bin:/bin",
+                       "HOME": self.tmp.name, "PLAYWRIGHT_BROWSERS_PATH": str(browsers)}
+        identity = lambda: evidence.checkout_identity(self.root, ["bash", "x.sh"], environment)
+        before = identity()
+        # A browser profile another tool keeps beside the installs is not an install.
+        (browsers / "mcp-chrome/Preferences").write_text("{}")
+        (browsers / "cli-update-check.json").write_text("{}")
+        self.assertEqual(identity(), before)
+        # A reinstalled browser at the same revision is a different browser.
+        shutil.rmtree(browsers / "webkit-2311")
+        (browsers / "webkit-2311").mkdir()
+        (browsers / "webkit-2311/INSTALLATION_COMPLETE").touch()
+        reinstalled = identity()
+        self.assertNotEqual(reinstalled, before)
+        # A toolchain update behind the same `rustc` shim is a different compiler.
+        rustc.write_text('#!/bin/sh\necho "rustc 1.91.0 (fixture)"\n')
+        self.assertNotEqual(identity()["installed"]["rust"], reinstalled["installed"]["rust"])
+
 
 if __name__ == "__main__":
     unittest.main()
