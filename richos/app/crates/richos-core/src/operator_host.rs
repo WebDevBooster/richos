@@ -387,6 +387,24 @@ struct LeadRecord {
     /// written before this field, which holds no such turn (`turn_open` is newer still).
     #[serde(default)]
     conversation: Option<ConversationKey>,
+    /// **Outbox positions whose close the engine refused for a passing reason** (hunt part 1
+    /// finding 02, richos-hq `docs/audits/2026-09-29-hunt/part-1-codex.md`). `outbox_read`
+    /// still moves past them, so the reports after one are never held up behind it; each is
+    /// asked again, from its own report, at every later outbox read, until the engine closes
+    /// it or the register no longer holds it open. He hears the refusal once; a retry that is
+    /// refused again says nothing new. Written only when not empty, and `#[serde(default)]`
+    /// so a record from before it still reads.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    unsettled: BTreeSet<usize>,
+}
+
+/// What one attempt to close a reported assignment came to ([`OperatorHost::settle_handle`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Close {
+    /// Nothing more is owed on this report: it closed, or there is nothing it can close.
+    Done,
+    /// The engine refused for a reason that can pass: the report is owed another try.
+    Refused,
 }
 
 /// The line that names held handles to the lead (F8). Sent at once when he presses Stop on an
@@ -1259,10 +1277,15 @@ impl OperatorHost {
     }
 
     /// Read what the report server appended since the last read, and act on each record.
+    ///
+    /// **A close the engine refused is owed, and it is paid from here** (hunt part 1 finding
+    /// 02). The cursor moving past a report is what keeps a report from being said or settled
+    /// twice, and it still moves; what the refused close still needs is kept beside it in
+    /// [`LeadRecord::unsettled`] and asked again first, at every read, before anything new.
     fn take_reports(&self, conversation: &Arc<Mutex<Conversation>>) {
-        let (key, outbox, from) = {
+        let (key, outbox, from, owed) = {
             let c = conversation.lock().unwrap();
-            (c.key.clone(), c.paths.outbox.clone(), c.record.outbox_read)
+            (c.key.clone(), c.paths.outbox.clone(), c.record.outbox_read, c.record.unsettled.clone())
         };
         let records = match read_outbox(&outbox) {
             Ok(records) => records,
@@ -1271,15 +1294,49 @@ impl OperatorHost {
                 return;
             }
         };
+        for index in owed {
+            let close = match records.get(index) {
+                Some(record) => self.close_again(conversation, &key, record),
+                None => {
+                    self.log(&format!("{}/{}: a refused close at outbox record {index} is no longer in the outbox; \
+                                       nothing to ask again", key.entity_id, key.thread_id));
+                    Close::Done
+                }
+            };
+            if close == Close::Done {
+                let mut c = conversation.lock().unwrap();
+                c.record.unsettled.remove(&index);
+                self.save(&c.paths.record, &c.record);
+            }
+        }
         for (index, record) in records.iter().enumerate().skip(from) {
-            self.report(conversation, &key, record);
+            let close = self.report(conversation, &key, record);
             let mut c = conversation.lock().unwrap();
             c.record.outbox_read = index + 1;
+            if close == Close::Refused {
+                c.record.unsettled.insert(index);
+            }
             self.save(&c.paths.record, &c.record);
         }
     }
 
-    fn report(&self, conversation: &Arc<Mutex<Conversation>>, key: &ConversationKey, record: &ReportRecord) {
+    /// Ask the engine again to close what an earlier report said. Only a report that names a
+    /// handle and reports an ending is ever owed; anything else read here owes nothing.
+    fn close_again(&self, conversation: &Arc<Mutex<Conversation>>, key: &ConversationKey, record: &ReportRecord) -> Close {
+        match (&record.handle, record.kind.as_str()) {
+            (Some(handle), "outcome" | "failed") => {
+                let mut text = record.text.clone();
+                for land in &record.lands {
+                    text.push_str("\n\n");
+                    text.push_str(&land.says);
+                }
+                self.settle_handle(conversation, key, handle, record, &text, true)
+            }
+            _ => Close::Done,
+        }
+    }
+
+    fn report(&self, conversation: &Arc<Mutex<Conversation>>, key: &ConversationKey, record: &ReportRecord) -> Close {
         {
             let mut c = conversation.lock().unwrap();
             c.turn_report = Some(record.text.clone());
@@ -1299,24 +1356,31 @@ impl OperatorHost {
                 self.questions.asked(key, record);
             }
             "outcome" | "failed" => match &record.handle {
-                Some(handle) => self.settle_handle(conversation, key, handle, record, &text),
+                Some(handle) => return self.settle_handle(conversation, key, handle, record, &text, false),
                 None => self.delivery.say(key, &lane, if record.kind == "failed" { Say::Failed } else { Say::Outcome }, &text),
             },
             "answer" => self.delivery.say(key, &lane, Say::Answer, &text),
             _ => self.delivery.say(key, &lane, Say::Update, &text),
         }
+        Close::Done
     }
 
     /// Only a report settles ((c)): close the obligation through the engine, then the register.
+    ///
+    /// `again` is a retry of a close the engine refused earlier ([`LeadRecord::unsettled`]).
+    /// He already heard that report and that it stays open, so a retry speaks only when it
+    /// closes; every other ending of a retry goes to the log.
     fn settle_handle(&self, conversation: &Arc<Mutex<Conversation>>, key: &ConversationKey, handle: &str,
-                     record: &ReportRecord, text: &str) {
+                     record: &ReportRecord, text: &str, again: bool) -> Close {
         let lane = Lane::Handle(handle.to_string());
         let item = match assignment::read(&self.state, &key.entity_id, &key.thread_id, handle) {
             Ok(item) => item,
             Err(e) => {
                 self.log(&format!("{}/{}: report on {handle} names no readable assignment ({e})", key.entity_id, key.thread_id));
-                self.delivery.say(key, &lane, Say::Update, text);
-                return;
+                if !again {
+                    self.delivery.say(key, &lane, Say::Update, text);
+                }
+                return Close::Done;
             }
         };
         // F5: an assignment a report already closed stays closed. He is told so, and never
@@ -1324,8 +1388,10 @@ impl OperatorHost {
         if matches!(item.state, AssignmentState::Settled | AssignmentState::Failed) {
             self.log(&format!("{}/{}: a {} report on {handle}, which is already {}; nothing changed",
                               key.entity_id, key.thread_id, record.kind, item.state.as_str()));
-            self.delivery.say(key, &lane, Say::Team, &format!("{text}\n\n{ALREADY_CLOSED}"));
-            return;
+            if !again {
+                self.delivery.say(key, &lane, Say::Team, &format!("{text}\n\n{ALREADY_CLOSED}"));
+            }
+            return Close::Done;
         }
         let failed = record.kind == "failed";
         // Q3 (c) of Frank's review: CLAUDE.md "Report the ARTIFACT" and r3 (c) "Lands are
@@ -1337,8 +1403,10 @@ impl OperatorHost {
         if !failed && record.lands.iter().any(|l| !l.landed) {
             self.log(&format!("{}/{}: an outcome on {handle} names a land that could not be confirmed; it stays open",
                               key.entity_id, key.thread_id));
-            self.delivery.say(key, &lane, Say::Team, &format!("{text}\n\n{UNCONFIRMED_STAYS_OPEN}"));
-            return;
+            if !again {
+                self.delivery.say(key, &lane, Say::Team, &format!("{text}\n\n{UNCONFIRMED_STAYS_OPEN}"));
+            }
+            return Close::Done;
         }
         // A failure closes on its answer alone: the engine refuses a `git:` item on a withdrawn
         // close ("a land cannot close a failed assignment", `app.py` `operator_complete`). Any
@@ -1378,17 +1446,30 @@ impl OperatorHost {
                     self.log(&format!("could not close {handle}'s questions: {error}"));
                 }
                 self.delivery.say(key, &lane, if failed { Say::Failed } else { Say::Outcome }, text);
+                Close::Done
             }
-            Err(why) => {
+            // The engine's own words for an obligation that is no longer open (`app.py`
+            // `operator_complete`): closed already, with a register that did not say so.
+            // Nothing is owed: asking again would be refused the same way.
+            Err(why) if why.contains(ENGINE_NOT_OPEN) => {
                 self.log(&format!("{}/{}: operator-complete refused {handle}: {why}", key.entity_id, key.thread_id));
-                // The engine's own words for an obligation that is no longer open (`app.py`
-                // `operator_complete`): closed already, with a register that did not say so.
-                let said = if why.contains(ENGINE_NOT_OPEN) {
-                    format!("{text}\n\n{ALREADY_CLOSED}")
-                } else {
-                    format!("{text}\n\nYour team reported this, but RichOS could not record it as closed ({why}). It stays open.")
-                };
-                self.delivery.say(key, &lane, Say::Team, &said);
+                if !again {
+                    self.delivery.say(key, &lane, Say::Team, &format!("{text}\n\n{ALREADY_CLOSED}"));
+                }
+                Close::Done
+            }
+            // **Any other refusal is not a verdict on the work, and it is owed** (finding 02).
+            // No close is invented: the register and the open handle stay as they are, and he
+            // is told it stays open, once. The report is asked again at the next outbox read.
+            Err(why) => {
+                self.log(&format!("{}/{}: operator-complete refused {handle}{}: {why}", key.entity_id, key.thread_id,
+                                  if again { " again" } else { "" }));
+                if !again {
+                    self.delivery.say(key, &lane, Say::Team, &format!(
+                        "{text}\n\nYour team reported this, but RichOS could not record it as closed ({why}). \
+                         It stays open, and RichOS will try again."));
+                }
+                Close::Refused
             }
         }
     }
@@ -2240,6 +2321,51 @@ pub(crate) mod tests {
         r.host.handle(&key("a"), turn(&[], None));
         assert_eq!(assignment::read(&r.state, "femcboost", "a", &handle).unwrap().state, AssignmentState::Registered);
         assert!(r.said.all().iter().any(|(_, _, k, t)| *k == Say::Team && t.contains("could not record it as closed")));
+    }
+
+    /// **Hunt part 1 finding 02** (richos-hq `docs/audits/2026-09-29-hunt/part-1-codex.md`):
+    /// a close the engine refused for a passing reason is tried again at the next outbox read,
+    /// from the same report, even though the report cursor has moved past it. It is said to
+    /// him once when refused and once when it closes, never again at every read, and a read
+    /// after it closed asks the engine nothing. What is owed is in the saved lead record, so
+    /// the app after a crash still retries it; the second half drives that.
+    #[test]
+    fn a_refused_close_is_asked_again_at_the_next_outbox_read_and_said_once() {
+        let r = rig();
+        let handle = register(&r, "a", AssignmentKind::Task);
+        r.host.relay(&key("a"), "A", Some(&handle), "Land it.", Origin::DeskTyped).unwrap();
+        *r.settle.refuse.lock().unwrap() = Some("the engine's store is locked".into());
+        outbox(&r, "a", &[report(Some(&handle), "outcome", "Done.")]);
+        r.host.handle(&key("a"), turn(&[], None));
+        assert_eq!(assignment::read(&r.state, "femcboost", "a", &handle).unwrap().state, AssignmentState::Registered);
+        assert_eq!(record_of(&r, "a").outbox_read, 1, "later reports are not held up behind the refused one");
+        // Still refused at the next read: nothing new is said to him.
+        r.host.handle(&key("a"), turn(&[], None));
+        // The engine takes it now. No new report arrives: the retry comes from the old one.
+        *r.settle.refuse.lock().unwrap() = None;
+        r.host.handle(&key("a"), turn(&[], None));
+        assert_eq!(r.settle.calls.lock().unwrap().len(), 1, "the refused close was never asked again");
+        assert_eq!(assignment::read(&r.state, "femcboost", "a", &handle).unwrap().state, AssignmentState::Settled);
+        assert!(!open_handles(&r, "a").contains(&handle));
+        let said = r.said.all();
+        assert_eq!(said.iter().filter(|x| x.2 == Say::Team).count(), 1, "{said:?}");
+        assert_eq!(said.iter().filter(|x| x.2 == Say::Outcome).count(), 1, "{said:?}");
+        // Closed: a later read asks nothing.
+        r.host.handle(&key("a"), turn(&[], None));
+        assert_eq!(r.settle.calls.lock().unwrap().len(), 1);
+
+        // **Across a crash.** Refused, then the app dies; the relaunched host owes the retry.
+        let other = register(&r, "a", AssignmentKind::Task);
+        r.host.relay(&key("a"), "A", Some(&other), "Land the other one.", Origin::DeskTyped).unwrap();
+        *r.settle.refuse.lock().unwrap() = Some("the engine's store is locked".into());
+        outbox(&r, "a", &[report(Some(&other), "outcome", "Done too.")]);
+        r.host.handle(&key("a"), turn(&[], None));
+        *r.settle.refuse.lock().unwrap() = None;
+        let again = relaunched(&r);
+        again.relay(&key("a"), "A", None, "Anything else?", Origin::DeskTyped).unwrap();
+        again.handle(&key("a"), turn(&[], None));
+        assert_eq!(r.settle.calls.lock().unwrap().len(), 2, "the relaunched app never asked again");
+        assert_eq!(assignment::read(&r.state, "femcboost", "a", &other).unwrap().state, AssignmentState::Settled);
     }
 
     #[test]

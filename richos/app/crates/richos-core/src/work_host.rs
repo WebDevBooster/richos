@@ -395,6 +395,8 @@ pub struct WorkHost {
     answered_close: Mutex<Option<Arc<dyn AnsweredClose>>>,
     /// [`COMMAND_WAIT_BUDGET`] in production; shortened by tests, like `screen_poll`.
     command_wait: Mutex<std::time::Duration>,
+    /// [`WORKER_WAIT_BUDGET`] in production; shortened by tests, like `command_wait`.
+    worker_wait: Mutex<std::time::Duration>,
 }
 
 /// The context window this build assumes while a back end has reported nothing, and the
@@ -496,14 +498,24 @@ const CONTINUATION_REASK_LIMIT: usize = 1;
 /// as what could be witnessed rather than spinning.
 const WORKER_WAIT_ROUNDS: usize = 6;
 
-/// How long ONE wait may last before the host stops waiting and claims nothing.
+/// How long ONE wait for a helper lasts before the row says it is taking longer than usual.
 ///
-/// **It is a bound on a wait, never a verdict on the worker.** `wait_for_owned_workers`
-/// returning `false` says "I did not see it end", and the arm that reports says exactly that.
-/// Twenty minutes is longer than any worker run measured on this product (the longest, a
-/// `work_lease_roundtrip` worker that actually wrote and committed, was 3 m 41 s) and short
-/// enough that a CEO who walks away is not left with a row that never moves.
+/// **It is a bound on what the row says, never a verdict on the worker, and never the end of
+/// the wait.** Twenty minutes is longer than any worker run measured on this product (the
+/// longest, a `work_lease_roundtrip` worker that actually wrote and committed, was 3 m 41 s)
+/// and short enough that a CEO who walks away is not left with a row that never moves: at the
+/// bound it moves to [`HELPER_TAKING_LONGER_DETAIL`], which names his Stop as the way out.
+///
+/// It used to END the wait, and the job then failed with its grant revoked while the journal
+/// still showed its helper at work (hunt part 1 finding 06, richos-hq
+/// `docs/audits/2026-09-29-hunt/part-1-codex.md`). Elapsed time is not evidence that a helper
+/// failed; only its own `SubagentStop`, his Stop or a quit ends the wait.
 const WORKER_WAIT_BUDGET: std::time::Duration = std::time::Duration::from_secs(20 * 60);
+
+/// What the row says once a helper has outlived [`WORKER_WAIT_BUDGET`] and is still witnessed
+/// open. The job is still `Running`, which is true, and the sentence names the way out.
+pub const HELPER_TAKING_LONGER_DETAIL: &str =
+    "A helper is still doing the work. It is taking longer than usual; Stop ends it if you do not want to wait.";
 
 /// How often the wait re-reads the journal. One small file; chosen for how soon the back end
 /// gets its next turn, not for cost.
@@ -660,6 +672,7 @@ impl WorkHost {
             operator: Mutex::new(None),
             answered_close: Mutex::new(None),
             command_wait: Mutex::new(COMMAND_WAIT_BUDGET),
+            worker_wait: Mutex::new(WORKER_WAIT_BUDGET),
         })
     }
 
@@ -668,6 +681,13 @@ impl WorkHost {
     #[doc(hidden)]
     pub fn set_command_wait_budget(&self, budget: std::time::Duration) {
         *self.command_wait.lock().unwrap() = budget;
+    }
+
+    /// [`WORKER_WAIT_BUDGET`], shortened. Test scaffolding, same reason and shape as
+    /// [`Self::set_command_wait_budget`].
+    #[doc(hidden)]
+    pub fn set_worker_wait_budget(&self, budget: std::time::Duration) {
+        *self.worker_wait.lock().unwrap() = budget;
     }
 
     /// **How an assignment the back end handled itself is closed in the engine** — see
@@ -1550,9 +1570,10 @@ impl WorkHost {
         // is given one more turn, on the same seat and the same open grant, saying the helper
         // has ended and to carry on. A CEO Stop and a quit both end the wait at once.
         //
-        // If the bound is reached, nothing is claimed: the loop stops and the existing
-        // readings below report what they can witness — which is the `Outcome::StillRunning`
-        // arm's *"nothing could be witnessed finishing it"*, unchanged.
+        // Reaching the bound claims nothing either way: the row says the helper is taking
+        // longer than usual and the wait goes on (hunt part 1 finding 06). Only when the wait
+        // ends for another reason (his Stop, a quit, the lease or the evidence gone) do the
+        // readings below report what they can witness.
         //
         // ===================================================================================
         // 3c. SO DOES A COMMAND IT STARTED IN THE BACKGROUND — esc-20260927T093052Z-85f3303f
@@ -2212,7 +2233,9 @@ impl WorkHost {
 
     /// **Wait for every run this lease has open to be WITNESSED ending.** `true` when they
     /// all did, `false` when the wait ended for any other reason — a CEO Stop, a quit, the
-    /// lease going away, the evidence becoming unreadable, or the bound being reached.
+    /// quota hold being stopped, the lease going away, or the evidence becoming unreadable.
+    /// Reaching [`WORKER_WAIT_BUDGET`] is not one of them: it changes what the row says and
+    /// nothing else.
     ///
     /// A `false` claims nothing at all. The readings after the caller's loop are what report,
     /// and they report what can be witnessed, exactly as they did before this existed.
@@ -2225,7 +2248,9 @@ impl WorkHost {
     fn wait_for_owned_workers(
         self: &Arc<Self>, backend: &Arc<Backend>, record: &Assignment, session: &str,
     ) -> bool {
-        let mut deadline = std::time::Instant::now() + WORKER_WAIT_BUDGET;
+        let budget = *self.worker_wait.lock().unwrap();
+        let mut deadline = std::time::Instant::now() + budget;
+        let mut told = false;
         loop {
             let before = std::time::Instant::now();
             if !self.quota_gate(backend, record, true) { return false; }
@@ -2246,13 +2271,24 @@ impl WorkHost {
             if view.active + view.liveness_unknown == 0 {
                 return true;
             }
-            if std::time::Instant::now() >= deadline {
+            // **The bound is where the row says so, never where the wait ends** (hunt part 1
+            // finding 06). Ending here used to revoke the grant the helper works under and
+            // fail the job on "nothing could be witnessed finishing it", about a helper the
+            // journal still showed at work. So the wait goes on, on the same positive signal,
+            // and the row stops reading like an ordinary wait: it says this one is taking
+            // longer than usual and that his Stop ends it (the check at the top of this loop).
+            if !told && std::time::Instant::now() >= deadline {
+                told = true;
                 eprintln!(
-                    "[richos] work: waited {WORKER_WAIT_BUDGET:?} for this back end's helpers and \
-                     {} are still open; nothing is being claimed about them",
+                    "[richos] work: waited {budget:?} for this back end's helpers and \
+                     {} are still open; still waiting for them to end, and nothing is being \
+                     claimed about them",
                     view.active + view.liveness_unknown
                 );
-                return false;
+                if let Err(error) = assignment::advance(&self.state, &record.entity_id, &record.thread_id, &record.id,
+                                                        AssignmentState::Running, HELPER_TAKING_LONGER_DETAIL) {
+                    eprintln!("[richos] work: the row could not say the helper is taking longer: {error}");
+                }
             }
             std::thread::sleep(WORKER_WAIT_POLL);
         }
@@ -5288,6 +5324,72 @@ mod tests {
             h.host.shutdown();
             let _ = std::fs::remove_dir_all(&h.root);
         }
+    }
+
+    /// **Hunt part 1 finding 06** (richos-hq `docs/audits/2026-09-29-hunt/part-1-codex.md`): a
+    /// helper that is still witnessed open when the wait's bound is reached is not a failure.
+    /// The bound used to end the wait, revoke the grant the helper works under and fail the
+    /// job on "nothing could be witnessed finishing it". Now the job stays `Running`, the row
+    /// says the helper is taking longer than usual and that Stop ends it, the grant stays, and
+    /// the helper's own `SubagentStop` carries the job on exactly as a quick helper's does.
+    #[test]
+    fn a_helper_still_working_past_the_wait_bound_is_waited_for_and_never_failed() {
+        use crate::cognition::ObligationState;
+        let h = harness(5);
+        *h.obligation.lock().unwrap() = Some(ObligationState::Settled);
+        h.host.set_worker_wait_budget(std::time::Duration::from_millis(50));
+        // A worker's receipt, so the job is one a helper works on rather than one the back end
+        // answered itself; before this fix it therefore ended in the "nothing could be
+        // witnessed finishing it" failure the report names.
+        engine_receipt(&h, "worker-1", "obligation-7", "worker", None, None);
+        witnessed(&h.state, "work-session-one");
+        let journal = h.state.join("evidence").join("work-session-one").join("callbacks.jsonl");
+        let row = |body: serde_json::Value| serde_json::json!({"schema": 1, "callback": body}).to_string() + "\n";
+        std::fs::write(
+            &journal,
+            row(serde_json::json!({"session_id":"work-session-one","hook_event_name":"SubagentStart","agent_id":"helper-1"}))
+                + &row(serde_json::json!({"session_id":"work-session-one","hook_event_name":"PostToolUse",
+                    "tool_name":"Agent","tool_response":{"isAsync":true,"status":"async_launched","agentId":"helper-1"}})),
+        )
+        .unwrap();
+        *h.answer_reply.lock().unwrap() = "carrying on".to_string();
+        h.host.start();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+
+        // The host is waiting for the helper; then the bound passes with the helper still open.
+        let read = || assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while read().detail != "A helper is doing the work." {
+            assert!(std::time::Instant::now() < deadline, "the host never waited for the helper");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        // One poll of the journal is 2 s; the bound is 50 ms. The row moves once the bound is
+        // passed: to a failure before this fix, to the longer wait now.
+        while read().detail == "A helper is doing the work." {
+            assert!(std::time::Instant::now() < deadline, "nothing happened at the bound");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let waiting = read();
+        assert_eq!(waiting.state, AssignmentState::Running, "a helper still at work failed the job: {}", waiting.detail);
+        assert!(waiting.detail.contains("still doing the work"), "{}", waiting.detail);
+        assert!(waiting.detail.contains("Stop"), "the way out is not named: {}", waiting.detail);
+        assert_eq!(h.revoked.load(Ordering::SeqCst), 0, "the grant the helper works under was taken away");
+        assert!(h.notices.0.lock().unwrap().iter().all(|(_, n)| n.kind != NoticeKind::Failed));
+
+        // The helper finishes: the ordinary continuation, and the job ends on its evidence.
+        let stop = row(serde_json::json!({"session_id":"work-session-one","hook_event_name":"SubagentStop","agent_id":"helper-1"}));
+        let mut file = std::fs::OpenOptions::new().append(true).open(&journal).unwrap();
+        std::io::Write::write_all(&mut file, stop.as_bytes()).unwrap();
+        drop(file);
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(60)));
+        let prompts = h.work_prompts.lock().unwrap().clone();
+        assert_eq!(prompts.len(), 2, "{prompts:?}");
+        assert_eq!(prompts[1], WORKER_ENDED_CONTINUATION);
+        let done = read();
+        assert_eq!(done.state, AssignmentState::Settled, "{}", done.detail);
+        assert!(h.notices.0.lock().unwrap().iter().all(|(_, n)| n.kind != NoticeKind::Failed));
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
     }
 
     /// **A work receipt as the ENGINE writes it**, in the partition the engine writes it to
