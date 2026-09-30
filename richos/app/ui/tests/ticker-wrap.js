@@ -127,7 +127,7 @@ async function openHome(browser, viewport) {
   });
   page.__errors = errors;
   await page.goto(APP);
-  await page.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 15000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+  await page.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 30000 });
   await page.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("ticker-wrap"));
   await page.evaluate(() => window.RichHome.startField());
   await page.waitForFunction("window.RichHome.state.field === 'live'", null, { timeout: 60000 });

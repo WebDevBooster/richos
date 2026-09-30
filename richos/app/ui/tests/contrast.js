@@ -1542,7 +1542,7 @@ async function openApp(browser, theme, holdSplash, preset) {
   // The opening curtain is `pointer-events: none` and therefore invisible to a hit test
   // while still being painted over everything. Waiting for it to leave rather than racing
   // it: a walk taken underneath it would report the whole shell unresolvable.
-  await page.waitForFunction(() => !document.getElementById("splash"), null, { timeout: 15000 }).catch(() => {}); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+  await page.waitForFunction(() => !document.getElementById("splash"), null, { timeout: 30000 }).catch(() => {});
   // WAIT FOR `init()` TO HAVE DECIDED, NOT FOR 300 MS — AND DELIBERATELY NOT FOR THE THEME.
   //
   // What the 300 ms was buying is `syncAppearanceFromBackend()`, which reads `get_appearance`

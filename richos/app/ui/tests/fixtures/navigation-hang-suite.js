@@ -49,12 +49,12 @@ async function main() {
   await run.check("hang: " + MODE, async () => {
     const page = await browser.newPage({ viewport: { width: 640, height: 360 }, colorScheme: "dark" });
     if (MODE === "stall-subresource") {
-      await page.goto(origin + "/stall", { timeout: 1500 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+      await page.goto(origin + "/stall", { timeout: 1500 });
     } else if (MODE === "never-document") {
       page.setDefaultNavigationTimeout(1200);
       await page.goto(origin + "/never-document");
     } else if (MODE === "wedged") {
-      await page.goto(origin + "/wedged", { timeout: 1500 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+      await page.goto(origin + "/wedged", { timeout: 1500 });
     } else {
       throw new Error("unknown fixture mode " + MODE);
     }

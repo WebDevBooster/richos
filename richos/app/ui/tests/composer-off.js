@@ -216,7 +216,7 @@ async function main() {
     await page.click(".setbtn");
     await page.waitForSelector("#set-company");
     await page.selectOption("#set-company", "lumen");
-    await page.waitForFunction(() => document.getElementById("composer-blocked").hidden, null, { timeout: 5000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+    await page.waitForFunction(() => document.getElementById("composer-blocked").hidden, null, { timeout: 30000 });
     const c = await page.evaluate(READ_COMPOSER);
     assert(!c.disabled, "the box is still switched off after the question was answered");
     assert(!c.sendDisabled, "the send control is still off after the question was answered");

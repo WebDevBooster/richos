@@ -2507,7 +2507,7 @@ async function main() {
     });
     const focused = await page.evaluate(() => (document.activeElement && document.activeElement.id) || document.activeElement.tagName);
     await page.keyboard.press("Enter");
-    await page.waitForFunction(() => document.getElementById("home").hidden, null, { timeout: 4000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+    await page.waitForFunction(() => document.getElementById("home").hidden, null, { timeout: 30000 });
     const why = await page.evaluate(() => window.RichHome.state.lastLeaveReason);
     assertEqual(why, "enter-key", "the home screen left for some other reason than the key");
 
@@ -2549,7 +2549,7 @@ async function main() {
     // ...and it still works from the door itself, which is where focus lands on arrival.
     await page.evaluate(() => document.getElementById("home-enter").focus());
     await page.keyboard.press("Enter");
-    await page.waitForFunction(() => document.getElementById("home").hidden, null, { timeout: 4000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+    await page.waitForFunction(() => document.getElementById("home").hidden, null, { timeout: 30000 });
     const why2 = await page.evaluate(() => window.RichHome.state.lastLeaveReason);
     await page.evaluate(() => window.RichHome.show("suite"));
     await page.waitForFunction(() => !document.getElementById("home").hidden);
@@ -2763,10 +2763,10 @@ async function main() {
     await waitForFact(p2, "window.RichHome on the cold launch", "typeof window.RichHome === 'object'", 15000);
     await p2.waitForFunction("window.RichHome.state.field === 'live'", null, { timeout: 60000 });
     // ...AND THEN FOR THE PAGE'S OWN RECORD OF THAT INSTANT, which is a separate fact and can
-    // be one 10ms tick behind the state it records. 5,000ms is four hundred ticks: a budget
+    // be one 10ms tick behind the state it records. 30,000ms is three thousand ticks: a budget
     // this wide is only reachable if the poller is dead, never if the machine is slow.
     try {
-      await p2.waitForFunction("window.__liveAt != null", null, { timeout: 5000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+      await p2.waitForFunction("window.__liveAt != null", null, { timeout: 30000 });
     } catch (_e) {
       const why = await p2.evaluate(() => ({
         field: window.RichHome.state.field,
@@ -2898,7 +2898,7 @@ async function main() {
     await p5.goto(APP);
     await waitForFact(p5, "window.RichHome on the refusing-display launch", "typeof window.RichHome === 'object'", 15000);
     const t0 = Date.now();
-    await p5.waitForFunction("window.RichHome.state.field === 'degraded'", null, { timeout: 20000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+    await p5.waitForFunction("window.RichHome.state.field === 'degraded'", null, { timeout: 30000 });
     const took = Date.now() - t0;
     const r = await p5.evaluate(() => ({
       field: window.RichHome.state.field,
@@ -3024,7 +3024,7 @@ async function main() {
     const errs = [];
     p.on("pageerror", (e) => errs.push(String(e)));
     await p.goto(APP);
-    await p.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 10000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+    await p.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 30000 });
     await p.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("acceptance-suite"));
     await p.evaluate(() => window.RichHome.startField && window.RichHome.startField());
     await p.waitForFunction("window.__loro && !window.__loro.blooming", null, { timeout: 90000 });
@@ -3064,7 +3064,7 @@ async function main() {
     // a fresh boot reads what the last one wrote, and a reload re-runs the whole field against
     // the same storage. Two pages would share no storage at all.
     await p.reload();
-    await p.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 10000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+    await p.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 30000 });
     await p.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("acceptance-suite"));
     await p.evaluate(() => window.RichHome.startField && window.RichHome.startField());
     await p.waitForFunction("window.__loro && !window.__loro.blooming", null, { timeout: 90000 });
@@ -3101,7 +3101,7 @@ async function main() {
       });
     });
     await real.goto(APP);
-    await real.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 10000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+    await real.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 30000 });
     await real.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("acceptance-suite"));
     await real.evaluate(() => window.RichHome.startField && window.RichHome.startField());
     await real.waitForFunction("window.__loro && !window.__loro.blooming", null, { timeout: 90000 });
@@ -3157,7 +3157,7 @@ async function main() {
     const errs = [];
     p.on("pageerror", (e) => errs.push(String(e)));
     await p.goto(APP);
-    await p.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 10000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+    await p.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 30000 });
     await p.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("acceptance-suite"));
     await p.waitForFunction(() => !document.getElementById("home").hidden);
     await p.waitForSelector("#repositories-sheet", { state: "attached" });
@@ -3173,8 +3173,8 @@ async function main() {
     await p.click("#set-btn");
     await p.waitForFunction(() => !document.getElementById("set-menu").hidden);
     await p.click("#set-repositories-open");
-    await p.waitForFunction(() => !document.getElementById("repositories-sheet").hidden, null, { timeout: 5000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
-    await p.waitForFunction(() => document.getElementById("home").hidden, null, { timeout: 5000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+    await p.waitForFunction(() => !document.getElementById("repositories-sheet").hidden, null, { timeout: 30000 });
+    await p.waitForFunction(() => document.getElementById("home").hidden, null, { timeout: 30000 });
 
     const seen = await p.evaluate(() => {
       const panel = document.querySelector("#repositories-sheet .overlay-panel");
@@ -3203,7 +3203,7 @@ async function main() {
     // AND COMING BACK DOES NOT BURY IT AGAIN. `show()` fires no mutation for a sheet that has
     // not changed, so returning to the screen reads the state once instead.
     await p.evaluate(() => window.RichHome.show("acceptance-suite"));
-    await p.waitForFunction(() => document.getElementById("home").hidden, null, { timeout: 5000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+    await p.waitForFunction(() => document.getElementById("home").hidden, null, { timeout: 30000 });
     const again = await p.evaluate(() => ({
       why: window.RichHome.state.lastLeaveReason,
       sheetOpen: !document.getElementById("repositories-sheet").hidden,

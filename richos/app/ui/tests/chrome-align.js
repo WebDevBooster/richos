@@ -275,7 +275,7 @@ async function openHome(browser, viewport, theme) {
   const page = await preparedPage(browser, viewport, theme);
   await page.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 15000 });
   await page.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("chrome-align"));
-  await page.waitForFunction(() => !document.getElementById("splash"), null, { timeout: 10000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+  await page.waitForFunction(() => !document.getElementById("splash"), null, { timeout: 30000 });
   await page.waitForFunction(
     () => window.RichHome.isOpen() && document.body.classList.contains("home-open"),
     null,

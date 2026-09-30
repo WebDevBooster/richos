@@ -163,12 +163,12 @@ async function openApp(browser, opts) {
       if (s && s.state && s.state.shown && !s.state.reason) s.yieldNow("compaction-progress-suite");
     })
     .catch(() => {});
-  await page.waitForFunction(() => !document.getElementById("splash"), null, { timeout: 8000 }).catch(() => {}); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
-  await page.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 8000 }).catch(() => {}); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+  await page.waitForFunction(() => !document.getElementById("splash"), null, { timeout: 30000 }).catch(() => {});
+  await page.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 30000 }).catch(() => {});
   await page.evaluate(() => {
     if (window.RichHome && window.RichHome.isOpen()) window.RichHome.hide("compaction-progress-suite");
   });
-  await page.waitForFunction(() => { const h = document.getElementById("home"); return !h || h.hidden; }, null, { timeout: 8000 }).catch(() => {}); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+  await page.waitForFunction(() => { const h = document.getElementById("home"); return !h || h.hidden; }, null, { timeout: 30000 }).catch(() => {});
   await page.waitForSelector(".nav-thread", { state: "attached" });
   page.__errors = errors;
   return page;

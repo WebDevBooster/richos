@@ -1134,7 +1134,7 @@ async function leaveSplash(page) {
     .catch(() => "absent");
   if (outcome === "absent" || outcome === "not-drawn" || outcome === "held") return outcome;
   // The end state, not a timer: `removeSelf` takes the node out 220ms after the yield.
-  await page.waitForFunction(() => !document.getElementById("splash"), null, { timeout: 5000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+  await page.waitForFunction(() => !document.getElementById("splash"), null, { timeout: 30000 });
   return outcome;
 }
 

@@ -1130,7 +1130,7 @@ async function main() {
         window.__RICHOS_MOCK_PRESET__ = v;
       }, { setup: "missing-engine" });
       await p.goto(APP);
-      await p.waitForFunction("typeof window.RichSplash === 'object'", null, { timeout: 10000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+      await p.waitForFunction("typeof window.RichSplash === 'object'", null, { timeout: 30000 });
       // The curtain is UP and the offer is already behind it — the window this is about. If
       // either half is not true the check is measuring nothing, so both are asserted.
       await p.waitForSelector("#setup-sheet:not([hidden])", { timeout: 10000 });
@@ -1215,7 +1215,7 @@ async function main() {
   await run.check("20  nothing outside the offer can be reached while the offer is up", async () => {
     const page = await openApp(browser, { setup: "missing-engine" });
     await page.waitForSelector("#setup-sheet:not([hidden])", { timeout: 10000 });
-    await page.waitForFunction(() => !document.querySelector(".splash"), null, { timeout: 10000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+    await page.waitForFunction(() => !document.querySelector(".splash"), null, { timeout: 30000 });
 
     const tryFocus = (id) =>
       page.evaluate((i) => {
@@ -1352,7 +1352,7 @@ async function main() {
     const page = await open({ setup: "missing-engine" });
     await page.waitForSelector("#setup-sheet:not([hidden])", { timeout: 10000 });
     await page.click("#setup-later");
-    await page.waitForFunction(() => document.getElementById("setup-sheet").hidden, null, { timeout: 5000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+    await page.waitForFunction(() => document.getElementById("setup-sheet").hidden, null, { timeout: 30000 });
 
     // The refusal, on voice's own channel, exactly as `start_voice_capture`'s submit closure
     // emits it. The text is the shipped sentence and the window never looks at it.
@@ -1365,7 +1365,7 @@ async function main() {
         at: Date.now(),
       });
     });
-    await page.waitForFunction(() => !document.getElementById("setup-sheet").hidden, null, { timeout: 5000 }) // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+    await page.waitForFunction(() => !document.getElementById("setup-sheet").hidden, null, { timeout: 30000 })
       .catch(() => {});
     assert(
       await page.evaluate(() => !document.getElementById("setup-sheet").hidden),

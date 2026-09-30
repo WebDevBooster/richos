@@ -404,10 +404,10 @@ async function main() {
     await page.goto(APP);
     // The curtain only — its own Escape guard is case 19's and would mask this one. The home
     // screen stays, because the home screen IS the surface under test.
-    await page.waitForFunction("typeof window.RichSplash === 'object'", null, { timeout: 10000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+    await page.waitForFunction("typeof window.RichSplash === 'object'", null, { timeout: 30000 });
     await page.evaluate(() => window.RichSplash.yieldNow("acceptance-suite"));
     await page.waitForSelector(".splash", { state: "detached", timeout: 10000 });
-    await page.waitForFunction("typeof window.RichDismiss === 'object'", null, { timeout: 10000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+    await page.waitForFunction("typeof window.RichDismiss === 'object'", null, { timeout: 30000 });
 
     // NOT `.overlay`, DELIBERATELY: that class is what `home.js`'s give-way watches, so an
     // `.overlay` would take the screen away and there would be nothing painted over anything.

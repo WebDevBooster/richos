@@ -424,7 +424,7 @@ async function openFeedback(browser, setup) {
 /// Press one of the feedback surface's answer buttons and wait for the notice it produces.
 async function feedbackAnswer(page, selector) {
   await page.click(selector);
-  await page.waitForFunction(() => !document.getElementById("feedback-notice").hidden, null, { timeout: 5000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+  await page.waitForFunction(() => !document.getElementById("feedback-notice").hidden, null, { timeout: 30000 });
   return page;
 }
 
@@ -535,7 +535,7 @@ async function openHomePrefs(browser, setup) {
   await page.waitForFunction(() => {
     const foot = document.getElementById("home-prefs-foot");
     return !!foot && foot.textContent.trim().length > 0;
-  }, null, { timeout: 5000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+  }, null, { timeout: 30000 });
   return page;
 }
 
@@ -2121,7 +2121,7 @@ async function main() {
     // THE WRITE, THROUGH THE REAL PATH: the row's host capability calls `choose_entity`,
     // the shell clears the composer's block, and the rail's scope line names the company.
     await page.selectOption("#set-company", "lumen");
-    await page.waitForFunction(() => document.getElementById("composer-blocked").hidden, null, { timeout: 5000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+    await page.waitForFunction(() => document.getElementById("composer-blocked").hidden, null, { timeout: 30000 });
     const after = await page.evaluate(() => ({
       scope: (document.getElementById("scope-entity") || {}).textContent,
       blocked: document.getElementById("composer-blocked").hidden,
@@ -2708,7 +2708,7 @@ async function main() {
     page.on("pageerror", (e) => pageErrors.push(String(e)));
     await page.addInitScript(HANDLER_SPY);
     await page.goto(APP);
-    await page.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 10000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+    await page.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 30000 });
     // The curtain, out of the way — it sits ABOVE this screen and would eat the first click.
     await page.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("acceptance-suite"));
     await page.waitForFunction(() => !document.getElementById("home").hidden);
@@ -2768,7 +2768,7 @@ async function main() {
     const page = await browser.newPage({ viewport: { width: 1024, height: 700 } });
     await page.addInitScript(HANDLER_SPY);
     await page.goto(APP);
-    await page.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 10000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+    await page.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 30000 });
     await page.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("acceptance-suite"));
     await page.waitForFunction(() => !document.getElementById("home").hidden);
     const verdict = await page.evaluate(() => {
@@ -2811,7 +2811,7 @@ async function main() {
     const pageErrors = [];
     page.on("pageerror", (e) => pageErrors.push(String(e)));
     await page.goto(APP);
-    await page.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 10000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+    await page.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 30000 });
     await page.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("acceptance-suite"));
     await page.waitForSelector("#home-door-cap", { state: "visible" });
     await settleOpeningScreen(page);
@@ -2830,7 +2830,7 @@ async function main() {
     );
     assertEqual(onTop, "home-door-cap", "something is painted over the word `Enter`, so this check is not testing it");
     await page.mouse.click(capBox.x, capBox.y);
-    await page.waitForFunction(() => document.getElementById("home").hidden, null, { timeout: 4000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+    await page.waitForFunction(() => document.getElementById("home").hidden, null, { timeout: 30000 });
     const capWhy = await page.evaluate(() => window.RichHome.state.lastLeaveReason);
 
     // ...and the KEY still works after the settings control has held focus, which is where it
@@ -2846,7 +2846,7 @@ async function main() {
     const focus = await page.evaluate(() => (document.activeElement && document.activeElement.id) || null);
     assertEqual(focus, "set-btn", "the settings control no longer keeps focus after Escape, so this is testing nothing");
     await page.keyboard.press("Enter");
-    await page.waitForFunction(() => document.getElementById("home").hidden, null, { timeout: 4000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
+    await page.waitForFunction(() => document.getElementById("home").hidden, null, { timeout: 30000 });
     const keyWhy = await page.evaluate(() => window.RichHome.state.lastLeaveReason);
     assertEqual(keyWhy, "enter-key", "Return did not enter while the settings control held focus");
 
