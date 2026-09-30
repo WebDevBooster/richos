@@ -413,6 +413,78 @@ class Commit(Fixture):
         self.git("merge", "--no-ff", "--no-verify", "-m", "bring main in", "main")
         self.assertIn("skipped the automatic checks (--no-verify)", self.recorded())
 
+    # Hunt part 2, finding 10: the commit check linted the working copy and approved the staged
+    # copy. A bad staged edit whose unstaged replacement passed committed with no record.
+    def assert_aside_restored(self):
+        self.assertFalse((self.repo / ".git/richos-autocheck-aside").exists(),
+                         "the set-aside edits were left behind")
+
+    def test_a_staged_copy_that_fails_the_lint_is_refused_although_the_working_copy_passes(self):
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        before = self.head()
+        self.write("richos/app/src/bad.txt", "LINT-BAD\n")
+        self.git("add", "-A")
+        self.write("richos/app/src/bad.txt", "fine in the working tree\n")
+        out = self.git("commit", "-m", "bad staged, clean unstaged", expect=None)
+        self.assertEqual(out.returncode, 1, "a bad staged copy was committed:\n" + out.stderr)
+        self.assertIn("Lint refused: lint growth: fixture-rule: 1 > 0", out.stderr)
+        self.assertEqual(self.head(), before)
+        # The unstaged edit is back byte for byte, and still unstaged.
+        self.assertEqual((self.repo / "richos/app/src/bad.txt").read_text(), "fine in the working tree\n")
+        self.assertEqual(self.git("show", ":richos/app/src/bad.txt").stdout, "LINT-BAD\n")
+        self.assert_aside_restored()
+
+    def test_a_clean_staged_copy_commits_and_unstaged_and_untracked_work_survives(self):
+        # The same defect the other way: the verdict was about bytes the commit does not hold.
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        self.write("richos/app/src/thing.txt", "fine, staged\n")
+        self.git("add", "-A")
+        self.write("richos/app/src/thing.txt", "LINT-BAD, still being written\n")
+        self.write("richos/app/src/draft/notes.txt", "LINT-BAD draft, never staged\n")
+        out = self.git("commit", "-m", "the staged copy is clean", expect=None)
+        self.assertEqual(out.returncode, 0, "unstaged work refused a clean commit:\n" + out.stderr)
+        self.assertIn("autocheck: commit: passed", out.stderr)
+        self.assertEqual(self.git("show", "HEAD:richos/app/src/thing.txt").stdout, "fine, staged\n")
+        self.assertEqual((self.repo / "richos/app/src/thing.txt").read_text(), "LINT-BAD, still being written\n")
+        self.assertEqual((self.repo / "richos/app/src/draft/notes.txt").read_text(), "LINT-BAD draft, never staged\n")
+        self.assertEqual(self.git("status", "--porcelain").stdout,
+                         " M richos/app/src/thing.txt\n?? richos/app/src/draft/\n")
+        self.assertEqual(self.recorded(), "")
+        self.assert_aside_restored()
+
+    def test_commit_with_a_path_checks_only_what_that_commit_holds(self):
+        # `git commit <path>` commits through a temporary index; the check must use it too.
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        self.write("richos/app/src/thing.txt", "fine, by path\n")
+        self.write("richos/app/src/claims.txt", "true\nLINT-BAD not in this commit\n")
+        out = self.git("commit", "-m", "one path", "richos/app/src/thing.txt", expect=None)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(self.git("show", "HEAD:richos/app/src/claims.txt").stdout, "true\n")
+        self.assertEqual((self.repo / "richos/app/src/claims.txt").read_text(), "true\nLINT-BAD not in this commit\n")
+        self.assertEqual(self.git("status", "--porcelain").stdout, " M richos/app/src/claims.txt\n")
+        self.assert_aside_restored()
+
+    def test_an_interrupted_set_aside_refuses_the_next_commit_and_touches_nothing(self):
+        # A check killed while edits were set aside leaves them in the git directory; the next
+        # commit must not set aside on top of them, and must say how to put them back.
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        leftover = self.repo / ".git/richos-autocheck-aside"
+        leftover.mkdir()
+        (leftover / "unstaged.patch").write_text("an earlier check's saved edits\n")
+        self.write("richos/app/src/thing.txt", "fine, again\n")
+        self.git("add", "-A")
+        before = self.head()
+        out = self.git("commit", "-m", "after an interrupted check", expect=None)
+        self.assertEqual(out.returncode, 1, out.stderr)
+        self.assertIn("COMMIT REFUSED", out.stderr)
+        self.assertIn(str(leftover), out.stderr)
+        self.assertEqual(self.head(), before)
+        self.assertEqual((leftover / "unstaged.patch").read_text(), "an earlier check's saved edits\n")
+
     def test_before_the_check_exists_the_hooks_do_nothing(self):
         self.make(with_checker=False)
         self.git("checkout", "-q", "-b", "feature")

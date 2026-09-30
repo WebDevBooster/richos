@@ -7,6 +7,7 @@ import io
 import json
 import os
 import shlex
+import shutil
 import signal
 from pathlib import Path
 import subprocess
@@ -1063,39 +1064,110 @@ while True: time.sleep(.02)
         self.assertTrue([argv for argv in seen if argv[:3] == ["git", "status", "--porcelain"]],
                         seen)
 
-    def test_the_flag_drops_only_what_a_land_proved_and_the_ui_suite_needs_a_proof(self):
+    def test_the_flag_alone_drops_nothing_a_land_did_not_prove(self):
         """`--checks-done-at-land` may drop what a land ran and NOTHING else.
 
-        The land runs `cargo test -p richos-core`, `cargo test --bin richos-tauri` and the
-        sharded ui suite on the exact commit that becomes `main`. It does not run the
-        updater crate, the fourteen script suites or the privacy sweep, so those stay on
-        the candidate path no matter what the flag says. A flag that grew to cover them
-        would be trading a gate for time nobody measured.
+        It does not run the updater crate, the fourteen script suites or the privacy sweep,
+        so those stay on the candidate path no matter what the flag says. A flag that grew
+        to cover them would be trading a gate for time nobody measured.
 
-        THE TWO SKIPS ARE NOT THE SAME STRENGTH, and that asymmetry is the case below. The
-        core tests go on the sha alone, because the land ALWAYS runs them. The UI suite
-        additionally needs the coverage proof its own run writes, because "the land ran it"
-        is a claim about something that may not have happened -- and the safe direction for
-        a missing file to fail in is "run the suite anyway", which is what this asserts.
+        THE SHA ALONE PROVES NO SCOPE (hunt part 2, finding 24). The core tests used to go
+        on the sha alone, "because the land ALWAYS runs them". It does not: proof-for.sh
+        selects only the integration target or the `--lib module::` tests a change touches,
+        so a matching sha says which tree was checked, never how much of richos-core was.
+        Both skips now need evidence of the whole gate on this tree (the land's receipt for
+        the core tests, the coverage proof for the UI suite); with neither on this machine,
+        both gates run, which is the safe direction for a missing file to fail in.
         """
         r, seen = self.gate_commands("a" * 40)
         joined = [" ".join(argv) for argv in seen]
-        self.assertFalse([c for c in joined if "-p richos-core" in c], joined)
+        self.assertTrue([c for c in joined if "-p richos-core" in c], joined)
+        self.assertNotIn(m.LAND_PROVEN_GATE, r.skipped)
         self.assertTrue([c for c in joined if "richos-user-update" in c], joined)
         self.assertTrue([c for c in joined if "run-tests.sh" in c], joined)
         self.assertTrue([c for c in joined if "named-persons.sh" in c], joined)
-        self.assertIn(m.LAND_PROVEN_GATE, r.skipped)
-        self.assertIn("a" * 40, r.skipped[m.LAND_PROVEN_GATE])
         # The release smoke is NEVER dropped by this flag. A land does not run it, and
         # its input is the release path itself rather than a tree whose sha was proved.
         self.assertTrue([c for c in joined if "release-smoke" in c], joined)
-        # NO PROOF ON THIS MACHINE: the UI suite runs, and is NOT recorded as skipped.
-        self.assertEqual(len(seen), 10)
+        # NO PROOF ON THIS MACHINE: every gate runs, and none is recorded as skipped.
+        self.assertEqual(len(seen), 11)
         # The workspace-spec mutation pass is never dropped by this flag: a land does not run it
         # (CEO, 2026-09-23, "Only before nightlies"), so there is nothing a land proved.
         self.assertTrue([c for c in joined if "workspace-spec-fourteen" in c], joined)
         self.assertTrue([c for c in joined if "run.js" in c], joined)
         self.assertNotIn(m.UI_SUITE_GATE, r.skipped)
+
+    def landed_repository(self, commands, not_run=()):
+        """A real repository whose HEAD tree has autocheck's land receipt, and HEAD's sha.
+
+        The receipt is written exactly where and how autocheck.py's land_check writes one
+        (`<git-common-dir>/richos-autocheck/land/<tree>`, JSON with `commands` and `not_run`),
+        so this case reads the file the land really leaves, not a shape invented for it."""
+        repo = self.root / "landed"
+        repo.mkdir()
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
+        def git(*args):
+            return subprocess.run(
+                ["git", "-C", str(repo), "-c", "user.name=fixture",
+                 "-c", "user.email=fixture@example.invalid", "-c", "core.hooksPath=/dev/null",
+                 "-c", "commit.gpgsign=false", *args],
+                check=True, env=env, capture_output=True, text=True).stdout.strip()
+
+        git("init", "-q")
+        (repo / "tree.txt").write_text("the landed tree\n")
+        git("add", "-A")
+        git("commit", "-q", "-m", "fixture land")
+        sha, tree = git("rev-parse", "HEAD"), git("rev-parse", "HEAD^{tree}")
+        receipt = repo / ".git" / "richos-autocheck" / "land" / tree
+        receipt.parent.mkdir(parents=True)
+        receipt.write_text(json.dumps({
+            "tree": tree, "what": "merge into main", "commands": list(commands),
+            "not_run": [{"check": c, "why": "no-screen", "suites": []} for c in not_run],
+            "seconds": 1.0, "at": "2026-09-30T00:00:00Z"}) + "\n")
+        return repo, sha
+
+    def core_gate(self, repo, sha):
+        """(runner, whether `cargo test -p richos-core` was launched) for gates(sha)."""
+        r = m.Runner(repo, self.root / "state",
+                     {"PATH": "/usr/bin", "RICHOS_NAMED_PERSONS_FILE": "/fixture/list"},
+                     io.StringIO())
+        seen = []
+
+        def record(args, **kwargs):
+            seen.append(" ".join(str(a) for a in args))
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        with patch.object(m, "owned_run", side_effect=record), \
+                contextlib.redirect_stdout(io.StringIO()):
+            r.gates(sha)
+        return r, any("-p richos-core" in c for c in seen)
+
+    def test_the_core_tests_are_skipped_only_on_a_land_receipt_that_ran_the_whole_crate(self):
+        """A land's receipt for this tree has to show `cargo test -p richos-core` unfiltered.
+
+        proof-for.sh writes that command only when the whole crate is selected (its manifest
+        changed); for an ordinary change it writes `--test <target>` or `--lib <module>::`,
+        and those passing say nothing about the rest of the crate (hunt part 2, finding 24).
+        """
+        whole = "cd richos/app && cargo test -p richos-core"  # proof-for.sh's line, verbatim
+        cases = (
+            ("only the module the change touched", [whole + " --lib session::"], (), False),
+            ("only an integration target", [whole + " --test resume"], (), False),
+            ("the whole crate, listed as not run", [whole], [whole], False),
+            ("the whole crate, run and passed", [whole + " --lib session::", whole], (), True),
+        )
+        for label, commands, not_run, skipped in cases:
+            with self.subTest(label):
+                for leftover in (self.root / "landed", self.root / "state"):
+                    shutil.rmtree(leftover, ignore_errors=True)
+                repo, sha = self.landed_repository(commands, not_run)
+                r, ran = self.core_gate(repo, sha)
+                self.assertEqual(ran, not skipped)
+                self.assertEqual(m.LAND_PROVEN_GATE in r.skipped, skipped)
+                if skipped:
+                    self.assertIn(sha, r.skipped[m.LAND_PROVEN_GATE])
+                    self.assertIn("land receipt", r.skipped[m.LAND_PROVEN_GATE])
 
     def test_a_ui_coverage_proof_for_this_sha_drops_the_ui_suite_and_a_wrong_one_refuses(self):
         """The proof is read the way every other proof in this file is: by its commit.

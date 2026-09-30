@@ -15,8 +15,10 @@ engineer in a worktree, Codex, Rich in the main checkout.
   own selector (`proof-for.sh`) over the BRANCH'S WHOLE CHANGE: whatever it refuses
   (UNCOVERED, a map that does not reconcile) refuses the commit, and the selected suites that
   measure under a second run here (see branch_selection). A merge into a branch
-  (pre-merge-commit) runs `--changed` against the ceilings only. The repository enforces no
-  formatter, so none is run. A failure refuses the commit with the reason.
+  (pre-merge-commit) runs `--changed` against the ceilings only. Both run on exactly the
+  content being committed: unstaged edits and untracked files are set aside for the length
+  of the check and put back after it (StagedOnly). The repository enforces no formatter, so
+  none is run. A failure refuses the commit with the reason.
 
   LAND, anything that moves main (pre-merge-commit on main, pre-commit on main, and
   pre-push of main as the backstop): the suites `proof-for.sh` assigns to the change, run
@@ -41,6 +43,8 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -162,15 +166,27 @@ class Repo:
 
 def commit_check(repo, what):
     started = time.monotonic()
+    # What the commit holds: the index the hook was given (for `git commit <path>` or `-a`, the
+    # temporary one git names in GIT_INDEX_FILE). Unstaged edits are not in it, so they neither
+    # call for a lint nor answer for one (see StagedOnly).
     staged = git("diff", "--cached", "--name-only", "--no-renames").splitlines()
-    working = git("diff", "--name-only", "--no-renames", "HEAD", env=repo.env, cwd=repo.top).splitlines()
-    app = sorted({p for p in staged + working if p.startswith("richos/app/")})
+    app = sorted({p for p in staged if p.startswith("richos/app/")})
     if what == "commit" and stale_pins(repo):
         return 1
     if not app:
         say(f"autocheck: {what}: nothing under richos/app changed, so no lint applies "
             f"({time.monotonic() - started:.1f}s)")
         return 0
+    with StagedOnly(repo) as aside:
+        if aside.summary:
+            say(f"autocheck: {what}: {aside.summary} set aside for the check, so it sees only what is committed")
+        rc = lint_and_select(repo, what, app)
+    if rc == 0:
+        say(f"autocheck: {what}: passed in {time.monotonic() - started:.1f}s")
+    return rc
+
+
+def lint_and_select(repo, what, app):
     if not (repo.top / LINT).is_file():
         banner(f"{what.upper()} REFUSED: the lint is missing", [f"{LINT} is not in this tree; nothing can be checked."])
         return 1
@@ -185,7 +201,8 @@ def commit_check(repo, what):
         # Rust changed. Slower, never looser.
         rust = any(p.endswith(".rs") or Path(p).name in ("Cargo.toml", "Cargo.lock") for p in app)
         mode = ["--fast"] if rust else ["--static"]
-    say(f"autocheck: {what}: {len(app)} changed path(s) under richos/app; lint {' '.join(mode)} (working tree)")
+    say(f"autocheck: {what}: {len(app)} changed path(s) under richos/app; lint {' '.join(mode)} "
+        "(the content being committed)")
     result = repo.run(["bash", LINT, *mode])
     if result.returncode:
         banner(f"{what.upper()} REFUSED: the lint failed for this change", [
@@ -196,8 +213,136 @@ def commit_check(repo, what):
         return 1
     if what == "commit" and branch_selection(repo, what):
         return 1
-    say(f"autocheck: {what}: passed in {time.monotonic() - started:.1f}s")
     return 0
+
+
+# ---------------------------------------------------------------------------------------
+# The commit check sees exactly the bytes being committed
+# ---------------------------------------------------------------------------------------
+# Hunt part 2, finding 10 (2026-09-30). The commit check ran the lint on the WORKING TREE, so
+# that changed-path lint saw unstaged edits too, and then approved the INDEX. A bad staged
+# edit whose unstaged replacement passed was committed with no record, and a clean staged
+# edit was refused over unstaged work the commit does not hold. The land refuses a working
+# tree that differs from what it commits (land_from_index); a branch commit cannot, because
+# committing part of the work in progress is how atomic commits are made.
+#
+# So, for the length of the check, the working tree IS what is being committed. The design is
+# pre-commit's `staged_files_only` (pre-commit.com, MIT), taken as design: the unstaged
+# difference is saved as a binary patch and untracked files are moved into this worktree's
+# git directory; `git checkout -- .` makes the working tree equal the index the commit is
+# written from; the checks run; the patch is applied back and the files moved back. Ignored
+# files stay where they are: they are never committed, and a check needs its build caches and
+# installed dependencies. The lint still reads the working tree, as it always has; that tree
+# now holds the committed bytes and nothing else.
+#
+# If a check is killed while edits are set aside, or they cannot be put back, they stay in
+# ASIDE, and every later commit check refuses, naming the directory and how to restore it,
+# until it is gone. Nothing is ever set aside on top of them.
+
+ASIDE = "richos-autocheck-aside"
+
+
+class StagedOnly:
+    def __init__(self, repo):
+        self.repo = repo
+        self.dir = repo.git_dir / ASIDE
+        self.patch = self.dir / "unstaged.patch"
+        self.held = self.dir / "untracked"
+        self.moved = []
+        self.patched = False
+        self.summary = ""
+
+    def how_to_restore(self):
+        return [f"Your unstaged edits and untracked files are in {self.dir}.",
+                f"To put them back: cd {self.repo.top} && git apply --binary {self.patch}"
+                " (when that file exists),",
+                f"then move everything under {self.held} back to the same path here,",
+                f"then delete {self.dir} and commit again."]
+
+    def hook_git(self, *args):
+        # The hook's own environment: its GIT_INDEX_FILE is the index being committed.
+        return subprocess.run(["git", *args], cwd=self.repo.top, capture_output=True, stdin=subprocess.DEVNULL)
+
+    def __enter__(self):
+        if self.dir.exists():
+            raise RuntimeError("\n  ".join([
+                "an earlier commit check set work aside and did not put it back "
+                "(it was interrupted, or the restore failed); nothing was set aside this time.",
+                *self.how_to_restore()]))
+        diff = self.hook_git("diff", "--binary", "--no-color", "--no-ext-diff", "--ignore-submodules",
+                             "--no-renames")
+        added = self.hook_git("diff", "--name-only", "--diff-filter=A", "-z")
+        untracked = self.hook_git("ls-files", "--others", "--exclude-standard", "--directory", "-z")
+        for done in (diff, added, untracked):
+            if done.returncode:
+                raise RuntimeError("cannot read what differs from the commit: "
+                                   + done.stderr.decode(errors="replace").strip())
+        if added.stdout.strip(b"\0"):
+            raise RuntimeError("a file added with `git add -N` is not in the commit and cannot be set aside "
+                               "safely; stage it or remove it from the index (git rm --cached) and commit again")
+        names = [os.fsdecode(n).rstrip("/") for n in untracked.stdout.split(b"\0") if n]
+        if not diff.stdout and not names:
+            return self
+        self.dir.mkdir(parents=True)
+        try:
+            (self.dir / "README.txt").write_text("\n".join(self.how_to_restore()) + "\n")
+            if diff.stdout:
+                self.patch.write_bytes(diff.stdout)
+                self.patched = True
+            for name in names:
+                target = self.held / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(self.repo.top / name), str(target))
+                self.moved.append(name)
+            if self.patched:
+                done = self.hook_git("-c", "submodule.recurse=0", "checkout", "--", ".")
+                if done.returncode:
+                    raise RuntimeError("cannot make the working tree equal the commit: "
+                                       + done.stderr.decode(errors="replace").strip())
+            if self.hook_git("diff", "--quiet", "--ignore-submodules").returncode:
+                raise RuntimeError("the working tree still differs from the commit after setting work aside")
+        except BaseException:
+            self.restore()
+            raise
+        parts = []
+        if self.patched:
+            parts.append("unstaged edits")
+        if self.moved:
+            parts.append(f"{len(self.moved)} untracked path(s)")
+        self.summary = " and ".join(parts)
+        return self
+
+    def __exit__(self, *exc):
+        self.restore()
+        return False
+
+    def restore(self):
+        if not self.dir.exists():
+            return
+        problems = []
+        if self.patched:
+            applied = self.hook_git("apply", "--whitespace=nowarn", "--binary", str(self.patch))
+            if applied.returncode:
+                # A check wrote into a tracked file. The engineer's edit is kept, not the check's.
+                self.hook_git("-c", "submodule.recurse=0", "checkout", "--", ".")
+                applied = self.hook_git("apply", "--whitespace=nowarn", "--binary", str(self.patch))
+            if applied.returncode:
+                problems.append("git apply failed: " + applied.stderr.decode(errors="replace").strip())
+            else:
+                self.patched = False
+                self.patch.unlink()
+        for name in list(self.moved):
+            destination = self.repo.top / name
+            if os.path.lexists(destination):
+                problems.append(f"{name} exists again, so the set-aside copy was not moved over it")
+                continue
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(self.held / name), str(destination))
+            self.moved.remove(name)
+        if problems:
+            raise RuntimeError("\n  ".join(["the work set aside for the check could not all be put back: "
+                                            + "; ".join(problems), *self.how_to_restore()]))
+        shutil.rmtree(self.dir)
 
 
 # ---------------------------------------------------------------------------------------
@@ -651,6 +796,12 @@ def main(argv):
     if inside_own_check(str(repo.common)):
         say(f"autocheck: {hook}: inside an automatic check of this repository (a suite's own commit); not re-entered")
         return 0
+    if hook in ("pre-commit", "pre-merge-commit"):
+        # A terminated check unwinds like an interrupted one, so StagedOnly puts set-aside work
+        # back (a KeyboardInterrupt already does). Only SIGKILL leaves it in ASIDE, and the next
+        # commit check then refuses and says where it is.
+        for number in (signal.SIGTERM, signal.SIGHUP):
+            signal.signal(number, lambda signum, _frame: sys.exit(128 + signum))
     try:
         if hook == "pre-commit":
             if repo.branch == LAND_BRANCH:

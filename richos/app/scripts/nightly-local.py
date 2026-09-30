@@ -301,26 +301,30 @@ DECLARED_GAPS = (
     "Measured on this Mac, 2026-09-18: a bare invocation exits 2 in nine lines and no process."
 )
 
-# WHAT THE LAND ALREADY PROVED, and therefore the one gate a candidate build may be told to
-# skip. Rich runs these at every land, from the main checkout, on the exact commit that
-# then becomes `main` -- which is the commit this build fetches:
+# WHAT THE LAND ALREADY PROVED, and therefore the gates a candidate build may be told to
+# skip. A land runs, from the main checkout, on the exact commit that then becomes `main`
+# (the commit this build fetches), the checks `proof-for.sh` selects for its change.
 #
-#     cargo test -p richos-core
-#     cargo test --bin richos-tauri
-#     the sharded ui suite
+# `--checks-done-at-land <sha>` REFUSES when the sha it is handed is not the sha this run
+# actually fetched. A flag that trusted its own argument would let a stale sha wave a
+# different tree's tests through, which is worse than having no flag: the skip has to be
+# unable to lie, not merely documented as honest.
 #
-# `--checks-done-at-land <sha>` drops `gates/core-tests` when the sha it is handed is the
-# sha this run actually fetched, and REFUSES when it is not. A flag that trusted its own
-# argument would let a stale sha wave a different tree's tests through, which is worse than
-# having no flag: the skip has to be unable to lie, not merely documented as honest.
+# THE SHA SAYS WHICH TREE WAS CHECKED, NEVER HOW MUCH OF IT (hunt part 2, finding 24). So
+# each skip also needs evidence, on this machine, that the land ran the WHOLE gate on this
+# tree; a build must not pay for a proof the land already made, nor accept one nobody made:
 #
-# IT ALSO DROPS `gates/ui-suite`, AND ON A STRICTER CONDITION: the sha has to match AND a
-# coverage proof for that sha has to be on this machine, written by the land's own
-# `run.js --coverage --proof-out` on a pass. The sha alone is enough for the core tests
-# because the land always runs them; the UI suite gets a proof because "the land ran it"
-# is a claim about something that may or may not have happened, and a build must not pay
-# 378 s for a proof the land already made, nor accept one nobody made. No proof, no skip --
-# the suite simply runs, which is the safe direction for a missing file to fail in.
+#   `gates/core-tests`: autocheck's land receipt for the fetched commit's tree has to list
+#     `cargo test -p richos-core` with no filter, as run and passed (LAND_CORE_COMMAND).
+#     This used to go on the sha alone, "because the land always runs them". It does not:
+#     proof-for.sh selects only the `--test <target>` or `--lib <module>::` tests a change
+#     touches, and the whole crate only when its manifest changes, so a matching sha with a
+#     module's tests behind it skipped every other core test.
+#   `gates/ui-suite`: a coverage proof for that sha, written by the land's own
+#     `run.js --coverage --proof-out` on a pass.
+#
+# No evidence, no skip: the gate simply runs, which is the safe direction for a missing
+# file to fail in.
 #
 # Nothing else in gates() is skippable, because nothing at the land runs it.
 # `richos-user-update` is the updater's own crate; `run-tests.sh` is the packaging,
@@ -332,6 +336,11 @@ DECLARED_GAPS = (
 # `build-info.json` (through the plan, which nightly.py copies into the candidate's
 # provenance), so a candidate can never quietly claim a gate it did not run.
 LAND_PROVEN_GATE = "gates/core-tests"
+# The line proof-for.sh writes, and autocheck.py records in a land receipt's `commands`, when
+# a land runs the whole richos-core crate; any filter after it (`--test`, `--lib m::`) is a
+# subset and does not count. The receipt lives where autocheck.py's `land_receipt` puts it.
+LAND_CORE_COMMAND = "cd richos/app && cargo test -p richos-core"
+LAND_RECEIPTS = Path("richos-autocheck") / "land"
 
 # WHAT `--no-host-screen` IS FOR, in the CEO's words, 2026-09-19:
 #
@@ -1385,6 +1394,43 @@ class Runner:
                 "A proof taken against a different tree proves nothing about this one.")
         return proof
 
+    def accept_core_proof(self, sha):
+        """The path of a land receipt that ran the whole richos-core crate on `sha`'s tree, or None.
+
+        Keyed the way autocheck.py keys it, by TREE, in this repository's common git
+        directory: a receipt says which commands passed on exactly that content. Only the
+        unfiltered LAND_CORE_COMMAND counts, and not when the receipt lists it as NOT RUN. A
+        missing repository, commit, receipt or field is None, and the gate runs.
+        """
+        if not re.fullmatch(r"[0-9a-f]{7,40}", sha or ""):
+            return None
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
+        def git(*args):
+            try:
+                done = subprocess.run(["git", "-C", str(self.repo), *args], env=env, capture_output=True,
+                                      text=True, stdin=subprocess.DEVNULL, timeout=30)
+            except (OSError, subprocess.SubprocessError):
+                return ""
+            return done.stdout.strip() if done.returncode == 0 else ""
+
+        tree = git("rev-parse", "--verify", "-q", f"{sha}^{{tree}}")
+        common = git("rev-parse", "--path-format=absolute", "--git-common-dir")
+        if not tree or not common:
+            return None
+        path = Path(common) / LAND_RECEIPTS / tree
+        try:
+            receipt = json.loads(path.read_text())
+        except (OSError, ValueError):
+            return None
+        if not isinstance(receipt, dict) or receipt.get("tree") != tree:
+            return None
+        commands = receipt.get("commands")
+        not_run = {row.get("check") for row in receipt.get("not_run") or [] if isinstance(row, dict)}
+        if not isinstance(commands, list) or LAND_CORE_COMMAND not in commands or LAND_CORE_COMMAND in not_run:
+            return None
+        return path
+
     def ui_suite(self, checks_done_at_land=None):
         """Run the whole UI inventory, sharded, and refuse the build on a red suite.
 
@@ -1577,10 +1623,15 @@ class Runner:
 
         def core_tests():
             if checks_done_at_land:
-                self.skip(LAND_PROVEN_GATE,
-                          f"the land already ran `cargo test -p richos-core` on {checks_done_at_land}, "
-                          "which is the commit this run fetched")
-                return
+                receipt = self.accept_core_proof(checks_done_at_land)
+                if receipt:
+                    self.skip(LAND_PROVEN_GATE,
+                              f"the land ran the whole `cargo test -p richos-core` on {checks_done_at_land} "
+                              f"(land receipt {receipt}), which is the commit this run fetched")
+                    return
+                self.announce(f"  {LAND_PROVEN_GATE} runs: no land receipt for {checks_done_at_land} shows "
+                              "the whole richos-core crate ran (a land runs only the targets its change "
+                              "selects)")
             with self.phase(LAND_PROVEN_GATE):
                 self.command("cargo", "test", "--locked", "--manifest-path",
                              "richos/app/Cargo.toml", "-p", "richos-core",
@@ -2355,10 +2406,11 @@ def main():
     parser.add_argument("--force", action="store_true", help="explicitly rebuild a previously released source")
     parser.add_argument("--run", help="an existing build's run id (required for publish/candidate)")
     parser.add_argument("--checks-done-at-land", metavar="SHA",
-                        help="skip the gates a land already ran on this exact commit "
-                             "(cargo test -p richos-core, and the sharded UI suite when a "
-                             "coverage proof for SHA is on this machine); refused unless "
-                             "SHA is the sha this run fetches")
+                        help="skip the gates a land already ran whole on this exact commit "
+                             "(cargo test -p richos-core when the land's receipt for SHA's "
+                             "tree shows the unfiltered crate ran, and the sharded UI suite "
+                             "when a coverage proof for SHA is on this machine); refused "
+                             "unless SHA is the sha this run fetches")
     parser.add_argument("--no-host-screen", action="store_true",
                         help="the DEFAULT for build: hold back every suite that boots the app "
                              "on this Mac's screen; the build then boots the signed candidate "
