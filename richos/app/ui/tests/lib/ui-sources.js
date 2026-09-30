@@ -775,7 +775,17 @@ function cssContentStrings() {
   return out;
 }
 
+/// How many `run.check(` calls a suite's source declares, comments and string literals
+/// excluded: the floor `run.js` measures a run against, and the `declared` figure the harness
+/// writes into a directly run suite's evidence ledger (recheck R26). One scanner for both.
+function declaredChecks(src) {
+  // `strings: false` — a `"run.check("` inside a literal is not a call.
+  const out = stripJsComments(src, { strings: false });
+  return (out.match(/\brun\.check\s*\(/g) || []).length;
+}
+
 module.exports = {
+  declaredChecks,
   UI_DIR,
   ENTRY,
   ROLES,

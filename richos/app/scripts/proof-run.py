@@ -1347,6 +1347,26 @@ def ui_not_run(it):
     if failed:
         it.state, it.rc = "invalid", 125
         it.notes.append("exited 0 but its evidence ledger records %d failed check(s)" % failed)
+        return
+    # The suite's OWN checks, as run.js counts them (recheck R26): `checks` also counts the
+    # housekeeping the harness appends (the tracked-tree guard), which is not product coverage, so
+    # a run whose only passing check is the harness verifying its own tree is not evidence. A
+    # record written before `productChecks` existed falls back to `checks`, as run.js does.
+    def own(r):
+        value = r.get("productChecks", r["checks"])
+        return value if isinstance(value, int) and not isinstance(value, bool) else r["checks"]
+    observed = sum(own(r) for r in runs)
+    declared = [r["declared"] for r in runs if isinstance(r.get("declared"), int) and not isinstance(r.get("declared"), bool)]
+    floor = max(declared) if declared else None
+    if floor == 0:
+        it.state, it.rc = "invalid", 125
+        it.notes.append("exited 0 but its source declares no `run.check(` at all: a suite that cannot fail")
+    elif observed == 0:
+        it.state, it.rc = "invalid", 125
+        it.notes.append("exited 0 having run no check of its own (only the harness's housekeeping): it cannot show it ran")
+    elif floor is not None and observed < floor:
+        it.state, it.rc = "invalid", 125
+        it.notes.append("exited 0 but ran %d check(s) of its own and its source declares %d: it stopped early" % (observed, floor))
 
 
 def not_run(it):

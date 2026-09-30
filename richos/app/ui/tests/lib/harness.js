@@ -905,7 +905,18 @@ function createRun(label) {
       // `checks` is everything reported; `productChecks` is only what the suite's source declares
       // (housekeeping excluded), the number `run.js` measures against the declared count.
       const productChecks = results.filter((r) => !r.housekeeping).length;
-      recordEvidence(Object.assign({ label, checks: results.length, productChecks, failed }, failed ? { failures } : {}));
+      // `declared` is what the suite's own source promises (the number `run.js` measures the
+      // run against), so a suite run DIRECTLY, without run.js, can be held to the same floor by
+      // whoever reads the ledger (recheck R26). Omitted when the source cannot be read.
+      let declared;
+      try {
+        declared = require("./ui-sources").declaredChecks(fs.readFileSync(process.argv[1], "utf8"));
+      } catch (_e) {
+        declared = undefined;
+      }
+      recordEvidence(
+        Object.assign({ label, checks: results.length, productChecks, failed }, declared === undefined ? {} : { declared }, failed ? { failures } : {})
+      );
       return failed;
     },
   };

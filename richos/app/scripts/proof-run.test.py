@@ -344,6 +344,24 @@ try:
     check(lied.state == "invalid" and any("1 failed check" in n for n in lied.notes) and rc38 != 0,
           "P38d a UI suite whose ledger records a failed check and exits 0 is INVALID, and the run is not green",
           (lied.state, lied.notes, rc38))
+    # P38f-h — recheck R26: the direct reader holds a suite to the same floor as run.js. The ledger's
+    # `checks` includes the housekeeping check the harness appends, so a run with no check of its
+    # own (productChecks 0) or fewer than its source declares is not evidence.
+    hk_only = ui_fixture("hk-only", [{"label": "x", "checks": 1, "productChecks": 0, "declared": 3, "failed": 0}])
+    hk_short = ui_fixture("hk-short", [{"label": "x", "checks": 3, "productChecks": 2, "declared": 3, "failed": 0}])
+    hk_full = ui_fixture("hk-full", [{"label": "x", "checks": 4, "productChecks": 3, "declared": 3, "failed": 0}])
+    hk_none = ui_fixture("hk-none", [{"label": "x", "checks": 1, "productChecks": 0, "declared": 0, "failed": 0}])
+    with contextlib.redirect_stdout(io.StringIO()):
+        pr.run([hk_only, hk_short, hk_full, hk_none], Args(), os.path.join(d38, "r26"), sampler=idle)
+    check(hk_only.state == "invalid" and any("no check of its own" in n for n in hk_only.notes),
+          "P38f a UI suite whose only passing check is the harness's housekeeping is INVALID, not passed",
+          (hk_only.state, hk_only.notes))
+    check(hk_short.state == "invalid" and any("stopped early" in n for n in hk_short.notes),
+          "P38g a UI suite that ran fewer own checks than its source declares is INVALID",
+          (hk_short.state, hk_short.notes))
+    check(hk_full.state == "passed" and hk_none.state == "invalid" and any("cannot fail" in n for n in hk_none.notes),
+          "P38h own checks meeting the declared count pass; a source declaring none is INVALID",
+          (hk_full.state, hk_none.state, hk_none.notes))
     real = items_from(["cd richos/app/ui/tests && node realbytes.js",
                        "cd richos/web/web-app && node --test test/api.test.js"], d38)
     check([bool(pr.ui_suite_file(i)) for i in real] == [True, False],

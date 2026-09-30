@@ -225,10 +225,9 @@ if (SUITES.length === 0) {
 /// The self-test below is unchanged and now proves the SHARED function, which is the point:
 /// the harder consumer's fixture is the one that keeps it honest.
 function declaredChecks(src) {
-  // `strings: false` — a `"run.check("` inside a literal is not a call. The other consumer
-  // needs literals KEPT, which is what the flag is for.
-  const out = SOURCES.stripJsComments(src, { strings: false });
-  return (out.match(/\brun\.check\s*\(/g) || []).length;
+  // The count itself lives in `lib/ui-sources.js` so the harness's evidence ledger records the
+  // same number for a suite run directly (recheck R26); this is the one scanner.
+  return SOURCES.declaredChecks(src);
 }
 
 // The self-test. Five things a naive `grep -c` gets wrong, asserted on every run rather than
