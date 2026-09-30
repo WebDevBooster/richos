@@ -336,9 +336,18 @@ def git_sub(tokens, i):
 def analyze(cmd):
     """Every way this command can stop and wait for a human. Order is stable."""
     findings = []
+    # Variables a prior `export` clause of this same command line set: the fix
+    # that ssh-add's own message prescribes, which must be believed (P5-39).
+    exported = {}
     for masked, unq in clauses(strip_heredocs(cmd)):
         mt, ut = _tok(masked), _tok(unq)
         if not mt:
+            continue
+        if mt[0] == "export":
+            for t in ut[1:]:
+                if _ASSIGN.match(t):
+                    k, v = t.split("=", 1)
+                    exported[k] = v.strip("'\"")
             continue
         idx = 0
         while True:
@@ -347,7 +356,12 @@ def analyze(cmd):
                 break
             i += idx
             if base != "sudo":
-                findings.extend(check(base, mt, ut, i))
+                env = dict(exported)
+                for t in ut[:i]:
+                    if _ASSIGN.match(t):
+                        k, v = t.split("=", 1)
+                        env[k] = v.strip("'\"")
+                findings.extend(check(base, mt, ut, i, env))
                 break
             # sudo is BOTH a shape and a wrapper: judge it, then keep walking so
             # `sudo -n security import x` is still read as a security import.
@@ -368,8 +382,11 @@ def analyze(cmd):
     return findings
 
 
-def check(base, mt, ut, i):
-    """One clause, one command. mt = masked tokens, ut = unquoted tokens."""
+def check(base, mt, ut, i, env=None):
+    """One clause, one command. mt = masked tokens, ut = unquoted tokens.
+    env = variables already set for this command (inline assignments, or an
+    earlier `export` in the same command line)."""
+    env = env or {}
     out = []
     sub = _sub(mt, i)
     sub2 = _sub(mt, i, 2)
@@ -403,7 +420,9 @@ def check(base, mt, ut, i):
                 "prompts wait on a human; on macOS an askpass helper can draw a window")
 
     elif base == "ssh-add":
-        if not (_short(mt[i:], "lLDdek") or _long(mt[i:], "--delete-all")):
+        no_askpass = (env.get("SSH_ASKPASS_REQUIRE") == "never"
+                      or env.get("SSH_ASKPASS", "").rsplit("/", 1)[-1] == "false")
+        if not (no_askpass or _short(mt[i:], "lLDdek") or _long(mt[i:], "--delete-all")):
             add("ssh-add",
                 "export SSH_ASKPASS_REQUIRE=never SSH_ASKPASS=/usr/bin/false, or use a "
                 "key already loaded in the agent",
