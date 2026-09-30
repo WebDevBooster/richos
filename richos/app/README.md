@@ -411,7 +411,7 @@ richos/app/
                               learning where the central folder is re-primes a lease that was
                               already running. The two negative controls come first because
                               they are what make the positives mean anything
-    tests/resident_front_desk_tests.rs 8 tests for the CEO's "any number of conversation
+    tests/resident_front_desk_tests.rs 9 tests for the CEO's "any number of conversation
                               threads, each holding one front desk": a thread's lease is
                               PARKED alive rather than killed when another thread speaks, so
                               coming back is the same provider session with no re-prime; a
@@ -1104,7 +1104,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1710 tests + 5 doc-tests (1706 direct, 4 ignored)
+cargo test -p richos-core                       # 1711 tests + 5 doc-tests (1707 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside

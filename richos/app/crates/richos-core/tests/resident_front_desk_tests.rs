@@ -237,6 +237,35 @@ fn a_returning_front_desk_brings_its_own_context_measurement_and_not_the_other_t
     std::fs::remove_dir_all(root).unwrap();
 }
 
+/// **A RENEWAL BELONGS TO THE DESK THAT REACHED ITS LIMIT, NOT TO WHICHEVER DESK IS NEXT** —
+/// part 1 hunt finding 42. The pending renewal reason used to be one spine-wide field, so a
+/// switch to another resident conversation consumed it there: the desk just resumed was
+/// renewed (a handoff and a priming turn spent on a session that was fine), and the desk that
+/// actually needed it stayed parked with nothing scheduled.
+#[test]
+fn a_renewal_owed_to_one_desk_is_not_spent_on_the_desk_he_switches_to() {
+    let (mut spine, log, root) = fixture();
+    let one = spine.create_thread("Pricing", &femcboost()).unwrap();
+    let two = spine.create_thread("Hiring", &femcboost()).unwrap();
+    spine.submit_prompt_to(&one, "first", Source::Text).unwrap();
+    spine.submit_prompt_to(&two, "second", Source::Text).unwrap();
+    assert_eq!(log.spawned(), vec!["desk-1", "desk-2"]);
+
+    // The desk in the chair (desk-2) is the one that is due for renewal.
+    spine.request_rotation("test renewal").unwrap();
+
+    // He switches to the other resident conversation. Its desk is fine and must not be renewed.
+    spine.submit_prompt_to(&one, "back to pricing", Source::Text).unwrap();
+    assert_eq!(spine.rotation_count(), 0, "the renewal was spent on the desk he switched to");
+    assert_eq!(log.spawned(), vec!["desk-1", "desk-2"], "a session that was fine was replaced");
+
+    // And when he comes back to the desk that owed it, the renewal is still there for it.
+    spine.submit_prompt_to(&two, "back to hiring", Source::Text).unwrap();
+    assert_eq!(spine.rotation_count(), 1, "the parked desk lost the renewal it was owed");
+    assert_eq!(log.spawned(), vec!["desk-1", "desk-2", "desk-3"]);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 /// Past the cap, the LEAST RECENTLY SPOKEN desk is retired — and nothing else is.
 ///
 /// That thread is then exactly where every thread was before residency: its next turn
