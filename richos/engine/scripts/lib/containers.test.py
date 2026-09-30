@@ -612,6 +612,88 @@ for stamp in ("2026-07-01T12:00:00Z", "2026-07-01T12:00:00.123456789Z",
         self.assertFalse(res["available"])
 
 
+class ReapRefusals(unittest.TestCase):
+    """C11..C14 — the deleter's own refusals, decided on a synthetic machine.
+
+    Hunt 2026-09-29 part 5, finding 36: classify() already believed every kind
+    of evidence and an unknown live set, and the deleter believed neither. These
+    drive reap_for_workspaces itself with Docker, the inventory and the registry
+    replaced, and record every `docker rm` it would have run, so a wrong delete
+    is caught as the command it would have been rather than as a lost container.
+    """
+
+    def setUp(self):
+        self.removed = []
+        self.saved = (ct.inventory, ct.live_workspace_paths, ct._docker)
+
+    def tearDown(self):
+        ct.inventory, ct.live_workspace_paths, ct._docker = self.saved
+
+    def machine(self, containers, live, live_ok=True, why=""):
+        ct.inventory = lambda: {"available": True, "reason": "", "containers": containers}
+        ct.live_workspace_paths = lambda: (set(live), live_ok, why)
+
+        def docker(args, timeout=None):
+            if args[:1] == ["rm"]:
+                self.removed.append(args[-1])
+                return True, "", ""
+            return False, "", "unexpected docker call %r" % (args,)
+        ct._docker = docker
+
+    def test_C11_unknown_liveness_removes_nothing_and_is_not_a_success(self):
+        """An unreadable record is a reason to keep your hands still, for the
+        deleter as much as for the report. And "kept" alone would be read by
+        the workspace deleter as nothing left behind, so the land would delete
+        the directory and the container would be an orphan nothing ever reaps;
+        it is a FAILURE, which holds the workspace and retries it."""
+        self.machine([fake("mine", labels={ct.WORKSPACE_LABEL: "/w/dead"})],
+                     live=set(), live_ok=False, why="the workspace records could not be read (x)")
+        res = ct.reap_for_workspaces(["/w/dead"], ending=True)
+        self.assertEqual(self.removed, [], "liveness was unknown and the deleter removed a container anyway")
+        self.assertEqual(res["removed"], [])
+        self.assertEqual([f["name"] for f in res["failed"]], ["mine"])
+        self.assertIn("could not be established", res["failed"][0]["why"])
+
+    def test_C12_a_bind_into_a_live_peer_protects_even_a_declared_container(self):
+        """Every kind of evidence is believed when it says 'do not touch'. The
+        ending workspace declares the container, but it also mounts a peer that
+        is still working, and removing it would take that peer's work with it."""
+        c = fake("shared", labels={ct.WORKSPACE_LABEL: "/w/dead"}, binds=["/w/peer/src"], running=True)
+        self.machine([c], live={"/w/dead", "/w/peer"})
+        res = ct.reap_for_workspaces(["/w/dead"], ending=True)
+        self.assertEqual(self.removed, [], "a container bound into a LIVE peer was removed")
+        self.assertEqual([k["name"] for k in res["kept"]], ["shared"])
+        self.assertIn("/w/peer", res["kept"][0]["why"])
+        # The same container, peer gone: it is the ending workspace's, and it goes.
+        self.machine([c], live={"/w/dead"})
+        res = ct.reap_for_workspaces(["/w/dead"], ending=True)
+        self.assertEqual(self.removed, ["shared"])
+
+    def test_C13_a_live_workspace_nested_in_the_ending_one_keeps_its_protection(self):
+        """ending=True exempts the workspaces being deleted from their OWN
+        liveness, and nothing else. A live peer registered inside one of them is
+        not being deleted by this call and keeps its full protection."""
+        inv = [fake("parent-c", labels={ct.WORKSPACE_LABEL: "/w/dead"}),
+               fake("nested-c", labels={ct.COMPOSE_DIR_LABEL: "/w/dead/.claude/worktrees/peer"}, running=True)]
+        self.machine(inv, live={"/w/dead", "/w/dead/.claude/worktrees/peer"})
+        res = ct.reap_for_workspaces(["/w/dead"], ending=True)
+        self.assertEqual(self.removed, ["parent-c"],
+                         "a LIVE workspace nested in the ending one lost its container")
+        self.assertEqual([k["name"] for k in res["kept"]], ["nested-c"])
+
+    def test_C14_the_ending_workspace_is_still_exempt_from_its_own_liveness(self):
+        """The reason the exemption exists still holds: the record calls the
+        workspace live until its directory is gone, so without the exemption
+        the one case this is for would be refused (D1 and D2, in the past)."""
+        self.machine([fake("mine", labels={ct.WORKSPACE_LABEL: "/w/dead/sub"})], live={"/w/dead"})
+        res = ct.reap_for_workspaces(["/w/dead"], ending=True)
+        self.assertEqual(self.removed, ["mine"])
+        self.assertEqual(res["failed"], [])
+        res = ct.reap_for_workspaces(["/w/dead"])            # a hand-typed reap: refused
+        self.assertEqual(self.removed, ["mine"])
+        self.assertEqual([k["name"] for k in res["kept"]], ["mine"])
+
+
 # ---------------------------------------------------------------------------
 # D — real containers, the real lifecycle
 # ---------------------------------------------------------------------------
