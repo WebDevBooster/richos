@@ -45,28 +45,10 @@ scp "${TESTVM_SSH_OPTS[@]}" -O -i "$TESTVM_SSH_KEY" \
 guest_ssh "$VM" "rm -f '$GUEST_PATH'" || true
 
 # --- is it a picture, or is it black? ----------------------------------------
-VERDICT="$(python3 - "$OUT" <<'PY'
-import subprocess, sys, json
-png = sys.argv[1]
-# sips is on every macOS; no third-party image library needed.
-def prop(k):
-    out = subprocess.run(["sips","-g",k,png],capture_output=True,text=True).stdout
-    for line in out.splitlines():
-        if k in line: return line.split(":")[-1].strip()
-    return "?"
-w,h = prop("pixelWidth"), prop("pixelHeight")
-# Histogram via a tiny downscale to a raw bitmap: cheap and dependency-free.
-tmp = png + ".probe.tiff"
-subprocess.run(["sips","-s","format","tiff","-z","64","64",png,"--out",tmp],
-               capture_output=True)
-data = open(tmp,"rb").read()
-import os; os.remove(tmp)
-body = data[-64*64*3:] if len(data) > 64*64*3 else data
-nonblack = sum(1 for b in body if b > 24)
-pct = 100.0*nonblack/max(1,len(body))
-print(json.dumps({"w":w,"h":h,"nonblack_pct":round(pct,1)}))
-PY
-)"
+# The measurement is frame-probe.py (decoded pixels, unit-tested on a black and a white frame).
+# If it cannot measure, that is a refusal: set -e stops here rather than reading "no answer" as lit.
+VERDICT="$(python3 "$HERE/frame-probe.py" "$OUT")" \
+  || die "could not measure the captured frame, so it cannot be shown to be a picture. Not returning it."
 W="$(echo "$VERDICT"  | python3 -c 'import json,sys;print(json.load(sys.stdin)["w"])')"
 H="$(echo "$VERDICT"  | python3 -c 'import json,sys;print(json.load(sys.stdin)["h"])')"
 NB="$(echo "$VERDICT" | python3 -c 'import json,sys;print(json.load(sys.stdin)["nonblack_pct"])')"
