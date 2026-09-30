@@ -314,9 +314,19 @@ mutant p03-backgrounded-window-consumed-at-its-post "test_point_03_a_backgrounde
     "the platform's run_in_background stamp would be ignored, so a backgrounded call's window would be consumed at its Post and the ref its process creates afterwards -- which the next call's snapshot already holds -- would be attributed to nobody and left behind (points 3, 9, 10)."
 
 mutant p14-unmerged-counts-as-landed "test_point_14_work_merged_nowhere_is_not_landed" "$W" \
-    '                if rc == 0 and not is_ancestor(repo, out.strip(), tip):{AND}        if t and not is_ancestor(repo, t, tip):' \
-    '                if False:{AND}        if False:' \
+    '                elif not is_ancestor(repo, out.strip(), tip):{AND}        elif t and not is_ancestor(repo, t, tip):' \
+    '                elif False:{AND}        elif False:' \
     "a branch that reached neither main nor its dev branch would be counted as landed, and deleted (points 4, 8, 14)."
+
+mutant p14-failed-read-counts-as-landed "test_point_14_a_failed_read_of_a_workers_commit_or_branch_never_proves_it_landed" "$W" \
+    '                elif rc != 0:{NL}                    missing.append("HEAD of %s could not be read{AND}        if unread:{NL}            missing.append("branch %s: %s" % (b, unread))' \
+    '                elif False:{NL}                    missing.append("HEAD of %s could not be read{AND}        if False:{NL}            missing.append("branch %s: %s" % (b, unread))' \
+    "a worker HEAD and branch tip that git could not READ would be passed over, so a commit in no integration branch would be counted as landed and its workspace deleted (points 4, 8, 14; hunt part 4, finding 4)."
+
+mutant p13-unreadable-branch-recorded-deleted "test_point_13_a_branch_whose_tip_cannot_be_read_is_never_recorded_deleted" "$W" \
+    '    if unread:{NL}        return False, "branch %s: %s" % (b, unread)' \
+    '    if False:{NL}        return False, "branch %s: %s" % (b, unread)' \
+    "a branch whose tip git could not READ would be reported already gone, and the record would call it deleted while it still exists (points 10, 13; hunt part 4, finding 4)."
 
 mutant p08-refused-call-widens-the-window "test_point_03_a_refused_call_never_widens_the_window_to_the_whole_run" "$W" \
     '            before = b if before is None else (before | b){NL}    if latest and repo in (latest.get("repos") or {}):' \

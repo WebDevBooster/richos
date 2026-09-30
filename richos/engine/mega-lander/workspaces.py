@@ -319,6 +319,33 @@ def branch_tip(repo, branch):
     return out.strip() if rc == 0 else ""
 
 
+def branch_tip_read(repo, branch):
+    """(tip, "") for a branch that exists, ("", "") for one git positively
+    reports absent, and ("", why) when the answer could not be read.
+
+    `branch_tip` answers "" for both of the last two. That is fine where a
+    missing branch and an unreadable one lead to the same action, and wrong
+    wherever the answer is used as PROOF: a failed read says nothing about
+    whether a commit reached the integration branch, and nothing about whether
+    a branch is gone (hunt part 4, finding 4). A missing branch is normal after
+    a partial cleanup, so absence stays an answer; a read that failed is not
+    one. `for-each-ref` is used because it separates the two where `rev-parse
+    --verify --quiet` cannot: measured on this machine, both exit as if absent
+    for a loose ref git cannot open, and only `for-each-ref` says so, on
+    stderr ("ignoring broken ref")."""
+    ref = "refs/heads/" + branch
+    rc, out, err = git(repo, "for-each-ref", "--format=%(refname)%00%(objectname)", ref)
+    if rc != 0:
+        return "", "%s in %s could not be read (git exit %d: %s)" % (ref, repo, rc, err.strip()[:200])
+    for line in out.splitlines():
+        name, _sep, sha = line.partition("\0")
+        if name == ref and sha.strip():
+            return sha.strip(), ""
+    if err.strip():
+        return "", "%s in %s could not be read: %s" % (ref, repo, err.strip()[:200])
+    return "", ""
+
+
 def is_ancestor(repo, a, b):
     rc, _, _ = git(repo, "merge-base", "--is-ancestor", a, b)
     return rc == 0
@@ -2917,7 +2944,11 @@ def _landed_residue(rec, w, deadline=None):
 
 
 def _require_clean(rec, doing, ignored_ok="", deadline=None):
+    """Refuses uncommitted work. Returns the paths it proved to be partial-
+    cleanup residue whose every file is preserved (`_landed_residue`): the one
+    kind of workspace directory that legitimately has no readable HEAD."""
     problems = []
+    preserved = []
     for w in live_workspaces(rec):
         if w.get("path") and os.path.isdir(w["path"]):
             residue = None
@@ -2926,6 +2957,8 @@ def _require_clean(rec, doing, ignored_ok="", deadline=None):
                 residue = _landed_residue(rec, w, deadline)
                 if residue is False:
                     raise SpecError("partial cleanup at %s cannot verify all remaining files are preserved; kept" % w["path"])
+                if residue:
+                    preserved.append(w["path"])
             dirty, ignored = ([], []) if residue else uncommitted(w["path"], deadline)
             if dirty:
                 problems.append("%s has %d uncommitted entr%s (%s)" % (
@@ -2937,6 +2970,7 @@ def _require_clean(rec, doing, ignored_ok="", deadline=None):
         raise SpecError("cannot %s — nothing uncommitted is ever landed (point 8):\n    %s\n  Commit what it "
                         "left to its branch, or discard it. If the ignored files are not needed, say so: "
                         "--ignored-not-needed '<why>'." % (doing, "\n    ".join(problems)))
+    return preserved
 
 
 # ---------------------------------------------------------------------------
@@ -4121,8 +4155,9 @@ def land(ref, me="", auto=False, ignored_ok="", deadline=None):
 
 def _require_landed(rec, chain, ignored_ok="", deadline=None):
     """Read current work after writers stop, including on a deletion retry."""
+    preserved = set()
     for r in chain:
-        _require_clean(r, "land %s" % r["name"], ignored_ok, deadline)
+        preserved.update(_require_clean(r, "land %s" % r["name"], ignored_ok, deadline) or [])
     missing = []
     targets = {}
 
@@ -4141,8 +4176,20 @@ def _require_landed(rec, chain, ignored_ok="", deadline=None):
                 missing.append("%s: %s" % (w.get("path") or w.get("branch"), why_not))
                 continue
             if not w.get("deleted_at") and w.get("path") and os.path.isdir(w["path"]):
-                rc, out, _ = git(w["path"], "rev-parse", "HEAD")
-                if rc == 0 and not is_ancestor(repo, out.strip(), tip):
+                rc, out, err = git(w["path"], "rev-parse", "HEAD")
+                # A HEAD that could not be READ is not a HEAD that is in the
+                # integration branch: nothing was proved, so the land waits
+                # (hunt part 4, finding 4). The one directory that has no HEAD
+                # to read and still proves its work landed is partial-cleanup
+                # residue whose Git metadata is already gone and whose every
+                # file `_require_clean` just proved preserved in the
+                # integration tip; its branch is still checked below.
+                if rc != 0 and w["path"] in preserved:
+                    pass
+                elif rc != 0:
+                    missing.append("HEAD of %s could not be read (git exit %d: %s), so it is not shown to be in "
+                                   "%s of %s" % (w["path"], rc, err.strip()[:200], branch, repo))
+                elif not is_ancestor(repo, out.strip(), tip):
                     missing.append("HEAD of %s (%s) is not in %s of %s at %s"
                                    % (w["path"], out.strip()[:12], branch, repo, tip[:12]))
     for repo, b in _branch_targets(chain):
@@ -4153,8 +4200,13 @@ def _require_landed(rec, chain, ignored_ok="", deadline=None):
         if why_not:
             missing.append("branch %s: %s" % (b, why_not))
             continue
-        t = branch_tip(repo, b)
-        if t and not is_ancestor(repo, t, tip):
+        # A branch that is GONE has nothing left to land (partial cleanup
+        # deletes branches first); a branch whose tip could not be READ may
+        # still carry the only copy of a commit, so it holds the land.
+        t, unread = branch_tip_read(repo, b)
+        if unread:
+            missing.append("branch %s: %s" % (b, unread))
+        elif t and not is_ancestor(repo, t, tip):
             missing.append("%s (%s) is not in %s of %s at %s" % (b, t[:12], branch, repo, tip[:12]))
     if missing:
         raise SpecError("%s is not landed yet: %s. Merge it onto the branch this work integrates on, "
@@ -4427,7 +4479,13 @@ def delete_branch(repo, b):
         return False, "%s: repository %s cannot be read" % (b, repo)
     if wl[0]["branch"] == b:
         return False, "branch %s is the main checkout's branch; never deleted" % b
-    if not branch_tip(main, b):
+    # "Already gone" is written down as deleted, so it must be git's answer,
+    # never a read that failed (hunt part 4, finding 4): that is a failure,
+    # retried later (point 13).
+    tip, unread = branch_tip_read(main, b)
+    if unread:
+        return False, "branch %s: %s" % (b, unread)
+    if not tip:
         return True, ""
     holders = [e["path"] for e in wl if e["branch"] == b]
     if holders:

@@ -2648,6 +2648,57 @@ class QAToolkitAtTheLand(Base):
         self.assertIn("contrast.py", out)
 
 
+class UnknownIsNeverClean(Base):
+    """Hunt part 4 (richos-hq docs/audits/2026-09-29-hunt/part-4-codex.md,
+    findings 4 to 7): a read that failed, a directory that could not be
+    listed, a process that may still be running and a repository that was
+    never looked at are each UNKNOWN, and an unknown is never reported clean.
+    Point 8: "Deletion therefore never loses anything that was meant to land.\""""
+
+    def _failing_reads(self, npath, branch):
+        """git, except that reading the worker's HEAD and reading its branch
+        both fail the way a git that cannot read the repository fails."""
+        real = ws.git
+        npath = os.path.realpath(npath)
+
+        def flaky(repo, *args, **kw):
+            if args and args[0] == "rev-parse" and "HEAD" in args and os.path.realpath(repo) == npath:
+                return 128, "", "fatal: simulated read failure"
+            if args and args[0] in ("rev-parse", "for-each-ref", "show-ref") and \
+                    any(branch in str(a) for a in args[1:]):
+                return 128, "", "fatal: simulated read failure"
+            return real(repo, *args, **kw)
+        return flaky
+
+    def test_point_14_a_failed_read_of_a_workers_commit_or_branch_never_proves_it_landed(self):
+        """Finding 4. A worker commit that is in NO integration branch, and
+        both reads that could show it (the workspace's HEAD and its branch's
+        tip) fail. A failed read proves nothing about where the commit is, so
+        the land is refused and names what could not be read."""
+        aid, npath = self.spawn("zach-opus-rd")
+        self.commit(npath, "unmerged.txt")
+        self.finish(aid)
+        branch = "worktree-agent-" + aid
+        with patch.object(ws, "git", self._failing_reads(npath, branch)):
+            with self.assertRaises(ws.SpecError) as e:
+                ws.land("zach-opus-rd", self.sid)
+        self.assertIn("could not be read", str(e.exception))
+        self.assertTrue(os.path.isdir(npath))
+        self.assertIn(branch, branches(self.entity))
+        self.assertFalse((self.rec("zach-opus-rd") or {}).get("disposition"))
+
+    def test_point_13_a_branch_whose_tip_cannot_be_read_is_never_recorded_deleted(self):
+        """Finding 4, the deletion half. "Already gone" is (True, ""), which
+        the record writes down as deleted; a tip that could not be READ is a
+        failure to retry (point 13), never an absence."""
+        run("git", "-C", self.entity, "branch", "worktree-agent-unreadable0")
+        with patch.object(ws, "git", self._failing_reads(self.entity, "worktree-agent-unreadable0")):
+            ok, why = ws.delete_branch(self.entity, "worktree-agent-unreadable0")
+        self.assertIs(ok, False, why)
+        self.assertIn("could not be read", why)
+        self.assertIn("worktree-agent-unreadable0", branches(self.entity))
+
+
 class _Result(unittest.TextTestResult):
     """Prints `  PASS  <test>` / `  FAIL  <test>` so the mutation harness
     (workspaces.mutation.sh) can tell which point went red."""
