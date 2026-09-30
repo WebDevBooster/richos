@@ -840,6 +840,40 @@ else
   else
     ok "G3 a host-only suite is recorded NOT RUN with its declared reason, and no guest is booted for it"
   fi
+
+  # N07: the results folder a caller asked for is carried out of the guest before it is deleted.
+  # Brought back, it is here; lost (the host side cannot take it), a passing suite cannot stand
+  # as a pass and a failing one keeps its own exit code.
+  GRES_OK="$TMP/guest-results-ok"; GRES_BAD="$TMP/guest-results-blocked/under-a-file"
+  : > "$TMP/guest-results-blocked"
+  gsuite() {  # gsuite <suite> <results dir>
+    harness RUN_TESTS_DECLARED_GAPS= RICHOS_GUI_HOST=richos-test-g \
+      "TESTVM_RUN_WALK=$GBIN/run-walk" "TESTVM_GUEST_EXEC=$GBIN/guest" \
+      "GUEST_ROOT=$GROOT" "GUEST_SUDO=$GSUDO" "GLOG=$GLOG" \
+      "RICHOS_GUI_PREBUILT=$GPRE" "RICHOS_GUI_ENGINE_SOURCE=$GENG" "RICHOS_TEST_RESULTS_DIR=$2" \
+      -- "$GBOX/testvm/run-suite.sh" richos-test-g "$GBOX/$1"
+  }
+  mkdir -p "$GRES_OK"
+  gsuite window.test.sh "$GRES_OK"
+  if [ "$CODE" != 0 ] || [ ! -d "$GRES_OK" ]; then
+    bad "G4 a results folder that comes back leaves the passing verdict as it was" "exit $CODE: $(tail -3 <<<"$OUT" | tr '\n' ' ' | cut -c1-300)"
+  else
+    ok "G4 a results folder that comes back leaves the passing verdict as it was"
+  fi
+  gsuite window.test.sh "$GRES_BAD"
+  if [ "$CODE" != 2 ] || ! says "results folder could not be brought back"; then
+    bad "G5 a passing suite whose requested results did not come back is not a pass" \
+        "exit $CODE, wanted 2: $(tail -3 <<<"$OUT" | tr '\n' ' ' | cut -c1-300)"
+  else
+    ok "G5 a passing suite whose requested results did not come back is not a pass (exit 2, the loss named)"
+  fi
+  gsuite redwin.test.sh "$GRES_BAD"
+  if [ "$CODE" != 1 ] || ! says "its results folder was lost"; then
+    bad "G6 a failing suite whose results were lost still fails with its own exit code" \
+        "exit $CODE, wanted 1: $(tail -3 <<<"$OUT" | tr '\n' ' ' | cut -c1-300)"
+  else
+    ok "G6 a failing suite whose results were lost still fails with its own exit code, and the loss is named"
+  fi
 fi
 
 # =========================================================================================

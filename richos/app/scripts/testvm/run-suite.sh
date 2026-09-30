@@ -42,7 +42,8 @@
 #      cleaned up: a clone left on this Mac is a failure whatever the suite said (§54)
 #   2  this Mac could not give the suite a guest: no slot within TESTVM_SUITE_WAIT seconds,
 #      a guest that did not boot, a payload that did not arrive, a suite that never reached
-#      its end. A fact about this machine, which run-tests.sh refuses unless declared.
+#      its end, or a suite that passed but whose results folder did not come back (a failing
+#      suite keeps its own exit code then). A fact about this machine, which run-tests.sh refuses unless declared.
 #   64 a usage error
 #
 # A suite that declares `# run-tests: host-only: <reason>` is refused with exit 2 and that
@@ -174,5 +175,15 @@ if [ ! -s "$WORK/suite.rc" ]; then
   no_guest "$NAME did not run to its end in guest $W_VM (suite-walk.sh exit $WALK_RC; $W_TIMES); the guest was deleted"
 fi
 SUITE_RC="$(cat "$WORK/suite.rc")"
+if [ "$WALK_RC" = 4 ]; then
+  # The suite ran to the end but the results folder asked for (RICHOS_TEST_RESULTS_DIR) did not
+  # come back, and the guest is deleted: a failing verdict still stands as itself, a passing one
+  # cannot stand with its evidence missing.
+  if [ "$SUITE_RC" != 0 ]; then
+    echo "run-suite.sh: $NAME exited $SUITE_RC in guest $W_VM and its results folder was lost (not brought back to ${RICHOS_TEST_RESULTS_DIR:-the results folder}); the guest was deleted" >&2
+    exit "$SUITE_RC"
+  fi
+  no_guest "$NAME passed in guest $W_VM but its results folder could not be brought back to ${RICHOS_TEST_RESULTS_DIR:-the results folder}; the guest was deleted, so the results are lost"
+fi
 say "$NAME exited $SUITE_RC in guest $W_VM; built here in ${BUILD_S}s, $W_TIMES; the guest was stopped and deleted"
 exit "$SUITE_RC"

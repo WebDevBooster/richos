@@ -9,13 +9,18 @@ Runs INSIDE a test guest (push it with guest.sh --push). Standard library only.
   files-since.py scan --since <marker> [--until <marker>] --root <dir> [--root <dir>...]
                       [--inside <dir>...] [--declared <dir>=<reason>...] [--harness <dir>...]
                       [--baseline <scan.json>] [--control <file>...] [--named <word>...]
+                      [--tolerate-unreadable <dir>...]
       Every file, symlink or newly born directory under the roots whose modification,
       change or birth time is after --since (and not after --until), classified. JSON on
       stdout. Exit 0 when every control was found and nothing NAMED sits outside --inside;
-      1 when something named does; 2 when a control was not found or a --root could not
-      be listed (the search itself is not working, so its silence proves nothing).
-      An entry INSIDE a readable root that cannot be read is counted (unreadable_count)
-      and does not fail the search: a guest's system folders always hold a few.
+      1 when something named does; 2 when a control was not found, a --root could not
+      be listed, or a directory below a root could not be listed and lies outside every
+      --tolerate-unreadable directory (the search itself is not working, so its silence
+      proves nothing about the subtree it never read).
+      A guest's system folders always hold a few unreadable directories, so the caller
+      names those folders with --tolerate-unreadable: what is unreadable under them is
+      counted (tolerated_unreadable_count) and does not fail the search. An unreadable
+      directory anywhere else, such as the home the app under test runs in, does.
 
 WHY A POSITIVE CONTROL. "The search found nothing outside the folder" is a claim about
 the search as much as about the app. A root that was not readable, a clock compared the
@@ -78,7 +83,13 @@ def scan(args):
             baseline = {row['path'] for row in json.load(f)['files']}
     markers = {os.path.realpath(args.since)} | ({os.path.realpath(args.until)} if args.until else set())
 
-    rows, unreadable, unreadable_roots = [], [], []
+    tolerate = [os.path.realpath(p) for p in args.tolerate_unreadable]
+    rows, unreadable, unreadable_roots, unreadable_dirs, tolerated = [], [], [], [], []
+
+    def cannot_list(e):
+        path = os.path.realpath(str(e.filename))
+        unreadable.append(str(e.filename))
+        (tolerated if under(path, tolerate) else unreadable_dirs).append(path)
     for root in args.root:
         root = os.path.realpath(root)
         # A root that cannot be listed at all is a place the search was told to cover and
@@ -89,7 +100,7 @@ def scan(args):
         except OSError:
             unreadable_roots.append(root)
             continue
-        for dirpath, dirnames, filenames in os.walk(root, topdown=True, onerror=lambda e: unreadable.append(str(e.filename))):
+        for dirpath, dirnames, filenames in os.walk(root, topdown=True, onerror=cannot_list):
             for name in list(dirnames) + filenames:
                 full = os.path.join(dirpath, name)
                 try:
@@ -138,7 +149,7 @@ def scan(args):
     missing = sorted(controls - found)
     unflagged = sorted(r['path'] for r in rows if r['class'] == 'control' and r.get('would_be') != 'named' and named)
     verdict = 'pass'
-    if missing or unflagged or unreadable_roots:
+    if missing or unflagged or unreadable_roots or unreadable_dirs:
         verdict = 'search-broken'
     elif counts.get('named'):
         verdict = 'named-outside'
@@ -146,7 +157,8 @@ def scan(args):
         'since': since, 'until': until, 'scanned_at': time.time(),
         'roots': [os.path.realpath(r) for r in args.root],
         'inside': inside, 'declared': declared, 'harness': harness, 'named_words': named,
-        'unreadable_roots': unreadable_roots,
+        'unreadable_roots': unreadable_roots, 'unreadable_dirs': sorted(unreadable_dirs),
+        'tolerated_unreadable_count': len(tolerated),
         'controls_missing': missing, 'controls_not_flagged_named': unflagged,
         'unreadable_count': len(unreadable), 'unreadable_sample': unreadable[:20],
         'counts': counts, 'verdict': verdict,
@@ -169,6 +181,7 @@ def main():
     s.add_argument('--harness', action='append', default=[])
     s.add_argument('--baseline'); s.add_argument('--control', action='append', default=[])
     s.add_argument('--named', action='append', default=[])
+    s.add_argument('--tolerate-unreadable', action='append', default=[])
     a = p.parse_args()
     if a.cmd == 'mark':
         with open(a.file, 'a'):

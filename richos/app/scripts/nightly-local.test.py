@@ -1626,6 +1626,24 @@ while True: time.sleep(.02)
         self.assertIn("different tree", str(caught.exception))
         r.command.assert_not_called()
 
+    def test_a_proof_naming_a_too_short_or_non_hex_commit_is_refused(self):
+        """N03: one shared hex character is not this candidate's identity. The proof's commit
+        must be 7-40 hex digits (as --checks-done-at-land's is) before a prefix match counts."""
+        for bad in ("d", "deadbe", "DEADBEEF", "deadbeefcafe0123456789zz"):
+            r, _ = self.gui_candidate(gui_state="not-run", no_host_screen=True)
+            with self.subTest(commit=bad):
+                with self.assertRaises(ValueError) as caught:
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        r.perform("publish", run_id=self.CANDIDATE_INFO["run_id"],
+                                  gui_proof=str(self.proof(commit=bad)))
+                self.assertIn("different tree", str(caught.exception))
+                r.command.assert_not_called()
+        r, _ = self.gui_candidate(gui_state="not-run", no_host_screen=True)
+        with contextlib.redirect_stdout(io.StringIO()):
+            r.perform("publish", run_id=self.CANDIDATE_INFO["run_id"],
+                      gui_proof=str(self.proof(commit="deadbee")))
+        self.assertEqual(r.command.call_args.args[2], "finish")
+
     def test_a_proof_naming_the_build_commit_is_accepted(self):
         """The bundle is compiled from `build_commit` -- the version-bump commit whose
         parent is `source_commit`. A proof taken against the thing that was actually built

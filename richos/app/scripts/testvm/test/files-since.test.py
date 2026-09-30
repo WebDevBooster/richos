@@ -111,5 +111,42 @@ with tempfile.TemporaryDirectory() as t:
     check('an unreadable root exits 2 even though the control was found elsewhere',
           rc == 2 and out['verdict'] == 'search-broken' and out['unreadable_roots'] == [str(gone)], (rc, out.get('verdict'), out.get('unreadable_roots')))
 
+# R31: a nested directory that cannot be listed is a subtree the search was told to cover and
+# did not. A control found elsewhere cannot vouch for it, unless the caller declared that place
+# a known-unreadable system folder.
+if os.geteuid() != 0:
+    with tempfile.TemporaryDirectory() as t2:
+        r2 = Path(os.path.realpath(t2))
+        (r2 / 'home/hidden').mkdir(parents=True)
+        (r2 / 'sys/locked').mkdir(parents=True)
+        subprocess.run([sys.executable, str(TOOL), 'mark', str(r2 / 'm0')], check=True)
+        time.sleep(1.1)
+        ctl = r2 / 'home/richos-control.txt'
+        write(ctl)
+        write(r2 / 'home/hidden/richos-leak.db')
+        write(r2 / 'sys/locked/whatever')
+        os.chmod(r2 / 'home/hidden', 0)
+        os.chmod(r2 / 'sys/locked', 0)
+        try:
+            base = ['--since', str(r2 / 'm0'), '--root', str(r2 / 'home'), '--root', str(r2 / 'sys'),
+                    '--control', str(ctl), '--named', 'richos']
+            rc, out, _ = scan(*base)
+            check('an unreadable nested directory exits 2 even though the control was found elsewhere',
+                  rc == 2 and out.get('verdict') == 'search-broken'
+                  and sorted(out.get('unreadable_dirs', [])) == sorted([str(r2 / 'home/hidden'), str(r2 / 'sys/locked')]),
+                  (rc, out.get('verdict'), out.get('unreadable_dirs')))
+            rc, out, _ = scan(*base, '--tolerate-unreadable', str(r2 / 'sys'))
+            check('a declared system folder is tolerated and counted; the undeclared one still breaks the search',
+                  rc == 2 and out.get('unreadable_dirs') == [str(r2 / 'home/hidden')] and out.get('tolerated_unreadable_count') == 1,
+                  (rc, out.get('unreadable_dirs'), out.get('tolerated_unreadable_count')))
+            os.chmod(r2 / 'home/hidden', 0o700)
+            rc, out, _ = scan(*base, '--tolerate-unreadable', str(r2 / 'sys'))
+            check('with only the declared system folder unreadable the search is trusted and finds the leak',
+                  rc == 1 and out.get('verdict') == 'named-outside' and out.get('unreadable_dirs') == [],
+                  (rc, out.get('verdict'), out.get('unreadable_dirs')))
+        finally:
+            for d in ('home/hidden', 'sys/locked'):
+                os.chmod(r2 / d, 0o700)
+
 print(f'files-since.test.py: {len(failures)} failed')
 sys.exit(1 if failures else 0)
