@@ -607,6 +607,17 @@ def stable_plan(nightly_tag, record_text, now=None):
             "stable channel, so that commit cannot build a stable release of itself.\n"
             "  Promote a nightly built from a commit that carries the stable channel; the "
             "first of those is the first nightly published after this landed.")
+    # THE STABLE CHANNEL ALONE IS NOT ENOUGH. The first stable-capable tooling still pushed
+    # the PUBLIC version tag from `prepare`, so a build that failed later left the real
+    # version spent. That commit's own prepare is what runs, so a commit whose tooling
+    # lacks the hidden-reservation check (`stable_reservation_holds`) is refused here.
+    if "stable_reservation_holds" not in tooling:
+        raise ValueError(
+            f"{nightly_tag} was built from {source[:12]}, whose release tooling reserves the "
+            "public version tag before the build can succeed, so a failed build would spend "
+            f"{tag} for good.\n"
+            "  Promote a nightly built from a commit that carries the hidden version "
+            "reservation; the first of those is the first nightly published after it landed.")
     identity()
     return {"build": True, "version": base, "tag": tag, "source_commit": source,
             "created_at": now.isoformat(),
