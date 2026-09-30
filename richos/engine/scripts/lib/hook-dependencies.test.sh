@@ -241,6 +241,53 @@ else
     ok "9b the wrapper refuses a directory that registers no hooks"
 fi
 
+# ---------------------------------------------------------------------------
+# 10 — A PYTHON IMPORT IS A DEPENDENCY (2026-09-30). The quoted-path rule cannot
+# see `import containers`, so a sandbox holding workspaces.py lacked the module
+# its land cleanup imports, and the landed agent kept its workspace. The fixture
+# python file imports one engine module (inside a function, the way the lander
+# does) and the device cleanup module; the first must be carried, the second
+# never: testdevices.py lists and deletes the Mac's real simulators and
+# emulators, and every caller already degrades when it is absent.
+# ---------------------------------------------------------------------------
+IMP="$TMP/fixture-imports"
+make_fixture "$IMP"
+cat >"$IMP/scripts/lib/fixture-predicate.py" <<'PY'
+#!/usr/bin/env python3
+import json
+
+
+def later():
+    import fixturemod  # an engine module, imported in a function
+    import testdevices  # the real-device cleanup: must never be carried
+    return fixturemod, testdevices
+PY
+printf 'import fixtureleaf\n' >"$IMP/scripts/lib/fixturemod.py"
+printf 'X = 1\n' >"$IMP/scripts/lib/fixtureleaf.py"
+printf 'raise SystemExit("would touch real devices")\n' >"$IMP/scripts/lib/testdevices.py"
+IMP_OUT="$(python3 "$PREDICATE" "$IMP" 2>"$TMP/imp.err")"; IMP_RC=$?
+if [ "$IMP_RC" -eq 0 ] && printf '%s\n' "$IMP_OUT" | grep -qx 'scripts/lib/fixturemod\.py'; then
+    ok "10  a sandbox built for a file that imports an engine module contains that module"
+else
+    bad "10  scripts/lib/fixturemod.py (imported by a dependency) is NOT in the closure (rc $IMP_RC)"
+fi
+if printf '%s\n' "$IMP_OUT" | grep -qx 'scripts/lib/fixtureleaf\.py'; then
+    ok "10b imports are followed transitively"
+else
+    bad "10b the module's own import (fixtureleaf) is missing from the closure"
+fi
+if printf '%s\n' "$IMP_OUT" | grep -qx 'scripts/lib/testdevices\.py'; then
+    bad "10c the real-device cleanup module is in the closure: a sandbox could reach the Mac's simulators"
+else
+    ok "10c the real-device cleanup module (testdevices) is never carried into a sandbox"
+fi
+if printf '%s\n' "$LIVE" | grep -qx 'scripts/lib/containers\.py' \
+   && ! printf '%s\n' "$LIVE" | grep -qx 'scripts/lib/testdevices\.py'; then
+    ok "10d the live engine carries containers.py and not testdevices.py"
+else
+    bad "10d live closure: containers.py missing or testdevices.py present"
+fi
+
 echo
 if [ "$FAIL" -eq 0 ]; then
     echo "=== hook-dependencies.test.sh: all $PASS passed ==="
