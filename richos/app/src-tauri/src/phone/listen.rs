@@ -1520,6 +1520,19 @@ mod tests {
     /// origin the product hands out (CEO §61).
     const TEST_API_BASE: &str = "https://mm1.tail9a3b2.ts.net:8443";
 
+    /// **A live proof whose prerequisites are missing has not passed.** The failure names what
+    /// was missing, so the person who asked for `--ignored` reads "not proven" and why, never a
+    /// green result with nothing behind it.
+    fn cannot_prove(missing: &str) -> ! {
+        panic!("NOT PROVEN: {missing}. The live proof did not run, so nothing is claimed.");
+    }
+
+    #[test]
+    #[should_panic(expected = "NOT PROVEN: this Mac is `off`, not `ready`")]
+    fn a_live_proof_with_missing_prerequisites_is_a_failure_not_a_pass() {
+        cannot_prove("this Mac is `off`, not `ready`");
+    }
+
     /// **THE LIVE PROOF: this Mac, its real tailnet name, a publicly trusted certificate, and
     /// `curl` with no `-k` and no `--cacert`.**
     ///
@@ -1530,7 +1543,9 @@ mod tests {
     /// cargo test --bin richos-tauri phone::listen::tests::live -- --ignored --nocapture
     /// ```
     ///
-    /// It SKIPS, loudly, on any state but `ready` — a proof that quietly passes on a Mac with no
+    /// It FAILS, loudly, on any state but `ready` or when the shipping port will not bind
+    /// (`cannot_prove`) — Rust has no "skipped" result for a test selected with `--ignored`, so
+    /// a return there is recorded as PASSED, and a proof that quietly passes on a Mac with no
     /// Tailscale would be worse than no proof. On a ready Mac it proves, in one run:
     ///
     /// 1. detection reports `ready` with the tailnet name;
@@ -1553,11 +1568,7 @@ mod tests {
         let (state, diagnostic) = tailnet::detect();
         println!("state      = {} {:?}", state.token(), diagnostic.map(|d| d.label()));
         let (Some(name), Some(origin)) = (state.name(), state.origin()) else {
-            println!(
-                "SKIPPED: this Mac is `{}`, not `ready`. Nothing to prove and nothing claimed.",
-                state.token()
-            );
-            return;
+            cannot_prove(&format!("this Mac is `{}`, not `ready`", state.token()));
         };
         println!("name       = {name}");
         println!("origin     = {origin}");
@@ -1647,9 +1658,8 @@ mod tests {
         ) {
             Ok(listener) => listener,
             Err(e) => {
-                println!("SKIPPED: port {HTTPS_PORT} would not bind ({e}). Quit RichOS and retry.");
                 let _ = std::fs::remove_dir_all(&dir);
-                return;
+                cannot_prove(&format!("port {HTTPS_PORT} would not bind ({e}); quit RichOS and retry"));
             }
         };
         println!(
