@@ -27,9 +27,13 @@ libc = "0.2"
 # every point is an empty inline function.
 crash-points = []
 
+# `test = true` runs an example's own setup test with `cargo test -p richos-core`, so an example
+# that can no longer open its conversation fails there, not at its next live run (hunt part 1
+# finding 46). The setup tests start no provider.
 [[example]]
 name = "native_roundtrip"
 path = "examples/native_roundtrip.rs"
+test = true
 
 [[example]]
 name = "native_failure_modes"
@@ -38,14 +42,22 @@ path = "examples/native_failure_modes.rs"
 [[example]]
 name = "rotation_roundtrip"
 path = "examples/rotation_roundtrip.rs"
+test = true
 
 [[example]]
 name = "watermark_roundtrip"
 path = "examples/watermark_roundtrip.rs"
+test = true
 
 [[example]]
 name = "machinery_roundtrip"
 path = "examples/machinery_roundtrip.rs"
+test = true
+
+[[example]]
+name = "live_events_roundtrip"
+path = "examples/live_events_roundtrip.rs"
+test = true
 
 [[example]]
 name = "worker_status_demo"
@@ -54,6 +66,7 @@ path = "examples/worker_status_demo.rs"
 [[example]]
 name = "loro_reprime_demo"
 path = "examples/loro_reprime_demo.rs"
+test = true
 
 [[example]]
 name = "loro_correction_demo"

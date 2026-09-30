@@ -19,6 +19,7 @@
 //! Nothing is estimated and nothing is simulated except, when a WAV is given, the acoustic
 //! path into the microphone.
 
+use richos_core::entity::{EntityId, EntityRegistry};
 use richos_core::native::{resolve_claude_bin, NativeCognition};
 use richos_core::ledger::{Ledger, Source};
 use richos_core::spine::Spine;
@@ -138,6 +139,19 @@ impl VoiceObserver for LogObserver {
     }
 }
 
+/// The spine and the conversation the loop talks in, opened in company `richos`. The
+/// zero-argument `ensure_active_thread` only returns a conversation already open and a fresh
+/// spine has none; the core ships no companies and never guesses one. So the company is
+/// stated and the conversation opened in it, as the shell's boot does with the company it
+/// resolves (`ensure_active_thread_in`; hunt part 1 finding 46).
+fn conversation(ledger: Ledger) -> Spine {
+    let entity = EntityId::parse("richos").unwrap();
+    let mut spine = Spine::new(ledger);
+    spine.set_entity_registry(EntityRegistry::from_existing_ids(std::slice::from_ref(&entity)));
+    spine.ensure_active_thread_in(&entity).expect("thread");
+    spine
+}
+
 fn main() {
     let arg = std::env::args().nth(1);
     let source = match &arg {
@@ -154,10 +168,13 @@ fn main() {
 
     // ---- the real spine, exactly as the Tauri shell builds it -----------------------
     let ledger_path = scratch.join("voice-loop-ledger.jsonl");
-    let _ = std::fs::remove_file(&ledger_path);
+    // The path is the same every run, so the last run's ledger is removed first: its turns
+    // would otherwise carry into this measurement. One that cannot be removed stops the loop.
+    if let Err(e) = std::fs::remove_file(&ledger_path) {
+        assert!(e.kind() == std::io::ErrorKind::NotFound, "the last run's ledger at {} could not be removed ({e})", ledger_path.display());
+    }
     let ledger = Ledger::open(&ledger_path).expect("open ledger");
-    let mut spine = Spine::new(ledger);
-    spine.ensure_active_thread().expect("thread");
+    let mut spine = conversation(ledger);
 
     let slot: Slot = Arc::new(Mutex::new(None));
     let done = Arc::new(AtomicBool::new(false));
@@ -256,4 +273,22 @@ fn main() {
 
     drop(ctl);
     println!("\nvoice mode down — microphone closed.");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Hunt part 1 finding 46: the setup opens the conversation, so a run reaches the
+    /// provider and the microphone instead of stopping at `NoActiveThread`. No provider,
+    /// device or audio is used here.
+    #[test]
+    fn the_setup_opens_the_conversation_the_loop_talks_in() {
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("richos-voice-loop-setup-{}-{nanos}.jsonl", std::process::id()));
+        let spine = conversation(Ledger::open(&path).unwrap());
+        assert!(spine.active_thread().is_some());
+        drop(spine);
+        std::fs::remove_file(&path).unwrap();
+    }
 }
