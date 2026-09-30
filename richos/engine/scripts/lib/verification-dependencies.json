@@ -3989,7 +3989,7 @@
     },
     "scripts/hook-registration-completeness.sh#private-inventory": {
       "source": "scripts/hook-registration-completeness.sh",
-      "sha256": "0cf54e75ea95aa43b5f4824d54941c9faee1b840bb688b471fa50ee1e9d8b350",
+      "sha256": "b6d74c20538f74926a5acb841e92fe205cd6f1c8be1d82849c0e3dddd55496bd",
       "evidence": "The test supplies literal hook manifests, probe/ack tables, hook scripts and new Git histories for every --root. Checker reads these as data with JSON/regex/Git commands. Its one non-Git subprocess is the target scripts/ci-units.sh, generated in the caller as find/sed/sort only. It never executes hooks or probe content, reads production config or imports other engine code. Three literal in-test mutations change predicates only.",
       "keys": [],
       "edges": []
@@ -4016,7 +4016,7 @@
     },
     "scripts/hook-registration-completeness.test.sh": {
       "source": "scripts/hook-registration-completeness.test.sh",
-      "sha256": "d1b9cdb765d24d2897108dbceeaaf05d498605478c93deb5d3d53633ff7f09a8",
+      "sha256": "6ffd9da82ee3246b4c1ada4a6eabc176c655d31492b0cf0cc53c6c6ea9466d22",
       "evidence": "Every checker and guard invocation targets a fresh synthetic Git repository. make_fixture generates three fake hooks, their manifests/inventories and a find-only ci-units script; no production config or manifest is copied. The in-test checker mutations run against those same fixtures. Production files used are the checker, guard and their fixed libraries only.",
       "keys": [],
       "edges": [
@@ -15662,8 +15662,8 @@
       "text_needles": [],
       "evidence": "All hook manifests and inventory tables in this suite are generated literals. Changes to the real manifest do not change those fixtures. Executed checker/guard/libraries and fixture constructor are all content-bound here; no real hooks.json bytes are read.",
       "sources": {
-        "scripts/hook-registration-completeness.test.sh": "d1b9cdb765d24d2897108dbceeaaf05d498605478c93deb5d3d53633ff7f09a8",
-        "scripts/hook-registration-completeness.sh": "0cf54e75ea95aa43b5f4824d54941c9faee1b840bb688b471fa50ee1e9d8b350",
+        "scripts/hook-registration-completeness.test.sh": "6ffd9da82ee3246b4c1ada4a6eabc176c655d31492b0cf0cc53c6c6ea9466d22",
+        "scripts/hook-registration-completeness.sh": "b6d74c20538f74926a5acb841e92fe205cd6f1c8be1d82849c0e3dddd55496bd",
         "scripts/hooks/guard-hook-registration-commits.sh": "0e684c61c9c4d2bd3a724b6f4693090812cff645911916e4b4cb035b90790393",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
@@ -15957,7 +15957,7 @@
         "scripts/hooks/guard-completeness-commits.sh": "bb6d0253b44d251a08dd325e8901399aafcbe4ca6fe4aa4c30c9b41a57cee673",
         "scripts/hooks/guard-foreign-app-data.sh": "4360ace16a692e3cf5c7dd100dc206c496f0960b4584d66f76ff240bda3ee42c",
         "scripts/hooks/guard-hook-registration-commits.sh": "0e684c61c9c4d2bd3a724b6f4693090812cff645911916e4b4cb035b90790393",
-        "scripts/hook-registration-completeness.sh": "0cf54e75ea95aa43b5f4824d54941c9faee1b840bb688b471fa50ee1e9d8b350",
+        "scripts/hook-registration-completeness.sh": "b6d74c20538f74926a5acb841e92fe205cd6f1c8be1d82849c0e3dddd55496bd",
         "scripts/hooks/guard-host-display-power.sh": "a6b99e74c251343564a32b52dbdafbf5a00ae84268853dfa7f622d032e79dc45",
         "scripts/hooks/guard-land-lease-commands.sh": "e3fb182d2571b84f9a84599fd50f404bb53aee051f6a9bbf52f0f78e01b60078",
         "scripts/lib/operator_leads.py": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
