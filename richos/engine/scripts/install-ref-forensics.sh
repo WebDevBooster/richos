@@ -69,13 +69,21 @@ chain_ok() {
     local dispatch="$HOOKS_PATH/$HOOK_NAME"
     [ -e "$dispatch" ] || return 1          # override set, no such hook: dead
     # The dispatcher must chain to the repo's own hook of the same name.
-    grep -q 'git-common-dir' "$(readlink -f "$dispatch" 2>/dev/null || printf '%s' "$dispatch")" 2>/dev/null
+    # Git runs a hook only when it is executable (P5-44): a dispatcher that
+    # chains but is mode 0644 is as dead as one that does not chain.
+    local real
+    real="$(readlink -f "$dispatch" 2>/dev/null || printf '%s' "$dispatch")"
+    [ -x "$real" ] && grep -q 'git-common-dir' "$real" 2>/dev/null
 }
 
 case "$MODE" in
     check)
         if [ -f "$TARGET" ] && grep -q "$MARKER" "$TARGET" 2>/dev/null; then
             printf 'INSTALLED  %s\n' "$TARGET"
+            if [ ! -x "$TARGET" ]; then
+                printf 'UNREACHABLE %s is not executable — git will never run it\n' "$TARGET" >&2
+                exit 1
+            fi
             if chain_ok; then
                 printf 'REACHABLE  core.hooksPath=%s chains to the repo hook\n' \
                     "${HOOKS_PATH:-(unset)}"

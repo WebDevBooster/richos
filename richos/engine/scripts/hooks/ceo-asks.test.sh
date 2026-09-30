@@ -448,6 +448,23 @@ else
     bad "C10. BROKEN: a declared list that is not on disk FAILS OPEN and says so" "rc=$RC err=$ERR out=$OUT"
 fi
 
+# P5-50: an UNREADABLE ledger is not an EMPTY one. A ledger path that cannot be
+# opened as a file (here a directory) used to read as "no question was ever asked",
+# turning every prepared item into a fresh obligation; it must be BROKEN instead,
+# which fails open and says so, like a list that is not on disk.
+write_seat_config "$TODOREPO"
+write_record
+rm -rf "$LEDGER"; mkdir -p "$LEDGER"
+run_hook "$GATE" "$(agent_payload S1 "do the thing")"
+say "C10b" "$ERR$OUT"
+if [ "$RC" -eq 0 ] && printf '%s%s' "$ERR" "$OUT" | grep -q 'UNGATED'; then
+    ok "C10b. BROKEN: an unreadable ledger FAILS OPEN and says so, it is not read as an empty ledger (P5-50)"
+else
+    bad "C10b. BROKEN: an unreadable ledger FAILS OPEN and says so" "rc=$RC err=$ERR out=$OUT"
+fi
+rm -rf "$LEDGER"
+reset_ledger
+
 write_seat_config "$TODOREPO"
 write_record "BLOCKED-ON-RICH"
 # every item unprepared -> nothing to ask about

@@ -689,6 +689,8 @@ def render_session_context(rows, bad, now=None):
 HOST_CONTEXT_CAP = 10000
 HOST_PREVIEW_CHARS = 2000
 DELIVERY_BUDGET = 9000
+# Room kept for the paragraph's closing lines when the first entry is cut.
+FOOTER_RESERVE = 1000
 ID_RX = re.compile(r"esc-\d{8}T\d{6}Z-[0-9a-f]{8}")
 SESSION_START_HOOK = "session-start-escalations.sh"
 
@@ -809,6 +811,15 @@ def render_delivery(new, already):
         if sent and used + len(line) + 1 > DELIVERY_BUDGET:
             skipped += 1
             continue
+        if not sent and used + len(line) + 1 > DELIVERY_BUDGET - FOOTER_RESERVE:
+            # The first entry is always sent so delivery makes progress, but
+            # past the host cap the model would see a 2,000-character preview
+            # and this id would still be recorded as delivered (P5-37). Cut it
+            # HERE, under the cap, and say so and where the rest is.
+            marker = (" ... [TRUNCATED: the rest of this escalation did not fit; read it in "
+                      "full with escalate.sh show %s]" % e["id"])
+            room = DELIVERY_BUDGET - FOOTER_RESERVE - used - 1 - len(marker)
+            line = line[:max(room, 0)] + marker
         lines.append(line)
         used += len(line) + 1
         sent.append(e)

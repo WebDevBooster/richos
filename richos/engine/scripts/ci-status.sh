@@ -139,9 +139,27 @@ nwf = doc["counts"]["workflows"]
 # It is a SENTENCE and not a fraction, and it never says "green" unless every
 # axis of every workflow is clear AND nothing was unjudged. "Green with three
 # unjudged" is the claim this whole tool exists to make impossible.
-if loud == 0 and unjudged == 0:
-    sentence = ("CI is clear: %d workflows across %d repositories, every one of them OK or declared "
-                "on all six axes, read at %s." % (nwf, nrepos, doc["generated_at"]))
+#
+# TWO WAYS A "CLEAR" SENTENCE USED TO BE FALSE (P5-40). `--axis red --sentence`
+# counted one axis and still said "all six axes", so a slow FINDING was invisible
+# behind it; and a reading with blind spots or API failures said "clear" on the
+# line that was quoted, and only the exit code (read later, if at all) admitted
+# it. The sentence now names how many axes it covers and never says "clear"
+# when the reading was blind.
+n_blind = len(doc.get("blind") or [])
+n_fail = len((doc.get("api") or {}).get("failures") or [])
+if only_axis:
+    covered = "the %s axis only (the other %d axes were NOT read)" % (only_axis, len(AXES) - 1)
+else:
+    covered = "all six axes"
+if loud == 0 and unjudged == 0 and (n_blind or n_fail):
+    sentence = ("CI is NOT confirmed clear: nothing found on %s across %d workflows, but the "
+                "reading was incomplete (%d blind spot(s), %d API failure(s)) — what it could "
+                "not see is not the same as nothing there."
+                % (covered, nwf, n_blind, n_fail))
+elif loud == 0 and unjudged == 0:
+    sentence = ("CI is clear on %s: %d workflows across %d repositories, every one of them OK or "
+                "declared, read at %s." % (covered, nwf, nrepos, doc["generated_at"]))
 elif loud == 0:
     sentence = ("CI has no findings but %d axis reading(s) are UNJUDGED across %d workflows — the "
                 "checker could not look, which is not the same as finding nothing." % (unjudged, nwf))
@@ -163,6 +181,11 @@ if paused:
         sentence = "CI PAUSED for %s. No verification verdict is being requested." % names
     else:
         sentence += " Monitoring PAUSED for %s; excluded from those counts." % names
+
+if only_axis and loud and "axis only" not in sentence:
+    sentence += " Only the %s axis was read; the other %d axes were NOT looked at." % (only_axis, len(AXES) - 1)
+elif only_axis and not loud and "axis only" not in sentence:
+    sentence += " Only the %s axis was read." % only_axis
 
 if mode == "sentence":
     print(sentence)

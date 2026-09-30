@@ -249,7 +249,39 @@ for name in sorted(out):
 hook_enforced_on_surface() { # <surface json> <script basename>
     local f="${1:-}" g="${2:-}"
     [ -n "$f" ] && [ -f "$f" ] && [ -n "$g" ] || return 1
-    grep -q "scripts/hooks/$g" "$f" 2>/dev/null && return 0
+    # A REGISTERED COMMAND, NOT A MENTION (P5-45). The old first line was
+    # `grep -q scripts/hooks/<g> <whole file>`, which credited a guard named only
+    # in a description string, a disabled entry or any other text: enforcement
+    # asserted over a guard that never runs. With python3 the commands of the
+    # parsed table are searched; only without it does the text scan remain, as
+    # the weaker over-counting fallback this file documents everywhere else.
+    if command -v python3 >/dev/null 2>&1; then
+        if python3 -c '
+import json, re, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as fh:
+        doc = json.load(fh)
+except Exception:
+    raise SystemExit(1)
+hooks = doc.get("hooks", {})
+if isinstance(hooks, dict):
+    for entries in hooks.values():
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            for h in entry.get("hooks", []) or []:
+                cmd = h.get("command", "") if isinstance(h, dict) else ""
+                if isinstance(cmd, str) and sys.argv[2] in re.findall(r"scripts/hooks/([A-Za-z0-9._+-]+\.sh)", cmd):
+                    raise SystemExit(0)
+raise SystemExit(1)
+' "$f" "$g" 2>/dev/null; then
+            return 0
+        fi
+    else
+        grep -q "scripts/hooks/$g" "$f" 2>/dev/null && return 0
+    fi
     _rh_dispatch_modules "$f" | grep -qxF "$g" 2>/dev/null
 }
 

@@ -101,6 +101,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import time
 
 # Paths that can never be a scratch root and can never be the operator's app
@@ -381,12 +382,18 @@ def candidate_pids():
         # the basename of either comm or argv[0] is enough to shortlist, and a
         # false shortlist costs one lsof and is then denied for lack of
         # evidence.
-        first = rest.split(None, 1)[0]
-        tokens = {os.path.basename(first)}
-        for tok in rest.split():
-            tokens.add(os.path.basename(tok))
-            if len(tokens) > 8:
-                break
+        #
+        # EXECUTABLE IDENTITY ONLY (P5-47). The shortlist used to take the
+        # basename of EVERY argument too, so `bash -c "cargo run -p
+        # richos-tauri"` was shortlisted by its last word, and a scratch cwd then
+        # made it COLLECT: a wrapper shell, or an unrelated command that merely
+        # mentions the app, was selected for termination. The process IS the
+        # app only when its executable (comm) or its argv[0] is an app binary;
+        # an argument is prose about one.
+        fields = rest.split()
+        tokens = {os.path.basename(fields[0])}
+        if len(fields) > 1:
+            tokens.add(os.path.basename(fields[1]))      # argv[0]
         if tokens & names:
             out[pid] = rest
     return out
@@ -697,18 +704,29 @@ def read_failures(path=None):
         return {}
 
 
-def _write_failures(path, rows):
+def _write_failures(path, rows, errors=None):
+    """True when the file now holds `rows`. A failed write is NEVER silent
+    (P5-48): this file is the durable half of the §54 alert, the only way a
+    surviving window is remembered from one run to the next, so a write that did
+    not happen is reported on stderr and appended to `errors` for the caller to
+    carry in its result."""
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(rows, fh, indent=1, sort_keys=True)
         os.replace(tmp, path)
-    except OSError:
-        pass
+        return True
+    except OSError as error:
+        msg = ("the app-instance failure record could NOT be written to %s (%s): %d standing failure(s) "
+               "will not be remembered by the next run" % (path, error, len(rows or {})))
+        sys.stderr.write("appinstances: %s\n" % msg)
+        if errors is not None:
+            errors.append(msg)
+        return False
 
 
-def record_failures(survivors, stamp=None, path=None):
+def record_failures(survivors, stamp=None, path=None, errors=None):
     """Carry surviving instances forward; drop the ones that are gone.
 
     THE DROP IS AS IMPORTANT AS THE RECORD, for the reason the reaper's own
@@ -745,14 +763,14 @@ def record_failures(survivors, stamp=None, path=None):
             "attempts": int(prev.get("attempts") or 0) + 1,
         }
     if rows:
-        _write_failures(path, rows)
+        _write_failures(path, rows, errors)
     elif os.path.exists(path):
         # No standing failures: remove the file rather than leave an empty
         # object, so its mere existence answers "is anything stuck".
         try:
             os.unlink(path)
         except OSError:
-            _write_failures(path, {})
+            _write_failures(path, {}, errors)
     return rows
 
 
@@ -767,7 +785,12 @@ def collect_and_record(extra_roots=(), roots=None, dry_run=False):
         # Called even with no survivors: that is what RESOLVES rows for
         # instances which have since gone, and an alert that cannot clear is an
         # alert that gets switched off.
-        res["standing"] = record_failures(res["survivors"])
+        errors = []
+        res["standing"] = record_failures(res["survivors"], errors=errors)
+        if errors:
+            # The alert could not be made durable: say so in the result, where
+            # the land step and the reaper read it, not only on stderr.
+            res["record_errors"] = errors
     return res
 
 
@@ -792,12 +815,15 @@ def _main(argv):
             for d in res[key]:
                 print("%-12s pid %-7d %s" % (key.upper(), d["pid"],
                                              d.get("how") or d["why"]))
+        for msg in res.get("record_errors", ()):
+            print("ALERT NOT RECORDED: %s" % msg)
         print("verdict: collected=%d survivors=%d undecided=%d left=%d"
               % (len(res["collected"]), len(res["survivors"]),
                  len(res["undecided"]), len(res["left"])))
     # 3 mirrors the reaper: anything undecided or surviving is a failure, never
-    # a footnote beside a success-shaped count.
-    if res["survivors"] or res["unreadable"]:
+    # a footnote beside a success-shaped count. So is an alert that could not be
+    # written down (P5-48).
+    if res["survivors"] or res["unreadable"] or res.get("record_errors"):
         return 1
     if res["undecided"]:
         return 3

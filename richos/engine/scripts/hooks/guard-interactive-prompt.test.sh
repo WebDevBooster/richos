@@ -174,6 +174,14 @@ allowed "C7.  ssh -o BatchMode=yes"                  "ssh -o BatchMode=yes alex@
 allowed "C8.  ssh -o \"BatchMode=yes\" (quoted exemption still counts)" \
     "ssh -o \"BatchMode=yes\" alex@host uptime"
 allowed "C9.  ssh-add -l is a listing"               "ssh-add -l"
+allowed "C9a. ssh-add with the prescribed inline fix (P5-39)" \
+    "SSH_ASKPASS_REQUIRE=never SSH_ASKPASS=/usr/bin/false ssh-add ~/.ssh/id_ed25519"
+allowed "C9b. ssh-add after the prescribed export (P5-39)" \
+    "export SSH_ASKPASS_REQUIRE=never SSH_ASKPASS=/usr/bin/false && ssh-add ~/.ssh/id_ed25519"
+blocked "C9c. an export of something else does not excuse ssh-add" \
+    "export FOO=bar && ssh-add ~/.ssh/id_ed25519"
+blocked "C9d. SSH_ASKPASS_REQUIRE=prefer is not the fix" \
+    "SSH_ASKPASS_REQUIRE=prefer ssh-add ~/.ssh/id_ed25519"
 allowed "C10. osascript with no dialog verb"         "osascript -e 'output volume of (get volume settings)'"
 allowed "C11. osascript display notification"        "osascript -e 'display notification \"done\"'"
 allowed "C12. git rebase without -i"                 "git rebase --onto main abc123"
