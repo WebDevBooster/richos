@@ -33,7 +33,10 @@
 #   0   no incomplete land found
 #   3   at least one incomplete land: a merged branch whose worktree is still
 #       registered and whose owner does not hold a running lock
-#   4   nothing could be examined at all — no repository resolved, no ledger.
+#   4   nothing could be examined at all — no repository resolved, no ledger,
+#       or at least one repository yielded no verdict (not a directory, no
+#       recorded integration branch, the branch does not resolve, or the
+#       analysis raised) and no incomplete land was found elsewhere.
 #       DELIBERATELY NOT 0. A checker that could not look has found nothing and
 #       proved nothing, and the two must not share an exit code.
 #
@@ -183,6 +186,7 @@ for repo in wanted:
                              "not_examined": [{"what": repo,
                                                "why": "the analysis raised %s, so this repository "
                                                       "went unexamined" % exc}],
+                             "unexamined": True,
                              "counts": {"worktrees": 0, "branches": 0, "incomplete_lands": 0,
                                         "live": 0, "retained_unmerged": 0, "unknown": 0,
                                         "unreclaimed_branches": 0,
@@ -222,6 +226,7 @@ w = sys.stderr.write
 incomplete = []
 unknown = []
 notex = []
+unexamined = []
 tot = {"worktrees": 0, "branches": 0, "live": 0, "retained_unmerged": 0, "quarantined": 0,
        "unreclaimed_branches": 0, "retained_unmerged_branches": 0}
 
@@ -240,6 +245,8 @@ for rep in doc["repos"]:
                             br["reason"]))
     for ne in rep.get("not_examined", []):
         notex.append((rep["repo"], ne["what"], ne["why"]))
+    if rep.get("unexamined"):
+        unexamined.append(rep["repo"])
 
 if not quiet and not as_json:
     w("=== LAND COMPLETENESS ===\n")
@@ -301,7 +308,11 @@ if not quiet and not as_json:
         w("  thing wrong with it is leaving it unsaid — retained silently is the defect this\n")
         w("  report exists to remove.\n")
 
-print(3 if incomplete else 0)
+# A fact that was established (an incomplete land) outranks a gap: 3. Otherwise
+# a repository that yielded no verdict at all is 4, never 0 -- "could not look"
+# must not share an exit code with "looked and found nothing". Partial gaps
+# (an unreadable ledger) stay printed-only, as the header above says.
+print(3 if incomplete else (4 if unexamined else 0))
 PY
 
 RC="$(printf '%s' "$REPORT" | RICHOS_LC_QUIET="$QUIET" RICHOS_LC_FORMAT="$FORMAT" \

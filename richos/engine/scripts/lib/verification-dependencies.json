@@ -11971,7 +11971,7 @@
     },
     "scripts/lib/land-completeness.py": {
       "source": "scripts/lib/land-completeness.py",
-      "sha256": "5251e9d27f31dadd48952632faba6767e186881f32080b90c0208f2f054858b8",
+      "sha256": "b78dd295aa4ac2bd8e79aa1e30b6ba9a6f16cbfbe076359ddcc3adb965b0510d",
       "evidence": "Full analyzer reads Git metadata and ledger records. Its only dynamic modules are worktree-ledger and workspace integration_for. Commands in records are data, not executed.",
       "keys": [],
       "edges": [
@@ -11996,7 +11996,7 @@
     },
     "scripts/land-completeness.sh#report": {
       "source": "scripts/land-completeness.sh",
-      "sha256": "7326772493a714c1a07ddd4c4df060c6c527ba5742df9534c58a8f213afece1a",
+      "sha256": "05bc5b5275b671d747e068ab75acb0860a4638ba7c2cfa87061c1a575b0c8f33",
       "evidence": "Reporting entrypoints used by land-completeness.test.sh: reads ledger JSON and Git identity, invokes analyzer and renders JSON with inline stdlib Python. Does not invoke --self-test.",
       "keys": [],
       "edges": [
@@ -12018,7 +12018,7 @@
     },
     "scripts/land-completeness.test.sh": {
       "source": "scripts/land-completeness.test.sh",
-      "sha256": "fe76117b698b4070e476eb3040749b1bebb6877ca3b7b9fa3c8358e89c524109",
+      "sha256": "63d1c3495868e3dfa2938df4dc2e175940787e59283183f85c1e748420f6c891",
       "evidence": "Private Git/ledger/registry fixtures call analyzer, gate, report wrapper and workspace integration. Registry hygiene scanner reads sibling source as text only. Shared mutation transport retains config presence.",
       "keys": [],
       "edges": [
