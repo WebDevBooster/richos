@@ -288,13 +288,15 @@ class Liveness(object):
             pid, sid = rec.get("pid"), str(rec.get("sessionId") or "")
             if not pid or not sid:
                 continue
-            self.registered[int(pid)] = sid
             state, text = self.ws.process_start(pid)
             if state == "ok" and text == str(rec.get("procStart") or ""):
+                self.registered[int(pid)] = sid
                 self.running[sid] = (int(pid), "process %d of session %s runs"
                                      % (int(pid), sid[:8]))
             elif state == "ok":
-                # The pid was reused. The session is gone; the file is stale.
+                # The pid was reused. The session is gone; the file is stale. The
+                # process now holding that pid is NOT attributed by this file, so it
+                # stays in the unattributed set and protects what it could own.
                 self.notes.append(
                     "session file %s names pid %s, which is now a different "
                     "process — the registration is stale, not live"
