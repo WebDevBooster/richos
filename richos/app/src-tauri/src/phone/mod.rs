@@ -346,6 +346,66 @@ pub fn random_bytes(n: usize) -> Result<Vec<u8>, PhoneError> {
 use secrets::SecretStore as _;
 use std::sync::{Arc, Mutex};
 
+/// **The connection-action lock, re-enterable by the thread that already holds it.**
+///
+/// `connect_actions` serializes connection mutations across threads. But `status()` sweeps an
+/// expired pairing, and the sweep tears the channel down through `forget()`, which is also a
+/// serialized action. `begin_connect` (and `disable_connect`, `resume_if_paired`, the recovery
+/// monitor) hold the lock while they call `start`/`status`, so with a plain `Mutex` a saved
+/// device past its deadline made the call wait for the lock it was holding (hunt part 1,
+/// finding 10). The thread that owns the exclusion may run the teardown inside it; every OTHER
+/// thread still waits, so the serialization is unchanged. The API mirrors `Mutex<()>` so every
+/// call site stays `lock().unwrap()` / `try_lock()`.
+pub struct ActionLock {
+    gate: Mutex<()>,
+    owner: Mutex<Option<std::thread::ThreadId>>,
+}
+
+/// Held for as long as the action runs. A re-entry by the owning thread (`owner` is `None`)
+/// holds nothing of its own and releases nothing, because the outer guard still owns the
+/// exclusion.
+pub struct ActionGuard<'a> {
+    _gate: Option<std::sync::MutexGuard<'a, ()>>,
+    owner: Option<&'a ActionLock>,
+}
+
+impl Drop for ActionGuard<'_> {
+    fn drop(&mut self) {
+        // Runs before the fields drop, so the owner is cleared while the gate is still held.
+        if let Some(lock) = self.owner {
+            *lock.owner.lock().unwrap() = None;
+        }
+    }
+}
+
+impl ActionLock {
+    pub fn new() -> Self {
+        Self { gate: Mutex::new(()), owner: Mutex::new(None) }
+    }
+    fn owned_by_me(&self) -> bool {
+        *self.owner.lock().unwrap() == Some(std::thread::current().id())
+    }
+    fn nested() -> ActionGuard<'static> {
+        ActionGuard { _gate: None, owner: None }
+    }
+    fn held<'a>(&'a self, gate: std::sync::MutexGuard<'a, ()>) -> ActionGuard<'a> {
+        *self.owner.lock().unwrap() = Some(std::thread::current().id());
+        ActionGuard { _gate: Some(gate), owner: Some(self) }
+    }
+    pub fn lock(&self) -> Result<ActionGuard<'_>, std::convert::Infallible> {
+        if self.owned_by_me() {
+            return Ok(Self::nested());
+        }
+        Ok(self.held(self.gate.lock().unwrap()))
+    }
+    pub fn try_lock(&self) -> Result<ActionGuard<'_>, ()> {
+        if self.owned_by_me() {
+            return Ok(Self::nested());
+        }
+        Ok(self.held(self.gate.try_lock().map_err(|_| ())?))
+    }
+}
+
 /// **The whole of the phone channel, as one thing the shell owns.**
 ///
 /// Created at boot and **inert**: no socket, no certificate authority, no keys. Plan §2.5 item 1
@@ -359,7 +419,7 @@ pub struct PhoneRuntime {
     /// until a listener runs, so there is no second code path for "attach the emitter later".
     hub: Arc<stream::PhoneHub>,
     running: Mutex<Option<Running>>,
-    connect_actions: Mutex<()>,
+    connect_actions: ActionLock,
     connect_monitor_started: std::sync::atomic::AtomicBool,
     /// The last answer [`tailnet::detect`] gave, and when. See [`PhoneRuntime::tailnet_now`].
     tailnet: Mutex<Option<(u64, tailnet::TailnetState)>>,
@@ -916,7 +976,7 @@ impl PhoneRuntime {
             data_dir,
             hub,
             running: Mutex::new(None),
-            connect_actions: Mutex::new(()),
+            connect_actions: ActionLock::new(),
             connect_monitor_started: std::sync::atomic::AtomicBool::new(false),
             tailnet: Mutex::new(None),
             me: me.clone(),
@@ -1758,6 +1818,40 @@ fn phone_assets() -> assets::PhoneApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **An action that holds the connection lock can run another action inside it** (hunt part 1,
+    /// finding 10). `begin_connect` holds the lock, calls `start`, whose final `status()` sweeps an
+    /// expired pairing through `forget()`, which takes the same lock. `register_native_notifications`
+    /// is the same shape without a Keychain: it takes the lock first and answers `no longer
+    /// paired` with nothing running. Run on its own thread with a bound, so a regression fails
+    /// here instead of hanging the suite. Other threads must still wait.
+    #[test]
+    fn an_action_can_run_a_nested_action_but_other_threads_still_wait() {
+        let dir = std::env::temp_dir().join(format!("richos-phone-nested-{}-{}", std::process::id(), now_millis()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (runtime, _emitter) = PhoneRuntime::install(dir.clone());
+        let (tx, rx) = std::sync::mpsc::channel();
+        let asking = Arc::clone(&runtime);
+        std::thread::spawn(move || {
+            let _held = asking.connect_actions.lock().unwrap();
+            // Another thread cannot take the exclusion while this one holds it.
+            let other = Arc::clone(&asking);
+            let contended = std::thread::spawn(move || other.connect_actions.try_lock().is_err()).join().unwrap();
+            let nested = asking.register_native_notifications("nobody", None).is_err();
+            drop(_held);
+            // Released for real: the nested guard did not give the exclusion away early, and the
+            // outer guard's release frees it.
+            let free = asking.connect_actions.try_lock().is_ok();
+            let _sent = tx.send((contended, nested, free));
+        });
+        let (contended, nested, free) = rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("a nested action waited for the connection lock its own thread already holds");
+        assert!(contended, "another thread must not enter while an action holds the lock");
+        assert!(nested, "the nested action must run and answer");
+        assert!(free, "the lock must be free once the outer action ends");
+        std::fs::remove_dir_all(&dir).expect("the test's own folder could not be removed");
+    }
 
     /// **`status()` answers, with the phone off and with a refusal on file.**
     ///
