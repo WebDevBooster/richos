@@ -216,7 +216,11 @@ ENDED = "cancelled"  # dialect-exempt: proof-run.py's state value for a check it
 
 class Fixture(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="autocheck-")
+        # The land check refuses proof storage off the mounted external SSD, so the fixture's
+        # proof root lives there whatever TMPDIR the caller set (a suite must not depend on it).
+        ssd = Path("/Volumes/E1TB/tmp/autocheck-tests")
+        ssd.mkdir(parents=True, exist_ok=True)
+        self.tmp = tempfile.TemporaryDirectory(prefix="autocheck-", dir=ssd)
         self.base = Path(self.tmp.name)
         self.log = self.base / "tools.log"
         self.ledger = self.base / "ledger.jsonl"
