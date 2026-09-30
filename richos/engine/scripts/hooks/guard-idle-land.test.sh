@@ -246,6 +246,7 @@ git -C "$UNADOPTED" init -q . >/dev/null 2>&1
 #   {"machine": "..."}         a host-written prompt (task notification)
 #   {"bash": "..."}            an assistant Bash tool_use
 #   {"bgbash": "..."}          the same, sent to the background
+#   ("result": "...")          on a bash step: the tool_result text (default "ok")
 #   {"agent": "..."}           an assistant Agent tool_use
 #   {"tool": "..."}            any other assistant tool_use, by name
 #   {"turn": "<prompt-id>"}    switch the promptId from here on
@@ -272,11 +273,13 @@ for step in json.loads(spec):
         inp = {"command": step["bgbash" if bg else "bash"]}
         if bg:
             inp["run_in_background"] = True
+        tid = "toolu_%d" % len(rows)
         rows.append({"type": "assistant", "message": {"content": [
-            {"type": "tool_use", "name": "Bash", "input": inp}]}})
+            {"type": "tool_use", "id": tid, "name": "Bash", "input": inp}]}})
         rows.append({"type": "user", "promptId": cur, "cwd": cwd,
                      "message": {"content": [
-                         {"type": "tool_result", "content": "ok"}]}})
+                         {"type": "tool_result", "tool_use_id": tid,
+                          "content": step.get("result", "ok")}]}})
         continue
     if "tool" in step:
         rows.append({"type": "assistant", "message": {"content": [
@@ -499,6 +502,19 @@ if ! printf '%s' "$LAST_ERR" | grep -qF "CEO's record"; then
 else
     printf "  PASS  a1b.refusal-names-the-deferral-route\n"; PASS=$((PASS + 1))
 fi
+
+# A merge that reports "Already up to date." moved no branch: it completed
+# nothing, so the turn owes no start (hunt part 3, finding 2). The merged ref
+# IS an ancestor of HEAD, which is why identity alone could not tell.
+TR_UPTODATE="$SANDBOX/uptodate.jsonl"
+mk_tr "$TR_UPTODATE" "$(printf '[{"prompt":"check the merge"},{"bash":%s,"result":"Already up to date."}]' "$(jq_str "$MERGE_CMD")")"
+run_case "a1c.already-up-to-date-merge-completed-nothing" 0 \
+    "$(payload "$TR_UPTODATE")"
+# ...and the same merge whose output says it merged still blocks.
+TR_MERGED="$SANDBOX/merged.jsonl"
+mk_tr "$TR_MERGED" "$(printf '[{"prompt":"land it"},{"bash":%s,"result":"Merge made by the ort strategy."}]' "$(jq_str "$MERGE_CMD")")"
+run_case "a1d.merge-that-merged-still-blocks" 2 \
+    "$(payload "$TR_MERGED")" "$BLOCK_HEAD"
 
 run_case "a2.multiline-quoted-merge-message-still-seen" 2 \
     "$(payload "$TR_REAL")" "$BLOCK_HEAD"

@@ -180,6 +180,9 @@ MACHINE_PROMPT_RE = re.compile(
     r"local-command-stdout)>")
 
 
+UPTODATE_RE = re.compile(r"Already up[ -]to[ -]date", re.I)
+
+
 def read_turn(path, prompt_id, limit_bytes=48 * 1024 * 1024):
     """Tool names, Bash command strings and host-written notices, THIS TURN.
 
@@ -217,6 +220,9 @@ def read_turn(path, prompt_id, limit_bytes=48 * 1024 * 1024):
         return None
 
     tools, bash, notices, cwd = [], [], [], ""
+    # Bash commands whose own result says "Already up to date": a merge that
+    # changed nothing (hunt part 3, finding 2). Keyed by tool_use id.
+    bash_by_id, uptodate = {}, set()
     backgrounded = False
     started = False
     try:
@@ -280,7 +286,23 @@ def read_turn(path, prompt_id, limit_bytes=48 * 1024 * 1024):
                         if inp.get("run_in_background") is True:
                             backgrounded = True
                         if name == "Bash":
-                            bash.append(str(inp.get("command", "") or ""))
+                            cmd_text = str(inp.get("command", "") or "")
+                            bash.append(cmd_text)
+                            if b.get("id"):
+                                bash_by_id[b["id"]] = cmd_text
+                if rec.get("type") == "user" and isinstance(content, list):
+                    for b in content:
+                        if not isinstance(b, dict) or b.get("type") != "tool_result":
+                            continue
+                        cmd_text = bash_by_id.get(b.get("tool_use_id"))
+                        if cmd_text is None:
+                            continue
+                        res = b.get("content")
+                        if isinstance(res, list):
+                            res = " ".join(x.get("text", "") for x in res
+                                           if isinstance(x, dict))
+                        if isinstance(res, str) and UPTODATE_RE.search(res):
+                            uptodate.add(cmd_text)
     except OSError:
         return None
     if not started:
@@ -288,7 +310,7 @@ def read_turn(path, prompt_id, limit_bytes=48 * 1024 * 1024):
     # NO `said` KEY, deliberately. A caller reaching for the operator's words
     # gets a KeyError at the line that reaches, not a quiet empty string that
     # lets the old behavior grow back looking harmless.
-    return {"tools": tools, "bash": bash,
+    return {"tools": tools, "bash": bash, "uptodate": uptodate,
             "notices": notices, "backgrounded": backgrounded, "cwd": cwd}
 
 
@@ -1098,7 +1120,18 @@ def main():
     message = payload.get("last_assistant_message") or ""
 
     base_cwd = turn.get("cwd") or entity_root
-    ops = landing_ops(turn["bash"], base_cwd)
+    ops = []
+    for cmd in turn["bash"]:
+        cmd_ops = landing_ops([cmd], base_cwd)
+        # A lone merge whose own output says "Already up to date" moved no
+        # branch, so it completed nothing and owes no start. Only that narrow
+        # case is dropped: a command with several git operations has one output
+        # that cannot say which of them it was, and output this gate cannot see
+        # (swallowed by a pipe) leaves the op in place, as before.
+        if (cmd in turn.get("uptodate", ()) and len(cmd_ops) == 1
+                and cmd_ops[0][1] == "merge"):
+            continue
+        ops.extend(cmd_ops)
 
     landed, unconfirmed = [], []
     for repo, kind, ref in ops:
