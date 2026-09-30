@@ -86,12 +86,34 @@ T=1; for a in "$@"; do [ "$a" = "--no-tailnet" ] && T=0; done
 if [ "$T" -eq 1 ]; then "$(dirname "$0")/tailnet.sh" join vm || { echo "REFUSED: NOT ON THE TAILNET" >&2; exit 1; }; fi
 echo "windows=1"
 EOF
-printf '#!/usr/bin/env bash\nexit 0\n' > "$SB/testvm/stop.sh"
+# The stop.sh stand-in exits STUB_STOP_RC (0 unless a case below says otherwise).
+cat > "$SB/testvm/stop.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "stand-in stop.sh $*"
+exit "${STUB_STOP_RC:-0}"
+EOF
 chmod +x "$SB"/gui-proof-in-vm.sh "$SB"/testvm/*.sh
 export STUB_LOG="$TMP/stub.log"; : > "$STUB_LOG"
 out="$(TESTVM_SLOT=1 "$SB/gui-proof-in-vm.sh" --bundle "$TMP/bundle.zip" --commit abc123 --out "$TMP/proof2" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && has "$out" "PASS" "windows=1" && [ ! -s "$STUB_LOG" ]; ok=$?
 check "a failing tailnet join cannot fail the window proof: it passes and never asks tailnet.sh to join" "$ok" "rc=$rc log=$(cat "$STUB_LOG") $out"
+
+# A guest that could not be stopped is garbage left on this Mac (CEO ruling §54), so the
+# command that made it must not exit 0, even when the window proof itself passed. The
+# proof file still records what the run saw.
+out="$(TESTVM_SLOT=1 STUB_STOP_RC=1 "$SB/gui-proof-in-vm.sh" --bundle "$TMP/bundle.zip" --commit abc123 --out "$TMP/proof3" 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] && has "$out" "CLEANUP FAILED" && grep -q '^result=pass$' "$TMP/proof3"; ok=$?
+check "a failed guest stop after a passing proof exits nonzero, and the proof still records the pass" "$ok" "rc=$rc $out"
+
+# A run that already failed keeps its own status: the cleanup failure is added, never swapped in.
+cat > "$SB/testvm/run.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "stand-in run.sh: no window"; exit 1
+EOF
+chmod +x "$SB/testvm/run.sh"
+out="$(TESTVM_SLOT=1 STUB_STOP_RC=1 "$SB/gui-proof-in-vm.sh" --bundle "$TMP/bundle.zip" --commit abc123 --out "$TMP/proof4" 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && has "$out" "CLEANUP FAILED" "fail:run.sh"; ok=$?
+check "a failed proof whose guest stop also failed keeps its own exit status (1)" "$ok" "rc=$rc $out"
 
 if [ "$fail" -eq 0 ]; then echo "gui-proof-in-vm.test.sh: all passed"; else echo "gui-proof-in-vm.test.sh: FAILED"; fi
 cleanup; HOLDER=""; trap - EXIT

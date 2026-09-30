@@ -30,12 +30,16 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import sys
 import tempfile
 import time
 
 HERE = Path(__file__).resolve().parent
+# How long a run ended at its finish deadline gets for its own cleanup (quit the app, delete
+# the guest). run-walk.py gives stop.sh 120 s; the rest is its own teardown around it.
+FINISH_GRACE = 180
 HELD = re.compile(r'slot held: (\S+) \(waited (\d+)s')
 WAITING = re.compile(r'slot waiting: (.*); up to')
 
@@ -45,7 +49,7 @@ class Run:
 
     def __init__(self, name, argv, log, env=None):
         self.name, self.log, self.started = name, log, time.time()
-        self.seen, self.at = [], {}
+        self.seen, self.at, self.timed_out = [], {}, False
         with open(log, 'w') as out:
             self.proc = subprocess.Popen(argv, stdout=out, stderr=subprocess.STDOUT,
                                          env=dict(os.environ, **(env or {})), start_new_session=True)
@@ -86,11 +90,35 @@ class Run:
         return test()
 
     def finish(self, timeout=1800):
-        while self.proc.poll() is None:
+        """Wait up to `timeout` seconds for the run; a run still going then is ended.
+
+        Ended the way this script's own stop would end it: SIGTERM to the run itself, so
+        run-walk.py's cleanup quits the app and deletes its guest, then FINISH_GRACE seconds
+        for that cleanup, and only then SIGKILL to the run's whole process group. A run
+        ended here is marked `timed_out` and never returns 0, so no fact reads it as a pass.
+        """
+        deadline = time.monotonic() + timeout
+        while self.proc.poll() is None and time.monotonic() < deadline:
             self.lines()
             time.sleep(0.5)
-        self.proc.wait(timeout=timeout)
+        if self.proc.poll() is None:
+            self.timed_out = True
+            print(f'{self.name}: still running after the {timeout:g}s finish deadline; asking it to stop '
+                  f'(its own cleanup has {FINISH_GRACE:g}s)', flush=True)
+            self.proc.send_signal(signal.SIGTERM)
+            try:
+                self.proc.wait(timeout=FINISH_GRACE)
+            except subprocess.TimeoutExpired:
+                print(f'{self.name}: its cleanup did not finish in {FINISH_GRACE:g}s; killing its process group '
+                      f'(pid {self.proc.pid}); check slots.py status and testvm/reap.sh', flush=True)
+                try:
+                    os.killpg(self.proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                self.proc.wait()
         self.lines()
+        if self.timed_out and self.proc.returncode == 0:
+            return 1
         return self.proc.returncode
 
 
