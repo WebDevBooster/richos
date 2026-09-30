@@ -385,7 +385,16 @@ impl LaunchStore {
         let path = path.as_ref().to_path_buf();
         let (record, readable, reason) = match fs::read_to_string(&path) {
             // No file: this install begins now.
-            Err(_) => (StoredLaunches::new(now_millis), true, None),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => (StoredLaunches::new(now_millis), true, None),
+            Err(_) => (
+                StoredLaunches::new(now_millis),
+                false,
+                Some(
+                    "the launch record on disk could not be read; it is being left exactly \
+                     as it is rather than read as an empty history"
+                        .to_string(),
+                ),
+            ),
             Ok(text) => match serde_json::from_str::<StoredLaunches>(&text) {
                 // `<=`, not `==` — spec point 19 and the sequencing table's row 2. An OLDER
                 // schema is read; a NEWER one is left exactly as it is.
@@ -1130,6 +1139,18 @@ mod tests {
         let s = LaunchStore::open(&path, T0).unwrap();
         assert_eq!(s.reward_fired_at("first-run"), Some(T0));
         let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_launch_record_that_is_not_utf8_is_unreadable_not_an_empty_history() {
+        let path = tmp_path("invalid-utf8");
+        let original: Vec<u8> = vec![b'{', 0xff, 0xfe, b'}'];
+        fs::write(&path, &original).unwrap();
+        let mut s = LaunchStore::open(&path, T0).unwrap();
+        assert!(!s.readable(), "a file that is there and unreadable is not a fresh install");
+        s.begin_run(T0, "1", PriorRun::Unknown).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), original, "and nothing is written over it");
+        fs::remove_file(&path).unwrap();
     }
 
     #[test]
