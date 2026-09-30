@@ -283,6 +283,13 @@ build_into() {
 sha256_of() { /usr/bin/shasum -a 256 "$1" | awk '{print $1}'; }
 
 mkdir -p "$OUT_DIR" || die "cannot create $OUT_DIR"
+# ONE RUN AT A TIME IN THIS OUTPUT DIRECTORY, from any checkout. The default one sits in
+# `app/target`, which `shared-build-cache.sh` links to one cache for every checkout, and the
+# tarball below is written, digested and pinned by name, where cargo's lock never reaches.
+# Held until this script and everything it started have exited (hunt part 2, section 21).
+. "$SELF_DIR/lib/output-lock.sh" || die "no $SELF_DIR/lib/output-lock.sh"
+hold_output_lock "$OUT_DIR" 9 "make-engine-asset.sh" \
+    || die "$OUT_DIR is another packaging run's until it finishes; nothing was written"
 TARBALL="$OUT_DIR/$ASSET"
 
 echo "=== the engine ==="
