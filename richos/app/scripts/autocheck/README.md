@@ -121,3 +121,31 @@ When the land changes something under `richos/app` and the selection does not in
 `lint.test.sh`, the check adds `lint.sh --all`; a land that changes nothing under `richos/app`
 (engine-only or documentation) adds nothing, as the commit check does. The added lint costs 58 s warm (`lint.test.sh` as a whole, which a land of anything
 under `richos/app` selects, measured 81 s).
+
+## Merge retries and phone scope
+
+Merge checks retain each proof attempt on the mounted external SSD under
+`/Volumes/E1TB/state/richos/proof-runs/autocheck/`. An unchanged tree and selection
+resume the frozen plan. A changed tree gets a fresh selection and offers the previous
+attempt to the runner with `--reuse`. The runner validates inputs and evidence before
+reusing a pass. Missing or corrupt retry records refuse the check. Resource refusals
+remain NOT RUN and cannot satisfy a merge. Diagnosed behavioral retries still require
+`RICHOS_AUTOCHECK_RETRY_REASON`; the hook supplies no automatic diagnosis and preserves
+the runner's existing retry budget.
+
+The three iPhone suites declare `select-inputs` for product dependencies separately
+from their broader `inputs` used to validate saved evidence. Harness changes run the
+fixture controls in `merge-check-scope.test.sh`. Actual Core, project, plist and app
+inputs still select the phone checks. The suites queue on one simulator lane with a
+finite pool wait bounded by the check's existing deadline.
+
+`lib/ios_ui_scope.py` maps reviewed feature files to their affected XCTest families
+and unit-test suites. Shared inputs, new feature files and unreviewed test inventories
+use full coverage. When adding cases or changing feature dependencies, review this
+map before refreshing its inventory fingerprint. A test-source change selects its
+own cases. Simulator retries enumerate the required cases and re-read the retained
+result bundles with matching source/tool/device/selection identity and build stamps.
+Only failed or missing cases rerun, plus the existing unit-bundle attribution probe
+when required. A completed device reuses its evidence without acquiring a simulator.
+Failure bundles stay in the external cache and are copied into the proof report;
+reports retain the distinction between newly executed and reused cases.

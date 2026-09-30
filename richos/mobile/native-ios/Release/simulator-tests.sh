@@ -29,7 +29,13 @@ PROJECT="$("$HERE/Release/generate.sh" "$OUT/project")" || { echo "FAIL generate
 RUNTIME="$(xcrun simctl list runtimes --json | python3 -c 'import json,sys; r=[x for x in json.load(sys.stdin)["runtimes"] if x.get("isAvailable") and x["name"].startswith("iOS")]; print(r[-1]["identifier"] if r else "")')"
 [ -n "$RUNTIME" ] || { echo "NOT RUN no iOS simulator runtime"; exit 2; }
 export RICHOS_TEST_DEVICE_OWNER_PID=$$
-UDID="$(python3 "$HERE/../../engine/scripts/lib/testdevices.py" acquire-ios --type "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro" --runtime "$RUNTIME" --owner-pid $$)" || { echo "FAIL simctl create"; exit 1; }
+UDID="$(python3 "$HERE/../../engine/scripts/lib/testdevices.py" acquire-ios --type "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro" --runtime "$RUNTIME" --owner-pid $$ 2>"$OUT/lease.err")" || {
+  cat "$OUT/lease.err" >&2
+  if grep -qF 'prepared simulator is leased by another run' "$OUT/lease.err"; then
+    echo "NOT RUN prepared simulator is leased by another run; no simulator test ran"; exit 2
+  fi
+  echo "FAIL simctl create"; exit 1
+}
 cleanup() {
   python3 "$HERE/../../engine/scripts/lib/testdevices.py" release-ios --id "$UDID" --owner-pid $$ >&2 || return 1
 }

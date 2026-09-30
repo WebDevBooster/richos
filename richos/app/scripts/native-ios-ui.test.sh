@@ -25,8 +25,9 @@
 # Missing Xcode, the iOS runtime, xcodegen or `native-ios/project.yml` exits 2 with NOT RUN; a failure
 # on a capable host is red.
 # run-tests: no-host-screen: simctl and XCUITest run on simulators this suite creates, booted headless without Simulator.app
-# run-tests: inputs richos/mobile/native-ios/TestSupport richos/app/scripts/lib/simulator_budget.py richos/app/scripts/native-ios-ui.test.sh richos/app/scripts/lib/ios_ui_shards.py richos/engine/scripts/lib/worker_tokens.py richos/mobile/native-ios/App/Design richos/mobile/native-ios/App/Features richos/mobile/native-ios/UITests richos/mobile/native-ios/UnitTests richos/mobile/native-ios/Core/Sources/RichOSCore richos/mobile/native-ios/Core/Sources/RichOSFixtures richos/mobile/native-ios/project.yml richos/engine/scripts/lib/proc_tree.py richos/engine/scripts/lib/testdevices.py richos/app/scripts/testvm/reserve.py richos/mobile/native-ios/App/App/ShareIntake.swift richos/mobile/native-ios/App/Platform/Shared/PlatformIdentity.swift richos/mobile/native-ios/DevBridge/DevBridgeFixtureMac.swift richos/mobile/native-ios/App/Platform/NetworkMonitor.swift
-# run-tests: covers richos/app/scripts/lib/ios_ui_shards.py richos/mobile/native-ios/App/Design/Palette.swift richos/mobile/native-ios/App/Design/RoundSpec.swift richos/mobile/native-ios/App/Features/Conversation/PulseSchedule.swift richos/mobile/native-ios/App/Design/Typography.swift richos/mobile/native-ios/App/Design/Motion.swift richos/mobile/native-ios/App/Design/SVGPath.swift richos/mobile/native-ios/App/Design/Icons.swift richos/mobile/native-ios/App/Design/Mark.swift richos/mobile/native-ios/App/Design/Components.swift richos/mobile/native-ios/App/Features/Root/ScreenModel.swift richos/mobile/native-ios/App/Features/Root/Intent.swift richos/mobile/native-ios/App/Features/Root/RootView.swift richos/mobile/native-ios/App/Features/Conversation/Rows.swift richos/mobile/native-ios/App/Features/Conversation/VoiceBubble.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptView.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptViewportGeometry.swift richos/mobile/native-ios/App/Features/Conversation/ConversationChrome.swift richos/mobile/native-ios/App/Features/Composer/ComposerView.swift richos/mobile/native-ios/App/Features/Voice/VoiceChrome.swift richos/mobile/native-ios/App/Features/Voice/TooShortLine.swift richos/mobile/native-ios/App/Features/Pairing/Takeovers.swift richos/mobile/native-ios/App/Features/Pairing/Scanner.swift richos/mobile/native-ios/App/Features/Pairing/PairingLinkSheet.swift richos/mobile/native-ios/App/Features/Settings/Overlays.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentModel.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentViews.swift richos/mobile/native-ios/App/Features/Attachments/PhotoScene.swift richos/mobile/native-ios/UITests/Support.swift richos/mobile/native-ios/UITests/ScreenshotTests.swift richos/mobile/native-ios/UITests/InteractionTests.swift richos/mobile/native-ios/UITests/AccessibilityLayoutTests.swift richos/mobile/native-ios/UITests/PairWaitInteractionTests.swift richos/mobile/native-ios/DevBridge/DevBridgeFixtureMac.swift richos/mobile/native-ios/UnitTests/TranscriptViewportGeometryTests.swift richos/mobile/native-ios/UnitTests/ShareIntakeTests.swift richos/mobile/native-ios/UnitTests/TooShortLineTests.swift richos/mobile/native-ios/App/App/ShareIntake.swift richos/mobile/native-ios/App/Design/SpinSchedule.swift richos/mobile/native-ios/UnitTests/ShareContextMirrorTests.swift richos/mobile/native-ios/App/Features/Conversation/ConnectionWords.swift richos/mobile/native-ios/App/Platform/NetworkMonitor.swift richos/mobile/native-ios/UnitTests/NetworkMonitorTests.swift richos/mobile/native-ios/TestSupport/BuildStamp.swift richos/mobile/native-ios/TestSupport/TestBundle-Info.plist richos/mobile/native-ios/App/Features/Conversation/QuestionCardView.swift richos/mobile/native-ios/UITests/QuestionTests.swift
+# run-tests: inputs richos/mobile/native-ios/TestSupport richos/app/scripts/lib/simulator_budget.py richos/app/scripts/native-ios-ui.test.sh richos/app/scripts/lib/ios_ui_shards.py richos/engine/scripts/lib/worker_tokens.py richos/mobile/native-ios/App/Design richos/mobile/native-ios/App/Features richos/mobile/native-ios/UITests richos/mobile/native-ios/UnitTests richos/mobile/native-ios/Core/Sources/RichOSCore richos/mobile/native-ios/Core/Sources/RichOSFixtures richos/mobile/native-ios/project.yml richos/engine/scripts/lib/proc_tree.py richos/engine/scripts/lib/testdevices.py richos/app/scripts/testvm/reserve.py richos/mobile/native-ios/App/App/ShareIntake.swift richos/mobile/native-ios/App/Platform/Shared/PlatformIdentity.swift richos/mobile/native-ios/DevBridge/DevBridgeFixtureMac.swift richos/mobile/native-ios/App/Platform/NetworkMonitor.swift richos/mobile/native-ios/App richos/mobile/native-ios/Core/Sources richos/mobile/native-ios/Core/Package.swift richos/mobile/native-ios/DevBridge richos/mobile/native-ios/Release/platform.yml richos/mobile/native-ios/ShareExtension richos/mobile/native-ios/NotificationService richos/mobile/native-ios/Release/App-Info.plist richos/mobile/native-ios/Release/RichOSNative.entitlements
+# run-tests: select-inputs richos/mobile/native-ios/App richos/mobile/native-ios/Core/Sources richos/mobile/native-ios/Core/Package.swift richos/mobile/native-ios/DevBridge richos/mobile/native-ios/project.yml richos/mobile/native-ios/Release/platform.yml richos/mobile/native-ios/ShareExtension richos/mobile/native-ios/NotificationService richos/mobile/native-ios/UITests richos/mobile/native-ios/UnitTests richos/mobile/native-ios/TestSupport richos/mobile/native-ios/Release/App-Info.plist richos/mobile/native-ios/Release/RichOSNative.entitlements
+# run-tests: covers richos/mobile/native-ios/App/Design/Palette.swift richos/mobile/native-ios/App/Design/RoundSpec.swift richos/mobile/native-ios/App/Features/Conversation/PulseSchedule.swift richos/mobile/native-ios/App/Design/Typography.swift richos/mobile/native-ios/App/Design/Motion.swift richos/mobile/native-ios/App/Design/SVGPath.swift richos/mobile/native-ios/App/Design/Icons.swift richos/mobile/native-ios/App/Design/Mark.swift richos/mobile/native-ios/App/Design/Components.swift richos/mobile/native-ios/App/Features/Root/ScreenModel.swift richos/mobile/native-ios/App/Features/Root/Intent.swift richos/mobile/native-ios/App/Features/Root/RootView.swift richos/mobile/native-ios/App/Features/Conversation/Rows.swift richos/mobile/native-ios/App/Features/Conversation/VoiceBubble.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptView.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptViewportGeometry.swift richos/mobile/native-ios/App/Features/Conversation/ConversationChrome.swift richos/mobile/native-ios/App/Features/Composer/ComposerView.swift richos/mobile/native-ios/App/Features/Voice/VoiceChrome.swift richos/mobile/native-ios/App/Features/Voice/TooShortLine.swift richos/mobile/native-ios/App/Features/Pairing/Takeovers.swift richos/mobile/native-ios/App/Features/Pairing/Scanner.swift richos/mobile/native-ios/App/Features/Pairing/PairingLinkSheet.swift richos/mobile/native-ios/App/Features/Settings/Overlays.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentModel.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentViews.swift richos/mobile/native-ios/App/Features/Attachments/PhotoScene.swift richos/mobile/native-ios/UITests/Support.swift richos/mobile/native-ios/UITests/ScreenshotTests.swift richos/mobile/native-ios/UITests/InteractionTests.swift richos/mobile/native-ios/UITests/AccessibilityLayoutTests.swift richos/mobile/native-ios/UITests/PairWaitInteractionTests.swift richos/mobile/native-ios/DevBridge/DevBridgeFixtureMac.swift richos/mobile/native-ios/UnitTests/TranscriptViewportGeometryTests.swift richos/mobile/native-ios/UnitTests/ShareIntakeTests.swift richos/mobile/native-ios/UnitTests/TooShortLineTests.swift richos/mobile/native-ios/App/App/ShareIntake.swift richos/mobile/native-ios/App/Design/SpinSchedule.swift richos/mobile/native-ios/UnitTests/ShareContextMirrorTests.swift richos/mobile/native-ios/App/Features/Conversation/ConnectionWords.swift richos/mobile/native-ios/App/Platform/NetworkMonitor.swift richos/mobile/native-ios/UnitTests/NetworkMonitorTests.swift richos/mobile/native-ios/TestSupport/BuildStamp.swift richos/mobile/native-ios/TestSupport/TestBundle-Info.plist richos/mobile/native-ios/App/Features/Conversation/QuestionCardView.swift richos/mobile/native-ios/UITests/QuestionTests.swift
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -578,12 +579,16 @@ SHOTS="$CACHE/screenshots/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$SHOTS"
 
 START=$(date +%s)
-# THIS RUN'S BUILD STAMP: the checkout's key, its commit and this run's own work folder. Both test
-# bundles carry it (native-ios/TestSupport/BuildStamp.swift) and attach it to every test, and the
-# verdict below refuses any test that ran without it, so a result proves it came from THIS
-# checkout's build (esc-20260925T014934Z-0a4bf206: a run executed another checkout's bundle).
-BUILD_STAMP="$(basename "$CACHE")-$(git -C "$ROOT" rev-parse --short=12 HEAD)-$(basename "$WORK")"
+# The retained result bundles must match this checkout's actual source, selection,
+# toolchain and device profile. A matching HEAD alone never permits case reuse.
+SELECT=("-only-testing:RichOSNativeUITests" "-only-testing:RichOSNativeTests")
+[ "${#ONLY[@]}" -gt 0 ] && SELECT=("${ONLY[@]}")
+DEVICE_JSON="$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "${DEVICES[@]}")"
+BUILD_STAMP="$(python3 "$DIR/lib/ios_ui_shards.py" identity "$ROOT" "$RUNTIME" "$DEVICE_JSON" "${SELECT[@]}")"
 printf '%s\n' "$BUILD_STAMP" > "$WORK/build-stamp.txt"
+PREVIOUS=""
+if [ -f "$CACHE/last-work.txt" ]; then PREVIOUS="$(cat "$CACHE/last-work.txt")"; fi
+printf '%s\n' "$WORK" > "$CACHE/last-work.txt"
 # CEO, 2026-09-22: native builds run at lowered priority for this build window.
 nice -n 10 python3 "$ROOT/richos/engine/scripts/lib/native-work.py" -- xcodebuild -project "$PROJECT_DIR/RichOSNative.xcodeproj" -scheme RichOSNative \
   -destination 'generic/platform=iOS Simulator' -derivedDataPath "$DERIVED" \
@@ -604,8 +609,6 @@ SHARDS=1
 # Reuse one prepared device at a time; splitting must not create cold simulators.
 XCTESTRUN="$(find "$DERIVED/Build/Products" -maxdepth 1 -name '*.xctestrun' | head -1)"
 [ -n "$XCTESTRUN" ] || { echo "  FAIL  native-ios-ui: build-for-testing left no .xctestrun in $DERIVED/Build/Products"; exit 1; }
-SELECT=("-only-testing:RichOSNativeUITests" "-only-testing:RichOSNativeTests")
-[ "${#ONLY[@]}" -gt 0 ] && SELECT=("${ONLY[@]}")
 # Per-test seconds from the last run of this checkout, so the split is balanced by what each test
 # costs rather than by how many there are. Missing on a first run: the split is then by count.
 TIMES="$CACHE/test-seconds.tsv"
@@ -647,11 +650,47 @@ for i in "${!SIM_UDID[@]}"; do
   s=$(( i % SHARDS + 1 ))
   ARGS=()
   while IFS= read -r a; do [ -n "$a" ] && ARGS+=("$a"); done < "$WORK/shard-$s.args"
+  # A completed device needs no simulator on an unchanged retry. Its original
+  # enumeration and result bundles are checked against the same input identity.
+  if [ -n "$PREVIOUS" ] && [ -f "$PREVIOUS/tests-$i.json" ] && \
+     cmp -s "$WORK/build-stamp.txt" "$PREVIOUS/build-stamp.txt"; then
+    cp "$PREVIOUS/tests-$i.json" "$WORK/tests-$i.json"
+    python3 "$DIR/lib/ios_ui_shards.py" retry "$WORK" "$PREVIOUS" "$i"
+    if [ ! -s "$WORK/retry-$i.args" ]; then
+      touch "$WORK/reused-$i"
+      echo 0 > "$WORK/test-$i.rc"
+      continue
+    fi
+  fi
   # A declared UI-suite lease: its whole selection runs on one device, 787-884 s under load on
   # 2026-09-24, so its lifetime is the engine's declared ui-suite ceiling rather than the default.
   SIM_UDID[i]="$(python3 "$RICHOS_TESTDEVICES" acquire-ios --type "${SIM_TYPE[$i]}" --runtime "$RUNTIME" \
-    --owner-pid $$ --purpose ui-suite)"
+    --owner-pid $$ --purpose ui-suite 2>"$WORK/lease.err")" || {
+    cat "$WORK/lease.err" >&2
+    if grep -qF 'prepared simulator is leased by another run' "$WORK/lease.err"; then
+      not_run "prepared simulator is leased by another run; no UI test ran on this device"
+    fi
+    echo "  FAIL  native-ios-ui: simulator acquisition"; exit 1
+  }
   CREATED+=("${SIM_UDID[$i]}")
+  # Enumeration does not execute tests. It proves even unrun/missing cases remain
+  # obligations, rather than relying on whatever a failed bundle happened to list.
+  python3 "$RICHOS_NATIVE_WORK" -- xcodebuild test-without-building -xctestrun "$XCTESTRUN" \
+    -destination "id=${SIM_UDID[$i]}" "${SELECT[@]}" -enumerate-tests \
+    -test-enumeration-style flat -test-enumeration-format json \
+    -test-enumeration-output-path "$WORK/tests-$i.json" > "$WORK/enumerate-$i.log" 2>&1 || {
+      cat "$WORK/enumerate-$i.log"; echo "  FAIL  native-ios-ui: test enumeration"; exit 1; }
+  python3 "$DIR/lib/ios_ui_shards.py" retry "$WORK" "$PREVIOUS" "$i"
+  ARGS=()
+  while IFS= read -r a; do [ -n "$a" ] && ARGS+=("$a"); done < "$WORK/retry-$i.args"
+  if [ "${#ARGS[@]}" -eq 0 ]; then
+    touch "$WORK/reused-$i"
+    echo 0 > "$WORK/test-$i.rc"
+    python3 "$RICHOS_TESTDEVICES" release-ios --id "${SIM_UDID[$i]}" --owner-pid $$ --if-ours >/dev/null
+    CREATED=("${CREATED[@]/${SIM_UDID[$i]}}")
+    continue
+  fi
+
   # Under proof-run.py (RICHOS_WORKER_TOKENS set), the simulators count against the run the way a
   # mutation pool's workers do (richos/engine/scripts/lib/worker_tokens.py): one runs on this
   # suite's own free slot, whichever simulator holds it, and every other on a token of the budget.
@@ -693,13 +732,13 @@ for i in "${!SIM_UDID[@]}"; do
   rm -rf "$OUT/shard-$i"
 done
 # A failure (STATUS 1; 2 is NOT RUN, a lost lease, with nothing failed): every failing test by
-# name, and each simulator's bundle and log moved to the run's results (lib/test_results.py),
+# name, and each simulator's bundle and log copied to the run's results (lib/test_results.py),
 # after the screenshots above were taken from the bundles.
 if [ "$STATUS" -eq 1 ]; then
   KEEP=()
   for i in "${!SIM_UDID[@]}"; do
     KEEP+=(--collect "test-$i.log=$WORK/test-$i.log")
-    [ -d "$WORK/result-$i.xcresult" ] && KEEP+=(--move "result-$i.xcresult=$WORK/result-$i.xcresult")
+    [ -d "$WORK/result-$i.xcresult" ] && KEEP+=(--collect "result-$i.xcresult=$WORK/result-$i.xcresult")
   done
   python3 "$DIR/lib/test_results.py" report --label native-ios-ui \
     ${RICHOS_TEST_RESULTS_DIR:+--into "$RICHOS_TEST_RESULTS_DIR"} "${KEEP[@]}"
@@ -710,5 +749,6 @@ for i in "${!SIM_UDID[@]}"; do
   python3 "$RICHOS_TESTDEVICES" release-ios --id "${SIM_UDID[$i]}" --owner-pid $$ --if-ours >/dev/null
   CREATED=("${CREATED[@]/${SIM_UDID[$i]}}")
 done
+if [ "$STATUS" -eq 0 ]; then rm -f "$CACHE/last-work.txt"; fi
 echo "native-ios-ui: screenshots in $SHOTS"
 exit "$STATUS"

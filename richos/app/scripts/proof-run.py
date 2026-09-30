@@ -440,6 +440,13 @@ def plan(lines, args, logdir, hist):
         items.append(Item("engine receipts", engine,
                           ["bash", "scripts/ci-shard.sh", "--verify-receipts", receipts, "--units-file", ufile],
                           None, 1.0, after=shard_labels))
+    for item in items:
+        if item.label in {"native-ios-app", "native-ios-share", "native-ios-ui"}:
+            item.lane = "ios-simulator"
+            # Queue inside this gate before launch; other gates still use the pool
+            # lease guard. Its finite wait fits this check's existing execution ceiling.
+            if not os.environ.get("RICHOS_IOS_POOL_WAIT"):
+                item.env["RICHOS_IOS_POOL_WAIT"] = str(deadline_for(item, args))
     return items
 
 
@@ -1015,7 +1022,7 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                     it.notes.append("could not start; see command log")
                 if it.state != "timed-out":
                     it.state = "passed" if rc == 0 else "failed"
-                if it.state == "passed":
+                if it.state == "passed" or (it.state == "failed" and rc == 2):
                     not_run(it)
                 retry_contained = finish_attempt(it)
                 running.remove(it)
@@ -1346,10 +1353,18 @@ def not_run(it):
     """For a check that exited 0 and keeps a machine record of what it ran: a run-tests.sh
     check's own --results-out record, or a directly run UI suite's evidence ledger (ui_not_run).
     A suite that did not run makes the check `not-run`; no record at all makes it `invalid`."""
+    if it.rc not in (None, 0, 2):
+        return
     if getattr(it, "ui_ledger", None):
         ui_not_run(it)
         return
     if "--results-out" not in it.argv:
+        if it.label == "native-ios-ui" and it.rc == 2 and it.log:
+            text = Path(it.log).read_text(errors="replace")
+            idle = [line.strip() for line in text.splitlines() if line.startswith("  NOT RUN  ")]
+            if idle and not any(line.startswith("  FAIL  ") for line in text.splitlines()):
+                it.state = "not-run"
+                it.not_run = {"why": "host-gap", "suites": [{"name": "native-ios-ui.test.sh", "state": "gap", "reason": idle[-1]}]}
         return
     report = it.argv[it.argv.index("--results-out") + 1]
     try:
@@ -1357,11 +1372,15 @@ def not_run(it):
             suites = json.load(stream)["suites"]
         states = [(str(s["name"]), str(s["state"]), str(s.get("reason", ""))) for s in suites]
     except (OSError, ValueError, KeyError, TypeError) as exc:
+        if it.rc:
+            return
         it.state, it.rc = "invalid", 125
         it.notes.append("run-tests.sh exited 0 without a readable results record (%s): it cannot show it ran" % exc)
         return
     odd = [name for name, state, _ in states if state not in NOT_RUN_STATES and state != "passed"]
     if not states or odd:
+        if it.rc:
+            return
         it.state, it.rc = "invalid", 125
         it.notes.append("run-tests.sh exited 0 but its results record says %s" % (
             ", ".join("%s %s" % (n, st) for n, st, _ in states if n in odd) or "no suite ran"))

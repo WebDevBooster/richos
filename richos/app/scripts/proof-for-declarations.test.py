@@ -47,6 +47,16 @@ class Declarations(unittest.TestCase):
         with self.assertRaisesRegex(InvalidDeclaration, "fixture.test.sh:2:.*not selected"):
             read_declarations(self.root, self.suites)
 
+    def test_runtime_selection_keeps_evidence_inputs_and_coverage(self):
+        self.write("# run-tests: inputs src suites\n# run-tests: select-inputs src/tool.py\n# run-tests: covers src/tool.py\n")
+        self.assertEqual(read_declarations(self.root, self.suites)[0][1], ["src/tool.py"])
+        self.write("# run-tests: inputs src\n# run-tests: select-inputs suites\n# run-tests: covers -\n")
+        with self.assertRaisesRegex(InvalidDeclaration, "not an evidence input"):
+            read_declarations(self.root, self.suites)
+        self.write("# run-tests: inputs src suites\n# run-tests: select-inputs suites\n# run-tests: covers src/tool.py\n")
+        with self.assertRaisesRegex(InvalidDeclaration, "omits a covered dependency"):
+            read_declarations(self.root, self.suites)
+
     def test_missing_duplicate_and_implicit_empty_rows_refuse(self):
         inputs = "# run-tests: inputs src\n"
         covers = "# run-tests: covers -\n"

@@ -445,6 +445,8 @@ while IFS= read -r p; do
       # A deleted suite has nothing to run, and `run-tests.sh --only` refuses a name that
       # matches no suite, so selecting it would refuse the land over the deletion itself.
       if gone "$p"; then note "a deleted suite: nothing to run"
+      elif grep -q '^# run-tests: select-inputs ' "$SCRIPT_DECL_DIR/$BASE_NAME"; then
+        note "runtime suite: its harness has a separate fixture check"
       else printf '%s\n' "$BASE_NAME" >> "$WORK/script"; MATCHED=1; note "is a script suite"; fi ;;
     "$APP_REL"/scripts/*.test.py)
       w="${BASE_NAME%.py}.sh"
@@ -687,6 +689,9 @@ if [ "${N_SCRIPT:-0}" -gt 0 ]; then
     if [ "$s" = "make-engine-asset.test.sh" ]; then
       say '  Prerequisite: RICHOS_RUNTIME_DIR points to a prepared runtime matching scripts/runtime-sources.json.'
       cmd "cd $APP_REL && bash scripts/make-engine-asset.test.sh"
+    elif [ "$s" = "native-ios-ui.test.sh" ]; then
+      CASES="$(python3 "$DIR/lib/ios_ui_scope.py" "$ROOT" "$CHANGED")" || die "could not scope iPhone UI cases"
+      cmd "cd $APP_REL && bash scripts/native-ios-ui.test.sh$([ -z "$CASES" ] || printf ' %s' "$CASES")"
     else
       ONLY="$ONLY --only $s"
     fi

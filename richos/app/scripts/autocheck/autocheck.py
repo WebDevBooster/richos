@@ -40,6 +40,7 @@ one on main, else (the land that introduces it) the one being merged. A branch's
 checked by its own version; a land into main is checked by main's.
 """
 import json
+import hashlib
 import os
 from pathlib import Path
 import shlex
@@ -560,14 +561,48 @@ def land_check(repo, what, staged, range_argv):
     with tempfile.NamedTemporaryFile("w", prefix="autocheck-land-", suffix=".txt", delete=False) as f:
         f.write("\n".join(commands) + "\n")
         plan = f.name
-    summary_path = plan[:-len(".txt")] + "-summary.json"
+    # Keep each attempt: the runner validates the frozen plan, source and evidence.
+    # Exact retries resume; changed trees use the freshly selected plan and let
+    # the existing runner validate which individual results remain applicable.
+    identity = [str(repo.top.resolve()), git("rev-parse", "HEAD", cwd=repo.top), repo.index_tree(), commands]
+    key = hashlib.sha256(str(repo.top.resolve()).encode()).hexdigest()
+    root = Path(os.environ.get("RICHOS_AUTOCHECK_PROOF_ROOT", "/Volumes/E1TB/state/richos/proof-runs/autocheck"))
+    if not Path("/Volumes/E1TB").is_mount() or not root.resolve().is_relative_to("/Volumes/E1TB"):
+        os.unlink(plan)
+        banner(f"{what.upper()} REFUSED: proof storage unavailable", ["Proof attempts must stay on the mounted external SSD."])
+        return 1
+    root = root / key
+    root.mkdir(parents=True, exist_ok=True)
+    prior = root / "last-attempt.json"
+    previous = None
+    saved_identity = None
+    if prior.exists():
+        try:
+            saved = json.loads(prior.read_text())
+            previous = Path(saved["directory"])
+            saved_identity = saved["identity"]
+            if not (previous / "plan.json").is_file():
+                raise ValueError("saved proof plan is missing")
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            banner(f"{what.upper()} REFUSED: retry evidence is unreadable", [str(exc)])
+            os.unlink(plan)
+            return 1
+    directory = Path(tempfile.mkdtemp(prefix="attempt-", dir=root))
+    summary_path = str(root / (directory.name + "-summary.json"))
+    argv = (["--resume", str(previous)] if previous and saved_identity == identity
+            else ["--commands", plan, *(["--reuse", str(previous)] if previous else [])])
+    reason = os.environ.get("RICHOS_AUTOCHECK_RETRY_REASON")
+    if reason:
+        argv += ["--retry-reason", reason]
     try:
-        result = repo.run(["python3", PROOF_RUN, "--commands", plan, "--summary-out", summary_path])
+        result = repo.run(["python3", PROOF_RUN, *argv, "--log-dir", str(directory), "--summary-out", summary_path])
+        if (directory / "plan.json").is_file():
+            pending = root / "last-attempt.pending"
+            pending.write_text(json.dumps({"directory": str(directory), "identity": identity}))
+            os.replace(pending, prior)
         not_run, why_not = accepted_not_run(result.returncode, summary_path)
     finally:
         os.unlink(plan)
-        if os.path.exists(summary_path):
-            os.unlink(summary_path)
     seconds = time.monotonic() - started
     if result.returncode and not_run is None:
         banner(f"{what.upper()} REFUSED: a check it owns did not pass", [
