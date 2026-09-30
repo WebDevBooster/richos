@@ -239,8 +239,21 @@ def lint_and_select(repo, what, app):
 # If a check is killed while edits are set aside, or they cannot be put back, they stay in
 # ASIDE, and every later commit check refuses, naming the directory and how to restore it,
 # until it is gone. Nothing is ever set aside on top of them.
+#
+# The restore never overwrites bytes written after the work was set aside (recheck N01,
+# 2026-09-30). The checks can take minutes, and the engineer keeps editing: a tracked file
+# that differs from the index when the restore starts was written during the check, by the
+# check or by an editor, and nothing can tell which. The old fallback, when the patch did not
+# apply, ran `git checkout -- .` over the whole tree and so reset every such file, including
+# ones the patch never names. Now a file the patch does not name is left exactly as found. A
+# file the patch names that changed during the check is where the engineer's edit and the
+# newer bytes collide: the newer bytes are moved into CHANGED under ASIDE first, then
+# `git checkout-index` (which refuses to write over a file that exists) and the patch put the
+# engineer's edit back, and the commit is refused with both named. The only window left is the
+# one inside every git write: bytes landing between git reading a file and git writing it.
 
 ASIDE = "richos-autocheck-aside"
+CHANGED = "changed-during-check"
 
 
 class StagedOnly:
@@ -249,16 +262,21 @@ class StagedOnly:
         self.dir = repo.git_dir / ASIDE
         self.patch = self.dir / "unstaged.patch"
         self.held = self.dir / "untracked"
+        self.changed = self.dir / CHANGED
         self.moved = []
         self.patched = False
+        self.patch_paths = set()
         self.summary = ""
 
     def how_to_restore(self):
-        return [f"Your unstaged edits and untracked files are in {self.dir}.",
-                f"To put them back: cd {self.repo.top} && git apply --binary {self.patch}"
-                " (when that file exists),",
-                f"then move everything under {self.held} back to the same path here,",
-                f"then delete {self.dir} and commit again."]
+        lines = [f"Your unstaged edits and untracked files are in {self.dir}.",
+                 f"To put them back: cd {self.repo.top} && git apply --binary {self.patch}"
+                 " (when that file exists),",
+                 f"then move everything under {self.held} back to the same path here,"]
+        if self.changed.exists():
+            lines.append(f"compare each file under {self.changed} (bytes written while the check ran) with the "
+                         "file at the same path here, and keep what you want,")
+        return lines + [f"then delete {self.dir} and commit again."]
 
     def hook_git(self, *args):
         # The hook's own environment: its GIT_INDEX_FILE is the index being committed.
@@ -284,6 +302,8 @@ class StagedOnly:
         names = [os.fsdecode(n).rstrip("/") for n in untracked.stdout.split(b"\0") if n]
         if not diff.stdout and not names:
             return self
+        if diff.stdout:
+            self.patch_paths = set(self.differing())
         self.dir.mkdir(parents=True)
         try:
             (self.dir / "README.txt").write_text("\n".join(self.how_to_restore()) + "\n")
@@ -317,21 +337,95 @@ class StagedOnly:
         self.restore()
         return False
 
+    def differing(self):
+        """Tracked paths whose working-tree bytes differ from the index being committed."""
+        done = self.hook_git("diff", "--name-only", "-z", "--no-renames", "--ignore-submodules")
+        if done.returncode:
+            raise RuntimeError("cannot read what differs from the commit: "
+                               + done.stderr.decode(errors="replace").strip())
+        return [os.fsdecode(n) for n in done.stdout.split(b"\0") if n]
+
+    def put_patch_back(self, problems):
+        """Apply the saved unstaged patch without writing over any byte written after it was
+        saved. Returns the paths whose newer bytes were moved into CHANGED."""
+        # git apply is all or nothing: when it fails, it has written nothing.
+        applied = self.hook_git("apply", "--whitespace=nowarn", "--binary", str(self.patch))
+        kept = []
+        if applied.returncode:
+            # A file the patch edits was written during the check, by the check or by an editor.
+            # The engineer's edit from before the check is put back, and the newer bytes are
+            # moved aside first, never overwritten. Files the patch does not edit are not touched.
+            try:
+                collided = sorted(set(self.differing()) & self.patch_paths)
+            except RuntimeError as exc:
+                problems.append(str(exc))
+                return kept
+            if not collided:
+                problems.append("git apply failed: " + applied.stderr.decode(errors="replace").strip())
+                return kept
+            for name in collided:
+                source = self.repo.top / name
+                if not os.path.lexists(source):
+                    continue  # deleted during the check: no bytes to keep
+                target = self.changed / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(source), str(target))
+                kept.append(name)
+            # checkout-index without -f refuses a path that exists, so bytes written again
+            # since the move stay where they are and the patch is not applied over them.
+            done = self.hook_git("checkout-index", "--", *collided)
+            if done.returncode:
+                problems.append("could not write the committed copy back before your edit: "
+                                + done.stderr.decode(errors="replace").strip())
+                return kept
+            applied = self.hook_git("apply", "--whitespace=nowarn", "--binary", str(self.patch))
+            if applied.returncode:
+                problems.append("git apply failed: " + applied.stderr.decode(errors="replace").strip())
+                return kept
+        self.patched = False
+        self.patch.unlink()
+        return kept
+
+    def settle_changed(self, kept, problems):
+        """Drop a moved-aside copy that is byte-identical to what is now back in place (a
+        restore after a failed set-aside, or a write of the same bytes); name the rest."""
+        for name in kept:
+            target, here = self.changed / name, self.repo.top / name
+            if same_bytes(target, here):
+                if target.is_dir() and not target.is_symlink():
+                    shutil.rmtree(target)
+                else:
+                    target.unlink()
+                continue
+            back = ("your edit from before the check is back in place" if not self.patched
+                    else f"your edit from before the check is still in {self.patch}")
+            problems.append(f"{name} changed while the check ran; {back}, and the bytes found there "
+                            f"are kept at {target}")
+        if self.changed.exists():
+            for folder in sorted((p for p in self.changed.rglob("*") if p.is_dir() and not p.is_symlink()),
+                                 key=lambda p: len(p.parts), reverse=True):
+                if not any(folder.iterdir()):
+                    folder.rmdir()
+            if not any(self.changed.iterdir()):
+                self.changed.rmdir()
+
     def restore(self):
         if not self.dir.exists():
             return
         problems = []
-        if self.patched:
-            applied = self.hook_git("apply", "--whitespace=nowarn", "--binary", str(self.patch))
-            if applied.returncode:
-                # A check wrote into a tracked file. The engineer's edit is kept, not the check's.
-                self.hook_git("-c", "submodule.recurse=0", "checkout", "--", ".")
-                applied = self.hook_git("apply", "--whitespace=nowarn", "--binary", str(self.patch))
-            if applied.returncode:
-                problems.append("git apply failed: " + applied.stderr.decode(errors="replace").strip())
-            else:
-                self.patched = False
-                self.patch.unlink()
+        # Recorded before anything is written back, so the report names only what the check
+        # or an editor wrote, not what the restore itself puts back.
+        try:
+            during = self.differing()
+        except RuntimeError as exc:
+            during = []
+            problems.append(str(exc))
+        kept = self.put_patch_back(problems) if self.patched else []
+        self.settle_changed(kept, problems)
+        left = sorted(set(during) - self.patch_paths)
+        if left:
+            say("autocheck: tracked file(s) written while the check ran, left exactly as found: "
+                + ", ".join(left))
         for name in list(self.moved):
             destination = self.repo.top / name
             if os.path.lexists(destination):
@@ -341,9 +435,27 @@ class StagedOnly:
             shutil.move(str(self.held / name), str(destination))
             self.moved.remove(name)
         if problems:
+            how = self.how_to_restore()
+            try:
+                (self.dir / "README.txt").write_text("\n".join(["Left here because: " + "; ".join(problems),
+                                                                *how]) + "\n")
+            except OSError:
+                pass  # the same words are in the refusal printed below
             raise RuntimeError("\n  ".join(["the work set aside for the check could not all be put back: "
-                                            + "; ".join(problems), *self.how_to_restore()]))
+                                            + "; ".join(problems), *how]))
         shutil.rmtree(self.dir)
+
+
+def same_bytes(a, b):
+    """True when two paths hold the same thing: both absent, the same symlink target, or
+    regular files with identical bytes. A directory is never the same as anything."""
+    if not os.path.lexists(a) or not os.path.lexists(b):
+        return not os.path.lexists(a) and not os.path.lexists(b)
+    if os.path.islink(a) or os.path.islink(b):
+        return os.path.islink(a) and os.path.islink(b) and os.readlink(a) == os.readlink(b)
+    if not (os.path.isfile(a) and os.path.isfile(b)):
+        return False
+    return Path(a).read_bytes() == Path(b).read_bytes()
 
 
 # ---------------------------------------------------------------------------------------
