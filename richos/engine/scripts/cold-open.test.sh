@@ -315,6 +315,38 @@ else
 fi
 rm -rf "$TMPENG"
 
+# (h2) P5-41: a final validator that CANNOT RUN is not a validator that found
+# nothing. The copy's predicate works for the first call (the fingerprint) and
+# exits 2 for every later one (the gate check after filing).
+TMPENG="$(mktemp -d -t cotest-eng.XXXXXX)"
+mkdir -p "$TMPENG/scripts/lib"
+cp "$CO" "$TMPENG/scripts/"
+cp "$ENGINE_ROOT/scripts/lib/ceo-todos.sh" "$ENGINE_ROOT/scripts/lib/ceo-todos.py" \
+   "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" "$PROMPT" "$TMPENG/scripts/lib/"
+cat >> "$TMPENG/scripts/lib/ceo-todos.sh" <<'WRAP'
+
+eval "$(declare -f ct_lint_file | sed '1s/^ct_lint_file/ct_lint_file_real/')"
+ct_lint_file() {
+    local n; n="$(cat "$CO_CALLS" 2>/dev/null || echo 0)"; n=$((n + 1)); printf '%s' "$n" > "$CO_CALLS"
+    [ "$n" -ge 2 ] && return 2
+    ct_lint_file_real "$@"
+}
+WRAP
+R="$(mk_repo finalfail)"
+STUB="$(mk_stub good4)"
+OUT="$(CO_CALLS="$SCRATCH/co-calls" "$BASH_BIN" "$TMPENG/scripts/cold-open.sh" --run "$R" --reader-cmd "$STUB" --reader "stub" 2>&1)"; RC=$?
+if [ "$RC" -eq 2 ] && ! printf '%s' "$OUT" | grep -qF 'filed docs/'; then
+    ok "a final validator that could not run fails the run and is NOT announced as filed (P5-41)"
+else
+    bad "a failed final validator must not be filed as success (rc=$RC) $OUT"
+fi
+if printf '%s' "$OUT" | grep -qF 'UNKNOWN'; then
+    ok "and the refusal says whether the gate accepts the reading is unknown"
+else
+    bad "the refusal should say the gate's verdict is unknown: $OUT"
+fi
+rm -rf "$TMPENG"
+
 for flag in -- --safe-mode --strict-mcp-config; do
     :
 done

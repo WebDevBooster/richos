@@ -403,7 +403,22 @@ claim_row() {
 # It also closes a real hole found by this file's own test suite: a reader that
 # printed a single blank line produced a non-empty file, so a size check passed
 # it, and the transcript satisfied nothing while looking filed.
-AFTER="$(ct_lint_file "$CT_TODO_RECORD" "$RECORD" "$REPO" 2>/dev/null || true)"
+#
+# A VALIDATOR THAT COULD NOT RUN IS NOT A VALIDATOR THAT FOUND NOTHING (P5-41).
+# This check used to swallow the predicate's exit status, so a crash or an
+# unreadable record read as "no cold-open violation left" and the transcript was
+# announced as filed. rc 2 is the predicate's "I could not run". The reading is
+# KEPT (it is an expensive product and may be perfectly good) but is NOT claimed
+# as filed: the run fails and says the gate was not consulted.
+AFTER="$(ct_lint_file "$CT_TODO_RECORD" "$RECORD" "$REPO")"; AFTER_RC=$?
+if [ "$AFTER_RC" -ne 0 ]; then
+    {
+        echo "ERROR: cold-open.sh: the reading was written to ${TRANSCRIPT#"$REPO"/} but the gate's"
+        echo "       predicate could not run (exit $AFTER_RC), so whether the gate accepts it is UNKNOWN."
+        echo "       It is NOT reported as filed. Fix the predicate, then check it again with --check."
+    } >&2
+    exit 2
+fi
 COLD_LEFT="$(printf '%s\n' "$AFTER" | awk -F'\t' '$1=="V" && $4 ~ /^COLD-OPEN/ {print $4": "$5}')"
 if [ -n "$COLD_LEFT" ]; then
     rm -f "$TRANSCRIPT"
