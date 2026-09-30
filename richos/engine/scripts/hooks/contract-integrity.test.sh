@@ -1135,6 +1135,29 @@ emit_case() {
     fi
 }
 
+# suite_discovered <case-name> <engine-relative suite path> — the suite is a
+# file AND the engine runner's own discovery lists it.
+#
+# This replaces nine NESTED RUNS of whole suites (hunt 2026-09-29 part 3,
+# finding 10). Each was added when nothing else ran that suite: "a harness
+# nothing runs is a harness that rots". That reason still holds and is kept here
+# as the thing actually checked, but the means changed: scripts/run-all-tests.sh
+# and scripts/ci-units.sh now discover EVERY *.test.sh under the engine and run
+# each as its own unit (ci-units.test.sh proves the two lists are identical). So
+# the question this suite can still answer that the runner cannot is "is this
+# suite ON that list", and running it a second time, inside a 39-minute
+# sectioned suite, answers nothing the suite's own unit has not already.
+suite_discovered() {
+    local name="$1" rel="$2" rc=1
+    if [ -z "${CI_DISCOVERED_SUITES+x}" ]; then
+        CI_DISCOVERED_SUITES="$(bash "$SCRIPT_DIR/../ci-units.sh" suites 2>/dev/null || true)"
+    fi
+    if [ -f "$SCRIPT_DIR/../../$rel" ] && printf '%s\n' "$CI_DISCOVERED_SUITES" | grep -qxF "$rel"; then
+        rc=0
+    fi
+    emit_case "$name" 0 "$rc"
+}
+
 # ---------------------------------------------------------------------------
 # diag_or_tail — the FLOOR under every capture filter in this file.
 #
@@ -2573,13 +2596,9 @@ rm -rf "$ROOT"
 # The trailing `|| true` is IP7's and is not decoration: errexit is live here,
 # a grep that matches nothing exits 1, and a no-match must not take the run
 # down before the summary that names the red case.
-C40_LOG="$(mktemp "${TMPDIR:-/tmp}/definition-drift-suite.XXXXXX")"
-set +e; "$SCRIPT_DIR/guard-definition-drift.test.sh" >"$C40_LOG" 2>&1; rc=$?; set -e
-emit_case "40.definition-drift-guard-suite-passes" 0 "$rc"
-if [ "$rc" -ne 0 ]; then
-    grep -vE '^ *PASS|^[[:space:]]*$' "$C40_LOG" | sed 's/^/        /' || true
-fi
-rm -f "$C40_LOG"
+# (Case 40 ran guard-definition-drift.test.sh here; it is now run once, as its
+# own unit, and this case checks it is on the runner's list. See suite_discovered.)
+suite_discovered "40.definition-drift-guard-suite-is-discovered" "scripts/hooks/guard-definition-drift.test.sh"
 
 fi  # _section — P
 
@@ -2830,13 +2849,7 @@ rm -rf "$ROOT"
 
 # Case 48 — the registry's OWN suite (a test per numbered point) passes.
 # Output KEPT on failure, with case 40's filter and for its reason.
-C48_LOG="$(mktemp "${TMPDIR:-/tmp}/workspace-registry-suite.XXXXXX")"
-set +e; RICHOS_MUTATION_INNER=1 "$SCRIPT_DIR/../../mega-lander/tests/workspaces.test.sh" >"$C48_LOG" 2>&1; rc=$?; set -e
-emit_case "48.workspace-registry-suite-passes" 0 "$rc"
-if [ "$rc" -ne 0 ]; then
-    grep -vE '^ *PASS|^[[:space:]]*$' "$C48_LOG" | sed 's/^/        /' || true
-fi
-rm -f "$C48_LOG"
+suite_discovered "48.workspace-registry-suite-is-discovered" "mega-lander/tests/workspaces.test.sh"
 
 fi  # _section — Q
 
@@ -2935,13 +2948,7 @@ rm -rf "$ROOT"
 
 # Case 53 — the end-to-end demonstration through the real hooks passes.
 # Output KEPT on failure, with case 40's filter and for its reason.
-C53_LOG="$(mktemp "${TMPDIR:-/tmp}/workspace-e2e-suite.XXXXXX")"
-set +e; RICHOS_MUTATION_INNER=1 "$SCRIPT_DIR/../../mega-lander/tests/workspaces-e2e.test.sh" >"$C53_LOG" 2>&1; rc=$?; set -e
-emit_case "53.workspace-spec-end-to-end-passes" 0 "$rc"
-if [ "$rc" -ne 0 ]; then
-    grep -vE '^ *PASS|^[[:space:]]*$' "$C53_LOG" | sed 's/^/        /' || true
-fi
-rm -f "$C53_LOG"
+suite_discovered "53.workspace-spec-end-to-end-is-discovered" "mega-lander/tests/workspaces-e2e.test.sh"
 
 # ---------------------------------------------------------------------------
 # Layer S — the worktree guard and the one command it names
@@ -3150,13 +3157,7 @@ rm -rf "$ROOT"
 # the mutation harness that proves that suite can fail, both against the live
 # scripts. Case 48 does the same for the reaper wrapper.
 # Output KEPT on failure, with case 40's filter and for its reason.
-IP6_LOG="$(mktemp "${TMPDIR:-/tmp}/interactive-prompt-suite.XXXXXX")"
-set +e; "$SCRIPT_DIR/guard-interactive-prompt.test.sh" >"$IP6_LOG" 2>&1; rc=$?; set -e
-emit_case "IP6.interactive-prompt-guard-suite-passes" 0 "$rc"
-if [ "$rc" -ne 0 ]; then
-    grep -vE '^ *PASS|^[[:space:]]*$' "$IP6_LOG" | sed 's/^/        /' || true
-fi
-rm -f "$IP6_LOG"
+suite_discovered "IP6.interactive-prompt-guard-suite-is-discovered" "scripts/hooks/guard-interactive-prompt.test.sh"
 # ITS OUTPUT IS KEPT ON FAILURE, and so is every other mutation harness's
 # below, for the reason written above CL2 and paid for a second time on
 # 2026-09-13: a harness that can only say `(expected exit=0 got=1)` is a
@@ -3299,13 +3300,7 @@ rm -rf "$ROOT"
 # over a term that disarmed it, and a mutation run is the only thing that asks
 # whether a green tick is load-bearing.
 # Output KEPT on failure, with case 40's filter and for its reason.
-IL6_LOG="$(mktemp "${TMPDIR:-/tmp}/idle-land-suite.XXXXXX")"
-set +e; "$SCRIPT_DIR/guard-idle-land.test.sh" >"$IL6_LOG" 2>&1; rc=$?; set -e
-emit_case "IL6.idle-land-gate-suite-passes" 0 "$rc"
-if [ "$rc" -ne 0 ]; then
-    grep -vE '^ *PASS|^[[:space:]]*$' "$IL6_LOG" | sed 's/^/        /' || true
-fi
-rm -f "$IL6_LOG"
+suite_discovered "IL6.idle-land-gate-suite-is-discovered" "scripts/hooks/guard-idle-land.test.sh"
 # Output KEPT on failure, with IP7's anchor and for IP7's reason.
 IL7_LOG="$(mktemp "${TMPDIR:-/tmp}/idle-land-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/idle-land.mutation.sh" >"$IL7_LOG" 2>&1; rc=$?; set -e
@@ -3332,13 +3327,7 @@ if _section CL; then
 # "a false claim is refused" — a gate that refuses everything passes it. One of
 # the mutations empties the integration ref list precisely so a TRUE landing
 # claim gets refused, and asserts that the POSITIVE case goes red.
-CL1_LOG="$(mktemp "${TMPDIR:-/tmp}/claim-gate.XXXXXX")"
-set +e; "$SCRIPT_DIR/guard-unresolved-claims.test.sh" >"$CL1_LOG" 2>&1; rc=$?; set -e
-emit_case "CL1.claim-gate-suite-passes" 0 "$rc"
-if [ "$rc" -ne 0 ]; then
-    cat "$CL1_LOG"
-fi
-rm -f "$CL1_LOG"
+suite_discovered "CL1.claim-gate-suite-is-discovered" "scripts/hooks/guard-unresolved-claims.test.sh"
 # Output KEPT on failure. IL7 discards it, and when CL2 first went red inside
 # this suite while passing standalone, "exit=1" was the entire diagnosis. A
 # mutation harness that can only say "something survived" is a harness you end
@@ -3378,13 +3367,7 @@ if _section RI; then
 # scripts/lib/git-jurisdiction.sh and so ran a guard that REFUSED TO START, which
 # reads exactly like a guard that caught the mutation.
 # Output KEPT on failure, with case 40's filter and for its reason.
-RI1_LOG="$(mktemp "${TMPDIR:-/tmp}/resume-isolation-suite.XXXXXX")"
-set +e; "$SCRIPT_DIR/guard-resume-isolation.test.sh" >"$RI1_LOG" 2>&1; rc=$?; set -e
-emit_case "RI1.resume-isolation-suite-passes" 0 "$rc"
-if [ "$rc" -ne 0 ]; then
-    grep -vE '^ *PASS|^[[:space:]]*$' "$RI1_LOG" | sed 's/^/        /' || true
-fi
-rm -f "$RI1_LOG"
+suite_discovered "RI1.resume-isolation-suite-is-discovered" "scripts/hooks/guard-resume-isolation.test.sh"
 # Output KEPT on failure, with IP7's anchor and for IP7's reason.
 RI2_LOG="$(mktemp "${TMPDIR:-/tmp}/resume-isolation-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/guard-resume-isolation.mutation.sh" >"$RI2_LOG" 2>&1; rc=$?; set -e
@@ -3730,13 +3713,7 @@ if _section SA; then
 # one that refuses nothing. The harness carries both kinds of mutant, and an
 # unrun mutant refuses nothing. Output KEPT on failure, for CL2's reason.
 # Output KEPT on failure, with case 40's filter and for its reason.
-SA1_LOG="$(mktemp "${TMPDIR:-/tmp}/stated-actions-suite.XXXXXX")"
-set +e; "$SCRIPT_DIR/../../ass-kicker/tests/guard-stated-actions.test.sh" >"$SA1_LOG" 2>&1; rc=$?; set -e
-emit_case "SA1.stated-actions-gate-suite-passes" 0 "$rc"
-if [ "$rc" -ne 0 ]; then
-    grep -vE '^ *PASS|^[[:space:]]*$' "$SA1_LOG" | sed 's/^/        /' || true
-fi
-rm -f "$SA1_LOG"
+suite_discovered "SA1.stated-actions-gate-suite-is-discovered" "ass-kicker/tests/guard-stated-actions.test.sh"
 # Output KEPT on failure, with case 40's EXCLUSION filter -- the same one SA1
 # uses three lines above -- and for CL2's reason. The old `^  FAIL` anchor was
 # the narrowest in this file: it printed nothing at all when the harness died
@@ -3774,13 +3751,7 @@ if _section SCR; then
 # on a schedule, at 04:40, where nobody is watching. The reverse direction is
 # deliberately NOT checked: a declared value the code has stopped reading is
 # dead config, not a deleter that stopped working.
-SCR1_LOG="$(mktemp "${TMPDIR:-/tmp}/scratch-reaper-suite.XXXXXX")"
-set +e; "$SCRIPT_DIR/../scratch-reaper.test.sh" >"$SCR1_LOG" 2>&1; rc=$?; set -e
-emit_case "SCR1.scratch-reaper-suite-and-mutations-pass" 0 "$rc"
-if [ "$rc" -ne 0 ]; then
-    diag_or_tail "$(grep -vE '^ *PASS|^[[:space:]]*$' "$SCR1_LOG" || true)" "$(cat "$SCR1_LOG" 2>/dev/null || true)"
-fi
-rm -f "$SCR1_LOG"
+suite_discovered "SCR1.scratch-reaper-suite-is-discovered" "scripts/scratch-reaper.test.sh"
 
 SCR2_OUT="$(SCR_ENGINE="$SCRIPT_DIR/../.." python3 - <<'PY' 2>&1
 import os, re, sys
