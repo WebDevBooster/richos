@@ -130,7 +130,9 @@ for app_id, app in APPS.items():
     env = dict(os.environ, PROOF_FOR_SCRIPT_DIR=str(SCRIPTS))
     run = subprocess.run(["bash", str(HERE / "proof-for.sh"), "--quiet", "--paths", source],
                          capture_output=True, text=True, env=env, cwd=str(ROOT))
-    ran = set(re.findall(r"--only (\S+)", run.stdout))
+    # proof-for.sh hands most suites to run-tests.sh as `--only <suite>`, but prints the iPhone UI suite
+    # (and make-engine-asset) as a command of its own, `bash scripts/<suite>`, scoped to the changed cases.
+    ran = set(re.findall(r"--only (\S+)", run.stdout)) | set(re.findall(r"\bbash scripts/(\S+\.test\.sh)", run.stdout))
     check(run.returncode == 0 and ran == set(chosen),
           "V4 proof-for.sh selects exactly these suites for an %s version change: %s" % (name, ", ".join(sorted(ran)) or "none"),
           "exit %d; proof-for.sh %s, declarations %s; %s" % (run.returncode, sorted(ran), sorted(chosen), run.stderr.strip()[-400:]))
