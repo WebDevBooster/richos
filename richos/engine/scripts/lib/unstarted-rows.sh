@@ -315,12 +315,19 @@ ur_resolve() {
 #
 # Sets UR_CLAIMS_JSON (a JSON object: spelling -> where it came from).
 ur_collect_claims() {
-    local root line wt br claimfile id
+    local root line wt br claimfile id wtlist
     local pairs=""
     UR_CLAIMS_BROKEN=""
     for root in $UR_SCAN_ROOTS; do
         wt=""
         br=""
+        # THE LIST IS THE EVIDENCE OF RUNNING WORK, so a list that cannot be read
+        # is an unknown inventory and never an empty one: rows would be called
+        # unstarted over work that is in flight.
+        wtlist="$(git -C "$root" worktree list --porcelain 2>/dev/null)" || {
+            UR_CLAIMS_BROKEN="the worktree list of $root could not be read, so the existing work claims are unknown; coverage is unknown."
+            return 0
+        }
         while IFS= read -r line; do
             case "$line" in
                 "worktree "*)
@@ -335,7 +342,7 @@ ur_collect_claims() {
                     wt=""; br="" ;;
             esac
         done <<EOF
-$(git -C "$root" worktree list --porcelain 2>/dev/null)
+$wtlist
 EOF
         [ -n "$wt" ] && pairs="$pairs$(printf '%s\t%s' "$wt" "$br")"$'\n'
     done

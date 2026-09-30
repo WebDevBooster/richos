@@ -497,6 +497,30 @@ mv "$SANDBOX/queue.hidden2" "$REPO/RICH-TODOs.md"
 
 fi
 
+if selected_group 4q; then
+# 4q the worktree inventory itself cannot be read. An unreadable inventory is not
+# an empty one: reporting rows as unstarted over it would nag about, or
+# duplicate, work that is running (P5-66). The control is 2a-2e, where the same
+# rows are claimed by a readable inventory and the sweep is silent or names them.
+REALGIT="$(command -v git)"
+mkdir -p "$SANDBOX/fakegit"
+cat > "$SANDBOX/fakegit/git" <<STUB
+#!/bin/sh
+for a in "\$@"; do
+    if [ "\$a" = "worktree" ]; then echo "fatal: injected failure" >&2; exit 128; fi
+done
+exec "$REALGIT" "\$@"
+STUB
+chmod +x "$SANDBOX/fakegit/git"
+forget
+HOUT="$(stop_payload | PATH="$SANDBOX/fakegit:$PATH" bash "$HOOK" 2>&1)"; HRC=$?
+if spoke && names "could not be read" && ! printf '%s' "$HOUT" | grep -qi 'nothing running'; then
+    ok "4q  a worktree list that fails -> LOUD (\"could not be read\"), never rows called unstarted over an empty inventory"
+else bad "4q  a failed worktree list is an unknown inventory, not an empty one" "$HOUT"; fi
+forget
+
+fi
+
 rm -f "$REPO"/*.bak "$REPO/wiki"/*.bak
 
 # ===========================================================================
