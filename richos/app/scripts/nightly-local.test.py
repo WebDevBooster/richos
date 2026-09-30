@@ -1941,6 +1941,57 @@ class GatesAtOnceTests(unittest.TestCase):
         self.assertEqual(kwargs["gui_host"], "richos-test-1")
         self.assertEqual(kwargs["vm_settings"], {"TESTVM_ROOT": "/Volumes/E1TB/testvm"})
 
+    def stand_in_gui_proof(self, result, exit_code, write_proof=True):
+        """A gui-proof-in-vm.sh that writes the proof file it was given `--out` and exits."""
+        script = self.root / "state" / "source" / "richos" / "app" / "scripts" / "gui-proof-in-vm.sh"
+        script.parent.mkdir(parents=True, exist_ok=True)
+        body = ""
+        if write_proof:
+            body = ('while [ $# -gt 0 ]; do [ "$1" = --out ] && OUT="$2"; shift; done\n'
+                    'mkdir -p "$(dirname "$OUT")"\n'
+                    'printf "richos-gui-proof 1\\nsuite=shipped-bundle-boot\\nwhere=vm:richos-test-7\\n'
+                    f'result={result}\\nwindows=1\\n" > "$OUT"\n')
+        script.write_text(f"#!/bin/bash\n{body}exit {exit_code}\n")
+        r = m.Runner(self.root, self.root / "state", {"PATH": "/usr/bin:/bin"}, io.StringIO())
+
+        def run_it(*args, **_):
+            # Runner.command's contract without the worker machinery: a nonzero exit raises.
+            code = subprocess.run([str(a) for a in args], stdin=subprocess.DEVNULL).returncode
+            if code:
+                raise RuntimeError(f"{Path(str(args[0])).name} failed (exit {code}); see the run log")
+        r.command = run_it
+        return r
+
+    def boot_proof(self, runner):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return runner.vm_boot_proof("run-1")
+
+    def test_a_passing_proof_over_a_failed_guest_stop_says_the_boot_was_proven(self):
+        """Since a4bbd0ba gui-proof-in-vm.sh exits 1 when the proof passed but the guest would not
+        stop. The boot was proven; the leftover guest is what is wrong, and the sentence names it."""
+        error = self.boot_proof(self.stand_in_gui_proof("pass", 1))
+        self.assertIn("ITS BOOT WAS PROVEN", error)
+        self.assertNotIn("WAS NOT PROVEN", error)
+        self.assertIn("COULD NOT BE STOPPED", error)
+        self.assertIn("richos-test-7", error)
+        self.assertIn("testvm/stop.sh richos-test-7", error)
+        self.assertIn("still accepts the proof", error)
+
+    def test_a_failed_or_missing_proof_is_still_not_proven(self):
+        for result, code, write in (("fail:no-window", 1, True), ("pass", 2, False)):
+            with self.subTest(result=result, written=write):
+                error = self.boot_proof(self.stand_in_gui_proof(result, code, write_proof=write))
+                self.assertIn("ITS BOOT WAS NOT PROVEN", error)
+        self.assertIsNone(self.boot_proof(self.stand_in_gui_proof("pass", 0)))
+
+    def test_a_passing_proof_left_by_an_earlier_attempt_does_not_prove_this_one(self):
+        runner = self.stand_in_gui_proof("pass", 1, write_proof=False)
+        old = runner.gui_proof_path("run-1")
+        old.parent.mkdir(parents=True, exist_ok=True)
+        old.write_text("richos-gui-proof 1\nwhere=vm:old\nresult=pass\n")
+        os.utime(old, (1_000_000_000, 1_000_000_000))
+        self.assertIn("ITS BOOT WAS NOT PROVEN", self.boot_proof(runner))
+
     def test_a_setting_no_step_would_receive_refuses_before_anything_starts(self):
         for command, extra, name in (("build", self.NUMBERS, "RICHOS_MUTANT_JOBS"),
                                      ("build", self.NUMBERS, "RUN_TESTS_NO_HOST_SCREEN"),
