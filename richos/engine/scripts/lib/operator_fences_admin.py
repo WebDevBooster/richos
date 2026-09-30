@@ -185,6 +185,7 @@ def install_one(repo, entity, decl):
     os.makedirs(program_dir, exist_ok=True)
     program = os.path.join(program_dir, "operator_fences.py")
     shutil.copyfile(PROGRAM_SOURCE, program)
+    os.chmod(program, 0o755)  # copyfile carries no mode; check_one refuses a fence program git cannot run
     digest = F.file_digest(program)
     holders = " ".join(decl.get("LAND_LEASE_HOLDERS", "").split())
     write_executable(target, launcher_text({
