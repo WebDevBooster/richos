@@ -2164,7 +2164,11 @@ class Runner:
         # is its parent. Either identifies THIS candidate and nothing else.
         accepted = [s for s in (info.get("build_commit"), info.get("source_commit")) if s]
         seen = fields.get("commit", "")
-        if not seen or not any(s == seen or s.startswith(seen) for s in accepted):
+        #
+        # An abbreviation is accepted because a proof file can be written by hand, but only at
+        # 7-40 lowercase hex digits (the same floor --checks-done-at-land enforces): one shared
+        # character names thousands of unrelated commits, so a shorter prefix identifies nothing.
+        if not re.fullmatch(r"[0-9a-f]{7,40}", seen) or not any(s.startswith(seen) for s in accepted):
             raise ValueError(
                 f"--gui-proof was taken against {seen or '<no commit>'}, and this candidate is "
                 f"{' / '.join(accepted)}. The proof is about a different tree, so it proves "
