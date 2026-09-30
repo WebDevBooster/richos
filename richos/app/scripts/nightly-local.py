@@ -2143,6 +2143,25 @@ class Runner:
     LOG_LINE = re.compile(r"^\[\d{4}-\d\d-\d\dT[\d:.]+Z\] (.*)$")
     GATE_VERDICT = re.compile(r"^ {0,2}(PASSED|FAILED|STOPPED|SKIPPED) (gates/[a-z-]+)\b")
 
+    DEPENDENCIES_LINE = re.compile(r"Installed dependencies: ([0-9a-f]{64})")
+
+    def installed_dependencies_digest(self):
+        """The identity of what the gates execute that git does not track, or None.
+
+        The SAME identity the proof runner binds a saved pass to (`lib/proof_evidence.py`
+        `installed_dependencies`: git-ignored `node_modules`, Playwright browser installs and
+        the Rust toolchain), read in the dedicated source worktree with this run's
+        environment. None when it cannot be read: an unreadable state is never a match.
+        """
+        library = str(Path(__file__).resolve().parent / "lib")
+        if library not in sys.path:
+            sys.path.insert(0, library)
+        import proof_evidence
+        try:
+            return proof_evidence.digest(proof_evidence.installed_dependencies(self.source, self.env))
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return None
+
     def accept_passed_gates(self, run_id, command):
         """What `--gates-passed-in RUN` may reuse: RUN's source and its suite record, or refuse.
 
@@ -2208,7 +2227,19 @@ class Runner:
         if not isinstance(suites, dict) or suites.get("commit") != source or suites.get("run_id") != run_id:
             raise ValueError(f"{self.state / SUITE_RESULTS} is no longer run {run_id}'s record of its "
                              "script suites, and the candidate's provenance needs it. Run the gates again.")
-        return {"run_id": run_id, "source_commit": source, "script_suites": suites}
+        recorded = [m[1] for m in filter(None, map(self.DEPENDENCIES_LINE.fullmatch, outer))]
+        now = self.installed_dependencies_digest()
+        if not recorded:
+            stale = "the run recorded no identity for the dependencies its gates ran against"
+        elif now is None:
+            stale = "the installed dependencies cannot be read here now"
+        elif recorded[-1] != now:
+            stale = (f"the installed dependencies differ from the ones run {run_id} ran its gates "
+                     f"against (then {recorded[-1][:12]}, now {now[:12]})")
+        else:
+            stale = None
+        return {"run_id": run_id, "source_commit": source, "script_suites": suites,
+                "stale_dependencies": stale}
 
     def perform(self, command, force=False, runtime=None, run_id=None,
                 checks_done_at_land=None, no_host_screen=False, gui_proof=None,
@@ -2220,9 +2251,17 @@ class Runner:
                                  "so nothing else about the gates means anything beside it")
             # Before any network call: the whole question is answered by files on this Mac.
             passed = self.accept_passed_gates(gates_passed_in, command)
-            self.announce(f"Gates: none run. Every gate passed on {passed['source_commit']} in run "
-                          f"{gates_passed_in} ({PASSED_GATES_FLAG}); this run builds that commit.")
-        elif command in GATE_COMMANDS and not (command == "stable" and dry_run):
+            if passed["stale_dependencies"]:
+                # The earlier pass certified another dependency state: run the gates.
+                self.announce(f"Gates run: {passed['stale_dependencies']}, so run {gates_passed_in}'s "
+                              f"pass on {passed['source_commit']} ({PASSED_GATES_FLAG}) is not reused.")
+                passed = None
+                gates_passed_in = None
+            else:
+                self.announce(f"Gates: none run. Every gate passed on {passed['source_commit']} in run "
+                              f"{gates_passed_in} ({PASSED_GATES_FLAG}); this run builds that commit, "
+                              "and the installed dependencies are the ones they ran against.")
+        if not gates_passed_in and command in GATE_COMMANDS and not (command == "stable" and dry_run):
             # The run log's first lines: what runs at once, and who chose it.
             self.record_settings()
             if command == "build":
@@ -2336,6 +2375,11 @@ class Runner:
         else:
             suites = self.gates(checks_done_at_land, no_host_screen=no_host_screen,
                                 skip_unchanged=(command == "build"))
+            # What these gates ran against, so `--gates-passed-in` can tell whether a later
+            # run has the same installed dependencies. Read after the gates: they may install.
+            digest = self.installed_dependencies_digest()
+            if digest:
+                self.announce(f"Installed dependencies: {digest}")
         # Capture the UTC date at allocation, even if checks crossed midnight.
         with self.phase("plan-recheck"):
             plan_path, info = self.plan(force)

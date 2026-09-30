@@ -287,6 +287,7 @@ class LocalTests(unittest.TestCase):
             "build": build, "reason": "already published", "tag": "v1.2.0-nightly.20260916.1"}))
         for name in ("preflight", "runtime", "gates", "command"):
             setattr(r, name, Mock())
+        r.installed_dependencies_digest = Mock(return_value=self.DEPENDENCIES)
         return r
 
     def test_check_never_builds_or_publishes(self):
@@ -652,8 +653,10 @@ while True: time.sleep(.02)
     RESUMED = "20260928T190111Z-40a16163"
     SOURCE = "9fbf4332b47093be6539dac4b898f2e754eaa78b"
 
+    DEPENDENCIES = "d" * 64
+
     def recorded_run(self, verdicts=None, at_once=2, grade="release", reached_recheck=True,
-                     inside=(), suites_run=None, suites_commit=None):
+                     inside=(), suites_run=None, suites_commit=None, dependencies=DEPENDENCIES):
         """A run log shaped like the coordinator writes it, and its script-suites record."""
         verdicts = verdicts or {}
         lines = [f"Gates at once: {at_once} (--gates-at-once {at_once}, chosen by fixture)",
@@ -670,6 +673,8 @@ while True: time.sleep(.02)
                 lines.pop()   # the section never ended: this gate recorded nothing
             elif at_once != 1:
                 lines.append(f"  {verdict} {gate} {'in' if verdict == 'PASSED' else 'after'} 1.0s")
+        if dependencies:
+            lines.append(f"Installed dependencies: {dependencies}")
         if reached_recheck:
             lines += ["=== phase plan-recheck begins ===", "=== phase plan-recheck ends: 5.0s ===",
                       "Building and publishing v1.2.0-nightly.20260928.28..." if grade == "release"
@@ -698,6 +703,46 @@ while True: time.sleep(.02)
         self.assertEqual(plan["gates_passed_in"], {"run_id": self.RESUMED, "source_commit": self.SOURCE})
         self.assertEqual(plan["checks_skipped"], sorted(m.GATE_NAMES))
         self.assertEqual(plan["script_suites"]["run_id"], self.RESUMED)
+
+    def test_a_pass_is_reused_only_where_the_installed_dependencies_are_the_ones_it_ran_against(self):
+        # Codex hunt part 2, finding 11, second reuse path: a saved pass certifies the
+        # dependencies it ran against (node_modules, browsers, toolchain), not only the commit.
+        cases = {
+            "the dependencies changed": (self.DEPENDENCIES, "e" * 64, "differ"),
+            "the run recorded none": (None, self.DEPENDENCIES, "recorded no identity"),
+            "they cannot be read now": (self.DEPENDENCIES, None, "cannot be read"),
+        }
+        for name, (recorded, now, why) in cases.items():
+            with self.subTest(name):
+                self.recorded_run(dependencies=recorded)
+                r = self.runner()
+                r.installed_dependencies_digest = Mock(return_value=now)
+                r.checkout = Mock(return_value="main-tip")
+                (self.root / "plan.json").write_text("{}")
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    r.perform("release", gates_passed_in=self.RESUMED)
+                r.gates.assert_called_once()                   # the gates run
+                r.checkout.assert_called_once_with(None)       # on main's tip, not the old commit
+                self.assertIn("Gates run", out.getvalue())
+                self.assertIn(why, out.getvalue())
+        # Where they match, the pass is reused and says the dependencies are the same.
+        self.recorded_run()
+        r = self.runner()
+        r.checkout = Mock(return_value=self.SOURCE)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            r.perform("release", gates_passed_in=self.RESUMED)
+        r.gates.assert_not_called()
+        self.assertIn("installed dependencies are the ones they ran against", out.getvalue())
+
+    def test_a_run_that_runs_the_gates_records_the_dependencies_they_ran_against(self):
+        r = self.runner()
+        r.log = io.StringIO()
+        r.gates.return_value = None
+        with contextlib.redirect_stdout(io.StringIO()):
+            r.perform("release")
+        self.assertIn(f"Installed dependencies: {self.DEPENDENCIES}", r.log.getvalue())
 
     def test_a_run_whose_gates_did_not_all_pass_is_refused_before_anything_runs(self):
         cases = {
