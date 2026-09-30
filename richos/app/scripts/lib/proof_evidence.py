@@ -256,8 +256,9 @@ def python_runtime(executable):
 # an ignored node_modules package, only that package changed, running the check again failed,
 # and the saved pass was reused and finalized as passed. So the identity also binds, by
 # content or by install identity, what a check executes that git does not track: every
-# ignored `node_modules` directory in the checkout, the Playwright browser installs the UI
-# suites launch, and the Rust toolchain `cargo` resolves. It still binds nothing else git
+# ignored `node_modules` directory in the checkout, the Playwright package the UI harness loads
+# from outside the checkout (external_playwright, part 2 recheck R11), the Playwright browser
+# installs the UI suites launch, and the Rust toolchain `cargo` resolves. It still binds nothing else git
 # ignores: bytecode caches, build caches, test output and hook sidecars are written by checks
 # and tools as they run, and binding them would invalidate every pass on every run.
 WHOLE_CHECKOUT = "whole-checkout-v2"
@@ -378,6 +379,116 @@ def playwright_installs(environment):
     return {"base": str(base), "installs": installs}
 
 
+# THE UI SUITES' PLAYWRIGHT PACKAGE IS AN INSTALLED DEPENDENCY WHEREVER IT LIVES (part 2 recheck,
+# R11). richos/app/ui/tests/lib/harness.js loadPlaywright deliberately shares one install per
+# machine: it takes the package from RICHOS_PLAYWRIGHT, then from Node's own lookup, then from
+# the main checkout's install, so a worktree needs no `node_modules` of its own. Only the
+# checkout's own installs were bound (checkout_installs), so a pass saved in a worktree was
+# reused after the shared package changed at the same path. The sharing stays; what it can load
+# is bound instead.
+UI_TESTS = Path("richos/app/ui/tests")
+PLAYWRIGHT_PACKAGE = "playwright"
+
+
+def _main_checkout(root):
+    """The main checkout of the repository `root` is a linked worktree of, or None."""
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    try:
+        result = subprocess.run(["git", "-C", str(root), "rev-parse", "--path-format=absolute",
+                                 "--git-common-dir", "--show-toplevel"], env=env, stdin=subprocess.DEVNULL,
+                                capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    lines = result.stdout.splitlines()
+    if result.returncode != 0 or len(lines) != 2:
+        return None
+    main, top = Path(lines[0]).parent, Path(lines[1])
+    return None if main.resolve() == top.resolve() else main
+
+
+def playwright_package_candidates(root, environment):
+    """Every path harness.js may load the Playwright package from, in the order it tries them.
+
+    RICHOS_PLAYWRIGHT first (a path, or a name Node looks up); then `require("playwright")`
+    from the harness directory: every ancestor's node_modules, each NODE_PATH entry and Node's
+    global folders ($HOME/.node_modules, $HOME/.node_libraries, <node prefix>/lib/node); then
+    the main checkout's install when `root` is a linked worktree.
+
+    Each is (package path, module directory): the directory Node found it in, whose other
+    packages its own `require`s also resolve from (playwright loads playwright-core that way).
+    A path named outright has no such directory (None): its nearest node_modules is used."""
+    root = Path(root)
+    harness = root / UI_TESTS / "lib"
+    node = shutil.which("node", path=environment.get("PATH"))
+
+    def lookup(name):
+        folders = [directory / "node_modules" for directory in (harness, *harness.parents)
+                   if directory.name != "node_modules"]
+        folders += [Path(entry) for entry in (environment.get("NODE_PATH") or "").split(os.pathsep) if entry]
+        if environment.get("HOME"):
+            folders += [Path(environment["HOME"]) / ".node_modules", Path(environment["HOME"]) / ".node_libraries"]
+        if node:
+            folders.append(Path(os.path.realpath(node)).parent.parent / "lib" / "node")
+        return [(folder / name, folder) for folder in folders]
+
+    candidates = []
+    named = environment.get("RICHOS_PLAYWRIGHT")
+    if named:
+        if os.path.isabs(named):
+            candidates.append((Path(named), None))
+        elif named in (".", "..") or named.startswith(("./", "../")):
+            candidates.append((harness / named, None))
+        else:
+            candidates += lookup(named)
+    candidates += lookup(PLAYWRIGHT_PACKAGE)
+    main = _main_checkout(root)
+    if main is not None:
+        installed = main / UI_TESTS / "node_modules"
+        candidates.append((installed / PLAYWRIGHT_PACKAGE, installed))
+    return candidates
+
+
+def _node_module_root(package):
+    """For a package named by path: its nearest enclosing node_modules, which its own
+    `require`s resolve against, or the package alone when it is installed outside one."""
+    for parent in package.parents:
+        if parent.name == "node_modules":
+            return parent
+    return package
+
+
+def external_playwright(root, environment):
+    """{candidate: identity} for every Playwright package harness.js may load outside the checkout.
+
+    A present candidate is bound by the content of the module directory it was found in
+    (path_identity, the same reader checkout_installs uses); an absent one by its absence, so an
+    install that appears where the harness looks first is a different input. Every present
+    candidate is bound, not only the first: which one loads depends on whether the ones before it
+    load, and over-binding costs only a rerun. A node_modules inside the checkout is the
+    checkout's content or one of checkout_installs, and is not bound twice; a symlink out of the
+    checkout is followed, so what it points at is bound here."""
+    root = Path(root).resolve()
+    inside = lambda path: path == root or root in path.parents
+    found, roots = {}, {}
+    for candidate, folder in playwright_package_candidates(root, environment):
+        real = Path(os.path.realpath(candidate))
+        if folder is not None and Path(folder).name == "node_modules" and inside(real):
+            continue
+        # What `require` accepts at that path: the path itself, or it with Node's extensions.
+        target = next((path for path in (Path(str(real) + suffix) for suffix in ("", ".js", ".json", ".node"))
+                       if path.exists()), None)
+        if target is None:
+            found[str(candidate)] = {"absent": True}
+            continue
+        module_root = Path(os.path.realpath(folder)) if folder is not None else _node_module_root(target)
+        if module_root.name == "node_modules" and inside(module_root):
+            continue
+        if str(module_root) not in roots:
+            roots[str(module_root)] = digest(path_identity(module_root))
+        found[str(candidate)] = {"root": str(module_root), "sha256": roots[str(module_root)]}
+    return found
+
+
 def rust_toolchain(root, environment):
     """What `rustc -vV` says in the checkout: a rustup shim's bytes do not change with the toolchain."""
     rustc = shutil.which("rustc", path=environment.get("PATH"))
@@ -400,12 +511,13 @@ def rust_toolchain(root, environment):
 
 
 INSTALL_ENVIRONMENT_NAMES = ("PATH", "HOME", "PLAYWRIGHT_BROWSERS_PATH", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN",
-                             "CARGO_HOME")
+                             "CARGO_HOME", "RICHOS_PLAYWRIGHT", "NODE_PATH")
 
 
 def installed_dependencies(root, environment):
     """What a check executes that git does not track (WHOLE_CHECKOUT above)."""
     return {"checkout": checkout_installs(root), "playwright": playwright_installs(environment),
+            "playwright_package": external_playwright(root, environment),
             "rust": rust_toolchain(root, environment)}
 
 

@@ -1441,6 +1441,69 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
         wrapper.write_text('#!/bin/sh\n# a different compiler cache\nexec "$@"\n')
         self.assertNotEqual(identity()["installed"]["rust"], wrapped)
 
+    def test_the_whole_checkout_identity_binds_the_playwright_package_the_harness_loads_from_outside(self):
+        # Part 2 recheck, R11: harness.js loadPlaywright takes the Playwright package from
+        # RICHOS_PLAYWRIGHT, from Node's own lookup (node_modules above the checkout, NODE_PATH)
+        # or from the main checkout's install, so a worktree needs no install of its own. None
+        # of those is in the checkout, and a pass saved against one package was reused after
+        # only that package changed. Each is now bound by content, with the node_modules it
+        # sits in (playwright loads playwright-core from beside itself).
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        git = lambda *a: subprocess.run(["git", "-C", str(self.root), "-c", "user.name=fixture",
+                                         "-c", "user.email=fixture@example.invalid", "-c", "core.hooksPath=/dev/null",
+                                         "-c", "commit.gpgsign=false", *a],
+                                        check=True, env=env, capture_output=True)
+        git("init", "-q")
+        tests = self.root / "richos/app/ui/tests"
+        (tests / "lib").mkdir(parents=True)
+        (tests / "lib/harness.js").write_text("// fixture harness\n")
+        (self.root / ".gitignore").write_text("node_modules/\n")
+        git("add", "-A")
+        git("commit", "-q", "-m", "fixture")
+        worktree = Path(self.tmp.name) / "worktree"
+        git("worktree", "add", "-q", str(worktree))
+        home = Path(self.tmp.name) / "home"
+        home.mkdir()
+        environment = {"PATH": "/usr/bin:/bin", "HOME": str(home), "PLAYWRIGHT_BROWSERS_PATH": "0"}
+        identity = lambda: evidence.checkout_identity(worktree, ["node", "suite.js"], environment)
+
+        def package(directory, healthy="true"):
+            (directory / "playwright").mkdir(parents=True, exist_ok=True)
+            (directory / "playwright/index.js").write_text("module.exports = require('playwright-core');\n")
+            (directory / "playwright-core").mkdir(exist_ok=True)
+            (directory / "playwright-core/index.js").write_text("module.exports = {healthy: %s};\n" % healthy)
+
+        external = Path(self.tmp.name) / "external" / "node_modules"
+        global_modules = Path(self.tmp.name) / "global-modules"
+        places = [
+            # The main checkout's install, which a worktree with none of its own loads.
+            ("main checkout", tests / "node_modules", {}),
+            # An explicit RICHOS_PLAYWRIGHT, installed with its dependency beside it.
+            ("RICHOS_PLAYWRIGHT", external, {"RICHOS_PLAYWRIGHT": str(external / "playwright")}),
+            ("NODE_PATH", global_modules, {"NODE_PATH": str(global_modules)}),
+            # Node looks in every ancestor's node_modules, above the checkout too.
+            ("above the checkout", Path(self.tmp.name) / "node_modules", {}),
+        ]
+        for name, directory, variables in places:
+            with self.subTest(place=name):
+                environment.update(variables)
+                package(directory)
+                before = identity()
+                self.assertEqual(identity(), before)
+                # Only playwright-core changes, at the same path; nothing git would land differs.
+                package(directory, healthy="false")
+                self.assertEqual(subprocess.run(["git", "-C", str(worktree), "status", "--porcelain"],
+                                                env=env, capture_output=True, check=True).stdout, b"")
+                self.assertNotEqual(identity(), before, name)
+                package(directory)
+                self.assertEqual(identity(), before, name)
+        # An install that appears where the harness would find it first is a different input.
+        before = identity()
+        package(worktree.parent / "worktree-sibling-is-not-an-ancestor")
+        self.assertEqual(identity(), before)
+        package(home / ".node_modules")
+        self.assertNotEqual(identity(), before)
+
 
 if __name__ == "__main__":
     unittest.main()
