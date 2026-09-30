@@ -47,6 +47,7 @@
 #   L16 an archive carrying an untracked member is REFUSED, by name
 #   L17 a missing members check is REFUSED, not skipped
 #   L18 building outside a git checkout is REFUSED
+#   L23 an ignored LICENSE in the source engine is not required in the archive
 #
 # THE SECOND DEFECT, found 2026-09-04 by the two cases added that morning failing on main
 # after passing on their author's fresh worktree. The script copied the engine WORKING TREE,
@@ -375,7 +376,24 @@ else
 fi
 
 # ---------------------------------------------------------------------------------------
-# L17 — the check cannot be quietly deleted
+# L23 - the license completeness check judges TRACKED files only
+# ---------------------------------------------------------------------------------------
+# An ignored vendor or scratch tree carrying a LICENSE is on disk but was never meant to ship.
+# The archive is built from the tracked set, so the check that "no license file was dropped"
+# must ask the same set, or it blames packaging for omitting a file that was correctly left out.
+F="$WORK/ignored-license"; make_fixture "$F"
+printf '/scratch-vendor/\n' >> "$F/richos/engine/.gitignore"; fixture_commit "$F"
+mkdir -p "$F/richos/engine/scratch-vendor/pkg"
+printf 'MIT License\n\nCopyright (c) 2026 Nobody\n' > "$F/richos/engine/scratch-vendor/pkg/LICENSE"
+OUT="$(run_fixture "$F")"; CODE=$?
+if [ "$CODE" -eq 0 ] && ! printf '%s' "$OUT" | grep -q 'packaging DROPPED'; then
+    ok "L23 an ignored LICENSE in the source engine is not required in the archive"
+else
+    bad "L23 an ignored LICENSE in the source engine is not required in the archive" "exit $CODE: $(printf '%s' "$OUT" | tail -1)"
+fi
+
+# ---------------------------------------------------------------------------------------
+# L17— the check cannot be quietly deleted
 # ---------------------------------------------------------------------------------------
 # A guard whose absence is a skip is not a guard. Removing the file must stop the build, not
 # the checking.
