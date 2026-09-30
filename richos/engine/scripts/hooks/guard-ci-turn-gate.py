@@ -305,6 +305,39 @@ def _tokens(segment):
         return segment.split()
 
 
+_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_WRAPPERS = ("command", "exec", "nohup", "time", "sudo", "env", "nice", "builtin")
+
+
+def _command_word_index(toks):
+    """Index of the token that names the program a statement runs, or None."""
+    k = 0
+    first = True
+    while k < len(toks):
+        t = toks[k]
+        if first:
+            t = t.lstrip("({")          # a subshell or group opener glued to the word
+            first = False
+            if not t:
+                k += 1
+                first = True
+                continue
+            toks[k] = t
+        if _ASSIGNMENT.match(t):
+            k += 1
+            continue
+        if t in _WRAPPERS:
+            k += 1
+            # a wrapper's own options (env -i, nice -n 5) are not the command
+            while k < len(toks) and (toks[k].startswith("-")
+                                     or (k > 0 and toks[k - 1] == "-n" and toks[k].isdigit())
+                                     or _ASSIGNMENT.match(toks[k])):
+                k += 1
+            continue
+        return k
+    return None
+
+
 def parse_pushes(command, cwd):
     """Every `git push` in one command string, with the directory it ran in.
 
@@ -325,10 +358,13 @@ def parse_pushes(command, cwd):
         if toks[0] == "cd" and len(toks) >= 2 and not toks[1].startswith("-"):
             here = toks[1] if os.path.isabs(toks[1]) else os.path.join(here, toks[1])
             continue
-        # find `git`, then its subcommand, skipping git's own global options
-        try:
-            gi = toks.index("git")
-        except ValueError:
+        # `git` must be the COMMAND WORD of the statement: after any leading
+        # VAR=value assignments and transparent wrappers (env, sudo, ...). A
+        # `git` that is only an ARGUMENT — `printf '%s\n' git push origin main`,
+        # `echo git push` — prints text and pushes nothing (hunt 2026-09-29
+        # part 3, finding 11).
+        gi = _command_word_index(toks)
+        if gi is None or os.path.basename(toks[gi]) != "git":
             continue
         i = gi + 1
         where = here
