@@ -216,6 +216,11 @@ def parse_duration(text):
     if not m:
         return None
     n, unit = int(m.group(1)), m.group(2).lower()
+    if n == 0:
+        # A ceiling of zero can never be met and divides the percent-of-budget
+        # figure; it is a declaration problem, reported as one by
+        # parse_declarations, not a duration.
+        return None
     return n * {"s": 1, "m": 60, "h": 3600}[unit]
 
 
@@ -294,7 +299,7 @@ def parse_declarations(source):
         rest = rest.strip()
         if kw == "budget":
             if parse_duration(rest) is None:
-                out["malformed"].append("ci-budget: %r is not a duration (use 45m, 1800s, 2h)" % rest)
+                out["malformed"].append("ci-budget: %r is not a positive duration (use 45m, 1800s, 2h)" % rest)
             else:
                 out["budget"] = rest
         elif kw == "budget-since":
@@ -1768,6 +1773,23 @@ def self_test():
     want("duration m", parse_duration("45m"), 2700)
     want("duration h", parse_duration("2h"), 7200)
     want("prose is not a duration", parse_duration("about four minutes"), None)
+
+    # P5-55: a zero budget is a declaration problem, reported as one, and never
+    # reaches the percent-of-budget division.
+    want("a zero budget is not a usable duration", parse_duration("0s"), None)
+    d = parse_declarations("# ci-budget: 0m\n")
+    want("a zero budget declares nothing", d["budget"], None)
+    want("a zero budget is named as malformed", len(d["malformed"]), 1)
+    e = {}
+    judge(e, {"budget": "0s", "skips": {}, "evidence": "x" * 20},
+          {"parsed": True, "events": ["push"], "push_paths": [], "cron": []},
+          {"state": "active", "_total_count": 1},
+          [{"status": "completed", "conclusion": "success", "run_number": 1,
+            "run_started_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:01:00Z", "id": 1}],
+          [{"name": "a", "conclusion": "success"}], "main", None, now_utc())
+    want("a zero budget in a judged entry does not crash", e.get("axes", {}).get("slow", {}).get("verdict"),
+         "UNDECLARED")
+
 
     now = now_utc()
     push = {"parsed": True, "events": ["push"], "push_paths": [], "cron": []}
