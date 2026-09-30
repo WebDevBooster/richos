@@ -57,7 +57,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 SHA=""
 TREE=""
-OUTCOME="success"
+# No default: the outcome is the deploy's real verdict and only the caller has
+# it. A default of "success" made forgetting the flag record a deploy nobody
+# verified; the validation below now refuses an empty value.
+OUTCOME=""
 ROOT=""
 RECORD=""
 SHOW=0
