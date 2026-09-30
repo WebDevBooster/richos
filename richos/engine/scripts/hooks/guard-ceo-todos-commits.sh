@@ -444,7 +444,21 @@ case "$VERDICT" in
         if [ "$STAGE_ALL" -eq 1 ]; then
             REMOVED_LIST="$REMOVED_LIST$(git -C "$CT_REPO" diff --name-only --no-renames --diff-filter=D 2>/dev/null || true)"
         fi
-        if [ -z "$REMOVED_LIST" ]; then
+        # A commit that stages the generated entry point or the README is the
+        # commonest way to make the view disagree with the record, so it is
+        # judged like a record edit and keeps the refusal.
+        SURFACE_STAGED=0
+        for surface in "$CT_TODO_VIEW" "$CT_ROOT_README"; do
+            [ -n "$surface" ] || continue
+            case "
+$STAGED_LIST
+" in
+                *"
+$surface
+"*) SURFACE_STAGED=1 ;;
+            esac
+        done
+        if [ -z "$REMOVED_LIST" ] && [ "$SURFACE_STAGED" -eq 0 ]; then
             ct_refusal "guard-ceo-todos-commits.sh" "$HEADLINE — NOTICE ONLY, this commit removes no file, so it is not blocked" "$BODY" "$CT_REPO/$CT_TODO_RECORD" >&2
             exit 0
         fi
