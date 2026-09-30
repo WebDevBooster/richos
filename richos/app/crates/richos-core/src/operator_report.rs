@@ -250,7 +250,8 @@ fn append(outbox: &Path, record: &ReportRecord) -> Result<(), String> {
         std::fs::create_dir_all(parent).map_err(|e| format!("The report could not be recorded ({e})."))?;
     }
     let mut options = std::fs::OpenOptions::new();
-    options.append(true).create(true);
+    // Read as well as append: the last byte says whether an earlier append was cut short.
+    options.read(true).append(true).create(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
@@ -265,8 +266,27 @@ fn append(outbox: &Path, record: &ReportRecord) -> Result<(), String> {
         // SAFETY: flock on a descriptor this function owns; released when `file` closes.
         unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
     }
+    // An append that ended early (the process ended, or the disk filled) leaves a partial
+    // record with no newline. This record starts on a fresh line so it is never glued onto
+    // that fragment; the fragment is left as it was and `read_outbox` skips it (hunt part 1
+    // finding 44). Checked under the lock, so no other append is half-written here.
+    if ends_mid_line(&mut file).map_err(|e| format!("The report could not be recorded ({e})."))? {
+        line.insert(0, b'\n');
+    }
     file.write_all(&line).and_then(|_| file.sync_all())
         .map_err(|e| format!("The report could not be recorded ({e})."))
+}
+
+/// Does the file end partway through a line? An empty file does not.
+fn ends_mid_line(file: &mut std::fs::File) -> io::Result<bool> {
+    use std::io::{Read, Seek, SeekFrom};
+    if file.metadata()?.len() == 0 {
+        return Ok(false);
+    }
+    file.seek(SeekFrom::End(-1))?;
+    let mut last = [0u8; 1];
+    file.read_exact(&mut last)?;
+    Ok(last[0] != b'\n')
 }
 
 /// Store the whole of a long text. Created new, never over another file.
@@ -456,14 +476,46 @@ Once the land is real, report `outcome` again, or report `failed`.".into());
 }
 
 /// Every record in an outbox, in order. What the host will read. A missing outbox is empty.
+///
+/// **An interrupted append never hides the records after it** (hunt part 1 finding 44).
+/// Only whole lines are read: bytes after the last newline are an append still being written,
+/// or one that was cut short, and are left for a later read. A whole line that is not JSON at
+/// all is a cut-short append that a later one closed by starting its own line (`append`); its
+/// writer was never told "recorded", so it is not a report and it is skipped. Every read
+/// classifies the same bytes the same way, so a record's position never moves: the host's
+/// cursor and its owed closes are positions. A line that IS JSON but not a record is not a
+/// torn write, and still fails the read, as before.
 pub fn read_outbox(path: &Path) -> Result<Vec<ReportRecord>, String> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(e) => return Err(e.to_string()),
     };
-    text.lines().filter(|line| !line.trim().is_empty())
-        .map(|line| serde_json::from_str(line).map_err(|e| e.to_string())).collect()
+    let whole = match bytes.iter().rposition(|b| *b == b'\n') {
+        Some(end) => &bytes[..end],
+        None => return Ok(Vec::new()),
+    };
+    let mut records = Vec::new();
+    for line in whole.split(|b| *b == b'\n') {
+        if line.iter().all(u8::is_ascii_whitespace) {
+            continue;
+        }
+        match serde_json::from_slice::<ReportRecord>(line) {
+            Ok(record) => records.push(record),
+            Err(e) if serde_json::from_slice::<Value>(line).is_ok() => return Err(e.to_string()),
+            Err(_) => records.extend(glued_record(line)),
+        }
+    }
+    Ok(records)
+}
+
+/// Before `append` started a fresh line after a cut-short one, the next record was written
+/// straight onto the fragment. Its lead was told "recorded", so it is recovered: the record
+/// is the first `{` from which the rest of the line is one whole record. A fragment is a cut
+/// prefix of a record, so no suffix that starts inside it can be a whole record on its own.
+fn glued_record(line: &[u8]) -> Option<ReportRecord> {
+    line.iter().enumerate().skip(1).filter(|(_, b)| **b == b'{')
+        .find_map(|(i, _)| serde_json::from_slice::<ReportRecord>(&line[i..]).ok())
 }
 
 fn error(id: Value, code: i64, message: &str) -> Value {
@@ -715,6 +767,57 @@ mod tests {
         assert_eq!((records[0].lead.as_str(), records[0].thread_id.as_str()), ("claim-1", "thread-a"));
         assert_eq!(records[0].handle, None);
         assert_eq!(records[1].agents, ["mark-opus-x1"]);
+    }
+
+    /// **An interrupted write never blocks the reports after it** (hunt part 1 finding 44). A
+    /// process that ends mid-append, or a disk that fills, leaves a partial record with no
+    /// newline, possibly cut inside a multibyte character. Its writer was never told
+    /// "recorded", so it is not a report. The next append starts a fresh line instead of
+    /// gluing its record onto the fragment, and the reader keeps every whole record around
+    /// the damaged line, in order.
+    #[test]
+    fn an_interrupted_append_does_not_block_the_reports_after_it() {
+        // Two cuts: inside an ASCII word, and inside the two bytes of "é" (C3 A9).
+        let whole = br#"{"kind":"outcome","text":"Caf\xC3\xA9 is open"}"#;
+        let torn_ascii: &[u8] = &whole[..12];
+        let torn_utf8: Vec<u8> = [&br#"{"kind":"outcome","text":"Caf"#[..], &[0xC3]].concat();
+        for torn in [torn_ascii.to_vec(), torn_utf8] {
+            let f = fixture();
+            report(&f, json!({"kind": "update", "text": "Before the interruption."})).unwrap();
+            {
+                use std::io::Write as _;
+                let mut file = std::fs::OpenOptions::new().append(true).open(&f.scope.outbox).unwrap();
+                file.write_all(&torn).unwrap();
+            }
+            // The fragment has no newline: it may still be an append in progress, so it is
+            // not read, and it does not stop the record before it from being read.
+            let texts = |f: &Fixture| outbox(f).into_iter().map(|r| r.text).collect::<Vec<_>>();
+            assert_eq!(texts(&f), ["Before the interruption."], "torn {torn:?}");
+            report(&f, json!({"kind": "update", "text": "After the interruption."})).unwrap();
+            assert_eq!(texts(&f), ["Before the interruption.", "After the interruption."], "torn {torn:?}");
+            // A second read sees the same records at the same positions: the host's cursor
+            // and its owed closes are record indexes.
+            assert_eq!(texts(&f), ["Before the interruption.", "After the interruption."], "torn {torn:?}");
+            let bytes = std::fs::read(&f.scope.outbox).unwrap();
+            let lines: Vec<&[u8]> = bytes.split(|b| *b == b'\n').collect();
+            assert_eq!(lines.len(), 4, "the fragment ends its own line; {lines:?}");
+            assert_eq!(lines[1], &torn[..], "the fragment is left as it was, never rewritten");
+            assert!(lines[3].is_empty(), "the outbox ends at a line boundary");
+        }
+        // An outbox the old appender already damaged: the next record was written straight
+        // onto the fragment. That record's lead was told "recorded", so it is read.
+        let f = fixture();
+        report(&f, json!({"kind": "update", "text": "Glued record."})).unwrap();
+        let glued_record = std::fs::read(&f.scope.outbox).unwrap();
+        let mut damaged = torn_ascii.to_vec();
+        damaged.extend_from_slice(&glued_record);
+        std::fs::write(&f.scope.outbox, &damaged).unwrap();
+        report(&f, json!({"kind": "update", "text": "Next record."})).unwrap();
+        let texts: Vec<String> = outbox(&f).into_iter().map(|r| r.text).collect();
+        assert_eq!(texts, ["Glued record.", "Next record."]);
+        // A whole line that is JSON but not a record is not a torn write: it still fails.
+        std::fs::write(&f.scope.outbox, b"{\"kind\":\"update\"}\n").unwrap();
+        assert!(read_outbox(&f.scope.outbox).is_err());
     }
 
     #[test]
