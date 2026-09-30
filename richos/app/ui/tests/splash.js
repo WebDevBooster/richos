@@ -3493,18 +3493,35 @@ async function main() {
     await page.keyboard.press("Space");
     const held = await splashState(page);
     assert(held.state.paused, "the first press did not hold it, so the second proves nothing");
-    await page.keyboard.press("Space");
-    const going = await page.evaluate(() => {
-      const n = document.getElementById("splash");
-      return {
-        paused: window.RichSplash.state.paused,
-        reason: window.RichSplash.state.reason,
-        pausedMs: window.RichSplash.state.pausedMs,
-        yielding: !!(n && n.classList.contains("splash--yielding")),
-        settled: !!(n && n.classList.contains("splash--settled")),
-        klass: !!(n && n.classList.contains("splash--paused")),
-      };
+    // THE RESUME READING IS TAKEN INSIDE THE KEYSTROKE, NOT A ROUND TRIP AFTER IT (recheck R29,
+    // the same correction check 17 carries and for the same reason). `yieldNow` removes
+    // `#splash` FADE_MS + 40 = 220 ms after the key, so a second `page.evaluate` on a contended
+    // runner finds the node gone and reports "the curtain is not fading" over a correct
+    // removal. A capture-phase `keydown` listener registered now, and so after the one
+    // `splash.js` registered, runs in the same dispatch right after the resume took effect.
+    await page.evaluate(() => {
+      window.__resumeAtKey = null;
+      window.addEventListener(
+        "keydown",
+        () => {
+          if (window.__resumeAtKey !== null) return;
+          const n = document.getElementById("splash");
+          window.__resumeAtKey = {
+            paused: window.RichSplash.state.paused,
+            reason: window.RichSplash.state.reason,
+            pausedMs: window.RichSplash.state.pausedMs,
+            yielding: !!(n && n.classList.contains("splash--yielding")),
+            settled: !!(n && n.classList.contains("splash--settled")),
+            klass: !!(n && n.classList.contains("splash--paused")),
+          };
+        },
+        true
+      );
     });
+    await page.keyboard.press("Space");
+    // load-bound: a hang guard on a fact the keystroke itself produces; it decides no verdict
+    await page.waitForFunction(() => window.__resumeAtKey !== null, null, { timeout: 20000 });
+    const going = await page.evaluate(() => window.__resumeAtKey);
     assertEqual(going.reason, "resume", "the second space did not take the screen down: reason " + going.reason);
     assertEqual(going.paused, false, "the hold is still on after the resume");
     assertEqual(going.klass, false, "the composition is still carrying `splash--paused` on its way out");
