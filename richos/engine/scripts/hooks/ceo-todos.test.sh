@@ -173,6 +173,10 @@ write_record() {
         printf '%s\n' "$SECTION_3"
     } > "$repo/wiki/open-items.md"
     sync_view "$repo"
+    # A fixture record models a commit that CHANGES the record: only such a
+    # commit (or one that removes a file) is refused over a stale claim. The one
+    # case about an unrelated commit un-stages it explicitly.
+    git -C "$repo" add wiki/open-items.md 2>/dev/null || true
 }
 
 commit_payload() {
@@ -260,6 +264,7 @@ R="$(mk_repo realfailuretable)"
     printf '| 2.1 | **A real recorded call, >= 10 min, human-verified transcript.** | Every measurement before this was TTS. |\n\n'
     printf '%s\n' "$SECTION_3"
 } > "$R/wiki/open-items.md"
+git -C "$R" add wiki/open-items.md 2>/dev/null
 run_guard "$R"
 if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'TABLE-ROW-IN-CEO-SECTION'; then
     ok "reverting a CEO section to a markdown table is REFUSED, not silently unchecked"
@@ -498,12 +503,29 @@ write_record "$R" '### 2.1 READY-FOR-CEO — Verify the podcast reference transc
 - **Unblocks:** the first computable word error rate, and with it decision 1.3
 '
 printf 'unrelated work\n' > "$R/docs/unrelated.md"
+git -C "$R" reset -q 2>/dev/null
 git -C "$R" add docs/unrelated.md 2>/dev/null
 run_guard "$R"
-if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'PRE-EXISTING'; then
-    ok "a commit that does not touch the record still catches a stale claim, and says PRE-EXISTING"
+if [ "$GRC" -eq 0 ] && printf '%s' "$GOUT" | grep -qF 'PRE-EXISTING'; then
+    ok "a commit that neither touches the record nor removes a file is told of a stale claim (PRE-EXISTING) but not blocked"
 else
-    bad "an unrelated commit should catch a pre-existing bad row (rc=$GRC): $GOUT"
+    bad "an unrelated commit must pass with a PRE-EXISTING notice (rc=$GRC): $GOUT"
+fi
+
+# The reason for checking every commit still holds where a commit CAN make a
+# row false: one that removes a file. That commit keeps the refusal.
+git -C "$R" add docs/prepared.md 2>/dev/null
+# Plumbing, not `git commit`: the fixture needs a HEAD to delete from, and the
+# identity guard refuses fixture identities at the porcelain.
+BASE_TREE="$(git -C "$R" write-tree 2>/dev/null)"
+BASE_COMMIT="$(GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t git -C "$R" commit-tree "$BASE_TREE" -m base 2>/dev/null)"
+git -C "$R" update-ref HEAD "$BASE_COMMIT" 2>/dev/null
+git -C "$R" rm -q docs/prepared.md 2>/dev/null
+run_guard "$R"
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'PRE-EXISTING'; then
+    ok "an unrelated commit that REMOVES a file still refuses on a stale claim"
+else
+    bad "a deleting commit must still be refused on a stale row (rc=$GRC): $GOUT"
 fi
 
 # The staged blob is what lands, so it is what is judged: a GOOD record in the
