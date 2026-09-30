@@ -534,6 +534,14 @@ def cmd_at(args):
     print("action          : %s" % meta.get("action", "?"))
     print("region          : %s" % meta.get("region", "?"))
     for a in rest:
+        # A frame path names the capture it came from. Captures all number their frames from
+        # 0001, so the number alone would date a frame from ANOTHER capture against this clock
+        # and print a plausible latency. A path into a different directory is refused; a bare
+        # number or bare filename carries no directory and is taken to mean this capture.
+        given_dir = os.path.dirname(a)
+        if given_dir and os.path.realpath(given_dir) != os.path.realpath(out):
+            qaimg.die("%r is in %s, not in %s — a frame from another capture "
+                      "cannot be dated against this one." % (a, given_dir, out))
         stem = os.path.basename(a)
         if stem.endswith(".png"):
             stem = stem[:-4]

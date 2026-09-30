@@ -461,6 +461,15 @@ expect "T13 ocr-watch: a failed text reader is a failure, not empty text" 2 "rea
 run "$QA/timeline.py" at "$TMP/tl" 0007.png
 expect "T10 a frame chosen by reading is dated off the capture's own clock" 0 "+450.0 ms"
 
+# The frame's path is checked, not just its number: capture B's 0007.png must not be dated
+# against capture A's clock. A copy of the capture stands in for "another capture".
+mkdir -p "$TMP/tl-other"
+cp "$TMP/tl/0007.png" "$TMP/tl-other/0007.png" 2>/dev/null || : > "$TMP/tl-other/0007.png"
+run "$QA/timeline.py" at "$TMP/tl" "$TMP/tl-other/0007.png"
+expect "T14 a frame path from another capture is refused, not dated off this clock" 1 "another capture"
+run "$QA/timeline.py" at "$TMP/tl" "$TMP/tl/0007.png"
+expect "T15 a frame path inside the capture is still dated" 0 "+450.0 ms"
+
 run "$QA/timeline.py" at "$TMP/tl" 99
 expect "T11 a frame that clock does not cover is refused, not dated anyway" 1 "not in"
 
