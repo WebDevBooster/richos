@@ -5014,24 +5014,37 @@ def recipient_state(session_id, name):
 def _turn_started_by_person(transcript):
     """True when the turn now ending began with a message from a person — the
     CEO — rather than a platform notification. Read from the transcript."""
+    # Read BACKWARD in bounded chunks until a row decides, so memory stays one
+    # chunk wide (the reason the read was bounded) while a long tool-heavy turn,
+    # whose initiating row lies earlier than any fixed window, still finds it.
+    chunk = 4 * 1024 * 1024
     try:
-        size = os.path.getsize(transcript)
         with open(transcript, "rb") as f:
-            f.seek(max(0, size - 4 * 1024 * 1024))
-            lines = f.read().decode("utf-8", "replace").splitlines()
+            pos = os.fstat(f.fileno()).st_size
+            tail = b""                   # the unfinished first line of the chunk after this one
+            while pos > 0:
+                start = max(0, pos - chunk)
+                f.seek(start)
+                data = f.read(pos - start) + tail
+                pos = start
+                parts = data.split(b"\n")
+                if pos > 0:
+                    tail, parts = parts[0], parts[1:]      # its start lies in an earlier chunk
+                else:
+                    tail = b""
+                for raw in reversed(parts):
+                    try:
+                        d = json.loads(raw.decode("utf-8", "replace"))
+                    except ValueError:
+                        continue
+                    if not isinstance(d, dict) or d.get("type") != "user":
+                        continue
+                    verdict = _row_is_a_persons(d)
+                    if verdict is None:
+                        continue         # this row starts no turn: the row before it does
+                    return verdict
     except (OSError, TypeError):
         return False
-    for line in reversed(lines):
-        try:
-            d = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(d, dict) or d.get("type") != "user":
-            continue
-        verdict = _row_is_a_persons(d)
-        if verdict is None:
-            continue                     # this row starts no turn: the row before it does
-        return verdict
     return False
 
 

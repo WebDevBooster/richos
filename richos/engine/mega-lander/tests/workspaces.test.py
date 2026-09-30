@@ -2890,6 +2890,32 @@ def _resolve_names(names, loader):
     return out
 
 
+class Hunt4_TurnEndPauseAndPathChecks(Base):
+    """Part 4 of the 2026-09-29 hunt, findings 8, 9 and 10."""
+
+    def test_hunt4_08_a_long_tool_heavy_turn_still_finds_the_person_who_began_it(self):
+        """Finding 8: only the last 4 MiB was read, so a turn whose initiating
+        row lay earlier, followed by nothing but tool results, read as no
+        person's turn and the reply was refused."""
+        tr = os.path.join(self.env.root, "long.jsonl")
+        with open(tr, "w") as f:
+            f.write(json.dumps({"type": "user", "origin": {"kind": "human"}, "promptSource": "typed",
+                                "message": {"role": "user", "content": "do the long thing"}}) + "\n")
+            row = json.dumps({"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "t", "content": "x" * 9000}]}}) + "\n"
+            for _ in range((9 * 1024 * 1024) // len(row)):        # about 9 MiB of tool output
+                f.write(row)
+        self.assertTrue(ws._turn_started_by_person(tr))
+        # and a long turn begun by the platform still reads as not a person's
+        tr2 = os.path.join(self.env.root, "long2.jsonl")
+        with open(tr2, "w") as f:
+            f.write(json.dumps({"type": "user", "origin": {"kind": "task-notification"}, "promptSource": "system",
+                                "message": {"role": "user", "content": "<task-notification>x</task-notification>"}}) + "\n")
+            for _ in range((9 * 1024 * 1024) // len(row)):
+                f.write(row)
+        self.assertFalse(ws._turn_started_by_person(tr2))
+
+
 if __name__ == "__main__":
     # No arguments: every point. Arguments: the named classes or tests only,
     # e.g. `workspaces.test.py Point05_Guarantee` -- one point's proof -- or a
