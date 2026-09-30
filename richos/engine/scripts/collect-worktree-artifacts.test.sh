@@ -275,6 +275,42 @@ prop_refuses_missing_config() {
     return 0
 }
 
+# P7. NEWEST WINS (P5-42). Two worktrees produce the same artifact name; the
+#     collector announces "newest-wins", so whichever order they are collected
+#     in, main ends with the NEWER file, not the one collected last.
+prop_newest_wins() {
+    local eng="$1" E NEW OLD
+    E="$(make_entity newest "$NINE_DIRS_CONFIG")"
+    NEW="$(make_worktree "$E" p7new)"
+    OLD="$(make_worktree "$E" p7old)"
+    printf 'the NEWER result\n' >"$NEW/test-results/clash.txt"
+    printf 'the OLDER result\n' >"$OLD/test-results/clash.txt"
+    touch -t 203001010000 "$NEW/test-results/clash.txt"
+    touch -t 202001010000 "$OLD/test-results/clash.txt"
+    # Older collected LAST: the case that overwrote.
+    run_collector "$eng" "$E" "$NEW"
+    if [ "$RC" -ne 0 ]; then WHY="collecting the newer worktree: rc=$RC: $OUT"; return 1; fi
+    run_collector "$eng" "$E" "$OLD"
+    if [ "$RC" -ne 0 ]; then WHY="collecting the older worktree: rc=$RC: $OUT"; return 1; fi
+    if ! grep -q 'NEWER' "$E/test-results/clash.txt"; then
+        WHY="an older worktree collected last replaced the newer file: $(cat "$E/test-results/clash.txt")"; return 1
+    fi
+    # Older collected FIRST then newer: the newer must replace it.
+    E="$(make_entity newest2 "$NINE_DIRS_CONFIG")"
+    NEW="$(make_worktree "$E" p7new2)"
+    OLD="$(make_worktree "$E" p7old2)"
+    printf 'the NEWER result\n' >"$NEW/test-results/clash.txt"
+    printf 'the OLDER result\n' >"$OLD/test-results/clash.txt"
+    touch -t 203001010000 "$NEW/test-results/clash.txt"
+    touch -t 202001010000 "$OLD/test-results/clash.txt"
+    run_collector "$eng" "$E" "$OLD"
+    run_collector "$eng" "$E" "$NEW"
+    if ! grep -q 'NEWER' "$E/test-results/clash.txt"; then
+        WHY="the newer worktree collected second did not replace the older file: $(cat "$E/test-results/clash.txt")"; return 1
+    fi
+    return 0
+}
+
 # ---------------------------------------------------------------------------
 # 1. The shipped script holds every property.
 # ---------------------------------------------------------------------------
@@ -293,6 +329,8 @@ if prop_existing_refusals "$ENG"; then ok "P5 missing worktree path and self-col
 else bad "P5 existing refusals — $WHY"; fi
 if prop_refuses_missing_config "$ENG"; then ok "P6 a resolved root with no orchestration.config is refused (exit 2), nothing written"
 else bad "P6 refuses missing config — $WHY"; fi
+if prop_newest_wins "$ENG"; then ok "P7 two worktrees with the same artifact name: the NEWER file wins whichever is collected last"
+else bad "P7 newest wins — $WHY"; fi
 
 # ---------------------------------------------------------------------------
 # 2. MUTATIONS. Each breaks one line of the shipped script by EXACT match
@@ -388,6 +426,13 @@ if mutate skip-missing-config \
         'exit 2  # refuse: config missing' \
         'CONFIG="$(mktemp)"; printf '"'"'ARTIFACT_MERGE_DIRS="test-results output"\nARTIFACT_REPLACE_DIRS="playwright-report"\n'"'"' >"$CONFIG"'; then
     expect_red prop_refuses_missing_config "$MUTANT" "M7 missing-config refusal turned into a skip -> P6"
+fi
+
+# M8: drop --update, so the last-collected worktree overwrites (P5-42).
+if mutate rsync-without-update \
+        'rsync -a --update "$SRC/$d/" "$MAIN_ROOT/$d/"' \
+        'rsync -a "$SRC/$d/" "$MAIN_ROOT/$d/"'; then
+    expect_red prop_newest_wins "$MUTANT" "M8 rsync without --update -> P7"
 fi
 
 echo ""

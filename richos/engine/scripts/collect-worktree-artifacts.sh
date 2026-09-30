@@ -152,7 +152,9 @@ COLLECTED=0
 for d in $ARTIFACT_MERGE_DIRS; do
   if [ -d "$SRC/$d" ]; then
     mkdir -p "$MAIN_ROOT/$d"
-    rsync -a "$SRC/$d/" "$MAIN_ROOT/$d/"
+    # --update is what makes "newest-wins" true (P5-42): without it a worktree
+    # collected LAST overwrites a newer file already in main with its older one.
+    rsync -a --update "$SRC/$d/" "$MAIN_ROOT/$d/"
     stamp_source "$MAIN_ROOT/$d"
     echo "[collect] merged $d/ (newest-wins, other files preserved)"
     COLLECTED=$((COLLECTED + 1))
