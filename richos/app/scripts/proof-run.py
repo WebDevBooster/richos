@@ -379,6 +379,12 @@ def plan(lines, args, logdir, hist):
                 label = "web-app"
             elif "testvm/test/run-tests.sh" in m.group(2):
                 label = "testvm"
+            elif base == "run-tests.sh" and "/test/" in first:
+                # Every `<dir>/test/run-tests.sh` would otherwise be labeled "run-tests", the same
+                # as the `--only run-tests.test.sh` suite: two checks under one label share one
+                # identity, so the second's fingerprint made the first "changed during the check"
+                # (INVALID, land of zach-sonnet-vmvalid1, 2026-09-30).
+                label = os.path.basename(first.split("/test/")[0])
             items.append(Item(label, cwd, argv, None, default_weight(label, hist)))
     # cargo: drop a filter a shorter filter on the same target already matches
     keyed = [(cwd, argv, cargo_key(argv)) for cwd, argv in cargo]
