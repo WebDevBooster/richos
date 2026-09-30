@@ -322,7 +322,12 @@ def _tick_locked(now, reports):
     if episode:
         first_ts = episode.get("first_error", now)
         newer = [e for e in events if written is None or e["ts"] >= written - RENEW_MARGIN]
-        if written is not None and written > first_ts + RENEW_MARGIN and not newer:
+        # A write counts as a renewal only if it came after the LATEST failure the
+        # episode knows of (remembered, or in this scan), not just the first: a
+        # failure after the write shows the write did not restore work, and it must
+        # keep protecting the episode after it leaves the scan window.
+        last_failure = max([episode.get("last_error", first_ts)] + [e["ts"] for e in events])
+        if written is not None and written > last_failure + RENEW_MARGIN and not newer:
             close_escalation(episode.get("escalation"), written)
             episode["renewed_at"] = written
             st.setdefault("closed", []).append(episode)

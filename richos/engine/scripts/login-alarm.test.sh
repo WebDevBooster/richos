@@ -262,6 +262,23 @@ check "L14  a failed escalation write is retried once the ledger recovers: one r
        && [ "$(nesc)" = 1 ] && [ -n "$L14_ID" ] && [ "$(nnotified)" = 1 ] && [ "$(state_open)" = open ]; echo $?)" \
     "first=$L14_FIRST esc0=$L14_ESC0 esc=$(nesc) id=$L14_ID notified=$(nnotified)"
 
+# --- L15: a credential write older than the latest failure does not renew ------
+# (hunt part 5, P5-14) Failures at T-4 and T+200; the credential was written at
+# T+100, BETWEEN them. The later failure shows the write did not restore work,
+# so when that failure leaves the scan window the episode stays open.
+reset_all
+mdat_at $((NOW - 7200))
+row "$LEAD" $((NOW - 4)) "$EXPIRED"
+tick "$NOW"
+mdat_at $((NOW + 100))
+row "$LEAD" $((NOW + 200)) "$EXPIRED"
+tick $((NOW + 210))
+tick $((NOW + 3000))
+tick $((NOW + 5000))                        # the later failure is long out of the scan window
+check "L15  a credential write older than the latest failure does not close the episode or acknowledge the escalation" \
+    "$([ "$(state_open)" = open ] && [ "$(nack)" = 0 ] && ! printf '%s' "$OUT" | grep -q 'LOGIN-RENEWED'; echo $?)" \
+    "state=$(state_open) acks=$(nack) out=$OUT"
+
 # --- L13: the schedule --------------------------------------------------------
 PL="$(bash "$A" --print-plist 2>&1)"
 bash "$A" --install >/dev/null 2>&1; IRC=$?
