@@ -370,6 +370,36 @@ fn a_partial_that_is_not_a_model_prefix_is_restarted_rather_than_resumed() {
     assert_eq!(from, 45, "a genuine prefix of identical length DOES resume");
 }
 
+/// A `.part` that already holds every byte (interrupted before verify + rename) is hash-checked
+/// and installed, not deleted and downloaded again. A full-size partial that does NOT hash is
+/// still restarted.
+#[test]
+fn a_complete_part_file_is_verified_and_installed_not_redownloaded() {
+    let s = Scratch::new("complete-part");
+    let body = model_bytes(4096, 0x88);
+    let pin = pin_for_bytes("completepart.en", &body);
+    let part = s.path().join(format!("{}.part", pin.file));
+    std::fs::write(&part, &body).expect("seed a complete partial");
+
+    let plan = provision::plan_fetch(&pin, s.path(), Some(u64::MAX));
+    let FetchPlan::AlreadyPresent { path } = plan else { panic!("a complete, valid partial must install, got {plan:?}") };
+    assert_eq!(std::fs::read(&path).expect("read installed"), body);
+    assert!(!part.exists(), "the partial was renamed into place");
+
+    // NEGATIVE CONTROL: same size, wrong bytes (right magic) fails the hash and restarts.
+    let s2 = Scratch::new("complete-part-bad");
+    let mut wrong = body.clone();
+    let last = wrong.len() - 1;
+    wrong[last] ^= 0xff;
+    let part2 = s2.path().join(format!("{}.part", pin.file));
+    std::fs::write(&part2, &wrong).expect("seed a corrupt full-size partial");
+    let plan = provision::plan_fetch(&pin, s2.path(), Some(u64::MAX));
+    let FetchPlan::Fetch { from, .. } = plan else { panic!("expected a fetch, got {plan:?}") };
+    assert_eq!(from, 0);
+    assert!(!part2.exists(), "a full-size partial that does not hash is discarded");
+    assert!(!s2.path().join(&pin.file).exists());
+}
+
 /// A full disk is refused before a single request is made — and a disk with room is not.
 #[test]
 fn a_full_disk_is_refused_before_a_single_request_and_a_roomy_one_is_not() {

@@ -808,6 +808,19 @@ pub fn plan_fetch(pin: &Pin, dir: &Path, free_bytes: Option<u64>) -> FetchPlan {
         let _ = fs::remove_file(&dest);
     }
 
+    // A partial of EXACTLY the pinned size may be a complete download that was interrupted before
+    // its verification and rename (crash, power loss, quit during "Verifying"). `resume_plan` still
+    // calls it unresumable, which is right: appending to it would be wrong. But discarding it
+    // unread costs the whole download when one hash could finish the install. Hash it; give it the
+    // model's name only when size, magic AND sha256 all agree, otherwise fall through to the
+    // restart below.
+    if file_bytes(&part) == pin.bytes
+        && inspect_file(&part, pin, true).is_ok()
+        && fs::rename(&part, &dest).is_ok()
+    {
+        return FetchPlan::AlreadyPresent { path: dest };
+    }
+
     // The room needed depends on what the partial will do: a resume appends in place and needs only
     // the missing bytes; a start or a restart writes the whole model. Decided BEFORE anything is
     // removed, so a refusal leaves the partial exactly where it was.
