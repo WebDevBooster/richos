@@ -2650,13 +2650,80 @@ def _item(rec, why, cache, me):
     kind = waiting.get("kind", "")
     if not kind and started:
         kind, waiting = "started", {"on": "agent %s is working to land it" % started[0].get("name")}
+    if not kind:
+        merging = _active_merge(rec, cache)
+        if merging:
+            kind, waiting = "started", {"on": merging}
     # Pending work remains an integration obligation, including failed merges.
-    # It never blocks unrelated spawns. Recorded waits still govern turn end.
+    # It never blocks unrelated spawns. Waits and live merges govern turn end.
     return {"key": rec["key"], "name": rec.get("name") or rec["key"], "why": why,
             "waiting": kind, "waiting_on": waiting.get("on", ""),
             "blocks_new_work": False,
             "blocks_turn_end": kind not in ("ceo-discard", "started", "outside"),
             "workspaces": [(w.get("path") or "(branch only)", w.get("branch")) for w in live_workspaces(rec)]}
+
+
+def _active_merge(rec, cache):
+    """Read-only evidence of this work's live merge into its recorded target.
+
+    MERGE_HEAD is not written until the pre-merge check returns and survives
+    a failed check. Require a live Git merge naming the workspace branch.
+    """
+    if "merge-processes" not in cache:
+        merges = []
+        for pid, command in _process_args().items():
+            try:
+                args = shlex.split(command)
+            except ValueError:
+                continue
+            if not args or os.path.basename(args[0]) != "git" or "merge" not in args[1:]:
+                continue
+            i = 1
+            while i < len(args) and args[i].startswith("-"):
+                if args[i] in ("-C", "-c", "--git-dir", "--work-tree", "--namespace"):
+                    i += 2
+                else:
+                    i += 1
+            if i >= len(args) or args[i] != "merge":
+                continue
+            merges.append((pid, args[i + 1:]))
+        cache["merge-processes"] = merges
+    for workspace in live_workspaces(rec):
+        branch = workspace.get("branch") or ""
+        candidates = [(pid, arguments) for pid, arguments in cache["merge-processes"]
+                      if branch and (branch in arguments or "refs/heads/" + branch in arguments
+                                     or any(re.fullmatch(r"[0-9a-f]{40}", arg) for arg in arguments))]
+        if not candidates:
+            continue
+        main = main_checkout(workspace.get("repo") or workspace.get("path") or "")
+        if not main:
+            continue
+        target, _tip, why = integration_target([rec], main)
+        rc, checked_out, _err = git(main, "symbolic-ref", "--quiet", "--short", "HEAD")
+        if why or rc or checked_out.strip() != target:
+            continue
+        tip, unread = branch_tip_read(main, branch)
+        if unread or not tip:
+            continue
+        for pid, arguments in candidates:
+            if not any(ref in arguments for ref in (branch, "refs/heads/" + branch, tip)):
+                continue
+            _parent, executable = _ps_parent_and_comm(pid)
+            if os.path.basename(executable) != "git":
+                continue
+            # Read cwd only for a Git merge naming this work. Git's -C changes
+            # its actual OS cwd, including when the path contains spaces.
+            try:
+                cwd = os.readlink("/proc/%s/cwd" % pid) if os.path.isdir("/proc/self") else ""
+                if not cwd:
+                    found = subprocess.run(["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn", "-w"],
+                                           capture_output=True, text=True, timeout=2, env=_ps_env())
+                    cwd = next(line[1:] for line in found.stdout.splitlines() if line.startswith("n"))
+                if realpath(cwd) == main and _alive(pid):
+                    return "Git is merging %s into %s in %s" % (branch, target, main)
+            except (OSError, StopIteration, subprocess.TimeoutExpired):
+                continue
+    return ""
 
 
 def gate_message(items, what):
@@ -5197,7 +5264,7 @@ def gate_stop(payload, entity):
     if not blocking:
         msg = "\n".join(notes)
         if items:
-            msg = (msg + "\n" if msg else "") + "Pending finished work (waiting, recorded): " + \
+            msg = (msg + "\n" if msg else "") + "Pending finished work (waiting): " + \
                 ", ".join("%s [%s: %s]" % (i["name"], i["waiting"], i["waiting_on"]) for i in items)
         return True, msg
     last = str(payload.get("last_assistant_message") or "")

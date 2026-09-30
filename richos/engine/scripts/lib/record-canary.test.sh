@@ -266,6 +266,31 @@ if rc_sandbox "$UH"; then
     else
         bad "7d  the live record is out of the unit's diff" "got: $(rc_escaped "$B8")"
     fi
+    # Exact lead-side incident: workspaces.sh wait changes both an agent record
+    # and events.jsonl while an isolated canary unit is running. No event-name
+    # exemption: the same write inside the unit must still be detected.
+    WAIT_WRITER="$SANDBOX/wait-writer.py"
+    cat > "$WAIT_WRITER" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("workspaces", sys.argv[1])
+ws = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ws)
+ws.save_agent({"key": "wait-regression", "name": "lead-fixture", "session_id": "fixture"})
+ws.wait("wait-regression", "started", "its merge check is running", session_id="fixture")
+PY
+    WS_LIB="$SCRIPT_DIR/../../mega-lander/workspaces.py"
+    if RICHOS_WORKSPACES_DIR="$CFG/state/workspaces" python3 -B "$WAIT_WRITER" "$WS_LIB" \
+            && [ -z "$(rc_escaped "$B8")" ]; then
+        ok "7d' the lead's real wait record during a unit does not cancel that isolated unit"
+    else
+        bad "7d' a live wait record was charged to the unit" "$(rc_escaped "$B8")"
+    fi
+    if env "${RC_SANDBOX_ENV[@]}" python3 -B "$WAIT_WRITER" "$WS_LIB" \
+            && [ -n "$(rc_escaped "$B8")" ]; then
+        ok "7d'' POSITIVE CONTROL: the same wait write inside the unit's record is still contamination"
+    else
+        bad "7d'' the canary failed to detect the unit's own wait write"
+    fi
     env "${RC_SANDBOX_ENV[@]}" bash -c 'mkdir -p "$HOME/.claude/state" && printf "{\"event\": \"terminated\", \"agent_id\": \"own\", \"ts\": \"t\"}\n" >> "$HOME/.claude/state/worktree-ledger.jsonl"'
     case "$(rc_escaped "$B8")" in
         *"event=terminated"*"agent=own"*) ok "7e  POSITIVE CONTROL: a row the unit writes through its own \$HOME is caught and named" ;;
