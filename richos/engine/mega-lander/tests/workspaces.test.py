@@ -2648,6 +2648,178 @@ class QAToolkitAtTheLand(Base):
         self.assertIn("contrast.py", out)
 
 
+class UnknownIsNeverClean(Base):
+    """Hunt part 4 (richos-hq docs/audits/2026-09-29-hunt/part-4-codex.md,
+    findings 4 to 7): a read that failed, a directory that could not be
+    listed, a process that may still be running and a repository that was
+    never looked at are each UNKNOWN, and an unknown is never reported clean.
+    Point 8: "Deletion therefore never loses anything that was meant to land.\""""
+
+    def _failing_reads(self, npath, branch):
+        """git, except that reading the worker's HEAD and reading its branch
+        both fail the way a git that cannot read the repository fails."""
+        real = ws.git
+        npath = os.path.realpath(npath)
+
+        def flaky(repo, *args, **kw):
+            if args and args[0] == "rev-parse" and "HEAD" in args and os.path.realpath(repo) == npath:
+                return 128, "", "fatal: simulated read failure"
+            if args and args[0] in ("rev-parse", "for-each-ref", "show-ref") and \
+                    any(branch in str(a) for a in args[1:]):
+                return 128, "", "fatal: simulated read failure"
+            return real(repo, *args, **kw)
+        return flaky
+
+    def test_point_14_a_failed_read_of_a_workers_commit_or_branch_never_proves_it_landed(self):
+        """Finding 4. A worker commit that is in NO integration branch, and
+        both reads that could show it (the workspace's HEAD and its branch's
+        tip) fail. A failed read proves nothing about where the commit is, so
+        the land is refused and names what could not be read."""
+        aid, npath = self.spawn("zach-opus-rd")
+        self.commit(npath, "unmerged.txt")
+        self.finish(aid)
+        branch = "worktree-agent-" + aid
+        with patch.object(ws, "git", self._failing_reads(npath, branch)):
+            with self.assertRaises(ws.SpecError) as e:
+                ws.land("zach-opus-rd", self.sid)
+        self.assertIn("could not be read", str(e.exception))
+        self.assertTrue(os.path.isdir(npath))
+        self.assertIn(branch, branches(self.entity))
+        self.assertFalse((self.rec("zach-opus-rd") or {}).get("disposition"))
+
+    def test_point_13_a_branch_whose_tip_cannot_be_read_is_never_recorded_deleted(self):
+        """Finding 4, the deletion half. "Already gone" is (True, ""), which
+        the record writes down as deleted; a tip that could not be READ is a
+        failure to retry (point 13), never an absence."""
+        run("git", "-C", self.entity, "branch", "worktree-agent-unreadable0")
+        with patch.object(ws, "git", self._failing_reads(self.entity, "worktree-agent-unreadable0")):
+            ok, why = ws.delete_branch(self.entity, "worktree-agent-unreadable0")
+        self.assertIs(ok, False, why)
+        self.assertIn("could not be read", why)
+        self.assertIn("worktree-agent-unreadable0", branches(self.entity))
+
+    def test_point_08_an_unreadable_ignored_directory_is_never_certified_unchanged(self):
+        """Finding 5. An ignored directory whose name the main checkout also
+        has is compared by content; one that cannot be LISTED has content
+        nobody has compared, so it is named, never passed over. Two places
+        can skip it: `git status` itself (the ignored directory is unreadable:
+        git warns on stderr, exits 0 and lists nothing), and the content walk
+        (a directory inside it is unreadable)."""
+        aid, npath = self.spawn("zach-opus-ur")
+        mine = os.path.join(npath, "build")
+        other = os.path.join(self.entity, "build")
+        os.makedirs(os.path.join(mine, "private"))
+        with open(os.path.join(mine, "private", "only-copy.txt"), "w") as f:
+            f.write("the only copy\n")
+        os.makedirs(other)                                       # the main checkout has the name
+        for d in (mine, other):
+            with open(os.path.join(d, "same.txt"), "w") as f:
+                f.write("identical in both\n")
+        _dirty, readable_ignored = ws.uncommitted(npath)
+        self.assertEqual(readable_ignored, ["build/private/only-copy.txt"])   # the control
+        self.finish(aid)
+        for locked in (os.path.join(mine, "private"), mine):   # a directory inside it, then the ignored one itself
+            rel = os.path.relpath(locked, npath)
+            os.chmod(locked, 0)
+            try:
+                if locked != mine:                               # the walk, on its own
+                    walked = ws._ignored_dir_diff(mine, other, "build")
+                    self.assertEqual(walked, ["build/private/ (unreadable: Permission denied)"])
+                _dirty, ignored = ws.uncommitted(npath)
+                self.assertEqual(ignored, ["%s/ (unreadable: Permission denied)" % rel])
+                with self.assertRaises(ws.SpecError) as e:
+                    ws.land("zach-opus-ur", self.sid)
+                self.assertIn("ignored", str(e.exception))
+            finally:
+                os.chmod(locked, 0o755)
+        self.assertTrue(os.path.isfile(os.path.join(mine, "private", "only-copy.txt")))
+
+    def _bg_post(self, aid, call):
+        ws.observe({"session_id": self.sid, "agent_id": aid, "tool_name": "Bash",
+                    "hook_event_name": "PostToolUse", "tool_use_id": call,
+                    "tool_input": {"command": "sleep 30 && git branch later", "run_in_background": True}})
+
+    def test_point_03_a_background_window_outlives_the_next_observation(self):
+        """Finding 6, the report's own witness. A backgrounded call's Post, a
+        whole call after it while its process may still run, THEN the process
+        makes a branch carrying a commit, another whole call, and the end of
+        the run. Nothing says the process ended at the intervening call, so
+        its window is still open when the branch appears."""
+        aid, npath = self.spawn("zach-opus-bgl")
+        self.commit(npath, "bgl.txt")
+        self.pre(aid, "tu-bgl")
+        self._bg_post(aid, "tu-bgl")
+        self.tool_call(aid, "tu-bgl-mid")                   # nothing made yet
+        run("git", "-C", npath, "checkout", "-q", "-b", "bg/later")
+        self.commit(npath, "later.txt")                     # the process, after that call
+        run("git", "-C", npath, "checkout", "-q", "worktree-agent-" + aid)
+        self.tool_call(aid, "tu-bgl-after")
+        self.finish(aid)
+        self.assertEqual(self.created("zach-opus-bgl"), ["bg/later"])
+        self.merge(self.entity, "worktree-agent-" + aid)
+        with self.assertRaises(ws.SpecError) as e:
+            ws.land("zach-opus-bgl", self.sid)
+        self.assertIn("bg/later", str(e.exception))
+        self.assertTrue(os.path.isdir(npath))
+
+    def test_point_08_a_background_window_closes_when_its_shell_is_confirmed_ended_and_not_before(self):
+        """Finding 6, both directions, on agent_hold's own record of the call's
+        shell (the record every subagent Bash call gets). While that shell
+        runs, a branch it makes is the agent's; once the record shows it gone,
+        the window is judged once more and closed, so a ref Rich cuts at the
+        agent's tip afterwards stays his (the reason the window used to close
+        at the next observation, kept where it holds)."""
+        hold_env = patch.dict(os.environ, {"RICHOS_AGENT_HOLD_DIR": os.path.join(self.env.root, "agent-hold")})
+        hold_env.start()                                    # the fixture's own, never the operator's
+        self.addCleanup(hold_env.stop)
+        aid, npath = self.spawn("zach-opus-bge")
+        self.commit(npath, "bge.txt")
+        ah = ws._agent_hold()
+        call = "tu-bge"
+        payload = {"session_id": self.sid, "agent_id": aid, "tool_use_id": call, "tool_name": "Bash",
+                   "tool_input": {"command": "sleep 30", "run_in_background": True}}
+        stem, _held = ah._record(payload, "bg", "sleep 30")
+        self.pre(aid, call)
+        shell = subprocess.Popen(["bash", "-c", "%s %s mark --state %s %s && exec sleep 30"
+                                  % (sys.executable, ah.__file__, ah.state_dir(), stem)])
+        self.env.procs.append(shell)
+        for _ in range(100):
+            if os.path.exists(stem + ".pid"):
+                break
+            time.sleep(0.05)
+        self.assertTrue(os.path.exists(stem + ".pid"), "agent_hold's mark never recorded the shell")
+        self._bg_post(aid, call)
+        self.tool_call(aid, "tu-bge-1")                     # the shell still runs
+        run("git", "-C", npath, "branch", "bg/while-running")
+        self.tool_call(aid, "tu-bge-2")
+        self.assertEqual(self.created("zach-opus-bge"), ["bg/while-running"])
+        shell.kill()
+        shell.wait()                                        # the record now shows the shell gone
+        self.pre(aid, "tu-bge-3")                           # the next call starts: judged once more, closed
+        key = self.rec("zach-opus-bge")["key"]
+        self.assertEqual([p for p in ws._open_slots(key) if ws._is_background(p)], [])
+        # Rich, in the main checkout, at the agent's tip, while that call is open
+        run("git", "-C", self.entity, "branch", "rich/keep", run("git", "-C", npath, "rev-parse", "HEAD").stdout.strip())
+        self.tool_call(aid, "tu-bge-4")
+        self.finish(aid)
+        self.assertEqual(self.created("zach-opus-bge"), ["bg/while-running"])
+
+    def test_point_03_a_known_stray_in_one_repository_never_hides_one_in_another(self):
+        """Finding 7. A stray already known in the first repository must not
+        narrow the scan of the repositories it was asked to look at."""
+        a = os.path.join(self.env.root, "entity-wt", "stray-a")
+        run("git", "-C", self.entity, "worktree", "add", "-q", a, "-b", "cc/stray-a")
+        self.commit(a)
+        first = ws.scan_unregistered([self.entity, self.other])
+        self.assertEqual(len(first), 1, first)
+        b = os.path.join(self.env.root, "other-wt", "stray-b")
+        run("git", "-C", self.other, "worktree", "add", "-q", b, "-b", "cc/stray-b")
+        self.commit(b)
+        second = ws.scan_unregistered([self.entity, self.other])
+        self.assertEqual(len(second), 1, second)
+        self.assertEqual([w.get("branch") for w in ws.load_agent(second[0])["workspaces"]], ["cc/stray-b"])
+
+
 class _Result(unittest.TextTestResult):
     """Prints `  PASS  <test>` / `  FAIL  <test>` so the mutation harness
     (workspaces.mutation.sh) can tell which point went red."""

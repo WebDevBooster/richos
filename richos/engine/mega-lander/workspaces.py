@@ -319,6 +319,33 @@ def branch_tip(repo, branch):
     return out.strip() if rc == 0 else ""
 
 
+def branch_tip_read(repo, branch):
+    """(tip, "") for a branch that exists, ("", "") for one git positively
+    reports absent, and ("", why) when the answer could not be read.
+
+    `branch_tip` answers "" for both of the last two. That is fine where a
+    missing branch and an unreadable one lead to the same action, and wrong
+    wherever the answer is used as PROOF: a failed read says nothing about
+    whether a commit reached the integration branch, and nothing about whether
+    a branch is gone (hunt part 4, finding 4). A missing branch is normal after
+    a partial cleanup, so absence stays an answer; a read that failed is not
+    one. `for-each-ref` is used because it separates the two where `rev-parse
+    --verify --quiet` cannot: measured on this machine, both exit as if absent
+    for a loose ref git cannot open, and only `for-each-ref` says so, on
+    stderr ("ignoring broken ref")."""
+    ref = "refs/heads/" + branch
+    rc, out, err = git(repo, "for-each-ref", "--format=%(refname)%00%(objectname)", ref)
+    if rc != 0:
+        return "", "%s in %s could not be read (git exit %d: %s)" % (ref, repo, rc, err.strip()[:200])
+    for line in out.splitlines():
+        name, _sep, sha = line.partition("\0")
+        if name == ref and sha.strip():
+            return sha.strip(), ""
+    if err.strip():
+        return "", "%s in %s could not be read: %s" % (ref, repo, err.strip()[:200])
+    return "", ""
+
+
 def is_ancestor(repo, a, b):
     rc, _, _ = git(repo, "merge-base", "--is-ancestor", a, b)
     return rc == 0
@@ -2454,16 +2481,20 @@ def scan_unregistered(repos):
     for r in all_agents():
         if not (r.get("orphan") or r.get("provisional")) or r.get("disposition"):
             continue
-        repos = sorted(set(w.get("repo") for w in live_workspaces(r) if w.get("repo")))
+        # ITS OWN name, never `repos`: reusing the parameter's name narrowed
+        # the discovery below to the last such record's repositories, so one
+        # known stray hid a new one in every other repository it was asked to
+        # scan (hunt part 4, finding 7).
+        its_repos = sorted(set(w.get("repo") for w in live_workspaces(r) if w.get("repo")))
         bound = r.get("integration_work") or {}
-        if all(_norm_repo(x) in bound for x in repos):
+        if all(_norm_repo(x) in bound for x in its_repos):
             continue
         with Lock():
             fresh = load_agent(r["key"])
             if not fresh or fresh.get("disposition"):
                 continue
             changed = False
-            for x in repos:
+            for x in its_repos:
                 if _norm_repo(x) not in (fresh.get("integration_work") or {}) and _bind_body_of_work(fresh, x):
                     changed = True
             if changed:
@@ -2751,6 +2782,9 @@ def _gate_deadline(default_seconds):
     return now() + max(0.0, secs)
 
 
+_UNOPENED_DIR = re.compile(r"warning: could not open directory '(.+)': (.+)$")
+
+
 def uncommitted(path, deadline=None):
     """([uncommitted entries], [ignored entries the main checkout does not have]).
 
@@ -2770,6 +2804,20 @@ def uncommitted(path, deadline=None):
     if rc != 0:
         raise SpecError("git status failed in %s: %s" % (path, err.strip()[:200]))
     dirty, ignored = [], []
+    # GIT ITSELF SKIPS A DIRECTORY IT CANNOT OPEN, exits 0 and says so only on
+    # stderr (measured here: `warning: could not open directory 'build/':
+    # Permission denied`, and no `!!` entry at all). What is in it is unknown,
+    # so it is named (hunt part 4, finding 5): with the ignored entries when
+    # git's own rules ignore that path, so `--ignored-not-needed` can still
+    # waive it; otherwise with the uncommitted ones, which nothing waives.
+    for line in err.splitlines():
+        m = _UNOPENED_DIR.match(line.strip())
+        if not m:
+            continue
+        rel, why = m.group(1), m.group(2)
+        entry = "%s/ (unreadable: %s)" % (rel.rstrip("/"), why)
+        ic, _o, _e = git(path, "check-ignore", "-q", "--no-index", "--", rel)
+        (ignored if ic == 0 else dirty).append(entry)
     main = main_checkout(path)
     for n, ent in enumerate([e for e in out.split("\0") if e]):
         if deadline is not None and (n & 63) == 0 and _past(deadline):
@@ -2802,7 +2850,8 @@ def uncommitted(path, deadline=None):
             ignored.append(rel)
         else:
             dirty.append(ent)
-    return dirty, ignored
+    # git's warning and the walk below can both name one unreadable directory
+    return dirty, list(dict.fromkeys(ignored))
 
 
 def _ignored_dir_diff(mine, other, rel, deadline=None):
@@ -2811,10 +2860,26 @@ def _ignored_dir_diff(mine, other, rel, deadline=None):
     workspace. Symlinks are compared by target and never followed; a nested
     repository's `.git` is walked like anything else, so a commit that exists
     only in the workspace's copy shows up as an object file the main checkout
-    does not have. Bounded by the gate's deadline like the rest of the walk."""
+    does not have. Bounded by the gate's deadline like the rest of the walk.
+
+    A DIRECTORY THAT CANNOT BE LISTED IS NAMED, NEVER PASSED OVER (hunt part
+    4, finding 5). `os.walk` drops a directory it cannot read unless it is
+    given `onerror`, and nothing inside was then compared: an ignored
+    directory made unreadable came back "no differences" while it held the
+    only copy of a file. What is in it is unknown, so it is reported as a
+    difference, by path, with the reason; the land then refuses it like any
+    other, and `--ignored-not-needed` is still the way to say it is not needed.
+    The partial-cleanup check (`_landed_residue`) already refuses the same
+    error; this is the same rule for the normal comparison."""
     out = []
     n = 0
-    for root, dirs, files in os.walk(mine, followlinks=False):
+
+    def unreadable(error):
+        where = getattr(error, "filename", None) or mine
+        sub = os.path.normpath(os.path.join(rel, os.path.relpath(where, mine)))
+        out.append("%s/ (unreadable: %s)" % (sub, error.strerror or error))
+
+    for root, dirs, files in os.walk(mine, followlinks=False, onerror=unreadable):
         dirs.sort()
         for name in sorted(files) + [d for d in dirs if os.path.islink(os.path.join(root, d))]:
             n += 1
@@ -2917,7 +2982,11 @@ def _landed_residue(rec, w, deadline=None):
 
 
 def _require_clean(rec, doing, ignored_ok="", deadline=None):
+    """Refuses uncommitted work. Returns the paths it proved to be partial-
+    cleanup residue whose every file is preserved (`_landed_residue`): the one
+    kind of workspace directory that legitimately has no readable HEAD."""
     problems = []
+    preserved = []
     for w in live_workspaces(rec):
         if w.get("path") and os.path.isdir(w["path"]):
             residue = None
@@ -2926,6 +2995,8 @@ def _require_clean(rec, doing, ignored_ok="", deadline=None):
                 residue = _landed_residue(rec, w, deadline)
                 if residue is False:
                     raise SpecError("partial cleanup at %s cannot verify all remaining files are preserved; kept" % w["path"])
+                if residue:
+                    preserved.append(w["path"])
             dirty, ignored = ([], []) if residue else uncommitted(w["path"], deadline)
             if dirty:
                 problems.append("%s has %d uncommitted entr%s (%s)" % (
@@ -2937,6 +3008,7 @@ def _require_clean(rec, doing, ignored_ok="", deadline=None):
         raise SpecError("cannot %s — nothing uncommitted is ever landed (point 8):\n    %s\n  Commit what it "
                         "left to its branch, or discard it. If the ignored files are not needed, say so: "
                         "--ignored-not-needed '<why>'." % (doing, "\n    ".join(problems)))
+    return preserved
 
 
 # ---------------------------------------------------------------------------
@@ -3211,7 +3283,16 @@ def snapshot_refs(rec, call=""):
     clobber the other.
 
     A snapshot lost to a crash costs one window of attribution, and
-    under-attribution loses nothing — so this never fails a tool call."""
+    under-attribution loses nothing — so this never fails a tool call.
+
+    A BACKGROUND WINDOW WHOSE SHELL HAS ENDED IS SETTLED HERE FIRST, at the
+    earliest moment the engine sees the agent again (`_settle_ended_background`):
+    judged one last time and closed before this call can do anything, so the
+    window it no longer needs cannot claim a ref cut after it."""
+    try:
+        _settle_ended_background(rec)
+    except (OSError, ValueError, SpecError):
+        pass
     try:
         snap = {}
         tips = {}
@@ -3542,7 +3623,7 @@ def _restore_protected_refs(rec, priors, latest):
     return findings
 
 
-def _take_snapshots(key, call="", all_open=False, background=False):
+def _take_snapshots(key, call="", all_open=False, background=False, rec=None):
     """CONSUME this call's window — or, at the end of the run, every open one —
     and return what was in it. Consumed whatever the outcome: one creation is
     attributed once, and a Post whose own Pre never ran attributes nothing.
@@ -3552,12 +3633,15 @@ def _take_snapshots(key, call="", all_open=False, background=False):
     stamped field, never the text of the command — the call's process is, by
     the platform's own word, still running after this Post. Its window is
     read and compared now, then written BACK marked `background`, and every
-    later observation of this agent (the next call's Post, an unkeyed Post,
-    the end of the run) consumes the background windows as well as its own.
-    That is what lets a ref the backgrounded process creates AFTER its call's
-    Post — measured on this machine: a Bash call returned 3 s before its
-    process finished (certification-frank-recorded-attribution-2026-09-12-
-    probe.py) — be judged against the window the process actually belongs to.
+    later observation of this agent judges it again, until the process is
+    CONFIRMED ended (`_background_windows`) or the run ends. That is what lets
+    a ref the backgrounded process creates AFTER its call's Post — measured on
+    this machine: a Bash call returned 3 s before its process finished
+    (certification-frank-recorded-attribution-2026-09-12-probe.py) — be judged
+    against the window the process actually belongs to, however many calls
+    the agent makes in between (hunt part 4, finding 6: the window used to be
+    consumed at the next observation, and a ref the process made after a
+    second, whole call was attributed to nobody).
     Returns (priors, background_priors): the two are judged apart, because a
     background window must NOT be unioned with a later snapshot that already
     contains what its process created (see `observe_created_refs`)."""
@@ -3578,7 +3662,8 @@ def _take_snapshots(key, call="", all_open=False, background=False):
     else:
         own = [p for p in _open_slots(key) if os.path.basename(p).startswith("u.") and not _is_background(p)][:1] \
             or [q for q in _open_slots(key) if not _is_background(q)][:1]
-    bg = [q for q in _open_slots(key) if _is_background(q) and q not in own]
+    rec = rec or {"key": key}
+    cache = {}
     priors, bg_priors = [], []
     for p in own:
         prior = read_json(p)
@@ -3588,27 +3673,131 @@ def _take_snapshots(key, call="", all_open=False, background=False):
             else:
                 priors.append(prior)
         if background and not all_open and prior and isinstance(prior.get("repos"), dict):
-            prior["background"] = True                  # the process outlives the call: keep the window
-            write_json(p, prior)
-            continue
+            state = _background_call_state(rec, prior.get("call") or call, cache)
+            if state != "ended":
+                prior["background"] = True              # the process outlives the call: keep the window
+                # agent_hold's record of this call's shell was READ here, so
+                # its later disappearance is agent_hold pruning an ended call
+                prior["hold_seen"] = state == "running"
+                write_json(p, prior)
+                continue
+            # its shell already ended before this Post: nothing outlives the call
         try:
             os.unlink(p)
         except OSError:
             pass
-    for p in bg:
-        prior = read_json(p)
-        try:
-            os.unlink(p)
-        except OSError:
-            pass
-        if prior and isinstance(prior.get("repos"), dict):
-            bg_priors.append(prior)
+    bg_priors += _background_windows(rec, all_open=all_open, exclude=own, cache=cache)
     return priors, bg_priors
 
 
 def _is_background(slot_path):
     prior = read_json(slot_path)
     return bool(prior and prior.get("background"))
+
+
+def _background_call_state(rec, call, cache=None):
+    """What agent_hold's own record of this background call's shell says:
+    "running", "ended", "absent" (no record) or "unknown".
+
+    Every Bash call of a subagent is recorded by agent_hold (its PreToolUse
+    rewrite, then the shell records ITSELF: pid, parent and start time). A
+    call is "ended" only when that record exists with its shell's pid and the
+    shell is gone, a zombie, or the pid now belongs to another process; it is
+    the one fact the engine has that says a background command FINISHED.
+    Anything unreadable is "unknown", never "ended"."""
+    if not call:
+        return "unknown"
+    cache = {} if cache is None else cache
+    try:
+        ah = _agent_hold()
+        session, agent = str(rec.get("session_id") or ""), str(rec.get("agent_id") or "")
+        if not ah._valid_ids(session, agent, call):
+            return "unknown"
+        stem = os.path.join(ah._shell_dir(session, agent), call)
+        if not os.path.exists(stem + ".json"):
+            return "absent"
+        if ah._read_pid(stem + ".pid") is None:
+            return "unknown"                 # recorded, but its shell has not recorded itself
+        if "table" not in cache:
+            cache["table"] = ah.snapshot()
+        table = cache["table"]
+        live = [c for c in ah.calls(session, agent, table)
+                if c["tid"] == call and not table[c["pid"]]["stat"].startswith("Z")]
+        return "running" if live else "ended"
+    except Exception:
+        return "unknown"
+
+
+def _background_windows(rec, all_open=False, exclude=(), cache=None, ended_only=False):
+    """The agent's open background windows, for the observation that is now
+    judging them. A window whose call is CONFIRMED ended — agent_hold's record
+    shows its shell gone, or that record, once read with a shell in it, has
+    been pruned (agent_hold prunes only a call whose shell and tagged children
+    are gone) — or every window at the end of the run, is returned for its
+    last judgment and consumed. Any other is returned and KEPT: its process
+    may still be running, and a ref it makes later is still its (finding 6).
+
+    Each returned row carries `judged` as it was BEFORE this observation, so
+    the protected-ref check sees a window once, as before; attribution judges
+    it every time, and attribution never records one ref twice.
+
+    `ended_only` (the start of a call) leaves still-running windows untouched."""
+    key = rec["key"]
+    cache = {} if cache is None else cache
+    out = []
+    for p in _open_slots(key):
+        if p in exclude or not _is_background(p):
+            continue
+        prior = read_json(p)
+        if not (prior and isinstance(prior.get("repos"), dict)):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+            continue
+        ended = all_open
+        if not ended:
+            state = _background_call_state(rec, prior.get("call"), cache)
+            ended = state == "ended" or (state == "absent" and bool(prior.get("hold_seen")))
+        if ended_only and not ended:
+            continue
+        if ended:
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+        elif not prior.get("judged"):
+            write_json(p, dict(prior, judged=True))
+        out.append(prior)
+    return out
+
+
+def _background_before(bg_priors):
+    """ONE before-set for every background window judged together: per
+    repository, the INTERSECTION of theirs. A ref is new when ANY background
+    call whose process may still be running started without it, and the
+    intersection is exactly that. (The union `_before_set` takes is for
+    ordinary windows, where a window leaked by a refused call must not widen
+    the comparison; a background window is not leaked, its Post stamped it.)"""
+    repos = {}
+    for prior in bg_priors:
+        for repo, names in (prior.get("repos") or {}).items():
+            s = set(names or [])
+            repos[repo] = s if repo not in repos else (repos[repo] & s)
+    return {"key": (bg_priors[0] or {}).get("key", ""), "call": "", "background": True,
+            "repos": {r: sorted(s) for r, s in repos.items()}}
+
+
+def _settle_ended_background(rec):
+    """At the START of a call: every background window whose call is
+    confirmed ended is judged one last time and closed, before the call can
+    do anything. Still-running windows are left for the Post to judge."""
+    settled = _background_windows(rec, ended_only=True)
+    if not settled:
+        return []
+    latest = read_json(_latest_path(rec["key"]))
+    _restore_protected_refs(rec, [p for p in settled if not p.get("judged")], latest)
+    return _attribute_new_refs(rec, [_background_before(settled)], None)
 
 
 def _before_set(priors, latest, repo):
@@ -3787,10 +3976,11 @@ def observe_created_refs(rec, call="", all_open=False, background=False):
     (`_take_snapshots`).
 
     The window is CONSUMED here, whatever the outcome: one creation is
-    attributed once. A background window is the one exception, and it is
-    consumed by the next observation of this agent, judged against ITS OWN
-    before-set: a later snapshot already holds what its process created, so
-    the union rule would call that ref old, and it is not.
+    attributed once. A background window is the one exception: it is judged
+    at every later observation of this agent against ITS OWN before-set — a
+    later snapshot already holds what its process created, so the union rule
+    would call that ref old, and it is not — and consumed only once its
+    process is confirmed ended or the run ends (`_background_windows`).
 
     IT DOES NOT NEED AN INTEGRATION BRANCH TO BE RECORDED. The record is a
     filter on what is at stake, never a gate on whether the observation happens
@@ -3800,22 +3990,27 @@ def observe_created_refs(rec, call="", all_open=False, background=False):
     # windows are thrown away, or the end-of-run pass is judged against the
     # leaked window alone -- which is the widening this whole change ends.
     latest = read_json(_latest_path(rec["key"]))
-    priors, bg_priors = _take_snapshots(rec["key"], call, all_open, background)
+    priors, bg_priors = _take_snapshots(rec["key"], call, all_open, background, rec=rec)
     if all_open:
         _drop_snapshots(rec["key"])
     # The effects check runs FIRST, on the snapshots as taken: a protected ref
     # the call DELETED is put back, and one it MOVED is reported and left where
     # it is (it never moves a ref back — see _restore_protected_refs), before
-    # anything is attributed.
-    _restore_protected_refs(rec, priors + bg_priors, latest)
+    # anything is attributed. A background window kept open across several
+    # observations takes part the first time only, as it did when the next
+    # observation consumed it, so a move is reported once.
+    _restore_protected_refs(rec, priors + [p for p in bg_priors if not p.get("judged")], latest)
     added = []
     if bg_priors:
         # THE BACKGROUND WINDOWS, JUDGED APART: against their own before-sets,
         # never unioned with `latest` — the next call's snapshot was taken
         # while the backgrounded process was still running, so it already
         # holds what that process created, and the union would call it old.
+        # Several open at once are judged as one, against the intersection of
+        # their before-sets (`_background_before`).
         # The four filters still apply (own unlanded work, not somebody
         # else's, at stake), which is what keeps a second agent's refs out.
+        bg_priors = [_background_before(bg_priors)]
         added += _attribute_new_refs(rec, bg_priors, None)
     # THE END OF THE RUN COMPARES ONCE MORE AGAINST THE LAST SNAPSHOT, WHETHER
     # OR NOT A WINDOW IS STILL OPEN (round 8, item 8). A backgrounded process
@@ -4121,8 +4316,9 @@ def land(ref, me="", auto=False, ignored_ok="", deadline=None):
 
 def _require_landed(rec, chain, ignored_ok="", deadline=None):
     """Read current work after writers stop, including on a deletion retry."""
+    preserved = set()
     for r in chain:
-        _require_clean(r, "land %s" % r["name"], ignored_ok, deadline)
+        preserved.update(_require_clean(r, "land %s" % r["name"], ignored_ok, deadline) or [])
     missing = []
     targets = {}
 
@@ -4141,8 +4337,20 @@ def _require_landed(rec, chain, ignored_ok="", deadline=None):
                 missing.append("%s: %s" % (w.get("path") or w.get("branch"), why_not))
                 continue
             if not w.get("deleted_at") and w.get("path") and os.path.isdir(w["path"]):
-                rc, out, _ = git(w["path"], "rev-parse", "HEAD")
-                if rc == 0 and not is_ancestor(repo, out.strip(), tip):
+                rc, out, err = git(w["path"], "rev-parse", "HEAD")
+                # A HEAD that could not be READ is not a HEAD that is in the
+                # integration branch: nothing was proved, so the land waits
+                # (hunt part 4, finding 4). The one directory that has no HEAD
+                # to read and still proves its work landed is partial-cleanup
+                # residue whose Git metadata is already gone and whose every
+                # file `_require_clean` just proved preserved in the
+                # integration tip; its branch is still checked below.
+                if rc != 0 and w["path"] in preserved:
+                    pass
+                elif rc != 0:
+                    missing.append("HEAD of %s could not be read (git exit %d: %s), so it is not shown to be in "
+                                   "%s of %s" % (w["path"], rc, err.strip()[:200], branch, repo))
+                elif not is_ancestor(repo, out.strip(), tip):
                     missing.append("HEAD of %s (%s) is not in %s of %s at %s"
                                    % (w["path"], out.strip()[:12], branch, repo, tip[:12]))
     for repo, b in _branch_targets(chain):
@@ -4153,8 +4361,13 @@ def _require_landed(rec, chain, ignored_ok="", deadline=None):
         if why_not:
             missing.append("branch %s: %s" % (b, why_not))
             continue
-        t = branch_tip(repo, b)
-        if t and not is_ancestor(repo, t, tip):
+        # A branch that is GONE has nothing left to land (partial cleanup
+        # deletes branches first); a branch whose tip could not be READ may
+        # still carry the only copy of a commit, so it holds the land.
+        t, unread = branch_tip_read(repo, b)
+        if unread:
+            missing.append("branch %s: %s" % (b, unread))
+        elif t and not is_ancestor(repo, t, tip):
             missing.append("%s (%s) is not in %s of %s at %s" % (b, t[:12], branch, repo, tip[:12]))
     if missing:
         raise SpecError("%s is not landed yet: %s. Merge it onto the branch this work integrates on, "
@@ -4427,7 +4640,13 @@ def delete_branch(repo, b):
         return False, "%s: repository %s cannot be read" % (b, repo)
     if wl[0]["branch"] == b:
         return False, "branch %s is the main checkout's branch; never deleted" % b
-    if not branch_tip(main, b):
+    # "Already gone" is written down as deleted, so it must be git's answer,
+    # never a read that failed (hunt part 4, finding 4): that is a failure,
+    # retried later (point 13).
+    tip, unread = branch_tip_read(main, b)
+    if unread:
+        return False, "branch %s: %s" % (b, unread)
+    if not tip:
         return True, ""
     holders = [e["path"] for e in wl if e["branch"] == b]
     if holders:
