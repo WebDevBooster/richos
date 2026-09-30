@@ -22,6 +22,10 @@
 # suite is green before any mutant is trusted, and M99 witnesses the shipped
 # guard's contents AND mtime across the run — never opened for writing, rather
 # than restored afterwards.
+# THE MERGE GATE LEAVES THIS PASS TO THE NIGHTLY (richos/app/scripts/autocheck/README.md): the
+# gate runs the suite with RICHOS_MUTATION_PASSES=0; nightly-engine.py runs every pass.
+if [ "${RICHOS_MUTATION_PASSES:-}" = 0 ]; then echo "NOT RUN: $(basename "$0"), a mutation pass (RICHOS_MUTATION_PASSES=0, the merge gate; the nightly runs it)"; exit 0; fi
+
 set -uo pipefail
 SRC_ENG="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=../lib/mutation-harness.sh

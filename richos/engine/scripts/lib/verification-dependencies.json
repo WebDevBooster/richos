@@ -587,7 +587,7 @@
     },
     "scripts/hooks/ceo-asks.mutation.sh": {
       "source": "scripts/hooks/ceo-asks.mutation.sh",
-      "sha256": "908c02341f2aca89d83df3ea9b59e967ad30be0a9e9133e25f35bb146c5abb44",
+      "sha256": "134d6c67a7c8402062a7e592e680d35943fd088fd5d36165e4ac1fa61775602b",
       "evidence": "Copies a finite hook/helper list, never the real configuration. Thirteen literal mutations change matching, gating and reporting, not config provenance. Nested ceo-asks.test.sh reconstructs private configs before execution. The ledger mutation needle now matches append/read mode, without changing executed helpers or settings provenance.",
       "keys": [],
       "edges": [
@@ -760,7 +760,7 @@
     },
     "scripts/hooks/guard-model-ceiling.mutation.sh": {
       "source": "scripts/hooks/guard-model-ceiling.mutation.sh",
-      "sha256": "8961bca89336eb2595dea15271c0570ee0b2e70358b015fa127cfa762ed9eda2",
+      "sha256": "d818ec3d20dbe6667aed4d67e464061559f8a1efbf47bba5dfbaea9a24c8d3b7",
       "evidence": "Seventeen finite source/fixture mutations preserve the private entity root used by the nested test. The generic harness transports the real config but its downstream suite recreates a separate private config. Literal replacement operands do not read real setting values.",
       "keys": [],
       "edges": [
@@ -1008,7 +1008,7 @@
     },
     "scripts/hooks/ceo-ruled.mutation.sh": {
       "source": "scripts/hooks/ceo-ruled.mutation.sh",
-      "sha256": "e588e55b697a3823af50eb46ea9b76a0e30f9f12a5e5fb787a9424fa24c8a109",
+      "sha256": "7c0f9ec0800572c348af416c0b9716b8f19479133216863d614f4be2496a83ff",
       "evidence": "Six finite mutants change refusal, matching or citation rendering. Each rebuilt engine runs the same private-config suite. Drift runs change only supplied ruling files; export-register executes the suite fixture constructor. No orchestration file is copied.",
       "keys": [],
       "edges": [
@@ -1248,7 +1248,7 @@
     },
     "scripts/engine_pass.mutation.sh": {
       "source": "scripts/engine_pass.mutation.sh",
-      "sha256": "cf81ed1dcd9e97c632024d1803459054d0a4137f8f0b0de68ec0d304ef81d9ee",
+      "sha256": "4123cef0fb2052fcb587abbc682431d5326dd0b5c8c895e0e8e5cdf7fbd9d542",
       "evidence": "Eight literal engine_pass.py transformations run the named nested case. The generic harness copies config but the nested slot fixture never consumes it.",
       "keys": [],
       "edges": [
@@ -1485,7 +1485,7 @@
     },
     "scripts/hooks/guard-sealed-worktree.mutation.sh": {
       "source": "scripts/hooks/guard-sealed-worktree.mutation.sh",
-      "sha256": "6dc29c7e6b9ddc5ca54ef2d6ca93f32104dc3a905df258e8451e6d2ef7817f5d",
+      "sha256": "f808bf641b68c07419eaac3ffb171bb46c31aeff8c82baefcb83a1c7280312b2",
       "evidence": "Thirteen finite verdict/refusal mutations execute the declared nested guard suite. Copied configs remain transports; only its SEAL_WAIT_SECONDS fixture override masks a real setting.",
       "keys": [],
       "edges": [
@@ -1584,7 +1584,7 @@
     },
     "scripts/hooks/host-display-power.mutation.sh": {
       "source": "scripts/hooks/host-display-power.mutation.sh",
-      "sha256": "09f9c3754a47b050d50acba5be9c4d96d1b15df934c1f9a226d37ac1a2d5e4bf",
+      "sha256": "e1a249a979fe8f42586e9f9944ab550d14375b04fb43ed198f2155800e5dea01",
       "evidence": "Finite guard-source mutations copy config and registration files as fixture transports, then execute the nested suite which creates its own entity settings. Pool and stopwatch run without sourcing the real config. Copied hook-registration files are not read by the nested suite. The scratch allocator is now sourced before copying; the caller never sources the transported config and passes only environment/default TTL, so this edge consumes no shipped config values.",
       "keys": [],
       "edges": [
@@ -1646,7 +1646,7 @@
     },
     "scripts/hooks/home-network-phone.mutation.sh": {
       "source": "scripts/hooks/home-network-phone.mutation.sh",
-      "sha256": "ae2eecf20262cab5d466031c145ab0bcbad6dfdd0c476d412eb96e33cd2a160c",
+      "sha256": "299a33f6df5d8ab85beeab7a2da5972ef199716d9e92182f29e5f8657106a4cc",
       "evidence": "Finite guard-source mutations copy config and registration files as fixture transports, then execute the nested suite which creates its own entity settings. Pool and stopwatch run without sourcing the real config. Copied hook-registration files are not read by the nested suite. The scratch allocator is now sourced before copying; the caller never sources the transported config and passes only environment/default TTL, so this edge consumes no shipped config values.",
       "keys": [],
       "edges": [
@@ -1939,7 +1939,7 @@
     },
     "scripts/hooks/guard-dialect.mutation.sh": {
       "source": "scripts/hooks/guard-dialect.mutation.sh",
-      "sha256": "cefeabe449ba1780967106ad6c75bacc6b581829b47a89450eb2410dec148be5",
+      "sha256": "564abbca7860b0163dddb1ec4b975fcc696a64a245e7986285b2cbaecb0f2233",
       "evidence": "The direct config copy supplies the nested suite, which consumes only its declared guard/helper keys. Twenty-one literal replacements alter verdicts, pattern predicates or dictionary entries, not config reads. The nested flag skips only shipped-parent ownership assertions and prevents recursive mutants.",
       "keys": [],
       "edges": [
@@ -1992,7 +1992,7 @@
     },
     "scripts/hooks/reference-ledger.mutation.sh": {
       "source": "scripts/hooks/reference-ledger.mutation.sh",
-      "sha256": "eccd7bfd1e287610a8d90d5be9deed9c30b4e3396f53f9f41eb8bb916dd31c84",
+      "sha256": "bbb3ee4506cec57d887220ad43aac52da3d337ec43dba1abccffab0e9069f396",
       "evidence": "Thirteen literal replacements change the scanner, citation predicates or verdict. The copied orchestration file is an engine transport; the nested suite supplies freshly generated entity settings on every guard call. Copied library files not reached by that suite are not executed. The scratch allocator is now sourced before copying; the caller never sources the transported config and passes only environment/default TTL, so this edge consumes no shipped config values.",
       "keys": [],
       "edges": [
@@ -2444,7 +2444,7 @@
     },
     "scripts/hooks/unasked-deferral.mutation.sh": {
       "source": "scripts/hooks/unasked-deferral.mutation.sh",
-      "sha256": "659758394173049429d8393aea93ce09ee2c163953ad0a862744d5b16707e0cd",
+      "sha256": "172d70109dad46a2f1d439da9289657323be76c891d4e844653a3cc239d08e47",
       "evidence": "Copies only the fixed hook, analyzer, test and four named root/notice helpers. Its generated mutator replaces literal source needles. The copied test constructs its own entity config before execution; the callback has no additional engine dependency.",
       "keys": [],
       "edges": [
@@ -2564,7 +2564,7 @@
     },
     "scripts/hooks/premise-ask.mutation.sh": {
       "source": "scripts/hooks/premise-ask.mutation.sh",
-      "sha256": "333b2fd79ca1bfe959337f4780707484714d5ef93e0d33e551804626dda07bec",
+      "sha256": "8460cdd466e53a9be082888b08344fac916125676e2b3a2788b81fddcf0fb10e",
       "evidence": "Eight literal source-needle mutations use the shared harness and rerun the same premise fixture builder. Transported config is replaced by that fixture before the gate reads settings.",
       "keys": [],
       "edges": [
@@ -2702,7 +2702,7 @@
     },
     "scripts/hooks/public-record-repo.mutation.sh": {
       "source": "scripts/hooks/public-record-repo.mutation.sh",
-      "sha256": "a569fdd020a4aa4a929835bd353b6bc03bc87c95acf1ab48e1214e6e8421b0f8",
+      "sha256": "c669fa780b076ddd53f483d74f3df130dc7fc8b3ad521567eb882af87d5fa0da",
       "evidence": "Ten literal source-needle mutants copy the hook, test, libraries and config; only the named test executes. That test creates replacement entity settings before reading configuration. Copying the engine config does not add value dependencies. The scratch allocator is now sourced before copying; the caller never sources the transported config and passes only environment/default TTL, so this edge consumes no shipped config values.",
       "keys": [],
       "edges": [
@@ -2913,7 +2913,7 @@
     },
     "scripts/scratch-reaper.mutation.sh": {
       "source": "scripts/scratch-reaper.mutation.sh",
-      "sha256": "411dddfafabf9fb5aadabb0c442fd443434a572879ac625ce29693a237e4e976",
+      "sha256": "8ef0a08373e7aed2c4f3388e701a29346b51ad2862108b8170d35f4d9c0ef6e4",
       "evidence": "All 53 mutants use the shared literal source replacement API against scratch-reaper.py (51) or its scoped test instrumentation (2), then execute scratch-reaper.test.sh, whose world/run functions select their own config. Copied shipped settings remain transport only, including nested helper reads. Since 2026-09-30 it declares mutation_focus stop-at-want, which stops a mutant's suite at its named FAIL line and changes no input.",
       "keys": [],
       "edges": [
@@ -3016,7 +3016,7 @@
     },
     "scripts/hooks/guard-unresolved-claims.mutation.sh": {
       "source": "scripts/hooks/guard-unresolved-claims.mutation.sh",
-      "sha256": "df296d574d3b9a50165c41faab6aaf9c85850e4280196144cd83152d2f017bef",
+      "sha256": "6d4bf387038b7a414e1ddbb0f0866376e85be97fcd900d2722eb36bc6fc030c7",
       "evidence": "Four literal predicate substitutions use the shared mutation harness and rerun the claims test, whose generated entity replaces shipped settings; no callback discovers new readers.",
       "keys": [],
       "edges": [
@@ -3144,7 +3144,7 @@
     },
     "scripts/hooks/unlanded-branches.mutation.sh": {
       "source": "scripts/hooks/unlanded-branches.mutation.sh",
-      "sha256": "58e7c8ff8016b524192e92b6686b38dceeb2efc063ff1bbf15a7321b852380f3",
+      "sha256": "42e7e7cd92ee117d4d27295851655acd0661d4f4901f5e46c940492c8518e9de",
       "evidence": "Twelve literal source substitutions use the shared harness and the same unlanded fixture constructor. Copied real settings are transport; all executed hooks resolve generated adopted entities.",
       "keys": [],
       "edges": [
@@ -3233,7 +3233,7 @@
     },
     "scripts/hooks/turn-manifest.mutation.sh": {
       "source": "scripts/hooks/turn-manifest.mutation.sh",
-      "sha256": "2bac687880e5e4bbf7e0733393206f25b907ef1e28992dd2ee216f11a1e65994",
+      "sha256": "6f76e3eba8e25ebeaeb0c3b61b475dc4e09bce317ee7538f5af0cbe98cea5ac3",
       "evidence": "Copies the fixed hook, renderer, suite and root/notice helpers, applies seven finite literal replacements then executes the copied suite with nested mutation disabled. That suite regenerates all entity configs; no production config is copied.",
       "keys": [],
       "edges": [
@@ -3424,7 +3424,7 @@
     },
     "scripts/hooks/ceo-todos.mutation.sh": {
       "source": "scripts/hooks/ceo-todos.mutation.sh",
-      "sha256": "a918552413245b809ace2d74b9f60633132837dbfe5b0df06a27678f468c607c",
+      "sha256": "b84e9b40ba67ff10767e38c451804c32d2789c99f8881a5d063bef590d954b25",
       "evidence": "The complete engine copy transports config for adoption only. All twelve mutants alter the fixed Python predicate and execute ceo-todos.test.sh with nested mutation disabled; that suite constructs the records and no code sources the transported config. Scratch allocation uses caller/environment TTL without loading config.",
       "keys": [],
       "edges": [
@@ -3558,7 +3558,7 @@
     },
     "scripts/hooks/stale-staging.mutation.sh": {
       "source": "scripts/hooks/stale-staging.mutation.sh",
-      "sha256": "b2dceab5c6c743038fb6b50b575eb3866fc560a465c1e9fd34da130a1ec5753c",
+      "sha256": "f20d094ba783ea74a7b4489d2c578a383eb34c4ad7d44152ea7ac9595bec5686",
       "evidence": "Sixteen literal mutations affect only the guard or recorder. The shared harness transports config without sourcing it and reruns the fixed suite with nested mutation disabled; the suite generates a separate entity config.",
       "keys": [],
       "edges": [
@@ -4389,7 +4389,7 @@
     },
     "scripts/hooks/root-contract.mutation.sh": {
       "source": "scripts/hooks/root-contract.mutation.sh",
-      "sha256": "62a7bb1ad25830e09b8faca63f5a7ba9fa45e533275faa4217de69dbab297b50",
+      "sha256": "db613fd93e6f39bacb23b1a822e5870cd84e6af6e13d39de320c498f8de14093",
       "evidence": "Finite literal source mutations execute only root-contract.test.sh, resolve-roots.test.sh and session-start-stdin.test.sh. Config is copied unchanged. M1 deliberately redirects entity reads to the copied real engine config, so root-contract real key dependencies cannot be masked as fixtures. M10 reaches the SessionStart disk/scratch readers. Scratch allocation occurs without sourcing config in this driver. Payloads and mutation replacement strings are data.",
       "keys": [],
       "edges": [
@@ -4635,7 +4635,7 @@
     },
     "scripts/hooks/failure-type.mutation.sh": {
       "source": "scripts/hooks/failure-type.mutation.sh",
-      "sha256": "5e7ae2f9db01319d09788455ee64e434b7c73f9d1da626c663e4c7b3ca23bff6",
+      "sha256": "b9bc6705e29fd7b055c3c94e90aaceb978c404693e22ed4888bf3bc20134122f",
       "evidence": "Fixed mutation-harness driver executes only failure-type.test.sh after literal edits to analyzer or two hooks. That suite reconstructs private register/config fixtures. Copied engine config is never substituted for its private seat.",
       "keys": [],
       "edges": [
@@ -4708,7 +4708,7 @@
     },
     "scripts/hooks/claim-roles.mutation.sh": {
       "source": "scripts/hooks/claim-roles.mutation.sh",
-      "sha256": "d998c6197966082daa82eb5fdb30c3a76d6757a06033afadc0cbc741e7eeebc0",
+      "sha256": "e20d4194ed09142931ad32ba5e5f09b12a3b0348fb8165c78f94a386eb352196",
       "evidence": "The finite mutation callback copies fixed claims sources and runs guard-unresolved-claims.test.sh. Every downstream semantic input comes from that reviewed test; the harness itself never transports or sources the real config.",
       "keys": [],
       "edges": [
@@ -4725,7 +4725,7 @@
     },
     "scripts/hooks/inflight-notify.mutation.sh": {
       "source": "scripts/hooks/inflight-notify.mutation.sh",
-      "sha256": "ff15fa4deecab87ab1b299eba1f6335d1f5c11f10d23cf7b8295157f2c8acea3",
+      "sha256": "f6b5be7ab1bc4ed684b2f6b011bb58bced5bbb27e8974d262410671ae48ad3e5",
       "evidence": "Finite literal source mutants copy the fixed inflight test and helpers, then rerun that test. The test constructs its own literal entity configuration. No production configuration is transported or sourced.",
       "keys": [],
       "edges": [
@@ -4745,7 +4745,7 @@
     },
     "scripts/hooks/guard-resume-isolation.mutation.sh": {
       "source": "scripts/hooks/guard-resume-isolation.mutation.sh",
-      "sha256": "ba9c3c810974e9b56e8caeb31b08f202019bdb6a85f9b9a8ac20bbf3847bf5aa",
+      "sha256": "9412888b69763091752d97010e075441fb5fb232ed8ab4557858a94757df9b14",
       "evidence": "The callback copies the fixed resume suite and writes a new literal SESSION_TEAMS_DIR config before running it. The same test constructs its remaining private fixtures. Source substitution operands are data; only the copied fixed suite executes.",
       "keys": [],
       "edges": [
@@ -4769,7 +4769,7 @@
     },
     "scripts/hooks/guard-worktree-removal.mutation.sh": {
       "source": "scripts/hooks/guard-worktree-removal.mutation.sh",
-      "sha256": "05aff533ec292eba45dc2d4a822359b880c90bc7d08d46f7a6bf39416b061030",
+      "sha256": "1721b57276b427d4c27f4ad6ba553d8613f16da62b73c71fbd17f0d0d6f0aa80",
       "evidence": "The baseline and each of 24 finite mutants use a copied engine and invoke only guard-worktree-removal.test.sh. The suite replaces semantic settings with its private literal config. Retains the generic copy presence requirement and source witnesses; mutation text and payload command strings never launch external commands.",
       "keys": [],
       "edges": [
@@ -5408,7 +5408,7 @@
     },
     "scripts/hooks/interactive-prompt.mutation.sh": {
       "source": "scripts/hooks/interactive-prompt.mutation.sh",
-      "sha256": "9a3fca41805365496a028a1f57953684adaf611f0ad62d30907b31457c5a65bb",
+      "sha256": "1bb0a806036cd202ca66914fd09a429847e66e1fdf2b365a209a317de668876a",
       "evidence": "The finite stdin patches rewrite only copied guard/analyzer source. Each worker runs the fixed copied interactive-prompt test, retaining its config-presence dependency. Patch strings and payload command strings are data; no mutation imports config values.",
       "keys": [],
       "edges": [
@@ -5609,7 +5609,7 @@
     },
     "scripts/hooks/mechanical-findings.mutation.sh": {
       "source": "scripts/hooks/mechanical-findings.mutation.sh",
-      "sha256": "b969a4f4500e8ddf60303dea5bbafca66d6962e74159d7b6e36b64149ffb8a42",
+      "sha256": "2d7eb897f7a8986e47fb1aebab8c351454178633c208d21a5e635e2cdcf54f99",
       "evidence": "The fixed control and finite mutants copy only named source and run the same mechanical-findings suite, which rebuilds private config and record fixtures. Mutations are literal replacements; none introduces another reader or program.",
       "keys": [],
       "edges": [
@@ -5680,7 +5680,7 @@
     },
     "scripts/hooks/unstarted-rows.mutation.sh": {
       "source": "scripts/hooks/unstarted-rows.mutation.sh",
-      "sha256": "0555c24030659e6c8ec8292c77dfc556bc0543324680342f426f157e7a2364a0",
+      "sha256": "9dd60931f2fa6e26c9d9ef49143071be7f995c142e2aa7a0ff8fbe6e30d2b06f",
       "evidence": "Finite literal patches run the fixed copied unstarted-row test with RICHOS_MUTATION_INNER=1. No shipped config is copied; nested test rebuilds private configuration and records. None of the patches adds a new input or executable. Inner named witnesses now run only their required stateful fixture group with all group assertions; unmutated controls must pass first. No additional inputs or commands.",
       "keys": [],
       "edges": [
@@ -5753,7 +5753,7 @@
     },
     "ass-kicker/tests/stated-actions.mutation.sh": {
       "source": "ass-kicker/tests/stated-actions.mutation.sh",
-      "sha256": "6ee77e488fc4d2b872d0e94b5a1d0ede7f8212c04036d914a80fa82e375e3c89",
+      "sha256": "5f6bba511e6b555c49bf3f45313de23d97742c5b38da3ff62d739114e2972a70",
       "evidence": "Control and finite source mutants execute the same fixed stated-actions test, which recreates private entity config. The one added transcript reader reads generated JSON only. Replacement operands are source data; helper copies are fixed.",
       "keys": [],
       "edges": [
@@ -5809,7 +5809,7 @@
     },
     "scripts/hooks/idle-land.mutation.sh": {
       "source": "scripts/hooks/idle-land.mutation.sh",
-      "sha256": "b2be7c34811448327fec6445453e142f7a72c0b191453b1d65d03d36c0f353ac",
+      "sha256": "28cf75331043b1a779457eb942b65ac46dc484496716ecad268763bffa258d99",
       "evidence": "The finite mutations copy fixed guard, analyzer, test and root/notice helpers. The copied test recreates all entity configuration and Git records. The one added transcript read consumes a generated test file. No shipped config is transported.",
       "keys": [],
       "edges": [
@@ -5858,7 +5858,7 @@
     },
     "scripts/hooks/guard-worktree-isolation.mutation.sh": {
       "source": "scripts/hooks/guard-worktree-isolation.mutation.sh",
-      "sha256": "98c17223d2ee2503b1a6fa8da33da1949b553d8186e4626b668a4c1afb5cb444",
+      "sha256": "78c0a853cbbffd9329395faadcb69527aeaf6c12b17b45afefbbcecab995cff8",
       "evidence": "The baseline and 24 finite mutants execute the fixed copied isolation test, retaining its shipped configuration readers. Each alive control also executes the copied real guard with that config. The harness shell never sources config before scratch allocation. Finite Python patches only rewrite the named guard; model-setting strings in those patches are data.",
       "keys": [],
       "edges": [
@@ -5970,7 +5970,7 @@
     },
     "scripts/hooks/guard-row-currency-commits.mutation.sh": {
       "source": "scripts/hooks/guard-row-currency-commits.mutation.sh",
-      "sha256": "0ee55fe56ec08d46ab55a90782e266b495dc6b5f949dcc5d28e423789a97f512",
+      "sha256": "624a4cab7af937bb9ea59cb48429f3ad290fca56eab3d4718a52a7e5eabbc5af",
       "evidence": "Uses the shared mutation copy and fixed row-currency suite with recursion disabled. All fifteen patches are literal guard/predicate/verifier replacements. No config-value reader is added; copied config presence and the nested real-seat adoption remain required. Inner-only scopes retain original named witness groups and prerequisites; full outer coverage remains. Local driver uses the same shared scratch/worker/deadline guards and copies all scripts/lib plus the guard, test, lint, verifier and config. Unmutated group controls must pass before literal mutations.",
       "keys": [],
       "edges": [
@@ -6901,7 +6901,7 @@
     },
     "scripts/hooks/dispatch-pretooluse.mutation.sh": {
       "source": "scripts/hooks/dispatch-pretooluse.mutation.sh",
-      "sha256": "da8984e7acce5e939ee2def3cdf02063ff47c52dfced3f83765b559f2dd3b9ff",
+      "sha256": "e9a8c8dc3e22ce7747a50256af7701d9e0f52db137c699cf73f14f0bc739c28b",
       "evidence": "Reviewed finite literal chassis/root/payload memo mutants. Runs the same suite with INNER=1, so recursion terminates and the D21 module/installer obligations remain.",
       "keys": [],
       "edges": [
@@ -7510,7 +7510,7 @@
     },
     "scripts/hooks/waiver-repetition.mutation.sh": {
       "source": "scripts/hooks/waiver-repetition.mutation.sh",
-      "sha256": "70a9e53f97b80d55d9f1425d6aff3edf268b515b6e4a649e13c0a16825ad4d76",
+      "sha256": "c8fb7ba4752d91156d839f7fe81e8f2fa8120968793c60d72a79c1fbf16d5f15",
       "evidence": "Full driver creates minimal engine copies, retains hooks JSON then executes one control and finite literal mutants with INNER=1. No orchestration config is copied. Source replacements alter verdicts, grouping, notices and registration; no additional executed target is introduced.",
       "keys": [],
       "edges": [
@@ -7570,7 +7570,7 @@
     },
     "scripts/hooks/conceal.mutation.sh": {
       "source": "scripts/hooks/conceal.mutation.sh",
-      "sha256": "da62bf7ab6bb8ae6b8778a1485098859323ffe680d24f8d68388000521527d6f",
+      "sha256": "e9c89cc9df59ca229ef47ed34d71198ccfb2bac48d0701e91d8ba22755a68f5d",
       "evidence": "Fixed driver copies minimal engine sources and real config, then runs each literal matcher/ack mutant against its named case with an unmutated positive control. Full outer suite retains every assertion. Hook calls use suite-created literal entity config; copied engine config is only required to exist.",
       "keys": [],
       "edges": [
@@ -7801,7 +7801,7 @@
     },
     "scripts/hooks/owned-state.mutation.sh": {
       "source": "scripts/hooks/owned-state.mutation.sh",
-      "sha256": "7eb9e8010a5113527b391ec6284f48839137d9efc09f855f76485f7133c6eb58",
+      "sha256": "16c882410080023b2f3502ca2d7237fe005ce31b9c91be738ffba65551d05932",
       "evidence": "Full finite driver retains the shipped declaration, then applies fixed gate/verdict/triage mutations and runs the fixed suite via the reviewed mutation harness. No new execution target is introduced.",
       "keys": [],
       "edges": [
@@ -7909,7 +7909,7 @@
     },
     "scripts/hooks/left-off.mutation.sh": {
       "source": "scripts/hooks/left-off.mutation.sh",
-      "sha256": "b40990e25b412e76e336ca2ffed61d8702b94acf30c3a841dc9e5870d26149c8",
+      "sha256": "845f799309b90254a9ac87ed3fead11485364080c49b4be8640b6f335fe02c0a",
       "evidence": "Full finite driver mutates classification, formatting and hook visibility, then executes the same suite via shared harness. The one stdin mutant preserves dependencies and changes only the event condition. Real config transport remains an existence obligation.",
       "keys": [],
       "edges": [
@@ -8038,7 +8038,7 @@
     },
     "scripts/quota-watch.mutation.sh": {
       "source": "scripts/quota-watch.mutation.sh",
-      "sha256": "9e0bcc1a53481387e554e88aa8d5c1fba41ed4df58b8d8e7aacdd5a8bb9084f5",
+      "sha256": "4ad9b438764164d5694b5a0413164cad5d236d71fa5ab78bda6fb555741591aa",
       "evidence": "Full finite driver changes watcher predicates or output, then executes the same fixed focused suite through the shared mutation harness. It transports shipped config presence but the nested suite replaces threshold values. No new executable target is introduced.",
       "keys": [],
       "edges": [
@@ -8109,7 +8109,7 @@
     },
     "scripts/hooks/guard-vendoring-commits.mutation.sh": {
       "source": "scripts/hooks/guard-vendoring-commits.mutation.sh",
-      "sha256": "5f0c2d6bee72715abc0d2a7b87f564289032719e25cc698661a27db32a0f2682",
+      "sha256": "9161d08df9f2488d19dc2d9fdf13188a964fcf7eded164800afa51f5e66be6be",
       "evidence": "Full finite mutation driver rewrites the guard or vendoring predicate then invokes the same suite through the generic harness. Source operands are data and introduce no new executable helper. Shipped config transport remains a presence dependency.",
       "keys": [],
       "edges": [
@@ -8592,7 +8592,7 @@
     },
     "mega-lander/tests/workspaces.mutation.sh": {
       "source": "mega-lander/tests/workspaces.mutation.sh",
-      "sha256": "0d1553e6c62901f90a458079f2c30924adafa6df183dd066681034b54fe80ed3",
+      "sha256": "f09b1a5b7ef840b9d1106ed2576e82e75c40b751f688e7fbb603e10e2c7facaa",
       "evidence": "Reviewed all finite old/new mutation operands: local workspace predicates, records, Git queries and fixed helper calls. No mutant introduces a dynamic configuration reader or executable. Focused inner suite keeps the same fixture boundaries; copied configuration presence remains a harness input.",
       "keys": [],
       "edges": [
@@ -8645,7 +8645,7 @@
     },
     "mega-lander/tests/workspace-spec-fourteen.mutation.sh": {
       "source": "mega-lander/tests/workspace-spec-fourteen.mutation.sh",
-      "sha256": "716bca7aa5c1732806e040c24684160d2eeeb5aca566bdf8d79ab70051c6c552",
+      "sha256": "2de33daeaa368b12ac6bfc83b70e8fe3e9c6a812d8147009bb5b1895c9476149",
       "evidence": "Reviewed all finite mutation source operands in workspaces.py, removal guard, creator and integration readers. They change local predicates and fixed Git operations without adding dynamic configuration/executable inputs. Optional nightly driver uses the same suite and copied configuration transport.",
       "keys": [],
       "edges": [
@@ -9477,7 +9477,7 @@
     },
     "scripts/hooks/operator-leads.mutation.sh": {
       "source": "scripts/hooks/operator-leads.mutation.sh",
-      "sha256": "c706e14a9c6e4f379ed892f8927422bb3d65f0ed53825ef2634639d644de6e28",
+      "sha256": "9f08a3b3b487ed429c120190f73730964156f91a7ebd3b505759926f54cb2c5f",
       "evidence": "Full finite driver reviewed: fixed claim/switch/lease/name predicates and one hook-event rename. No new execution target; nested fixture replaces entity values copied by the transport.",
       "keys": [],
       "edges": [
@@ -9895,7 +9895,7 @@
     },
     "scripts/hooks/land-lease-commands.mutation.sh": {
       "source": "scripts/hooks/land-lease-commands.mutation.sh",
-      "sha256": "b9d5fb6b28e061ff4c628f6616af56a6bbbcb86a63e06795e390cbddd8182a5f",
+      "sha256": "52d05c2aa271c14421765d1652e4281110a5128ff8524175cdee2ab482f6835f",
       "evidence": "All seven literal mutations reviewed: fixed prefilter, authorization, checkout identity, verb and switch predicates. No new execution target; generic transport invokes this same fixture.",
       "keys": [],
       "edges": [
@@ -10707,7 +10707,7 @@
     },
     "scripts/hooks/contract-integrity-case7.mutation.sh": {
       "source": "scripts/hooks/contract-integrity-case7.mutation.sh",
-      "sha256": "a49ab1e3b263ab94238bd2a99667a642811d89b5a4439e260b9b95a1e32c1f92",
+      "sha256": "71a90a5ab0d82a3e109d7f06924e6766135b106bd3581b291067efb4fa663866",
       "evidence": "Full driver reviewed: fixed JSON mutations run only the extracted source-bound assertion with Python. No installer, hook or orchestration config executes.",
       "keys": [],
       "edges": [
@@ -11360,7 +11360,7 @@
     },
     "scripts/login-alarm.mutation.sh": {
       "source": "scripts/login-alarm.mutation.sh",
-      "sha256": "5a070ba3141fc4dbc74943ecc06d9920eae460394987ee323377bb3941108607",
+      "sha256": "bdf747fc9146e5d5b8f65f2378a2d11d700881af7daf364cad8ef811331784be",
       "evidence": "All eight mutations patch finite literal Python operands and run the login-alarm fixture suite. Shared harness config copying is transport, not a value read; the nested suite preserves its private seams.",
       "keys": [],
       "edges": [
@@ -11489,7 +11489,7 @@
     },
     "scripts/mutation-inventory.test.sh": {
       "source": "scripts/mutation-inventory.test.sh",
-      "sha256": "5035e66d0fe58f4b0362be5eff42b4c435c7d8f36def4ed9271430fe35c800c3",
+      "sha256": "a266884298051b1be48056dbc172e56253c945be1d1fe42baae453dc39cbe523",
       "evidence": "Discovers mutation filenames and scans only sh/yml/yaml text for invocation mentions. Generated negative-control scripts are inspected as text and never executed. orchestration.config is neither in the scan extensions nor an execution input.",
       "keys": [],
       "edges": []
@@ -11513,7 +11513,7 @@
     },
     "scripts/operator-fences.mutation.sh": {
       "source": "scripts/operator-fences.mutation.sh",
-      "sha256": "3ae93acf6f923c8b679df5f5e103cafab7fe88c2c699a39a5f2894f4cd8a6cc0",
+      "sha256": "f457caf07e3dee8d91e0ca15790d7038e1eed1e0869e5a72c2d2af121bdba11e",
       "evidence": "All34 named mutants patch finite literal source operands then invoke the existing operator-fences fixture suite through mutation_focus stop-at-want. Mutations change branches/constants or fixed commands, never introduce a config reader. The shared harness transports config; the fixture suite constructs its own literal entity config.",
       "keys": [],
       "edges": [
@@ -11550,7 +11550,7 @@
     },
     "scripts/hooks/release-land-leases.mutation.sh": {
       "source": "scripts/hooks/release-land-leases.mutation.sh",
-      "sha256": "4bc04a61bc2e6233bcadec38fe1eacd397d3a8d5597b1d207309e74990f742ca",
+      "sha256": "508b1e7d83b86f31cc86b395725de4b37f0e26ab62db33484342d182ed2315ab",
       "evidence": "Four fixed branch/message mutations run the same private turn-end lease fixture. No mutation introduces a configuration reader. Shared harness copies are transport edges.",
       "keys": [],
       "edges": [
@@ -11816,7 +11816,7 @@
     },
     "mega-lander/tests/workspace-probes.mutation.sh": {
       "source": "mega-lander/tests/workspace-probes.mutation.sh",
-      "sha256": "91657090b1c63bb718ef9145129e354866e36dc8ce2fdbbad5d8908560ba5103",
+      "sha256": "66520f447f2cb14aab1f4279a124da23321bd448290c63e06d1d1c7f4e9c2aa9",
       "evidence": "All mutant operands target workspace-probes.py and retain the synthetic-suite fixture. Shared mutation harness copies config bytes with a presence requirement, then executes the same nested suite; it does not source config.",
       "keys": [],
       "edges": [
@@ -11915,7 +11915,7 @@
     },
     "ass-kicker/tests/brief-scope.mutation.sh": {
       "source": "ass-kicker/tests/brief-scope.mutation.sh",
-      "sha256": "29425a1bfc996f7b627be2833487639c3302cf04167223ea9428e25ddb0e12f9",
+      "sha256": "95c490caa5ee8beadd96de11172962a573c911dce773f853c1903c9aa79a98ee",
       "evidence": "Every mutation operand is brief-scope.py; shared harness executes the same synthetic suite. Retains shared copy presence and helper bindings.",
       "keys": [],
       "edges": [
@@ -11957,7 +11957,7 @@
     },
     "scripts/lib/worktree-ledger.mutation.sh": {
       "source": "scripts/lib/worktree-ledger.mutation.sh",
-      "sha256": "48ef1ced63d9fca91daf5cb541991ff1ae4a346a66479437506d2b30f0bd5ff1",
+      "sha256": "b1cca61c3c24687aa2cecdffea32bb760e2bcf0542ee08755730f72ecc4cd602",
       "evidence": "Every mutant changes worktree-ledger.py and invokes the same ledger suite through shared mutation transport. Config bytes are transported, not sourced.",
       "keys": [],
       "edges": [
@@ -12041,7 +12041,7 @@
     },
     "scripts/land-completeness.mutation.sh": {
       "source": "scripts/land-completeness.mutation.sh",
-      "sha256": "3196f646db7ae4c0b81554a458a7b07c8d3948cd62c7a598e1a883ca4698931b",
+      "sha256": "e3896b455ac5667a3a58368b6f7c6a4af85a8fe89c19f9ad629d71ec251c96ab",
       "evidence": "Four mutants edit owning suite registry isolation/scanner assertions, then execute the same suite in the shared mutation harness.",
       "keys": [],
       "edges": [
@@ -12207,7 +12207,7 @@
     },
     "scripts/hooks/claim-capability-delivery.mutation.sh": {
       "source": "scripts/hooks/claim-capability-delivery.mutation.sh",
-      "sha256": "d0447399b96de41a7ecaa19a6a500628f86a9035bb2d41cbc514a890e0c849dc",
+      "sha256": "02bccc1f53a6ea812e3783989989cad578bd33d25bbcf4fb842024fe53940574",
       "evidence": "Custom builder copies only notice hook, owning test and brief-provenance parser; no config. Literal replacements exercise same suite with nested mutation disabled.",
       "keys": [],
       "edges": [
@@ -12250,7 +12250,7 @@
     },
     "scripts/lib/provider-supervisor.mutation.sh": {
       "source": "scripts/lib/provider-supervisor.mutation.sh",
-      "sha256": "381e1566a21d17675eea8250c01a0c6edb2f27027dd74dd5935a9dd3c34a4276",
+      "sha256": "68d29c165f8f69a60fd74bcb12a623ba07547424bf3b2418ba4fc052c9ce15d5",
       "evidence": "Eight literal supervisor mutants execute the same private-provider suite. Shared mutation harness copies config but the suite does not read its values.",
       "keys": [],
       "edges": [
@@ -12351,7 +12351,7 @@
     },
     "scripts/hooks/resource-waits.mutation.sh": {
       "source": "scripts/hooks/resource-waits.mutation.sh",
-      "sha256": "f4b1247008ac0c9201192e037cc4865540f8340d81d927edfcf9c06430d05875",
+      "sha256": "d71d994bea92207a3520260e89387b661fe5931f70896136439279675c153fab",
       "evidence": "Finite literal predicate/wrapper mutations execute the owning private-entity fixture through shared mutation harness. Replacement strings mention config variables as text only.",
       "keys": [],
       "edges": [
@@ -12592,7 +12592,7 @@
     },
     "ecs/tests/operator-complete.mutation.sh": {
       "source": "ecs/tests/operator-complete.mutation.sh",
-      "sha256": "eb47891ef1c2f151e57dd2c5c876462cf430f25542b027a9dcdbbf980c888e24",
+      "sha256": "31f5ba634a7ef74601a53cddaad4eed418d34e7862d1ad56158a68b1b71180bf",
       "evidence": "Eight literal adapter predicate mutants execute only operator-complete fixture via shared mutation transport, retaining config presence.",
       "keys": [],
       "edges": [
@@ -12847,7 +12847,7 @@
     },
     "scripts/lib/finish-row-completion.mutation.sh": {
       "source": "scripts/lib/finish-row-completion.mutation.sh",
-      "sha256": "61c593a1c66cd136f3aff6692d1f7b37391f52b80dcef5e8b2673521410d1e12",
+      "sha256": "5fc1c4e5409b1368c13c5b0259f75b605dae01ed7426734c2f1bf7b29447055e",
       "evidence": "Six literal ledger resolution mutants use shared harness and same private fixture; nested mutation exits before repeating.",
       "keys": [],
       "edges": [
@@ -12956,7 +12956,7 @@
     },
     "scripts/lib/testdevices.mutation.sh": {
       "source": "scripts/lib/testdevices.mutation.sh",
-      "sha256": "43cd5aed81cf23bc62b7f1060c32111097ac2a6540dc1bc8a7927a7e1cf54a30",
+      "sha256": "1de0cb4446e8edda30fea7cf52ac053135700c430dd95f35b7db31ce21d7fa6f",
       "evidence": "Mutates only the device module and calls the same suite through the shared mutation transport; retain transport presence and all actual nested readers.",
       "keys": [],
       "edges": [
@@ -13064,7 +13064,7 @@
     },
     "scripts/stop.mutation.sh": {
       "source": "scripts/stop.mutation.sh",
-      "sha256": "79c313f28d4e17ec7ff7162ade16b068c124cc3ee2d1468244e429ff04c6eadf",
+      "sha256": "926cf78dd0f5e01cc691cbb00f665297e4372b99823efa5d919008d64500ebfb",
       "evidence": "Shared mutation transport alters literal stop.py expressions and invokes the same bound private fixture suite. No other engine command executes.",
       "keys": [],
       "edges": [
@@ -13455,7 +13455,7 @@
     },
     "mega-lander/tests/create-teammate-worktree.mutation.sh": {
       "source": "mega-lander/tests/create-teammate-worktree.mutation.sh",
-      "sha256": "cbf24a4448b8f2119674413fd531e97f185fe045b7425b26317be2f7f538c6cd",
+      "sha256": "8482bcb51926ceb6470e93ebcbe904675a3b1fe93f4dcfacaf522f0724b08ba8",
       "evidence": "Finite creator/registry replacements, then shared mutation transport invokes this same private creation suite. No model, live agent or outside setup script is called.",
       "keys": [],
       "edges": [
@@ -13624,7 +13624,7 @@
     },
     "mega-lander/tests/app.mutation.sh": {
       "source": "mega-lander/tests/app.mutation.sh",
-      "sha256": "681923339a474e48369c471db2d21d862ef4d4524547dad0817cab21faffafed",
+      "sha256": "d2d49f2367a5c4eb2e02d511c3e0560f7fe730da62b490fe46ef2a0b3baa44e8",
       "evidence": "Sixteen finite app/workspace source replacements then the shared mutation harness runs the same full desktop fixture. Transport presence remains; no other runtime suite is invoked.",
       "keys": [],
       "edges": [
@@ -14320,7 +14320,7 @@
     },
     "scripts/hooks/foreign-app-data.mutation.sh": {
       "source": "scripts/hooks/foreign-app-data.mutation.sh",
-      "sha256": "45de9641a35deb09090ba71cdc5c226324f61abf8f7be414f898564f20f62092",
+      "sha256": "ecd8851e86e7e31aab2f3532b9a7a831f5599a26f6bfbedfa2d1e6837f82df8d",
       "keys": [],
       "edges": [
         {
@@ -15557,7 +15557,7 @@
         "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
         "scripts/hooks/session-start-ceo-ask.sh": "3b0b8396d0e50a6145401df798bde92e7bc59ffd55a7260f160f7b1b8d72ec69",
         "scripts/ceo-asks-status.sh": "ee087fd11e7a3a9507845240dd367c3528935f31d85c1ba7bb9eca004de2f7cf",
-        "scripts/hooks/ceo-asks.mutation.sh": "908c02341f2aca89d83df3ea9b59e967ad30be0a9e9133e25f35bb146c5abb44",
+        "scripts/hooks/ceo-asks.mutation.sh": "134d6c67a7c8402062a7e592e680d35943fd088fd5d36165e4ac1fa61775602b",
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
         "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
@@ -15601,7 +15601,7 @@
         "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
         "scripts/ceo-ruled-exempt.sh": "d763157b150db58cf30e87a25c6215e869e29eada3760b8b44295553657cab09",
-        "scripts/hooks/ceo-ruled.mutation.sh": "e588e55b697a3823af50eb46ea9b76a0e30f9f12a5e5fb787a9424fa24c8a109",
+        "scripts/hooks/ceo-ruled.mutation.sh": "7c0f9ec0800572c348af416c0b9716b8f19479133216863d614f4be2496a83ff",
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
         "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
@@ -15639,7 +15639,7 @@
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
         "scripts/staging-record.sh": "6be5d32bb24c351055d01ae038b91919fea049477c0db39dbe5bc5eaf626c537",
-        "scripts/hooks/stale-staging.mutation.sh": "b2dceab5c6c743038fb6b50b575eb3866fc560a465c1e9fd34da130a1ec5753c",
+        "scripts/hooks/stale-staging.mutation.sh": "f20d094ba783ea74a7b4489d2c578a383eb34c4ad7d44152ea7ac9595bec5686",
         "scripts/lib/mutation-harness.sh": "c867dfbed295d061cf1f7cd5dc5ba85b01519f31706e313d1da333c1f92aab63",
         "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
@@ -15751,7 +15751,7 @@
         "scripts/hooks/engine-status.sh": "c1ea99017ada713a0a68a56fe7f23dfab11b027ed53ea3a7846d4e51b8e467b0",
         "scripts/lib/registered-hooks.sh": "b6da2aa1ed92ad840fe03ac4c47f1ce2e18887fc99d58755bbf43ac000fea6cd",
         "scripts/hooks/scan-secrets.sh": "d23d1d44376e0557597f8a0add40a0226049d801769af48d81095002477e0c73",
-        "scripts/hooks/root-contract.mutation.sh": "62a7bb1ad25830e09b8faca63f5a7ba9fa45e533275faa4217de69dbab297b50",
+        "scripts/hooks/root-contract.mutation.sh": "db613fd93e6f39bacb23b1a822e5870cd84e6af6e13d39de320c498f8de14093",
         "scripts/lib/mutation-harness.sh": "c867dfbed295d061cf1f7cd5dc5ba85b01519f31706e313d1da333c1f92aab63",
         "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
@@ -15804,14 +15804,14 @@
       "sources": {
         "ass-kicker/guard-stated-actions.py": "e18787c25137c401eabdb34cfe833612c7d569a1aa790e9dfcd7955470697fc4",
         "ass-kicker/tests/guard-stated-actions.test.sh": "2d60f14e7fbc4cb65f11873f119fa1a8b6920552b54ca434418d63a5099e25e6",
-        "ass-kicker/tests/stated-actions.mutation.sh": "6ee77e488fc4d2b872d0e94b5a1d0ede7f8212c04036d914a80fa82e375e3c89",
+        "ass-kicker/tests/stated-actions.mutation.sh": "5f6bba511e6b555c49bf3f45313de23d97742c5b38da3ff62d739114e2972a70",
         "mega-lander/create-teammate-worktree.sh": "28b165ea46c36cde125e0214f0f7f98fa28e4219a14d74bde8488367b91c5a80",
         "mega-lander/tests/workspaces-e2e.test.sh": "a6b02241aa88335b2fd86434c30944d51c8d1434478d232563a06401342d81b8",
         "mega-lander/tests/workspaces.test.py": "73ee70dec6e8c576fcbb609e02336d14769529cf5dec603a626212a9a778bb66",
         "mega-lander/workspaces.py": "1bf0140ac5f8bab0da20c8feccfe8cd3c432e18943204e1109726ded56b008fc",
         "mega-lander/workspaces.sh": "93b86b885516641e69a7cd84105260ee94d52300f0099362c7ed9b475855764e",
         "scripts/entrypoint-currency-lint.sh": "af9a1ff354871322e9f9741820c35b8569a052bf635b37b16be34e053cb0e3ae",
-        "scripts/hooks/claim-roles.mutation.sh": "d998c6197966082daa82eb5fdb30c3a76d6757a06033afadc0cbc741e7eeebc0",
+        "scripts/hooks/claim-roles.mutation.sh": "e20d4194ed09142931ad32ba5e5f09b12a3b0348fb8165c78f94a386eb352196",
         "scripts/hooks/contract-integrity-layer-ep.sh": "d94c802f86a8862bfe166f522d6e0a309a54b850cfdc8818d3e7057e7b6ac976",
         "scripts/hooks/contract-integrity-probe.sh": "6a82794553fcd9c510aeb28dde2cafd325390fbcb70694753f3f7e636ece2102",
         "scripts/hooks/contract-integrity.test.sh": "48636864b57ee3a8940f6729552b115d305333d8a729d1cd5a46bd4e0c6202fe",
@@ -15830,31 +15830,31 @@
         "scripts/hooks/guard-interactive-prompt.sh": "006331257e3424466c9bd8f5f49d895362f0602063cb25d98dcef32b18fbd8c8",
         "scripts/hooks/guard-interactive-prompt.test.sh": "47cfd426cfc6d972022d9427aa548d4c859ee28d7d64c0be484fcd59f3d373a0",
         "scripts/hooks/guard-main-checkout-writes.sh": "15ef50dd54edf557ac14c16ce894b7212cfc692244d5fa19728cf2c6edad35a7",
-        "scripts/hooks/guard-model-ceiling.mutation.sh": "8961bca89336eb2595dea15271c0570ee0b2e70358b015fa127cfa762ed9eda2",
+        "scripts/hooks/guard-model-ceiling.mutation.sh": "d818ec3d20dbe6667aed4d67e464061559f8a1efbf47bba5dfbaea9a24c8d3b7",
         "scripts/hooks/guard-model-ceiling.sh": "5837b9e9d2156487b00f280456da78f88e0bc66d6a4bbc32c6a1a9eeda8c60e3",
         "scripts/hooks/guard-model-ceiling.test.sh": "9e3f365b80479392d8ac4ce1039cab1ca2dc232113c8ee7fe54d620adc9c1930",
-        "scripts/hooks/guard-resume-isolation.mutation.sh": "ba9c3c810974e9b56e8caeb31b08f202019bdb6a85f9b9a8ac20bbf3847bf5aa",
+        "scripts/hooks/guard-resume-isolation.mutation.sh": "9412888b69763091752d97010e075441fb5fb232ed8ab4557858a94757df9b14",
         "scripts/hooks/guard-resume-isolation.sh": "2366c33e6d87e0b53a7c1e18a6b153b72652ac86532f88e145fd66539e373f56",
         "scripts/hooks/guard-resume-isolation.test.sh": "5ac890c807ee15f75bd087fd44388cd500e1772e755f2d2422fe6b83fbf237a5",
         "scripts/hooks/guard-sealed-worktree.sh": "5fdfedcb7ff7a83f4411eb5a90919ab1fc5d037a6362221551f75db8621d0f93",
         "scripts/hooks/guard-stated-actions.sh": "21ba110b91c10046b34ae46153ef9a42b140f5833e53217bfdb7e1b656862a27",
-        "scripts/hooks/guard-unresolved-claims.mutation.sh": "df296d574d3b9a50165c41faab6aaf9c85850e4280196144cd83152d2f017bef",
+        "scripts/hooks/guard-unresolved-claims.mutation.sh": "6d4bf387038b7a414e1ddbb0f0866376e85be97fcd900d2722eb36bc6fc030c7",
         "scripts/hooks/guard-unresolved-claims.py": "793b6ea10ac7db990e7c3062af9ce21d7fbcf984804d69d92452ab336737d053",
         "scripts/hooks/guard-unresolved-claims.sh": "88db28246b8e79d1d623d26e366fcc3c8bf1811e3bb464fc04d484761ead14d2",
         "scripts/hooks/guard-unresolved-claims.test.sh": "3ae1f1c337d152990d8a5b0c2847115763fd569316b84d5bc81e227ae199c31e",
         "scripts/hooks/guard-workspace-gate.sh": "704f1516e9337a8dcdf4589fd5b74473bffffcb694c1460fa16bb43a4a2b802f",
-        "scripts/hooks/guard-worktree-isolation.mutation.sh": "98c17223d2ee2503b1a6fa8da33da1949b553d8186e4626b668a4c1afb5cb444",
+        "scripts/hooks/guard-worktree-isolation.mutation.sh": "78c0a853cbbffd9329395faadcb69527aeaf6c12b17b45afefbbcecab995cff8",
         "scripts/hooks/guard-worktree-isolation.sh": "c200f7a5b48835054ce460b95053abca44ac6dbaf677289940c23fc196917025",
         "scripts/hooks/guard-worktree-isolation.test.sh": "c594264963fb46ec1a03d360a3c0d52c9779bc9944c7f9c405ba66bbe43250f4",
-        "scripts/hooks/guard-worktree-removal.mutation.sh": "05aff533ec292eba45dc2d4a822359b880c90bc7d08d46f7a6bf39416b061030",
+        "scripts/hooks/guard-worktree-removal.mutation.sh": "1721b57276b427d4c27f4ad6ba553d8613f16da62b73c71fbd17f0d0d6f0aa80",
         "scripts/hooks/guard-worktree-removal.sh": "b39ff96220cb74cf9f94acc3d6210f3207b57bdf50cb33ffdd29882e536a5f37",
         "scripts/hooks/guard-worktree-removal.test.sh": "b4e717bbb5ff0089902e69e286e3e845a502121a898259534f04c370048f58e5",
-        "scripts/hooks/idle-land.mutation.sh": "b2be7c34811448327fec6445453e142f7a72c0b191453b1d65d03d36c0f353ac",
-        "scripts/hooks/inflight-notify.mutation.sh": "ff15fa4deecab87ab1b299eba1f6335d1f5c11f10d23cf7b8295157f2c8acea3",
+        "scripts/hooks/idle-land.mutation.sh": "28cf75331043b1a779457eb942b65ac46dc484496716ecad268763bffa258d99",
+        "scripts/hooks/inflight-notify.mutation.sh": "f6b5be7ab1bc4ed684b2f6b011bb58bced5bbb27e8974d262410671ae48ad3e5",
         "scripts/hooks/inflight-notify.test.sh": "53bd65350d9690f1110d968e730c1f1596f3afb80e87a552dd07b91ccc263e78",
         "scripts/hooks/install.sh": "f5bdf9bc751585af7c3fe3f0513a910dfff8821ee1f8e11b743d3c7d8a5adc3a",
-        "scripts/hooks/interactive-prompt.mutation.sh": "9a3fca41805365496a028a1f57953684adaf611f0ad62d30907b31457c5a65bb",
-        "scripts/hooks/mechanical-findings.mutation.sh": "b969a4f4500e8ddf60303dea5bbafca66d6962e74159d7b6e36b64149ffb8a42",
+        "scripts/hooks/interactive-prompt.mutation.sh": "1bb0a806036cd202ca66914fd09a429847e66e1fdf2b365a209a317de668876a",
+        "scripts/hooks/mechanical-findings.mutation.sh": "2d7eb897f7a8986e47fb1aebab8c351454178633c208d21a5e635e2cdcf54f99",
         "scripts/hooks/mechanical-findings.test.sh": "e23f188f029e21dec0e06c0758bb6912ede88002d366c5c3b331f3a0ca7a0397",
         "scripts/hooks/notice-inflight-acks.sh": "00c0ab640594e4639be4f1b153f1ee8a1b29429dd936b81c4b74078a2f79b029",
         "scripts/hooks/notice-inflight-sends.sh": "b5120d7d24070d1e306ed38fd96345bfee3c7d2538e1bde72c4bde155a4e0af4",
@@ -15921,7 +15921,7 @@
         "scripts/mechanical-findings-lint.sh": "e38128228771d66806eaa945f3711c609d2d9f56e124be9b1d1546b2b89e89f5",
         "scripts/operator-fences.sh": "057c5d9cb36f1563366bcacfc2a295a5bd62aded90860f8208865ee86de8e217",
         "scripts/row-currency-lint.sh": "47b26a433c2a96e69844fdca03b263c37bd0f80bbbbeeacd87dd4117feef1167",
-        "scripts/scratch-reaper.mutation.sh": "411dddfafabf9fb5aadabb0c442fd443434a572879ac625ce29693a237e4e976",
+        "scripts/scratch-reaper.mutation.sh": "8ef0a08373e7aed2c4f3388e701a29346b51ad2862108b8170d35f4d9c0ef6e4",
         "scripts/scratch-reaper.sh": "1cdefb018a15be05c60b6dd257678573d2135230ceb58cfaef0fcd9c835975b1",
         "scripts/scratch-reaper.test.sh": "02bfc4d3f7cf1945618b84b99949dd784bf472c76858cd7ecaec8de9a288c135",
         "scripts/scratch-sweep.sh": "4397e3931381098d17ba2cedc5415bfcb7baaaf8d0c6fe05bffa000826b45e62",
@@ -15938,7 +15938,7 @@
         "scripts/lib/failure-type.py": "ce7b83a67ec1960d46b5697bc4aadcfa5fc273ed321200deea71c4ac0da69d38",
         "scripts/lib/left-off.py": "f86b8a7767d1c0c4af0db1358eeaf4ce98d4e8524f7c0a2f7944a307b500e4db",
         "scripts/hooks/failure-type.test.sh": "d540d43e3550ab716a362e2effe9f09ebe1bceea2daac8cf1bd2489911030bff",
-        "scripts/hooks/failure-type.mutation.sh": "5e7ae2f9db01319d09788455ee64e434b7c73f9d1da626c663e4c7b3ca23bff6",
+        "scripts/hooks/failure-type.mutation.sh": "b9bc6705e29fd7b055c3c94e90aaceb978c404693e22ed4888bf3bc20134122f",
         "scripts/hooks/guard-agent-state-claims.py": "341d0223962f9ccfa6298b3d6982dc55b5f3ea19ec5ea4ba1deb162380811ab5",
         "scripts/hooks/guard-brief-scope.sh": "d62b66830b5f8665bb7492b2278ad7261f3279401142b41296ab1d2ada78c9e3",
         "ass-kicker/brief-scope.py": "d6910b6891d7461b98d51b234343a004834e6fd4a3c52e5dc530b6539cf376a9",
@@ -15994,7 +15994,7 @@
         "scripts/hooks/left-off-report.sh": "d14ee9ceac38d7de2c7d04ba85eb11a4ab7d6610f3bc0d066db606dbc9090dee",
         "scripts/lib/workspaces.py": "982dad78682707a732036c4c0b4b99753bbae9de42e2e7cf83a407913367ed54",
         "scripts/hooks/left-off.test.sh": "159b8e36fd623094897bde2132e2c205fbc985ae72895e783645bb91720ac3a1",
-        "scripts/hooks/left-off.mutation.sh": "b40990e25b412e76e336ca2ffed61d8702b94acf30c3a841dc9e5870d26149c8",
+        "scripts/hooks/left-off.mutation.sh": "845f799309b90254a9ac87ed3fead11485364080c49b4be8640b6f335fe02c0a",
         "scripts/hooks/notice-ceo-asks.sh": "c1982944fcb496bd016248b31063838f2ce0806418eeb41cddd335da9687bf01",
         "scripts/hooks/notice-ceo-inputs-unheld.sh": "22df89c10271652f710eb04caba653cdc138eda6bc4eeb1971f9b0e83adf2fc7",
         "scripts/hooks/notice-ceo-ruled-prose.sh": "b6aa4600524c27077232a5a83feab3cfe603436ae8dcaaaa0bcc9ed725c0c1b5",
@@ -16038,7 +16038,7 @@
         "scripts/hooks/worker-ended-handoff.sh": "92a3dc39b502f1841b1c8f604eb5c42e5047fb678e86c76fb9dd3ab5aae97516",
         "scripts/hooks/worker-started-handoff.sh": "f18675f4938cae746d536661b44e49e7a3425c15acff5c7cd3ad2e1bf7ee9919",
         "scripts/hooks/worker-updated-handoff.sh": "6cbcdd13306d482c8bfd9da1f6ccc68141a3091f9f9405bb52232cb14430ebf8",
-        "scripts/hooks/contract-integrity-case7.mutation.sh": "a49ab1e3b263ab94238bd2a99667a642811d89b5a4439e260b9b95a1e32c1f92",
+        "scripts/hooks/contract-integrity-case7.mutation.sh": "71a90a5ab0d82a3e109d7f06924e6766135b106bd3581b291067efb4fa663866",
         "scripts/lib/agent_hold.py": "90512881bea4b681b9ced8f4528613cdd82959d9c3fb4e2f97ad44477aeffeed",
         "scripts/hooks/guard-record-owner-memory.sh": "541c13b0091e5aa1f4be35f9619da7c0cb0a35a2fc07f6fdf99cc72a97cd1806",
         "scripts/lib/record_owner.py": "10f0983a12f686bcf462a63ec71ff8bed32507f5e3315395bf6dcf55eb20cfb1",
@@ -16090,7 +16090,7 @@
         "scripts/lib/row-currency.py": "484404c6143d1a5b94182321e6fa0f6250b298b27a7d3b59ba26d5ed648db677",
         "scripts/row-currency-lint.sh": "47b26a433c2a96e69844fdca03b263c37bd0f80bbbbeeacd87dd4117feef1167",
         "scripts/row-headline-verify.sh": "1c58c9d7010e77ebd0e15ab796bf778ce989116b9098a6a3f223b163cfab616a",
-        "scripts/hooks/guard-row-currency-commits.mutation.sh": "0ee55fe56ec08d46ab55a90782e266b495dc6b5f949dcc5d28e423789a97f512",
+        "scripts/hooks/guard-row-currency-commits.mutation.sh": "624a4cab7af937bb9ea59cb48429f3ad290fca56eab3d4718a52a7e5eabbc5af",
         "scripts/lib/mutation-harness.sh": "c867dfbed295d061cf1f7cd5dc5ba85b01519f31706e313d1da333c1f92aab63",
         "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
@@ -16214,7 +16214,7 @@
         "scripts/hooks/dispatch-pretooluse.manifest": "d5022dd189c9fc70c3b728c76f713558ab2f893dbe8cb4dd5f84d34e7f307f4f",
         "scripts/hooks/install.sh": "f5bdf9bc751585af7c3fe3f0513a910dfff8821ee1f8e11b743d3c7d8a5adc3a",
         "scripts/lib/registered-hooks.sh": "b6da2aa1ed92ad840fe03ac4c47f1ce2e18887fc99d58755bbf43ac000fea6cd",
-        "scripts/hooks/dispatch-pretooluse.mutation.sh": "da8984e7acce5e939ee2def3cdf02063ff47c52dfced3f83765b559f2dd3b9ff",
+        "scripts/hooks/dispatch-pretooluse.mutation.sh": "e9a8c8dc3e22ce7747a50256af7701d9e0f52db137c699cf73f14f0bc739c28b",
         "scripts/lib/mutation-harness.sh": "c867dfbed295d061cf1f7cd5dc5ba85b01519f31706e313d1da333c1f92aab63",
         "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
@@ -16325,7 +16325,7 @@
         "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
         "scripts/hooks/notice-waiver-repetition.py": "536de700653b2d81df7ea51223338be0a9e93e67c1203e9950ec33a312381125",
         "scripts/waiver-repetition-lint.sh": "03bba7c566c0b3348d91badad662f240b2da1085c80291bc34765418ce88adb0",
-        "scripts/hooks/waiver-repetition.mutation.sh": "70a9e53f97b80d55d9f1425d6aff3edf268b515b6e4a649e13c0a16825ad4d76",
+        "scripts/hooks/waiver-repetition.mutation.sh": "c8fb7ba4752d91156d839f7fe81e8f2fa8120968793c60d72a79c1fbf16d5f15",
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
         "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
@@ -16352,7 +16352,7 @@
         "scripts/lib/vendored-material.sh": "630fc9746255b5e2c6cf24be71ba0b9780a5d673f98559db3099b44f47fa3c92",
         "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
-        "scripts/hooks/guard-vendoring-commits.mutation.sh": "5f0c2d6bee72715abc0d2a7b87f564289032719e25cc698661a27db32a0f2682",
+        "scripts/hooks/guard-vendoring-commits.mutation.sh": "9161d08df9f2488d19dc2d9fdf13188a964fcf7eded164800afa51f5e66be6be",
         "scripts/lib/mutation-harness.sh": "c867dfbed295d061cf1f7cd5dc5ba85b01519f31706e313d1da333c1f92aab63",
         "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
@@ -16482,7 +16482,7 @@
         "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
         "scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
         "scripts/lib/ceo-ruled.py": "e92586fdd79f1c648c2f764613f47a56bc7f2d843061c70053611d7f2e23ce30",
-        "scripts/hooks/operator-leads.mutation.sh": "c706e14a9c6e4f379ed892f8927422bb3d65f0ed53825ef2634639d644de6e28",
+        "scripts/hooks/operator-leads.mutation.sh": "9f08a3b3b487ed429c120190f73730964156f91a7ebd3b505759926f54cb2c5f",
         "scripts/lib/mutation-harness.sh": "c867dfbed295d061cf1f7cd5dc5ba85b01519f31706e313d1da333c1f92aab63",
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
         "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
@@ -16579,7 +16579,7 @@
         "scripts/lib/left-off.py": "f86b8a7767d1c0c4af0db1358eeaf4ce98d4e8524f7c0a2f7944a307b500e4db",
         "scripts/hooks/failure-type.test.sh": "d540d43e3550ab716a362e2effe9f09ebe1bceea2daac8cf1bd2489911030bff",
         "scripts/hooks/failure-type-lookup.sh": "8e77ae84f95d79e11fd2f168a2fbb39c5f9548a8eec3ffcd0af5e4496e8cffd1",
-        "scripts/hooks/failure-type.mutation.sh": "5e7ae2f9db01319d09788455ee64e434b7c73f9d1da626c663e4c7b3ca23bff6",
+        "scripts/hooks/failure-type.mutation.sh": "b9bc6705e29fd7b055c3c94e90aaceb978c404693e22ed4888bf3bc20134122f",
         "scripts/lib/mutation-harness.sh": "c867dfbed295d061cf1f7cd5dc5ba85b01519f31706e313d1da333c1f92aab63",
         "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
@@ -16805,7 +16805,7 @@
       "commands": [],
       "sources": {
         "mega-lander/create-teammate-worktree.sh": "28b165ea46c36cde125e0214f0f7f98fa28e4219a14d74bde8488367b91c5a80",
-        "mega-lander/tests/workspace-spec-fourteen.mutation.sh": "716bca7aa5c1732806e040c24684160d2eeeb5aca566bdf8d79ab70051c6c552",
+        "mega-lander/tests/workspace-spec-fourteen.mutation.sh": "2de33daeaa368b12ac6bfc83b70e8fe3e9c6a812d8147009bb5b1895c9476149",
         "mega-lander/tests/workspace-spec-fourteen.test.sh": "53f74b973bd0c1105c0bc17f09ca53c5cffeb5ffa32f0147ec3a0dfe2fa32c0c",
         "mega-lander/workspaces.py": "1bf0140ac5f8bab0da20c8feccfe8cd3c432e18943204e1109726ded56b008fc",
         "mega-lander/workspaces.sh": "93b86b885516641e69a7cd84105260ee94d52300f0099362c7ed9b475855764e",
@@ -16891,7 +16891,7 @@
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
         "scripts/hooks/guard-owned-state.sh": "5f137d70ca9ea567cf0d5d06250ff50606db82f2323d2e68346e5295721d58aa",
-        "scripts/hooks/owned-state.mutation.sh": "7eb9e8010a5113527b391ec6284f48839137d9efc09f855f76485f7133c6eb58",
+        "scripts/hooks/owned-state.mutation.sh": "16c882410080023b2f3502ca2d7237fe005ce31b9c91be738ffba65551d05932",
         "scripts/owned-state.sh": "313a26b975baf1005c6a86beaa03cc7910481b9e1d6754d45a0e4206b5b001a0",
         "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
@@ -16932,7 +16932,7 @@
         "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
         "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
-        "scripts/hooks/ceo-todos.mutation.sh": "a918552413245b809ace2d74b9f60633132837dbfe5b0df06a27678f468c607c",
+        "scripts/hooks/ceo-todos.mutation.sh": "b84e9b40ba67ff10767e38c451804c32d2789c99f8881a5d063bef590d954b25",
         "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",

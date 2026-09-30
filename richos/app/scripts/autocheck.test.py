@@ -204,8 +204,10 @@ results = {row["result"] for row in rows}
 sys.exit(1 if results - {"passed", "not-run"} else 3 if "not-run" in results else 0)
 """
 SUITE = """#!/usr/bin/env bash
-# Fixture owning suite.
+# Fixture owning suite. It records the mutation switches it was run with.
 cd "$(dirname "$0")/.."
+printf 'suite-env RICHOS_MUTATION_PASSES=%s RICHOS_FOURTEEN_MUTANTS=%s\\n' \\
+    "${RICHOS_MUTATION_PASSES:-unset}" "${RICHOS_FOURTEEN_MUTANTS:-unset}" >> "$AUTOCHECK_FIXTURE_LOG"
 if grep -q BROKEN src/thing.txt; then
     echo "suite: FAIL src/thing.txt is broken" >&2
     exit 1
@@ -759,6 +761,15 @@ class Land(Fixture):
         self.assertIn("a mutation pass", whys["engine scripts/operator-fences-mutation.test.sh"])
         self.assertIn("NOT RUN: engine scripts/operator-fences-mutation.test.sh (a mutation pass", out.stderr)
 
+    def test_the_merge_gate_runs_every_check_with_the_mutation_passes_switched_off(self):
+        # The lead's decision on esc-20260930T223507Z-b12f0d6a: the passes suites run at their own
+        # end leave the merge too; the nightly engine run switches them on.
+        self.make()
+        self.branch_with("feature", "richos/app/src/thing.txt", "fine, better\n")
+        out = self.git("merge", "--no-ff", "-m", "land feature", "feature")
+        self.assertIn("suite-env RICHOS_MUTATION_PASSES=0 RICHOS_FOURTEEN_MUTANTS=0", self.tools())
+        self.assertIn("mutation passes are off in the merge", out.stderr)
+
     def test_measure_runs_the_land_check_on_what_is_staged_and_writes_no_receipt(self):
         # How the gate is measured on a replayed merge: the land check of the staged change,
         # run by hand on a branch, with its verdict and time and no land receipt.
@@ -990,6 +1001,21 @@ class Tables(unittest.TestCase):
         real.top = HERE.parents[1].parent
         self.assertTrue(module.mutation_unit(real, "scripts/operator-fences-mutation.test.sh"))
         self.assertFalse(module.mutation_unit(real, "scripts/lib/mutation-pool.test.sh"))
+
+    def test_every_app_mutation_harness_honors_the_merge_gates_switch(self):
+        # The engine's harnesses are held to the same line by the engine's own
+        # scripts/mutation-inventory.test.sh (section 3). These are the app's: discovered from
+        # disk, each must stop at once under the switch, print NOT RUN and exit 0.
+        harnesses = sorted(HERE.rglob("*.mutation.py"))
+        self.assertTrue(harnesses)
+        missing = [str(h.relative_to(HERE)) for h in harnesses
+                   if 'environ.get("RICHOS_MUTATION_PASSES") == "0"' not in h.read_text()]
+        self.assertEqual(missing, [], "harnesses the merge gate cannot switch off")
+        env = {**os.environ, "RICHOS_MUTATION_PASSES": "0"}
+        for harness in harnesses:
+            out = subprocess.run([sys.executable, str(harness)], env=env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+            self.assertIn("NOT RUN: " + harness.name, out.stdout)
 
 
 class Install(Fixture):

@@ -9,6 +9,10 @@
 # (undecided-deleted), because a collector that deletes on a guess deletes a
 # live test's simulator once and is switched off for ever.
 
+# THE MERGE GATE LEAVES THIS PASS TO THE NIGHTLY (richos/app/scripts/autocheck/README.md): the
+# gate runs the suite with RICHOS_MUTATION_PASSES=0; nightly-engine.py runs every pass.
+if [ "${RICHOS_MUTATION_PASSES:-}" = 0 ]; then echo "NOT RUN: $(basename "$0"), a mutation pass (RICHOS_MUTATION_PASSES=0, the merge gate; the nightly runs it)"; exit 0; fi
+
 set -uo pipefail
 [ -n "${RICHOS_MUTATION_INNER:-}" ] && exit 0
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

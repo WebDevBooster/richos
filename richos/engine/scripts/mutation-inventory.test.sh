@@ -183,6 +183,83 @@ else
     bad "2d  discovery missed a nested harness — it is globbing, not walking" "got: '$R'"
 fi
 
+# ===========================================================================
+# 3. EVERY HARNESS HONORS THE MERGE GATE'S SWITCH (2026-09-30).
+#
+# The merge gate runs the checks a change owns, each capped at 600 s, and
+# leaves every mutation pass to the nightly engine run (nightly-engine.py;
+# richos/app/scripts/autocheck/README.md). It runs every suite with
+# RICHOS_MUTATION_PASSES=0, and a harness's FIRST command must read it:
+# print NOT RUN and exit 0 before it copies, builds or runs anything, so the
+# suite that invokes it goes on to its own verdict. A harness that ignores it
+# puts its whole pass back into every merge that selects its suite, which is
+# how the merge of 4e73fd89 spent its budget. Unset or 1, nothing changes.
+# ===========================================================================
+SWITCH_LINE='if [ "${RICHOS_MUTATION_PASSES:-}" = 0 ]; then'
+
+# scan_unswitched <root> -> one root-relative path per harness whose first
+# command (after the shebang, comments and blank lines) is not the switch.
+scan_unswitched() {
+    local root="$1" h first
+    while IFS= read -r h; do
+        [ -n "$h" ] || continue
+        first="$(awk 'NR > 1 && $0 !~ /^[ \t]*(#|$)/ { print; exit }' "$h")"
+        case "$first" in
+            "$SWITCH_LINE"*) ;;
+            *) printf '%s\n' "${h#"$root"/}" ;;
+        esac
+    done <<EOF
+$(find "$root" -type f -name '*.mutation.sh' 2>/dev/null | LC_ALL=C sort)
+EOF
+}
+
+UNSWITCHED="$(scan_unswitched "$ENGINE_ROOT")"
+if [ -z "$UNSWITCHED" ]; then
+    ok "3a  every one of the $N_HARNESS harnesses reads the merge gate's switch as its first command"
+else
+    bad "3a  harness(es) the merge gate cannot switch off — their pass runs in every merge that selects the suite" \
+        "$(printf '%s' "$UNSWITCHED" | tr '\n' ' ')"
+    echo "        Put the switch first: see any harness under scripts/hooks/ for the two comment lines and the test."
+fi
+
+# 3b — the switch really stops a real harness: one the scan passed, run with
+# the switch, answers at once, runs nothing and exits 0. Only a harness the
+# scan passed is ever run here: an unswitched one would run its whole pass.
+PROBE=""
+while IFS= read -r h; do
+    [ -n "$h" ] || continue
+    printf '%s\n' "$UNSWITCHED" | grep -qxF "${h#"$ENGINE_ROOT"/}" || { PROBE="$h"; break; }
+done <<EOF
+$(find "$ENGINE_ROOT/scripts/hooks" -type f -name '*.mutation.sh' 2>/dev/null | LC_ALL=C sort)
+EOF
+if [ -z "$PROBE" ]; then
+    OUT="no harness under scripts/hooks reads the switch"; RC=1
+else
+    OUT="$(RICHOS_MUTATION_PASSES=0 bash "$PROBE" 2>&1)"; RC=$?
+fi
+if [ "$RC" -eq 0 ] && [ "$OUT" = "NOT RUN: $(basename "$PROBE"), a mutation pass (RICHOS_MUTATION_PASSES=0, the merge gate; the nightly runs it)" ]; then
+    ok "3b  under the switch $(basename "$PROBE") prints only its NOT RUN line and exits 0"
+else
+    bad "3b  $(basename "$PROBE") under RICHOS_MUTATION_PASSES=0 did not stop at once" "exit $RC: $(printf '%s' "$OUT" | head -3)"
+fi
+
+# 3c/3d — the controls: a harness without the switch, or with it after a
+# command, is reported; one that starts with it is not.
+CTL3="$SANDBOX/tree3"
+mkdir -p "$CTL3/scripts/hooks"
+printf '#!/usr/bin/env bash\n# header\nset -uo pipefail\n%s echo x; exit 0; fi\n' "$SWITCH_LINE" \
+    >"$CTL3/scripts/hooks/late.mutation.sh"
+printf '#!/usr/bin/env bash\n# header\n\n%s echo x; exit 0; fi\nset -uo pipefail\n' "$SWITCH_LINE" \
+    >"$CTL3/scripts/hooks/first.mutation.sh"
+printf '#!/usr/bin/env bash\necho no switch\n' >"$CTL3/scripts/hooks/none.mutation.sh"
+R="$(scan_unswitched "$CTL3" | tr '\n' ' ')"
+if [ "$R" = "scripts/hooks/late.mutation.sh scripts/hooks/none.mutation.sh " ]; then
+    ok "3c  NEGATIVE  a harness with no switch, or with it after a command, is reported"
+    ok "3d  POSITIVE  a harness whose first command is the switch is not"
+else
+    bad "3c/3d  the switch scan judged the controls wrongly" "got: '$R'"
+fi
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
     printf '  %s/%s cases passed\n' "$PASS" "$PASS"

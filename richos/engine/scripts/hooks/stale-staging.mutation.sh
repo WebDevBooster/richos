@@ -20,6 +20,10 @@
 #
 # Invoked from stale-staging.test.sh, so the runner that discovers *.test.sh
 # runs this too. A harness nobody runs proves nothing about anything.
+# THE MERGE GATE LEAVES THIS PASS TO THE NIGHTLY (richos/app/scripts/autocheck/README.md): the
+# gate runs the suite with RICHOS_MUTATION_PASSES=0; nightly-engine.py runs every pass.
+if [ "${RICHOS_MUTATION_PASSES:-}" = 0 ]; then echo "NOT RUN: $(basename "$0"), a mutation pass (RICHOS_MUTATION_PASSES=0, the merge gate; the nightly runs it)"; exit 0; fi
+
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

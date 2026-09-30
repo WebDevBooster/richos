@@ -138,9 +138,9 @@ class Repo:
         self.state = self.common / "richos-autocheck"
         self.env = clean_env(str(self.common))
 
-    def run(self, argv, **kw):
+    def run(self, argv, env=None, **kw):
         say("+ " + " ".join(shlex.quote(str(a)) for a in argv))
-        return subprocess.run([str(a) for a in argv], cwd=self.top, env=self.env, stdin=subprocess.DEVNULL, **kw)
+        return subprocess.run([str(a) for a in argv], cwd=self.top, env=env or self.env, stdin=subprocess.DEVNULL, **kw)
 
     def index_tree(self):
         return git("write-tree", cwd=self.top)
@@ -710,6 +710,15 @@ def nightly_only(repo, suite):
 # an engine unit that IS a mutation pass is never started here, whatever selected it: one named
 # `<suite>-mutation.test.sh`, or one whose header says `# merge-gate: mutation-pass`. It is
 # named NOT RUN and the nightly engine run (nightly-engine.py) runs it with every other unit.
+#
+# The passes suites run at their own end (about seventy engine suites and three app suites
+# invoke a `*.mutation.sh` or `*.mutation.py` harness) are switched off here the other way: the
+# gate runs every check with MUTATION_SWITCH, each harness's first line reads it, prints NOT RUN
+# and exits 0, and the suite's own checks still run and still decide. The nightly engine run
+# sets it to 1 (every pass on), and so does the app nightly's workspace gate; unset, as an
+# engineer runs a suite by hand, the engine harnesses run as they always did. The lead's
+# decision on esc-20260930T223507Z-b12f0d6a, option B.
+MUTATION_SWITCH = {"RICHOS_MUTATION_PASSES": "0", "RICHOS_FOURTEEN_MUTANTS": "0"}
 MUTATION_UNIT_NAME = re.compile(r"-mutation\.test\.sh$")
 MUTATION_UNIT_MARK = re.compile(r"^# merge-gate: mutation-pass\b", re.M)
 MUTATION_WHY = "a mutation pass; the nightly engine run (nightly-engine.py) runs it"
@@ -858,7 +867,10 @@ def land_check(repo, what, staged, range_argv, changed_lint=True, receipt=True):
         argv += ["--cap", str(CHECK_CAP_SECONDS), "--run-cap", str(left),
                  "--admission-wait", str(left), "--slot-wait", str(left)]
     try:
-        result = repo.run(["python3", PROOF_RUN, *argv, "--log-dir", str(directory), "--summary-out", summary_path])
+        say(f"autocheck: {what}: mutation passes are off in the merge ("
+            + " ".join(f"{k}={v}" for k, v in MUTATION_SWITCH.items()) + "); the nightlies run them")
+        result = repo.run(["python3", PROOF_RUN, *argv, "--log-dir", str(directory), "--summary-out", summary_path],
+                          env={**repo.env, **MUTATION_SWITCH})
         if (directory / "plan.json").is_file():
             pending = root / "last-attempt.pending"
             pending.write_text(json.dumps({"directory": str(directory), "identity": identity}))
