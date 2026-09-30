@@ -288,8 +288,13 @@ drive() { # <hook.sh> <matcher-kind> <variant> <session8>
     local hook="$1" out err
     out="$SANDBOX/o.txt"; err="$SANDBOX/e.txt"
     rm -rf "$REPO/.claude/state/stop-hook-notices"
+    # Every hook runs with a sandbox HOME: a hook that keeps per-session state
+    # under ~/.claude (the CI turn gate's sessions/<id>.json) would otherwise write
+    # a control session into the operator's own record when this suite runs by hand.
+    mkdir -p "$SANDBOX/home/.claude"
     mk_payload "$2" "$3" "$4" \
-        | RICHOS_ENTITY_ROOT="$REPO" CLAUDE_PROJECT_DIR="$REPO" \
+        | HOME="$SANDBOX/home" CLAUDE_CONFIG_DIR="$SANDBOX/home/.claude" \
+          RICHOS_ENTITY_ROOT="$REPO" CLAUDE_PROJECT_DIR="$REPO" \
           CLAUDE_PLUGIN_ROOT="$ENGINE_ROOT" \
           /bin/bash "$SCRIPT_DIR/$hook" >"$out" 2>"$err"
     RUN_RC=$?

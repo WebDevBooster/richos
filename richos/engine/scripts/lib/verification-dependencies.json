@@ -10091,7 +10091,7 @@
     },
     "scripts/hooks/unevaluated-payload.test.sh": {
       "source": "scripts/hooks/unevaluated-payload.test.sh",
-      "sha256": "3b3b903d46dd52413f79b837f9c62444fea1b4c002e244d33a35a0ca39b43a74",
+      "sha256": "ec86bceca7bee15e6ecb6fe5a1104832c177bb30fee64e307ae856824364091d",
       "evidence": "Full inventory-driven suite reviewed: literal private entity config, Git/TODO/rulings fixtures and four fixed payload variants. All current PreToolUse/Stop entrypoints are bound. Dispatcher is called without a chain argument. Engine owned-state declaration fallback remains a real key dependency; shape/boundary scanners read text only. registered_hook_scripts also expands all Bash/Write dispatcher modules; matcher_of assigns those unregistered basenames the Write control payload. Their complete prefix or Write closures are bound.",
       "keys": [],
       "edges": [
@@ -16488,7 +16488,7 @@
       ],
       "all_events": true,
       "sources": {
-        "scripts/hooks/unevaluated-payload.test.sh": "3b3b903d46dd52413f79b837f9c62444fea1b4c002e244d33a35a0ca39b43a74",
+        "scripts/hooks/unevaluated-payload.test.sh": "ec86bceca7bee15e6ecb6fe5a1104832c177bb30fee64e307ae856824364091d",
         "scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
         "hooks/hooks.json": "1ac87295207186846ad0f8fb48dc3d6ec5435634ac9e45702963a0ee30c3391e",
         "scripts/hooks/dispatch-pretooluse.sh": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
