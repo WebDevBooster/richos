@@ -9,6 +9,15 @@
 #   E2  the same file configured as a DIRECT command is still NOT RUNNABLE (the
 #       control: the executable-bit rule itself is unchanged).
 #   E3  an interpreter script that is not even readable is NOT RUNNABLE.
+#   E4  an engine table that is valid and empty plus an entity settings table that
+#       is corrupt JSON exits 2 (UNKNOWN), naming the file (hunt P5-08: it used
+#       to exit 0 "all 0 configured script(s)").
+#   E5  an entity with NO settings file at all, beside a readable engine table, is
+#       fine: an absent optional table is not a corrupt one.
+#   E6  a corrupt ENGINE table beside a good entity table also exits 2.
+#   E7  a corrupt table beside a genuinely missing script still exits 1: a
+#       definite failure is reported as one.
+#   E8  a table that parses but is not an object is unreadable too.
 #
 # CHECKER names another copy of registered-executables.py (used to show the new
 # cases fail on the version before the fix).
@@ -58,6 +67,35 @@ printf '#!/bin/sh\n' > "$ENG/scripts/s.sh"; chmod 000 "$ENG/scripts/s.sh"
 hooks_json "$ENG/hooks/hooks.json" 'bash ${CLAUDE_PLUGIN_ROOT}/scripts/s.sh'
 run
 if [ "$RC" = 1 ] && grep -q 'NOT RUNNABLE' <<<"$OUT"; then ok "E3  an unreadable interpreter script is NOT RUNNABLE"; else bad "E3  (rc=$RC): $OUT"; fi
+
+fresh
+printf '{"hooks":{}}\n' > "$ENG/hooks/hooks.json"
+printf '{ this is not json' > "$ENT/.claude/settings.local.json"
+run
+if [ "$RC" = 2 ] && grep -q 'settings.local.json' <<<"$OUT"; then ok "E4  a corrupt entity table is UNKNOWN (exit 2) and named"; else bad "E4  (rc=$RC): $OUT"; fi
+
+fresh
+printf '{"hooks":{}}\n' > "$ENG/hooks/hooks.json"
+run
+if [ "$RC" = 0 ]; then ok "E5  an absent optional settings file is fine"; else bad "E5  (rc=$RC): $OUT"; fi
+
+fresh
+printf '{ broken' > "$ENG/hooks/hooks.json"
+printf '{"hooks":{}}\n' > "$ENT/.claude/settings.local.json"
+run
+if [ "$RC" = 2 ] && grep -q 'hooks.json' <<<"$OUT"; then ok "E6  a corrupt engine table is UNKNOWN (exit 2)"; else bad "E6  (rc=$RC): $OUT"; fi
+
+fresh
+hooks_json "$ENG/hooks/hooks.json" '${CLAUDE_PLUGIN_ROOT}/scripts/gone.sh'
+printf '{ broken' > "$ENT/.claude/settings.local.json"
+run
+if [ "$RC" = 1 ] && grep -q 'MISSING' <<<"$OUT"; then ok "E7  a definite failure still exits 1 beside a corrupt table"; else bad "E7  (rc=$RC): $OUT"; fi
+
+fresh
+printf '{"hooks":{}}\n' > "$ENG/hooks/hooks.json"
+printf '[1, 2, 3]\n' > "$ENT/.claude/settings.local.json"
+run
+if [ "$RC" = 2 ]; then ok "E8  a table that is not an object is UNKNOWN (exit 2)"; else bad "E8  (rc=$RC): $OUT"; fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -45,8 +45,10 @@ EXIT CODES
 ===========================================================================
   0  every configured script exists and is executable
   1  at least one does not, each named with what is wrong with it
-  2  UNKNOWN — no registration surface could be read at all. Never 0: a
-     question that could not be asked and a clean answer must not look alike.
+  2  UNKNOWN — no registration surface could be read at all, or a table that
+     exists could not be parsed (and nothing else failed). Never 0: a question
+     that could not be asked and a clean answer must not look alike. A table
+     that is simply absent (no settings file) is not a corrupt one.
 """
 
 import argparse
@@ -82,18 +84,31 @@ def add_path(paths, p, where, direct):
     entry["direct"] = entry["direct"] or direct
 
 
-def read_hook_table(path, where, root, paths):
-    """Returns True if the surface was READ, whatever it contained.
+# read_hook_table verdicts
+READ, ABSENT, UNREADABLE = "read", "absent", "unreadable"
 
-    An empty-but-present table is a surface that was read and configures
-    nothing; an unreadable one is a surface that was not read. Collapsing those
-    two would let a corrupt hooks.json report a clean bill of health."""
+
+def read_hook_table(path, where, root, paths):
+    """READ, ABSENT or UNREADABLE.
+
+    Three states, never two. An empty-but-present table is a surface that was
+    read and configures nothing (READ). A file that is not there is a surface
+    that does not exist (ABSENT): an entity need not have a settings file. A file
+    that IS there and cannot be parsed is a surface whose registrations are
+    unknown (UNREADABLE); folding it into ABSENT let a corrupt table report a
+    clean bill of health."""
+    if not os.path.exists(path):
+        return ABSENT
     try:
         with open(path, encoding="utf-8") as fh:
             doc = json.load(fh)
+        if not isinstance(doc, dict):
+            return UNREADABLE
+        hooks = doc.get("hooks") or {}
+        if not isinstance(hooks, dict):
+            return UNREADABLE
     except Exception:
-        return False
-    hooks = doc.get("hooks") or {}
+        return UNREADABLE
     for event, matchers in hooks.items():
         for m in matchers or []:
             for h in (m.get("hooks") or []):
@@ -105,7 +120,7 @@ def read_hook_table(path, where, root, paths):
                             p = os.path.normpath(root + token[len(ph):])
                             add_path(paths, p, "%s[%s]" % (where, event), run_directly(tokens, i))
                             break
-    return True
+    return READ
 
 
 def read_launchd(engine, paths):
@@ -154,12 +169,15 @@ def main(argv=None):
 
     paths = {}
     surfaces = 0
-    if read_hook_table(os.path.join(engine, "hooks", "hooks.json"), "hooks.json",
-                       engine, paths):
-        surfaces += 1
-    if read_hook_table(os.path.join(entity, ".claude", "settings.local.json"),
-                       "settings.local.json", entity, paths):
-        surfaces += 1
+    unreadable = []
+    for table, where, root in (
+            (os.path.join(engine, "hooks", "hooks.json"), "hooks.json", engine),
+            (os.path.join(entity, ".claude", "settings.local.json"), "settings.local.json", entity)):
+        state = read_hook_table(table, where, root, paths)
+        if state == READ:
+            surfaces += 1
+        elif state == UNREADABLE:
+            unreadable.append(table)
     if args.launch_agents is None:
         surfaces += read_launchd(engine, paths)
     else:
@@ -176,7 +194,7 @@ def main(argv=None):
                              run_directly(argv, i))
                     surfaces += 1
 
-    if surfaces == 0:
+    if surfaces == 0 and not unreadable:
         sys.stderr.write(
             "UNKNOWN: no registration surface could be read (looked for "
             "%s/hooks/hooks.json and %s/.claude/settings.local.json)\n"
@@ -197,6 +215,16 @@ def main(argv=None):
             print("NOT RUNNABLE %s — configured by %s as an interpreter's script, and it "
                   "is not readable." % (p, where))
             bad += 1
+
+    for table in unreadable:
+        print("UNREADABLE   %s — the file is there and could not be parsed as a hook "
+              "table, so what it configures is UNKNOWN" % table)
+
+    if unreadable and not bad:
+        sys.stderr.write(
+            "UNKNOWN: %d registration table(s) could not be read, so the clean result "
+            "above covers only the rest\n" % len(unreadable))
+        return 2
 
     if not bad:
         print("all %d configured script(s) across %d surface(s) exist and are executable"
