@@ -73,6 +73,8 @@ mkdir -p "$ENTITY/.claude/agents"
 # the definition's default.
 printf -- '---\nname: mcjudge\nmodel: opus\n---\nA sandbox judgment role, at the ceiling.\n'  >"$ENTITY/.claude/agents/mcjudge.md"
 printf -- '---\nname: mctop\nmodel: fable\n---\nA sandbox role whose OWN default is above the ceiling.\n' >"$ENTITY/.claude/agents/mctop.md"
+printf -- '---\nname: mcverbose\nmodel: claude-fable-5-1\n---\nA sandbox role whose default is a VERBOSE id above the ceiling.\n' >"$ENTITY/.claude/agents/mcverbose.md"
+printf -- '---\nname: mcverboseopus\nmodel: "claude-opus-4-8"\n---\nA sandbox role whose default is a VERBOSE id at the ceiling.\n' >"$ENTITY/.claude/agents/mcverboseopus.md"
 printf -- '---\nname: mcplain\n---\nA sandbox role with no model: line at all.\n'             >"$ENTITY/.claude/agents/mcplain.md"
 
 # write_config <ceiling-line> [tiers]
@@ -155,6 +157,10 @@ case_rc "above the ceiling by the DEFINITION's own model: default -> BLOCKED" 2 
     "$(payload mctop mctop-fable-1 '' 'Judge this.')"
 case_rc "a verbose model id normalizes to its alias and is still BLOCKED" 2 \
     "$(payload mcjudge mcjudge-fable-2 claude-fable-5-1 'Judge this.')"
+case_rc "a VERBOSE model id in the definition's own model: default is BLOCKED like the alias (P5-63)" 2 \
+    "$(payload mcverbose mcverbose-fable-1 '' 'Judge this.')"
+case_silent "a verbose opus id in the definition's default is at the ceiling -> silent (P5-63)" \
+    "$(payload mcverboseopus mcverboseopus-opus-1 '' 'Judge this.')"
 case_rc "a READ-ONLY agent type over the ceiling is refused too (spend is spend)" 2 \
     "$(payload Explore explore-fable-1 fable 'Look around.')"
 
