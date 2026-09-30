@@ -93,7 +93,9 @@ def handle(args, reading, now, workers, reset_status, five_verdict):
         if fresh_below(reading, now, args.stale) and five_verdict() in ("below", "near-reset"):
             print("WEEKLY-QUOTA-RELEASE: fresh weekly allowance and five-hour policy both permit work.")
             print("  Send to: " + ", ".join(paused))
-            print("RESUME: quota allowance is confirmed. Continue the same work with the same context and workspace.")
+            # The generated RESUME, unchanged: the workspace message handler releases a
+            # controlled hold on that message and on nothing else.
+            print(pause_protocol.render_resume("weekly-quota"))
             print("  The watcher keeps polling.")
             return False, True
         return True, False

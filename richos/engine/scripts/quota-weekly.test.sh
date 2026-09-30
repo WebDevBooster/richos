@@ -60,6 +60,17 @@ class Weekly(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             self.assertEqual(weekly.handle(args,reading(0),NOW,workers(held=['worker']),{},lambda:'below'),(False,True))
         self.assertIn('RESUME:',out.getvalue())
+    def test_the_weekly_release_prints_the_generated_resume_a_hold_accepts(self):
+        args=types.SimpleNamespace(stale=300,command='watch')
+        out=io.StringIO()
+        with contextlib.redirect_stdout(out):
+            weekly.handle(args,reading(0),NOW,workers(held=['worker']),{},lambda:'below')
+        lines=out.getvalue().splitlines()
+        start=next(i for i,l in enumerate(lines) if l.startswith('RESUME:'))
+        end=next(i for i,l in enumerate(lines) if l.startswith(pause_protocol.RESUME_MARKER))
+        message='\n'.join(lines[start:end+1])
+        self.assertTrue(pause_protocol.is_generated_resume(message),message)
+        self.assertEqual(pause_protocol.validate_resume_text(message)['reason'],'weekly-quota')
     def test_standard_weekly_message_is_validated_unchanged(self):
         message=pause_protocol.render('weekly-quota','2026-10-01T09:00:00Z')
         self.assertEqual(pause_protocol.validate_text(message)['reason'],'weekly-quota')
