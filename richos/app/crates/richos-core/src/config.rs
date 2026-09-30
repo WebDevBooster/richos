@@ -678,7 +678,20 @@ impl ConfigStore {
         let (config, raw, readable, reason) = match fs::read_to_string(&path) {
             // No file: a fresh install. Every default applies, `raw_retention` included —
             // which is the shipping window and nothing new.
-            Err(_) => (StoredConfig::default(), None, true, None),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => (StoredConfig::default(), None, true, None),
+            // A file that is THERE and cannot be read (invalid UTF-8, permissions, I/O) is
+            // not a fresh install: it keeps everything, like the parse-failure arm below.
+            Err(_) => (
+                held_open(),
+                None,
+                false,
+                Some(
+                    "the settings file on disk could not be read; it is being left exactly \
+                     as it is rather than read as a fresh install, and nothing is written \
+                     over it"
+                        .to_string(),
+                ),
+            ),
             Ok(text) => match serde_json::from_str::<StoredConfig>(&text) {
                 Ok(c) if c.schema_version <= CONFIG_SCHEMA_VERSION => {
                     // Keep the document itself. `persist` reads it to restore any value this
@@ -2440,6 +2453,22 @@ mod tests {
         assert_eq!(store.theme(), Theme::Light);
         assert_eq!(store.font_scale(), 120);
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// Bytes that are not UTF-8 make `read_to_string` fail with something other than
+    /// NotFound. That is an unreadable file, not an absent one: retention must stay FOREVER
+    /// and nothing may be written over it.
+    #[test]
+    fn a_config_with_invalid_utf8_is_unreadable_not_a_fresh_install() {
+        let path = tmp_path("invalid-utf8");
+        let original: Vec<u8> = vec![b'{', 0xff, 0xfe, b'}'];
+        std::fs::write(&path, &original).unwrap();
+        let mut store = ConfigStore::open(&path).unwrap();
+        assert!(!store.readable());
+        assert_eq!(store.raw_retention(), RawRetention::FOREVER);
+        store.set_font_scale(120).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]

@@ -36,7 +36,18 @@ pub fn read(state: &Path, entity: &str, thread: &str) -> Result<WorkSummary, Str
         if path.extension().is_some_and(|e| e == "json") { paths.push(path); }
         if paths.len() > 10000 { return Err("There are too many saved work records for this view. Ask Rich to inspect a specific assignment.".into()); }
     }
-    paths.sort();
+    // The hundred shown are the hundred most recently written, not the first hundred
+    // filenames: a receipt id says nothing about which work is current. The bounds on records
+    // and bytes stay (they limit resource use); only the choice of WHICH records changed.
+    // Receipts are rewritten as their state advances, so the modification time is the last
+    // activity. Ties fall back to the path so the order is deterministic.
+    let mut dated = Vec::with_capacity(paths.len());
+    for path in paths {
+        let meta = std::fs::symlink_metadata(&path).map_err(|_| "A saved work record could not be read.")?;
+        dated.push((meta.modified().unwrap_or(std::time::UNIX_EPOCH), path));
+    }
+    dated.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    let paths: Vec<_> = dated.into_iter().map(|(_, p)| p).collect();
     let mut summary = WorkSummary { omitted: paths.len().saturating_sub(100), ..Default::default() };
     let mut bytes_read = 0;
     for path in paths.into_iter().take(100) {
@@ -191,12 +202,18 @@ pub fn trail(state: &Path, entity: &str, thread: &str, obligation: &str) -> Resu
     // Two passes, because a worker's land names its reviewer by id and the reviewer's
     // receipt may sort either side of it. Rows are held once, bounded the same way `read`
     // bounds itself.
+    //
+    // The 16 MiB budget counts only the records HELD for this assignment. Every file is still
+    // read one at a time and dropped unless it belongs to the target, so memory stays bounded
+    // while other assignments' intact receipts, however many, no longer use this one's
+    // budget. A record that cannot be read, is oversized, or is damaged still refuses the
+    // answer: it may be this assignment's, and guessing "nothing landed" is the one answer
+    // this module refuses.
     let mut rows: Vec<Value> = Vec::new();
-    let mut bytes_read = 0u64;
+    let mut bytes_held = 0u64;
     for path in &paths {
         let meta = std::fs::symlink_metadata(path).map_err(|_| "A saved work record could not be read.")?;
-        bytes_read += meta.len();
-        if !meta.is_file() || meta.len() > 1024 * 1024 || bytes_read > 16 * 1024 * 1024 {
+        if !meta.is_file() || meta.len() > 1024 * 1024 {
             return Err("A saved work record is too large or redirected.".into());
         }
         let bytes = std::fs::read(path).map_err(|_| "A saved work record could not be read.")?;
@@ -206,6 +223,10 @@ pub fn trail(state: &Path, entity: &str, thread: &str, obligation: &str) -> Resu
         }
         if row["request"]["obligation_id"].as_str() != Some(obligation) {
             continue;
+        }
+        bytes_held += meta.len();
+        if bytes_held > 16 * 1024 * 1024 {
+            return Err("A saved work record is too large or redirected.".into());
         }
         rows.push(row);
         if rows.len() > 200 {
@@ -382,6 +403,53 @@ pub fn trail(state: &Path, entity: &str, thread: &str, obligation: &str) -> Resu
         assert_eq!(trail.lands.len(), 1);
         assert!(trail.cleanup_pending);
         assert_eq!(trail.not_landed, 0, "a landed commit was counted as not landed");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Other assignments' intact receipts, however many, must not spend this assignment's
+    /// size budget: 20 unrelated receipts of about 900 KB each exceed 16 MiB in total while
+    /// this assignment's one small receipt is still readable.
+    #[test] fn unrelated_receipts_do_not_use_up_one_assignments_size_budget() {
+        let root = temp();
+        let mut worker = receipt("aaa", "obligation-7", "worker");
+        worker["integration"] = serde_json::json!({"verified":true,"reviewer_id":"bbb",
+            "branch":"cc/echo-1","commit":"deadbeef","cleanup_pending":[]});
+        let path = write(&root, &[worker]);
+        for n in 0..20 {
+            let mut other = receipt(&format!("big{n:02}"), "obligation-9", "worker");
+            other["padding"] = "x".repeat(900 * 1024).into();
+            std::fs::write(path.join(format!("big{n:02}.json")), serde_json::to_vec(&other).unwrap()).unwrap();
+        }
+        let trail = trail(&root, "depot", "thread", "obligation-7").unwrap();
+        assert_eq!(trail.lands.len(), 1, "unrelated receipts made the assignment unreadable");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// The saved-work view shows the most recently written receipts, not the first hundred
+    /// filenames: a newest receipt whose id sorts last must still be shown.
+    #[test] fn the_saved_work_view_shows_the_newest_records_not_the_first_filenames() {
+        let root = temp();
+        let rows: Vec<Value> = (0..120).map(|n| {
+            let mut r = receipt(&format!("a{n:03}"), "o", "worker");
+            r["request"]["title"] = format!("old {n}").into();
+            r
+        }).collect();
+        let path = write(&root, &rows);
+        let base = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        for (n, row) in rows.iter().enumerate() {
+            let f = std::fs::File::options().write(true).open(path.join(format!("{}.json", row["id"].as_str().unwrap()))).unwrap();
+            f.set_modified(base + std::time::Duration::from_secs(n as u64)).unwrap();
+        }
+        let mut newest = receipt("zzz-newest", "o", "worker");
+        newest["request"]["title"] = "the newest work".into();
+        write(&root, &[newest]);
+        let f = std::fs::File::options().write(true).open(path.join("zzz-newest.json")).unwrap();
+        f.set_modified(base + std::time::Duration::from_secs(5000)).unwrap();
+        let summary = read(&root, "depot", "thread").unwrap();
+        assert_eq!(summary.items.len(), 100);
+        assert_eq!(summary.omitted, 21);
+        assert!(summary.items.iter().any(|i| i.title == "the newest work"), "the newest record was hidden by its filename");
+        assert!(!summary.items.iter().any(|i| i.title == "old 0"), "the oldest record outranked a newer one");
         std::fs::remove_dir_all(root).unwrap();
     }
 
