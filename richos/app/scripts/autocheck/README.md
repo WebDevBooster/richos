@@ -25,9 +25,11 @@ replays commits and is not recorded; its land runs the full checks.
 
 A check `proof-run.py` could not run is reported as its own state, `not-run`, with a reason:
 `no-screen` (a suite that boots the app on a screen, under `--no-host-screen` with no test-VM
-guest named), `host-gap` (a declared host gap) or `unchanged-inputs` (a suite skipped by
-`RUN_TESTS_SKIP_UNCHANGED`). Until 2026-09-29 `front-door` and `gui-boot` were recorded as
-`passed` in exactly that case.
+guest named), `host-gap` (a declared host gap), `unchanged-inputs` (a suite skipped by
+`RUN_TESTS_SKIP_UNCHANGED`) or `suite-skipped` (a UI suite run directly whose evidence ledger
+records only a skip, such as `realbytes.js` with no `cargo`). Until 2026-09-29 `front-door` and
+`gui-boot` were recorded as `passed` in exactly that case, and until 2026-09-30 so was a
+skipped UI suite.
 
 **The land's decision: a `no-screen` NOT RUN does not refuse the land; every other NOT RUN
 does.** Why:
@@ -43,7 +45,7 @@ does.** Why:
   where a screen may be used, the test VM, before anything is published.
 - With `RICHOS_GUI_HOST` naming a guest, the same suites run in the guest and are real passes
   or failures; nothing here changes that.
-- A `host-gap` or `unchanged-inputs` NOT RUN is a suite that did not answer for this change
+- A `host-gap`, `unchanged-inputs` or `suite-skipped` NOT RUN is a suite that did not answer for this change
   on a host that could have run it, so it refuses. The land check removes
   `RUN_TESTS_SKIP_UNCHANGED` from its environment: a land runs every suite it selected.
 
