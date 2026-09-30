@@ -7748,7 +7748,7 @@
     },
     "scripts/lib/owned-systems.py#fixture-rows": {
       "source": "scripts/lib/owned-systems.py",
-      "sha256": "722c3279040fde20c10c0e9f95a42808c02949cbb9e4f41b1425aaf4dde0372f",
+      "sha256": "f07b79f4608753f0a622bf9c8ddba78f3058e2b1a20d4b75106e028fd81c11f9",
       "evidence": "Reviewed config precedence, declaration parser/expansion, all subprocess sites and report/demanded/dispose call closure. The suite always provides a nonempty literal entity OWNED_SYSTEMS_DECLARATION, so the engine setting is not consulted. Every executed row is a literal shell builtin fixture, absent path or the bound shipped escalations row. Remaining helpers only parse/render text or read/write entity state with wall-clock TTLs. No general arbitrary-declaration qualification is claimed.",
       "keys": [
         "OWNED_SYSTEMS_DECLARATION"
@@ -10049,7 +10049,7 @@
     },
     "scripts/lib/owned-systems.py#fixture-default": {
       "source": "scripts/lib/owned-systems.py",
-      "sha256": "722c3279040fde20c10c0e9f95a42808c02949cbb9e4f41b1425aaf4dde0372f",
+      "sha256": "f07b79f4608753f0a622bf9c8ddba78f3058e2b1a20d4b75106e028fd81c11f9",
       "evidence": "Declaration parser, command expansion, subprocess sites and demanded/dispose closure reviewed. Private entity omits the declaration key/file, so the literal engine default is resolved. The current config key is checked before this contract applies. Changed command rows or nondefault paths force conservative selection.",
       "keys": [
         "OWNED_SYSTEMS_DECLARATION"
@@ -10718,7 +10718,7 @@
     },
     "scripts/lib/owned-systems.py#template-default": {
       "source": "scripts/lib/owned-systems.py",
-      "sha256": "722c3279040fde20c10c0e9f95a42808c02949cbb9e4f41b1425aaf4dde0372f",
+      "sha256": "f07b79f4608753f0a622bf9c8ddba78f3058e2b1a20d4b75106e028fd81c11f9",
       "evidence": "The contract sandbox replaces both engine and entity configuration with the same literal template, which omits OWNED_SYSTEMS_DECLARATION. Only the built-in default filename can resolve. The shipped default rows are bound if present in the copied fixture; no real engine config is consulted.",
       "keys": [],
       "edges": [
@@ -13805,7 +13805,7 @@
     },
     "scripts/lib/owned-systems.py#paused-rows": {
       "source": "scripts/lib/owned-systems.py",
-      "sha256": "722c3279040fde20c10c0e9f95a42808c02949cbb9e4f41b1425aaf4dde0372f",
+      "sha256": "f07b79f4608753f0a622bf9c8ddba78f3058e2b1a20d4b75106e028fd81c11f9",
       "evidence": "Only sweep/render/ordered_standing with supplied literal rows. Paused CI returns before command/declaration resolution. No CLI configuration/declaration lookup or row command executes; the fixture additionally makes run raise if invoked.",
       "keys": [],
       "edges": [
@@ -15970,7 +15970,7 @@
         "scripts/hooks/guard-no-home-network-phone.sh": "90012513625b70e5ccf0dddc3e2dca9b4db2ea6e466364fc6eb71891b26d35a9",
         "scripts/hooks/guard-operator-claim.sh": "06ded03dc7f1dc6825df5e952619dcaae26c24f0bcda7ba017c935ed20c5663b",
         "scripts/hooks/guard-owned-state.sh": "5f137d70ca9ea567cf0d5d06250ff50606db82f2323d2e68346e5295721d58aa",
-        "scripts/lib/owned-systems.py": "722c3279040fde20c10c0e9f95a42808c02949cbb9e4f41b1425aaf4dde0372f",
+        "scripts/lib/owned-systems.py": "f07b79f4608753f0a622bf9c8ddba78f3058e2b1a20d4b75106e028fd81c11f9",
         "owned-systems.declaration": "53055602ea5dddb54a84be7d701a6a072c6b343d573a55af1783f9402d56edde",
         "scripts/ci-status.sh": "cdc53d28b1814b1e53d6fe9debf95b4a72d361a34e650da60f53ac19462ff3b6",
         "scripts/lib/ci-surface.py": "57038d01ac4b4e2ffbf5aeb7b755effdcf82c1d12f0b880b4df2a545cd392700",
@@ -16604,7 +16604,7 @@
         "scripts/hooks/guard-no-home-network-phone.sh": "90012513625b70e5ccf0dddc3e2dca9b4db2ea6e466364fc6eb71891b26d35a9",
         "scripts/hooks/guard-operator-claim.sh": "06ded03dc7f1dc6825df5e952619dcaae26c24f0bcda7ba017c935ed20c5663b",
         "scripts/hooks/guard-owned-state.sh": "5f137d70ca9ea567cf0d5d06250ff50606db82f2323d2e68346e5295721d58aa",
-        "scripts/lib/owned-systems.py": "722c3279040fde20c10c0e9f95a42808c02949cbb9e4f41b1425aaf4dde0372f",
+        "scripts/lib/owned-systems.py": "f07b79f4608753f0a622bf9c8ddba78f3058e2b1a20d4b75106e028fd81c11f9",
         "owned-systems.declaration": "53055602ea5dddb54a84be7d701a6a072c6b343d573a55af1783f9402d56edde",
         "scripts/ci-status.sh": "cdc53d28b1814b1e53d6fe9debf95b4a72d361a34e650da60f53ac19462ff3b6",
         "scripts/lib/ci-surface.py": "57038d01ac4b4e2ffbf5aeb7b755effdcf82c1d12f0b880b4df2a545cd392700",
@@ -16907,7 +16907,7 @@
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
         "scripts/lib/escalations.sh": "bda6b4af107d64144cac6fe9a5ac507b007c81ebac30b53bb59256b49f9ff1c5",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
-        "scripts/lib/owned-systems.py": "722c3279040fde20c10c0e9f95a42808c02949cbb9e4f41b1425aaf4dde0372f",
+        "scripts/lib/owned-systems.py": "f07b79f4608753f0a622bf9c8ddba78f3058e2b1a20d4b75106e028fd81c11f9",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
         "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
         "scripts/lib/ci_pause.py": "f41e86ea2b1aaa036c92eb44ddcb2fe2a6880724162561a5e31b84d556758693"
