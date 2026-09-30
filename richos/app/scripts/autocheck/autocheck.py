@@ -700,12 +700,54 @@ def nightly_only(repo, suite):
     return None
 
 
+# A MUTATION PASS NEVER RUNS IN THE MERGE (2026-09-30). The merge of cc/zach-opus-q1 (4e73fd89)
+# selected `scripts/operator-fences-mutation.test.sh`, a unit whose whole job is the fence
+# suite's mutation pass (planned 1408 s): a comment in it names `ci-unit-weights.tsv`, the land
+# changed that file, and the engine's selector maps a file to every unit that mentions its name
+# (ci-affected-units.sh, "basename dependency (conservative)"). It ran into its 600 s cap while
+# the Mac stayed too busy to start anything else, and the gate passed with 60 of 63 checks NOT
+# RUN. The selector is right to be conservative; the merge is the wrong place for the pass. So
+# an engine unit that IS a mutation pass is never started here, whatever selected it: one named
+# `<suite>-mutation.test.sh`, or one whose header says `# merge-gate: mutation-pass`. It is
+# named NOT RUN and the nightly engine run (nightly-engine.py) runs it with every other unit.
+MUTATION_UNIT_NAME = re.compile(r"-mutation\.test\.sh$")
+MUTATION_UNIT_MARK = re.compile(r"^# merge-gate: mutation-pass\b", re.M)
+MUTATION_WHY = "a mutation pass; the nightly engine run (nightly-engine.py) runs it"
+
+
+def mutation_unit(repo, unit):
+    """True when an engine unit (`path` or `path:section`) is a mutation pass by its name or
+    its declaration. An unreadable file is judged by its name alone."""
+    path = unit.split(":", 1)[0]
+    if MUTATION_UNIT_NAME.search(path):
+        return True
+    try:
+        with open(repo.top / "richos/engine" / path, errors="replace") as stream:
+            head = stream.read(8192)
+    except OSError:
+        return False
+    return bool(MUTATION_UNIT_MARK.search(head))
+
+
 def for_the_nightly(repo, commands):
     """(the commands the merge runs, [{check, why}] it leaves to the nightly). A run-tests.sh
-    line keeps its other suites; a suite run on its own line is dropped whole."""
+    line keeps its other suites; a suite run on its own line is dropped whole; an engine line
+    keeps its units that are not mutation passes."""
     kept, moved = [], []
     for line in commands:
         found = re.match(r"^cd (\S+) && (.+)$", line.strip())
+        if found and found.group(1) == "richos/engine":
+            argv = shlex.split(found.group(2))
+            if argv[:2] == ["bash", "scripts/ci-shard.sh"] and "--only-units" in argv[:-1]:
+                at = argv.index("--only-units") + 1
+                units = [u for u in argv[at].split(",") if u]
+                passes = [u for u in units if mutation_unit(repo, u)]
+                moved += [{"check": "engine " + u, "why": MUTATION_WHY, "suites": []} for u in passes]
+                left = [u for u in units if u not in passes]
+                if left:
+                    kept.append("cd richos/engine && " + " ".join(
+                        shlex.quote(a) for a in argv[:at] + [",".join(left)] + argv[at + 1:]))
+                continue
         argv = shlex.split(found.group(2)) if found and found.group(1) == "richos/app" else []
         if argv[:1] == ["scripts/run-tests.sh"] and "--only" in argv:
             suites = [argv[i + 1] for i, arg in enumerate(argv[:-1]) if arg == "--only"]
@@ -844,9 +886,10 @@ def land_check(repo, what, staged, range_argv, changed_lint=True, receipt=True):
         names = ", ".join(f"{row['check']} ({row['why']})" for row in not_run)
         banner(f"{what.upper()} ALLOWED WITH {len(not_run)} CHECK(S) NOT RUN, WHICH IS NOT A PASS", [
             f"NOT RUN: {names}.",
-            "Nothing that ran failed. These need a device the merge never uses, or did not reach a",
-            "verdict inside the gate's limits (600 s a check, 900 s the gate); the receipt records",
-            "them as NOT RUN, never as passed, and the nightly (nightly-local.py) runs them.",
+            "Nothing that ran failed. These need a device the merge never uses, are mutation passes,",
+            "or did not reach a verdict inside the gate's limits (600 s a check, 900 s the gate); the",
+            "receipt records them as NOT RUN, never as passed, and the nightlies run them",
+            "(nightly-local.py for the app, nightly-engine.py for every engine unit).",
             "See autocheck/README.md.",
         ])
         say(f"autocheck: {what}: passed with {len(not_run)} NOT RUN: {names}; "

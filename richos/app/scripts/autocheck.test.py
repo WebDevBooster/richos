@@ -81,6 +81,13 @@ fi
 if printf '%s\\n' "$paths" | grep -q 'state'; then
     echo "  cd richos/app && bash scripts/state.sh"
 fi
+if printf '%s\\n' "$paths" | grep -q 'mutant'; then
+    # The unit the merge of 4e73fd89 ran into its cap, and an ordinary unit beside it.
+    shard="bash scripts/ci-shard.sh --only-units"
+    fence_pass=scripts/operator-fences-mutation.test.sh
+    echo "  cd richos/engine && $shard $fence_pass"
+    echo "  cd richos/engine && $shard scripts/spawn.test.sh"
+fi
 if printf '%s\\n' "$paths" | grep -q 'device'; then
     runner=scripts/run-tests.sh
     echo "  cd richos/app && $runner --only phone-unit.test.sh --only front-door.test.sh --only native-ios-share.test.sh --no-host-screen"
@@ -168,6 +175,10 @@ for line in lines:
             continue
         with open(os.environ["AUTOCHECK_FIXTURE_LOG"], "a") as log:
             log.write("run " + line + "\\n")
+        if line.startswith("cd richos/engine"):
+            # richos/engine is the real engine (a symlink): its units are recorded, never run.
+            rows.append({"check": line, "result": "passed", "not_run": None})
+            continue
         done = subprocess.run(["bash", "-c", line], stdout=subprocess.PIPE, text=True)
         sys.stdout.write(done.stdout)
         said = [l.split()[1] for l in done.stdout.splitlines() if l.startswith("NOT-RUN ")]
@@ -732,6 +743,22 @@ class Land(Fixture):
         self.assertIn("iPhone simulator", whys["native-ios-ui.test.sh"])
         self.assertIn("screen", whys["front-door.test.sh"])
 
+    def test_a_mutation_unit_is_never_started_in_the_merge_and_is_named_for_the_nightly(self):
+        # 2026-09-30, the merge of cc/zach-opus-q1 (4e73fd89): the selector chose the fence
+        # suite's mutation unit (planned 1408 s) because a comment in it names a file the land
+        # changed. It ran into its cap and the gate passed with 60 of 63 checks NOT RUN. A unit
+        # that is a mutation pass never reaches the runner; the unit beside it still runs.
+        self.make()
+        self.branch_with("feature", "richos/app/src/mutant.txt", "a change the selector maps to it\n")
+        out = self.git("merge", "--no-ff", "-m", "land feature", "feature")
+        self.assertNotIn("operator-fences-mutation", self.tools())
+        self.assertIn("--only-units scripts/spawn.test.sh", self.tools())
+        receipt = json.loads((self.repo / ".git/richos-autocheck/land" / self.head("HEAD^{tree}")).read_text())
+        whys = {row["check"]: row["why"] for row in receipt["not_run"]}
+        self.assertEqual(sorted(whys), ["engine scripts/operator-fences-mutation.test.sh"], out.stderr)
+        self.assertIn("a mutation pass", whys["engine scripts/operator-fences-mutation.test.sh"])
+        self.assertIn("NOT RUN: engine scripts/operator-fences-mutation.test.sh (a mutation pass", out.stderr)
+
     def test_measure_runs_the_land_check_on_what_is_staged_and_writes_no_receipt(self):
         # How the gate is measured on a replayed merge: the land check of the staged change,
         # run by hand on a branch, with its verdict and time and no land receipt.
@@ -935,6 +962,34 @@ class Tables(unittest.TestCase):
         missing = [suite for suite in module.SHARED_DEVICE_SUITES if not (HERE / suite).is_file()]
         self.assertEqual(missing, [])
         self.assertTrue(module.SHARED_DEVICE_SUITES)
+
+    def test_a_mutation_unit_is_known_by_its_name_or_its_declaration(self):
+        # Every mutation unit, not only the one that ran into its cap: by the name convention
+        # the fence pass follows, or by a header line for a unit whose name does not say so.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("autocheck_under_test", AUTOCHECK / "autocheck.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as top:
+            scripts = Path(top) / "richos/engine/scripts"
+            scripts.mkdir(parents=True)
+            (scripts / "declared.test.sh").write_text("#!/usr/bin/env bash\n# merge-gate: mutation-pass (86 mutants)\n")
+            (scripts / "plain.test.sh").write_text("#!/usr/bin/env bash\n# mentions merge-gate: mutation-pass inline\n")
+
+            class Repo:
+                pass
+            repo = Repo()
+            repo.top = Path(top)
+            self.assertTrue(module.mutation_unit(repo, "scripts/declared.test.sh"))
+            self.assertTrue(module.mutation_unit(repo, "scripts/absent-mutation.test.sh"))
+            self.assertTrue(module.mutation_unit(repo, "scripts/declared.test.sh:SECTION"))
+            self.assertFalse(module.mutation_unit(repo, "scripts/plain.test.sh"))
+            self.assertFalse(module.mutation_unit(repo, "scripts/lib/mutation-harness.test.sh"))
+        # And the real tree: the fence pass is one, the harness library's own tests are not.
+        real = Repo()
+        real.top = HERE.parents[1].parent
+        self.assertTrue(module.mutation_unit(real, "scripts/operator-fences-mutation.test.sh"))
+        self.assertFalse(module.mutation_unit(real, "scripts/lib/mutation-pool.test.sh"))
 
 
 class Install(Fixture):
