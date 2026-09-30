@@ -439,7 +439,7 @@ impl Service {
         let last_attempt = [current.checked_at, current.retry_at.map(|t| t.saturating_sub(BACKOFF_MS))]
             .into_iter()
             .flatten()
-            .filter(|t| *t <= now)
+            .filter(|t| *t <= now + 5_000)
             .max();
         let cooling = last_attempt.is_some_and(|t| now.saturating_sub(t) < 5_000);
         if if force {
@@ -746,10 +746,11 @@ mod tests {
         // clock from the read above. A test thread descheduled for 5 s between that read and
         // the next line saw the cooldown over and a third read, and failed while the service
         // was right (seen under `scripts/qa/stall-run.py`). So the reading is stamped as
-        // completed at the moment these two requests arrive, with a hang guard's margin: the
+        // completed at the moment these two requests arrive, 4 s ahead (the cooldown tolerates a
+        // stamp up to 5 s in the future, a small clock step backward, so the margin is 4 s + 5 s): the
         // question is whether simultaneous requests share a just-completed read, not how fast
         // this thread gets from one line to the next.
-        service.snapshot.lock().unwrap().checked_at = Some(crate::util::now_millis() + 60_000);
+        service.snapshot.lock().unwrap().checked_at = Some(crate::util::now_millis() + 4_000);
         service.request_refresh(); service.request_refresh();
         let force = service.wait_for_refresh(Duration::ZERO);
         assert!(force);
