@@ -403,6 +403,17 @@ ALL_ROOT_SCRIPTS=(
     # deleted, so Layers Q and S verify both and every sandbox must carry both.
     mega-lander/workspaces.py
     mega-lander/workspaces.sh
+    # The container reaper the registry calls before it deletes a landed
+    # workspace. Since hunt part 4 finding 11 (ad4a051a6) a reaper that cannot
+    # run HOLDS the workspace and its branch for retry, exactly like a process
+    # that survived its stop. The registry reaches it with `import containers`
+    # after putting scripts/lib on sys.path, a shape hook-dependencies.py cannot
+    # see (it reads quoted path tokens), so the derived half never carried it.
+    # Without it, Layer Q's canary lands the merged agent and then keeps its
+    # workspace and branch, and the layer fails for a sandbox defect rather than
+    # an engine one. On a machine without Docker the reaper answers
+    # "unavailable", which deletes normally, so carrying it costs nothing there.
+    scripts/lib/containers.py
     # The root-resolution contract is a managed, sidecar-hashed file: it is not
     # a hook, and it decides something no hook can second-guess — which
     # repository every guard is protecting.
