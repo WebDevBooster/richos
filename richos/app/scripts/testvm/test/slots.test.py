@@ -306,6 +306,32 @@ class Slots(unittest.TestCase):
         self.assertTrue(calls[0][0][0].endswith('stop.sh'))
         self.assertEqual(calls[0][1], [True, False], 'stopped while the slot was still held')
 
+    def test_a_failed_or_timed_out_stop_is_raised_after_every_guest_was_tried(self):
+        """R19: a surviving guest is not a finished cleanup. Both guests are tried, the slot is
+        still released, and the failure is raised naming each survivor."""
+        calls = []
+
+        def fake_run(args, **kw):
+            calls.append(args[1])
+            if args[1] == 'walk-a':
+                return subprocess.CompletedProcess(args, 1)
+            if args[1] == 'walk-b':
+                raise subprocess.TimeoutExpired(args, 300)
+            return subprocess.CompletedProcess(args, 0)
+        with patch('slots.subprocess.run', side_effect=fake_run), quiet():
+            with self.assertRaises(slots.GuestNotStopped) as caught:
+                with self.hold() as slot:
+                    for name in ('walk-a', 'walk-b', 'walk-c'):
+                        d = self.root / 'run' / name
+                        d.mkdir(parents=True)
+                        (d / 'slot').write_text(str(slot) + '\n')
+        self.assertEqual(calls, ['walk-a', 'walk-b', 'walk-c'], 'one failure does not skip the rest')
+        self.assertEqual([n for n, _ in caught.exception.survivors], ['walk-a', 'walk-b'])
+        self.assertIn('stop.sh exited 1', str(caught.exception))
+        self.assertIn('timed out', str(caught.exception))
+        self.assertFalse(slots.is_held(slot), 'the slot is still released')
+        self.assertEqual(slot.read_text(), '')
+
     def test_a_caller_mid_admission_reads_as_admitting_and_a_refusal_clears_it(self):
         seen = []
 

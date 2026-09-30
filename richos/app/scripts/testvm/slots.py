@@ -241,10 +241,22 @@ def describe_holders(paths):
     return '; '.join(describe(p) for p in paths if is_held(p)) or 'none'
 
 
+class GuestNotStopped(RuntimeError):
+    """A guest recorded against a slot survived its stop: the slot is released, the guest may still hold RAM."""
+
+    def __init__(self, survivors):
+        self.survivors = survivors
+        super().__init__('guest(s) still recorded against the released slot after a failed stop: '
+                         + ', '.join(f'{n} ({why})' for n, why in survivors)
+                         + f'. Stop by hand: {HERE}/stop.sh <name>')
+
+
 def _stop_leftovers(path, root):
-    """Stop every guest whose run state says it booted under `path`: the slot's run is over."""
+    """Stop every guest whose run state says it booted under `path`: the slot's run is over.
+    Returns the names stopped; raises GuestNotStopped, after trying every guest, for any whose
+    stop.sh failed or timed out (a surviving guest is not a finished cleanup)."""
     run = root / 'run'
-    stopped = []
+    stopped, failed = [], []
     if not run.is_dir():
         return stopped
     for state in sorted(run.iterdir()):
@@ -258,8 +270,18 @@ def _stop_leftovers(path, root):
              f'stopping it (a guest never outlives its slot)')
         # SIGPIPE stays ignored in stop.sh (run-walk.py says why): a dead reader of our stderr
         # must not end a cleanup halfway.
-        subprocess.run([str(HERE / 'stop.sh'), state.name], timeout=300, check=False, restore_signals=False)
+        try:
+            done = subprocess.run([str(HERE / 'stop.sh'), state.name], timeout=300, check=False, restore_signals=False)
+            code = getattr(done, 'returncode', 0)
+            if code:
+                failed.append((state.name, f'stop.sh exited {code}'))
+                continue
+        except subprocess.TimeoutExpired:
+            failed.append((state.name, 'stop.sh timed out after 300s'))
+            continue
         stopped.append(state.name)
+    if failed:
+        raise GuestNotStopped(failed)
     return stopped
 
 
