@@ -432,24 +432,51 @@ def reap_for_workspaces(paths, dry_run=False, ending=False):
             result["reason"] = inv["reason"]
             return result
         result["available"] = True
-        live, _ok, _why = live_workspace_paths()
+        live, live_ok, live_why = live_workspace_paths()
         if ending:
             # The deleter's own workspaces are exempt from their own liveness:
             # the record still calls them live until the directory is gone.
-            # Every OTHER workspace in the set keeps its full protection.
-            live = {w for w in live if not any(_within(w, p) for p in paths)}
+            # Every OTHER workspace in the set keeps its full protection. The
+            # exemption is by EQUALITY, never by containment: a live workspace
+            # registered INSIDE one being deleted is not being deleted by this
+            # call, and a containment test used to hand it the same exemption
+            # and its containers with it (hunt 2026-09-29 part 5, finding 36).
+            ending_paths = set(paths)
+            live = {w for w in live if w not in ending_paths}
         for c in inv["containers"]:
             owner, kind = declared_owner(c)
             if not owner or not any(_within(owner, p) for p in paths):
                 continue
             result["considered"] += 1
-            # Owned by a workspace that is still live: never touched. With
-            # ending=True that can only be a DIFFERENT workspace nested in the
-            # one being deleted; with ending=False it is the hand-typed reap
-            # aimed at a workspace somebody is still working in.
-            if any(_within(owner, w) for w in live):
+            # NOT KNOWING WHO IS ALIVE KEEPS YOUR HANDS STILL, here as in
+            # classify(). An empty live set with ok=False used to read as
+            # "nobody is live" and every declared container went. It is
+            # returned as a FAILURE, not as kept: the workspace deleter treats
+            # a failure as a survivor, holds the workspace and retries it,
+            # whereas a deleted directory would leave this container an orphan
+            # that nothing ever reaps (hunt part 4, finding 11's same shape).
+            if not live_ok:
+                result["failed"].append({"name": c["name"], "id": c["id"],
+                                         "why": "not removed: which workspaces are live could not be "
+                                                "established (%s)" % (live_why or "no reason given")})
+                continue
+            # Owned by, or bound into, a workspace that is still live: never
+            # touched. EVERY claim is asked, not only the declared owner:
+            # a declaration is what authorizes a deletion, but any evidence
+            # is believed when it says "do not touch" (the header's asymmetry,
+            # which classify() already kept). With ending=True a live claim is
+            # a DIFFERENT workspace than the one being deleted; with
+            # ending=False it is the hand-typed reap aimed at a workspace
+            # somebody is still working in.
+            alive = None
+            for path, evidence in owner_claims(c):
+                hit = [w for w in live if _within(path, w)]
+                if hit:
+                    alive = (hit[0], evidence)
+                    break
+            if alive:
                 result["kept"].append({"name": c["name"], "owner": owner,
-                                       "why": "its workspace is still registered as live"})
+                                       "why": "the live workspace %s is still registered (by %s)" % alive})
                 continue
             if dry_run:
                 result["removed"].append({"name": c["name"], "id": c["id"],
