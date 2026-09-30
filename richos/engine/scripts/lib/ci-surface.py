@@ -1140,7 +1140,11 @@ def judge(entry, decls, triggers, wf_api, runs, jobs, branch, source_mtime, now,
         skipped = [j["name"] for j in jobs if j.get("conclusion") == "skipped"]
         declared = decls.get("skips") or {}
         undeclared = [n for n in skipped if not _match_declared(n, declared)]
-        rotten = [n for n in declared if not any(_job_matches(n, s) for s in skipped)]
+        # A declaration is stale when the job it names is GONE from the run,
+        # not when it happened to run this time: a conditional job that ran
+        # successfully still needs its explanation for the next run that skips it.
+        present = [j.get("name") for j in jobs]
+        rotten = [n for n in declared if not any(_job_matches(n, s) for s in present)]
         bits = []
         if undeclared:
             bits.append("UNDECLARED SKIP: %s. A skipped job inside a run whose conclusion is `%s` is a "
@@ -1149,8 +1153,8 @@ def judge(entry, decls, triggers, wf_api, runs, jobs, branch, source_mtime, now,
                         % (", ".join(repr(n) for n in undeclared),
                            (latest or {}).get("conclusion", "?")))
         if rotten:
-            bits.append("STALE DECLARATION: `# ci-skip: %s` names a job that did not skip in the latest "
-                        "run. The row has become a lie; delete it." % ", ".join(sorted(rotten)))
+            bits.append("STALE DECLARATION: `# ci-skip: %s` names a job that is not in the latest "
+                        "run at all. The row has become a lie; delete it." % ", ".join(sorted(rotten)))
         if bits:
             ax["skipped"] = ("FINDING", " ".join(bits))
         elif skipped:
@@ -1847,7 +1851,6 @@ def self_test():
     want("a zero budget in a judged entry does not crash", e.get("axes", {}).get("slow", {}).get("verdict"),
          "UNDECLARED")
 
-
     # P5-52: paths-ignore is not a positive path list; inline paths are read.
     t = parse_triggers("on:\n  push:\n    paths-ignore:\n      - \"docs/**\"\njobs:\n  a:\n")
     want("paths-ignore is not a required path", t["push_paths"], [])
@@ -1872,6 +1875,22 @@ def self_test():
     want("long paths that differ late do not collide",
          c._cache_path("x" * 300 + "a") != c._cache_path("x" * 300 + "b"), True)
 
+    # P5-56: a declared skip for a job that ran successfully is not stale; one
+    # naming a job that no longer exists is.
+    sk_decl = {"budget": "4m", "skips": {"affected": "subsumed by the full pass"}, "evidence": "x" * 20}
+    sk_run = [{"status": "completed", "conclusion": "success", "run_number": 9,
+               "run_started_at": _iso(now_utc(), -3600), "updated_at": _iso(now_utc(), -1800), "id": 1}]
+    e = {}
+    judge(e, sk_decl, {"parsed": True, "events": ["push"], "push_paths": [], "cron": []},
+          {"state": "active", "_total_count": 9}, sk_run,
+          [{"name": "affected", "conclusion": "success"}], "main", None, now_utc())
+    want("a conditional job that ran keeps its skip declaration",
+         e["axes"]["skipped"]["verdict"] != "FINDING", True)
+    e = {}
+    judge(e, sk_decl, {"parsed": True, "events": ["push"], "push_paths": [], "cron": []},
+          {"state": "active", "_total_count": 9}, sk_run,
+          [{"name": "other", "conclusion": "success"}], "main", None, now_utc())
+    want("a declaration naming a vanished job is still stale", e["axes"]["skipped"]["verdict"], "FINDING")
 
     now = now_utc()
     push = {"parsed": True, "events": ["push"], "push_paths": [], "cron": []}
