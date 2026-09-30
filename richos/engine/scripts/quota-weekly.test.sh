@@ -132,6 +132,15 @@ class Weekly(unittest.TestCase):
     def test_the_same_weekly_window_still_wakes_once(self):
         events=self.drive([reading(99),reading(99),reading(99)],[workers(['worker'])],3)
         self.assertEqual(events.count('WEEKLY-QUOTA-THRESHOLD'),1,events)
+    def test_repeated_poll_exceptions_tell_the_lead_the_watcher_is_blind(self):
+        # Hunt part 5, P5-15: every poll raises; each exception restarted the loop and its blind timers, so the
+        # lead was never told. After one poll's worth of consecutive failures it is, once.
+        events=self.drive([RuntimeError('boom')],[workers(['worker'])],5)
+        self.assertEqual(events.count('QUOTA-UNKNOWN'),1,events)
+        self.assertIn('RuntimeError',events)
+    def test_one_failed_poll_between_good_ones_does_not_wake_the_lead(self):
+        events=self.drive([reading(10),RuntimeError('boom'),reading(10),reading(10)],[workers(['worker'])],4)
+        self.assertNotIn('QUOTA-UNKNOWN',events)
     def test_unusable_reset_still_pauses(self):
         args=types.SimpleNamespace(stale=300,command='watch')
         for status in ({'error':'unavailable'},{'actionError':'uncertain'},{'resets':{'approval':None}}):
