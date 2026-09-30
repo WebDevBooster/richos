@@ -32,6 +32,11 @@
 //! declared file roots or not absolute; a file that does not exist. Those are the lead's
 //! mistakes, and it is told which, so it can report again correctly.
 //!
+//! And words that ask him something his record has already ruled (F3 of the operator contract
+//! notes, §4 item 1): a report's asking paragraphs go through the same already-ruled check as a
+//! prepared question card, and the refusal names and quotes the ruling
+//! ([`crate::question_engine::check_ruled`]).
+//!
 //! ## Long text
 //!
 //! The notice keeps the register's 8,000-character bound (`assignment.rs:1288-1299`). Longer
@@ -44,6 +49,12 @@ use std::path::{Path, PathBuf};
 
 pub const SERVER_NAME: &str = crate::operator_profile::REPORT_SERVER;
 pub const REPORT_TOOL_NAME: &str = "report";
+/// **The lead's own stop** (F6, operator contract notes §4 item 3; Frank's proposal: "a `stop`
+/// on the lead's own server calling `stop_named`"). `TaskStop` reaches only this lead's agents;
+/// this reaches his team's agents in every conversation, so a stop he gave to the wrong lead is
+/// executed once, by that lead, and he never has to say it again.
+pub const STOP_TOOL_NAME: &str = "stop";
+pub const QUALIFIED_STOP_TOOL: &str = "mcp__richos_operator__stop";
 pub const QUALIFIED_REPORT_TOOL: &str = crate::operator_profile::REPORT_TOOL;
 pub const KINDS: [&str; 6] = ["update", "question", "withdraw_question", "answer", "outcome", "failed"];
 /// The notice bound the register already uses (`assignment::sanitize_answer`).
@@ -55,6 +66,8 @@ const MAX_SCOPE_BYTES: u64 = 16 * 1024;
 const MAX_LANDS: usize = 20;
 const MAX_FILES: usize = 50;
 const MAX_AGENTS: usize = 50;
+/// The already-ruled check reads his record with python; the guard's own hook budget is 20 s.
+const RULED_CHECK_BUDGET: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// The scope the app writes for one lead, and the only thing this server trusts.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -76,6 +89,19 @@ pub struct ReportScope {
     /// Supplied by the runtime only after binding the original asking session.
     #[serde(default)]
     pub question_context: Option<crate::questions::AskScope>,
+    /// **Where this lead's `stop` reaches the desk** (F6): the desk's socket and the leads'
+    /// stop-only token. `None` when the app serves no desk, and then `stop` says so.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desk: Option<LeadDesk>,
+}
+
+/// The desk's socket and the token that lets a lead make a named stop there, and nothing else
+/// (`operator_desk_tools::DeskSocket::serve_with_lead`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LeadDesk {
+    pub socket: PathBuf,
+    pub token: String,
 }
 
 fn scope_usable(scope: &ReportScope) -> bool {
@@ -250,7 +276,8 @@ fn append(outbox: &Path, record: &ReportRecord) -> Result<(), String> {
         std::fs::create_dir_all(parent).map_err(|e| format!("The report could not be recorded ({e})."))?;
     }
     let mut options = std::fs::OpenOptions::new();
-    options.append(true).create(true);
+    // Read as well as append: the last byte says whether an earlier append was cut short.
+    options.read(true).append(true).create(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
@@ -265,8 +292,27 @@ fn append(outbox: &Path, record: &ReportRecord) -> Result<(), String> {
         // SAFETY: flock on a descriptor this function owns; released when `file` closes.
         unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
     }
+    // An append that ended early (the process ended, or the disk filled) leaves a partial
+    // record with no newline. This record starts on a fresh line so it is never glued onto
+    // that fragment; the fragment is left as it was and `read_outbox` skips it (hunt part 1
+    // finding 44). Checked under the lock, so no other append is half-written here.
+    if ends_mid_line(&mut file).map_err(|e| format!("The report could not be recorded ({e})."))? {
+        line.insert(0, b'\n');
+    }
     file.write_all(&line).and_then(|_| file.sync_all())
         .map_err(|e| format!("The report could not be recorded ({e})."))
+}
+
+/// Does the file end partway through a line? An empty file does not.
+fn ends_mid_line(file: &mut std::fs::File) -> io::Result<bool> {
+    use std::io::{Read, Seek, SeekFrom};
+    if file.metadata()?.len() == 0 {
+        return Ok(false);
+    }
+    file.seek(SeekFrom::End(-1))?;
+    let mut last = [0u8; 1];
+    file.read_exact(&mut last)?;
+    Ok(last[0] != b'\n')
 }
 
 /// Store the whole of a long text. Created new, never over another file.
@@ -350,12 +396,31 @@ pub fn tools() -> Value {
                                    "branch": {"type": "string"}, "into": {"type": "string"}}}},
                 "files": {"type": "array", "maxItems": MAX_FILES, "items": {"type": "string"}},
                 "agents": {"type": "array", "maxItems": MAX_AGENTS, "items": {"type": "string"}}}},
-         "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false}}
+         "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false}},
+        {"name": STOP_TOOL_NAME,
+         "description": "Stop named agents of his team, and nothing else, when he names them in your conversation, whether they are yours or another conversation's. Call it at once, as your first tool call, before anything else you do with his message. `names`: the agents exactly as he named them. `words`: his words, verbatim. TaskStop reaches only your own agents; this reaches every conversation's, so he never has to say it twice. It returns what was measured: say an agent stopped only when this says it did.",
+         "inputSchema": {"type": "object", "additionalProperties": false, "required": ["names", "words"],
+             "properties": {"names": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "string", "minLength": 1}},
+                            "words": {"type": "string", "minLength": 1}}},
+         "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false}}
     ]})
+}
+
+/// F6: the lead's named stop, through the desk. Only names and his words go; the desk decides
+/// whose agent each is.
+fn lead_stop(scope_path: &Path, arguments: &Value) -> Result<Value, String> {
+    let scope = read_scope(scope_path)?;
+    let (names, words) = crate::operator_desk_tools::stop_arguments(arguments)?;
+    let desk = scope.desk.ok_or("RichOS is not serving your team's desk in this launch, so nothing was stopped. \
+Tell him the stop could not be made here.")?;
+    crate::operator_desk_tools::stop_through_desk(&desk.socket, &desk.token, &names, &words)
 }
 
 /// The answer, shared by the protocol adapter and the tests.
 pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, String> {
+    if name == STOP_TOOL_NAME {
+        return lead_stop(scope_path, &arguments);
+    }
     if name != REPORT_TOOL_NAME {
         return Err("That tool does not exist on this server. Nothing was recorded.".into());
     }
@@ -398,6 +463,19 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
     // report and a wrong one is recorded as not confirmed.
     let lands = args.lands.iter().map(|claim| verify_land(claim, &scope.file_roots))
         .collect::<Result<Vec<_>, _>>()?;
+    // F3: a question written into the words themselves goes through the same settled-by-his-words
+    // check as a prepared question card (`question_engine::check_ruled`). A withdrawal's words are
+    // a reason, never a question to him.
+    let mut unchecked = None;
+    if args.kind != "withdraw_question" {
+        if let Some(context) = scope.question_context.as_ref() {
+            match crate::question_engine::check_ruled(context, &args.text, RULED_CHECK_BUDGET) {
+                crate::question_engine::Ruled::Clear => {}
+                crate::question_engine::Ruled::Ruled(refusal) => return Err(refusal),
+                crate::question_engine::Ruled::Unchecked(why) => unchecked = Some(why),
+            }
+        }
+    }
     if args.kind=="question" || args.kind=="withdraw_question" {
         if !args.lands.is_empty() || !args.files.is_empty() {return Err("Report lands and files separately from a question set.".into());}
         let mut context=scope.question_context.clone().ok_or("The operator runtime has not bound its question delivery scope.")?;
@@ -438,6 +516,9 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
     };
     append(&scope.outbox, &record)?;
     let mut said = vec!["Recorded; the CEO will be told.".to_string()];
+    if let Some(why) = unchecked {
+        said.push(format!("His record could not be checked for a question in these words ({why}), so they were recorded unchecked."));
+    }
     for land in &record.lands {
         match &land.why {
             None => said.push(format!("Confirmed in Git: {}", land.says)),
@@ -456,14 +537,46 @@ Once the land is real, report `outcome` again, or report `failed`.".into());
 }
 
 /// Every record in an outbox, in order. What the host will read. A missing outbox is empty.
+///
+/// **An interrupted append never hides the records after it** (hunt part 1 finding 44).
+/// Only whole lines are read: bytes after the last newline are an append still being written,
+/// or one that was cut short, and are left for a later read. A whole line that is not JSON at
+/// all is a cut-short append that a later one closed by starting its own line (`append`); its
+/// writer was never told "recorded", so it is not a report and it is skipped. Every read
+/// classifies the same bytes the same way, so a record's position never moves: the host's
+/// cursor and its owed closes are positions. A line that IS JSON but not a record is not a
+/// torn write, and still fails the read, as before.
 pub fn read_outbox(path: &Path) -> Result<Vec<ReportRecord>, String> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(e) => return Err(e.to_string()),
     };
-    text.lines().filter(|line| !line.trim().is_empty())
-        .map(|line| serde_json::from_str(line).map_err(|e| e.to_string())).collect()
+    let whole = match bytes.iter().rposition(|b| *b == b'\n') {
+        Some(end) => &bytes[..end],
+        None => return Ok(Vec::new()),
+    };
+    let mut records = Vec::new();
+    for line in whole.split(|b| *b == b'\n') {
+        if line.iter().all(u8::is_ascii_whitespace) {
+            continue;
+        }
+        match serde_json::from_slice::<ReportRecord>(line) {
+            Ok(record) => records.push(record),
+            Err(e) if serde_json::from_slice::<Value>(line).is_ok() => return Err(e.to_string()),
+            Err(_) => records.extend(glued_record(line)),
+        }
+    }
+    Ok(records)
+}
+
+/// Before `append` started a fresh line after a cut-short one, the next record was written
+/// straight onto the fragment. Its lead was told "recorded", so it is recovered: the record
+/// is the first `{` from which the rest of the line is one whole record. A fragment is a cut
+/// prefix of a record, so no suffix that starts inside it can be a whole record on its own.
+fn glued_record(line: &[u8]) -> Option<ReportRecord> {
+    line.iter().enumerate().skip(1).filter(|(_, b)| **b == b'{')
+        .find_map(|(i, _)| serde_json::from_slice::<ReportRecord>(&line[i..]).ok())
 }
 
 fn error(id: Value, code: i64, message: &str) -> Value {
@@ -629,6 +742,7 @@ mod tests {
         commit(&repo, "first");
         let scope = ReportScope {
             question_context: None,
+            desk: None,
             version: 1,
             outbox: root.join("lead/outbox.jsonl"),
             attachments: root.join("lead/attachments"),
@@ -670,7 +784,7 @@ mod tests {
         let mut f=fixture();
         let args=json!({"kind":"question","text":"Release timing", "questions":[{"text":"When should the release ship?","options":[{"label":"Ship today","description":"Earlier fixes"},{"label":"Ship tomorrow","description":"More testing"}]}]});
         assert!(report(&f,args.clone()).unwrap_err().contains("runtime"));
-        f.scope.question_context=Some(crate::questions::AskScope{root:f.scope.state_root.clone(),entity_id:f.scope.entity_id.clone(),thread_id:f.scope.thread_id.clone(),turn_id:"operator-turn".into(),asker:"unused".into(),session_id:"original-lead-session".into(),engine:None,entity_root:None});
+        f.scope.question_context=Some(crate::questions::AskScope{root:f.scope.state_root.clone(),entity_id:f.scope.entity_id.clone(),thread_id:f.scope.thread_id.clone(),turn_id:"operator-turn".into(),asker:"unused".into(),session_id:"original-lead-session".into(),engine:None,entity_root:None,app_run:None});
         write_scope(&f.scope_path,&f.scope).unwrap();
         let receipt=report(&f,args.clone()).unwrap();
         assert_eq!(receipt["recorded"],true);
@@ -688,13 +802,140 @@ mod tests {
         assert!(report(&f,args).unwrap_err().contains("scope"));
     }
 
-    // ---- the tool, as the lead sees it ---------------------------------------------------
+    /// The shipped engine, and a seat whose record rules one subject (the splash screens), as
+    /// the engine's own ceo-ruled suite writes a ruling.
+    fn with_ruled_engine(f: &mut Fixture) -> PathBuf {
+        let engine = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../engine").canonicalize().unwrap();
+        let seat = f.root.join("seat");
+        std::fs::create_dir_all(seat.join("wiki")).unwrap();
+        std::fs::write(seat.join("orchestration.config"), "CEO_RULINGS_PATHS=\"wiki/ceo-decisions.md\"\n").unwrap();
+        std::fs::write(seat.join("wiki/ceo-decisions.md"), "# Decisions\n\n## 21. The start screen (CEO, 2026-09-01)\n\n\
+### The splash screens — TWO, and the order is DETERMINISTIC (CEO, 2026-09-01)\n\n\
+**His words:** *\"I have never approved more than 2 splash screens.\"*\n").unwrap();
+        f.scope.question_context = Some(crate::questions::AskScope {
+            root: f.scope.state_root.clone(), entity_id: f.scope.entity_id.clone(), thread_id: f.scope.thread_id.clone(),
+            turn_id: "operator-turn".into(), asker: "operator:conversation".into(), session_id: "lead-session-1".into(),
+            engine: Some(engine.clone()), entity_root: Some(seat.clone()), app_run: None,
+        });
+        write_scope(&f.scope_path, &f.scope).unwrap();
+        engine
+    }
+
+    /// **F3 (operator contract notes §4 item 1):** every route by which his lead puts a
+    /// question to him goes through the settled-by-his-words check. A prepared question card
+    /// already did (`question_engine::check`, since 0413ea69); a question written into a
+    /// report's own words reached him unchecked.
+    #[test]
+    fn a_question_in_a_report_s_words_goes_through_the_settled_by_his_words_check() {
+        let mut f = fixture();
+        let engine = with_ruled_engine(&mut f);
+        let ruled = "Landed the fix.\n\nWhich splash screens should ship in v1, all seven or your two?";
+        // The prepared card: refused by the guard itself.
+        let card = report(&f, json!({"kind": "question", "text": "Splash screens", "questions": [{
+            "text": "Which splash screens should ship in v1?\npremise-unverified: a fixture question with no deadline.",
+            "options": [{"label": "All seven", "description": "Every variation"}, {"label": "Your two", "description": "The approved pair"}]}]}));
+        assert!(card.as_ref().is_err_and(|e| e.contains("ALREADY RULED")), "{card:?}");
+        // The same question in the words of every other kind: refused, naming and quoting the
+        // ruling, and nothing written.
+        for kind in ["update", "answer", "outcome", "failed"] {
+            let refused = report(&f, json!({"kind": kind, "text": ruled})).unwrap_err();
+            assert!(refused.contains("§21 › The splash screens") && refused.contains("never approved more than 2"),
+                    "{kind}: {refused}");
+            assert!(refused.contains("ceo-ruled-exempt.sh lead-session-1"), "{kind}: the way through names his session: {refused}");
+        }
+        assert!(outbox(&f).is_empty(), "a refused report wrote nothing");
+        // Words that ask nothing ruled, and words that ask nothing at all, are recorded.
+        report(&f, json!({"kind": "update", "text": "Landed the fix.\n\nShould I start on the release notes next?"})).unwrap();
+        report(&f, json!({"kind": "update", "text": "Landed the splash screens fix."})).unwrap();
+        assert_eq!(outbox(&f).len(), 2);
+        // The way through is the engine's own exemption, per session and per cite.
+        let exempt = Command::new("bash")
+            .arg(engine.join("scripts/ceo-ruled-exempt.sh"))
+            .args(["lead-session-1", "§21 › The splash screens",
+                   "the ruling covers which screens ship; this asks about their order on a relaunch"])
+            .current_dir(f.root.join("seat")).env("RICHOS_ENTITY_ROOT", f.root.join("seat"))
+            .output().unwrap();
+        assert!(exempt.status.success(), "{}", String::from_utf8_lossy(&exempt.stderr));
+        report(&f, json!({"kind": "update", "text": ruled})).unwrap();
+        assert_eq!(outbox(&f).len(), 3, "an exempted question is recorded");
+    }
 
     #[test]
-    fn the_server_offers_exactly_one_tool_named_report() {
+    fn the_asking_window_is_the_terminal_prose_notice_s() {
+        use crate::question_engine::asking_paragraphs;
+        let notice = std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../engine/scripts/hooks/notice-ceo-ruled-prose.sh")).unwrap();
+        assert!(notice.contains(r#"ASK = re.compile(r"\?|\*\*Options?:|\*\*Decision:", re.I)"#)
+                && notice.contains(r#"re.split(r"\n\s*\n", msg)"#) && notice.contains("[:6000]"),
+                "the engine's prose window changed; change asking_paragraphs with it");
+        assert_eq!(asking_paragraphs("Landed it.\n\nShip today?\nor tomorrow"), "Ship today?\nor tomorrow");
+        assert_eq!(asking_paragraphs("One.\n  \n**Options:** A or B\n\nTwo."), "**Options:** A or B");
+        assert_eq!(asking_paragraphs("**decision:** yours\n\n\n\nWhy?"), "**decision:** yours\nWhy?");
+        assert_eq!(asking_paragraphs("Nothing asked here."), "");
+        assert_eq!(asking_paragraphs(&format!("{}?", "x".repeat(7000))).chars().count(), 6000);
+    }
+
+    // ---- the tool, as the lead sees it ---------------------------------------------------
+
+    /// A desk that records the stops it is asked for and reports each named agent stopped.
+    #[derive(Default)]
+    struct StopsSeen(std::sync::Mutex<Vec<(Vec<String>, String)>>);
+    impl crate::operator_desk_tools::DeskService for StopsSeen {
+        fn stop(&self, names: &[String], words: &str, _: Option<&str>) -> Vec<crate::operator_host::StopResult> {
+            self.0.lock().unwrap().push((names.to_vec(), words.to_string()));
+            names.iter().map(|n| crate::operator_host::StopResult::Stopped { name: n.clone(), seconds: 0.5, registry: Ok(()) })
+                .collect()
+        }
+        fn read(&self, _: &crate::operator_host::ConversationKey, _: bool) -> Vec<crate::operator_host::ConversationRead> {
+            Vec::new()
+        }
+        fn interrupt(&self, _: &crate::operator_host::ConversationKey) -> String {
+            "interrupted".into()
+        }
+    }
+
+    /// **F6 (operator contract notes §4 item 3):** a stop he gives in a conversation whose lead
+    /// does not own the agent reached that lead as words, and `TaskStop` reaches only its own
+    /// agents, so he had to say it again to the right one. The lead's own `stop` goes to the
+    /// desk's `stop_named`, which finds the agent in whichever conversation runs it.
+    #[test]
+    fn the_lead_s_own_stop_reaches_the_desk_with_his_words_and_says_what_was_measured() {
+        let mut f = fixture();
+        let seen = std::sync::Arc::new(StopsSeen::default());
+        let dir = PathBuf::from("/tmp").join(format!("rol-{}", &uuid::Uuid::new_v4().simple().to_string()[..12]));
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket_path = dir.join("desk.sock");
+        let (desk_token, lead_token) = (crate::operator_desk_tools::new_token(), crate::operator_desk_tools::new_token());
+        let socket = crate::operator_desk_tools::DeskSocket::serve_with_lead(seen.clone(), &socket_path, &desk_token,
+                                                                             Some(&lead_token)).unwrap();
+        let stop = json!({"names": ["echo-sonnet-b"], "words": "stop echo-sonnet-b"});
+        // No desk in this launch: nothing is stopped, and the lead is told so.
+        let none = call(&f.scope_path, STOP_TOOL_NAME, stop.clone()).unwrap_err();
+        assert!(none.contains("nothing was stopped"), "{none}");
+        f.scope.desk = Some(LeadDesk { socket: socket_path.clone(), token: lead_token });
+        write_scope(&f.scope_path, &f.scope).unwrap();
+        let said = call(&f.scope_path, STOP_TOOL_NAME, stop).unwrap();
+        assert_eq!(said["stopped"], json!(["echo-sonnet-b"]), "{said}");
+        assert_eq!(said["say"], "Stopped echo-sonnet-b.");
+        // No names, or no words of his: refused before the desk hears anything.
+        assert!(call(&f.scope_path, STOP_TOOL_NAME, json!({"names": [], "words": "stop"})).is_err());
+        assert!(call(&f.scope_path, STOP_TOOL_NAME, json!({"names": ["a"], "words": " "})).is_err());
+        assert_eq!(*seen.0.lock().unwrap(), [(vec!["echo-sonnet-b".to_string()], "stop echo-sonnet-b".to_string())]);
+        assert!(outbox(&f).is_empty(), "a stop is not a report to him");
+        socket.close();
+        if let Err(e) = std::fs::remove_dir_all(&dir) { eprintln!("fixture cleanup: {e}"); }
+    }
+
+    #[test]
+    fn the_server_offers_report_and_the_lead_s_own_stop() {
         let listed = tools();
         let tools = listed["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 1);
+        assert_eq!(tools.len(), 2);
+        assert_eq!(tools[1]["name"], STOP_TOOL_NAME);
+        assert_eq!(QUALIFIED_STOP_TOOL, format!("mcp__{SERVER_NAME}__{STOP_TOOL_NAME}"));
+        assert_eq!(tools[1]["inputSchema"]["required"], json!(["names", "words"]));
+        let says = tools[1]["description"].as_str().unwrap();
+        assert!(says.contains("another conversation's") && says.contains("verbatim") && says.contains("TaskStop"), "{says}");
         assert_eq!(tools[0]["name"], REPORT_TOOL_NAME);
         let kinds = &tools[0]["inputSchema"]["properties"]["kind"]["enum"];
         assert_eq!(kinds, &json!(KINDS));
@@ -715,6 +956,57 @@ mod tests {
         assert_eq!((records[0].lead.as_str(), records[0].thread_id.as_str()), ("claim-1", "thread-a"));
         assert_eq!(records[0].handle, None);
         assert_eq!(records[1].agents, ["mark-opus-x1"]);
+    }
+
+    /// **An interrupted write never blocks the reports after it** (hunt part 1 finding 44). A
+    /// process that ends mid-append, or a disk that fills, leaves a partial record with no
+    /// newline, possibly cut inside a multibyte character. Its writer was never told
+    /// "recorded", so it is not a report. The next append starts a fresh line instead of
+    /// gluing its record onto the fragment, and the reader keeps every whole record around
+    /// the damaged line, in order.
+    #[test]
+    fn an_interrupted_append_does_not_block_the_reports_after_it() {
+        // Two cuts: inside an ASCII word, and inside the two bytes of "é" (C3 A9).
+        let whole = br#"{"kind":"outcome","text":"Caf\xC3\xA9 is open"}"#;
+        let torn_ascii: &[u8] = &whole[..12];
+        let torn_utf8: Vec<u8> = [&br#"{"kind":"outcome","text":"Caf"#[..], &[0xC3]].concat();
+        for torn in [torn_ascii.to_vec(), torn_utf8] {
+            let f = fixture();
+            report(&f, json!({"kind": "update", "text": "Before the interruption."})).unwrap();
+            {
+                use std::io::Write as _;
+                let mut file = std::fs::OpenOptions::new().append(true).open(&f.scope.outbox).unwrap();
+                file.write_all(&torn).unwrap();
+            }
+            // The fragment has no newline: it may still be an append in progress, so it is
+            // not read, and it does not stop the record before it from being read.
+            let texts = |f: &Fixture| outbox(f).into_iter().map(|r| r.text).collect::<Vec<_>>();
+            assert_eq!(texts(&f), ["Before the interruption."], "torn {torn:?}");
+            report(&f, json!({"kind": "update", "text": "After the interruption."})).unwrap();
+            assert_eq!(texts(&f), ["Before the interruption.", "After the interruption."], "torn {torn:?}");
+            // A second read sees the same records at the same positions: the host's cursor
+            // and its owed closes are record indexes.
+            assert_eq!(texts(&f), ["Before the interruption.", "After the interruption."], "torn {torn:?}");
+            let bytes = std::fs::read(&f.scope.outbox).unwrap();
+            let lines: Vec<&[u8]> = bytes.split(|b| *b == b'\n').collect();
+            assert_eq!(lines.len(), 4, "the fragment ends its own line; {lines:?}");
+            assert_eq!(lines[1], &torn[..], "the fragment is left as it was, never rewritten");
+            assert!(lines[3].is_empty(), "the outbox ends at a line boundary");
+        }
+        // An outbox the old appender already damaged: the next record was written straight
+        // onto the fragment. That record's lead was told "recorded", so it is read.
+        let f = fixture();
+        report(&f, json!({"kind": "update", "text": "Glued record."})).unwrap();
+        let glued_record = std::fs::read(&f.scope.outbox).unwrap();
+        let mut damaged = torn_ascii.to_vec();
+        damaged.extend_from_slice(&glued_record);
+        std::fs::write(&f.scope.outbox, &damaged).unwrap();
+        report(&f, json!({"kind": "update", "text": "Next record."})).unwrap();
+        let texts: Vec<String> = outbox(&f).into_iter().map(|r| r.text).collect();
+        assert_eq!(texts, ["Glued record.", "Next record."]);
+        // A whole line that is JSON but not a record is not a torn write: it still fails.
+        std::fs::write(&f.scope.outbox, b"{\"kind\":\"update\"}\n").unwrap();
+        assert!(read_outbox(&f.scope.outbox).is_err());
     }
 
     #[test]

@@ -25,9 +25,21 @@ use richos_core::native::{resolve_claude_bin, NativeCognition};
 use richos_core::cognition::{Cognition, CognitionError, LeaseFactory};
 use richos_core::ledger::{AttentionTier, Ledger, Source};
 use richos_core::reprime::{RePrimePayload, DEFAULT_TAIL_TURNS};
-use richos_core::entity::EntityId;
+use richos_core::entity::{EntityId, EntityRegistry};
 use richos_core::spine::Spine;
 use std::path::PathBuf;
+
+/// The conversation this proof talks in, opened in company `richos`. The core ships no
+/// companies and refuses an unregistered one (`Spine::create_thread`), so the company is
+/// stated first, as the shell's boot and the shared test fixture state theirs (hunt part 1
+/// finding 46).
+fn conversation(ledger: Ledger, title: &str) -> (Spine, String) {
+    let entity = EntityId::parse("richos").unwrap();
+    let mut spine = Spine::new(ledger);
+    spine.set_entity_registry(EntityRegistry::from_existing_ids(std::slice::from_ref(&entity)));
+    let thread = spine.create_thread(title, &entity).expect("thread");
+    (spine, thread)
+}
 
 /// Mirrors `src-tauri/src/main.rs`'s `EngineLeaseFactory` exactly (this example is a
 /// headless stand-in for the Tauri shell, proving the SAME production code path — the
@@ -59,8 +71,7 @@ fn main() {
 
     let scratch = std::env::temp_dir().join(format!("richos-rotation-roundtrip-{}.jsonl", std::process::id()));
     let ledger = Ledger::open(&scratch).expect("open ledger");
-    let mut spine = Spine::new(ledger);
-    let thread = spine.create_thread("Rotation proof", &EntityId::parse("richos").unwrap()).expect("thread");
+    let (mut spine, thread) = conversation(ledger, "Rotation proof");
 
     let claude_bin = resolve_claude_bin();
     eprintln!("[rotation] claude  = {}", claude_bin.display());
@@ -154,7 +165,9 @@ fn main() {
         "the rotation itself is durably recorded as an internal action"
     );
 
-    let _ = std::fs::remove_file(&scratch);
+    if let Err(e) = std::fs::remove_file(&scratch) {
+        eprintln!("[rotation] the scratch ledger could not be removed ({e}); it is still at {}", scratch.display());
+    }
     eprintln!(
         "\n[rotation] OK — rotation swapped the session, the conversation stayed unbroken, \n\
          [rotation]      and the successor recalled a recorded action it never performed."
@@ -177,5 +190,21 @@ fn print_last_reply(spine: &Spine, thread: &str) {
         println!("{}", m.text);
     } else {
         println!("(no reply)");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Hunt part 1 finding 46: the setup opens the conversation, so a run reaches its first
+    /// provider call instead of stopping at `UnknownEntity`. No provider is started here.
+    #[test]
+    fn the_setup_opens_the_conversation_the_proof_talks_in() {
+        let path = std::env::temp_dir().join(format!("richos-example-setup-{}.jsonl", uuid::Uuid::new_v4()));
+        let (spine, thread) = conversation(Ledger::open(&path).unwrap(), "Setup check");
+        assert_eq!(spine.active_thread(), Some(thread.as_str()));
+        drop(spine);
+        std::fs::remove_file(&path).unwrap();
     }
 }

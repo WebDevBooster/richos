@@ -3168,6 +3168,130 @@ def s6(ctx, r):
 
 
 # =============================================================================================
+# O2: the operator contract notes' §4 items 1 and 3 (richos-hq
+# tools-private/operator/operator-contract-notes.md; Frank's F3 and F6), on the app's own
+# composition: the real `operator_walk host`, real leads, the shipped engine and the desk's socket.
+#   F3: a question written into a report's words, on a subject his record rules, is refused
+#       with the ruling and never reaches his outbox; a plain report in the same turn does.
+#   F6: a stop he gives in conversation A for conversation B's agent is executed by A's lead,
+#       through its own `stop`, once: the agent is NOT-ALIVE and the operator log has one stop.
+# Both leads are told which tool to call: what is measured is the app path, not whether a model
+# chooses it unprompted (that is the contract's and the tool description's job).
+# =============================================================================================
+
+O2_RULED = 'Landed the fix.\n\nWhich splash screens should ship in v1, all seven variations or your two?'
+
+
+def o2_ruling(ctx):
+    """His record rules one subject, written as the engine's own ceo-ruled suite writes one."""
+    p = ctx.p
+    (p.entity / 'wiki').mkdir(parents=True, exist_ok=True)
+    (p.entity / 'wiki' / 'ceo-decisions.md').write_text(
+        '# Decisions\n\n## 21. The start screen (CEO, 2026-09-01)\n\n'
+        '### The splash screens — TWO, and the order is DETERMINISTIC (CEO, 2026-09-01)\n\n'
+        '**His words:** *"I have never approved more than 2 splash screens."*\n')
+    config = p.entity / 'orchestration.config'
+    config.write_text(config.read_text() + 'CEO_RULINGS_PATHS="wiki/ceo-decisions.md"\n')
+    git(p.entity, 'add', '-A')
+    git(p.entity, 'commit', '-q', '-m', 'O2 fixture: one ruling on his record')
+    git(p.entity, 'push', '-q', 'origin', 'main')
+
+
+def o2_outbox(data):
+    """Every report any lead recorded for him, as the host reads them."""
+    lines = []
+    for path in (data / 'operator').rglob('outbox.jsonl'):
+        lines += [line for line in path.read_text().splitlines() if line.strip()]
+    return lines
+
+
+def grade_o2_f3(step):
+    return (step.get('ruled_in_outbox') == 0 and step.get('control_in_outbox') == 1
+            and 'O2-F3-REFUSED' in (step.get('reply') or '') and 'The splash screens' in (step.get('reply') or ''))
+
+
+def grade_o2_f6(step):
+    after = step.get('after') or [None, None]
+    return (step.get('before') == 'ALIVE' and after[0] == 'NOT-ALIVE' and bool(after[1])
+            and len(step.get('stop_lines') or []) == 1 and 'Stopped o2-sonnet-b' in (step.get('reply') or ''))
+
+
+@probe('O2', explicit=True)
+def o2(ctx, r):
+    if not getattr(ctx, 'walk_binary', None) or not os.path.exists(ctx.walk_binary):
+        return 'NOT-RUN', 'no operator_walk binary was handed to the guest (run-probes.py --walk-binary)'
+    p = ctx.p
+    decl, home_env = w2_fixture(ctx, r)
+    o2_ruling(ctx)
+    data = p.work / 'o2-data'
+    data.mkdir(parents=True, exist_ok=True)
+    state, root = p.work / 'o2-engine-state', p.work / 'o2-operator'
+    r['gate'] = w3_gate_on(ctx, data, decl, home_env)
+    if r['gate'].get('gate') != 'operator':
+        # What the fence says, for the record: the gate's sentence names only the exit status.
+        fences = p.engine / 'scripts' / 'operator-fences.sh'
+        for verb in ('install', 'on', 'status'):
+            r['fence_' + verb] = run(['/bin/bash', str(fences), verb, '--entity', str(p.entity)], env=home_env,
+                                     cwd=str(p.entity), timeout=120)[:3]
+        r['orchestration_config'] = (p.entity / 'orchestration.config').read_text()[-1500:]
+        r['entity_status'] = git(p.entity, 'status', '--porcelain')
+        return 'PREMISE-FALSE', 'the gate did not open his team: %s' % r['gate']
+    walk = Walk(ctx, data, state, root, 'o2')
+    r['walk_ready'] = walk.ready
+    if not walk.ready:
+        r['walk_stderr'] = walk.stderr_path.read_text()[-2000:] if walk.stderr_path.exists() else ''
+        return 'RECORDED', 'the walk\'s back end did not start past the gate: %s' % r['walk_stderr'][-300:]
+    A, B = ('o2-a', 'O2 A: a report and a stop'), ('o2-b', 'O2 B: owns the agent')
+    steps = r.setdefault('steps', {})
+    try:
+        f3 = steps.setdefault('F3', {})
+        start = walk.count()
+        f3['relay'] = walk.call('assign', thread=A[0], title=A[1], origin='desk-typed', timeout=480, text=FIXTURE_NOTE + (
+            'Step 1: call the tool mcp__richos_operator__report (find it with ToolSearch if it is deferred) once, with '
+            'kind update and exactly this text: %s\nStep 2: call it once more, with kind update and the text '
+            '"O2-F3-CONTROL: nothing to decide here." Step 3: reply with O2-F3-REFUSED if step 1 was refused or '
+            'O2-F3-RECORDED if it was recorded, followed by the exact words the tool answered in step 1.'
+            % json.dumps(O2_RULED)))
+        done = walk.wait_say(lambda s: s['thread'] == A[0] and 'O2-F3-RE' in s['text'], 300, start)
+        f3['reply'] = (done or {}).get('text', '')[-2000:]
+        outbox = o2_outbox(data)
+        f3['ruled_in_outbox'] = sum('splash screens should ship' in line for line in outbox)
+        f3['control_in_outbox'] = sum('O2-F3-CONTROL' in line for line in outbox)
+        f3['pass'] = grade_o2_f3(f3)
+
+        f6 = steps.setdefault('F6', {})
+        wt = spawn_via_walk(ctx, walk, B[0], B[1], 'o2-sonnet-b', 'beta', 480)
+        f6['worktree'] = wt
+        if wt:
+            f6['before'] = ctx.liveness(wt)[0]
+            start = walk.count()
+            t0 = time.time()
+            walk.call('assign', thread=A[0], title=A[1], origin='desk-typed', timeout=480, text=FIXTURE_NOTE + (
+                'He says: stop o2-sonnet-b. That agent belongs to another conversation. Call the tool '
+                'mcp__richos_operator__stop (find it with ToolSearch if it is deferred) once, with names ["o2-sonnet-b"] '
+                'and words "stop o2-sonnet-b". Then reply with O2-F6 followed by the exact words the tool answered.'))
+            done = walk.wait_say(lambda s: s['thread'] == A[0] and 'O2-F6' in s['text'], 360, start)
+            f6['seconds_to_reply'] = round(time.time() - t0, 1)
+            f6['reply'] = (done or {}).get('text', '')[-2000:]
+            f6['after'] = registry_of(ctx.liveness(wt))
+            log = data / 'operator' / 'operator.log'
+            f6['stop_lines'] = [line for line in (log.read_text() if log.exists() else '').splitlines()
+                                if 'stop of o2-sonnet-b' in line]
+        else:
+            f6['why'] = 'the teammate could not be started'
+        f6['pass'] = grade_o2_f6(f6)
+    finally:
+        r['says'] = list(walk.says)
+        r['quit'] = walk.quit()
+        claim = p.claude_dir / 'state' / 'operator-lead.json'
+        left = json.loads(claim.read_text()).get('processes', []) if claim.exists() else []
+        r['lead_pids_alive_after'] = {str(x['pid']): alive(x['pid']) for x in left if x.get('role') != 'app'}
+    passed = all(steps.get(k, {}).get('pass') for k in ('F3', 'F6'))
+    return ('PASS' if passed else 'FAIL'), 'F3 %s, F6 %s' % (
+        'passed' if steps['F3'].get('pass') else 'not passed', 'passed' if steps['F6'].get('pass') else 'not passed')
+
+
+# =============================================================================================
 # W3: the crash matrix of his answers to his team (richos-hq
 # docs/plans/2026-09-27-answer-delivery-crash-dedup-design.md §4.2). One question set per cell,
 # through the real `operator_walk host`, a real lead and the durable stores. The walk binary is

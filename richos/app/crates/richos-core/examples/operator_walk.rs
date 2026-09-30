@@ -390,11 +390,17 @@ fn host(data: &Path, _driver_state: &Path, root: &Path) -> Result<(), String> {
     // His team's desk, composed as the shell composes it at launch.
     let executable = std::env::current_exe().map_err(|e| e.to_string())?;
     let log = data.join("operator").join("operator.log");
+    // F6, as the shell does it: the desk's socket, and the leads' stop-only token in every
+    // lead's report scope.
+    let socket_path = richos_core::operator_desk_tools::socket_path(&data.join("operator"));
+    let desk_token = richos_core::operator_desk_tools::new_token();
+    let lead_token = richos_core::operator_desk_tools::new_token();
+    let lead_desk = richos_core::operator_report::LeadDesk { socket: socket_path.clone(), token: lead_token.clone() };
     let launcher = Arc::new(match std::env::var_os("RICHOS_WALK_LAUNCHCTL") {
         Some(launchctl) => ProfileLauncher::with(declaration.clone(), &executable, state, &log, Arc::new(NoPermissionDesk),
                                                  Box::new(WalkSession(PathBuf::from(launchctl))), Box::new(EngineFenceStatus)),
         None => ProfileLauncher::new(declaration.clone(), &executable, state, &log, Arc::new(NoPermissionDesk)),
-    });
+    }.with_lead_desk(Some(lead_desk)));
     let push_out = out.clone();
     let push_names = names.clone();
     let releaser = launcher.clone();
@@ -416,8 +422,8 @@ fn host(data: &Path, _driver_state: &Path, root: &Path) -> Result<(), String> {
     let work = WorkHost::new(state, Box::new(CountingLeases(work_leases.clone())), Arc::new(SilentNotifier), Default::default());
     work.set_operator(desk.clone());
     work.start();
-    let socket = DeskSocket::serve(desk.clone(), &richos_core::operator_desk_tools::socket_path(&data.join("operator")),
-                                   &richos_core::operator_desk_tools::new_token()).map_err(|e| e.to_string())?;
+    let socket = DeskSocket::serve_with_lead(desk.clone(), &socket_path, &desk_token, Some(&lead_token))
+        .map_err(|e| e.to_string())?;
     let app = App { data: data.to_path_buf(), root: root.to_path_buf(), state: state.to_path_buf(), desk, work, work_leases,
                     spine: Mutex::new(spine), control, names, socket, ecs, origins: declaration.origins.clone() };
     let _ = root;

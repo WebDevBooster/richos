@@ -3665,7 +3665,7 @@ impl NativeCognition {
         let declared=self.engine_profile.as_ref().filter(|p|p.coordination.join("orchestration.config").is_file());
         crate::question_tools::write_scope(&path,&crate::question_tools::Scope {
             context:crate::questions::AskScope {root,entity_id:entity.into(),thread_id:thread.into(),turn_id:turn.into(),asker:asker.into(),session_id:self.session_id.clone(),
-                engine:declared.map(|p|p.engine.clone()),entity_root:declared.map(|p|p.coordination.clone())},
+                engine:declared.map(|p|p.engine.clone()),entity_root:declared.map(|p|p.coordination.clone()),app_run:None},
             actions_allowed:false,answer_method:method.into(),surface:"mac".into()
         }).map_err(CognitionError::Io)
     }
@@ -4372,7 +4372,7 @@ read -r response
         let root=script.parent().unwrap();
         let client=NativeClient::spawn(&script,root,&doctrine_fixture(),&skills_fixture()).unwrap();
         let path=root.join("questions-scope.json");
-        let scope=crate::question_tools::Scope{context:crate::questions::AskScope{root:root.into(),entity_id:"company".into(),thread_id:"thread".into(),turn_id:"ask-turn".into(),asker:"front_desk".into(),session_id:client.session_id().into(),engine:None,entity_root:None},actions_allowed:true,answer_method:"typed".into(),surface:"mac".into()};
+        let scope=crate::question_tools::Scope{context:crate::questions::AskScope{root:root.into(),entity_id:"company".into(),thread_id:"thread".into(),turn_id:"ask-turn".into(),asker:"front_desk".into(),session_id:client.session_id().into(),engine:None,entity_root:None,app_run:None},actions_allowed:true,answer_method:"typed".into(),surface:"mac".into()};
         crate::question_tools::write_scope(&path,&scope).unwrap();
         client.reader_state.lock().unwrap().question_scope=Some(path);
         assert_eq!(client.prompt("Ask one choice",&mut |_|{}).unwrap(),"question_asked");
@@ -4393,7 +4393,7 @@ printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"ty
         let root=script.parent().unwrap();
         let client=NativeClient::spawn(&script,root,&doctrine_fixture(),&skills_fixture()).unwrap();
         let path=root.join("scope.json");
-        let scope=crate::question_tools::Scope{context:crate::questions::AskScope{root:root.into(),entity_id:"company".into(),thread_id:"thread".into(),turn_id:"ask-turn".into(),asker:"front_desk".into(),session_id:client.session_id().into(),engine:None,entity_root:None},actions_allowed:true,answer_method:"typed".into(),surface:"mac".into()};
+        let scope=crate::question_tools::Scope{context:crate::questions::AskScope{root:root.into(),entity_id:"company".into(),thread_id:"thread".into(),turn_id:"ask-turn".into(),asker:"front_desk".into(),session_id:client.session_id().into(),engine:None,entity_root:None,app_run:None},actions_allowed:true,answer_method:"typed".into(),surface:"mac".into()};
         crate::question_tools::write_scope(&path,&scope).unwrap();
         client.reader_state.lock().unwrap().question_scope=Some(path.clone());
         let mut asked=false;
@@ -4425,7 +4425,7 @@ printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
         let root=script.parent().unwrap();
         let client=NativeClient::spawn(&script,root,&doctrine_fixture(),&skills_fixture()).unwrap();
         let path=root.join("scope.json");
-        let scope=crate::question_tools::Scope{context:crate::questions::AskScope{root:root.into(),entity_id:"company".into(),thread_id:"thread".into(),turn_id:"ask-turn".into(),asker:"front_desk".into(),session_id:client.session_id().into(),engine:None,entity_root:None},actions_allowed:true,answer_method:"typed".into(),surface:"mac".into()};
+        let scope=crate::question_tools::Scope{context:crate::questions::AskScope{root:root.into(),entity_id:"company".into(),thread_id:"thread".into(),turn_id:"ask-turn".into(),asker:"front_desk".into(),session_id:client.session_id().into(),engine:None,entity_root:None,app_run:None},actions_allowed:true,answer_method:"typed".into(),surface:"mac".into()};
         crate::question_tools::write_scope(&path,&scope).unwrap();
         client.reader_state.lock().unwrap().question_scope=Some(path.clone());
         let mut asked=false;

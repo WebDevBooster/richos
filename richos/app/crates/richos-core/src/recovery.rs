@@ -926,7 +926,7 @@ mod tests {
         Store::new(state).ask(&AskScope {
             root: state.to_path_buf(), entity_id: "depot".into(), thread_id: "thread-one".into(),
             turn_id: "turn-7".into(), asker: obligation.into(), session_id: "work-session-a".into(),
-            engine: None, entity_root: None,
+            engine: None, entity_root: None, app_run: None,
         }, vec![QuestionInput {
             text: "Who should review it?".into(),
             options: vec![

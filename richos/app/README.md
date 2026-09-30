@@ -231,7 +231,7 @@ richos/app/
                               nightly D4 pair: a failed TEXT turn and a failed VOICE turn are
                               classified identically, which is what makes the operator line
                               impossible to write for only one surface
-    tests/questions.rs       20 tests: durable question sets, revisions, delivery and engine witnesses
+    tests/questions.rs       21 tests: durable question sets, revisions, delivery, engine witnesses and the app-run ask gate
     tests/rotation_tests.rs  27 rotation/crash-recovery/proactive-seam tests, including
                               the watermark's own live-vs-estimated source reporting
     tests/action_ledger_tests.rs 15 action-ledger WRITER tests (the ledger is non-empty
@@ -1108,7 +1108,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1732 tests + 5 doc-tests (1728 direct, 4 ignored)
+cargo test -p richos-core                       # 1739 tests + 5 doc-tests (1735 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
@@ -1136,14 +1136,14 @@ cargo test -p richos-core                       # 1732 tests + 5 doc-tests (1728
 #     Last run: PASS against 2.1.263 (docs/verification/inner-doctrine-live-2026-09-06/).
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
-cargo test -p richos-voice                      # 320 tests (4 live-device tests ignored without a device)
+cargo test -p richos-voice                      # 321 tests (4 live-device tests ignored without a device)
 #     …of which 311 RUN here and 4 report `ignored, LIVE AUDIO: …`, each naming its own
 #     reason. Those four open a real output device and one is audible for about a second, so
 #     they are opt-in. Until 2026-09-05 they opted out with an early `return` — and a test
 #     that returns is reported `ok`, so they were four green lines asserting nothing on every
 #     machine but the CEO's and on every CI run. `crates/richos-voice/build.rs` turns the
 #     variable below into `cfg(live_audio)` so the default run says `ignored` instead.
-RICHOS_VOICE_LIVE_AUDIO=1 cargo test -p richos-voice   # all 320 run, incl. the audible ones
+RICHOS_VOICE_LIVE_AUDIO=1 cargo test -p richos-voice   # all 321 run, incl. the audible ones
 cargo run -p richos-voice --example device_probe       # what the audio hardware really is
 
 # 2. The desktop shell (from richos/app/src-tauri/):
