@@ -1188,7 +1188,7 @@ while True: time.sleep(.02)
         self.assertIsNone(r.accept_ui_proof(sha))
 
         proof_path.write_text(json.dumps(
-            {"proof": "ui-suite-coverage", "commit": sha, "ran": 55, "checks": 863,
+            {"proof": "ui-suite-coverage", "commit": sha, "suites": 55, "ran": 55, "checks": 863,
              "at": "2026-09-20T00:00:00Z"}))
         self.assertEqual(r.accept_ui_proof(sha)["ran"], 55)
 
@@ -1213,6 +1213,55 @@ while True: time.sleep(.02)
         # And a file that is not a coverage proof at all is not one.
         proof_path.write_text(json.dumps({"proof": "gui-boot", "commit": sha}))
         self.assertIsNone(r.accept_ui_proof(sha))
+
+    def test_a_ui_coverage_proof_that_records_no_coverage_never_skips_the_ui_gate(self):
+        """Hunt part 2, finding 17: the reader enforces the shape run.js writes on a PASS.
+
+        `{proof, commit}` with no counts, or a one-character commit, used to skip the whole
+        UI gate and announce "None suite(s), None checks". Each of these names this build's
+        sha (or a prefix of it) and claims coverage it does not show, so each is refused, and
+        the gate never skips on it.
+        """
+        sha = "b" * 40
+        r = m.Runner(self.root, self.root / "state",
+                     {"PATH": "/usr/bin", "RICHOS_NAMED_PERSONS_FILE": "/fixture/list"},
+                     io.StringIO())
+        proof_path = r.ui_proof_path(sha)
+        proof_path.parent.mkdir(parents=True, exist_ok=True)
+        full = {"proof": "ui-suite-coverage", "commit": sha, "suites": 55, "ran": 55,
+                "checks": 863, "at": "2026-09-30T00:00:00Z"}
+        empty = [
+            {"proof": "ui-suite-coverage", "commit": sha},
+            {"proof": "ui-suite-coverage", "commit": "b", "suites": 55, "ran": 55, "checks": 863},
+            {"proof": "ui-suite-coverage", "commit": sha[:12], "suites": 55, "ran": 55, "checks": 863},
+            {"proof": "ui-suite-coverage", "commit": "b", "suites": 0, "ran": 0, "checks": 0},
+            {**full, "ran": 0},
+            {**full, "checks": 0},
+            {**full, "suites": 0},
+            {**full, "ran": 56},
+            {**full, "ran": True},
+            {**full, "checks": "863"},
+            {k: v for k, v in full.items() if k != "suites"},
+        ]
+        for body in empty:
+            with self.subTest(proof=body):
+                proof_path.write_text(json.dumps(body))
+                with self.assertRaises(ValueError):
+                    r.accept_ui_proof(sha)
+                seen = []
+
+                def record(args, **kwargs):
+                    seen.append([str(a) for a in args])
+                    return subprocess.CompletedProcess(args, 0, "", "")
+
+                with patch.object(m, "owned_run", side_effect=record), \
+                        contextlib.redirect_stdout(io.StringIO()), self.assertRaises(ValueError):
+                    r.ui_suite(sha)
+                self.assertNotIn(m.UI_SUITE_GATE, r.skipped)
+
+        # The writer's real shape, with every suite run, is still accepted.
+        proof_path.write_text(json.dumps(full))
+        self.assertEqual(r.accept_ui_proof(sha)["checks"], 863)
 
     def test_a_sha_that_is_not_this_runs_source_is_refused(self):
         """The whole safety of the flag is this comparison.

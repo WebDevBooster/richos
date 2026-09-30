@@ -18,6 +18,7 @@ bc = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(bc)
 
 PASSED = FAILED = 0
+NOT_RUN = []
 
 
 def check(ok, what, detail=""):
@@ -181,8 +182,12 @@ def main():
     has = subprocess.run(["git", "-C", root, "rev-parse", "--verify", "--quiet", old + "^{commit}"],
                          capture_output=True, text=True).returncode == 0
     if not has:
-        print("  NOT RUN  R1/R2 — %s is not in this clone" % old)
-        return 1 if FAILED else 0
+        # NOT RUN IS EXIT 2, NEVER 0 (hunt part 2, finding 18): R1/R2 and the land wiring W1-W8
+        # below need this commit, so a shallow clone never ran them. Exit 2 is run-tests.sh's
+        # "this host cannot answer": red unless a caller declares the gap, and never a pass.
+        NOT_RUN.append("R1/R2 and W1-W8")
+        print("  NOT RUN  R1/R2 and the land wiring W1-W8 — %s is not in this clone" % old)
+        return 1 if FAILED else 2
     cli = subprocess.run([sys.executable, SCRIPT, old], capture_output=True, text=True)
     check(cli.returncode == 0 and "0 commit(s)" in cli.stdout,
           "R1 an unanswered mobile commit already on main before §81 is grandfathered (exit 0)", (cli.returncode, cli.stdout, cli.stderr))
@@ -255,5 +260,6 @@ def wiring(root, old):
 
 if __name__ == "__main__":
     rc = main()
-    print("battery-check: %d passed, %d failed" % (PASSED, FAILED))
+    print("battery-check: %d passed, %d failed%s" % (
+        PASSED, FAILED, "".join(", %s NOT RUN" % n for n in NOT_RUN)))
     sys.exit(rc or (1 if FAILED else 0))

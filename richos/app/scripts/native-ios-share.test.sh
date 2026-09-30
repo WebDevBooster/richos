@@ -37,6 +37,10 @@ SCRATCH="$(mktemp -d "$VOLUME/tmp/native-ios-share.XXXXXX")" || { echo '  FAIL  
 trap 'rm -rf "$SCRATCH"' EXIT HUP INT TERM
 
 PASS=0; FAILED=0
+# A case this host cannot answer (S5 without its tag, S7 without a simulator runtime or when its
+# lease ends) is named here and makes the whole suite exit 2 below: NOT RUN is never a pass
+# (hunt part 2, finding 18; before 2026-09-30 only the lost lease did).
+NOT_RUN=""
 ok()  { PASS=$((PASS + 1)); echo "  ok  $1"; }
 bad() { FAILED=$((FAILED + 1)); echo "  FAIL  $1"; [ -n "${2:-}" ] && printf '        %s\n' "$2"; return 0; }
 
@@ -97,6 +101,7 @@ if git -C "$ROOT" rev-parse -q --verify "$TAG^{commit}" >/dev/null 2>&1; then
   else bad "S5 the preserved app, its UI and the PWA are unchanged (test suites excepted)" "$(echo "$CHANGED" | head -5 | tr '\n' ' ')"; fi
 else
   echo "  NOT RUN  S5 the tag $TAG is not in this clone"
+  NOT_RUN="$NOT_RUN, S5 (the tag $TAG is not in this clone)"
 fi
 
 # S6 — the Release product, built from the merged project: extensions, purpose strings, export
@@ -123,7 +128,7 @@ if xcrun simctl list runtimes 2>/dev/null | grep -q '^iOS .*com.apple.CoreSimula
   elif [ "$SIM_RC" -eq 75 ]; then
     # The lease ended mid-run: no result from that device, never a pass (exit 2 below).
     echo "  NOT RUN  S7 $(grep '^NOT RUN' "$SCRATCH/sim.log")"
-    S7_NOT_RUN=1
+    NOT_RUN="$NOT_RUN, S7 (its simulator lease ended mid-run)"
   else
     bad "S7 simulator tests" "$(tail -12 "$SCRATCH/sim.log" | tr '\n' ' ')"
     # Every failing test by name; this run's bundle (the next run of this suite deletes it
@@ -137,10 +142,11 @@ if xcrun simctl list runtimes 2>/dev/null | grep -q '^iOS .*com.apple.CoreSimula
   fi
 else
   echo "  NOT RUN  S7 no iOS simulator runtime is installed"
+  NOT_RUN="$NOT_RUN, S7 (no iOS simulator runtime is installed)"
 fi
 
-if [ "$FAILED" -eq 0 ] && [ -n "${S7_NOT_RUN:-}" ]; then
-  echo "=== native-ios-share tests: $PASS passed, S7 NOT RUN (its simulator lease ended mid-run) ==="
+if [ "$FAILED" -eq 0 ] && [ -n "$NOT_RUN" ]; then
+  echo "=== native-ios-share tests: $PASS passed, NOT RUN: ${NOT_RUN#, } ==="
   exit 2
 fi
 if [ "$FAILED" -eq 0 ]; then

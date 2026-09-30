@@ -295,6 +295,90 @@ try:
           "P17b a run-tests.sh check that exits 0 without its results record is INVALID, not passed",
           (silent.state, silent.notes))
 
+    # P38 — a UI suite the land runs directly (`cd richos/app/ui/tests && node <suite>.js`) is
+    # read from the evidence ledger its harness writes, as run.js reads it (hunt part 2, finding
+    # 18). Before 2026-09-30 only its exit code was read, so realbytes.js's skipSuite()-and-exit-0
+    # was recorded `passed` over a Rust compile failure. Fixture suites write the ledger the way
+    # lib/harness.js recordEvidence() does, from RICHOS_UI_TESTS_LEDGER.
+    d38 = os.path.join(tmp, "p38")
+    os.makedirs(d38)
+
+    def ui_fixture(name, records, code=0):
+        path = os.path.join(d38, name + ".js")
+        with open(path, "w") as fh:
+            fh.write("const fs = require('fs');\nconst L = process.env.RICHOS_UI_TESTS_LEDGER || '';\n"
+                     "for (const r of %s) { if (L) fs.appendFileSync(L, JSON.stringify(Object.assign({suite: '%s.js'}, r)) + '\\n'); }\n"
+                     "process.exit(%d);\n" % (json.dumps(records), name, code))
+        return pr.Item(name, os.path.join(pr.ROOT, "richos/app/ui/tests"), ["node", path], None, 1)
+
+    skipped = ui_fixture("skipped", [{"label": "x", "skipped": "could not run cargo\n        error[E0425]"}])
+    empty = ui_fixture("empty", [])
+    ran = ui_fixture("ran", [{"label": "x", "checks": 3, "failed": 0}])
+    lied = ui_fixture("lied", [{"label": "x", "checks": 3, "failed": 1}])
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        pr.run([skipped, empty, ran, lied], Args(), d38, sampler=idle)
+        rc38 = pr.summarize([skipped, empty, ran, lied], 1.0, d38)
+    with open(os.path.join(d38, "summary.json")) as fh:
+        rows38 = {c["check"]: c for c in json.load(fh)["checks"]}
+    check(skipped.state == "not-run" and (skipped.not_run or {}).get("why") == "suite-skipped"
+          and rows38.get("skipped", {}).get("result") == "not-run"
+          and "could not run cargo" in skipped.not_run["suites"][0]["reason"],
+          "P38a a UI suite whose ledger holds only a skip is NOT RUN (suite-skipped), never passed",
+          (skipped.state, skipped.notes, rows38.get("skipped")))
+    check(empty.state == "invalid" and any("without a single check" in n for n in empty.notes),
+          "P38b a UI suite that exits 0 with no check in its ledger is INVALID: it cannot show it ran",
+          (empty.state, empty.notes))
+    check(ran.state == "passed", "P38c a UI suite that ran its checks and exited 0 still passes", (ran.state, ran.notes))
+    check(lied.state == "invalid" and any("1 failed check" in n for n in lied.notes) and rc38 != 0,
+          "P38d a UI suite whose ledger records a failed check and exits 0 is INVALID, and the run is not green",
+          (lied.state, lied.notes, rc38))
+    real = items_from(["cd richos/app/ui/tests && node realbytes.js",
+                       "cd richos/web/web-app && node --test test/api.test.js"], d38)
+    check([bool(pr.ui_suite_file(i)) for i in real] == [True, False],
+          "P38e proof-for.sh's UI line is recognized as a UI suite; the web app's node --test is not",
+          [(i.label, i.cwd, i.argv) for i in real])
+
+    # P39 — the REAL realbytes.js on the land's own line, both ways it can fail to render the
+    # backend's bytes. A cargo that runs and fails (a compile error) is a red check; only a cargo
+    # that cannot be started is a skip, and that skip is NOT RUN. Before 2026-09-30 both were
+    # the same skip, exit 0, recorded `passed`. Neither case reaches the browser.
+    d39 = os.path.join(tmp, "p39")
+    fake = os.path.join(d39, "fakebin")
+    os.makedirs(fake)
+    with open(os.path.join(fake, "cargo"), "w") as fh:
+        fh.write("#!/bin/sh\necho 'error[E0425]: cannot find value `payload` in this scope' >&2\nexit 101\n")
+    os.chmod(os.path.join(fake, "cargo"), 0o755)
+    nocargo_home = os.path.join(d39, "home")
+    os.makedirs(nocargo_home)
+    line39 = "cd richos/app/ui/tests && node realbytes.js"
+    broken = items_from([line39], d39)[0]
+    broken.env["PATH"] = fake + os.pathsep + os.environ.get("PATH", "")
+    absent = items_from([line39], d39)[0]
+    absent.label = "realbytes-no-cargo"
+    # No cargo anywhere: the runner and the suite both add $HOME/.cargo/bin, so HOME moves too.
+    absent.env["PATH"] = os.pathsep.join((os.path.dirname(sys.executable), "/usr/bin", "/bin"))
+    absent.env["HOME"] = nocargo_home
+    saved_home = os.environ["HOME"]
+    os.environ["HOME"] = nocargo_home
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            pr.run([broken], Args(), os.path.join(d39, "broken"), sampler=idle)
+            pr.run([absent], Args(), os.path.join(d39, "absent"), sampler=idle)
+    finally:
+        os.environ["HOME"] = saved_home
+    with open(broken.log, errors="replace") as fh:
+        broken_log = fh.read()
+    check(broken.state == "failed" and broken.rc == 1 and "E0425" in broken_log and "FAIL" in broken_log,
+          "P39a realbytes.js over a cargo that fails to compile is a FAILED check naming the error, never a skip",
+          (broken.state, broken.rc, broken.notes, broken_log[-400:]))
+    with open(absent.log, errors="replace") as fh:
+        absent_log = fh.read()
+    check(absent.state == "not-run" and (absent.not_run or {}).get("why") == "suite-skipped"
+          and "SKIPPED, not passed" in absent_log,
+          "P39b realbytes.js with no cargo at all still skips, loudly, and the land records it NOT RUN",
+          (absent.state, absent.notes, absent_log[-400:]))
+
     # P18 — a proof run started by a check of a proof run, in a MAIN checkout, is part of its
     # caller's integration plan and never waits for the episode lock its caller holds. Before
     # 2026-09-29 it opened a second episode, waited its whole bound for that lock and failed

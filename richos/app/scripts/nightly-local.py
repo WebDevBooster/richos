@@ -1377,6 +1377,16 @@ class Runner:
         the commit inside it -- so it is compared against the sha this run actually fetched,
         exactly as accept_land_proof does. A proof file named after the right sha whose
         CONTENTS name a different one proves nothing; that is why both are checked.
+
+        THE READER ENFORCES THE WRITER'S SHAPE; IT DOES NOT ASSUME IT (hunt part 2, finding
+        17). `run.js` writes this file only on a PASS, with the full commit it ran at
+        (`commitSha()`, `git rev-parse HEAD`) and the counts it observed. Until 2026-09-30 this
+        reader checked only the `proof` tag and a commit PREFIX, so `{proof, commit}` with no
+        counts at all, or a one-character commit, skipped the whole UI gate and announced
+        "None suite(s), None checks". A proof skips the gate only when it names this exact
+        commit in full and records at least one suite run and at least one check observed,
+        no more suites run than it discovered. Anything less claims coverage it does not show,
+        and is refused like a proof for another tree, never quietly run over.
         """
         path = self.ui_proof_path(sha)
         if not path.exists():
@@ -1385,13 +1395,27 @@ class Runner:
             proof = json.loads(path.read_text())
         except (OSError, ValueError):
             return None
-        if proof.get("proof") != "ui-suite-coverage":
+        if not isinstance(proof, dict) or proof.get("proof") != "ui-suite-coverage":
             return None
         seen = proof.get("commit", "")
-        if not seen or not sha.startswith(seen) and not seen.startswith(sha):
+        if not isinstance(seen, str) or not seen or seen != sha:
             raise ValueError(
                 f"{path} is a coverage proof for {seen or '<no commit>'}, not for {sha}. "
-                "A proof taken against a different tree proves nothing about this one.")
+                "A proof taken against a different tree proves nothing about this one; "
+                "run.js records the full commit, so nothing shorter is accepted.")
+
+        def count(key):
+            value = proof.get(key)
+            # bool is an int in Python; `true` is not a count.
+            return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+        suites, ran, checks = count("suites"), count("ran"), count("checks")
+        if suites is None or ran is None or checks is None or not (1 <= ran <= suites) or checks < 1:
+            raise ValueError(
+                f"{path} names {sha} but records no coverage (suites={proof.get('suites')!r}, "
+                f"ran={proof.get('ran')!r}, checks={proof.get('checks')!r}). run.js writes this "
+                "file only after at least one suite ran and at least one check was observed; "
+                "a proof without those counts proves nothing, so the UI gate is not skipped.")
         return proof
 
     def accept_core_proof(self, sha):

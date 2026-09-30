@@ -47,6 +47,12 @@ live line and the final line. A run-tests.sh check that exits 0 without writing 
 `invalid`: it cannot show that it ran. What a caller does with NOT RUN is the caller's
 decision; the land gate's is in autocheck/README.md.
 
+The same holds for a UI suite run directly (`cd richos/app/ui/tests && node <suite>.js`,
+2026-09-30, hunt part 2 finding 18): it is given the evidence ledger run.js gives its children
+(RICHOS_UI_TESTS_LEDGER) and its state is read from it. A suite that recorded only a skip
+(lib/harness.js skipSuite) is NOT RUN (`suite-skipped`); one that exits 0 with no check or a
+failed check in its ledger is `invalid`.
+
 A RETRY ON THE SAME TREE RUNS ONLY WHAT DID NOT PASS (2026-09-29). `--resume` and every new run
 reuse a validated pass whose input identity is unchanged (lib/proof_evidence.py). A check with
 a reviewed contract in proof-inputs.json is keyed by the inputs it declares; every other check
@@ -633,6 +639,15 @@ def launch(item, n, logdir, tokens_dir, reserved):
         env["RICHOS_VERIFICATION_RUNNER_WAIT"] = json.dumps(item.wait_times)
     if item.label == "engine receipts" and getattr(item, "evidence", None):
         env["RICHOS_PROOF_RUN"] = str(logdir)
+    # A UI suite run directly writes the evidence ledger run.js gates on (ui_not_run). Set here,
+    # never in item.env, so it is not part of the check's input identity: the path is per run.
+    item.ui_ledger = None
+    if ui_suite_file(item):
+        item.ui_ledger = os.path.join(os.path.realpath(logdir), "ui-ledger", "%02d-%s.jsonl" % (n, slug(item.label)))
+        os.makedirs(os.path.dirname(item.ui_ledger), exist_ok=True)
+        if os.path.exists(item.ui_ledger):
+            os.unlink(item.ui_ledger)    # an earlier attempt's records are not this attempt's
+        env["RICHOS_UI_TESTS_LEDGER"] = item.ui_ledger
     item.state, item.started = "running", time.monotonic()
     evidence = getattr(item, "evidence", None)
     if evidence:
@@ -1265,9 +1280,69 @@ SHOWN_FAILURES = 20
 NOT_RUN_STATES = {"notrun": "no-screen", "gap": "host-gap", "skipped": "unchanged-inputs"}
 
 
+UI_TESTS_DIR = os.path.join(ROOT, "richos", "app", "ui", "tests")
+
+
+def ui_suite_file(item):
+    """The suite a check runs as `cd richos/app/ui/tests && node <suite>.js` (proof-for.sh's UI
+    line), or None. Discovered exactly as run.js and proof-for.sh discover suites: any .js."""
+    argv = item.argv
+    if (len(argv) == 2 and argv[0] == "node" and argv[1].endswith(".js") and not argv[1].startswith("-")
+            and os.path.realpath(item.cwd) == os.path.realpath(UI_TESTS_DIR)):
+        return argv[1]
+    return None
+
+
+def ui_not_run(it):
+    """For a UI suite run directly that exited 0: its state from the evidence ledger its harness
+    wrote (lib/harness.js recordEvidence), the record run.js gates the nightly on.
+
+    Hunt part 2, finding 18: realbytes.js calls skipSuite() and exits 0 when it cannot run, and
+    run.js refuses that skip, but the land runs the suite directly and read only the exit code,
+    so the skip was recorded `passed`. A suite whose only record is a skip is NOT RUN
+    (`suite-skipped`); one that exits 0 with no check in its ledger, or with a failed check, is
+    `invalid`, exactly the two faults run.js names (NO EVIDENCE; failures that did not reach
+    the exit code)."""
+    records = []
+    try:
+        with open(it.ui_ledger) as stream:
+            for line in stream:
+                if line.strip():
+                    row = json.loads(line)
+                    if isinstance(row, dict):
+                        records.append(row)
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError) as exc:
+        it.state, it.rc = "invalid", 125
+        it.notes.append("exited 0 with an unreadable evidence ledger (%s): it cannot show it ran" % exc)
+        return
+    runs = [r for r in records if isinstance(r.get("checks"), int) and not isinstance(r.get("checks"), bool)]
+    skips = [r for r in records if isinstance(r.get("skipped"), str)]
+    if skips and not runs:
+        suite = ui_suite_file(it)
+        reason = skips[0]["skipped"].strip().split("\n")[0]
+        it.state = "not-run"
+        it.not_run = {"why": "suite-skipped", "suites": [{"name": suite, "state": "skipped", "reason": reason}]}
+        it.notes.append("NOT RUN (suite-skipped): %s: %s" % (suite, reason))
+        return
+    if not runs:
+        it.state, it.rc = "invalid", 125
+        it.notes.append("exited 0 without a single check in its evidence ledger: it cannot show it ran")
+        return
+    failed = sum(r.get("failed", 0) for r in runs if isinstance(r.get("failed"), int))
+    if failed:
+        it.state, it.rc = "invalid", 125
+        it.notes.append("exited 0 but its evidence ledger records %d failed check(s)" % failed)
+
+
 def not_run(it):
-    """For a run-tests.sh check that exited 0: its state from its own --results-out record.
+    """For a check that exited 0 and keeps a machine record of what it ran: a run-tests.sh
+    check's own --results-out record, or a directly run UI suite's evidence ledger (ui_not_run).
     A suite that did not run makes the check `not-run`; no record at all makes it `invalid`."""
+    if getattr(it, "ui_ledger", None):
+        ui_not_run(it)
+        return
     if "--results-out" not in it.argv:
         return
     report = it.argv[it.argv.index("--results-out") + 1]

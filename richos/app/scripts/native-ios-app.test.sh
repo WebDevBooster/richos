@@ -42,6 +42,9 @@ trap '"$RIOS" sim stop >"$SCRATCH/stop.json" 2>&1 || true; rm -rf "$SCRATCH"' EX
 export RICHOS_TEST_DEVICE_OWNER_PID=$$
 
 PASS=0; FAILED=0
+# A case asked for that could not run (A8 enabled with no test files to run) is named here and
+# makes the suite exit 2 below: NOT RUN is never a pass (hunt part 2, finding 18).
+NOT_RUN=""
 ok()  { PASS=$((PASS + 1)); echo "  ok  $1"; }
 bad() { FAILED=$((FAILED + 1)); echo "  FAIL  $1"; [ -n "${2:-}" ] && printf '        %s\n' "$2"; return 0; }
 json() { python3 -c 'import json,sys; d=json.load(sys.stdin); print(eval(sys.argv[1], {"d": d}))' "$1"; }
@@ -130,7 +133,7 @@ else bad "A7 check-release" "$(tail -c 600 "$SCRATCH/err")"; fi
 # and ends it as NOT RUN (exit 75) if the lease is lost. A8b then proves the lease was still this
 # run's when the tests ended, which is what Z's shutdown depends on.
 if [ "${RICHOS_NATIVE_IOS_APP_A8:-}" != 1 ]; then
-  echo "  NOT RUN  A8: the middle-size iPhone UI and unit tests are off every land (decision of 2026-09-23, esc-20260923T113632Z-746305fb) and run in the iPhone app's release check (native-ios/Release/README.md); RICHOS_NATIVE_IOS_APP_A8=1 runs them here"
+  echo "  NOT RUN  A8: the middle-size iPhone UI and unit tests are off every land (decision of 2026-09-23, esc-20260923T113632Z-746305fb) and run in the iPhone app's release check (native-ios/Release/README.md); RICHOS_NATIVE_IOS_APP_A8=1 runs them here"  # not-a-subcheck: A8 is off every land by the recorded decision above, not skipped for want of a tool
 elif find "$NATIVE/UITests" "$NATIVE/UnitTests" -name '*.swift' 2>/dev/null | grep -q .; then
   TESTDEVICES="$ROOT/richos/engine/scripts/lib/testdevices.py"
   A8_TYPE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["type"])' "$RICHOS_NATIVE_IOS_CACHE/simulator.json" 2>/dev/null)"
@@ -184,6 +187,7 @@ PY_A8B
   fi
 else
   echo "  NOT RUN  A8 UI tests: UITests/ and UnitTests/ have no test files yet (stream I2 writes them)"
+  NOT_RUN="$NOT_RUN, A8 (RICHOS_NATIVE_IOS_APP_A8=1 asked for it; UITests/ and UnitTests/ have no test files)"
 fi
 
 # Z: shutdown releases the lease and retains the OS for the next proof.
@@ -192,6 +196,10 @@ if "$RIOS" sim stop >"$SCRATCH/stop.json" 2>"$SCRATCH/err" &&
   ok "Z the simulator $UDID was shut down and retained for reuse"
 else bad "Z the prepared simulator was shut down"; fi
 
+if [ "$FAILED" -eq 0 ] && [ -n "$NOT_RUN" ]; then
+  echo "=== native-ios-app tests: $PASS passed, NOT RUN: ${NOT_RUN#, } ==="
+  exit 2
+fi
 if [ "$FAILED" -eq 0 ]; then
   echo "=== native-ios-app tests: all $PASS passed ==="
   exit 0
