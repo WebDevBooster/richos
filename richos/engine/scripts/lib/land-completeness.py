@@ -228,6 +228,41 @@ def _merge_status(repo, branch, main):
     return None
 
 
+def _has_uncommitted_work(path):
+    """True / False / None. A workspace with uncommitted or untracked files is holding work
+    that no merge has carried, whatever its branch tip says: a branch with no commits of its
+    own is an ancestor of main, so `merged` alone reads an agent that has not committed yet
+    as a finished land (2026-09-30, cc/zach-opus-q1). None means it could not be read."""
+    ok, out = _git(path, "status", "--porcelain")
+    if not ok:
+        return None
+    return bool(out)
+
+
+def _owner_rows_predate_workspace(worktree, records, mod):
+    """True when every ownership row for this exact path is older than the workspace itself.
+
+    A path is reused: the teammate name zach-opus-q1 was a workspace on 2026-09-10 (agent
+    a57075d0698120f83, since terminated) and the same path was created again on 2026-09-30
+    for a different, running agent. Rows are joined to a workspace by exact path, so the new
+    occupant inherited the old occupant's witnessed termination and the judge said NOT-ALIVE
+    about an agent it had never heard of. Rows that predate the directory's birth describe
+    someone else, so they decide nothing about it. Unreadable times answer False (the old
+    behavior), never a guess."""
+    import datetime
+    try:
+        born = os.stat(os.path.join(worktree, ".git")).st_birthtime
+        newest = None
+        for r in mod.registrations(records, worktree=worktree):
+            stamp = datetime.datetime.fromisoformat((r.get("ts") or "").replace("Z", "+00:00"))
+            if stamp.tzinfo is None:
+                stamp = stamp.replace(tzinfo=datetime.timezone.utc)
+            newest = max(newest, stamp.timestamp()) if newest is not None else stamp.timestamp()
+    except Exception:
+        return False
+    return newest is not None and newest < born
+
+
 def _entities_for(worktree, records, mod, repo):
     """Which repositories' worktree LOCKS can speak for this worktree's owner?
 
@@ -444,6 +479,13 @@ def analyze(repo, main="", ledger=None):
         present = os.path.isdir(path)
         merged = _merge_status(repo, branch, main) if branch else None
         owner, why, owner_ids = _judge_owner(path, records, mod, repo, liveness)
+        if owner not in ("ALIVE", "UNRESOLVED") and present and mod is not None \
+                and _owner_rows_predate_workspace(path, records, mod):
+            owner, why = "UNRESOLVED", (
+                "every ownership record for this path is older than the workspace itself (the "
+                "path was reused), so they describe a previous occupant and decide nothing "
+                "about the current one; earlier verdict was %s: %s" % (owner, why))
+        dirty = _has_uncommitted_work(path) if present else False
         quarantined = "/.richos-retired/" in (path.rstrip("/") + "/")
 
         # ORDER MATTERS AND IS THE SAFETY ARGUMENT. Live first, so a running
@@ -469,6 +511,11 @@ def analyze(repo, main="", ledger=None):
             disp, reason = RETAINED_UNMERGED, (
                 "its branch has commits that are NOT in %s — never swept, by rule, and never "
                 "reported as residue. READ IT before removing anything." % main)
+        elif dirty:
+            disp, reason = RETAINED_UNMERGED, (
+                "its workspace holds uncommitted or untracked changes, so it is not a finished "
+                "land even though '%s' has no commits past %s — never swept, by rule. READ IT "
+                "before removing anything." % (branch or "(detached)", main))
         elif merged is None:
             disp, reason = UNKNOWN_MERGE, (
                 "the merge status of '%s' could not be decided, so this worktree was NOT judged"

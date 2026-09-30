@@ -203,7 +203,9 @@ repo, wt, branch, agent = sys.argv[1:5]
 rec = {"event": "registered", "agent_id": agent, "session_id": "sess-" + agent,
        "session_pid": 2, "pid_start": "ps-lstart-utc-v1:Thu Jan  1 00:00:00 1970",
        "repo": repo, "worktree": wt, "branch": branch, "class": "hand-rolled",
-       "source": "land-completeness.test.sh", "ts": "2026-09-10T00:00:00+00:00"}
+       "source": "land-completeness.test.sh",
+       "ts": os.environ.get("REGISTER_TS") or __import__("datetime").datetime.now(
+           __import__("datetime").timezone.utc).isoformat()}
 with open(os.environ["RICHOS_WORKTREE_LEDGER"], "a") as f:
     f.write(json.dumps(rec, sort_keys=True) + "\n")
 PY
@@ -612,6 +614,42 @@ if [ "$C_BAD" = "bare-marker.test.sh mentions-only.test.sh" ] \
     ok "L23  POSITIVE CONTROL: the scan flags a mention-only suite and a bare marker, and clears only the declared and the sandboxed"
 else
     bad "L23  the L21 predicate can actually fire — corpus ${C_N:-0}/4, flagged '[$C_BAD]' declared '[$C_DECL]', expected '[bare-marker.test.sh mentions-only.test.sh]' and '[declared.test.sh]'"
+fi
+
+# --- L24/L25: a branch with no commits of its own is not a finished land --
+# 2026-09-30: cc/zach-opus-q1 was refused at a land as "already merged" and its owner as
+# NOT-ALIVE, while its agent was running with an uncommitted edit. Two causes, two cases.
+R24="$SANDBOX/noc/repo"
+mkrepo "$R24"
+mkworktree "$R24" "dirty-agent" yes
+register "$R24" "$SANDBOX/noc/dirty-agent" "dirty-agent" "dddd4444"
+mkworktree "$R24" "clean-agent" yes
+register "$R24" "$SANDBOX/noc/clean-agent" "clean-agent" "eeee5555"
+echo "edit in progress" > "$SANDBOX/noc/dirty-agent/f.txt"
+J24="$(analyze_json "$R24")"
+D="$(printf '%s' "$J24" | disposition_of "dirty-agent")"
+if [ "$D" = "retained-unmerged" ]; then
+    ok "L24  a workspace with uncommitted changes on a branch with no commits is RETAINED, never an incomplete land"
+else
+    bad "L24  dirty-agent -> '$D', expected retained-unmerged"
+fi
+D="$(printf '%s' "$J24" | disposition_of "clean-agent")"
+if [ "$D" = "incomplete-land" ]; then
+    ok "L24b POSITIVE CONTROL: the same branch with a clean workspace is still an incomplete land"
+else
+    bad "L24b clean-agent -> '$D', expected incomplete-land"
+fi
+
+R25="$SANDBOX/reuse/repo"
+mkrepo "$R25"
+mkworktree "$R25" "reused-path" yes
+REGISTER_TS="2026-09-10T00:00:00+00:00" register "$R25" "$SANDBOX/reuse/reused-path" "reused-path" "ffff6666"
+J25="$(analyze_json "$R25")"
+D="$(printf '%s' "$J25" | disposition_of "reused-path")"
+if [ "$D" = "unowned" ]; then
+    ok "L25  ownership rows older than the workspace (a reused path) decide nothing: 'unowned', never an incomplete land"
+else
+    bad "L25  reused-path -> '$D', expected unowned"
 fi
 
 # --- THE MUTATION HARNESS -------------------------------------------------
