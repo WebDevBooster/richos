@@ -653,7 +653,12 @@ function gate(planned, data, opts) {
     const skips = recs.filter((r) => typeof r.skipped === "string");
     const runs = recs.filter((r) => typeof r.checks === "number");
     const declared = DECLARED.get(suite);
-    const observed = runs.reduce((a, r) => a + r.checks, 0);
+    // THE SUITE'S OWN CHECKS ONLY. `checks` also counts the housekeeping checks `report()`
+    // appends (the tracked-tree guard, the changed-picture guard); those are not in the
+    // declared count, so counting them let a suite skip a declared check and still meet the
+    // floor (part-2 hunt section 26). A record written before `productChecks` existed falls
+    // back to `checks`.
+    const observed = runs.reduce((a, r) => a + (typeof r.productChecks === "number" ? r.productChecks : r.checks), 0);
     const failedChecks = runs.reduce((a, r) => a + r.failed, 0);
     const status = entry ? entry.exit : null;
 

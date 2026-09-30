@@ -829,10 +829,14 @@ function createRun(label) {
       const tree = TREE.verify();
       const seen = results.findIndex((r) => r.name === TREE_CHECK);
       if (seen >= 0) results.splice(seen, 1); // a second report() re-measures, never double-counts
+      // Housekeeping checks are appended by this function, not declared in the suite's source,
+      // so `run.js`'s coverage floor must not count them as the suite's own (hunt section 26):
+      // they carry `housekeeping: true` and `productChecks` below leaves them out.
       if (tree.checked) {
         const ok = tree.changed.length === 0;
         results.push({
           name: TREE_CHECK,
+          housekeeping: true,
           ok,
           detail: ok
             ? ""
@@ -859,7 +863,10 @@ function createRun(label) {
       const failures = results
         .filter((r) => !r.ok)
         .map((r) => ({ check: r.name, message: String(r.detail || "").slice(0, 2000) }));
-      recordEvidence(Object.assign({ label, checks: results.length, failed }, failed ? { failures } : {}));
+      // `checks` is everything reported; `productChecks` is only what the suite's source declares
+      // (housekeeping excluded), the number `run.js` measures against the declared count.
+      const productChecks = results.filter((r) => !r.housekeeping).length;
+      recordEvidence(Object.assign({ label, checks: results.length, productChecks, failed }, failed ? { failures } : {}));
       return failed;
     },
   };

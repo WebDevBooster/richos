@@ -21,9 +21,21 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { EventEmitter } = require("events");
+const { spawnSync } = require("child_process");
 const { createRun, assert, assertEqual } = require("./lib/harness");
 const { collectPageErrors, createErrorTracker } = require("./lib/page-errors");
 const SOURCES = require("./lib/ui-sources");
+
+const FIXTURE = path.join(__dirname, "fixtures", "changed-shot-suite.js");
+
+function runFixture(mode, ledger) {
+  const env = Object.assign({}, process.env);
+  delete env.RICHOS_SHOTS_REGENERATE; // a regeneration asked of THIS process is not asked of the child
+  delete env.RICHOS_UI_TESTS_LEDGER;
+  if (ledger) env.RICHOS_UI_TESTS_LEDGER = ledger;
+  const r = spawnSync(process.execPath, [FIXTURE, mode], { env, encoding: "utf8", timeout: 60000 });
+  return { code: r.status, out: (r.stdout || "") + (r.stderr || "") };
+}
 
 /// A page that is only what `collectPageErrors` touches: `on`, and something to emit from.
 function fakePage() {
@@ -34,6 +46,49 @@ async function main() {
   const run = createRun("the UI gates can fail — a changed picture, the coverage floor, page errors");
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "richos-gate-honesty-"));
   try {
+    await run.check("3  the ledger keeps housekeeping out of the suite's own check count", async () => {
+      const ledger = path.join(scratch, "ledger.jsonl");
+      fs.writeFileSync(ledger, "");
+      const r = runFixture("same", ledger);
+      assertEqual(r.code, 0, "the child suite's exit code");
+      const rec = fs.readFileSync(ledger, "utf8").trim().split("\n").map((l) => JSON.parse(l)).pop();
+      assertEqual(rec.productChecks, 1, "the fixture declares and runs ONE check; the tree guard is housekeeping");
+      assert(rec.checks >= rec.productChecks, "checks (everything reported) is below productChecks: " + JSON.stringify(rec));
+      return "productChecks 1 of checks " + rec.checks;
+    });
+
+    await run.check("4  run.js's coverage floor does not let a housekeeping check stand in for a declared one", async () => {
+      // tracked-tree.js declares 6 checks. A receipt says it reported 6 in all, but one of them
+      // was housekeeping: it ran 5 of its own, and one declared check was never reached.
+      const receipt = (productChecks, checks) => ({
+        suite: "tracked-tree.js",
+        commit: "a".repeat(40),
+        shard: "1/1",
+        exit: 0,
+        seconds: 1,
+        declared: 6,
+        records: [{ suite: "tracked-tree.js", label: "x", checks, productChecks, failed: 0 }],
+      });
+      const coverage = (rec) => {
+        const dir = fs.mkdtempSync(path.join(scratch, "receipts-"));
+        fs.writeFileSync(path.join(dir, "tracked-tree.receipt.json"), JSON.stringify(rec));
+        const r = spawnSync(process.execPath, [path.join(__dirname, "run.js"), "--coverage=" + dir], {
+          env: Object.assign({}, process.env, { GITHUB_SHA: "a".repeat(40) }),
+          encoding: "utf8",
+          timeout: 60000,
+        });
+        return (r.stdout || "") + (r.stderr || "");
+      };
+      const short = coverage(receipt(5, 6));
+      assert(
+        short.includes("tracked-tree.js: ran 5 check(s) but its source declares 6"),
+        "5 own checks + 1 housekeeping met the floor of 6:\n" + short
+      );
+      const full = coverage(receipt(6, 7));
+      assert(!/tracked-tree\.js: ran \d+ check\(s\) but/.test(full), "6 own checks + housekeeping was refused:\n" + full);
+      return "5 of 6 declared (+1 housekeeping): refused · 6 of 6 (+1 housekeeping): accepted";
+    });
+
     await run.check("5  page errors raised AFTER a page is tracked reach the suite-wide aggregate", async () => {
       const tracker = createErrorTracker();
       const page = tracker.track(fakePage());
