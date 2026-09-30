@@ -507,5 +507,12 @@ if [ "$FAIL" -gt 0 ]; then
   echo "=== proof-for tests: $FAIL FAILED, $PASS passed$TAIL ==="
   exit 1
 fi
-echo "=== proof-for tests: all $PASS passed$TAIL ==="
+# NOT RUN IS EXIT 2, NEVER 0 (hunt part 2, finding 18). Until 2026-09-30 a host without node
+# (K4) or cargo (H) printed NOT RUN here and still exited 0, which run-tests.sh records as
+# passed. Exit 2 is its "this host cannot answer": red unless a caller declares the gap.
+if [ "$NOTRUN" -gt 0 ]; then
+  echo "=== proof-for tests: $PASS passed, $NOTRUN NOT RUN, which is not a pass ==="
+  exit 2
+fi
+echo "=== proof-for tests: all $PASS passed ==="
 exit 0

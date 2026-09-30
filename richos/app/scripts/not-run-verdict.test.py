@@ -71,7 +71,12 @@ def v1_battery_check_in_a_shallow_history():
 MARKER = "  NOT RUN  "
 STOPS = re.compile(r"\bexit 2\b|SystemExit\(2\)|^\s*(return|sys\.exit\()[^#]*\b2\b")
 DECLARED = re.compile(r"#\s*not-a-subcheck:\s*\S")
-COUNTS = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*(?:NOT_?RUN|NOTRUN)[A-Za-z0-9_]*)(?:=|\+=|\.append\()", re.I)
+ASSIGNS = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*(?:\+?=|\.append\()")
+
+
+def counters(line):
+    """The not-run counters or flags `line` sets: NOTRUN=..., S7_NOT_RUN=1, NOT_RUN.append(...)."""
+    return [n for n in ASSIGNS.findall(line) if re.search(r"not_?run", n, re.I)]
 
 
 def stops_with_2(lines, name):
@@ -95,7 +100,7 @@ def unaccounted(path):
         window = lines[i:i + 3]
         if DECLARED.search(line) or any(STOPS.search(l) for l in window):
             continue
-        counted = [m.group(1) for l in window for m in COUNTS.finditer(l)]
+        counted = [name for l in window for name in counters(l)]
         if counted and all(stops_with_2(lines, name) for name in counted):
             continue
         bad.append("%d: %s" % (i + 1, line.strip()[:140]))
@@ -114,6 +119,7 @@ def static_rule(names):
 # The suites hunt part 2 finding 18 named, each added with its own fix.
 NAMED = [
     "battery-check.test.py",
+    "proof-for.test.sh",
 ]
 
 
