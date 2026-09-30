@@ -737,6 +737,14 @@ def _detach(call, job, table):
         return False
 
 
+RELEASING = ".releasing"
+
+
+def _save_hold(path, session_id, agent_id, name, at, held, parents, detached):
+    _write_json(path, {"session_id": session_id, "agent_id": agent_id, "name": name, "at": at,
+                       "held": {str(p): b for p, b in held.items()}, "parents": parents, "detached": detached})
+
+
 def hold(session_id, agent_id, name="", sample=0.5, session_pid=None):
     """Suspend the agent's owned processes, end its foreground round, and refuse its new commands.
 
@@ -754,6 +762,11 @@ def hold(session_id, agent_id, name="", sample=0.5, session_pid=None):
     path = _held_path(session_id, agent_id)
     previous = _read_json(path) or {}
     held = {int(k): v for k, v in (previous.get("held") or {}).items()}
+    # A release that was cut short leaves its record beside the hold; the processes
+    # it still names are held again here, so this hold's release continues them.
+    leftover = _read_json(path + RELEASING)
+    if leftover:
+        held.update({int(k): v for k, v in (leftover.get("held") or {}).items()})
     parents = dict(previous.get("parents") or {})
     detached = dict(previous.get("detached") or {})
     excluded, notes, undetached = set(), [], []
@@ -761,8 +774,12 @@ def hold(session_id, agent_id, name="", sample=0.5, session_pid=None):
     if isinstance(session_pid, int) and session_pid in table:
         parents[str(session_pid)] = table[session_pid]["birth"]
     at = previous.get("at") or time.time()
-    _write_json(path, {"session_id": session_id, "agent_id": agent_id, "name": name, "at": at,
-                       "held": {str(p): b for p, b in held.items()}, "parents": parents, "detached": detached})
+    _save_hold(path, session_id, agent_id, name, at, held, parents, detached)
+    if leftover:
+        try:
+            os.unlink(path + RELEASING)
+        except OSError:
+            pass
     grace = time.monotonic() + DETACH_GRACE
     rounds = 0
     while True:
@@ -779,12 +796,18 @@ def hold(session_id, agent_id, name="", sample=0.5, session_pid=None):
                        if d.get("shell") in table and table[d["shell"]]["birth"] == d.get("shell_birth")}
         targets = sorted((owned - excluded - running_on)
                          - {p for p in held if held[p] == table.get(p, {}).get("birth")})
+        # Recorded BEFORE the signal: a hold cut short between the stop and the final
+        # save would otherwise leave a stopped process no release knows about. A
+        # SIGCONT to a process that never stopped is harmless.
+        for pid in targets:
+            held[pid] = table[pid]["birth"]
+        if targets:
+            _save_hold(path, session_id, agent_id, name, at, held, parents, detached)
         for pid in targets:
             try:
                 os.kill(pid, signal.SIGSTOP)
-                held[pid] = table[pid]["birth"]
             except (ProcessLookupError, PermissionError):
-                pass
+                held.pop(pid, None)
         pending = []
         for c in foreground:
             if "s" not in table[c["pid"]]["stat"]:
@@ -809,11 +832,12 @@ def hold(session_id, agent_id, name="", sample=0.5, session_pid=None):
             # Never started its job: stop it as the previous capture did, and say so.
             for c in pending:
                 try:
-                    os.kill(c["pid"], signal.SIGSTOP)
                     held[c["pid"]] = table[c["pid"]]["birth"]
+                    _save_hold(path, session_id, agent_id, name, at, held, parents, detached)
+                    os.kill(c["pid"], signal.SIGSTOP)
                     undetached.append(c["pid"])
                 except (ProcessLookupError, PermissionError, KeyError):
-                    pass
+                    held.pop(c["pid"], None)
             table = snapshot()
             break
         if rounds >= STOP_ROUNDS and not pending:
@@ -1234,12 +1258,17 @@ def release(session_id, agent_id):
         return {"ok": False, "why": "no valid session and agent id recorded", "continued": [], "gone": []}
     path = _held_path(session_id, agent_id)
     rec = _read_json(path)
+    # A release cut short after the hold record moved aside is finished from the
+    # record it left, so the processes it still names are continued.
+    if not rec:
+        rec = _read_json(path + RELEASING)
     if not rec:
         return {"ok": True, "continued": [], "gone": [], "why": "nothing was held"}
     t0 = time.monotonic()
-    # Removed FIRST, so no new command suspends itself after the scans below.
+    # Moved aside FIRST, so no new command suspends itself after the scans below,
+    # yet the record of what was stopped survives until every SIGCONT is sent.
     try:
-        os.unlink(path)
+        os.replace(path, path + RELEASING)
     except OSError:
         pass
     table = snapshot()
@@ -1270,6 +1299,10 @@ def release(session_id, agent_id):
                     waited.append(pid)
                 except ProcessLookupError:
                     pass
+    try:
+        os.unlink(path + RELEASING)
+    except OSError:
+        pass
     return {"ok": True, "continued": continued, "gone": gone, "waited": waited, "name": rec.get("name", ""),
             "held_seconds": round(time.time() - float(rec.get("at") or time.time()), 1),
             "continued_seconds": round(time.monotonic() - t0, 3)}
